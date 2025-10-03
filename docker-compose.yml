@@ -1,0 +1,29 @@
+services:
+  db:
+    build:
+      context: .
+      dockerfile: postgres.Dockerfile
+    container_name: syrinx_db
+    environment:
+      POSTGRES_DB: syrinx
+      POSTGRES_USER: syrinx
+      POSTGRES_PASSWORD: syrinx
+    ports:
+      - "5432:5432"
+    volumes:
+      - syrinx_postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U syrinx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  syrinx_postgres_data:
+
+networks:
+  app_network:
+    driver: bridge
