@@ -1,0 +1,75 @@
+{
+  "name": "Syrinx",
+  "short_name": "Syrinx",
+  "description": "A distributed, P2P content-distribution platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#cc66cc",
+  "orientation": "portrait-primary",
+  "categories": ["social", "communication", "productivity"],
+  "lang": "en-US",
+  "dir": "ltr",
+  "protocol_handlers": [
+    {
+      "protocol": "web+syrinx",
+      "url": "/to-do?resource=%s"
+    }
+  ],
+  "icons": [
+    {
+      "src": "/icons/android-chrome-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icons/android-chrome-256x256.png",
+      "type": "image/png",
+      "sizes": "256x256"
+    },
+    {
+      "src": "/icons/android-chrome-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Reeds",
+      "short_name": "Reeds",
+      "description": "Write and view reeds",
+      "url": "/reeds",
+      "icons": [
+            {
+                "src": "/icons/android-chrome-192x192.png",
+                "sizes": "192x192"
+            }
+        ]
+    },
+    {
+      "name": "Feed",
+      "short_name": "Feed",
+      "description": "View your feed",
+      "url": "/feeds",
+      "icons": [
+            {
+                "src": "/icons/android-chrome-192x192.png",
+                "sizes": "192x192"
+            }
+        ]
+    },
+    {
+      "name": "Chats",
+      "short_name": "Chats",
+      "description": "View your chats",
+      "url": "/chats",
+      "icons": [
+            {
+                "src": "/icons/android-chrome-192x192.png",
+                "sizes": "192x192"
+            }
+        ]
+    }
+  ]
+}

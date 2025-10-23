@@ -1,0 +1,85 @@
+<script>
+  export let currentPage = 'reeds';
+</script>
+
+<nav class="bottom-toolbar">
+  <a href="/reeds" class="toolbar-btn" class:active={currentPage === 'reeds'}>
+    <span class="icon">🌾</span>
+    <span class="label">Reeds</span>
+  </a>
+  <a href="/feeds" class="toolbar-btn" class:active={currentPage === 'feeds'}>
+    <span class="icon">📰</span>
+    <span class="label">Feed</span>
+  </a>
+  <a href="/chats" class="toolbar-btn" class:active={currentPage === 'chats'}>
+    <span class="icon">💬</span>
+    <span class="label">Chats</span>
+  </a>
+  <a href="/profile" class="toolbar-btn" class:active={currentPage === 'profile'}>
+    <span class="icon">👤</span>
+    <span class="label">Profile</span>
+  </a>
+</nav>
+
+<style>
+  .bottom-toolbar {
+    display: flex;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 0.5rem;
+    gap: 0.25rem;
+    position: sticky;
+    bottom: 0;
+    z-index: 100;
+  }
+
+  .toolbar-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.75rem 0.5rem;
+    text-decoration: none;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    color: var(--muted);
+    background: transparent;
+  }
+
+  .toolbar-btn:hover {
+    background: var(--input-bg);
+    color: var(--fg);
+  }
+
+  .toolbar-btn.active {
+    background: var(--primary);
+    color: var(--button-text);
+  }
+
+  .toolbar-btn .icon {
+    font-size: 1.2rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .toolbar-btn .label {
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  /* Responsive Design */
+  @media (max-width: 768px) {
+    .toolbar-btn .label {
+      font-size: 0.7rem;
+    }
+
+    .toolbar-btn {
+      padding: 0.5rem 0.25rem;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .toolbar-btn .icon {
+      font-size: 1rem;
+    }
+  }
+</style>

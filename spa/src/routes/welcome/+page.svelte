@@ -1,0 +1,211 @@
+<div class="container">
+  <div class="card">
+    <div class="welcome-header">
+      <h1>🎉 Welcome to Syrinx!</h1>
+      <p class="subtitle">Your secure messaging account has been successfully created</p>
+    </div>
+
+
+    <div class="success-steps">
+      <h2>What just happened:</h2>
+
+      <div class="step">
+        <div class="step-icon">👤</div>
+        <div class="step-content">
+          <h3>User Account Created</h3>
+          <p>Your account has been successfully created and is ready to use.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-icon">🔐</div>
+        <div class="step-content">
+          <h3>Encryption Keys Generated</h3>
+          <p>A unique pair of encryption keys was generated specifically for your account. These keys ensure that only you can read your messages.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-icon">☁️</div>
+        <div class="step-content">
+          <h3>Public Key Uploaded</h3>
+          <p>Your public key has been securely uploaded to our servers. This allows other users to send you encrypted messages.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-icon">🔒</div>
+        <div class="step-content">
+          <h3>Private Key Stored Locally</h3>
+          <p>Your private key remains safely stored on your device. <strong>This key never leaves your device</strong> and is essential for reading your messages.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="important-notice">
+      <h3>Backup Your Private Key</h3>
+      <p>Your private key is crucial for accessing your messages. If you lose it, you won't be able to read your encrypted messages.</p>
+      <p><strong>We strongly recommend:</strong></p>
+      <ul>
+        <li>Going to your profile to view and backup your private key</li>
+        <li>Storing the backup in a secure location (password manager, encrypted storage, etc.)</li>
+        <li>Never sharing your private key with anyone</li>
+      </ul>
+    </div>
+
+  </div>
+    <div class="action-buttons">
+      <a href="/profile" class="btn btn-primary">
+        Go to Profile
+      </a>
+      <a href="/reeds" class="btn btn-secondary">
+        Go to Reeds
+      </a>
+    </div>
+</div>
+
+<style>
+  .welcome-header {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+
+  .subtitle {
+    color: var(--muted);
+    font-size: 1.1rem;
+    margin: 0;
+  }
+
+  .success-steps {
+    margin: 2rem 0;
+  }
+
+  .success-steps h2 {
+    color: var(--primary);
+    margin-bottom: 1.5rem;
+  }
+
+  .step {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .step-icon {
+    font-size: 2rem;
+    margin-right: 1rem;
+    flex-shrink: 0;
+  }
+
+  .step-content h3 {
+    margin: 0 0 0.5rem 0;
+    color: var(--fg);
+  }
+
+  .step-content p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .important-notice {
+    background: rgba(255, 193, 7, 0.1);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 2rem 0;
+  }
+
+  .important-notice h3 {
+    color: #ffc107;
+    margin: 0 0 1rem 0;
+  }
+
+  .important-notice p {
+    margin: 0 0 1rem 0;
+    color: var(--fg);
+  }
+
+  .important-notice ul {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+
+  .important-notice li {
+    margin-bottom: 0.5rem;
+    color: var(--fg);
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 1rem;
+    margin: 2rem 0;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+  }
+
+  .btn-primary {
+    background: var(--primary);
+    color: var(--button-text);
+  }
+
+  .btn-primary:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+
+  .btn-secondary:hover {
+    background: var(--border);
+  }
+
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+
+
+  @keyframes gradient-shift {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .action-buttons {
+      flex-direction: column;
+    }
+
+    .btn {
+      text-align: center;
+      justify-content: center;
+    }
+  }
+</style>

@@ -1,3 +1,6 @@
 .env
 syrinx
 keys/
+spa/node_modules
+spa/build
+spa/.svelte-kit
