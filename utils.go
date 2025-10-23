@@ -57,24 +57,18 @@ func validateChallenge(challenge string) error {
 		return fmt.Errorf("challenge is empty")
 	}
 
-	if len(challenge) != 35 {
-		return fmt.Errorf("challenge is not 35 characters long")
+	// Example challenge: "2025-10-05T23:04:09Z"
+	if len(challenge) != 20 {
+		return fmt.Errorf("challenge is not 20 characters long")
 	}
 
-	// Extract timestamp from challenge format "Challenge: 2025-09-30T07:51:25.032Z"
-	parts := strings.Split(challenge, " ")
-	if len(parts) != 2 || parts[0] != "Challenge:" {
-		return fmt.Errorf("invalid challenge format")
-	}
-
-	timestamp := parts[1]
-	challengeTime, err := time.Parse(time.RFC3339Nano, timestamp)
+	challengeTime, err := time.Parse(time.RFC3339Nano, challenge)
 	if err != nil {
 		return fmt.Errorf("invalid timestamp format: %v", err)
 	}
 
-	// Check if challenge is older than 24 hours
-	if time.Since(challengeTime) > 24*time.Hour {
+	// Challenge cannot be too old
+	if time.Since(challengeTime) > 1*time.Hour {
 		return fmt.Errorf("challenge has expired")
 	}
 

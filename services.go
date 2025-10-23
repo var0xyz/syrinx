@@ -7,7 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"io"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -15,13 +15,11 @@ import (
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
-	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-
-	"golang.org/x/crypto/bcrypt"
+	"github.com/sqids/sqids-go"
 )
 
 type Services struct {
@@ -43,183 +41,172 @@ func NewDataService(db *sql.DB) *DataService {
 	return &DataService{db: db}
 }
 
-func (s *DataService) CreateUser(username, password string) (*User, error) {
-	// Check if username already exists
-	var exists bool
-	err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)", username).Scan(&exists)
+func (s *DataService) CreateUser(username string) (*User, error) {
+	// Start transaction
+	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
-	if exists {
-		return nil, fmt.Errorf("username already exists")
-	}
+	defer tx.Rollback()
 
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	// Increment and get new count
+	var count uint64
+	err = tx.QueryRow(`
+		UPDATE user_count SET count = count + 1 WHERE id = 1 RETURNING count
+	`).Scan(&count)
 	if err != nil {
 		return nil, err
 	}
 
-	// Insert into users table
+	// Generate Sqids ID
+	sqidsEncoder, err := sqids.New()
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := sqidsEncoder.Encode([]uint64{count})
+	if err != nil {
+		return nil, err
+	}
+
+	// Insert user with generated ID
+	var avatarURL sql.NullString
+	var bio sql.NullString
+	var serverKeyFingerprint sql.NullString
+
 	var user User
-	err = s.db.QueryRow(`
-		INSERT INTO users (username, password)
-		VALUES ($1, $2) RETURNING id, username, created_at
-	`, username, string(hashedPassword)).Scan(&user.ID, &user.Username, &user.CreatedAt)
+	err = tx.QueryRow(`
+		INSERT INTO users (id, username)
+		VALUES ($1, $2) RETURNING id, username, avatar_url, bio, server_key_fingerprint, created_at
+	`, id, username).Scan(
+		&user.ID,
+		&user.Username,
+		&avatarURL,
+		&bio,
+		&serverKeyFingerprint,
+		&user.CreatedAt,
+	)
 
 	if err != nil {
+		return nil, err
+	}
+
+	if avatarURL.Valid {
+		user.AvatarURL = avatarURL.String
+	}
+
+	if bio.Valid {
+		user.Bio = bio.String
+	}
+
+	if serverKeyFingerprint.Valid {
+		user.ServerKeyFingerprint = serverKeyFingerprint.String
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
 	return &user, nil
 }
 
-func (s *DataService) UpdateUsername(userID uuid.UUID, username string) error {
+func (s *DataService) GetUser(userID string) (*User, error) {
+	var user User
+	var serverKeyFingerprint sql.NullString
+	var avatarURL sql.NullString
+	var bio sql.NullString
+
+	err := s.db.QueryRow(`
+		SELECT id, username, avatar_url, bio, server_key_fingerprint, created_at
+		FROM users
+		WHERE id = $1
+	`, userID).Scan(
+		&user.ID,
+		&user.Username,
+		&avatarURL,
+		&bio,
+		&serverKeyFingerprint,
+		&user.CreatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if serverKeyFingerprint.Valid {
+		user.ServerKeyFingerprint = serverKeyFingerprint.String
+	}
+	if avatarURL.Valid {
+		user.AvatarURL = avatarURL.String
+	}
+	if bio.Valid {
+		user.Bio = bio.String
+	}
+
+	return &user, nil
+}
+
+func (s *DataService) UpdateUser(user *User) error {
 	_, err := s.db.Exec(`
 		UPDATE users
-		SET username = $1
-		WHERE id = $2
-	`, username, userID)
+		SET username = $1, avatar_url = $2, bio = $3
+		WHERE id = $4
+	`, user.Username, user.AvatarURL, user.Bio, user.ID)
 	if err != nil {
 		return err
 	}
+
 	return nil
+}
+
+func (s *DataService) UpdateDefaultServerKeyForUser(user *User, fingerprint string) error {
+	_, err := s.db.Exec(`
+		UPDATE users
+		SET server_key_fingerprint = $1
+		WHERE id = $2
+	`, fingerprint, user.ID)
+	if err != nil {
+		return err
+	}
+
+	// Update the user struct in-place
+	user.ServerKeyFingerprint = fingerprint
+	return nil
+}
+
+func (s *DataService) UsernameExists(username string) (bool, error) {
+	var exists bool
+
+	err := s.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM users WHERE LOWER(username) = LOWER($1)
+		)
+	`, username).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+
+	return exists, nil
 }
 
 func (s *DataService) GetUserByUsername(username string) (*User, error) {
 	var user User
-	err := s.db.QueryRow(`
-		SELECT id, username, password, created_at
-		FROM users
-		WHERE username = $1
-	`, username).Scan(&user.ID, &user.Username, &user.Password, &user.CreatedAt)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	return &user, nil
-}
-
-func (s *DataService) DeleteUser(userID uuid.UUID) error {
-	_, err := s.db.Exec("DELETE FROM users WHERE id = $1", userID)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *DataService) SavePasswordResetNonce(userID uuid.UUID, nonce string) (string, error) {
-	// Set expiration to 1 hour from now
-	expiresAt := time.Now().Add(1 * time.Hour)
-
-	// Insert password reset record by nonce
-	_, err := s.db.Exec(
-		"INSERT INTO password_reset_nonces (user_id, nonce, expires_at) VALUES ($1, $2, $3) RETURNING id, user_id, nonce, expires_at",
-		userID, nonce, expiresAt,
-	)
-	if err != nil {
-		return "", err
-	}
-
-	return nonce, nil
-}
-
-func (s *DataService) GetPasswordResetNonce(nonce string, userID uuid.UUID) (*PasswordResetNonce, error) {
-	var reset PasswordResetNonce
-
-	// Get reset record by nonce
-	err := s.db.QueryRow(`
-		SELECT id, user_id, nonce, expires_at
-		FROM password_reset_nonces
-		WHERE nonce = $1 AND user_id = $2
-	`, nonce, userID,
-	).Scan(&reset.ID, &reset.UserID, &reset.Nonce, &reset.ExpiresAt)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("invalid reset nonce")
-		}
-		return nil, err
-	}
-
-	return &reset, nil
-}
-
-func (s *DataService) GetLatestPasswordResetNonce(username string) (*PasswordResetNonce, error) {
-	var nonce PasswordResetNonce
-
-	err := s.db.QueryRow(`
-		SELECT id, user_id, nonce, created_at, expires_at
-		FROM password_reset_nonces
-		WHERE user_id = $1 AND expires_at > CURRENT_TIMESTAMP
-		ORDER BY created_at DESC LIMIT 1
-	`, username).Scan(&nonce.ID, &nonce.UserID, &nonce.Nonce, &nonce.CreatedAt, &nonce.ExpiresAt)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	return &nonce, nil
-}
-
-func (s *DataService) UpdatePassword(userID uuid.UUID, hashedPassword string) error {
-	_, err := s.db.Exec("UPDATE users SET password = $1 WHERE id = $2", hashedPassword, userID)
-	if err != nil {
-		return err
-	}
-
-	// The moment one of the nonces is used we invalidate all the others. This
-	// could potentially be exploited to fill the DB with nonce records, but since
-	// the nonce-creation endpoint is throttled, this risk should be mitigated.
-	_, err = s.db.Exec("DELETE FROM password_reset_nonces WHERE user_id = $1", userID)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *DataService) DeleteAllNoncesForUser(userID uuid.UUID) error {
-	_, err := s.db.Exec("DELETE FROM password_reset_nonces WHERE user_id = $1", userID)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *DataService) CreateProfile(userID uuid.UUID) (*Profile, error) {
-	_, err := s.db.Exec("INSERT INTO profiles (user_id) VALUES ($1)", userID)
-	if err != nil {
-		return nil, err
-	}
-
-	profile := &Profile{UserID: userID}
-	profile.PublicKeys = make([]string, 0)
-	return profile, nil
-}
-
-func (s *DataService) GetProfile(userID uuid.UUID) (*Profile, error) {
-	var profile Profile
 	var avatarURL sql.NullString
-	var bio sql.NullString
-	var defaultIdentityID sql.NullString
-
-	profile.PublicKeys = make([]string, 0)
 
 	err := s.db.QueryRow(`
-		SELECT p.id, p.user_id, p.avatar_url, p.bio, p.default_identity_id, u.username
-		FROM profiles p
-		JOIN users u ON p.user_id = u.id
-		WHERE user_id = $1
-	`,
-		userID,
-	).Scan(&profile.ID, &profile.UserID, &avatarURL, &bio, &defaultIdentityID, &profile.Username)
+		SELECT id, username, avatar_url, bio, server_key_fingerprint, created_at
+		FROM users
+		WHERE LOWER(username) = LOWER($1)
+	`, username).Scan(
+		&user.ID,
+		&user.Username,
+		&avatarURL,
+		&user.Bio,
+		&user.ServerKeyFingerprint,
+		&user.CreatedAt,
+	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -228,49 +215,21 @@ func (s *DataService) GetProfile(userID uuid.UUID) (*Profile, error) {
 	}
 
 	if avatarURL.Valid {
-		profile.AvatarURL = avatarURL.String
+		user.AvatarURL = avatarURL.String
 	}
 
-	if bio.Valid {
-		profile.Bio = bio.String
-	}
-
-	if defaultIdentityID.Valid {
-		parsedDefaultIdentityID := uuid.MustParse(defaultIdentityID.String)
-		profile.DefaultIdentityID = &parsedDefaultIdentityID
-	}
-
-	serverKey, err := s.GetServerPublicKey(userID)
-	if err != nil {
-		return nil, err
-	}
-	profile.ServerKey = serverKey.Fingerprint
-
-	keys, err := s.GetPublicKeysByUserID(userID)
-	if err != nil {
-		return nil, err
-	}
-	for _, key := range keys {
-		profile.PublicKeys = append(profile.PublicKeys, key.Fingerprint)
-	}
-
-	return &profile, nil
+	return &user, nil
 }
 
-func (s *DataService) UpdateProfile(userID uuid.UUID, avatarURL, bio string) error {
-	_, err := s.db.Exec(`
-		UPDATE profiles
-		SET avatar_url = $1, bio = $2
-		WHERE user_id = $3
-	`, avatarURL, bio, userID)
+func (s *DataService) DeleteUser(userID string) error {
+	_, err := s.db.Exec("DELETE FROM users WHERE id = $1", userID)
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 
-func (s *DataService) SetDefaultIdentity(userID uuid.UUID, identityID uuid.UUID) error {
+func (s *DataService) SetDefaultIdentity(userID string, identityID uuid.UUID) error {
 	_, err := s.db.Exec(`
 		UPDATE profiles
 		SET default_identity_id = $1
@@ -283,43 +242,49 @@ func (s *DataService) SetDefaultIdentity(userID uuid.UUID, identityID uuid.UUID)
 	return nil
 }
 
-func (s *DataService) SaveServerKey(key *ServerKey) error {
+func (s *DataService) SaveKeyPair(key *KeyPair) (*PublicKey, error) {
 	_, err := s.db.Exec(`
-		INSERT INTO server_keys (fingerprint, user_id, identity, public_key, private_key, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, key.Fingerprint, key.UserID, key.Identity, key.PublicKey, key.PrivateKey, key.CreatedAt, key.ExpiresAt)
+		INSERT INTO private_keys (fingerprint, user_id, armor, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, key.Fingerprint, key.UserID, key.PrivateKey, key.ExpiresAt, key.CreatedAt)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
-}
+	var publicKey PublicKey
 
-func (s *DataService) GetServerPrivateKey(userID uuid.UUID) (string, string, error) {
-	var fingerprint string
-	var privateKey string
-
-	err := s.db.QueryRow(`
-		SELECT fingerprint, private_key
-		FROM server_keys
-		WHERE user_id = $1
-	`, userID).Scan(&fingerprint, &privateKey)
+	err = s.db.QueryRow(`
+		INSERT INTO public_keys (fingerprint, user_id, armor, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING fingerprint, user_id, armor, created_at, expires_at
+	`, key.Fingerprint, key.UserID, key.PublicKey, key.ExpiresAt, key.CreatedAt).Scan(
+		&publicKey.Fingerprint,
+		&publicKey.UserID,
+		&publicKey.Armor,
+		&publicKey.CreatedAt,
+		&publicKey.ExpiresAt,
+	)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
-	return fingerprint, privateKey, nil
+	return &publicKey, nil
 }
 
-func (s *DataService) GetServerPublicKey(userID uuid.UUID) (*PublicKey, error) {
-	var key PublicKey
-	var identity sql.NullString
+func (s *DataService) GetPrivateKey(userID string, fingerprint string) (*PrivateKey, error) {
+	var privateKey PrivateKey
 
 	err := s.db.QueryRow(`
-		SELECT fingerprint, user_id, identity, public_key, created_at, expires_at
-		FROM server_keys
-		WHERE user_id = $1
-	`, userID).Scan(&key.Fingerprint, &key.UserID, &identity, &key.Armor, &key.CreatedAt, &key.ExpiresAt)
+		SELECT fingerprint, user_id, armor, created_at, expires_at
+		FROM private_keys
+		WHERE user_id = $1 AND fingerprint = $2
+	`, userID, fingerprint).Scan(
+		&privateKey.Fingerprint,
+		&privateKey.UserID,
+		&privateKey.Armor,
+		&privateKey.CreatedAt,
+		&privateKey.ExpiresAt,
+	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -327,21 +292,10 @@ func (s *DataService) GetServerPublicKey(userID uuid.UUID) (*PublicKey, error) {
 		return nil, err
 	}
 
-	// Handle NULL identity
-	if identity.Valid {
-		key.Identities = []PublicKeyIdentity{{
-			ID: uuid.Nil,
-			// PublicKeyFingerprint: key.Fingerprint,
-			Value: identity.String,
-		}}
-	} else {
-		key.Identities = []PublicKeyIdentity{}
-	}
-
-	return &key, nil
+	return &privateKey, nil
 }
 
-func (s *DataService) GetPublicKeysByUserID(userID uuid.UUID) ([]PublicKey, error) {
+func (s *DataService) GetPublicKeysByUserID(userID string) ([]PublicKey, error) {
 	var keys []PublicKey
 
 	rows, err := s.db.Query(`
@@ -362,136 +316,28 @@ func (s *DataService) GetPublicKeysByUserID(userID uuid.UUID) ([]PublicKey, erro
 			return nil, err
 		}
 
-		identities, err := s.GetPublicKeyIdentities(key.Fingerprint)
-		if err != nil {
-			return nil, err
-		}
-		key.Identities = identities
-
 		keys = append(keys, key)
 	}
 
 	return keys, nil
 }
 
-func (s *DataService) GetPublicKey(id string, userID uuid.UUID) (*PublicKey, error) {
+func (s *DataService) GetPublicKey(userID string, fingerprint string) (*PublicKey, error) {
 	var key PublicKey
 
 	err := s.db.QueryRow(`
 		SELECT fingerprint, user_id, armor, created_at, expires_at
 		FROM public_keys
 		WHERE user_id = $1 AND fingerprint = $2
-	`, userID, id).Scan(&key.Fingerprint, &key.UserID, &key.Armor, &key.CreatedAt, &key.ExpiresAt)
+	`, userID, fingerprint).Scan(&key.Fingerprint, &key.UserID, &key.Armor, &key.CreatedAt, &key.ExpiresAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
-
-	identities, err := s.GetPublicKeyIdentities(id)
-	if err != nil {
-		return nil, err
-	}
-	key.Identities = identities
 
 	return &key, nil
-}
-
-func (s *DataService) GetPublicKeyByFingerprint(fingerprint string) (*PublicKey, error) {
-	var key PublicKey
-
-	err := s.db.QueryRow(`
-		SELECT fingerprint, user_id, armor, created_at, expires_at
-		FROM public_keys
-		WHERE fingerprint = $1
-	`, fingerprint).Scan(&key.Fingerprint, &key.UserID, &key.Armor, &key.CreatedAt, &key.ExpiresAt)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	identities, err := s.GetPublicKeyIdentities(fingerprint)
-	if err != nil {
-		return nil, err
-	}
-	key.Identities = identities
-
-	return &key, nil
-}
-
-func (s *DataService) GetPublicKeyForIdentity(userID uuid.UUID, identityID uuid.UUID) (*PublicKey, error) {
-	var publicKey PublicKey
-
-	err := s.db.QueryRow(`
-		SELECT pk.fingerprint, pk.user_id, pk.armor, pk.created_at, pk.expires_at
-		FROM public_keys pk
-		INNER JOIN public_key_identities pki ON pk.fingerprint = pki.public_key_fingerprint
-		WHERE pki.id = $1 AND pk.user_id = $2
-	`, identityID, userID).Scan(
-		&publicKey.Fingerprint,
-		&publicKey.UserID,
-		&publicKey.Armor,
-		&publicKey.CreatedAt,
-		&publicKey.ExpiresAt,
-	)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	identities, err := s.GetPublicKeyIdentities(publicKey.Fingerprint)
-	if err != nil {
-		return nil, err
-	}
-	publicKey.Identities = identities
-
-	return &publicKey, nil
-}
-
-func (s *DataService) GetPublicKeyIdentity(fingerprint string, identityID uuid.UUID) (*PublicKeyIdentity, error) {
-	var identity PublicKeyIdentity
-	err := s.db.QueryRow(`
-		SELECT id, value
-		FROM public_key_identities
-		WHERE public_key_fingerprint = $1 AND id = $2
-	`, fingerprint, identityID).Scan(&identity.ID, &identity.Value)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &identity, nil
-}
-
-func (s *DataService) GetPublicKeyIdentities(fingerprint string) ([]PublicKeyIdentity, error) {
-	var identities []PublicKeyIdentity
-	var identity PublicKeyIdentity
-	rows, err := s.db.Query(`
-		SELECT id, value
-		FROM public_key_identities
-		WHERE public_key_fingerprint = $1
-	`, fingerprint,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		err := rows.Scan(&identity.ID, &identity.Value)
-		if err != nil {
-			return nil, err
-		}
-		identities = append(identities, identity)
-	}
-
-	return identities, nil
 }
 
 func (s *DataService) PublicKeyExists(fingerprint string) (bool, error) {
@@ -510,7 +356,7 @@ func (s *DataService) PublicKeyExists(fingerprint string) (bool, error) {
 	return exists, nil
 }
 
-func (s *DataService) AddPublicKey(fingerprint string, userID uuid.UUID, createdAt time.Time, expiresAt *time.Time, armor string) (*PublicKey, error) {
+func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt time.Time, expiresAt *time.Time, armor string) (*PublicKey, error) {
 	var publicKey PublicKey
 	err := s.db.QueryRow(`
 			INSERT INTO public_keys (fingerprint, user_id, armor, created_at, expires_at)
@@ -525,7 +371,7 @@ func (s *DataService) AddPublicKey(fingerprint string, userID uuid.UUID, created
 	return &publicKey, nil
 }
 
-func (s *DataService) DeletePublicKey(fingerprint string, userID uuid.UUID) error {
+func (s *DataService) DeletePublicKey(fingerprint string, userID string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -546,8 +392,8 @@ func (s *DataService) DeletePublicKey(fingerprint string, userID uuid.UUID) erro
 	err = tx.QueryRow(`
 	    SELECT public_keys.fingerprint
 		FROM public_keys
-		JOIN public_key_identities
-			ON public_keys.fingerprint = public_key_identities.public_key_fingerprint
+		JOIN identities
+			ON public_keys.fingerprint = identities.public_key_fingerprint
 		WHERE public_key_identities.id = $1
 	`, defaultIdentityID).Scan(&defaultIdentityFingerprint)
 	if err != nil {
@@ -581,118 +427,30 @@ func (s *DataService) DeletePublicKey(fingerprint string, userID uuid.UUID) erro
 	return nil
 }
 
-func (s *DataService) getUserIdentities(userID uuid.UUID) ([]PublicKeyIdentity, error) {
-	var identities []PublicKeyIdentity
-
-	rows, err := s.db.Query(`
-		SELECT id, value
-		FROM public_key_identities
-		WHERE public_key_fingerprint IN (
-			SELECT fingerprint
-			FROM public_keys
-			WHERE user_id = $1
-		)
-	`, userID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return []PublicKeyIdentity{}, nil
-		}
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var identity PublicKeyIdentity
-		err := rows.Scan(&identity.ID, &identity.Value)
-		if err != nil {
-			return nil, err
-		}
-		identities = append(identities, identity)
-	}
-
-	return identities, nil
-}
-
-func (s *DataService) AddPublicKeyIdentity(fingerprint string, value string) (*PublicKeyIdentity, error) {
-	var identity PublicKeyIdentity
-	err := s.db.QueryRow(`
-		INSERT INTO public_key_identities (public_key_fingerprint, value)
-		VALUES ($1, $2)
-		RETURNING id, value
-	`, fingerprint, value,
-	).Scan(&identity.ID, &identity.Value)
-	if err != nil {
-		return nil, err
-	}
-
-	return &identity, nil
-}
-
-func (s *DataService) CreateReed(userID uuid.UUID, identityID uuid.UUID) (*Reed, error) {
-	var serverPublicKeyFingerprint string
-	err := s.db.QueryRow(`
-		SELECT fingerprint
-		FROM server_keys
-		WHERE user_id = $1
-	`, userID).Scan(&serverPublicKeyFingerprint)
-	if err != nil {
-		return nil, err
-	}
-
-	var userPublicKeyFingerprint string
-	err = s.db.QueryRow(`
-		SELECT public_keys.fingerprint
-		FROM public_keys
-		JOIN public_key_identities
-			ON public_keys.fingerprint = public_key_identities.public_key_fingerprint
-		WHERE public_key_identities.id = $1
-	`, identityID).Scan(&userPublicKeyFingerprint)
-	if err != nil {
-		return nil, err
-	}
-
+func (s *DataService) CreateReed(reedID string, userID string, userFingerprint string, serverFingerprint string) (*Reed, error) {
 	var reed Reed
-	err = s.db.QueryRow(`
-		INSERT INTO reeds (user_id, identity_id, user_fingerprint, server_fingerprint)
+	err := s.db.QueryRow(`
+		INSERT INTO reeds (id, user_id, user_fingerprint, server_fingerprint)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, user_id, created_at, identity_id, user_fingerprint, server_fingerprint
-	`, userID, identityID, userPublicKeyFingerprint, serverPublicKeyFingerprint).Scan(
+		RETURNING id, user_id, user_fingerprint, server_fingerprint, signed_at
+	`, reedID, userID, userFingerprint, serverFingerprint).Scan(
 		&reed.ID,
 		&reed.UserID,
-		&reed.CreatedAt,
-		&reed.Identity,
 		&reed.UserFingerprint,
 		&reed.ServerFingerprint,
+		&reed.SignedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
-
 	return &reed, nil
 }
 
-func (s *DataService) GetUserPublicKey(fingerprint string) (*PublicKey, error) {
-	var key PublicKey
-	err := s.db.QueryRow(`
-		SELECT fingerprint, user_id, armor, created_at, expires_at
-		FROM public_keys
-		WHERE fingerprint = $1
-	`, fingerprint).Scan(&key.Fingerprint, &key.UserID, &key.Armor, &key.CreatedAt, &key.ExpiresAt)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	return &key, nil
-}
-
-func (s *DataService) GetReedsByUserID(userID uuid.UUID) ([]Reed, error) {
+func (s *DataService) GetReedsByUserID(userID string) ([]Reed, error) {
 	var reeds []Reed
 
 	rows, err := s.db.Query(`
-		SELECT id, user_id, created_at, identity_id, user_fingerprint, server_fingerprint
+		SELECT id, user_id, user_fingerprint, server_fingerprint, signed_at
 		FROM reeds
 		WHERE user_id = $1
 	`, userID)
@@ -705,10 +463,9 @@ func (s *DataService) GetReedsByUserID(userID uuid.UUID) ([]Reed, error) {
 		err := rows.Scan(
 			&reed.ID,
 			&reed.UserID,
-			&reed.CreatedAt,
-			&reed.Identity,
 			&reed.UserFingerprint,
 			&reed.ServerFingerprint,
+			&reed.SignedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -724,14 +481,20 @@ func (s *DataService) GetReedsByUserID(userID uuid.UUID) ([]Reed, error) {
 	return reeds, nil
 }
 
-func (s *DataService) GetReed(userID uuid.UUID, reedID uuid.UUID) (*Reed, error) {
+func (s *DataService) GetReed(userID string, reedID string) (*Reed, error) {
 	var reed Reed
 	err := s.db.QueryRow(`
-	SELECT id, user_id, created_at, user_fingerprint, server_fingerprint
+	SELECT id, user_id, user_fingerprint, server_fingerprint, signed_at
 		FROM reeds
 		WHERE id = $1 AND user_id = $2
 	`, reedID, userID,
-	).Scan(&reed.ID, &reed.UserID, &reed.CreatedAt, &reed.UserFingerprint, &reed.ServerFingerprint)
+	).Scan(
+		&reed.ID,
+		&reed.UserID,
+		&reed.UserFingerprint,
+		&reed.ServerFingerprint,
+		&reed.SignedAt,
+	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -742,32 +505,12 @@ func (s *DataService) GetReed(userID uuid.UUID, reedID uuid.UUID) (*Reed, error)
 	return &reed, nil
 }
 
-func (s *DataService) DeleteReed(reedID uuid.UUID) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// Delete reed keys first (foreign key constraint)
-	_, err = tx.Exec(`
-		DELETE FROM post_keys
-		WHERE post_id = $1
-	`, reedID)
-	if err != nil {
-		return err
-	}
-
-	// Delete the reed
-	_, err = tx.Exec(`
-		DELETE FROM posts
+func (s *DataService) DeleteReed(reedID string) error {
+	_, err := s.db.Exec(`
+		DELETE FROM reeds
 		WHERE id = $1
 	`, reedID)
 	if err != nil {
-		return err
-	}
-
-	if err := tx.Commit(); err != nil {
 		return err
 	}
 
@@ -781,8 +524,42 @@ func (s *DataService) DeleteReed(reedID uuid.UUID) error {
 type CryptoService struct {
 }
 
-func NewCryptoService() *CryptoService {
+func NewCryptoService(privateKeyFile string) *CryptoService {
+	// Check if the required private key file exists
+	if _, err := os.Stat(privateKeyFile); os.IsNotExist(err) {
+		panic(fmt.Sprintf("required private key file '%s' does not exist", privateKeyFile))
+	}
+
 	return &CryptoService{}
+}
+
+type CryptographicKey struct {
+	Fingerprint string
+	CreatedAt   time.Time
+	ExpiresAt   *time.Time
+	Armor       string
+}
+
+type KeyPair struct {
+	Fingerprint string
+	UserID      string
+	PublicKey   string
+	PrivateKey  string
+	CreatedAt   time.Time
+	ExpiresAt   *time.Time
+	Identity    string
+}
+
+type SignedReed struct {
+	ID       string    `json:"id"`
+	UserID   string    `json:"userID"`
+	SignedAt time.Time `json:"signedAt"`
+	Identity string    `json:"identity"`
+
+	UserFingerprint   string `json:"userFingerprint"`
+	ServerFingerprint string `json:"serverFingerprint"`
+
+	Signature string `json:"signature"`
 }
 
 func (s *CryptoService) GenerateNonce() (string, error) {
@@ -860,40 +637,6 @@ func (s *CryptoService) ExtractEntitiesFromMessage(message string) ([]*openpgp.E
 	return entities, nil
 }
 
-func (s *CryptoService) ExtractKeyIDFromClearsignedMessage(clearsignedMessage string) (uint64, error) {
-	block, _ := clearsign.Decode([]byte(clearsignedMessage))
-	if block == nil {
-		return 0, fmt.Errorf("invalid clearsigned message")
-	}
-	if block.ArmoredSignature == nil {
-		return 0, fmt.Errorf("signature block missing")
-	}
-
-	// Read the signature to extract the signer's key ID
-	signature, err := io.ReadAll(block.ArmoredSignature.Body)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read signature: %w", err)
-	}
-
-	// Parse the signature packet to get the key ID
-	packets := packet.NewReader(bytes.NewReader(signature))
-	for {
-		p, err := packets.Next()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return 0, fmt.Errorf("failed to parse signature packet: %w", err)
-		}
-
-		if sig, ok := p.(*packet.Signature); ok {
-			return *sig.IssuerKeyId, nil
-		}
-	}
-
-	return 0, fmt.Errorf("no signature found in clearsigned message")
-}
-
 func (s *CryptoService) ExtractCreationTime(publicKey *packet.PublicKey) time.Time {
 	return publicKey.CreationTime
 }
@@ -953,32 +696,6 @@ func (s *CryptoService) ExtractPublicKeyArmorFromEntity(entity *openpgp.Entity) 
 	return buf.String(), nil
 }
 
-func (s *CryptoService) ParseEntitiesFromArmoredKeyRing(clearsignedReed string) ([]byte, []byte, error) {
-	block, _ := clearsign.Decode([]byte(clearsignedReed))
-	if block == nil {
-		return nil, nil, fmt.Errorf("invalid clearsigned reed")
-	}
-	if block.ArmoredSignature == nil {
-		return nil, nil, fmt.Errorf("signature block missing")
-	}
-
-	signature, err := io.ReadAll(block.ArmoredSignature.Body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read signature: %w", err)
-	}
-
-	return block.Bytes, signature, nil
-}
-
-func (s *CryptoService) ReadArmoredKeyRing(key *PublicKey) (openpgp.EntityList, error) {
-	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(key.Armor))
-	if err != nil {
-		return nil, err
-	}
-
-	return entities, nil
-}
-
 func (s *CryptoService) FindEntityByIdentity(entities openpgp.EntityList, uid string) *openpgp.Entity {
 	for _, entity := range entities {
 		for _, identity := range entity.Identities {
@@ -991,9 +708,14 @@ func (s *CryptoService) FindEntityByIdentity(entities openpgp.EntityList, uid st
 	return nil
 }
 
-func (s *CryptoService) CreateServerKey(userID uuid.UUID, entityEmail string) (*ServerKey, error) {
+// TODO: Encrypt each user's server key with our own public key. Our public key
+// won't be stored in the database, meaning that if the DB is compromised, the
+// server keys of all users will be encrypted. The attacker would also need
+// access to the FS, or to read the key from memory.
+func (s *CryptoService) CreateServerKey(userID string, email string) (*KeyPair, error) {
 	// Create a new entity with a primary key pair
-	entity, err := openpgp.NewEntity(userID.String(), "", entityEmail, nil)
+	comment := "syrinx.var0.xyz"
+	entity, err := openpgp.NewEntity(userID, comment, email, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create entity: %w", err)
 	}
@@ -1032,12 +754,15 @@ func (s *CryptoService) CreateServerKey(userID uuid.UUID, entityEmail string) (*
 		return nil, fmt.Errorf("failed to close public key armor encoder: %w", err)
 	}
 
-	// Serialize the private key
+	// Serialize the private key first
 	var privateBuf bytes.Buffer
 	err = entity.SerializePrivate(&privateBuf, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize private key: %w", err)
 	}
+
+	// Server keys are stored unencrypted since the server controls them
+	privateKeyData := privateBuf.Bytes()
 
 	// Armor encode the private key
 	var privateArmored bytes.Buffer
@@ -1046,7 +771,7 @@ func (s *CryptoService) CreateServerKey(userID uuid.UUID, entityEmail string) (*
 		return nil, fmt.Errorf("failed to create private key armor encoder: %w", err)
 	}
 
-	_, err = privateW.Write(privateBuf.Bytes())
+	_, err = privateW.Write(privateKeyData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write armored private key: %w", err)
 	}
@@ -1058,7 +783,7 @@ func (s *CryptoService) CreateServerKey(userID uuid.UUID, entityEmail string) (*
 
 	expiresAt := s.ExtractKeyExpirationTime(entity, time.Now())
 
-	privateKey := &ServerKey{
+	keyPair := &KeyPair{
 		Fingerprint: hex.EncodeToString(entity.PrimaryKey.Fingerprint),
 		UserID:      userID,
 		PublicKey:   publicArmored.String(),
@@ -1068,7 +793,7 @@ func (s *CryptoService) CreateServerKey(userID uuid.UUID, entityEmail string) (*
 		Identity:    identity,
 	}
 
-	return privateKey, nil
+	return keyPair, nil
 }
 
 func (s *CryptoService) Sign(message string, privateKey string) (string, error) {
@@ -1083,51 +808,84 @@ func (s *CryptoService) Sign(message string, privateKey string) (string, error) 
 	}
 
 	entity := entities[0]
-	var buf bytes.Buffer
-	messageReader := strings.NewReader(message)
 
-	writer, err := clearsign.Encode(&buf, entity.PrivateKey, nil)
+	// Generate a detached signature
+	var sigBuf bytes.Buffer
+	err = openpgp.DetachSign(&sigBuf, entity, strings.NewReader(message), nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create detached signature: %w", err)
 	}
 
-	_, err = io.Copy(writer, messageReader)
+	// Armor encode the signature
+	var armoredBuf bytes.Buffer
+	armorWriter, err := armor.Encode(&armoredBuf, openpgp.SignatureType, nil)
 	if err != nil {
-		writer.Close()
-		return "", err
+		return "", fmt.Errorf("failed to create armor encoder: %w", err)
 	}
 
-	err = writer.Close()
+	_, err = armorWriter.Write(sigBuf.Bytes())
 	if err != nil {
-		return "", err
+		armorWriter.Close()
+		return "", fmt.Errorf("failed to write armored signature: %w", err)
 	}
 
-	return buf.String(), nil
+	err = armorWriter.Close()
+	if err != nil {
+		return "", fmt.Errorf("failed to close armor encoder: %w", err)
+	}
+
+	// Remove PGP signature delimiters and clean up whitespace
+	armoredSignature := armoredBuf.String()
+
+	// Remove the armor delimiters
+	cleanedSignature := strings.TrimSpace(armoredSignature)
+	cleanedSignature = strings.TrimPrefix(cleanedSignature, "-----BEGIN PGP SIGNATURE-----")
+	cleanedSignature = strings.TrimSuffix(cleanedSignature, "-----END PGP SIGNATURE-----")
+	cleanedSignature = strings.TrimSpace(cleanedSignature)
+
+	return cleanedSignature, nil
 }
 
-func (s *CryptoService) VerifySignature(clearsignedReed string, publicKey *PublicKey) error {
-	entities, err := s.ReadArmoredKeyRing(publicKey)
+func (s *CryptoService) VerifySignature(reed string, signature string, publicKey string) error {
+	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
 	if err != nil {
 		return err
 	}
 
-	signed, signature, err := s.ParseEntitiesFromArmoredKeyRing(clearsignedReed)
+	// Verify the detached signature against the reed content
+	_, err = openpgp.CheckArmoredDetachedSignature(entities, strings.NewReader(reed), strings.NewReader(signature), nil)
 	if err != nil {
-		return err
-	}
-
-	signedReader := bytes.NewReader(signed)
-	signatureReader := bytes.NewReader(signature)
-	if _, err := openpgp.CheckDetachedSignature(entities, signedReader, signatureReader, nil); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (s *CryptoService) ValidatePassword(user *User, password string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
-	return err == nil
+// VerifySignedChallenge verifies a signed challenge using the provided public key
+func (s *CryptoService) VerifySignedChallenge(signature string, publicKey string, challenge string) error {
+	// Read the public key entities
+	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
+	if err != nil {
+		return fmt.Errorf("failed to read public key: %w", err)
+	}
+
+	if len(entities) == 0 {
+		return fmt.Errorf("no entities found in public key")
+	}
+
+	// Decode ASCII armor to get binary signature
+	block, err := armor.Decode(strings.NewReader(signature))
+	if err != nil {
+		return fmt.Errorf("failed to decode ASCII-armored signature: %w", err)
+	}
+
+	// This is a detached signature, verify it against the challenge
+	_, err = openpgp.CheckDetachedSignature(entities, strings.NewReader(challenge), block.Body, nil)
+	if err != nil {
+		return fmt.Errorf("detached signature verification failed: %w", err)
+	}
+
+	return nil
 }
 
 func (s *CryptoService) GetDummyNonce() string {
@@ -1139,13 +897,47 @@ func (s *CryptoService) GetDummyNonce() string {
 	return nonce
 }
 
-func (s *CryptoService) HashPassword(password string) (string, error) {
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+// ValidateAndExtractPublicKey validates a public key and its signature, then extracts metadata
+func (s *CryptoService) ValidateAndExtractPublicKey(publicKey, signature string) (*CryptographicKey, error) {
+	// Parse the public key
+	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("invalid public key: %w", err)
 	}
 
-	return string(hashedPassword), nil
+	if len(entities) == 0 {
+		return nil, fmt.Errorf("no entities found in public key")
+	}
+
+	// Security: Only process the key that was used to sign
+	if len(entities) > 1 {
+		return nil, fmt.Errorf("multiple keys found in keyring. Please upload only the single key that signed the request")
+	}
+
+	// Verify the signature using the public key
+	err = s.VerifySignedChallenge(signature, publicKey, publicKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid signature: the public key was not signed by the provided private key: %w", err)
+	}
+
+	// Extract key metadata
+	entity := entities[0]
+	fingerprint := hex.EncodeToString(entity.PrimaryKey.Fingerprint)
+	creationTime := s.ExtractCreationTime(entity.PrimaryKey)
+	keyExpirationTime := s.ExtractKeyExpirationTime(entity, creationTime)
+
+	// Extract the public key armor
+	extractedPublicKeyArmor, err := s.ExtractPublicKeyArmorFromEntity(entity)
+	if err != nil {
+		return nil, fmt.Errorf("error extracting public key armor: %w", err)
+	}
+
+	return &CryptographicKey{
+		Fingerprint: fingerprint,
+		CreatedAt:   creationTime,
+		ExpiresAt:   keyExpirationTime,
+		Armor:       extractedPublicKeyArmor,
+	}, nil
 }
 
 // ================== //
@@ -1183,11 +975,17 @@ func NewMarkdownService() *MarkdownService {
 }
 
 type ReedHeader struct {
-	Author   string
-	Date     string
-	Origin   string
+	Author string
+	Date   string
+	Origin string
+
+	// Social
 	Replying string
 	Echoing  string
+
+	// Crypto
+	UserFingerprint   string
+	ServerFingerprint string
 }
 
 func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
@@ -1197,7 +995,9 @@ func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
 		author,
 		origin,
 		replying,
-		echoing string
+		echoing,
+		userFingerprint,
+		serverFingerprint string
 	for _, line := range lines {
 		if inHeader {
 			if line == "---" {
@@ -1218,6 +1018,12 @@ func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
 			if strings.HasPrefix(line, "echoing:") {
 				echoing, _ = strings.CutPrefix(line, "echoing:")
 			}
+			if strings.HasPrefix(line, "userFingerprint:") {
+				userFingerprint, _ = strings.CutPrefix(line, "userFingerprint:")
+			}
+			if strings.HasPrefix(line, "serverFingerprint:") {
+				serverFingerprint, _ = strings.CutPrefix(line, "serverFingerprint:")
+			}
 		}
 
 		if line == "---" && !inHeader {
@@ -1226,11 +1032,15 @@ func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
 	}
 
 	header := ReedHeader{
-		Date:     strings.TrimSpace(date),
-		Author:   strings.TrimSpace(author),
-		Origin:   strings.TrimSpace(origin),
+		Date:   strings.TrimSpace(date),
+		Author: strings.TrimSpace(author),
+		Origin: strings.TrimSpace(origin),
+
 		Replying: strings.TrimSpace(replying),
 		Echoing:  strings.TrimSpace(echoing),
+
+		UserFingerprint:   strings.TrimSpace(userFingerprint),
+		ServerFingerprint: strings.TrimSpace(serverFingerprint),
 	}
 
 	return header
@@ -1238,7 +1048,14 @@ func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
 
 func (s *MarkdownService) ValidateReedHeader(reed string) error {
 	mandatoryFoundCount := 0
-	mandatoryHeaders := []string{"date", "author", "origin"}
+	mandatoryHeaders := []string{
+		"date",
+		"author",
+		"origin",
+		"key",
+		"algorithm",
+		"signature",
+	}
 	optionalHeaders := []string{
 		"replying",
 		"echoing",
