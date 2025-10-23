@@ -2,6 +2,28 @@
 
 A distributed, P2P content-distribution platform
 
+## Values
+
+Syrinx is built on the following values:
+
+* It's your attention: No push notifications, no alerts, no interruptions.
+* It's your platform: Syrinx will never push content to your feed you didn't subscribe to.
+* It's your time: No infinite scroll, no engagement optimization, no dark patterns.
+* It's your decision: We give you control over your data, even at the expense of convenience.
+* It's your privacy: Private messages are never routed through the server, they are delivered directly to the recipient, encrypted.
+* It's your right: No tracking, no analytics, no data collection.
+* It's our promise: Syrinx is free and open source, and will remain so.
+
+## Security
+
+### Password Recovery Design
+
+For security reasons, your password serves dual purposes: it authenticates you against the API and encrypts your private key. This design is crucial for protecting your data in scenarios where private keys are compromised (for example, through a software vulnerability that grants an attacker access to your key). Even with access to your private key, the attacker would still need your password to decrypt your messages.
+
+However, this security feature comes with a trade-off: if you lose your password, all encrypted messages stored on your device become permanently inaccessible. This makes traditional "forgot password" functionality impossible, as there is no way to recover access to your encrypted data without the original password.
+
+This is why Syrinx enforces strict password strength requirements. While API authentication includes artificial delays to prevent rainbow table attacks, these protections don't exist if an attacker gains access to your private key. Without these safeguards, an attacker could test thousands of passwords per second. A 16-character password containing uppercase letters, lowercase letters, numbers, and symbols would take years to brute force, providing strong protection for your encrypted data.
+
 ## Setup
 
 ### Prerequisites

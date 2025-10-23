@@ -34,8 +34,11 @@ type AppConfig struct {
 	SecureCookies bool   `env:"name='SECURE_COOKIES'"`
 	SecretKey     string `env:"name='SESSION_SECRET_KEY'"`
 	CORSOrigin    string `env:"name='CORS_ORIGIN'"`
-	IdentityName  string `env:"name='SERVER_IDENTITY_NAME'"`
-	IdentityEmail string `env:"name='SERVER_IDENTITY_EMAIL'"`
+
+	IdentityName        string `env:"name='SERVER_IDENTITY_NAME'"`
+	IdentityEmail       string `env:"name='SERVER_IDENTITY_EMAIL'"`
+	ServerKeyPassphrase string `env:"name='SERVER_PRIVATE_KEY_PASSPHRASE'"`
+	PrivateKeyFile      string `env:"name='SERVER_PRIVATE_KEY_FILE'"`
 }
 
 func main() {
@@ -70,7 +73,7 @@ func main() {
 
 	// Wrap database with instrumentation
 	userService := NewDataService(db)
-	cryptoService := NewCryptoService()
+	cryptoService := NewCryptoService(cfg.PrivateKeyFile)
 	markdownService := NewMarkdownService()
 	services := &Services{
 		db:     userService,
@@ -86,35 +89,30 @@ func main() {
 	log.Debug().Msg("Setting up router...")
 	router := mux.NewRouter()
 
-	// Create API subrouter
+	// API Router
 	api := router.PathPrefix("/api").Subrouter()
 
 	// Middlewares
 	api.Use(loggingMiddleware)
-	// api.Use(acceptMiddleware)
 	api.Use(h.CORSMiddleware)
-	api.Use(h.authMiddleware)
+	api.Use(h.signatureAuthMiddleware("/api"))
+	api.Use(h.responseSignerMiddleware(cfg.ServerKeyPassphrase))
 
-	// User routes
+	api.HandleFunc("/check-username", h.CheckUsername).Methods("POST")
+	api.HandleFunc("/check-username", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/users/signup", h.Signup).Methods("POST")
 	api.HandleFunc("/users/signup", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/users/login", h.Login).Methods("POST")
-	api.HandleFunc("/users/login", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/users/logout", h.Logout).Methods("POST")
-	api.HandleFunc("/users/logout", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/users/me", h.WhoAmI).Methods("GET")
+	api.HandleFunc("/users/me", h.UpdateUser).Methods("PUT")
+	// TODO: If the user lost their password but may not want to delete their
+	// account, we should have a way to "freeze" it. That is, their keys are
+	// not revoked but no new content can be published.
 	api.HandleFunc("/users/me", h.DeleteMe).Methods("DELETE")
 	api.HandleFunc("/users/me", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/users/reset-password/nonce", h.GetNonce).Methods("POST")
-	api.HandleFunc("/users/reset-password", h.ResetPassword).Methods("POST")
-	api.HandleFunc("/users/reset-password", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/users/{userID}/profile", h.GetProfileByUserID).Methods("GET")
-	api.HandleFunc("/users/{userID}/profile", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/users/{userID}", h.GetUser).Methods("GET")
+	api.HandleFunc("/users/{userID}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/users/{userID}/reeds", h.GetReedsByUserID).Methods("GET")
 	api.HandleFunc("/users/{userID}/reeds", h.noop).Methods("OPTIONS")
@@ -125,23 +123,20 @@ func main() {
 	api.HandleFunc("/users/{userID}/reeds/{reedID}/verify", h.VerifySignature).Methods("POST")
 	api.HandleFunc("/users/{userID}/reeds/{reedID}/verify", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/users/{userID}/keys", h.GetUserKeys).Methods("GET")
+	// Note: The system will refuse to generate a new key pair if a non-revoked
+	// key pair exists. The user must first revoke their existing keys.
+	api.HandleFunc("/users/{userID}/keys", h.GenerateUserKeys).Methods("POST")
+	api.HandleFunc("/users/{userID}/keys", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.GetPublicKey).Methods("GET")
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.DeletePublicKey).Methods("DELETE")
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/users/{userID}/identities", h.GetIdentitiesByUserID).Methods("GET")
-	api.HandleFunc("/users/{userID}/identities", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/profile", h.UpdateProfile).Methods("POST")
-	api.HandleFunc("/profile", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/profile/default-identity", h.SetDefaultIdentity).Methods("POST")
-	api.HandleFunc("/profile/default-identity", h.noop).Methods("OPTIONS")
-
 	api.HandleFunc("/keys", h.AddPublicKey).Methods("POST")
 	api.HandleFunc("/keys", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/reeds", h.PublishReed).Methods("POST")
+	api.HandleFunc("/reeds", h.SignReed).Methods("POST")
 	api.HandleFunc("/reeds", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/reeds/{reedID}", h.DeleteReed).Methods("DELETE")
@@ -151,15 +146,19 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	}).Methods("GET")
 
-	// Replace the API subrouter with the instrumented version
-	router.PathPrefix("/api").Handler(api)
-
 	// Serve static files
 	router.PathPrefix("/static/").
 		Handler(
-			http.StripPrefix("/static/", http.FileServer(http.Dir("html/static/"))),
+			http.StripPrefix("/static/", http.FileServer(http.Dir("spa/build/"))),
 		)
-	router.PathPrefix("/").Handler(http.FileServer(http.Dir("html/")))
+
+	// WebSocket Router (must be before catch-all static file handler)
+	ws := router.PathPrefix("/ws").Subrouter()
+	ws.HandleFunc("/", h.ProtobufWebSocketHandler)
+
+	// router.PathPrefix("/pwa").Handler(http.FileServer(http.Dir("pwa/")))
+	// Catch-all static file handler (must be last)
+	router.PathPrefix("/").Handler(http.FileServer(http.Dir("pwa/")))
 
 	log.Info().Msg("[OK] Router configured successfully")
 

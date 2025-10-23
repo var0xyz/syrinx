@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package syrinx.websocket;
+
+option go_package = "github.com/alvaro/syrinx/proto";
+
+// WebSocket message wrapper
+message WSMessage {
+  MessageType type = 1;
+  oneof payload {
+    PingMessage ping = 2;
+    PongMessage pong = 3;
+    SubscribeMessage subscribe = 4;
+    SubscribedMessage subscribed = 5;
+    ReedNotificationMessage reed_notification = 6;
+    UserUpdateMessage user_update = 7;
+    ErrorMessage error = 8;
+  }
+}
+
+// Message types
+enum MessageType {
+  UNKNOWN = 0;
+  PING = 1;
+  PONG = 2;
+  SUBSCRIBE = 3;
+  SUBSCRIBED = 4;
+  REED_NOTIFICATION = 5;
+  USER_UPDATE = 6;
+  ERROR = 7;
+}
+
+// Ping message
+message PingMessage {
+  string data = 1;
+}
+
+// Pong message
+message PongMessage {
+  string data = 1;
+}
+
+// Subscribe message
+message SubscribeMessage {
+  string data = 1;
+}
+
+// Subscribed confirmation
+message SubscribedMessage {
+  string data = 1;
+}
+
+// Reed notification
+message ReedNotificationMessage {
+  string reed_id = 1;
+  string user_id = 2;
+  string username = 3;
+  string content = 4;
+  int64 timestamp = 5;
+}
+
+// User update notification
+message UserUpdateMessage {
+  string user_id = 1;
+  string update_type = 2;
+  int64 timestamp = 3;
+}
+
+// Error message
+message ErrorMessage {
+  string code = 1;
+  string message = 2;
+  int64 timestamp = 3;
+}

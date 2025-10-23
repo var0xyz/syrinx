@@ -4,89 +4,58 @@ import (
 	"database/sql"
 	"log"
 	"time"
-
-	"github.com/google/uuid"
 )
 
-type User struct {
-	ID        uuid.UUID `json:"id"`
-	Username  string    `json:"username"`
-	Password  string    `json:"-"`
-	CreatedAt time.Time `json:"createdAt"`
-}
+// /////// //
+//   API   //
+// /////// //
 
-type Profile struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uuid.UUID `json:"userID"`
+type User struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
 	AvatarURL string    `json:"avatarURL"`
 	Bio       string    `json:"bio"`
-	Username  string    `json:"username"`
+	CreatedAt time.Time `json:"memberSince"`
 
-	DefaultIdentityID *uuid.UUID `json:"defaultIdentityID"`
-
-	ServerKey  string   `json:"serverKey"`
-	PublicKeys []string `json:"publicKeys"`
-}
-
-type PasswordResetNonce struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uuid.UUID `json:"userID"`
-	Nonce     string    `json:"nonce"`
-	CreatedAt time.Time `json:"createdAt"`
-	ExpiresAt time.Time `json:"expiresAt"`
-}
-
-type ServerKey struct {
-	Fingerprint string     `json:"fingerprint"`
-	UserID      uuid.UUID  `json:"userID"`
-	PublicKey   string     `json:"publicKey"`
-	PrivateKey  string     `json:"privateKey"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	ExpiresAt   *time.Time `json:"expiresAt"`
-	Identity    string     `json:"identity"`
-}
-
-type ServerPublicKey struct {
-	Fingerprint string     `json:"fingerprint"`
-	UserID      uuid.UUID  `json:"userID"`
-	Armor       string     `json:"armor"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	ExpiresAt   *time.Time `json:"expiresAt"`
-	Identity    string     `json:"identity"`
+	// This is the fingerprint of the private key that the server generated for
+	// this user. When a user creates a reed, this value needs to be included
+	// in the reed's header. When a user verifies a reed, this value will be
+	// used to find the private key that was used to sign the reed and verify
+	// its signature.
+	ServerKeyFingerprint string `json:"serverKeyFingerprint"`
 }
 
 type PublicKey struct {
 	Fingerprint string     `json:"fingerprint"`
-	UserID      uuid.UUID  `json:"userID"`
+	UserID      string     `json:"userID"`
 	Armor       string     `json:"armor"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	ExpiresAt   *time.Time `json:"expiresAt"`
-
-	Identities []PublicKeyIdentity `json:"identities"`
 }
 
-type PublicKeyIdentity struct {
-	ID    uuid.UUID `json:"id"`
-	Value string    `json:"value"`
+type PrivateKey struct {
+	Fingerprint string     `json:"fingerprint"`
+	UserID      string     `json:"userID"`
+	Armor       string     `json:"armor"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	ExpiresAt   *time.Time `json:"expiresAt"`
 }
 
 type Reed struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uuid.UUID `json:"userID"`
-	CreatedAt time.Time `json:"createdAt"`
-	Identity  string    `json:"identity"`
+	ID       string    `json:"id"`
+	UserID   string    `json:"userID"`
+	SignedAt time.Time `json:"signedAt"`
 
 	UserFingerprint   string `json:"userFingerprint"`
 	ServerFingerprint string `json:"serverFingerprint"`
 }
 
-// GenerateUUIDV7 generates a new UUID v7 (time-ordered UUID)
-func GenerateUUIDV7() (uuid.UUID, error) {
-	return uuid.NewV7()
-}
+// /////// //
+//   P2P   //
+// /////// //
 
 func InitDB(db *sql.DB) error {
-	log.Println("Initializing database schema with UUID v7 support...")
+	log.Println("Initializing database schema...")
 
 	// Start a transaction
 	tx, err := db.Begin()
@@ -95,37 +64,47 @@ func InitDB(db *sql.DB) error {
 	}
 	defer tx.Rollback() // This will be ignored if tx.Commit() is called
 
+	// /////// //
+	//   API   //
+	// /////// //
+	createUserCountTable := `
+	CREATE TABLE IF NOT EXISTS user_count (
+		id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+		count BIGINT DEFAULT 0
+	);`
 	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
-		id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
+		id VARCHAR(255) PRIMARY KEY,
 		username VARCHAR(255) UNIQUE NOT NULL,
-		password VARCHAR(255) NOT NULL,
+		avatar_url VARCHAR(255),
+		bio TEXT,
+		server_key_fingerprint VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 	createUserIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_users_username
-		ON users(username);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_lower_users_username
+		ON users(LOWER(username));
 	`
 
-	createServerKeysTable := `
-	CREATE TABLE IF NOT EXISTS server_keys (
+	createPrivateKeysTable := `
+	CREATE TABLE IF NOT EXISTS private_keys (
 		fingerprint VARCHAR(255) PRIMARY KEY,
-		user_id UUID REFERENCES users(id),
-		identity VARCHAR(255),
-		public_key TEXT NOT NULL,
-		private_key TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		expires_at TIMESTAMP
+		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+		armor TEXT NOT NULL,
+		revoked BOOLEAN DEFAULT FALSE,
+		expires_at TIMESTAMP,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
-	createServerKeysIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_server_keys_user_id
-		ON server_keys(user_id);
+	createPrivateKeyIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_private_keys_user_id
+		ON private_keys(user_id);
 	`
 
 	createPublicKeysTable := `
 	CREATE TABLE IF NOT EXISTS public_keys (
 		fingerprint VARCHAR(255) PRIMARY KEY,
-		user_id UUID NOT NULL,
+		user_id VARCHAR(255) NOT NULL,
+		revoked BOOLEAN DEFAULT FALSE,
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP,
 		expires_at TIMESTAMP,
@@ -138,88 +117,88 @@ func InitDB(db *sql.DB) error {
 		ON public_keys(user_id);
 	`
 
-	createPublicKeyIdentitiesTable := `
-	CREATE TABLE IF NOT EXISTS public_key_identities (
-		id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
-		public_key_fingerprint VARCHAR(255) NOT NULL,
-		value VARCHAR(255),
-
-		FOREIGN KEY (public_key_fingerprint)
-			REFERENCES public_keys(fingerprint) ON DELETE CASCADE
+	createRevokationsTable := `
+	CREATE TABLE IF NOT EXISTS revokations (
+		fingerprint VARCHAR(255) PRIMARY KEY,
+		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+		reason TEXT,
+		description TEXT,
+		revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
-
-	createProfilesTable := `
-	CREATE TABLE IF NOT EXISTS profiles (
-		id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
-		user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-		avatar_url VARCHAR(255),
-		bio TEXT,
-		default_identity_id UUID,
-
-		FOREIGN KEY (default_identity_id)
-			REFERENCES public_key_identities(id)
-	);`
-	createProfileIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_profiles_user_id
-		ON profiles(user_id);
-	`
-
-	createPasswordResetNoncesTable := `
-	CREATE TABLE IF NOT EXISTS password_reset_nonces (
-		id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
-		user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-		nonce VARCHAR(255) UNIQUE NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		expires_at TIMESTAMP NOT NULL
-	);`
-	createPasswordResetNonceIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_password_reset_nonces_nonce
-		ON password_reset_nonces(nonce);
-	CREATE INDEX IF NOT EXISTS idx_password_reset_nonces_user_id
-		ON password_reset_nonces(user_id);
-	`
 
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
-		id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
-		user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		id VARCHAR(255) NOT NULL,
+		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+		signed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-		identity_id UUID,
-		user_fingerprint VARCHAR(255),
-		server_fingerprint VARCHAR(255),
-
-		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-		FOREIGN KEY (identity_id) REFERENCES public_key_identities(id),
-		FOREIGN KEY (user_fingerprint) REFERENCES public_keys(fingerprint) ON DELETE CASCADE,
-		FOREIGN KEY (server_fingerprint) REFERENCES server_keys(fingerprint)
+		PRIMARY KEY (id, user_id)
 	);`
 	createReedIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_reeds_id
-		ON reeds(id);
 	CREATE INDEX IF NOT EXISTS idx_reeds_user_id
 		ON reeds(user_id);
+	CREATE INDEX IF NOT EXISTS idx_reeds_signed_at
+		ON reeds(signed_at);
 	`
 
+	// /////// //
+	//   P2P   //
+	// /////// //
+
+	createOnlineUsersTable := `
+	CREATE TABLE IF NOT EXISTS online_users (
+		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+	createOnlineUserIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_online_users_user_id
+		ON online_users(user_id);
+	`
+
+	createReedAllocationsTable := `
+	CREATE TABLE IF NOT EXISTS reed_allocations (
+		reed_id VARCHAR(255) REFERENCES reeds(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (reed_id, user_id)
+	);`
+	createReedAllocationIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_reed_allocations_reed_id
+		ON reed_allocations(reed_id);
+	`
+
+	// Initialize user_count table with first row
+	initUserCountTable := `
+	INSERT INTO user_count (id, count) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;`
+
 	queries := []string{
+		createUserCountTable,
+		initUserCountTable,
+
 		createUsersTable,
 		createUserIndexes,
 
-		createServerKeysTable,
-		createServerKeysIndexes,
+		createPrivateKeysTable,
+		createPrivateKeyIndexes,
 
 		createPublicKeysTable,
 		createPublicKeyIndexes,
-		createPublicKeyIdentitiesTable,
 
-		createProfilesTable,
-		createProfileIndexes,
-
-		createPasswordResetNoncesTable,
-		createPasswordResetNonceIndexes,
+		createRevokationsTable,
 
 		createReedsTable,
 		createReedIndexes,
+
+		// /////// //
+		//   P2P   //
+		// /////// //
+
+		createOnlineUsersTable,
+		createOnlineUserIndexes,
+
+		createReedAllocationsTable,
+		createReedAllocationIndexes,
 	}
 
 	for i, query := range queries {
