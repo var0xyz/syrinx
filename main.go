@@ -13,6 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"syrinx/crypto"
+	"syrinx/realtime"
+
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
 	"github.com/rs/zerolog/log"
@@ -29,14 +32,13 @@ type AppConfig struct {
 	DBName     string `env:"name='DB_NAME'"`
 	DBSSLMode  string `env:"name='DB_SSLMODE'"`
 
-	// Server configuration
+	// The `ServerName` will be appended to every user's ID. Say that the
+	// ServerName is "squirrels.ru" and the user ID is "QAGxPE5o", the UI will
+	// display the user ID as "QAGxPE5o@squirrels.ru".
+	ServerName    string `env:"name='SERVER_NAME'"`
 	Port          int
-	SecureCookies bool   `env:"name='SECURE_COOKIES'"`
-	SecretKey     string `env:"name='SESSION_SECRET_KEY'"`
-	CORSOrigin    string `env:"name='CORS_ORIGIN'"`
+	AllowedOrigin string `env:"name='ALLOWED_ORIGIN'"`
 
-	IdentityName        string `env:"name='SERVER_IDENTITY_NAME'"`
-	IdentityEmail       string `env:"name='SERVER_IDENTITY_EMAIL'"`
 	ServerKeyPassphrase string `env:"name='SERVER_PRIVATE_KEY_PASSPHRASE'"`
 	PrivateKeyFile      string `env:"name='SERVER_PRIVATE_KEY_FILE'"`
 }
@@ -44,6 +46,20 @@ type AppConfig struct {
 func main() {
 	var appConfig AppConfig
 	cfg := env.MustAssert(appConfig)
+
+	// ServerName cannot be empty. There's no max though, but please be
+	// reasonable. Consider something short and unique. If it collides with
+	// another server you won't be able to connect bewtween the two.
+	if len(cfg.ServerName) == 0 {
+		l.Panicf("[ERR] ServerName cannot be empty")
+	}
+
+	// Validate ServerName: only visible characters, no spaces
+	for _, r := range cfg.ServerName {
+		if r <= 32 || r > 126 { // not visible ASCII
+			l.Panicf("[ERR] Invalid ServerName: contains non-visible character: %q", r)
+		}
+	}
 
 	log.Info().Msg("Starting Syrinx API...")
 	SetupLogger()
@@ -72,18 +88,27 @@ func main() {
 	log.Debug().Msg("Initializing services...")
 
 	// Wrap database with instrumentation
-	userService := NewDataService(db)
-	cryptoService := NewCryptoService(cfg.PrivateKeyFile)
+	dataService := NewDataService(db, cfg.ServerName)
+	cryptoService := crypto.NewService()
 	markdownService := NewMarkdownService()
 	services := &Services{
-		db:     userService,
+		db:     dataService,
 		crypto: cryptoService,
 		md:     markdownService,
 	}
 	log.Info().Msg("[OK] Services initialized successfully")
 
+	log.Debug().Msg("Initializing realtime service...")
+	realtimeService := realtime.NewService(db, cryptoService, cfg.AllowedOrigin)
+
+	// Create broadcast channel
+	broadcastChan := make(chan realtime.BroadcastMessage, 100)
+
+	// Start realtime service in goroutine
+	go realtimeService.Start(broadcastChan)
+
 	log.Debug().Msg("Initializing handlers...")
-	h := NewHandlers(services, cfg)
+	h := NewHandlers(services, cfg, broadcastChan)
 	log.Info().Msg("[OK] Handlers initialized successfully")
 
 	log.Debug().Msg("Setting up router...")
@@ -94,9 +119,9 @@ func main() {
 
 	// Middlewares
 	api.Use(loggingMiddleware)
-	api.Use(h.CORSMiddleware)
+	api.Use(h.CORSMiddleware(cfg.AllowedOrigin))
 	api.Use(h.signatureAuthMiddleware("/api"))
-	api.Use(h.responseSignerMiddleware(cfg.ServerKeyPassphrase))
+	api.Use(h.responseSignerMiddleware(cfg.ServerKeyPassphrase, cfg.PrivateKeyFile))
 
 	api.HandleFunc("/check-username", h.CheckUsername).Methods("POST")
 	api.HandleFunc("/check-username", h.noop).Methods("OPTIONS")
@@ -117,12 +142,6 @@ func main() {
 	api.HandleFunc("/users/{userID}/reeds", h.GetReedsByUserID).Methods("GET")
 	api.HandleFunc("/users/{userID}/reeds", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/users/{userID}/reeds/{reedID}", h.GetReed).Methods("GET")
-	api.HandleFunc("/users/{userID}/reeds/{reedID}", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/users/{userID}/reeds/{reedID}/verify", h.VerifySignature).Methods("POST")
-	api.HandleFunc("/users/{userID}/reeds/{reedID}/verify", h.noop).Methods("OPTIONS")
-
 	api.HandleFunc("/users/{userID}/keys", h.GetUserKeys).Methods("GET")
 	// Note: The system will refuse to generate a new key pair if a non-revoked
 	// key pair exists. The user must first revoke their existing keys.
@@ -130,8 +149,9 @@ func main() {
 	api.HandleFunc("/users/{userID}/keys", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.GetPublicKey).Methods("GET")
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.DeletePublicKey).Methods("DELETE")
+	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revoke", h.RevokeKey).Methods("POST")
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revoke", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/keys", h.AddPublicKey).Methods("POST")
 	api.HandleFunc("/keys", h.noop).Methods("OPTIONS")
@@ -139,8 +159,12 @@ func main() {
 	api.HandleFunc("/reeds", h.SignReed).Methods("POST")
 	api.HandleFunc("/reeds", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/reeds/{reedID}", h.DeleteReed).Methods("DELETE")
-	api.HandleFunc("/reeds/{reedID}", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/reeds/{userID}/{reedID}", h.GetReed).Methods("GET")
+	api.HandleFunc("/reeds/{userID}/{reedID}", h.DeleteReed).Methods("DELETE")
+	api.HandleFunc("/reeds/{userID}/{reedID}", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/reeds/{userID}/{reedID}/verify", h.VerifySignature).Methods("POST")
+	api.HandleFunc("/reeds/{userID}/{reedID}/verify", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -154,7 +178,7 @@ func main() {
 
 	// WebSocket Router (must be before catch-all static file handler)
 	ws := router.PathPrefix("/ws").Subrouter()
-	ws.HandleFunc("/", h.ProtobufWebSocketHandler)
+	ws.HandleFunc("/", realtimeService.HandleWebSocket)
 
 	// router.PathPrefix("/pwa").Handler(http.FileServer(http.Dir("pwa/")))
 	// Catch-all static file handler (must be last)
@@ -185,7 +209,8 @@ func main() {
   |_____/ \__, |_|  |_|_| |_/_/\_\
            __/ |
           |___/     127.0.0.1:%d
-	`, cfg.Port)
+                    %s
+	`, cfg.Port, cfg.ServerName)
 
 	// Set up graceful shutdown
 	sigChan := make(chan os.Signal, 1)

@@ -1,5 +1,6 @@
 import type * as api from '$lib/types/api';
-import type * as db from '$lib/types/db';
+import { requestSigner } from './request-signer';
+import { websocketService } from './websocket';
 
 interface SignupUser {
   username: string;
@@ -8,15 +9,15 @@ interface SignupUser {
 }
 
 export class AuthService {
-  private _user: db.User | null = null;
+  private _user: api.User | null = null;
 
   /**
    * Get the current user from localStorage
    */
-  async getCurrentUser(): Promise<db.User | null> {
+  async getCurrentUser(): Promise<api.User | null> {
     try {
       // Check if user ID exists in localStorage
-      const userId = localStorage.getItem('user.id');
+      const userId = localStorage.getItem('userID');
       if (!userId) {
         this._user = null;
         return null;
@@ -35,15 +36,14 @@ export class AuthService {
   /**
    * Save user data to both localStorage and IndexedDB
    */
-  async saveUserToStorage(user: api.User): Promise<db.User> {
-    localStorage.setItem('user.id', user.id);
+  async saveUserToStorage(user: api.User): Promise<void> {
+    localStorage.setItem('userID', user.id);
 
     // Also store in IndexedDB
     try {
       const { userRepository } = await import('$lib/repositories/user');
-      const storedUser = await userRepository.put(user);
-      this._user = storedUser;
-      return storedUser;
+      await userRepository.put(user);
+      this._user = user;
     } catch (error) {
       console.error('Failed to store user in IndexedDB:', error);
       // Don't throw - localStorage is the primary storage
@@ -54,29 +54,28 @@ export class AuthService {
    * Set the active key fingerprint
    */
   setActiveKey(fingerprint: string): void {
-    localStorage.setItem('user.activeKeyFingerprint', fingerprint);
+    localStorage.setItem('keyFingerprint', fingerprint);
   }
 
   /**
    * Get the active key fingerprint
    */
   getActiveKeyFingerprint(): string | null {
-    return localStorage.getItem('user.activeKeyFingerprint');
+    return localStorage.getItem('keyFingerprint');
   }
 
   /**
-   * Set the authentication method used during signup
+   * Set the passphrase in localStorage
    */
-  setAuthMethod(method: 'password' | 'biometric'): void {
-    localStorage.setItem('user.authMethod', method);
+  setPassphrase(passphrase: string): void {
+    localStorage.setItem('keyPassphrase', passphrase);
   }
 
   /**
-   * Get the authentication method used during signup
+   * Get the passphrase from localStorage
    */
-  getAuthMethod(): 'password' | 'biometric' | null {
-    const method = localStorage.getItem('user.authMethod');
-    return method === 'password' || method === 'biometric' ? method : null;
+  getPassphrase(): string | null {
+    return localStorage.getItem('keyPassphrase');
   }
 
   /**
@@ -99,10 +98,33 @@ export class AuthService {
     }
 
     const user = await response.json();
-    localStorage.setItem('user.id', user.id);
+    localStorage.setItem('userID', user.id);
     this._user = user;
 
     return user;
+  }
+
+  /**
+   * Clear service worker session and disconnect WebSocket
+   * Note: localStorage and IndexedDB clearing should be handled separately
+   * via clearLocalStorage() and dbService.deleteDatabase()
+   */
+  async clearSession(): Promise<void> {
+    // Clear service worker session
+    try {
+      await requestSigner.clearSession();
+    } catch (error) {
+      console.error('Failed to clear request signer session:', error);
+      // Continue even if this fails
+    }
+
+    // Disconnect WebSocket if connected
+    if (websocketService.isConnected()) {
+      websocketService.disconnect();
+    }
+
+    // Reset user state
+    this._user = null;
   }
 }
 

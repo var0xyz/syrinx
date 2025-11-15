@@ -33,11 +33,6 @@ if (self.__WB_MANIFEST) {
 
 // PGP operations handled directly in service worker
 let privateKey = null;
-let keyReady = false;
-let serviceWorkerReady = false;
-
-// Mark service worker as ready after scripts are loaded
-console.log('Service Worker: Marking as ready');
 
 // Listen for the activate event to ensure we claim clients
 self.addEventListener('activate', (event) => {
@@ -45,16 +40,11 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     self.clients.claim().then(() => {
       console.log('Service Worker: Successfully claimed clients on activate');
-      serviceWorkerReady = true;
     }).catch(error => {
       console.error('Service Worker: Failed to claim clients on activate:', error);
-      serviceWorkerReady = true;
     })
   );
 });
-
-// Mark as ready immediately for testing
-serviceWorkerReady = true;
 
 // Handle skip waiting message
 self.addEventListener('message', (event) => {
@@ -77,7 +67,6 @@ async function initKey(armoredKey, passphrase) {
       privateKey: parsedKey,
       passphrase
     });
-    keyReady = true;
 
     console.log('PGP key initialized successfully in service worker');
   } catch (error) {
@@ -88,10 +77,6 @@ async function initKey(armoredKey, passphrase) {
 
 // Sign text using PGP directly in service worker
 async function signText(text) {
-  if (!keyReady) {
-    throw new Error('PGP key not ready in service worker');
-  }
-
   try {
     const { createMessage, sign } = openpgp;
 
@@ -100,19 +85,11 @@ async function signText(text) {
     const signature = await sign({
       message,
       signingKeys: privateKey,
-      detached: true
+      detached: true,
+      format: 'armored'
     });
 
-    // Strip armor delimiters to reduce payload size
-    const strippedSignature = signature.replace(
-      /-----BEGIN PGP SIGNATURE-----\n\n/g,
-      ''
-    ).replace(
-      /\n-----END PGP SIGNATURE-----/g,
-      ''
-    );
-
-    return strippedSignature;
+    return signature.trim();
   } catch (error) {
     console.error('Failed to sign text in service worker:', error);
     throw error;
@@ -196,45 +173,59 @@ async function signRequest(request) {
 
 // Listen for messages from main app
 self.addEventListener('message', async (event) => {
-  console.log('Service Worker: Received message:', event.data.type);
-
-  // Check if service worker is ready
-  if (!serviceWorkerReady) {
-    console.error('Service Worker: Not ready yet');
-    event.ports[0].postMessage({ success: false, error: 'Service worker not ready' });
+  if (!event.data || !event.data.type) {
+    console.warn('Service Worker: Received message without type, ignoring');
     return;
   }
 
+  console.log('Service Worker: Received message:', event.data.type, event.data);
+
   const { type, data } = event.data;
+
+  // SKIP_WAITING messages don't use MessageChannel ports
+  if (type === 'SKIP_WAITING') {
+    // Already handled in separate listener, just acknowledge
+    return;
+  }
+
+  // All other messages require a port for response
+  if (!event.ports || !event.ports[0]) {
+    console.warn('Service Worker: Message received without port, ignoring');
+    return;
+  }
+
+  const port = event.ports[0];
 
   if (type === 'INIT_KEY') {
     try {
       console.log('Service Worker: Initializing PGP key...');
       await initKey(data.armoredKey, data.passphrase);
       console.log('Service Worker: PGP key initialization successful');
-      event.ports[0].postMessage({ success: true });
+      port.postMessage({ success: true });
     } catch (error) {
       console.error('Service Worker: PGP key initialization failed:', error);
-      event.ports[0].postMessage({ success: false, error: error.message });
+      port.postMessage({ success: false, error: error.message });
     }
   } else if (type === 'CLEAR_KEY') {
     console.log('Service Worker: Clearing PGP key');
     privateKey = null;
-    keyReady = false;
-    event.ports[0].postMessage({ success: true });
+    port.postMessage({ success: true });
   } else if (type === 'SIGN_TEXT') {
     try {
       console.log('Service Worker: Signing text...');
       const signature = await signText(data.text);
       console.log('Service Worker: Text signed successfully');
-      event.ports[0].postMessage({ success: true, signature });
+      console.log('Signed text:', data.text);
+      console.log('Signature:', signature);
+      console.log('--- END SIGNATURE');
+      port.postMessage({ success: true, signature });
     } catch (error) {
       console.error('Service Worker: Text signing failed:', error);
-      event.ports[0].postMessage({ success: false, error: error.message });
+      port.postMessage({ success: false, error: error.message });
     }
   } else if (type === 'TEST_COMMUNICATION') {
     console.log('Service Worker: Received test communication message');
-    event.ports[0].postMessage({ success: true, message: 'Service worker is ready' });
+    port.postMessage({ success: true, message: 'Service worker is ready' });
   }
 });
 
@@ -247,7 +238,7 @@ registerRoute(
       const userId = request.headers.get('X-Syrinx-User-Id');
       const fingerprint = request.headers.get('X-Syrinx-Fingerprint');
 
-      if (userId && fingerprint && keyReady) {
+      if (userId && fingerprint) {
         // Sign the request
         const signedRequest = await signRequest(request);
         const strategy = new NetworkOnly();

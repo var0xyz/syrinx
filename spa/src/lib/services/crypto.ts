@@ -7,7 +7,7 @@ export interface KeyPair {
 }
 
 export interface KeyGenerationOptions {
-  userId: string;
+  name: string;
   email?: string;
   password: string;
 }
@@ -22,7 +22,7 @@ export class CryptoService {
    * Generate a new OpenPGP key pair
    */
   async generateKeyPair(options: KeyGenerationOptions): Promise<KeyPair> {
-    const { userId, email, password } = options;
+    const { name: userId, email, password } = options;
 
     try {
       // Create user ID - use email if provided, otherwise just username
@@ -114,6 +114,23 @@ export class CryptoService {
     } catch (error) {
       console.error('Error verifying signature:', error);
       return false;
+    }
+  }
+
+  /**
+   * Extract identity from a public key
+   */
+  async getKeyIdentity(publicKey: string): Promise<string> {
+    try {
+      const entity = await openpgp.readKey({ armoredKey: publicKey });
+      const userIds = entity.getUserIDs();
+      if (userIds.length > 0) {
+        return userIds[0];
+      }
+      return 'Unknown';
+    } catch (error) {
+      console.error('Error extracting key identity:', error);
+      throw new Error('Failed to extract key identity');
     }
   }
 }

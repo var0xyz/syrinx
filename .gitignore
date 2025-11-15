@@ -4,3 +4,6 @@ keys/
 spa/node_modules
 spa/build
 spa/.svelte-kit
+spa/certs
+spa/test-results
+spa/playwright-report

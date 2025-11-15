@@ -58,20 +58,6 @@ export function buildCanonicalRequestString(
 }
 
 /**
- * Escapes signature for safe HTTP header transmission
- */
-export function escapeSignature(signature: string): string {
-  return signature.replace(/\n/g, '\\n');
-}
-
-/**
- * Unescapes signature from HTTP header
- */
-export function unescapeSignature(escapedSignature: string): string {
-  return escapedSignature.replace(/\\n/g, '\n');
-}
-
-/**
  * Converts Headers object to plain object
  */
 export function getHeadersObject(headers: Headers): Record<string, string[]> {
@@ -83,33 +69,4 @@ export function getHeadersObject(headers: Headers): Record<string, string[]> {
     result[name].push(value);
   }
   return result;
-}
-
-/**
- * Adds PGP armor delimiters to a stripped signature
- */
-export function addArmorDelimiters(signature: string): string {
-  return `-----BEGIN PGP SIGNATURE-----\n\n${signature}\n-----END PGP SIGNATURE-----`;
-}
-
-/**
- * Strips PGP armor delimiters from a signature
- */
-export function stripArmorDelimiters(signature: string): string {
-  const lines = signature.split('\n');
-  const result: string[] = [];
-
-  for (const line of lines) {
-    // Skip armor delimiters and empty lines
-    if (
-      line.startsWith('-----BEGIN PGP SIGNATURE-----') ||
-      line.startsWith('-----END PGP SIGNATURE-----') ||
-      line === ''
-    ) {
-      continue;
-    }
-    result.push(line);
-  }
-
-  return result.join('\n');
 }

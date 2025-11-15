@@ -56,34 +56,6 @@ export class PrivateKeyRepository {
     const allKeys = await this.db.getAll<PrivateKey>('privateKeys');
     return allKeys.map(({ armor, ...keyInfo }) => keyInfo);
   }
-
-  /**
-   * Clear all private keys (use with caution!)
-   */
-  async clearAllPrivateKeys(): Promise<void> {
-    await this.db.clear('privateKeys');
-  }
-
-  /**
-   * Set the active key fingerprint in localStorage
-   */
-  setActiveKeyFingerprint(fingerprint: string): void {
-    localStorage.setItem('user.activeKeyFingerprint', fingerprint);
-  }
-
-  /**
-   * Get the active key fingerprint from localStorage
-   */
-  getActiveKeyFingerprint(): string | null {
-    return localStorage.getItem('user.activeKeyFingerprint');
-  }
-
-  /**
-   * Clear the active key fingerprint from localStorage
-   */
-  clearActiveKey(): void {
-    localStorage.removeItem('user.activeKeyFingerprint');
-  }
 }
 
 export const privateKeyRepository = new PrivateKeyRepository();

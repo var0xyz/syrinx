@@ -145,6 +145,11 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:2121',
         changeOrigin: true
+      },
+      '/ws': {
+        target: 'http://localhost:2121',
+        changeOrigin: true,
+        ws: true
       }
     }
   }

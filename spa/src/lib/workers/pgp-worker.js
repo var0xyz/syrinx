@@ -35,22 +35,16 @@ self.onmessage = async (event) => {
       const signature = await openpgp.sign({
         message,
         signingKeys: privateKey,
-        detached: true
+        detached: true,
+        format: 'armored'
       });
 
-      // Strip armor delimiters to reduce payload size
-      const strippedSignature = signature.replace(
-        /-----BEGIN PGP SIGNATURE-----\n\n/g,
-        ''
-      ).replace(
-        /\n-----END PGP SIGNATURE-----/g,
-        ''
-      );
+      console.log('Signature:', signature.trim());
 
       self.postMessage({
         type: 'SIGNED',
         id: data.id,
-        signature: strippedSignature
+        signature: signature.trim()
       });
     }
 

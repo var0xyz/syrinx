@@ -58,7 +58,7 @@
     {/if}
 
     <div class="action-buttons">
-      <a href="/signup" class="btn btn-primary">Sign Up</a>
+      <a href="/preamble" class="btn btn-primary">Sign Up</a>
     </div>
   </div>
 </div>

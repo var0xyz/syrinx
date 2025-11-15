@@ -42,12 +42,10 @@ type PrivateKey struct {
 }
 
 type Reed struct {
-	ID       string    `json:"id"`
-	UserID   string    `json:"userID"`
-	SignedAt time.Time `json:"signedAt"`
-
-	UserFingerprint   string `json:"userFingerprint"`
-	ServerFingerprint string `json:"serverFingerprint"`
+	ID          string    `json:"id"`
+	UserID      string    `json:"userID"`
+	Fingerprint string    `json:"fingerprint"`
+	SignedAt    time.Time `json:"signedAt"`
 }
 
 // /////// //
@@ -92,8 +90,8 @@ func InitDB(db *sql.DB) error {
 		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
 		armor TEXT NOT NULL,
 		revoked BOOLEAN DEFAULT FALSE,
-		expires_at TIMESTAMP,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		expires_at TIMESTAMP
 	);`
 	createPrivateKeyIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_private_keys_user_id
@@ -106,7 +104,7 @@ func InitDB(db *sql.DB) error {
 		user_id VARCHAR(255) NOT NULL,
 		revoked BOOLEAN DEFAULT FALSE,
 		armor TEXT NOT NULL,
-		created_at TIMESTAMP,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		expires_at TIMESTAMP,
 
 		FOREIGN KEY (user_id)
@@ -128,8 +126,9 @@ func InitDB(db *sql.DB) error {
 
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
-		id VARCHAR(255) NOT NULL,
+		id VARCHAR(255) UNIQUE NOT NULL,
 		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+		fingerprint VARCHAR(255) REFERENCES private_keys(fingerprint),
 		signed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 		PRIMARY KEY (id, user_id)
@@ -141,18 +140,54 @@ func InitDB(db *sql.DB) error {
 		ON reeds(signed_at);
 	`
 
+	// ////////// //
+	//   Social   //
+	// ////////// //
+
+	createUserFollowersTable := `
+	CREATE TABLE IF NOT EXISTS user_followers (
+		user_id VARCHAR(255),
+		follower_user_id VARCHAR(255),
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (user_id, follower_user_id)
+	);`
+	createUserFollowerIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_user_followers_user_id
+		ON user_followers(user_id);
+	`
+
+	createUserFollowingTable := `
+	CREATE TABLE IF NOT EXISTS user_following (
+		user_id VARCHAR(255),
+		following_user_id VARCHAR(255),
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (user_id, following_user_id)
+	);`
+	createUserFollowingIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_user_following_user_id
+		ON user_following(user_id);
+	`
+
 	// /////// //
 	//   P2P   //
 	// /////// //
 
 	createOnlineUsersTable := `
-	CREATE TABLE IF NOT EXISTS online_users (
-		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+	CREATE UNLOGGED TABLE IF NOT EXISTS online_users (
+		user_id VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
-	createOnlineUserIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_online_users_user_id
-		ON online_users(user_id);
+
+	createBroadcastSubscriptionsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS broadcast_subscriptions (
+		user_id VARCHAR(255),
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+	createBroadcastSubscriptionIndexes := `
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_broadcast_subscriptions_user_id
+		ON broadcast_subscriptions(user_id);
 	`
 
 	createReedAllocationsTable := `
@@ -173,6 +208,8 @@ func InitDB(db *sql.DB) error {
 	INSERT INTO user_count (id, count) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;`
 
 	queries := []string{
+
+		// API
 		createUserCountTable,
 		initUserCountTable,
 
@@ -190,12 +227,17 @@ func InitDB(db *sql.DB) error {
 		createReedsTable,
 		createReedIndexes,
 
-		// /////// //
-		//   P2P   //
-		// /////// //
+		// Social
+		createUserFollowersTable,
+		createUserFollowerIndexes,
 
+		createUserFollowingTable,
+		createUserFollowingIndexes,
+
+		// P2P
 		createOnlineUsersTable,
-		createOnlineUserIndexes,
+		createBroadcastSubscriptionsTable,
+		createBroadcastSubscriptionIndexes,
 
 		createReedAllocationsTable,
 		createReedAllocationIndexes,

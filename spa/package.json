@@ -7,9 +7,13 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@sveltejs/adapter-static": "^3.0.0",
     "@sveltejs/kit": "^2.5.0",
     "@types/node": "^24.7.2",
@@ -26,6 +30,8 @@
     "vite-plugin-devtools-json": "^1.0.0"
   },
   "dependencies": {
-    "openpgp": "^6.2.2"
+    "openpgp": "^6.2.2",
+    "uuid": "^11.1.0",
+    "uuid25": "^0.1.0"
   }
 }

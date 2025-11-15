@@ -12,13 +12,6 @@ export function initializePWA() {
     isInstalled.set(true);
   }
 
-  const deviceID = getDeviceID();
-  if (!deviceID) {
-    const newDeviceID = window.crypto.randomUUID();
-    setDeviceID(newDeviceID);
-    console.log('PWA: New device ID generated:', newDeviceID);
-  }
-
   // Listen for beforeinstallprompt event
   window.addEventListener('beforeinstallprompt', (e) => {
     console.log('PWA: Install prompt available');
@@ -59,27 +52,53 @@ export function initializePWA() {
 
   // Register service worker immediately
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js')
-      .then((registration) => {
-        console.log('PWA: Service Worker registered', registration);
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+    .then((registration) => {
+      console.log('PWA: Service Worker registered', registration);
 
-        // Listen for updates
-        registration.addEventListener('updatefound', () => {
-          const newWorker = registration.installing;
-          if (newWorker) {
-            newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                // New content is available, show update notification
-                console.log('PWA: New content available');
-                // You can dispatch a custom event or update a store here
-              }
-            });
+      // Force update on registration
+      registration.update();
+
+      // Wait for service worker to be ready
+      if (registration.installing) {
+        console.log('PWA: Service worker is installing...');
+        registration.installing.addEventListener('statechange', () => {
+          if (registration.installing?.state === 'installed') {
+            console.log('PWA: Service worker installed, waiting for activation...');
           }
         });
-      })
-      .catch((error) => {
-        console.error('PWA: Service Worker registration failed:', error);
+      }
+
+      if (registration.waiting) {
+        console.log('PWA: Service worker is waiting, activating...');
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+
+      if (registration.active) {
+        console.log('PWA: Service worker is active');
+      }
+
+      // Listen for updates
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+        if (newWorker) {
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              // New content is available, show update notification
+              console.log('PWA: New content available');
+              // You can dispatch a custom event or update a store here
+            }
+          });
+        }
       });
+    })
+    .catch((error) => {
+      console.error('PWA: Service Worker registration failed:', error);
+      // Fallback: try registering without unregistering first
+      navigator.serviceWorker.register('/sw.js').catch((fallbackError) => {
+        console.error('PWA: Fallback registration also failed:', fallbackError);
+      });
+    });
   }
 }
 
@@ -164,113 +183,4 @@ export async function getStorageQuota(): Promise<{ used: number; total: number }
     }
   }
   return null;
-}
-
-// Biometric authentication functions
-export async function isBiometricSupported(): Promise<boolean> {
-  return 'credentials' in navigator && 'create' in navigator.credentials;
-}
-
-export async function createBiometricCredential(userId: string, username: string): Promise<boolean> {
-  if (!await isBiometricSupported()) {
-    alert('Biometric authentication is not supported on this device');
-    return false;
-  }
-
-  // Validate required parameters
-  if (!userId || !username) {
-    console.error('PWA: Missing required parameters - userId:', userId, 'username:', username);
-    return false;
-  }
-
-  try {
-    console.log('PWA: Creating credential with userId:', userId, 'username:', username);
-
-    // Generate a deterministic, short user ID for WebAuthn (max 64 bytes)
-    const userIdBytes = new TextEncoder().encode(userId);
-    let webauthnUserId = userIdBytes;
-
-    // If userId is too long, hash it to create a shorter, deterministic ID
-    if (userIdBytes.length > 64) {
-      const hashBuffer = await crypto.subtle.digest('SHA-256', userIdBytes);
-      webauthnUserId = new Uint8Array(hashBuffer);
-    }
-
-    const credentialOptions = {
-      publicKey: {
-        challenge: new Uint8Array(32),
-        rp: {
-          name: 'Syrinx',
-          id: window.location.hostname
-        },
-        user: {
-          id: webauthnUserId,
-          name: username,
-          displayName: username
-        },
-        pubKeyCredParams: [
-          { type: 'public-key' as const, alg: -7 }, // ES256
-          { type: 'public-key' as const, alg: -257 } // RS256
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: 'platform' as AuthenticatorAttachment,
-          userVerification: 'required' as UserVerificationRequirement
-        },
-        timeout: 60000,
-        attestation: 'direct' as AttestationConveyancePreference
-      }
-    };
-
-    console.log('PWA: Credential options:', JSON.stringify(credentialOptions, null, 2));
-
-    const credential = await navigator.credentials.create(credentialOptions);
-
-    if (credential) {
-      // Store the credential ID for later use
-      localStorage.setItem('biometric_credential_id', userId);
-      return true;
-    }
-    return false;
-  } catch (error) {
-    alert(error);
-    console.error('PWA: Error creating biometric credential', error);
-    return false;
-  }
-}
-
-export async function authenticateWithBiometric(): Promise<boolean> {
-  if (!await isBiometricSupported()) {
-    return false;
-  }
-
-  try {
-    const credential = await navigator.credentials.get({
-      publicKey: {
-        challenge: new Uint8Array(32),
-        timeout: 60000,
-        userVerification: 'required'
-      }
-    });
-
-    return !!credential;
-  } catch (error) {
-    console.error('PWA: Error authenticating with biometric', error);
-    return false;
-  }
-}
-
-export async function isBiometricEnabled(): Promise<boolean> {
-  return localStorage.getItem('biometric_credential_id') !== null;
-}
-
-export async function disableBiometric(): Promise<void> {
-  localStorage.removeItem('biometric_credential_id');
-}
-
-export function getDeviceID(): string | null {
-  return localStorage.getItem('device.id') || null;
-}
-
-function setDeviceID(deviceID: string): void {
-  localStorage.setItem('device.id', deviceID);
 }

@@ -1,0 +1,142 @@
+package realtime
+
+import (
+	"database/sql"
+	"encoding/base64"
+	"fmt"
+	"net/http"
+
+	"syrinx/crypto"
+
+	"github.com/rs/zerolog/log"
+)
+
+// AuthService handles WebSocket authentication
+type AuthService struct {
+	db     *sql.DB
+	crypto *crypto.Service
+}
+
+// NewAuthService creates a new auth service
+func NewAuthService(db *sql.DB, crypto *crypto.Service) *AuthService {
+	return &AuthService{
+		db:     db,
+		crypto: crypto,
+	}
+}
+
+// AuthenticateWebSocket authenticates a WebSocket connection using PGP signature
+func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
+	// Extract required authentication parameters from query string
+	// (WebSocket doesn't support custom headers in all browsers)
+	userID := r.URL.Query().Get("userID")
+	fingerprint := r.URL.Query().Get("fingerprint")
+	signature := r.URL.Query().Get("signature")
+	algorithm := r.URL.Query().Get("algorithm")
+	timestamp := r.URL.Query().Get("timestamp")
+
+	if userID == "" || fingerprint == "" || signature == "" || algorithm == "" || timestamp == "" {
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", fingerprint).
+			Bool("hasSignature", signature != "").
+			Str("algorithm", algorithm).
+			Str("timestamp", timestamp).
+			Msg("Missing authentication parameters")
+		return "", fmt.Errorf("missing authentication parameters")
+	}
+
+	// Validate algorithm
+	if algorithm != "PGP+base64" {
+		log.Error().
+			Str("algorithm", algorithm).
+			Msg("Unsupported signature algorithm")
+		return "", fmt.Errorf("unsupported signature algorithm: %s", algorithm)
+	}
+
+	// Validate timestamp for replay protection
+	if err := as.crypto.ValidateTimestamp(timestamp); err != nil {
+		log.Error().
+			Str("timestamp", timestamp).
+			Err(err).
+			Msg("Invalid timestamp")
+		return "", fmt.Errorf("invalid timestamp: %w", err)
+	}
+
+	// Get public key for the user and fingerprint
+	publicKey, err := as.getPublicKey(userID, fingerprint)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", fingerprint).
+			Err(err).
+			Msg("Error retrieving public key")
+		return "", fmt.Errorf("error retrieving public key: %w", err)
+	}
+
+	if publicKey == "" {
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", fingerprint).
+			Msg("Public key not found")
+		return "", fmt.Errorf("public key not found")
+	}
+
+	// Decode base64 signature first
+	decodedSignature, err := as.decodeBase64Signature(signature)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", fingerprint).
+			Err(err).
+			Msg("Failed to decode base64 signature")
+		return "", fmt.Errorf("failed to decode base64 signature: %w", err)
+	}
+
+	// Verify signature against timestamp directly
+	if err := as.crypto.VerifySignature(timestamp, decodedSignature, publicKey); err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", fingerprint).
+			Str("timestamp", timestamp).
+			Err(err).
+			Msg("Signature verification failed")
+		return "", fmt.Errorf("signature verification failed: %w", err)
+	}
+
+	log.Info().
+		Str("userID", userID).
+		Str("fingerprint", fingerprint).
+		Msg("WebSocket authentication successful")
+
+	return userID, nil
+}
+
+// getPublicKey retrieves a public key from the database
+func (as *AuthService) getPublicKey(userID, fingerprint string) (string, error) {
+	var armor string
+	err := as.db.QueryRow(`
+		SELECT armor
+		FROM public_keys
+		WHERE user_id = $1 AND fingerprint = $2
+	`, userID, fingerprint).Scan(&armor)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+
+	return armor, nil
+}
+
+// decodeBase64Signature decodes a base64-encoded signature
+func (as *AuthService) decodeBase64Signature(encodedSignature string) (string, error) {
+	// Decode base64
+	decoded, err := base64.StdEncoding.DecodeString(encodedSignature)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode base64: %w", err)
+	}
+	return string(decoded), nil
+}

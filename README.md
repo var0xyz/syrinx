@@ -24,6 +24,15 @@ However, this security feature comes with a trade-off: if you lose your password
 
 This is why Syrinx enforces strict password strength requirements. While API authentication includes artificial delays to prevent rainbow table attacks, these protections don't exist if an attacker gains access to your private key. Without these safeguards, an attacker could test thousands of passwords per second. A 16-character password containing uppercase letters, lowercase letters, numbers, and symbols would take years to brute force, providing strong protection for your encrypted data.
 
+## Architecture
+
+Syrinx consists of two main components:
+
+- **HTTP API Server**: Handles REST API requests, user authentication, and content management
+- **Realtime WebSocket Service**: Handles real-time WebSocket connections and message broadcasting
+
+The services communicate via Go channels for low-latency, type-safe message passing.
+
 ## Setup
 
 ### Prerequisites

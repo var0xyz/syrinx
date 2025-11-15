@@ -1,7 +1,6 @@
 import type * as api from '$lib/types/api';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
-import { sessionStore } from '$lib/stores/session';
 
 export type SignupInput = {
   username: string;
@@ -15,6 +14,7 @@ const BASE_URL = '/api';
 const UNAUTHENTICATED_ENDPOINTS = [
   '/users/signup',
   '/check-username',
+  '/keys',
 ];
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -27,17 +27,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       // Check if request signer is initialized
       if (!requestSigner.isInitialized()) {
-        // Try to get session data from memory
-        const fingerprint = sessionStore.get('fingerprint');
-        const passphrase = sessionStore.get('passphrase');
+        // Try to get auth data from auth service
+        const fingerprint = authService.getActiveKeyFingerprint();
+        const passphrase = authService.getPassphrase();
 
-        if (fingerprint && passphrase) {
-          // We have session data, try to initialize
-          await requestSigner.initializeWorker(fingerprint, passphrase);
-        } else {
-          // No session data, user needs to enter passphrase
-          throw new Error('Authentication required. Please enter your passphrase.');
-        }
+        await requestSigner.initializeWorker(fingerprint, passphrase);
       }
 
       // Sign the request
@@ -114,6 +108,9 @@ export const apiService = {
       body: formData.toString()
     });
   },
+  async deleteAccount(): Promise<void> {
+    return request<void>('/users/me', { method: 'DELETE' });
+  },
   async createUserKeys(userId: string, email: string): Promise<{ success: boolean }> {
     const formData = new URLSearchParams();
     formData.append('email', email);
@@ -125,9 +122,10 @@ export const apiService = {
     });
   },
 
-  async createReed(signature: string): Promise<any> {
+  async createReed(reedID: string, signature: string): Promise<any> {
     const formData = new URLSearchParams();
     formData.append('signature', signature);
+    formData.append('reedID', reedID);
 
     return request('/reeds', {
       method: 'POST',
@@ -136,7 +134,43 @@ export const apiService = {
     });
   },
 
-  async getReed(reedId: string): Promise<any> {
-    return request(`/reeds/${reedId}`, { method: 'GET' });
+  async getReed(userId: string, reedId: string): Promise<any> {
+    return request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
+  },
+
+  async deleteReed(userId: string, reedId: string): Promise<void> {
+    return request(`/reeds/${userId}/${reedId}`, { method: 'DELETE' });
+  },
+
+  async revokeKey(userId: string, fingerprint: string, reason: string): Promise<void> {
+    const formData = new URLSearchParams();
+    formData.append('reason', reason);
+
+    return request(`/users/${userId}/keys/${fingerprint}/revoke`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString()
+    });
+  },
+
+  async addPublicKey(
+    userID: string,
+    publicKey: string,
+    revokedKeyFingerprint: string,
+    revokedKeySignature: string,
+    newKeySignature: string
+  ): Promise<any> {
+    const formData = new URLSearchParams();
+    formData.append('userID', userID);
+    formData.append('publicKey', publicKey);
+    formData.append('revokedKeyFingerprint', revokedKeyFingerprint);
+    formData.append('revokedKeySignature', revokedKeySignature);
+    formData.append('newKeySignature', newKeySignature);
+
+    return request('/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString()
+    });
   }
 };
