@@ -3,17 +3,17 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/ProtonMail/go-crypto/openpgp"
-	"github.com/ProtonMail/go-crypto/openpgp/armor"
+	"syrinx/crypto"
+
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
@@ -39,14 +39,15 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 // responseSigner wraps http.ResponseWriter to capture and sign the entire response
 type responseSigner struct {
 	http.ResponseWriter
-	statusCode    int
-	wroteHeaders  bool
-	bodyBuffer    *bytes.Buffer
-	responseSent  bool
-	cryptoService *CryptoService
-	dataService   *DataService
-	userID        string
-	passphrase    string
+	statusCode     int
+	wroteHeaders   bool
+	bodyBuffer     *bytes.Buffer
+	responseSent   bool
+	cryptoService  crypto.Crypto
+	dataService    *DataService
+	userID         string
+	passphrase     string
+	privateKeyPath string
 }
 
 // Header returns the header map (delegates to underlying ResponseWriter)
@@ -157,7 +158,7 @@ func (rs *responseSigner) signCompleteResponse() error {
 
 	// Add signature to headers (stripped of armor delimiters)
 	rs.ResponseWriter.Header().Set("Signature", escapedSignature)
-	rs.ResponseWriter.Header().Set("X-Syrinx-Algorithm", "PGP")
+	rs.ResponseWriter.Header().Set("X-Syrinx-Algorithm", "PGP+base64")
 	rs.ResponseWriter.Header().Set("X-Syrinx-Signature-Scope", "body")
 
 	return nil
@@ -165,20 +166,17 @@ func (rs *responseSigner) signCompleteResponse() error {
 
 // getServerPrivateKey retrieves the server's private key from the file system
 func (rs *responseSigner) getServerPrivateKey() (string, error) {
-	// Read the private key from the file system
-	privateKeyPath := "./keys/syrinx.private.pgp"
-
 	// Check if file exists
-	if _, err := os.Stat(privateKeyPath); os.IsNotExist(err) {
+	if _, err := os.Stat(rs.privateKeyPath); os.IsNotExist(err) {
 		log.Error().
-			Str("path", privateKeyPath).
+			Str("path", rs.privateKeyPath).
 			Err(err).
 			Msg("Server private key file not found")
 		return "", fmt.Errorf("server private key not found")
 	}
 
 	// Read the private key file
-	privateKeyBytes, err := os.ReadFile(privateKeyPath)
+	privateKeyBytes, err := os.ReadFile(rs.privateKeyPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read private key file: %w", err)
 	}
@@ -201,97 +199,18 @@ func (rs *responseSigner) getServerPrivateKey() (string, error) {
 
 // decryptPrivateKey decrypts a passphrase-protected private key
 func (rs *responseSigner) decryptPrivateKey(encryptedKey, passphrase string) (string, error) {
-	// Parse the armored private key
-	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(encryptedKey))
-	if err != nil {
-		return "", fmt.Errorf("failed to parse private key: %w", err)
-	}
-
-	if len(entities) == 0 {
-		return "", fmt.Errorf("no entities found in private key")
-	}
-
-	entity := entities[0]
-
-	// Decrypt the private key with the passphrase
-	if entity.PrivateKey != nil && entity.PrivateKey.Encrypted {
-		err = entity.PrivateKey.Decrypt([]byte(passphrase))
-		if err != nil {
-			return "", fmt.Errorf("failed to decrypt private key: %w", err)
-		}
-	}
-
-	// Serialize the decrypted private key
-	var buf bytes.Buffer
-	err = entity.SerializePrivate(&buf, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to serialize decrypted private key: %w", err)
-	}
-
-	// Armor encode the decrypted private key
-	var armoredBuf bytes.Buffer
-	armorWriter, err := armor.Encode(&armoredBuf, openpgp.PrivateKeyType, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create armor encoder: %w", err)
-	}
-
-	_, err = armorWriter.Write(buf.Bytes())
-	if err != nil {
-		armorWriter.Close()
-		return "", fmt.Errorf("failed to write armored private key: %w", err)
-	}
-
-	err = armorWriter.Close()
-	if err != nil {
-		return "", fmt.Errorf("failed to close armor encoder: %w", err)
-	}
-
-	return armoredBuf.String(), nil
+	return rs.cryptoService.DecryptPrivateKey(encryptedKey, passphrase)
 }
 
 // signDetached creates a detached signature of the message
 func (rs *responseSigner) signDetached(message, privateKey string) (string, error) {
-	// Parse the armored private key
-	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(privateKey))
+	// Use crypto service to sign the message
+	signature, err := rs.cryptoService.Sign(message, privateKey)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse private key: %w", err)
+		return "", fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	if len(entities) == 0 {
-		return "", fmt.Errorf("no entities found in private key")
-	}
-
-	entity := entities[0]
-
-	// Create detached signature
-	var signatureBuf bytes.Buffer
-	messageReader := strings.NewReader(message)
-
-	err = openpgp.DetachSign(&signatureBuf, entity, messageReader, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create detached signature: %w", err)
-	}
-
-	// Armor encode the signature
-	var armoredSignature bytes.Buffer
-	armorWriter, err := armor.Encode(&armoredSignature, openpgp.SignatureType, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create signature armor encoder: %w", err)
-	}
-
-	_, err = armorWriter.Write(signatureBuf.Bytes())
-	if err != nil {
-		armorWriter.Close()
-		return "", fmt.Errorf("failed to write armored signature: %w", err)
-	}
-
-	err = armorWriter.Close()
-	if err != nil {
-		return "", fmt.Errorf("failed to close signature armor encoder: %w", err)
-	}
-
-	// Strip armor delimiters to reduce payload size
-	signature := armoredSignature.String()
+	// Strip armor delimiters to reduce payload size (HTTP-specific formatting)
 	signature = stripArmorDelimiters(signature)
 
 	return signature, nil
@@ -384,22 +303,6 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func acceptMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		acceptHeader := r.Header.Get("Accept")
-		acceptAll := strings.Contains(acceptHeader, "*/*")
-		acceptHtml := strings.Contains(acceptHeader, "text/html")
-		if acceptHeader != "" && !acceptAll && !acceptHtml {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.WriteHeader(http.StatusNotAcceptable)
-			fmt.Fprintf(w, "Content type %s not supported", acceptHeader)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
 // Signature-based authentication middleware
 func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -408,10 +311,9 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				Msg("signatureAuthMiddleware()")
 			excludePaths := []string{
 				prefix + "/users/login",
-				prefix + "/users/reset-password",
-				prefix + "/users/reset-password/nonce",
 				prefix + "/users/signup",
 				prefix + "/check-username",
+				prefix + "/keys",
 			}
 
 			for _, path := range excludePaths {
@@ -443,7 +345,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			}
 
 			// Validate algorithm
-			if algorithmHeader != "PGP" {
+			if algorithmHeader != "PGP+base64" {
 				log.Error().
 					Str("algorithm", algorithmHeader).
 					Msg("Unsupported signature algorithm")
@@ -481,13 +383,12 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				internalServerError(w)
 				return
 			}
-
 			if publicKey == nil {
 				log.Error().
 					Str("userID", userID).
 					Str("fingerprint", fingerprintHeader).
 					Msg("Public key not found")
-				writeResponse(w, http.StatusBadRequest, "Invalid fingerprint")
+				writeResponse(w, http.StatusBadRequest, "Can't validate request signature: Key not found for fingerprint")
 				return
 			}
 
@@ -497,16 +398,12 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					Str("userID", userID).
 					Str("fingerprint", fingerprintHeader).
 					Err(err).
-					Msg("Signature verification failed")
-				writeResponse(w, http.StatusUnauthorized, "Signature verification failed")
+					Msg("Request signature verification failed")
+				writeResponse(w, http.StatusUnauthorized, "Request signature verification failed")
 				return
 			}
 
 			// Add user ID to request context for downstream handlers
-			log.Info().
-				Str("userID", userID).
-				Interface("contextKey", userIDKey).
-				Msg("Setting user ID in context")
 			ctx := context.WithValue(r.Context(), userIDKey, userID)
 			r = r.WithContext(ctx)
 
@@ -520,35 +417,29 @@ func (h *Handlers) verifyRequestSignature(r *http.Request, signature, publicKey 
 	// Build the canonical request string (method + path + headers + body)
 	requestString := h.buildCanonicalRequestString(r)
 
-	// Unescape newlines from the signature
-	unescapedSignature := strings.ReplaceAll(signature, "\\n", "\n")
-
-	// Add armor delimiters back to the signature
-	armoredSignature := "-----BEGIN PGP SIGNATURE-----\n\n" + unescapedSignature + "\n-----END PGP SIGNATURE-----"
-
-	log.Info().
-		Str("requestString", requestString).
-		Msg("Verifying signature")
+	// Decode base64 signature to get the armored signature
+	decodedSignature, err := h.decodeBase64Signature(signature)
+	if err != nil {
+		return fmt.Errorf("failed to decode base64 signature: %w", err)
+	}
 
 	// Use the existing CryptoService method to verify the signature
-	return h.services.crypto.VerifySignature(requestString, armoredSignature, publicKey)
+	return h.services.crypto.VerifySignature(requestString, decodedSignature, publicKey)
+}
+
+// decodeBase64Signature decodes a base64-encoded signature
+func (h *Handlers) decodeBase64Signature(encodedSignature string) (string, error) {
+	// Decode base64
+	decoded, err := base64.StdEncoding.DecodeString(encodedSignature)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode base64: %w", err)
+	}
+	return string(decoded), nil
 }
 
 // buildCanonicalRequestString creates a canonical representation of the request for signing
 // Only signs method + path + query + body + timestamp (no headers)
 func (h *Handlers) buildCanonicalRequestString(r *http.Request) string {
-	var builder strings.Builder
-
-	// Add method and path
-	builder.WriteString(r.Method)
-	builder.WriteString(" ")
-	builder.WriteString(r.URL.Path)
-	if r.URL.RawQuery != "" {
-		builder.WriteString("?")
-		builder.WriteString(r.URL.RawQuery)
-	}
-	builder.WriteString("\n")
-
 	// Always add body (even if empty) - this ensures there's always something to sign
 	var bodyString string
 	if r.Body != nil {
@@ -574,10 +465,22 @@ func (h *Handlers) buildCanonicalRequestString(r *http.Request) string {
 		}
 	}
 
+	var builder strings.Builder
+	// Add method and path
+	builder.WriteString(r.Method)
+	builder.WriteString(" ")
+	builder.WriteString(r.URL.Path)
+	if r.URL.RawQuery != "" {
+		builder.WriteString("?")
+		builder.WriteString(r.URL.RawQuery)
+	}
+	builder.WriteString("\n")
+
+	// Add body
 	builder.WriteString("\n")
 	builder.WriteString(bodyString)
 
-	// Add timestamp for replay protection
+	// Get timestamp for replay protection
 	timestamp := r.Header.Get("X-Syrinx-Timestamp")
 	if timestamp != "" {
 		builder.WriteString("\n\n")
@@ -590,75 +493,54 @@ func (h *Handlers) buildCanonicalRequestString(r *http.Request) string {
 // validateTimestamp validates the timestamp for replay protection
 // Accepts timestamps within ±5 minutes of current time
 func (h *Handlers) validateTimestamp(timestampStr string) error {
-	// Parse timestamp
-	timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid timestamp format: %w", err)
-	}
-
-	// Get current time
-	now := time.Now().Unix()
-
-	// Check if timestamp is within acceptable window (±5 minutes = 300 seconds)
-	const timeWindow = 300
-	timeDiff := now - timestamp
-
-	if timeDiff > timeWindow || timeDiff < -timeWindow {
-		return fmt.Errorf("timestamp too old or too far in future: diff=%d seconds, window=%d", timeDiff, timeWindow)
-	}
-
-	return nil
+	return h.services.crypto.ValidateTimestamp(timestampStr)
 }
 
-func (h *Handlers) CORSMiddleware(next http.Handler) http.Handler {
-	allowedHeaders := []string{
-		"Authorization",
-		"Content-Type",
-		"hx-boost",
-		"hx-current-url",
-		"hx-push-url",
-		"hx-replace-url",
-		"hx-request",
-		"hx-select",
-		"hx-swap",
-		"hx-target",
-		"hx-trigger-name",
-		"hx-trigger-value",
-		"hx-trigger",
-		"X-Requested-With",
-		"X-Syrinx-User-Id",
-		"X-Syrinx-Fingerprint",
-		"X-Syrinx-Signature",
-		"X-Syrinx-Algorithm",
-		"X-Syrinx-Signature-Scope",
-		"X-Syrinx-Timestamp",
+func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		allowedHeaders := []string{
+			"Authorization",
+			"Content-Type",
+			"hx-boost",
+			"hx-current-url",
+			"hx-push-url",
+			"hx-replace-url",
+			"hx-request",
+			"hx-select",
+			"hx-swap",
+			"hx-target",
+			"hx-trigger-name",
+			"hx-trigger-value",
+			"hx-trigger",
+			"X-Requested-With",
+			"X-Syrinx-User-Id",
+			"X-Syrinx-Fingerprint",
+			"X-Syrinx-Signature",
+			"X-Syrinx-Algorithm",
+			"X-Syrinx-Signature-Scope",
+			"X-Syrinx-Timestamp",
+		}
+
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", strings.Join(allowedHeaders, ", "))
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Expose-Headers", "Signature, X-Syrinx-Algorithm")
+
+			// Handle preflight requests
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
 	}
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// For credentials to work, we can't use "*" as origin
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			origin = "http://localhost:8001" // Default to frontend port
-		}
-
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", strings.Join(allowedHeaders, ", "))
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Access-Control-Expose-Headers", "Signature, X-Syrinx-Algorithm")
-
-		// Handle preflight requests
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
 }
 
 // responseSignerMiddleware wraps responses to sign the complete response before it's sent
-func (h *Handlers) responseSignerMiddleware(passphrase string) func(http.Handler) http.Handler {
+func (h *Handlers) responseSignerMiddleware(passphrase string, privateKeyPath string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Get user ID from context (set by signature auth middleware)
@@ -677,6 +559,7 @@ func (h *Handlers) responseSignerMiddleware(passphrase string) func(http.Handler
 				dataService:    h.services.db,
 				userID:         userID.(string),
 				passphrase:     passphrase,
+				privateKeyPath: privateKeyPath,
 			}
 
 			// Continue with wrapped writer

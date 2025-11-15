@@ -3,32 +3,13 @@
   import { goto } from '$app/navigation';
   import { requestSigner } from '../services/request-signer';
   import { authService } from '../services/auth';
-  import PassphraseModal from './PassphraseModal.svelte';
 
   export let children;
 
   let isChecking = true;
-  let showPassphraseModal = false;
-  let passphraseError = '';
-  let passphraseLoading = false;
-  let authError = '';
-
-  // Computed property for error display
-  $: displayError = authError || passphraseError;
 
   onMount(async () => {
     await checkAuthentication();
-
-    // Set up global error handler for authentication errors
-    window.addEventListener('unhandledrejection', (event) => {
-      console.error('Authentication error:', event.reason?.message);
-      if (event.reason?.message?.includes('Authentication required') ||
-          event.reason?.message?.includes('Authentication failed')) {
-        authError = 'Authentication required. Please enter your passphrase.';
-        showPassphraseModal = true;
-        event.preventDefault();
-      }
-    });
   });
 
   async function checkAuthentication() {
@@ -42,47 +23,31 @@
         return;
       }
 
-      // Don't check request signer initialization here
-      // Let the first API call trigger the passphrase prompt if needed
+      // Get passphrase and fingerprint from auth service
+      const passphrase = authService.getPassphrase();
+      const fingerprint = authService.getActiveKeyFingerprint();
+
+      console.log('Auth check - fingerprint:', fingerprint);
+      console.log('Auth check - passphrase:', passphrase ? '[REDACTED]' : 'null');
+      console.log('Auth check - request signer initialized:', requestSigner.isInitialized());
+
+      if (fingerprint && passphrase && !requestSigner.isInitialized()) {
+        try {
+          console.log('Auto-initializing request signer with auth data...');
+          await requestSigner.initializeWorker(fingerprint, passphrase);
+          console.log('Request signer auto-initialized successfully');
+        } catch (error) {
+          console.warn('Failed to auto-initialize request signer:', error);
+          // Redirect to signup if initialization fails
+          goto('/signup');
+          return;
+        }
+      }
 
       isChecking = false;
     } catch (error) {
       console.error('Authentication check failed:', error);
       goto('/signup');
-    }
-  }
-
-  async function handlePassphraseSubmit(event) {
-    const { passphrase } = event.detail;
-    passphraseLoading = true;
-    passphraseError = '';
-    authError = '';
-
-    try {
-      const fingerprint = authService.getActiveKeyFingerprint();
-      if (!fingerprint) {
-        throw new Error('No active key found');
-      }
-
-      await requestSigner.initializeWorker(fingerprint, passphrase);
-
-      // Success - hide modal and show content
-      showPassphraseModal = false;
-      passphraseLoading = false;
-    } catch (error) {
-      console.error('Failed to initialize with passphrase:', error);
-      passphraseError = 'Invalid passphrase. Please try again.';
-      passphraseLoading = false;
-    }
-  }
-
-  async function handleLogout() {
-    try {
-      await authService.logout();
-      await requestSigner.clearSession();
-      goto('/signup');
-    } catch (error) {
-      console.error('Logout failed:', error);
     }
   }
 </script>
@@ -92,13 +57,6 @@
     <div class="spinner"></div>
     <p>Checking authentication...</p>
   </div>
-{:else if showPassphraseModal}
-  <PassphraseModal
-    bind:isOpen={showPassphraseModal}
-    bind:error={displayError}
-    bind:loading={passphraseLoading}
-    on:passphrase-submit={handlePassphraseSubmit}
-  />
 {:else}
   <div class="auth-container">
     <div class="auth-content">

@@ -7,8 +7,9 @@ import (
 	"net/url"
 	"strings"
 
+	"syrinx/realtime"
+
 	"github.com/gorilla/mux"
-	"github.com/gorilla/sessions"
 )
 
 // /////////// //
@@ -16,38 +17,20 @@ import (
 // /////////// //
 
 type Handlers struct {
-	services  *Services
-	store     *sessions.CookieStore
-	cfg       AppConfig
-	wsManager *ConnectionManager
+	services      *Services
+	cfg           AppConfig
+	broadcastChan chan<- realtime.BroadcastMessage
 }
 
 // ///////////// //
 //   Utilities  //
 // ///////////// //
 
-func NewHandlers(services *Services, cfg AppConfig) *Handlers {
-	secretKey := cfg.SecretKey
-
-	store := sessions.NewCookieStore([]byte(secretKey))
-	day := 86400
-	store.Options = &sessions.Options{
-		Path:     "/",
-		MaxAge:   day * 7,
-		HttpOnly: true,
-		Secure:   cfg.SecureCookies,
-		SameSite: http.SameSiteLaxMode,
-	}
-
-	// Initialize WebSocket manager
-	wsManager := NewConnectionManager()
-	go wsManager.Start()
-
+func NewHandlers(services *Services, cfg AppConfig, broadcastChan chan<- realtime.BroadcastMessage) *Handlers {
 	return &Handlers{
-		services:  services,
-		store:     store,
-		cfg:       cfg,
-		wsManager: wsManager,
+		services:      services,
+		cfg:           cfg,
+		broadcastChan: broadcastChan,
 	}
 }
 
@@ -195,8 +178,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store the public key
-	_, err = h.services.db.AddPublicKey(key.Fingerprint, user.ID, key.CreatedAt, key.ExpiresAt, key.Armor)
+	_, err = h.services.db.AddPublicKey(key.Fingerprint, user.ID, key.CreatedAt, key.ExpiresAt, publicKey)
 	if err != nil {
 		log.Error().
 			Str("userID", user.ID).
@@ -211,7 +193,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 
 	// Create server keys for the user
 	email := strings.TrimSpace(values.Get("email"))
-	keyPair, err := h.services.crypto.CreateServerKey(user.ID, email)
+	keyPair, err := h.services.crypto.CreateKeyPair(user.ID, email, h.cfg.ServerName)
 	if err != nil {
 		log.Error().
 			Str("userID", user.ID).
@@ -263,7 +245,7 @@ func (h *Handlers) GenerateUserKeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := r.FormValue("email")
-	keyPair, err := h.services.crypto.CreateServerKey(user.ID, email)
+	keyPair, err := h.services.crypto.CreateKeyPair(user.ID, email, h.cfg.ServerName)
 	if err != nil {
 		log.Error().
 			Str("userID", user.ID).
@@ -334,7 +316,7 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if exists {
-		writeResponse(w, http.StatusBadRequest, "Username is taken")
+		writeResponse(w, http.StatusConflict, "Username is taken")
 		return
 	}
 
@@ -380,8 +362,6 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-
-	globalMetrics.UsersDeletedTotal.Add(r.Context(), 1)
 	log.Info().
 		Str("userID", userID).
 		Msg("User deleted")
@@ -512,6 +492,17 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Broadcast the user update to realtime subscribers
+	h.broadcastChan <- realtime.BroadcastMessage{
+		Type:   realtime.UserUpdate,
+		UserID: userID,
+		Data: map[string]interface{}{
+			"username":  user.Username,
+			"avatarURL": user.AvatarURL,
+			"bio":       user.Bio,
+		},
+	}
+
 	writeResponse(w, http.StatusOK, user)
 }
 
@@ -519,29 +510,24 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("AddPublicKey request received")
 
-	userID := h.getUserID(r)
-	challenge := strings.TrimSpace(r.FormValue("challenge"))
-	if challenge == "" {
-		log.Error().Str("userID", userID).Msg("No challenge found in request")
-		writeResponse(w, http.StatusBadRequest, "Argument `challenge` is required")
-		return
-
-	}
-
-	signature := strings.TrimSpace(r.FormValue("signature"))
-	if signature == "" {
-		log.Error().Str("userID", userID).Msg("Argument `signature` not found in request")
-		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+	userID := strings.TrimSpace(r.FormValue("userID"))
+	if userID == "" {
+		log.Error().Msg("Argument `userID` is required")
+		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
 
-	err := validateChallenge(challenge)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("challenge", challenge).
-			Err(err).Msg("Error validating challenge")
-		writeResponse(w, http.StatusBadRequest, "Invalid challenge, please generate a new one")
+	revokedKeySignature := strings.TrimSpace(r.FormValue("revokedKeySignature"))
+	if revokedKeySignature == "" {
+		log.Error().Str("userID", userID).Msg("Argument `revokedKeySignature` not found in request")
+		writeResponse(w, http.StatusBadRequest, "Argument `revokedKeySignature` is required")
+		return
+	}
+
+	newKeySignature := strings.TrimSpace(r.FormValue("newKeySignature"))
+	if newKeySignature == "" {
+		log.Error().Str("userID", userID).Msg("Argument `newKeySignature` not found in request")
+		writeResponse(w, http.StatusBadRequest, "Argument `newKeySignature` is required")
 		return
 	}
 
@@ -552,8 +538,68 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate and verify the public key using crypto service
-	key, err := h.services.crypto.ValidateAndExtractPublicKey(armoredPublicKey, signature)
+	revokedKeyFingerprint := strings.TrimSpace(r.FormValue("revokedKeyFingerprint"))
+	if revokedKeyFingerprint == "" {
+		log.Error().Str("userID", userID).Msg("Argument `revokedKeyFingerprint` not found in request")
+		writeResponse(w, http.StatusBadRequest, "Argument `revokedKeyFingerprint` is required")
+		return
+	}
+
+	// Retrieve old key from database
+	revokedKey, err := h.services.db.GetPublicKey(userID, revokedKeyFingerprint)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("revokedKeyFingerprint", revokedKeyFingerprint).
+			Err(err).Msg("Error retrieving old public key")
+		internalServerError(w)
+		return
+	}
+	if revokedKey == nil {
+		log.Error().
+			Str("userID", userID).
+			Str("revokedKeyFingerprint", revokedKeyFingerprint).
+			Msg("Old public key not found")
+		writeResponse(w, http.StatusNotFound, "Old public key not found")
+		return
+	}
+
+	isRevoked, err := h.services.db.IsPublicKeyRevoked(revokedKey)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("revokedKeyFingerprint", revokedKeyFingerprint).
+			Err(err).Msg("Error checking if public key is revoked")
+		internalServerError(w)
+		return
+	}
+	if !isRevoked {
+		log.Error().
+			Str("userID", userID).
+			Str("revokedKeyFingerprint", revokedKeyFingerprint).
+			Msg("Key is not revoked")
+		writeResponse(w, http.StatusBadRequest, "Key is not revoked")
+		return
+	}
+
+	// Verify revoked key signature against old key
+	err = h.services.crypto.VerifySignedChallenge(revokedKeySignature, revokedKey.Armor, armoredPublicKey)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("revokedKeyFingerprint", revokedKeyFingerprint).
+			Err(err).Msg("Revoked key signature verification failed")
+		writeResponse(w, http.StatusUnauthorized, "Revoked key signature verification failed")
+		return
+	}
+
+	log.Info().
+		Str("userID", userID).
+		Str("revokedKeyFingerprint", revokedKeyFingerprint).
+		Msg("Revoked key signature verified successfully")
+
+	// Validate and verify the public newKey using crypto service
+	newKey, err := h.services.crypto.ValidateAndExtractPublicKey(armoredPublicKey, newKeySignature)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -561,32 +607,31 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
 	log.Info().
 		Str("userID", userID).
-		Str("fingerprint", key.Fingerprint).
+		Str("fingerprint", newKey.Fingerprint).
 		Msg("Public key signature verified successfully")
 
 	// Check if key already exists
-	keyExists, err := h.services.db.PublicKeyExists(key.Fingerprint)
+	keyExists, err := h.services.db.PublicKeyExists(newKey.Fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
-			Str("fingerprint", key.Fingerprint).
+			Str("fingerprint", newKey.Fingerprint).
 			Err(err).Msg("Error checking if public key exists")
 		internalServerError(w)
 		return
 	}
 	if keyExists {
 		log.Info().
-			Str("fingerprint", key.Fingerprint).
+			Str("fingerprint", newKey.Fingerprint).
 			Str("userID", userID).
 			Msg("Key with this fingerprint already exists")
 		writeResponse(w, http.StatusBadRequest, "Key with this fingerprint already exists")
 		return
 	}
 
-	publicKey, err := h.services.db.AddPublicKey(key.Fingerprint, userID, key.CreatedAt, key.ExpiresAt, key.Armor)
+	publicKey, err := h.services.db.AddPublicKey(newKey.Fingerprint, userID, newKey.CreatedAt, newKey.ExpiresAt, armoredPublicKey)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -596,7 +641,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Info().
 		Str("userID", userID).
-		Str("fingerprint", key.Fingerprint).
+		Str("fingerprint", newKey.Fingerprint).
 		Msg("Public key created")
 
 	writeResponse(w, http.StatusOK, publicKey)
@@ -648,9 +693,9 @@ func (h *Handlers) GetPublicKey(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, key)
 }
 
-func (h *Handlers) DeletePublicKey(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("DeletePublicKey request received")
+	log.Info().Msg("RevokeKey request received")
 
 	userID := h.getUserID(r)
 	fingerprint := mux.Vars(r)["fingerprint"]
@@ -659,22 +704,41 @@ func (h *Handlers) DeletePublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	err := r.ParseForm()
+	if err != nil {
+		log.Error().Err(err).Msg("Error parsing form")
+		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		return
+	}
+
+	reason := strings.TrimSpace(r.FormValue("reason"))
+	if reason == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `reason` is required")
+		return
+	}
+
 	log.Debug().
 		Str("userID", userID).
 		Str("fingerprint", fingerprint).
-		Msg("Attempting to delete public key")
+		Str("reason", reason).
+		Msg("Attempting to revoke key")
 
-	err := h.services.db.DeletePublicKey(fingerprint, userID)
+	err = h.services.db.RevokeKey(fingerprint, userID, reason)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
 			Str("fingerprint", fingerprint).
-			Err(err).Msg("Error deleting public key")
+			Err(err).Msg("Error revoking key")
 		internalServerError(w)
 		return
 	}
 
-	writeResponse(w, http.StatusOK, "Public key deleted successfully")
+	log.Info().
+		Str("userID", userID).
+		Str("fingerprint", fingerprint).
+		Msg("Key revoked successfully")
+
+	writeResponse(w, http.StatusOK, "Key revoked successfully")
 }
 
 func (h *Handlers) GetReedsByUserID(w http.ResponseWriter, r *http.Request) {
@@ -725,32 +789,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Since we're only storing the signature, we need to get the user's active key fingerprint
-	// from the request headers (set by the signature middleware)
-	fingerprint := r.Header.Get("X-Syrinx-Fingerprint")
-	if fingerprint == "" {
-		log.Error().
-			Str("userID", userID).
-			Msg("No fingerprint found in request headers")
-		writeResponse(w, http.StatusBadRequest, "No fingerprint found in request headers")
-		return
-	}
-	publicKey, err := h.services.db.GetPublicKey(userID, fingerprint)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
-			Err(err).Msg("Error getting public key")
-		internalServerError(w)
-		return
-	}
-
-	if publicKey == nil {
-		writeResponse(w, http.StatusBadRequest, "Identity not found")
-		return
-	}
-
-	// Get the user to find the server fingerprint
+	// Get the user to find the fingerprint
 	user, err := h.services.db.GetUser(userID)
 	if err != nil {
 		log.Error().
@@ -764,9 +803,23 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	publicKey, err := h.services.db.GetPublicKey(userID, user.ServerKeyFingerprint)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", user.ServerKeyFingerprint).
+			Err(err).Msg("Error getting public key")
+		internalServerError(w)
+		return
+	}
+
+	if publicKey == nil {
+		writeResponse(w, http.StatusBadRequest, "Identity not found")
+		return
+	}
+
 	// Get the server's private key for signing the signature
-	serverFingerprint := user.ServerKeyFingerprint
-	privateKey, err := h.services.db.GetPrivateKey(userID, serverFingerprint)
+	privateKey, err := h.services.db.GetPrivateKey(userID, user.ServerKeyFingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -777,9 +830,9 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	if privateKey == nil {
 		log.Error().
 			Str("userID", userID).
-			Str("fingerprint", serverFingerprint).
+			Str("fingerprint", user.ServerKeyFingerprint).
 			Msg("Private key not found for fingerprint")
-		writeResponse(w, http.StatusBadRequest, "Private key "+serverFingerprint+" not found")
+		writeResponse(w, http.StatusBadRequest, "Private key "+user.ServerKeyFingerprint+" not found")
 		return
 	}
 
@@ -790,18 +843,18 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		log.Error().
 			Str("userID", userID).
 			Str("signature", signature).
-			Str("fingerprint", serverFingerprint).
+			Str("fingerprint", user.ServerKeyFingerprint).
 			Err(err).Msg("Error signing")
 		internalServerError(w)
 		return
 	}
 
-	reed, err := h.services.db.CreateReed(reedID, userID, fingerprint, serverFingerprint)
+	reed, err := h.services.db.CreateReed(reedID, userID, user.ServerKeyFingerprint)
 	if err != nil {
 		log.Error().
+			Str("reedID", reedID).
 			Str("userID", userID).
-			Str("userFingerprint", fingerprint).
-			Str("serverFingerprint", serverFingerprint).
+			Str("fingerprint", user.ServerKeyFingerprint).
 			Err(err).Msg("Error creating reed")
 		internalServerError(w)
 		return
@@ -811,6 +864,17 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		Str("userID", userID).
 		Str("reedID", reed.ID).
 		Msg("Reed created successfully")
+
+	// Broadcast the new reed to realtime subscribers
+	h.broadcastChan <- realtime.BroadcastMessage{
+		Type:   realtime.NewReed,
+		UserID: userID,
+		ReedID: reed.ID,
+		Data: map[string]interface{}{
+			"username": user.Username,
+			"content":  "New reed created", // TODO: Extract actual content
+		},
+	}
 
 	writeResponse(w, http.StatusCreated, serverSignature)
 }
@@ -826,6 +890,21 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := h.getUserID(r)
+
+	// Get user information for broadcast
+	user, err := h.services.db.GetUser(userID)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Err(err).Msg("Error getting user")
+		internalServerError(w)
+		return
+	}
+	if user == nil {
+		writeResponse(w, http.StatusBadRequest, "User not found")
+		return
+	}
+
 	// Check if reed exists and belongs to user
 	reed, err := h.services.db.GetReed(userID, reedID)
 	if err != nil {
@@ -865,6 +944,16 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		Str("userID", userID).
 		Str("reedID", reedID).
 		Msg("Reed deleted successfully")
+
+	// Broadcast the reed deletion to realtime subscribers
+	h.broadcastChan <- realtime.BroadcastMessage{
+		Type:   realtime.ReedDeleted,
+		UserID: userID,
+		ReedID: reedID,
+		Data: map[string]interface{}{
+			"username": user.Username,
+		},
+	}
 
 	writeResponse(w, http.StatusOK, "Reed deleted successfully")
 }
@@ -967,12 +1056,12 @@ func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	privateKey, err := h.services.db.GetPrivateKey(reed.UserID, reed.ServerFingerprint)
+	privateKey, err := h.services.db.GetPrivateKey(reed.UserID, reed.Fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
 			Str("reed.userID", reed.UserID).
-			Str("fingerprint", reed.UserFingerprint).
+			Str("fingerprint", reed.Fingerprint).
 			Err(err).Msg("Error getting private key for verification")
 		internalServerError(w)
 		return
@@ -980,9 +1069,9 @@ func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 	if privateKey == nil {
 		log.Error().
 			Str("userID", userID).
-			Str("fingerprint", reed.ServerFingerprint).
+			Str("fingerprint", reed.Fingerprint).
 			Msg("Private key not found for verification")
-		writeResponse(w, http.StatusNotFound, "Private key "+reed.ServerFingerprint+" not found")
+		writeResponse(w, http.StatusNotFound, "Private key "+reed.Fingerprint+" not found")
 		return
 	}
 

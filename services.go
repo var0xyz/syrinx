@@ -1,30 +1,28 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
-	"os"
+	"math/big"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/ProtonMail/go-crypto/openpgp"
-	"github.com/ProtonMail/go-crypto/openpgp/armor"
-	"github.com/ProtonMail/go-crypto/openpgp/packet"
+	"syrinx/crypto"
+
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/sqids/sqids-go"
+	"github.com/uuid25/go-uuid25"
 )
 
 type Services struct {
 	db     *DataService
-	crypto *CryptoService
+	crypto *crypto.Service
 	log    *LoggingService
 	md     *MarkdownService
 }
@@ -34,11 +32,15 @@ type Services struct {
 // =============== //
 
 type DataService struct {
-	db *sql.DB
+	db         *sql.DB
+	serverName string
 }
 
-func NewDataService(db *sql.DB) *DataService {
-	return &DataService{db: db}
+func NewDataService(db *sql.DB, serverName string) *DataService {
+	return &DataService{
+		db:         db,
+		serverName: serverName,
+	}
 }
 
 func (s *DataService) CreateUser(username string) (*User, error) {
@@ -64,10 +66,27 @@ func (s *DataService) CreateUser(username string) (*User, error) {
 		return nil, err
 	}
 
-	id, err := sqidsEncoder.Encode([]uint64{count})
+	// Add a random number to the list
+	randomNum, err := rand.Int(rand.Reader, big.NewInt(1<<32))
 	if err != nil {
 		return nil, err
 	}
+	log.Info().
+		Uint64("count", count).
+		Uint64("randomNum", randomNum.Uint64()).
+		Msg("Generating Sqids ID")
+
+	id, err := sqidsEncoder.Encode([]uint64{count, randomNum.Uint64()})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msg("Failed to generate Sqids ID")
+		return nil, err
+	}
+	log.Info().
+		Str("id", id).
+		Str("serverName", s.serverName).
+		Msg("Sqids ID generated successfully")
 
 	// Insert user with generated ID
 	var avatarURL sql.NullString
@@ -78,7 +97,7 @@ func (s *DataService) CreateUser(username string) (*User, error) {
 	err = tx.QueryRow(`
 		INSERT INTO users (id, username)
 		VALUES ($1, $2) RETURNING id, username, avatar_url, bio, server_key_fingerprint, created_at
-	`, id, username).Scan(
+	`, id+"@"+s.serverName, username).Scan(
 		&user.ID,
 		&user.Username,
 		&avatarURL,
@@ -242,7 +261,7 @@ func (s *DataService) SetDefaultIdentity(userID string, identityID uuid.UUID) er
 	return nil
 }
 
-func (s *DataService) SaveKeyPair(key *KeyPair) (*PublicKey, error) {
+func (s *DataService) SaveKeyPair(key *crypto.KeyPair) (*PublicKey, error) {
 	_, err := s.db.Exec(`
 		INSERT INTO private_keys (fingerprint, user_id, armor, expires_at, created_at)
 		VALUES ($1, $2, $3, $4, $5)
@@ -340,6 +359,19 @@ func (s *DataService) GetPublicKey(userID string, fingerprint string) (*PublicKe
 	return &key, nil
 }
 
+func (s *DataService) IsPublicKeyRevoked(key *PublicKey) (bool, error) {
+	var revoked bool
+
+	err := s.db.QueryRow(`
+		SELECT revoked FROM public_keys WHERE fingerprint = $1
+	`, key.Fingerprint).Scan(&revoked)
+	if err != nil {
+		return false, err
+	}
+
+	return revoked, nil
+}
+
 func (s *DataService) PublicKeyExists(fingerprint string) (bool, error) {
 	var exists bool
 
@@ -371,50 +403,40 @@ func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt 
 	return &publicKey, nil
 }
 
-func (s *DataService) DeletePublicKey(fingerprint string, userID string) error {
+func (s *DataService) RevokeKey(fingerprint string, userID string, reason string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	var defaultIdentityID uuid.UUID
-	err = tx.QueryRow(`
-         SELECT default_identity_id
-         FROM profiles
-         WHERE user_id = $1
-	`, userID).Scan(&defaultIdentityID)
-	if err != nil {
-		return err
-	}
-
-	var defaultIdentityFingerprint string
-	err = tx.QueryRow(`
-	    SELECT public_keys.fingerprint
-		FROM public_keys
-		JOIN identities
-			ON public_keys.fingerprint = identities.public_key_fingerprint
-		WHERE public_key_identities.id = $1
-	`, defaultIdentityID).Scan(&defaultIdentityFingerprint)
-	if err != nil {
-		return err
-	}
-
-	if defaultIdentityFingerprint == fingerprint {
-		_, err = tx.Exec(`
-			UPDATE profiles
-			SET default_identity_id = NULL
-			WHERE user_id = $1
-		`, userID)
-		if err != nil {
-			return err
-		}
-	}
-
+	// Mark public key as revoked
 	_, err = tx.Exec(`
-		DELETE FROM public_keys
-		WHERE user_id = $1 AND fingerprint = $2
-	`, userID, fingerprint)
+		UPDATE public_keys
+		SET revoked = TRUE
+		WHERE fingerprint = $1 AND user_id = $2
+	`, fingerprint, userID)
+	if err != nil {
+		return err
+	}
+
+	// Mark private key as revoked
+	_, err = tx.Exec(`
+		UPDATE private_keys
+		SET revoked = TRUE
+		WHERE fingerprint = $1 AND user_id = $2
+	`, fingerprint, userID)
+	if err != nil {
+		return err
+	}
+
+	// Insert revocation record
+	_, err = tx.Exec(`
+		INSERT INTO revokations (fingerprint, user_id, reason, revoked_at)
+		VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+		ON CONFLICT (fingerprint) DO UPDATE
+		SET reason = $3
+	`, fingerprint, userID, reason)
 	if err != nil {
 		return err
 	}
@@ -427,17 +449,52 @@ func (s *DataService) DeletePublicKey(fingerprint string, userID string) error {
 	return nil
 }
 
-func (s *DataService) CreateReed(reedID string, userID string, userFingerprint string, serverFingerprint string) (*Reed, error) {
+// validateUUID25 validates that the provided string is a valid UUID25 encoding of a UUID v7
+func validateUUID25(uuid25Str string) error {
+	// Check if it's a valid UUID25 format (25 characters)
+	if len(uuid25Str) != 25 {
+		return fmt.Errorf("UUID25 must be exactly 25 characters, got %d", len(uuid25Str))
+	}
+
+	// Parse UUID25 to get the original UUID
+	u25, err := uuid25.Parse(uuid25Str)
+	if err != nil {
+		return fmt.Errorf("invalid UUID25 format: %w", err)
+	}
+
+	// Convert to standard UUID (hyphenated format)
+	decodedUUID := u25.ToHyphenated()
+
+	// Parse the decoded UUID
+	parsedUUID, err := uuid.Parse(decodedUUID)
+	if err != nil {
+		return fmt.Errorf("invalid UUID format after decoding: %w", err)
+	}
+
+	// Check if it's version 7
+	if parsedUUID.Version() != 7 {
+		return fmt.Errorf("UUID must be version 7, got version %d", parsedUUID.Version())
+	}
+
+	return nil
+}
+
+func (s *DataService) CreateReed(reedID string, userID string, fingerprint string) (*Reed, error) {
+	// Validate that the reed ID is a valid UUID25 encoding of a UUID v7
+	err := validateUUID25(reedID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid reed ID: %w", err)
+	}
+
 	var reed Reed
-	err := s.db.QueryRow(`
-		INSERT INTO reeds (id, user_id, user_fingerprint, server_fingerprint)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, user_id, user_fingerprint, server_fingerprint, signed_at
-	`, reedID, userID, userFingerprint, serverFingerprint).Scan(
+	err = s.db.QueryRow(`
+		INSERT INTO reeds (id, user_id, fingerprint)
+		VALUES ($1, $2, $3)
+		RETURNING id, user_id, fingerprint, signed_at
+	`, reedID, userID, fingerprint).Scan(
 		&reed.ID,
 		&reed.UserID,
-		&reed.UserFingerprint,
-		&reed.ServerFingerprint,
+		&reed.Fingerprint,
 		&reed.SignedAt,
 	)
 	if err != nil {
@@ -450,7 +507,7 @@ func (s *DataService) GetReedsByUserID(userID string) ([]Reed, error) {
 	var reeds []Reed
 
 	rows, err := s.db.Query(`
-		SELECT id, user_id, user_fingerprint, server_fingerprint, signed_at
+		SELECT id, user_id, fingerprint, signed_at
 		FROM reeds
 		WHERE user_id = $1
 	`, userID)
@@ -463,8 +520,7 @@ func (s *DataService) GetReedsByUserID(userID string) ([]Reed, error) {
 		err := rows.Scan(
 			&reed.ID,
 			&reed.UserID,
-			&reed.UserFingerprint,
-			&reed.ServerFingerprint,
+			&reed.Fingerprint,
 			&reed.SignedAt,
 		)
 		if err != nil {
@@ -484,15 +540,14 @@ func (s *DataService) GetReedsByUserID(userID string) ([]Reed, error) {
 func (s *DataService) GetReed(userID string, reedID string) (*Reed, error) {
 	var reed Reed
 	err := s.db.QueryRow(`
-	SELECT id, user_id, user_fingerprint, server_fingerprint, signed_at
+	SELECT id, user_id, fingerprint, signed_at
 		FROM reeds
 		WHERE id = $1 AND user_id = $2
 	`, reedID, userID,
 	).Scan(
 		&reed.ID,
 		&reed.UserID,
-		&reed.UserFingerprint,
-		&reed.ServerFingerprint,
+		&reed.Fingerprint,
 		&reed.SignedAt,
 	)
 	if err != nil {
@@ -521,424 +576,8 @@ func (s *DataService) DeleteReed(reedID string) error {
 //   CryptoService   //
 // ================= //
 
-type CryptoService struct {
-}
-
-func NewCryptoService(privateKeyFile string) *CryptoService {
-	// Check if the required private key file exists
-	if _, err := os.Stat(privateKeyFile); os.IsNotExist(err) {
-		panic(fmt.Sprintf("required private key file '%s' does not exist", privateKeyFile))
-	}
-
-	return &CryptoService{}
-}
-
-type CryptographicKey struct {
-	Fingerprint string
-	CreatedAt   time.Time
-	ExpiresAt   *time.Time
-	Armor       string
-}
-
-type KeyPair struct {
-	Fingerprint string
-	UserID      string
-	PublicKey   string
-	PrivateKey  string
-	CreatedAt   time.Time
-	ExpiresAt   *time.Time
-	Identity    string
-}
-
-type SignedReed struct {
-	ID       string    `json:"id"`
-	UserID   string    `json:"userID"`
-	SignedAt time.Time `json:"signedAt"`
-	Identity string    `json:"identity"`
-
-	UserFingerprint   string `json:"userFingerprint"`
-	ServerFingerprint string `json:"serverFingerprint"`
-
-	Signature string `json:"signature"`
-}
-
-func (s *CryptoService) GenerateNonce() (string, error) {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
-}
-
-func (s *CryptoService) ExtractMessageFromSignature(signature string) string {
-	lines := strings.Split(signature, "\n")
-	inBlock := false
-	inMessage := false
-	message := ""
-
-	for _, line := range lines {
-		if line == "-----BEGIN PGP SIGNED MESSAGE-----" {
-			inBlock = true
-			continue
-		}
-		if line == "-----BEGIN PGP SIGNATURE-----" {
-			// We went too far
-			break
-		}
-		if inBlock {
-			if line == "" {
-				inMessage = true
-				continue
-			}
-			if inMessage {
-				if strings.HasPrefix(line, "- ") {
-					message += strings.TrimPrefix(line, "- ") + "\n"
-				} else {
-					message += line + "\n"
-				}
-			}
-		}
-	}
-
-	return message
-}
-
-func (s *CryptoService) ExtractEntitiesFromMessage(message string) ([]*openpgp.Entity, error) {
-	_, err := openpgp.ReadArmoredKeyRing(strings.NewReader(message))
-	if err != nil {
-		return nil, fmt.Errorf("error parsing message: %w", err)
-	}
-
-	lines := strings.Split(message, "\n")
-	inKey := false
-	var entities []*openpgp.Entity
-	var key []byte
-
-	for _, line := range lines {
-		if line == "-----BEGIN PGP PUBLIC KEY BLOCK-----" {
-			key = append(key, []byte(line+"\n")...)
-			inKey = true
-			continue
-		}
-		if inKey {
-			key = append(key, []byte(line+"\n")...)
-			if line == "-----END PGP PUBLIC KEY BLOCK-----" {
-				keyRing, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(key))
-				if err != nil {
-					return nil, err
-				}
-				entities = append(entities, keyRing...)
-				inKey = false
-				key = nil
-			}
-		}
-	}
-
-	return entities, nil
-}
-
-func (s *CryptoService) ExtractCreationTime(publicKey *packet.PublicKey) time.Time {
-	return publicKey.CreationTime
-}
-
-func (s *CryptoService) ExtractExpirationTime(identity *openpgp.Identity, createdAt time.Time) *time.Time {
-	var keyLifetimeSecs uint32
-	if identity.SelfSignature != nil {
-		if identity.SelfSignature.KeyLifetimeSecs != nil {
-			keyLifetimeSecs = *identity.SelfSignature.KeyLifetimeSecs
-		}
-	}
-
-	var expiresAt *time.Time
-	if keyLifetimeSecs > 0 {
-		expirationTime := createdAt.Add(time.Duration(keyLifetimeSecs) * time.Second)
-		expiresAt = &expirationTime
-	}
-
-	return expiresAt
-}
-
-func (s *CryptoService) ExtractKeyExpirationTime(entity *openpgp.Entity, createdAt time.Time) *time.Time {
-	// Check if any identity has a self-signature with key lifetime
-	// The key lifetime is typically set in the identity self-signatures
-	for _, identity := range entity.Identities {
-		if identity.SelfSignature != nil && identity.SelfSignature.KeyLifetimeSecs != nil {
-			keyLifetimeSecs := *identity.SelfSignature.KeyLifetimeSecs
-			if keyLifetimeSecs > 0 {
-				expirationTime := createdAt.Add(time.Duration(keyLifetimeSecs) * time.Second)
-				return &expirationTime
-			}
-		}
-	}
-
-	// If no key lifetime found, return nil (key doesn't expire)
-	return nil
-}
-
-func (s *CryptoService) ExtractPublicKeyArmorFromEntity(entity *openpgp.Entity) (string, error) {
-	var buf bytes.Buffer
-	w, err := armor.Encode(&buf, openpgp.PublicKeyType, nil)
-	if err != nil {
-		return "", err
-	}
-
-	err = entity.Serialize(w)
-	if err != nil {
-		w.Close()
-		return "", err
-	}
-
-	err = w.Close()
-	if err != nil {
-		return "", err
-	}
-
-	return buf.String(), nil
-}
-
-func (s *CryptoService) FindEntityByIdentity(entities openpgp.EntityList, uid string) *openpgp.Entity {
-	for _, entity := range entities {
-		for _, identity := range entity.Identities {
-			if identity.Name == uid {
-				return entity
-			}
-		}
-	}
-
-	return nil
-}
-
-// TODO: Encrypt each user's server key with our own public key. Our public key
-// won't be stored in the database, meaning that if the DB is compromised, the
-// server keys of all users will be encrypted. The attacker would also need
-// access to the FS, or to read the key from memory.
-func (s *CryptoService) CreateServerKey(userID string, email string) (*KeyPair, error) {
-	// Create a new entity with a primary key pair
-	comment := "syrinx.var0.xyz"
-	entity, err := openpgp.NewEntity(userID, comment, email, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create entity: %w", err)
-	}
-
-	// Sign all the identities
-	var identity string
-	for _, id := range entity.Identities {
-		err := id.SelfSignature.SignUserId(id.UserId.Id, entity.PrimaryKey, entity.PrivateKey, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to sign identity: %w", err)
-		}
-		identity = id.UserId.Id
-	}
-
-	// Serialize the public key
-	var publicBuf bytes.Buffer
-	err = entity.Serialize(&publicBuf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize public key: %w", err)
-	}
-
-	// Armor encode the public key
-	var publicArmored bytes.Buffer
-	publicW, err := armor.Encode(&publicArmored, openpgp.PublicKeyType, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create public key armor encoder: %w", err)
-	}
-
-	_, err = publicW.Write(publicBuf.Bytes())
-	if err != nil {
-		return nil, fmt.Errorf("failed to write armored public key: %w", err)
-	}
-
-	err = publicW.Close()
-	if err != nil {
-		return nil, fmt.Errorf("failed to close public key armor encoder: %w", err)
-	}
-
-	// Serialize the private key first
-	var privateBuf bytes.Buffer
-	err = entity.SerializePrivate(&privateBuf, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize private key: %w", err)
-	}
-
-	// Server keys are stored unencrypted since the server controls them
-	privateKeyData := privateBuf.Bytes()
-
-	// Armor encode the private key
-	var privateArmored bytes.Buffer
-	privateW, err := armor.Encode(&privateArmored, openpgp.PrivateKeyType, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create private key armor encoder: %w", err)
-	}
-
-	_, err = privateW.Write(privateKeyData)
-	if err != nil {
-		return nil, fmt.Errorf("failed to write armored private key: %w", err)
-	}
-
-	err = privateW.Close()
-	if err != nil {
-		return nil, fmt.Errorf("failed to close private key armor encoder: %w", err)
-	}
-
-	expiresAt := s.ExtractKeyExpirationTime(entity, time.Now())
-
-	keyPair := &KeyPair{
-		Fingerprint: hex.EncodeToString(entity.PrimaryKey.Fingerprint),
-		UserID:      userID,
-		PublicKey:   publicArmored.String(),
-		PrivateKey:  privateArmored.String(),
-		CreatedAt:   time.Now(),
-		ExpiresAt:   expiresAt,
-		Identity:    identity,
-	}
-
-	return keyPair, nil
-}
-
-func (s *CryptoService) Sign(message string, privateKey string) (string, error) {
-	// Parse the armored private key
-	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(privateKey))
-	if err != nil {
-		return "", fmt.Errorf("failed to parse private key: %w", err)
-	}
-
-	if len(entities) == 0 {
-		return "", fmt.Errorf("no entities found in private key")
-	}
-
-	entity := entities[0]
-
-	// Generate a detached signature
-	var sigBuf bytes.Buffer
-	err = openpgp.DetachSign(&sigBuf, entity, strings.NewReader(message), nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create detached signature: %w", err)
-	}
-
-	// Armor encode the signature
-	var armoredBuf bytes.Buffer
-	armorWriter, err := armor.Encode(&armoredBuf, openpgp.SignatureType, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create armor encoder: %w", err)
-	}
-
-	_, err = armorWriter.Write(sigBuf.Bytes())
-	if err != nil {
-		armorWriter.Close()
-		return "", fmt.Errorf("failed to write armored signature: %w", err)
-	}
-
-	err = armorWriter.Close()
-	if err != nil {
-		return "", fmt.Errorf("failed to close armor encoder: %w", err)
-	}
-
-	// Remove PGP signature delimiters and clean up whitespace
-	armoredSignature := armoredBuf.String()
-
-	// Remove the armor delimiters
-	cleanedSignature := strings.TrimSpace(armoredSignature)
-	cleanedSignature = strings.TrimPrefix(cleanedSignature, "-----BEGIN PGP SIGNATURE-----")
-	cleanedSignature = strings.TrimSuffix(cleanedSignature, "-----END PGP SIGNATURE-----")
-	cleanedSignature = strings.TrimSpace(cleanedSignature)
-
-	return cleanedSignature, nil
-}
-
-func (s *CryptoService) VerifySignature(reed string, signature string, publicKey string) error {
-	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
-	if err != nil {
-		return err
-	}
-
-	// Verify the detached signature against the reed content
-	_, err = openpgp.CheckArmoredDetachedSignature(entities, strings.NewReader(reed), strings.NewReader(signature), nil)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// VerifySignedChallenge verifies a signed challenge using the provided public key
-func (s *CryptoService) VerifySignedChallenge(signature string, publicKey string, challenge string) error {
-	// Read the public key entities
-	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
-	if err != nil {
-		return fmt.Errorf("failed to read public key: %w", err)
-	}
-
-	if len(entities) == 0 {
-		return fmt.Errorf("no entities found in public key")
-	}
-
-	// Decode ASCII armor to get binary signature
-	block, err := armor.Decode(strings.NewReader(signature))
-	if err != nil {
-		return fmt.Errorf("failed to decode ASCII-armored signature: %w", err)
-	}
-
-	// This is a detached signature, verify it against the challenge
-	_, err = openpgp.CheckDetachedSignature(entities, strings.NewReader(challenge), block.Body, nil)
-	if err != nil {
-		return fmt.Errorf("detached signature verification failed: %w", err)
-	}
-
-	return nil
-}
-
-func (s *CryptoService) GetDummyNonce() string {
-	nonce, err := s.GenerateNonce()
-	if err != nil {
-		return ""
-	}
-
-	return nonce
-}
-
-// ValidateAndExtractPublicKey validates a public key and its signature, then extracts metadata
-func (s *CryptoService) ValidateAndExtractPublicKey(publicKey, signature string) (*CryptographicKey, error) {
-	// Parse the public key
-	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
-	if err != nil {
-		return nil, fmt.Errorf("invalid public key: %w", err)
-	}
-
-	if len(entities) == 0 {
-		return nil, fmt.Errorf("no entities found in public key")
-	}
-
-	// Security: Only process the key that was used to sign
-	if len(entities) > 1 {
-		return nil, fmt.Errorf("multiple keys found in keyring. Please upload only the single key that signed the request")
-	}
-
-	// Verify the signature using the public key
-	err = s.VerifySignedChallenge(signature, publicKey, publicKey)
-	if err != nil {
-		return nil, fmt.Errorf("invalid signature: the public key was not signed by the provided private key: %w", err)
-	}
-
-	// Extract key metadata
-	entity := entities[0]
-	fingerprint := hex.EncodeToString(entity.PrimaryKey.Fingerprint)
-	creationTime := s.ExtractCreationTime(entity.PrimaryKey)
-	keyExpirationTime := s.ExtractKeyExpirationTime(entity, creationTime)
-
-	// Extract the public key armor
-	extractedPublicKeyArmor, err := s.ExtractPublicKeyArmorFromEntity(entity)
-	if err != nil {
-		return nil, fmt.Errorf("error extracting public key armor: %w", err)
-	}
-
-	return &CryptographicKey{
-		Fingerprint: fingerprint,
-		CreatedAt:   creationTime,
-		ExpiresAt:   keyExpirationTime,
-		Armor:       extractedPublicKeyArmor,
-	}, nil
-}
+// CryptoService has been moved to the crypto package
+// All crypto operations are now handled by crypto.Service
 
 // ================== //
 //   LoggingService   //

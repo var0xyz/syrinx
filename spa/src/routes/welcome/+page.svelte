@@ -33,33 +33,22 @@
         </div>
       </div>
 
-      <div class="step">
-        <div class="step-icon">🔒</div>
+      <div class="step success-step">
+        <div class="step-icon">✅</div>
         <div class="step-content">
-          <h3>Private Key Stored Locally</h3>
-          <p>Your private key remains safely stored on your device. <strong>This key never leaves your device</strong> and is essential for reading your messages.</p>
+          <h3>App Ready to Use!</h3>
+          <p>Your Syrinx account has been fully configured and is ready for secure messaging. You can now start posting and connecting with others!</p>
         </div>
       </div>
     </div>
 
-    <div class="important-notice">
-      <h3>Backup Your Private Key</h3>
-      <p>Your private key is crucial for accessing your messages. If you lose it, you won't be able to read your encrypted messages.</p>
-      <p><strong>We strongly recommend:</strong></p>
-      <ul>
-        <li>Going to your profile to view and backup your private key</li>
-        <li>Storing the backup in a secure location (password manager, encrypted storage, etc.)</li>
-        <li>Never sharing your private key with anyone</li>
-      </ul>
-    </div>
-
   </div>
     <div class="action-buttons">
-      <a href="/profile" class="btn btn-primary">
-        Go to Profile
+      <a href="/reeds" class="btn btn-primary">
+        Start Posting!
       </a>
-      <a href="/reeds" class="btn btn-secondary">
-        Go to Reeds
+      <a href="/profile" class="btn btn-secondary">
+        View Profile
       </a>
     </div>
 </div>
@@ -110,6 +99,15 @@
     margin: 0;
     color: var(--muted);
     line-height: 1.5;
+  }
+
+  .success-step {
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+  }
+
+  .success-step .step-content h3 {
+    color: #22c55e;
   }
 
   .important-notice {

@@ -127,7 +127,6 @@
 <style>
   .username-status {
     font-size: 0.75rem;
-    margin-top: 0.25rem;
     transition: color 0.3s ease;
   }
 

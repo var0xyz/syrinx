@@ -27,15 +27,6 @@ class RequestSignerService {
         return;
       }
 
-      // Check if we can communicate with the active service worker directly
-      navigator.serviceWorker.getRegistration().then(registration => {
-        if (registration?.active && registration.active.state === 'activated') {
-          console.log('RequestSigner: Service worker is active, using direct communication');
-          resolve();
-          return;
-        }
-      });
-
       console.log('RequestSigner: Waiting for service worker to be ready...');
 
       // Check if service worker is registered
@@ -47,27 +38,30 @@ class RequestSignerService {
 
         console.log('RequestSigner: Service worker registration found:', registration);
 
-        // Check if service worker is already active
+        // If there's an active service worker, use it directly
         if (registration.active && registration.active.state === 'activated') {
-          console.log('RequestSigner: Service worker is active, waiting for controller...');
-        } else if (registration.installing) {
-          console.log('RequestSigner: Service worker is installing...');
-        } else if (registration.waiting) {
-          console.log('RequestSigner: Service worker is waiting, trying to activate...');
-          // Try to activate the waiting service worker
+          console.log('RequestSigner: Service worker is active, using direct communication');
+          resolve();
+          return;
+        }
+
+        // If there's a waiting service worker, try to activate it
+        if (registration.waiting) {
+          console.log('RequestSigner: Activating waiting service worker');
           registration.waiting.postMessage({ type: 'SKIP_WAITING' });
         }
 
-        // Wait for service worker to be ready with longer timeout
+        // Wait for controller with timeout
         const timeout = setTimeout(() => {
-          console.error('RequestSigner: Service worker timeout - registration:', registration);
-          reject(new Error('Service worker initialization timeout - service worker may be taking too long to load external scripts'));
+          console.error('RequestSigner: Service worker timeout');
+          reject(new Error('Service worker initialization timeout'));
         }, 5000); // 5 second timeout
 
         const checkController = () => {
           if (navigator.serviceWorker.controller) {
             console.log('RequestSigner: Service worker controller is ready');
             clearTimeout(timeout);
+            navigator.serviceWorker.removeEventListener('controllerchange', checkController);
             resolve();
           }
         };
@@ -75,7 +69,7 @@ class RequestSignerService {
         // Listen for controller change
         navigator.serviceWorker.addEventListener('controllerchange', checkController);
 
-        // Also check periodically in case the event doesn't fire
+        // Also check periodically
         const interval = setInterval(() => {
           if (navigator.serviceWorker.controller) {
             console.log('RequestSigner: Service worker controller found via polling');
@@ -84,64 +78,14 @@ class RequestSignerService {
             navigator.serviceWorker.removeEventListener('controllerchange', checkController);
             resolve();
           }
-        }, 100); // Check more frequently
-
-        // If service worker is active but not controlling, wait a bit longer
-        if (registration.active && registration.active.state === 'activated' && !navigator.serviceWorker.controller) {
-          console.log('RequestSigner: Service worker is active but not controlling, waiting for controller...');
-          // Wait a bit longer for the service worker to take control
-          setTimeout(() => {
-            if (navigator.serviceWorker.controller) {
-              console.log('RequestSigner: Service worker controller became available after delay');
-              clearTimeout(timeout);
-              clearInterval(interval);
-              navigator.serviceWorker.removeEventListener('controllerchange', checkController);
-              resolve();
-            }
-          }, 2000); // Wait 2 seconds for the service worker to claim control
-        }
-
-        // Try to test communication with service worker after a short delay
-        setTimeout(async () => {
-          if (navigator.serviceWorker.controller) {
-            try {
-              console.log('RequestSigner: Testing service worker communication...');
-              const channel = new MessageChannel();
-              const testPromise = new Promise((resolveTest, rejectTest) => {
-                const testTimeout = setTimeout(() => {
-                  rejectTest(new Error('Service worker communication test timeout'));
-                }, 2000);
-
-                channel.port1.onmessage = (event) => {
-                  clearTimeout(testTimeout);
-                  if (event.data && event.data.success !== undefined) {
-                    console.log('RequestSigner: Service worker communication test successful');
-                    resolveTest(undefined);
-                  } else {
-                    rejectTest(new Error('Service worker communication test failed'));
-                  }
-                };
-              });
-
-              // Send a test message
-              navigator.serviceWorker.controller.postMessage(
-                { type: 'TEST_COMMUNICATION' },
-                [channel.port2]
-              );
-
-              await testPromise;
-              console.log('RequestSigner: Service worker is ready and responsive');
-            } catch (error) {
-              console.warn('RequestSigner: Service worker communication test failed:', error);
-            }
-          }
-        }, 1000);
+        }, 100);
 
         // Clean up on timeout
         setTimeout(() => {
           clearInterval(interval);
           navigator.serviceWorker.removeEventListener('controllerchange', checkController);
-        }, 15000);
+        }, 6000);
+
       }).catch(error => {
         console.error('RequestSigner: Service worker registration check failed:', error);
         reject(new Error(`Service worker registration check failed: ${error.message}`));
@@ -149,17 +93,22 @@ class RequestSignerService {
     });
   }
 
+
   /**
    * Initialize the service worker with a decrypted private key
    * Key is decrypted, passed to worker, then immediately discarded
    */
   async initializeWorker(fingerprint: string, passphrase: string): Promise<void> {
-    try {
-      console.log('RequestSigner: Starting service worker initialization...');
+    const maxRetries = 3;
+    let lastError: Error | null = null;
 
-      // Wait for service worker to be ready
-      await this.waitForServiceWorker();
-      console.log('RequestSigner: Service worker is ready');
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`RequestSigner: Starting service worker initialization (attempt ${attempt}/${maxRetries})...`);
+
+        // Wait for service worker to be ready
+        await this.waitForServiceWorker();
+        console.log('RequestSigner: Service worker is ready');
 
       // Get the private key from IndexedDB
       const keyData = await privateKeyRepository.getPrivateKey(fingerprint);
@@ -181,16 +130,19 @@ class RequestSignerService {
       // Set up promise to wait for response
       const initPromise = new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
+          console.error('RequestSigner: Service worker initialization timeout after 30 seconds');
           reject(new Error('Service worker key initialization timeout'));
-        }, 10000); // 10 second timeout for key initialization
+        }, 30000); // 30 second timeout for key initialization
 
         channel.port1.onmessage = (event) => {
           clearTimeout(timeout);
+          console.log('RequestSigner: Received response from service worker:', event.data);
           if (event.data.success) {
             console.log('RequestSigner: Service worker key initialization successful');
             this.initialized = true;
             resolve();
           } else {
+            console.error('RequestSigner: Service worker initialization failed:', event.data.error);
             reject(new Error(event.data.error || 'Failed to initialize worker'));
           }
         };
@@ -199,11 +151,13 @@ class RequestSignerService {
       console.log('RequestSigner: Sending INIT_KEY message to service worker');
       // Send initialization message to service worker
       const registration = await navigator.serviceWorker.getRegistration();
-      const serviceWorker = navigator.serviceWorker.controller || registration?.active;
+      const serviceWorker = navigator.serviceWorker.controller || registration?.active || registration?.waiting;
 
       if (!serviceWorker) {
         throw new Error('No service worker available');
       }
+
+      console.log('RequestSigner: Using service worker:', serviceWorker.state);
 
       serviceWorker.postMessage(
         {
@@ -218,12 +172,23 @@ class RequestSignerService {
         [channel.port2]
       );
 
-      await initPromise;
-      console.log('RequestSigner: Service worker initialization complete');
-    } catch (error) {
-      console.error('Failed to initialize request signer:', error);
-      throw error;
+        await initPromise;
+        console.log('RequestSigner: Service worker initialization complete');
+        return; // Success, exit the retry loop
+      } catch (error) {
+        lastError = error as Error;
+        console.error(`RequestSigner: Attempt ${attempt} failed:`, error);
+
+        if (attempt < maxRetries) {
+          console.log(`RequestSigner: Retrying in 2 seconds...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
     }
+
+    // If we get here, all retries failed
+    console.error('RequestSigner: All initialization attempts failed');
+    throw lastError || new Error('Failed to initialize request signer after all retries');
   }
 
   /**
@@ -255,7 +220,7 @@ class RequestSignerService {
       });
 
       const registration = await navigator.serviceWorker.getRegistration();
-      const serviceWorker = navigator.serviceWorker.controller || registration?.active;
+      const serviceWorker = navigator.serviceWorker.controller || registration?.active || registration?.waiting;
 
       if (!serviceWorker) {
         throw new Error('No service worker available');
@@ -273,6 +238,22 @@ class RequestSignerService {
     }
   }
 
+
+  /**
+   * Sign arbitrary text using the service worker
+   * This is the core signing primitive
+   */
+  async sign(text: string): Promise<string> {
+    if (!this.initialized) {
+      throw new Error('Request signer not initialized');
+    }
+
+    // Get signature from service worker
+    const signature = await this.getSignatureFromWorker(text);
+
+    // Return the base64-encoded signature
+    return this.encodeBase64Signature(signature);
+  }
 
   /**
    * Sign a request by adding the required headers and signature
@@ -316,19 +297,18 @@ class RequestSignerService {
 
     // Build canonical request string (no headers needed)
     const canonicalRequest = this.buildCanonicalRequestString(method, path, body, timestamp);
-    console.log('RequestSigner: Canonical request string:\n', canonicalRequest);
 
-    // Get signature from service worker
-    const signature = await this.getSignatureFromWorker(canonicalRequest);
+    // Get signature using the generic sign method (already base64 encoded)
+    const signature = await this.sign(canonicalRequest);
 
     // Add signature headers
     const signedHeaders = new Headers(options.headers);
     signedHeaders.set('X-Syrinx-User-Id', user.id);
     signedHeaders.set('X-Syrinx-Fingerprint', fingerprint);
-    signedHeaders.set('X-Syrinx-Algorithm', 'PGP');
+    signedHeaders.set('X-Syrinx-Algorithm', 'PGP+base64');
     signedHeaders.set('X-Syrinx-Signature-Scope', 'body');
     signedHeaders.set('X-Syrinx-Timestamp', timestamp);
-    signedHeaders.set('X-Syrinx-Signature', this.escapeSignature(signature));
+    signedHeaders.set('X-Syrinx-Signature', signature);
 
     return {
       ...options,
@@ -345,7 +325,7 @@ class RequestSignerService {
   private buildCanonicalRequestString(method: string, path: string, body: string = '', timestamp: string = ''): string {
     const builder = [];
 
-    // Add method and path
+    // Add method and path (path already includes query string from signRequest)
     builder.push(`${method} ${path}`);
     console.log('RequestSigner: Method:', method);
     console.log('RequestSigner: Path:', path);
@@ -364,10 +344,11 @@ class RequestSignerService {
   }
 
   /**
-   * Escape signature for header
+   * Encode signature as base64 for PGP+base64 algorithm
    */
-  private escapeSignature(signature: string): string {
-    return signature.replace(/\n/g, '\\n');
+  private encodeBase64Signature(signature: string): string {
+
+    return btoa(signature.trim());
   }
 
   /**
@@ -392,7 +373,7 @@ class RequestSignerService {
 
       // Send sign text message to service worker
       const registration = await navigator.serviceWorker.getRegistration();
-      const serviceWorker = navigator.serviceWorker.controller || registration?.active;
+      const serviceWorker = navigator.serviceWorker.controller || registration?.active || registration?.waiting;
 
       if (!serviceWorker) {
         throw new Error('No service worker available');

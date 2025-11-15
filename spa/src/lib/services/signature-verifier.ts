@@ -73,16 +73,6 @@ export function buildCanonicalHeaderString(headers: Headers | Record<string, str
 }
 
 /**
- * Adds PGP armor delimiters to a stripped signature
- *
- * @param signature - Signature without armor delimiters
- * @returns Signature with armor delimiters
- */
-export function addArmorDelimiters(signature: string): string {
-  return `-----BEGIN PGP SIGNATURE-----\n\n${signature}\n-----END PGP SIGNATURE-----`;
-}
-
-/**
  * Verifies the Signature header for a response
  * Now verifies the complete response (headers + body) instead of just headers
  *
@@ -118,12 +108,9 @@ export async function verifyResponseSignature(
     if (typeof window !== 'undefined' && window.openpgp) {
       const publicKey = await window.openpgp.readKey({ armoredKey: serverPublicKey });
 
-      // Add armor delimiters back to the signature
-      const armoredSignature = addArmorDelimiters(signature);
-
       // Parse the detached signature
       const signatureMessage = await window.openpgp.readMessage({
-        armoredMessage: armoredSignature
+        armoredMessage: signature
       });
 
       // Create a message from the complete response
@@ -197,74 +184,6 @@ export async function secureApiRequest(
   }
 
   return response;
-}
-
-/**
- * Example usage with the Syrinx API
- */
-export async function exampleUsage(): Promise<void> {
-  try {
-    // 1. First, get the server's public key (you would fetch this from the API)
-    const serverKeyResponse = await fetch('/api/users/me/server-key', {
-      credentials: 'include'
-    });
-    const { publicKey } = await serverKeyResponse.json();
-
-    // 2. Make a secure API request with signature verification
-    const response = await secureApiRequest(
-      '/api/users/me',
-      { method: 'GET' },
-      publicKey
-    );
-
-    // 3. Check if signature was valid
-    if (response.signatureValid) {
-      console.log('✓ Response signature verified successfully');
-      const data = await response.json();
-      console.log('User data:', data);
-    } else {
-      console.error('✗ Response signature verification failed');
-      // Handle untrusted response
-    }
-
-  } catch (error) {
-    console.error('API request failed:', error);
-  }
-}
-
-/**
- * Manual verification example
- */
-export async function manualVerificationExample(): Promise<void> {
-  // Make request
-  const response = await fetch('/api/users/me', {
-    credentials: 'include'
-  });
-
-  // Extract signature
-  const escapedSignature = response.headers.get('Signature');
-  console.log('Escaped signature:', escapedSignature);
-
-  // Unescape newlines from the signature
-  const signature = escapedSignature.replace(/\\n/g, '\n');
-  console.log('Unescaped signature:', signature);
-
-  // Build canonical header string manually
-  const headers: Record<string, string> = {};
-  for (const [name, value] of response.headers.entries()) {
-    if (name !== 'signature') {
-      headers[name] = value;
-    }
-  }
-
-  const canonical = buildCanonicalHeaderString(headers);
-  console.log('Canonical headers:\n', canonical);
-
-  // Add armor delimiters back to the signature for verification
-  const armoredSignature = addArmorDelimiters(signature);
-  console.log('Armored signature:\n', armoredSignature);
-
-  // You would then verify this against the signature using OpenPGP
 }
 
 /**
