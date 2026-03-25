@@ -1,0 +1,13 @@
+ ████████╗ ██████╗ ██████╗  ██████╗
+ ╚══██╔══╝██╔═══██╗██╔══██╗██╔═══██╗
+    ██║   ██║   ██║██║  ██║██║   ██║
+    ██║   ██║   ██║██║  ██║██║   ██║
+    ██║   ╚██████╔╝██████╔╝╚██████╔╝
+    ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝
+ =====================================
+    Handle Storage Quota Gracefully
+ =====================================
+ - [ ] Check available space on device before publishing
+ - [ ] Show a warning if the device is low on space
+ - [ ] Show an error if we didn't have enough space to publish the reed
+
