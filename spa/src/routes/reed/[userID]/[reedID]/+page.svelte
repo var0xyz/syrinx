@@ -2,11 +2,15 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { authService } from '$lib/services/auth';
-  import { reedsService, stripMarkdown, formatAbsoluteDateTime } from '$lib/repositories/reeds';
+  import { cryptoService } from '$lib/services/crypto';
+  import { privateKeyRepository } from '$lib/repositories/privateKey';
+  import { reedsService, stripMarkdown, formatAbsoluteDateTime, countMarkdownCharacters } from '$lib/repositories/reeds';
+  import { Reed } from '$lib/types/reed';
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
+  import NewReedModal from '$lib/components/NewReedModal.svelte';
   import { goto } from '$app/navigation';
   import { notificationStore } from '$lib/stores/notifications';
 
@@ -19,6 +23,8 @@
   // Action buttons state
   let likesCount = 0;
   let isLiked = false;
+  let isReplyModalOpen = false;
+  let isEchoModalOpen = false;
 
   $: userID = $page.params.userID;
   $: reedID = $page.params.reedID;
@@ -95,11 +101,11 @@
 
   // Action button handlers
   function handleEcho() {
-    // Placeholder - will be implemented later
+    isEchoModalOpen = true;
   }
 
   function handleReply() {
-    // Placeholder - will be implemented later
+    isReplyModalOpen = true;
   }
 
   async function handleShare() {
@@ -233,6 +239,9 @@
       <!-- Bottom Toolbar -->
       <BottomToolbar currentPage="reeds" />
     </div>
+
+    <NewReedModal open={isReplyModalOpen} replyingTo={reed} on:close={() => { isReplyModalOpen = false; }} />
+    <NewReedModal open={isEchoModalOpen} echoOf={reed} on:close={() => { isEchoModalOpen = false; }} />
   </Auth>
 {/if}
 

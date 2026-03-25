@@ -15,6 +15,8 @@ export type Headers = {
   signature?: string;
   timestamp: string;
   format: string;
+  replying?: string;
+  echoing?: string;
 };
 
 export interface ReedType {
@@ -76,6 +78,10 @@ export class Reed {
     return this._headers.signature;
   }
 
+  get replying(): string | undefined {
+    return this._headers.replying;
+  }
+
   get content(): string {
     return this._content;
   }
@@ -111,6 +117,18 @@ export class Reed {
 
   set signature(value: string) {
     this._headers.signature = btoa(value.trim()).trim();
+  }
+
+  set replying(value: string) {
+    this._headers.replying = value;
+  }
+
+  get echoing(): string | undefined {
+    return this._headers.echoing;
+  }
+
+  set echoing(value: string) {
+    this._headers.echoing = value;
   }
 
   set content(value: string) {

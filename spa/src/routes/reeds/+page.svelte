@@ -1,34 +1,24 @@
 <script>
   import { onMount } from 'svelte';
   import { authService } from '$lib/services/auth';
-  import { cryptoService } from '$lib/services/crypto';
-  import { privateKeyRepository } from '$lib/repositories/privateKey';
-  import { reedsService, countMarkdownCharacters, stripMarkdown, formatRelativeTime } from '$lib/repositories/reeds';
-  import { Reed } from '$lib/types/reed';
+  import { reedsService, stripMarkdown, formatRelativeTime } from '$lib/repositories/reeds';
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
+  import NewReedModal from '$lib/components/NewReedModal.svelte';
   import { goto } from '$app/navigation';
 
   let user = null;
   let loading = true;
   let isWriteSectionOpen = false;
-  let content = '';
-  let draftSaved = false;
-  let saveDraftTimeout;
-  let errorMessage = '';
-  let isPublishing = false;
+  let replyingTo = null;
 
   // Reed list state
   let reeds = [];
   let loadingReeds = true;
   let errorLoadingReeds = '';
-
-  // Character counter
-  $: characterCount = countMarkdownCharacters(content);
-  $: characterLimit = 140;
-  $: isOverLimit = characterCount > characterLimit;
+  let echoedReeds = new Map();
 
   onMount(async () => {
     try {
@@ -39,9 +29,6 @@
         window.location.href = '/';
         return;
       }
-
-      // Load draft from localStorage
-      loadDraft();
 
       // Load user's reeds
       await loadReeds();
@@ -55,15 +42,33 @@
     }
   });
 
-  function loadDraft() {
-    content = localStorage.getItem('reedDraft') || '';
-  }
-
   async function loadReeds() {
     try {
       loadingReeds = true;
       errorLoadingReeds = '';
       reeds = await reedsService.getReedsByAuthor(user.id);
+
+      // Fetch echoed reeds in parallel
+      const echoEntries = reeds
+        .filter(r => r.headers.echoing)
+        .map(r => {
+          const sep = r.headers.echoing.lastIndexOf('!');
+          const author = r.headers.echoing.substring(0, sep);
+          const reedId = r.headers.echoing.substring(sep + 1);
+          return { key: r.headers.echoing, author, reedId };
+        });
+
+      const results = await Promise.allSettled(
+        echoEntries.map(({ author, reedId }) => reedsService.getReed(author, reedId))
+      );
+
+      const map = new Map();
+      echoEntries.forEach(({ key }, i) => {
+        if (results[i].status === 'fulfilled' && results[i].value) {
+          map.set(key, results[i].value);
+        }
+      });
+      echoedReeds = map;
     } catch (error) {
       console.error('Error loading reeds:', error);
       errorLoadingReeds = 'Failed to load reeds';
@@ -72,155 +77,19 @@
     }
   }
 
-  function saveDraft() {
-    localStorage.setItem('reedDraft', content);
-  }
-
   function toggleWriteSection() {
     isWriteSectionOpen = !isWriteSectionOpen;
-    if (!isWriteSectionOpen) {
-      // Clear form when closing
-      content = '';
-      draftSaved = false;
-    }
+    if (!isWriteSectionOpen) replyingTo = null;
   }
 
-  function handleContentChange() {
-    // Clear existing timeout
-    if (saveDraftTimeout) {
-      clearTimeout(saveDraftTimeout);
-    }
-
-    // Set new timeout to save after 1.5 seconds of no typing
-    // This ensures changes are always saved, even if made while "Draft saved" message is visible
-    saveDraftTimeout = setTimeout(() => {
-      // Auto-save logic
-      saveDraft();
-      draftSaved = true;
-      setTimeout(() => {
-        draftSaved = false;
-      }, 2000); // Hide the message after 2 seconds
-    }, 1500);
+  function openReply(reed) {
+    replyingTo = reed;
+    isWriteSectionOpen = true;
   }
 
-  function discardDraft() {
-    content = '';
-    draftSaved = false;
-    if (saveDraftTimeout) {
-      clearTimeout(saveDraftTimeout);
-    }
-    // Clear draft from localStorage
-    localStorage.removeItem('reedDraft');
+  function closeModal() {
     isWriteSectionOpen = false;
-  }
-
-  async function getPrivateKeyAndPassphrase() {
-    // Get the active key fingerprint
-    const fingerprint = authService.getActiveKeyFingerprint();
-    if (!fingerprint) {
-      throw new Error('No active key found. Please set an active key in your profile.');
-    }
-
-    // Get the private key from IndexedDB
-    const keyData = await privateKeyRepository.getPrivateKey(fingerprint);
-    if (!keyData) {
-      throw new Error('Private key not found. Please import your key.');
-    }
-
-    const passphrase = authService.getPassphrase();
-    if (!passphrase) {
-      throw new Error('PANIC: No passphrase found.');
-    }
-
-    return { keyData, passphrase };
-  }
-
-  async function publishReed() {
-    if (isPublishing) return; // Prevent multiple simultaneous publishes
-
-    await performPublish();
-  }
-
-  async function performPublish() {
-    if (isPublishing) return; // Prevent multiple simultaneous publishes
-
-    isPublishing = true;
-    errorMessage = '';
-
-    try {
-      const user = await authService.getCurrentUser();
-      if (!user) {
-        errorMessage = 'No user ID found. Please log in.';
-        throw new Error(errorMessage);
-      }
-
-      // Get active key fingerprint from localStorage
-      const activeKeyFingerprint = authService.getActiveKeyFingerprint();
-      if (!activeKeyFingerprint) {
-        errorMessage = 'No active key fingerprint found.';
-        throw new Error(errorMessage);
-      }
-      console.log("Using fingerprint:", activeKeyFingerprint);
-
-      // Check if content is not empty
-      if (!content.trim()) {
-        errorMessage = 'Cannot publish empty reed.';
-        throw new Error(errorMessage);
-      }
-
-      // Create new Reed instance
-      const reed = new Reed();
-      reed.content = content;
-      reed.fingerprint = activeKeyFingerprint;
-
-      console.log('Signing reed content...');
-
-      // Get private key and passphrase - let authentication errors propagate
-      const { keyData, passphrase } = await getPrivateKeyAndPassphrase();
-
-      // Sign the content using the crypto service
-      reed.signature = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
-
-      // Why are we using markdown here? Because we need a reliable way to
-      // represent the reed, a way that doesn't rely on language implementation
-      // details such as a javascript object. That way we can be sure of what we
-      // are signing, and that it can be reproduced and verified by anyone.
-      const signedMarkdown = reed.asMarkdown();
-
-      // Send reed instance to server for validation and storage
-      console.log('Sending reed to server...');
-      await reedsService.createReed(reed);
-      console.log('Reed published successfully!');
-
-      // Clear form after publishing
-      content = '';
-      draftSaved = false;
-      // Clear draft from localStorage after publishing
-      localStorage.removeItem('reedDraft');
-      isWriteSectionOpen = false;
-
-      // Redirect to the newly created reed
-      goto(`/reed/${user.id}/${reed.id}`);
-
-      // ████████╗ ██████╗ ██████╗  ██████╗
-      // ╚══██╔══╝██╔═══██╗██╔══██╗██╔═══██╗
-      //    ██║   ██║   ██║██║  ██║██║   ██║
-      //    ██║   ██║   ██║██║  ██║██║   ██║
-      //    ██║   ╚██████╔╝██████╔╝╚██████╔╝
-      //    ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝
-      // =====================================
-      //    Handle Storage Quota Gracefully
-      // =====================================
-      // - [ ] Check available space on device before publishing
-      // - [ ] Show a warning if the device is low on space
-      // - [ ] Show an error if we didn't have enough space to publish the reed
-
-    } catch (error) {
-      console.error('Error publishing reed:', error);
-      errorMessage = error.message || 'Failed to publish reed';
-    } finally {
-      isPublishing = false;
-    }
+    replyingTo = null;
   }
 
   async function deleteReed(reedId) {
@@ -270,43 +139,8 @@
       <span class="icon">✍️</span>
     </button>
 
-    <!-- Write Section -->
-    {#if isWriteSectionOpen}
-      <div class="write-section-container">
-        <div class="write-section" class:hidden={!isWriteSectionOpen}>
-          <div class="write-form">
-            <form on:submit|preventDefault={publishReed}>
-              <div class="form-group">
-                <textarea
-                  id="content"
-                  placeholder="What's on your mind?"
-                  rows="6"
-                  bind:value={content}
-                  on:input={handleContentChange}
-                ></textarea>
-                <div class="content-info">
-                  <div class="draft-saved" class:hidden={!draftSaved}>Draft saved</div>
-                  <div class="character-counter" class:over-limit={isOverLimit}>
-                    {characterCount}/{characterLimit} characters
-                  </div>
-              </div>
-              </div>
-              {#if errorMessage}
-                <div class="error-message">
-                  {errorMessage}
-                </div>
-              {/if}
-              <div class="form-actions">
-                <button type="button" class="btn btn-secondary" on:click={discardDraft} disabled={isPublishing}>Discard</button>
-                <button type="submit" class="btn btn-primary" disabled={isPublishing || !content.trim()}>
-                  {isPublishing ? 'Publishing...' : 'Publish'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-    {/if}
+    <!-- Write Modal -->
+    <NewReedModal open={isWriteSectionOpen} {replyingTo} on:close={closeModal} />
 
     <!-- Main Content -->
     <div class="reeds-content">
@@ -347,14 +181,24 @@
                   </div>
                 </div>
                 <div class="reed-meta">
-                  <button class="reed-menu" on:click|stopPropagation={() => deleteReed(reed.headers.id)}>
-                    <span class="menu-dots">🗑️</span>
-                  </button>
+                  <button class="reed-menu" on:click|stopPropagation={() => openReply(reed)} aria-label="Reply">↩</button>
+                  <button class="reed-menu" on:click|stopPropagation={() => deleteReed(reed.headers.id)} aria-label="Delete">🗑️</button>
                 </div>
               </div>
               <div class="reed-preview">
                 <p>{stripMarkdown(reed.content)}</p>
               </div>
+              {#if reed.headers.echoing && echoedReeds.has(reed.headers.echoing)}
+                {@const echoed = echoedReeds.get(reed.headers.echoing)}
+                <div class="echo-preview">
+                  <div class="echo-preview-meta">📢 {echoed.headers.author} · {formatRelativeTime(echoed.headers.timestamp)}</div>
+                  <div class="echo-preview-content">{stripMarkdown(echoed.content)}</div>
+                </div>
+              {:else if reed.headers.echoing}
+                <div class="echo-preview echo-preview--missing">
+                  <div class="echo-preview-meta">📢 Original reed unavailable</div>
+                </div>
+              {/if}
             </div>
           {/each}
         {/if}
@@ -399,131 +243,6 @@
 
   .floating-write-btn .icon {
     font-size: 1.5rem;
-  }
-
-  .write-section-container {
-    padding: 0.5rem;
-  }
-
-  .write-section {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    margin: 0 auto;
-    max-width: 700px;
-    width: 100%;
-    padding: 1.5rem;
-    animation: slideDown 0.3s ease;
-  }
-
-  @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .form-group textarea {
-    width: 100%;
-    padding: 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--input-bg);
-    color: var(--fg);
-    font-family: inherit;
-    resize: vertical;
-    min-height: 120px;
-  }
-
-  .content-info {
-    display: flex;
-    justify-content: space-between;
-   }
-
-  .draft-saved {
-    color: var(--primary);
-    font-size: 0.8rem;
-    margin-top: 0.5rem;
-    opacity: 0.8;
-    min-height: 1rem;
-    transition: opacity 0.3s ease, transform 0.3s ease;
-  }
-
-  .draft-saved.hidden {
-    opacity: 0;
-    transition: opacity 0.3s ease, transform 0.3s ease;
-  }
-
-  .character-counter {
-    text-align: right;
-    font-size: 0.8rem;
-    color: var(--muted);
-    margin-top: 0.5rem;
-    min-height: 1rem;
-    transition: color 0.2s ease;
-  }
-
-  .character-counter.over-limit {
-    color: #ff6b6b;
-  }
-
-  .error-message {
-    color: #ff6b6b;
-    background: #ffe0e0;
-    border: 1px solid #ffb3b3;
-    border-radius: 8px;
-    padding: 0.75rem;
-    margin: 0.5rem 0;
-    font-size: 0.9rem;
-    line-height: 1.4;
-  }
-
-  .form-actions {
-    display: flex;
-    gap: 1rem;
-    justify-content: space-between;
-  }
-
-  .btn {
-    padding: 0.75rem 1.5rem;
-    border-radius: 8px;
-    border: none;
-    cursor: pointer;
-    font-weight: 600;
-    transition: all 0.2s ease;
-  }
-
-  .btn-primary {
-    background: var(--primary);
-    color: var(--button-text);
-  }
-
-  .btn-primary:hover {
-    opacity: 0.9;
-  }
-
-  .btn-secondary {
-    background: var(--surface);
-    color: var(--fg);
-    border: 1px solid var(--border);
-  }
-
-  .btn-secondary:hover {
-    background: var(--border);
-  }
-
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn:disabled:hover {
-    opacity: 0.6;
-    transform: none;
   }
 
   .reeds-content {
@@ -665,6 +384,36 @@
     margin: 0;
     line-height: 1.4;
     font-size: 0.9rem;
+  }
+
+  .echo-preview {
+    margin: 0 1rem 1rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--primary);
+    border-radius: 8px;
+    background: var(--bg);
+  }
+
+  .echo-preview-meta {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+  }
+
+  .echo-preview-content {
+    font-size: 0.85rem;
+    color: var(--fg);
+    line-height: 1.4;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+  }
+
+  .echo-preview--missing .echo-preview-meta {
+    margin-bottom: 0;
+    font-style: italic;
   }
 
   .empty-state {
