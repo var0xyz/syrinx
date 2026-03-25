@@ -414,11 +414,21 @@ func (s *Service) DecryptPrivateKey(encryptedKey, passphrase string) (string, er
 
 	entity := entities[0]
 
-	// Decrypt the private key with the passphrase
+	// Decrypt the primary key with the passphrase
 	if entity.PrivateKey != nil && entity.PrivateKey.Encrypted {
 		err = entity.PrivateKey.Decrypt([]byte(passphrase))
 		if err != nil {
 			return "", fmt.Errorf("failed to decrypt private key: %w", err)
+		}
+	}
+
+	// Decrypt all subkeys (required for signing/encryption subkeys)
+	for _, subkey := range entity.Subkeys {
+		if subkey.PrivateKey != nil && subkey.PrivateKey.Encrypted {
+			err = subkey.PrivateKey.Decrypt([]byte(passphrase))
+			if err != nil {
+				return "", fmt.Errorf("failed to decrypt subkey: %w", err)
+			}
 		}
 	}
 
