@@ -176,7 +176,7 @@ func InitDB(db *sql.DB) error {
 
 	createOnlineUsersTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS online_users (
-		user_id VARCHAR(255),
+		user_id VARCHAR(255) UNIQUE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
