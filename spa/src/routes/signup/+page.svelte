@@ -5,6 +5,7 @@
   import UsernameChecker from "$lib/components/UsernameChecker.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
   import { notificationStore } from "$lib/stores/notifications";
+  import { requestSigner } from "$lib/services/request-signer";
   import { goto } from "$app/navigation";
 
   let username = "";
@@ -81,6 +82,11 @@
       // Step 6: Store session data and set active key
       currentStep = 6;
       authService.setActiveKey(keyPair.fingerprint);
+
+      // Initialize the service worker with the new key so requests can be
+      // signed immediately without a page reload. This also replaces any
+      // stale key from a previous session that may still be loaded.
+      await requestSigner.initializeWorker(keyPair.fingerprint, password);
 
       // Redirect to welcome page
       goto("/welcome");
