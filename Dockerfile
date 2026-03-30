@@ -25,9 +25,6 @@ WORKDIR /root/
 # Copy the binary from builder stage
 COPY --from=builder /app/syrinx .
 
-# Copy init.sql
-COPY --from=builder /app/init.sql .
-
 # Expose port
 EXPOSE 8080
 
