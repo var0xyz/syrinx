@@ -19,8 +19,58 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: syrinx_api
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: syrinx
+      DB_PASSWORD: syrinx
+      DB_NAME: syrinx
+      DB_SSLMODE: disable
+      PORT: "8080"
+      ALLOWED_ORIGIN: "http://localhost:5173"
+      SERVER_NAME: "${SERVER_NAME:-}"
+      SERVER_PRIVATE_KEY_FILE: ./keys/private.pgp
+      SERVER_PUBLIC_KEY_FILE: ./keys/public.pgp
+      SERVER_PRIVATE_KEY_PASSPHRASE: "${SERVER_PRIVATE_KEY_PASSPHRASE:-}"
+    volumes:
+      - .:/app
+      - go-modules:/go/pkg/mod
+      - go-cache:/root/.cache/go-build
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_network
+
+  gui:
+    image: node:lts-alpine
+    container_name: syrinx_gui
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host"
+    environment:
+      API_HOST: api:8080
+    volumes:
+      - ./spa:/app
+      - syrinx_gui_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    networks:
+      - app_network
+
 volumes:
   syrinx_postgres_data:
+  go-modules:
+  go-cache:
+  syrinx_gui_node_modules:
 
 networks:
   app_network:

@@ -1,0 +1,12 @@
+FROM golang:1.25-trixie
+
+# RUN apk add --no-cache git && \
+#     go install github.com/air-verse/air@latest
+RUN apt update -y && apt upgrade -y && apt install git && \
+    go install github.com/air-verse/air@latest
+
+WORKDIR /app
+
+EXPOSE 8080
+
+CMD ["air"]

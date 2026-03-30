@@ -1,0 +1,23 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build ."
+  bin = "./syrinx"
+  include_ext = ["go"]
+  exclude_dir = ["tmp", "spa", "keys", "proto"]
+  delay = 1000
+  kill_delay = "0s"
+  rerun = false
+
+[log]
+  time = true
+
+[color]
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  clean_on_exit = true
