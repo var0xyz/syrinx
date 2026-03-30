@@ -24,7 +24,8 @@
   let errorMessage = '';
   let isPublishing = false;
 
-  $: title = replyingTo ? 'Reply' : echoOf ? 'Echo' : 'New Reed';
+  $: title = replyingTo ? 'Reply Reed' : echoOf ? 'Echo Reed' : 'New Reed';
+  $: placeholder = replyingTo ? "Write your reply" : echoOf ? "Comment on it (Optional)" : "What's on your mind?";
   $: contentRequired = !echoOf;
 
   $: characterCount = countMarkdownCharacters(content);
@@ -133,7 +134,7 @@
     <form on:submit|preventDefault={publish}>
       <div class="form-group">
         <textarea
-          placeholder="What's on your mind?"
+          placeholder={placeholder}
           rows="6"
           bind:value={content}
           on:input={handleContentChange}
