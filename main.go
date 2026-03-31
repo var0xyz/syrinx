@@ -32,9 +32,6 @@ type AppConfig struct {
 	DBName     string `env:"name='DB_NAME'"`
 	DBSSLMode  string `env:"name='DB_SSLMODE'"`
 
-	// The `ServerName` will be appended to every user's ID. Say that the
-	// ServerName is "squirrels.ru" and the user ID is "QAGxPE5o", the UI will
-	// display the user ID as "QAGxPE5o@squirrels.ru".
 	ServerName    string `env:"name='SERVER_NAME'"`
 	Port          int
 	AllowedOrigin string `env:"name='ALLOWED_ORIGIN'"`
@@ -98,6 +95,12 @@ func main() {
 	}
 	log.Info().Msg("[OK] Services initialized successfully")
 
+	log.Debug().Msg("Initializing server identity...")
+	if err := dataService.InitServer(); err != nil {
+		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server identity")
+	}
+	log.Info().Msg("[OK] Server identity initialized successfully")
+
 	log.Debug().Msg("Initializing realtime service...")
 	realtimeService := realtime.NewService(db, cryptoService, cfg.AllowedOrigin)
 
@@ -122,6 +125,9 @@ func main() {
 	api.Use(h.CORSMiddleware(cfg.AllowedOrigin))
 	api.Use(h.signatureAuthMiddleware("/api"))
 	api.Use(h.responseSignerMiddleware(cfg.ServerKeyPassphrase, cfg.PrivateKeyFile))
+
+	api.HandleFunc("/server/info", h.GetServerInfo).Methods("GET")
+	api.HandleFunc("/server/info", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/check-username", h.CheckUsername).Methods("POST")
 	api.HandleFunc("/check-username", h.noop).Methods("OPTIONS")
