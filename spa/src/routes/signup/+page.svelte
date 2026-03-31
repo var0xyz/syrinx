@@ -1,6 +1,12 @@
 <script>
   import { onMount } from "svelte";
   import { authService } from "$lib/services/auth";
+
+  onMount(() => {
+    if (authService.isLoggedIn()) {
+      goto('/reeds');
+    }
+  });
   import { cryptoService } from "$lib/services/crypto";
   import UsernameChecker from "$lib/components/UsernameChecker.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";

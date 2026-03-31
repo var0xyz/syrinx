@@ -11,6 +11,10 @@ interface SignupUser {
 export class AuthService {
   private _user: api.User | null = null;
 
+  isLoggedIn(): boolean {
+    return !!localStorage.getItem('userID');
+  }
+
   /**
    * Get the current user from localStorage
    */

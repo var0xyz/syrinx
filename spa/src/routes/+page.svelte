@@ -1,5 +1,7 @@
 <script>
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { authService } from '$lib/services/auth';
   import { requestPersistentStorage } from '$lib/services/pwa';
 
   let deferredPrompt = null;
@@ -7,6 +9,11 @@
   let isPWAInstalled = false;
 
   onMount(async () => {
+    if (authService.isLoggedIn()) {
+      goto('/reeds');
+      return;
+    }
+
     // Request persistent storage first
     await requestPersistentStorage();
 
