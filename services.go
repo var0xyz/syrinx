@@ -43,6 +43,25 @@ func NewDataService(db *sql.DB, serverName string) *DataService {
 	}
 }
 
+func (s *DataService) InitServer() error {
+	var name string
+	err := s.db.QueryRow(`SELECT name FROM servers WHERE self = TRUE`).Scan(&name)
+	if err == sql.ErrNoRows {
+		_, err = s.db.Exec(
+			`INSERT INTO servers (name, self) VALUES ($1, TRUE)`,
+			s.serverName,
+		)
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	if name != s.serverName {
+		return fmt.Errorf("server init error: server name cannot be changed", name, s.serverName)
+	}
+	return nil
+}
+
 func (s *DataService) CreateUser(username string) (*User, error) {
 	// Start transaction
 	tx, err := s.db.Begin()
@@ -97,7 +116,7 @@ func (s *DataService) CreateUser(username string) (*User, error) {
 	err = tx.QueryRow(`
 		INSERT INTO users (id, username)
 		VALUES ($1, $2) RETURNING id, username, avatar_url, bio, server_key_fingerprint, created_at
-	`, id+"@"+s.serverName, username).Scan(
+	`, id, username).Scan(
 		&user.ID,
 		&user.Username,
 		&avatarURL,

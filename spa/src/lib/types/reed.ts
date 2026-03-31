@@ -9,6 +9,7 @@ import { Uuid25 } from 'uuid25';
 export type Headers = {
   id: string;
   author: string;
+  server: string;
   origin: string;
   fingerprint: string;
   algorithm: string;
@@ -34,13 +35,15 @@ export class Reed {
     // Auto-generate id using UUID v7 for time-based ordering, encoded as 25-char string
     const id = Uuid25.parse(uuidv7()).value;
 
-    // Auto-populate origin and author
+    // Auto-populate origin, author, and server
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
     const author = typeof localStorage !== 'undefined' ? localStorage.getItem('userID') || '' : '';
+    const server = typeof localStorage !== 'undefined' ? localStorage.getItem('serverID') || '' : '';
 
     this._headers = {
       algorithm: 'PGP+base64',
       author,
+      server,
       origin,
       id,
       fingerprint: '',
@@ -60,6 +63,10 @@ export class Reed {
 
   get key(): string {
     return this._headers.fingerprint;
+  }
+
+  get server(): string {
+    return this._headers.server;
   }
 
   get origin(): string {
@@ -101,6 +108,10 @@ export class Reed {
 
   set key(value: string) {
     this._headers.fingerprint = value;
+  }
+
+  set server(value: string) {
+    this._headers.server = value;
   }
 
   set origin(value: string) {

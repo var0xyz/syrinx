@@ -22,6 +22,10 @@ type Handlers struct {
 	broadcastChan chan<- realtime.BroadcastMessage
 }
 
+type ServerInfo struct {
+	Name string `json:"name"`
+}
+
 // ///////////// //
 //   Utilities  //
 // ///////////// //
@@ -79,6 +83,10 @@ func (h *Handlers) getUserID(r *http.Request) string {
 // set the appropriate headers.
 func (h *Handlers) noop(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
+	writeResponse(w, http.StatusOK, ServerInfo{Name: h.cfg.ServerName})
 }
 
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {

@@ -83,9 +83,30 @@ export class AuthService {
   }
 
   /**
+   * Get the server name from the /api/server/info endpoint
+   */
+  async getServerName(): Promise<string> {
+    const response = await fetch('/api/server/info');
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const server = await response.json();
+    return server.name;
+  }
+
+  /**
    * Signup the user and store the user ID
    */
   async signup(userData: SignupUser): Promise<string> {
+    try {
+      const serverName = await this.getServerName();
+      localStorage.setItem('serverID', serverName);
+    } catch (error) {
+      throw new Error('Failed to fetch server info:', error);
+    }
+
     const formData = new URLSearchParams();
     formData.append('username', userData.username);
     formData.append('publicKey', userData.publicKey);

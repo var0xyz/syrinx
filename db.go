@@ -48,6 +48,12 @@ type Reed struct {
 	SignedAt    time.Time `json:"signedAt"`
 }
 
+type Server struct {
+	Name      string    `json:"name"`
+	Self      bool      `json:"self"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
 // /////// //
 //   P2P   //
 // /////// //
@@ -65,6 +71,13 @@ func InitDB(db *sql.DB) error {
 	// /////// //
 	//   API   //
 	// /////// //
+	createServersTable := `
+	CREATE TABLE IF NOT EXISTS servers (
+		name       VARCHAR(255) PRIMARY KEY,
+		self       BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
 	createUserCountTable := `
 	CREATE TABLE IF NOT EXISTS user_count (
 		id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
@@ -208,6 +221,9 @@ func InitDB(db *sql.DB) error {
 	INSERT INTO user_count (id, count) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;`
 
 	queries := []string{
+
+		// Servers
+		createServersTable,
 
 		// API
 		createUserCountTable,
