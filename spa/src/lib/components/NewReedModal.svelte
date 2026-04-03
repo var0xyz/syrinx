@@ -3,9 +3,10 @@
   import { authService } from '$lib/services/auth';
   import { cryptoService } from '$lib/services/crypto';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
-  import { reedsService, countMarkdownCharacters, stripMarkdown, formatRelativeTime } from '$lib/repositories/reeds';
+  import { reedsService, countMarkdownCharacters } from '$lib/repositories/reeds';
   import { Reed } from '$lib/types/reed';
   import { goto } from '$app/navigation';
+  import Quote from '$lib/components/Quote.svelte';
 
   /** @type {boolean} */
   export let open = false;
@@ -120,15 +121,9 @@
     </div>
 
     {#if replyingTo}
-      <div class="reply-preview">
-        <div class="reply-preview-meta">{replyingTo.headers.author} · {formatRelativeTime(replyingTo.headers.timestamp)}</div>
-        <div class="reply-preview-content">{stripMarkdown(replyingTo.content)}</div>
-      </div>
+      <Quote reed={replyingTo} type="reply" maxLines={4} />
     {:else if echoOf}
-      <div class="reply-preview">
-        <div class="reply-preview-meta">{echoOf.headers.author} · {formatRelativeTime(echoOf.headers.timestamp)}</div>
-        <div class="reply-preview-content">{stripMarkdown(echoOf.content)}</div>
-      </div>
+      <Quote reed={echoOf} type="echo" maxLines={4} />
     {/if}
 
     <form on:submit|preventDefault={publish}>
@@ -221,30 +216,8 @@
     background: var(--border);
   }
 
-  .reply-preview {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--primary);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    margin-bottom: 1rem;
-  }
-
-  .reply-preview-meta {
-    font-size: 0.75rem;
-    color: var(--muted);
-    margin-bottom: 0.25rem;
-  }
-
-  .reply-preview-content {
-    font-size: 0.9rem;
-    color: var(--fg);
-    line-height: 1.4;
-    white-space: pre-wrap;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    -webkit-box-orient: vertical;
+  .form-group {
+    margin-top: 1rem;
   }
 
   .form-group textarea {

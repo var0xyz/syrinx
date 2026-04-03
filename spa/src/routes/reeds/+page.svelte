@@ -4,21 +4,23 @@
   import { reedsService, stripMarkdown, formatRelativeTime } from '$lib/repositories/reeds';
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
+  import { userRepository } from '$lib/repositories/user';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
+  import Quote from '$lib/components/Quote.svelte';
   import { goto } from '$app/navigation';
 
   let user = null;
   let loading = true;
   let isWriteSectionOpen = false;
-  let replyingTo = null;
 
   // Reed list state
   let reeds = [];
   let loadingReeds = true;
   let errorLoadingReeds = '';
   let echoedReeds = new Map();
+  let repliedToReeds = new Map();
 
   onMount(async () => {
     try {
@@ -58,17 +60,39 @@
           return { key: r.headers.echoing, author, reedId };
         });
 
-      const results = await Promise.allSettled(
+      const echoResults = await Promise.allSettled(
         echoEntries.map(({ author, reedId }) => reedsService.getReed(author, reedId))
       );
 
-      const map = new Map();
+      const echoMap = new Map();
       echoEntries.forEach(({ key }, i) => {
-        if (results[i].status === 'fulfilled' && results[i].value) {
-          map.set(key, results[i].value);
+        if (echoResults[i].status === 'fulfilled' && echoResults[i].value) {
+          echoMap.set(key, echoResults[i].value);
         }
       });
-      echoedReeds = map;
+      echoedReeds = echoMap;
+
+      // Fetch replied-to reeds in parallel
+      const replyEntries = reeds
+        .filter(r => r.headers.replying)
+        .map(r => {
+          const sep = r.headers.replying.lastIndexOf('!');
+          const author = r.headers.replying.substring(0, sep);
+          const reedId = r.headers.replying.substring(sep + 1);
+          return { key: r.headers.replying, author, reedId };
+        });
+
+      const replyResults = await Promise.allSettled(
+        replyEntries.map(({ author, reedId }) => reedsService.getReed(author, reedId))
+      );
+
+      const replyMap = new Map();
+      replyEntries.forEach(({ key }, i) => {
+        if (replyResults[i].status === 'fulfilled' && replyResults[i].value) {
+          replyMap.set(key, replyResults[i].value);
+        }
+      });
+      repliedToReeds = replyMap;
     } catch (error) {
       console.error('Error loading reeds:', error);
       errorLoadingReeds = 'Failed to load reeds';
@@ -79,17 +103,10 @@
 
   function toggleWriteSection() {
     isWriteSectionOpen = !isWriteSectionOpen;
-    if (!isWriteSectionOpen) replyingTo = null;
-  }
-
-  function openReply(reed) {
-    replyingTo = reed;
-    isWriteSectionOpen = true;
   }
 
   function closeModal() {
     isWriteSectionOpen = false;
-    replyingTo = null;
   }
 
   async function deleteReed(reedId) {
@@ -140,7 +157,7 @@
     </button>
 
     <!-- Write Modal -->
-    <NewReedModal open={isWriteSectionOpen} {replyingTo} on:close={closeModal} />
+    <NewReedModal open={isWriteSectionOpen} on:close={closeModal} />
 
     <!-- Main Content -->
     <div class="reeds-content">
@@ -181,22 +198,30 @@
                   </div>
                 </div>
                 <div class="reed-meta">
-                  <button class="reed-menu" on:click|stopPropagation={() => openReply(reed)} aria-label="Reply">↩</button>
                   <button class="reed-menu" on:click|stopPropagation={() => deleteReed(reed.headers.id)} aria-label="Delete">🗑️</button>
                 </div>
               </div>
-              <div class="reed-preview">
-                <p>{stripMarkdown(reed.content)}</p>
-              </div>
-              {#if reed.headers.echoing && echoedReeds.has(reed.headers.echoing)}
-                {@const echoed = echoedReeds.get(reed.headers.echoing)}
-                <div class="echo-preview">
-                  <div class="echo-preview-meta">📢 {echoed.headers.author} · {formatRelativeTime(echoed.headers.timestamp)}</div>
-                  <div class="echo-preview-content">{stripMarkdown(echoed.content)}</div>
+              {#if reed.headers.replying}
+                <div class="quote-container">
+                  <Quote
+                    reed={repliedToReeds.get(reed.headers.replying)}
+                    type="reply"
+                    missing={!repliedToReeds.has(reed.headers.replying)}
+                  />
                 </div>
-              {:else if reed.headers.echoing}
-                <div class="echo-preview echo-preview--missing">
-                  <div class="echo-preview-meta">📢 Original reed unavailable</div>
+              {/if}
+              {#if (reed.content || "").trim()}
+                <div class={["reed-preview", reed.headers.echoing && "echo", reed.headers.replying && "reply"]}>
+                  <p>{stripMarkdown(reed.content)}</p>
+                </div>
+              {/if}
+              {#if reed.headers.echoing}
+                <div class="quote-container">
+                  <Quote
+                    reed={echoedReeds.get(reed.headers.echoing)}
+                    type="echo"
+                    missing={!echoedReeds.has(reed.headers.echoing)}
+                  />
                 </div>
               {/if}
             </div>
@@ -380,40 +405,23 @@
     word-break: break-word;
   }
 
+  .reed-preview.reply {
+    padding-top: 0;
+    padding-left: 2rem;
+  }
+
+  .reed-preview.echo {
+    padding-bottom: 0;
+  }
+
   .reed-preview p {
     margin: 0;
     line-height: 1.4;
     font-size: 0.9rem;
   }
 
-  .echo-preview {
-    margin: 0 1rem 1rem;
-    padding: 0.6rem 0.75rem;
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--primary);
-    border-radius: 8px;
-    background: var(--bg);
-  }
-
-  .echo-preview-meta {
-    font-size: 0.75rem;
-    color: var(--muted);
-    margin-bottom: 0.25rem;
-  }
-
-  .echo-preview-content {
-    font-size: 0.85rem;
-    color: var(--fg);
-    line-height: 1.4;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-  }
-
-  .echo-preview--missing .echo-preview-meta {
-    margin-bottom: 0;
-    font-style: italic;
+  .quote-container {
+    margin: 1rem;
   }
 
   .empty-state {
@@ -467,5 +475,16 @@
       padding: 0.75rem;
     }
 
+    .reed-preview.reply {
+      padding-top: 0;
+      padding-left: 1.5rem;
+    }
+
+    .reed-preview.echo {
+    }
+
+    .quote-container {
+      margin: 0.75rem;
+    }
   }
 </style>
