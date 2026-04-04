@@ -152,7 +152,7 @@ export class Reed {
    * Returns normalized (lowercase) unique tags without the # prefix
    */
   private extractTags(content: string): string[] {
-    const hashtagRegex = /[\^\s]#\S+/g;
+    const hashtagRegex = /(^|\s)#\S+/g;
     const matches = content.match(hashtagRegex);
 
     if (!matches) {
