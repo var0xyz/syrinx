@@ -281,7 +281,7 @@
   .reeds-list {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 1rem;
   }
 
   .reed-item {
@@ -463,6 +463,10 @@
 
   /* Responsive Design */
   @media (max-width: 768px) {
+    .reeds-list {
+      gap: 0.5rem;
+    }
+
     .reeds-content {
       padding: 0.5rem;
     }
