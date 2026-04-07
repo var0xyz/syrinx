@@ -47,12 +47,16 @@
     }, 1500);
   }
 
-  function close() {
+  function clear() {
     content = '';
     draftSaved = false;
     errorMessage = '';
     if (saveDraftTimeout) clearTimeout(saveDraftTimeout);
     if (!replyingTo && !echoOf) localStorage.removeItem('reedDraft');
+  }
+
+  function close() {
+    clear();
     dispatch('close');
   }
 
@@ -101,7 +105,7 @@
       await reedsService.createReed(reed);
 
       localStorage.removeItem('reedDraft');
-      dispatch('close');
+      clear();
       goto(`/reed/${user.id}/${reed.id}`);
     } catch (error) {
       console.error('Error publishing reed:', error);
