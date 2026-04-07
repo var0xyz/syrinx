@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { authService } from '$lib/services/auth';
   import { websocketService } from '$lib/services/websocket';
+  import { formatRelativeTime } from '$lib/repositories/reeds';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
 
@@ -9,6 +10,12 @@
   let loading = true;
   let activeSection = 'broadcast'; // 'broadcast' or 'followcast'
   let isSubscribed = false;
+  let broadcastReeds = [];
+
+  function handleReedNotification(data) {
+    if (broadcastReeds.some(r => r.reedId === data.reedId)) return;
+    broadcastReeds = [data, ...broadcastReeds];
+  }
 
   // Reactive statement to handle WebSocket subscriptions
   $: {
@@ -36,6 +43,8 @@
     } finally {
       loading = false;
     }
+
+    websocketService.on('reed_notification', handleReedNotification);
   });
 
   function setActiveSection(section) {
@@ -44,7 +53,8 @@
   }
 
   onDestroy(() => {
-    // Unsubscribe from broadcast when component is destroyed
+    websocketService.off('reed_notification', handleReedNotification);
+
     if (isSubscribed && websocketService.isConnected()) {
       websocketService.unsubscribeFromBroadcast();
     }
@@ -101,60 +111,31 @@
             <p>Public messages and announcements</p>
           </div>
 
-          <!-- Broadcast Feed Item 1 -->
-          <div class="feed-item">
-            <div class="feed-header">
-              <div class="feed-author">
-                <div class="avatar">📢</div>
-                <div class="author-info">
-                  <span class="author-name">System Broadcast</span>
-                  <span class="feed-time">2 minutes ago</span>
+          {#if broadcastReeds.length === 0}
+            <div class="waiting-state">
+              <div class="waiting-pulse"></div>
+              <p>Listening for new reeds...</p>
+            </div>
+          {:else}
+            {#each broadcastReeds as reed (reed.reedId)}
+              <div class="feed-item">
+                <div class="feed-header">
+                  <div class="feed-author">
+                    <div class="avatar">👤</div>
+                    <div class="author-info">
+                      <span class="author-name">{reed.username}</span>
+                      <span class="feed-time">{formatRelativeTime(reed.timestamp * 1000)}</span>
+                    </div>
+                  </div>
                 </div>
+                {#if reed.content}
+                  <div class="feed-content">
+                    <p>{reed.content}</p>
+                  </div>
+                {/if}
               </div>
-              <div class="feed-actions">
-                <button class="action-btn">⋯</button>
-              </div>
-            </div>
-            <div class="feed-content">
-              <p>Welcome to Syrinx! Your secure messaging account is now active and ready to use.</p>
-            </div>
-            <div class="feed-footer">
-              <button class="interaction-btn">👍 Like</button>
-              <button class="interaction-btn">💬 Reply</button>
-              <button class="interaction-btn">🔄 Share</button>
-            </div>
-          </div>
-
-          <!-- Broadcast Feed Item 2 -->
-          <div class="feed-item">
-            <div class="feed-header">
-              <div class="feed-author">
-                <div class="avatar">🔐</div>
-                <div class="author-info">
-                  <span class="author-name">Security Update</span>
-                  <span class="feed-time">1 hour ago</span>
-                </div>
-              </div>
-              <div class="feed-actions">
-                <button class="action-btn">⋯</button>
-              </div>
-            </div>
-            <div class="feed-content">
-              <p>Your encryption keys have been successfully generated and are ready for secure messaging.</p>
-            </div>
-            <div class="feed-footer">
-              <button class="interaction-btn">👍 Like</button>
-              <button class="interaction-btn">💬 Reply</button>
-              <button class="interaction-btn">🔄 Share</button>
-            </div>
-          </div>
-
-          <!-- Empty State for Broadcast -->
-          <div class="empty-state">
-            <div class="empty-icon">📡</div>
-            <h3>No broadcast messages</h3>
-            <p>Check back later for new public announcements and updates.</p>
-          </div>
+            {/each}
+          {/if}
         {:else}
           <!-- Followcast Section -->
           <div class="section-header">
@@ -411,6 +392,33 @@
   .interaction-btn:hover {
     background: var(--surface);
     color: var(--fg);
+  }
+
+  .waiting-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding: 3rem 1rem;
+    color: var(--muted);
+  }
+
+  .waiting-pulse {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--primary);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  .waiting-state p {
+    margin: 0;
+    font-size: 0.9rem;
   }
 
   .empty-state {
