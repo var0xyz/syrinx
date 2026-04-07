@@ -18,10 +18,11 @@ const (
 
 // BroadcastMessage represents a message sent from the main app to the realtime service
 type BroadcastMessage struct {
-	Type   BroadcastType
-	UserID string
-	ReedID string
-	Data   map[string]interface{}
+	Type     BroadcastType
+	ServerID string
+	UserID   string
+	ReedID   string
+	Data     map[string]interface{}
 }
 
 // SubscriptionType represents the type of subscription
