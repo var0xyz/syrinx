@@ -9,6 +9,7 @@
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import Quote from '$lib/components/Quote.svelte';
+  import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { goto } from '$app/navigation';
 
   let user = null;
@@ -21,6 +22,7 @@
   let errorLoadingReeds = '';
   let echoedReeds = new Map();
   let repliedToReeds = new Map();
+  let echoedReedUsers = new Map(); // echoKey -> user object for empty-echo swaps
 
   onMount(async () => {
     try {
@@ -43,6 +45,15 @@
       loading = false;
     }
   });
+
+  function* inverse() {
+	  let x = reeds.length - 1;
+
+	  while (x >= 0) {
+		  yield reeds[x];
+		  x--;
+	  }
+  }
 
   async function loadReeds() {
     try {
@@ -71,6 +82,28 @@
         }
       });
       echoedReeds = echoMap;
+
+      // Fetch authors for empty-echo swaps
+      const emptyEchoKeys = reeds
+        .filter(r => r.headers.echoing && !(r.content || '').trim() && echoMap.has(r.headers.echoing))
+        .map(r => r.headers.echoing);
+
+      const uniqueEchoAuthors = [...new Set(emptyEchoKeys.map(key => echoMap.get(key).headers.author))];
+      const echoAuthorResults = await Promise.allSettled(
+        uniqueEchoAuthors.map(author => userRepository.getByUserId(author))
+      );
+      const echoAuthorMap = new Map();
+      uniqueEchoAuthors.forEach((author, i) => {
+        if (echoAuthorResults[i].status === 'fulfilled' && echoAuthorResults[i].value) {
+          echoAuthorMap.set(author, echoAuthorResults[i].value);
+        }
+      });
+      const userMap = new Map();
+      emptyEchoKeys.forEach(key => {
+        const original = echoMap.get(key);
+        if (original) userMap.set(key, echoAuthorMap.get(original.headers.author));
+      });
+      echoedReedUsers = userMap;
 
       // Fetch replied-to reeds in parallel
       const replyEntries = reeds
@@ -181,46 +214,51 @@
             <p>Your reeds will appear here when you publish them.</p>
           </div>
         {:else}
-          {#each reeds as reed (reed.headers.id)}
-            <div class="reed-item" role="button" tabindex="0" on:click={() => navigateToReed(reed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(reed)}>
+          {#each inverse(reeds) as reed (reed.headers.id)}
+            {@const isEmptyEcho = !!(reed.headers.echoing && !(reed.content || '').trim() && echoedReeds.has(reed.headers.echoing))}
+            {@const displayReed = isEmptyEcho ? echoedReeds.get(reed.headers.echoing) : reed}
+            {@const displayUser = isEmptyEcho ? (echoedReedUsers.get(reed.headers.echoing) || { username: displayReed.headers.author }) : user}
+            <div class="reed-item" role="button" tabindex="0" on:click={() => navigateToReed(displayReed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(displayReed)}>
               <div class="reed-header">
                 <div class="reed-info">
                   <div class="reed-avatar">
-                    {#if user.avatarURL}
-                      <img src={user.avatarURL} alt={user.username} />
+                    {#if displayUser.avatarURL}
+                      <img src={displayUser.avatarURL} alt={displayUser.username} />
                     {:else}
                       <div class="reed-icon">👤</div>
                     {/if}
                   </div>
                   <div class="reed-details">
-                    <h3>{user.username}</h3>
-                    <p>{formatRelativeTime(reed.headers.timestamp)}</p>
+                    <h3>{displayUser.username}</h3>
+                    <p>{formatRelativeTime(displayReed.headers.timestamp)}</p>
                   </div>
                 </div>
                 <div class="reed-meta">
                   <button class="reed-menu" on:click|stopPropagation={() => deleteReed(reed.headers.id)} aria-label="Delete">🗑️</button>
                 </div>
               </div>
-              {#if reed.headers.replying}
+              {#if !isEmptyEcho && reed.headers.replying}
                 <div class="quote-container">
                   <Quote
                     reed={repliedToReeds.get(reed.headers.replying)}
                     type="reply"
                     missing={!repliedToReeds.has(reed.headers.replying)}
+                    linked={false}
                   />
                 </div>
               {/if}
-              {#if (reed.content || "").trim()}
-                <div class={["reed-preview", reed.headers.echoing && "echo", reed.headers.replying && "reply"]}>
-                  <p>{stripMarkdown(reed.content)}</p>
+              {#if (displayReed.content || "").trim()}
+                <div class={["reed-preview", !isEmptyEcho && reed.headers.echoing && "echo", !isEmptyEcho && reed.headers.replying && "reply"]}>
+                  <MarkdownParser text={displayReed.content} preview={true} />
                 </div>
               {/if}
-              {#if reed.headers.echoing}
+              {#if !isEmptyEcho && reed.headers.echoing}
                 <div class="quote-container">
                   <Quote
                     reed={echoedReeds.get(reed.headers.echoing)}
                     type="echo"
                     missing={!echoedReeds.has(reed.headers.echoing)}
+                    linked={false}
                   />
                 </div>
               {/if}
@@ -476,7 +514,7 @@
     }
 
     .reed-preview {
-      padding: 0.75rem;
+      padding: 0.5rem 0.75rem;
     }
 
     .reed-preview.reply {

@@ -11,6 +11,8 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
+  import Quote from '$lib/components/Quote.svelte';
+  import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { goto } from '$app/navigation';
   import { notificationStore } from '$lib/stores/notifications';
 
@@ -19,6 +21,10 @@
   let reed = null;
   let loadingReed = true;
   let errorMessage = '';
+  let echoedReed = null;
+  let echoedReedMissing = false;
+  let repliedToReed = null;
+  let repliedToReedMissing = false;
 
   // Action buttons state
   let likesCount = 0;
@@ -29,6 +35,8 @@
   $: userID = $page.params.userID;
   $: reedID = $page.params.reedID;
 
+  $: if (reedID && user) loadReed();
+
   onMount(async () => {
     try {
       user = await authService.getCurrentUser();
@@ -38,9 +46,6 @@
         window.location.href = '/';
         return;
       }
-
-      // Load the specific reed
-      await loadReed();
     } catch (error) {
       console.error('Error getting user:', error);
       // Redirect to home page on error
@@ -66,6 +71,35 @@
       if (reed.headers.author !== userID) {
         errorMessage = 'This reed does not belong to the specified user';
         return;
+      }
+
+      // Load echoed reed if this is an echo
+      echoedReed = null;
+      echoedReedMissing = false;
+      if (reed.headers.echoing) {
+        const [echoAuthor, echoId] = reed.headers.echoing.split('!');
+        try {
+          echoedReed = await reedsService.getReed(echoAuthor, echoId);
+          if (!echoedReed) {
+            const data = await apiService.getReed(echoAuthor, echoId);
+            echoedReed = data;
+          }
+          if (!echoedReed) echoedReedMissing = true;
+        } catch {
+          echoedReedMissing = true;
+        }
+      }
+
+      // Load replied-to reed if this is a reply
+      repliedToReed = null;
+      repliedToReedMissing = false;
+      if (reed.headers.replying) {
+        try {
+          repliedToReed = await reedsService.getReed('', reed.headers.replying);
+          if (!repliedToReed) repliedToReedMissing = true;
+        } catch {
+          repliedToReedMissing = true;
+        }
       }
     } catch (error) {
       console.error('Error loading reed:', error);
@@ -204,7 +238,19 @@
             </div>
 
             <div class="reed-body">
-              <p>{stripMarkdown(reed.content)}</p>
+              {#if reed.headers.replying}
+                <div class="quote-container">
+                  <Quote reed={repliedToReed} missing={repliedToReedMissing} type="reply" linked={true} />
+                </div>
+              {/if}
+              {#if reed.content}
+                <MarkdownParser text={reed.content} />
+              {/if}
+              {#if reed.headers.echoing}
+                <div class="quote-container">
+                  <Quote reed={echoedReed} missing={echoedReedMissing} type="echo" linked={true} />
+                </div>
+              {/if}
             </div>
 
             <div class="reed-actions-bar">
@@ -347,6 +393,10 @@
     word-break: break-word;
   }
 
+  .quote-container {
+    margin: 1rem 0;
+  }
+
   .reed-body p {
     margin: 0;
     color: var(--fg);
@@ -475,6 +525,10 @@
 
     .action-label {
       font-size: 0.7rem;
+    }
+
+    .quote-container {
+      margin: 0.5rem 0;
     }
   }
 </style>
