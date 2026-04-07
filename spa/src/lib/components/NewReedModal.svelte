@@ -146,7 +146,7 @@
       {/if}
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" on:click={close} disabled={isPublishing}>Discard</button>
-        <button type="submit" class="btn btn-primary" disabled={isPublishing || (contentRequired && !content.trim())}>
+        <button type="submit" class="btn btn-primary" disabled={isPublishing || isOverLimit || (contentRequired && !content.trim())}>
           {isPublishing ? 'Publishing...' : 'Publish'}
         </button>
       </div>
