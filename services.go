@@ -34,6 +34,7 @@ type Services struct {
 type DataService struct {
 	db         *sql.DB
 	serverName string
+	serverID   string
 }
 
 func NewDataService(db *sql.DB, serverName string) *DataService {
@@ -43,22 +44,49 @@ func NewDataService(db *sql.DB, serverName string) *DataService {
 	}
 }
 
+func (s *DataService) GetServerID() string {
+	return s.serverID
+}
+
+const serverIDAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+func generateServerID() (string, error) {
+	result := make([]byte, 8)
+	for i := range result {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(serverIDAlphabet))))
+		if err != nil {
+			return "", err
+		}
+		result[i] = serverIDAlphabet[n.Int64()]
+	}
+	return string(result), nil
+}
+
 func (s *DataService) InitServer() error {
-	var name string
-	err := s.db.QueryRow(`SELECT name FROM servers WHERE self = TRUE`).Scan(&name)
+	var id, name string
+
+	err := s.db.QueryRow(`SELECT id, name FROM servers WHERE self = TRUE`).Scan(&id, &name)
 	if err == sql.ErrNoRows {
-		_, err = s.db.Exec(
-			`INSERT INTO servers (name, self) VALUES ($1, TRUE)`,
-			s.serverName,
-		)
-		return err
+		id, err = generateServerID()
+		if err != nil {
+			return err
+		}
+		_, err = s.db.Exec(`INSERT INTO servers (id, name, self) VALUES ($1, $2, TRUE)`, id, s.serverName)
+		if err != nil {
+			return err
+		}
+		s.serverID = id
+		return nil
 	}
 	if err != nil {
 		return err
 	}
+	s.serverID = id
 	if name != s.serverName {
-		return fmt.Errorf("server init error: server name cannot be changed", name, s.serverName)
+		_, err = s.db.Exec(`UPDATE servers SET name = $1 WHERE self = TRUE`, s.serverName)
+		return err
 	}
+
 	return nil
 }
 

@@ -10,6 +10,13 @@ import (
 //   API   //
 // /////// //
 
+type Server struct {
+	Id        string    `json:"id"`
+	Name      string    `json:"name"`
+	Self      bool      `json:"self"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
 type User struct {
 	ID        string    `json:"id"`
 	Username  string    `json:"username"`
@@ -48,12 +55,6 @@ type Reed struct {
 	SignedAt    time.Time `json:"signedAt"`
 }
 
-type Server struct {
-	Name      string    `json:"name"`
-	Self      bool      `json:"self"`
-	CreatedAt time.Time `json:"createdAt"`
-}
-
 // /////// //
 //   P2P   //
 // /////// //
@@ -73,6 +74,7 @@ func InitDB(db *sql.DB) error {
 	// /////// //
 	createServersTable := `
 	CREATE TABLE IF NOT EXISTS servers (
+		id         VARCHAR(16) UNIQUE,
 		name       VARCHAR(255) PRIMARY KEY,
 		self       BOOLEAN NOT NULL DEFAULT FALSE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -141,6 +143,7 @@ func InitDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS reeds (
 		id VARCHAR(255) UNIQUE NOT NULL,
 		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+		server_id VARCHAR(16) REFERENCES servers(id),
 		fingerprint VARCHAR(255) REFERENCES private_keys(fingerprint),
 		signed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 

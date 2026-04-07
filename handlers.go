@@ -875,13 +875,10 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	// Broadcast the new reed to realtime subscribers
 	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:   realtime.NewReed,
-		UserID: userID,
-		ReedID: reed.ID,
-		Data: map[string]interface{}{
-			"username": user.Username,
-			"content":  "New reed created", // TODO: Extract actual content
-		},
+		Type:     realtime.NewReed,
+		ServerID: h.services.db.GetServerID(),
+		UserID:   userID,
+		ReedID:   reed.ID,
 	}
 
 	writeResponse(w, http.StatusCreated, serverSignature)

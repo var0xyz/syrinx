@@ -104,7 +104,7 @@ export class AuthService {
       const serverName = await this.getServerName();
       localStorage.setItem('serverID', serverName);
     } catch (error) {
-      throw new Error('Failed to fetch server info:', error);
+      throw new Error('Failed to fetch server info', { cause: error });
     }
 
     const formData = new URLSearchParams();
