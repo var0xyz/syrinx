@@ -18,7 +18,6 @@ export class IndexedDbService implements DbService {
     ['publicKeys',  'fingerprint'],
     ['revokedKeys', 'fingerprint'],
     ['reeds',       'headers.id', 'headers.author'],
-    ['userReeds',   'userID'     ],
     ['users',       'id'         ],
     ['tags',        'tagName'    ],
   ];
