@@ -175,19 +175,18 @@ func (cm *ConnectionManager) broadcastReedDeletion(message *BroadcastMessage) {
 
 // sendReedNotification sends a reed notification to a specific connection
 func (cm *ConnectionManager) sendReedNotification(conn *websocket.Conn, message *BroadcastMessage) {
-	username, _ := message.Data["username"].(string)
-	content, _ := message.Data["content"].(string)
-
 	// For now, send as JSON since frontend doesn't parse protobuf yet
 	// TODO: Switch to protobuf once frontend parsing is implemented
 	jsonMsg := map[string]interface{}{
 		"type": "reed_notification",
 		"data": map[string]interface{}{
-			"reedId":    message.ReedID,
-			"userId":    message.UserID,
-			"username":  username,
-			"content":   content,
-			"timestamp": time.Now().Unix(),
+			"serverId": message.ServerID,
+			"userId":   message.UserID,
+			"reedId":   message.ReedID,
+
+			"iceServers": []map[string]interface{}{
+				{"urls": "stun:stun.l.google.com:19302"},
+			},
 		},
 	}
 
