@@ -183,6 +183,9 @@ export function countMarkdownCharacters(text: string): number {
   // Remove bold (single asterisks)
   result = result.replace(/\*([^*]+)\*/g, '$1');
 
+  // Remove # prefix from hashtags (# followed by a non-space character)
+  result = result.replace(/(^|\s)#(?=\S)/g, '$1');
+
   return result.length;
 }
 
