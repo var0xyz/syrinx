@@ -899,7 +899,7 @@
   .profile-sections {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1rem;
   }
 
   .section {
@@ -1290,11 +1290,20 @@
   /* Responsive Design */
   @media (max-width: 768px) {
     .profile-card {
-      padding: 1rem;
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
     }
 
     .profile-content {
       padding: 0.5rem;
+    }
+
+    .profile-sections {
+      gap: 0.5rem;
+    }
+
+    .section {
+      padding: 0.75rem;
     }
 
     .storage-stats {

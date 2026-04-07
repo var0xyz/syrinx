@@ -205,4 +205,13 @@ footer a:hover {
   }
 }
 
+pre {
+    white-space: pre-wrap;
+    background-color: darkslategray;
+    padding: .5rem 0.75rem;
+    margin: 0;
+}
 
+p:empty {
+  display: none;
+}
