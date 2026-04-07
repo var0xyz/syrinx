@@ -1,7 +1,9 @@
 <script>
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { userRepository } from '$lib/repositories/user';
-  import { stripMarkdown, formatRelativeTime } from '$lib/repositories/reeds';
+  import { formatRelativeTime } from '$lib/repositories/reeds';
+  import MarkdownParser from './MarkdownParser.svelte';
 
   /** @type {import('$lib/types/reed').ReedType} */
   export let reed;
@@ -12,8 +14,8 @@
   /** @type {boolean} */
   export let missing = false;
 
-  /** @type {number | undefined} */
-  export let maxLines = 3;
+  /** @type {boolean} */
+  export let linked = false;
 
   let username = '';
   let loading = true;
@@ -29,16 +31,21 @@
     }
 
     try {
-      // Try to get username from cache first, then from API
       const user = await userRepository.getByUserId(reed.headers.author);
       username = user?.username || reed.headers.author;
     } catch (error) {
       console.error('Error fetching user:', error);
-      username = reed.headers.author; // Fallback to user ID
+      username = reed.headers.author;
     } finally {
       loading = false;
     }
   });
+
+  function handleClick(event) {
+    if (!linked || !reed) return;
+    event.stopPropagation();
+    goto(`/reed/${reed.headers.author}/${reed.headers.id}`);
+  }
 </script>
 
 {#if missing}
@@ -46,12 +53,20 @@
     <div class="quote-meta">{icon} Original reed unavailable</div>
   </div>
 {:else if reed}
-  <div class="quote" style="--border-color: {borderColor}; --max-lines: {maxLines}">
+  <div
+    class="quote"
+    class:quote--linked={linked}
+    style="--border-color: {borderColor}"
+    on:click={handleClick}
+    role={linked ? 'link' : 'presentation'}
+    tabindex={linked ? 0 : undefined}
+    on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
+  >
     {#if loading}
       <div class="quote-meta">{icon} Loading...</div>
     {:else}
       <div class="quote-meta">{icon} {label}{username} · {formatRelativeTime(reed.headers.timestamp)}</div>
-      <div class="quote-content">{stripMarkdown(reed.content)}</div>
+      <MarkdownParser text={reed.content} preview={true} className="quote-content" />
     {/if}
   </div>
 {/if}
@@ -65,20 +80,24 @@
     background: var(--bg);
   }
 
+  .quote--linked {
+    cursor: pointer;
+  }
+
+  .quote--linked:hover {
+    background: var(--input-bg);
+  }
+
   .quote-meta {
     font-size: 0.75rem;
     color: var(--muted);
     margin-bottom: 0.25rem;
   }
 
-  .quote-content {
+  :global(.quote-content) {
     font-size: 0.85rem;
     color: var(--fg);
     line-height: 1.4;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: var(--max-lines);
-    -webkit-box-orient: vertical;
     white-space: pre-wrap;
   }
 
