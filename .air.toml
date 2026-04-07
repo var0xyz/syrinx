@@ -8,7 +8,7 @@ tmp_dir = "tmp"
   exclude_dir = ["tmp", "spa", "keys", "proto"]
   delay = 1000
   kill_delay = "0s"
-  rerun = false
+  rerun = true
 
 [log]
   time = true
