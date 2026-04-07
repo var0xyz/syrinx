@@ -45,17 +45,9 @@ func main() {
 	cfg := env.MustAssert(appConfig)
 
 	// ServerName cannot be empty. There's no max though, but please be
-	// reasonable. Consider something short and unique. If it collides with
-	// another server you won't be able to connect bewtween the two.
+	// reasonable. Consider something short and unique.
 	if len(cfg.ServerName) == 0 {
 		l.Panicf("[ERR] ServerName cannot be empty")
-	}
-
-	// Validate ServerName: only visible characters, no spaces
-	for _, r := range cfg.ServerName {
-		if r <= 32 || r > 126 { // not visible ASCII
-			l.Panicf("[ERR] Invalid ServerName: contains non-visible character: %q", r)
-		}
 	}
 
 	log.Info().Msg("Starting Syrinx API...")

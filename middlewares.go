@@ -314,6 +314,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				prefix + "/users/signup",
 				prefix + "/check-username",
 				prefix + "/keys",
+				prefix + "/server/info",
 			}
 
 			for _, path := range excludePaths {
@@ -323,7 +324,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				}
 			}
 
-			// Extract requred authentication headers
+			// Extract required authentication headers
 			userID := r.Header.Get("X-Syrinx-User-Id")
 			fingerprintHeader := r.Header.Get("X-Syrinx-Fingerprint")
 			signatureHeader := r.Header.Get("X-Syrinx-Signature")
@@ -339,6 +340,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					Str("algorithm", algorithmHeader).
 					Str("signatureScope", signatureScopeHeader).
 					Str("timestamp", timestampHeader).
+					Str("path", r.URL.Path).
 					Msg("Missing authentication headers")
 				writeResponse(w, http.StatusBadRequest, "Missing authentication headers")
 				return

@@ -19,6 +19,7 @@
 
   let user: User | null = null;
   let loading: boolean = true;
+  let serverName: string = localStorage.getItem('serverID') || '';
   let storageUsed: number = 0;
   let storageTotal: number = 0;
   let storagePercentage: number = 0;
@@ -296,7 +297,7 @@
     if (!user?.id) return;
 
     try {
-      await navigator.clipboard.writeText(user.id);
+      await navigator.clipboard.writeText(serverName ? `${user.id}@${serverName}` : user.id);
       notificationStore.success('User ID copied to clipboard');
     } catch (error) {
       console.error('Failed to copy user ID:', error);
@@ -568,7 +569,7 @@
               <div class="profile-info">
                 <h2>{user?.username}</h2>
                 <div class="user-id-container">
-                  <p class="user-id">{user?.id}</p>
+                  <p class="user-id">{user?.id}@{serverName}</p>
                   <button class="copy-icon-btn" on:click={copyUserId} aria-label="Copy user ID">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
