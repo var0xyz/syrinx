@@ -4,6 +4,7 @@
   import { cryptoService } from '$lib/services/crypto';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { reedsService, countMarkdownCharacters } from '$lib/repositories/reeds';
+  import { notificationStore } from '$lib/stores/notifications';
   import { Reed } from '$lib/types/reed';
   import { goto } from '$app/navigation';
   import Quote from '$lib/components/Quote.svelte';
@@ -102,10 +103,14 @@
 
       reed.signature = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
 
-      await reedsService.createReed(reed);
+      const published = await reedsService.createReed(reed);
 
       close();
-      goto(`/reed/${user.id}/${reed.id}`);
+      if (published) {
+        goto(`/reed/${user.id}/${reed.id}`);
+      } else {
+        notificationStore.info("There was an issue with the server. Your reed will be published automatically once it's resolved.", 10000);
+      }
     } catch (error) {
       console.error('Error publishing reed:', error);
       errorMessage = error.message || 'Failed to publish reed';
