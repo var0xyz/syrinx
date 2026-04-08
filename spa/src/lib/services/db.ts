@@ -12,14 +12,15 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  private readonly version = 1;
+  private readonly version = 2;
   private readonly storeNames = [
-    ['privateKeys', 'fingerprint'],
-    ['publicKeys',  'fingerprint'],
-    ['revokedKeys', 'fingerprint'],
-    ['reeds',       'headers.id', 'headers.author'],
-    ['users',       'id'         ],
-    ['tags',        'tagName'    ],
+    ['privateKeys',   'fingerprint'],
+    ['publicKeys',    'fingerprint'],
+    ['revokedKeys',   'fingerprint'],
+    ['reeds',         'headers.id', 'headers.author'],
+    ['unsignedReeds', 'headers.id' ],
+    ['users',         'id'         ],
+    ['tags',          'tagName'    ],
   ];
 
   async init(): Promise<void> {
@@ -40,6 +41,8 @@ export class IndexedDbService implements DbService {
         // Create object stores for each store name
         this.storeNames.forEach((storeDef) => {
             const [storeName, keyPath] = storeDef;
+            if (db.objectStoreNames.contains(storeName)) return;
+
             const store = db.createObjectStore(storeName, { keyPath });
 
             if (storeDef.length === 3) {

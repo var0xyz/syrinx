@@ -4,10 +4,11 @@
   import Notifications from '$lib/components/Notifications.svelte';
   import OfflineIndicator from '$lib/components/OfflineIndicator.svelte';
   import InstallButton from '$lib/components/InstallButton.svelte';
-  import { initializePWA } from '$lib/services/pwa';
+  import { initializePWA, isOnline } from '$lib/services/pwa';
   import { websocketService } from '$lib/services/websocket';
   import { authService } from '$lib/services/auth';
   import { requestSigner } from '$lib/services/request-signer';
+  import { reedsService } from '$lib/repositories/reeds';
 
   let user = null;
   $: headerLink = user ? '/reeds' : '/';
@@ -52,11 +53,23 @@
     }
   }
 
+  let wasOnline = false;
+  $: if ($isOnline && !wasOnline) {
+    wasOnline = true;
+    authService.getCurrentUser().then(currentUser => {
+      if (currentUser) reedsService.processUnsignedReeds();
+    });
+  } else if (!$isOnline) {
+    wasOnline = false;
+  }
+
   onMount(async () => {
     initializePWA();
 
     // Check authentication status for header
     user = await authService.getCurrentUser();
+
+    if (user) reedsService.processUnsignedReeds();
 
     // Wait a bit for Auth component to initialize first
     setTimeout(async () => {

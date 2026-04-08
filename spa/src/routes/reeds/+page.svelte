@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { authService } from '$lib/services/auth';
-  import { reedsService, stripMarkdown, formatRelativeTime } from '$lib/repositories/reeds';
+  import { reedsService, stripMarkdown, formatRelativeTime, unsignedReedsProcessed } from '$lib/repositories/reeds';
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
   import { userRepository } from '$lib/repositories/user';
@@ -15,6 +15,8 @@
   let user = null;
   let loading = true;
   let isWriteSectionOpen = false;
+
+  $: if ($unsignedReedsProcessed > 0 && user) loadReeds();
 
   // Reed list state
   let reeds = [];
@@ -147,10 +149,6 @@
       return;
     }
 
-    await performDelete(reedId);
-  }
-
-  async function performDelete(reedId) {
     try {
       // Delete from server
       await apiService.deleteReed(user.id, reedId);

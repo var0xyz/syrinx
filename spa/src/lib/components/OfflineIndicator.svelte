@@ -78,7 +78,7 @@
     color: white;
     padding: 0.5rem 1rem;
     text-align: center;
-    z-index: 1000;
+    z-index: 1003;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
     animation: slideDown 0.3s ease-out;
   }
@@ -92,7 +92,7 @@
     color: white;
     padding: 1rem;
     text-align: center;
-    z-index: 1000;
+    z-index: 1003;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
     animation: slideDown 0.3s ease-out;
   }

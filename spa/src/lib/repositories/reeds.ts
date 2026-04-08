@@ -6,26 +6,58 @@
 import { apiService as api } from '../services/api';
 import { dbService } from '../services/db';
 import { Reed as ReedClass, type ReedType } from '$lib/types/reed';
+import { writable } from 'svelte/store';
+
+// Incremented each time processUnsignedReeds completes successfully
+export const unsignedReedsProcessed = writable(0);
 
 
 class ReedsService {
   /**
    * Create a new reed
    */
-  async createReed(reed: ReedClass): Promise<void> {
+  /**
+   * Create a new reed. Returns true if published immediately, false if queued for later (server error/offline).
+   * Throws if local storage fails.
+   */
+  async createReed(reed: ReedClass): Promise<boolean> {
+    console.log('Storing unsigned reed in IndexedDB:', reed.asObject());
+    await dbService.put('unsignedReeds', reed.asObject());
+
     try {
-      console.log('Creating reed...');
-      const response = await api.createReed(reed.id, reed.signature);
-      console.log('Storing reed in IndexedDB:', reed.asObject());
-      await this.storeReedInIndexedDB(reed.asObject());
+      console.log('Getting signature from server...');
+      await api.createReed(reed.id, reed.signature);
     } catch (error) {
-      console.error('Failed to create reed:', error);
-      // Provide more specific error message
-      if (error instanceof Error) {
-        throw new Error(`Failed to create reed: ${error.message}`);
-      }
-      throw new Error('Failed to create reed: Unknown error');
+      console.error('Failed to publish reed to server, queued for later:', error);
+      return false;
     }
+
+    console.log('Storing signed reed...', reed.asObject());
+    await this.storeReedInIndexedDB(reed.asObject());
+    await dbService.delete('unsignedReeds', reed.id);
+    return true;
+  }
+
+  /**
+   * Process any unsigned reeds that were stored locally but not yet confirmed by the server.
+   * Should be called on app startup and when the app comes back online.
+   */
+  async processUnsignedReeds(): Promise<void> {
+    const unsignedReeds = await dbService.getAll<ReedType>('unsignedReeds');
+    if (unsignedReeds.length === 0) return;
+
+    for (const reed of unsignedReeds) {
+      try {
+        console.log('Processing unsigned reed:', reed.headers.id);
+        await api.createReed(reed.headers.id, reed.headers.signature);
+        await this.storeReedInIndexedDB(reed);
+        await dbService.delete('unsignedReeds', reed.headers.id);
+      } catch (error) {
+        console.error('Failed to process unsigned reed:', reed.headers.id, error);
+      }
+    }
+
+    unsignedReedsProcessed.update(n => n + 1);
   }
 
   /**
@@ -135,7 +167,7 @@ class ReedsService {
    */
   private async openIndexedDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('Syrinx', 1);
+      const request = indexedDB.open('Syrinx');
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
