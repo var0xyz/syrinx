@@ -104,8 +104,6 @@
       reed.signature = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
 
       const published = await reedsService.createReed(reed);
-
-      close();
       if (published) {
         goto(`/reed/${user.id}/${reed.id}`);
       } else {
@@ -116,6 +114,7 @@
       errorMessage = error.message || 'Failed to publish reed';
     } finally {
       isPublishing = false;
+      close();
     }
   }
 </script>
