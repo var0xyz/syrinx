@@ -12,7 +12,7 @@ export class AuthService {
   private _user: api.User | null = null;
 
   isLoggedIn(): boolean {
-    return !!localStorage.getItem('userID');
+    return !!localStorage.getItem('userId');
   }
 
   /**
@@ -21,7 +21,7 @@ export class AuthService {
   async getCurrentUser(): Promise<api.User | null> {
     try {
       // Check if user ID exists in localStorage
-      const userId = localStorage.getItem('userID');
+      const userId = localStorage.getItem('userId');
       if (!userId) {
         this._user = null;
         return null;
@@ -41,7 +41,7 @@ export class AuthService {
    * Save user data to both localStorage and IndexedDB
    */
   async saveUserToStorage(user: api.User): Promise<void> {
-    localStorage.setItem('userID', user.id);
+    localStorage.setItem('userId', user.id);
 
     // Also store in IndexedDB
     try {
@@ -93,6 +93,7 @@ export class AuthService {
     }
 
     const server = await response.json();
+    localStorage.setItem('serverId', server.id);
     return server.name;
   }
 
@@ -102,7 +103,7 @@ export class AuthService {
   async signup(userData: SignupUser): Promise<string> {
     try {
       const serverName = await this.getServerName();
-      localStorage.setItem('serverID', serverName);
+      localStorage.setItem('serverName', serverName);
     } catch (error) {
       throw new Error('Failed to fetch server info', { cause: error });
     }
@@ -123,7 +124,7 @@ export class AuthService {
     }
 
     const user = await response.json();
-    localStorage.setItem('userID', user.id);
+    localStorage.setItem('userId', user.id);
     this._user = user;
 
     return user;

@@ -9,7 +9,7 @@ import { Uuid25 } from 'uuid25';
 export type Headers = {
   id: string;
   author: string;
-  server: string;
+  serverId: string;
   origin: string;
   fingerprint: string;
   algorithm: string;
@@ -37,13 +37,13 @@ export class Reed {
 
     // Auto-populate origin, author, and server
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const author = typeof localStorage !== 'undefined' ? localStorage.getItem('userID') || '' : '';
-    const server = typeof localStorage !== 'undefined' ? localStorage.getItem('serverID') || '' : '';
+    const author = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';
+    const serverId = typeof localStorage !== 'undefined' ? localStorage.getItem('serverId') || '' : '';
 
     this._headers = {
       algorithm: 'PGP+base64',
       author,
-      server,
+      serverId,
       origin,
       id,
       fingerprint: '',
@@ -65,8 +65,8 @@ export class Reed {
     return this._headers.fingerprint;
   }
 
-  get server(): string {
-    return this._headers.server;
+  get serverId(): string {
+    return this._headers.serverId;
   }
 
   get origin(): string {
@@ -108,10 +108,6 @@ export class Reed {
 
   set key(value: string) {
     this._headers.fingerprint = value;
-  }
-
-  set server(value: string) {
-    this._headers.server = value;
   }
 
   set origin(value: string) {
