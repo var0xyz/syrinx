@@ -23,6 +23,7 @@ type Handlers struct {
 }
 
 type ServerInfo struct {
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -86,7 +87,7 @@ func (h *Handlers) noop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
-	writeResponse(w, http.StatusOK, ServerInfo{Name: h.cfg.ServerName})
+	writeResponse(w, http.StatusOK, ServerInfo{ID: h.services.db.GetServerID(), Name: h.cfg.ServerName})
 }
 
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {

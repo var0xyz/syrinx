@@ -207,8 +207,8 @@ func main() {
   |_____/ \__, |_|  |_|_| |_/_/\_\
            __/ |
           |___/     127.0.0.1:%d
-                    %s
-	`, cfg.Port, cfg.ServerName)
+                    %s (%s)
+	`, cfg.Port, cfg.ServerName, h.services.db.GetServerID())
 
 	// Set up graceful shutdown
 	sigChan := make(chan os.Signal, 1)

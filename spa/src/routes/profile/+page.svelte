@@ -19,7 +19,7 @@
 
   let user: User | null = null;
   let loading: boolean = true;
-  let serverName: string = localStorage.getItem('serverID') || '';
+  let serverName: string = localStorage.getItem('serverName') || '';
   let storageUsed: number = 0;
   let storageTotal: number = 0;
   let storagePercentage: number = 0;
