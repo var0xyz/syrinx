@@ -2,6 +2,12 @@ import type * as api from '$lib/types/api';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
 
+export type SignReedResponse = {
+  algorithm: string;
+  signature: string;
+  signedAt: string;
+};
+
 export type SignupInput = {
   username: string;
   publicKey: string;
@@ -122,10 +128,10 @@ export const apiService = {
     });
   },
 
-  async createReed(reedID: string, signature: string): Promise<any> {
+  async createReed(reedId: string, signature: string): Promise<SignReedResponse> {
     const formData = new URLSearchParams();
     formData.append('signature', signature);
-    formData.append('reedID', reedID);
+    formData.append('reedID', reedId);
 
     return request('/reeds', {
       method: 'POST',

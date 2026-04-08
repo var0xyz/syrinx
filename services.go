@@ -526,7 +526,7 @@ func validateUUID25(uuid25Str string) error {
 	return nil
 }
 
-func (s *DataService) CreateReed(reedID string, userID string, fingerprint string) (*Reed, error) {
+func (s *DataService) CreateReed(reedID string, userID string, fingerprint string, timestamp time.Time) (*Reed, error) {
 	// Validate that the reed ID is a valid UUID25 encoding of a UUID v7
 	err := validateUUID25(reedID)
 	if err != nil {
@@ -535,10 +535,10 @@ func (s *DataService) CreateReed(reedID string, userID string, fingerprint strin
 
 	var reed Reed
 	err = s.db.QueryRow(`
-		INSERT INTO reeds (id, user_id, fingerprint)
-		VALUES ($1, $2, $3)
+		INSERT INTO reeds (id, user_id, fingerprint, signed_at)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id, user_id, fingerprint, signed_at
-	`, reedID, userID, fingerprint).Scan(
+	`, reedID, userID, fingerprint, timestamp).Scan(
 		&reed.ID,
 		&reed.UserID,
 		&reed.Fingerprint,

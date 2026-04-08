@@ -13,7 +13,10 @@ export type Headers = {
   origin: string;
   fingerprint: string;
   algorithm: string;
-  signature?: string;
+  userSignature?: string;
+  serverAlgorithm?: string;
+  serverSignature?: string;
+  serverSignedAt?: string;
   timestamp: string;
   format: string;
   replying?: string;
@@ -81,8 +84,20 @@ export class Reed {
     return this._headers.fingerprint;
   }
 
-  get signature(): string {
-    return this._headers.signature;
+  get userSignature(): string {
+    return this._headers.userSignature;
+  }
+
+  get serverAlgorithm(): string {
+    return this._headers.serverAlgorithm;
+  }
+
+  get serverSignature(): string {
+    return this._headers.serverSignature;
+  }
+
+  get serverSignedAt(): string {
+    return this._headers.serverSignedAt;
   }
 
   get replying(): string | undefined {
@@ -122,8 +137,20 @@ export class Reed {
     this._headers.fingerprint = value;
   }
 
-  set signature(value: string) {
-    this._headers.signature = btoa(value.trim()).trim();
+  set userSignature(value: string) {
+    this._headers.userSignature = btoa(value.trim()).trim();
+  }
+
+  set serverAlgorithm(value: string) {
+    this._headers.serverAlgorithm = value;
+  }
+
+  set serverSignature(value: string) {
+    this._headers.serverSignature = value;
+  }
+
+  set serverSignedAt(value: string) {
+    this._headers.serverSignedAt = value;
   }
 
   set replying(value: string) {
