@@ -95,7 +95,7 @@
   }
 
   .auth-container {
-    min-height: 100vh;
+    min-height: calc(100vh - 3.8rem);
     display: flex;
     flex-direction: column;
   }
