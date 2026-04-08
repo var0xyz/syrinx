@@ -233,7 +233,7 @@ class WebSocketService {
       timestamp,
       signature,
       fingerprint,
-      userID: user.id,
+      userId: user.id,
       algorithm: 'PGP+base64'
     };
   }

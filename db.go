@@ -145,7 +145,7 @@ func InitDB(db *sql.DB) error {
 		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
 		server_id VARCHAR(16) REFERENCES servers(id),
 		fingerprint VARCHAR(255) REFERENCES private_keys(fingerprint),
-		signed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		signed_at TIMESTAMP NOT NULL,
 
 		PRIMARY KEY (id, user_id)
 	);`

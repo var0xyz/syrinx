@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"syrinx/realtime"
 
@@ -25,6 +28,12 @@ type Handlers struct {
 type ServerInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+type Signature struct {
+	Algorithm string    `json:"algorithm"`
+	Signature string    `json:"signature"`
+	SignedAt  time.Time `json:"signedAt"`
 }
 
 // ///////////// //
@@ -846,8 +855,13 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// We sign the user's signature with the server's private key, which in
-	// turn signed the reed that we just validated.
-	serverSignature, err := h.services.crypto.Sign(signature, privateKey.Armor)
+	// turn signed the reed that we just validated. We also prepend the
+	// timestamp before signing, because the client can potentially spoof the
+	// reed's creation time, but they won't be able to spoof the server's
+	// signature time.
+	timestamp := time.Now()
+	payload := fmt.Sprint(timestamp.Unix()) + "\n" + signature
+	serverSignature, err := h.services.crypto.Sign(payload, privateKey.Armor)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -858,7 +872,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reed, err := h.services.db.CreateReed(reedID, userID, user.ServerKeyFingerprint)
+	reed, err := h.services.db.CreateReed(reedID, userID, user.ServerKeyFingerprint, timestamp)
 	if err != nil {
 		log.Error().
 			Str("reedID", reedID).
@@ -874,6 +888,13 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		Str("reedID", reed.ID).
 		Msg("Reed created successfully")
 
+	encodedSignature := base64.StdEncoding.EncodeToString([]byte(serverSignature))
+	writeResponse(w, http.StatusCreated, Signature{
+		Algorithm: "PGP+base64",
+		Signature: encodedSignature,
+		SignedAt:  reed.SignedAt,
+	})
+
 	// Broadcast the new reed to realtime subscribers
 	h.broadcastChan <- realtime.BroadcastMessage{
 		Type:     realtime.NewReed,
@@ -881,8 +902,6 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		UserID:   userID,
 		ReedID:   reed.ID,
 	}
-
-	writeResponse(w, http.StatusCreated, serverSignature)
 }
 
 func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
