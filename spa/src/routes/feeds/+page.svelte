@@ -38,6 +38,7 @@
   onMount(async () => {
     try {
       user = await authService.getCurrentUser();
+      if (user) await websocketService.connect();
     } catch (error) {
       console.error('Error getting user:', error);
     } finally {
@@ -58,6 +59,8 @@
     if (isSubscribed && websocketService.isConnected()) {
       websocketService.unsubscribeFromBroadcast();
     }
+
+    websocketService.disconnect();
   });
 </script>
 
