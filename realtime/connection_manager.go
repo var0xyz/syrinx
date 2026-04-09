@@ -14,11 +14,9 @@ import (
 // NewConnectionManager creates a new connection manager
 func NewConnectionManager() *ConnectionManager {
 	return &ConnectionManager{
-		userConnections:      make(map[string]map[*websocket.Conn]*Client),
-		broadcastSubscribers: make(map[*websocket.Conn]*Client),
-		register:             make(chan *Client),
-		unregister:           make(chan *Client),
-		broadcast:            make(chan *BroadcastMessage),
+		userConnections: make(map[string]map[*websocket.Conn]*Client),
+		register:        make(chan *Client),
+		unregister:      make(chan *Client),
 	}
 }
 
@@ -35,9 +33,6 @@ func (cm *ConnectionManager) Start() {
 		case client := <-cm.unregister:
 			cm.unregisterClient(client)
 
-		case message := <-cm.broadcast:
-			cm.handleBroadcast(message)
-
 		case <-ticker.C:
 			cm.pingClients()
 		}
@@ -52,11 +47,6 @@ func (cm *ConnectionManager) RegisterClient(client *Client) {
 // UnregisterClient unregisters a client
 func (cm *ConnectionManager) UnregisterClient(client *Client) {
 	cm.unregister <- client
-}
-
-// BroadcastMessage broadcasts a message to appropriate subscribers
-func (cm *ConnectionManager) BroadcastMessage(message *BroadcastMessage) {
-	cm.broadcast <- message
 }
 
 // registerClient handles client registration
@@ -90,9 +80,6 @@ func (cm *ConnectionManager) unregisterClient(client *Client) {
 		}
 	}
 
-	// Remove from broadcast subscribers
-	delete(cm.broadcastSubscribers, client.conn)
-
 	// Close the connection
 	client.conn.Close()
 
@@ -101,73 +88,32 @@ func (cm *ConnectionManager) unregisterClient(client *Client) {
 		Msg("Client unregistered")
 }
 
-// handleBroadcast routes broadcast messages to appropriate subscribers
-func (cm *ConnectionManager) handleBroadcast(message *BroadcastMessage) {
+// NotifyUser sends a reed notification to all active connections for a specific user
+func (cm *ConnectionManager) NotifyUser(userID string, message *BroadcastMessage) {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
 
-	switch message.Type {
-	case NewReed:
-		cm.broadcastReedNotification(message)
-	case UserUpdate:
-		cm.broadcastUserUpdate(message)
-	case ReedDeleted:
-		cm.broadcastReedDeletion(message)
-	}
-}
-
-// broadcastReedNotification broadcasts a reed notification
-func (cm *ConnectionManager) broadcastReedNotification(message *BroadcastMessage) {
-	// Send to broadcast subscribers
-	for conn, client := range cm.broadcastSubscribers {
-		if client.IsSubscribed(SubscribeBroadcast) {
-			cm.sendReedNotification(conn, message)
-		}
-	}
-
-	// Send to author's followers (if they have user subscriptions)
-	if userConns, exists := cm.userConnections[message.UserID]; exists {
-		for conn, client := range userConns {
-			if client.IsSubscribed(SubscribeUser) {
+	if userConns, exists := cm.userConnections[userID]; exists {
+		for conn := range userConns {
+			if message.Type == NewReed {
 				cm.sendReedNotification(conn, message)
 			}
 		}
 	}
 }
 
-// broadcastUserUpdate broadcasts a user update
-func (cm *ConnectionManager) broadcastUserUpdate(message *BroadcastMessage) {
-	// Send to broadcast subscribers
-	for conn, client := range cm.broadcastSubscribers {
-		if client.IsSubscribed(SubscribeBroadcast) {
-			cm.sendUserUpdate(conn, message)
-		}
-	}
+// pingClients sends ping messages to all clients
+func (cm *ConnectionManager) pingClients() {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
 
-	// Send to the user's own connections
-	if userConns, exists := cm.userConnections[message.UserID]; exists {
+	now := time.Now()
+
+	for _, userConns := range cm.userConnections {
 		for conn, client := range userConns {
-			if client.IsSubscribed(SubscribeUser) {
-				cm.sendUserUpdate(conn, message)
-			}
-		}
-	}
-}
-
-// broadcastReedDeletion broadcasts a reed deletion
-func (cm *ConnectionManager) broadcastReedDeletion(message *BroadcastMessage) {
-	// Send to broadcast subscribers
-	for conn, client := range cm.broadcastSubscribers {
-		if client.IsSubscribed(SubscribeBroadcast) {
-			cm.sendReedDeletion(conn, message)
-		}
-	}
-
-	// Send to author's connections
-	if userConns, exists := cm.userConnections[message.UserID]; exists {
-		for conn, client := range userConns {
-			if client.IsSubscribed(SubscribeUser) {
-				cm.sendReedDeletion(conn, message)
+			if now.Sub(client.lastPing) > 30*time.Second {
+				cm.sendPing(conn)
+				client.lastPing = now
 			}
 		}
 	}
@@ -183,7 +129,6 @@ func (cm *ConnectionManager) sendReedNotification(conn *websocket.Conn, message 
 			"serverId": message.ServerID,
 			"userId":   message.UserID,
 			"reedId":   message.ReedID,
-
 			"iceServers": []map[string]interface{}{
 				{"urls": "stun:stun.l.google.com:19302"},
 			},
@@ -198,69 +143,6 @@ func (cm *ConnectionManager) sendReedNotification(conn *websocket.Conn, message 
 
 	if err := conn.WriteMessage(websocket.TextMessage, jsonBytes); err != nil {
 		log.Error().Err(err).Msg("Failed to send JSON notification")
-		return
-	}
-}
-
-// sendUserUpdate sends a user update to a specific connection
-func (cm *ConnectionManager) sendUserUpdate(conn *websocket.Conn, message *BroadcastMessage) {
-	update := &pb.WSMessage{
-		Type: pb.MessageType_USER_UPDATE,
-		Payload: &pb.WSMessage_UserUpdate{
-			UserUpdate: &pb.UserUpdateMessage{
-				UserId:     message.UserID,
-				UpdateType: "profile_update",
-				Timestamp:  time.Now().Unix(),
-			},
-		},
-	}
-
-	cm.sendProtobufMessage(conn, update)
-}
-
-// sendReedDeletion sends a reed deletion to a specific connection
-func (cm *ConnectionManager) sendReedDeletion(conn *websocket.Conn, message *BroadcastMessage) {
-	// For reed deletion, we can send a simple notification
-	// In a more sophisticated system, you might want a specific message type
-	notification := &pb.WSMessage{
-		Type: pb.MessageType_REED_NOTIFICATION,
-		Payload: &pb.WSMessage_ReedNotification{
-			ReedNotification: &pb.ReedNotificationMessage{
-				ReedId:    message.ReedID,
-				UserId:    message.UserID,
-				Username:  "System",
-				Content:   "Reed deleted",
-				Timestamp: time.Now().Unix(),
-			},
-		},
-	}
-
-	cm.sendProtobufMessage(conn, notification)
-}
-
-// pingClients sends ping messages to all clients
-func (cm *ConnectionManager) pingClients() {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	now := time.Now()
-
-	// Ping all user connections
-	for _, userConns := range cm.userConnections {
-		for conn, client := range userConns {
-			if now.Sub(client.lastPing) > 30*time.Second {
-				cm.sendPing(conn)
-				client.lastPing = now
-			}
-		}
-	}
-
-	// Ping all broadcast subscribers
-	for conn, client := range cm.broadcastSubscribers {
-		if now.Sub(client.lastPing) > 30*time.Second {
-			cm.sendPing(conn)
-			client.lastPing = now
-		}
 	}
 }
 
@@ -280,57 +162,14 @@ func (cm *ConnectionManager) sendPing(conn *websocket.Conn) {
 
 // sendProtobufMessage sends a protobuf message to a connection
 func (cm *ConnectionManager) sendProtobufMessage(conn *websocket.Conn, msg *pb.WSMessage) {
-	// Marshal the protobuf message
 	data, err := proto.Marshal(msg)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to marshal protobuf message")
 		return
 	}
 
-	// Send as binary message
 	if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
 		log.Error().Err(err).Msg("Failed to write protobuf message")
-		return
-	}
-}
-
-// SubscribeToBroadcast adds a client to broadcast subscribers
-func (cm *ConnectionManager) SubscribeToBroadcast(client *Client) {
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
-
-	cm.broadcastSubscribers[client.conn] = client
-	client.Subscribe(SubscribeBroadcast)
-
-	log.Info().
-		Str("userID", client.userID).
-		Msg("Client subscribed to broadcast")
-}
-
-// UnsubscribeFromBroadcast removes a client from broadcast subscribers
-func (cm *ConnectionManager) UnsubscribeFromBroadcast(client *Client) {
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
-
-	delete(cm.broadcastSubscribers, client.conn)
-	client.Unsubscribe(SubscribeBroadcast)
-
-	log.Info().
-		Str("userID", client.userID).
-		Msg("Client unsubscribed from broadcast")
-}
-
-// NotifyUser sends a reed notification to all active connections for a specific user
-func (cm *ConnectionManager) NotifyUser(userID string, message *BroadcastMessage) {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	if userConns, exists := cm.userConnections[userID]; exists {
-		for conn := range userConns {
-			if message.Type == NewReed {
-				cm.sendReedNotification(conn, message)
-			}
-		}
 	}
 }
 

@@ -81,8 +81,6 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			}
 		}
 
-		// Also notify in-memory subscribers (for immediate notifications)
-		rs.connManager.BroadcastMessage(&message)
 	}
 }
 
@@ -397,17 +395,10 @@ func (rs *RealtimeService) handleSubscribeUser(client *Client, subscribe *pb.Sub
 	}
 
 	rs.sendProtobufMessage(client, response)
-
-	log.Info().
-		Str("userID", client.userID).
-		Msg("Client subscribed to user notifications")
 }
 
 // handleSubscribeBroadcast handles broadcast subscription requests
 func (rs *RealtimeService) handleSubscribeBroadcast(client *Client, subscribe *pb.SubscribeMessage) {
-	// Subscribe in memory
-	rs.connManager.SubscribeToBroadcast(client)
-
 	// Persist to database
 	err := rs.dbService.SubscribeToBroadcast(client.userID)
 	if err != nil {
@@ -428,26 +419,15 @@ func (rs *RealtimeService) handleSubscribeBroadcast(client *Client, subscribe *p
 	}
 
 	rs.sendProtobufMessage(client, response)
-
-	log.Info().
-		Str("userID", client.userID).
-		Msg("Client subscribed to broadcast notifications")
 }
 
 // handleUnsubscribeUser handles user unsubscription requests
 func (rs *RealtimeService) handleUnsubscribeUser(client *Client, subscribe *pb.SubscribeMessage) {
 	client.Unsubscribe(SubscribeUser)
-
-	log.Info().
-		Str("userID", client.userID).
-		Msg("Client unsubscribed from user notifications")
 }
 
 // handleUnsubscribeBroadcast handles broadcast unsubscription requests
 func (rs *RealtimeService) handleUnsubscribeBroadcast(client *Client, subscribe *pb.SubscribeMessage) {
-	// Unsubscribe from memory
-	rs.connManager.UnsubscribeFromBroadcast(client)
-
 	// Remove from database
 	if err := rs.dbService.UnsubscribeFromBroadcast(client.userID); err != nil {
 		log.Error().
@@ -456,10 +436,6 @@ func (rs *RealtimeService) handleUnsubscribeBroadcast(client *Client, subscribe 
 			Msg("Failed to remove broadcast subscription from database")
 		// Continue anyway - in-memory subscription is removed
 	}
-
-	log.Info().
-		Str("userID", client.userID).
-		Msg("Client unsubscribed from broadcast notifications")
 }
 
 // sendProtobufMessage sends a protobuf message to a client
