@@ -47,12 +47,9 @@ type Client struct {
 type ConnectionManager struct {
 	// Map of userID -> connections for user-specific notifications
 	userConnections map[string]map[*websocket.Conn]*Client
-	// Broadcast subscribers (all users who want to see all traffic)
-	broadcastSubscribers map[*websocket.Conn]*Client
 	// Channels for operations
 	register   chan *Client
 	unregister chan *Client
-	broadcast  chan *BroadcastMessage
 	mutex      sync.RWMutex
 }
 

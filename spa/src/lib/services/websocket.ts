@@ -233,7 +233,7 @@ class WebSocketService {
       timestamp,
       signature,
       fingerprint,
-      userId: user.id,
+      userID: user.id,
       algorithm: 'PGP+base64'
     };
   }
@@ -374,6 +374,7 @@ class WebSocketService {
       this.ws.onerror = (error) => {
         console.error('WebSocket connection error:', error);
         clearTimeout(timeout);
+        reject(new Error('WebSocket connection failed'));
       };
     });
   }

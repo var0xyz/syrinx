@@ -195,9 +195,6 @@ func (ds *DBService) SubscribeToBroadcast(userID string) error {
 		return err
 	}
 
-	log.Debug().
-		Str("userID", userID).
-		Msg("User subscribed to broadcast")
 	return nil
 }
 
@@ -215,9 +212,6 @@ func (ds *DBService) UnsubscribeFromBroadcast(userID string) error {
 		return err
 	}
 
-	log.Debug().
-		Str("userID", userID).
-		Msg("User unsubscribed from broadcast")
 	return nil
 }
 
