@@ -174,32 +174,6 @@
     line-height: 1.5;
   }
 
-  .recommendations {
-    background: rgba(16, 185, 129, 0.1);
-    border-left: 4px solid #10b981;
-    border-radius: 8px;
-    padding: 1rem;
-  }
-
-  .recommendations h2 {
-    color: #10b981;
-    font-size: 1.3rem;
-    margin-bottom: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .recommendations ul {
-    margin: 0;
-    padding-left: 1.5rem;
-  }
-
-  .recommendations li {
-    margin-bottom: 0.5rem;
-    line-height: 1.5;
-  }
-
   .action-buttons {
     border-top: 1px solid var(--border);
     padding-top: 2rem;
