@@ -397,14 +397,6 @@
     margin: 1rem 0;
   }
 
-  .reed-body p {
-    margin: 0;
-    color: var(--fg);
-    line-height: 1.6;
-    font-size: 1rem;
-    white-space: pre-wrap;
-  }
-
   .reed-actions-bar {
     display: flex;
     gap: 0.5rem;
