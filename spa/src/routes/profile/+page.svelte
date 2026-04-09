@@ -9,6 +9,7 @@
   import { dbService } from '$lib/services/db';
   import { localStorageService } from '$lib/services/localstorage';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import ExportDataWarningModal from '$lib/components/ExportDataWarningModal.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import UsernameChecker from '$lib/components/UsernameChecker.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -50,6 +51,7 @@
 
   // Export state
   let exporting: boolean = false;
+  let showExportWarningModal: boolean = false;
 
   // Helper function to format bytes into human-readable format
   function formatBytes(bytes: number): string {
@@ -759,7 +761,7 @@
         <div class="section">
           <h3>🚪 Account Actions</h3>
           <div class="action-buttons">
-            <button class="action-btn primary" on:click={exportData} disabled={exporting}>
+            <button class="action-btn primary" on:click={() => showExportWarningModal = true} disabled={exporting}>
               {exporting ? 'Exporting...' : 'Export Data'}
             </button>
             <button class="action-btn danger" on:click={() => goto('/delete/confirm')}>Delete Account</button>
@@ -767,6 +769,12 @@
         </div>
       </div>
     </div>
+
+    <ExportDataWarningModal
+      open={showExportWarningModal}
+      on:confirm={() => { showExportWarningModal = false; exportData(); }}
+      on:cancel={() => showExportWarningModal = false}
+    />
 
     <!-- Bottom Toolbar -->
     <BottomToolbar currentPage="profile" />
