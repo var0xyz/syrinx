@@ -13,6 +13,7 @@
   import Auth from '$lib/components/Auth.svelte';
   import UsernameChecker from '$lib/components/UsernameChecker.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import UserProfileCard from '$lib/components/UserProfileCard.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import type { User } from '$lib/types/api';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
@@ -464,9 +465,9 @@
     <div class="profile-container">
     <!-- Main Content -->
     <div class="profile-content">
+      {#if isEditing}
       <div class="profile-card">
         <div class="profile-info">
-          {#if isEditing}
             <div class="edit-form">
               <div class="profile-avatar">
                 <img
@@ -551,48 +552,11 @@
                 </button>
               </div>
             </div>
-          {:else}
-            <div class="profile-header">
-              <div class="avatar-container">
-                <img
-                  src={user?.avatarURL || defaultAvatarUrl}
-                  alt="{user?.username}'s Avatar"
-                  class="profile-avatar"
-                  on:error={
-                    (e) => {
-                      const img = (e.target as HTMLImageElement)
-                      if (img.src !== defaultAvatarUrl) {
-                          img.src = defaultAvatarUrl
-                      }
-                    }
-                  }
-                />
-              </div>
-              <div class="profile-info">
-                <h2>{user?.username}</h2>
-                <div class="user-id-container">
-                  <p class="user-id">{user?.id}@{serverName}</p>
-                  <button class="copy-icon-btn" on:click={copyUserId} aria-label="Copy user ID">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                  </button>
-                </div>
-                <p class="member-since">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
-              </div>
-            </div>
-            {#if user?.bio}
-            <div class="user-bio">
-              <MarkdownParser text={user.bio}/>
-            </div>
-          {/if}
-            <div class="profile-actions">
-              <button class="action-btn primary" on:click={startEditing}>Edit Profile</button>
-            </div>
-          {/if}
         </div>
       </div>
+      {:else}
+        <UserProfileCard {user} editable={true} on:edit={startEditing} />
+      {/if}
 
       <div class="profile-sections">
         <!-- Storage Usage -->
@@ -836,55 +800,6 @@
     cursor: pointer;
   }
 
-  .profile-info h2 {
-    text-align: left;
-    margin: 0;
-    color: var(--fg);
-    font-size: 1.5rem;
-    word-break: break-word;
-  }
-
-  .user-id-container {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .user-id {
-    margin: 0;
-    color: var(--muted);
-    font-family: monospace;
-    font-size: 0.8rem;
-    text-align: left;
-  }
-
-  .copy-icon-btn {
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    padding: 0.25rem 1rem;
-    display: flex;
-    align-items: center;
-    justify-content: left;
-    color: var(--muted);
-    border-radius: 4px;
-    width: auto;
-  }
-
-  .member-since {
-    margin: 0 0 1rem 0;
-    color: var(--muted);
-    font-size: 0.8rem;
-    text-align: left;
-  }
-
-  .profile-actions {
-    display: flex;
-    gap: 0.75rem;
-    margin-top: 1rem;
-    justify-content: center;
-  }
-
   .action-btn {
     padding: 0.5rem 1rem;
     border-radius: 6px;
@@ -936,37 +851,6 @@
   }
 
 
-
-  .profile-header {
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-  }
-
-  .avatar-container {
-    flex-shrink: 0;
-  }
-
-  .profile-avatar {
-    width: 80px;
-    height: 80px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 2px solid var(--border);
-  }
-
-  .profile-info {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .user-bio {
-    text-align: left;
-    font-size: 0.9rem;
-    line-height: 1.4;
-    width: 100%;
-    margin-top: 0.5rem;
-  }
 
   /* Edit Form Styles */
   .edit-form {
@@ -1321,12 +1205,6 @@
 
     .storage-item {
       text-align: left;
-    }
-
-
-    .profile-actions {
-      flex-direction: column;
-      gap: 0.5rem;
     }
 
     .action-btn {

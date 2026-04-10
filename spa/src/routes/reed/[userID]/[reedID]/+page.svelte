@@ -13,10 +13,12 @@
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import { userRepository } from '$lib/repositories/user';
   import { goto } from '$app/navigation';
   import { notificationStore } from '$lib/stores/notifications';
 
   let user = null;
+  let authorUser = null;
   let loading = true;
   let reed = null;
   let loadingReed = true;
@@ -101,6 +103,9 @@
           repliedToReedMissing = true;
         }
       }
+
+      // Fetch the reed author's profile
+      authorUser = await userRepository.getByUserId(userID).catch(() => null);
     } catch (error) {
       console.error('Error loading reed:', error);
       errorMessage = 'Failed to load reed';
@@ -148,7 +153,7 @@
     const reedUrl = `${window.location.origin}/reed/${userID}/${reedID}`;
     const reedText = stripMarkdown(reed.content);
     const shareData = {
-      title: `${user?.username || 'User'}'s Reed`,
+      title: `${authorUser?.username ?? userID}'s Reed`,
       text: reedText,
       url: reedUrl
     };
@@ -218,15 +223,15 @@
           <div class="reed-detail">
             <div class="reed-meta">
               <div class="reed-author">
-                <div class="author-avatar">
-                  {#if user.avatarURL}
-                    <img src={user.avatarURL} alt={user.username} />
+                <a href="/profile/{userID}" class="author-avatar">
+                  {#if authorUser?.avatarURL}
+                    <img src={authorUser.avatarURL} alt={authorUser.username} />
                   {:else}
                     <div class="avatar-icon">👤</div>
                   {/if}
-                </div>
+                </a>
                 <div class="author-info">
-                  <h2>{user.username}</h2>
+                  <a href="/profile/{userID}" class="author-name">{authorUser?.username ?? userID}</a>
                   <p class="reed-date">{formatAbsoluteDateTime(reed.headers.timestamp)}</p>
                 </div>
               </div>
@@ -335,9 +340,11 @@
     border-radius: 50%;
     overflow: hidden;
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     background: var(--input-bg);
+    text-decoration: none;
   }
 
   .author-avatar img {
@@ -350,11 +357,17 @@
     font-size: 1.5rem;
   }
 
-  .author-info h2 {
+  .author-name {
+    display: block;
     margin: 0 0 0.25rem 0;
     color: var(--fg);
     font-size: 1.2rem;
     font-weight: 600;
+    text-decoration: none;
+  }
+
+  .author-name:hover {
+    text-decoration: underline;
   }
 
   .reed-date {

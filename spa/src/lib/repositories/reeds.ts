@@ -157,6 +157,11 @@ class ReedsService {
     }
   }
 
+  async deleteReedsByAuthor(authorId: string): Promise<void> {
+    const reeds = await dbService.getAllByIndex<ReedType>('reeds', 'headers.author', authorId);
+    await Promise.all(reeds.map(r => dbService.delete('reeds', r.headers.id)));
+  }
+
   /**
    * Get reeds by author ID
    */

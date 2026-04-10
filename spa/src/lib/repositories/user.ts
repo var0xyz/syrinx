@@ -17,6 +17,18 @@ export class UserRepository {
     await dbService.delete(this.storeName, userId);
   }
 
+  async isTombstone(userId: string): Promise<boolean> {
+    const record = await this.get(userId);
+    return !!(record as any)?.__meta__?.deleted;
+  }
+
+  async writeTombstone(userId: string): Promise<void> {
+    await dbService.put(this.storeName, {
+      id: userId,
+      __meta__: { deleted: true, timestamp: Date.now() }
+    } as any);
+  }
+
   async getByUserId(userId: string): Promise<api.User> {
     let user: api.User = await this.get(userId);
 
