@@ -96,6 +96,16 @@ export const apiService = {
       method: 'GET'
     });
   },
+
+  async getUserWithStatus(userId: string): Promise<{ status: number; user?: api.User }> {
+    try {
+      const user = await request<api.User>(`/users/${userId}`, { method: 'GET' });
+      return { status: 200, user };
+    } catch (error: any) {
+      const match = error?.message?.match(/HTTP (\d+)/);
+      return { status: match ? parseInt(match[1]) : 0 };
+    }
+  },
   async updateUser(userData: { username?: string; avatarURL?: string; bio?: string }): Promise<api.User> {
     const formData = new URLSearchParams();
     if (userData.username) {

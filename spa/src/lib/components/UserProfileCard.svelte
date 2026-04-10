@@ -1,0 +1,190 @@
+<script>
+  import { createEventDispatcher } from 'svelte';
+  import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import { notificationStore } from '$lib/stores/notifications';
+
+  export let user;
+  export let editable = false;
+
+  const dispatch = createEventDispatcher();
+
+  const defaultAvatarUrl = `${window.location.origin}/static/default-avatar.png`;
+  const serverName = localStorage.getItem('serverName') || '';
+
+  function formatDate(dateString) {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    } catch {
+      return dateString;
+    }
+  }
+
+  async function copyUserId() {
+    if (!user?.id) return;
+    try {
+      await navigator.clipboard.writeText(serverName ? `${user.id}@${serverName}` : user.id);
+      notificationStore.success('User ID copied to clipboard');
+    } catch (error) {
+      console.error('Failed to copy user ID:', error);
+      notificationStore.error('Failed to copy user ID');
+    }
+  }
+</script>
+
+<div class="profile-card">
+  <div class="profile-header">
+    <div class="avatar-container">
+      <img
+        src={user?.avatarURL || defaultAvatarUrl}
+        alt="{user?.username}'s Avatar"
+        class="profile-avatar"
+        on:error={(e) => {
+          const img = e.target;
+          if (img.src !== defaultAvatarUrl) img.src = defaultAvatarUrl;
+        }}
+      />
+    </div>
+    <div class="profile-info">
+      <h2>{user?.username}</h2>
+      <div class="user-id-container">
+        <p class="user-id">{user?.id}{serverName ? `@${serverName}` : ''}</p>
+        <button class="copy-icon-btn" on:click={copyUserId} aria-label="Copy user ID">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+        </button>
+      </div>
+      <p class="member-since">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
+    </div>
+  </div>
+  {#if user?.bio}
+    <div class="user-bio">
+      <MarkdownParser text={user.bio} />
+    </div>
+  {/if}
+  {#if editable}
+    <div class="profile-actions">
+      <button class="action-btn primary" on:click={() => dispatch('edit')}>Edit Profile</button>
+    </div>
+  {/if}
+</div>
+
+<style>
+  .profile-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .profile-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .avatar-container {
+    flex-shrink: 0;
+  }
+
+  .profile-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border);
+  }
+
+  .profile-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .profile-info h2 {
+    text-align: left;
+    margin: 0;
+    color: var(--fg);
+    word-break: break-word;
+  }
+
+  .user-id-container {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .user-id {
+    margin: 0;
+    color: var(--muted);
+    font-family: monospace;
+    font-size: 0.8rem;
+    text-align: left;
+  }
+
+  .copy-icon-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0.25rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: left;
+    color: var(--muted);
+    border-radius: 4px;
+    width: auto;
+  }
+
+  .member-since {
+    margin: 0 0 1rem 0;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-align: left;
+  }
+
+  .user-bio {
+    text-align: left;
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+
+  .profile-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+  }
+
+  .action-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s ease;
+  }
+
+  .action-btn.primary {
+    background: var(--primary);
+    color: var(--button-text);
+  }
+
+  .action-btn.primary:hover {
+    opacity: 0.9;
+  }
+
+  @media (max-width: 768px) {
+    .profile-actions {
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .profile-card {
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+  }
+</style>
