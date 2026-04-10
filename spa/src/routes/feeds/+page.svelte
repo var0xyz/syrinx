@@ -1,12 +1,17 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { authService } from '$lib/services/auth';
+  import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
 
   let user = null;
   let loading = true;
   let activeSection = 'broadcast'; // 'broadcast' or 'followcast'
+
+  function handleReedNotification(data) {
+    console.log('ServerEvent.ReedNotification:', data);
+  }
 
   function setActiveSection(section) {
     activeSection = section;
@@ -20,6 +25,15 @@
     } finally {
       loading = false;
     }
+
+    serverConnection.on(ServerEvent.ReedNotification, handleReedNotification);
+    await serverConnection.connect();
+    serverConnection.subscribeToBroadcast();
+  });
+
+  onDestroy(() => {
+    serverConnection.off(ServerEvent.ReedNotification, handleReedNotification);
+    serverConnection.unsubscribeFromBroadcast();
   });
 </script>
 
