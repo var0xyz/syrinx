@@ -6,6 +6,7 @@
   import InstallButton from '$lib/components/InstallButton.svelte';
   import { initializePWA, isOnline } from '$lib/services/pwa';
   import { authService } from '$lib/services/auth';
+  import { serverConnection } from '$lib/services/serverConnection';
   import { reedsService } from '$lib/repositories/reeds';
 
   let user = null;
@@ -27,7 +28,10 @@
     // Check authentication status for header
     user = await authService.getCurrentUser();
 
-    if (user) reedsService.processUnsignedReeds();
+    if (user) {
+      reedsService.processUnsignedReeds();
+      serverConnection.connect().catch(err => console.error('ServerConnection failed:', err));
+    }
   });
 </script>
 
