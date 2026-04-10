@@ -47,7 +47,7 @@
 
 <style>
   .reeds-container {
-    min-height: 100vh;
+    min-height: calc(100vh - 4rem - 1px);
     display: flex;
     flex-direction: column;
     background: var(--bg);

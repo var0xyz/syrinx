@@ -26,11 +26,11 @@
     display: flex;
     background: var(--surface);
     border-top: 1px solid var(--border);
-    padding: 0.5rem;
     gap: 0.25rem;
     position: sticky;
     bottom: 0;
     z-index: 100;
+    border-radius: 0.5rem 0.5rem 0 0;
   }
 
   .toolbar-btn {
@@ -40,10 +40,17 @@
     align-items: center;
     padding: 0.75rem 0.5rem;
     text-decoration: none;
-    border-radius: 8px;
     transition: all 0.2s ease;
     color: var(--muted);
     background: transparent;
+  }
+
+  .toolbar-btn:first-of-type {
+    border-radius: 0.5rem 0 0 0;
+  }
+
+  .toolbar-btn:last-of-type {
+    border-radius: 0 0.5rem 0 0;
   }
 
   .toolbar-btn:hover {
