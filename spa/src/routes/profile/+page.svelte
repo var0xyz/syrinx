@@ -9,6 +9,7 @@
   import { dbService } from '$lib/services/db';
   import { localStorageService } from '$lib/services/localstorage';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import CopyButton from '$lib/components/CopyButton.svelte';
   import ExportDataWarningModal from '$lib/components/ExportDataWarningModal.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import UsernameChecker from '$lib/components/UsernameChecker.svelte';
@@ -626,16 +627,7 @@
                     <strong>Public Key</strong>
                   </div>
                   {#if publicKeyArmor}
-                    <button
-                      class="copy-icon-btn"
-                      on:click={copyPublicKey}
-                      aria-label="Copy public key"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                      </svg>
-                    </button>
+                    <CopyButton ariaLabel="Copy public key" on:click={copyPublicKey} />
                   {/if}
                 </div>
                 <div class="key-value public-key">{publicKeyArmor || 'Not available'}</div>
