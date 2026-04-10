@@ -4,46 +4,49 @@ import { authService } from './auth';
 export type ServerEventHandler = (data: any) => void;
 
 export enum ServerEvent {
-  // Server events will be defined here as they are implemented
+  ReedNotification = 'reed_notification',
 }
 
 class ServerConnection {
   private ws: WebSocket | null = null;
-  private isConnecting = false;
+  private connectingPromise: Promise<void> | null = null;
   private eventHandlers: Map<string, ServerEventHandler[]> = new Map();
 
   async connect(): Promise<void> {
-    if (this.ws?.readyState === WebSocket.OPEN || this.isConnecting) {
-      console.log('ServerConnection: already connected or connecting');
-      return;
-    }
+    if (this.ws?.readyState === WebSocket.OPEN) return;
+    if (this.connectingPromise) return this.connectingPromise;
 
-    const user = await authService.getCurrentUser();
-    if (!user) {
-      console.log('ServerConnection: no authenticated user, skipping connection');
-      return;
-    }
+    this.connectingPromise = this.doConnect().finally(() => {
+      this.connectingPromise = null;
+    });
+    return this.connectingPromise;
+  }
 
-    if (!requestSigner.isInitialized()) {
-      const fingerprint = authService.getActiveKeyFingerprint();
-      const passphrase = authService.getPassphrase();
-
-      if (!fingerprint || !passphrase) {
-        console.log('ServerConnection: request signer not ready, skipping connection');
-        return;
-      }
-
-      try {
-        await requestSigner.initializeWorker(fingerprint, passphrase);
-      } catch (error) {
-        console.error('ServerConnection: failed to initialize request signer:', error);
-        return;
-      }
-    }
-
-    this.isConnecting = true;
-
+  private async doConnect(): Promise<void> {
     try {
+      const user = await authService.getCurrentUser();
+      if (!user) {
+        console.log('ServerConnection: no authenticated user, skipping connection');
+        return;
+      }
+
+      if (!requestSigner.isInitialized()) {
+        const fingerprint = authService.getActiveKeyFingerprint();
+        const passphrase = authService.getPassphrase();
+
+        if (!fingerprint || !passphrase) {
+          console.log('ServerConnection: request signer not ready, skipping connection');
+          return;
+        }
+
+        try {
+          await requestSigner.initializeWorker(fingerprint, passphrase);
+        } catch (error) {
+          console.error('ServerConnection: failed to initialize request signer:', error);
+          return;
+        }
+      }
+
       const timestamp = Math.floor(Date.now() / 1000).toString();
       const signature = await requestSigner.sign(timestamp);
       const fingerprint = authService.getActiveKeyFingerprint()!;
@@ -91,8 +94,6 @@ class ServerConnection {
     } catch (error) {
       console.error('ServerConnection: connect failed:', error);
       this.ws = null;
-    } finally {
-      this.isConnecting = false;
     }
   }
 
@@ -123,6 +124,22 @@ class ServerConnection {
       const index = handlers.indexOf(handler);
       if (index > -1) handlers.splice(index, 1);
     }
+  }
+
+  subscribeToBroadcast(): void {
+    this.send({ type: 'SUBSCRIBE_BROADCAST' });
+  }
+
+  unsubscribeFromBroadcast(): void {
+    this.send({ type: 'UNSUBSCRIBE_BROADCAST' });
+  }
+
+  private send(message: { type: string; data?: any }): void {
+    if (!this.isConnected()) {
+      console.warn('ServerConnection: cannot send, not connected');
+      return;
+    }
+    this.ws!.send(JSON.stringify(message));
   }
 
   private emit(eventType: string, data: any): void {
