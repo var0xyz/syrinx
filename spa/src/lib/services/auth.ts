@@ -1,6 +1,5 @@
 import type * as api from '$lib/types/api';
 import { requestSigner } from './request-signer';
-import { websocketService } from './websocket';
 
 interface SignupUser {
   username: string;
@@ -142,11 +141,6 @@ export class AuthService {
     } catch (error) {
       console.error('Failed to clear request signer session:', error);
       // Continue even if this fails
-    }
-
-    // Disconnect WebSocket if connected
-    if (websocketService.isConnected()) {
-      websocketService.disconnect();
     }
 
     // Reset user state
