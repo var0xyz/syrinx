@@ -8,6 +8,10 @@
   let loading = true;
   let activeSection = 'broadcast'; // 'broadcast' or 'followcast'
 
+  function setActiveSection(section) {
+    activeSection = section;
+  }
+
   onMount(async () => {
     try {
       user = await authService.getCurrentUser();

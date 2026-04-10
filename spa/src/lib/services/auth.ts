@@ -1,5 +1,6 @@
 import type * as api from '$lib/types/api';
 import { requestSigner } from './request-signer';
+import { serverConnection } from './serverConnection';
 
 interface SignupUser {
   username: string;
@@ -142,6 +143,8 @@ export class AuthService {
       console.error('Failed to clear request signer session:', error);
       // Continue even if this fails
     }
+
+    serverConnection.disconnect();
 
     // Reset user state
     this._user = null;
