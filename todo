@@ -1,9 +1,11 @@
+
  ████████╗ ██████╗ ██████╗  ██████╗
  ╚══██╔══╝██╔═══██╗██╔══██╗██╔═══██╗
     ██║   ██║   ██║██║  ██║██║   ██║
     ██║   ██║   ██║██║  ██║██║   ██║
     ██║   ╚██████╔╝██████╔╝╚██████╔╝
     ╚═╝    ╚═════╝ ╚═════╝  ╚═════╝
+
  =====================================
     Handle Storage Quota Gracefully
  =====================================
@@ -11,3 +13,65 @@
  - [ ] Show a warning if the device is low on space
  - [ ] Show an error if we didn't have enough space to publish the reed
 
+ ===========================
+    Better native support
+ ===========================
+ - [ ] Support custom protocol: syrinx://eH6642Sj@e4W068hk/03fx4ilkpx7g1ju4i0zyt05hf
+ - [ ] Register as a Web Share Target so other apps can share URLs and text directly into a new reed draft
+ - [ ] Use the Badging API to show unread notification count on the app icon
+ - [ ] Use the Background Sync API to publish unsigned reeds after the tab is closed
+ - [ ] Implement Push notifications via the Push API for delivery when the app is not open
+ - [ ] Register as a file handler for .syrinx export files so they can be opened from the OS
+
+ ===============================================
+    Profile page — reflect background refresh
+ ===============================================
+ - [ ] If the background user fetch returns new data, update the displayed profile reactively
+ - [ ] If the background fetch returns 410, switch to the tombstone state without a reload
+
+ =========================================
+    Reed detail page — show author info
+ =========================================
+ - [x] Fetch the reed author's profile using the userID route param
+ - [x] Display the author's avatar and username instead of the logged-in user's data
+
+ ========================================
+    Unsigned reeds queue — UI feedback
+ ========================================
+ - [ ] Show pending (unpublished) reeds at the top of the /reeds feed
+ - [ ] Display them visually distinct from published reeds (grayed out or similar)
+ - [ ] Add a cancel button to remove a pending reed from the queue
+
+ ========================================
+    Account deletion — wipe local data
+ ========================================
+ - [ ] On successful account deletion, destroy the IndexedDB database entirely
+ - [ ] Clear all localStorage entries on deletion
+
+ ===================
+    Follow system
+ ===================
+ - [ ] Implement follow/unfollow flow
+ - [ ] Store and sync the list of followed users
+ - [ ] Use the follow list to drive reed discovery and notifications
+
+ ===========================================
+    Notifications — follow-based delivery
+ ===========================================
+ - [ ] Extend notifications to cover reeds from followed users (depends on follow system)
+ - [ ] Introduce Redis for pub/sub across server instances
+ - [ ] Wire up per-user notification channels via Redis
+
+ =======================================
+    Feeds — peer-based reed discovery
+ =======================================
+ - [ ] Server should return which peers hold the reeds we are looking for
+ - [ ] Client fetches reeds directly from those peers
+ - [ ] Implement peer discovery on the server side
+ - [ ] Implement peer fetch on the client side
+
+ ====================================
+    Build — fix PWA service worker
+ ====================================
+ - [ ] Investigate why SvelteKit is not compiling src/service-worker.ts to .svelte-kit/output/client/service-worker.js
+ - [ ] Fix @vite-pwa/sveltekit manifest injection so the build completes successfully
