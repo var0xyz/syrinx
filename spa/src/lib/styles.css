@@ -142,7 +142,6 @@ form .row .help-text {
 header {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 1rem;
   text-align: center;
 }
 
@@ -153,7 +152,8 @@ header h1 {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  font-size: 1.5rem;
+  font-size: 1.75rem;
+  line-height: 4rem;
   animation: gradient-shift 30s ease-in-out infinite;
 }
 
