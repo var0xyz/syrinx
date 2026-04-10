@@ -1,66 +1,21 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { authService } from '$lib/services/auth';
-  import { websocketService } from '$lib/services/websocket';
-  import { formatRelativeTime } from '$lib/repositories/reeds';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
 
   let user = null;
   let loading = true;
   let activeSection = 'broadcast'; // 'broadcast' or 'followcast'
-  let isSubscribed = false;
-  let broadcastReeds = [];
-
-  function handleReedNotification(data) {
-    if (broadcastReeds.some(r => r.reedId === data.reedId)) return;
-    broadcastReeds = [data, ...broadcastReeds];
-  }
-
-  // Reactive statement to handle WebSocket subscriptions
-  $: {
-    if (!loading && websocketService.isConnected()) {
-      if (activeSection === 'broadcast' && !isSubscribed) {
-        // Subscribe to broadcast when broadcast section is active
-        websocketService.subscribeToBroadcast();
-        isSubscribed = true;
-      } else if (activeSection !== 'broadcast' && isSubscribed) {
-        // Unsubscribe when switching away from broadcast
-        websocketService.unsubscribeFromBroadcast();
-        isSubscribed = false;
-      }
-    } else if (!websocketService.isConnected()) {
-      // Reset subscription state when disconnected
-      isSubscribed = false;
-    }
-  }
 
   onMount(async () => {
     try {
       user = await authService.getCurrentUser();
-      if (user) await websocketService.connect();
     } catch (error) {
       console.error('Error getting user:', error);
     } finally {
       loading = false;
     }
-
-    websocketService.on('reed_notification', handleReedNotification);
-  });
-
-  function setActiveSection(section) {
-    activeSection = section;
-    // The reactive statement will handle subscription/unsubscription
-  }
-
-  onDestroy(() => {
-    websocketService.off('reed_notification', handleReedNotification);
-
-    if (isSubscribed && websocketService.isConnected()) {
-      websocketService.unsubscribeFromBroadcast();
-    }
-
-    websocketService.disconnect();
   });
 </script>
 
@@ -114,31 +69,10 @@
             <p>Public messages and announcements</p>
           </div>
 
-          {#if broadcastReeds.length === 0}
-            <div class="waiting-state">
-              <div class="waiting-pulse"></div>
-              <p>Listening for new reeds...</p>
-            </div>
-          {:else}
-            {#each broadcastReeds as reed (reed.reedId)}
-              <div class="feed-item">
-                <div class="feed-header">
-                  <div class="feed-author">
-                    <div class="avatar">👤</div>
-                    <div class="author-info">
-                      <span class="author-name">{reed.username}</span>
-                      <span class="feed-time">{formatRelativeTime(reed.timestamp * 1000)}</span>
-                    </div>
-                  </div>
-                </div>
-                {#if reed.content}
-                  <div class="feed-content">
-                    <p>{reed.content}</p>
-                  </div>
-                {/if}
-              </div>
-            {/each}
-          {/if}
+          <div class="waiting-state">
+            <div class="waiting-pulse"></div>
+            <p>Listening for new reeds...</p>
+          </div>
         {:else}
           <!-- Followcast Section -->
           <div class="section-header">
