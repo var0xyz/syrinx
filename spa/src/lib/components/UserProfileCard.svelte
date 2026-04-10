@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import CopyButton from '$lib/components/CopyButton.svelte';
   import { notificationStore } from '$lib/stores/notifications';
 
   export let user;
@@ -49,12 +50,7 @@
       <h2>{user?.username}</h2>
       <div class="user-id-container">
         <p class="user-id">{user?.id}{serverName ? `@${serverName}` : ''}</p>
-        <button class="copy-icon-btn" on:click={copyUserId} aria-label="Copy user ID">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-          </svg>
-        </button>
+        <CopyButton ariaLabel="Copy user ID" on:click={copyUserId} />
       </div>
       <p class="member-since">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
     </div>
@@ -122,19 +118,6 @@
     font-family: monospace;
     font-size: 0.8rem;
     text-align: left;
-  }
-
-  .copy-icon-btn {
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    padding: 0.25rem 1rem;
-    display: flex;
-    align-items: center;
-    justify-content: left;
-    color: var(--muted);
-    border-radius: 4px;
-    width: auto;
   }
 
   .member-since {
