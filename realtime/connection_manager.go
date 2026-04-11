@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -148,6 +149,7 @@ func (cm *ConnectionManager) sendReedNotification(conn *websocket.Conn, message 
 	if err := conn.WriteMessage(websocket.TextMessage, jsonBytes); err != nil {
 		return fmt.Errorf("Failed to send JSON notification: %w", err)
 	}
+	return nil
 }
 
 // sendPing sends a ping message to a connection

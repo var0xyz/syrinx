@@ -23,6 +23,7 @@ func (ds *DBService) MarkUserOnline(userID string) error {
 		INSERT INTO online_users (user_id)
 		VALUES ($1)
 		ON CONFLICT (user_id) DO UPDATE
+		SET created_at = CURRENT_TIMESTAMP
 	`, userID)
 
 	if err != nil {
@@ -185,6 +186,7 @@ func (ds *DBService) SubscribeToBroadcast(userID string) error {
 		INSERT INTO broadcast_subscriptions (user_id)
 		VALUES ($1)
 		ON CONFLICT (user_id) DO UPDATE
+		SET created_at = CURRENT_TIMESTAMP
 	`, userID)
 
 	if err != nil {

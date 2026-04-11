@@ -9,14 +9,14 @@ import { Uuid25 } from 'uuid25';
 export type Headers = {
   id: string;
   author: string;
-  serverId: string;
   origin: string;
   fingerprint: string;
   algorithm: string;
-  userSignature?: string;
-  serverAlgorithm?: string;
-  serverSignature?: string;
-  serverSignedAt?: string;
+  signature?: string;
+  "server.id"?: string;
+  "server.algorithm"?: string;
+  "server.signature"?: string;
+  "server.timestamp"?: string;
   timestamp: string;
   format: string;
   replying?: string;
@@ -38,15 +38,13 @@ export class Reed {
     // Auto-generate id using UUID v7 for time-based ordering, encoded as 25-char string
     const id = Uuid25.parse(uuidv7()).value;
 
-    // Auto-populate origin, author, and server
+    // Auto-populate origin and author
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
     const author = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';
-    const serverId = typeof localStorage !== 'undefined' ? localStorage.getItem('serverId') || '' : '';
 
     this._headers = {
       algorithm: 'PGP+base64',
       author,
-      serverId,
       origin,
       id,
       fingerprint: '',
@@ -68,10 +66,6 @@ export class Reed {
     return this._headers.fingerprint;
   }
 
-  get serverId(): string {
-    return this._headers.serverId;
-  }
-
   get origin(): string {
     return this._headers.origin;
   }
@@ -84,20 +78,8 @@ export class Reed {
     return this._headers.fingerprint;
   }
 
-  get userSignature(): string {
-    return this._headers.userSignature;
-  }
-
-  get serverAlgorithm(): string {
-    return this._headers.serverAlgorithm;
-  }
-
-  get serverSignature(): string {
-    return this._headers.serverSignature;
-  }
-
-  get serverSignedAt(): string {
-    return this._headers.serverSignedAt;
+  get signature(): string {
+    return this._headers.signature;
   }
 
   get replying(): string | undefined {
@@ -137,20 +119,15 @@ export class Reed {
     this._headers.fingerprint = value;
   }
 
-  set userSignature(value: string) {
-    this._headers.userSignature = btoa(value.trim()).trim();
+  set signature(value: string) {
+    this._headers.signature = btoa(value.trim()).trim();
   }
 
-  set serverAlgorithm(value: string) {
-    this._headers.serverAlgorithm = value;
-  }
-
-  set serverSignature(value: string) {
-    this._headers.serverSignature = value;
-  }
-
-  set serverSignedAt(value: string) {
-    this._headers.serverSignedAt = value;
+  applyServerResponse(r: { id: string; timestamp: string; algorithm: string; signature: string }): void {
+    this._headers['server.id'] = r.id;
+    this._headers['server.algorithm'] = r.algorithm;
+    this._headers['server.signature'] = r.signature;
+    this._headers['server.timestamp'] = r.timestamp;
   }
 
   set replying(value: string) {

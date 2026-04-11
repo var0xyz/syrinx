@@ -3,9 +3,10 @@ import { requestSigner } from './request-signer';
 import { authService } from './auth';
 
 export type SignReedResponse = {
+  id: string;
+  timestamp: string;
   algorithm: string;
   signature: string;
-  signedAt: string;
 };
 
 export type SignupInput = {

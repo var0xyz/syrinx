@@ -100,7 +100,7 @@
       if (echoOf) {
         reed.echoing = `${echoOf.headers.author}!${echoOf.headers.id}`;
       }
-      reed.userSignature = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
+      reed.signature = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
       const published = await reedsService.createReed(reed);
       if (published) {
         goto(`/reed/${user.id}/${reed.id}`);
