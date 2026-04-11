@@ -234,24 +234,21 @@ registerRoute(
   ({ url }) => url.pathname.startsWith('/api/'),
   async ({ request }) => {
     try {
-      // Check if this is an authenticated request (has user headers)
       const userId = request.headers.get('X-Syrinx-User-Id');
       const fingerprint = request.headers.get('X-Syrinx-Fingerprint');
+      const alreadySigned = request.headers.get('X-Syrinx-Signature');
 
-      if (userId && fingerprint) {
-        // Sign the request
+      if (userId && fingerprint && !alreadySigned) {
+        // Unsigned authenticated request — sign it with the loaded key
         const signedRequest = await signRequest(request);
-        const strategy = new NetworkOnly();
-        return strategy.handle({ request: signedRequest });
-      } else {
-        // Unauthenticated request, forward as-is
-        const strategy = new NetworkOnly();
-        return strategy.handle({ request });
+        return fetch(signedRequest);
       }
+
+      // Either unauthenticated or already carries a pre-built signature (e.g. import flow)
+      return fetch(request);
     } catch (error) {
       console.error('Service worker error:', error);
-      const strategy = new NetworkOnly();
-      return strategy.handle({ request });
+      return fetch(request);
     }
   }
 );

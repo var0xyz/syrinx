@@ -66,6 +66,7 @@
 
     <div class="action-buttons">
       <a href="/preamble" class="btn btn-primary">Sign Up</a>
+      <a href="/import" class="btn btn-secondary">Import backup</a>
     </div>
   </div>
 </div>
@@ -125,6 +126,17 @@
 
   .btn-primary:hover {
     opacity: 0.9;
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+
+  .btn-secondary:hover {
+    background: var(--input-bg);
     transform: translateY(-1px);
   }
 
