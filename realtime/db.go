@@ -22,7 +22,7 @@ func (ds *DBService) MarkUserOnline(userID string) error {
 	_, err := ds.db.Exec(`
 		INSERT INTO online_users (user_id)
 		VALUES ($1)
-		ON CONFLICT (user_id) DO NOTHING
+		ON CONFLICT (user_id) DO UPDATE
 	`, userID)
 
 	if err != nil {
@@ -184,7 +184,7 @@ func (ds *DBService) SubscribeToBroadcast(userID string) error {
 	_, err := ds.db.Exec(`
 		INSERT INTO broadcast_subscriptions (user_id)
 		VALUES ($1)
-		ON CONFLICT (user_id) DO NOTHING
+		ON CONFLICT (user_id) DO UPDATE
 	`, userID)
 
 	if err != nil {
@@ -220,6 +220,60 @@ func (ds *DBService) GetBroadcastSubscribers() ([]string, error) {
 	rows, err := ds.db.Query(`
 		SELECT DISTINCT user_id FROM broadcast_subscriptions
 	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subscribers []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		subscribers = append(subscribers, userID)
+	}
+
+	return subscribers, nil
+}
+
+// GetOnlineFollowers returns the IDs of online users who follow the given author
+func (ds *DBService) GetOnlineFollowers(authorID string) ([]string, error) {
+	rows, err := ds.db.Query(`
+		SELECT ou.user_id
+		FROM online_users ou
+		JOIN user_followers uf ON ou.user_id = uf.follower_user_id
+		WHERE uf.user_id = $1
+	`, authorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var followers []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		followers = append(followers, userID)
+	}
+
+	return followers, nil
+}
+
+// GetBroadcastSubscribersNotFollowing returns broadcast subscribers who do not follow the given author,
+// ensuring they are complementary to the online followers group and receive no duplicate notifications
+func (ds *DBService) GetBroadcastSubscribersNotFollowing(authorID string) ([]string, error) {
+	rows, err := ds.db.Query(`
+		SELECT bs.user_id
+		FROM broadcast_subscriptions bs
+		WHERE NOT EXISTS (
+			SELECT 1 FROM user_followers uf
+			WHERE uf.follower_user_id = bs.user_id
+			AND uf.user_id = $1
+		)
+	`, authorID)
 	if err != nil {
 		return nil, err
 	}

@@ -69,41 +69,31 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 				Str("reedID", message.ReedID).
 				Msg("New reed published")
 
-			// Query database for all broadcast subscribers and notify them
-			subscribers, err := rs.dbService.GetBroadcastSubscribers()
+			// Notify online users who follow the author
+			followers, err := rs.dbService.GetOnlineFollowers(message.UserID)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Msg("Failed to get online followers from database")
+			}
+			rs.notifyUsers(followers, &message)
+
+			// Notify broadcast subscribers who do not follow the author (complementary group, no duplicates)
+			broadcastRecipients, err := rs.dbService.GetBroadcastSubscribersNotFollowing(message.UserID)
 			if err != nil {
 				log.Error().
 					Err(err).
 					Msg("Failed to get broadcast subscribers from database")
-			} else {
-				// Notify all active subscribers via WebSocket
-				rs.notifyBroadcastSubscribers(subscribers, &message)
 			}
+			rs.notifyUsers(broadcastRecipients, &message)
 		}
-
 	}
 }
 
-// notifyBroadcastSubscribers notifies all active WebSocket connections for the given subscribers
-func (rs *RealtimeService) notifyBroadcastSubscribers(subscribers []string, message *BroadcastMessage) {
-	notifiedCount := 0
-	for _, userID := range subscribers {
-		// Use connection manager's public method to notify this user
+// notifyUsers notifies all active WebSocket connections for the given user IDs
+func (rs *RealtimeService) notifyUsers(userIDs []string, message *BroadcastMessage) {
+	for _, userID := range userIDs {
 		rs.connManager.NotifyUser(userID, message)
-		// Check if user was actually notified (has active connection)
-		rs.connManager.mutex.RLock()
-		if userConns, exists := rs.connManager.userConnections[userID]; exists && len(userConns) > 0 {
-			notifiedCount++
-		}
-		rs.connManager.mutex.RUnlock()
-	}
-
-	if notifiedCount > 0 {
-		log.Info().
-			Int("notifiedCount", notifiedCount).
-			Int("totalSubscribers", len(subscribers)).
-			Str("reedID", message.ReedID).
-			Msg("Notified broadcast subscribers of new reed")
 	}
 }
 
