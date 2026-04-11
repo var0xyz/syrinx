@@ -27,10 +27,8 @@ class ReedsService {
 
     try {
       console.log('Getting signature from server...');
-      const response = await api.createReed(reed.id, reed.userSignature);
-      reed.serverAlgorithm = response.algorithm;
-      reed.serverSignature = response.signature;
-      reed.serverSignedAt = response.signedAt;
+      const response = await api.createReed(reed.id, reed.signature);
+      reed.applyServerResponse(response);
     } catch (error) {
       console.error('Failed to publish reed to server, queued for later:', error);
       return false;
@@ -53,12 +51,13 @@ class ReedsService {
     for (const reed of unsignedReeds) {
       try {
         console.log('Processing unsigned reed:', reed.headers.id);
-        const response = await api.createReed(reed.headers.id, reed.headers.userSignature);
+        const response = await api.createReed(reed.headers.id, reed.headers.signature);
         const serverHeaders = {
-            serverAlgorithm: response.algorithm,
-            serverSignature: response.signature,
-            serverSignedAt: response.signedAt,
-        }
+            'server.id': response.id,
+            'server.algorithm': response.algorithm,
+            'server.signature': response.signature,
+            'server.signedAt': response.timestamp,
+        };
         await this.storeReedInIndexedDB({ ...reed, headers: { ...reed.headers, ...serverHeaders } });
         await dbService.delete('unsignedReeds', reed.headers.id);
       } catch (error) {

@@ -120,7 +120,7 @@ func InitDB(db *sql.DB) error {
 		revoked BOOLEAN DEFAULT FALSE,
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		expires_at TIMESTAMP,
+		expires_at TIMESTAMP
 	);`
 	createPublicKeyIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_public_keys_user_id

@@ -31,9 +31,10 @@ type ServerInfo struct {
 }
 
 type Signature struct {
+	ID        string    `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
 	Algorithm string    `json:"algorithm"`
 	Signature string    `json:"signature"`
-	SignedAt  time.Time `json:"signedAt"`
 }
 
 // ///////////// //
@@ -854,13 +855,13 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// We sign the user's signature with the server's private key, which in
-	// turn signed the reed that we just validated. We also prepend the
-	// timestamp before signing, because the client can potentially spoof the
-	// reed's creation time, but they won't be able to spoof the server's
-	// signature time.
-	timestamp := time.Now()
-	payload := fmt.Sprint(timestamp.Unix()) + "\n" + signature
+	// Build a canonical payload that the server signs. Fields are ordered
+	// alphabetically and the timestamp is truncated to seconds so the client
+	// cannot spoof the server ID or the signing time.
+	serverID := h.services.db.GetServerID()
+	timestamp := time.Now().UTC().Truncate(time.Second)
+	payload := fmt.Sprintf("algorithm: PGP+base64\nid: %s\ntimestamp: %s\n---\n%s",
+		serverID, timestamp.Format(time.RFC3339), signature)
 	serverSignature, err := h.services.crypto.Sign(payload, privateKey.Armor)
 	if err != nil {
 		log.Error().
@@ -872,7 +873,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reed, err := h.services.db.CreateReed(reedID, userID, user.ServerKeyFingerprint, timestamp)
+	reed, err := h.services.db.CreateReed(reedID, userID, serverID, user.ServerKeyFingerprint, timestamp)
 	if err != nil {
 		log.Error().
 			Str("reedID", reedID).
@@ -890,9 +891,10 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	encodedSignature := base64.StdEncoding.EncodeToString([]byte(serverSignature))
 	writeResponse(w, http.StatusCreated, Signature{
+		ID:        serverID,
+		Timestamp: reed.SignedAt,
 		Algorithm: "PGP+base64",
 		Signature: encodedSignature,
-		SignedAt:  reed.SignedAt,
 	})
 
 	// Broadcast the new reed to realtime subscribers
