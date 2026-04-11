@@ -102,7 +102,7 @@ func InitDB(db *sql.DB) error {
 	createPrivateKeysTable := `
 	CREATE TABLE IF NOT EXISTS private_keys (
 		fingerprint VARCHAR(255) PRIMARY KEY,
-		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		armor TEXT NOT NULL,
 		revoked BOOLEAN DEFAULT FALSE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -116,14 +116,11 @@ func InitDB(db *sql.DB) error {
 	createPublicKeysTable := `
 	CREATE TABLE IF NOT EXISTS public_keys (
 		fingerprint VARCHAR(255) PRIMARY KEY,
-		user_id VARCHAR(255) NOT NULL,
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		revoked BOOLEAN DEFAULT FALSE,
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		expires_at TIMESTAMP,
-
-		FOREIGN KEY (user_id)
-			REFERENCES users(id) ON DELETE CASCADE
 	);`
 	createPublicKeyIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_public_keys_user_id
@@ -133,7 +130,7 @@ func InitDB(db *sql.DB) error {
 	createRevokationsTable := `
 	CREATE TABLE IF NOT EXISTS revokations (
 		fingerprint VARCHAR(255) PRIMARY KEY,
-		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		reason TEXT,
 		description TEXT,
 		revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -142,9 +139,9 @@ func InitDB(db *sql.DB) error {
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
 		id VARCHAR(255) UNIQUE NOT NULL,
-		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
-		server_id VARCHAR(16) REFERENCES servers(id),
-		fingerprint VARCHAR(255) REFERENCES private_keys(fingerprint),
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		server_id VARCHAR(16) NOT NULL REFERENCES servers(id),
+		fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
 		signed_at TIMESTAMP NOT NULL,
 
 		PRIMARY KEY (id, user_id)
@@ -162,8 +159,8 @@ func InitDB(db *sql.DB) error {
 
 	createUserFollowersTable := `
 	CREATE TABLE IF NOT EXISTS user_followers (
-		user_id VARCHAR(255),
-		follower_user_id VARCHAR(255),
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		follower_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 		PRIMARY KEY (user_id, follower_user_id)
@@ -175,8 +172,8 @@ func InitDB(db *sql.DB) error {
 
 	createUserFollowingTable := `
 	CREATE TABLE IF NOT EXISTS user_following (
-		user_id VARCHAR(255),
-		following_user_id VARCHAR(255),
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		following_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 		PRIMARY KEY (user_id, following_user_id)
@@ -192,13 +189,13 @@ func InitDB(db *sql.DB) error {
 
 	createOnlineUsersTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS online_users (
-		user_id VARCHAR(255) UNIQUE,
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	createBroadcastSubscriptionsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS broadcast_subscriptions (
-		user_id VARCHAR(255),
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 	createBroadcastSubscriptionIndexes := `
@@ -208,8 +205,8 @@ func InitDB(db *sql.DB) error {
 
 	createReedAllocationsTable := `
 	CREATE TABLE IF NOT EXISTS reed_allocations (
-		reed_id VARCHAR(255) REFERENCES reeds(id) ON DELETE CASCADE,
-		user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+		reed_id VARCHAR(255) NOT NULL REFERENCES reeds(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 		PRIMARY KEY (reed_id, user_id)
@@ -224,7 +221,6 @@ func InitDB(db *sql.DB) error {
 	INSERT INTO user_count (id, count) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;`
 
 	queries := []string{
-
 		// Servers
 		createServersTable,
 

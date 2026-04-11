@@ -96,7 +96,12 @@ func (cm *ConnectionManager) NotifyUser(userID string, message *BroadcastMessage
 	if userConns, exists := cm.userConnections[userID]; exists {
 		for conn := range userConns {
 			if message.Type == NewReed {
-				cm.sendReedNotification(conn, message)
+				err := cm.sendReedNotification(conn, message)
+				if err != nil {
+					log.Error().
+						Err(err).
+						Msg("Failed to send notification")
+				}
 			}
 		}
 	}
@@ -120,7 +125,7 @@ func (cm *ConnectionManager) pingClients() {
 }
 
 // sendReedNotification sends a reed notification to a specific connection
-func (cm *ConnectionManager) sendReedNotification(conn *websocket.Conn, message *BroadcastMessage) {
+func (cm *ConnectionManager) sendReedNotification(conn *websocket.Conn, message *BroadcastMessage) error {
 	// For now, send as JSON since frontend doesn't parse protobuf yet
 	// TODO: Switch to protobuf once frontend parsing is implemented
 	jsonMsg := map[string]interface{}{
@@ -137,12 +142,11 @@ func (cm *ConnectionManager) sendReedNotification(conn *websocket.Conn, message 
 
 	jsonBytes, err := json.Marshal(jsonMsg)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to marshal JSON notification")
-		return
+		return fmt.Errorf("Failed to marshal JSON notification: %w", err)
 	}
 
 	if err := conn.WriteMessage(websocket.TextMessage, jsonBytes); err != nil {
-		log.Error().Err(err).Msg("Failed to send JSON notification")
+		return fmt.Errorf("Failed to send JSON notification: %w", err)
 	}
 }
 
