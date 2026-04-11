@@ -118,6 +118,32 @@ export class CryptoService {
   }
 
   /**
+   * Encrypt binary data with a password using OpenPGP symmetric encryption
+   */
+  async encryptBackup(data: Uint8Array, password: string): Promise<Uint8Array> {
+    const message = await openpgp.createMessage({ binary: data });
+    const encrypted = await openpgp.encrypt({
+      message,
+      passwords: [password],
+      format: 'binary'
+    });
+    return encrypted as Uint8Array;
+  }
+
+  /**
+   * Decrypt binary data encrypted with encryptBackup
+   */
+  async decryptBackup(data: Uint8Array, password: string): Promise<Uint8Array> {
+    const message = await openpgp.readMessage({ binaryMessage: data });
+    const { data: decrypted } = await openpgp.decrypt({
+      message,
+      passwords: [password],
+      format: 'binary'
+    });
+    return decrypted as Uint8Array;
+  }
+
+  /**
    * Extract identity from a public key
    */
   async getKeyIdentity(publicKey: string): Promise<string> {

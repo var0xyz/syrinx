@@ -10,12 +10,13 @@
   import { localStorageService } from '$lib/services/localstorage';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
-  import ExportDataWarningModal from '$lib/components/ExportDataWarningModal.svelte';
+  import ExportDataModal from '$lib/components/ExportDataModal.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import UsernameChecker from '$lib/components/UsernameChecker.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import UserProfileCard from '$lib/components/UserProfileCard.svelte';
   import { notificationStore } from '$lib/stores/notifications';
+  import { formatRelativeTime } from '$lib/utils/time';
   import type { User } from '$lib/types/api';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
@@ -54,6 +55,7 @@
   // Export state
   let exporting: boolean = false;
   let showExportWarningModal: boolean = false;
+  let lastBackupAt: number | null = null;
 
   // Helper function to format bytes into human-readable format
   function formatBytes(bytes: number): string {
@@ -106,6 +108,9 @@
 
     // Load encryption key information
     await loadKeyInfo();
+
+    const storedBackupAt = localStorage.getItem('lastBackupAt');
+    if (storedBackupAt) lastBackupAt = parseInt(storedBackupAt);
 
     loading = false;
   });
@@ -321,7 +326,7 @@
     }
   }
 
-  async function exportData(): Promise<void> {
+  async function exportData(backupPassword: string): Promise<void> {
     if (!user) return;
 
     exporting = true;
@@ -398,8 +403,12 @@
         offset += chunk.length;
       }
 
-      // Generate filename with .gz extension so standard gzip tools recognize it
-      const filename = `${user.id}-${timestamp}.sxb.gz`;
+      // Encrypt the compressed data with the user-provided password
+      const encryptedData = await cryptoService.encryptBackup(compressedData, backupPassword);
+
+      const filename = `${user.id}-${timestamp}.sxb.gz.gpg`;
+
+      let exported = false;
 
       // Use File System Access API if available, otherwise fallback to download
       if ('showSaveFilePicker' in window) {
@@ -407,18 +416,19 @@
           const fileHandle = await (window as any).showSaveFilePicker({
             suggestedName: filename,
             types: [{
-              description: 'Syrinx Backup',
+              description: 'Syrinx Encrypted Backup',
               accept: {
-                'application/gzip': ['.sxb.gz']
+                'application/octet-stream': ['.sxb.gz.gpg']
               }
             }]
           });
 
           const writable = await fileHandle.createWritable();
-          const blob = new Blob([compressedData], { type: 'application/gzip' });
+          const blob = new Blob([encryptedData], { type: 'application/octet-stream' });
           await writable.write(blob);
           await writable.close();
 
+          exported = true;
           notificationStore.success('Data exported successfully');
         } catch (error: any) {
           // User cancelled or error occurred
@@ -429,7 +439,7 @@
         }
       } else {
         // Fallback: create download link
-        const blob = new Blob([compressedData], { type: 'application/gzip' });
+        const blob = new Blob([encryptedData], { type: 'application/octet-stream' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -439,7 +449,13 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
+        exported = true;
         notificationStore.success('Data exported successfully');
+      }
+
+      if (exported) {
+        localStorage.setItem('lastBackupAt', timestamp.toString());
+        lastBackupAt = timestamp;
       }
     } catch (error) {
       console.error('Error exporting data:', error);
@@ -712,23 +728,27 @@
           </div>
         {/if}
 
-
         <!-- Actions -->
         <div class="section">
           <h3>🚪 Account Actions</h3>
           <div class="action-buttons">
-            <button class="action-btn primary" on:click={() => showExportWarningModal = true} disabled={exporting}>
-              {exporting ? 'Exporting...' : 'Export Data'}
-            </button>
+            <div class="export-group">
+              <button class="action-btn primary" on:click={() => showExportWarningModal = true} disabled={exporting}>
+                {exporting ? 'Exporting...' : 'Export Data'}
+              </button>
+              {#if lastBackupAt}
+                <span class="last-backup">Last backup {formatRelativeTime(lastBackupAt)}</span>
+              {/if}
+            </div>
             <button class="action-btn danger" on:click={() => goto('/delete/confirm')}>Delete Account</button>
           </div>
         </div>
       </div>
     </div>
 
-    <ExportDataWarningModal
+    <ExportDataModal
       open={showExportWarningModal}
-      on:confirm={() => { showExportWarningModal = false; exportData(); }}
+      on:confirm={(e) => { showExportWarningModal = false; exportData(e.detail); }}
       on:cancel={() => showExportWarningModal = false}
     />
 
@@ -1003,6 +1023,17 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+  }
+
+  .export-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .last-backup {
+    font-size: 0.8rem;
+    color: var(--muted);
   }
 
   .action-btn {
