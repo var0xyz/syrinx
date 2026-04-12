@@ -18,7 +18,7 @@ const UNFOLLOW_STORE = 'unfollow';
 export const followingRepository = {
   async isFollowing(userId: string): Promise<boolean> {
     const record = await dbService.get<FollowRecord>(FOLLOWING_STORE, userId);
-    return record !== null;
+    return !!record;
   },
 
   async follow(userId: string): Promise<void> {

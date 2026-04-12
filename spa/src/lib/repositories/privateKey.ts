@@ -39,7 +39,7 @@ export class PrivateKeyRepository {
    */
   async hasPrivateKey(fingerprint: string): Promise<boolean> {
     const keyData = await this.getPrivateKey(fingerprint);
-    return keyData !== null;
+    return !!keyData;
   }
 
   /**

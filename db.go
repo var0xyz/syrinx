@@ -23,6 +23,7 @@ type User struct {
 	AvatarURL string    `json:"avatarURL"`
 	Bio       string    `json:"bio"`
 	CreatedAt time.Time `json:"memberSince"`
+	HasReeds  bool      `json:"hasReeds"`
 
 	// This is the fingerprint of the private key that the server generated for
 	// this user. When a user creates a reed, this value needs to be included
