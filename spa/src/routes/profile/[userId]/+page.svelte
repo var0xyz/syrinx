@@ -103,7 +103,7 @@
 
     {:else if status === 'noContent'}
       {#if profileUser}
-        <UserProfileCard user={profileUser} />
+        <UserProfileCard user={profileUser} {isOwner} />
       {/if}
       <div class="state-message">
         <div class="state-icon">🌱</div>
@@ -113,7 +113,7 @@
 
     {:else if status === 'ready'}
       {#if profileUser}
-        <UserProfileCard user={profileUser} />
+        <UserProfileCard user={profileUser} {isOwner} />
       {/if}
       <ReedsList authorId={userId} {isOwner} showWriteButton={false} />
     {/if}

@@ -1,13 +1,33 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import { notificationStore } from '$lib/stores/notifications';
+  import { followingRepository } from '$lib/repositories/following';
 
   export let user;
   export let editable = false;
+  export let isOwner = false;
 
   const dispatch = createEventDispatcher();
+
+  let following = false;
+
+  onMount(async () => {
+    if (!isOwner && user?.id) {
+      following = await followingRepository.isFollowing(user.id);
+    }
+  });
+
+  async function toggleFollow() {
+    if (following) {
+      await followingRepository.unfollow(user.id);
+      following = false;
+    } else {
+      await followingRepository.follow(user.id);
+      following = true;
+    }
+  }
 
   const defaultAvatarUrl = `${window.location.origin}/static/default-avatar.png`;
   const serverName = localStorage.getItem('serverName') || '';
@@ -63,6 +83,12 @@
   {#if editable}
     <div class="profile-actions">
       <button class="action-btn primary" on:click={() => dispatch('edit')}>Edit Profile</button>
+    </div>
+  {:else if !isOwner}
+    <div class="profile-actions">
+      <button class="action-btn" class:primary={!following} class:secondary={following} on:click={toggleFollow}>
+        {following ? 'Unfollow' : 'Follow'}
+      </button>
     </div>
   {/if}
 </div>
@@ -155,6 +181,16 @@
 
   .action-btn.primary:hover {
     opacity: 0.9;
+  }
+
+  .action-btn.secondary {
+    background: var(--surface);
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+
+  .action-btn.secondary:hover {
+    background: var(--border);
   }
 
   @media (max-width: 768px) {
