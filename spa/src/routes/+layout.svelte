@@ -8,6 +8,7 @@
   import { authService } from '$lib/services/auth';
   import { serverConnection } from '$lib/services/serverConnection';
   import { reedsService } from '$lib/repositories/reeds';
+  import { followingRepository } from '$lib/repositories/following';
 
   let user = null;
   $: headerLink = user ? '/reeds' : '/';
@@ -16,7 +17,10 @@
   $: if ($isOnline && !wasOnline) {
     wasOnline = true;
     authService.getCurrentUser().then(currentUser => {
-      if (currentUser) reedsService.processUnsignedReeds();
+      if (currentUser) {
+        reedsService.processUnsignedReeds();
+        followingRepository.syncPending();
+      }
     });
   } else if (!$isOnline) {
     wasOnline = false;
@@ -30,6 +34,7 @@
 
     if (user) {
       reedsService.processUnsignedReeds();
+      followingRepository.syncPending();
       serverConnection.connect().catch(err => console.error('ServerConnection failed:', err));
     }
   });

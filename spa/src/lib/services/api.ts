@@ -170,6 +170,14 @@ export const apiService = {
     });
   },
 
+  async followUser(targetUserId: string): Promise<void> {
+    return request<void>(`/users/${targetUserId}/follow`, { method: 'POST' });
+  },
+
+  async unfollowUser(targetUserId: string): Promise<void> {
+    return request<void>(`/users/${targetUserId}/follow`, { method: 'DELETE' });
+  },
+
   async addPublicKey(
     userID: string,
     publicKey: string,

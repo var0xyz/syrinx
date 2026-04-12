@@ -137,6 +137,10 @@ func main() {
 	api.HandleFunc("/users/{userID}", h.GetUser).Methods("GET")
 	api.HandleFunc("/users/{userID}", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/users/{userID}/follow", h.FollowUser).Methods("POST")
+	api.HandleFunc("/users/{userID}/follow", h.UnfollowUser).Methods("DELETE")
+	api.HandleFunc("/users/{userID}/follow", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/users/{userID}/reeds", h.GetReedsByUserID).Methods("GET")
 	api.HandleFunc("/users/{userID}/reeds", h.noop).Methods("OPTIONS")
 

@@ -368,6 +368,39 @@ func (h *Handlers) GetUser(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, user)
 }
 
+func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	followerID := h.getUserID(r)
+	userID := mux.Vars(r)["userID"]
+
+	if followerID == userID {
+		writeResponse(w, http.StatusBadRequest, "Cannot follow yourself")
+		return
+	}
+
+	if err := h.services.db.FollowUser(followerID, userID); err != nil {
+		log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error following user")
+		internalServerError(w)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) UnfollowUser(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	followerID := h.getUserID(r)
+	userID := mux.Vars(r)["userID"]
+
+	if err := h.services.db.UnfollowUser(followerID, userID); err != nil {
+		log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error unfollowing user")
+		internalServerError(w)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("DeleteCurrentlyLoggedInUser request received")

@@ -295,6 +295,60 @@ func (s *DataService) DeleteUser(userID string) error {
 	return nil
 }
 
+func (s *DataService) FollowUser(followerID, userID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO user_following (user_id, following_user_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, followerID, userID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO user_followers (user_id, follower_user_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, userID, followerID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (s *DataService) UnfollowUser(followerID, userID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		DELETE FROM user_following
+		WHERE user_id = $1 AND following_user_id = $2
+	`, followerID, userID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+		DELETE FROM user_followers
+		WHERE user_id = $1 AND follower_user_id = $2
+	`, userID, followerID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 func (s *DataService) SetDefaultIdentity(userID string, identityID uuid.UUID) error {
 	_, err := s.db.Exec(`
 		UPDATE profiles
@@ -547,6 +601,12 @@ func (s *DataService) CreateReed(reedID string, userID string, serverID string, 
 	if err != nil {
 		return nil, err
 	}
+
+	s.db.Exec(`
+		INSERT INTO reed_allocations (reed_id, user_id)
+		VALUES ($1, $2)
+	`, reedID, userID)
+
 	return &reed, nil
 }
 
