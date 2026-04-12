@@ -216,6 +216,9 @@ export function countMarkdownCharacters(text: string): number {
   // Remove links first (keep only the text part)
   result = result.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
 
+  // Remove code fences (triple backticks, optional language tag)
+  result = result.replace(/```[^\n]*\n?([\s\S]*?)\n```/g, '$1');
+
   // Remove inline code (single backticks)
   result = result.replace(/`([^`]+)`/g, '$1');
 
