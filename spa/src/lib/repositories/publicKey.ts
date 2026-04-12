@@ -39,7 +39,7 @@ export class PublicKeyRepository {
    */
   async hasPublicKey(fingerprint: string): Promise<boolean> {
     const keyData = await this.getPublicKey(fingerprint);
-    return keyData !== null;
+    return !!keyData;
   }
 
   /**
