@@ -207,9 +207,12 @@ footer a:hover {
 
 pre {
     white-space: pre-wrap;
-    background-color: darkslategray;
+    background-color: black;
+    border: 1px solid green;
+    color: lightgreen;
     padding: .5rem 0.75rem;
     margin: 0;
+    font-size: 1rem;
 }
 
 p:empty {
