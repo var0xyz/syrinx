@@ -212,6 +212,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", key.Fingerprint).
 		Msg("Public key added successfully")
 
+	user.Server = h.services.db.GetServerID()
 	writeResponse(w, http.StatusCreated, user)
 }
 
@@ -278,6 +279,7 @@ func (h *Handlers) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user.Server = h.services.db.GetServerID()
 	writeResponse(w, http.StatusOK, user)
 }
 
@@ -468,6 +470,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
+	user.Server = h.services.db.GetServerID()
 	writeResponse(w, http.StatusOK, user)
 }
 

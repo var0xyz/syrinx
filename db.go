@@ -26,6 +26,7 @@ type User struct {
 	CreatedAt   time.Time `json:"memberSince"`
 	HasReeds    bool      `json:"hasReeds"`
 	Fingerprint string    `json:"fingerprint"`
+	Server      string    `json:"server"`
 }
 
 type Key struct {
