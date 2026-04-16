@@ -51,14 +51,16 @@ class ReedsService {
     for (const reed of unsignedReeds) {
       try {
         console.log('Processing unsigned reed:', reed.headers.id);
-        const response = await api.createReed(reed.headers.id, reed.headers.signature);
-        const serverHeaders = {
-            'server.id': response.id,
-            'server.algorithm': response.algorithm,
-            'server.signature': response.signature,
-            'server.signedAt': response.timestamp,
-        };
-        await this.storeReedInIndexedDB({ ...reed, headers: { ...reed.headers, ...serverHeaders } });
+        const response = await api.createReed(reed.headers.id, reed.signature);
+        await this.storeReedInIndexedDB({
+          ...reed,
+          server: {
+            id: response.id,
+            algorithm: response.algorithm,
+            signature: response.signature,
+            timestamp: response.timestamp,
+          },
+        });
         await dbService.delete('unsignedReeds', reed.headers.id);
       } catch (error) {
         console.error('Failed to process unsigned reed:', reed.headers.id, error);
