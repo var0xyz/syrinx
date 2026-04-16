@@ -91,10 +91,10 @@ class ReedsService {
       const transaction = db.transaction(['reeds', 'tags'], 'readwrite');
       console.log('Transaction opened:', transaction);
 
-      // Store the reed with its tags array
+      // Store the reed with its tags array and metadata
       const reedsStore = transaction.objectStore('reeds');
       console.log('Reeds store opened:', reedsStore);
-      reedsStore.put({ ...reed });
+      reedsStore.put({ ...reed, __meta__: { created: Date.now() } });
 
       // Store tags in the tags object store
       if (reed.tags.length > 0) {
@@ -107,7 +107,7 @@ class ReedsService {
           if (!reeds.includes(reed.headers.id)) {
             reeds = [...reeds, reed.headers.id];
           }
-          tagsStore.put({ tagName: tag, reeds });
+          tagsStore.put({ tagName: tag, reeds, __meta__: { created: Date.now() } });
         }
       }
 
@@ -130,7 +130,7 @@ class ReedsService {
       const store = transaction.objectStore('reeds');
 
       for (const reed of reeds) {
-        await store.put(reed);
+        await store.put({ ...reed, __meta__: { created: Date.now() } });
       }
     } catch (error) {
       console.error('Failed to store reeds in IndexedDB:', error);
@@ -148,7 +148,15 @@ class ReedsService {
         const store = transaction.objectStore('reeds');
         const request = store.get(id);
 
-        request.onsuccess = () => resolve(request.result || null);
+        request.onsuccess = () => {
+          const result = request.result;
+          if (!result) {
+            resolve(null);
+            return;
+          }
+          const { __meta__, ...data } = result;
+          resolve(data as ReedType);
+        };
         request.onerror = () => reject(request.error);
       });
     } catch (error) {
@@ -197,7 +205,15 @@ class ReedsService {
   private async getTaggedReeds(tagsStore: IDBObjectStore, tagName: string): Promise<string[]> {
     return new Promise((resolve, reject) => {
       const request = tagsStore.get(tagName);
-      request.onsuccess = () => resolve(request.result?.reeds || []);
+      request.onsuccess = () => {
+        const result = request.result;
+        if (!result) {
+          resolve([]);
+          return;
+        }
+        const { __meta__, ...data } = result;
+        resolve(data.reeds || []);
+      };
       request.onerror = () => reject(request.error);
     });
   }

@@ -1,5 +1,13 @@
 import type * as api from '$lib/types/api';
 
+export interface DbMetadata {
+  created: number;
+}
+
+export type DbWrapper<T> = T & {
+  __meta__: DbMetadata;
+}
+
 export interface DbService {
   init(): Promise<void>;
   put<T extends api.Base>(storeName: string, data: T): Promise<void>;
@@ -12,7 +20,7 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  private readonly version = 4;
+  private readonly version = 5;
   private readonly storeNames = [
     ['privateKeys',    'fingerprint'],
     ['publicKeys',     'fingerprint'],
@@ -61,12 +69,19 @@ export class IndexedDbService implements DbService {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
 
-    console.log('Putting data into store:', storeName, data);
+    const wrappedData: DbWrapper<T> = {
+      ...data,
+      __meta__: {
+        created: Date.now()
+      }
+    };
+
+    console.log('Putting data into store:', storeName, wrappedData);
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction([storeName], 'readwrite');
       const store = transaction.objectStore(storeName);
-      const request = store.put(data);
+      const request = store.put(wrappedData);
 
       request.onsuccess = () => resolve(null);
       request.onerror = () => reject(request.error);
@@ -82,7 +97,15 @@ export class IndexedDbService implements DbService {
       const store = transaction.objectStore(storeName);
       const request = store.get(key);
 
-      request.onsuccess = () => resolve(request.result as T | null);
+      request.onsuccess = () => {
+        const result = request.result as DbWrapper<T> | null;
+        if (!result) {
+          resolve(null);
+          return;
+        }
+        const { __meta__, ...data } = result;
+        resolve(data as unknown as T);
+      };
       request.onerror = () => reject(request.error);
     });
   }
@@ -110,7 +133,14 @@ export class IndexedDbService implements DbService {
       const store = transaction.objectStore(storeName);
       const request = store.getAll();
 
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        const results = request.result as DbWrapper<T>[];
+        const unwrapped = results.map(item => {
+          const { __meta__, ...data } = item;
+          return data as T;
+        });
+        resolve(unwrapped);
+      };
       request.onerror = () => reject(request.error);
     });
   }
@@ -139,7 +169,14 @@ export class IndexedDbService implements DbService {
       const index = store.index(indexName);
       const request = index.getAll(key);
 
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        const results = request.result as DbWrapper<T>[];
+        const unwrapped = results.map(item => {
+          const { __meta__, ...data } = item;
+          return data as T;
+        });
+        resolve(unwrapped);
+      };
       request.onerror = () => reject(request.error);
     });
   }
