@@ -6,17 +6,19 @@
 import { v7 as uuidv7 } from 'uuid';
 import { Uuid25 } from 'uuid25';
 
+export type Server = {
+  id: string;
+  timestamp: string;
+  signature: string;
+  algorithm: string;
+};
+
 export type Headers = {
   id: string;
   author: string;
   origin: string;
   fingerprint: string;
   algorithm: string;
-  signature?: string;
-  "server.id"?: string;
-  "server.algorithm"?: string;
-  "server.signature"?: string;
-  "server.timestamp"?: string;
   timestamp: string;
   format: string;
   replying?: string;
@@ -25,12 +27,16 @@ export type Headers = {
 
 export interface ReedType {
   headers: Headers;
+  server?: Server;
+  signature?: string;
   content: string;
   tags: string[];
 }
 
 export class Reed {
   private _headers: Headers;
+  private _server: Server | undefined = undefined;
+  private _signature: string | undefined = undefined;
   private _content: string = '';
   private _tags: string[] = [];
 
@@ -79,7 +85,7 @@ export class Reed {
   }
 
   get signature(): string {
-    return this._headers.signature;
+    return this._signature;
   }
 
   get replying(): string | undefined {
@@ -120,14 +126,16 @@ export class Reed {
   }
 
   set signature(value: string) {
-    this._headers.signature = btoa(value.trim()).trim();
+    this._signature = btoa(value.trim()).trim();
   }
 
   applyServerResponse(r: { id: string; timestamp: string; algorithm: string; signature: string }): void {
-    this._headers['server.id'] = r.id;
-    this._headers['server.algorithm'] = r.algorithm;
-    this._headers['server.signature'] = r.signature;
-    this._headers['server.timestamp'] = r.timestamp;
+    this._server = {
+      id: r.id,
+      algorithm: r.algorithm,
+      signature: r.signature,
+      timestamp: r.timestamp,
+    };
   }
 
   set replying(value: string) {
@@ -186,6 +194,8 @@ export class Reed {
   asObject(): ReedType {
     return {
       headers: { ...this._headers },
+      server: this._server ? { ...this._server } : undefined,
+      signature: this._signature,
       content: this.content,
       tags: this.tags
     };
