@@ -1,5 +1,6 @@
 import { apiService } from '$lib/services/api';
 import { dbService } from '$lib/services/db';
+import { publicKeyRepository } from '$lib/repositories/publicKey';
 import type * as api from '$lib/types/api';
 
 export class UserRepository {
@@ -45,6 +46,16 @@ export class UserRepository {
     }
 
     await this.put(user);
+
+    if (user.fingerprint && !(await publicKeyRepository.hasPublicKey(user.fingerprint))) {
+      try {
+        const key = await apiService.getPublicKey(userId, user.fingerprint);
+        await publicKeyRepository.put(key.fingerprint, key.armor);
+      } catch (error) {
+        console.error('Error fetching public key for user:', error);
+      }
+    }
+
     return user;
   }
 }

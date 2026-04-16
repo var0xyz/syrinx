@@ -36,8 +36,7 @@ type AppConfig struct {
 	Port          int
 	AllowedOrigin string `env:"name='ALLOWED_ORIGIN'"`
 
-	ServerKeyPassphrase string `env:"name='SERVER_PRIVATE_KEY_PASSPHRASE'"`
-	PrivateKeyFile      string `env:"name='SERVER_PRIVATE_KEY_FILE'"`
+	ServerKeyPassphrase string `env:"name='SERVER_KEY_PASSPHRASE'"`
 }
 
 func main() {
@@ -48,6 +47,11 @@ func main() {
 	// reasonable. Consider something short and unique.
 	if len(cfg.ServerName) == 0 {
 		l.Panicf("[ERR] ServerName cannot be empty")
+	}
+
+	// Passphrase must be present and strong enough to protect the server key.
+	if len(cfg.ServerKeyPassphrase) < 16 {
+		l.Panicf("[ERR] SERVER_KEY_PASSPHRASE must be at least 16 characters")
 	}
 
 	log.Info().Msg("Starting Syrinx API...")
@@ -74,6 +78,12 @@ func main() {
 	}
 	log.Info().Msg("[OK] Database tables initialized successfully")
 
+	// log.Debug().Msg("Applying database migrations...")
+	// if err := MigrateDB(db); err != nil {
+	// 	log.Fatal().Err(err).Msg("[ERR] Failed to apply database migrations")
+	// }
+	// log.Info().Msg("[OK] Database migrations applied successfully")
+
 	log.Debug().Msg("Initializing services...")
 
 	// Wrap database with instrumentation
@@ -93,6 +103,19 @@ func main() {
 	}
 	log.Info().Msg("[OK] Server identity initialized successfully")
 
+	log.Debug().Msg("Processing key revocations...")
+	if err := dataService.ProcessRevocations(); err != nil {
+		log.Fatal().Err(err).Msg("[ERR] Failed to process key revocations")
+	}
+	log.Info().Msg("[OK] Key revocations processed")
+
+	log.Debug().Msg("Initializing server signing key...")
+	signingKey, err := dataService.InitServerKey(cryptoService, cfg.ServerKeyPassphrase)
+	if err != nil {
+		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server signing key")
+	}
+	log.Info().Str("fingerprint", signingKey.Fingerprint).Msg("[OK] Server signing key ready")
+
 	log.Debug().Msg("Initializing realtime service...")
 	realtimeService := realtime.NewService(db, cryptoService, cfg.AllowedOrigin)
 
@@ -103,7 +126,7 @@ func main() {
 	go realtimeService.Start(broadcastChan)
 
 	log.Debug().Msg("Initializing handlers...")
-	h := NewHandlers(services, cfg, broadcastChan)
+	h := NewHandlers(services, cfg, broadcastChan, *signingKey)
 	log.Info().Msg("[OK] Handlers initialized successfully")
 
 	log.Debug().Msg("Setting up router...")
@@ -116,7 +139,7 @@ func main() {
 	api.Use(loggingMiddleware)
 	api.Use(h.CORSMiddleware(cfg.AllowedOrigin))
 	api.Use(h.signatureAuthMiddleware("/api"))
-	api.Use(h.responseSignerMiddleware(cfg.ServerKeyPassphrase, cfg.PrivateKeyFile))
+	api.Use(h.responseSignerMiddleware(signingKey.Armor))
 
 	api.HandleFunc("/server/info", h.GetServerInfo).Methods("GET")
 	api.HandleFunc("/server/info", h.noop).Methods("OPTIONS")
@@ -143,12 +166,6 @@ func main() {
 
 	api.HandleFunc("/users/{userID}/reeds", h.GetReedsByUserID).Methods("GET")
 	api.HandleFunc("/users/{userID}/reeds", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/users/{userID}/keys", h.GetUserKeys).Methods("GET")
-	// Note: The system will refuse to generate a new key pair if a non-revoked
-	// key pair exists. The user must first revoke their existing keys.
-	api.HandleFunc("/users/{userID}/keys", h.GenerateUserKeys).Methods("POST")
-	api.HandleFunc("/users/{userID}/keys", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.GetPublicKey).Methods("GET")
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revoke", h.RevokeKey).Methods("POST")

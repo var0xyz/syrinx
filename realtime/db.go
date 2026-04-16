@@ -116,7 +116,7 @@ func (ds *DBService) GetUserPublicKey(userID, fingerprint string) (string, error
 	var armor string
 	err := ds.db.QueryRow(`
 		SELECT armor
-		FROM public_keys
+		FROM user_keys
 		WHERE user_id = $1 AND fingerprint = $2
 	`, userID, fingerprint).Scan(&armor)
 
@@ -135,10 +135,9 @@ func (ds *DBService) GetUserByID(userID string) (*User, error) {
 	var user User
 	var avatarURL sql.NullString
 	var bio sql.NullString
-	var serverKeyFingerprint sql.NullString
 
 	err := ds.db.QueryRow(`
-		SELECT id, username, avatar_url, bio, server_key_fingerprint, created_at
+		SELECT id, username, avatar_url, bio, created_at
 		FROM users
 		WHERE id = $1
 	`, userID).Scan(
@@ -146,7 +145,6 @@ func (ds *DBService) GetUserByID(userID string) (*User, error) {
 		&user.Username,
 		&avatarURL,
 		&bio,
-		&serverKeyFingerprint,
 		&user.CreatedAt,
 	)
 
@@ -163,21 +161,17 @@ func (ds *DBService) GetUserByID(userID string) (*User, error) {
 	if bio.Valid {
 		user.Bio = bio.String
 	}
-	if serverKeyFingerprint.Valid {
-		user.ServerKeyFingerprint = serverKeyFingerprint.String
-	}
 
 	return &user, nil
 }
 
 // User represents a user in the system
 type User struct {
-	ID                   string    `json:"id"`
-	Username             string    `json:"username"`
-	AvatarURL            string    `json:"avatarURL"`
-	Bio                  string    `json:"bio"`
-	CreatedAt            time.Time `json:"memberSince"`
-	ServerKeyFingerprint string    `json:"serverKeyFingerprint"`
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	AvatarURL string    `json:"avatarURL"`
+	Bio       string    `json:"bio"`
+	CreatedAt time.Time `json:"memberSince"`
 }
 
 // SubscribeToBroadcast adds a user to the broadcast subscriptions table

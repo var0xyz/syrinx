@@ -178,6 +178,10 @@ export const apiService = {
     return request<void>(`/users/${targetUserId}/follow`, { method: 'DELETE' });
   },
 
+  async getPublicKey(userID: string, fingerprint: string): Promise<api.PublicKey> {
+    return request<api.PublicKey>(`/users/${userID}/keys/${fingerprint}`, { method: 'GET' });
+  },
+
   async addPublicKey(
     userID: string,
     publicKey: string,

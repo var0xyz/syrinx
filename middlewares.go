@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -46,8 +45,7 @@ type responseSigner struct {
 	cryptoService  crypto.Crypto
 	dataService    *DataService
 	userID         string
-	passphrase     string
-	privateKeyPath string
+	signingKeyArmor string
 }
 
 // Header returns the header map (delegates to underlying ResponseWriter)
@@ -164,42 +162,9 @@ func (rs *responseSigner) signCompleteResponse() error {
 	return nil
 }
 
-// getServerPrivateKey retrieves the server's private key from the file system
+// getServerPrivateKey returns the server's signing key (already decrypted, loaded at startup)
 func (rs *responseSigner) getServerPrivateKey() (string, error) {
-	// Check if file exists
-	if _, err := os.Stat(rs.privateKeyPath); os.IsNotExist(err) {
-		log.Error().
-			Str("path", rs.privateKeyPath).
-			Err(err).
-			Msg("Server private key file not found")
-		return "", fmt.Errorf("server private key not found")
-	}
-
-	// Read the private key file
-	privateKeyBytes, err := os.ReadFile(rs.privateKeyPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read private key file: %w", err)
-	}
-
-	// If passphrase is provided, decrypt the key
-	if rs.passphrase != "" {
-		decryptedKey, err := rs.decryptPrivateKey(string(privateKeyBytes), rs.passphrase)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Msg("Failed to decrypt private key with passphrase")
-			return "", fmt.Errorf("failed to decrypt private key: %w", err)
-		}
-		return decryptedKey, nil
-	}
-
-	// Return raw key content if no passphrase
-	return string(privateKeyBytes), nil
-}
-
-// decryptPrivateKey decrypts a passphrase-protected private key
-func (rs *responseSigner) decryptPrivateKey(encryptedKey, passphrase string) (string, error) {
-	return rs.cryptoService.DecryptPrivateKey(encryptedKey, passphrase)
+	return rs.signingKeyArmor, nil
 }
 
 // signDetached creates a detached signature of the message
@@ -541,8 +506,9 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 	}
 }
 
-// responseSignerMiddleware wraps responses to sign the complete response before it's sent
-func (h *Handlers) responseSignerMiddleware(passphrase string, privateKeyPath string) func(http.Handler) http.Handler {
+// responseSignerMiddleware wraps responses to sign the complete response before it's sent.
+// signingKeyArmor is the decrypted server private key, loaded once at startup.
+func (h *Handlers) responseSignerMiddleware(signingKeyArmor string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Get user ID from context (set by signature auth middleware)
@@ -555,13 +521,12 @@ func (h *Handlers) responseSignerMiddleware(passphrase string, privateKeyPath st
 
 			// Wrap the response writer for authenticated requests
 			signer := &responseSigner{
-				ResponseWriter: w,
-				statusCode:     http.StatusOK,
-				cryptoService:  h.services.crypto,
-				dataService:    h.services.db,
-				userID:         userID.(string),
-				passphrase:     passphrase,
-				privateKeyPath: privateKeyPath,
+				ResponseWriter:  w,
+				statusCode:      http.StatusOK,
+				cryptoService:   h.services.crypto,
+				dataService:     h.services.db,
+				userID:          userID.(string),
+				signingKeyArmor: signingKeyArmor,
 			}
 
 			// Continue with wrapped writer

@@ -2,9 +2,11 @@ package crypto
 
 import (
 	"bytes"
+	gocrypto "crypto"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -398,6 +400,164 @@ func (s *Service) ValidateAndExtractPublicKey(publicKey, signature string) (*Cry
 // ReadArmoredKeyRing reads an armored key ring
 func (s *Service) ReadArmoredKeyRing(armoredData string) (openpgp.EntityList, error) {
 	return openpgp.ReadArmoredKeyRing(strings.NewReader(armoredData))
+}
+
+// EncryptPrivateKey encrypts an unencrypted private key with a passphrase.
+// SerializePrivate cannot be used here because it re-signs identities, which
+// requires the private key to be decrypted. Instead, packets are written
+// individually using the existing (valid) self-signatures.
+func (s *Service) EncryptPrivateKey(privateKeyArmor, passphrase string) (string, error) {
+	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(privateKeyArmor))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse private key: %w", err)
+	}
+	if len(entities) == 0 {
+		return "", fmt.Errorf("no entities found in private key")
+	}
+
+	entity := entities[0]
+
+	if entity.PrivateKey != nil && !entity.PrivateKey.Encrypted {
+		if err := entity.PrivateKey.Encrypt([]byte(passphrase)); err != nil {
+			return "", fmt.Errorf("failed to encrypt private key: %w", err)
+		}
+	}
+
+	for _, subkey := range entity.Subkeys {
+		if subkey.PrivateKey != nil && !subkey.PrivateKey.Encrypted {
+			if err := subkey.PrivateKey.Encrypt([]byte(passphrase)); err != nil {
+				return "", fmt.Errorf("failed to encrypt subkey: %w", err)
+			}
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := serializeEncryptedEntity(&buf, entity); err != nil {
+		return "", fmt.Errorf("failed to serialize encrypted private key: %w", err)
+	}
+
+	var armoredBuf bytes.Buffer
+	armorWriter, err := armor.Encode(&armoredBuf, openpgp.PrivateKeyType, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create armor encoder: %w", err)
+	}
+
+	if _, err := armorWriter.Write(buf.Bytes()); err != nil {
+		armorWriter.Close()
+		return "", fmt.Errorf("failed to write armored private key: %w", err)
+	}
+
+	if err := armorWriter.Close(); err != nil {
+		return "", fmt.Errorf("failed to close armor encoder: %w", err)
+	}
+
+	return armoredBuf.String(), nil
+}
+
+// serializeEncryptedEntity writes an entity's packets without re-signing identities.
+// This is necessary when the private key is already encrypted and cannot sign.
+func serializeEncryptedEntity(w io.Writer, e *openpgp.Entity) error {
+	if err := e.PrivateKey.Serialize(w); err != nil {
+		return err
+	}
+
+	for _, ident := range e.Identities {
+		if err := ident.UserId.Serialize(w); err != nil {
+			return err
+		}
+		if err := ident.SelfSignature.Serialize(w); err != nil {
+			return err
+		}
+		for _, sig := range ident.Signatures {
+			if err := sig.Serialize(w); err != nil {
+				return err
+			}
+		}
+	}
+
+	for _, sig := range e.Revocations {
+		if err := sig.Serialize(w); err != nil {
+			return err
+		}
+	}
+
+	for _, subkey := range e.Subkeys {
+		if err := subkey.PrivateKey.Serialize(w); err != nil {
+			return err
+		}
+		if err := subkey.Sig.Serialize(w); err != nil {
+			return err
+		}
+		for _, sig := range subkey.Revocations {
+			if err := sig.Serialize(w); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// AddIdentity adds a new User ID with the given name to a decrypted private key.
+// Returns the updated armor unchanged if the name is already an identity on the key.
+func (s *Service) AddIdentity(decryptedPrivateKeyArmor, name string) (string, error) {
+	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(decryptedPrivateKeyArmor))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse private key: %w", err)
+	}
+	if len(entities) == 0 {
+		return "", fmt.Errorf("no entities found in private key")
+	}
+
+	entity := entities[0]
+
+	uid := packet.NewUserId(name, "", "")
+	if uid == nil {
+		return "", fmt.Errorf("failed to build user ID for %q", name)
+	}
+
+	// Already present — nothing to do
+	if _, exists := entity.Identities[uid.Id]; exists {
+		return decryptedPrivateKeyArmor, nil
+	}
+
+	selfSig := &packet.Signature{
+		Version:      4,
+		SigType:      packet.SigTypePositiveCert,
+		PubKeyAlgo:   entity.PrimaryKey.PubKeyAlgo,
+		Hash:         gocrypto.SHA256,
+		IssuerKeyId:  &entity.PrimaryKey.KeyId,
+		CreationTime: time.Now(),
+	}
+	if err := selfSig.SignUserId(uid.Id, entity.PrimaryKey, entity.PrivateKey, nil); err != nil {
+		return "", fmt.Errorf("failed to sign new identity: %w", err)
+	}
+
+	entity.Identities[uid.Id] = &openpgp.Identity{
+		Name:          uid.Id,
+		UserId:        uid,
+		SelfSignature: selfSig,
+	}
+
+	var buf bytes.Buffer
+	if err := entity.SerializePrivate(&buf, nil); err != nil {
+		return "", fmt.Errorf("failed to serialize key with new identity: %w", err)
+	}
+
+	var armoredBuf bytes.Buffer
+	armorWriter, err := armor.Encode(&armoredBuf, openpgp.PrivateKeyType, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create armor encoder: %w", err)
+	}
+	if _, err := armorWriter.Write(buf.Bytes()); err != nil {
+		armorWriter.Close()
+		return "", fmt.Errorf("failed to write armored key: %w", err)
+	}
+	if err := armorWriter.Close(); err != nil {
+		return "", fmt.Errorf("failed to close armor encoder: %w", err)
+	}
+
+	return armoredBuf.String(), nil
 }
 
 // DecryptPrivateKey decrypts a passphrase-protected private key

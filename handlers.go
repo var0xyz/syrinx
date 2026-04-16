@@ -23,6 +23,7 @@ type Handlers struct {
 	services      *Services
 	cfg           AppConfig
 	broadcastChan chan<- realtime.BroadcastMessage
+	signingKey    Key
 }
 
 type ServerInfo struct {
@@ -41,11 +42,12 @@ type Signature struct {
 //   Utilities  //
 // ///////////// //
 
-func NewHandlers(services *Services, cfg AppConfig, broadcastChan chan<- realtime.BroadcastMessage) *Handlers {
+func NewHandlers(services *Services, cfg AppConfig, broadcastChan chan<- realtime.BroadcastMessage, signingKey Key) *Handlers {
 	return &Handlers{
 		services:      services,
 		cfg:           cfg,
 		broadcastChan: broadcastChan,
+		signingKey:    signingKey,
 	}
 }
 
@@ -182,7 +184,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		Msg("Public key signature verified successfully")
 
 	// Check if key already exists
-	keyExists, err := h.services.db.PublicKeyExists(key.Fingerprint)
+	keyExists, err := h.services.db.PublicKeyExists(key.Fingerprint, user.ID)
 	if err != nil {
 		log.Error().Str("fingerprint", key.Fingerprint).Err(err).Msg("Error checking if public key exists")
 		internalServerError(w)
@@ -210,98 +212,9 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", key.Fingerprint).
 		Msg("Public key added successfully")
 
-	// Create server keys for the user
-	email := strings.TrimSpace(values.Get("email"))
-	keyPair, err := h.services.crypto.CreateKeyPair(user.ID, email, h.cfg.ServerName)
-	if err != nil {
-		log.Error().
-			Str("userID", user.ID).
-			Err(err).
-			Msg("Failed to create server key")
-		// Don't fail signup if server key creation fails
-		// Just log the error and continue
-	} else {
-		// Updates the user's server key fingerprint in-place
-		err = h.services.db.UpdateDefaultServerKeyForUser(user, keyPair.Fingerprint)
-		if err != nil {
-			log.Error().
-				Str("userID", user.ID).
-				Str("fingerprint", keyPair.Fingerprint).
-				Err(err).
-				Msg("Failed to update server key fingerprint")
-		}
-
-		// Save the key pair to the database
-		_, err = h.services.db.SaveKeyPair(keyPair)
-		if err != nil {
-			log.Error().
-				Str("userID", user.ID).
-				Str("fingerprint", keyPair.Fingerprint).
-				Err(err).
-				Msg("Failed to save server key pair")
-		}
-	}
-
 	writeResponse(w, http.StatusCreated, user)
 }
 
-func (h *Handlers) GenerateUserKeys(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("GenerateUserKeys request received")
-
-	userID := h.getUserID(r)
-	user, err := h.services.db.GetUser(userID)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).Msg("Failed to get user")
-		internalServerError(w)
-		return
-	}
-	if user == nil {
-		writeResponse(w, http.StatusBadRequest, "User not found")
-		return
-	}
-
-	email := r.FormValue("email")
-	keyPair, err := h.services.crypto.CreateKeyPair(user.ID, email, h.cfg.ServerName)
-	if err != nil {
-		log.Error().
-			Str("userID", user.ID).
-			Err(err).Msg("Failed to create server key")
-		internalServerError(w)
-		return
-	}
-	log.Debug().
-		Str("userID", user.ID).
-		Str("fingerprint", keyPair.Fingerprint).
-		Msg("Server key created successfully")
-
-	err = h.services.db.UpdateDefaultServerKeyForUser(user, keyPair.Fingerprint)
-	if err != nil {
-		log.Error().
-			Str("userID", user.ID).
-			Str("fingerprint", keyPair.Fingerprint).
-			Err(err).Msg("Failed to update server key fingerprint")
-		internalServerError(w)
-		return
-	}
-
-	publicKey, err := h.services.db.SaveKeyPair(keyPair)
-	if err != nil {
-		log.Error().
-			Str("userID", user.ID).
-			Err(err).Msg("Failed to save key pair")
-		internalServerError(w)
-		return
-	}
-	log.Debug().
-		Str("userID", user.ID).
-		Str("fingerprint", keyPair.Fingerprint).
-		Msg("Server key saved successfully")
-
-	writeResponse(w, http.StatusCreated, publicKey)
-}
 
 func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
@@ -665,7 +578,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Msg("Public key signature verified successfully")
 
 	// Check if key already exists
-	keyExists, err := h.services.db.PublicKeyExists(newKey.Fingerprint)
+	keyExists, err := h.services.db.PublicKeyExists(newKey.Fingerprint, userID)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -698,29 +611,6 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 
 	writeResponse(w, http.StatusOK, publicKey)
 }
-
-func (h *Handlers) GetUserKeys(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("GetUserKeys request received")
-
-	userID := mux.Vars(r)["userID"]
-	if userID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
-		return
-	}
-
-	publicKeys, err := h.services.db.GetPublicKeysByUserID(userID)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).Msg("Error getting user keys")
-		internalServerError(w)
-		return
-	}
-
-	writeResponse(w, http.StatusOK, publicKeys)
-}
-
 func (h *Handlers) GetPublicKey(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("GetPublicKey request received")
@@ -731,7 +621,12 @@ func (h *Handlers) GetPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := h.getUserID(r)
+	userID := mux.Vars(r)["userID"]
+	if userID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		return
+	}
+
 	key, err := h.services.db.GetPublicKey(userID, fingerprint)
 	if err != nil {
 		writeResponse(w, http.StatusNotFound, "Key '"+fingerprint+"' not found")
@@ -841,53 +736,6 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the user to find the fingerprint
-	user, err := h.services.db.GetUser(userID)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).Msg("Error getting user")
-		internalServerError(w)
-		return
-	}
-	if user == nil {
-		writeResponse(w, http.StatusBadRequest, "User not found")
-		return
-	}
-
-	publicKey, err := h.services.db.GetPublicKey(userID, user.ServerKeyFingerprint)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", user.ServerKeyFingerprint).
-			Err(err).Msg("Error getting public key")
-		internalServerError(w)
-		return
-	}
-
-	if publicKey == nil {
-		writeResponse(w, http.StatusBadRequest, "Identity not found")
-		return
-	}
-
-	// Get the server's private key for signing the signature
-	privateKey, err := h.services.db.GetPrivateKey(userID, user.ServerKeyFingerprint)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).Msg("Error getting private key")
-		internalServerError(w)
-		return
-	}
-	if privateKey == nil {
-		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", user.ServerKeyFingerprint).
-			Msg("Private key not found for fingerprint")
-		writeResponse(w, http.StatusBadRequest, "Private key "+user.ServerKeyFingerprint+" not found")
-		return
-	}
-
 	// Build a canonical payload that the server signs. Fields are ordered
 	// alphabetically and the timestamp is truncated to seconds so the client
 	// cannot spoof the server ID or the signing time.
@@ -895,23 +743,23 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	timestamp := time.Now().UTC().Truncate(time.Second)
 	payload := fmt.Sprintf("algorithm: PGP+base64\nid: %s\ntimestamp: %s\n---\n%s",
 		serverID, timestamp.Format(time.RFC3339), signature)
-	serverSignature, err := h.services.crypto.Sign(payload, privateKey.Armor)
+	serverSignature, err := h.services.crypto.Sign(payload, h.signingKey.Armor)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
 			Str("signature", signature).
-			Str("fingerprint", user.ServerKeyFingerprint).
+			Str("fingerprint", h.signingKey.Fingerprint).
 			Err(err).Msg("Error signing")
 		internalServerError(w)
 		return
 	}
 
-	reed, err := h.services.db.CreateReed(reedID, userID, serverID, user.ServerKeyFingerprint, timestamp)
+	reed, err := h.services.db.CreateReed(reedID, userID, h.signingKey.Fingerprint, timestamp)
 	if err != nil {
 		log.Error().
 			Str("reedID", reedID).
 			Str("userID", userID).
-			Str("fingerprint", user.ServerKeyFingerprint).
+			Str("fingerprint", h.signingKey.Fingerprint).
 			Err(err).Msg("Error creating reed")
 		internalServerError(w)
 		return
@@ -1116,27 +964,8 @@ func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	privateKey, err := h.services.db.GetPrivateKey(reed.UserID, reed.Fingerprint)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("reed.userID", reed.UserID).
-			Str("fingerprint", reed.Fingerprint).
-			Err(err).Msg("Error getting private key for verification")
-		internalServerError(w)
-		return
-	}
-	if privateKey == nil {
-		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", reed.Fingerprint).
-			Msg("Private key not found for verification")
-		writeResponse(w, http.StatusNotFound, "Private key "+reed.Fingerprint+" not found")
-		return
-	}
-
-	// Verify the signature using the crypto service
-	err = h.services.crypto.VerifySignature(userSignature, serverSignature, privateKey.Armor)
+	// Verify the signature using the server signing key
+	err = h.services.crypto.VerifySignature(userSignature, serverSignature, h.signingKey.Armor)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).

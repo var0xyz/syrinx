@@ -11,42 +11,33 @@ import (
 // /////// //
 
 type Server struct {
-	Id        string    `json:"id"`
-	Name      string    `json:"name"`
-	Self      bool      `json:"self"`
-	CreatedAt time.Time `json:"createdAt"`
+	Id         string    `json:"id"`
+	Name       string    `json:"name"`
+	Self       bool      `json:"self"`
+	SigningKey Key       `json:"signingKey"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 type User struct {
-	ID        string    `json:"id"`
-	Username  string    `json:"username"`
-	AvatarURL string    `json:"avatarURL"`
-	Bio       string    `json:"bio"`
-	CreatedAt time.Time `json:"memberSince"`
-	HasReeds  bool      `json:"hasReeds"`
-
-	// This is the fingerprint of the private key that the server generated for
-	// this user. When a user creates a reed, this value needs to be included
-	// in the reed's header. When a user verifies a reed, this value will be
-	// used to find the private key that was used to sign the reed and verify
-	// its signature.
-	ServerKeyFingerprint string `json:"serverKeyFingerprint"`
+	ID          string    `json:"id"`
+	Username    string    `json:"username"`
+	AvatarURL   string    `json:"avatarURL"`
+	Bio         string    `json:"bio"`
+	CreatedAt   time.Time `json:"memberSince"`
+	HasReeds    bool      `json:"hasReeds"`
+	Fingerprint string    `json:"fingerprint"`
 }
 
-type PublicKey struct {
+type Key struct {
 	Fingerprint string     `json:"fingerprint"`
-	UserID      string     `json:"userID"`
 	Armor       string     `json:"armor"`
 	CreatedAt   time.Time  `json:"createdAt"`
-	ExpiresAt   *time.Time `json:"expiresAt"`
+	Revoked     *Revoke    `json:"revoked"`
 }
 
-type PrivateKey struct {
-	Fingerprint string     `json:"fingerprint"`
-	UserID      string     `json:"userID"`
-	Armor       string     `json:"armor"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	ExpiresAt   *time.Time `json:"expiresAt"`
+type Revoke struct {
+	Timestamp time.Time `json:"timestamp"`
+	Reason string `json:"reason"`
 }
 
 type Reed struct {
@@ -75,9 +66,10 @@ func InitDB(db *sql.DB) error {
 	// /////// //
 	createServersTable := `
 	CREATE TABLE IF NOT EXISTS servers (
-		id         VARCHAR(16) UNIQUE,
-		name       VARCHAR(255) PRIMARY KEY,
-		self       BOOLEAN NOT NULL DEFAULT FALSE,
+		id VARCHAR(16) UNIQUE,
+		name VARCHAR(255) PRIMARY KEY,
+		self BOOLEAN NOT NULL DEFAULT FALSE,
+		signing_key VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
@@ -86,66 +78,79 @@ func InitDB(db *sql.DB) error {
 		id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
 		count BIGINT DEFAULT 0
 	);`
+
 	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
 		id VARCHAR(255) PRIMARY KEY,
 		username VARCHAR(255) UNIQUE NOT NULL,
 		avatar_url VARCHAR(255),
 		bio TEXT,
-		server_key_fingerprint VARCHAR(255),
+		fingerprint VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
+
 	createUserIndexes := `
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_lower_users_username
 		ON users(LOWER(username));
 	`
 
+	// Server-owned private keys
 	createPrivateKeysTable := `
 	CREATE TABLE IF NOT EXISTS private_keys (
 		fingerprint VARCHAR(255) PRIMARY KEY,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		armor TEXT NOT NULL,
-		revoked BOOLEAN DEFAULT FALSE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		expires_at TIMESTAMP
+		revoked_at TIMESTAMP,
+		revoke_reason TEXT
 	);`
-	createPrivateKeyIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_private_keys_user_id
-		ON private_keys(user_id);
-	`
 
+	// Server-owned public keys
 	createPublicKeysTable := `
 	CREATE TABLE IF NOT EXISTS public_keys (
 		fingerprint VARCHAR(255) PRIMARY KEY,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		armor TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	// Client-managed public keys
+	createUserKeysTable := `
+	CREATE TABLE IF NOT EXISTS user_keys (
+		fingerprint VARCHAR(255),
+		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		revoked BOOLEAN DEFAULT FALSE,
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		expires_at TIMESTAMP
+		expires_at TIMESTAMP,
+
+		PRIMARY KEY (owner, fingerprint)
 	);`
-	createPublicKeyIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_public_keys_user_id
-		ON public_keys(user_id);
+
+	createUserKeyIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_user_keys_owner
+		ON user_keys(owner);
 	`
 
-	createRevokationsTable := `
-	CREATE TABLE IF NOT EXISTS revokations (
-		fingerprint VARCHAR(255) PRIMARY KEY,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	createUserKeyRevocationsTable := `
+	CREATE TABLE IF NOT EXISTS user_key_revocations (
+		fingerprint VARCHAR(255),
+		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		reason TEXT,
-		description TEXT,
-		revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (fingerprint, owner),
+		FOREIGN KEY (fingerprint, owner) REFERENCES user_keys(fingerprint, owner)
 	);`
 
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
 		id VARCHAR(255) UNIQUE NOT NULL,
 		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
+		private_key_fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
 		signed_at TIMESTAMP NOT NULL,
 
 		PRIMARY KEY (id, user_id)
 	);`
+
 	createReedIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reeds_user_id
 		ON reeds(user_id);
@@ -165,6 +170,7 @@ func InitDB(db *sql.DB) error {
 
 		PRIMARY KEY (user_id, follower_user_id)
 	);`
+
 	createUserFollowerIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_user_followers_user_id
 		ON user_followers(user_id);
@@ -178,6 +184,7 @@ func InitDB(db *sql.DB) error {
 
 		PRIMARY KEY (user_id, following_user_id)
 	);`
+
 	createUserFollowingIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_user_following_user_id
 		ON user_following(user_id);
@@ -189,15 +196,16 @@ func InitDB(db *sql.DB) error {
 
 	createOnlineUsersTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS online_users (
-		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id    VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	createBroadcastSubscriptionsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS broadcast_subscriptions (
-		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id    VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
+
 	createBroadcastSubscriptionIndexes := `
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_broadcast_subscriptions_user_id
 		ON broadcast_subscriptions(user_id);
@@ -211,6 +219,7 @@ func InitDB(db *sql.DB) error {
 
 		PRIMARY KEY (reed_id, user_id)
 	);`
+
 	createReedAllocationIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_allocations_reed_id
 		ON reed_allocations(reed_id);
@@ -232,12 +241,12 @@ func InitDB(db *sql.DB) error {
 		createUserIndexes,
 
 		createPrivateKeysTable,
-		createPrivateKeyIndexes,
-
 		createPublicKeysTable,
-		createPublicKeyIndexes,
 
-		createRevokationsTable,
+		createUserKeysTable,
+		createUserKeyIndexes,
+
+		createUserKeyRevocationsTable,
 
 		createReedsTable,
 		createReedIndexes,
