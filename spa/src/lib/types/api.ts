@@ -6,8 +6,7 @@ export interface User extends Base {
   memberSince: string;
   avatarURL: string;
   bio: string;
-  serverKeyFingerprint: string;
-  publicKeys?: string[];
+  fingerprint: string;
 };
 
 export interface PublicKeyIdentity extends Base {

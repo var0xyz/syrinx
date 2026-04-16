@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"fmt"
 	"math/big"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -90,6 +92,208 @@ func (s *DataService) InitServer() error {
 	return nil
 }
 
+// ProcessRevocations scans the {cwd}/revocations directory for .rvk files.
+// Each file revokes the named key. InitServerKey will create a new one if needed.
+// Called at startup before InitServerKey.
+func (s *DataService) ProcessRevocations() error {
+	revocationsDir := filepath.Join(".", "revocations")
+
+	entries, err := os.ReadDir(revocationsDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read revocations directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".rvk" {
+			continue
+		}
+
+		fingerprint := strings.TrimSuffix(entry.Name(), ".rvk")
+		rvkPath := filepath.Join(revocationsDir, entry.Name())
+
+		reasonBytes, err := os.ReadFile(rvkPath)
+		if err != nil {
+			return fmt.Errorf("failed to read revocation file %s: %w", entry.Name(), err)
+		}
+
+		reason := strings.TrimSpace(string(reasonBytes))
+		if reason == "" {
+			log.Panic().
+				Str("file", entry.Name()).
+				Msg("Revocation file is empty — revoke reason must not be empty")
+		}
+
+		// Verify the key exists
+		var exists bool
+		err = s.db.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM private_keys WHERE fingerprint = $1)`,
+			fingerprint,
+		).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("failed to check key existence: %w", err)
+		}
+		if !exists {
+			log.Panic().
+				Str("fingerprint", fingerprint).
+				Msg("Revocation file references unknown key fingerprint")
+		}
+
+		if err := s.RevokeServerPrivateKey(fingerprint, reason); err != nil {
+			return fmt.Errorf("failed to revoke key: %w", err)
+		}
+
+		if err := os.Remove(rvkPath); err != nil {
+			log.Warn().Str("file", rvkPath).Err(err).Msg("Failed to delete .rvk file after processing")
+		}
+
+		log.Info().
+			Str("fingerprint", fingerprint).
+			Str("reason", reason).
+			Msg("Key revoked")
+	}
+
+	return nil
+}
+
+// InitServerKey ensures an active (non-revoked) server signing key exists.
+// If the current signing key is revoked or missing, a new one is created.
+// Returns the decrypted Key (armor + fingerprint) for use by the signing middleware.
+func (s *DataService) InitServerKey(cryptoSvc *crypto.Service, passphrase string) (*Key, error) {
+	var fingerprint string
+	var encryptedArmor string
+	var createdAt time.Time
+
+	err := s.db.QueryRow(`
+		SELECT pk.fingerprint, pk.armor, pk.created_at
+		FROM servers sv
+		JOIN private_keys pk ON pk.fingerprint = sv.signing_key
+		WHERE sv.self = TRUE AND pk.revoked_at IS NULL
+	`).Scan(&fingerprint, &encryptedArmor, &createdAt)
+
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to query server signing key: %w", err)
+	}
+
+	if err == sql.ErrNoRows {
+		// No active signing key — generate one
+		keyPair, err := cryptoSvc.CreateKeyPair(s.serverID, "", "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create server key pair: %w", err)
+		}
+
+		encryptedPrivate, err := cryptoSvc.EncryptPrivateKey(keyPair.PrivateKey, passphrase)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt server private key: %w", err)
+		}
+
+		if err := s.SaveServerKeyPair(keyPair.Fingerprint, encryptedPrivate, keyPair.PublicKey); err != nil {
+			return nil, fmt.Errorf("failed to save server key pair: %w", err)
+		}
+
+		if err := s.SetServerSigningKey(keyPair.Fingerprint); err != nil {
+			return nil, fmt.Errorf("failed to set signing key: %w", err)
+		}
+
+		log.Info().
+			Str("fingerprint", keyPair.Fingerprint).
+			Msg("Generated new server signing key")
+
+		return &Key{Fingerprint: keyPair.Fingerprint, Armor: keyPair.PrivateKey, CreatedAt: time.Now()}, nil
+	}
+
+	// Active key found — decrypt it
+	decryptedArmor, err := cryptoSvc.DecryptPrivateKey(encryptedArmor, passphrase)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt server signing key (wrong passphrase?): %w", err)
+	}
+
+	// If the server name changed, add a new identity to the key
+	updatedArmor, err := cryptoSvc.AddIdentity(decryptedArmor, s.serverName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add identity to server signing key: %w", err)
+	}
+	if updatedArmor != decryptedArmor {
+		newEncrypted, err := cryptoSvc.EncryptPrivateKey(updatedArmor, passphrase)
+		if err != nil {
+			return nil, fmt.Errorf("failed to re-encrypt server signing key after identity update: %w", err)
+		}
+		if _, err = s.db.Exec(
+			`UPDATE private_keys SET armor = $1 WHERE fingerprint = $2`,
+			newEncrypted, fingerprint,
+		); err != nil {
+			return nil, fmt.Errorf("failed to persist updated server signing key: %w", err)
+		}
+		log.Info().
+			Str("name", s.serverName).
+			Str("fingerprint", fingerprint).
+			Msg("Added new identity to server signing key")
+		decryptedArmor = updatedArmor
+	}
+
+	log.Info().
+		Str("fingerprint", fingerprint).
+		Msg("Loaded existing server signing key")
+
+	return &Key{Fingerprint: fingerprint, Armor: decryptedArmor, CreatedAt: createdAt}, nil
+}
+
+func (s *DataService) SaveServerKeyPair(fingerprint, privateArmor, publicArmor string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(
+		`INSERT INTO private_keys (fingerprint, armor) VALUES ($1, $2)`,
+		fingerprint, privateArmor,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(
+		`INSERT INTO public_keys (fingerprint, armor) VALUES ($1, $2)`,
+		fingerprint, publicArmor,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (s *DataService) SetServerSigningKey(fingerprint string) error {
+	_, err := s.db.Exec(`UPDATE servers SET signing_key = $1 WHERE self = TRUE`, fingerprint)
+	return err
+}
+
+func (s *DataService) GetServerSigningKeyArmor() (string, error) {
+	var armor string
+	err := s.db.QueryRow(`
+		SELECT pk.armor
+		FROM private_keys pk
+		JOIN servers s ON s.signing_key = pk.fingerprint
+		WHERE s.self = TRUE
+	`).Scan(&armor)
+	if err != nil {
+		return "", err
+	}
+	return armor, nil
+}
+
+func (s *DataService) RevokeServerPrivateKey(fingerprint, reason string) error {
+	_, err := s.db.Exec(`
+		UPDATE private_keys
+		SET revoked_at = NOW(), revoke_reason = $2
+		WHERE fingerprint = $1
+	`, fingerprint, reason)
+	return err
+}
+
 func (s *DataService) CreateUser(username string) (*User, error) {
 	// Start transaction
 	tx, err := s.db.Begin()
@@ -118,6 +322,7 @@ func (s *DataService) CreateUser(username string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	log.Info().
 		Uint64("count", count).
 		Uint64("randomNum", randomNum.Uint64()).
@@ -138,18 +343,16 @@ func (s *DataService) CreateUser(username string) (*User, error) {
 	// Insert user with generated ID
 	var avatarURL sql.NullString
 	var bio sql.NullString
-	var serverKeyFingerprint sql.NullString
 
 	var user User
 	err = tx.QueryRow(`
 		INSERT INTO users (id, username)
-		VALUES ($1, $2) RETURNING id, username, avatar_url, bio, server_key_fingerprint, created_at
+		VALUES ($1, $2) RETURNING id, username, avatar_url, bio, created_at
 	`, id, username).Scan(
 		&user.ID,
 		&user.Username,
 		&avatarURL,
 		&bio,
-		&serverKeyFingerprint,
 		&user.CreatedAt,
 	)
 
@@ -163,10 +366,6 @@ func (s *DataService) CreateUser(username string) (*User, error) {
 
 	if bio.Valid {
 		user.Bio = bio.String
-	}
-
-	if serverKeyFingerprint.Valid {
-		user.ServerKeyFingerprint = serverKeyFingerprint.String
 	}
 
 	// Commit transaction
@@ -179,23 +378,29 @@ func (s *DataService) CreateUser(username string) (*User, error) {
 
 func (s *DataService) GetUser(userID string) (*User, error) {
 	var user User
-	var serverKeyFingerprint sql.NullString
 	var avatarURL sql.NullString
 	var bio sql.NullString
+	var fingerprint sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT u.id, u.username, u.avatar_url, u.bio, u.server_key_fingerprint, u.created_at,
-			EXISTS (SELECT 1 FROM reeds r WHERE r.user_id = u.id LIMIT 1) as has_reeds
-		FROM users u
+		SELECT id, username, avatar_url, bio, created_at,
+			EXISTS (
+				SELECT 1
+				FROM reeds
+				WHERE user_id = id
+				LIMIT 1
+			) AS has_reeds,
+			fingerprint
+		FROM users
 		WHERE id = $1
 	`, userID).Scan(
 		&user.ID,
 		&user.Username,
 		&avatarURL,
 		&bio,
-		&serverKeyFingerprint,
 		&user.CreatedAt,
 		&user.HasReeds,
+		&fingerprint,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -203,14 +408,14 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		}
 		return nil, err
 	}
-	if serverKeyFingerprint.Valid {
-		user.ServerKeyFingerprint = serverKeyFingerprint.String
-	}
 	if avatarURL.Valid {
 		user.AvatarURL = avatarURL.String
 	}
 	if bio.Valid {
 		user.Bio = bio.String
+	}
+	if fingerprint.Valid {
+		user.Fingerprint = fingerprint.String
 	}
 
 	return &user, nil
@@ -226,21 +431,6 @@ func (s *DataService) UpdateUser(user *User) error {
 		return err
 	}
 
-	return nil
-}
-
-func (s *DataService) UpdateDefaultServerKeyForUser(user *User, fingerprint string) error {
-	_, err := s.db.Exec(`
-		UPDATE users
-		SET server_key_fingerprint = $1
-		WHERE id = $2
-	`, fingerprint, user.ID)
-	if err != nil {
-		return err
-	}
-
-	// Update the user struct in-place
-	user.ServerKeyFingerprint = fingerprint
 	return nil
 }
 
@@ -264,7 +454,7 @@ func (s *DataService) GetUserByUsername(username string) (*User, error) {
 	var avatarURL sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT id, username, avatar_url, bio, server_key_fingerprint, created_at
+		SELECT id, username, avatar_url, bio, created_at
 		FROM users
 		WHERE LOWER(username) = LOWER($1)
 	`, username).Scan(
@@ -272,7 +462,6 @@ func (s *DataService) GetUserByUsername(username string) (*User, error) {
 		&user.Username,
 		&avatarURL,
 		&user.Bio,
-		&user.ServerKeyFingerprint,
 		&user.CreatedAt,
 	)
 	if err != nil {
@@ -364,126 +553,43 @@ func (s *DataService) SetDefaultIdentity(userID string, identityID uuid.UUID) er
 	return nil
 }
 
-func (s *DataService) SaveKeyPair(key *crypto.KeyPair) (*PublicKey, error) {
-	_, err := s.db.Exec(`
-		INSERT INTO private_keys (fingerprint, user_id, armor, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, key.Fingerprint, key.UserID, key.PrivateKey, key.ExpiresAt, key.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-
-	var publicKey PublicKey
-
-	err = s.db.QueryRow(`
-		INSERT INTO public_keys (fingerprint, user_id, armor, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING fingerprint, user_id, armor, created_at, expires_at
-	`, key.Fingerprint, key.UserID, key.PublicKey, key.ExpiresAt, key.CreatedAt).Scan(
-		&publicKey.Fingerprint,
-		&publicKey.UserID,
-		&publicKey.Armor,
-		&publicKey.CreatedAt,
-		&publicKey.ExpiresAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return &publicKey, nil
-}
-
-func (s *DataService) GetPrivateKey(userID string, fingerprint string) (*PrivateKey, error) {
-	var privateKey PrivateKey
+func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, error) {
+	var key Key
+	var revokedAt sql.NullTime
+	var revokedReason sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT fingerprint, user_id, armor, created_at, expires_at
-		FROM private_keys
-		WHERE user_id = $1 AND fingerprint = $2
-	`, userID, fingerprint).Scan(
-		&privateKey.Fingerprint,
-		&privateKey.UserID,
-		&privateKey.Armor,
-		&privateKey.CreatedAt,
-		&privateKey.ExpiresAt,
-	)
+		SELECT uk.fingerprint, uk.armor, uk.created_at, rv.revoked_at, rv.reason
+		FROM user_keys uk
+		LEFT JOIN user_key_revocations rv ON rv.fingerprint = uk.fingerprint AND rv.owner = uk.owner
+		WHERE uk.owner = $1 AND uk.fingerprint = $2
+	`, userID, fingerprint).Scan(&key.Fingerprint, &key.Armor, &key.CreatedAt, &revokedAt, &revokedReason)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
-
-	return &privateKey, nil
-}
-
-func (s *DataService) GetPublicKeysByUserID(userID string) ([]PublicKey, error) {
-	var keys []PublicKey
-
-	rows, err := s.db.Query(`
-		SELECT fingerprint, user_id, armor, created_at, expires_at
-		FROM public_keys
-		WHERE user_id = $1
-	`, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var key PublicKey
-
-		err := rows.Scan(&key.Fingerprint, &key.UserID, &key.Armor, &key.CreatedAt, &key.ExpiresAt)
-		if err != nil {
-			return nil, err
-		}
-
-		keys = append(keys, key)
-	}
-
-	return keys, nil
-}
-
-func (s *DataService) GetPublicKey(userID string, fingerprint string) (*PublicKey, error) {
-	var key PublicKey
-
-	err := s.db.QueryRow(`
-		SELECT fingerprint, user_id, armor, created_at, expires_at
-		FROM public_keys
-		WHERE user_id = $1 AND fingerprint = $2
-	`, userID, fingerprint).Scan(&key.Fingerprint, &key.UserID, &key.Armor, &key.CreatedAt, &key.ExpiresAt)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
+	if revokedAt.Valid {
+		key.Revoked = &Revoke{Timestamp: revokedAt.Time, Reason: revokedReason.String}
 	}
 
 	return &key, nil
 }
 
-func (s *DataService) IsPublicKeyRevoked(key *PublicKey) (bool, error) {
-	var revoked bool
-
-	err := s.db.QueryRow(`
-		SELECT revoked FROM public_keys WHERE fingerprint = $1
-	`, key.Fingerprint).Scan(&revoked)
-	if err != nil {
-		return false, err
-	}
-
-	return revoked, nil
+func (s *DataService) IsPublicKeyRevoked(key *Key) (bool, error) {
+	return key.Revoked != nil, nil
 }
 
-func (s *DataService) PublicKeyExists(fingerprint string) (bool, error) {
+func (s *DataService) PublicKeyExists(fingerprint string, userID string) (bool, error) {
 	var exists bool
 
 	err := s.db.QueryRow(`
 		SELECT EXISTS(
-			SELECT 1 FROM public_keys
-			WHERE fingerprint = $1
+			SELECT 1 FROM user_keys
+			WHERE owner = $1 AND fingerprint = $2
 		)
-	`, fingerprint).Scan(&exists)
+	`, userID, fingerprint).Scan(&exists)
 	if err != nil {
 		return false, err
 	}
@@ -491,19 +597,30 @@ func (s *DataService) PublicKeyExists(fingerprint string) (bool, error) {
 	return exists, nil
 }
 
-func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt time.Time, expiresAt *time.Time, armor string) (*PublicKey, error) {
-	var publicKey PublicKey
-	err := s.db.QueryRow(`
-			INSERT INTO public_keys (fingerprint, user_id, armor, created_at, expires_at)
-			VALUES ($1, $2, $3, $4, $5)
-			RETURNING fingerprint, user_id, armor, created_at, expires_at
-		`, fingerprint, userID, armor, createdAt, expiresAt,
-	).Scan(&publicKey.Fingerprint, &publicKey.UserID, &publicKey.Armor, &publicKey.CreatedAt, &publicKey.ExpiresAt)
+func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt time.Time, expiresAt *time.Time, armor string) (*Key, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var key Key
+	err = tx.QueryRow(`
+		INSERT INTO user_keys (fingerprint, owner, armor, created_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING fingerprint, armor, created_at
+	`, fingerprint, userID, armor, createdAt, expiresAt,
+	).Scan(&key.Fingerprint, &key.Armor, &key.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
 
-	return &publicKey, nil
+	_, err = tx.Exec(`UPDATE users SET fingerprint = $1 WHERE id = $2`, fingerprint, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &key, tx.Commit()
 }
 
 func (s *DataService) RevokeKey(fingerprint string, userID string, reason string) error {
@@ -513,21 +630,11 @@ func (s *DataService) RevokeKey(fingerprint string, userID string, reason string
 	}
 	defer tx.Rollback()
 
-	// Mark public key as revoked
+	// Mark user public key as revoked
 	_, err = tx.Exec(`
-		UPDATE public_keys
+		UPDATE user_keys
 		SET revoked = TRUE
-		WHERE fingerprint = $1 AND user_id = $2
-	`, fingerprint, userID)
-	if err != nil {
-		return err
-	}
-
-	// Mark private key as revoked
-	_, err = tx.Exec(`
-		UPDATE private_keys
-		SET revoked = TRUE
-		WHERE fingerprint = $1 AND user_id = $2
+		WHERE fingerprint = $1 AND owner = $2
 	`, fingerprint, userID)
 	if err != nil {
 		return err
@@ -535,21 +642,16 @@ func (s *DataService) RevokeKey(fingerprint string, userID string, reason string
 
 	// Insert revocation record
 	_, err = tx.Exec(`
-		INSERT INTO revokations (fingerprint, user_id, reason, revoked_at)
+		INSERT INTO user_key_revocations (fingerprint, owner, reason, revoked_at)
 		VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-		ON CONFLICT (fingerprint) DO UPDATE
+		ON CONFLICT (fingerprint, owner) DO UPDATE
 		SET reason = $3
 	`, fingerprint, userID, reason)
 	if err != nil {
 		return err
 	}
 
-	err = tx.Commit()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return tx.Commit()
 }
 
 // validateUUID25 validates that the provided string is a valid UUID25 encoding of a UUID v7
@@ -582,7 +684,7 @@ func validateUUID25(uuid25Str string) error {
 	return nil
 }
 
-func (s *DataService) CreateReed(reedID string, userID string, serverID string, fingerprint string, timestamp time.Time) (*Reed, error) {
+func (s *DataService) CreateReed(reedID string, userID string, fingerprint string, timestamp time.Time) (*Reed, error) {
 	// Validate that the reed ID is a valid UUID25 encoding of a UUID v7
 	err := validateUUID25(reedID)
 	if err != nil {
@@ -591,10 +693,10 @@ func (s *DataService) CreateReed(reedID string, userID string, serverID string, 
 
 	var reed Reed
 	err = s.db.QueryRow(`
-		INSERT INTO reeds (id, user_id, server_id, fingerprint, signed_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, user_id, fingerprint, signed_at
-	`, reedID, userID, serverID, fingerprint, timestamp).Scan(
+		INSERT INTO reeds (id, user_id, private_key_fingerprint, signed_at)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, user_id, private_key_fingerprint, signed_at
+	`, reedID, userID, fingerprint, timestamp).Scan(
 		&reed.ID,
 		&reed.UserID,
 		&reed.Fingerprint,
@@ -616,7 +718,7 @@ func (s *DataService) GetReedsByUserID(userID string) ([]Reed, error) {
 	var reeds []Reed
 
 	rows, err := s.db.Query(`
-		SELECT id, user_id, fingerprint, signed_at
+		SELECT id, user_id, private_key_fingerprint, signed_at
 		FROM reeds
 		WHERE user_id = $1
 	`, userID)
@@ -649,7 +751,7 @@ func (s *DataService) GetReedsByUserID(userID string) ([]Reed, error) {
 func (s *DataService) GetReed(userID string, reedID string) (*Reed, error) {
 	var reed Reed
 	err := s.db.QueryRow(`
-	SELECT id, user_id, fingerprint, signed_at
+	SELECT id, user_id, private_key_fingerprint, signed_at
 		FROM reeds
 		WHERE id = $1 AND user_id = $2
 	`, reedID, userID,
@@ -680,13 +782,6 @@ func (s *DataService) DeleteReed(reedID string) error {
 
 	return nil
 }
-
-// ================= //
-//   CryptoService   //
-// ================= //
-
-// CryptoService has been moved to the crypto package
-// All crypto operations are now handled by crypto.Service
 
 // ================== //
 //   LoggingService   //
