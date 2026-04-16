@@ -29,7 +29,6 @@
     }
   }
 
-  const defaultAvatarUrl = `${window.location.origin}/static/default-avatar.png`;
   const serverName = localStorage.getItem('serverName') || '';
 
   function formatDate(dateString) {
@@ -56,15 +55,11 @@
 <div class="profile-card">
   <div class="profile-header">
     <div class="avatar-container">
-      <img
-        src={user?.avatarURL || defaultAvatarUrl}
-        alt="{user?.username}'s Avatar"
-        class="profile-avatar"
-        on:error={(e) => {
-          const img = e.target;
-          if (img.src !== defaultAvatarUrl) img.src = defaultAvatarUrl;
-        }}
-      />
+      {#if user?.avatarURL}
+        <img src={user.avatarURL} alt="{user.username}'s Avatar" class="profile-avatar" />
+      {:else}
+        <div class="profile-avatar-icon">👤</div>
+      {/if}
     </div>
     <div class="profile-info">
       <h2>{user?.username}</h2>
@@ -114,10 +109,23 @@
 
   .profile-avatar {
     width: 80px;
+    max-width: 80px;
     height: 80px;
+    min-height: 80px;
     border-radius: 50%;
     object-fit: cover;
     border: 2px solid var(--border);
+  }
+
+  .profile-avatar-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: var(--input-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
   }
 
   .profile-info {

@@ -29,8 +29,6 @@
   let storagePercentage: number = 0;
   let storageAvailable: boolean = false;
 
-  const defaultAvatarUrl = `${window.location.origin}/static/default-avatar.png`;
-
   // Edit mode state
   let isEditing: boolean = false;
   let editForm = {
@@ -487,19 +485,11 @@
         <div class="profile-info">
             <div class="edit-form">
               <div class="profile-avatar">
-                <img
-                  src={user?.avatarURL || defaultAvatarUrl}
-                  alt="{user?.username}'s Avatar"
-                  class="avatar-large"
-                  on:error={
-                    (e) => {
-                      const img = (e.target as HTMLImageElement)
-                      if (img.src !== defaultAvatarUrl) {
-                          img.src = defaultAvatarUrl
-                      }
-                    }
-                  }
-                />
+                {#if user?.avatarURL}
+                  <img src={user.avatarURL} alt="{user.username}'s Avatar" class="avatar-large" />
+                {:else}
+                  <div class="avatar-large avatar-icon">👤</div>
+                {/if}
                 <button class="edit-avatar-btn">Edit</button>
               </div>
               <div class="form-group">
@@ -796,6 +786,14 @@
     object-fit: cover;
     border: 2px solid var(--border);
     margin: 0 auto;
+  }
+
+  .avatar-icon {
+    background: var(--input-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
   }
 
   .edit-avatar-btn {
