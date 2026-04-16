@@ -7,6 +7,7 @@ export interface User extends Base {
   avatarURL: string;
   bio: string;
   fingerprint: string;
+  server: string;
 };
 
 export interface PublicKeyIdentity extends Base {
