@@ -701,14 +701,15 @@ func (h *Handlers) GetReedsByUserID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reeds, err := h.services.db.GetReedsByUserID(userID)
+	from := r.URL.Query().Get("from")
+	ids, err := h.services.db.GetReedsByUserID(userID, from)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error getting reeds for user")
 		internalServerError(w)
 		return
 	}
 
-	writeResponse(w, http.StatusOK, reeds)
+	writeResponse(w, http.StatusOK, ids)
 }
 
 func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {

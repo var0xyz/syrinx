@@ -7,12 +7,15 @@ import (
 
 	"syrinx/crypto"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 
 	pb "syrinx/proto"
 )
+
+const maxPendingEventsPerClient = 100
 
 // RealtimeService represents the main realtime service
 type RealtimeService struct {
@@ -151,6 +154,9 @@ func (rs *RealtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Dispatch any pending relay requests for reeds this user holds
+	rs.handleUserCameOnline(userID)
+
 	log.Info().
 		Str("userID", userID).
 		Msg("WebSocket client connected")
@@ -170,6 +176,14 @@ func (rs *RealtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 			Str("userID", userID).
 			Err(err).
 			Msg("Failed to remove broadcast subscription on disconnect")
+	}
+
+	// Discard all pending relay events for this requester
+	if err := rs.dbService.DeletePendingEventsByUser(userID); err != nil {
+		log.Error().
+			Str("userID", userID).
+			Err(err).
+			Msg("Failed to delete pending events on disconnect")
 	}
 
 	log.Info().
@@ -309,6 +323,12 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 
 	case "UNSUBSCRIBE_BROADCAST":
 		rs.handleUnsubscribeBroadcastJSON(client)
+
+	case "REQUEST_REED":
+		rs.handleRequestReed(client, jsonMsg)
+
+	case "RELAY_RESPONSE":
+		rs.handleRelayResponse(client, jsonMsg)
 
 	default:
 		log.Warn().Str("type", msgType).Msg("Unknown JSON WebSocket message type")
@@ -452,4 +472,93 @@ func (rs *RealtimeService) GetConnectionCount() int {
 // GetOnlineUsers returns a list of online user IDs
 func (rs *RealtimeService) GetOnlineUsers() []string {
 	return rs.connManager.GetOnlineUsers()
+}
+
+func generateEventID() string {
+	return uuid.New().String()
+}
+
+func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]interface{}) {
+	data, _ := msg["data"].(map[string]interface{})
+	requestID, _ := data["request_id"].(string)
+	reedID, _ := data["reed_id"].(string)
+	if requestID == "" || reedID == "" {
+		return
+	}
+
+	count, err := rs.dbService.CountPendingEventsByUser(client.userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", client.userID).Msg("Failed to count pending events")
+		return
+	}
+	if count >= maxPendingEventsPerClient {
+		rs.connManager.SendToUser(client.userID, map[string]interface{}{
+			"type": "ERROR",
+			"data": map[string]interface{}{"request_id": requestID, "message": "too many pending requests"},
+		})
+		return
+	}
+
+	eventID := generateEventID()
+	if err := rs.dbService.CreatePendingEvent(eventID, requestID, client.userID, "request_reed", reedID); err != nil {
+		log.Error().Err(err).Msg("Failed to create pending event")
+		return
+	}
+
+	rs.connManager.SendToUser(client.userID, map[string]interface{}{
+		"type": "REQUEST_ACK",
+		"data": map[string]interface{}{"request_id": requestID, "event_id": eventID},
+	})
+
+	holders, err := rs.dbService.GetOnlineUsersWithReed(reedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to get online users with reed")
+		return
+	}
+	if len(holders) > 0 {
+		rs.connManager.SendToUser(holders[0], map[string]interface{}{
+			"type": "RELAY_REQUEST",
+			"data": map[string]interface{}{"event_id": eventID, "reed_id": reedID},
+		})
+	}
+}
+
+func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]interface{}) {
+	data, _ := msg["data"].(map[string]interface{})
+	eventID, _ := data["event_id"].(string)
+	if eventID == "" {
+		return
+	}
+
+	pe, err := rs.dbService.GetPendingEvent(eventID)
+	if err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event")
+		return
+	}
+	if pe == nil {
+		return
+	}
+
+	rs.connManager.SendToUser(pe.RequesterUserID, map[string]interface{}{
+		"type": "DATA_RESPONSE",
+		"data": map[string]interface{}{"request_id": pe.RequestID, "data": data["data"]},
+	})
+
+	if err := rs.dbService.DeletePendingEvent(eventID); err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event")
+	}
+}
+
+func (rs *RealtimeService) handleUserCameOnline(userID string) {
+	events, err := rs.dbService.GetPendingEventsForUser(userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to get pending events for new user")
+		return
+	}
+	for _, e := range events {
+		rs.connManager.SendToUser(userID, map[string]interface{}{
+			"type": "RELAY_REQUEST",
+			"data": map[string]interface{}{"event_id": e.EventID, "reed_id": e.ReedID},
+		})
+	}
 }

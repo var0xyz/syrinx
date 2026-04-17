@@ -117,7 +117,7 @@ func (ds *DBService) GetUserPublicKey(userID, fingerprint string) (string, error
 	err := ds.db.QueryRow(`
 		SELECT armor
 		FROM user_keys
-		WHERE user_id = $1 AND fingerprint = $2
+		WHERE owner = $1 AND fingerprint = $2
 	`, userID, fingerprint).Scan(&armor)
 
 	if err != nil {
@@ -256,6 +256,139 @@ func (ds *DBService) GetOnlineFollowers(authorID string) ([]string, error) {
 	}
 
 	return followers, nil
+}
+
+// PendingEvent represents a pending relay event stored in the database
+type PendingEvent struct {
+	EventID         string
+	RequestID       string
+	RequesterUserID string
+	EventName       string
+}
+
+// PendingReedRequest represents a pending reed request with its associated event
+type PendingReedRequest struct {
+	PendingEvent
+	ReedID string
+}
+
+// CreatePendingEvent inserts a new pending event and its associated reed request in a transaction
+func (ds *DBService) CreatePendingEvent(eventID, requestID, requesterUserID, eventName, reedID string) error {
+	tx, err := ds.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
+		VALUES ($1, $2, $3, $4)
+	`, eventID, requestID, requesterUserID, eventName)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO pending_reed_requests (event_id, reed_id)
+		VALUES ($1, $2)
+	`, eventID, reedID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// GetPendingEvent retrieves a pending event by event ID
+func (ds *DBService) GetPendingEvent(eventID string) (*PendingEvent, error) {
+	var pe PendingEvent
+	err := ds.db.QueryRow(`
+		SELECT event_id, request_id, requester_user_id, event_name
+		FROM pending_events
+		WHERE event_id = $1
+	`, eventID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &pe, nil
+}
+
+// DeletePendingEvent deletes a pending event by event ID (cascades to pending_reed_requests)
+func (ds *DBService) DeletePendingEvent(eventID string) error {
+	_, err := ds.db.Exec(`DELETE FROM pending_events WHERE event_id = $1`, eventID)
+	return err
+}
+
+// DeletePendingEventsByUser deletes all pending events for a given requester user ID
+func (ds *DBService) DeletePendingEventsByUser(userID string) error {
+	_, err := ds.db.Exec(`DELETE FROM pending_events WHERE requester_user_id = $1`, userID)
+	return err
+}
+
+// CountPendingEventsByUser returns the number of open pending events for a given requester user ID
+func (ds *DBService) CountPendingEventsByUser(userID string) (int, error) {
+	var count int
+	err := ds.db.QueryRow(`
+		SELECT COUNT(*) FROM pending_events WHERE requester_user_id = $1
+	`, userID).Scan(&count)
+	return count, err
+}
+
+// GetOnlineUsersWithReed returns up to one online user ID that holds the given reed
+func (ds *DBService) GetOnlineUsersWithReed(reedID string) ([]string, error) {
+	rows, err := ds.db.Query(`
+		SELECT ou.user_id FROM online_users ou
+		JOIN reed_allocations ra ON ra.user_id = ou.user_id
+		WHERE ra.reed_id = $1 LIMIT 1
+	`, reedID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		users = append(users, userID)
+	}
+	return users, nil
+}
+
+// GetPendingEventsForUser returns all pending reed requests for reeds held by the given user
+func (ds *DBService) GetPendingEventsForUser(userID string) ([]PendingReedRequest, error) {
+	rows, err := ds.db.Query(`
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, prr.reed_id
+		FROM pending_reed_requests prr
+		JOIN pending_events pe ON pe.event_id = prr.event_id
+		JOIN reed_allocations ra ON ra.reed_id = prr.reed_id
+		WHERE ra.user_id = $1
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []PendingReedRequest
+	for rows.Next() {
+		var prr PendingReedRequest
+		if err := rows.Scan(
+			&prr.EventID,
+			&prr.RequestID,
+			&prr.RequesterUserID,
+			&prr.EventName,
+			&prr.ReedID,
+		); err != nil {
+			return nil, err
+		}
+		results = append(results, prr)
+	}
+	return results, nil
 }
 
 // GetBroadcastSubscribersNotFollowing returns broadcast subscribers who do not follow the given author,
