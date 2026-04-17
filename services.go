@@ -714,38 +714,45 @@ func (s *DataService) CreateReed(reedID string, userID string, fingerprint strin
 	return &reed, nil
 }
 
-func (s *DataService) GetReedsByUserID(userID string) ([]Reed, error) {
-	var reeds []Reed
+func (s *DataService) GetReedsByUserID(userID, from string) ([]string, error) {
+	var rows *sql.Rows
+	var err error
 
-	rows, err := s.db.Query(`
-		SELECT id, user_id, private_key_fingerprint, signed_at
-		FROM reeds
-		WHERE user_id = $1
-	`, userID)
+	if from == "" {
+		rows, err = s.db.Query(`
+			SELECT id FROM reeds
+			WHERE user_id = $1
+			ORDER BY signed_at DESC
+			LIMIT 100
+		`, userID)
+	} else {
+		rows, err = s.db.Query(`
+			SELECT id FROM reeds
+			WHERE user_id = $1
+			  AND signed_at < (SELECT signed_at FROM reeds WHERE id = $2)
+			ORDER BY signed_at DESC
+			LIMIT 100
+		`, userID, from)
+	}
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
+	var ids []string
 	for rows.Next() {
-		var reed Reed
-		err := rows.Scan(
-			&reed.ID,
-			&reed.UserID,
-			&reed.Fingerprint,
-			&reed.SignedAt,
-		)
-		if err != nil {
+		var id string
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-
-		reeds = append(reeds, reed)
+		ids = append(ids, id)
 	}
 
-	if len(reeds) == 0 {
-		return []Reed{}, nil
+	if len(ids) == 0 {
+		return []string{}, nil
 	}
 
-	return reeds, nil
+	return ids, nil
 }
 
 func (s *DataService) GetReed(userID string, reedID string) (*Reed, error) {

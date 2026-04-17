@@ -108,6 +108,31 @@ func (cm *ConnectionManager) NotifyUser(userID string, message *BroadcastMessage
 	}
 }
 
+// SendToUser sends a JSON-encoded message to any one active connection for the given user
+func (cm *ConnectionManager) SendToUser(userID string, msg any) error {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	userConns, exists := cm.userConnections[userID]
+	if !exists || len(userConns) == 0 {
+		return fmt.Errorf("no active connection for user %s", userID)
+	}
+
+	jsonBytes, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal message: %w", err)
+	}
+
+	// Send to the first available connection
+	for conn := range userConns {
+		if err := conn.WriteMessage(websocket.TextMessage, jsonBytes); err != nil {
+			return fmt.Errorf("failed to send message: %w", err)
+		}
+		return nil
+	}
+	return nil
+}
+
 // pingClients sends ping messages to all clients
 func (cm *ConnectionManager) pingClients() {
 	cm.mutex.RLock()

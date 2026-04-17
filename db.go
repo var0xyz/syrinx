@@ -226,6 +226,26 @@ func InitDB(db *sql.DB) error {
 		ON reed_allocations(reed_id);
 	`
 
+	createPendingEventsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS pending_events (
+		event_id VARCHAR(255) PRIMARY KEY,
+		request_id VARCHAR(255) NOT NULL,
+		requester_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		event_name VARCHAR(255) NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createPendingReedRequestsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS pending_reed_requests (
+		event_id VARCHAR(255) PRIMARY KEY REFERENCES pending_events(event_id) ON DELETE CASCADE,
+		reed_id VARCHAR(255) NOT NULL
+	);`
+
+	createPendingReedRequestsIndex := `
+	CREATE INDEX IF NOT EXISTS idx_pending_reed_requests_reed_id
+		ON pending_reed_requests(reed_id);
+	`
+
 	// Initialize user_count table with first row
 	initUserCountTable := `
 	INSERT INTO user_count (id, count) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;`
@@ -266,6 +286,10 @@ func InitDB(db *sql.DB) error {
 
 		createReedAllocationsTable,
 		createReedAllocationIndexes,
+
+		createPendingEventsTable,
+		createPendingReedRequestsTable,
+		createPendingReedRequestsIndex,
 	}
 
 	for i, query := range queries {

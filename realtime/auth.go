@@ -117,8 +117,8 @@ func (as *AuthService) getPublicKey(userID, fingerprint string) (string, error) 
 	var armor string
 	err := as.db.QueryRow(`
 		SELECT armor
-		FROM public_keys
-		WHERE user_id = $1 AND fingerprint = $2
+		FROM user_keys
+		WHERE owner = $1 AND fingerprint = $2
 	`, userID, fingerprint).Scan(&armor)
 
 	if err != nil {
