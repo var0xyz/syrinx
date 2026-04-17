@@ -6,7 +6,8 @@
   import InstallButton from '$lib/components/InstallButton.svelte';
   import { initializePWA, isOnline } from '$lib/services/pwa';
   import { authService } from '$lib/services/auth';
-  import { serverConnection } from '$lib/services/serverConnection';
+  import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
+  import { dbService } from '$lib/services/db';
   import { reedsService } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
 
@@ -35,7 +36,16 @@
     if (user) {
       reedsService.processUnsignedReeds();
       followingRepository.syncPending();
-      serverConnection.connect().catch(err => console.error('ServerConnection failed:', err));
+      serverConnection.connect()
+        .then(() => {
+          serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, reed_id }) => {
+            const reed = await dbService.get('reeds', reed_id);
+            if (reed) {
+              serverConnection.sendRelayResponse(event_id, reed);
+            }
+          });
+        })
+        .catch(err => console.error('ServerConnection failed:', err));
     }
   });
 </script>
