@@ -3,14 +3,20 @@ import { authService } from './auth';
 
 export type ServerEventHandler = (data: any) => void;
 
+type PendingRequest = { resolve: (data: any) => void; reject: (err: any) => void };
+
 export enum ServerEvent {
   ReedNotification = 'reed_notification',
+  RelayRequest     = 'RELAY_REQUEST',
+  RequestAck       = 'REQUEST_ACK',
+  DataResponse     = 'DATA_RESPONSE',
 }
 
 class ServerConnection {
   private ws: WebSocket | null = null;
   private connectingPromise: Promise<void> | null = null;
   private eventHandlers: Map<string, ServerEventHandler[]> = new Map();
+  private pendingRequests: Map<string, PendingRequest> = new Map();
 
   async connect(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) return;
@@ -66,6 +72,15 @@ class ServerConnection {
         try {
           const message = JSON.parse(event.data);
           console.log('ServerConnection: message received:', message.type);
+
+          if (message.type === 'DATA_RESPONSE') {
+            const pending = this.pendingRequests.get(message.data.request_id);
+            if (pending) {
+              pending.resolve(message.data.data);
+              this.pendingRequests.delete(message.data.request_id);
+            }
+          }
+
           this.emit(message.type, message.data);
         } catch {
           console.warn('ServerConnection: received non-JSON message, ignoring');
@@ -124,6 +139,19 @@ class ServerConnection {
       const index = handlers.indexOf(handler);
       if (index > -1) handlers.splice(index, 1);
     }
+  }
+
+  requestReedContent(reedId: string): Promise<any> {
+    const requestId = crypto.randomUUID();
+    const promise = new Promise<any>((resolve, reject) => {
+      this.pendingRequests.set(requestId, { resolve, reject });
+    });
+    this.send({ type: 'REQUEST_REED', data: { request_id: requestId, reed_id: reedId } });
+    return promise;
+  }
+
+  sendRelayResponse(eventId: string, data: any): void {
+    this.send({ type: 'RELAY_RESPONSE', data: { event_id: eventId, data } });
   }
 
   subscribeToBroadcast(): void {

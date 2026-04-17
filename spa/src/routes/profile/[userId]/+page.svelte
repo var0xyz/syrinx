@@ -3,6 +3,8 @@
   import { page } from '$app/stores';
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
+  import { dbService } from '$lib/services/db';
+  import { serverConnection } from '$lib/services/serverConnection';
   import { userRepository } from '$lib/repositories/user';
   import { reedsService } from '$lib/repositories/reeds';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
@@ -45,7 +47,13 @@
       } else if (httpStatus === 200) {
         await userRepository.put(user);
         profileUser = user;
-        status = 'noContent';
+
+        if (user.hasReeds) {
+          await fetchAndRequestReeds(userId);
+          status = 'ready';
+        } else {
+          status = 'noContent';
+        }
       }
     }
   });
@@ -63,6 +71,24 @@
     } catch (error) {
       console.error('Background user refresh failed:', error);
     }
+  }
+
+  async function fetchAndRequestReeds(uid) {
+    // Paginate through all reed IDs and store in reedQueue
+    let cursor;
+    do {
+      const ids = await apiService.getUserReedIds(uid, cursor);
+      await Promise.all(ids.map(id => dbService.put('reedQueue', { id })));
+      cursor = ids.length === 100 ? ids[ids.length - 1] : undefined;
+    } while (cursor);
+
+    // Fire relay requests for all queued IDs in parallel
+    const queued = await dbService.getAllSortedByIndex<{ id: string }>('reedQueue', '__meta__.created');
+    await Promise.all(queued.map(async ({ id: reedId }) => {
+      const data = await serverConnection.requestReedContent(reedId);
+      await reedsService.storeReed(data);
+      await dbService.delete('reedQueue', reedId);
+    }));
   }
 
   async function handleGone() {

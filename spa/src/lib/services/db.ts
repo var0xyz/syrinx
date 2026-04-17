@@ -14,13 +14,14 @@ export interface DbService {
   get<T extends api.Base>(storeName: string, key: string): Promise<T | null>;
   delete(storeName: string, key: string): Promise<void>;
   getAll<T extends api.Base>(storeName: string): Promise<T[]>;
+  getAllSortedByIndex<T>(storeName: string, indexName: string): Promise<T[]>;
   clear(storeName: string): Promise<void>;
 }
 
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  private readonly version = 5;
+  private readonly version = 6;
   private readonly storeNames = [
     ['privateKeys',    'fingerprint'],
     ['publicKeys',     'fingerprint'],
@@ -32,6 +33,7 @@ export class IndexedDbService implements DbService {
     ['following',      'userId'     ],
     ['pendingFollows', 'userId'     ],
     ['unfollow',       'userId'     ],
+    ['reedQueue',      'id',         '__meta__.created'],
   ];
 
   async init(): Promise<void> {
@@ -176,6 +178,31 @@ export class IndexedDbService implements DbService {
           return data as T;
         });
         resolve(unwrapped);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAllSortedByIndex<T>(storeName: string, indexName: string): Promise<T[]> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([storeName], 'readonly');
+      const store = transaction.objectStore(storeName);
+      const index = store.index(indexName);
+      const request = index.openCursor();
+      const results: T[] = [];
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor) {
+          const { __meta__, ...data } = cursor.value;
+          results.push(data as T);
+          cursor.continue();
+        } else {
+          resolve(results);
+        }
       };
       request.onerror = () => reject(request.error);
     });

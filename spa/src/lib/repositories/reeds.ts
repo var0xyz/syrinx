@@ -82,6 +82,10 @@ class ReedsService {
     }
   }
 
+  async storeReed(reed: ReedType): Promise<void> {
+    return this.storeReedInIndexedDB(reed);
+  }
+
   /**
    * Store a reed in IndexedDB
    */

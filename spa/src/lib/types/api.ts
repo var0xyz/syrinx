@@ -8,6 +8,7 @@ export interface User extends Base {
   bio: string;
   fingerprint: string;
   server: string;
+  hasReeds: boolean;
 };
 
 export interface PublicKeyIdentity extends Base {

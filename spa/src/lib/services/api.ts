@@ -182,6 +182,11 @@ export const apiService = {
     return request<api.PublicKey>(`/users/${userID}/keys/${fingerprint}`, { method: 'GET' });
   },
 
+  async getUserReedIds(userId: string, from?: string): Promise<string[]> {
+    const params = from ? `?from=${encodeURIComponent(from)}` : '';
+    return request<string[]>(`/users/${userId}/reeds${params}`, { method: 'GET' });
+  },
+
   async addPublicKey(
     userID: string,
     publicKey: string,
