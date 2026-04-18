@@ -110,7 +110,9 @@
   <div class="profile-content">
     {#if status === 'loading'}
       <div class="state-message">
-        <p>Loading...</p>
+        <div class="state-icon">🌱</div>
+        <h3>Loading...</h3>
+        <p>New reeds will appear here once we receive them.</p>
       </div>
 
     {:else if status === 'tombstone'}
@@ -132,7 +134,7 @@
         <UserProfileCard user={profileUser} {isOwner} />
       {/if}
       <div class="state-message">
-        <div class="state-icon">🌱</div>
+        <div class="state-icon">🫙</div>
         <h3>No reeds yet</h3>
         <p>New reeds will appear here once we receive them.</p>
       </div>
