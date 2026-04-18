@@ -536,18 +536,18 @@
 
               <div class="edit-actions">
                 <button
-                  class="action-btn primary"
-                  on:click={saveProfile}
-                  disabled={saving}
-                >
-                  {saving ? 'Saving...' : 'Save Changes'}
-                </button>
-                <button
                   class="action-btn secondary"
                   on:click={cancelEditing}
                   disabled={saving}
                 >
                   Cancel
+                </button>
+                <button
+                  class="action-btn primary"
+                  on:click={saveProfile}
+                  disabled={saving}
+                >
+                  {saving ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </div>
