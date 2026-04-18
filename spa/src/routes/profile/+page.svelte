@@ -484,14 +484,6 @@
       <div class="profile-card">
         <div class="profile-info">
             <div class="edit-form">
-              <div class="profile-avatar">
-                {#if user?.avatarURL}
-                  <img src={user.avatarURL} alt="{user.username}'s Avatar" class="avatar-large" />
-                {:else}
-                  <div class="avatar-large avatar-icon">👤</div>
-                {/if}
-                <button class="edit-avatar-btn">Edit</button>
-              </div>
               <div class="form-group">
                 <label for="edit-username">Username</label>
                 <input
@@ -773,11 +765,6 @@
     margin-bottom: 1rem;
   }
 
-  .profile-avatar {
-    position: relative;
-    display: inline-block;
-  }
-
   .avatar-large {
     width: 80px;
     max-width: 80px;
@@ -794,20 +781,6 @@
     align-items: center;
     justify-content: center;
     font-size: 2rem;
-  }
-
-  .edit-avatar-btn {
-    position: absolute;
-    bottom: 0;
-    right: 0;
-    background: var(--primary);
-    color: var(--button-text);
-    border: none;
-    border-radius: 50%;
-    width: 24px;
-    height: 24px;
-    font-size: 0.8rem;
-    cursor: pointer;
   }
 
   .action-btn {
@@ -1203,7 +1176,7 @@
   /* Responsive Design */
   @media (max-width: 768px) {
     .profile-card {
-      padding: 0.75rem;
+      padding: 0 0.75rem;
       margin-bottom: 0.5rem;
     }
 
