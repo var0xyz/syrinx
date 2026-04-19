@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import { onMount } from 'svelte';
   import "$lib/styles.css";
   import Notifications from '$lib/components/Notifications.svelte';
@@ -8,8 +8,26 @@
   import { authService } from '$lib/services/auth';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { dbService } from '$lib/services/db';
-  import { reedsService } from '$lib/repositories/reeds';
+  import { reedsService, dispatchReedToQueue } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
+
+  // TODO: the echoing/replying header currently encodes only "authorId!reedId", which loses
+  // the server dimension. Once we have federated reeds, this needs to become a full
+  // server/user/reed hierarchy so we can route requests to the correct origin server.
+  // A potential format: "userID@serverID/reedID"
+  async function requestReferencedReeds(reed: any) {
+    const refs = [reed.headers?.echoing, reed.headers?.replying].filter(Boolean);
+    for (const ref of refs) {
+      const sep = ref.lastIndexOf('!');
+      if (sep === -1) continue;
+      const authorId = ref.substring(0, sep);
+      const reedId = ref.substring(sep + 1);
+      const existing = await reedsService.getReed(authorId, reedId);
+      if (!existing) {
+        serverConnection.requestReedContent(reedId, authorId, authorId);
+      }
+    }
+  }
 
   let user = null;
   $: headerLink = user ? '/reeds' : '/';
@@ -39,11 +57,26 @@
       serverConnection.connect()
         .then(() => {
           serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, reed_id }) => {
+            console.log('ServerConnection: relay request received for reed:', reed_id, 'event:', event_id);
+            serverConnection.storePendingRelayRequest(reed_id, event_id);
             const reed = await dbService.get('reeds', reed_id);
             if (reed) {
-              serverConnection.sendRelayResponse(event_id, reed);
+              console.log('ServerConnection: reed found in IndexedDB, fulfilling relay:', reed_id);
+              serverConnection.fulfillPendingRelayRequest(reed_id, reed);
+            } else {
+              console.warn('ServerConnection: reed NOT found in IndexedDB, relay pending:', reed_id);
             }
           });
+          serverConnection.on(ServerEvent.DataResponse, async (data) => {
+            await reedsService.storeReed(data.data);
+            dispatchReedToQueue(data.data, ServerEvent.DataResponse);
+            await requestReferencedReeds(data.data);
+          });
+          serverConnection.on(ServerEvent.BroadcastReed, (data) => {
+            // Broadcast reeds are ephemeral: never stored in IndexedDB.
+            dispatchReedToQueue(data.data, 'broadcast_reed');
+          });
+          serverConnection.syncRequest();
         })
         .catch(err => console.error('ServerConnection failed:', err));
     }

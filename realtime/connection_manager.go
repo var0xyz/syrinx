@@ -89,24 +89,6 @@ func (cm *ConnectionManager) unregisterClient(client *Client) {
 		Msg("Client unregistered")
 }
 
-// NotifyUser sends a reed notification to all active connections for a specific user
-func (cm *ConnectionManager) NotifyUser(userID string, message *BroadcastMessage) {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	if userConns, exists := cm.userConnections[userID]; exists {
-		for conn := range userConns {
-			if message.Type == NewReed {
-				err := cm.sendReedNotification(conn, message)
-				if err != nil {
-					log.Error().
-						Err(err).
-						Msg("Failed to send notification")
-				}
-			}
-		}
-	}
-}
 
 // SendToUser sends a JSON-encoded message to any one active connection for the given user
 func (cm *ConnectionManager) SendToUser(userID string, msg any) error {
@@ -138,44 +120,13 @@ func (cm *ConnectionManager) pingClients() {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
 
-	now := time.Now()
-
 	for _, userConns := range cm.userConnections {
-		for conn, client := range userConns {
-			if now.Sub(client.lastPing) > 30*time.Second {
-				cm.sendPing(conn)
-				client.lastPing = now
-			}
+		for conn, _ := range userConns {
+			cm.sendPing(conn)
 		}
 	}
 }
 
-// sendReedNotification sends a reed notification to a specific connection
-func (cm *ConnectionManager) sendReedNotification(conn *websocket.Conn, message *BroadcastMessage) error {
-	// For now, send as JSON since frontend doesn't parse protobuf yet
-	// TODO: Switch to protobuf once frontend parsing is implemented
-	jsonMsg := map[string]interface{}{
-		"type": "reed_notification",
-		"data": map[string]interface{}{
-			"serverId": message.ServerID,
-			"userId":   message.UserID,
-			"reedId":   message.ReedID,
-			"iceServers": []map[string]interface{}{
-				{"urls": "stun:stun.l.google.com:19302"},
-			},
-		},
-	}
-
-	jsonBytes, err := json.Marshal(jsonMsg)
-	if err != nil {
-		return fmt.Errorf("Failed to marshal JSON notification: %w", err)
-	}
-
-	if err := conn.WriteMessage(websocket.TextMessage, jsonBytes); err != nil {
-		return fmt.Errorf("Failed to send JSON notification: %w", err)
-	}
-	return nil
-}
 
 // sendPing sends a ping message to a connection
 func (cm *ConnectionManager) sendPing(conn *websocket.Conn) {

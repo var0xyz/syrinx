@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/rs/zerolog/log"
 )
 
@@ -39,6 +40,23 @@ func (ds *DBService) MarkUserOnline(userID string) error {
 		Msg("User came online")
 
 	return nil
+}
+
+// SetSyncRequestID stores the client-provided sync request ID for a user.
+func (ds *DBService) SetSyncRequestID(userID, requestID string) error {
+	_, err := ds.db.Exec(`
+		UPDATE online_users SET sync_request_id = $1 WHERE user_id = $2
+	`, requestID, userID)
+	return err
+}
+
+// GetSyncRequestID returns the stored sync request ID for a user, or "" if not set.
+func (ds *DBService) GetSyncRequestID(userID string) (string, error) {
+	var id string
+	err := ds.db.QueryRow(`
+		SELECT COALESCE(sync_request_id, '') FROM online_users WHERE user_id = $1
+	`, userID).Scan(&id)
+	return id, err
 }
 
 // MarkUserOffline marks a user as offline in the database
@@ -211,27 +229,6 @@ func (ds *DBService) UnsubscribeFromBroadcast(userID string) error {
 	return nil
 }
 
-// GetBroadcastSubscribers returns a list of all user IDs subscribed to broadcast
-func (ds *DBService) GetBroadcastSubscribers() ([]string, error) {
-	rows, err := ds.db.Query(`
-		SELECT DISTINCT user_id FROM broadcast_subscriptions
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var subscribers []string
-	for rows.Next() {
-		var userID string
-		if err := rows.Scan(&userID); err != nil {
-			return nil, err
-		}
-		subscribers = append(subscribers, userID)
-	}
-
-	return subscribers, nil
-}
 
 // GetOnlineFollowers returns the IDs of online users who follow the given author
 func (ds *DBService) GetOnlineFollowers(authorID string) ([]string, error) {
@@ -272,8 +269,8 @@ type PendingReedRequest struct {
 	ReedID string
 }
 
-// CreatePendingEvent inserts a new pending event and its associated reed request in a transaction
-func (ds *DBService) CreatePendingEvent(eventID, requestID, requesterUserID, eventName, reedID string) error {
+// CreatePendingEvent inserts a new pending event and its associated reed request in a transaction.
+func (ds *DBService) CreatePendingEvent(eventID, requestID, userID string, eventName EventName, reedID string) error {
 	tx, err := ds.db.Begin()
 	if err != nil {
 		return err
@@ -283,7 +280,7 @@ func (ds *DBService) CreatePendingEvent(eventID, requestID, requesterUserID, eve
 	_, err = tx.Exec(`
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
 		VALUES ($1, $2, $3, $4)
-	`, eventID, requestID, requesterUserID, eventName)
+	`, eventID, requestID, userID, eventName)
 	if err != nil {
 		return err
 	}
@@ -299,14 +296,42 @@ func (ds *DBService) CreatePendingEvent(eventID, requestID, requesterUserID, eve
 	return tx.Commit()
 }
 
-// GetPendingEvent retrieves a pending event by event ID
-func (ds *DBService) GetPendingEvent(eventID string) (*PendingEvent, error) {
-	var pe PendingEvent
+// CreateProfileSubscriptionEvent inserts a pending event tied to a profile subscription.
+func (ds *DBService) CreateProfileSubscriptionEvent(eventID, requestID, userID string, eventName EventName, reedID, subscriptionID string) error {
+	tx, err := ds.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name, subscription_id)
+		VALUES ($1, $2, $3, $4, $5)
+	`, eventID, requestID, userID, eventName, subscriptionID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO pending_reed_requests (event_id, reed_id)
+		VALUES ($1, $2)
+	`, eventID, reedID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// GetPendingReedRequest retrieves a pending event and its associated reed ID by event ID
+func (ds *DBService) GetPendingReedRequest(eventID string) (*PendingReedRequest, error) {
+	var pe PendingReedRequest
 	err := ds.db.QueryRow(`
-		SELECT event_id, request_id, requester_user_id, event_name
-		FROM pending_events
-		WHERE event_id = $1
-	`, eventID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName)
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, prr.reed_id
+		FROM pending_events pe
+		JOIN pending_reed_requests prr ON prr.event_id = pe.event_id
+		WHERE pe.event_id = $1
+	`, eventID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName, &pe.ReedID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -328,36 +353,80 @@ func (ds *DBService) DeletePendingEventsByUser(userID string) error {
 	return err
 }
 
-// CountPendingEventsByUser returns the number of open pending events for a given requester user ID
-func (ds *DBService) CountPendingEventsByUser(userID string) (int, error) {
-	var count int
-	err := ds.db.QueryRow(`
-		SELECT COUNT(*) FROM pending_events WHERE requester_user_id = $1
-	`, userID).Scan(&count)
-	return count, err
+// DeleteProfileSubscriptionsByViewer deletes all profile subscriptions for a given viewer.
+func (ds *DBService) DeleteProfileSubscriptionsByViewer(userID string) error {
+	_, err := ds.db.Exec(`DELETE FROM profile_subscriptions WHERE viewer_user_id = $1`, userID)
+	return err
 }
 
-// GetOnlineUsersWithReed returns up to one online user ID that holds the given reed
-func (ds *DBService) GetOnlineUsersWithReed(reedID string) ([]string, error) {
-	rows, err := ds.db.Query(`
-		SELECT ou.user_id FROM online_users ou
-		JOIN reed_allocations ra ON ra.user_id = ou.user_id
-		WHERE ra.reed_id = $1 LIMIT 1
-	`, reedID)
+// AllocateReed records that a user now holds a reed.
+func (ds *DBService) AllocateReed(reedID, userID string) error {
+	_, err := ds.db.Exec(`
+		INSERT INTO reed_allocations (reed_id, user_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, reedID, userID)
+	return err
+}
+
+// GetNextPendingForHolder returns the oldest undispatched pending event for reeds held by holderUserID.
+func (ds *DBService) GetNextPendingForHolder(holderUserID string) (*PendingReedRequest, error) {
+	var pe PendingReedRequest
+	err := ds.db.QueryRow(`
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, prr.reed_id
+		FROM pending_reed_requests prr
+		JOIN pending_events pe ON pe.event_id = prr.event_id
+		JOIN reed_allocations ra ON ra.reed_id = prr.reed_id
+		WHERE ra.user_id = $1
+		  AND pe.dispatched_at IS NULL
+		ORDER BY pe.created_at
+		LIMIT 1
+	`, holderUserID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName, &pe.ReedID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	return &pe, nil
+}
 
-	var users []string
-	for rows.Next() {
-		var userID string
-		if err := rows.Scan(&userID); err != nil {
-			return nil, err
-		}
-		users = append(users, userID)
+// MarkEventDispatched marks an event as dispatched. Returns true if the update claimed the row
+// (i.e. it was still undispatched), false if another replica already claimed it.
+func (ds *DBService) MarkEventDispatched(eventID string) (bool, error) {
+	result, err := ds.db.Exec(`
+		UPDATE pending_events SET dispatched_at = NOW()
+		WHERE event_id = $1 AND dispatched_at IS NULL
+	`, eventID)
+	if err != nil {
+		return false, err
 	}
-	return users, nil
+	n, err := result.RowsAffected()
+	return n == 1, err
+}
+
+// ResetDispatchedAt clears dispatched_at for an event, making it eligible for dispatch again.
+func (ds *DBService) ResetDispatchedAt(eventID string) error {
+	_, err := ds.db.Exec(`
+		UPDATE pending_events SET dispatched_at = NULL WHERE event_id = $1
+	`, eventID)
+	return err
+}
+
+// GetOnlineReedHolder returns the user ID of one online holder of the given reed,
+// or an empty string if no holder is currently online.
+func (ds *DBService) GetOnlineReedHolder(reedID string) (string, error) {
+	var userID string
+	err := ds.db.QueryRow(`
+		SELECT ou.user_id FROM online_users ou
+		JOIN reed_allocations ra ON ra.user_id = ou.user_id
+		WHERE ra.reed_id = $1
+		LIMIT 1
+	`, reedID).Scan(&userID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return userID, err
 }
 
 // GetPendingEventsForUser returns all pending reed requests for reeds held by the given user
@@ -391,17 +460,183 @@ func (ds *DBService) GetPendingEventsForUser(userID string) ([]PendingReedReques
 	return results, nil
 }
 
-// GetBroadcastSubscribersNotFollowing returns broadcast subscribers who do not follow the given author,
-// ensuring they are complementary to the online followers group and receive no duplicate notifications
-func (ds *DBService) GetBroadcastSubscribersNotFollowing(authorID string) ([]string, error) {
+// GetMissingReedIDsForViewer returns IDs of reeds by authorID that viewerID does not yet have,
+// excluding any IDs the viewer already holds locally (ownedIDs) or via reed_allocations.
+func (ds *DBService) GetMissingReedIDsForViewer(authorID, viewerID string, ownedIDs []string) ([]string, error) {
+	if ownedIDs == nil {
+		ownedIDs = []string{}
+	}
 	rows, err := ds.db.Query(`
-		SELECT bs.user_id
-		FROM broadcast_subscriptions bs
-		WHERE NOT EXISTS (
-			SELECT 1 FROM user_followers uf
-			WHERE uf.follower_user_id = bs.user_id
-			AND uf.user_id = $1
+		SELECT r.id FROM reeds r
+		WHERE r.user_id = $1
+		  AND r.id <> ALL($3)
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_allocations ra
+		      WHERE ra.reed_id = r.id AND ra.user_id = $2
+		  )
+	`, authorID, viewerID, pq.Array(ownedIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// UnallocatedReed holds a reed ID and its author, used when computing delivery diffs.
+type UnallocatedReed struct {
+	ReedID   string
+	AuthorID string
+}
+
+// GetMissingOut returns all reeds from authors that userID follows
+// which are not yet present in reed_allocations for that user.
+func (ds *DBService) GetMissingOut(userID string) ([]UnallocatedReed, error) {
+	rows, err := ds.db.Query(`
+		SELECT r.id, r.user_id
+		FROM reeds r
+		JOIN user_following uf ON uf.following_user_id = r.user_id
+		WHERE uf.user_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_allocations ra
+		      WHERE ra.reed_id = r.id AND ra.user_id = $1
+		  )
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []UnallocatedReed
+	for rows.Next() {
+		var reed UnallocatedReed
+		if err := rows.Scan(&reed.ReedID, &reed.AuthorID); err != nil {
+			return nil, err
+		}
+		results = append(results, reed)
+	}
+	return results, nil
+}
+
+// GetUnallocatedReeds returns IDs of reeds by authorID that viewerID does not have in reed_allocations.
+func (ds *DBService) GetUnallocatedReeds(authorID, viewerID string) ([]string, error) {
+	rows, err := ds.db.Query(`
+		SELECT r.id FROM reeds r
+		WHERE r.user_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_allocations ra
+		      WHERE ra.reed_id = r.id AND ra.user_id = $2
+		  )
+	`, authorID, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// CreateProfileSubscription records an active profile feed subscription for a viewer.
+func (ds *DBService) CreateProfileSubscription(subscriptionID, viewerUserID, authorUserID string) error {
+	_, err := ds.db.Exec(`
+		INSERT INTO profile_subscriptions (subscription_id, viewer_user_id, author_user_id)
+		VALUES ($1, $2, $3)
+	`, subscriptionID, viewerUserID, authorUserID)
+	return err
+}
+
+// GetProfileSubscription returns the subscription ID for an active (viewer, author) pair.
+// Returns an empty string when no subscription exists.
+func (ds *DBService) GetProfileSubscription(viewerUserID, authorUserID string) (string, error) {
+	var id string
+	err := ds.db.QueryRow(`
+		SELECT subscription_id FROM profile_subscriptions
+		WHERE viewer_user_id = $1 AND author_user_id = $2
+	`, viewerUserID, authorUserID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
+// DeleteProfileSubscription deletes a subscription by ID, cascading to its pending_events.
+func (ds *DBService) DeleteProfileSubscription(subscriptionID string) error {
+	_, err := ds.db.Exec(`
+		DELETE FROM profile_subscriptions WHERE subscription_id = $1
+	`, subscriptionID)
+	return err
+}
+
+// ProfileSubscriber represents an active profile feed subscription.
+type ProfileSubscriber struct {
+	SubscriptionID string
+	ViewerUserID   string
+}
+
+// GetProfileSubscribers returns all active profile subscriptions for the given author.
+func (ds *DBService) GetProfileSubscribers(authorID string) ([]ProfileSubscriber, error) {
+	rows, err := ds.db.Query(`
+		SELECT subscription_id, viewer_user_id
+		FROM profile_subscriptions
+		WHERE author_user_id = $1
+	`, authorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subscribers []ProfileSubscriber
+	for rows.Next() {
+		var subscriber ProfileSubscriber
+		if err := rows.Scan(&subscriber.SubscriptionID, &subscriber.ViewerUserID); err != nil {
+			return nil, err
+		}
+		subscribers = append(subscribers, subscriber)
+	}
+	return subscribers, nil
+}
+
+// GetBroadcastSubscribers returns up to 100 broadcast subscribers for the given author,
+// throttled to one delivery per second per subscriber.
+// Subscribers are selected in order of oldest last_delivery (NULLS FIRST) and their
+// last_delivery timestamp is updated atomically.
+//
+// NOTE: This UPDATE is not serialised across replicas. Two concurrent replicas could select
+// the same batch before either writes last_delivery, causing up to 100 users to receive a
+// duplicate. At our current replica count this is acceptable — duplicates are harmless (the
+// client deduplicates by reed ID) and the race window is tiny.
+func (ds *DBService) GetBroadcastSubscribers(authorID string) ([]string, error) {
+	rows, err := ds.db.Query(`
+		WITH eligible AS (
+			SELECT user_id
+			FROM broadcast_subscriptions
+			WHERE user_id != $1
+			  AND (last_delivery IS NULL OR last_delivery < NOW() - INTERVAL '1 second')
+			ORDER BY last_delivery ASC NULLS FIRST
+			LIMIT 100
+		),
+		updated AS (
+			UPDATE broadcast_subscriptions
+			SET last_delivery = NOW()
+			WHERE user_id IN (SELECT user_id FROM eligible)
 		)
+		SELECT user_id FROM eligible
 	`, authorID)
 	if err != nil {
 		return nil, err

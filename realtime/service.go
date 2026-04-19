@@ -15,8 +15,6 @@ import (
 	pb "syrinx/proto"
 )
 
-const maxPendingEventsPerClient = 100
-
 // RealtimeService represents the main realtime service
 type RealtimeService struct {
 	connManager   *ConnectionManager
@@ -65,38 +63,84 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			Str("reedID", message.ReedID).
 			Msg("Received broadcast message")
 
-		// Log new reed notifications at Info level with user ID and reed ID
 		if message.Type == NewReed {
 			log.Info().
 				Str("userID", message.UserID).
 				Str("reedID", message.ReedID).
 				Msg("New reed published")
 
-			// Notify online users who follow the author
 			followers, err := rs.dbService.GetOnlineFollowers(message.UserID)
 			if err != nil {
 				log.Error().
 					Err(err).
 					Msg("Failed to get online followers from database")
 			}
-			rs.notifyUsers(followers, &message)
 
-			// Notify broadcast subscribers who do not follow the author (complementary group, no duplicates)
-			broadcastRecipients, err := rs.dbService.GetBroadcastSubscribersNotFollowing(message.UserID)
+			broadcastRecipients, err := rs.dbService.GetBroadcastSubscribers(message.UserID)
 			if err != nil {
 				log.Error().
 					Err(err).
 					Msg("Failed to get broadcast subscribers from database")
 			}
-			rs.notifyUsers(broadcastRecipients, &message)
+
+			log.Info().
+				Str("userID", message.UserID).
+				Int("followers", len(followers)).
+				Int("broadcastSubscribers", len(broadcastRecipients)).
+				Msg("Dispatching new reed to recipients")
+			rs.dispatchMany(followers, NewReedEvent, message.ReedID, message.UserID)
+			rs.dispatchMany(broadcastRecipients, BroadcastReedEvent, message.ReedID, message.UserID)
+
+			profileSubscribers, err := rs.dbService.GetProfileSubscribers(message.UserID)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Msg("Failed to get profile subscribers from database")
+			}
+
+			for _, sub := range profileSubscribers {
+				eventID := generateEventID()
+				requestID := generateEventID()
+				if err := rs.dbService.CreateProfileSubscriptionEvent(eventID, requestID, sub.ViewerUserID, NewReedEvent, message.ReedID, sub.SubscriptionID); err != nil {
+					log.Error().
+						Err(err).
+						Str("viewerUserID", sub.ViewerUserID).
+						Msg("Failed to create pending event for profile subscriber")
+				}
+			}
+
+			rs.dispatchNext(message.UserID)
 		}
 	}
 }
 
-// notifyUsers notifies all active WebSocket connections for the given user IDs
-func (rs *RealtimeService) notifyUsers(userIDs []string, message *BroadcastMessage) {
-	for _, userID := range userIDs {
-		rs.connManager.NotifyUser(userID, message)
+
+// dispatchMany creates a pending event for each recipient and triggers relay dispatch to holderUserID.
+func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName, reedID, holderUserID string) {
+	for _, recipientID := range recipients {
+		requestID, err := rs.dbService.GetSyncRequestID(recipientID)
+		if err != nil || requestID == "" {
+			// User hasn't sent SYNC_REQUEST yet; they'll receive this via catchUp on connect.
+			log.Debug().
+				Str("recipientID", recipientID).
+				Str("eventName", string(eventName)).
+				Msg("Skipping recipient: no sync_request_id set")
+			continue
+		}
+		eventID := generateEventID()
+		if err := rs.dbService.CreatePendingEvent(eventID, requestID, recipientID, eventName, reedID); err != nil {
+			log.Error().
+				Err(err).
+				Str("recipientID", recipientID).
+				Msg("Failed to create pending event")
+			continue
+		}
+		log.Debug().
+			Str("recipientID", recipientID).
+			Str("eventID", eventID).
+			Str("holderUserID", holderUserID).
+			Msg("Pending event created, dispatching to holder")
+		rs.dispatchNext(holderUserID)
 	}
 }
 
@@ -155,7 +199,7 @@ func (rs *RealtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Dispatch any pending relay requests for reeds this user holds
-	rs.handleUserCameOnline(userID)
+	rs.handleUserCameOnline(client)
 
 	log.Info().
 		Str("userID", userID).
@@ -178,12 +222,20 @@ func (rs *RealtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 			Msg("Failed to remove broadcast subscription on disconnect")
 	}
 
-	// Discard all pending relay events for this requester
+	// Discard all pending relay events for this requester (cascades from profile_subscriptions too)
 	if err := rs.dbService.DeletePendingEventsByUser(userID); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Err(err).
 			Msg("Failed to delete pending events on disconnect")
+	}
+
+	// Clean up any active profile subscriptions for this viewer
+	if err := rs.dbService.DeleteProfileSubscriptionsByViewer(userID); err != nil {
+		log.Error().
+			Str("userID", userID).
+			Err(err).
+			Msg("Failed to delete profile subscriptions on disconnect")
 	}
 
 	log.Info().
@@ -324,11 +376,24 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 	case "UNSUBSCRIBE_BROADCAST":
 		rs.handleUnsubscribeBroadcastJSON(client)
 
+	case "SYNC_REQUEST":
+		dataBytes, _ := json.Marshal(jsonMsg["data"])
+		var syncData SyncRequestData
+		if err := json.Unmarshal(dataBytes, &syncData); err == nil {
+			rs.handleSyncRequest(client, syncData)
+		}
+
 	case "REQUEST_REED":
 		rs.handleRequestReed(client, jsonMsg)
 
 	case "RELAY_RESPONSE":
 		rs.handleRelayResponse(client, jsonMsg)
+
+	case "SUBSCRIBE_PROFILE":
+		rs.handleSubscribeProfile(client, jsonMsg)
+
+	case "UNSUBSCRIBE_PROFILE":
+		rs.handleUnsubscribeProfile(client, jsonMsg)
 
 	default:
 		log.Warn().Str("type", msgType).Msg("Unknown JSON WebSocket message type")
@@ -474,9 +539,44 @@ func (rs *RealtimeService) GetOnlineUsers() []string {
 	return rs.connManager.GetOnlineUsers()
 }
 
+func (rs *RealtimeService) dispatchNext(holderUserID string) {
+	pe, err := rs.dbService.GetNextPendingForHolder(holderUserID)
+	if err != nil {
+		log.Error().Err(err).Str("holderUserID", holderUserID).Msg("Failed to get next pending event for holder")
+		return
+	}
+	if pe == nil {
+		log.Debug().Str("holderUserID", holderUserID).Msg("No pending events for holder")
+		return
+	}
+	ok, err := rs.dbService.MarkEventDispatched(pe.EventID)
+	if err != nil {
+		log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to mark event dispatched")
+		return
+	}
+	if !ok {
+		return // another replica claimed it
+	}
+	if err := rs.connManager.SendToUser(holderUserID, NewRelayRequestMsg(pe.EventID, pe.ReedID)); err != nil {
+		log.Error().
+			Err(err).
+			Str("holderUserID", holderUserID).
+			Str("eventID", pe.EventID).
+			Str("reedID", pe.ReedID).
+			Msg("Failed to send relay request to holder")
+	} else {
+		log.Debug().
+			Str("holderUserID", holderUserID).
+			Str("eventID", pe.EventID).
+			Str("reedID", pe.ReedID).
+			Msg("Relay request sent to holder")
+	}
+}
+
 func generateEventID() string {
 	return uuid.New().String()
 }
+
 
 func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]interface{}) {
 	data, _ := msg["data"].(map[string]interface{})
@@ -486,40 +586,21 @@ func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]inte
 		return
 	}
 
-	count, err := rs.dbService.CountPendingEventsByUser(client.userID)
-	if err != nil {
-		log.Error().Err(err).Str("userID", client.userID).Msg("Failed to count pending events")
-		return
-	}
-	if count >= maxPendingEventsPerClient {
-		rs.connManager.SendToUser(client.userID, map[string]interface{}{
-			"type": "ERROR",
-			"data": map[string]interface{}{"request_id": requestID, "message": "too many pending requests"},
-		})
-		return
-	}
-
 	eventID := generateEventID()
-	if err := rs.dbService.CreatePendingEvent(eventID, requestID, client.userID, "request_reed", reedID); err != nil {
+	if err := rs.dbService.CreatePendingEvent(eventID, requestID, client.userID, RequestReedEvent, reedID); err != nil {
 		log.Error().Err(err).Msg("Failed to create pending event")
 		return
 	}
 
-	rs.connManager.SendToUser(client.userID, map[string]interface{}{
-		"type": "REQUEST_ACK",
-		"data": map[string]interface{}{"request_id": requestID, "event_id": eventID},
-	})
+	rs.connManager.SendToUser(client.userID, NewRequestAckMsg(requestID, eventID, reedID))
 
-	holders, err := rs.dbService.GetOnlineUsersWithReed(reedID)
+	holder, err := rs.dbService.GetOnlineReedHolder(reedID)
 	if err != nil {
-		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to get online users with reed")
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to get online holder for reed")
 		return
 	}
-	if len(holders) > 0 {
-		rs.connManager.SendToUser(holders[0], map[string]interface{}{
-			"type": "RELAY_REQUEST",
-			"data": map[string]interface{}{"event_id": eventID, "reed_id": reedID},
-		})
+	if holder != "" {
+		rs.dispatchNext(holder)
 	}
 }
 
@@ -530,35 +611,146 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]in
 		return
 	}
 
-	pe, err := rs.dbService.GetPendingEvent(eventID)
+	pe, err := rs.dbService.GetPendingReedRequest(eventID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event")
+		rs.dispatchNext(client.userID)
 		return
 	}
 	if pe == nil {
+		// Event was cancelled (e.g. UNSUBSCRIBE_PROFILE) — still advance the holder's queue.
+		rs.dispatchNext(client.userID)
 		return
 	}
 
-	rs.connManager.SendToUser(pe.RequesterUserID, map[string]interface{}{
-		"type": "DATA_RESPONSE",
-		"data": map[string]interface{}{"request_id": pe.RequestID, "data": data["data"]},
-	})
+	if pe.EventName == string(BroadcastReedEvent) {
+		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering broadcast reed to subscriber")
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewBroadcastReedMsg(pe.ReedID, data["data"])); err != nil {
+			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver broadcast reed")
+		}
+	} else {
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewDataResponseMsg(pe.RequestID, pe.ReedID, data["data"])); err != nil {
+			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver data response")
+		}
+	}
 
 	if err := rs.dbService.DeletePendingEvent(eventID); err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event")
 	}
+
+	if err := rs.dbService.AllocateReed(pe.ReedID, pe.RequesterUserID); err != nil {
+		log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", pe.RequesterUserID).Msg("Failed to allocate reed")
+	}
+
+	rs.dispatchNext(client.userID)
 }
 
-func (rs *RealtimeService) handleUserCameOnline(userID string) {
-	events, err := rs.dbService.GetPendingEventsForUser(userID)
+func (rs *RealtimeService) handleSubscribeProfile(client *Client, msg map[string]interface{}) {
+	dataBytes, err := json.Marshal(msg["data"])
 	if err != nil {
-		log.Error().Err(err).Str("userID", userID).Msg("Failed to get pending events for new user")
 		return
 	}
-	for _, e := range events {
-		rs.connManager.SendToUser(userID, map[string]interface{}{
-			"type": "RELAY_REQUEST",
-			"data": map[string]interface{}{"event_id": e.EventID, "reed_id": e.ReedID},
-		})
+	var data SubscribeProfileData
+	if err := json.Unmarshal(dataBytes, &data); err != nil || data.UserID == "" {
+		return
+	}
+
+	subscriptionID := generateEventID()
+	if err := rs.dbService.CreateProfileSubscription(subscriptionID, client.userID, data.UserID); err != nil {
+		log.Error().Err(err).Msg("Failed to create profile subscription")
+		return
+	}
+
+	missingIDs, err := rs.dbService.GetUnallocatedReeds(data.UserID, client.userID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get unallocated reeds for viewer")
+		return
+	}
+
+	for _, reedID := range missingIDs {
+		eventID := generateEventID()
+		requestID := generateEventID()
+		if err := rs.dbService.CreateProfileSubscriptionEvent(eventID, requestID, client.userID, ProfileSubscriptionEvent, reedID, subscriptionID); err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to create profile subscription event")
+			continue
+		}
+		holder, err := rs.dbService.GetOnlineReedHolder(reedID)
+		if err != nil || holder == "" {
+			continue
+		}
+		rs.dispatchNext(holder)
+	}
+}
+
+func (rs *RealtimeService) handleUnsubscribeProfile(client *Client, msg map[string]interface{}) {
+	dataBytes, err := json.Marshal(msg["data"])
+	if err != nil {
+		return
+	}
+	var data UnsubscribeProfileData
+	if err := json.Unmarshal(dataBytes, &data); err != nil || data.UserID == "" {
+		return
+	}
+
+	subscriptionID, err := rs.dbService.GetProfileSubscription(client.userID, data.UserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get profile subscription")
+		return
+	}
+	if subscriptionID == "" {
+		return
+	}
+
+	if err := rs.dbService.DeleteProfileSubscription(subscriptionID); err != nil {
+		log.Error().Err(err).Str("subscriptionID", subscriptionID).Msg("Failed to delete profile subscription")
+	}
+}
+
+func (rs *RealtimeService) handleSyncRequest(client *Client, data SyncRequestData) {
+	if data.RequestID == "" {
+		return
+	}
+	if err := rs.dbService.SetSyncRequestID(client.userID, data.RequestID); err != nil {
+		log.Error().Err(err).Msg("Failed to store sync request ID")
+		return
+	}
+	rs.catchUp(client.userID, data.RequestID)
+	rs.dispatchNext(client.userID)
+}
+
+func (rs *RealtimeService) handleUserCameOnline(client *Client) {
+	// Nothing sent until client signals readiness via SYNC_REQUEST
+}
+
+func (rs *RealtimeService) catchUp(userID, requestID string) {
+	unallocated, err := rs.dbService.GetMissingOut(userID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("userID", userID).
+			Msg("Failed to get unallocated reeds from followings")
+		return
+	}
+
+	for _, reed := range unallocated {
+		eventID := generateEventID()
+		if err := rs.dbService.CreatePendingEvent(eventID, requestID, userID, NewReedEvent, reed.ReedID); err != nil {
+			log.Error().
+				Err(err).
+				Str("reedID", reed.ReedID).
+				Msg("Failed to create catch-up pending event")
+			continue
+		}
+		holder, err := rs.dbService.GetOnlineReedHolder(reed.ReedID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("reedID", reed.ReedID).
+				Msg("Failed to get online holder for catch-up reed")
+			continue
+		}
+		if holder != "" {
+			rs.dispatchNext(holder)
+		}
 	}
 }

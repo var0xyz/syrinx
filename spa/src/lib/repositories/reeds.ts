@@ -6,11 +6,34 @@
 import { apiService as api } from '../services/api';
 import { dbService } from '../services/db';
 import { Reed as ReedClass, type ReedType } from '$lib/types/reed';
+import { serverConnection } from '$lib/services/serverConnection';
 import { writable } from 'svelte/store';
 export { formatRelativeTime, formatAbsoluteDate } from '$lib/utils/time';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
+
+export type QueuedReed = { reed: ReedType };
+
+// Receives profile_subscription and request_reed deliveries (explicitly requested content)
+export const profileReedQueue = writable<QueuedReed | null>(null);
+
+// Receives new_reed deliveries (catch-up via SYNC_REQUEST and follow broadcasts)
+export const newReedQueue = writable<QueuedReed | null>(null);
+
+// Receives broadcast_reed deliveries — ephemeral, NOT stored in IndexedDB
+export const broadcastReedQueue = writable<QueuedReed | null>(null);
+
+export function dispatchReedToQueue(reed: ReedType, eventName: string): void {
+  const queued: QueuedReed = { reed };
+  if (eventName === 'new_reed') {
+    newReedQueue.set(queued);
+  } else if (eventName === 'broadcast_reed') {
+    broadcastReedQueue.set(queued);
+  } else {
+    profileReedQueue.set(queued);
+  }
+}
 
 
 class ReedsService {
@@ -83,7 +106,7 @@ class ReedsService {
   }
 
   async storeReed(reed: ReedType): Promise<void> {
-    return this.storeReedInIndexedDB(reed);
+    await this.storeReedInIndexedDB(reed);
   }
 
   /**
@@ -124,6 +147,7 @@ class ReedsService {
     }
 
     console.log('Reed stored in IndexedDB:', reed);
+    serverConnection.fulfillPendingRelayRequest(reed.headers.id, reed);
   }
 
   /**

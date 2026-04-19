@@ -173,6 +173,7 @@ export async function getStorageQuota(): Promise<{ used: number; total: number }
   if ('storage' in navigator && 'estimate' in navigator.storage) {
     try {
       const estimate = await navigator.storage.estimate();
+      console.log('estimate:', estimate);
       return {
         used: estimate.usage || 0,
         total: estimate.quota || 0

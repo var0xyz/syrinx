@@ -1,13 +1,13 @@
 <script lang="ts">
-  type QueuedReed = { id: string };
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { beforeNavigate } from '$app/navigation';
   import { page } from '$app/stores';
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
-  import { dbService } from '$lib/services/db';
   import { serverConnection } from '$lib/services/serverConnection';
   import { userRepository } from '$lib/repositories/user';
   import { reedsService } from '$lib/repositories/reeds';
+  import { followingRepository } from '$lib/repositories/following';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import ReedsList from '$lib/components/ReedsList.svelte';
@@ -19,6 +19,7 @@
   let status = 'loading';
   let isOwner = false;
   let profileUser = null;
+  let profileSubscriptionActive = false;
 
   onMount(async () => {
     const currentUser = await authService.getCurrentUser().catch(() => null);
@@ -33,10 +34,11 @@
     const localReeds = await reedsService.getReedsByAuthor(userId);
 
     if (localReeds.length > 0) {
-      // Case 1 — render immediately, refresh user in background
+      // Case 1 — render immediately, subscribe in background to pick up any missing reeds
       profileUser = isOwner ? currentUser : await userRepository.getByUserId(userId).catch(() => null);
       status = 'ready';
       refreshUserInBackground();
+      subscribeToProfileIfNotFollowing(userId);
     } else {
       // Case 2 — no local data, ask the server
       const { status: httpStatus, user } = await apiService.getUserWithStatus(userId);
@@ -50,7 +52,7 @@
         profileUser = user;
 
         if (user.hasReeds) {
-          await fetchAndRequestReeds(userId);
+          await subscribeToProfileIfNotFollowing(userId);
           status = 'ready';
         } else {
           status = 'noContent';
@@ -74,23 +76,32 @@
     }
   }
 
-  async function fetchAndRequestReeds(uid) {
-    // Paginate through all reed IDs and store in reedQueue
-    let cursor;
-    do {
-      const ids = await apiService.getUserReedIds(uid, cursor);
-      await Promise.all(ids.map(id => dbService.put('reedQueue', { id })));
-      cursor = ids.length === 100 ? ids[ids.length - 1] : undefined;
-    } while (cursor);
-
-    // Fire relay requests for all queued IDs in parallel
-    const queued = await dbService.getAllSortedByIndex<QueuedReed>('reedQueue', '__meta__.created');
-    await Promise.all(queued.map(async ({ id: reedId }) => {
-      const data = await serverConnection.requestReedContent(reedId, uid, profileUser.server);
-      await reedsService.storeReed(data);
-      await dbService.delete('reedQueue', reedId);
-    }));
+  async function subscribeToProfileIfNotFollowing(uid: string) {
+    if (isOwner) return;
+    if (await followingRepository.isFollowing(uid)) return;
+    await subscribeToProfile(uid);
   }
+
+  async function subscribeToProfile(uid: string) {
+    await serverConnection.subscribeProfile(uid);
+    profileSubscriptionActive = true;
+  }
+
+
+  function cleanupProfileSubscription() {
+    if (profileSubscriptionActive) {
+      serverConnection.unsubscribeProfile(userId);
+      profileSubscriptionActive = false;
+    }
+  }
+
+  onDestroy(() => {
+    cleanupProfileSubscription();
+  });
+
+  beforeNavigate(() => {
+    cleanupProfileSubscription();
+  });
 
   async function handleGone() {
     await reedsService.deleteReedsByAuthor(userId);

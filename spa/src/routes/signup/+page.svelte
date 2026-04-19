@@ -12,6 +12,7 @@
   import ProgressBar from "$lib/components/ProgressBar.svelte";
   import { notificationStore } from "$lib/stores/notifications";
   import { requestSigner } from "$lib/services/request-signer";
+  import { serverConnection } from "$lib/services/serverConnection";
   import { goto } from "$app/navigation";
 
   let username = "";
@@ -93,6 +94,7 @@
       // signed immediately without a page reload. This also replaces any
       // stale key from a previous session that may still be loaded.
       await requestSigner.initializeWorker(keyPair.fingerprint, password);
+      serverConnection.connect();
 
       // Redirect to welcome page
       goto("/welcome");
