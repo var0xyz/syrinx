@@ -126,9 +126,11 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (owner, fingerprint)
 	);`
 
+	// We only need one index on `fingerprint` here because `owner` is covered
+	// by being the first field in the `PRIMARY KEY` clause.
 	createUserKeyIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_user_keys_owner
-		ON user_keys(owner);
+	CREATE INDEX IF NOT EXISTS idx_user_keys_fingerprint
+		ON user_keys(fingerprint);
 	`
 
 	createUserKeyRevocationsTable := `
@@ -141,6 +143,13 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (fingerprint, owner),
 		FOREIGN KEY (fingerprint, owner) REFERENCES user_keys(fingerprint, owner)
 	);`
+
+	// We only need one index on `owner` here because `fingerprint` is covered
+	// by being the first field in the `PRIMARY KEY` clause.
+	createUserKeyRevocationsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_user_key_revocations_owner
+		ON user_key_revocations(owner);
+	`
 
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
@@ -172,9 +181,11 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (user_id, follower_user_id)
 	);`
 
+	// We only need one index on `follower_user_id` here because `user_id` is
+	// covered by being the first field in the `PRIMARY KEY` clause.
 	createUserFollowerIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_user_followers_user_id
-		ON user_followers(user_id);
+	CREATE INDEX IF NOT EXISTS idx_user_followers_follower_user_id
+		ON user_followers(follower_user_id);
 	`
 
 	createUserFollowingTable := `
@@ -186,24 +197,26 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (user_id, following_user_id)
 	);`
 
+	// We only need one index on `following_user_id` here because `user_id` is
+	// covered by being the first field in the `PRIMARY KEY` clause.
 	createUserFollowingIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_user_following_user_id
-		ON user_following(user_id);
+	CREATE INDEX IF NOT EXISTS idx_user_following_following_user_id
+		ON user_following(following_user_id);
 	`
 
-	// /////// //
-	//   P2P   //
-	// /////// //
+	// //////////// //
+	//   Realtime   //
+	// //////////// //
 
 	createOnlineUsersTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS online_users (
-		user_id    VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	createBroadcastSubscriptionsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS broadcast_subscriptions (
-		user_id    VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES online_users(user_id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
@@ -221,19 +234,26 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (reed_id, user_id)
 	);`
 
+	// We only need one index on `user_id` here because `reed_id` is covered by
+	// being the first field in the `PRIMARY KEY` clause.
 	createReedAllocationIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_reed_allocations_reed_id
-		ON reed_allocations(reed_id);
+	CREATE INDEX IF NOT EXISTS idx_reed_allocations_user_id
+		ON reed_allocations(user_id);
 	`
 
 	createPendingEventsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_events (
 		event_id VARCHAR(255) PRIMARY KEY,
 		request_id VARCHAR(255) NOT NULL,
-		requester_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		requester_user_id VARCHAR(255) NOT NULL REFERENCES online_users(user_id) ON DELETE CASCADE,
 		event_name VARCHAR(255) NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
+
+	createPendingEventsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_pending_events_requester_user_id
+		ON pending_events(requester_user_id);
+	`
 
 	createPendingReedRequestsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_reed_requests (
@@ -241,7 +261,7 @@ func InitDB(db *sql.DB) error {
 		reed_id VARCHAR(255) NOT NULL
 	);`
 
-	createPendingReedRequestsIndex := `
+	createPendingReedRequestsIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_pending_reed_requests_reed_id
 		ON pending_reed_requests(reed_id);
 	`
@@ -268,6 +288,7 @@ func InitDB(db *sql.DB) error {
 		createUserKeyIndexes,
 
 		createUserKeyRevocationsTable,
+		createUserKeyRevocationsIndexes,
 
 		createReedsTable,
 		createReedIndexes,
@@ -279,8 +300,9 @@ func InitDB(db *sql.DB) error {
 		createUserFollowingTable,
 		createUserFollowingIndexes,
 
-		// P2P
+		// Realtime
 		createOnlineUsersTable,
+
 		createBroadcastSubscriptionsTable,
 		createBroadcastSubscriptionIndexes,
 
@@ -288,8 +310,10 @@ func InitDB(db *sql.DB) error {
 		createReedAllocationIndexes,
 
 		createPendingEventsTable,
+		createPendingEventsIndexes,
+
 		createPendingReedRequestsTable,
-		createPendingReedRequestsIndex,
+		createPendingReedRequestsIndexes,
 	}
 
 	for i, query := range queries {
