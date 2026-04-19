@@ -110,6 +110,11 @@
 <div class="profile-container">
   <div class="profile-content">
     {#if status === 'loading'}
+      {#if profileUser}
+        <div class="user-profile-card-container">
+          <UserProfileCard user={profileUser} {isOwner} />
+        </div>
+      {/if}
       <div class="state-message">
         <div class="state-icon">🌱</div>
         <h3>Loading...</h3>
@@ -132,7 +137,9 @@
 
     {:else if status === 'noContent'}
       {#if profileUser}
-        <UserProfileCard user={profileUser} {isOwner} />
+        <div class="user-profile-card-container">
+          <UserProfileCard user={profileUser} {isOwner} />
+        </div>
       {/if}
       <div class="state-message">
         <div class="state-icon">🫙</div>
@@ -142,7 +149,9 @@
 
     {:else if status === 'ready'}
       {#if profileUser}
-        <UserProfileCard user={profileUser} {isOwner} />
+        <div class="user-profile-card-container">
+          <UserProfileCard user={profileUser} {isOwner} />
+        </div>
       {/if}
       <ReedsList authorId={userId} {isOwner} showWriteButton={false} />
     {/if}
@@ -165,6 +174,10 @@
     margin: 0 auto;
     width: 100%;
     padding: 1rem;
+  }
+
+  .user-profile-card-container {
+    margin-bottom: 2rem;
   }
 
   .state-message {
@@ -192,6 +205,10 @@
   @media (max-width: 768px) {
     .profile-content {
       padding: 0.5rem;
+    }
+
+    .user-profile-card-container {
+      margin-bottom: 1rem;
     }
   }
 </style>
