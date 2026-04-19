@@ -1,4 +1,5 @@
-<script>
+<script lang="ts">
+  type QueuedReed = { id: string };
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { authService } from '$lib/services/auth';
@@ -83,9 +84,9 @@
     } while (cursor);
 
     // Fire relay requests for all queued IDs in parallel
-    const queued = await dbService.getAllSortedByIndex<{ id: string }>('reedQueue', '__meta__.created');
+    const queued = await dbService.getAllSortedByIndex<QueuedReed>('reedQueue', '__meta__.created');
     await Promise.all(queued.map(async ({ id: reedId }) => {
-      const data = await serverConnection.requestReedContent(reedId);
+      const data = await serverConnection.requestReedContent(reedId, uid, profileUser.server);
       await reedsService.storeReed(data);
       await dbService.delete('reedQueue', reedId);
     }));
