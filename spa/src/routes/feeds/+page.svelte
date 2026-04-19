@@ -1,16 +1,59 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { authService } from '$lib/services/auth';
-  import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
+  import { apiService } from '$lib/services/api';
+  import { serverConnection } from '$lib/services/serverConnection';
+  import { broadcastReedQueue, formatRelativeTime } from '$lib/repositories/reeds';
+  import { goto } from '$app/navigation';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
+  import MarkdownParser from '$lib/components/MarkdownParser.svelte';
 
   let user = null;
   let loading = true;
   let activeSection = 'broadcast'; // 'broadcast' or 'followcast'
 
-  function handleReedNotification(data) {
-    console.log('ServerEvent.ReedNotification:', data);
+  const BROADCAST_KEY = 'broadcastReeds';
+  const BROADCAST_LIMIT = 50;
+
+  function loadBroadcastReeds() {
+    const defaultValue = { reeds: [], authors: {} }
+    if (!sessionStorage.getItem(BROADCAST_KEY)) {
+      return defaultValue;
+    }
+    try {
+      return JSON.parse(sessionStorage.getItem(BROADCAST_KEY));
+    } catch {
+      sessionStorage.removeItem(BROADCAST_KEY);
+    }
+    return defaultValue;
+  }
+
+  function saveBroadcastReed(reed, author, existing) {
+    if (existing.reeds.some(r => r.headers.id === reed.headers.id)) return existing;
+    const updatedReeds = [reed, ...existing.reeds].slice(0, BROADCAST_LIMIT);
+    const updatedAuthors = author
+      ? { ...existing.authors, [reed.headers.author]: author }
+      : existing.authors;
+    const updated = { reeds: updatedReeds, authors: updatedAuthors };
+    sessionStorage.setItem(BROADCAST_KEY, JSON.stringify(updated));
+    return updated;
+  }
+
+  let broadcastReeds = { reeds: [], authors: {} };
+
+  $: if ($broadcastReedQueue) {
+    handleBroadcastReed($broadcastReedQueue.reed);
+  }
+
+  async function handleBroadcastReed(reed) {
+    let author = null;
+    try {
+      author = await apiService.getUser(reed.headers.author);
+    } catch (e) {
+      console.error('Failed to fetch broadcast reed author:', e);
+    }
+    broadcastReeds = saveBroadcastReed(reed, author, broadcastReeds);
   }
 
   function setActiveSection(section) {
@@ -18,6 +61,8 @@
   }
 
   onMount(async () => {
+    broadcastReeds = loadBroadcastReeds();
+
     try {
       user = await authService.getCurrentUser();
     } catch (error) {
@@ -26,13 +71,11 @@
       loading = false;
     }
 
-    serverConnection.on(ServerEvent.ReedNotification, handleReedNotification);
     await serverConnection.connect();
     serverConnection.subscribeToBroadcast();
   });
 
   onDestroy(() => {
-    serverConnection.off(ServerEvent.ReedNotification, handleReedNotification);
     serverConnection.unsubscribeFromBroadcast();
   });
 </script>
@@ -87,10 +130,39 @@
             <p>Public messages and announcements</p>
           </div>
 
-          <div class="waiting-state">
-            <div class="waiting-pulse"></div>
-            <p>Listening for new reeds...</p>
-          </div>
+          {#if broadcastReeds.reeds.length === 0}
+            <div class="waiting-state">
+              <div class="waiting-pulse"></div>
+              <p>Listening for new reeds...</p>
+            </div>
+          {:else}
+            {#each broadcastReeds.reeds as reed (reed.headers.id)}
+              <div class="feed-item" role="button" tabindex="0"
+                on:click={() => goto(`/reed/${reed.headers.author}/${reed.headers.id}`)}
+                on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.headers.author}/${reed.headers.id}`)}>
+                <div class="feed-header">
+                  <div class="feed-author">
+                    <div class="avatar">
+                      {#if broadcastReeds.authors[reed.headers.author]?.avatarURL}
+                        <img src={broadcastReeds.authors[reed.headers.author].avatarURL} alt="avatar" />
+                      {:else}
+                        👤
+                      {/if}
+                    </div>
+                    <div class="author-info">
+                      <span class="author-name">{broadcastReeds.authors[reed.headers.author]?.username ?? reed.headers.author}</span>
+                      <span class="feed-time">{formatRelativeTime(reed.headers.timestamp)}</span>
+                    </div>
+                  </div>
+                </div>
+                {#if reed.content}
+                  <div class="feed-content">
+                    <MarkdownParser text={reed.content} preview={true} />
+                  </div>
+                {/if}
+              </div>
+            {/each}
+          {/if}
         {:else}
           <!-- Followcast Section -->
           <div class="section-header">
@@ -277,6 +349,12 @@
     align-items: center;
     justify-content: center;
     font-size: 1.2rem;
+    overflow: hidden;
+  }
+  .avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
   .author-info {

@@ -383,24 +383,21 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	var fingerprint sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT id, username, avatar_url, bio, created_at,
-			EXISTS (
-				SELECT 1
-				FROM reeds
-				WHERE user_id = id
-				LIMIT 1
-			) AS has_reeds,
-			fingerprint
-		FROM users
-		WHERE id = $1
+		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at, u.fingerprint, EXISTS (
+			SELECT 1
+			FROM reeds
+			WHERE user_id = u.id
+		) AS has_reeds
+		FROM users u
+		WHERE u.id = $1
 	`, userID).Scan(
 		&user.ID,
 		&user.Username,
 		&avatarURL,
 		&bio,
 		&user.CreatedAt,
-		&user.HasReeds,
 		&fingerprint,
+		&user.HasReeds,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {

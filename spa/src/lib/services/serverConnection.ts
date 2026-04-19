@@ -1,15 +1,19 @@
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
 
+declare const md5: (str: string) => string;
+
 export type ServerEventHandler = (data: any) => void;
 
 type PendingRequest = { resolve: (data: any) => void; reject: (err: any) => void };
+type RequestRecord = { data: any; status: 'new' | 'waiting' };
 
 export enum ServerEvent {
   ReedNotification = 'reed_notification',
   RelayRequest     = 'RELAY_REQUEST',
   RequestAck       = 'REQUEST_ACK',
   DataResponse     = 'DATA_RESPONSE',
+  BroadcastReed    = 'BROADCAST_REED',
 }
 
 class ServerConnection {
@@ -73,11 +77,19 @@ class ServerConnection {
           const message = JSON.parse(event.data);
           console.log('ServerConnection: message received:', message.type);
 
-          if (message.type === 'DATA_RESPONSE') {
+          if (message.type === ServerEvent.RequestAck) {
+            const record = this.getRequest(message.data.request_id);
+            if (!record) {
+              console.warn(`ServerConnection: ${ServerEvent.RequestAck} for unknown request, discarding:`, message.data.request_id);
+              return;
+            }
+            this.setRequest(message.data.request_id, { data: message.data, status: 'waiting' });
+          } else if (message.type === 'DATA_RESPONSE') {
             const pending = this.pendingRequests.get(message.data.request_id);
             if (pending) {
               pending.resolve(message.data.data);
               this.pendingRequests.delete(message.data.request_id);
+              this.deleteRequest(message.data.request_id);
             }
           }
 
@@ -90,6 +102,7 @@ class ServerConnection {
       this.ws.onclose = (event) => {
         console.log('ServerConnection: connection closed', event.code, event.reason);
         this.ws = null;
+        sessionStorage.removeItem('syncRequestId');
       };
 
       await new Promise<void>((resolve, reject) => {
@@ -141,17 +154,78 @@ class ServerConnection {
     }
   }
 
-  requestReedContent(reedId: string): Promise<any> {
-    const requestId = crypto.randomUUID();
+  requestReedContent(reedId: string, userId: string, serverId: string): Promise<any> {
+    const requestId = md5(`REQUEST_REED:${serverId}/${userId}/${reedId}`);
     const promise = new Promise<any>((resolve, reject) => {
       this.pendingRequests.set(requestId, { resolve, reject });
     });
+    if (this.getRequest(requestId)) {
+      console.warn('ServerConnection: duplicate request detected, skipping send:', requestId);
+      return promise;
+    }
+    this.setRequest(requestId, { data: null, status: 'new' });
     this.send({ type: 'REQUEST_REED', data: { request_id: requestId, reed_id: reedId } });
     return promise;
   }
 
+  private setRequest(requestId: string, record: RequestRecord): void {
+    sessionStorage.setItem(`req:${requestId}`, JSON.stringify(record));
+  }
+
+  private getRequest(requestId: string): RequestRecord | null {
+    const raw = sessionStorage.getItem(`req:${requestId}`);
+    return raw ? JSON.parse(raw) : null;
+  }
+
+  private deleteRequest(requestId: string): void {
+    sessionStorage.removeItem(`req:${requestId}`);
+  }
+
   sendRelayResponse(eventId: string, data: any): void {
     this.send({ type: 'RELAY_RESPONSE', data: { event_id: eventId, data } });
+  }
+
+  // Store a relay request that couldn't be fulfilled immediately because the reed
+  // wasn't in IndexedDB yet. Keyed by md5(RELAY_REQUEST:serverId/userId/reedId) so
+  // storeReedInIndexedDB can find and dispatch it after the write completes.
+  storePendingRelayRequest(reedId: string, eventId: string): void {
+    const key = this.relayPendingKey(reedId);
+    sessionStorage.setItem(key, JSON.stringify({ event_id: eventId }));
+  }
+
+  fulfillPendingRelayRequest(reedId: string, reed: any): void {
+    const key = this.relayPendingKey(reedId);
+    const raw = sessionStorage.getItem(key);
+    if (!raw) {
+      console.warn(`ServerConnection: fulfillPendingRelayRequest called for '${reedId}' but no pending relay found in sessionStorage`);
+      return;
+    }
+    const { event_id } = JSON.parse(raw);
+    console.log(`ServerConnection: sending relay response for reed '${reedId}', event '${event_id}'`);
+    this.sendRelayResponse(event_id, reed);
+    sessionStorage.removeItem(key);
+    console.log(`Reed '${reedId}' relayed`);
+  }
+
+  private relayPendingKey(reedId: string): string {
+    const serverId = localStorage.getItem('serverId') ?? '';
+    const userId = localStorage.getItem('userId') ?? '';
+    return md5(`RELAY_REQUEST:${serverId}/${userId}/${reedId}`);
+  }
+
+  syncRequest(): void {
+    const requestId = crypto.randomUUID();
+    sessionStorage.setItem('syncRequestId', requestId);
+    this.send({ type: 'SYNC_REQUEST', data: { request_id: requestId } });
+  }
+
+  async subscribeProfile(userId: string): Promise<void> {
+    await this.connect();
+    this.send({ type: 'SUBSCRIBE_PROFILE', data: { user_id: userId } });
+  }
+
+  unsubscribeProfile(userId: string): void {
+    this.send({ type: 'UNSUBSCRIBE_PROFILE', data: { user_id: userId } });
   }
 
   subscribeToBroadcast(): void {

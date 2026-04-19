@@ -155,7 +155,7 @@
   }
 
   .member-since {
-    margin: 0 0 1rem 0;
+    margin: 0;
     color: var(--muted);
     font-size: 0.8rem;
     text-align: left;
@@ -165,6 +165,7 @@
     text-align: left;
     font-size: 0.9rem;
     line-height: 1.4;
+    margin-top: 0.5rem;
   }
 
   .profile-actions {

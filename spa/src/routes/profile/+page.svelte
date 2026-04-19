@@ -57,6 +57,7 @@
 
   // Helper function to format bytes into human-readable format
   function formatBytes(bytes: number): string {
+    console.log(`bytes: ${bytes}`);
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];

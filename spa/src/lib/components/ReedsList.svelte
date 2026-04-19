@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { reedsService, formatRelativeTime, unsignedReedsProcessed } from '$lib/repositories/reeds';
+  import { reedsService, formatRelativeTime, unsignedReedsProcessed, profileReedQueue, newReedQueue } from '$lib/repositories/reeds';
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
   import { userRepository } from '$lib/repositories/user';
@@ -14,6 +14,7 @@
   export let showWriteButton = false;
 
   let isWriteSectionOpen = false;
+  let showNewReedBanner = false;
   let reeds = [];
   let profileUser = null;
   let loadingReeds = true;
@@ -23,6 +24,21 @@
   let echoedReedUsers = new Map();
 
   $: if ($unsignedReedsProcessed > 0) loadReeds();
+  // profileReedQueue carries explicitly requested content (profile subscription / REQUEST_REED).
+  // We reload immediately only when the user is already at the top (no scroll loss risk).
+  // Otherwise we show a banner instead, letting the user decide when to reload.
+  // newReedQueue carries catch-up and follow-broadcast reeds — we never auto-reload for those,
+  // since the user didn't ask for them and reloading would interrupt their current position.
+  $: if ($profileReedQueue?.reed.headers.author === authorId) {
+    if (window.scrollY === 0) {
+      loadReeds();
+    } else {
+      showNewReedBanner = true;
+    }
+  }
+  $: if ($newReedQueue?.reed.headers.author === authorId) {
+    showNewReedBanner = true;
+  }
 
   onMount(async () => {
     profileUser = await userRepository.getByUserId(authorId).catch(() => null);
@@ -142,6 +158,14 @@
   <NewReedModal open={isWriteSectionOpen} on:close={() => (isWriteSectionOpen = false)} />
 {/if}
 
+{#if showNewReedBanner}
+  <div class="new-reed-banner">
+    <div class="new-reed-msg">New reed available</div>
+    <button on:click={() => { showNewReedBanner = false; loadReeds(); }}>Show</button>
+    <button class="dismiss" on:click={() => (showNewReedBanner = false)}>✕</button>
+  </div>
+{/if}
+
 <div class="reeds-list">
   {#if loadingReeds}
     <div class="loading">
@@ -218,6 +242,51 @@
 </div>
 
 <style>
+  .new-reed-banner {
+    position: fixed;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--surface);
+    border: 1px solid var(--primary);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    width: calc(100vw - 2.5rem);
+  }
+
+  .new-reed-banner .new-reed-msg {
+    flex-grow: 1;
+    color: var(--fg);
+  }
+
+  .new-reed-banner button {
+    flex-shrink: 0;
+    background: var(--primary);
+    color: var(--button-text);
+    border: none;
+    border-radius: 4px;
+    padding: 0.25rem 0.75rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    width: 5rem;
+  }
+
+  .new-reed-banner button.dismiss {
+    flex-shrink: 0;
+    background: none;
+    color: var(--muted);
+    padding: 0.25rem;
+    cursor: pointer;
+    width: 2rem;
+  }
+
   .floating-write-btn {
     position: fixed;
     bottom: 80px;

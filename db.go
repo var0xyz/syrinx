@@ -211,13 +211,15 @@ func InitDB(db *sql.DB) error {
 	createOnlineUsersTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS online_users (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		sync_request_id VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	createBroadcastSubscriptionsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS broadcast_subscriptions (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES online_users(user_id) ON DELETE CASCADE,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+		last_delivery TIMESTAMP
 	);`
 
 	createBroadcastSubscriptionIndexes := `
@@ -247,12 +249,16 @@ func InitDB(db *sql.DB) error {
 		request_id VARCHAR(255) NOT NULL,
 		requester_user_id VARCHAR(255) NOT NULL REFERENCES online_users(user_id) ON DELETE CASCADE,
 		event_name VARCHAR(255) NOT NULL,
+		subscription_id VARCHAR(255) REFERENCES profile_subscriptions(subscription_id) ON DELETE CASCADE,
+		dispatched_at TIMESTAMP,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	createPendingEventsIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_pending_events_requester_user_id
 		ON pending_events(requester_user_id);
+	CREATE INDEX IF NOT EXISTS idx_pending_events_subscription_id
+		ON pending_events(subscription_id);
 	`
 
 	createPendingReedRequestsTable := `
@@ -264,6 +270,21 @@ func InitDB(db *sql.DB) error {
 	createPendingReedRequestsIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_pending_reed_requests_reed_id
 		ON pending_reed_requests(reed_id);
+	`
+
+	createProfileSubscriptionsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS profile_subscriptions (
+		subscription_id VARCHAR(255) PRIMARY KEY,
+		viewer_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		author_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createProfileSubscriptionsIndex := `
+	CREATE INDEX IF NOT EXISTS idx_profile_subscriptions_viewer
+		ON profile_subscriptions(viewer_user_id);
+	CREATE INDEX IF NOT EXISTS idx_profile_subscriptions_author
+		ON profile_subscriptions(author_user_id);
 	`
 
 	// Initialize user_count table with first row
@@ -308,6 +329,9 @@ func InitDB(db *sql.DB) error {
 
 		createReedAllocationsTable,
 		createReedAllocationIndexes,
+
+		createProfileSubscriptionsTable,
+		createProfileSubscriptionsIndex,
 
 		createPendingEventsTable,
 		createPendingEventsIndexes,
