@@ -880,7 +880,7 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := h.getUserID(r)
+	userID := mux.Vars(r)["userID"]
 	reed, err := h.services.db.GetReed(userID, reedID)
 	if err != nil {
 		log.Error().
