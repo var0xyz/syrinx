@@ -11,7 +11,7 @@
 
   let user = null;
   let loading = true;
-  let activeSection = 'broadcast'; // 'broadcast' or 'followcast'
+  let activeSection = 'followcast'; // 'broadcast' or 'followcast'
 
   const BROADCAST_KEY = 'broadcastReeds';
   const BROADCAST_LIMIT = 50;
@@ -96,18 +96,6 @@
     <div class="section-toggle">
       <button
         class="toggle-btn"
-        class:active={activeSection === 'broadcast'}
-        on:click={() => setActiveSection('broadcast')}
-      >
-      <!--
-        Broadcast: You get everything that is posted on the platform, but it
-        doesn't get persisted to IndexedDB, only to SessionStorage (that is,
-        until you click on it).
-      -->
-        📡 Broadcast
-      </button>
-      <button
-        class="toggle-btn"
         class:active={activeSection === 'followcast'}
         on:click={() => setActiveSection('followcast')}
       >
@@ -118,6 +106,18 @@
       -->
         👥 Followcast
       </button>
+      <button
+        class="toggle-btn"
+        class:active={activeSection === 'broadcast'}
+        on:click={() => setActiveSection('broadcast')}
+      >
+      <!--
+        Broadcast: You get everything that is posted on the platform, but it
+        doesn't get persisted to IndexedDB, only to SessionStorage (that is,
+        until you click on it).
+      -->
+        📡 Broadcast
+      </button>
     </div>
 
     <!-- Main Content -->
@@ -126,8 +126,7 @@
         {#if activeSection === 'broadcast'}
           <!-- Broadcast Section -->
           <div class="section-header">
-            <h2>📡 Broadcast</h2>
-            <p>Public messages and announcements</p>
+            <p>Community-wide reeds</p>
           </div>
 
           {#if broadcastReeds.reeds.length === 0}
@@ -166,7 +165,6 @@
         {:else}
           <!-- Followcast Section -->
           <div class="section-header">
-            <h2>👥 Followcast</h2>
             <p>Messages from people you follow</p>
           </div>
 
