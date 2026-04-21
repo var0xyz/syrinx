@@ -3,7 +3,7 @@
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
   import { serverConnection } from '$lib/services/serverConnection';
-  import { broadcastReedQueue, formatRelativeTime } from '$lib/repositories/reeds';
+  import { broadcastReedQueue, formatRelativeTime, getFollowcastReeds, initFollowcastIds } from '$lib/repositories/reeds';
   import { goto } from '$app/navigation';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
@@ -56,8 +56,15 @@
     broadcastReeds = saveBroadcastReed(reed, author, broadcastReeds);
   }
 
+  let followcastReeds = { reeds: [], authors: {} };
+
+  async function loadFollowcast() {
+    followcastReeds = await getFollowcastReeds();
+  }
+
   function setActiveSection(section) {
     activeSection = section;
+    if (section === 'followcast') loadFollowcast();
   }
 
   onMount(async () => {
@@ -70,6 +77,9 @@
     } finally {
       loading = false;
     }
+
+    await initFollowcastIds();
+    if (activeSection === 'followcast') loadFollowcast();
 
     await serverConnection.connect();
     serverConnection.subscribeToBroadcast();
@@ -165,63 +175,43 @@
         {:else}
           <!-- Followcast Section -->
           <div class="section-header">
-            <p>Messages from people you follow</p>
+            <p>Reeds from people you follow</p>
           </div>
 
-          <!-- Followcast Feed Item 1 -->
-          <div class="feed-item">
-            <div class="feed-header">
-              <div class="feed-author">
-                <div class="avatar">👤</div>
-                <div class="author-info">
-                  <span class="author-name">Alice Johnson</span>
-                  <span class="feed-time">5 minutes ago</span>
+          {#if followcastReeds.reeds.length === 0}
+            <div class="empty-state">
+              <div class="empty-icon">👥</div>
+              <h3>No reeds from people you follow yet.</h3>
+              <p>Follow people and their reeds will appear here.</p>
+            </div>
+          {:else}
+            {#each followcastReeds.reeds as reed (reed.headers.id)}
+              <div class="feed-item" role="button" tabindex="0"
+                on:click={() => goto(`/reed/${reed.headers.author}/${reed.headers.id}`)}
+                on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.headers.author}/${reed.headers.id}`)}>
+                <div class="feed-header">
+                  <div class="feed-author">
+                    <div class="avatar">
+                      {#if followcastReeds.authors[reed.headers.author]?.avatarURL}
+                        <img src={followcastReeds.authors[reed.headers.author].avatarURL} alt="avatar" />
+                      {:else}
+                        👤
+                      {/if}
+                    </div>
+                    <div class="author-info">
+                      <span class="author-name">{followcastReeds.authors[reed.headers.author]?.username ?? reed.headers.author}</span>
+                      <span class="feed-time">{formatRelativeTime(reed.headers.timestamp)}</span>
+                    </div>
+                  </div>
                 </div>
+                {#if reed.content}
+                  <div class="feed-content">
+                    <MarkdownParser text={reed.content} preview={true} />
+                  </div>
+                {/if}
               </div>
-              <div class="feed-actions">
-                <button class="action-btn">⋯</button>
-              </div>
-            </div>
-            <div class="feed-content">
-              <p>Just finished setting up my new secure messaging setup. The encryption is working perfectly!</p>
-            </div>
-            <div class="feed-footer">
-              <button class="interaction-btn">👍 Like</button>
-              <button class="interaction-btn">💬 Reply</button>
-              <button class="interaction-btn">🔄 Share</button>
-            </div>
-          </div>
-
-          <!-- Followcast Feed Item 2 -->
-          <div class="feed-item">
-            <div class="feed-header">
-              <div class="feed-author">
-                <div class="avatar">🌐</div>
-                <div class="author-info">
-                  <span class="author-name">Bob Smith</span>
-                  <span class="feed-time">1 hour ago</span>
-                </div>
-              </div>
-              <div class="feed-actions">
-                <button class="action-btn">⋯</button>
-              </div>
-            </div>
-            <div class="feed-content">
-              <p>Excited to be part of the Syrinx community! Looking forward to secure conversations with everyone.</p>
-            </div>
-            <div class="feed-footer">
-              <button class="interaction-btn">👍 Like</button>
-              <button class="interaction-btn">💬 Reply</button>
-              <button class="interaction-btn">🔄 Share</button>
-            </div>
-          </div>
-
-          <!-- Empty State for Followcast -->
-          <div class="empty-state">
-            <div class="empty-icon">👥</div>
-            <h3>No followcast messages</h3>
-            <p>Start following people to see their messages here.</p>
-          </div>
+            {/each}
+          {/if}
         {/if}
       </div>
     </div>
@@ -280,7 +270,6 @@
     padding: 1rem;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
-    margin-bottom: 1rem;
   }
 
   .section-header h2 {
@@ -508,5 +497,8 @@
       padding: 0.5rem 0.75rem;
     }
 
+    .feeds-list {
+      gap: .5rem;
+    }
   }
 </style>

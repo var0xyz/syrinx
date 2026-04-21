@@ -15,18 +15,19 @@ export interface DbService {
   delete(storeName: string, key: string): Promise<void>;
   getAll<T extends api.Base>(storeName: string): Promise<T[]>;
   getAllSortedByIndex<T>(storeName: string, indexName: string): Promise<T[]>;
+  getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean): Promise<T[]>;
   clear(storeName: string): Promise<void>;
 }
 
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  private readonly version = 8;
+  private readonly version = 13;
   private readonly storeNames = [
     ['following',      'userId'     ],
     ['privateKeys',    'fingerprint'],
     ['publicKeys',     'fingerprint'],
-    ['reeds',          'headers.id', 'headers.author'],
+    ['reeds',          'headers.id', 'headers.author', 'server.timestamp'],
     ['revokedKeys',    'fingerprint'],
     ['tags',           'tagName'    ],
     ['users',          'id'         ],
@@ -51,18 +52,18 @@ export class IndexedDbService implements DbService {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        const tx = (event.target as IDBOpenDBRequest).transaction!;
 
-        // Create object stores for each store name
-        this.storeNames.forEach((storeDef) => {
-            const [storeName, keyPath] = storeDef;
-            if (db.objectStoreNames.contains(storeName)) return;
+        this.storeNames.forEach(([storeName, keyPath, ...indexes]) => {
+          const store = db.objectStoreNames.contains(storeName)
+            ? tx.objectStore(storeName)
+            : db.createObjectStore(storeName, { keyPath });
 
-            const store = db.createObjectStore(storeName, { keyPath });
-
-            if (storeDef.length === 3) {
-              const indexName = storeDef[2];
+          for (const indexName of indexes) {
+            if (!store.indexNames.contains(indexName)) {
               store.createIndex(indexName, indexName, { unique: false });
             }
+          }
         });
       };
     });
@@ -143,6 +144,34 @@ export class IndexedDbService implements DbService {
           return data as T;
         });
         resolve(unwrapped);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean): Promise<T[]> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([storeName], 'readonly');
+      const store = transaction.objectStore(storeName);
+      const index = store.index(indexName);
+      const request = index.openCursor(null, 'prev');
+      const results: T[] = [];
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor || results.length >= limit) {
+          resolve(results);
+          return;
+        }
+        const { __meta__, ...data } = cursor.value;
+        const item = data as T;
+        if (!filter || filter(item)) {
+          results.push(item);
+        }
+        cursor.continue();
       };
       request.onerror = () => reject(request.error);
     });
