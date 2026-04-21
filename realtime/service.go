@@ -586,6 +586,17 @@ func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]inte
 		return
 	}
 
+	exists, err := rs.dbService.ReedExists(reedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to check reed existence")
+		return
+	}
+	if !exists {
+		log.Debug().Str("reedID", reedID).Msg("Requested reed does not exist, notifying requester")
+		rs.connManager.SendToUser(client.userID, NewReedNotFoundMsg(requestID, reedID))
+		return
+	}
+
 	eventID := generateEventID()
 	if err := rs.dbService.CreatePendingEvent(eventID, requestID, client.userID, RequestReedEvent, reedID); err != nil {
 		log.Error().Err(err).Msg("Failed to create pending event")

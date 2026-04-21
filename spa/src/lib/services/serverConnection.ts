@@ -14,6 +14,7 @@ export enum ServerEvent {
   RequestAck       = 'REQUEST_ACK',
   DataResponse     = 'DATA_RESPONSE',
   BroadcastReed    = 'BROADCAST_REED',
+  ReedNotFound     = 'REED_NOT_FOUND',
 }
 
 class ServerConnection {
@@ -88,6 +89,13 @@ class ServerConnection {
             const pending = this.pendingRequests.get(message.data.request_id);
             if (pending) {
               pending.resolve(message.data.data);
+              this.pendingRequests.delete(message.data.request_id);
+              this.deleteRequest(message.data.request_id);
+            }
+          } else if (message.type === ServerEvent.ReedNotFound) {
+            const pending = this.pendingRequests.get(message.data.request_id);
+            if (pending) {
+              pending.reject(new Error('reed_not_found'));
               this.pendingRequests.delete(message.data.request_id);
               this.deleteRequest(message.data.request_id);
             }
