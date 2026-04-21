@@ -76,3 +76,18 @@ type SubscribeProfileData struct {
 type UnsubscribeProfileData struct {
 	UserID string `json:"user_id"`
 }
+
+// ReedNotFoundMsg is sent from the server to a requester when the requested reed does not exist.
+type ReedNotFoundMsg struct {
+	Type string           `json:"type"`
+	Data ReedNotFoundData `json:"data"`
+}
+
+type ReedNotFoundData struct {
+	RequestID string `json:"request_id"`
+	ReedID    string `json:"reed_id"`
+}
+
+func NewReedNotFoundMsg(requestID, reedID string) ReedNotFoundMsg {
+	return ReedNotFoundMsg{Type: "REED_NOT_FOUND", Data: ReedNotFoundData{RequestID: requestID, ReedID: reedID}}
+}

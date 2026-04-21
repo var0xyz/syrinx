@@ -16,6 +16,8 @@
   import { userRepository } from '$lib/repositories/user';
   import { goto } from '$app/navigation';
   import { notificationStore } from '$lib/stores/notifications';
+  import { serverConnection } from '$lib/services/serverConnection';
+  import { isOnline } from '$lib/services/pwa';
 
   let user = null;
   let authorUser = null;
@@ -23,6 +25,8 @@
   let reed = null;
   let loadingReed = true;
   let errorMessage = '';
+  let fetchingReed = false;
+  let reedNotFound = false;
   let echoedReed = null;
   let echoedReedMissing = false;
   let repliedToReed = null;
@@ -38,6 +42,7 @@
   $: reedID = $page.params.reedID;
 
   $: if (reedID && user) loadReed();
+  $: if ($isOnline) loadReed();
 
   onMount(async () => {
     try {
@@ -58,6 +63,7 @@
   });
 
   async function loadReed() {
+    if (reed) return;
     try {
       loadingReed = true;
       errorMessage = '';
@@ -65,7 +71,35 @@
       console.log('Reed:', reed);
 
       if (!reed) {
-        errorMessage = 'Reed not found';
+        // Not in IndexedDB — try to fetch from network
+        await serverConnection.connect();
+        if (!serverConnection.isConnected()) {
+          return; // stay in loading state; $isOnline reactive will retry
+        }
+
+        // REST existence check
+        try {
+          await apiService.getReed(userID, reedID);
+        } catch (err) {
+          if (err?.status === 404) {
+            reedNotFound = true;
+          }
+          // on network error: stay in loading state, $isOnline reactive will retry
+          return;
+        }
+
+        // Reed exists on server — request content via WS relay
+        loadingReed = false;
+        fetchingReed = true;
+        try {
+          const data = await serverConnection.requestReedContent(reedID, userID, userID);
+          reed = data;
+          authorUser = await userRepository.getByUserId(userID).catch(() => null);
+        } catch {
+          reedNotFound = true;
+        } finally {
+          fetchingReed = false;
+        }
         return;
       }
 
@@ -207,7 +241,25 @@
 
       <!-- Content -->
       <div class="reed-content">
-        {#if loadingReed}
+        {#if fetchingReed}
+          <div class="loading">
+            <h2>Fetching reed...</h2>
+            <p>Retrieving from the network.</p>
+          </div>
+        {:else if reedNotFound}
+          <div class="error-state">
+            <div class="error-icon">🪹</div>
+            <h3>Reed not found</h3>
+            <p>This reed doesn't exist or has been deleted.</p>
+            <button class="btn btn-primary" on:click={() => goto('/reeds')}>Go Back</button>
+          </div>
+        {:else if !$isOnline && loadingReed}
+          <div class="error-state">
+            <div class="error-icon">📡</div>
+            <h3>You're offline</h3>
+            <p>This reed isn't cached locally. We'll load it when you're back online.</p>
+          </div>
+        {:else if loadingReed}
           <div class="loading">
             <h2>Loading reed...</h2>
             <p>Please wait while we fetch the reed details.</p>

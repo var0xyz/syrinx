@@ -654,3 +654,10 @@ func (ds *DBService) GetBroadcastSubscribers(authorID string) ([]string, error) 
 
 	return subscribers, nil
 }
+
+// ReedExists reports whether a reed with the given ID exists in the reeds table.
+func (ds *DBService) ReedExists(reedID string) (bool, error) {
+	var exists bool
+	err := ds.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM reeds WHERE id = $1)`, reedID).Scan(&exists)
+	return exists, err
+}
