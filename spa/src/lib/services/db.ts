@@ -21,18 +21,20 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  private readonly version = 7;
+  private readonly version = 8;
   private readonly storeNames = [
+    ['following',      'userId'     ],
     ['privateKeys',    'fingerprint'],
     ['publicKeys',     'fingerprint'],
-    ['revokedKeys',    'fingerprint'],
     ['reeds',          'headers.id', 'headers.author'],
-    ['unsignedReeds',  'headers.id' ],
-    ['users',          'id'         ],
+    ['revokedKeys',    'fingerprint'],
     ['tags',           'tagName'    ],
-    ['following',      'userId'     ],
-    ['pendingFollows', 'userId'     ],
-    ['unfollow',       'userId'     ],
+    ['users',          'id'         ],
+
+    // Offline-first
+    ['unfollow',       'userId'    ],
+    ['unsignedReeds',  'headers.id'],
+    ['pendingFollows', 'userId'    ],
   ];
 
   async init(): Promise<void> {
