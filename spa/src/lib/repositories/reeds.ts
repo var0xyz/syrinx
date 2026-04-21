@@ -6,6 +6,7 @@
 import { apiService as api } from '../services/api';
 import { dbService } from '../services/db';
 import { Reed as ReedClass, type ReedType } from '$lib/types/reed';
+import type { User } from '$lib/types/api';
 import { serverConnection } from '$lib/services/serverConnection';
 import { writable } from 'svelte/store';
 export { formatRelativeTime, formatAbsoluteDate } from '$lib/utils/time';
@@ -331,3 +332,56 @@ export function formatAbsoluteDateTime(timestamp: string): string {
 }
 
 export const reedsService = new ReedsService();
+
+const FOLLOWCAST_KEY = 'followcastIds';
+const FOLLOWCAST_LIMIT = 50;
+
+export async function initFollowcastIds(): Promise<void> {
+  console.log("initFollowcastIds");
+
+  if (sessionStorage.getItem(FOLLOWCAST_KEY) !== null) return;
+  const following = await dbService.getAll<{ userId: string }>('following');
+  if (following.length === 0) return;
+  const followedSet = new Set(following.map(f => f.userId));
+  const reeds = await dbService.getLatestFromIndex<ReedType>(
+    'reeds', 'server.timestamp', FOLLOWCAST_LIMIT,
+    reed => followedSet.has(reed.headers.author)
+  );
+  sessionStorage.setItem(FOLLOWCAST_KEY, JSON.stringify(reeds.map(r => r.headers.id)));
+}
+
+export function prependFollowcastId(reedId: string): void {
+  let ids: string[] = [];
+  try {
+    ids = JSON.parse(sessionStorage.getItem(FOLLOWCAST_KEY) ?? '[]');
+  } catch {
+    // ignore
+  }
+  if (!ids.includes(reedId)) {
+    ids = [reedId, ...ids].slice(0, FOLLOWCAST_LIMIT);
+    sessionStorage.setItem(FOLLOWCAST_KEY, JSON.stringify(ids));
+  }
+}
+
+export async function getFollowcastReeds(): Promise<{ reeds: ReedType[]; authors: Record<string, User> }> {
+  let ids: string[] = [];
+  try {
+    ids = JSON.parse(sessionStorage.getItem(FOLLOWCAST_KEY) ?? '[]');
+  } catch {
+    // ignore
+  }
+  const reeds: ReedType[] = [];
+  for (const id of ids) {
+    const reed = await dbService.get<ReedType>('reeds', id);
+    if (reed) reeds.push(reed);
+  }
+  const authors: Record<string, User> = {};
+  for (const reed of reeds) {
+    const authorId = reed.headers.author;
+    if (!authors[authorId]) {
+      const user = await dbService.get<User>('users', authorId);
+      if (user) authors[authorId] = user;
+    }
+  }
+  return { reeds, authors };
+}

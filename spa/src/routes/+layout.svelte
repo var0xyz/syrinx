@@ -8,7 +8,7 @@
   import { authService } from '$lib/services/auth';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { dbService } from '$lib/services/db';
-  import { reedsService, dispatchReedToQueue } from '$lib/repositories/reeds';
+  import { reedsService, dispatchReedToQueue, initFollowcastIds, prependFollowcastId } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
 
   // TODO: the echoing/replying header currently encodes only "authorId!reedId", which loses
@@ -70,6 +70,7 @@
           serverConnection.on(ServerEvent.DataResponse, async (data) => {
             await reedsService.storeReed(data.data);
             dispatchReedToQueue(data.data, ServerEvent.DataResponse);
+            prependFollowcastId(data.data.headers.id);
             await requestReferencedReeds(data.data);
           });
           serverConnection.on(ServerEvent.BroadcastReed, (data) => {
