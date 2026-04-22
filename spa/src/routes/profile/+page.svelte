@@ -766,24 +766,6 @@
     margin-bottom: 1rem;
   }
 
-  .avatar-large {
-    width: 80px;
-    max-width: 80px;
-    height: 80px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 2px solid var(--border);
-    margin: 0 auto;
-  }
-
-  .avatar-icon {
-    background: var(--input-bg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 2rem;
-  }
-
   .action-btn {
     padding: 0.5rem 1rem;
     border-radius: 6px;

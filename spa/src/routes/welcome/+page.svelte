@@ -110,34 +110,6 @@
     color: #22c55e;
   }
 
-  .important-notice {
-    background: rgba(255, 193, 7, 0.1);
-    border: 1px solid rgba(255, 193, 7, 0.3);
-    border-radius: 8px;
-    padding: 1.5rem;
-    margin: 2rem 0;
-  }
-
-  .important-notice h3 {
-    color: #ffc107;
-    margin: 0 0 1rem 0;
-  }
-
-  .important-notice p {
-    margin: 0 0 1rem 0;
-    color: var(--fg);
-  }
-
-  .important-notice ul {
-    margin: 0;
-    padding-left: 1.5rem;
-  }
-
-  .important-notice li {
-    margin-bottom: 0.5rem;
-    color: var(--fg);
-  }
-
   .action-buttons {
     display: flex;
     gap: 1rem;
