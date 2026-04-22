@@ -272,19 +272,11 @@
     background: var(--surface);
   }
 
-  .section-header h2 {
-    margin: 0 0 0.25rem 0;
-    color: var(--fg);
-    font-size: 1.1rem;
-    font-weight: 600;
-  }
-
   .section-header p {
     margin: 0;
     color: var(--muted);
     font-size: 0.9rem;
   }
-
 
   .feeds-content {
     flex: 1;
@@ -360,58 +352,8 @@
     font-size: 0.8rem;
   }
 
-  .feed-actions {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .action-btn {
-    background: transparent;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 0.5rem;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-  }
-
-  .action-btn:hover {
-    background: var(--input-bg);
-    color: var(--fg);
-  }
-
   .feed-content {
     padding: 1rem;
-  }
-
-  .feed-content p {
-    margin: 0;
-    color: var(--fg);
-    line-height: 1.5;
-  }
-
-  .feed-footer {
-    display: flex;
-    gap: 1rem;
-    padding: 0.75rem 1rem;
-    border-top: 1px solid var(--border);
-    background: var(--input-bg);
-  }
-
-  .interaction-btn {
-    background: transparent;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    font-size: 0.9rem;
-  }
-
-  .interaction-btn:hover {
-    background: var(--surface);
-    color: var(--fg);
   }
 
   .waiting-state {
@@ -491,10 +433,6 @@
 
     .feed-content {
       padding: 0.75rem;
-    }
-
-    .feed-footer {
-      padding: 0.5rem 0.75rem;
     }
 
     .feeds-list {
