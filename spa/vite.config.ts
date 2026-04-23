@@ -11,7 +11,7 @@ export default defineConfig({
     sveltekit(),
     SvelteKitPWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'],
+      includeAssets: ['icons/icon.svg', 'icons/android-chrome-192x192.png', 'icons/android-chrome-512x512.png'],
       strategies: 'injectManifest',
       srcDir: 'static',
       filename: 'sw.js',
@@ -97,23 +97,31 @@ export default defineConfig({
       manifest: {
         name: 'Syrinx',
         short_name: 'Syrinx',
-        description: 'A secure, decentralized messaging platform',
+        description: 'A censorship-resistant, decentralized platform for free expression',
         start_url: '/',
         display: 'standalone',
         background_color: '#0b0f14',
         theme_color: '#0b0f14',
         orientation: 'portrait-primary',
         scope: '/',
+        lang: 'en-US',
+        dir: 'ltr',
         categories: ['social', 'communication', 'security'],
         icons: [
           {
-            src: '/icons/icon-192.png',
+            src: '/icons/android-chrome-192x192.png',
             sizes: '192x192',
             type: 'image/png',
-            purpose: 'any maskable'
+            purpose: 'any'
           },
           {
-            src: '/icons/icon-512.png',
+            src: '/icons/android-chrome-256x256.png',
+            sizes: '256x256',
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: '/icons/android-chrome-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
@@ -123,6 +131,35 @@ export default defineConfig({
             sizes: 'any',
             type: 'image/svg+xml',
             purpose: 'any'
+          }
+        ],
+        shortcuts: [
+          {
+            name: 'Reeds',
+            short_name: 'Reeds',
+            description: 'Write and view reeds',
+            url: '/reeds',
+            icons: [{ src: '/icons/android-chrome-192x192.png', sizes: '192x192' }]
+          },
+          {
+            name: 'Feed',
+            short_name: 'Feed',
+            description: 'View your feed',
+            url: '/feeds',
+            icons: [{ src: '/icons/android-chrome-192x192.png', sizes: '192x192' }]
+          },
+          {
+            name: 'Chats',
+            short_name: 'Chats',
+            description: 'View your chats',
+            url: '/chats',
+            icons: [{ src: '/icons/android-chrome-192x192.png', sizes: '192x192' }]
+          }
+        ],
+        protocol_handlers: [
+          {
+            protocol: 'web+syrinx',
+            url: '/to-do?resource=%s'
           }
         ]
       },

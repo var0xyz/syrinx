@@ -1,15 +1,16 @@
 {
   "name": "Syrinx",
   "short_name": "Syrinx",
-  "description": "A distributed, P2P content-distribution platform",
+  "description": "A censorship-resistant, decentralized platform for free expression",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#1a1a1a",
-  "theme_color": "#cc66cc",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
   "orientation": "portrait-primary",
-  "categories": ["social", "communication", "productivity"],
   "lang": "en-US",
   "dir": "ltr",
+  "categories": ["social", "communication", "security"],
   "protocol_handlers": [
     {
       "protocol": "web+syrinx",
@@ -20,17 +21,26 @@
     {
       "src": "/icons/android-chrome-192x192.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any"
     },
     {
       "src": "/icons/android-chrome-256x256.png",
       "type": "image/png",
-      "sizes": "256x256"
+      "sizes": "256x256",
+      "purpose": "any"
     },
     {
       "src": "/icons/android-chrome-512x512.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
     }
   ],
   "screenshots": [],
@@ -41,11 +51,11 @@
       "description": "Write and view reeds",
       "url": "/reeds",
       "icons": [
-            {
-                "src": "/icons/android-chrome-192x192.png",
-                "sizes": "192x192"
-            }
-        ]
+        {
+          "src": "/icons/android-chrome-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
       "name": "Feed",
@@ -53,11 +63,11 @@
       "description": "View your feed",
       "url": "/feeds",
       "icons": [
-            {
-                "src": "/icons/android-chrome-192x192.png",
-                "sizes": "192x192"
-            }
-        ]
+        {
+          "src": "/icons/android-chrome-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
       "name": "Chats",
@@ -65,11 +75,11 @@
       "description": "View your chats",
       "url": "/chats",
       "icons": [
-            {
-                "src": "/icons/android-chrome-192x192.png",
-                "sizes": "192x192"
-            }
-        ]
+        {
+          "src": "/icons/android-chrome-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }
