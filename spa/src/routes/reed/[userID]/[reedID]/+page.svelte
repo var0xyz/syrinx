@@ -63,7 +63,7 @@
   });
 
   async function loadReed() {
-    if (reed) return;
+    if (reed && reed.headers.id === reedID) return;
     try {
       loadingReed = true;
       errorMessage = '';
