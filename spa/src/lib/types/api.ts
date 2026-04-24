@@ -24,4 +24,5 @@ export interface PublicKey extends Base {
   createdAt?: string;
   expiresAt?: string | null;
   identities?: PublicKeyIdentity[];
+  revoked?: { reason: string; timestamp: string } | null;
 };

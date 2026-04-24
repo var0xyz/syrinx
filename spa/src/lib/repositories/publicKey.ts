@@ -1,9 +1,11 @@
 import { dbService, type DbService } from '../services/db';
+import type * as api from '$lib/types/api';
 
 export interface PublicKey {
   fingerprint: string;
   armor: string;
   createdAt: Date;
+  revoked?: { reason: string; timestamp: string } | null;
 }
 
 export class PublicKeyRepository {
@@ -47,6 +49,12 @@ export class PublicKeyRepository {
    */
   async deletePublicKey(fingerprint: string): Promise<void> {
     await this.db.delete('publicKeys', fingerprint);
+  }
+
+  async setRevoked(fingerprint: string, revokedKey: api.PublicKey): Promise<void> {
+    const existing = await this.getPublicKey(fingerprint);
+    if (!existing) throw new Error(`Public key not found: ${fingerprint}`);
+    await this.db.put('publicKeys', { ...existing, armor: revokedKey.armor, revoked: true });
   }
 
   async listPublicKeys(): Promise<PublicKey[]> {

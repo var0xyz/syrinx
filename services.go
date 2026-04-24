@@ -605,6 +605,7 @@ func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt 
 	err = tx.QueryRow(`
 		INSERT INTO user_keys (fingerprint, owner, armor, created_at, expires_at)
 		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (fingerprint, owner) DO UPDATE SET fingerprint = EXCLUDED.fingerprint
 		RETURNING fingerprint, armor, created_at
 	`, fingerprint, userID, armor, createdAt, expiresAt,
 	).Scan(&key.Fingerprint, &key.Armor, &key.CreatedAt)

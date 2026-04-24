@@ -10,6 +10,7 @@
   import { dbService } from '$lib/services/db';
   import { reedsService, dispatchReedToQueue, initFollowcastIds, prependFollowcastId } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
+  import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
 
   // TODO: the echoing/replying header currently encodes only "authorId!reedId", which loses
   // the server dimension. Once we have federated reeds, this needs to become a full
@@ -39,6 +40,7 @@
       if (currentUser) {
         reedsService.processUnsignedReeds();
         followingRepository.syncPending();
+        pendingRevocationRepository.syncPending();
       }
     });
   } else if (!$isOnline) {
@@ -54,6 +56,7 @@
     if (user) {
       reedsService.processUnsignedReeds();
       followingRepository.syncPending();
+      pendingRevocationRepository.syncPending();
       serverConnection.connect()
         .then(() => {
           serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, reed_id }) => {

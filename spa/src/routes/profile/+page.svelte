@@ -5,7 +5,8 @@
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
   import { cryptoService } from '$lib/services/crypto';
-  import { getStorageQuota } from '$lib/services/pwa';
+  import { requestSigner } from '$lib/services/request-signer';
+  import { getStorageQuota, isOnline } from '$lib/services/pwa';
   import { dbService } from '$lib/services/db';
   import { localStorageService } from '$lib/services/localstorage';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -20,6 +21,7 @@
   import type { User } from '$lib/types/api';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
+  import { pendingRevocationRepository, pendingRevocationSynced } from '$lib/repositories/pendingRevocation';
 
   let user: User | null = null;
   let loading: boolean = true;
@@ -49,6 +51,9 @@
   let showRevokeModal: boolean = false;
   let revokeReason: string = '';
   let revokeEmail: string = '';
+  let isPendingRevocation: boolean = false;
+  let isKeyRevoked: boolean = false;
+  let revokedInfo: { reason: string; timestamp: string } | null = null;
 
   // Export state
   let exporting: boolean = false;
@@ -127,8 +132,13 @@
       if (publicKey) {
         publicKeyArmor = publicKey.armor;
         keyIdentity = await cryptoService.getKeyIdentity(publicKey.armor);
+        isKeyRevoked = !!publicKey.revoked;
+        revokedInfo = publicKey.revoked ?? null;
       }
       console.log("key identity:", keyIdentity);
+
+      isPendingRevocation = !!(await pendingRevocationRepository.get(fingerprint));
+      if (isPendingRevocation) isKeyRevoked = true;
     } catch (error) {
       console.error('Error loading key information:', error);
       notificationStore.error('Failed to load encryption key information');
@@ -136,6 +146,9 @@
       loadingKeyInfo = false;
     }
   }
+
+  // Re-load key info when a background sync completes
+  $: $pendingRevocationSynced, loadKeyInfo();
 
   function openRevokeModal(): void {
     showRevokeModal = true;
@@ -156,6 +169,8 @@
     }
 
     revoking = true;
+    const oldFingerprint = keyFingerprint;
+    const reason = revokeReason.trim();
     try {
       // Generate new key pair first (before revoking old key)
       const passphrase = authService.getPassphrase();
@@ -177,7 +192,7 @@
       ]);
 
       // Get old key's private key from IndexedDB
-      const oldPrivateKey = await privateKeyRepository.getPrivateKey(keyFingerprint);
+      const oldPrivateKey = await privateKeyRepository.getPrivateKey(oldFingerprint);
       if (!oldPrivateKey) {
         throw new Error('Old private key not found');
       }
@@ -196,27 +211,57 @@
         passphrase
       );
 
-      // Revoke the old key
-      await apiService.revokeKey(user.id, keyFingerprint, revokeReason.trim());
-
-      // Set new key as active key
-      authService.setActiveKey(newKeyPair.fingerprint);
-
-      // Upload new public key with both signatures
-      await apiService.addPublicKey(
-        user.id,
-        newKeyPair.publicKey,
-        keyFingerprint,
+      // Store pending revocation so it can be retried if the server call fails
+      await pendingRevocationRepository.put({
+        fingerprint: oldFingerprint,
+        reason,
+        userId: user.id,
+        newFingerprint: newKeyPair.fingerprint,
+        newPublicKey: newKeyPair.publicKey,
         revokedKeySignature,
-        newKeySignature
-      );
-
-      // Reload key info
-      await loadKeyInfo();
+        newKeySignature,
+      });
 
       closeRevokeModal();
-      notificationStore.success('Key revoked and new key generated successfully');
-      window.location.reload();
+      isPendingRevocation = true;
+      isKeyRevoked = true;
+      const progressNotificationId = notificationStore.info('Key revocation in progress...');
+
+      try {
+        // Revoke the old key — server returns the key with revoked: true
+        const revokedKey = await apiService.revokeKey(user.id, oldFingerprint, reason);
+
+        // Update local key records with revoked status
+        await publicKeyRepository.setRevoked(oldFingerprint, revokedKey);
+        await privateKeyRepository.setRevoked(oldFingerprint, revokedKey.revoked);
+
+        // Mark revokeKey as done so a retry skips it and goes straight to addPublicKey
+        await pendingRevocationRepository.markRevoked(oldFingerprint);
+
+        // Upload new public key with both signatures
+        await apiService.addPublicKey(
+          user.id,
+          newKeyPair.publicKey,
+          oldFingerprint,
+          revokedKeySignature,
+          newKeySignature
+        );
+
+        // Set new key as active key and reload the signer so subsequent API calls use it
+        authService.setActiveKey(newKeyPair.fingerprint);
+        await requestSigner.initializeWorker(newKeyPair.fingerprint, passphrase);
+
+        await pendingRevocationRepository.delete(oldFingerprint);
+        notificationStore.dismiss(progressNotificationId);
+        isPendingRevocation = false;
+        isKeyRevoked = true;
+        notificationStore.success('Key revoked and new key generated successfully');
+      } catch (serverError) {
+        // Leave pending record in place; syncPending() will retry on reconnect
+        console.error('Server revocation failed, will retry on reconnect:', serverError);
+        notificationStore.dismiss(progressNotificationId);
+        notificationStore.info('Revocation queued — will complete when back online');
+      }
     } catch (error) {
       console.error('Error revoking key:', error);
       notificationStore.error(
@@ -611,7 +656,16 @@
               <p>Loading key information...</p>
             </div>
           {:else if keyFingerprint}
-            <div class="encryption-key-info">
+            <div class="encryption-key-info" class:key-revoked={isKeyRevoked}>
+              {#if isKeyRevoked}
+                <div class="revoked-stamp">REVOKED</div>
+                {#if revokedInfo}
+                  <div class="key-field">
+                    <strong>Revoked</strong>
+                    <div class="key-value">{new Date(revokedInfo.timestamp).toLocaleString()} — {revokedInfo.reason}</div>
+                  </div>
+                {/if}
+              {/if}
               <div class="key-field">
                 <strong>Fingerprint</strong>
                 <div class="key-value fingerprint">{keyFingerprint}</div>
@@ -632,13 +686,26 @@
                 <div class="key-value public-key">{publicKeyArmor || 'Not available'}</div>
               </div>
               <div class="key-actions">
-                <button
-                  class="action-btn danger"
-                  on:click={openRevokeModal}
-                  disabled={revoking}
-                >
-                  Revoke Key
-                </button>
+                {#if isPendingRevocation}
+                  {#if !$isOnline}
+                    <div class="key-pending-banner">
+                      ⚠️ Key revocation is pending — will sync when back online.
+                    </div>
+                  {/if}
+                  <button class="action-btn" disabled>Revoking...</button>
+                {:else if isKeyRevoked}
+                  <button class="action-btn primary" on:click={loadKeyInfo}>
+                    Show new key
+                  </button>
+                {:else}
+                  <button
+                    class="action-btn danger"
+                    on:click={openRevokeModal}
+                    disabled={revoking}
+                  >
+                    Revoke Key
+                  </button>
+                {/if}
               </div>
             </div>
           {:else}
@@ -772,6 +839,11 @@
     cursor: pointer;
     font-size: 0.9rem;
     border: 1px solid var(--border);
+  }
+
+  .action-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .action-btn.secondary {
@@ -1096,6 +1168,41 @@
 
   .key-actions {
     margin-top: 0.5rem;
+  }
+
+  .key-pending-banner {
+    padding: 0.75rem 1rem;
+    background: #fffbe6;
+    border: 1px solid #ffe58f;
+    border-radius: 6px;
+    color: #7c5c00;
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .encryption-key-info.key-revoked {
+    position: relative;
+  }
+
+  .encryption-key-info.key-revoked > * :not(.revoked-stamp):not(.action-btn) {
+    opacity: 0.55;
+    filter: grayscale(0.6);
+  }
+
+  .revoked-stamp {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-15deg);
+    font-size: 2.5rem;
+    font-weight: 900;
+    color: #cc0000;
+    border: 4px solid #cc0000;
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 1;
+    letter-spacing: 4px;
   }
 
   /* Modal Styles */
