@@ -580,25 +580,6 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", newKey.Fingerprint).
 		Msg("Public key signature verified successfully")
 
-	// Check if key already exists
-	keyExists, err := h.services.db.PublicKeyExists(newKey.Fingerprint, userID)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", newKey.Fingerprint).
-			Err(err).Msg("Error checking if public key exists")
-		internalServerError(w)
-		return
-	}
-	if keyExists {
-		log.Info().
-			Str("fingerprint", newKey.Fingerprint).
-			Str("userID", userID).
-			Msg("Key with this fingerprint already exists")
-		writeResponse(w, http.StatusBadRequest, "Key with this fingerprint already exists")
-		return
-	}
-
 	publicKey, err := h.services.db.AddPublicKey(newKey.Fingerprint, userID, newKey.CreatedAt, newKey.ExpiresAt, armoredPublicKey)
 	if err != nil {
 		log.Error().
@@ -683,12 +664,22 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	key, err := h.services.db.GetPublicKey(userID, fingerprint)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", fingerprint).
+			Err(err).Msg("Error fetching revoked key")
+		internalServerError(w)
+		return
+	}
+
 	log.Info().
 		Str("userID", userID).
 		Str("fingerprint", fingerprint).
 		Msg("Key revoked successfully")
 
-	writeResponse(w, http.StatusOK, "Key revoked successfully")
+	writeResponse(w, http.StatusOK, key)
 }
 
 func (h *Handlers) GetReedsByUserID(w http.ResponseWriter, r *http.Request) {

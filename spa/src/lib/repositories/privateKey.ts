@@ -4,6 +4,7 @@ export interface PrivateKey {
   fingerprint: string;
   armor: string;
   createdAt: Date;
+  revoked?: { reason: string; timestamp: string } | null;
 }
 
 export class PrivateKeyRepository {
@@ -47,6 +48,13 @@ export class PrivateKeyRepository {
    */
   async deletePrivateKey(fingerprint: string): Promise<void> {
     await this.db.delete('privateKeys', fingerprint);
+  }
+
+  async setRevoked(fingerprint: string, revoked: { reason: string; timestamp: string } | null | undefined): Promise<void> {
+    if (!revoked) throw new Error(`setRevoked called with empty revocation info for: ${fingerprint}`);
+    const existing = await this.getPrivateKey(fingerprint);
+    if (!existing) throw new Error(`Private key not found: ${fingerprint}`);
+    await this.db.put('privateKeys', { ...existing, revoked });
   }
 
   /**

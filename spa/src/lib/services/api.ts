@@ -159,11 +159,11 @@ export const apiService = {
     return request(`/reeds/${userId}/${reedId}`, { method: 'DELETE' });
   },
 
-  async revokeKey(userId: string, fingerprint: string, reason: string): Promise<void> {
+  async revokeKey(userId: string, fingerprint: string, reason: string): Promise<api.PublicKey> {
     const formData = new URLSearchParams();
     formData.append('reason', reason);
 
-    return request(`/users/${userId}/keys/${fingerprint}/revoke`, {
+    return request<api.PublicKey>(`/users/${userId}/keys/${fingerprint}/revoke`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()

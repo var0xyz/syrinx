@@ -3,6 +3,7 @@
   import { authService } from '$lib/services/auth';
   import { cryptoService } from '$lib/services/crypto';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
+  import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
   import { reedsService, countMarkdownCharacters } from '$lib/repositories/reeds';
   import { notificationStore } from '$lib/stores/notifications';
   import { Reed } from '$lib/types/reed';
@@ -25,6 +26,15 @@
   let saveDraftTimeout;
   let errorMessage = '';
   let isPublishing = false;
+  let hasPendingRevocation = false;
+
+  $: if (open) checkPendingRevocation();
+
+  async function checkPendingRevocation() {
+    const fingerprint = authService.getActiveKeyFingerprint();
+    if (!fingerprint) return;
+    hasPendingRevocation = !!(await pendingRevocationRepository.get(fingerprint));
+  }
 
   $: title = replyingTo ? 'Reply Reed' : echoOf ? 'Echo Reed' : 'New Reed';
   $: placeholder = replyingTo ? "Write your reply" : echoOf ? "Comment on it (Optional)" : "What's on your mind?";
@@ -76,6 +86,11 @@
       const activeKeyFingerprint = authService.getActiveKeyFingerprint();
       if (!activeKeyFingerprint) {
         errorMessage = 'No active key fingerprint found.';
+        return;
+      }
+
+      if (hasPendingRevocation) {
+        errorMessage = 'Your key is pending revocation. Publishing is disabled.';
         return;
       }
 
@@ -146,12 +161,17 @@
           </div>
         </div>
       </div>
+      {#if hasPendingRevocation}
+        <div class="revocation-warning">
+          ⚠️ Your encryption key is being revoked. Publishing is disabled until the revocation is complete.
+        </div>
+      {/if}
       {#if errorMessage}
         <div class="error-message">{errorMessage}</div>
       {/if}
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" on:click={close} disabled={isPublishing}>Discard</button>
-        <button type="submit" class="btn btn-primary" disabled={isPublishing || isOverLimit || (contentRequired && !content.trim())}>
+        <button type="submit" class="btn btn-primary" disabled={isPublishing || isOverLimit || hasPendingRevocation || (contentRequired && !content.trim())}>
           {isPublishing ? 'Publishing...' : 'Publish'}
         </button>
       </div>
@@ -267,6 +287,17 @@
 
   .character-counter.over-limit {
     color: #ff6b6b;
+  }
+
+  .revocation-warning {
+    background: #fffbe6;
+    border: 1px solid #ffe58f;
+    border-radius: 8px;
+    color: #7c5c00;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+    font-size: 0.9rem;
+    line-height: 1.4;
   }
 
   .error-message {

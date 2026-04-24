@@ -18,7 +18,7 @@ function createNotificationStore() {
     notifications = value;
   });
 
-  function add(notification: Omit<Notification, 'id' | 'timer' | 'paused'>) {
+  function add(notification: Omit<Notification, 'id' | 'timer' | 'paused'>): string {
     const id = Math.random().toString(36).substr(2, 9);
     const duration = notification.duration || 5000;
 
@@ -37,6 +37,7 @@ function createNotificationStore() {
     }
 
     update((current) => [...current, newNotification]);
+    return id;
   }
 
   function dismiss(id: string) {
@@ -114,8 +115,8 @@ function createNotificationStore() {
     add({ type: 'warning', message });
   }
 
-  function info(message: string, duration?: number) {
-    add({ type: 'info', message, duration });
+  function info(message: string, duration?: number): string {
+    return add({ type: 'info', message, duration });
   }
 
   function success(message: string, duration?: number) {
