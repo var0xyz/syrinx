@@ -534,11 +534,6 @@ func (rs *RealtimeService) GetConnectionCount() int {
 	return rs.connManager.GetConnectionCount()
 }
 
-// GetOnlineUsers returns a list of online user IDs
-func (rs *RealtimeService) GetOnlineUsers() []string {
-	return rs.connManager.GetOnlineUsers()
-}
-
 func (rs *RealtimeService) dispatchNext(holderUserID string) {
 	pe, err := rs.dbService.GetNextPendingForHolder(holderUserID)
 	if err != nil {
