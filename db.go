@@ -77,7 +77,8 @@ func InitDB(db *sql.DB) error {
 	createUserCountTable := `
 	CREATE TABLE IF NOT EXISTS user_count (
 		id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-		count BIGINT DEFAULT 0
+		count BIGINT DEFAULT 0,
+		active BIGINT DEFAULT 0
 	);`
 
 	createUsersTable := `
@@ -289,7 +290,7 @@ func InitDB(db *sql.DB) error {
 
 	// Initialize user_count table with first row
 	initUserCountTable := `
-	INSERT INTO user_count (id, count) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;`
+	INSERT INTO user_count (id, count, active) VALUES (1, 0, 0) ON CONFLICT (id) DO NOTHING;`
 
 	queries := []string{
 		// Servers

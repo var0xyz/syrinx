@@ -305,7 +305,10 @@ func (s *DataService) CreateUser(username string) (*User, error) {
 	// Increment and get new count
 	var count uint64
 	err = tx.QueryRow(`
-		UPDATE user_count SET count = count + 1 WHERE id = 1 RETURNING count
+		UPDATE user_count
+		SET count = count + 1, active = active + 1
+		WHERE id = 1
+		RETURNING count
 	`).Scan(&count)
 	if err != nil {
 		return nil, err
@@ -355,7 +358,6 @@ func (s *DataService) CreateUser(username string) (*User, error) {
 		&bio,
 		&user.CreatedAt,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -476,11 +478,30 @@ func (s *DataService) GetUserByUsername(username string) (*User, error) {
 }
 
 func (s *DataService) DeleteUser(userID string) error {
-	_, err := s.db.Exec("DELETE FROM users WHERE id = $1", userID)
+	// Start transaction
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	return nil
+	defer tx.Rollback()
+
+	// Delete user
+	_, err = tx.Exec("DELETE FROM users WHERE id = $1", userID)
+	if err != nil {
+		return err
+	}
+
+	// Decrement active user count
+	_, err = tx.Exec(`
+		UPDATE user_count
+		SET active = active - 1
+		WHERE id = 1
+	`)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (s *DataService) FollowUser(followerID, userID string) error {
