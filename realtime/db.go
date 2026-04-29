@@ -80,55 +80,6 @@ func (ds *DBService) MarkUserOffline(userID string) error {
 	return nil
 }
 
-// GetOnlineUsers returns a list of currently online user IDs
-func (ds *DBService) GetOnlineUsers() ([]string, error) {
-	rows, err := ds.db.Query(`
-		SELECT user_id FROM online_users
-		ORDER BY created_at DESC
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var users []string
-	for rows.Next() {
-		var userID string
-		if err := rows.Scan(&userID); err != nil {
-			return nil, err
-		}
-		users = append(users, userID)
-	}
-
-	return users, nil
-}
-
-// CleanupStaleConnections removes connections older than the specified duration
-func (ds *DBService) CleanupStaleConnections(maxAge time.Duration) error {
-	cutoff := time.Now().Add(-maxAge)
-
-	result, err := ds.db.Exec(`
-		DELETE FROM online_users WHERE created_at < $1
-	`, cutoff)
-
-	if err != nil {
-		log.Error().
-			Err(err).
-			Msg("Failed to cleanup stale connections")
-		return err
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected > 0 {
-		log.Info().
-			Int64("count", rowsAffected).
-			Dur("maxAge", maxAge).
-			Msg("Cleaned up stale connections")
-	}
-
-	return nil
-}
-
 // GetUserPublicKey retrieves a user's public key by fingerprint
 func (ds *DBService) GetUserPublicKey(userID, fingerprint string) (string, error) {
 	var armor string

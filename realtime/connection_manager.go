@@ -166,15 +166,3 @@ func (cm *ConnectionManager) GetConnectionCount() int {
 	}
 	return total
 }
-
-// GetOnlineUsers returns a list of online user IDs
-func (cm *ConnectionManager) GetOnlineUsers() []string {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	users := make([]string, 0, len(cm.userConnections))
-	for userID := range cm.userConnections {
-		users = append(users, userID)
-	}
-	return users
-}
