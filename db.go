@@ -288,6 +288,57 @@ func InitDB(db *sql.DB) error {
 		ON profile_subscriptions(author_user_id);
 	`
 
+	// ///////// //
+	//   Chats   //
+	// ///////// //
+
+	createChatsTable := `
+	CREATE TABLE IF NOT EXISTS chats (
+		chat_id VARCHAR(255) PRIMARY KEY,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createChatParticipantsTable := `
+	CREATE TABLE IF NOT EXISTS chat_participants (
+		chat_id VARCHAR(255) NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (chat_id, user_id)
+	);`
+
+	createChatParticipantsIndex := `
+	CREATE INDEX IF NOT EXISTS idx_chat_participants_user ON chat_participants(user_id);
+	`
+
+	createChatRequestsTable := `
+	CREATE TABLE IF NOT EXISTS chat_requests (
+		chat_id      VARCHAR(255) NOT NULL UNIQUE,
+		sender_id    VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		recipient_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (sender_id, recipient_id)
+	);`
+
+	createChatRequestsIndex := `
+	CREATE INDEX IF NOT EXISTS idx_chat_requests_recipient ON chat_requests(recipient_id);
+	`
+
+	createBlockedUsersTable := `
+	CREATE TABLE IF NOT EXISTS blocked_users (
+		blocker_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		blocked_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		notified TIMESTAMP,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (blocker_id, blocked_user_id)
+	);`
+
+	createBlockedUsersIndex := `
+	CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked_user_id ON blocked_users(blocked_user_id);
+	`
+
 	// Initialize user_count table with first row
 	initUserCountTable := `
 	INSERT INTO user_count (id, count, active) VALUES (1, 0, 0) ON CONFLICT (id) DO NOTHING;`
@@ -339,6 +390,18 @@ func InitDB(db *sql.DB) error {
 
 		createPendingReedRequestsTable,
 		createPendingReedRequestsIndexes,
+
+		// Chats
+		createChatsTable,
+
+		createChatParticipantsTable,
+		createChatParticipantsIndex,
+
+		createChatRequestsTable,
+		createChatRequestsIndex,
+
+		createBlockedUsersTable,
+		createBlockedUsersIndex,
 	}
 
 	for i, query := range queries {

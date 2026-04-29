@@ -9,12 +9,15 @@ type PendingRequest = { resolve: (data: any) => void; reject: (err: any) => void
 type RequestRecord = { data: any; status: 'new' | 'waiting' };
 
 export enum ServerEvent {
-  ReedNotification = 'reed_notification',
-  RelayRequest     = 'RELAY_REQUEST',
-  RequestAck       = 'REQUEST_ACK',
-  DataResponse     = 'DATA_RESPONSE',
-  BroadcastReed    = 'BROADCAST_REED',
-  ReedNotFound     = 'REED_NOT_FOUND',
+  BlockEvent          = 'BLOCK_EVENT',
+  BroadcastReed       = 'BROADCAST_REED',
+  ChatRequest         = 'CHAT_REQUEST',
+  ChatRequestAccepted = 'CHAT_REQUEST_ACCEPTED',
+  DataResponse        = 'DATA_RESPONSE',
+  ReedNotFound        = 'REED_NOT_FOUND',
+  ReedNotification    = 'REED_NOTIFICATION',
+  RelayRequest        = 'RELAY_REQUEST',
+  RequestAck          = 'REQUEST_ACK',
 }
 
 class ServerConnection {
@@ -254,6 +257,22 @@ class ServerConnection {
 
   unsubscribeFromBroadcast(): void {
     this.send({ type: 'UNSUBSCRIBE_BROADCAST' });
+  }
+
+  notifyChatRequest(chatId: string, recipientId: string): void {
+    this.send({ type: 'NOTIFY_CHAT_REQUEST', data: { chatId, recipientId } });
+  }
+
+  notifyChatAccepted(chatId: string, initiatorId: string): void {
+    this.send({ type: 'NOTIFY_CHAT_ACCEPTED', data: { chatId, initiatorId } });
+  }
+
+  notifyBlock(blockedUserId: string): void {
+    this.send({ type: 'NOTIFY_BLOCK', data: { blockedUserId } });
+  }
+
+  ackBlockEvent(blockerId: string): void {
+    this.send({ type: 'BLOCK_EVENT_ACK', data: { blockerId } });
   }
 
   private send(message: { type: string; data?: any }): void {

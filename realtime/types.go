@@ -14,6 +14,9 @@ const (
 	NewReed BroadcastType = iota
 	UserUpdate
 	ReedDeleted
+	ChatRequest
+	ChatRequestAccepted
+	BlockEvent
 )
 
 // BroadcastMessage represents a message sent from the main app to the realtime service
@@ -62,6 +65,12 @@ func (bt BroadcastType) String() string {
 		return "UserUpdate"
 	case ReedDeleted:
 		return "ReedDeleted"
+	case ChatRequest:
+		return "ChatRequest"
+	case ChatRequestAccepted:
+		return "ChatRequestAccepted"
+	case BlockEvent:
+		return "BlockEvent"
 	default:
 		return "Unknown"
 	}

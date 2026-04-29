@@ -12,6 +12,7 @@ import (
 
 	"syrinx/realtime"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
@@ -37,6 +38,18 @@ type Signature struct {
 	Algorithm string    `json:"algorithm"`
 	Signature string    `json:"signature"`
 }
+
+type initiateChatResponse struct {
+	ChatID string `json:"chatId"`
+}
+
+type acceptChatResponse struct{}
+
+type denyChatResponse struct{}
+
+type blockUserResponse struct{}
+
+type unblockUserResponse struct{}
 
 // ///////////// //
 //   Utilities  //
@@ -216,7 +229,6 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusCreated, user)
 }
 
-
 func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("CheckUsername request received")
@@ -263,6 +275,19 @@ func (h *Handlers) GetUser(w http.ResponseWriter, r *http.Request) {
 	userID := mux.Vars(r)["userID"]
 	if userID == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		return
+	}
+
+	callerID := h.getUserID(r)
+
+	blocked, err := h.services.db.IsBlockedBy(callerID, userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error checking block status")
+		internalServerError(w)
+		return
+	}
+	if blocked {
+		writeResponse(w, http.StatusNotFound, "User not found")
 		return
 	}
 
@@ -971,4 +996,167 @@ func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeResponse(w, http.StatusOK, "Signature verification successful")
+}
+
+// ///////// //
+//   Chats  //
+// ///////// //
+
+func (h *Handlers) InitiateChat(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	senderID := h.getUserID(r)
+	recipientID := mux.Vars(r)["userID"]
+
+	exists, err := h.services.db.UserExists(recipientID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error checking recipient existence")
+		internalServerError(w)
+		return
+	}
+	if !exists {
+		writeResponse(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	blocked, err := h.services.db.IsBlockedBy(senderID, recipientID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error checking block status")
+		internalServerError(w)
+		return
+	}
+	if blocked {
+		writeResponse(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	existing, err := h.services.db.GetChatRequestBySenderRecipient(senderID, recipientID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error checking existing chat request")
+		internalServerError(w)
+		return
+	}
+	if existing != nil {
+		writeResponse(w, http.StatusOK, initiateChatResponse{ChatID: existing.ChatID})
+		return
+	}
+
+	accepted, err := h.services.db.ChatAlreadyAccepted(senderID, recipientID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error checking accepted chats")
+		internalServerError(w)
+		return
+	}
+	if accepted {
+		writeResponse(w, http.StatusConflict, "Chat already established")
+		return
+	}
+
+	chatIDv7, err := uuid.NewV7()
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	chatID := chatIDv7.String()
+
+	if err := h.services.db.CreateChatRequest(ChatRequest{
+		ChatID:      chatID,
+		SenderID:    senderID,
+		RecipientID: recipientID,
+	}); err != nil {
+		log.Error().Err(err).Msg("Error creating chat request")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, initiateChatResponse{ChatID: chatID})
+}
+
+func (h *Handlers) AcceptChat(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	callerID := h.getUserID(r)
+	chatID := mux.Vars(r)["chatID"]
+
+	chatReq, err := h.services.db.GetChatRequestByID(chatID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error getting chat request")
+		internalServerError(w)
+		return
+	}
+	if chatReq == nil {
+		accepted, err := h.services.db.ChatExists(chatID)
+		if err != nil {
+			internalServerError(w)
+			return
+		}
+		if accepted {
+			writeResponse(w, http.StatusOK, acceptChatResponse{})
+		} else {
+			writeResponse(w, http.StatusNotFound, "Chat request not found")
+		}
+		return
+	} else if chatReq.RecipientID != callerID {
+		writeResponse(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	if err := h.services.db.AcceptChatRequest(chatID, chatReq.SenderID, callerID); err != nil {
+		log.Error().Err(err).Msg("Error accepting chat request")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, acceptChatResponse{})
+}
+
+func (h *Handlers) DenyChat(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	callerID := h.getUserID(r)
+	chatID := mux.Vars(r)["chatID"]
+
+	if err := h.services.db.DeleteChatRequest(chatID, callerID); err != nil {
+		log.Error().Err(err).Msg("Error denying chat request")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, denyChatResponse{})
+}
+
+func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	callerID := h.getUserID(r)
+	targetID := mux.Vars(r)["userID"]
+
+	exists, err := h.services.db.UserExists(targetID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error checking user existence")
+		internalServerError(w)
+		return
+	}
+	if !exists {
+		writeResponse(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	if err := h.services.db.BlockUser(callerID, targetID); err != nil {
+		log.Error().Err(err).Msg("Error blocking user")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, blockUserResponse{})
+}
+
+func (h *Handlers) UnblockUser(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	callerID := h.getUserID(r)
+	targetID := mux.Vars(r)["userID"]
+
+	if err := h.services.db.UnblockUser(callerID, targetID); err != nil {
+		log.Error().Err(err).Msg("Error unblocking user")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, unblockUserResponse{})
 }

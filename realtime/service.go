@@ -416,6 +416,34 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 	case "UNSUBSCRIBE_PROFILE":
 		rs.handleUnsubscribeProfile(client, jsonMsg)
 
+	case "NOTIFY_CHAT_REQUEST":
+		dataBytes, _ := json.Marshal(jsonMsg["data"])
+		var data NotifyChatRequestData
+		if err := json.Unmarshal(dataBytes, &data); err == nil {
+			rs.handleNotifyChatRequest(client, data)
+		}
+
+	case "NOTIFY_CHAT_ACCEPTED":
+		dataBytes, _ := json.Marshal(jsonMsg["data"])
+		var data NotifyChatAcceptedData
+		if err := json.Unmarshal(dataBytes, &data); err == nil {
+			rs.handleNotifyChatAccepted(client, data)
+		}
+
+	case "NOTIFY_BLOCK":
+		dataBytes, _ := json.Marshal(jsonMsg["data"])
+		var data NotifyBlockData
+		if err := json.Unmarshal(dataBytes, &data); err == nil {
+			rs.handleNotifyBlock(client, data)
+		}
+
+	case "BLOCK_EVENT_ACK":
+		dataBytes, _ := json.Marshal(jsonMsg["data"])
+		var data BlockEventAckData
+		if err := json.Unmarshal(dataBytes, &data); err == nil {
+			rs.handleBlockEventAck(client, data)
+		}
+
 	default:
 		log.Warn().Str("type", msgType).Msg("Unknown JSON WebSocket message type")
 	}
@@ -844,7 +872,94 @@ func (rs *RealtimeService) redispatchPendingRequests(requesterUserID string) {
 
 func (rs *RealtimeService) handleUserCameOnline(client *Client) {
 	// Nothing sent until client signals readiness via SYNC_REQUEST
+
+	// Deliver any undelivered chat requests (recipient was offline when sender initiated).
+	chatReqs, err := rs.dbService.GetPendingChatRequests(client.userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", client.userID).Msg("Failed to get pending chat requests")
+	} else {
+		for _, req := range chatReqs {
+			msg := NewChatRequestMsg(ChatRequestData{
+				ChatID:   req.ChatID,
+				SenderID: req.SenderID,
+			})
+			if err := rs.connManager.SendToUser(client.userID, msg); err != nil {
+				log.Error().Err(err).Str("chatID", req.ChatID).Msg("Failed to deliver pending chat request")
+			}
+		}
+	}
+
+	// Deliver any pending block events.
+	blockers, err := rs.dbService.GetUnnotifiedBlockers(client.userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", client.userID).Msg("Failed to get unnotified blockers")
+	} else {
+		for _, blockerID := range blockers {
+			if err := rs.connManager.SendToUser(client.userID, NewBlockEventMsg(blockerID)); err != nil {
+				log.Error().Err(err).Str("blockerID", blockerID).Msg("Failed to send block event")
+				continue
+			}
+			if err := rs.dbService.MarkBlockerNotified(blockerID, client.userID); err != nil {
+				log.Error().Err(err).Str("blockerID", blockerID).Msg("Failed to mark blocker notified")
+			}
+		}
+	}
 }
+
+// handleNotifyChatRequest routes a CHAT_REQUEST event to the recipient.
+// The client sends this after a successful POST /api/chat/initiate.
+func (rs *RealtimeService) handleNotifyChatRequest(client *Client, data NotifyChatRequestData) {
+	if data.ChatID == "" || data.RecipientID == "" {
+		return
+	}
+	ok, err := rs.dbService.ChatRequestExists(data.ChatID, client.userID)
+	if err != nil || !ok {
+		return
+	}
+	_ = rs.connManager.SendToUser(data.RecipientID, NewChatRequestMsg(ChatRequestData{
+		ChatID:   data.ChatID,
+		SenderID: client.userID,
+	}))
+}
+
+// handleNotifyChatAccepted sends CHAT_REQUEST_ACCEPTED to the initiator.
+// Called after POST /api/chat/accept.
+func (rs *RealtimeService) handleNotifyChatAccepted(client *Client, data NotifyChatAcceptedData) {
+	if data.ChatID == "" || data.InitiatorID == "" {
+		return
+	}
+	_ = rs.connManager.SendToUser(data.InitiatorID, NewChatRequestAcceptedMsg(data.ChatID))
+}
+
+// handleNotifyBlock sends a BLOCK_EVENT to the blocked user and marks it delivered.
+// Called after POST /api/users/{userID}/block.
+func (rs *RealtimeService) handleNotifyBlock(client *Client, data NotifyBlockData) {
+	if data.BlockedUserID == "" {
+		return
+	}
+	ok, err := rs.dbService.BlockExists(client.userID, data.BlockedUserID)
+	if err != nil || !ok {
+		return
+	}
+	if err := rs.connManager.SendToUser(data.BlockedUserID, NewBlockEventMsg(client.userID)); err != nil {
+		return
+	}
+	if err := rs.dbService.MarkBlockerNotified(client.userID, data.BlockedUserID); err != nil {
+		log.Error().Err(err).Msg("Failed to mark block event notified")
+	}
+}
+
+// handleBlockEventAck marks the block event as delivered. Called when the client
+// sends BLOCK_EVENT_ACK after wiping the blocker's data.
+func (rs *RealtimeService) handleBlockEventAck(client *Client, data BlockEventAckData) {
+	if data.BlockerID == "" {
+		return
+	}
+	if err := rs.dbService.MarkBlockerNotified(data.BlockerID, client.userID); err != nil {
+		log.Error().Err(err).Str("blockerID", data.BlockerID).Msg("Failed to mark block event notified")
+	}
+}
+
 
 func (rs *RealtimeService) catchUp(userID, requestID string) {
 	unallocated, err := rs.dbService.GetMissingOut(userID)

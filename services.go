@@ -995,3 +995,149 @@ func (s *MarkdownService) ParseMarkdown(reed string) string {
 
 	return reed
 }
+
+// =========== //
+//    Chats    //
+// =========== //
+
+type ChatRequest struct {
+	ChatID      string
+	SenderID    string
+	RecipientID string
+}
+
+func (s *DataService) GetChatRequestBySenderRecipient(senderID, recipientID string) (*ChatRequest, error) {
+	var req ChatRequest
+	err := s.db.QueryRow(`
+		SELECT chat_id, sender_id, recipient_id
+		FROM chat_requests
+		WHERE sender_id = $1 AND recipient_id = $2
+	`, senderID, recipientID).Scan(&req.ChatID, &req.SenderID, &req.RecipientID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+func (s *DataService) GetChatRequestByID(chatID string) (*ChatRequest, error) {
+	var req ChatRequest
+	err := s.db.QueryRow(`
+		SELECT chat_id, sender_id, recipient_id
+		FROM chat_requests
+		WHERE chat_id = $1
+	`, chatID).Scan(&req.ChatID, &req.SenderID, &req.RecipientID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+func (s *DataService) ChatAlreadyAccepted(senderID, recipientID string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM chat_participants cp1
+			JOIN chat_participants cp2 ON cp1.chat_id = cp2.chat_id
+			WHERE cp1.user_id = $1 AND cp2.user_id = $2
+		)
+	`, senderID, recipientID).Scan(&exists)
+	return exists, err
+}
+
+func (s *DataService) CreateChatRequest(req ChatRequest) error {
+	_, err := s.db.Exec(`
+		INSERT INTO chat_requests (chat_id, sender_id, recipient_id)
+		VALUES ($1, $2, $3)
+	`, req.ChatID, req.SenderID, req.RecipientID)
+	return err
+}
+
+// AcceptChatRequest promotes a pending chat request into an established chat.
+func (s *DataService) AcceptChatRequest(chatID, senderID, recipientID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`INSERT INTO chats (chat_id) VALUES ($1)`, chatID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO chat_participants (chat_id, user_id) VALUES ($1, $2)`, chatID, senderID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO chat_participants (chat_id, user_id) VALUES ($1, $2)`, chatID, recipientID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM chat_requests WHERE chat_id = $1`, chatID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (s *DataService) DeleteChatRequest(chatID, recipientID string) error {
+	_, err := s.db.Exec(`
+		DELETE FROM chat_requests WHERE chat_id = $1 AND recipient_id = $2
+	`, chatID, recipientID)
+	return err
+}
+
+func (s *DataService) IsParticipant(chatID, userID string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM chat_participants WHERE chat_id = $1 AND user_id = $2)
+	`, chatID, userID).Scan(&exists)
+	return exists, err
+}
+
+// IsBlockedBy returns true if recipientID has blocked senderID.
+func (s *DataService) IsBlockedBy(senderID, recipientID string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM blocked_users WHERE blocker_id = $1 AND blocked_user_id = $2)
+	`, recipientID, senderID).Scan(&exists)
+	return exists, err
+}
+
+func (s *DataService) BlockUser(blockerID, blockedUserID string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO blocked_users (blocker_id, blocked_user_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, blockerID, blockedUserID)
+	return err
+}
+
+func (s *DataService) MarkBlockEventNotified(blockerID, blockedUserID string) error {
+	_, err := s.db.Exec(`
+		UPDATE blocked_users SET notified = NOW()
+		WHERE blocker_id = $1 AND blocked_user_id = $2
+	`, blockerID, blockedUserID)
+	return err
+}
+
+func (s *DataService) UnblockUser(blockerID, blockedUserID string) error {
+	_, err := s.db.Exec(`
+		DELETE FROM blocked_users WHERE blocker_id = $1 AND blocked_user_id = $2
+	`, blockerID, blockedUserID)
+	return err
+}
+
+func (s *DataService) UserExists(userID string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`, userID).Scan(&exists)
+	return exists, err
+}
+
+func (s *DataService) ChatExists(chatID string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM chats WHERE chat_id = $1)`, chatID).Scan(&exists)
+	return exists, err
+}

@@ -93,6 +93,28 @@ type UnsubscribeProfileData struct {
 	UserID string `json:"user_id"`
 }
 
+// NotifyChatRequestData is the payload of an incoming NOTIFY_CHAT_REQUEST message.
+type NotifyChatRequestData struct {
+	ChatID      string `json:"chatId"`
+	RecipientID string `json:"recipientId"`
+}
+
+// NotifyChatAcceptedData is the payload of an incoming NOTIFY_CHAT_ACCEPTED message.
+type NotifyChatAcceptedData struct {
+	ChatID      string `json:"chatId"`
+	InitiatorID string `json:"initiatorId"`
+}
+
+// NotifyBlockData is the payload of an incoming NOTIFY_BLOCK message.
+type NotifyBlockData struct {
+	BlockedUserID string `json:"blockedUserId"`
+}
+
+// BlockEventAckData is the payload of an incoming BLOCK_EVENT_ACK message.
+type BlockEventAckData struct {
+	BlockerID string `json:"blockerId"`
+}
+
 // ReedNotFoundMsg is sent from the server to a requester when the requested reed does not exist.
 type ReedNotFoundMsg struct {
 	Type string           `json:"type"`
@@ -106,4 +128,47 @@ type ReedNotFoundData struct {
 
 func NewReedNotFoundMsg(requestID, reedID string) ReedNotFoundMsg {
 	return ReedNotFoundMsg{Type: "REED_NOT_FOUND", Data: ReedNotFoundData{RequestID: requestID, ReedID: reedID}}
+}
+
+// ChatRequestMsg is sent to the recipient when a new chat request arrives.
+type ChatRequestMsg struct {
+	Type string          `json:"type"`
+	Data ChatRequestData `json:"data"`
+}
+
+type ChatRequestData struct {
+	ChatID   string `json:"chatId"`
+	SenderID string `json:"senderId"`
+}
+
+func NewChatRequestMsg(data ChatRequestData) ChatRequestMsg {
+	return ChatRequestMsg{Type: "CHAT_REQUEST", Data: data}
+}
+
+// ChatRequestAcceptedMsg is sent to the initiator when their request is accepted.
+type ChatRequestAcceptedMsg struct {
+	Type string                  `json:"type"`
+	Data ChatRequestAcceptedData `json:"data"`
+}
+
+type ChatRequestAcceptedData struct {
+	ChatID string `json:"chatId"`
+}
+
+func NewChatRequestAcceptedMsg(chatID string) ChatRequestAcceptedMsg {
+	return ChatRequestAcceptedMsg{Type: "CHAT_REQUEST_ACCEPTED", Data: ChatRequestAcceptedData{ChatID: chatID}}
+}
+
+// BlockEventMsg is sent to a blocked user to wipe data for the blocker.
+type BlockEventMsg struct {
+	Type string         `json:"type"`
+	Data BlockEventData `json:"data"`
+}
+
+type BlockEventData struct {
+	BlockerID string `json:"blockerId"`
+}
+
+func NewBlockEventMsg(blockerID string) BlockEventMsg {
+	return BlockEventMsg{Type: "BLOCK_EVENT", Data: BlockEventData{BlockerID: blockerID}}
 }

@@ -650,3 +650,78 @@ func (ds *DBService) ReedExists(reedID string) (bool, error) {
 	err := ds.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM reeds WHERE id = $1)`, reedID).Scan(&exists)
 	return exists, err
 }
+
+// GetUnnotifiedBlockers returns blocker IDs that have not yet been delivered to userID.
+func (ds *DBService) GetUnnotifiedBlockers(userID string) ([]string, error) {
+	rows, err := ds.db.Query(`
+		SELECT blocker_id FROM blocked_users
+		WHERE blocked_user_id = $1 AND notified IS NULL
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// MarkBlockerNotified sets notified = NOW() for the given (blocker, blocked) pair.
+func (ds *DBService) MarkBlockerNotified(blockerID, blockedUserID string) error {
+	_, err := ds.db.Exec(`
+		UPDATE blocked_users SET notified = NOW()
+		WHERE blocker_id = $1 AND blocked_user_id = $2
+	`, blockerID, blockedUserID)
+	return err
+}
+
+// PendingChatRequest holds the fields needed to deliver a chat request via WS on connect.
+type PendingChatRequest struct {
+	ChatID   string
+	SenderID string
+}
+
+// GetPendingChatRequests returns all outstanding chat requests where userID is the recipient.
+func (ds *DBService) GetPendingChatRequests(recipientID string) ([]PendingChatRequest, error) {
+	rows, err := ds.db.Query(`
+		SELECT chat_id, sender_id FROM chat_requests WHERE recipient_id = $1
+	`, recipientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var reqs []PendingChatRequest
+	for rows.Next() {
+		var r PendingChatRequest
+		if err := rows.Scan(&r.ChatID, &r.SenderID); err != nil {
+			return nil, err
+		}
+		reqs = append(reqs, r)
+	}
+	return reqs, nil
+}
+
+// ChatRequestExists returns true if a chat request with the given chatID was sent by senderID.
+func (ds *DBService) ChatRequestExists(chatID, senderID string) (bool, error) {
+	var exists bool
+	err := ds.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM chat_requests WHERE chat_id = $1 AND sender_id = $2)
+	`, chatID, senderID).Scan(&exists)
+	return exists, err
+}
+
+// BlockExists returns true if blockerID has blocked blockedUserID.
+func (ds *DBService) BlockExists(blockerID, blockedUserID string) (bool, error) {
+	var exists bool
+	err := ds.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM blocked_users WHERE blocker_id = $1 AND blocked_user_id = $2)
+	`, blockerID, blockedUserID).Scan(&exists)
+	return exists, err
+}

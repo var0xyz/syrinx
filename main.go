@@ -185,6 +185,19 @@ func main() {
 	api.HandleFunc("/reeds/{userID}/{reedID}/verify", h.VerifySignature).Methods("POST")
 	api.HandleFunc("/reeds/{userID}/{reedID}/verify", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/users/{userID}/block", h.BlockUser).Methods("POST")
+	api.HandleFunc("/users/{userID}/block", h.UnblockUser).Methods("DELETE")
+	api.HandleFunc("/users/{userID}/block", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/chat/initiate/{userID}", h.InitiateChat).Methods("POST")
+	api.HandleFunc("/chat/initiate/{userID}", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/chat/accept/{chatID}", h.AcceptChat).Methods("POST")
+	api.HandleFunc("/chat/accept/{chatID}", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/chat/deny/{chatID}", h.DenyChat).Methods("POST")
+	api.HandleFunc("/chat/deny/{chatID}", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}).Methods("GET")
