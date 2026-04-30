@@ -1,9 +1,11 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import { followingRepository } from '$lib/repositories/following';
+  import { chatRepository } from '$lib/repositories/chat';
 
   export let user;
   export let editable = false;
@@ -12,12 +14,36 @@
   const dispatch = createEventDispatcher();
 
   let following = false;
+  let blocked = false;
 
   onMount(async () => {
     if (!isOwner && user?.id) {
       following = await followingRepository.isFollowing(user.id);
+      blocked = await chatRepository.isBlocked(user.id);
     }
   });
+
+  function openChat() {
+    goto(`/chat/${user.server}/${user.id}`);
+  }
+
+  async function toggleBlock() {
+    try {
+      if (blocked) {
+        await chatRepository.unblock(user.id);
+        blocked = false;
+        notificationStore.success('User unblocked');
+      } else {
+        await chatRepository.block(user.id);
+        serverConnection.notifyBlock(user.id);
+        blocked = true;
+        notificationStore.success('User blocked');
+      }
+    } catch (err) {
+      console.error('Failed to toggle block:', err);
+      notificationStore.error('Action failed');
+    }
+  }
 
   async function toggleFollow() {
     if (following) {
@@ -83,6 +109,12 @@
     <div class="profile-actions">
       <button class="action-btn" class:primary={!following} class:secondary={following} on:click={toggleFollow}>
         {following ? 'Unfollow' : 'Follow'}
+      </button>
+    </div>
+    <div class="profile-actions secondary-actions">
+      <button class="action-btn secondary" on:click={openChat}>Chat</button>
+      <button class="action-btn" class:danger={!blocked} class:secondary={blocked} on:click={toggleBlock}>
+        {blocked ? 'Unblock' : 'Block'}
       </button>
     </div>
   {/if}
@@ -200,6 +232,19 @@
 
   .action-btn.secondary:hover {
     background: var(--border);
+  }
+
+  .action-btn.danger {
+    background: #e53e3e;
+    color: #fff;
+  }
+
+  .action-btn.danger:hover {
+    opacity: 0.9;
+  }
+
+  .secondary-actions {
+    margin-top: 0.5rem;
   }
 
   @media (max-width: 768px) {

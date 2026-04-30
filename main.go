@@ -198,6 +198,15 @@ func main() {
 	api.HandleFunc("/chat/deny/{chatID}", h.DenyChat).Methods("POST")
 	api.HandleFunc("/chat/deny/{chatID}", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/chat/message/{chatID}", h.SendChatMessage).Methods("POST")
+	api.HandleFunc("/chat/message/{chatID}", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/chat/messages/{messageID}/ack", h.AckChatMessage).Methods("POST")
+	api.HandleFunc("/chat/messages/{messageID}/ack", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/chat/messages/{messageID}/reject", h.RejectChatMessage).Methods("POST")
+	api.HandleFunc("/chat/messages/{messageID}/reject", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}).Methods("GET")

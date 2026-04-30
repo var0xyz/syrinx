@@ -97,12 +97,24 @@ type UnsubscribeProfileData struct {
 type NotifyChatRequestData struct {
 	ChatID      string `json:"chatId"`
 	RecipientID string `json:"recipientId"`
+	Message     string `json:"message"`
 }
 
 // NotifyChatAcceptedData is the payload of an incoming NOTIFY_CHAT_ACCEPTED message.
 type NotifyChatAcceptedData struct {
 	ChatID      string `json:"chatId"`
 	InitiatorID string `json:"initiatorId"`
+}
+
+// DeliverChatMessageData is the payload of an incoming DELIVER_CHAT_MESSAGE message.
+type DeliverChatMessageData struct {
+	ChatID string `json:"chatId"`
+}
+
+// ConfirmDeliveryData is the payload of an incoming CONFIRM_DELIVERY message.
+type ConfirmDeliveryData struct {
+	MessageID string `json:"messageId"`
+	SenderID  string `json:"senderId"`
 }
 
 // NotifyBlockData is the payload of an incoming NOTIFY_BLOCK message.
@@ -113,6 +125,53 @@ type NotifyBlockData struct {
 // BlockEventAckData is the payload of an incoming BLOCK_EVENT_ACK message.
 type BlockEventAckData struct {
 	BlockerID string `json:"blockerId"`
+}
+
+// ChatMessageMsg is sent to a recipient to deliver a message.
+type ChatMessageMsg struct {
+	Type string          `json:"type"`
+	Data ChatMessageData `json:"data"`
+}
+
+type ChatMessageData struct {
+	ServerID  string `json:"serverId"`
+	ClientID  string `json:"clientId"`
+	ChatID    string `json:"chatId"`
+	SenderID  string `json:"senderId"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func NewChatMessageMsg(data ChatMessageData) ChatMessageMsg {
+	return ChatMessageMsg{Type: "CHAT_MESSAGE", Data: data}
+}
+
+// ChatDeliveryConfirmationMsg is sent to the sender when the recipient ACKs.
+type ChatDeliveryConfirmationMsg struct {
+	Type string                       `json:"type"`
+	Data ChatDeliveryConfirmationData `json:"data"`
+}
+
+type ChatDeliveryConfirmationData struct {
+	MessageID string `json:"messageId"`
+}
+
+func NewChatDeliveryConfirmationMsg(messageID string) ChatDeliveryConfirmationMsg {
+	return ChatDeliveryConfirmationMsg{Type: "CHAT_DELIVERY_CONFIRMATION", Data: ChatDeliveryConfirmationData{MessageID: messageID}}
+}
+
+// ChatSigVerifyFailedMsg is sent to the sender when the recipient rejects a message.
+type ChatSigVerifyFailedMsg struct {
+	Type string                  `json:"type"`
+	Data ChatSigVerifyFailedData `json:"data"`
+}
+
+type ChatSigVerifyFailedData struct {
+	MessageID string `json:"messageId"`
+}
+
+func NewChatSigVerifyFailedMsg(messageID string) ChatSigVerifyFailedMsg {
+	return ChatSigVerifyFailedMsg{Type: "CHAT_SIG_VERIFY_FAILED", Data: ChatSigVerifyFailedData{MessageID: messageID}}
 }
 
 // ReedNotFoundMsg is sent from the server to a requester when the requested reed does not exist.
@@ -139,6 +198,7 @@ type ChatRequestMsg struct {
 type ChatRequestData struct {
 	ChatID   string `json:"chatId"`
 	SenderID string `json:"senderId"`
+	Message  string `json:"message"`
 }
 
 func NewChatRequestMsg(data ChatRequestData) ChatRequestMsg {

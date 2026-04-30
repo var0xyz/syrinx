@@ -1002,10 +1002,20 @@ func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 //   Chats  //
 // ///////// //
 
+type initiateChatBody struct {
+	Message string `json:"message"`
+}
+
 func (h *Handlers) InitiateChat(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	senderID := h.getUserID(r)
 	recipientID := mux.Vars(r)["userID"]
+
+	var body initiateChatBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Message == "" {
+		writeResponse(w, http.StatusBadRequest, "message is required")
+		return
+	}
 
 	exists, err := h.services.db.UserExists(recipientID)
 	if err != nil {
@@ -1062,6 +1072,7 @@ func (h *Handlers) InitiateChat(w http.ResponseWriter, r *http.Request) {
 		ChatID:      chatID,
 		SenderID:    senderID,
 		RecipientID: recipientID,
+		Message:     body.Message,
 	}); err != nil {
 		log.Error().Err(err).Msg("Error creating chat request")
 		internalServerError(w)
@@ -1120,6 +1131,183 @@ func (h *Handlers) DenyChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeResponse(w, http.StatusOK, denyChatResponse{})
+}
+
+type sendChatMessageBody struct {
+	ClientID string `json:"clientId"`
+	Content  string `json:"content"`
+}
+
+type sendChatMessageResponse struct {
+	ServerID  string `json:"serverId"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func (h *Handlers) SendChatMessage(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	senderID := h.getUserID(r)
+	chatID := mux.Vars(r)["chatID"]
+
+	var body sendChatMessageBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ClientID == "" || body.Content == "" {
+		writeResponse(w, http.StatusBadRequest, "clientId and content are required")
+		return
+	}
+
+	chatExists, err := h.services.db.ChatExists(chatID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error checking chat")
+		internalServerError(w)
+		return
+	}
+	if !chatExists {
+		writeResponse(w, http.StatusNotFound, "Chat not found")
+		return
+	}
+
+	isMember, err := h.services.db.IsParticipant(chatID, senderID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error checking participant")
+		internalServerError(w)
+		return
+	}
+	if !isMember {
+		writeResponse(w, http.StatusForbidden, "Not a participant")
+		return
+	}
+
+	participants, err := h.services.db.GetChatParticipants(chatID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error getting participants")
+		internalServerError(w)
+		return
+	}
+	for _, pid := range participants {
+		if pid == senderID {
+			continue
+		}
+		blocked, err := h.services.db.IsBlockedBy(senderID, pid)
+		if err != nil {
+			log.Error().Err(err).Msg("Error checking block status")
+			internalServerError(w)
+			return
+		}
+		if blocked {
+			writeResponse(w, http.StatusNotFound, "User not found")
+			return
+		}
+	}
+
+	allowed, err := h.services.db.CheckAndUpdateChatRateLimit(senderID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error checking rate limit")
+		internalServerError(w)
+		return
+	}
+	if !allowed {
+		writeResponse(w, http.StatusTooManyRequests, "Rate limit exceeded")
+		return
+	}
+
+	serverIDv7, err := uuid.NewV7()
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	serverID := serverIDv7.String()
+
+	if err := h.services.db.CreateChatMessage(ChatMessage{
+		ServerID: serverID,
+		ClientID: body.ClientID,
+		ChatID:   chatID,
+		SenderID: senderID,
+		Content:  body.Content,
+	}); err != nil {
+		log.Error().Err(err).Msg("Error storing message")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, sendChatMessageResponse{
+		ServerID:  serverID,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+type ackChatMessageResponse struct{}
+
+func (h *Handlers) AckChatMessage(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	callerID := h.getUserID(r)
+	messageID := mux.Vars(r)["messageID"]
+
+	msg, err := h.services.db.GetChatMessage(messageID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error getting message")
+		internalServerError(w)
+		return
+	}
+	if msg == nil {
+		writeResponse(w, http.StatusNotFound, "Message not found")
+		return
+	}
+
+	isMember, err := h.services.db.IsParticipant(msg.ChatID, callerID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error checking participant")
+		internalServerError(w)
+		return
+	}
+	if !isMember || msg.SenderID == callerID {
+		writeResponse(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	if err := h.services.db.DeleteChatMessage(messageID); err != nil {
+		log.Error().Err(err).Msg("Error deleting message")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, ackChatMessageResponse{})
+}
+
+type rejectChatMessageResponse struct{}
+
+func (h *Handlers) RejectChatMessage(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	callerID := h.getUserID(r)
+	messageID := mux.Vars(r)["messageID"]
+
+	msg, err := h.services.db.GetChatMessage(messageID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error getting message")
+		internalServerError(w)
+		return
+	}
+	if msg == nil {
+		writeResponse(w, http.StatusNotFound, "Message not found")
+		return
+	}
+
+	isMember, err := h.services.db.IsParticipant(msg.ChatID, callerID)
+	if err != nil {
+		log.Error().Err(err).Msg("Error checking participant")
+		internalServerError(w)
+		return
+	}
+	if !isMember || msg.SenderID == callerID {
+		writeResponse(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	if err := h.services.db.DeleteChatMessage(messageID); err != nil {
+		log.Error().Err(err).Msg("Error deleting message")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, rejectChatMessageResponse{})
 }
 
 func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {

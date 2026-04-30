@@ -11,6 +11,12 @@
   import { reedsService, dispatchReedToQueue, initFollowcastIds, prependFollowcastId } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
   import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
+  import { chatRepository } from '$lib/repositories/chat';
+  import { apiService } from '$lib/services/api';
+  import { userRepository } from '$lib/repositories/user';
+  import { publicKeyRepository } from '$lib/repositories/publicKey';
+  import { pendingChatCount } from '$lib/stores/chat';
+  import { notificationStore } from '$lib/stores/notifications';
 
   // TODO: the echoing/replying header currently encodes only "authorId!reedId", which loses
   // the server dimension. Once we have federated reeds, this needs to become a full
@@ -91,8 +97,69 @@
       reedsService.processUnsignedReeds();
       followingRepository.syncPending();
       pendingRevocationRepository.syncPending();
+      chatRepository.pendingCount().then(n => pendingChatCount.set(n));
       serverConnection.connect()
-        .then(() => serverConnection.syncRequest())
+        .then(() => {
+          serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, reed_id }) => {
+            console.log('ServerConnection: relay request received for reed:', reed_id, 'event:', event_id);
+            serverConnection.storePendingRelayRequest(reed_id, event_id);
+            const reed = await dbService.get('reeds', reed_id);
+            if (reed) {
+              console.log('ServerConnection: reed found in IndexedDB, fulfilling relay:', reed_id);
+              serverConnection.fulfillPendingRelayRequest(reed_id, reed);
+            } else {
+              console.warn('ServerConnection: reed NOT found in IndexedDB, relay pending:', reed_id);
+            }
+          });
+          serverConnection.on(ServerEvent.DataResponse, async (data) => {
+            await reedsService.storeReed(data.data);
+            dispatchReedToQueue(data.data, ServerEvent.DataResponse);
+            prependFollowcastId(data.data.headers.id);
+            await requestReferencedReeds(data.data);
+          });
+          serverConnection.on(ServerEvent.BroadcastReed, (data) => {
+            // Broadcast reeds are ephemeral: never stored in IndexedDB.
+            dispatchReedToQueue(data.data, 'broadcast_reed');
+          });
+          serverConnection.on(ServerEvent.ChatRequest, async ({ chatId, senderId, message }) => {
+            const existing = await chatRepository.get(chatId);
+            if (existing) return;
+            await chatRepository.put({ id: chatId, userId: senderId, confirmed: false });
+            await chatRepository.putMessage({ id: chatId, clientId: chatId, chatId, authorId: senderId, content: message, status: 'delivered', createdAt: Date.now() });
+            pendingChatCount.update(n => n + 1);
+          });
+          serverConnection.on(ServerEvent.ChatRequestAccepted, async ({ chatId }) => {
+            const chat = await chatRepository.get(chatId);
+            if (!chat) return;
+            await chatRepository.put({ ...chat, confirmed: true, pending: false });
+            const other = await userRepository.getByUserId(chat.userId).catch(() => null);
+            const name = other?.username ?? chat.userId;
+            notificationStore.success(`${name} accepted your chat request`);
+          });
+          serverConnection.on(ServerEvent.ChatMessage, async ({ serverId, clientId, chatId, senderId, content, createdAt }) => {
+            const existing = await chatRepository.getMessage(serverId);
+            if (existing) return;
+            await chatRepository.putMessage({ id: serverId, clientId, chatId, authorId: senderId, content, status: 'delivered', createdAt: new Date(createdAt).getTime() });
+            await apiService.ackChatMessage(serverId);
+            serverConnection.confirmDelivery(serverId, senderId);
+          });
+          serverConnection.on(ServerEvent.ChatDeliveryConfirmation, async ({ messageId }) => {
+            await chatRepository.updateMessageStatus(messageId, 'delivered');
+          });
+          serverConnection.on(ServerEvent.ChatSigVerifyFailed, async ({ messageId }) => {
+            await chatRepository.updateMessageStatus(messageId, 'failed');
+          });
+          serverConnection.on(ServerEvent.BlockEvent, async ({ blockerId }) => {
+            const userRecord = await userRepository.getByUserId(blockerId);
+            if (userRecord?.fingerprint) {
+              await publicKeyRepository.deletePublicKey(userRecord.fingerprint);
+            }
+            await reedsService.deleteReedsByAuthor(blockerId);
+            await userRepository.delete(blockerId);
+            serverConnection.ackBlockEvent(blockerId);
+          });
+          serverConnection.syncRequest();
+        })
         .catch(err => console.error('ServerConnection failed:', err));
     }
   });

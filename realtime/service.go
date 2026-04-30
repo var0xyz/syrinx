@@ -430,6 +430,20 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 			rs.handleNotifyChatAccepted(client, data)
 		}
 
+	case "DELIVER_CHAT_MESSAGE":
+		dataBytes, _ := json.Marshal(jsonMsg["data"])
+		var data DeliverChatMessageData
+		if err := json.Unmarshal(dataBytes, &data); err == nil {
+			rs.handleDeliverChatMessage(client, data)
+		}
+
+	case "CONFIRM_DELIVERY":
+		dataBytes, _ := json.Marshal(jsonMsg["data"])
+		var data ConfirmDeliveryData
+		if err := json.Unmarshal(dataBytes, &data); err == nil {
+			rs.handleConfirmDelivery(client, data)
+		}
+
 	case "NOTIFY_BLOCK":
 		dataBytes, _ := json.Marshal(jsonMsg["data"])
 		var data NotifyBlockData
@@ -882,12 +896,16 @@ func (rs *RealtimeService) handleUserCameOnline(client *Client) {
 			msg := NewChatRequestMsg(ChatRequestData{
 				ChatID:   req.ChatID,
 				SenderID: req.SenderID,
+				Message:  req.Message,
 			})
 			if err := rs.connManager.SendToUser(client.userID, msg); err != nil {
 				log.Error().Err(err).Str("chatID", req.ChatID).Msg("Failed to deliver pending chat request")
 			}
 		}
 	}
+
+	// Deliver the oldest pending chat message (one at a time; next is sent after ACK).
+	rs.deliverNextChatMessage(client.userID)
 
 	// Deliver any pending block events.
 	blockers, err := rs.dbService.GetUnnotifiedBlockers(client.userID)
@@ -919,6 +937,7 @@ func (rs *RealtimeService) handleNotifyChatRequest(client *Client, data NotifyCh
 	_ = rs.connManager.SendToUser(data.RecipientID, NewChatRequestMsg(ChatRequestData{
 		ChatID:   data.ChatID,
 		SenderID: client.userID,
+		Message:  data.Message,
 	}))
 }
 
@@ -929,6 +948,53 @@ func (rs *RealtimeService) handleNotifyChatAccepted(client *Client, data NotifyC
 		return
 	}
 	_ = rs.connManager.SendToUser(data.InitiatorID, NewChatRequestAcceptedMsg(data.ChatID))
+}
+
+func (rs *RealtimeService) deliverNextChatMessage(userID string) {
+	m, err := rs.dbService.GetNextPendingChatMessage(userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to query next pending chat message")
+		return
+	}
+	if m == nil {
+		return
+	}
+	msg := NewChatMessageMsg(ChatMessageData{
+		ServerID:  m.ServerID,
+		ClientID:  m.ClientID,
+		ChatID:    m.ChatID,
+		SenderID:  m.SenderID,
+		Content:   m.Content,
+		CreatedAt: m.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
+	})
+	if err := rs.connManager.SendToUser(userID, msg); err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to deliver pending chat message")
+	}
+}
+
+// handleDeliverChatMessage triggers delivery to each recipient. Called after POST /api/chat/message.
+func (rs *RealtimeService) handleDeliverChatMessage(client *Client, data DeliverChatMessageData) {
+	if data.ChatID == "" {
+		return
+	}
+	recipients, err := rs.dbService.GetChatParticipants(data.ChatID, client.userID)
+	if err != nil {
+		log.Error().Err(err).Str("chatID", data.ChatID).Msg("Failed to get chat participants")
+		return
+	}
+	for _, recipientID := range recipients {
+		rs.deliverNextChatMessage(recipientID)
+	}
+}
+
+// handleConfirmDelivery sends CHAT_DELIVERY_CONFIRMATION and delivers the next message.
+// Called after POST /api/chat/messages/{id}/ack.
+func (rs *RealtimeService) handleConfirmDelivery(client *Client, data ConfirmDeliveryData) {
+	if data.MessageID == "" || data.SenderID == "" {
+		return
+	}
+	_ = rs.connManager.SendToUser(data.SenderID, NewChatDeliveryConfirmationMsg(data.MessageID))
+	rs.deliverNextChatMessage(client.userID)
 }
 
 // handleNotifyBlock sends a BLOCK_EVENT to the blocked user and marks it delivered.

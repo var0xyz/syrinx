@@ -651,6 +651,56 @@ func (ds *DBService) ReedExists(reedID string) (bool, error) {
 	return exists, err
 }
 
+// PendingChatMessage holds the fields needed to deliver a chat message via WS.
+type PendingChatMessage struct {
+	ServerID  string
+	ClientID  string
+	ChatID    string
+	SenderID  string
+	Content   string
+	CreatedAt time.Time
+}
+
+// GetNextPendingChatMessage returns the oldest undelivered chat message for userID.
+func (ds *DBService) GetNextPendingChatMessage(userID string) (*PendingChatMessage, error) {
+	var m PendingChatMessage
+	err := ds.db.QueryRow(`
+		SELECT cm.server_id, cm.client_id, cm.chat_id, cm.sender_id, cm.content, cm.created_at
+		FROM chat_messages cm
+		JOIN chat_participants cp ON cm.chat_id = cp.chat_id
+		WHERE cp.user_id = $1 AND cm.sender_id != $1
+		ORDER BY cm.created_at ASC
+		LIMIT 1
+	`, userID).Scan(&m.ServerID, &m.ClientID, &m.ChatID, &m.SenderID, &m.Content, &m.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// GetChatParticipants returns all user IDs in a chat, excluding excludeID.
+func (ds *DBService) GetChatParticipants(chatID, excludeID string) ([]string, error) {
+	rows, err := ds.db.Query(`
+		SELECT user_id FROM chat_participants WHERE chat_id = $1 AND user_id != $2
+	`, chatID, excludeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
 // GetUnnotifiedBlockers returns blocker IDs that have not yet been delivered to userID.
 func (ds *DBService) GetUnnotifiedBlockers(userID string) ([]string, error) {
 	rows, err := ds.db.Query(`
@@ -686,12 +736,13 @@ func (ds *DBService) MarkBlockerNotified(blockerID, blockedUserID string) error 
 type PendingChatRequest struct {
 	ChatID   string
 	SenderID string
+	Message  string
 }
 
 // GetPendingChatRequests returns all outstanding chat requests where userID is the recipient.
 func (ds *DBService) GetPendingChatRequests(recipientID string) ([]PendingChatRequest, error) {
 	rows, err := ds.db.Query(`
-		SELECT chat_id, sender_id FROM chat_requests WHERE recipient_id = $1
+		SELECT chat_id, sender_id, message FROM chat_requests WHERE recipient_id = $1
 	`, recipientID)
 	if err != nil {
 		return nil, err
@@ -700,7 +751,7 @@ func (ds *DBService) GetPendingChatRequests(recipientID string) ([]PendingChatRe
 	var reqs []PendingChatRequest
 	for rows.Next() {
 		var r PendingChatRequest
-		if err := rows.Scan(&r.ChatID, &r.SenderID); err != nil {
+		if err := rows.Scan(&r.ChatID, &r.SenderID, &r.Message); err != nil {
 			return nil, err
 		}
 		reqs = append(reqs, r)

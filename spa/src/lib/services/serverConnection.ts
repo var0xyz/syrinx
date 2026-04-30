@@ -9,15 +9,18 @@ type PendingRequest = { resolve: (data: any) => void; reject: (err: any) => void
 type RequestRecord = { data: any; status: 'new' | 'waiting' };
 
 export enum ServerEvent {
-  BlockEvent          = 'BLOCK_EVENT',
-  BroadcastReed       = 'BROADCAST_REED',
-  ChatRequest         = 'CHAT_REQUEST',
-  ChatRequestAccepted = 'CHAT_REQUEST_ACCEPTED',
-  DataResponse        = 'DATA_RESPONSE',
-  ReedNotFound        = 'REED_NOT_FOUND',
-  ReedNotification    = 'REED_NOTIFICATION',
-  RelayRequest        = 'RELAY_REQUEST',
-  RequestAck          = 'REQUEST_ACK',
+  BlockEvent               = 'BLOCK_EVENT',
+  BroadcastReed            = 'BROADCAST_REED',
+  ChatDeliveryConfirmation = 'CHAT_DELIVERY_CONFIRMATION',
+  ChatMessage              = 'CHAT_MESSAGE',
+  ChatRequest              = 'CHAT_REQUEST',
+  ChatRequestAccepted      = 'CHAT_REQUEST_ACCEPTED',
+  ChatSigVerifyFailed      = 'CHAT_SIG_VERIFY_FAILED',
+  DataResponse             = 'DATA_RESPONSE',
+  ReedNotFound             = 'REED_NOT_FOUND',
+  ReedNotification         = 'REED_NOTIFICATION',
+  RelayRequest             = 'RELAY_REQUEST',
+  RequestAck               = 'REQUEST_ACK',
 }
 
 class ServerConnection {
@@ -259,12 +262,20 @@ class ServerConnection {
     this.send({ type: 'UNSUBSCRIBE_BROADCAST' });
   }
 
-  notifyChatRequest(chatId: string, recipientId: string): void {
-    this.send({ type: 'NOTIFY_CHAT_REQUEST', data: { chatId, recipientId } });
+  notifyChatRequest(chatId: string, recipientId: string, message: string): void {
+    this.send({ type: 'NOTIFY_CHAT_REQUEST', data: { chatId, recipientId, message } });
   }
 
   notifyChatAccepted(chatId: string, initiatorId: string): void {
     this.send({ type: 'NOTIFY_CHAT_ACCEPTED', data: { chatId, initiatorId } });
+  }
+
+  deliverChatMessage(chatId: string): void {
+    this.send({ type: 'DELIVER_CHAT_MESSAGE', data: { chatId } });
+  }
+
+  confirmDelivery(messageId: string, senderId: string): void {
+    this.send({ type: 'CONFIRM_DELIVERY', data: { messageId, senderId } });
   }
 
   notifyBlock(blockedUserId: string): void {

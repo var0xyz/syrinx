@@ -16,6 +16,9 @@ const (
 	ReedDeleted
 	ChatRequest
 	ChatRequestAccepted
+	ChatMessageDelivery
+	ChatDeliveryConfirmation
+	ChatSigVerifyFailed
 	BlockEvent
 )
 
@@ -69,6 +72,12 @@ func (bt BroadcastType) String() string {
 		return "ChatRequest"
 	case ChatRequestAccepted:
 		return "ChatRequestAccepted"
+	case ChatMessageDelivery:
+		return "ChatMessageDelivery"
+	case ChatDeliveryConfirmation:
+		return "ChatDeliveryConfirmation"
+	case ChatSigVerifyFailed:
+		return "ChatSigVerifyFailed"
 	case BlockEvent:
 		return "BlockEvent"
 	default:

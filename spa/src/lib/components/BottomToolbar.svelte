@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+  import { pendingChatCount } from '$lib/stores/chat';
+
   export let currentPage = 'reeds';
 </script>
 
@@ -12,7 +14,12 @@
     <span class="label">Feed</span>
   </a>
   <a href="/chats" class="toolbar-btn" class:active={currentPage === 'chats'}>
-    <span class="icon">💬</span>
+    <span class="icon-wrap">
+      <span class="icon">💬</span>
+      {#if $pendingChatCount > 0}
+        <span class="badge">{$pendingChatCount}</span>
+      {/if}
+    </span>
     <span class="label">Chats</span>
   </a>
   <a href="/profile" class="toolbar-btn" class:active={currentPage === 'profile'}>
@@ -73,7 +80,33 @@
     font-weight: 500;
   }
 
-  /* Responsive Design */
+  .icon-wrap {
+    position: relative;
+    display: inline-flex;
+    margin-bottom: 0.25rem;
+  }
+
+  .icon-wrap .icon {
+    margin-bottom: 0;
+  }
+
+  .badge {
+    position: absolute;
+    top: -6px;
+    right: -10px;
+    background: #e53e3e;
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 700;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 99px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+  }
+
   @media (max-width: 768px) {
     .toolbar-btn .label {
       font-size: 0.7rem;

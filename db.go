@@ -213,6 +213,7 @@ func InitDB(db *sql.DB) error {
 	CREATE UNLOGGED TABLE IF NOT EXISTS online_users (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 		sync_request_id VARCHAR(255),
+		last_chat_at TIMESTAMP,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
@@ -316,6 +317,7 @@ func InitDB(db *sql.DB) error {
 		chat_id      VARCHAR(255) NOT NULL UNIQUE,
 		sender_id    VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		recipient_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		message      TEXT NOT NULL,
 		created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 		PRIMARY KEY (sender_id, recipient_id)
@@ -323,6 +325,20 @@ func InitDB(db *sql.DB) error {
 
 	createChatRequestsIndex := `
 	CREATE INDEX IF NOT EXISTS idx_chat_requests_recipient ON chat_requests(recipient_id);
+	`
+
+	createChatMessagesTable := `
+	CREATE TABLE IF NOT EXISTS chat_messages (
+		server_id    VARCHAR(255) PRIMARY KEY,
+		client_id    VARCHAR(255) NOT NULL,
+		chat_id      VARCHAR(255) NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+		sender_id    VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		content      TEXT NOT NULL,
+		created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createChatMessagesIndex := `
+	CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id ON chat_messages(chat_id);
 	`
 
 	createBlockedUsersTable := `
@@ -399,6 +415,9 @@ func InitDB(db *sql.DB) error {
 
 		createChatRequestsTable,
 		createChatRequestsIndex,
+
+		createChatMessagesTable,
+		createChatMessagesIndex,
 
 		createBlockedUsersTable,
 		createBlockedUsersIndex,

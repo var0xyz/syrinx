@@ -1004,15 +1004,16 @@ type ChatRequest struct {
 	ChatID      string
 	SenderID    string
 	RecipientID string
+	Message     string
 }
 
 func (s *DataService) GetChatRequestBySenderRecipient(senderID, recipientID string) (*ChatRequest, error) {
 	var req ChatRequest
 	err := s.db.QueryRow(`
-		SELECT chat_id, sender_id, recipient_id
+		SELECT chat_id, sender_id, recipient_id, message
 		FROM chat_requests
 		WHERE sender_id = $1 AND recipient_id = $2
-	`, senderID, recipientID).Scan(&req.ChatID, &req.SenderID, &req.RecipientID)
+	`, senderID, recipientID).Scan(&req.ChatID, &req.SenderID, &req.RecipientID, &req.Message)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1025,10 +1026,10 @@ func (s *DataService) GetChatRequestBySenderRecipient(senderID, recipientID stri
 func (s *DataService) GetChatRequestByID(chatID string) (*ChatRequest, error) {
 	var req ChatRequest
 	err := s.db.QueryRow(`
-		SELECT chat_id, sender_id, recipient_id
+		SELECT chat_id, sender_id, recipient_id, message
 		FROM chat_requests
 		WHERE chat_id = $1
-	`, chatID).Scan(&req.ChatID, &req.SenderID, &req.RecipientID)
+	`, chatID).Scan(&req.ChatID, &req.SenderID, &req.RecipientID, &req.Message)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1052,9 +1053,9 @@ func (s *DataService) ChatAlreadyAccepted(senderID, recipientID string) (bool, e
 
 func (s *DataService) CreateChatRequest(req ChatRequest) error {
 	_, err := s.db.Exec(`
-		INSERT INTO chat_requests (chat_id, sender_id, recipient_id)
-		VALUES ($1, $2, $3)
-	`, req.ChatID, req.SenderID, req.RecipientID)
+		INSERT INTO chat_requests (chat_id, sender_id, recipient_id, message)
+		VALUES ($1, $2, $3, $4)
+	`, req.ChatID, req.SenderID, req.RecipientID, req.Message)
 	return err
 }
 
@@ -1095,6 +1096,23 @@ func (s *DataService) IsParticipant(chatID, userID string) (bool, error) {
 		SELECT EXISTS(SELECT 1 FROM chat_participants WHERE chat_id = $1 AND user_id = $2)
 	`, chatID, userID).Scan(&exists)
 	return exists, err
+}
+
+func (s *DataService) GetChatParticipants(chatID string) ([]string, error) {
+	rows, err := s.db.Query(`SELECT user_id FROM chat_participants WHERE chat_id = $1`, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 // IsBlockedBy returns true if recipientID has blocked senderID.
@@ -1140,4 +1158,61 @@ func (s *DataService) ChatExists(chatID string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM chats WHERE chat_id = $1)`, chatID).Scan(&exists)
 	return exists, err
+}
+
+type ChatMessage struct {
+	ServerID  string
+	ClientID  string
+	ChatID    string
+	SenderID  string
+	Content   string
+	CreatedAt time.Time
+}
+
+func (s *DataService) CreateChatMessage(msg ChatMessage) error {
+	_, err := s.db.Exec(`
+		INSERT INTO chat_messages (server_id, client_id, chat_id, sender_id, content)
+		VALUES ($1, $2, $3, $4, $5)
+	`, msg.ServerID, msg.ClientID, msg.ChatID, msg.SenderID, msg.Content)
+	return err
+}
+
+func (s *DataService) GetChatMessage(serverID string) (*ChatMessage, error) {
+	var msg ChatMessage
+	err := s.db.QueryRow(`
+		SELECT server_id, client_id, chat_id, sender_id, content, created_at
+		FROM chat_messages WHERE server_id = $1
+	`, serverID).Scan(&msg.ServerID, &msg.ClientID, &msg.ChatID, &msg.SenderID, &msg.Content, &msg.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+func (s *DataService) DeleteChatMessage(serverID string) error {
+	_, err := s.db.Exec(`DELETE FROM chat_messages WHERE server_id = $1`, serverID)
+	return err
+}
+
+func (s *DataService) UpdateLastChatAt(userID string) error {
+	_, err := s.db.Exec(`UPDATE online_users SET last_chat_at = NOW() WHERE user_id = $1`, userID)
+	return err
+}
+
+func (s *DataService) CheckAndUpdateChatRateLimit(userID string) (bool, error) {
+	var lastChatAt sql.NullTime
+	err := s.db.QueryRow(`SELECT last_chat_at FROM online_users WHERE user_id = $1`, userID).Scan(&lastChatAt)
+	if err != nil && err != sql.ErrNoRows {
+		return false, err
+	}
+	if lastChatAt.Valid && time.Since(lastChatAt.Time) < time.Second {
+		return false, nil
+	}
+	if err := s.UpdateLastChatAt(userID); err != nil {
+		return false, err
+	}
+	return true, nil
 }

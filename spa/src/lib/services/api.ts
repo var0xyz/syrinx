@@ -206,5 +206,45 @@ export const apiService = {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()
     });
-  }
+  },
+
+  async initiateChat(userId: string, message: string): Promise<{ chatId: string }> {
+    return request<{ chatId: string }>(`/chat/initiate/${userId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+  },
+
+  async acceptChat(chatId: string): Promise<void> {
+    return request<void>(`/chat/accept/${chatId}`, { method: 'POST' });
+  },
+
+  async denyChat(chatId: string): Promise<void> {
+    return request<void>(`/chat/deny/${chatId}`, { method: 'POST' });
+  },
+
+  async sendChatMessage(chatId: string, clientId: string, content: string): Promise<{ serverId: string; createdAt: string }> {
+    return request<{ serverId: string; createdAt: string }>(`/chat/message/${chatId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, content }),
+    });
+  },
+
+  async ackChatMessage(messageId: string): Promise<void> {
+    return request<void>(`/chat/messages/${messageId}/ack`, { method: 'POST' });
+  },
+
+  async rejectChatMessage(messageId: string): Promise<void> {
+    return request<void>(`/chat/messages/${messageId}/reject`, { method: 'POST' });
+  },
+
+  async blockUser(userId: string): Promise<void> {
+    return request<void>(`/users/${userId}/block`, { method: 'POST' });
+  },
+
+  async unblockUser(userId: string): Promise<void> {
+    return request<void>(`/users/${userId}/block`, { method: 'DELETE' });
+  },
 };
