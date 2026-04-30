@@ -94,7 +94,7 @@
       // signed immediately without a page reload. This also replaces any
       // stale key from a previous session that may still be loaded.
       await requestSigner.initializeWorker(keyPair.fingerprint, password);
-      serverConnection.connect();
+      serverConnection.connect().then(() => serverConnection.syncRequest());
 
       // Redirect to welcome page
       goto("/welcome");

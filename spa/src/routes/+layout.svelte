@@ -50,6 +50,30 @@
   onMount(async () => {
     initializePWA();
 
+    // Register WS handlers unconditionally so they're in place whether the
+    // connection is established now (existing user) or later (post-signup).
+    serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, reed_id }) => {
+      console.log('ServerConnection: relay request received for reed:', reed_id, 'event:', event_id);
+      serverConnection.storePendingRelayRequest(reed_id, event_id);
+      const reed = await dbService.get('reeds', reed_id);
+      if (reed) {
+        console.log('ServerConnection: reed found in IndexedDB, fulfilling relay:', reed_id);
+        serverConnection.fulfillPendingRelayRequest(reed_id, reed);
+      } else {
+        console.warn('ServerConnection: reed NOT found in IndexedDB, relay pending:', reed_id);
+      }
+    });
+    serverConnection.on(ServerEvent.DataResponse, async (data) => {
+      await reedsService.storeReed(data.data);
+      dispatchReedToQueue(data.data, ServerEvent.DataResponse);
+      prependFollowcastId(data.data.headers.id);
+      await requestReferencedReeds(data.data);
+    });
+    serverConnection.on(ServerEvent.BroadcastReed, (data) => {
+      // Broadcast reeds are ephemeral: never stored in IndexedDB.
+      dispatchReedToQueue(data.data, 'broadcast_reed');
+    });
+
     // Check authentication status for header
     user = await authService.getCurrentUser();
 
@@ -58,30 +82,7 @@
       followingRepository.syncPending();
       pendingRevocationRepository.syncPending();
       serverConnection.connect()
-        .then(() => {
-          serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, reed_id }) => {
-            console.log('ServerConnection: relay request received for reed:', reed_id, 'event:', event_id);
-            serverConnection.storePendingRelayRequest(reed_id, event_id);
-            const reed = await dbService.get('reeds', reed_id);
-            if (reed) {
-              console.log('ServerConnection: reed found in IndexedDB, fulfilling relay:', reed_id);
-              serverConnection.fulfillPendingRelayRequest(reed_id, reed);
-            } else {
-              console.warn('ServerConnection: reed NOT found in IndexedDB, relay pending:', reed_id);
-            }
-          });
-          serverConnection.on(ServerEvent.DataResponse, async (data) => {
-            await reedsService.storeReed(data.data);
-            dispatchReedToQueue(data.data, ServerEvent.DataResponse);
-            prependFollowcastId(data.data.headers.id);
-            await requestReferencedReeds(data.data);
-          });
-          serverConnection.on(ServerEvent.BroadcastReed, (data) => {
-            // Broadcast reeds are ephemeral: never stored in IndexedDB.
-            dispatchReedToQueue(data.data, 'broadcast_reed');
-          });
-          serverConnection.syncRequest();
-        })
+        .then(() => serverConnection.syncRequest())
         .catch(err => console.error('ServerConnection failed:', err));
     }
   });
