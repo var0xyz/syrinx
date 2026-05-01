@@ -389,6 +389,27 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 	case "RELAY_RESPONSE":
 		rs.handleRelayResponse(client, jsonMsg)
 
+	case "RELAY_MISS":
+		dataBytes, _ := json.Marshal(jsonMsg["data"])
+		var d RelayMissData
+		if err := json.Unmarshal(dataBytes, &d); err == nil {
+			rs.handleRelayMiss(client, d)
+		}
+
+	case "DATA_ACK":
+		dataBytes, _ := json.Marshal(jsonMsg["data"])
+		var d DataAckData
+		if err := json.Unmarshal(dataBytes, &d); err == nil {
+			rs.handleDataAck(client, d)
+		}
+
+	case "DATA_INVALID":
+		dataBytes, _ := json.Marshal(jsonMsg["data"])
+		var d DataInvalidData
+		if err := json.Unmarshal(dataBytes, &d); err == nil {
+			rs.handleDataInvalid(client, d)
+		}
+
 	case "SUBSCRIBE_PROFILE":
 		rs.handleSubscribeProfile(client, jsonMsg)
 
@@ -634,21 +655,95 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]in
 		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewBroadcastReedMsg(pe.ReedID, data["data"])); err != nil {
 			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver broadcast reed")
 		}
+		if err := rs.dbService.DeletePendingEvent(eventID); err != nil {
+			log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event")
+		}
 	} else {
-		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewDataResponseMsg(pe.RequestID, pe.ReedID, data["data"])); err != nil {
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, data["data"])); err != nil {
 			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver data response")
 		}
-	}
-
-	if err := rs.dbService.DeletePendingEvent(eventID); err != nil {
-		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event")
-	}
-
-	if err := rs.dbService.AllocateReed(pe.ReedID, pe.RequesterUserID); err != nil {
-		log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", pe.RequesterUserID).Msg("Failed to allocate reed")
+		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	}
 
 	rs.dispatchNext(client.userID)
+}
+
+// handleRelayMiss is called when a holder receives a RELAY_REQUEST but no longer has the reed.
+// It removes the holder's allocation so they won't be selected again, resets the pending event
+// so it can be re-dispatched, and looks for another online holder to take over.
+func (rs *RealtimeService) handleRelayMiss(client *Client, data RelayMissData) {
+	if data.EventID == "" {
+		return
+	}
+	eventID := data.EventID
+
+	pe, err := rs.dbService.GetPendingReedRequest(eventID)
+	if err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event for relay miss")
+		rs.dispatchNext(client.userID)
+		return
+	}
+	if pe == nil {
+		rs.dispatchNext(client.userID)
+		return
+	}
+
+	if err := rs.dbService.DeleteReedAllocation(pe.ReedID, client.userID); err != nil {
+		log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to remove allocation on relay miss")
+	}
+
+	if err := rs.dbService.ResetDispatchedAt(eventID); err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to reset dispatched_at on relay miss")
+	}
+
+	rs.dispatchNext(client.userID)
+
+	newHolder, err := rs.dbService.GetOnlineReedHolder(pe.ReedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to find new holder after relay miss")
+		return
+	}
+	if newHolder != "" {
+		rs.dispatchNext(newHolder)
+	}
+}
+
+// handleDataAck is called when the viewer has received and verified a reed successfully.
+// It allocates the reed to the viewer and removes the pending event.
+func (rs *RealtimeService) handleDataAck(client *Client, data DataAckData) {
+	if data.EventID == "" {
+		return
+	}
+	eventID := data.EventID
+
+	pe, err := rs.dbService.GetPendingReedRequest(eventID)
+	if err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event for data ack")
+		return
+	}
+	if pe == nil {
+		return
+	}
+
+	if err := rs.dbService.AllocateReed(pe.ReedID, client.userID); err != nil {
+		log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to allocate reed on data ack")
+	}
+
+	if err := rs.dbService.DeletePendingEvent(eventID); err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event on data ack")
+	}
+}
+
+// handleDataInvalid is called when the viewer received a reed but its signature failed verification.
+// The pending event is removed without allocating the reed to the viewer.
+func (rs *RealtimeService) handleDataInvalid(client *Client, data DataInvalidData) {
+	if data.EventID == "" {
+		return
+	}
+
+	if err := rs.dbService.DeletePendingEvent(data.EventID); err != nil {
+		log.Error().Err(err).Str("eventID", data.EventID).Msg("Failed to delete pending event on data invalid")
+	}
 }
 
 func (rs *RealtimeService) handleSubscribeProfile(client *Client, msg map[string]interface{}) {

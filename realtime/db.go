@@ -320,6 +320,14 @@ func (ds *DBService) AllocateReed(reedID, userID string) error {
 	return err
 }
 
+// DeleteReedAllocation removes a single holder's allocation for a reed.
+func (ds *DBService) DeleteReedAllocation(reedID, userID string) error {
+	_, err := ds.db.Exec(`
+		DELETE FROM reed_allocations WHERE reed_id = $1 AND user_id = $2
+	`, reedID, userID)
+	return err
+}
+
 // GetNextPendingForHolder returns the oldest undispatched pending event for reeds held by holderUserID.
 func (ds *DBService) GetNextPendingForHolder(holderUserID string) (*PendingReedRequest, error) {
 	var pe PendingReedRequest
