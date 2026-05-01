@@ -48,18 +48,34 @@ type DataResponseMsg struct {
 }
 
 type DataResponseData struct {
+	EventID   string      `json:"event_id"`
 	RequestID string      `json:"request_id"`
 	ReedID    string      `json:"reed_id"`
 	Data      interface{} `json:"data"`
 }
 
-func NewDataResponseMsg(requestID, reedID string, data interface{}) DataResponseMsg {
-	return DataResponseMsg{Type: "DATA_RESPONSE", Data: DataResponseData{RequestID: requestID, ReedID: reedID, Data: data}}
+func NewDataResponseMsg(eventID, requestID, reedID string, data interface{}) DataResponseMsg {
+	return DataResponseMsg{Type: "DATA_RESPONSE", Data: DataResponseData{EventID: eventID, RequestID: requestID, ReedID: reedID, Data: data}}
 }
 
 // NewBroadcastReedMsg builds a BROADCAST_REED delivery message (no request_id needed).
 func NewBroadcastReedMsg(reedID string, data interface{}) DataResponseMsg {
 	return DataResponseMsg{Type: "BROADCAST_REED", Data: DataResponseData{ReedID: reedID, Data: data}}
+}
+
+// RelayMissData is the parsed payload of an incoming RELAY_MISS message.
+type RelayMissData struct {
+	EventID string `json:"event_id"`
+}
+
+// DataAckData is the parsed payload of an incoming DATA_ACK message.
+type DataAckData struct {
+	EventID string `json:"event_id"`
+}
+
+// DataInvalidData is the parsed payload of an incoming DATA_INVALID message.
+type DataInvalidData struct {
+	EventID string `json:"event_id"`
 }
 
 // SyncRequestData is the parsed payload of an incoming SYNC_REQUEST message.

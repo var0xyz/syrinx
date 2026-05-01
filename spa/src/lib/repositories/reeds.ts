@@ -4,6 +4,7 @@
  */
 
 import { apiService as api } from '../services/api';
+import { cryptoService } from '../services/crypto';
 import { dbService } from '../services/db';
 import { Reed as ReedClass, type ReedType } from '$lib/types/reed';
 import type { User } from '$lib/types/api';
@@ -103,6 +104,27 @@ class ReedsService {
     } catch (error) {
       console.error('Failed to get reed:', error);
       throw error;
+    }
+  }
+
+  async validateReed(reed: ReedType): Promise<boolean> {
+    if (!reed.signature || !reed.headers?.author || !reed.headers?.fingerprint) {
+      return false;
+    }
+    try {
+      const publicKeyData = await api.getPublicKey(reed.headers.author, reed.headers.fingerprint);
+      const message =
+        "---\n" +
+        Object.keys(reed.headers)
+          .filter((k) => !!reed.headers[k])
+          .sort()
+          .map((k) => `${k}: ${reed.headers[k]}`)
+          .join('\n') +
+        "\n---\n" +
+        reed.content;
+      return await cryptoService.verifySignature(message, atob(reed.signature), publicKeyData.armor);
+    } catch {
+      return false;
     }
   }
 

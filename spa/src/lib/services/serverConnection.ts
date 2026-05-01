@@ -193,6 +193,18 @@ class ServerConnection {
     this.send({ type: 'RELAY_RESPONSE', data: { event_id: eventId, data } });
   }
 
+  sendRelayMiss(eventId: string): void {
+    this.send({ type: 'RELAY_MISS', data: { event_id: eventId } });
+  }
+
+  sendDataAck(eventId: string): void {
+    this.send({ type: 'DATA_ACK', data: { event_id: eventId } });
+  }
+
+  sendDataInvalid(eventId: string): void {
+    this.send({ type: 'DATA_INVALID', data: { event_id: eventId } });
+  }
+
   // Store a relay request that couldn't be fulfilled immediately because the reed
   // wasn't in IndexedDB yet. Keyed by md5(RELAY_REQUEST:serverId/userId/reedId) so
   // storeReedInIndexedDB can find and dispatch it after the write completes.

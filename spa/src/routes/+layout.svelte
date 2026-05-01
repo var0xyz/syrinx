@@ -60,14 +60,24 @@
         console.log('ServerConnection: reed found in IndexedDB, fulfilling relay:', reed_id);
         serverConnection.fulfillPendingRelayRequest(reed_id, reed);
       } else {
-        console.warn('ServerConnection: reed NOT found in IndexedDB, relay pending:', reed_id);
+        console.warn('ServerConnection: reed NOT found in IndexedDB, sending relay miss:', reed_id);
+        serverConnection.sendRelayMiss(event_id);
       }
     });
     serverConnection.on(ServerEvent.DataResponse, async (data) => {
-      await reedsService.storeReed(data.data);
-      dispatchReedToQueue(data.data, ServerEvent.DataResponse);
-      prependFollowcastId(data.data.headers.id);
-      await requestReferencedReeds(data.data);
+      const reed = data.data;
+      const eventId = data.event_id;
+
+      if (await reedsService.validateReed(reed)) {
+        await reedsService.storeReed(reed);
+        serverConnection.sendDataAck(eventId);
+        dispatchReedToQueue(reed, ServerEvent.DataResponse);
+        prependFollowcastId(reed.headers.id);
+        await requestReferencedReeds(reed);
+      } else {
+        console.warn('ServerConnection: invalid reed signature, rejecting:', reed.headers.id);
+        serverConnection.sendDataInvalid(eventId);
+      }
     });
     serverConnection.on(ServerEvent.BroadcastReed, (data) => {
       // Broadcast reeds are ephemeral: never stored in IndexedDB.
