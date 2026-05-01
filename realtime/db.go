@@ -411,6 +411,36 @@ func (ds *DBService) GetPendingEventsForUser(userID string) ([]PendingReedReques
 	return results, nil
 }
 
+// GetPendingRequestsForRequester returns all pending reed requests initiated by the given user.
+func (ds *DBService) GetPendingRequestsForRequester(requesterUserID string) ([]PendingReedRequest, error) {
+	rows, err := ds.db.Query(`
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, prr.reed_id
+		FROM pending_reed_requests prr
+		JOIN pending_events pe ON pe.event_id = prr.event_id
+		WHERE pe.requester_user_id = $1
+	`, requesterUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []PendingReedRequest
+	for rows.Next() {
+		var prr PendingReedRequest
+		if err := rows.Scan(
+			&prr.EventID,
+			&prr.RequestID,
+			&prr.RequesterUserID,
+			&prr.EventName,
+			&prr.ReedID,
+		); err != nil {
+			return nil, err
+		}
+		results = append(results, prr)
+	}
+	return results, nil
+}
+
 // GetMissingReedIDsForViewer returns IDs of reeds by authorID that viewerID does not yet have,
 // excluding any IDs the viewer already holds locally (ownedIDs) or via reed_allocations.
 func (ds *DBService) GetMissingReedIDsForViewer(authorID, viewerID string, ownedIDs []string) ([]string, error) {
