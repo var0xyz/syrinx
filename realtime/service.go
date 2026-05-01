@@ -722,6 +722,29 @@ func (rs *RealtimeService) handleSyncRequest(client *Client, data SyncRequestDat
 	}
 	rs.catchUp(client.userID, data.RequestID)
 	rs.dispatchNext(client.userID)
+	rs.redispatchPendingRequests(client.userID)
+}
+
+func (rs *RealtimeService) redispatchPendingRequests(requesterUserID string) {
+	requests, err := rs.dbService.GetPendingRequestsForRequester(requesterUserID)
+	if err != nil {
+		log.Error().Err(err).Str("requesterUserID", requesterUserID).Msg("Failed to get pending requests for requester")
+		return
+	}
+	for _, req := range requests {
+		if err := rs.dbService.ResetDispatchedAt(req.EventID); err != nil {
+			log.Error().Err(err).Str("eventID", req.EventID).Msg("Failed to reset dispatched_at for pending request")
+			continue
+		}
+		holder, err := rs.dbService.GetOnlineReedHolder(req.ReedID)
+		if err != nil {
+			log.Error().Err(err).Str("reedID", req.ReedID).Msg("Failed to get holder for pending request on reconnect")
+			continue
+		}
+		if holder != "" {
+			rs.dispatchNext(holder)
+		}
+	}
 }
 
 func (rs *RealtimeService) handleUserCameOnline(client *Client) {
