@@ -245,7 +245,7 @@
           <div class="bottom-bar input-bar">
             <textarea
               class="msg-input"
-              placeholder={!chat ? 'Send a message to start a conversation…' : 'Type a message…'}
+              placeholder={!chat ? 'Start the conversation…' : 'Type a message…'}
               bind:value={messageText}
               on:keydown={onKeydown}
               rows="1"
