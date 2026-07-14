@@ -602,3 +602,42 @@ Content here`
 		}
 	})
 }
+
+func TestGenerateUserID(t *testing.T) {
+	const iterations = 1000
+
+	allowed := make(map[byte]bool, len(alphabet))
+	for i := 0; i < len(alphabet); i++ {
+		allowed[alphabet[i]] = true
+	}
+
+	seen := make(map[string]struct{}, iterations)
+	for i := 0; i < iterations; i++ {
+		id, err := generateUserID()
+		if err != nil {
+			t.Fatalf("generateUserID() error = %v", err)
+		}
+		if len(id) != 12 {
+			t.Fatalf("generateUserID() len = %d, want 12 (id=%q)", len(id), id)
+		}
+		for j := 0; j < len(id); j++ {
+			if !allowed[id[j]] {
+				t.Fatalf("generateUserID() produced disallowed byte %q in %q", id[j], id)
+			}
+		}
+		if _, dup := seen[id]; dup {
+			t.Fatalf("generateUserID() produced duplicate %q within %d iterations", id, iterations)
+		}
+		seen[id] = struct{}{}
+	}
+}
+
+func TestGenerateServerIDLength(t *testing.T) {
+	id, err := generateServerID()
+	if err != nil {
+		t.Fatalf("generateServerID() error = %v", err)
+	}
+	if len(id) != 8 {
+		t.Fatalf("generateServerID() len = %d, want 8", len(id))
+	}
+}

@@ -276,10 +276,12 @@ These are prerequisites for the above:
   existing signature-auth middleware unchanged.
 - **Random user IDs.** Replace the Sqids + `user_count` counter in `CreateUser`
   with a random, server-scoped string (reuse the `generateServerID` alphabet at
-  ~12–14 chars, or base58 for nicer-looking IDs; insert with
-  `ON CONFLICT DO NOTHING` + retry). The ID is effectively the composite
-  `(serverID, userID)` globally, so collisions are a non-issue. `user_count`
-  becomes display-only and is no longer an ID source.
+  ~12–14 chars, or base58 for nicer-looking IDs). Pre-check with `SELECT
+  EXISTS (SELECT 1 FROM users WHERE id = $1)` and, on collision, surface an
+  error to the client so it retries; no server-side retry loop. The ID is
+  effectively the composite `(serverID, userID)` globally, so collisions are
+  a non-issue. The `user_count` table is dropped outright as part of the same
+  change (see Proposal 02).
 - **User notification system (does not exist yet).** A persisted, per-user
   system-message store surfaced on the profile page. Recovery uses it to tell a
   collision loser they were renamed and why; it flows independently of the
@@ -300,8 +302,6 @@ User-recoverable:
 
 Operator-restored (not from users): `servers` (preserved ID + name),
 `private_keys` (**full history**), `public_keys` (derived).
-
-Recomputed (display-only): `user_count`.
 
 Recovery-internal bookkeeping (not reconstructed from users):
 `unclaimed_accounts` — the gauge of restored accounts whose owner has not yet
@@ -453,12 +453,11 @@ confirmed.
 There is **no finalize step and no automatic completion signal** — the server
 cannot know whether every user has reported in (data on a lost device never
 arrives). Everything that used to be "finalize" happens continuously: usernames
-are resolved on collision (rule 3, Phase 1) and `user_count` is maintained
-incrementally (display-only). The one piece of recovery bookkeeping is the
-`unclaimed_accounts` gauge (Phase 1) — a recovery-only count of restored accounts
-whose owner has not yet proven presence. It is **not** a `users` column and
-**not** an auth gate; trust is still decided per request by cryptographic
-validity, not by any flag.
+are resolved on collision (rule 3, Phase 1). The one piece of recovery
+bookkeeping is the `unclaimed_accounts` gauge (Phase 1) — a recovery-only count
+of restored accounts whose owner has not yet proven presence. It is **not** a
+`users` column and **not** an auth gate; trust is still decided per request by
+cryptographic validity, not by any flag.
 
 Ending recovery is a single **operator action**: turn `RECOVERY_MODE` off. That
 closes the only recovery-specific endpoint — the unauthenticated report-back —
@@ -571,7 +570,8 @@ Inherent limitations (accept and document):
   unclaimed" gauge and drives the non-fatal startup warning; normal operation
   never touches it and it is not an auth gate. Persists after recovery ends until
   the operator drops it.
-- **Removed**: `user_count.count` as an ID source (now display-only).
+- **Removed**: the `user_count` table (was the ID source; dropped entirely, no
+  replacement — see Proposal 02).
 
 ## Resolved (decisions)
 

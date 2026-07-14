@@ -74,13 +74,6 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	createUserCountTable := `
-	CREATE TABLE IF NOT EXISTS user_count (
-		id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-		count BIGINT DEFAULT 0,
-		active BIGINT DEFAULT 0
-	);`
-
 	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
 		id VARCHAR(255) PRIMARY KEY,
@@ -288,17 +281,9 @@ func InitDB(db *sql.DB) error {
 		ON profile_subscriptions(author_user_id);
 	`
 
-	// Initialize user_count table with first row
-	initUserCountTable := `
-	INSERT INTO user_count (id, count, active) VALUES (1, 0, 0) ON CONFLICT (id) DO NOTHING;`
-
 	queries := []string{
 		// Servers
 		createServersTable,
-
-		// API
-		createUserCountTable,
-		initUserCountTable,
 
 		createUsersTable,
 		createUserIndexes,

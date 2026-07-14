@@ -19,14 +19,17 @@ For recovery, IDs must be:
 - **Server-scoped** and stable, since every reed, every follow edge, and every
   countersigned identity binding embeds `(serverID, userID)`.
 
-The counter must remain available as a **display-only** number of registered
-users; it is no longer an ID source.
+The `user_count` table exists only to feed the ID generator and to keep an
+`active` gauge that has no current consumer. Once the ID generator no longer
+needs it, the table is dead weight and goes away with the same PR.
 
 ## Scope
 
 - Replace the Sqids ID generation in `CreateUser` with a random string.
-- Keep `user_count` as a display-only counter (kept incremented for backwards
-  compatibility with existing admin/UI consumers).
+- Drop the `user_count` table entirely: remove the schema, the init insert,
+  and both `UPDATE user_count ...` statements in `services.go`. No
+  replacement counter — if a display of "registered users" is ever needed,
+  it can be computed with `SELECT COUNT(*) FROM users` on demand.
 - Remove the `sqids-go` dependency once it is no longer referenced.
 
 ## Non-goals
@@ -56,53 +59,82 @@ crypto/rand-backed.
 ### Insert path
 
 ```go
-for attempt := 0; attempt < 5; attempt++ {
-    id := generateUserID(12)
-    err := tx.QueryRow(`
-        INSERT INTO users (id, username)
-        VALUES ($1, $2)
-        ON CONFLICT (id) DO NOTHING
-        RETURNING id, username, avatar_url, bio, created_at
-    `, id, username).Scan(...)
-    if err == sql.ErrNoRows {
-        continue // extremely rare collision
-    }
-    // ...
+id, err := generateUserID(12)
+if err != nil {
+    return nil, err
+}
+
+var exists bool
+err = tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, id).Scan(&exists)
+if err != nil {
+    return nil, err
+}
+if exists {
+    return nil, fmt.Errorf("user ID collision, please retry")
+}
+
+err = tx.QueryRow(`
+    INSERT INTO users (id, username)
+    VALUES ($1, $2)
+    RETURNING id, username, avatar_url, bio, created_at
+`, id, username).Scan(...)
+if err != nil {
+    return nil, err
 }
 ```
 
-Cap the retry loop; log a warning on retry. Five attempts is theatre at 68
-bits but cheap.
+No server-side retry. At ~68 bits of entropy a collision is vanishingly
+rare; if it happens we return an error and the client is expected to retry
+the signup. This keeps `CreateUser` linear and avoids hiding pathological
+states (e.g. a broken RNG) behind a silent loop.
+
+We do a `SELECT EXISTS (...)` pre-check rather than inferring the collision
+from a driver error (`ON CONFLICT DO NOTHING` + `sql.ErrNoRows`, or `pq.Error`
++ SQLSTATE `23505`). Reasons:
+
+- No magic-number constant (`23505`) or constraint-name string (`users_pkey`)
+  in application code.
+- Nothing hits the DB error log for the common case where the pre-check
+  catches it — the insert only fires when we know it will succeed.
+- Any error from `INSERT` after that is genuinely unexpected and should
+  bubble up unmodified.
+
+There is a nominal race between the `SELECT` and the `INSERT`, but the
+transaction wrapper + the near-zero collision probability make it moot; if
+two callers do race, the second `INSERT` returns a normal error and callers
+retry, same as if the pre-check had caught it.
 
 ### `user_count`
 
-Keep the `UPDATE user_count SET count = count + 1, active = active + 1`
-statement in `CreateUser` (and the mirror decrement path already in
-`services.go` around line 496). It is now purely a display counter. Add a code
-comment stating "display only — not an ID source" at both sites.
-
-If we want to be tidy we can also drop `active` in a follow-up; leave it for
-now to minimise blast radius of this PR.
+Deleted. Per the blank-slate premise there is no data to preserve, so the
+schema is simply removed from `db.go` (both `CREATE TABLE` and the
+`INSERT ... ON CONFLICT DO NOTHING` seed row) and the two `UPDATE
+user_count ...` statements in `services.go` (increment in `CreateUser`,
+decrement in the user-deletion path) go with it. No `DROP TABLE` migration
+is added; environments that already have the table can drop it manually.
 
 ## Work items
 
 1. Introduce `generateUserID(n int) (string, error)` in `services.go` (or
    `utils.go`), backed by `crypto/rand`.
-2. Rewrite the ID generation block in `CreateUser` to loop + `ON CONFLICT DO
-   NOTHING`.
+2. Rewrite the ID generation block in `CreateUser` to: generate an ID,
+   `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, and on `true` return a
+   "please retry" error to the caller (no server-side retry). Otherwise do a
+   plain `INSERT ... RETURNING ...` and let any error bubble up.
 3. Delete the Sqids import from `services.go`.
 4. Remove `sqids-go` from `go.mod`/`go.sum` if no other file uses it (`rg
    sqids` after step 3).
-5. Add comments at the two `user_count` update sites clarifying it is
-   display-only.
+5. Drop the `user_count` table: remove `createUserCountTable` and
+   `initUserCountTable` from `db.go`, and delete both `UPDATE user_count ...`
+   statements from `services.go` (increment in `CreateUser`, decrement in the
+   user-deletion path).
 6. Update tests in `services_test.go` that assert ID shape/prefix (if any).
 
 ## Testing
 
 - Unit test: `generateUserID(12)` produces distinct values across 1000 calls,
   all matching the expected alphabet.
-- Integration: create 1000 users in a loop; assert all IDs are unique and
-  `user_count.count` equals 1000.
+- Integration: create 1000 users in a loop; assert all IDs are unique.
 - Regression: existing signup end-to-end test still passes.
 
 ## Risks
@@ -110,10 +142,9 @@ now to minimise blast radius of this PR.
 - **Anything that parses user IDs**. Sqids IDs happen to be alphanumeric and
   variable-length; random IDs in the same alphabet should be a drop-in shape.
   Grep the SPA and Go code for hardcoded ID length assumptions before landing.
-- **Log/analytics dashboards** keyed on the counter: no change — the counter
-  still increments.
-- **`user_count.active`** decrement/consistency: unchanged; still tracked the
-  same way.
+- **Consumers of `user_count`**: none in-tree today (`rg user_count` returns
+  only the schema and the two update sites we are removing). Any external
+  dashboard querying the table will break — acceptable given blank-slate.
 
 ## Dependencies
 

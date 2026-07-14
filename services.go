@@ -18,7 +18,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/sqids/sqids-go"
 	"github.com/uuid25/go-uuid25"
 )
 
@@ -50,18 +49,27 @@ func (s *DataService) GetServerID() string {
 	return s.serverID
 }
 
-const serverIDAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-func generateServerID() (string, error) {
-	result := make([]byte, 8)
+func generateID(n int) (string, error) {
+	result := make([]byte, n)
+	alphabetLen := big.NewInt(int64(len(alphabet)))
 	for i := range result {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(serverIDAlphabet))))
+		idx, err := rand.Int(rand.Reader, alphabetLen)
 		if err != nil {
 			return "", err
 		}
-		result[i] = serverIDAlphabet[n.Int64()]
+		result[i] = alphabet[idx.Int64()]
 	}
 	return string(result), nil
+}
+
+func generateServerID() (string, error) {
+	return generateID(8)
+}
+
+func generateUserID() (string, error) {
+	return generateID(12)
 }
 
 func (s *DataService) InitServer() error {
@@ -302,55 +310,34 @@ func (s *DataService) CreateUser(username string) (*User, error) {
 	}
 	defer tx.Rollback()
 
-	// Increment and get new count
-	var count uint64
-	err = tx.QueryRow(`
-		UPDATE user_count
-		SET count = count + 1, active = active + 1
-		WHERE id = 1
-		RETURNING count
-	`).Scan(&count)
+	id, err := generateUserID()
 	if err != nil {
 		return nil, err
 	}
 
-	// Generate Sqids ID
-	sqidsEncoder, err := sqids.New()
+	// Check the generated ID isn't already taken. At ~68 bits of entropy this
+	// is vanishingly unlikely; if it happens we surface the fact to the caller
+	// instead of blindly inserting and reading it back from a driver error.
+	var exists bool
+	err = tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, id).Scan(&exists)
 	if err != nil {
 		return nil, err
 	}
-
-	// Add a random number to the list
-	randomNum, err := rand.Int(rand.Reader, big.NewInt(1<<32))
-	if err != nil {
-		return nil, err
-	}
-
-	log.Info().
-		Uint64("count", count).
-		Uint64("randomNum", randomNum.Uint64()).
-		Msg("Generating Sqids ID")
-
-	id, err := sqidsEncoder.Encode([]uint64{count, randomNum.Uint64()})
-	if err != nil {
+	if exists {
 		log.Error().
-			Err(err).
-			Msg("Failed to generate Sqids ID")
-		return nil, err
+			Str("id", id).
+			Msg("User ID collision")
+		return nil, fmt.Errorf("user ID collision, please retry")
 	}
-	log.Info().
-		Str("id", id).
-		Str("serverName", s.serverName).
-		Msg("Sqids ID generated successfully")
 
-	// Insert user with generated ID
 	var avatarURL sql.NullString
 	var bio sql.NullString
-
 	var user User
+
 	err = tx.QueryRow(`
 		INSERT INTO users (id, username)
-		VALUES ($1, $2) RETURNING id, username, avatar_url, bio, created_at
+		VALUES ($1, $2)
+		RETURNING id, username, avatar_url, bio, created_at
 	`, id, username).Scan(
 		&user.ID,
 		&user.Username,
@@ -485,18 +472,7 @@ func (s *DataService) DeleteUser(userID string) error {
 	}
 	defer tx.Rollback()
 
-	// Delete user
 	_, err = tx.Exec("DELETE FROM users WHERE id = $1", userID)
-	if err != nil {
-		return err
-	}
-
-	// Decrement active user count
-	_, err = tx.Exec(`
-		UPDATE user_count
-		SET active = active - 1
-		WHERE id = 1
-	`)
 	if err != nil {
 		return err
 	}
