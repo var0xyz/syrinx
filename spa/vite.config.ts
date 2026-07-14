@@ -147,13 +147,6 @@ export default defineConfig({
             description: 'View your feed',
             url: '/feeds',
             icons: [{ src: '/icons/android-chrome-192x192.png', sizes: '192x192' }]
-          },
-          {
-            name: 'Chats',
-            short_name: 'Chats',
-            description: 'View your chats',
-            url: '/chats',
-            icons: [{ src: '/icons/android-chrome-192x192.png', sizes: '192x192' }]
           }
         ],
         protocol_handlers: [
