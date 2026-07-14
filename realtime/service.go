@@ -668,44 +668,25 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]in
 	rs.dispatchNext(client.userID)
 }
 
-// handleRelayMiss is called when a holder receives a RELAY_REQUEST but no longer has the reed.
-// It removes the holder's allocation so they won't be selected again, resets the pending event
-// so it can be re-dispatched, and looks for another online holder to take over.
+// handleRelayMiss is called when a holder receives a RELAY_REQUEST but reports that
+// they don't have the reed locally. For now we ignore the miss entirely: we keep the
+// allocation, leave dispatched_at set, and don't look for another holder. The event
+// stays stuck until the requester triggers a redispatch (e.g. via SYNC_REQUEST on
+// reconnect). We still advance the holder's queue so any unrelated pending events
+// for reeds they actually hold aren't starved.
+//
+// See realtime/README.md "Known Issues" for the publish/relay race this works
+// around and the planned WS-native publishing flow that will let this handler
+// go back to actually trimming stale allocations with a real retry policy.
 func (rs *RealtimeService) handleRelayMiss(client *Client, data RelayMissData) {
 	if data.EventID == "" {
 		return
 	}
-	eventID := data.EventID
-
-	pe, err := rs.dbService.GetPendingReedRequest(eventID)
-	if err != nil {
-		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event for relay miss")
-		rs.dispatchNext(client.userID)
-		return
-	}
-	if pe == nil {
-		rs.dispatchNext(client.userID)
-		return
-	}
-
-	if err := rs.dbService.DeleteReedAllocation(pe.ReedID, client.userID); err != nil {
-		log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to remove allocation on relay miss")
-	}
-
-	if err := rs.dbService.ResetDispatchedAt(eventID); err != nil {
-		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to reset dispatched_at on relay miss")
-	}
-
+	log.Debug().
+		Str("eventID", data.EventID).
+		Str("userID", client.userID).
+		Msg("Received RELAY_MISS; ignoring (keeping allocation, not retrying)")
 	rs.dispatchNext(client.userID)
-
-	newHolder, err := rs.dbService.GetOnlineReedHolder(pe.ReedID)
-	if err != nil {
-		log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to find new holder after relay miss")
-		return
-	}
-	if newHolder != "" {
-		rs.dispatchNext(newHolder)
-	}
 }
 
 // handleDataAck is called when the viewer has received and verified a reed successfully.
