@@ -1,0 +1,59 @@
+[
+  {
+    "name": "empty",
+    "headers": {},
+    "content": "",
+    "expected": "---\n---\n"
+  },
+  {
+    "name": "single_header_no_content",
+    "headers": { "id": "abc" },
+    "content": "",
+    "expected": "---\nid: abc\n---\n"
+  },
+  {
+    "name": "multiple_headers_sorted",
+    "headers": { "id": "abc", "algorithm": "PGP+base64", "timestamp": "2026-01-02T03:04:05Z" },
+    "content": "",
+    "expected": "---\nalgorithm: PGP+base64\nid: abc\ntimestamp: 2026-01-02T03:04:05Z\n---\n"
+  },
+  {
+    "name": "reed_countersig_shape",
+    "headers": { "algorithm": "PGP+base64", "id": "Server01", "timestamp": "2026-07-14T12:00:00Z" },
+    "content": "aGVsbG8gd29ybGQ=",
+    "expected": "---\nalgorithm: PGP+base64\nid: Server01\ntimestamp: 2026-07-14T12:00:00Z\n---\naGVsbG8gd29ybGQ="
+  },
+  {
+    "name": "empty_values_omitted",
+    "headers": { "a": "1", "b": "", "c": "3" },
+    "content": "body",
+    "expected": "---\na: 1\nc: 3\n---\nbody"
+  },
+  {
+    "name": "values_with_special_chars_verbatim",
+    "headers": { "a": "value: with colon", "b": "line1\nline2", "c": "---" },
+    "content": "content\nwith\nnewlines",
+    "expected": "---\na: value: with colon\nb: line1\nline2\nc: ---\n---\ncontent\nwith\nnewlines"
+  },
+  {
+    "name": "content_trailing_newline_preserved",
+    "headers": { "k": "v" },
+    "content": "line\n",
+    "expected": "---\nk: v\n---\nline\n"
+  },
+  {
+    "name": "identity_record_shape",
+    "headers": {
+      "fingerprint": "ABCDEF",
+      "memberSince": "2026-01-01T00:00:00Z",
+      "serverID": "Server01",
+      "serverKeyFingerprint": "0011FF",
+      "serverTs": "2026-07-14T12:00:00Z",
+      "type": "identity",
+      "userID": "abc123",
+      "username": "alice"
+    },
+    "content": "hello from alice",
+    "expected": "---\nfingerprint: ABCDEF\nmemberSince: 2026-01-01T00:00:00Z\nserverID: Server01\nserverKeyFingerprint: 0011FF\nserverTs: 2026-07-14T12:00:00Z\ntype: identity\nuserID: abc123\nusername: alice\n---\nhello from alice"
+  }
+]

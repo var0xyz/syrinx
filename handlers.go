@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,9 +10,22 @@ import (
 	"time"
 
 	"syrinx/realtime"
+	"syrinx/signing"
 
 	"github.com/gorilla/mux"
 )
+
+// reedCountersignHeaders builds the header map that the server signs when
+// countersigning a reed. Both SignReed and VerifySignature construct this
+// identical map and feed it to signing.BytesToSign; that single source of
+// truth is what keeps the two sides in lockstep.
+func reedCountersignHeaders(serverID string, ts time.Time) map[string]string {
+	return map[string]string{
+		"algorithm": "PGP+base64",
+		"id":        serverID,
+		"timestamp": ts.UTC().Format(time.RFC3339),
+	}
+}
 
 // /////////// //
 //   Structs   //
@@ -215,7 +227,6 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	user.Server = h.services.db.GetServerID()
 	writeResponse(w, http.StatusCreated, user)
 }
-
 
 func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
@@ -731,14 +742,14 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build a canonical payload that the server signs. Fields are ordered
-	// alphabetically and the timestamp is truncated to seconds so the client
-	// cannot spoof the server ID or the signing time.
+	// Build the canonical envelope the server signs. The header map and the
+	// content (the base64 userSignature) are fed through signing.BytesToSign
+	// so that VerifySignature can reproduce the exact same bytes for
+	// verification.
 	serverID := h.services.db.GetServerID()
 	timestamp := time.Now().UTC().Truncate(time.Second)
-	payload := fmt.Sprintf("algorithm: PGP+base64\nid: %s\ntimestamp: %s\n---\n%s",
-		serverID, timestamp.Format(time.RFC3339), signature)
-	serverSignature, err := h.services.crypto.Sign(payload, h.signingKey.Armor)
+	payload := signing.BytesToSign(reedCountersignHeaders(serverID, timestamp), signature)
+	serverSignature, err := h.services.crypto.Sign(string(payload), h.signingKey.Armor)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -959,8 +970,24 @@ func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the signature using the server signing key
-	err = h.services.crypto.VerifySignature(userSignature, serverSignature, h.signingKey.Armor)
+	// Rebuild the exact bytes that SignReed signed (headers + userSignature
+	// content, via signing.BytesToSign) and verify serverSignature against
+	// those bytes. The wire form of serverSignature is base64(armored PGP
+	// signature); decode it once before handing to the PGP verifier.
+	payload := signing.BytesToSign(
+		reedCountersignHeaders(h.services.db.GetServerID(), reed.SignedAt),
+		userSignature,
+	)
+	decodedServerSig, err := base64.StdEncoding.DecodeString(serverSignature)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("reedID", reedID).
+			Err(err).Msg("Failed to base64-decode serverSignature")
+		writeResponse(w, http.StatusBadRequest, "Invalid serverSignature encoding")
+		return
+	}
+	err = h.services.crypto.VerifySignature(string(payload), string(decodedServerSig), h.signingKey.Armor)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
