@@ -18,15 +18,36 @@ type Server struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
+// User is the wire shape of an identity record.
+//
+// Layout: user-authored fields live at the root; the server-authored
+// countersignature and its metadata live under `server`. `signature` (at
+// the root) is the user's detached PGP signature over the user identity
+// payload (see identity.go). `Fingerprint` identifies the user key that
+// produced `Signature` — it is self-describing per record, not a pointer
+// to the user's "current" key.
 type User struct {
+	ID          string      `json:"id"`
+	Username    string      `json:"username"`
+	AvatarURL   string      `json:"avatarURL"`
+	Bio         string      `json:"bio"`
+	CreatedAt   time.Time   `json:"memberSince"`
+	HasReeds    bool        `json:"hasReeds"`
+	Fingerprint string      `json:"fingerprint"`
+	Signature   string      `json:"signature"`
+	Server      ServerBlock `json:"server"`
+}
+
+// ServerBlock is the server's contribution to an identity record: which
+// server key signed it, when, and the signature itself. Mirrors the
+// existing `Signature` struct used by reeds so the wire vocabulary stays
+// consistent across signed artefacts.
+type ServerBlock struct {
 	ID          string    `json:"id"`
-	Username    string    `json:"username"`
-	AvatarURL   string    `json:"avatarURL"`
-	Bio         string    `json:"bio"`
-	CreatedAt   time.Time `json:"memberSince"`
-	HasReeds    bool      `json:"hasReeds"`
 	Fingerprint string    `json:"fingerprint"`
-	Server      string    `json:"server"`
+	Timestamp   time.Time `json:"timestamp"`
+	Algorithm   string    `json:"algorithm"`
+	Signature   string    `json:"signature"`
 }
 
 type Key struct {
@@ -74,6 +95,21 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
+	// Signed identity record columns. All four are populated together
+	// at signup and re-populated together whenever a fresh identity
+	// record is minted (e.g. profile updates). They are NULLable for
+	// forward-compatibility with dev rows created before this schema.
+	//
+	// - user_signature: base64 of the user's armored PGP detached
+	//   signature over the user identity payload.
+	// - server_signature: base64 of the server's armored PGP detached
+	//   signature over the server identity payload.
+	// - server_signed_at: timestamp inside the server-signed payload.
+	//   Used later for monotonic newest-wins during recovery.
+	// - server_fingerprint: fingerprint of the server key that produced
+	//   server_signature. Stored explicitly because the server's
+	//   active signing key can rotate; verifiers need to know which
+	//   historical key to look up.
 	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
 		id VARCHAR(255) PRIMARY KEY,
@@ -81,7 +117,11 @@ func InitDB(db *sql.DB) error {
 		avatar_url VARCHAR(255),
 		bio TEXT,
 		fingerprint VARCHAR(255),
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		user_signature TEXT,
+		server_signature TEXT,
+		server_signed_at TIMESTAMP,
+		server_fingerprint VARCHAR(255)
 	);`
 
 	createUserIndexes := `

@@ -6,6 +6,7 @@ interface SignupUser {
   username: string;
   publicKey: string;
   signature: string;
+  userSignature: string;
 }
 
 export class AuthService {
@@ -112,6 +113,7 @@ export class AuthService {
     formData.append('username', userData.username);
     formData.append('publicKey', userData.publicKey);
     formData.append('signature', userData.signature);
+    formData.append('userSignature', userData.userSignature);
 
     const response = await fetch('/api/users/signup', {
       method: 'POST',
