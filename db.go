@@ -45,9 +45,9 @@ type User struct {
 type ServerBlock struct {
 	ID          string    `json:"id"`
 	Fingerprint string    `json:"fingerprint"`
-	Timestamp   time.Time `json:"timestamp"`
 	Algorithm   string    `json:"algorithm"`
 	Signature   string    `json:"signature"`
+	SignedAt    time.Time `json:"timestamp"`
 }
 
 type Key struct {

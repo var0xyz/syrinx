@@ -342,9 +342,9 @@ type SignupInput struct {
 	KeyExpiresAt       *time.Time
 	UserSignatureB64   string
 	ServerSignatureB64 string
-	ServerKeyFP        string
+	ServerFingerprint  string
+	ServerSignedAt     time.Time
 	MemberSince        time.Time
-	ServerTs           time.Time
 }
 
 // Signup materialises a fresh identity record: it writes the users row
@@ -381,7 +381,7 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	`,
 		in.UserID, in.Username, in.MemberSince, in.Fingerprint,
 		in.UserSignatureB64, in.ServerSignatureB64,
-		in.ServerTs, in.ServerKeyFP,
+		in.ServerSignedAt, in.ServerFingerprint,
 	); err != nil {
 		return nil, err
 	}
@@ -404,7 +404,7 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	var user User
 	var avatarURL, bio, fingerprint sql.NullString
 	var userSig, serverSig, serverKeyFP sql.NullString
-	var serverTs sql.NullTime
+	var signedAt sql.NullTime
 
 	err := s.db.QueryRow(`
 		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at,
@@ -426,7 +426,7 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		&userSig,
 		&serverSig,
 		&serverKeyFP,
-		&serverTs,
+		&signedAt,
 		&user.HasReeds,
 	)
 	if err != nil {
@@ -453,25 +453,56 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	user.Server = ServerBlock{
 		ID:          s.serverID,
 		Fingerprint: serverKeyFP.String,
-		Timestamp:   serverTs.Time,
 		Algorithm:   identityAlgorithm,
 		Signature:   serverSig.String,
+		SignedAt:    signedAt.Time,
 	}
 
 	return &user, nil
 }
 
-func (s *DataService) UpdateUser(user *User) error {
+// UpdateUserInput carries everything needed to persist a fresh signed
+// identity record produced by a profile edit. Every field is populated
+// on every accepted update — this is a full replacement of the signed
+// user-authored fields plus the four identity columns that record who
+// signed what and when.
+type UpdateUserInput struct {
+	UserID             string
+	Username           string
+	AvatarURL          string
+	Bio                string
+	UserSignatureB64   string
+	ServerSignatureB64 string
+	ServerFingerprint  string
+	ServerSignedAt     time.Time
+}
+
+// UpdateUser writes a fresh signed identity record for an existing user.
+// It updates username/avatar_url/bio alongside the four identity columns
+// (user_signature, server_signature, server_signed_at, server_fingerprint)
+// in a single UPDATE so a mid-write crash can never split the signature
+// from the fields it covers.
+//
+// The caller owns signature verification and countersigning — this
+// function just persists.
+func (s *DataService) UpdateUser(in UpdateUserInput) error {
 	_, err := s.db.Exec(`
 		UPDATE users
-		SET username = $1, avatar_url = $2, bio = $3
-		WHERE id = $4
-	`, user.Username, user.AvatarURL, user.Bio, user.ID)
-	if err != nil {
-		return err
-	}
-
-	return nil
+		SET username = $1,
+		    avatar_url = $2,
+		    bio = $3,
+		    user_signature = $4,
+		    server_signature = $5,
+		    server_signed_at = $6,
+		    server_fingerprint = $7
+		WHERE id = $8
+	`,
+		in.Username, in.AvatarURL, in.Bio,
+		in.UserSignatureB64, in.ServerSignatureB64,
+		in.ServerSignedAt, in.ServerFingerprint,
+		in.UserID,
+	)
+	return err
 }
 
 func (s *DataService) UsernameExists(username string) (bool, error) {

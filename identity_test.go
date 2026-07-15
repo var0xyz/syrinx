@@ -85,13 +85,13 @@ func TestUserPayloadOmitsEmptyAvatar(t *testing.T) {
 // attestations together.
 func TestServerPayloadCanonicalShape(t *testing.T) {
 	memberSince := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	serverTs := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	signedAt := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	got := buildServerIdentityPayload(
 		"abc123", "alice", "ABCDEF", "https://ex.com/a.png",
 		"Server01", "0011FF",
 		"dXNlcnNpZw==",
 		"bio text",
-		memberSince, serverTs,
+		memberSince, signedAt,
 	)
 	want := "---\n" +
 		"avatarURL: https://ex.com/a.png\n" +
@@ -99,7 +99,7 @@ func TestServerPayloadCanonicalShape(t *testing.T) {
 		"memberSince: 2026-01-01T00:00:00Z\n" +
 		"serverID: Server01\n" +
 		"serverKeyFingerprint: 0011FF\n" +
-		"serverTs: 2026-07-14T12:00:00Z\n" +
+		"signedAt: 2026-07-14T12:00:00Z\n" +
 		"type: identity-server\n" +
 		"userID: abc123\n" +
 		"userSignature: dXNlcnNpZw==\n" +
@@ -130,13 +130,13 @@ func TestIdentityRoundTrip(t *testing.T) {
 	}
 
 	memberSince := time.Now().UTC().Truncate(time.Second)
-	serverTs := memberSince
+	signedAt := memberSince
 	serverPayload := buildServerIdentityPayload(
 		"user_abc", "alice", userKP.Fingerprint, "",
 		"srv_xyz", serverKP.Fingerprint,
 		userSigB64,
 		"",
-		memberSince, serverTs,
+		memberSince, signedAt,
 	)
 	serverSigB64 := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
 
@@ -151,7 +151,7 @@ func TestIdentityRoundTrip(t *testing.T) {
 		"srv_xyz", serverKP.Fingerprint,
 		userSigB64,
 		"",
-		memberSince, serverTs,
+		memberSince, signedAt,
 	)
 	if err := verifyB64(t, cryptoSvc, serverKP.PublicKey, serverSigB64, rebuiltServer); err != nil {
 		t.Errorf("rebuilt serverSignature verify: %v", err)

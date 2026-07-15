@@ -71,13 +71,13 @@
       "memberSince": "2026-01-01T00:00:00Z",
       "serverID": "Server01",
       "serverKeyFingerprint": "0011FF",
-      "serverTs": "2026-07-14T12:00:00Z",
+      "signedAt": "2026-07-14T12:00:00Z",
       "type": "identity-server",
       "userID": "abc123",
       "userSignature": "dXNlcnNpZ0Jhc2U2NA==",
       "username": "alice"
     },
     "content": "hello from alice",
-    "expected": "---\navatarURL: https://example.com/a.png\nfingerprint: ABCDEF\nmemberSince: 2026-01-01T00:00:00Z\nserverID: Server01\nserverKeyFingerprint: 0011FF\nserverTs: 2026-07-14T12:00:00Z\ntype: identity-server\nuserID: abc123\nuserSignature: dXNlcnNpZ0Jhc2U2NA==\nusername: alice\n---\nhello from alice"
+    "expected": "---\navatarURL: https://example.com/a.png\nfingerprint: ABCDEF\nmemberSince: 2026-01-01T00:00:00Z\nserverID: Server01\nserverKeyFingerprint: 0011FF\nserverSignedAt: 2026-07-14T12:00:00Z\ntype: identity-server\nuserID: abc123\nuserSignature: dXNlcnNpZ0Jhc2U2NA==\nusername: alice\n---\nhello from alice"
   }
 ]
