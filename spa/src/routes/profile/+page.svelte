@@ -5,6 +5,7 @@
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
   import { cryptoService } from '$lib/services/crypto';
+  import { buildUserIdentityPayload } from '$lib/services/signing';
   import { requestSigner } from '$lib/services/request-signer';
   import { getStorageQuota, isOnline } from '$lib/services/pwa';
   import { dbService } from '$lib/services/db';
@@ -304,39 +305,92 @@
     editSuccess = '';
 
     try {
-      // Validate bio length
-      if (editForm.bio.length > 500) {
+      // Normalise once so the values we validate, sign, and send are
+      // the same bytes. Server verifies against these exact strings —
+      // any post-hoc trimming would break signature verification.
+      const nextUsername = editForm.username.trim();
+      const nextAvatarURL = editForm.avatarURL.trim();
+      const nextBio = editForm.bio.trim();
+
+      if (nextUsername === '') {
+        editError = 'Username is required';
+        return;
+      }
+      if (nextUsername.length > 32) {
+        editError = 'Username cannot exceed 32 characters';
+        return;
+      }
+      if (nextBio.length > 500) {
         editError = 'Bio cannot exceed 500 characters';
         return;
       }
-
-      // Validate avatar URL if provided
-      if (editForm.avatarURL && editForm.avatarURL.trim() !== '') {
+      if (nextAvatarURL !== '') {
         try {
-          new URL(editForm.avatarURL);
+          new URL(nextAvatarURL);
         } catch {
           editError = 'Please enter a valid URL for the avatar';
           return;
         }
       }
 
+      // Skip the network entirely when nothing changed. The server
+      // would happily return the current record on a signature-match
+      // no-op, but we can avoid a round-trip (and a fresh signature)
+      // whenever the visible field values already match the stored
+      // record.
+      const unchanged =
+        nextUsername === user.username &&
+        nextAvatarURL === (user.avatarURL || '') &&
+        nextBio === (user.bio || '');
+      if (unchanged) {
+        isEditing = false;
+        return;
+      }
+
+      // Build and sign the identity-user payload. Bytes MUST match
+      // what the server rebuilds via buildUserIdentityPayload in
+      // identity.go — see signing.ts for the mirror contract. The
+      // signature travels as base64(armored PGP) to survive
+      // form-encoding.
+      const fingerprint = user.fingerprint;
+      const passphrase = authService.getPassphrase();
+      if (!passphrase) {
+        editError = 'Session expired. Please sign in again.';
+        return;
+      }
+      const privateKey = await privateKeyRepository.getPrivateKey(fingerprint);
+      if (!privateKey) {
+        editError = 'Could not locate your signing key.';
+        return;
+      }
+      const payload = buildUserIdentityPayload(
+        nextUsername,
+        fingerprint,
+        nextAvatarURL,
+        nextBio,
+      );
+      const sigArmor = await cryptoService.signMessage(
+        payload,
+        privateKey.armor,
+        passphrase,
+      );
+      const userSignature = btoa(sigArmor);
+
       const updatedUser = await apiService.updateUser({
-        username: editForm.username.trim() || undefined,
-        avatarURL: editForm.avatarURL.trim() || undefined,
-        bio: editForm.bio.trim() || undefined
+        username: nextUsername,
+        avatarURL: nextAvatarURL,
+        bio: nextBio,
+        userSignature,
       });
 
-      // Update user data in localStorage, IndexedDB, and local state
       await authService.saveUserToStorage(updatedUser);
       user = updatedUser;
       editSuccess = 'Profile updated successfully!';
 
-      // Clear success message after 3 seconds
       setTimeout(() => {
         editSuccess = '';
       }, 3000);
 
-      // Exit edit mode
       isEditing = false;
     } catch (error) {
       console.error('Error updating profile:', error);

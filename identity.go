@@ -9,7 +9,7 @@
 //
 //   - The SERVER payload covers a superset: user-authored fields + all
 //     server-authored fields (userID, memberSince, serverID,
-//     serverKeyFingerprint, serverTs) + the userSignature itself as a
+//     serverKeyFingerprint, signedAt) + the userSignature itself as a
 //     header. The server's detached PGP signature over these bytes is
 //     `serverSignature`.
 //
@@ -41,7 +41,7 @@ import (
 const identityAlgorithm = "PGP+base64"
 
 // identityRecordTimeFormat is the canonical time format used for
-// memberSince and serverTs headers in the signed bytes. UTC + RFC3339
+// memberSince and signedAt headers in the signed bytes. UTC + RFC3339
 // seconds resolution. Callers MUST pass timestamps already truncated to
 // this precision so that what is signed equals what is later served.
 const identityRecordTimeFormat = time.RFC3339
@@ -71,13 +71,13 @@ func buildUserIdentityPayload(username, fingerprint, avatarURL, bio string) []by
 // server that re-pairs a genuine userSignature with fabricated
 // server-authored fields.
 //
-// Timestamp formatting: memberSince and serverTs are formatted with
+// Timestamp formatting: memberSince and signedAt are formatted with
 // identityRecordTimeFormat in UTC. Callers own the truncation of the
 // input times to whole seconds — this function does not modify them.
 func serverIdentityHeaders(
 	userID, username, fingerprint, avatarURL,
 	serverID, serverKeyFingerprint, userSignatureB64 string,
-	memberSince, serverTs time.Time,
+	memberSince, signedAt time.Time,
 ) map[string]string {
 	return map[string]string{
 		"type":                 "identity-server",
@@ -88,7 +88,7 @@ func serverIdentityHeaders(
 		"memberSince":          memberSince.UTC().Format(identityRecordTimeFormat),
 		"serverID":             serverID,
 		"serverKeyFingerprint": serverKeyFingerprint,
-		"serverTs":             serverTs.UTC().Format(identityRecordTimeFormat),
+		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
 		"userSignature":        userSignatureB64,
 	}
 }
@@ -107,13 +107,13 @@ func buildServerIdentityPayload(
 	userSignatureB64,
 	bio string,
 	memberSince,
-	serverTs time.Time,
+	signedAt time.Time,
 ) []byte {
 	return signing.BytesToSign(
 		serverIdentityHeaders(
 			userID, username, fingerprint, avatarURL,
 			serverID, serverKeyFingerprint, userSignatureB64,
-			memberSince, serverTs,
+			memberSince, signedAt,
 		),
 		bio,
 	)
@@ -122,9 +122,9 @@ func buildServerIdentityPayload(
 // buildFirstServerIdentityPayload is a convenience wrapper around
 // buildServerIdentityPayload for the initial signup record: avatarURL
 // and bio are always empty (users can't set them before their account
-// exists), and memberSince == serverTs == the moment the record is
+// exists), and memberSince == signedAt == the moment the record is
 // minted. Later records produced by profile-update flows keep
-// memberSince pinned and only advance serverTs, so they must call
+// memberSince pinned and only advance signedAt, so they must call
 // buildServerIdentityPayload directly.
 //
 // `timestamp` must already be truncated to whole seconds so that what
@@ -147,8 +147,8 @@ func buildFirstServerIdentityPayload(
 		serverID,
 		serverKeyFingerprint,
 		userSignatureB64,
-		"", // bio
+		"",        // bio
 		timestamp, // memberSince
-		timestamp, // serverTs
+		timestamp, // signedAt
 	)
 }

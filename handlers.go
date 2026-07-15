@@ -55,9 +55,9 @@ type ServerInfo struct {
 type Signature struct {
 	ServerID    string    `json:"id"`
 	Fingerprint string    `json:"fingerprint"`
-	Timestamp   time.Time `json:"timestamp"`
 	Algorithm   string    `json:"algorithm"`
 	Signature   string    `json:"signature"`
+	SignedAt    time.Time `json:"timestamp"`
 }
 
 // ///////////// //
@@ -131,7 +131,7 @@ func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 //     - `signature` is the user's self-signature over `publicKey`.
 //     - `userSignature` is a fresh base64-armored PGP detached signature
 //     over `buildUserIdentityPayload(username, fingerprint, "", "")`.
-//  2. Server verifies both signatures, mints memberSince / serverTs,
+//  2. Server verifies both signatures, mints createdAt / signedAt,
 //     assembles and countersigns the server identity payload, and
 //     persists both signatures on the users row alongside the
 //     user_keys insert.
@@ -265,9 +265,9 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		KeyExpiresAt:       key.ExpiresAt,
 		UserSignatureB64:   userSignatureB64,
 		ServerSignatureB64: serverSignatureB64,
-		ServerKeyFP:        h.signingKey.Fingerprint,
+		ServerFingerprint:  h.signingKey.Fingerprint,
+		ServerSignedAt:     now,
 		MemberSince:        now,
-		ServerTs:           now,
 	})
 	if err != nil {
 		// Discriminate between a username race (client-visible 400)
@@ -413,23 +413,43 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, "user deleted successfully")
 }
 
+// UpdateUser mints a fresh signed identity record for an authenticated
+// user editing their own profile. Full-replacement semantics: the
+// request MUST carry the complete post-edit tuple (username, avatarURL,
+// bio) plus `userSignature`, a base64(armored PGP) detached signature
+// over `buildUserIdentityPayload(username, fingerprint, avatarURL,
+// bio)` where `fingerprint` is the caller's active user key.
+//
+// The client is expected to skip the network call entirely when nothing
+// changed. As a defence against clients that don't (or against probes),
+// the server treats byte-equality between the submitted `userSignature`
+// and the row's stored `user_signature` as the authoritative "did
+// anything change?" test. A valid detached signature deterministically
+// binds a specific (username, fingerprint, avatarURL, bio) tuple under a
+// specific key, so equal signature bytes ⇒ equal signed bytes ⇒ equal
+// fields. In that case the server short-circuits: no re-verify, no new
+// signedAt, no new server signature, no realtime broadcast, just return
+// the current record.
+//
+// On a real change: validate the submitted fields, verify
+// `userSignature` against the caller's active public key, mint a fresh
+// signedAt, countersign the server payload, persist all seven fields
+// (username, avatar_url, bio, user_signature, server_signature,
+// server_signed_at, server_fingerprint) in one UPDATE, broadcast, and
+// return the fresh identity record.
 func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("UpdateUser request received")
 
 	userID := h.getUserID(r)
-	username := strings.TrimSpace(r.FormValue("username"))
-	if username == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `username` is required")
-		return
-	}
 
-	if len(username) > 32 {
-		writeResponse(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
-		return
-	}
-
-	user, err := h.services.db.GetUser(userID)
+	// Load the caller's current row up front. Needed for the no-op
+	// fast path (compare stored userSignature), for the signed
+	// fingerprint (which the client also knows but the server must
+	// re-derive to avoid trusting caller-supplied fingerprints), and
+	// for createdAt (pinned across every record produced by this
+	// user — signup sets it, updates carry it forward).
+	current, err := h.services.db.GetUser(userID)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -437,16 +457,38 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	if user == nil {
+	if current == nil {
 		writeResponse(w, http.StatusBadRequest, "User not found")
 		return
 	}
 
-	if user.Username != username {
+	userSignatureB64 := r.FormValue("userSignature")
+	if userSignatureB64 == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `userSignature` is required")
+		return
+	}
+
+	// No-op fast path. See doc comment on this function for why byte
+	// equality on the signature is a sufficient change detector.
+	if userSignatureB64 == current.Signature {
 		log.Info().
 			Str("userID", userID).
-			Str("username", username).
-			Msg("Checking if username exists")
+			Msg("UpdateUser no-op (signature unchanged)")
+		writeResponse(w, http.StatusOK, current)
+		return
+	}
+
+	username := trimInvisibleChars(r.FormValue("username"))
+	if username == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `username` is required")
+		return
+	}
+	if len(username) > 32 {
+		writeResponse(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
+		return
+	}
+
+	if current.Username != username {
 		exists, err := h.services.db.UsernameExists(username)
 		if err != nil {
 			log.Error().
@@ -464,15 +506,11 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Username already taken")
 			return
 		}
-
-		user.Username = username
 	}
 
 	avatarURL := r.FormValue("avatarURL")
-	log.Println("avatarURL", avatarURL)
 	if avatarURL != "" {
-		_, err := url.ParseRequestURI(avatarURL)
-		if err != nil {
+		if _, err := url.ParseRequestURI(avatarURL); err != nil {
 			log.Error().
 				Str("avatarURL", avatarURL).
 				Err(err).Msg("Error parsing avatar URL")
@@ -496,7 +534,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Error checking avatar URL")
 			return
 		}
-		defer resp.Body.Close()
+		resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusMovedPermanently {
 			log.Error().
@@ -507,7 +545,6 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	user.AvatarURL = avatarURL
 
 	bio := r.FormValue("bio")
 	if len(bio) > 500 {
@@ -518,17 +555,88 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Bio cannot exceed 500 characters")
 		return
 	}
-	user.Bio = bio
 
-	log.Info().
-		Str("userID", userID).
-		Str("username", username).
-		Str("avatarURL", avatarURL).
-		Str("bio", bio).
-		Msg("Updating user")
+	// Reconstruct the exact bytes the client claims to have signed,
+	// using the fingerprint we trust (from the row) rather than one
+	// supplied by the caller. Then verify.
+	fingerprint := current.Fingerprint
+	userPayload := buildUserIdentityPayload(username, fingerprint, avatarURL, bio)
 
-	err = h.services.db.UpdateUser(user)
+	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
 	if err != nil {
+		log.Error().Err(err).Msg("Invalid userSignature encoding")
+		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
+		return
+	}
+	pubKey, err := h.services.db.GetPublicKey(userID, fingerprint)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", fingerprint).
+			Err(err).Msg("Error loading user public key")
+		internalServerError(w)
+		return
+	}
+	if pubKey == nil {
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", fingerprint).
+			Msg("Active public key not found for user")
+		internalServerError(w)
+		return
+	}
+	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
+		log.Error().
+			Str("userID", userID).
+			Err(err).Msg("userSignature verification failed")
+		writeResponse(w, http.StatusBadRequest, "userSignature verification failed")
+		return
+	}
+
+	// Mint the server-authored fields and countersign. createdAt
+	// stays pinned to the value set at signup; only signedAt advances.
+	signedAt := time.Now().UTC().Truncate(time.Second)
+	serverPayload := buildServerIdentityPayload(
+		userID,
+		username,
+		fingerprint,
+		avatarURL,
+		h.services.db.GetServerID(),
+		h.signingKey.Fingerprint,
+		userSignatureB64,
+		bio,
+		current.CreatedAt,
+		signedAt,
+	)
+	serverSigArmor, err := h.services.crypto.Sign(string(serverPayload), h.signingKey.Armor)
+	if err != nil {
+		log.Error().Err(err).Msg("Error producing server signature")
+		internalServerError(w)
+		return
+	}
+	serverSignatureB64 := base64.StdEncoding.EncodeToString([]byte(serverSigArmor))
+
+	if err := h.services.db.UpdateUser(UpdateUserInput{
+		UserID:             userID,
+		Username:           username,
+		AvatarURL:          avatarURL,
+		Bio:                bio,
+		UserSignatureB64:   userSignatureB64,
+		ServerSignatureB64: serverSignatureB64,
+		ServerFingerprint:  h.signingKey.Fingerprint,
+		ServerSignedAt:     signedAt,
+	}); err != nil {
+		errStr := err.Error()
+		if strings.Contains(errStr, "users_username_key") ||
+			strings.Contains(errStr, "idx_lower_users_username") {
+			// Race with a concurrent rename that took our target
+			// username between the UsernameExists check above and
+			// this UPDATE. Surface it the same way the pre-check
+			// does so the client sees a consistent error.
+			log.Info().Str("username", username).Msg("Username already taken (race)")
+			writeResponse(w, http.StatusBadRequest, "Username already taken")
+			return
+		}
 		log.Error().
 			Str("userID", userID).
 			Err(err).Msg("Error updating user")
@@ -536,18 +644,31 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Broadcast the user update to realtime subscribers
+	updated, err := h.services.db.GetUser(userID)
+	if err != nil || updated == nil {
+		log.Error().
+			Str("userID", userID).
+			Err(err).Msg("Error reloading updated user")
+		internalServerError(w)
+		return
+	}
+
 	h.broadcastChan <- realtime.BroadcastMessage{
 		Type:   realtime.UserUpdate,
 		UserID: userID,
 		Data: map[string]interface{}{
-			"username":  user.Username,
-			"avatarURL": user.AvatarURL,
-			"bio":       user.Bio,
+			"username":  updated.Username,
+			"avatarURL": updated.AvatarURL,
+			"bio":       updated.Bio,
 		},
 	}
 
-	writeResponse(w, http.StatusOK, user)
+	log.Info().
+		Str("userID", userID).
+		Str("username", username).
+		Msg("Signed identity record updated")
+
+	writeResponse(w, http.StatusOK, updated)
 }
 
 func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
@@ -851,9 +972,9 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusCreated, Signature{
 		ServerID:    serverID,
 		Fingerprint: h.signingKey.Fingerprint,
-		Timestamp:   reed.Timestamp,
 		Algorithm:   "PGP+base64",
 		Signature:   encodedSignature,
+		SignedAt:    reed.Timestamp,
 	})
 
 	// Broadcast the new reed to realtime subscribers
