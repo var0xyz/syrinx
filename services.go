@@ -327,81 +327,93 @@ func (s *DataService) RevokeServerPrivateKey(fingerprint, reason string) error {
 	return err
 }
 
-func (s *DataService) CreateUser(username string) (*User, error) {
-	// Start transaction
+// SignupInput bundles everything Signup needs. It is populated by the
+// Signup handler after it has allocated a userID, verified the user's
+// self-signature over their key, reconstructed the user identity
+// payload, verified UserSignatureB64 against PublicKeyArmor, and
+// produced its own ServerSignatureB64 (which binds UserID because
+// UserID appears in the server identity payload).
+type SignupInput struct {
+	UserID             string
+	Username           string
+	PublicKeyArmor     string
+	Fingerprint        string
+	KeyCreatedAt       time.Time
+	KeyExpiresAt       *time.Time
+	UserSignatureB64   string
+	ServerSignatureB64 string
+	ServerKeyFP        string
+	MemberSince        time.Time
+	ServerTs           time.Time
+}
+
+// Signup materialises a fresh identity record: it writes the users row
+// (with both signatures + the server key fingerprint stored alongside
+// them) and inserts the initial user_keys row — all in one transaction.
+// Callers own userID allocation and signature verification; this
+// function just persists.
+//
+// A collision on `users.id` at ~68 bits of entropy is vanishingly
+// unlikely (birthday-bound). If it ever happens, the INSERT's UNIQUE
+// PRIMARY KEY violation surfaces as an error and the caller can retry
+// the whole signup (which will pick a fresh random userID and re-sign
+// the server payload against it). We deliberately do not pre-check
+// existence — that would only widen the window between the check and
+// the INSERT during which a duplicate could sneak in from another
+// concurrent signup.
+func (s *DataService) Signup(in SignupInput) (*User, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	id, err := generateUserID()
-	if err != nil {
+	// created_at is set explicitly to memberSince — the value that was
+	// signed by the server. Using the DB's DEFAULT would create a
+	// race between what was signed and what is persisted, and would
+	// silently truncate to whatever precision Postgres chooses.
+	if _, err := tx.Exec(`
+		INSERT INTO users (
+			id, username, created_at, fingerprint,
+			user_signature, server_signature,
+			server_signed_at, server_fingerprint
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`,
+		in.UserID, in.Username, in.MemberSince, in.Fingerprint,
+		in.UserSignatureB64, in.ServerSignatureB64,
+		in.ServerTs, in.ServerKeyFP,
+	); err != nil {
 		return nil, err
 	}
 
-	// Check the generated ID isn't already taken. At ~68 bits of entropy this
-	// is vanishingly unlikely; if it happens we surface the fact to the caller
-	// instead of blindly inserting and reading it back from a driver error.
-	var exists bool
-	err = tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, id).Scan(&exists)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		log.Error().
-			Str("id", id).
-			Msg("User ID collision")
-		return nil, fmt.Errorf("user ID collision, please retry")
-	}
-
-	var avatarURL sql.NullString
-	var bio sql.NullString
-	var user User
-
-	err = tx.QueryRow(`
-		INSERT INTO users (id, username)
-		VALUES ($1, $2)
-		RETURNING id, username, avatar_url, bio, created_at
-	`, id, username).Scan(
-		&user.ID,
-		&user.Username,
-		&avatarURL,
-		&bio,
-		&user.CreatedAt,
-	)
-	if err != nil {
+	if _, err := tx.Exec(`
+		INSERT INTO user_keys (fingerprint, owner, armor, created_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, in.Fingerprint, in.UserID, in.PublicKeyArmor, in.KeyCreatedAt, in.KeyExpiresAt); err != nil {
 		return nil, err
 	}
 
-	if avatarURL.Valid {
-		user.AvatarURL = avatarURL.String
-	}
-
-	if bio.Valid {
-		user.Bio = bio.String
-	}
-
-	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
-	return &user, nil
+	return s.GetUser(in.UserID)
 }
 
 func (s *DataService) GetUser(userID string) (*User, error) {
 	var user User
-	var avatarURL sql.NullString
-	var bio sql.NullString
-	var fingerprint sql.NullString
+	var avatarURL, bio, fingerprint sql.NullString
+	var userSig, serverSig, serverKeyFP sql.NullString
+	var serverTs sql.NullTime
 
 	err := s.db.QueryRow(`
-		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at, u.fingerprint, EXISTS (
-			SELECT 1
-			FROM reeds
-			WHERE user_id = u.id
-		) AS has_reeds
+		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at,
+		       u.fingerprint,
+		       u.user_signature, u.server_signature,
+		       u.server_fingerprint, u.server_signed_at,
+		       EXISTS (
+		           SELECT 1 FROM reeds WHERE user_id = u.id
+		       ) AS has_reeds
 		FROM users u
 		WHERE u.id = $1
 	`, userID).Scan(
@@ -411,6 +423,10 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		&bio,
 		&user.CreatedAt,
 		&fingerprint,
+		&userSig,
+		&serverSig,
+		&serverKeyFP,
+		&serverTs,
 		&user.HasReeds,
 	)
 	if err != nil {
@@ -427,6 +443,19 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	}
 	if fingerprint.Valid {
 		user.Fingerprint = fingerprint.String
+	}
+	// Signed identity record. Rows that predate signed identity records
+	// (or dev rows created outside the Signup flow) have NULLs in these
+	// columns — for those, sql.Null*.String/.Time are zero-valued and
+	// the block ends up empty, which is the intended failure mode: no
+	// signature, no trust.
+	user.Signature = userSig.String
+	user.Server = ServerBlock{
+		ID:          s.serverID,
+		Fingerprint: serverKeyFP.String,
+		Timestamp:   serverTs.Time,
+		Algorithm:   identityAlgorithm,
+		Signature:   serverSig.String,
 	}
 
 	return &user, nil
@@ -458,35 +487,6 @@ func (s *DataService) UsernameExists(username string) (bool, error) {
 	}
 
 	return exists, nil
-}
-
-func (s *DataService) GetUserByUsername(username string) (*User, error) {
-	var user User
-	var avatarURL sql.NullString
-
-	err := s.db.QueryRow(`
-		SELECT id, username, avatar_url, bio, created_at
-		FROM users
-		WHERE LOWER(username) = LOWER($1)
-	`, username).Scan(
-		&user.ID,
-		&user.Username,
-		&avatarURL,
-		&user.Bio,
-		&user.CreatedAt,
-	)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	if avatarURL.Valid {
-		user.AvatarURL = avatarURL.String
-	}
-
-	return &user, nil
 }
 
 func (s *DataService) DeleteUser(userID string) error {

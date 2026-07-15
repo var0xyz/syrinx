@@ -8,6 +8,7 @@
     }
   });
   import { cryptoService } from "$lib/services/crypto";
+  import { buildNewUserIdentityPayload } from "$lib/services/signing";
   import UsernameChecker from "$lib/components/UsernameChecker.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
   import { notificationStore } from "$lib/stores/notifications";
@@ -74,20 +75,40 @@
         password,
       );
 
-      // Step 4: Create user account with public key and signature
+      // Step 4: Build and sign the user identity payload. This is the
+      // user-authored half of the signed identity record the server
+      // will countersign. At signup avatarURL and bio are always empty
+      // — a user cannot have set them before their account exists —
+      // and the signed bytes must match the ones the server rebuilds
+      // via identity.buildNewUserIdentityPayload. The signature travels
+      // as base64(armored PGP) to survive form-encoding.
       currentStep = 4;
+      const identityPayload = buildNewUserIdentityPayload(
+        username,
+        keyPair.fingerprint,
+      );
+      const identitySigArmor = await cryptoService.signMessage(
+        identityPayload,
+        keyPair.privateKey,
+        password,
+      );
+      const userSignature = btoa(identitySigArmor);
+
+      // Step 5: Create user account with public key + both signatures
+      currentStep = 5;
       const user = await authService.signup({
         username,
         publicKey: keyPair.publicKey,
         signature,
+        userSignature,
       });
 
-      // Step 5: Store user in both localStorage and IndexedDB
-      currentStep = 5;
+      // Step 6: Store user in both localStorage and IndexedDB
+      currentStep = 6;
       await authService.saveUserToStorage(user);
 
-      // Step 6: Store session data and set active key
-      currentStep = 6;
+      // Step 7: Store session data and set active key
+      currentStep = 7;
       authService.setActiveKey(keyPair.fingerprint);
 
       // Initialize the service worker with the new key so requests can be
@@ -145,7 +166,7 @@
       </div>
 
       {#if loading}
-        <ProgressBar {currentStep} totalSteps={5} />
+        <ProgressBar {currentStep} totalSteps={6} />
       {/if}
       <button disabled={loading} class="submit">
         {loading ? "Creating account..." : "Create account"}

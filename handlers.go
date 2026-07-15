@@ -124,6 +124,21 @@ func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, ServerInfo{ID: h.services.db.GetServerID(), Name: h.cfg.ServerName})
 }
 
+// Signup produces a fresh signed identity record for a brand-new user.
+// One-round flow:
+//
+//  1. Client sends {username, publicKey, signature, userSignature}.
+//     - `signature` is the user's self-signature over `publicKey`.
+//     - `userSignature` is a fresh base64-armored PGP detached signature
+//     over `buildUserIdentityPayload(username, fingerprint, "", "")`.
+//  2. Server verifies both signatures, mints memberSince / serverTs,
+//     assembles and countersigns the server identity payload, and
+//     persists both signatures on the users row alongside the
+//     user_keys insert.
+//
+// The client can compute `userSignature` locally without any pre-flight
+// roundtrip — the user payload contains no server-authored fields, so
+// there is nothing to fetch first.
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("Signup request received")
@@ -140,7 +155,6 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `username` is required")
 		return
 	}
-
 	if len(username) > 32 {
 		writeResponse(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
 		return
@@ -158,11 +172,17 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userSignatureB64 := values.Get("userSignature")
+	if userSignatureB64 == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `userSignature` is required")
+		return
+	}
+
 	exists, err := h.services.db.UsernameExists(username)
 	if err != nil {
 		log.Error().
 			Str("username", username).
-			Err(err).Msg("Failed to get user by username")
+			Err(err).Msg("Failed to check username")
 		internalServerError(w)
 		return
 	}
@@ -171,70 +191,107 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.services.db.CreateUser(username)
-	if err != nil {
-		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
-			log.Info().
-				Str("username", username).
-				Msg("Username already exists")
-			writeResponse(w, http.StatusBadRequest, "Username already exists")
-			return
-		} else {
-			log.Error().Err(err).Msg("Failed to create user '" + username + "': " + err.Error())
-			internalServerError(w)
-			return
-		}
-	}
-	log.Debug().
-		Str("userID", user.ID).
-		Str("username", username).
-		Msg("User created successfully")
-
-	// Validate and verify the public key using crypto service
+	// Validate the self-signature over the public key AND extract the
+	// canonical fingerprint / creation time / expiry from the armored
+	// key. This must happen before we can build the user identity
+	// payload, since the payload binds the fingerprint.
 	key, err := h.services.crypto.ValidateAndExtractPublicKey(publicKey, signature)
 	if err != nil {
-		log.Error().
-			Str("userID", user.ID).
-			Err(err).Msg("Error validating public key")
+		log.Error().Err(err).Msg("Error validating public key")
 		writeResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	log.Info().
-		Str("userID", user.ID).
-		Str("fingerprint", key.Fingerprint).
-		Msg("Public key signature verified successfully")
+	// Reconstruct the exact bytes the client claims to have signed. At
+	// signup avatarURL and bio are both empty — a user cannot set them
+	// before their account exists. If we ever let signup carry an
+	// initial bio/avatar, they'd flow in here.
+	userPayload := buildUserIdentityPayload(username, key.Fingerprint, "", "")
 
-	// Check if key already exists
-	keyExists, err := h.services.db.PublicKeyExists(key.Fingerprint, user.ID)
+	// userSignature travels as base64(armored PGP). Decode once and hand
+	// the armor to VerifySignature.
+	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
 	if err != nil {
-		log.Error().Str("fingerprint", key.Fingerprint).Err(err).Msg("Error checking if public key exists")
+		log.Error().Err(err).Msg("Invalid userSignature encoding")
+		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
+		return
+	}
+	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), publicKey); err != nil {
+		log.Error().Err(err).Msg("userSignature verification failed")
+		writeResponse(w, http.StatusBadRequest, "userSignature verification failed")
+		return
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	// Generate the userID up front so it can be bound into the server
+	// identity payload (userID is a header on the server-signed bytes).
+	// We do not pre-check the DB for a collision: that would open a
+	// race between the check and the INSERT. Instead we sign
+	// optimistically and let the INSERT's UNIQUE constraint reject
+	// the (astronomically unlikely) duplicate. If persistence later
+	// fails for any reason, the ID is simply discarded — no row was
+	// written.
+	userID, err := generateUserID()
+	if err != nil {
+		log.Error().Err(err).Msg("Error generating userID")
 		internalServerError(w)
 		return
 	}
-	if keyExists {
-		log.Info().
-			Str("fingerprint", key.Fingerprint).
-			Str("userID", user.ID).
-			Msg("Key with this fingerprint already exists")
-		writeResponse(w, http.StatusBadRequest, "Key with this fingerprint already exists")
-		return
-	}
 
-	_, err = h.services.db.AddPublicKey(key.Fingerprint, user.ID, key.CreatedAt, key.ExpiresAt, publicKey)
+	serverPayload := buildFirstServerIdentityPayload(
+		userID,
+		username,
+		key.Fingerprint,
+		h.services.db.GetServerID(),
+		h.signingKey.Fingerprint,
+		userSignatureB64,
+		now,
+	)
+	serverSigArmor, err := h.services.crypto.Sign(string(serverPayload), h.signingKey.Armor)
 	if err != nil {
-		log.Error().
-			Str("userID", user.ID).
-			Err(err).Msg("Error adding public key")
+		log.Error().Err(err).Msg("Error producing server signature")
 		internalServerError(w)
 		return
 	}
+	serverSignatureB64 := base64.StdEncoding.EncodeToString([]byte(serverSigArmor))
+
+	user, err := h.services.db.Signup(SignupInput{
+		UserID:             userID,
+		Username:           username,
+		PublicKeyArmor:     publicKey,
+		Fingerprint:        key.Fingerprint,
+		KeyCreatedAt:       key.CreatedAt,
+		KeyExpiresAt:       key.ExpiresAt,
+		UserSignatureB64:   userSignatureB64,
+		ServerSignatureB64: serverSignatureB64,
+		ServerKeyFP:        h.signingKey.Fingerprint,
+		MemberSince:        now,
+		ServerTs:           now,
+	})
+	if err != nil {
+		// Discriminate between a username race (client-visible 400)
+		// and a userID collision or other duplicate (500, retryable
+		// by the client — a fresh signup will pick a new random ID).
+		// Postgres embeds the constraint name in the error string.
+		errStr := err.Error()
+		if strings.Contains(errStr, "users_username_key") ||
+			strings.Contains(errStr, "idx_lower_users_username") {
+			log.Info().Str("username", username).Msg("Username already exists")
+			writeResponse(w, http.StatusBadRequest, "Username already exists")
+			return
+		}
+		log.Error().Err(err).Msg("Failed to create user '" + username + "': " + errStr)
+		internalServerError(w)
+		return
+	}
+
 	log.Info().
 		Str("userID", user.ID).
+		Str("username", username).
 		Str("fingerprint", key.Fingerprint).
-		Msg("Public key added successfully")
+		Msg("Identity record created")
 
-	user.Server = h.services.db.GetServerID()
 	writeResponse(w, http.StatusCreated, user)
 }
 
@@ -300,7 +357,6 @@ func (h *Handlers) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user.Server = h.services.db.GetServerID()
 	writeResponse(w, http.StatusOK, user)
 }
 
@@ -491,7 +547,6 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	user.Server = h.services.db.GetServerID()
 	writeResponse(w, http.StatusOK, user)
 }
 

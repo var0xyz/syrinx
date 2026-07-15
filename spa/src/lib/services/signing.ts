@@ -81,3 +81,50 @@ export function bytesToSign(headers: Record<string, string>, content: string): U
 export function stringToSign(headers: Record<string, string>, content: string): string {
   return new TextDecoder().decode(bytesToSign(headers, content));
 }
+
+/**
+ * Builds the canonical user-identity payload — the exact byte sequence a
+ * user signs to produce `userSignature` for their signed identity record.
+ *
+ * Mirror of `buildUserIdentityPayload` in the Go module `identity.go`. The
+ * two functions MUST stay byte-identical: the server verifies the user's
+ * signature against bytes it rebuilds from the same header set, and any
+ * drift here silently breaks signup and profile updates for every client
+ * using this SPA.
+ *
+ * Headers (sorted by `bytesToSign` at signing time):
+ *   - type:        "identity-user"
+ *   - username:    the account username
+ *   - fingerprint: the key producing this signature (self-describing)
+ *   - avatarURL:   omitted from signed bytes when empty
+ *
+ * Content: `bio` (verbatim, unescaped, may span multiple lines or be empty).
+ */
+export function buildUserIdentityPayload(
+  username: string,
+  fingerprint: string,
+  avatarURL: string,
+  bio: string
+): string {
+  return stringToSign(
+    {
+      type: 'identity-user',
+      username,
+      fingerprint,
+      avatarURL
+    },
+    bio
+  );
+}
+
+export function buildNewUserIdentityPayload(
+  username: string,
+  fingerprint: string,
+): string {
+  return buildUserIdentityPayload(
+    username,
+    fingerprint,
+    "",
+    "",
+  );
+}
