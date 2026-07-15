@@ -3,7 +3,8 @@
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
   import { serverConnection } from '$lib/services/serverConnection';
-  import { broadcastReedQueue, formatRelativeTime, getFollowcastReeds, initFollowcastIds } from '$lib/repositories/reeds';
+  import { broadcastReedQueue, getFollowcastReeds, initFollowcastIds } from '$lib/repositories/reeds';
+  import { formatRelativeTime } from '$lib/utils/time';
   import { goto } from '$app/navigation';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
@@ -160,7 +161,7 @@
                     </div>
                     <div class="author-info">
                       <span class="author-name">{broadcastReeds.authors[reed.headers.author]?.username ?? reed.headers.author}</span>
-                      <span class="feed-time">{formatRelativeTime(reed.headers.timestamp)}</span>
+                      <span class="feed-time">{formatRelativeTime(reed.server.timestamp)}</span>
                     </div>
                   </div>
                 </div>
@@ -200,7 +201,7 @@
                     </div>
                     <div class="author-info">
                       <span class="author-name">{followcastReeds.authors[reed.headers.author]?.username ?? reed.headers.author}</span>
-                      <span class="feed-time">{formatRelativeTime(reed.headers.timestamp)}</span>
+                      <span class="feed-time">{formatRelativeTime(reed.server.timestamp)}</span>
                     </div>
                   </div>
                 </div>

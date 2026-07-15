@@ -293,6 +293,31 @@ func (s *DataService) GetServerSigningKeyArmor() (string, error) {
 	return armor, nil
 }
 
+// GetServerPublicKeyByFingerprint returns the armored PGP public key that
+// matches the given fingerprint, or "" if no such key exists.
+//
+// Verifiers use this to select the historical server signing key that
+// produced a given reed countersignature: reeds store the fingerprint of the
+// key used at signing time (`reeds.private_key_fingerprint`), which is a FK
+// into `private_keys`; the matching entry in `public_keys` is the verifier's
+// input. This is required because the reed server block binds the
+// fingerprint into the countersigned payload, and by any future recovery
+// import path that must verify against a restored historical key.
+func (s *DataService) GetServerPublicKeyByFingerprint(fingerprint string) (string, error) {
+	var armor string
+	err := s.db.QueryRow(
+		`SELECT armor FROM public_keys WHERE fingerprint = $1`,
+		fingerprint,
+	).Scan(&armor)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return armor, nil
+}
+
 func (s *DataService) RevokeServerPrivateKey(fingerprint, reason string) error {
 	_, err := s.db.Exec(`
 		UPDATE private_keys
@@ -695,7 +720,7 @@ func (s *DataService) CreateReed(reedID string, userID string, fingerprint strin
 		&reed.ID,
 		&reed.UserID,
 		&reed.Fingerprint,
-		&reed.SignedAt,
+		&reed.Timestamp,
 	)
 	if err != nil {
 		return nil, err
@@ -761,7 +786,7 @@ func (s *DataService) GetReed(userID string, reedID string) (*Reed, error) {
 		&reed.ID,
 		&reed.UserID,
 		&reed.Fingerprint,
-		&reed.SignedAt,
+		&reed.Timestamp,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {

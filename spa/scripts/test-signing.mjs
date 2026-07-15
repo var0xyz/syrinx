@@ -9,8 +9,9 @@
 //   2. Runs `bytesToSign` against each vector.
 //   3. Compares the UTF-8 bytes to the expected string.
 //
-// Byte-identity between the Go and TS implementations is the whole point of
-// Proposal 01 — this script is what enforces it on the SPA side.
+// Byte-identity between the Go and TS implementations is the whole point
+// of the shared BytesToSign helper — this script is what enforces it on
+// the SPA side.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

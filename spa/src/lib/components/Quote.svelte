@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { userRepository } from '$lib/repositories/user';
-  import { formatRelativeTime } from '$lib/repositories/reeds';
+  import { formatRelativeTime } from '$lib/utils/time';
   import MarkdownParser from './MarkdownParser.svelte';
 
   /** @type {import('$lib/types/reed').ReedType} */
@@ -65,7 +65,7 @@
     {#if loading}
       <div class="quote-meta">{icon} Loading...</div>
     {:else}
-      <div class="quote-meta">{icon} {label}{username} · {formatRelativeTime(reed.headers.timestamp)}</div>
+      <div class="quote-meta">{icon} {label}{username} · {formatRelativeTime(reed.server.timestamp)}</div>
       <MarkdownParser text={reed.content} preview={true} className="quote-content" />
     {/if}
   </div>

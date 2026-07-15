@@ -19,11 +19,20 @@ import (
 // countersigning a reed. Both SignReed and VerifySignature construct this
 // identical map and feed it to signing.BytesToSign; that single source of
 // truth is what keeps the two sides in lockstep.
-func reedCountersignHeaders(serverID string, ts time.Time) map[string]string {
+//
+// The header set binds `algorithm`, `id`, `timestamp`, `reedID`, `authorID`,
+// and the server signing-key `fingerprint`. Binding reedID/authorID kills
+// the cross-reed and cross-author replay classes; binding the fingerprint
+// lets a verifier with multiple historical server keys pick the right one
+// and keeps the signer's own identity covered by the signature.
+func reedCountersignHeaders(serverID, reedID, authorID, fingerprint string, ts time.Time) map[string]string {
 	return map[string]string{
-		"algorithm": "PGP+base64",
-		"id":        serverID,
-		"timestamp": ts.UTC().Format(time.RFC3339),
+		"algorithm":   "PGP+base64",
+		"authorID":    authorID,
+		"fingerprint": fingerprint,
+		"serverID":    serverID,
+		"reedID":      reedID,
+		"timestamp":   ts.UTC().Format(time.RFC3339),
 	}
 }
 
@@ -44,10 +53,11 @@ type ServerInfo struct {
 }
 
 type Signature struct {
-	ID        string    `json:"id"`
-	Timestamp time.Time `json:"timestamp"`
-	Algorithm string    `json:"algorithm"`
-	Signature string    `json:"signature"`
+	ServerID    string    `json:"id"`
+	Fingerprint string    `json:"fingerprint"`
+	Timestamp   time.Time `json:"timestamp"`
+	Algorithm   string    `json:"algorithm"`
+	Signature   string    `json:"signature"`
 }
 
 // ///////////// //
@@ -744,11 +754,17 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	// Build the canonical envelope the server signs. The header map and the
 	// content (the base64 userSignature) are fed through signing.BytesToSign
-	// so that VerifySignature can reproduce the exact same bytes for
-	// verification.
+	// so that a later verifier can reproduce the exact same bytes for
+	// verification. The header set binds reedID, authorID, and the server
+	// signing-key fingerprint — without those, a genuine (userSig, serverSig)
+	// pair could be replayed across reeds/authors, and a verifier with a key
+	// history could not pick the right server key.
 	serverID := h.services.db.GetServerID()
 	timestamp := time.Now().UTC().Truncate(time.Second)
-	payload := signing.BytesToSign(reedCountersignHeaders(serverID, timestamp), signature)
+	payload := signing.BytesToSign(
+		reedCountersignHeaders(serverID, reedID, userID, h.signingKey.Fingerprint, timestamp),
+		signature,
+	)
 	serverSignature, err := h.services.crypto.Sign(string(payload), h.signingKey.Armor)
 	if err != nil {
 		log.Error().
@@ -778,10 +794,11 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	encodedSignature := base64.StdEncoding.EncodeToString([]byte(serverSignature))
 	writeResponse(w, http.StatusCreated, Signature{
-		ID:        serverID,
-		Timestamp: reed.SignedAt,
-		Algorithm: "PGP+base64",
-		Signature: encodedSignature,
+		ServerID:    serverID,
+		Fingerprint: h.signingKey.Fingerprint,
+		Timestamp:   reed.Timestamp,
+		Algorithm:   "PGP+base64",
+		Signature:   encodedSignature,
 	})
 
 	// Broadcast the new reed to realtime subscribers
@@ -970,12 +987,52 @@ func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The reed row lookup already scoped by userID, but re-assert it in case the
+	// row-fetch semantics ever drift.
+	if reed.UserID != userID {
+		log.Error().
+			Str("userID", userID).
+			Str("reedID", reedID).
+			Str("reedUserID", reed.UserID).
+			Msg("Reed userID mismatch")
+		writeResponse(w, http.StatusBadRequest, "Reed does not belong to the given user")
+		return
+	}
+
+	// Select the server public key that produced the countersignature by the
+	// reed's stored fingerprint. The current signing key is not necessarily
+	// the one that signed this reed (key rotation, historical reeds), so we
+	// look it up explicitly.
+	serverPubKey, err := h.services.db.GetServerPublicKeyByFingerprint(reed.Fingerprint)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("reedID", reedID).
+			Str("fingerprint", reed.Fingerprint).
+			Err(err).Msg("Error loading server public key by fingerprint")
+		internalServerError(w)
+		return
+	}
+	if serverPubKey == "" {
+		log.Warn().
+			Str("userID", userID).
+			Str("reedID", reedID).
+			Str("fingerprint", reed.Fingerprint).
+			Msg("Server public key not found for reed fingerprint")
+		writeResponse(
+			w,
+			http.StatusBadRequest,
+			"Server signing key with fingerprint "+reed.Fingerprint+" is not known to this server; cannot verify this reed's countersignature.",
+		)
+		return
+	}
+
 	// Rebuild the exact bytes that SignReed signed (headers + userSignature
 	// content, via signing.BytesToSign) and verify serverSignature against
 	// those bytes. The wire form of serverSignature is base64(armored PGP
 	// signature); decode it once before handing to the PGP verifier.
 	payload := signing.BytesToSign(
-		reedCountersignHeaders(h.services.db.GetServerID(), reed.SignedAt),
+		reedCountersignHeaders(h.services.db.GetServerID(), reed.ID, reed.UserID, reed.Fingerprint, reed.Timestamp),
 		userSignature,
 	)
 	decodedServerSig, err := base64.StdEncoding.DecodeString(serverSignature)
@@ -987,7 +1044,7 @@ func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid serverSignature encoding")
 		return
 	}
-	err = h.services.crypto.VerifySignature(string(payload), string(decodedServerSig), h.signingKey.Armor)
+	err = h.services.crypto.VerifySignature(string(payload), string(decodedServerSig), serverPubKey)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).

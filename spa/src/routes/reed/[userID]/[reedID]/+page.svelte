@@ -4,7 +4,8 @@
   import { authService } from '$lib/services/auth';
   import { cryptoService } from '$lib/services/crypto';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
-  import { reedsService, stripMarkdown, formatAbsoluteDateTime, countMarkdownCharacters } from '$lib/repositories/reeds';
+  import { reedsService, stripMarkdown, countMarkdownCharacters } from '$lib/repositories/reeds';
+  import { formatAbsoluteDateTime } from '$lib/utils/time';
   import { Reed } from '$lib/types/reed';
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
@@ -284,7 +285,7 @@
                 </a>
                 <div class="author-info">
                   <a href="/profile/{userID}" class="author-name">{authorUser?.username ?? userID}</a>
-                  <p class="reed-date">{formatAbsoluteDateTime(reed.headers.timestamp)}</p>
+                  <p class="reed-date">{formatAbsoluteDateTime(reed.server?.timestamp)}</p>
                 </div>
               </div>
               <div class="reed-actions">
