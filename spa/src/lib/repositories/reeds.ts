@@ -10,7 +10,6 @@ import { Reed as ReedClass, type ReedType } from '$lib/types/reed';
 import type { User } from '$lib/types/api';
 import { serverConnection } from '$lib/services/serverConnection';
 import { writable } from 'svelte/store';
-export { formatRelativeTime, formatAbsoluteDate } from '$lib/utils/time';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
@@ -81,6 +80,7 @@ class ReedsService {
           ...reed,
           server: {
             id: response.id,
+            fingerprint: response.fingerprint,
             algorithm: response.algorithm,
             signature: response.signature,
             timestamp: response.timestamp,
@@ -330,27 +330,6 @@ export function stripMarkdown(text: string): string {
   result = result.replace(/\*([^*]+)\*/g, '$1');
 
   return result;
-}
-
-
-/**
- * Format timestamp as absolute date and time (MMM DD, YYYY at HH:MM AM/PM)
- */
-export function formatAbsoluteDateTime(timestamp: string): string {
-  if (!timestamp) return '';
-
-  const date = new Date(timestamp);
-  const dateStr = date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  });
-  const timeStr = date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true
-  });
-  return `${dateStr} at ${timeStr}`;
 }
 
 export const reedsService = new ReedsService();

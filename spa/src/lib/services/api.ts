@@ -4,6 +4,7 @@ import { authService } from './auth';
 
 export type SignReedResponse = {
   id: string;
+  fingerprint: string;
   timestamp: string;
   algorithm: string;
   signature: string;
@@ -153,6 +154,19 @@ export const apiService = {
 
   async getReed(userId: string, reedId: string): Promise<any> {
     return request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
+  },
+
+  // Ask the server to verify a stored (userSignature, serverSignature) pair
+  // against the canonical payload for the reed. Used by e2e tests and,
+  // eventually, by clients that want a second opinion on their own history.
+  async verifyReed(userId: string, reedId: string, userSignature: string, serverSignature: string): Promise<void> {
+    const formData = new FormData();
+    formData.append('userSignature', userSignature);
+    formData.append('serverSignature', serverSignature);
+    return request(`/reeds/${userId}/${reedId}/verify`, {
+      method: 'POST',
+      body: formData,
+    });
   },
 
   async deleteReed(userId: string, reedId: string): Promise<void> {

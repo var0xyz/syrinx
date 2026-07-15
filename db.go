@@ -30,22 +30,22 @@ type User struct {
 }
 
 type Key struct {
-	Fingerprint string     `json:"fingerprint"`
-	Armor       string     `json:"armor"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	Revoked     *Revoke    `json:"revoked"`
+	Fingerprint string    `json:"fingerprint"`
+	Armor       string    `json:"armor"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Revoked     *Revoke   `json:"revoked"`
 }
 
 type Revoke struct {
 	Timestamp time.Time `json:"timestamp"`
-	Reason string `json:"reason"`
+	Reason    string    `json:"reason"`
 }
 
 type Reed struct {
 	ID          string    `json:"id"`
 	UserID      string    `json:"userID"`
 	Fingerprint string    `json:"fingerprint"`
-	SignedAt    time.Time `json:"signedAt"`
+	Timestamp   time.Time `json:"timestamp"`
 }
 
 // /////// //

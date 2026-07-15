@@ -28,15 +28,21 @@ export function formatRelativeTime(timestamp: string | number): string {
 }
 
 /**
- * Format a timestamp as an absolute date string (e.g. "Apr 11, 2026").
+ * Format timestamp as absolute date and time (MMM DD, YYYY at HH:MM AM/PM)
  */
-export function formatAbsoluteDate(timestamp: string | number): string {
+export function formatAbsoluteDateTime(timestamp: string): string {
   if (!timestamp) return '';
 
-  const date = typeof timestamp === 'number' ? new Date(timestamp) : new Date(timestamp);
-  return date.toLocaleDateString('en-US', {
+  const date = new Date(timestamp);
+  const dateStr = date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
-    day: 'numeric',
+    day: 'numeric'
   });
+  const timeStr = date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
+  return `${dateStr} at ${timeStr}`;
 }

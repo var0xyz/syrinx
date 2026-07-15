@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { reedsService, formatRelativeTime, unsignedReedsProcessed, profileReedQueue, newReedQueue } from '$lib/repositories/reeds';
+  import { reedsService, unsignedReedsProcessed, profileReedQueue, newReedQueue } from '$lib/repositories/reeds';
+  import { formatRelativeTime } from '$lib/utils/time';
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
   import { userRepository } from '$lib/repositories/user';
@@ -202,7 +203,7 @@
             </div>
             <div class="reed-details">
               <h3>{displayUser.username}</h3>
-              <p>{formatRelativeTime(displayReed.headers.timestamp)}</p>
+              <p>{formatRelativeTime(displayReed.server.timestamp)}</p>
             </div>
           </div>
           {#if isOwner}

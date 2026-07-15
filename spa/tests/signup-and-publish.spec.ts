@@ -78,5 +78,39 @@ Testing special characters: @#$%^&*()_+-=[]{}|;:,.<>?`;
     await expect(page.locator('.reed-item')).toContainText('🌟');
     await expect(page.locator('.reed-item')).toContainText('🎉');
     await expect(page.locator('.reed-item')).toContainText('💡');
+
+    // Cross-check the server can verify the stored (userSignature,
+    // serverSignature) pair against the canonical payload. The verify
+    // endpoint reconstructs headers from stored reed fields
+    // (reedID/authorID/fingerprint/timestamp) and re-runs the PGP
+    // verification; a positive result on a freshly-published reed is the
+    // end-to-end proof that signer and verifier are in lockstep.
+    const verifyResult = await page.evaluate(async () => {
+      // Pull the stored reed straight out of IndexedDB — asObject() shape.
+      const reed: any = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('Syrinx');
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction(['reeds'], 'readonly');
+          const store = tx.objectStore('reeds');
+          const all = store.getAll();
+          all.onsuccess = () => resolve(all.result[0]);
+          all.onerror = () => reject(all.error);
+        };
+      });
+      const { apiService } = await import('/src/lib/services/api.ts');
+      await apiService.verifyReed(
+        reed.headers.author,
+        reed.headers.id,
+        reed.signature,
+        reed.server.signature,
+      );
+      return { ok: true, fingerprint: reed.server.fingerprint };
+    });
+    expect(verifyResult.ok).toBe(true);
+    // Sanity: the fingerprint must be populated in the persisted server
+    // block; without it, recovery-time re-submit would have to guess.
+    expect(verifyResult.fingerprint).toMatch(/^[0-9A-Fa-f]{16,}$/);
   });
 });

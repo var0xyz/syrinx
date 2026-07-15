@@ -8,18 +8,25 @@ import { Uuid25 } from 'uuid25';
 
 export type Server = {
   id: string;
+  // fingerprint of the server signing key that produced `signature`. Bound
+  // into the countersigned payload so a verifier holding multiple historical
+  // server keys can pick the right one. Client persists it alongside the
+  // rest of the server block for later recovery/re-submit.
+  fingerprint: string;
   timestamp: string;
   signature: string;
   algorithm: string;
 };
 
+// Reed markdown headers. Note: there is intentionally no client-side
+// `timestamp` field. The canonical publication date is the server's
+// countersigned timestamp, bound into the countersigned payload.
 export type Headers = {
   id: string;
   author: string;
   origin: string;
   fingerprint: string;
   algorithm: string;
-  timestamp: string;
   format: string;
   replying?: string;
   echoing?: string;
@@ -54,7 +61,6 @@ export class Reed {
       origin,
       id,
       fingerprint: '',
-      timestamp: new Date().toISOString(),
       format: 'markdown'
     };
   }
@@ -129,9 +135,10 @@ export class Reed {
     this._signature = btoa(value.trim()).trim();
   }
 
-  applyServerResponse(r: { id: string; timestamp: string; algorithm: string; signature: string }): void {
+  applyServerResponse(r: { id: string; fingerprint: string; timestamp: string; algorithm: string; signature: string }): void {
     this._server = {
       id: r.id,
+      fingerprint: r.fingerprint,
       algorithm: r.algorithm,
       signature: r.signature,
       timestamp: r.timestamp,
