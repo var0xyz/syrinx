@@ -65,7 +65,7 @@ func buildUserIdentityPayload(username, fingerprint, avatarURL, bio string) []by
 	return signing.BytesToSign(userIdentityHeaders(username, fingerprint, avatarURL), bio)
 }
 
-// serverIdentityHeaders returns the header map covered by serverSignature.
+// profileHeaders returns the header map covered by serverSignature.
 // `userSignatureB64` binds the user's attestation into the server-signed
 // bytes; without this header the server signature would not detect a
 // server that re-pairs a genuine userSignature with fabricated
@@ -74,7 +74,7 @@ func buildUserIdentityPayload(username, fingerprint, avatarURL, bio string) []by
 // Timestamp formatting: memberSince and signedAt are formatted with
 // identityRecordTimeFormat in UTC. Callers own the truncation of the
 // input times to whole seconds — this function does not modify them.
-func serverIdentityHeaders(
+func profileHeaders(
 	userID, username, fingerprint, avatarURL,
 	serverID, serverKeyFingerprint, userSignatureB64 string,
 	memberSince, signedAt time.Time,
@@ -93,11 +93,11 @@ func serverIdentityHeaders(
 	}
 }
 
-// buildServerIdentityPayload returns the exact bytes the server signs.
+// buildProfilePayload returns the exact bytes the server signs.
 // `bio` is the same string that appeared in the user payload's content
 // section — the two payloads share the same content, they only differ
 // in headers.
-func buildServerIdentityPayload(
+func buildProfilePayload(
 	userID,
 	username,
 	fingerprint,
@@ -110,7 +110,7 @@ func buildServerIdentityPayload(
 	signedAt time.Time,
 ) []byte {
 	return signing.BytesToSign(
-		serverIdentityHeaders(
+		profileHeaders(
 			userID, username, fingerprint, avatarURL,
 			serverID, serverKeyFingerprint, userSignatureB64,
 			memberSince, signedAt,
@@ -119,18 +119,76 @@ func buildServerIdentityPayload(
 	)
 }
 
-// buildFirstServerIdentityPayload is a convenience wrapper around
-// buildServerIdentityPayload for the initial signup record: avatarURL
-// and bio are always empty (users can't set them before their account
-// exists), and memberSince == signedAt == the moment the record is
-// minted. Later records produced by profile-update flows keep
-// memberSince pinned and only advance signedAt, so they must call
-// buildServerIdentityPayload directly.
+// buildReedPayload returns the exact bytes the server countersigns for a
+// reed. Headers bind the reed's identity (serverID, reedID, authorID,
+// server-key fingerprint, timestamp); content is the author's detached
+// signature, so the countersignature covers both where the reed lives
+// and the user's attestation of its body.
 //
 // `timestamp` must already be truncated to whole seconds so that what
 // is signed matches what Postgres stores after any timestamp
 // round-trip.
-func buildFirstServerIdentityPayload(
+func buildReedPayload(
+	serverID,
+	userID,
+	reedID,
+	fingerprint,
+	signature string,
+	timestamp time.Time,
+) []byte {
+	return signing.BytesToSign(
+		reedCountersignHeaders(
+			serverID,
+			reedID,
+			userID,
+			fingerprint,
+			timestamp,
+		),
+		signature,
+	)
+}
+
+// buildPublicKeyPayload returns the exact bytes the server countersigns
+// for a user's public key. Headers bind ownership and issuance
+// (userID, user fingerprint, serverID, server-key fingerprint,
+// signedAt); content is the armored key itself, so a verifier can
+// check that this server attested this specific key for this user.
+//
+// `timestamp` must already be truncated to whole seconds so that what
+// is signed matches what Postgres stores after any timestamp
+// round-trip.
+func buildPublicKeyPayload(
+	serverID,
+	userID,
+	userFingerprint,
+	serverFingerprint,
+	publicKey string,
+	timestamp time.Time,
+) []byte {
+	return signing.BytesToSign(
+		publicKeyCountersignHeaders(
+			userID,
+			userFingerprint,
+			serverID,
+			serverFingerprint,
+			timestamp,
+		),
+		publicKey,
+	)
+}
+
+// buildNewProfilePayload is a convenience wrapper around
+// buildProfilePayload for the initial signup record: avatarURL
+// and bio are always empty (users can't set them before their account
+// exists), and memberSince == signedAt == the moment the record is
+// minted. Later records produced by profile-update flows keep
+// memberSince pinned and only advance signedAt, so they must call
+// buildProfilePayload directly.
+//
+// `timestamp` must already be truncated to whole seconds so that what
+// is signed matches what Postgres stores after any timestamp
+// round-trip.
+func buildNewProfilePayload(
 	userID,
 	username,
 	fingerprint,
@@ -139,7 +197,7 @@ func buildFirstServerIdentityPayload(
 	userSignatureB64 string,
 	timestamp time.Time,
 ) []byte {
-	return buildServerIdentityPayload(
+	return buildProfilePayload(
 		userID,
 		username,
 		fingerprint,

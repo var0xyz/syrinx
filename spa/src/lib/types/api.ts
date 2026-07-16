@@ -30,13 +30,15 @@ export interface User extends Base {
   signatureFingerprint: string;
   activeKeyFingerprint: string;
   signature: string;
-  server: ServerBlock;
+  server: ServerSignature;
   hasReeds: boolean;
 };
 
-// ServerBlock is the server's contribution to an identity record: which
-// server key countersigned it, when, and the signature itself.
-export interface ServerBlock extends Base {
+// ServerSignature is the server's countersignature metadata shared by every
+// signed resource (identity records, public keys, reeds, …). Clients
+// pass it to `verify(server, payload)` after rebuilding the resource's
+// canonical payload.
+export interface ServerSignature extends Base {
   id: string;
   fingerprint: string;
   timestamp: string;
@@ -49,11 +51,12 @@ export interface PublicKeyIdentity extends Base {
   value: string;
 };
 
+// PublicKey is the wire shape of a distributed user public key.
+// `server` is required (countersignature over userID/fingerprint/armor).
 export interface PublicKey extends Base {
   fingerprint: string;
   userID: string;
   armor: string;
-  name?: string;
   createdAt?: string;
   expiresAt?: string | null;
   identities?: PublicKeyIdentity[];
@@ -67,4 +70,5 @@ export interface PublicKey extends Base {
     // transient window between RevokeKey and AddPublicKey.
     successor: string | null;
   } | null;
+  server: ServerSignature;
 };

@@ -5,18 +5,7 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { Uuid25 } from 'uuid25';
-
-export type Server = {
-  id: string;
-  // fingerprint of the server signing key that produced `signature`. Bound
-  // into the countersigned payload so a verifier holding multiple historical
-  // server keys can pick the right one. Client persists it alongside the
-  // rest of the server block for later recovery/re-submit.
-  fingerprint: string;
-  timestamp: string;
-  signature: string;
-  algorithm: string;
-};
+import type { ServerSignature } from '$lib/types/api';
 
 // Reed markdown headers. Note: there is intentionally no client-side
 // `timestamp` field. The canonical publication date is the server's
@@ -34,7 +23,7 @@ export type Headers = {
 
 export interface ReedType {
   headers: Headers;
-  server?: Server;
+  server?: ServerSignature;
   signature?: string;
   content: string;
   tags: string[];
@@ -42,7 +31,7 @@ export interface ReedType {
 
 export class Reed {
   private _headers: Headers;
-  private _server: Server | undefined = undefined;
+  private _server: ServerSignature | undefined = undefined;
   private _signature: string | undefined = undefined;
   private _content: string = '';
   private _tags: string[] = [];

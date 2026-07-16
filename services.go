@@ -344,8 +344,7 @@ func (s *DataService) RevokeServerPrivateKey(fingerprint, reason string) error {
 // Signup handler after it has allocated a userID, verified the user's
 // self-signature over their key, reconstructed the user identity
 // payload, verified UserSignatureB64 against PublicKeyArmor, and
-// produced its own ServerSignatureB64 (which binds UserID because
-// UserID appears in the server identity payload).
+// produced ProfileSignature / PublicKeySignature.
 type SignupInput struct {
 	UserID             string
 	Username           string
@@ -354,10 +353,9 @@ type SignupInput struct {
 	KeyCreatedAt       time.Time
 	KeyExpiresAt       *time.Time
 	UserSignatureB64   string
-	ServerSignatureB64 string
-	ServerFingerprint  string
-	ServerSignedAt     time.Time
 	MemberSince        time.Time
+	ProfileSignature   Signature
+	PublicKeySignature Signature
 }
 
 // Signup materialises a fresh identity record: it writes the users row
@@ -393,16 +391,19 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`,
 		in.UserID, in.Username, in.MemberSince, in.Fingerprint,
-		in.UserSignatureB64, in.ServerSignatureB64,
-		in.ServerSignedAt, in.ServerFingerprint,
+		in.UserSignatureB64, in.ProfileSignature.Armor,
+		in.ProfileSignature.SignedAt, in.ProfileSignature.Fingerprint,
 	); err != nil {
 		return nil, err
 	}
 
 	if _, err := tx.Exec(`
-		INSERT INTO user_keys (fingerprint, owner, armor, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, in.Fingerprint, in.UserID, in.PublicKeyArmor, in.KeyCreatedAt, in.KeyExpiresAt); err != nil {
+		INSERT INTO user_keys (
+			fingerprint, owner, armor, created_at, expires_at,
+			server_signature, server_fingerprint, server_signed_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, in.Fingerprint, in.UserID, in.PublicKeyArmor, in.KeyCreatedAt, in.KeyExpiresAt,
+		in.PublicKeySignature.Armor, in.PublicKeySignature.Fingerprint, in.PublicKeySignature.SignedAt); err != nil {
 		return nil, err
 	}
 
@@ -463,12 +464,12 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	// columns — for those, sql.Null*.String/.Time are zero-valued and
 	// the block ends up empty, which is the intended failure mode: no
 	// signature, no trust.
-	user.Signature = userSig.String
-	user.Server = ServerBlock{
-		ID:          s.serverID,
+	user.UserSignatureB64 = userSig.String
+	user.Server = Signature{
+		ServerID:    s.serverID,
 		Fingerprint: serverKeyFP.String,
 		Algorithm:   identityAlgorithm,
-		Signature:   serverSig.String,
+		Armor:       serverSig.String,
 		SignedAt:    signedAt.Time,
 	}
 
@@ -481,14 +482,12 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 // user-authored fields plus the four identity columns that record who
 // signed what and when.
 type UpdateUserInput struct {
-	UserID             string
-	Username           string
-	AvatarURL          string
-	Bio                string
-	UserSignatureB64   string
-	ServerSignatureB64 string
-	ServerFingerprint  string
-	ServerSignedAt     time.Time
+	UserID           string
+	Username         string
+	AvatarURL        string
+	Bio              string
+	UserSignatureB64 string
+	ProfileSignature Signature
 }
 
 // UpdateUser writes a fresh signed identity record for an existing user.
@@ -512,8 +511,8 @@ func (s *DataService) UpdateUser(in UpdateUserInput) error {
 		WHERE id = $8
 	`,
 		in.Username, in.AvatarURL, in.Bio,
-		in.UserSignatureB64, in.ServerSignatureB64,
-		in.ServerSignedAt, in.ServerFingerprint,
+		in.UserSignatureB64, in.ProfileSignature.Armor,
+		in.ProfileSignature.SignedAt, in.ProfileSignature.Fingerprint,
 		in.UserID,
 	)
 	return err
@@ -622,19 +621,36 @@ func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, err
 	var revokedAt sql.NullTime
 	var revokedReason sql.NullString
 	var successor sql.NullString
+	var serverSig, serverKeyFP sql.NullString
+	var serverSignedAt sql.NullTime
 
 	err := s.db.QueryRow(`
-		SELECT uk.fingerprint, uk.armor, uk.created_at,
+		SELECT uk.fingerprint, uk.owner, uk.armor, uk.created_at,
+		       uk.server_signature, uk.server_fingerprint, uk.server_signed_at,
 		       rv.revoked_at, rv.reason, rv.successor
 		FROM user_keys uk
 		LEFT JOIN user_key_revocations rv ON rv.fingerprint = uk.fingerprint AND rv.owner = uk.owner
 		WHERE uk.owner = $1 AND uk.fingerprint = $2
-	`, userID, fingerprint).Scan(&key.Fingerprint, &key.Armor, &key.CreatedAt, &revokedAt, &revokedReason, &successor)
+	`, userID, fingerprint).Scan(
+		&key.Fingerprint, &key.UserID, &key.Armor, &key.CreatedAt,
+		&serverSig, &serverKeyFP, &serverSignedAt,
+		&revokedAt, &revokedReason, &successor,
+	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
+	}
+	if !serverSig.Valid || !serverKeyFP.Valid || !serverSignedAt.Valid {
+		return nil, fmt.Errorf("public key %s for user %s is missing server signature", fingerprint, userID)
+	}
+	key.Server = Signature{
+		ServerID:    s.serverID,
+		Fingerprint: serverKeyFP.String,
+		Algorithm:   identityAlgorithm,
+		Armor:       serverSig.String,
+		SignedAt:    serverSignedAt.Time,
 	}
 	if revokedAt.Valid {
 		revoke := &Revoke{Timestamp: revokedAt.Time, Reason: revokedReason.String}
@@ -673,19 +689,34 @@ func (s *DataService) PublicKeyExists(fingerprint string, userID string) (bool, 
 // Signup — this method is the rotation path only.
 //
 // Integrity checks (all inside one transaction, with row locks):
-//  1. predecessorFingerprint is required
+//  1. predecessor is required
 //  2. owner exists
 //  3. the new fingerprint is not already registered to anyone
 //  4. predecessor exists under this owner and is revoked
 //  5. predecessor does not already have a successor
 //  6. the user has no other active (non-revoked) key
-//
+type AddPublicKeyInput struct {
+	Fingerprint string
+	UserID      string
+	CreatedAt   time.Time
+	ExpiresAt   *time.Time
+	Armor       string
+	Predecessor string
+	Server      Signature
+}
+
 // On success it inserts the key, points users.fingerprint at it, and
 // writes the successor pointer on the predecessor's revocation row.
-func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt time.Time, expiresAt *time.Time, armor string, predecessorFingerprint string) (*Key, error) {
-	if predecessorFingerprint == "" {
+func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
+	if in.Predecessor == "" {
 		return nil, ErrPredecessorRequired
 	}
+	fingerprint := in.Fingerprint
+	userID := in.UserID
+	createdAt := in.CreatedAt
+	expiresAt := in.ExpiresAt
+	armor := in.Armor
+	predecessor := in.Predecessor
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -725,7 +756,7 @@ func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt 
 		FROM user_keys
 		WHERE owner = $1 AND fingerprint = $2
 		FOR UPDATE
-	`, userID, predecessorFingerprint).Scan(new(int))
+	`, userID, predecessor).Scan(new(int))
 	if err == sql.ErrNoRows {
 		return nil, ErrPredecessorNotFound
 	}
@@ -742,7 +773,7 @@ func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt 
 		FROM user_key_revocations
 		WHERE fingerprint = $1 AND owner = $2
 		FOR UPDATE
-	`, predecessorFingerprint, userID).Scan(&successor)
+	`, predecessor, userID).Scan(&successor)
 	if err == sql.ErrNoRows {
 		return nil, ErrPredecessorNotRevoked
 	}
@@ -776,14 +807,18 @@ func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt 
 
 	var key Key
 	err = tx.QueryRow(`
-		INSERT INTO user_keys (fingerprint, owner, armor, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING fingerprint, armor, created_at
+		INSERT INTO user_keys (
+			fingerprint, owner, armor, created_at, expires_at,
+			server_signature, server_fingerprint, server_signed_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING fingerprint, owner, armor, created_at
 	`, fingerprint, userID, armor, createdAt, expiresAt,
-	).Scan(&key.Fingerprint, &key.Armor, &key.CreatedAt)
+		in.Server.Armor, in.Server.Fingerprint, in.Server.SignedAt,
+	).Scan(&key.Fingerprint, &key.UserID, &key.Armor, &key.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
+	key.Server = in.Server
 
 	_, err = tx.Exec(`UPDATE users SET fingerprint = $1 WHERE id = $2`, fingerprint, userID)
 	if err != nil {
@@ -794,7 +829,7 @@ func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt 
 		UPDATE user_key_revocations
 		SET successor = $1
 		WHERE fingerprint = $2 AND owner = $3
-	`, fingerprint, predecessorFingerprint, userID)
+	`, fingerprint, predecessor, userID)
 	if err != nil {
 		return nil, err
 	}

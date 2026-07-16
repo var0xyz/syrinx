@@ -144,6 +144,9 @@ func main() {
 	api.HandleFunc("/server/info", h.GetServerInfo).Methods("GET")
 	api.HandleFunc("/server/info", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/server/keys/{fingerprint}", h.GetServerPublicKey).Methods("GET")
+	api.HandleFunc("/server/keys/{fingerprint}", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/check-username", h.CheckUsername).Methods("POST")
 	api.HandleFunc("/check-username", h.noop).Methods("OPTIONS")
 

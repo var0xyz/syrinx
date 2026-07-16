@@ -128,3 +128,24 @@ export function buildNewUserIdentityPayload(
     "",
   );
 }
+
+/** Mirror of publicKeyCountersignHeaders + armor in handlers.go. */
+export function buildPublicKeyPayload(
+  userID: string,
+  fingerprint: string,
+  serverID: string,
+  serverKeyFingerprint: string,
+  armor: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      fingerprint,
+      serverID,
+      serverKeyFingerprint,
+      signedAt,
+      userID
+    },
+    armor
+  );
+}
