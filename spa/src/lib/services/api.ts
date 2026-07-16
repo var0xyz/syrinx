@@ -206,6 +206,14 @@ export const apiService = {
     return request<api.PublicKey>(`/users/${userID}/keys/${fingerprint}`, { method: 'GET' });
   },
 
+  /** Fetch a historical server signing public key by fingerprint. */
+  async getServerPublicKey(fingerprint: string): Promise<{ fingerprint: string; armor: string }> {
+    return request<{ fingerprint: string; armor: string }>(
+      `/server/keys/${fingerprint}`,
+      { method: 'GET' }
+    );
+  },
+
   async getUserReedIds(userId: string, from?: string): Promise<string[]> {
     const params = from ? `?from=${encodeURIComponent(from)}` : '';
     return request<string[]>(`/users/${userId}/reeds${params}`, { method: 'GET' });
@@ -217,7 +225,7 @@ export const apiService = {
     revokedKeyFingerprint: string,
     revokedKeySignature: string,
     newKeySignature: string
-  ): Promise<any> {
+  ): Promise<api.PublicKey> {
     const formData = new URLSearchParams();
     formData.append('userID', userID);
     formData.append('publicKey', publicKey);
@@ -225,7 +233,7 @@ export const apiService = {
     formData.append('revokedKeySignature', revokedKeySignature);
     formData.append('newKeySignature', newKeySignature);
 
-    return request('/keys', {
+    return request<api.PublicKey>('/keys', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()

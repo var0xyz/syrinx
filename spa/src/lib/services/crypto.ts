@@ -144,6 +144,13 @@ export class CryptoService {
   }
 
   /**
+   * Re-derive fingerprint from armored public key material.
+   */
+  async fingerprintFromArmor(publicKey: string): Promise<string> {
+    return getFingerprint(publicKey);
+  }
+
+  /**
    * Extract identity from a public key
    */
   async getKeyIdentity(publicKey: string): Promise<string> {

@@ -6,6 +6,7 @@
 import { apiService as api } from '../services/api';
 import { cryptoService } from '../services/crypto';
 import { dbService } from '../services/db';
+import { verifyPublicKey } from './publicKey';
 import { Reed as ReedClass, type ReedType } from '$lib/types/reed';
 import type { User } from '$lib/types/api';
 import { serverConnection } from '$lib/services/serverConnection';
@@ -113,6 +114,9 @@ class ReedsService {
     }
     try {
       const publicKeyData = await api.getPublicKey(reed.headers.author, reed.headers.fingerprint);
+      if (!(await verifyPublicKey(publicKeyData))) {
+        return false;
+      }
       const message =
         "---\n" +
         Object.keys(reed.headers)

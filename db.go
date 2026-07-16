@@ -53,6 +53,7 @@ type User struct {
 	Bio       string    `json:"bio"`
 	CreatedAt time.Time `json:"memberSince"`
 	HasReeds  bool      `json:"hasReeds"`
+
 	// SignatureFingerprint is the fingerprint of the user key that
 	// produced `Signature`. Self-describing per record: it identifies
 	// which key to verify with, not which key is currently active. Note
@@ -60,31 +61,35 @@ type User struct {
 	// this header `fingerprint`; the JSON field is a wire-only alias
 	// and does not affect signature verification.
 	SignatureFingerprint string `json:"signatureFingerprint"`
+
 	// ActiveKeyFingerprint is a server-provided hint carrying the
 	// user's currently-active key fingerprint at response time. See
 	// the struct-level doc comment for the trust-tier caveat.
-	ActiveKeyFingerprint string      `json:"activeKeyFingerprint"`
-	Signature            string      `json:"signature"`
-	Server               ServerBlock `json:"server"`
+	ActiveKeyFingerprint string    `json:"activeKeyFingerprint"`
+	UserSignatureB64     string    `json:"signature"`
+	Server               Signature `json:"server"`
 }
 
-// ServerBlock is the server's contribution to an identity record: which
-// server key signed it, when, and the signature itself. Mirrors the
-// existing `Signature` struct used by reeds so the wire vocabulary stays
-// consistent across signed artefacts.
-type ServerBlock struct {
-	ID          string    `json:"id"`
+// Signature is the server's countersignature over a signed resource
+// (identity, public key, reed, …): which server key signed it, when,
+// and the signature itself.
+type Signature struct {
+	ServerID    string    `json:"id"`
 	Fingerprint string    `json:"fingerprint"`
 	Algorithm   string    `json:"algorithm"`
-	Signature   string    `json:"signature"`
+	Armor       string    `json:"signature"`
 	SignedAt    time.Time `json:"timestamp"`
 }
 
+// Key is the wire shape of a distributed user public key. `Server` is
+// required: the countersignature over (userID, fingerprint, armor).
 type Key struct {
 	Fingerprint string    `json:"fingerprint"`
+	UserID      string    `json:"userID"`
 	Armor       string    `json:"armor"`
 	CreatedAt   time.Time `json:"createdAt"`
 	Revoked     *Revoke   `json:"revoked"`
+	Server      Signature `json:"server"`
 }
 
 // Revoke describes the revocation state of a user key. `Successor` is
@@ -192,6 +197,9 @@ func InitDB(db *sql.DB) error {
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		expires_at TIMESTAMP,
+		server_signature TEXT NOT NULL,
+		server_fingerprint VARCHAR(255) NOT NULL,
+		server_signed_at TIMESTAMP NOT NULL,
 
 		PRIMARY KEY (owner, fingerprint)
 	);`

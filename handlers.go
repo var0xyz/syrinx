@@ -37,6 +37,34 @@ func reedCountersignHeaders(serverID, reedID, authorID, fingerprint string, ts t
 	}
 }
 
+// publicKeyCountersignHeaders is the header map signed over a user
+// public key. Content is the armored key.
+func publicKeyCountersignHeaders(userID, fingerprint, serverID, serverKeyFingerprint string, ts time.Time) map[string]string {
+	return map[string]string{
+		"fingerprint":          fingerprint,
+		"serverID":             serverID,
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"signedAt":             ts.UTC().Format(time.RFC3339),
+		"userID":               userID,
+	}
+}
+
+// countersign signs payload with the active server key and returns a
+// Signature. Used for keys, reeds, identity, etc.
+func (h *Handlers) countersign(payload []byte, ts time.Time) (Signature, error) {
+	sigArmor, err := h.services.crypto.Sign(string(payload), h.signingKey.Armor)
+	if err != nil {
+		return Signature{}, err
+	}
+	return Signature{
+		ServerID:    h.services.db.GetServerID(),
+		Fingerprint: h.signingKey.Fingerprint,
+		Algorithm:   "PGP+base64",
+		Armor:       base64.StdEncoding.EncodeToString([]byte(sigArmor)),
+		SignedAt:    ts,
+	}, nil
+}
+
 // /////////// //
 //   Structs   //
 // /////////// //
@@ -51,14 +79,6 @@ type Handlers struct {
 type ServerInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
-}
-
-type Signature struct {
-	ServerID    string    `json:"id"`
-	Fingerprint string    `json:"fingerprint"`
-	Algorithm   string    `json:"algorithm"`
-	Signature   string    `json:"signature"`
-	SignedAt    time.Time `json:"timestamp"`
 }
 
 // ///////////// //
@@ -123,6 +143,35 @@ func (h *Handlers) noop(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, ServerInfo{ID: h.services.db.GetServerID(), Name: h.cfg.ServerName})
+}
+
+// GetServerPublicKey returns the armored public half of a server signing
+// key by fingerprint. Clients use this to select the historical key that
+// produced a countersignature (keys, reeds, identity records).
+func (h *Handlers) GetServerPublicKey(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	fingerprint := mux.Vars(r)["fingerprint"]
+	if fingerprint == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `fingerprint` is required")
+		return
+	}
+
+	armor, err := h.services.db.GetServerPublicKeyByFingerprint(fingerprint)
+	if err != nil {
+		log.Error().Str("fingerprint", fingerprint).Err(err).Msg("Error loading server public key")
+		internalServerError(w)
+		return
+	}
+	if armor == "" {
+		writeResponse(w, http.StatusNotFound, "Server public key not found")
+		return
+	}
+
+	writeResponse(w, http.StatusOK, map[string]string{
+		"fingerprint": fingerprint,
+		"armor":       armor,
+	})
 }
 
 // Signup produces a fresh signed identity record for a brand-new user.
@@ -240,7 +289,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	serverPayload := buildFirstServerIdentityPayload(
+	profilePayload := buildNewProfilePayload(
 		userID,
 		username,
 		key.Fingerprint,
@@ -249,13 +298,29 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		userSignatureB64,
 		now,
 	)
-	serverSigArmor, err := h.services.crypto.Sign(string(serverPayload), h.signingKey.Armor)
+	// Server signature over the user's brand new profile
+	profileSignature, err := h.countersign(profilePayload, now)
 	if err != nil {
 		log.Error().Err(err).Msg("Error producing server signature")
 		internalServerError(w)
 		return
 	}
-	serverSignatureB64 := base64.StdEncoding.EncodeToString([]byte(serverSigArmor))
+
+	// Server signature over the user's public key
+	keyPayload := buildPublicKeyPayload(
+		h.services.db.GetServerID(),
+		userID,
+		key.Fingerprint,
+		h.signingKey.Fingerprint,
+		publicKey,
+		now,
+	)
+	keySignature, err := h.countersign(keyPayload, now)
+	if err != nil {
+		log.Error().Err(err).Msg("Error signing public key")
+		internalServerError(w)
+		return
+	}
 
 	user, err := h.services.db.Signup(SignupInput{
 		UserID:             userID,
@@ -265,10 +330,9 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		KeyCreatedAt:       key.CreatedAt,
 		KeyExpiresAt:       key.ExpiresAt,
 		UserSignatureB64:   userSignatureB64,
-		ServerSignatureB64: serverSignatureB64,
-		ServerFingerprint:  h.signingKey.Fingerprint,
-		ServerSignedAt:     now,
 		MemberSince:        now,
+		ProfileSignature:   profileSignature,
+		PublicKeySignature: keySignature,
 	})
 	if err != nil {
 		// Discriminate between a username race (client-visible 400)
@@ -450,7 +514,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// re-derive to avoid trusting caller-supplied fingerprints), and
 	// for createdAt (pinned across every record produced by this
 	// user — signup sets it, updates carry it forward).
-	current, err := h.services.db.GetUser(userID)
+	currentUser, err := h.services.db.GetUser(userID)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -458,7 +522,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	if current == nil {
+	if currentUser == nil {
 		writeResponse(w, http.StatusBadRequest, "User not found")
 		return
 	}
@@ -471,11 +535,11 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// No-op fast path. See doc comment on this function for why byte
 	// equality on the signature is a sufficient change detector.
-	if userSignatureB64 == current.Signature {
+	if userSignatureB64 == currentUser.UserSignatureB64 {
 		log.Info().
 			Str("userID", userID).
 			Msg("UpdateUser no-op (signature unchanged)")
-		writeResponse(w, http.StatusOK, current)
+		writeResponse(w, http.StatusOK, currentUser)
 		return
 	}
 
@@ -489,7 +553,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if current.Username != username {
+	if currentUser.Username != username {
 		exists, err := h.services.db.UsernameExists(username)
 		if err != nil {
 			log.Error().
@@ -567,7 +631,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// GetUser); if/when they diverge (rotation minting its own identity
 	// record), the active key is still the right one to rebuild the
 	// user-signed payload against.
-	fingerprint := current.ActiveKeyFingerprint
+	fingerprint := currentUser.ActiveKeyFingerprint
 	userPayload := buildUserIdentityPayload(username, fingerprint, avatarURL, bio)
 
 	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
@@ -624,7 +688,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// Mint the server-authored fields and countersign. createdAt
 	// stays pinned to the value set at signup; only signedAt advances.
 	signedAt := time.Now().UTC().Truncate(time.Second)
-	serverPayload := buildServerIdentityPayload(
+	profilePayload := buildProfilePayload(
 		userID,
 		username,
 		fingerprint,
@@ -633,26 +697,23 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		h.signingKey.Fingerprint,
 		userSignatureB64,
 		bio,
-		current.CreatedAt,
+		currentUser.CreatedAt,
 		signedAt,
 	)
-	serverSigArmor, err := h.services.crypto.Sign(string(serverPayload), h.signingKey.Armor)
+	profileSignature, err := h.countersign(profilePayload, signedAt)
 	if err != nil {
 		log.Error().Err(err).Msg("Error producing server signature")
 		internalServerError(w)
 		return
 	}
-	serverSignatureB64 := base64.StdEncoding.EncodeToString([]byte(serverSigArmor))
 
 	if err := h.services.db.UpdateUser(UpdateUserInput{
-		UserID:             userID,
-		Username:           username,
-		AvatarURL:          avatarURL,
-		Bio:                bio,
-		UserSignatureB64:   userSignatureB64,
-		ServerSignatureB64: serverSignatureB64,
-		ServerFingerprint:  h.signingKey.Fingerprint,
-		ServerSignedAt:     signedAt,
+		UserID:           userID,
+		Username:         username,
+		AvatarURL:        avatarURL,
+		Bio:              bio,
+		UserSignatureB64: userSignatureB64,
+		ProfileSignature: profileSignature,
 	}); err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "users_username_key") ||
@@ -790,7 +851,31 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", newKey.Fingerprint).
 		Msg("Public key signature verified successfully")
 
-	publicKey, err := h.services.db.AddPublicKey(newKey.Fingerprint, userID, newKey.CreatedAt, newKey.ExpiresAt, armoredPublicKey, revokedKeyFingerprint)
+	now := time.Now().UTC().Truncate(time.Second)
+	keyPayload := buildPublicKeyPayload(
+		h.services.db.GetServerID(),
+		userID,
+		newKey.Fingerprint,
+		h.signingKey.Fingerprint,
+		armoredPublicKey,
+		now,
+	)
+	keySignature, err := h.countersign(keyPayload, now)
+	if err != nil {
+		log.Error().Err(err).Msg("Error signing public key")
+		internalServerError(w)
+		return
+	}
+
+	publicKey, err := h.services.db.AddPublicKey(AddPublicKeyInput{
+		Fingerprint: newKey.Fingerprint,
+		UserID:      userID,
+		CreatedAt:   newKey.CreatedAt,
+		ExpiresAt:   newKey.ExpiresAt,
+		Armor:       armoredPublicKey,
+		Predecessor: revokedKeyFingerprint,
+		Server:      keySignature,
+	})
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrUserNotFound):
@@ -840,7 +925,11 @@ func (h *Handlers) GetPublicKey(w http.ResponseWriter, r *http.Request) {
 
 	key, err := h.services.db.GetPublicKey(userID, fingerprint)
 	if err != nil {
-		writeResponse(w, http.StatusNotFound, "Key '"+fingerprint+"' not found")
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", fingerprint).
+			Err(err).Msg("Error loading public key")
+		internalServerError(w)
 		return
 	}
 	if key == nil {
@@ -958,20 +1047,16 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build the canonical envelope the server signs. The header map and the
-	// content (the base64 userSignature) are fed through signing.BytesToSign
-	// so that a later verifier can reproduce the exact same bytes for
-	// verification. The header set binds reedID, authorID, and the server
-	// signing-key fingerprint — without those, a genuine (userSig, serverSig)
-	// pair could be replayed across reeds/authors, and a verifier with a key
-	// history could not pick the right server key.
-	serverID := h.services.db.GetServerID()
 	timestamp := time.Now().UTC().Truncate(time.Second)
-	payload := signing.BytesToSign(
-		reedCountersignHeaders(serverID, reedID, userID, h.signingKey.Fingerprint, timestamp),
+	reedPayload := buildReedPayload(
+		h.services.db.GetServerID(),
+		userID,
+		reedID,
+		h.signingKey.Fingerprint,
 		signature,
+		timestamp,
 	)
-	serverSignature, err := h.services.crypto.Sign(string(payload), h.signingKey.Armor)
+	reedSignature, err := h.countersign(reedPayload, timestamp)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -982,12 +1067,12 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reed, err := h.services.db.CreateReed(reedID, userID, h.signingKey.Fingerprint, timestamp)
+	reed, err := h.services.db.CreateReed(reedID, userID, reedSignature.Fingerprint, reedSignature.SignedAt)
 	if err != nil {
 		log.Error().
 			Str("reedID", reedID).
 			Str("userID", userID).
-			Str("fingerprint", h.signingKey.Fingerprint).
+			Str("fingerprint", reedSignature.Fingerprint).
 			Err(err).Msg("Error creating reed")
 		internalServerError(w)
 		return
@@ -998,14 +1083,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		Str("reedID", reed.ID).
 		Msg("Reed created successfully")
 
-	encodedSignature := base64.StdEncoding.EncodeToString([]byte(serverSignature))
-	writeResponse(w, http.StatusCreated, Signature{
-		ServerID:    serverID,
-		Fingerprint: h.signingKey.Fingerprint,
-		Algorithm:   "PGP+base64",
-		Signature:   encodedSignature,
-		SignedAt:    reed.Timestamp,
-	})
+	writeResponse(w, http.StatusCreated, reedSignature)
 
 	// Broadcast the new reed to realtime subscribers
 	h.broadcastChan <- realtime.BroadcastMessage{
