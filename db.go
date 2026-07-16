@@ -189,7 +189,6 @@ func InitDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS user_keys (
 		fingerprint VARCHAR(255) UNIQUE NOT NULL,
 		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		revoked BOOLEAN DEFAULT FALSE,
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		expires_at TIMESTAMP,

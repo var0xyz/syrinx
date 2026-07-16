@@ -151,9 +151,6 @@ func main() {
 	api.HandleFunc("/users/signup", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/users/me", h.UpdateUser).Methods("PUT")
-	// TODO: If the user lost their password but may not want to delete their
-	// account, we should have a way to "freeze" it. That is, their keys are
-	// not revoked but no new content can be published.
 	api.HandleFunc("/users/me", h.DeleteMe).Methods("DELETE")
 	api.HandleFunc("/users/me", h.noop).Methods("OPTIONS")
 

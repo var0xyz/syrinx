@@ -38,13 +38,14 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 // responseSigner wraps http.ResponseWriter to capture and sign the entire response
 type responseSigner struct {
 	http.ResponseWriter
-	statusCode     int
-	wroteHeaders   bool
-	bodyBuffer     *bytes.Buffer
-	responseSent   bool
-	cryptoService  crypto.Crypto
-	dataService    *DataService
-	userID         string
+
+	statusCode      int
+	wroteHeaders    bool
+	bodyBuffer      *bytes.Buffer
+	responseSent    bool
+	cryptoService   crypto.Crypto
+	dataService     *DataService
+	userID          string
 	signingKeyArmor string
 }
 
@@ -375,8 +376,9 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			//
 			// The rotation flow is unaffected: AddPublicKey is on the
 			// unauthenticated `/keys` path (see excludePaths above), and
-			// RevokeKey is signed by the key being revoked *before* the row
-			// flips to revoked=TRUE, so this check sees it as still active.
+			// RevokeKey is signed by the key being revoked *before* the
+			// revocations row is inserted, so this check sees it as still
+			// active.
 			if publicKey.Revoked != nil {
 				log.Error().
 					Str("userID", userID).

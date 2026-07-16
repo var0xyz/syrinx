@@ -456,16 +456,6 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	}
 	if fingerprint.Valid {
 		user.SignatureFingerprint = fingerprint.String
-		// TODO(rotation-identity-record): today `users.fingerprint`
-		// is overwritten by AddPublicKey on rotation, so it doubles
-		// as both "the key that signed the current identity record"
-		// and "the currently-active key". Once rotation mints its
-		// own fresh signed identity record, these two roles will
-		// diverge — user_signature will stay bound to the old key
-		// until the next profile update — and ActiveKeyFingerprint
-		// will need to be read separately (from user_keys, filtered
-		// by revoked=FALSE). For now they collapse to the same
-		// value.
 		user.ActiveKeyFingerprint = fingerprint.String
 	}
 	// Signed identity record. Rows that predate signed identity records
@@ -727,27 +717,25 @@ func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt 
 		return nil, err
 	}
 
-	// Lock the predecessor. Rotation is only allowed against a key
-	// this owner already holds and has revoked.
-	var predecessorRevoked bool
+	// Lock the predecessor key row. Rotation is only allowed against a
+	// key this owner already holds; revocation is confirmed via the
+	// revocations table next.
 	err = tx.QueryRow(`
-		SELECT revoked
+		SELECT 1
 		FROM user_keys
 		WHERE owner = $1 AND fingerprint = $2
 		FOR UPDATE
-	`, userID, predecessorFingerprint).Scan(&predecessorRevoked)
+	`, userID, predecessorFingerprint).Scan(new(int))
 	if err == sql.ErrNoRows {
 		return nil, ErrPredecessorNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if !predecessorRevoked {
-		return nil, ErrPredecessorNotRevoked
-	}
 
 	// A predecessor may be replaced at most once. Re-rotation against
-	// the same revoked key would fork the successor chain.
+	// the same revoked key would fork the successor chain. A missing
+	// revocations row means the key was never revoked.
 	var successor sql.NullString
 	err = tx.QueryRow(`
 		SELECT successor
@@ -756,8 +744,6 @@ func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt 
 		FOR UPDATE
 	`, predecessorFingerprint, userID).Scan(&successor)
 	if err == sql.ErrNoRows {
-		// RevokeKey should have created this row. Treat a missing
-		// revocation as "not revoked enough to replace".
 		return nil, ErrPredecessorNotRevoked
 	}
 	if err != nil {
@@ -767,13 +753,18 @@ func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt 
 		return nil, ErrPredecessorAlreadyReplaced
 	}
 
-	// Even with a correctly revoked predecessor, refuse if any other active key
-	// is still present for this user.
+	// Even with a correctly revoked predecessor, refuse if any other
+	// active key is still present for this user. Active = no row in
+	// user_key_revocations.
 	var hasActive bool
 	err = tx.QueryRow(`
 		SELECT EXISTS(
-			SELECT 1 FROM user_keys
-			WHERE owner = $1 AND revoked = FALSE
+			SELECT 1 FROM user_keys uk
+			WHERE uk.owner = $1
+			  AND NOT EXISTS (
+				SELECT 1 FROM user_key_revocations rv
+				WHERE rv.fingerprint = uk.fingerprint AND rv.owner = uk.owner
+			  )
 		)
 	`, userID).Scan(&hasActive)
 	if err != nil {
@@ -818,17 +809,7 @@ func (s *DataService) RevokeKey(fingerprint string, userID string, reason string
 	}
 	defer tx.Rollback()
 
-	// Mark user public key as revoked
-	_, err = tx.Exec(`
-		UPDATE user_keys
-		SET revoked = TRUE
-		WHERE fingerprint = $1 AND owner = $2
-	`, fingerprint, userID)
-	if err != nil {
-		return err
-	}
-
-	// Insert revocation record
+	// A key is revoked iff a row exists in user_key_revocations.
 	_, err = tx.Exec(`
 		INSERT INTO user_key_revocations (fingerprint, owner, reason, revoked_at)
 		VALUES ($1, $2, $3, CURRENT_TIMESTAMP)

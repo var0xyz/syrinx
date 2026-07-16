@@ -129,14 +129,19 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 }
 
 // getPublicKey retrieves a public key from the database along with its
-// revocation state.
+// revocation state. A key is revoked iff a matching row exists in
+// user_key_revocations.
 func (as *AuthService) getPublicKey(userID, fingerprint string) (string, bool, error) {
 	var armor string
 	var revoked bool
 	err := as.db.QueryRow(`
-		SELECT armor, revoked
-		FROM user_keys
-		WHERE owner = $1 AND fingerprint = $2
+		SELECT uk.armor,
+		       EXISTS(
+			SELECT 1 FROM user_key_revocations rv
+			WHERE rv.fingerprint = uk.fingerprint AND rv.owner = uk.owner
+		       )
+		FROM user_keys uk
+		WHERE uk.owner = $1 AND uk.fingerprint = $2
 	`, userID, fingerprint).Scan(&armor, &revoked)
 
 	if err != nil {
