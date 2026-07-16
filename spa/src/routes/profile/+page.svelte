@@ -54,7 +54,7 @@
   let revokeEmail: string = '';
   let isPendingRevocation: boolean = false;
   let isKeyRevoked: boolean = false;
-  let revokedInfo: { reason: string; timestamp: string } | null = null;
+  let revokedInfo: { reason: string; timestamp: string; successor: string | null } | null = null;
 
   // Export state
   let exporting: boolean = false;
@@ -352,7 +352,12 @@
       // identity.go — see signing.ts for the mirror contract. The
       // signature travels as base64(armored PGP) to survive
       // form-encoding.
-      const fingerprint = user.fingerprint;
+      //
+      // Sign with the currently-active key. Once rotation issues its
+      // own identity record, activeKeyFingerprint and
+      // signatureFingerprint can differ; new signatures must always
+      // use the active one.
+      const fingerprint = user.activeKeyFingerprint;
       const passphrase = authService.getPassphrase();
       if (!passphrase) {
         editError = 'Session expired. Please sign in again.';

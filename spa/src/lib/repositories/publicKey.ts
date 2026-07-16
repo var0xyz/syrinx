@@ -5,7 +5,11 @@ export interface PublicKey {
   fingerprint: string;
   armor: string;
   createdAt: Date;
-  revoked?: { reason: string; timestamp: string } | null;
+  revoked?: {
+    reason: string;
+    timestamp: string;
+    successor: string | null;
+  } | null;
 }
 
 export class PublicKeyRepository {
@@ -51,10 +55,49 @@ export class PublicKeyRepository {
     await this.db.delete('publicKeys', fingerprint);
   }
 
+  /**
+   * Mark a locally-cached public key as revoked, using the server's
+   * response as the source of truth for the revocation metadata.
+   *
+   * Security check — refuse to overwrite the armor if it doesn't match
+   * what we already have. The threat: a compromised or hostile server
+   * could return a *different* key body under the same fingerprint
+   * (say, a key it controls) with `revoked: true`, hoping the client
+   * naively replaces its trusted local copy. Since the fingerprint is
+   * derived from the key material, a legitimate revocation of the key
+   * we already hold must ship back byte-identical armor. If it doesn't,
+   * we abort without touching local state.
+   *
+   * For now we only log to the console; future work should surface this
+   * to the user as a "your server may be tampering with your keys"
+   * warning, because in practice this indicates either (a) a bug in the
+   * server, (b) a bug in our local storage, or (c) an active attack.
+   */
   async setRevoked(fingerprint: string, revokedKey: api.PublicKey): Promise<void> {
     const existing = await this.getPublicKey(fingerprint);
     if (!existing) throw new Error(`Public key not found: ${fingerprint}`);
-    await this.db.put('publicKeys', { ...existing, armor: revokedKey.armor, revoked: true });
+
+    if (existing.armor !== revokedKey.armor) {
+      console.error(
+        '[publicKeyRepository.setRevoked] Refusing to overwrite locally-cached public key: ' +
+        'server-returned armor does not match the one already on file for this fingerprint. ' +
+        'This should never happen for a legitimate revocation (fingerprint is derived from ' +
+        'the key material) and may indicate a hostile or misbehaving server.',
+        {
+          fingerprint,
+          localArmorLength: existing.armor.length,
+          remoteArmorLength: revokedKey.armor.length,
+          localArmorPreview: existing.armor.slice(0, 80),
+          remoteArmorPreview: revokedKey.armor.slice(0, 80),
+        }
+      );
+      return;
+    }
+
+    await this.db.put('publicKeys', {
+      ...existing,
+      revoked: revokedKey.revoked ?? null,
+    });
   }
 
   async listPublicKeys(): Promise<PublicKey[]> {

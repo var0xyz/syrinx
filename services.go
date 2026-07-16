@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -19,6 +20,18 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/uuid25/go-uuid25"
+)
+
+// Sentinel errors returned by DataService.AddPublicKey. The handler maps
+// these to 4xx responses; anything else is treated as a 500.
+var (
+	ErrUserNotFound               = errors.New("user not found")
+	ErrKeyAlreadyExists           = errors.New("public key fingerprint already registered")
+	ErrPredecessorRequired        = errors.New("predecessor fingerprint is required")
+	ErrPredecessorNotFound        = errors.New("predecessor key not found for this user")
+	ErrPredecessorNotRevoked      = errors.New("predecessor key is not revoked")
+	ErrPredecessorAlreadyReplaced = errors.New("predecessor key already has a successor")
+	ErrActiveKeyExists            = errors.New("user already has an active key")
 )
 
 type Services struct {
@@ -442,7 +455,18 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		user.Bio = bio.String
 	}
 	if fingerprint.Valid {
-		user.Fingerprint = fingerprint.String
+		user.SignatureFingerprint = fingerprint.String
+		// TODO(rotation-identity-record): today `users.fingerprint`
+		// is overwritten by AddPublicKey on rotation, so it doubles
+		// as both "the key that signed the current identity record"
+		// and "the currently-active key". Once rotation mints its
+		// own fresh signed identity record, these two roles will
+		// diverge — user_signature will stay bound to the old key
+		// until the next profile update — and ActiveKeyFingerprint
+		// will need to be read separately (from user_keys, filtered
+		// by revoked=FALSE). For now they collapse to the same
+		// value.
+		user.ActiveKeyFingerprint = fingerprint.String
 	}
 	// Signed identity record. Rows that predate signed identity records
 	// (or dev rows created outside the Signup flow) have NULLs in these
@@ -607,13 +631,15 @@ func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, err
 	var key Key
 	var revokedAt sql.NullTime
 	var revokedReason sql.NullString
+	var successor sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT uk.fingerprint, uk.armor, uk.created_at, rv.revoked_at, rv.reason
+		SELECT uk.fingerprint, uk.armor, uk.created_at,
+		       rv.revoked_at, rv.reason, rv.successor
 		FROM user_keys uk
 		LEFT JOIN user_key_revocations rv ON rv.fingerprint = uk.fingerprint AND rv.owner = uk.owner
 		WHERE uk.owner = $1 AND uk.fingerprint = $2
-	`, userID, fingerprint).Scan(&key.Fingerprint, &key.Armor, &key.CreatedAt, &revokedAt, &revokedReason)
+	`, userID, fingerprint).Scan(&key.Fingerprint, &key.Armor, &key.CreatedAt, &revokedAt, &revokedReason, &successor)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -621,7 +647,12 @@ func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, err
 		return nil, err
 	}
 	if revokedAt.Valid {
-		key.Revoked = &Revoke{Timestamp: revokedAt.Time, Reason: revokedReason.String}
+		revoke := &Revoke{Timestamp: revokedAt.Time, Reason: revokedReason.String}
+		if successor.Valid {
+			s := successor.String
+			revoke.Successor = &s
+		}
+		key.Revoked = revoke
 	}
 
 	return &key, nil
@@ -647,18 +678,115 @@ func (s *DataService) PublicKeyExists(fingerprint string, userID string) (bool, 
 	return exists, nil
 }
 
-func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt time.Time, expiresAt *time.Time, armor string) (*Key, error) {
+// AddPublicKey inserts a replacement key for a user whose previous key
+// has already been revoked (rotation). Signup's first-key write stays in
+// Signup — this method is the rotation path only.
+//
+// Integrity checks (all inside one transaction, with row locks):
+//  1. predecessorFingerprint is required
+//  2. owner exists
+//  3. the new fingerprint is not already registered to anyone
+//  4. predecessor exists under this owner and is revoked
+//  5. predecessor does not already have a successor
+//  6. the user has no other active (non-revoked) key
+//
+// On success it inserts the key, points users.fingerprint at it, and
+// writes the successor pointer on the predecessor's revocation row.
+func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt time.Time, expiresAt *time.Time, armor string, predecessorFingerprint string) (*Key, error) {
+	if predecessorFingerprint == "" {
+		return nil, ErrPredecessorRequired
+	}
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
+	// Lock the user row so concurrent rotations for the same owner
+	// serialize. Also confirms the owner exists.
+	err = tx.QueryRow(`
+		SELECT 1 FROM users WHERE id = $1 FOR UPDATE
+	`, userID).Scan(new(int))
+	if err == sql.ErrNoRows {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Global uniqueness: fingerprints identify key material, so two
+	// users must never register the same one.
+	err = tx.QueryRow(`
+		SELECT 1 FROM user_keys WHERE fingerprint = $1
+	`, fingerprint).Scan(new(int))
+	if err == nil {
+		return nil, ErrKeyAlreadyExists
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// Lock the predecessor. Rotation is only allowed against a key
+	// this owner already holds and has revoked.
+	var predecessorRevoked bool
+	err = tx.QueryRow(`
+		SELECT revoked
+		FROM user_keys
+		WHERE owner = $1 AND fingerprint = $2
+		FOR UPDATE
+	`, userID, predecessorFingerprint).Scan(&predecessorRevoked)
+	if err == sql.ErrNoRows {
+		return nil, ErrPredecessorNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !predecessorRevoked {
+		return nil, ErrPredecessorNotRevoked
+	}
+
+	// A predecessor may be replaced at most once. Re-rotation against
+	// the same revoked key would fork the successor chain.
+	var successor sql.NullString
+	err = tx.QueryRow(`
+		SELECT successor
+		FROM user_key_revocations
+		WHERE fingerprint = $1 AND owner = $2
+		FOR UPDATE
+	`, predecessorFingerprint, userID).Scan(&successor)
+	if err == sql.ErrNoRows {
+		// RevokeKey should have created this row. Treat a missing
+		// revocation as "not revoked enough to replace".
+		return nil, ErrPredecessorNotRevoked
+	}
+	if err != nil {
+		return nil, err
+	}
+	if successor.Valid && successor.String != "" {
+		return nil, ErrPredecessorAlreadyReplaced
+	}
+
+	// Even with a correctly revoked predecessor, refuse if any other active key
+	// is still present for this user.
+	var hasActive bool
+	err = tx.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM user_keys
+			WHERE owner = $1 AND revoked = FALSE
+		)
+	`, userID).Scan(&hasActive)
+	if err != nil {
+		return nil, err
+	}
+	if hasActive {
+		return nil, ErrActiveKeyExists
+	}
+
 	var key Key
 	err = tx.QueryRow(`
 		INSERT INTO user_keys (fingerprint, owner, armor, created_at, expires_at)
 		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (fingerprint, owner) DO UPDATE SET fingerprint = EXCLUDED.fingerprint
 		RETURNING fingerprint, armor, created_at
 	`, fingerprint, userID, armor, createdAt, expiresAt,
 	).Scan(&key.Fingerprint, &key.Armor, &key.CreatedAt)
@@ -667,6 +795,15 @@ func (s *DataService) AddPublicKey(fingerprint string, userID string, createdAt 
 	}
 
 	_, err = tx.Exec(`UPDATE users SET fingerprint = $1 WHERE id = $2`, fingerprint, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = tx.Exec(`
+		UPDATE user_key_revocations
+		SET successor = $1
+		WHERE fingerprint = $2 AND owner = $3
+	`, fingerprint, predecessorFingerprint, userID)
 	if err != nil {
 		return nil, err
 	}
