@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -559,7 +560,14 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// Reconstruct the exact bytes the client claims to have signed,
 	// using the fingerprint we trust (from the row) rather than one
 	// supplied by the caller. Then verify.
-	fingerprint := current.Fingerprint
+	//
+	// We use ActiveKeyFingerprint here — the client signs with whatever
+	// key is currently active. Today ActiveKeyFingerprint and
+	// SignatureFingerprint collapse to the same DB column (see
+	// GetUser); if/when they diverge (rotation minting its own identity
+	// record), the active key is still the right one to rebuild the
+	// user-signed payload against.
+	fingerprint := current.ActiveKeyFingerprint
 	userPayload := buildUserIdentityPayload(username, fingerprint, avatarURL, bio)
 
 	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
@@ -730,7 +738,10 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Retrieve old key from database
+	// Retrieve old key — needed for cryptographic verification of the
+	// rotation proof below. DB integrity of the rotation itself (revoked,
+	// no successor yet, no other active key, …) is enforced inside
+	// DataService.AddPublicKey.
 	revokedKey, err := h.services.db.GetPublicKey(userID, revokedKeyFingerprint)
 	if err != nil {
 		log.Error().
@@ -746,24 +757,6 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 			Str("revokedKeyFingerprint", revokedKeyFingerprint).
 			Msg("Old public key not found")
 		writeResponse(w, http.StatusNotFound, "Old public key not found")
-		return
-	}
-
-	isRevoked, err := h.services.db.IsPublicKeyRevoked(revokedKey)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("revokedKeyFingerprint", revokedKeyFingerprint).
-			Err(err).Msg("Error checking if public key is revoked")
-		internalServerError(w)
-		return
-	}
-	if !isRevoked {
-		log.Error().
-			Str("userID", userID).
-			Str("revokedKeyFingerprint", revokedKeyFingerprint).
-			Msg("Key is not revoked")
-		writeResponse(w, http.StatusBadRequest, "Key is not revoked")
 		return
 	}
 
@@ -797,12 +790,29 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", newKey.Fingerprint).
 		Msg("Public key signature verified successfully")
 
-	publicKey, err := h.services.db.AddPublicKey(newKey.Fingerprint, userID, newKey.CreatedAt, newKey.ExpiresAt, armoredPublicKey)
+	publicKey, err := h.services.db.AddPublicKey(newKey.Fingerprint, userID, newKey.CreatedAt, newKey.ExpiresAt, armoredPublicKey, revokedKeyFingerprint)
 	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).Msg("Error adding public key")
-		internalServerError(w)
+		switch {
+		case errors.Is(err, ErrUserNotFound):
+			writeResponse(w, http.StatusNotFound, "User not found")
+		case errors.Is(err, ErrKeyAlreadyExists):
+			writeResponse(w, http.StatusConflict, "Public key fingerprint already registered")
+		case errors.Is(err, ErrPredecessorRequired),
+			errors.Is(err, ErrPredecessorNotFound),
+			errors.Is(err, ErrPredecessorNotRevoked),
+			errors.Is(err, ErrPredecessorAlreadyReplaced),
+			errors.Is(err, ErrActiveKeyExists):
+			log.Error().
+				Str("userID", userID).
+				Str("revokedKeyFingerprint", revokedKeyFingerprint).
+				Err(err).Msg("AddPublicKey rejected")
+			writeResponse(w, http.StatusBadRequest, err.Error())
+		default:
+			log.Error().
+				Str("userID", userID).
+				Err(err).Msg("Error adding public key")
+			internalServerError(w)
+		}
 		return
 	}
 	log.Info().

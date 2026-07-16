@@ -23,19 +23,49 @@ type Server struct {
 // Layout: user-authored fields live at the root; the server-authored
 // countersignature and its metadata live under `server`. `signature` (at
 // the root) is the user's detached PGP signature over the user identity
-// payload (see identity.go). `Fingerprint` identifies the user key that
-// produced `Signature` — it is self-describing per record, not a pointer
-// to the user's "current" key.
+// payload (see identity.go). `SignatureFingerprint` identifies the user
+// key that produced `Signature` — it is self-describing per record, not
+// a pointer to the user's "current" key.
+//
+// `ActiveKeyFingerprint` is a server-provided convenience field
+// carrying the user's currently-active key fingerprint at response
+// time. It is deliberately **outside** the signed payload: the identity
+// record is a frozen artifact from the moment it was minted, whereas
+// the "current" key can change without a new identity record (a
+// rotation may occur between profile updates). Clients use
+// `ActiveKeyFingerprint` as a hint to decide whether to re-fetch the
+// record's signing key (if
+// `SignatureFingerprint != ActiveKeyFingerprint`, the signer has been
+// rotated and the client should pull the fresh key to learn revocation
+// state and walk the successor chain to the active one).
+//
+// TODO(signed-fields): the response now mixes three trust tiers —
+// fields signed by the user, fields signed by the server, and unsigned
+// server-provided hints like ActiveKeyFingerprint. This is currently
+// implicit and easy to get wrong. We should rework the wire shape so
+// each signature is accompanied by an explicit manifest of which fields
+// it covers, so a verifier can programmatically distinguish "signed by
+// X", "signed by Y", and "not signed" without out-of-band knowledge.
 type User struct {
-	ID          string      `json:"id"`
-	Username    string      `json:"username"`
-	AvatarURL   string      `json:"avatarURL"`
-	Bio         string      `json:"bio"`
-	CreatedAt   time.Time   `json:"memberSince"`
-	HasReeds    bool        `json:"hasReeds"`
-	Fingerprint string      `json:"fingerprint"`
-	Signature   string      `json:"signature"`
-	Server      ServerBlock `json:"server"`
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	AvatarURL string    `json:"avatarURL"`
+	Bio       string    `json:"bio"`
+	CreatedAt time.Time `json:"memberSince"`
+	HasReeds  bool      `json:"hasReeds"`
+	// SignatureFingerprint is the fingerprint of the user key that
+	// produced `Signature`. Self-describing per record: it identifies
+	// which key to verify with, not which key is currently active. Note
+	// that the canonical signed payload (see identity.go) still spells
+	// this header `fingerprint`; the JSON field is a wire-only alias
+	// and does not affect signature verification.
+	SignatureFingerprint string `json:"signatureFingerprint"`
+	// ActiveKeyFingerprint is a server-provided hint carrying the
+	// user's currently-active key fingerprint at response time. See
+	// the struct-level doc comment for the trust-tier caveat.
+	ActiveKeyFingerprint string      `json:"activeKeyFingerprint"`
+	Signature            string      `json:"signature"`
+	Server               ServerBlock `json:"server"`
 }
 
 // ServerBlock is the server's contribution to an identity record: which
@@ -57,9 +87,16 @@ type Key struct {
 	Revoked     *Revoke   `json:"revoked"`
 }
 
+// Revoke describes the revocation state of a user key. `Successor` is
+// the fingerprint of the key that replaced this one — a client that
+// fetches a revoked key can follow `Successor` recursively to reach the
+// user's currently-active key. Nil when no successor has been recorded
+// yet (should not happen in normal operation: revocation without a
+// replacement is disallowed at the endpoint layer).
 type Revoke struct {
 	Timestamp time.Time `json:"timestamp"`
 	Reason    string    `json:"reason"`
+	Successor *string   `json:"successor"`
 }
 
 type Reed struct {
@@ -150,7 +187,7 @@ func InitDB(db *sql.DB) error {
 	// Client-managed public keys
 	createUserKeysTable := `
 	CREATE TABLE IF NOT EXISTS user_keys (
-		fingerprint VARCHAR(255),
+		fingerprint VARCHAR(255) UNIQUE NOT NULL,
 		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		revoked BOOLEAN DEFAULT FALSE,
 		armor TEXT NOT NULL,
@@ -167,15 +204,26 @@ func InitDB(db *sql.DB) error {
 		ON user_keys(fingerprint);
 	`
 
+	// `successor` is the fingerprint of the key that replaced this one.
+	// Written when the replacement is uploaded via AddPublicKey (see
+	// DataService.AddPublicKey), not at revocation time — the client
+	// today revokes first and adds the new key second, so at the
+	// RevokeKey moment we do not yet know the successor. Clients that
+	// fetch a revoked key follow this pointer to walk toward the
+	// currently-active key. Nullable to represent "no successor yet"
+	// (transiently between revoke and add).
 	createUserKeyRevocationsTable := `
 	CREATE TABLE IF NOT EXISTS user_key_revocations (
 		fingerprint VARCHAR(255),
 		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		reason TEXT,
 		revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		successor VARCHAR(255) REFERENCES user_keys(fingerprint),
 
 		PRIMARY KEY (fingerprint, owner),
-		FOREIGN KEY (fingerprint, owner) REFERENCES user_keys(fingerprint, owner)
+		FOREIGN KEY (fingerprint, owner)
+			REFERENCES user_keys(fingerprint, owner)
+			ON DELETE CASCADE
 	);`
 
 	// We only need one index on `owner` here because `fingerprint` is covered
