@@ -63,8 +63,9 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 		return "", fmt.Errorf("invalid timestamp: %w", err)
 	}
 
-	// Get public key for the user and fingerprint
-	publicKey, err := as.getPublicKey(userID, fingerprint)
+	// Get public key for the user and fingerprint, along with its
+	// revocation state.
+	publicKey, revoked, err := as.getPublicKey(userID, fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -80,6 +81,21 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 			Str("fingerprint", fingerprint).
 			Msg("Public key not found")
 		return "", fmt.Errorf("public key not found")
+	}
+
+	// Reject websocket auth signed by a revoked key. Same threat model as
+	// the HTTP signatureAuthMiddleware: an attacker holding a compromised
+	// old key must not be able to open a live subscription (and thereby
+	// receive fanout traffic, or later, submit signed messages) after the
+	// legitimate owner has rotated and revoked. A subscription opened
+	// before revocation stays open; producing a *new* auth handshake with
+	// a revoked key is what we forbid.
+	if revoked {
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", fingerprint).
+			Msg("WebSocket auth rejected: key is revoked")
+		return "", fmt.Errorf("key is revoked")
 	}
 
 	// Decode base64 signature first
@@ -112,23 +128,25 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	return userID, nil
 }
 
-// getPublicKey retrieves a public key from the database
-func (as *AuthService) getPublicKey(userID, fingerprint string) (string, error) {
+// getPublicKey retrieves a public key from the database along with its
+// revocation state.
+func (as *AuthService) getPublicKey(userID, fingerprint string) (string, bool, error) {
 	var armor string
+	var revoked bool
 	err := as.db.QueryRow(`
-		SELECT armor
+		SELECT armor, revoked
 		FROM user_keys
 		WHERE owner = $1 AND fingerprint = $2
-	`, userID, fingerprint).Scan(&armor)
+	`, userID, fingerprint).Scan(&armor, &revoked)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", nil
+			return "", false, nil
 		}
-		return "", err
+		return "", false, err
 	}
 
-	return armor, nil
+	return armor, revoked, nil
 }
 
 // decodeBase64Signature decodes a base64-encoded signature

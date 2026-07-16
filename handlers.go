@@ -585,6 +585,26 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
+	// Refuse to accept a new identity record signed by a revoked key.
+	//
+	// The middleware already rejects revoked-key request signatures, but
+	// UpdateUser additionally verifies the *payload signature* embedded in
+	// the identity record — the artifact that propagates to followers and
+	// survives on client devices. An attacker who somehow slipped past the
+	// transport-level check (misconfiguration, future refactor, request
+	// forwarded through a trusted internal path) must still not be able to
+	// mint a new signed identity record with a revoked key. Existing
+	// records signed while the key was active remain valid as history;
+	// what is forbidden is producing a *new* one.
+	if pubKey.Revoked != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("fingerprint", fingerprint).
+			Time("revokedAt", pubKey.Revoked.Timestamp).
+			Msg("UpdateUser rejected: identity record signed by revoked key")
+		writeResponse(w, http.StatusUnauthorized, "Key is revoked")
+		return
+	}
 	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).

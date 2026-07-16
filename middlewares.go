@@ -359,6 +359,34 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				return
 			}
 
+			// Reject requests signed by a revoked key.
+			//
+			// Threat model: an attacker who compromises an old key of a user
+			// whose current key is a newer, uncompromised one must not be able
+			// to act as that user. The user's revocation record is what stops
+			// them — but only if the server refuses to honor signatures made
+			// with any revoked key on every new authenticated operation.
+			//
+			// Historical artifacts (a profile record or reed that was signed
+			// while the key was still active) remain valid: they are frozen
+			// bytes. What we forbid is producing *new* signed operations with
+			// a revoked key — updating the profile, publishing reeds,
+			// following/unfollowing, opening subscriptions, etc.
+			//
+			// The rotation flow is unaffected: AddPublicKey is on the
+			// unauthenticated `/keys` path (see excludePaths above), and
+			// RevokeKey is signed by the key being revoked *before* the row
+			// flips to revoked=TRUE, so this check sees it as still active.
+			if publicKey.Revoked != nil {
+				log.Error().
+					Str("userID", userID).
+					Str("fingerprint", fingerprintHeader).
+					Time("revokedAt", publicKey.Revoked.Timestamp).
+					Msg("Request signed by revoked key rejected")
+				writeResponse(w, http.StatusUnauthorized, "Key is revoked")
+				return
+			}
+
 			// Verify signature
 			if err := h.verifyRequestSignature(r, signatureHeader, publicKey.Armor); err != nil {
 				log.Error().
