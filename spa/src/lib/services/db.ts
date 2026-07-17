@@ -22,11 +22,15 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  private readonly version = 14;
+  // v16: revocations store for signed attestation records; publicKeys.revoked
+  // is a boolean only. Clear publicKeys on upgrade so nested revoke metadata
+  // cannot be mistaken for the new shape.
+  private readonly version = 16;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
     ['publicKeys',  'fingerprint'],
+    ['revocations', 'fingerprint'],
     ['reeds',       'headers.id', 'headers.author', 'server.timestamp'],
     ['tags',        'tagName'    ],
     ['users',       'id'         ],
@@ -53,6 +57,7 @@ export class IndexedDbService implements DbService {
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
         const tx = (event.target as IDBOpenDBRequest).transaction!;
+        const oldVersion = event.oldVersion;
 
         this.storeNames.forEach(([storeName, keyPath, ...indexes]) => {
           const store = db.objectStoreNames.contains(storeName)
@@ -65,6 +70,10 @@ export class IndexedDbService implements DbService {
             }
           }
         });
+
+        if (oldVersion > 0 && oldVersion < 16 && db.objectStoreNames.contains('publicKeys')) {
+          tx.objectStore('publicKeys').clear();
+        }
       };
     });
   }

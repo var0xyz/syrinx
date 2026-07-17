@@ -282,9 +282,21 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				prefix + "/keys",
 				prefix + "/server/info",
 			}
+			// Server signing public keys are public verification material —
+			// anyone validating a countersignature must be able to fetch them
+			// without being signed in (and without a non-revoked user key).
+			excludePrefixes := []string{
+				prefix + "/server/keys/",
+			}
 
 			for _, path := range excludePaths {
 				if r.URL.Path == path {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			for _, p := range excludePrefixes {
+				if strings.HasPrefix(r.URL.Path, p) {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -379,11 +391,10 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			// RevokeKey is signed by the key being revoked *before* the
 			// revocations row is inserted, so this check sees it as still
 			// active.
-			if publicKey.Revoked != nil {
+			if publicKey.Revoked {
 				log.Error().
 					Str("userID", userID).
 					Str("fingerprint", fingerprintHeader).
-					Time("revokedAt", publicKey.Revoked.Timestamp).
 					Msg("Request signed by revoked key rejected")
 				writeResponse(w, http.StatusUnauthorized, "Key is revoked")
 				return

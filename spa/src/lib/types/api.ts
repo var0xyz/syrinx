@@ -51,8 +51,17 @@ export interface PublicKeyIdentity extends Base {
   value: string;
 };
 
+// KeyPredecessor is the rotation handoff proof on keys uploaded via
+// AddPublicKey: predecessor fingerprint + detached signature over armor.
+export interface KeyPredecessor extends Base {
+  fingerprint: string;
+  signature: string;
+};
+
 // PublicKey is the wire shape of a distributed user public key.
 // `server` is required (countersignature over userID/fingerprint/armor).
+// `revoked` is computed on read — revocation details live in KeyRevocation.
+// `predecessor` is null for signup keys; set for rotation keys.
 export interface PublicKey extends Base {
   fingerprint: string;
   userID: string;
@@ -60,15 +69,19 @@ export interface PublicKey extends Base {
   createdAt?: string;
   expiresAt?: string | null;
   identities?: PublicKeyIdentity[];
-  revoked?: {
-    reason: string;
-    timestamp: string;
-    // `successor` is the fingerprint of the key that replaced this one.
-    // A client that pulls a revoked key can walk the chain by fetching
-    // this successor recursively until it reaches a non-revoked key —
-    // which will be the user's currently-active key. Null in the
-    // transient window between RevokeKey and AddPublicKey.
-    successor: string | null;
-  } | null;
+  revoked: boolean;
+  predecessor: KeyPredecessor | null;
+  server: ServerSignature;
+};
+
+// KeyRevocation is the wire shape of a signed revocation attestation.
+// Revoke time is server.timestamp. successor is bookkeeping written
+// later by AddPublicKey and is not covered by either signature.
+export interface KeyRevocation extends Base {
+  fingerprint: string;
+  userID: string;
+  reason: string;
+  successor: string | null;
+  signature: string;
   server: ServerSignature;
 };

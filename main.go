@@ -168,9 +168,13 @@ func main() {
 	api.HandleFunc("/users/{userID}/reeds", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.GetPublicKey).Methods("GET")
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revoke", h.RevokeKey).Methods("POST")
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revoke", h.RevokeKey).Methods("POST")
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revoke", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revocation", h.GetKeyRevocation).Methods("GET")
+	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revocation", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/keys", h.AddPublicKey).Methods("POST")
 	api.HandleFunc("/keys", h.noop).Methods("OPTIONS")

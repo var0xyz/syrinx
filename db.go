@@ -81,27 +81,45 @@ type Signature struct {
 	SignedAt    time.Time `json:"timestamp"`
 }
 
-// Key is the wire shape of a distributed user public key. `Server` is
-// required: the countersignature over (userID, fingerprint, armor).
-type Key struct {
-	Fingerprint string    `json:"fingerprint"`
-	UserID      string    `json:"userID"`
-	Armor       string    `json:"armor"`
-	CreatedAt   time.Time `json:"createdAt"`
-	Revoked     *Revoke   `json:"revoked"`
-	Server      Signature `json:"server"`
+// KeyPredecessor is the rotation handoff proof bundled on keys uploaded
+// via AddPublicKey: the revoked predecessor's detached signature over
+// this key's armor, and which key produced it.
+type KeyPredecessor struct {
+	Fingerprint string `json:"fingerprint"`
+	Signature   string `json:"signature"`
 }
 
-// Revoke describes the revocation state of a user key. `Successor` is
-// the fingerprint of the key that replaced this one — a client that
-// fetches a revoked key can follow `Successor` recursively to reach the
-// user's currently-active key. Nil when no successor has been recorded
-// yet (should not happen in normal operation: revocation without a
-// replacement is disallowed at the endpoint layer).
-type Revoke struct {
-	Timestamp time.Time `json:"timestamp"`
-	Reason    string    `json:"reason"`
-	Successor *string   `json:"successor"`
+// Key is the wire shape of a distributed user public key. `Server` is
+// required: the countersignature over (userID, fingerprint, armor).
+// `Revoked` is computed on read from user_key_revocations — never stored
+// on user_keys.
+//
+// `Predecessor` is set for rotation keys only; signup keys return null.
+type Key struct {
+	Fingerprint string          `json:"fingerprint"`
+	UserID      string          `json:"userID"`
+	Armor       string          `json:"armor"`
+	CreatedAt   time.Time       `json:"createdAt"`
+	Revoked     bool            `json:"revoked"`
+	Predecessor *KeyPredecessor `json:"predecessor"`
+	Server      Signature       `json:"server"`
+}
+
+// KeyRevocation is the wire shape of a signed revocation attestation.
+// The user signature covers (userID, fingerprint, reason); the server
+// countersignature binds that user attestation and supplies the
+// authoritative revoke time as server.timestamp.
+//
+// Successor is bookkeeping written later by AddPublicKey when the
+// replacement key is uploaded. It is returned on GET when present but
+// is not covered by either signature — it is unknown at revoke time.
+type KeyRevocation struct {
+	Fingerprint string    `json:"fingerprint"`
+	UserID      string    `json:"userID"`
+	Reason      string    `json:"reason"`
+	Successor   *string   `json:"successor"`
+	Signature   string    `json:"signature"`
+	Server      Signature `json:"server"`
 }
 
 type Reed struct {
@@ -189,7 +207,10 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	// Client-managed public keys
+	// Client-managed public keys. predecessor_signature and
+	// predecessor_fingerprint are set together for rotation keys only
+	// (AddPublicKey): the old key's detached signature over this row's
+	// armor, and which key produced it. Signup keys leave both NULL.
 	createUserKeysTable := `
 	CREATE TABLE IF NOT EXISTS user_keys (
 		fingerprint VARCHAR(255) UNIQUE NOT NULL,
@@ -200,6 +221,8 @@ func InitDB(db *sql.DB) error {
 		server_signature TEXT NOT NULL,
 		server_fingerprint VARCHAR(255) NOT NULL,
 		server_signed_at TIMESTAMP NOT NULL,
+		predecessor_signature TEXT,
+		predecessor_fingerprint VARCHAR(255) REFERENCES user_keys(fingerprint),
 
 		PRIMARY KEY (owner, fingerprint)
 	);`
@@ -211,20 +234,25 @@ func InitDB(db *sql.DB) error {
 		ON user_keys(fingerprint);
 	`
 
-	// `successor` is the fingerprint of the key that replaced this one.
-	// Written when the replacement is uploaded via AddPublicKey (see
-	// DataService.AddPublicKey), not at revocation time — the client
-	// today revokes first and adds the new key second, so at the
-	// RevokeKey moment we do not yet know the successor. Clients that
-	// fetch a revoked key follow this pointer to walk toward the
-	// currently-active key. Nullable to represent "no successor yet"
-	// (transiently between revoke and add).
+	// Revocation attestation for a user key. A row's existence means the
+	// key is revoked. Revoke time is server_signed_at (wire:
+	// server.timestamp), not a separate column. user_signature and
+	// server_signature are base64 armored PGP detached signatures over
+	// the canonical revocation payloads (see identity.go).
+	//
+	// successor is written when the replacement key is uploaded via
+	// AddPublicKey, not at revocation time — the client revokes first
+	// and adds the new key second, so at RevokeKey we do not yet know
+	// the successor.
 	createUserKeyRevocationsTable := `
 	CREATE TABLE IF NOT EXISTS user_key_revocations (
 		fingerprint VARCHAR(255),
 		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		reason TEXT,
-		revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		user_signature TEXT NOT NULL,
+		server_signature TEXT NOT NULL,
+		server_fingerprint VARCHAR(255) NOT NULL,
+		server_signed_at TIMESTAMP NOT NULL,
 		successor VARCHAR(255) REFERENCES user_keys(fingerprint),
 
 		PRIMARY KEY (fingerprint, owner),

@@ -149,3 +149,43 @@ export function buildPublicKeyPayload(
     armor
   );
 }
+
+/** Mirror of buildUserRevocationPayload in identity.go. */
+export function buildUserRevocationPayload(
+  userID: string,
+  fingerprint: string,
+  reason: string
+): string {
+  return stringToSign(
+    {
+      type: 'revocation',
+      userID,
+      fingerprint
+    },
+    reason
+  );
+}
+
+/** Mirror of buildServerRevocationPayload in identity.go. */
+export function buildServerRevocationPayload(
+  userID: string,
+  fingerprint: string,
+  reason: string,
+  serverID: string,
+  serverKeyFingerprint: string,
+  userSignatureB64: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'revocation',
+      userID,
+      fingerprint,
+      signedAt,
+      serverID,
+      serverKeyFingerprint,
+      userSignature: userSignatureB64
+    },
+    reason
+  );
+}

@@ -101,7 +101,7 @@ export class AuthService {
   /**
    * Signup the user and store the user ID
    */
-  async signup(userData: SignupUser): Promise<string> {
+  async signup(userData: SignupUser): Promise<api.User> {
     try {
       const serverName = await this.getServerName();
       localStorage.setItem('serverName', serverName);

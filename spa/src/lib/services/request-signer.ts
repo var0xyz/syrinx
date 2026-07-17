@@ -99,6 +99,13 @@ class RequestSignerService {
    * Key is decrypted, passed to worker, then immediately discarded
    */
   async initializeWorker(fingerprint: string, passphrase: string): Promise<void> {
+    if (!fingerprint) {
+      throw new Error('RequestSigner: fingerprint is required to initialize');
+    }
+    if (!passphrase) {
+      throw new Error('RequestSigner: passphrase is required to initialize');
+    }
+
     const maxRetries = 3;
     let lastError: Error | null = null;
 

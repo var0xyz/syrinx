@@ -5,7 +5,7 @@
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
   import { cryptoService } from '$lib/services/crypto';
-  import { buildUserIdentityPayload } from '$lib/services/signing';
+  import { buildUserIdentityPayload, buildUserRevocationPayload } from '$lib/services/signing';
   import { requestSigner } from '$lib/services/request-signer';
   import { getStorageQuota, isOnline } from '$lib/services/pwa';
   import { dbService } from '$lib/services/db';
@@ -23,6 +23,7 @@
   import { publicKeyRepository } from '$lib/repositories/publicKey';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { pendingRevocationRepository, pendingRevocationSynced } from '$lib/repositories/pendingRevocation';
+  import { revocationRepository } from '$lib/repositories/revocation';
 
   let user: User | null = null;
   let loading: boolean = true;
@@ -124,17 +125,45 @@
     try {
       loadingKeyInfo = true;
       const fingerprint = authService.getActiveKeyFingerprint();
-      if (!fingerprint) {
+      if (!fingerprint || !user) {
         return;
       }
 
       keyFingerprint = fingerprint;
-      const publicKey = await publicKeyRepository.getPublicKey(fingerprint);
+      let publicKey = await publicKeyRepository.getPublicKey(fingerprint);
+      // After the v15 store wipe (or a cold cache), re-fetch the
+      // server-attested key so the profile can show armor + revocation.
+      if (!publicKey?.server) {
+        try {
+          publicKey = await apiService.getPublicKey(user.id, fingerprint);
+          await publicKeyRepository.put(publicKey);
+        } catch (error) {
+          console.error('Error fetching public key from server:', error);
+        }
+      }
       if (publicKey) {
         publicKeyArmor = publicKey.armor;
         keyIdentity = await cryptoService.getKeyIdentity(publicKey.armor);
-        isKeyRevoked = !!publicKey.revoked;
-        revokedInfo = publicKey.revoked ?? null;
+        isKeyRevoked = publicKey.revoked;
+        revokedInfo = null;
+        if (publicKey.revoked) {
+          let revocation = await revocationRepository.get(fingerprint);
+          if (!revocation) {
+            try {
+              revocation = await apiService.getKeyRevocation(user.id, fingerprint);
+              await revocationRepository.put(revocation);
+            } catch (error) {
+              console.error('Error fetching key revocation from server:', error);
+            }
+          }
+          if (revocation) {
+            revokedInfo = {
+              reason: revocation.reason,
+              timestamp: revocation.server.timestamp,
+              successor: revocation.successor,
+            };
+          }
+        }
       }
       console.log("key identity:", keyIdentity);
 
@@ -186,11 +215,9 @@
       });
       console.log("new key fingerprint:", newKeyPair.fingerprint);
 
-      // Store new keys in IndexedDB
-      await Promise.all([
-        privateKeyRepository.put(newKeyPair.fingerprint, newKeyPair.privateKey),
-        publicKeyRepository.put(newKeyPair.fingerprint, newKeyPair.publicKey)
-      ]);
+      // Store the new private key locally. The public key is cached only
+      // after AddPublicKey returns the server countersignature.
+      await privateKeyRepository.put(newKeyPair.fingerprint, newKeyPair.privateKey);
 
       // Get old key's private key from IndexedDB
       const oldPrivateKey = await privateKeyRepository.getPrivateKey(oldFingerprint);
@@ -198,7 +225,16 @@
         throw new Error('Old private key not found');
       }
 
-      // Sign the new public key with old private key
+      // Sign the user revocation attestation with the old private key.
+      const userRevocationPayload = buildUserRevocationPayload(user.id, oldFingerprint, reason);
+      const userRevocationSigArmor = await cryptoService.signMessage(
+        userRevocationPayload,
+        oldPrivateKey.armor,
+        passphrase
+      );
+      const userRevocationSignature = btoa(userRevocationSigArmor);
+
+      // Sign the new public key with old private key (rotation proof).
       const revokedKeySignature = await cryptoService.signMessage(
         newKeyPair.publicKey.trim(),
         oldPrivateKey.armor,
@@ -219,6 +255,7 @@
         userId: user.id,
         newFingerprint: newKeyPair.fingerprint,
         newPublicKey: newKeyPair.publicKey,
+        userRevocationSignature,
         revokedKeySignature,
         newKeySignature,
       });
@@ -229,33 +266,40 @@
       const progressNotificationId = notificationStore.info('Key revocation in progress...');
 
       try {
-        // Revoke the old key — server returns the key with revoked: true
-        const revokedKey = await apiService.revokeKey(user.id, oldFingerprint, reason);
-
-        // Update local key records with revoked status
-        await publicKeyRepository.setRevoked(oldFingerprint, revokedKey);
-        await privateKeyRepository.setRevoked(oldFingerprint, revokedKey.revoked);
+        // Revoke the old key — server returns the key with revoked: true.
+        const revokedKey = await apiService.revokeKey(
+          user.id,
+          oldFingerprint,
+          reason,
+          userRevocationSignature
+        );
+        await publicKeyRepository.setRevoked(revokedKey);
+        await privateKeyRepository.setRevoked(oldFingerprint);
 
         // Mark revokeKey as done so a retry skips it and goes straight to addPublicKey
         await pendingRevocationRepository.markRevoked(oldFingerprint);
 
-        // Upload new public key with both signatures
-        await apiService.addPublicKey(
+        // Upload new public key; response is the full wire PublicKey.
+        const newPublicKey = await apiService.addPublicKey(
           user.id,
           newKeyPair.publicKey,
           oldFingerprint,
           revokedKeySignature,
           newKeySignature
         );
+        await publicKeyRepository.put(newPublicKey);
 
-        // Set new key as active key and reload the signer so subsequent API calls use it
+        // Switch to the new key, then fetch the countersigned revocation proof.
         authService.setActiveKey(newKeyPair.fingerprint);
         await requestSigner.initializeWorker(newKeyPair.fingerprint, passphrase);
+
+        const revocation = await apiService.getKeyRevocation(user.id, oldFingerprint);
+        await revocationRepository.put(revocation);
 
         await pendingRevocationRepository.delete(oldFingerprint);
         notificationStore.dismiss(progressNotificationId);
         isPendingRevocation = false;
-        isKeyRevoked = true;
+        await loadKeyInfo();
         notificationStore.success('Key revoked and new key generated successfully');
       } catch (serverError) {
         // Leave pending record in place; syncPending() will retry on reconnect
