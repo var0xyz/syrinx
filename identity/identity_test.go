@@ -1,4 +1,4 @@
-package main
+package identity
 
 import (
 	"encoding/base64"
@@ -55,7 +55,7 @@ func verifyB64(t *testing.T, svc *crypto.Service, publicKeyArmor, sigB64 string,
 // the SPA mirror in bytesToSign(), every existing user signature stops
 // verifying — hence the strict byte comparison.
 func TestUserPayloadCanonicalShape(t *testing.T) {
-	got := buildUserIdentityPayload("alice", "ABCDEF", "https://ex.com/a.png", "hello\nworld")
+	got := BuildUserIdentityPayload("alice", "ABCDEF", "https://ex.com/a.png", "hello\nworld")
 	want := "---\n" +
 		"avatarURL: https://ex.com/a.png\n" +
 		"fingerprint: ABCDEF\n" +
@@ -73,7 +73,7 @@ func TestUserPayloadCanonicalShape(t *testing.T) {
 // entirely, so a user who sets an avatarURL later will not invalidate
 // their original signup signature (which never covered a placeholder).
 func TestUserPayloadOmitsEmptyAvatar(t *testing.T) {
-	got := string(buildUserIdentityPayload("alice", "ABCDEF", "", ""))
+	got := string(BuildUserIdentityPayload("alice", "ABCDEF", "", ""))
 	if strings.Contains(got, "avatarURL") {
 		t.Errorf("empty avatarURL should not appear in signed bytes; got=%q", got)
 	}
@@ -86,7 +86,7 @@ func TestUserPayloadOmitsEmptyAvatar(t *testing.T) {
 func TestServerPayloadCanonicalShape(t *testing.T) {
 	memberSince := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	signedAt := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
-	got := buildProfilePayload(
+	got := BuildProfilePayload(
 		"abc123", "alice", "ABCDEF", "https://ex.com/a.png",
 		"Server01", "0011FF",
 		"dXNlcnNpZw==",
@@ -120,7 +120,7 @@ func TestIdentityRoundTrip(t *testing.T) {
 	serverKP, _ := newTestKeyPair(t, "server")
 
 	// Client side: sign the user payload with the user's private key.
-	userPayload := buildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
+	userPayload := BuildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
 	userSigB64 := signB64(t, cryptoSvc, userKP.PrivateKey, userPayload)
 
 	// Server side: verify userSignature, then produce serverSignature
@@ -131,7 +131,7 @@ func TestIdentityRoundTrip(t *testing.T) {
 
 	memberSince := time.Now().UTC().Truncate(time.Second)
 	signedAt := memberSince
-	serverPayload := buildProfilePayload(
+	serverPayload := BuildProfilePayload(
 		"user_abc", "alice", userKP.Fingerprint, "",
 		"srv_xyz", serverKP.Fingerprint,
 		userSigB64,
@@ -142,11 +142,11 @@ func TestIdentityRoundTrip(t *testing.T) {
 
 	// Profile-view client: rebuild both payloads from the observable
 	// fields and re-verify both signatures.
-	rebuiltUser := buildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
+	rebuiltUser := BuildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
 	if err := verifyB64(t, cryptoSvc, userKP.PublicKey, userSigB64, rebuiltUser); err != nil {
 		t.Errorf("rebuilt userSignature verify: %v", err)
 	}
-	rebuiltServer := buildProfilePayload(
+	rebuiltServer := BuildProfilePayload(
 		"user_abc", "alice", userKP.Fingerprint, "",
 		"srv_xyz", serverKP.Fingerprint,
 		userSigB64,
@@ -169,14 +169,14 @@ func TestServerPayloadBindsUserSignature(t *testing.T) {
 
 	// Produce two DIFFERENT userSignatures over two DIFFERENT user
 	// payloads (different usernames). Both are valid on their own.
-	payloadAlice := buildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
+	payloadAlice := BuildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
 	sigAlice := signB64(t, cryptoSvc, userKP.PrivateKey, payloadAlice)
-	payloadBob := buildUserIdentityPayload("bob", userKP.Fingerprint, "", "")
+	payloadBob := BuildUserIdentityPayload("bob", userKP.Fingerprint, "", "")
 	sigBob := signB64(t, cryptoSvc, userKP.PrivateKey, payloadBob)
 
 	ts := time.Now().UTC().Truncate(time.Second)
 	// Server signs a record binding sigAlice.
-	serverPayload := buildProfilePayload(
+	serverPayload := BuildProfilePayload(
 		"user_abc", "alice", userKP.Fingerprint, "",
 		"srv_xyz", serverKP.Fingerprint,
 		sigAlice,
@@ -186,7 +186,7 @@ func TestServerPayloadBindsUserSignature(t *testing.T) {
 	serverSig := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
 
 	// Attacker rebuilds the server payload with sigBob substituted.
-	tamperedPayload := buildProfilePayload(
+	tamperedPayload := BuildProfilePayload(
 		"user_abc", "alice", userKP.Fingerprint, "",
 		"srv_xyz", serverKP.Fingerprint,
 		sigBob,
@@ -204,10 +204,10 @@ func TestServerPayloadBindsUserSignature(t *testing.T) {
 func TestTamperedUsernameBreaksUserSignature(t *testing.T) {
 	userKP, cryptoSvc := newTestKeyPair(t, "alice")
 
-	payload := buildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
+	payload := BuildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
 	sig := signB64(t, cryptoSvc, userKP.PrivateKey, payload)
 
-	tampered := buildUserIdentityPayload("eve", userKP.Fingerprint, "", "")
+	tampered := BuildUserIdentityPayload("eve", userKP.Fingerprint, "", "")
 	if err := verifyB64(t, cryptoSvc, userKP.PublicKey, sig, tampered); err == nil {
 		t.Fatal("rewriting username must break userSignature, but it verified")
 	}
@@ -220,10 +220,10 @@ func TestTamperedUsernameBreaksUserSignature(t *testing.T) {
 func TestTamperedFingerprintBreaksUserSignature(t *testing.T) {
 	userKP, cryptoSvc := newTestKeyPair(t, "alice")
 
-	payload := buildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
+	payload := BuildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
 	sig := signB64(t, cryptoSvc, userKP.PrivateKey, payload)
 
-	tampered := buildUserIdentityPayload("alice", "DEADBEEF", "", "")
+	tampered := BuildUserIdentityPayload("alice", "DEADBEEF", "", "")
 	if err := verifyB64(t, cryptoSvc, userKP.PublicKey, sig, tampered); err == nil {
 		t.Fatal("rewriting fingerprint must break userSignature, but it verified")
 	}
@@ -236,7 +236,7 @@ func TestTamperedFingerprintBreaksUserSignature(t *testing.T) {
 func TestUserPayloadRejectsCrossTypeConfusion(t *testing.T) {
 	userKP, cryptoSvc := newTestKeyPair(t, "alice")
 
-	userPayload := buildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
+	userPayload := BuildUserIdentityPayload("alice", userKP.Fingerprint, "", "")
 	userSig := signB64(t, cryptoSvc, userKP.PrivateKey, userPayload)
 
 	// Attempt to reuse the user signature as if it were a server signature

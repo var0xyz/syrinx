@@ -10,44 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"syrinx/identity"
 	"syrinx/realtime"
 	"syrinx/signing"
 
 	"github.com/gorilla/mux"
 )
-
-// reedCountersignHeaders builds the header map that the server signs when
-// countersigning a reed. Both SignReed and VerifySignature construct this
-// identical map and feed it to signing.BytesToSign; that single source of
-// truth is what keeps the two sides in lockstep.
-//
-// The header set binds `algorithm`, `id`, `timestamp`, `reedID`, `authorID`,
-// and the server signing-key `fingerprint`. Binding reedID/authorID kills
-// the cross-reed and cross-author replay classes; binding the fingerprint
-// lets a verifier with multiple historical server keys pick the right one
-// and keeps the signer's own identity covered by the signature.
-func reedCountersignHeaders(serverID, reedID, authorID, fingerprint string, ts time.Time) map[string]string {
-	return map[string]string{
-		"algorithm":   "PGP+base64",
-		"authorID":    authorID,
-		"fingerprint": fingerprint,
-		"serverID":    serverID,
-		"reedID":      reedID,
-		"timestamp":   ts.UTC().Format(time.RFC3339),
-	}
-}
-
-// publicKeyCountersignHeaders is the header map signed over a user
-// public key. Content is the armored key.
-func publicKeyCountersignHeaders(userID, fingerprint, serverID, serverKeyFingerprint string, ts time.Time) map[string]string {
-	return map[string]string{
-		"fingerprint":          fingerprint,
-		"serverID":             serverID,
-		"serverKeyFingerprint": serverKeyFingerprint,
-		"signedAt":             ts.UTC().Format(time.RFC3339),
-		"userID":               userID,
-	}
-}
 
 // countersign signs payload with the active server key and returns a
 // Signature. Used for keys, reeds, identity, etc.
@@ -180,7 +148,7 @@ func (h *Handlers) GetServerPublicKey(w http.ResponseWriter, r *http.Request) {
 //  1. Client sends {username, publicKey, signature, userSignature}.
 //     - `signature` is the user's self-signature over `publicKey`.
 //     - `userSignature` is a fresh base64-armored PGP detached signature
-//     over `buildUserIdentityPayload(username, fingerprint, "", "")`.
+//     over `identity.BuildUserIdentityPayload(username, fingerprint, "", "")`.
 //  2. Server verifies both signatures, mints createdAt / signedAt,
 //     assembles and countersigns the server identity payload, and
 //     persists both signatures on the users row alongside the
@@ -256,7 +224,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	// signup avatarURL and bio are both empty — a user cannot set them
 	// before their account exists. If we ever let signup carry an
 	// initial bio/avatar, they'd flow in here.
-	userPayload := buildUserIdentityPayload(username, key.Fingerprint, "", "")
+	userPayload := identity.BuildUserIdentityPayload(username, key.Fingerprint, "", "")
 
 	// userSignature travels as base64(armored PGP). Decode once and hand
 	// the armor to VerifySignature.
@@ -289,7 +257,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profilePayload := buildNewProfilePayload(
+	profilePayload := identity.BuildNewProfilePayload(
 		userID,
 		username,
 		key.Fingerprint,
@@ -307,7 +275,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Server signature over the user's public key
-	keyPayload := buildPublicKeyPayload(
+	keyPayload := identity.BuildPublicKeyPayload(
 		h.services.db.GetServerID(),
 		userID,
 		key.Fingerprint,
@@ -482,7 +450,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 // user editing their own profile. Full-replacement semantics: the
 // request MUST carry the complete post-edit tuple (username, avatarURL,
 // bio) plus `userSignature`, a base64(armored PGP) detached signature
-// over `buildUserIdentityPayload(username, fingerprint, avatarURL,
+// over `identity.BuildUserIdentityPayload(username, fingerprint, avatarURL,
 // bio)` where `fingerprint` is the caller's active user key.
 //
 // The client is expected to skip the network call entirely when nothing
@@ -632,7 +600,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// record), the active key is still the right one to rebuild the
 	// user-signed payload against.
 	fingerprint := currentUser.ActiveKeyFingerprint
-	userPayload := buildUserIdentityPayload(username, fingerprint, avatarURL, bio)
+	userPayload := identity.BuildUserIdentityPayload(username, fingerprint, avatarURL, bio)
 
 	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
 	if err != nil {
@@ -687,7 +655,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// Mint the server-authored fields and countersign. createdAt
 	// stays pinned to the value set at signup; only signedAt advances.
 	signedAt := time.Now().UTC().Truncate(time.Second)
-	profilePayload := buildProfilePayload(
+	profilePayload := identity.BuildProfilePayload(
 		userID,
 		username,
 		fingerprint,
@@ -851,7 +819,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Msg("Public key signature verified successfully")
 
 	now := time.Now().UTC().Truncate(time.Second)
-	keyPayload := buildPublicKeyPayload(
+	keyPayload := identity.BuildPublicKeyPayload(
 		h.services.db.GetServerID(),
 		userID,
 		newKey.Fingerprint,
@@ -984,7 +952,7 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userPayload := buildUserRevocationPayload(userID, fingerprint, reason)
+	userPayload := identity.BuildUserRevocationPayload(userID, fingerprint, reason)
 	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
 	if err != nil {
 		log.Error().Err(err).Msg("Invalid userSignature encoding")
@@ -1001,7 +969,7 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	serverPayload := buildServerRevocationPayload(
+	serverPayload := identity.BuildServerRevocationPayload(
 		userID,
 		fingerprint,
 		reason,
@@ -1129,7 +1097,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	timestamp := time.Now().UTC().Truncate(time.Second)
-	reedPayload := buildReedPayload(
+	reedPayload := identity.BuildReedPayload(
 		h.services.db.GetServerID(),
 		userID,
 		reedID,
@@ -1397,7 +1365,7 @@ func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 	// those bytes. The wire form of serverSignature is base64(armored PGP
 	// signature); decode it once before handing to the PGP verifier.
 	payload := signing.BytesToSign(
-		reedCountersignHeaders(h.services.db.GetServerID(), reed.ID, reed.UserID, reed.Fingerprint, reed.Timestamp),
+		identity.ReedCountersignHeaders(h.services.db.GetServerID(), reed.ID, reed.UserID, reed.Fingerprint, reed.Timestamp),
 		userSignature,
 	)
 	decodedServerSig, err := base64.StdEncoding.DecodeString(serverSignature)
