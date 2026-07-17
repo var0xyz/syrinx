@@ -1,40 +1,45 @@
 # Recovery prerequisites — proposals
 
-These proposals decompose the prerequisites listed in
-[`../takeover_recovery.md`](../takeover_recovery.md) into independently
-shippable pieces. Each one is valuable on its own (mostly bug fixes and
-hardening of normal operation) and does not require the recovery feature
-itself to be implemented.
+These proposals decompose the **normal-operation prerequisites** for
+trustless recovery into independently shippable pieces. Each one is valuable
+on its own (mostly bug fixes and hardening) and does not require the recovery
+feature itself.
 
-The recovery feature itself is specified in
-[`../takeover_recovery.md`](../takeover_recovery.md) and implemented under
-the **`syrinx/recovery`** package (main only wires boot, routes, and
-middleware). It is a **single unit of work** relative to these prerequisite
-proposals — not broken into proposals here. Design highlights already decided
-there:
+The recovery **feature** (endpoints, boot, bundle, client) is specified and
+broken into reviewable steps under
+[`recovery/`](recovery/README.md). All server-side recovery implementation
+belongs in the **`syrinx/recovery`** package; main only wires boot, routes,
+and middleware.
 
-- Own claim via `GET`/`POST /api/recovery/identity/claim` (≤60s challenge).
-- Peer identity via authenticated `POST /api/recovery/identity` (one user,
-  full nested key chain).
-- One reed per request; follows in batches of ≤100; `POST /complete` clears
-  `ongoing_recoveries`.
-- Import gate: while `RECOVERY_MODE` and `ongoing_recoveries`, non-recovery
-  API use is blocked.
+## Prerequisite proposals
 
-## Proposals
+| #  | Title                                              | Depends on |
+|----|----------------------------------------------------|------------|
+| 01 | Fix reed countersignature signer/verifier mismatch | —          |
+| 02 | Random, server-scoped user IDs                     | —          |
+| 03 | reed `server` block (bind reedID/authorID/fp)      | 01         |
+| 04 | Signed identity records at signup / rotation       | 01; and 02 should land first to avoid re-signing |
+| 05 | Signed profile updates                             | 01, 04     |
+| 06 | Signed, replicated key revocations                 | 01; shares two-round scaffolding with 04; wire/storage shape superseded in part by 10 |
+| 07 | Server-signed client keys on distribution          | 01         |
+| 08 | Client signature validation and reed possession    | 01, 03, 07; benefits from 04–06 |
+| 10 | Revocations as a separate signed resource          | 01         |
+| 11 | Per-user system-notification store                 | —          |
 
-| #  | Title                                            | Depends on |
-|----|--------------------------------------------------|------------|
-| 01 | Fix reed countersignature signer/verifier mismatch + introduce `BytesToSign` | — |
-| 02 | Random, server-scoped user IDs                    | —          |
-| 03 | reed `server` block (bind reedID/authorID/fp)     | 01         |
-| 04 | Signed identity records at signup / rotation      | 01; and 02 should land first to avoid re-signing |
-| 05 | Signed profile updates                            | 01, 04     |
-| 06 | Signed, replicated key revocations                | 01; shares two-round scaffolding with 04; wire/storage shape superseded in part by 10 |
-| 07 | Server-signed client keys on distribution         | 01         |
-| 08 | Client signature validation and reed possession   | 01, 03, 07; benefits from 04–06 |
-| 10 | Revocations as a separate signed resource         | 01         |
-| 11 | Per-user system-notification store                | —          |
+## Recovery feature steps
+
+See [`recovery/`](recovery/README.md):
+
+| #  | Title                                                 |
+|----|-------------------------------------------------------|
+| 00 | Server key passphrase (keychain + optional HA env)    |
+| 01 | Key bundle export (`ops` CLI)                         |
+| 02 | Key bundle import (`ops` CLI)                         |
+| 03 | `RECOVERY_MODE` boot, bookkeeping, import gate, flags |
+| 04 | Own identity claim                                    |
+| 05 | Peer identity report-back                             |
+| 06 | Reeds, follows, complete                              |
+| 07 | SPA recover client                                    |
 
 ## Parallelism
 
@@ -50,6 +55,9 @@ there:
   for the resource split / old-key user signature rule.
 - **After 01+03+07 land**: 08's reed ingest + possession path is
   unblocked; identity/revocation client gates track 04–06 and 10.
+- **Recovery feature steps** land only after the prerequisites they need;
+  within `recovery/`, follow that directory's depends-on column (00→07).
+  Step 00 (keychain passphrase) can land independently and unblocks 01/02.
 
 ## Shared conventions
 

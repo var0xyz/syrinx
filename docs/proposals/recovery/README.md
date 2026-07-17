@@ -1,14 +1,38 @@
 # Server Recovery / DB Reconstruction
 
+This directory is the recovery **feature** proposal set. The root README is
+the full protocol; numbered files below are independently reviewable
+implementation steps. Land them in order unless a step's "Depends on" says
+otherwise.
+
+**Code organization:** all server-side recovery logic must live in the
+`syrinx/recovery` Go package. The main package only wires boot, routes, and
+middleware. Shared payload builders stay in `syrinx/identity`. Operator CLI
+lives under `cmd/ops/`.
+
+| #                                          | Title                                                 | Depends on |
+|--------------------------------------------|-------------------------------------------------------|------------|
+| [00](00_server_key_passphrase_keychain.md) | Server key passphrase (keychain + optional env var)   | —          |
+| [01](01_key_bundle_export_ops_cli.md)      | Key bundle export (`ops` CLI)                         | 00         |
+| [02](02_key_bundle_import_ops_cli.md)      | Key bundle import (`ops` CLI)                         | 00, 01     |
+| [03](03_bookkeeping_and_gates.md)          | `RECOVERY_MODE` boot, bookkeeping, import gate, flags | 02         |
+| [04](04_own_identity_claim.md)             | Own-identity claim (challenge + nested key chain)     | 03         |
+| [05](05_peer_identity_report.md)           | Peer identity report-back (`POST /recovery/identity`) | 04         |
+| [06](06_reeds_follows_complete.md)         | Reed holdings, batched follows, `/complete`           | 04         |
+| [07](07_spa_recover_client.md)             | SPA recover path + sync ledger                        | 04–06      |
+
+Prerequisite normal-operation work is under
+[`../`](../README.md) (proposals 01–11).
+
+---
+
 ## Status
 
-**Partially implemented.** Normal-operation prerequisites for trustless recovery
-are in place (see proposals 01–10). The recovery feature itself — mode toggle,
-boot reconciliation, key-bundle export/import, claim / peer identity / holdings
-endpoints, client sync, and recovery bookkeeping tables — is **not implemented
-yet**.
+**Spec complete; implementation proceeds via the numbered steps above.**
+Normal-operation prerequisites (proposals 01–10 under `docs/proposals/`) are
+in place. Notifications (proposal 11) remain deferred.
 
-**Implemented** (normal operation):
+**Implemented** (normal operation — not part of this directory):
 
 - **Identity countersignatures** at signup / profile update / key rotation.
 - **Signed, server-countersigned, server-timestamped profile records.**
@@ -16,16 +40,7 @@ yet**.
 - **Reed `server` block** binding `reedID`, `authorID`, and the server signing-key
   **fingerprint**, with one canonical form shared by signer and verifier.
 - **Random, server-scoped user IDs** (replacing the Sqids counter).
-
-**Not implemented yet** (recovery feature):
-
-- **`RECOVERY_MODE`**, boot-time key-bundle **import**, operator key-bundle
-  **export**.
-- Own-identity **claim** (`GET`/`POST /api/recovery/identity/claim`) with a
-  short-lived challenge.
-- Authenticated peer **identity** report (`POST /api/recovery/identity`),
-  one-at-a-time reed holdings, batched follows, and **`/complete`**.
-- Recovery-only tables: **`unclaimed_accounts`**, **`ongoing_recoveries`**.
+- Shared **`syrinx/identity`** payload builders.
 
 **Deferred** (not required for the first recovery cut):
 
@@ -36,7 +51,7 @@ yet**.
 ## Code organization
 
 **All server-side recovery code lives in the `recovery/` Go package**
-(`syrinx/recovery`). That includes boot reconciliation, key-bundle
+(`syrinx/recovery`). That includes RECOVERY_MODE boot gates, key-bundle
 export/import helpers, nested key-chain types, persistence for
 `unclaimed_accounts` / `ongoing_recoveries`, signature verification for claim
 and peer report-back, HTTP handlers, and route registration.
@@ -119,10 +134,12 @@ selecting the key **by fingerprint** for each record.
 ### Required work (`recovery/` package)
 
 Server identity import/export and recovery endpoints are implemented in
-`syrinx/recovery` (see *Code organization*). Boot-time import restores the
-operator-provided `serverID` and full signing-key history from
-`RECOVERY_KEY_BUNDLE`; the operator CLI is `cmd/ops` (`export-identity`,
-`rotate-passphrase`).
+`syrinx/recovery` (see *Code organization*). Identity is restored **only** via
+`ops import-identity` (prompt for bundle password, ensure schema, populate
+`servers` / `private_keys` / `public_keys`, optional delete of the bundle
+file). Boot with `RECOVERY_MODE` assumes that import already happened — it does
+**not** prompt for the bundle password. Operator CLI: `cmd/ops`
+(`export-identity`, `import-identity`, `rotate-passphrase`).
 
 ### Key bundle (export / import format)
 
@@ -132,18 +149,40 @@ while the server is healthy** — after the DB is gone it is too late. Losing th
 bundle means every countersignature becomes unverifiable and recovery is
 impossible.
 
-The system provides an operator command to export the identity as a single JSON
-file (e.g. `server-identity.json`):
+**Export** (`ops export-identity`): build the identity JSON and **encrypt the
+whole file** with a password the operator enters at the prompt (and confirms).
+That password is **never stored** — not in the file, not in the DB, not in env
+files checked into the repo.
+
+**Import** (`ops import-identity <file>`): the **only** path that decrypts a
+bundle. Prompt for the same password, ensure the identity tables exist, validate
+and populate them, then **prompt whether to delete the bundle file** (default
+recommend yes once the DB holds the keys — the file is a high-value secret at
+rest). Non-interactive use may read the password from stdin when not a TTY;
+do not put it in env or committed config.
+
+On-disk artifact: an OpenPGP **symmetrically encrypted**, ASCII-armored
+message whose plaintext is the JSON below. Default export filename:
+
+`syrinx-<serverID>-<timestamp>.json.gpg`
+
+where `<timestamp>` is the same instant as `exportedAt`, formatted for
+filenames as UTC `YYYYMMDDTHHMMSSZ` (e.g.
+`syrinx-Ab3xY9pQ-20260717T150405Z.json.gpg`). The operator may pass another
+path on export or import.
+
+Plaintext JSON (only after decrypt):
 
 ```json
 {
   "version": 1,
+  "exportedAt": "2026-07-17T15:04:05Z",
   "serverID": "Ab3xY9pQ",
   "signingKeyFingerprint": "<hex fingerprint of the currently-active key>",
   "keys": [
     {
       "fingerprint": "<hex>",
-      "privateKeyArmor": "-----BEGIN PGP PRIVATE KEY BLOCK----- ... (still encrypted with SERVER_KEY_PASSPHRASE)",
+      "privateKeyArmor": "-----BEGIN PGP PRIVATE KEY BLOCK----- ... (still encrypted with the server key passphrase)",
       "publicKeyArmor": "-----BEGIN PGP PUBLIC KEY BLOCK----- ...",
       "createdAt": "2026-01-02T03:04:05Z",
       "revokedAt": null,
@@ -153,34 +192,53 @@ file (e.g. `server-identity.json`):
 }
 ```
 
-- Private keys are exported **still encrypted** (verbatim from
-  `private_keys.armor`); the export never decrypts them. `SERVER_KEY_PASSPHRASE`
-  is supplied separately at boot (as today), so the bundle is safe at rest to the
-  same degree the DB was. The passphrase must be the **same** one that encrypted
-  the keys (see Open questions).
+Two independent secrets (do not conflate):
+
+| Secret | Role |
+|--------|------|
+| **Bundle password** | Encrypts the exported file at rest. Prompted on `export-identity` and `import-identity` only. Never persisted by Syrinx. |
+| **Server key passphrase** | Unwraps each `privateKeyArmor` inside the JSON (same as live server boot). Resolved via env (HA) **or** OS keychain (prompt + store when env unset/empty). See [00](00_server_key_passphrase_keychain.md). Not listed in `.env.example`. |
+
+- `exportedAt` is the UTC time the plaintext bundle was built (RFC3339, second
+  precision). Operator metadata; not used for trust on import.
+- Private keys inside the JSON are exported **still encrypted** with the
+  server key passphrase (verbatim from `private_keys.armor`); export never
+  decrypts them.
 - The bundle carries the full key history (active + rotated/revoked) so every
   historical countersignature verifies and `reeds.private_key_fingerprint` FKs
   resolve.
 - `serverID` is restored verbatim; the server **name** is not part of the bundle
   (it comes from `SERVER_NAME` and may change — countersignatures bind `serverID`
   only).
-- **Delivery**: mount the file and point to it with an env var, e.g.
-  `RECOVERY_KEY_BUNDLE=/run/secrets/server-identity.json`. A whole-bundle env var
-  is unwieldy; a mounted file (or a secret store that materializes a file) is the
-  intended mechanism.
+- **Delivery**: keep the encrypted file offline; pass its path to
+  `ops import-identity`. There is **no** `RECOVERY_KEY_BUNDLE` boot env — the
+  process never prompts for the bundle password.
 
-**Restoring requires the same `SERVER_KEY_PASSPHRASE`** the bundle was encrypted
-with. Two distinct rotations must not be confused:
+**After decrypting the file**, restoring keys still needs the same server key
+passphrase that wrapped `private_keys.armor`. Keep these distinct:
 
 - **Signing-key rotation** — minting a *new* server keypair (via `.rvk`
   revocation + `InitServerKey`). Produces additional entries in the key history;
   the old key stays in the bundle so its past countersignatures keep verifying.
-- **Passphrase rotation** — re-wrapping the *same* keys under a new passphrase. A
-  dedicated operator command decrypts every `private_keys.armor` with the old
-  passphrase and re-encrypts with the new one; afterwards the operator **re-runs
-  the export** so the backed-up bundle matches the new passphrase. A bundle and a
-  passphrase are always a matched pair: keep them in sync, and a bundle taken
-  before a passphrase change needs the *old* passphrase to import.
+- **Server key passphrase rotation** — re-wrapping the *same* keys under a new
+  passphrase (`ops rotate-passphrase`, which updates the keychain). Afterwards
+  re-export the identity bundle (you will be prompted for a **bundle** password
+  again — may be new or the same).
+- **Bundle password change** — re-export (or a dedicated re-encrypt command) and
+  choose a new password at the prompt; old encrypted files need the old password.
+
+**Backup freshness (DB + startup warn).** After a successful `export-identity`,
+the server records `exportedAt` on the self `servers` row as
+`identity_backup_at`. That column is **operator metadata only** (not a trust
+input on import). On every normal startup (identity already present), if
+`identity_backup_at` is NULL **or** it is strictly older than the newest
+`private_keys.created_at`, log a **non-fatal** warning that the identity
+bundle is missing or stale and the operator should run `ops export-identity`.
+`ops import-identity` sets `identity_backup_at` from the bundle’s `exportedAt`
+so a just-restored instance does not spuriously warn until the next key
+rotation. Passphrase-only re-wrap does not change key `created_at`; re-export
+after `rotate-passphrase` remains an operator checklist item (this check does
+not detect it).
 
 ## Trust model
 
@@ -273,11 +331,19 @@ questions by that server timestamp — never the submitter's.
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
 
-**Remaining** — recovery feature (all of it under `syrinx/recovery`):
+**Remaining** — land numbered steps [00](00_server_key_passphrase_keychain.md)–[07](07_spa_recover_client.md)
+in this directory (all server work under `syrinx/recovery`, plus shared
+keychain helper as in step 00):
 
-- **`RECOVERY_MODE`** and boot reconciliation against `RECOVERY_KEY_BUNDLE`.
-- Operator key-bundle **export** / matching boot-time **import** of the full
-  server signing-key history and `serverID` (see *Required work* / `cmd/ops`).
+- **Server key passphrase** via OS keychain when env is unset/empty (prompt on
+  miss); optional `SERVER_KEY_PASSPHRASE` for HA — not documented in
+  `.env.example`.
+- Operator key-bundle **export** (`ops export-identity`) and **import**
+  (`ops import-identity`) — the only password prompts for the bundle;
+  `identity_backup_at` + non-fatal stale-backup startup warning; import may
+  delete the bundle file after success.
+- **`RECOVERY_MODE`** boot that requires a prior `ops import-identity` (no
+  bundle password at process start), plus bookkeeping / import gate / flags.
 - Own-identity **claim** (challenge + nested key chain) and authenticated peer
   **`POST /api/recovery/identity`**.
 - **`unclaimed_accounts`**, **`ongoing_recoveries`**, reed/follow/`complete`
@@ -320,14 +386,14 @@ Not reconstructed (ephemeral/realtime, repopulate on reconnect):
 All recovery routes exist only while `RECOVERY_MODE` is on. When off, they are
 not registered (no attack surface).
 
-| Endpoint | Auth | Cardinality |
-|----------|------|-------------|
-| `GET /api/recovery/identity/claim` | none | — |
-| `POST /api/recovery/identity/claim` | challenge + sig | own identity |
-| `POST /api/recovery/identity` | signature-auth | **one** peer |
-| `POST /api/recovery/reeds` | signature-auth | **one** reed |
-| `POST /api/recovery/following` | signature-auth | **≤100** userIDs |
-| `POST /api/recovery/complete` | signature-auth | — |
+| Endpoint                            | Auth            | Cardinality      |
+|-------------------------------------|-----------------|------------------|
+| `GET /api/recovery/identity/claim`  | none            | —                |
+| `POST /api/recovery/identity/claim` | challenge + sig | own identity     |
+| `POST /api/recovery/identity`       | signature-auth  | **one** peer     |
+| `POST /api/recovery/reeds`          | signature-auth  | **one** reed     |
+| `POST /api/recovery/following`      | signature-auth  | **≤100** userIDs |
+| `POST /api/recovery/complete`       | signature-auth  | —                |
 
 **Normal use stays enabled during recovery** for anyone who has finished
 claim/import (or never entered `ongoing_recoveries`). Live writes carry the
@@ -380,18 +446,26 @@ the sync ledger and progress UI.
 
 ### Phase 0 — Operator redeploy
 
-At boot with `RECOVERY_MODE` on, the server reconciles the DB against the bundle:
-
-- **No existing server identity** (no `self = TRUE` row in `servers`): fresh
-  import. Initialize the schema, load the bundle from `RECOVERY_KEY_BUNDLE`
-  (decrypting each private key with `SERVER_KEY_PASSPHRASE`), write the full
-  `private_keys` / `public_keys` history, restore `serverID` verbatim, set the
-  active signing key from `signingKeyFingerprint`, and create recovery-only
-  tables (`unclaimed_accounts`, `ongoing_recoveries`).
-- **Existing identity that matches the bundle** (same `serverID` and key set): a
-  previous recovery was interrupted — **resume**. Keep the already-restored data
-  (including any live writes) and re-open recovery endpoints.
-- **Existing identity that does *not* match the bundle**: **abort startup.**
+1. Stand up a new instance (empty DB). On first interactive start (or via
+   `ops`), provide the **same server key passphrase** that wrapped the keys in
+   the bundle so it can be stored in that host’s keychain; set `SERVER_NAME` as
+   desired.
+2. Run **`ops import-identity <path-to-bundle.json.gpg>`**: prompt for the
+   **bundle password**, ensure identity schema exists, decrypt/validate, write
+   the full `private_keys` / `public_keys` history, restore `serverID`
+   verbatim, set the active signing key from `signingKeyFingerprint`, set
+   `identity_backup_at` from `exportedAt`. Then prompt whether to **delete the
+   bundle file**. If a self identity already exists and **matches** the
+   bundle, treat as success (idempotent). If it **does not match**, abort with
+   no writes.
+3. Start the server with **`RECOVERY_MODE`**. Boot does **not** read a bundle
+   or prompt for a password:
+   - **Self identity present** (from step 2, or a previous interrupted recovery):
+     **resume** — keep already-restored data (including any live writes), ensure
+     recovery-only tables exist (`unclaimed_accounts`, `ongoing_recoveries`),
+     open recovery endpoints.
+   - **No self identity**: **abort startup** with a clear message to run
+     `ops import-identity` first.
 
 The client learns recovery is active from `/server/info` (`recoveryMode`,
 `signupsEnabled`) and shows the recovery banner + "import your data" / signup
@@ -565,6 +639,11 @@ Already in the base schema (normal operation):
 
 Still to add with the recovery feature:
 
+- **`servers.identity_backup_at`** (nullable timestamp on the self row): last
+  successful identity-bundle export (`exportedAt`). NULL means never exported
+  (or not yet recorded). Drives the non-fatal startup warning when missing or
+  older than the newest server signing key. Set by `ops export-identity` and by
+  `ops import-identity` from the bundle.
 - **`unclaimed_accounts`** (recovery-only): one `user_id` per account **created
   by peer** `POST /api/recovery/identity` whose owner has not yet claimed. Deleted
   on successful own claim. `count(*)` is the admin gauge and drives the
@@ -586,11 +665,13 @@ Deferred:
 - **Code organization**: all recovery logic in `syrinx/recovery`; main only
   wires boot/routes/middleware. Shared payload builders in `syrinx/identity`;
   ops CLI in `cmd/ops`.
-- **Activation**: `RECOVERY_MODE` env flag. Fresh import against a DB with no
-  server identity; **resume** if the existing identity matches the bundle;
-  **abort** on mismatch. Identity/keys via `RECOVERY_KEY_BUNDLE` +
-  `SERVER_KEY_PASSPHRASE`. Optional `SIGNUPS_ENABLED=false` to disable new
-  signups only (recovered users keep full normal use).
+- **Activation**: `RECOVERY_MODE` env flag. Identity must already be in the DB
+  via `ops import-identity`; boot **resumes** if a self identity exists and
+  **aborts** if not. No `RECOVERY_KEY_BUNDLE` — bundle password is prompted only
+  by `ops export-identity` / `ops import-identity` (never stored). Server key
+  passphrase comes from proposal 00 (env if set, else keychain / prompt).
+  Optional `SIGNUPS_ENABLED=false` to disable new signups only (recovered users
+  keep full normal use).
 - **Client detection**: `/server/info` reports `recoveryMode` and
   `signupsEnabled`.
 - **Own claim**: `GET`/`POST /api/recovery/identity/claim` with a ≤60s challenge
@@ -614,8 +695,17 @@ Deferred:
   live signup races for names.
 - **Completion**: no global finalize; operator turns `RECOVERY_MODE` off;
   per-user import ends via `complete`.
-- **Passphrase**: same `SERVER_KEY_PASSPHRASE` to import; separate rotate +
-  re-export command.
+- **Secrets**: bundle password (prompted by `ops` only, encrypts the export
+  file, never stored) is independent of the server key passphrase (env for HA,
+  else OS keychain / prompt; unwraps private armors). Do not list
+  `SERVER_KEY_PASSPHRASE` in `.env.example`. Re-export after passphrase
+  rotate; bundle password may be changed by re-exporting. After
+  `import-identity`, offer to delete the bundle file.
+- **Keychain tradeoff**: preferred for long-running single-host services; HA
+  fleets inject `SERVER_KEY_PASSPHRASE` via the orchestrator instead.
+- **Backup freshness**: `servers.identity_backup_at` updated on successful
+  export and on `import-identity`; non-fatal startup warning if never set or
+  older than newest `private_keys.created_at`.
 - **Migration**: not applicable — pre-launch blank slate.
 - **Abuse mitigation**: deferred.
 - **Collision-rename notifications**: deferred (Proposal 11).
