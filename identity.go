@@ -62,7 +62,14 @@ func userIdentityHeaders(username, fingerprint, avatarURL string) map[string]str
 // `bio` may be empty; it is placed in the envelope's content section and
 // is not escaped.
 func buildUserIdentityPayload(username, fingerprint, avatarURL, bio string) []byte {
-	return signing.BytesToSign(userIdentityHeaders(username, fingerprint, avatarURL), bio)
+	return signing.BytesToSign(
+		userIdentityHeaders(
+			username,
+			fingerprint,
+			avatarURL,
+		),
+		bio,
+	)
 }
 
 // profileHeaders returns the header map covered by serverSignature.
@@ -75,9 +82,15 @@ func buildUserIdentityPayload(username, fingerprint, avatarURL, bio string) []by
 // identityRecordTimeFormat in UTC. Callers own the truncation of the
 // input times to whole seconds — this function does not modify them.
 func profileHeaders(
-	userID, username, fingerprint, avatarURL,
-	serverID, serverKeyFingerprint, userSignatureB64 string,
-	memberSince, signedAt time.Time,
+	userID,
+	username,
+	fingerprint,
+	avatarURL,
+	serverID,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	memberSince,
+	signedAt time.Time,
 ) map[string]string {
 	return map[string]string{
 		"type":                 "identity-server",
@@ -111,9 +124,15 @@ func buildProfilePayload(
 ) []byte {
 	return signing.BytesToSign(
 		profileHeaders(
-			userID, username, fingerprint, avatarURL,
-			serverID, serverKeyFingerprint, userSignatureB64,
-			memberSince, signedAt,
+			userID,
+			username,
+			fingerprint,
+			avatarURL,
+			serverID,
+			serverKeyFingerprint,
+			userSignatureB64,
+			memberSince,
+			signedAt,
 		),
 		bio,
 	)
@@ -174,6 +193,75 @@ func buildPublicKeyPayload(
 			timestamp,
 		),
 		publicKey,
+	)
+}
+
+// userRevocationHeaders returns the header map the key owner signs when
+// revoking. Content is the free-text reason (may be empty).
+func userRevocationHeaders(userID, fingerprint string) map[string]string {
+	return map[string]string{
+		"type":        "revocation",
+		"userID":      userID,
+		"fingerprint": fingerprint,
+	}
+}
+
+// buildUserRevocationPayload returns the exact bytes the key being
+// revoked must sign to produce the wire `signature` field.
+func buildUserRevocationPayload(userID, fingerprint, reason string) []byte {
+	return signing.BytesToSign(
+		userRevocationHeaders(
+			userID,
+			fingerprint,
+		),
+		reason,
+	)
+}
+
+// serverRevocationHeaders returns the header map the server countersigns.
+// userSignatureB64 binds the user's attestation into the server-signed
+// bytes, same pattern as identity records.
+func serverRevocationHeaders(
+	userID,
+	fingerprint,
+	serverID,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	signedAt time.Time,
+) map[string]string {
+	return map[string]string{
+		"type":                 "revocation",
+		"userID":               userID,
+		"fingerprint":          fingerprint,
+		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
+		"serverID":             serverID,
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignatureB64,
+	}
+}
+
+// buildServerRevocationPayload returns the exact bytes the server signs
+// when countersigning a revocation. signedAt becomes server.timestamp
+// on the wire.
+func buildServerRevocationPayload(
+	userID,
+	fingerprint,
+	reason,
+	serverID,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	signedAt time.Time,
+) []byte {
+	return signing.BytesToSign(
+		serverRevocationHeaders(
+			userID,
+			fingerprint,
+			serverID,
+			serverKeyFingerprint,
+			userSignatureB64,
+			signedAt,
+		),
+		reason,
 	)
 }
 

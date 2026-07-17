@@ -18,11 +18,16 @@ export type SignupInput = {
 
 const BASE_URL = '/api';
 
-// Unauthenticated endpoints that don't need signing
+// Unauthenticated endpoints that don't need signing.
+// `/server/keys` is public verification material — required so clients can
+// verify countersignatures even when their active user key is revoked
+// (e.g. mid-rotation, right after RevokeKey).
 const UNAUTHENTICATED_ENDPOINTS = [
   '/users/signup',
   '/check-username',
   '/keys',
+  '/server/info',
+  '/server/keys',
 ];
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -38,6 +43,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         // Try to get auth data from auth service
         const fingerprint = authService.getActiveKeyFingerprint();
         const passphrase = authService.getPassphrase();
+        if (!fingerprint || !passphrase) {
+          throw new Error('Cannot sign request: active key or passphrase not available');
+        }
 
         await requestSigner.initializeWorker(fingerprint, passphrase);
       }
@@ -183,15 +191,28 @@ export const apiService = {
     return request(`/reeds/${userId}/${reedId}`, { method: 'DELETE' });
   },
 
-  async revokeKey(userId: string, fingerprint: string, reason: string): Promise<api.PublicKey> {
+  async revokeKey(
+    userId: string,
+    fingerprint: string,
+    reason: string,
+    userSignature: string
+  ): Promise<api.PublicKey> {
     const formData = new URLSearchParams();
     formData.append('reason', reason);
+    formData.append('userSignature', userSignature);
 
     return request<api.PublicKey>(`/users/${userId}/keys/${fingerprint}/revoke`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()
     });
+  },
+
+  async getKeyRevocation(userId: string, fingerprint: string): Promise<api.KeyRevocation> {
+    return request<api.KeyRevocation>(
+      `/users/${userId}/keys/${fingerprint}/revocation`,
+      { method: 'GET' }
+    );
   },
 
   async followUser(targetUserId: string): Promise<void> {

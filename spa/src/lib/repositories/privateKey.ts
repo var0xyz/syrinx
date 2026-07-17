@@ -1,14 +1,16 @@
 import { dbService, type DbService } from '../services/db';
 
+/**
+ * Local private-key material. Revocation *attestation* (reason, timestamp,
+ * successor, server countersignature) lives on the matching public key —
+ * that record is what peers verify. Here `revoked` is only a local flag
+ * so we do not keep treating this material as an active signing key.
+ */
 export interface PrivateKey {
   fingerprint: string;
   armor: string;
   createdAt: Date;
-  revoked?: {
-    reason: string;
-    timestamp: string;
-    successor: string | null;
-  } | null;
+  revoked: boolean;
 }
 
 export class PrivateKeyRepository {
@@ -27,6 +29,7 @@ export class PrivateKeyRepository {
       fingerprint,
       armor: armor.trim(),
       createdAt: now,
+      revoked: false,
     };
 
     await this.db.put('privateKeys', keyData);
@@ -54,11 +57,11 @@ export class PrivateKeyRepository {
     await this.db.delete('privateKeys', fingerprint);
   }
 
-  async setRevoked(fingerprint: string, revoked: { reason: string; timestamp: string; successor: string | null } | null | undefined): Promise<void> {
-    if (!revoked) throw new Error(`setRevoked called with empty revocation info for: ${fingerprint}`);
+  /** Mark local private-key material as revoked (boolean flag only). */
+  async setRevoked(fingerprint: string): Promise<void> {
     const existing = await this.getPrivateKey(fingerprint);
     if (!existing) throw new Error(`Private key not found: ${fingerprint}`);
-    await this.db.put('privateKeys', { ...existing, revoked });
+    await this.db.put('privateKeys', { ...existing, revoked: true });
   }
 
   /**

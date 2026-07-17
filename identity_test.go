@@ -86,7 +86,7 @@ func TestUserPayloadOmitsEmptyAvatar(t *testing.T) {
 func TestServerPayloadCanonicalShape(t *testing.T) {
 	memberSince := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	signedAt := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
-	got := buildServerIdentityPayload(
+	got := buildProfilePayload(
 		"abc123", "alice", "ABCDEF", "https://ex.com/a.png",
 		"Server01", "0011FF",
 		"dXNlcnNpZw==",
@@ -131,7 +131,7 @@ func TestIdentityRoundTrip(t *testing.T) {
 
 	memberSince := time.Now().UTC().Truncate(time.Second)
 	signedAt := memberSince
-	serverPayload := buildServerIdentityPayload(
+	serverPayload := buildProfilePayload(
 		"user_abc", "alice", userKP.Fingerprint, "",
 		"srv_xyz", serverKP.Fingerprint,
 		userSigB64,
@@ -146,7 +146,7 @@ func TestIdentityRoundTrip(t *testing.T) {
 	if err := verifyB64(t, cryptoSvc, userKP.PublicKey, userSigB64, rebuiltUser); err != nil {
 		t.Errorf("rebuilt userSignature verify: %v", err)
 	}
-	rebuiltServer := buildServerIdentityPayload(
+	rebuiltServer := buildProfilePayload(
 		"user_abc", "alice", userKP.Fingerprint, "",
 		"srv_xyz", serverKP.Fingerprint,
 		userSigB64,
@@ -176,7 +176,7 @@ func TestServerPayloadBindsUserSignature(t *testing.T) {
 
 	ts := time.Now().UTC().Truncate(time.Second)
 	// Server signs a record binding sigAlice.
-	serverPayload := buildServerIdentityPayload(
+	serverPayload := buildProfilePayload(
 		"user_abc", "alice", userKP.Fingerprint, "",
 		"srv_xyz", serverKP.Fingerprint,
 		sigAlice,
@@ -186,7 +186,7 @@ func TestServerPayloadBindsUserSignature(t *testing.T) {
 	serverSig := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
 
 	// Attacker rebuilds the server payload with sigBob substituted.
-	tamperedPayload := buildServerIdentityPayload(
+	tamperedPayload := buildProfilePayload(
 		"user_abc", "alice", userKP.Fingerprint, "",
 		"srv_xyz", serverKP.Fingerprint,
 		sigBob,

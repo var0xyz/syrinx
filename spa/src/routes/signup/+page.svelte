@@ -53,7 +53,8 @@
       });
       authService.setPassphrase(password);
 
-      // Step 2: Store keys in IndexedDB
+      // Step 2: Store the private key locally. The public key is cached
+      // only after signup, once the server has countersigned it.
       currentStep = 2;
       const { privateKeyRepository } = await import(
         "$lib/repositories/privateKey"
@@ -61,11 +62,9 @@
       const { publicKeyRepository } = await import(
         "$lib/repositories/publicKey"
       );
+      const { apiService } = await import("$lib/services/api");
 
-      await Promise.all([
-        privateKeyRepository.put(keyPair.fingerprint, keyPair.privateKey),
-        publicKeyRepository.put(keyPair.fingerprint, keyPair.publicKey),
-      ]);
+      await privateKeyRepository.put(keyPair.fingerprint, keyPair.privateKey);
 
       // Step 3: Sign the public key with private key
       currentStep = 3;
@@ -103,18 +102,18 @@
         userSignature,
       });
 
-      // Step 6: Store user in both localStorage and IndexedDB
+      // Step 6: Persist session first so authenticated GETs (attested
+      // public key, server signing keys for verify) can be signed.
       currentStep = 6;
       await authService.saveUserToStorage(user);
-
-      // Step 7: Store session data and set active key
-      currentStep = 7;
       authService.setActiveKey(keyPair.fingerprint);
-
-      // Initialize the service worker with the new key so requests can be
-      // signed immediately without a page reload. This also replaces any
-      // stale key from a previous session that may still be loaded.
       await requestSigner.initializeWorker(keyPair.fingerprint, password);
+
+      // Step 7: Cache the server-attested public key
+      currentStep = 7;
+      const attestedKey = await apiService.getPublicKey(user.id, keyPair.fingerprint);
+      await publicKeyRepository.put(attestedKey);
+
       serverConnection.connect().then(() => serverConnection.syncRequest());
 
       // Redirect to welcome page
