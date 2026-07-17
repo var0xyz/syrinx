@@ -1,4 +1,5 @@
-// identity.go — canonical byte sequences for signed identity records.
+// Package identity holds canonical byte sequences for signed identity
+// records and related countersignatures (keys, reeds, revocations).
 //
 // An identity record has two signed byte sequences that overlap but are
 // not identical:
@@ -27,7 +28,7 @@
 // Both payloads flow through signing.BytesToSign, which is the sole
 // canonicalisation authority. Do not build these byte sequences any
 // other way.
-package main
+package identity
 
 import (
 	"time"
@@ -35,16 +36,16 @@ import (
 	"syrinx/signing"
 )
 
-// identityAlgorithm is the value stored in the response's `server.algorithm`
+// Algorithm is the value stored in the response's `server.algorithm`
 // field and, by convention, describes both signatures: an armored PGP
 // detached signature transported as base64 on the wire.
-const identityAlgorithm = "PGP+base64"
+const Algorithm = "PGP+base64"
 
-// identityRecordTimeFormat is the canonical time format used for
-// memberSince and signedAt headers in the signed bytes. UTC + RFC3339
-// seconds resolution. Callers MUST pass timestamps already truncated to
-// this precision so that what is signed equals what is later served.
-const identityRecordTimeFormat = time.RFC3339
+// recordTimeFormat is the canonical time format used for memberSince
+// and signedAt headers in the signed bytes. UTC + RFC3339 seconds
+// resolution. Callers MUST pass timestamps already truncated to this
+// precision so that what is signed equals what is later served.
+const recordTimeFormat = time.RFC3339
 
 // userIdentityHeaders returns the header map covered by userSignature.
 // `avatarURL` is omitted from the signed bytes when empty, matching the
@@ -58,10 +59,10 @@ func userIdentityHeaders(username, fingerprint, avatarURL string) map[string]str
 	}
 }
 
-// buildUserIdentityPayload returns the exact bytes the user signs.
+// BuildUserIdentityPayload returns the exact bytes the user signs.
 // `bio` may be empty; it is placed in the envelope's content section and
 // is not escaped.
-func buildUserIdentityPayload(username, fingerprint, avatarURL, bio string) []byte {
+func BuildUserIdentityPayload(username, fingerprint, avatarURL, bio string) []byte {
 	return signing.BytesToSign(
 		userIdentityHeaders(
 			username,
@@ -79,7 +80,7 @@ func buildUserIdentityPayload(username, fingerprint, avatarURL, bio string) []by
 // server-authored fields.
 //
 // Timestamp formatting: memberSince and signedAt are formatted with
-// identityRecordTimeFormat in UTC. Callers own the truncation of the
+// recordTimeFormat in UTC. Callers own the truncation of the
 // input times to whole seconds — this function does not modify them.
 func profileHeaders(
 	userID,
@@ -98,19 +99,19 @@ func profileHeaders(
 		"username":             username,
 		"fingerprint":          fingerprint,
 		"avatarURL":            avatarURL,
-		"memberSince":          memberSince.UTC().Format(identityRecordTimeFormat),
+		"memberSince":          memberSince.UTC().Format(recordTimeFormat),
 		"serverID":             serverID,
 		"serverKeyFingerprint": serverKeyFingerprint,
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
+		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
 		"userSignature":        userSignatureB64,
 	}
 }
 
-// buildProfilePayload returns the exact bytes the server signs.
+// BuildProfilePayload returns the exact bytes the server signs.
 // `bio` is the same string that appeared in the user payload's content
 // section — the two payloads share the same content, they only differ
 // in headers.
-func buildProfilePayload(
+func BuildProfilePayload(
 	userID,
 	username,
 	fingerprint,
@@ -138,7 +139,28 @@ func buildProfilePayload(
 	)
 }
 
-// buildReedPayload returns the exact bytes the server countersigns for a
+// ReedCountersignHeaders builds the header map that the server signs when
+// countersigning a reed. Both SignReed and VerifySignature construct this
+// identical map and feed it to signing.BytesToSign; that single source of
+// truth is what keeps the two sides in lockstep.
+//
+// The header set binds `algorithm`, `id`, `timestamp`, `reedID`, `authorID`,
+// and the server signing-key `fingerprint`. Binding reedID/authorID kills
+// the cross-reed and cross-author replay classes; binding the fingerprint
+// lets a verifier with multiple historical server keys pick the right one
+// and keeps the signer's own identity covered by the signature.
+func ReedCountersignHeaders(serverID, reedID, authorID, fingerprint string, ts time.Time) map[string]string {
+	return map[string]string{
+		"algorithm":   "PGP+base64",
+		"authorID":    authorID,
+		"fingerprint": fingerprint,
+		"serverID":    serverID,
+		"reedID":      reedID,
+		"timestamp":   ts.UTC().Format(time.RFC3339),
+	}
+}
+
+// BuildReedPayload returns the exact bytes the server countersigns for a
 // reed. Headers bind the reed's identity (serverID, reedID, authorID,
 // server-key fingerprint, timestamp); content is the author's detached
 // signature, so the countersignature covers both where the reed lives
@@ -147,7 +169,7 @@ func buildProfilePayload(
 // `timestamp` must already be truncated to whole seconds so that what
 // is signed matches what Postgres stores after any timestamp
 // round-trip.
-func buildReedPayload(
+func BuildReedPayload(
 	serverID,
 	userID,
 	reedID,
@@ -156,7 +178,7 @@ func buildReedPayload(
 	timestamp time.Time,
 ) []byte {
 	return signing.BytesToSign(
-		reedCountersignHeaders(
+		ReedCountersignHeaders(
 			serverID,
 			reedID,
 			userID,
@@ -167,7 +189,19 @@ func buildReedPayload(
 	)
 }
 
-// buildPublicKeyPayload returns the exact bytes the server countersigns
+// PublicKeyCountersignHeaders is the header map signed over a user
+// public key. Content is the armored key.
+func PublicKeyCountersignHeaders(userID, fingerprint, serverID, serverKeyFingerprint string, ts time.Time) map[string]string {
+	return map[string]string{
+		"fingerprint":          fingerprint,
+		"serverID":             serverID,
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"signedAt":             ts.UTC().Format(time.RFC3339),
+		"userID":               userID,
+	}
+}
+
+// BuildPublicKeyPayload returns the exact bytes the server countersigns
 // for a user's public key. Headers bind ownership and issuance
 // (userID, user fingerprint, serverID, server-key fingerprint,
 // signedAt); content is the armored key itself, so a verifier can
@@ -176,7 +210,7 @@ func buildReedPayload(
 // `timestamp` must already be truncated to whole seconds so that what
 // is signed matches what Postgres stores after any timestamp
 // round-trip.
-func buildPublicKeyPayload(
+func BuildPublicKeyPayload(
 	serverID,
 	userID,
 	userFingerprint,
@@ -185,7 +219,7 @@ func buildPublicKeyPayload(
 	timestamp time.Time,
 ) []byte {
 	return signing.BytesToSign(
-		publicKeyCountersignHeaders(
+		PublicKeyCountersignHeaders(
 			userID,
 			userFingerprint,
 			serverID,
@@ -206,9 +240,9 @@ func userRevocationHeaders(userID, fingerprint string) map[string]string {
 	}
 }
 
-// buildUserRevocationPayload returns the exact bytes the key being
+// BuildUserRevocationPayload returns the exact bytes the key being
 // revoked must sign to produce the wire `signature` field.
-func buildUserRevocationPayload(userID, fingerprint, reason string) []byte {
+func BuildUserRevocationPayload(userID, fingerprint, reason string) []byte {
 	return signing.BytesToSign(
 		userRevocationHeaders(
 			userID,
@@ -233,17 +267,17 @@ func serverRevocationHeaders(
 		"type":                 "revocation",
 		"userID":               userID,
 		"fingerprint":          fingerprint,
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
+		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
 		"serverID":             serverID,
 		"serverKeyFingerprint": serverKeyFingerprint,
 		"userSignature":        userSignatureB64,
 	}
 }
 
-// buildServerRevocationPayload returns the exact bytes the server signs
+// BuildServerRevocationPayload returns the exact bytes the server signs
 // when countersigning a revocation. signedAt becomes server.timestamp
 // on the wire.
-func buildServerRevocationPayload(
+func BuildServerRevocationPayload(
 	userID,
 	fingerprint,
 	reason,
@@ -265,18 +299,18 @@ func buildServerRevocationPayload(
 	)
 }
 
-// buildNewProfilePayload is a convenience wrapper around
-// buildProfilePayload for the initial signup record: avatarURL
+// BuildNewProfilePayload is a convenience wrapper around
+// BuildProfilePayload for the initial signup record: avatarURL
 // and bio are always empty (users can't set them before their account
 // exists), and memberSince == signedAt == the moment the record is
 // minted. Later records produced by profile-update flows keep
 // memberSince pinned and only advance signedAt, so they must call
-// buildProfilePayload directly.
+// BuildProfilePayload directly.
 //
 // `timestamp` must already be truncated to whole seconds so that what
 // is signed matches what Postgres stores after any timestamp
 // round-trip.
-func buildNewProfilePayload(
+func BuildNewProfilePayload(
 	userID,
 	username,
 	fingerprint,
@@ -285,7 +319,7 @@ func buildNewProfilePayload(
 	userSignatureB64 string,
 	timestamp time.Time,
 ) []byte {
-	return buildProfilePayload(
+	return BuildProfilePayload(
 		userID,
 		username,
 		fingerprint,

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"syrinx/crypto"
+	"syrinx/identity"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -468,7 +469,7 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	user.Server = Signature{
 		ServerID:    s.serverID,
 		Fingerprint: serverKeyFP.String,
-		Algorithm:   identityAlgorithm,
+		Algorithm:   identity.Algorithm,
 		Armor:       serverSig.String,
 		SignedAt:    signedAt.Time,
 	}
@@ -651,7 +652,7 @@ func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, err
 	key.Server = Signature{
 		ServerID:    s.serverID,
 		Fingerprint: serverKeyFP.String,
-		Algorithm:   identityAlgorithm,
+		Algorithm:   identity.Algorithm,
 		Armor:       serverSig.String,
 		SignedAt:    serverSignedAt.Time,
 	}
@@ -705,7 +706,7 @@ func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocati
 	rev.Server = Signature{
 		ServerID:    s.serverID,
 		Fingerprint: serverFP.String,
-		Algorithm:   identityAlgorithm,
+		Algorithm:   identity.Algorithm,
 		Armor:       serverSig.String,
 		SignedAt:    serverSignedAt.Time,
 	}
