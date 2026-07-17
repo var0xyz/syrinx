@@ -4,8 +4,9 @@
 
 **Partially implemented.** Normal-operation prerequisites for trustless recovery
 are in place (see proposals 01–10). The recovery feature itself — mode toggle,
-boot reconciliation, key-bundle export/import, report-back, client sync, and
-unclaimed-account bookkeeping — is **not implemented yet**.
+boot reconciliation, key-bundle export/import, claim / peer identity / holdings
+endpoints, client sync, and recovery bookkeeping tables — is **not implemented
+yet**.
 
 **Implemented** (normal operation):
 
@@ -19,16 +20,36 @@ unclaimed-account bookkeeping — is **not implemented yet**.
 **Not implemented yet** (recovery feature):
 
 - **`RECOVERY_MODE`**, boot-time key-bundle **import**, operator key-bundle
-  **export**, and the unauthenticated identity **report-back** endpoint.
-- **`unclaimed_accounts`** recovery-only table and the authenticated presence
-  ("claim") call — gauge of restored-but-unclaimed accounts and basis for the
-  incomplete-recovery startup warning.
+  **export**.
+- Own-identity **claim** (`GET`/`POST /api/recovery/identity/claim`) with a
+  short-lived challenge.
+- Authenticated peer **identity** report (`POST /api/recovery/identity`),
+  one-at-a-time reed holdings, batched follows, and **`/complete`**.
+- Recovery-only tables: **`unclaimed_accounts`**, **`ongoing_recoveries`**.
 
 **Deferred** (not required for the first recovery cut):
 
 - **Per-user system notifications** for username-collision renames. Losers are
   renamed in place during recovery; there is no persisted notification for now
   (see Proposal 11).
+
+## Code organization
+
+**All server-side recovery code lives in the `recovery/` Go package**
+(`syrinx/recovery`). That includes boot reconciliation, key-bundle
+export/import helpers, nested key-chain types, persistence for
+`unclaimed_accounts` / `ongoing_recoveries`, signature verification for claim
+and peer report-back, HTTP handlers, and route registration.
+
+The main package only **wires** recovery in: env flags, calling
+`recovery.ReconcileBoot` at startup, `recovery.RegisterRoutes` when
+`RECOVERY_MODE` is on, and middleware checks such as `recovery.IsOngoing`.
+Do not add recovery endpoints, recovery SQL, or recovery verification logic
+under `handlers.go` / `services.go` or other root files.
+
+Shared normal-operation helpers used by both live traffic and recovery (e.g.
+canonical identity/reed payload builders) live in `identity/`, not in
+`recovery/`. Operator CLI for the identity bundle lives under `cmd/ops/`.
 
 ## Motivation
 
@@ -56,20 +77,23 @@ little authoritative state server-side as possible.
 
 ### Who we authenticate
 
-The **one** unauthenticated step is the identity **report-back** — a user (or a
-peer holding a cached copy) submits a countersigned profile + public key to put
-that key back on record. It *cannot* be authenticated: the key is not on record
-yet. It is verified purely by the author signature + server countersignature, so
-it does not matter *who* uploads it. This is the sole recovery-specific DoS
-surface — the same weakness every public endpoint already has (see Threat
-model).
+**Own identity** cannot use normal signature-auth yet (the key is not on
+record). The owner **claims** via a challenge-response:
 
-**Everything a user self-reports afterwards** — the reeds they *hold*, who they
-*follow* — rides the **normal signature-auth middleware**, exactly as in normal
-operation: their key is back on record, so they sign requests as usual. No
-separate recovery session and no per-account auth gate — a request signed by the
-user's key is proof enough, and an attacker who merely resubmitted the user's
-(public) identity cannot sign as them.
+1. `GET /api/recovery/identity/claim` returns a server unix-second timestamp.
+2. `POST /api/recovery/identity/claim` sends that challenge, a detached
+   signature over it (active private key), the countersigned **profile**, and
+   the **full nested public-key chain** (active key → … → signup key), each
+   node optionally carrying a revocation.
+
+The server checks the challenge is ≤ 60 seconds old and that the signature
+matches the outermost (active) key, then verifies profile + every key /
+revocation / predecessor link. Only the private-key holder can claim; a peer
+who merely holds a cached profile cannot.
+
+**Everything afterwards** — peer identities, held reeds, follows, import
+complete — uses the **normal signature-auth middleware**. Peer-seeded accounts
+sit in `unclaimed_accounts` until *their* owner claims.
 
 ## Server identity continuity (operator responsibility)
 
@@ -92,13 +116,13 @@ the new one.
 All recovery verification is performed **server-side** using the restored keys,
 selecting the key **by fingerprint** for each record.
 
-### Required work (`services.go`) — not yet built
+### Required work (`recovery/` package)
 
-- `InitServerKey` currently only *generates* a keypair. Add a path to *import*
-  operator-provided armored private keys (decryptable with
-  `SERVER_KEY_PASSPHRASE`) and to restore the **entire** key history.
-- `generateServerID` / `InitServer` currently always mint a fresh ID. Add a path
-  to restore an operator-provided ID.
+Server identity import/export and recovery endpoints are implemented in
+`syrinx/recovery` (see *Code organization*). Boot-time import restores the
+operator-provided `serverID` and full signing-key history from
+`RECOVERY_KEY_BUNDLE`; the operator CLI is `cmd/ops` (`export-identity`,
+`rotate-passphrase`).
 
 ### Key bundle (export / import format)
 
@@ -209,9 +233,9 @@ questions by that server timestamp — never the submitter's.
    - the currently-active key fingerprint
    - profile fields (avatarURL, bio)
    - the immutable binding `(userID, fingerprint, createdAt)` for each key
-   - a server-authoritative **account creation date** (`accountCreatedAt`), set
-     once at signup and carried unchanged through every later record — used for
-     username sniper-detection (rule 3)
+   - a server-authoritative **account creation date** (`accountCreatedAt` /
+     wire `memberSince`), set once at signup and carried unchanged through
+     every later record
    - a **server timestamp** and the `serverID`
 
    The latest such record (by server timestamp) is authoritative.
@@ -228,22 +252,15 @@ questions by that server timestamp — never the submitter's.
    describe the same entity, the record with the newest **server** timestamp
    wins; revocation state is applied on top and is sticky.
 
-   **Username contention** across *different* `userID`s is a cross-row decision
-   resolved **online, the instant a collision is detected** (no batch step),
-   using the countersigned `accountCreatedAt` to rule out snipers:
-   - A claimant whose account was created **during the recovery window**
-     (`accountCreatedAt >= recoveryStartedAt`) loses to any claimant that
-     **predates** the window. This is the sniper filter: a live signup/rename
-     cannot displace a genuine pre-outage owner who simply hasn't been restored
-     yet. (`accountCreatedAt` is server-set and countersigned, so it cannot be
-     backdated.)
-   - Among the surviving claimants (all pre-outage, e.g. a name freed by a rename
-     then reused, where the rename record was never resubmitted), the newest
-     server timestamp keeps the name.
-   - Every loser is renamed with a permanent suffix (e.g. `alice#a1b2`, from
-     their `userID`). They can change it later via the normal flow. A persisted
-     system notification explaining the rename is **deferred** (Proposal 11) —
-     recovery does not write one for now.
+   **Username contention** across *different* `userID`s is resolved **online,
+   the instant a collision is detected** (no batch step): the newest
+   `server_signed_at` keeps the name; the loser is renamed with a permanent
+   suffix (e.g. `alice#a1b2`, from their `userID`). They can change it later
+   via the normal flow. A persisted system notification explaining the rename
+   is **deferred** (Proposal 11).
+
+   To keep live signups from racing restored owners for names during recovery,
+   operators should set **`SIGNUPS_ENABLED=false`** for the window.
 
 ### Prerequisites (status)
 
@@ -256,13 +273,15 @@ questions by that server timestamp — never the submitter's.
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
 
-**Remaining** — recovery feature:
+**Remaining** — recovery feature (all of it under `syrinx/recovery`):
 
 - **`RECOVERY_MODE`** and boot reconciliation against `RECOVERY_KEY_BUNDLE`.
 - Operator key-bundle **export** / matching boot-time **import** of the full
-  server signing-key history and `serverID` (see *Required work* below).
-- Unauthenticated identity **report-back** endpoint.
-- **`unclaimed_accounts`** table + authenticated presence ("claim") call.
+  server signing-key history and `serverID` (see *Required work* / `cmd/ops`).
+- Own-identity **claim** (challenge + nested key chain) and authenticated peer
+  **`POST /api/recovery/identity`**.
+- **`unclaimed_accounts`**, **`ongoing_recoveries`**, reed/follow/`complete`
+  endpoints, and the import gate.
 
 **Deferred**:
 
@@ -286,8 +305,11 @@ Operator-restored (not from users): `servers` (preserved ID + name),
 `private_keys` (**full history**), `public_keys` (derived).
 
 Recovery-internal bookkeeping (not reconstructed from users):
-`unclaimed_accounts` — the gauge of restored accounts whose owner has not yet
-proven presence.
+
+- `unclaimed_accounts` — restored (peer-seeded) accounts whose owner has not
+  yet claimed.
+- `ongoing_recoveries` — claimants who have not finished their import ledger;
+  while `RECOVERY_MODE` is on, these users are barred from non-recovery API use.
 
 Not reconstructed (ephemeral/realtime, repopulate on reconnect):
 `online_users`, `broadcast_subscriptions`, `pending_events`,
@@ -295,38 +317,66 @@ Not reconstructed (ephemeral/realtime, repopulate on reconnect):
 
 ## Recovery flow
 
-Recovery adds exactly one endpoint gated behind an env toggle (`RECOVERY_MODE`):
-the unauthenticated identity **report-back** (Phase 1). When off, it does not
-exist and there is no associated attack surface. It has to bypass the normal
-signature-auth middleware because the user's key is not on record yet — that is
-*why* it is the sole unauthenticated recovery step. Everything a restored user
-re-reports afterwards (holdings, follows) goes through the **normal
-signature-auth middleware** unchanged.
+All recovery routes exist only while `RECOVERY_MODE` is on. When off, they are
+not registered (no attack surface).
 
-**Normal writes stay enabled during recovery** (signup, reeds, profile updates,
-etc.), served with the restored active signing key. Live writes naturally carry
-the newest server timestamps, so they win newest-wins arbitration over restored
-(older) records — correct for genuine live activity. The one hazard this creates,
-*username sniping*, is neutralized by the `accountCreatedAt` sniper filter (rule
-3, see the caveat under *Ending recovery*). An operator flag to **freeze** writes
-during recovery remains available but is not required for username safety.
+| Endpoint | Auth | Cardinality |
+|----------|------|-------------|
+| `GET /api/recovery/identity/claim` | none | — |
+| `POST /api/recovery/identity/claim` | challenge + sig | own identity |
+| `POST /api/recovery/identity` | signature-auth | **one** peer |
+| `POST /api/recovery/reeds` | signature-auth | **one** reed |
+| `POST /api/recovery/following` | signature-auth | **≤100** userIDs |
+| `POST /api/recovery/complete` | signature-auth | — |
+
+**Normal use stays enabled during recovery** for anyone who has finished
+claim/import (or never entered `ongoing_recoveries`). Live writes carry the
+newest server timestamps and win newest-wins over restored records. Admins
+should set **`SIGNUPS_ENABLED=false`** while recovery is underway so new
+accounts cannot race restored users for usernames; that does **not** freeze
+writes for recovered users.
+
+### Nested key chain (claim and peer identity)
+
+Identity submissions use a recursive nest (not a fingerprint map):
+
+```json
+{
+  "profile": { "...User wire..." },
+  "key": {
+    "key": { "...active Key wire..." },
+    "revocation": null,
+    "predecessor": {
+      "signature": "<old key's detached sig over this key's armor>",
+      "key": { "...Key wire..." },
+      "revocation": { "...or null..." },
+      "predecessor": null
+    }
+  }
+}
+```
+
+- Outermost node is the **active** key; nest walks back to the signup key
+  (`predecessor: null`).
+- **Full chain required.** Incomplete nests are rejected with no partial write.
+  If a reporter lacks every key in a peer's rotation history, they **skip** that
+  peer rather than submit a partial chain.
+- Insert **oldest → newest** so `user_keys.predecessor_fingerprint` →
+  `user_keys(fingerprint)` remains satisfied (no dangling predecessor FKs).
+- A bad predecessor link aborts the whole request.
 
 ### Client responsibilities
 
-Recovery is **client-driven**: the server exposes the steps, the client
-orchestrates them and owns progress.
+Recovery is **client-driven**: the server exposes the steps; the client owns
+the sync ledger and progress UI.
 
-- **Sync ledger.** The client tracks everything it still needs to push
-  (identity, then each held reed, then each follow edge) and moves an item into
-  its own IndexedDB only after the server confirms the write. This drives a
-  progress indicator and a "restoration complete" notification.
-- **App is blocked while restoring.** Normal use is gated client-side until the
-  ledger drains — a half-synced client should not be interacting with the
-  network.
+- **Order:** claim self → each peer identity (complete nest only) → each reed →
+  follows in chunks of 100 → `POST /complete`.
+- **Import gate:** after claim, the server inserts `ongoing_recoveries`. While
+  `RECOVERY_MODE` is on **and** that row exists, non-recovery API routes return
+  `403`. The client also blocks normal UI until `complete`.
 - **A live account forfeits recovery.** If the device already has a logged-in
-  account (a fresh signup, or a completed prior recovery), the client does **not**
-  offer recovery there — you cannot both start over and reclaim the old identity
-  on the same device.
+  account, the client does **not** offer recovery on that device.
 
 ### Phase 0 — Operator redeploy
 
@@ -336,148 +386,124 @@ At boot with `RECOVERY_MODE` on, the server reconciles the DB against the bundle
   import. Initialize the schema, load the bundle from `RECOVERY_KEY_BUNDLE`
   (decrypting each private key with `SERVER_KEY_PASSPHRASE`), write the full
   `private_keys` / `public_keys` history, restore `serverID` verbatim, set the
-  active signing key from `signingKeyFingerprint`, and record
-  `recoveryStartedAt = now` (used by the username sniper filter).
+  active signing key from `signingKeyFingerprint`, and create recovery-only
+  tables (`unclaimed_accounts`, `ongoing_recoveries`).
 - **Existing identity that matches the bundle** (same `serverID` and key set): a
   previous recovery was interrupted — **resume**. Keep the already-restored data
-  (including any live writes) and re-open the report-back endpoint; do not reset
-  `recoveryStartedAt`.
-- **Existing identity that does *not* match the bundle**: **abort startup.** This
-  prevents recovery from clobbering an unrelated/live instance.
+  (including any live writes) and re-open recovery endpoints.
+- **Existing identity that does *not* match the bundle**: **abort startup.**
 
-Because the identity import creates the `self` row, the entry condition is
-"no identity **or** matching identity" — this is what makes recovery restartable
-after a crash. Normal endpoints are open too (live writes allowed); the client
-learns recovery is active from `/server/info` (which also reports whether signups
-are enabled) and renders the recovery banner + "import your data" / signup
+The client learns recovery is active from `/server/info` (`recoveryMode`,
+`signupsEnabled`) and shows the recovery banner + "import your data" / signup
 buttons accordingly.
 
-### Phase 1 — Identity restoration (report-back)
+### Phase 1a — Own identity claim
 
-Recovery is **streaming, not batched**: each submission is validated and applied
-immediately. Order matters only in that users are restored before reeds (a reed's
-`user_id` FK requires the author to exist).
+**`GET /api/recovery/identity/claim`** → `{ "challenge": <unix seconds> }`.
 
-**Report-back (unauthenticated — any submitter, own or cached third-party
-record).** For each identity record:
+**`POST /api/recovery/identity/claim`** body:
 
-1. Verify the author signature and the server countersignature (server ts +
-   `serverID` + `userID` + `fingerprint`) against the matching restored server
-   key.
-2. Upsert the user keyed by `userID` (accepted **verbatim** — recovery never
-   mints a new ID, or every reed's author would change). Keep the newest record
-   via an **atomic conditional upsert** on a stored server-timestamp scalar
-   (`... WHERE excluded.server_signed_at > server_signed_at`) and apply
-   revocation state (sticky). Only that timestamp is stored — it is server
-   metadata already covered by the user-held countersignature — never the
-   countersignature itself.
-3. Resolve any **username collision on the spot** (rule 3): apply the sniper
-   filter (`accountCreatedAt` vs `recoveryStartedAt`), then newest
-   `server_signed_at`; rename the loser with a permanent suffix. The unique
-   index therefore holds continuously — nothing is deferred. (No system
-   notification is written; that is deferred — see Proposal 11.)
-4. **If this report-back *created* the `users` row** (a first-time restoration,
-   not an update to an already-restored account), insert `userID` into
-   `unclaimed_accounts` (`ON CONFLICT DO NOTHING`) — "restored, owner not yet
-   seen." Updates to existing accounts and live signups never touch the table, so
-   a late cached copy of an already-claimed account cannot resurrect its row.
-5. On `200`, the submitting owner's key is now on record, so the client copies
-   the accepted state into its own IndexedDB and, from here on, authenticates
-   with that key like any normal client — no separate session. (A *cacher*
-   restoring someone else's identity simply gets the `200`; only the real owner,
-   holding the private key, can go on to re-report that account's holdings and
-   follows.)
+```json
+{
+  "challenge": 1710000000,
+  "signature": "<base64 detached PGP sig over the decimal challenge>",
+  "profile": { "...User..." },
+  "key": { "...nested KeyNode..." }
+}
+```
 
-**Claiming — the owner proves presence (gauge only, not an auth gate).** Once the
-owner's key is on record, the client makes one **authenticated** request — an
-explicit lightweight presence/`claim` call (a first holdings/follows report
-counts too) — verified by the **normal signature-auth middleware**. On that first
-authenticated request during recovery the server **deletes** the account's
-`unclaimed_accounts` row (a no-op if absent — already claimed, or a live-signup
-account that was never listed). A *cacher* can never trigger this: only the
-private-key holder can produce a valid signed request. This drains the unclaimed
-gauge and nothing else — it gates no functionality (see *Ending recovery*).
+Steps:
+
+1. Reject if challenge is in the future or older than **60 seconds**.
+2. Verify the nested key chain (full chain, server countersigs, predecessor
+   links, optional revocations); require `server.id == serverID`.
+3. Verify `signature` over the challenge with the **outermost** public key.
+4. Upsert `users` by verbatim `userID` with atomic newest-wins on
+   `server_signed_at`; resolve username collisions (rule 3: newest
+   `server_signed_at` keeps the name, loser renamed). No system notification
+   (Proposal 11 deferred).
+5. Insert keys oldest→newest (FK-safe) and sticky revocations; set active
+   fingerprint on the user.
+6. **If the user row was created by this claim:** do **not** add
+   `unclaimed_accounts` (owner just proved presence).
+7. **If the user already existed** (e.g. peer-seeded): apply newest-wins +
+   keys, then `DELETE FROM unclaimed_accounts WHERE user_id = $1`.
+8. `INSERT INTO ongoing_recoveries` (`ON CONFLICT DO NOTHING`) — import gate
+   starts.
+
+Idempotent re-claim is allowed. After `200`, the client initializes normal
+request signing with the restored private key.
+
+### Phase 1b — Peer identity (authenticated)
+
+**`POST /api/recovery/identity`** — **one peer per request**, same
+`{ profile, key }` shape as claim (no challenge fields). Caller must already
+have claimed (key on record).
+
+1. Reject if `profile.id == caller` (own identity must use claim).
+2. Same full-chain verification and oldest-first key insert as Phase 1a.
+3. Conditional upsert by `server_signed_at`; rename on username collision as
+   needed (rule 3).
+4. **If this request created the `users` row** →
+   `INSERT INTO unclaimed_accounts ON CONFLICT DO NOTHING`.
+5. If the user already existed → newest-wins only; never resurrect
+   `unclaimed_accounts` for an already-claimed account.
+
+Peers the client cannot fully nest are skipped in the ledger.
+
+### Import gate (`ongoing_recoveries`)
+
+While `RECOVERY_MODE` **and** the caller’s `user_id` is in `ongoing_recoveries`,
+signature-auth middleware allows only `/api/recovery/*`, `/api/server/info`, and
+`/api/server/keys/`. All other API routes return **403**. When `RECOVERY_MODE`
+is off, the gate does not apply even if rows remain.
+
+**`POST /api/recovery/complete`** deletes the caller’s `ongoing_recoveries` row
+(idempotent), ending the import lock for that user.
 
 ### Phase 2 — Reeds and holdings (authenticated)
 
-A restored user, **authenticated by the normal signature-auth middleware**,
-re-reports the reeds they hold. For each held reed the client submits
-`{ reedID, authorID, userSignature, serverSignature, serverFingerprint }`:
+**`POST /api/recovery/reeds`** — **one reed per request** (no batches; keeps
+verification bounded):
 
-1. The author must already be restored (Phase 1).
-2. Verify the `serverSignature` — which binds this `reedID` + `authorID` + server
-   ts + `serverID` — against the restored server key of `serverFingerprint`;
-   require `server.id == serverID`.
-3. Upsert the `reeds` metadata row (`signed_at` = countersignature timestamp)
-   idempotently, and record the allocation
-   `reed_allocations(reedID, reportingUserID)`. **The server stores no reed
-   content**; content authenticity remains a peer-side check.
+`{ reedID, authorID, userSignature, serverSignature, serverFingerprint, ... }`
 
-Because the request is signed by the reporter's key, the allocation is
-trustworthy — this is why allocations are not reconstructed from anonymous
-transport. The `reeds` row is created as a side effect (its author comes from
-the countersignature, not from who reported it), so a reed is restored by
-whoever holds it. The client moves each reed into its IndexedDB only after the
-server confirms the write.
+1. Author must already exist.
+2. Verify the server countersignature (binds `reedID` + `authorID` + server ts +
+   `serverID`) against the restored key of `serverFingerprint`.
+3. Upsert `reeds` metadata idempotently; insert
+   `reed_allocations(reedID, reportingUserID)`. No reed content is stored.
 
-### Phase 3 — Follows (authenticated, unsigned)
+### Phase 3 — Follows (authenticated)
 
-A restored user, **authenticated by the normal signature-auth middleware**,
-reports the list of users **they themselves follow** to populate `user_following`
-(and the inverse `user_followers`). No per-edge signature is needed — the request
-is already signed by the user's key, and a user only ever asserts their own
-follow list. Inserts use `ON CONFLICT DO NOTHING`; edges toward not-yet-restored
-users are skipped, and the client advances its sync progress as each edge is
-confirmed.
+**`POST /api/recovery/following`** — body `{ "userIDs": [ ... ] }`, **at most
+100** IDs per request (reject larger bodies).
+
+Caller asserts their own follow list. Inserts use `ON CONFLICT DO NOTHING`;
+edges toward not-yet-restored users are skipped; the client retries or drops
+them as the ledger advances.
 
 ### Ending recovery
 
-There is **no finalize step and no automatic completion signal** — the server
-cannot know whether every user has reported in (data on a lost device never
-arrives). Everything that used to be "finalize" happens continuously: usernames
-are resolved on collision (rule 3, Phase 1). The one piece of recovery
-bookkeeping is the `unclaimed_accounts` gauge (Phase 1) — a recovery-only count
-of restored accounts whose owner has not yet proven presence. It is **not** a
-`users` column and **not** an auth gate; trust is still decided per request by
-cryptographic validity, not by any flag.
+There is **no global finalize** — the server cannot know whether every user has
+reported in. Operator ends the window by turning `RECOVERY_MODE` off, which
+unregisters recovery endpoints (including claim). Already-claimed users who
+still have `ongoing_recoveries` are no longer API-gated by that table once mode
+is off; they should have called `complete` while mode was on.
 
-Ending recovery is a single **operator action**: turn `RECOVERY_MODE` off. That
-closes the only recovery-specific endpoint — the unauthenticated report-back —
-and with it the server's cooperation in putting an as-yet-unrestored key back on
-record. Holdings/follows re-reporting keeps working for anyone already restored
-(it is just normal authenticated traffic); what a not-yet-recovered user loses is
-the ability to get their key back on record at all.
-
-Trust comes from cryptographic validity, never from having "recovered": a user
-who still holds valid, server-signed data is legitimate and may use the network
-freely — the system does not fight that. The practical effect of not recovering
-before the cutoff is only that, without report-back, the user cannot get the
-server to re-anchor their identity, and the server (holding no reed content, only
-server-signed metadata) has nothing unsigned to leak.
-
-`SELECT count(*) FROM unclaimed_accounts` is the admin "still unclaimed" gauge (it
-counts only *restored* accounts awaiting their owner — users no one restored at
-all are invisible to it, so it is a floor on what is missing, never a completeness
-proof). The table **persists across the `RECOVERY_MODE`-off boundary** (so the
-signal survives restarts) until the operator drops it, accepting the loss. If
-`RECOVERY_MODE` is off **and** `unclaimed_accounts` is non-empty, the server
-**warns at startup** (non-fatal, does not interrupt boot) with the residual count,
-so the operator notices an incomplete recovery.
+`unclaimed_accounts` remains the admin “still unclaimed” gauge (floor on what is
+missing). It **persists** after mode-off until the operator drops it. If
+`RECOVERY_MODE` is off and the table is non-empty, startup logs a **non-fatal**
+warning with the residual count.
 
 > **Cutoff caveat.** A user whose data no one restored has no account at all —
-> reappearing means a fresh signup with a *new* random ID, orphaning their old
-> reeds (author FK) and invalidating their countersigned bindings. And once
-> recovery is off there is no cooperative re-import path. Weigh this when choosing
-> when to close.
+> reappearing means a fresh signup with a *new* random ID. Once recovery is off
+> there is no cooperative claim path.
 
-> **Username sniping (resolved).** Live writes are enabled, so a live
-> signup/rename could otherwise beat a not-yet-recovered owner on newest-wins. The
-> **sniper filter** (rule 3) prevents this: an account created during the recovery
-> window (`accountCreatedAt >= recoveryStartedAt`) can never displace a pre-outage
-> owner — on collision the sniper is the one renamed. A sniper only keeps a name
-> if its legitimate owner never recovers at all — in which case that owner has no
-> restored account anyway. The residual is the accepted rollback limitation (a
-> genuine stale record for a since-renamed name).
+> **Username sniping.** Collisions resolve by newest `server_signed_at`; there
+> is no recovery-window sniper filter. Operators should set
+> **`SIGNUPS_ENABLED=false`** during recovery so live signups cannot race
+> restored owners for names.
 
 ## Threat model & accepted limitations
 
@@ -494,12 +520,10 @@ Conditionally prevented (requires the record to be **resubmitted by some
 holder**):
 
 - **Revocation replay / key reinstatement** — prevented **as long as a valid
-  revocation is resubmitted by someone**. Normal-op replication of revocations to
-  followers (rule 2) makes this very likely — a revocation is then as available
-  as any cached profile. But if *no* honest party holds the revocation, an
-  attacker holding the old key can report-back the old identity, reinstate it,
-  and then authenticate as the victim. Accepted for the intended high-trust,
-  small-community deployments.
+  revocation is resubmitted** (by the owner in their claim nest, or by a peer
+  nesting that key+revocation). If *no* honest party holds the revocation, an
+  attacker holding a compromised old key can claim with it and authenticate as
+  the victim. Accepted for the intended high-trust, small-community deployments.
 
 Inherent limitations (accept and document):
 
@@ -510,11 +534,11 @@ Inherent limitations (accept and document):
 - **Deletion is not provable.** A reed the author deleted is still validly
   signed; any holder can resubmit it.
 - **Completeness cannot be forced.** Data held only on a lost device is
-  unrecoverable.
-- **Unauthenticated identity report-back during the window.** Report-back needs
-  no prior key on record, so an attacker can force expensive signature
-  verifications (DoS) and selectively omit. This is the same DoS surface every
-  public endpoint has. Rate/size limiting is deferred (see Open questions).
+  unrecoverable. Peers with incomplete key nests cannot seed that user at all.
+- **Claim challenge endpoint during the window.** `GET`/`POST .../identity/claim`
+  must work without a prior key on record, so an attacker can force expensive
+  verifications (DoS). Same class of weakness as other public endpoints.
+  Rate/size limiting is deferred (see Open questions).
 
 ## Schema changes (summary)
 
@@ -526,15 +550,14 @@ Already in the base schema (normal operation):
   (rule 3), so the unique index never has to be dropped. A username-collision
   loser is renamed in place (permanent suffix); there is **no reselection
   flag** and **no notification** for now (Proposal 11 deferred). **No `claimed`
-  column** is added to `users`: the only recovery-time per-account bookkeeping
-  lives in the separate `unclaimed_accounts` gauge table (below), which gates
-  nothing — normal operation trusts cryptographic validity per request, not a
-  flag.
+  column** on `users`: claim state is “not in `unclaimed_accounts`” after own
+  claim (or never listed, for claimants who created their own row).
+- **`user_keys`**: `predecessor_fingerprint` FK to `user_keys(fingerprint)` —
+  recovery must insert full chains oldest-first and never accept partial nests.
 - **`reeds`**: `private_key_fingerprint` references `private_keys`; `signed_at`
   = server countersignature timestamp.
-- **`user_key_revocations`**: signed revocation statements in normal operation.
-  At recovery they are verified then discarded — no signature is stored
-  server-side.
+- **`user_key_revocations`**: signed revocation statements in normal operation;
+  recovery verifies and stores them with the nest (same shape as live).
 - **Reed `server` block (client + wire)**: `fingerprint` (server signing key),
   `reedID`, and `author` in the countersigned payload; one canonical form and
   pinned base64 layering.
@@ -542,16 +565,15 @@ Already in the base schema (normal operation):
 
 Still to add with the recovery feature:
 
-- **`servers`**: `recovery_started_at` (set when recovery is first entered;
-  the boundary the sniper filter compares `accountCreatedAt` against).
-- **`unclaimed_accounts`** (recovery-only; **created on entering recovery**,
-  not part of the base schema): one `user_id` per account restored via
-  report-back whose owner has not yet proven presence. A row is inserted when a
-  report-back **creates** the `users` row and deleted on that account's first
-  authenticated request during recovery. `count(*)` is the admin "still
-  unclaimed" gauge and drives the non-fatal startup warning; normal operation
-  never touches it and it is not an auth gate. Persists after recovery ends until
-  the operator drops it.
+- **`unclaimed_accounts`** (recovery-only): one `user_id` per account **created
+  by peer** `POST /api/recovery/identity` whose owner has not yet claimed. Deleted
+  on successful own claim. `count(*)` is the admin gauge and drives the
+  non-fatal startup warning. Not an auth gate. Persists after recovery ends
+  until the operator drops it.
+- **`ongoing_recoveries`** (recovery-only): one `user_id` per claimant who has
+  not finished import. Inserted on successful claim; deleted by
+  `POST /api/recovery/complete`. While `RECOVERY_MODE` is on, presence of a row
+  blocks that user from non-recovery API routes.
 
 Deferred:
 
@@ -561,45 +583,45 @@ Deferred:
 
 ## Resolved (decisions)
 
+- **Code organization**: all recovery logic in `syrinx/recovery`; main only
+  wires boot/routes/middleware. Shared payload builders in `syrinx/identity`;
+  ops CLI in `cmd/ops`.
 - **Activation**: `RECOVERY_MODE` env flag. Fresh import against a DB with no
   server identity; **resume** if the existing identity matches the bundle;
-  **abort** on mismatch. Identity/keys supplied via the `RECOVERY_KEY_BUNDLE`
-  mounted file + `SERVER_KEY_PASSPHRASE`.
-- **Client detection**: `/server/info` reports recovery status (and whether
-  signups are enabled); the UI shows a recovery banner + "import your data" and
-  (if enabled) signup buttons.
-- **Authentication**: only the identity **report-back** is unauthenticated
-  (verified by signatures alone); once a key is restored, holdings/follows
-  re-reporting uses the **normal signature-auth middleware**. No
-  challenge-response session and no `claimed` flag — both were dropped as
-  redundant.
-- **Unclaimed gauge**: a recovery-only `unclaimed_accounts` table (not a `users`
-  column, not an auth gate) counts restored accounts whose owner has not yet
-  proven presence — a row is added when report-back creates the account and
-  removed on the owner's first authenticated request. Feeds the admin count and
-  revives the non-fatal startup warning when `RECOVERY_MODE` is off but rows
-  remain.
-- **Client-driven progress**: the client tracks everything it still needs to
-  sync (identity → holdings → follows), shows progress, and notifies on success.
-  It **blocks normal app use while a restoration is in progress**, and does
-  **not** offer recovery on a device that already has a logged-in account
-  (creating/using a new account forfeits recovery on that device).
-- **Normal writes during recovery**: allowed (optional operator freeze flag).
-- **Username sniping**: resolved by the `accountCreatedAt` sniper filter (rule 3)
-  — accounts created during the window cannot displace pre-outage owners.
-- **Completion**: no finalize step and no automatic criteria; recovery is
-  streaming (collisions resolved online) and the operator ends it by turning
-  `RECOVERY_MODE` off; completeness is inherently unknowable.
-- **Passphrase**: the same `SERVER_KEY_PASSPHRASE` is required to import; a
-  separate passphrase-rotation command re-wraps keys and re-exports the bundle.
-- **Migration**: not applicable — pre-launch, blank-slate assumption (no
-  legacy reed blocks or IDs exist).
+  **abort** on mismatch. Identity/keys via `RECOVERY_KEY_BUNDLE` +
+  `SERVER_KEY_PASSPHRASE`. Optional `SIGNUPS_ENABLED=false` to disable new
+  signups only (recovered users keep full normal use).
+- **Client detection**: `/server/info` reports `recoveryMode` and
+  `signupsEnabled`.
+- **Own claim**: `GET`/`POST /api/recovery/identity/claim` with a ≤60s challenge
+  signed by the active key; body carries profile + **full nested** key chain.
+  Creates a claimed user or claims a peer-seeded one (deletes
+  `unclaimed_accounts`) and inserts `ongoing_recoveries`.
+- **Peer identity**: authenticated `POST /api/recovery/identity`, **one user**
+  per request, same nest shape; creates `unclaimed_accounts` when the row is
+  new. No list endpoint (verification cost).
+- **Key chains**: incomplete nests rejected; insert oldest→newest to preserve
+  `user_keys.predecessor_fingerprint` FK integrity.
+- **Reeds**: authenticated, **one reed** per request.
+- **Follows**: authenticated batches of **at most 100** userIDs.
+- **Import gate**: `ongoing_recoveries` + middleware 403 while
+  `RECOVERY_MODE && importing`; cleared by `POST /api/recovery/complete`.
+  Client mirrors the block in the UI.
+- **Unclaimed gauge**: peer-seeded accounts awaiting owner claim; startup
+  warning when mode is off but rows remain.
+- **Username collisions**: newest `server_signed_at` wins; loser renamed with
+  a permanent suffix. Prefer `SIGNUPS_ENABLED=false` during recovery to avoid
+  live signup races for names.
+- **Completion**: no global finalize; operator turns `RECOVERY_MODE` off;
+  per-user import ends via `complete`.
+- **Passphrase**: same `SERVER_KEY_PASSPHRASE` to import; separate rotate +
+  re-export command.
+- **Migration**: not applicable — pre-launch blank slate.
 - **Abuse mitigation**: deferred.
-- **Collision-rename notifications**: deferred (Proposal 11). Recovery renames
-  losers in place without writing a persisted message.
+- **Collision-rename notifications**: deferred (Proposal 11).
 
 ## Open questions
 
-1. **Residual abuse mitigation** for the unauthenticated identity report-back
-   (verification-cost DoS, selective omission) — rate/size limits — deferred.
-   Same class of weakness as every other public endpoint.
+1. **Residual abuse mitigation** for the claim challenge endpoints
+   (verification-cost DoS) — rate/size limits — deferred. Same class of
+   weakness as every other public endpoint.
