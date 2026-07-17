@@ -2,34 +2,33 @@
 
 ## Status
 
-**Not implemented.** This document specifies a protocol for rebuilding a
-Syrinx server's database from data held on user devices after the server is
-taken down and a new instance is deployed.
+**Partially implemented.** Normal-operation prerequisites for trustless recovery
+are in place (see proposals 01–10). The recovery feature itself — mode toggle,
+boot reconciliation, key-bundle export/import, report-back, client sync, and
+unclaimed-account bookkeeping — is **not implemented yet**.
 
-Prerequisites that do **not** exist yet:
+**Implemented** (normal operation):
 
 - **Identity countersignatures** at signup / profile update / key rotation.
-- **Signed, server-countersigned, server-timestamped profile records** (today
-  `UpdateUser` takes raw form fields).
-- **Signed revocations**, *replicated to followers* (today `RevokeKey` stores
-  only a text reason).
-- **A reed `server` block** that binds `reedID` and `authorID` and carries
-  the server signing-key **fingerprint**, plus a single canonical form shared
-  by signer and verifier (the current signer/verifier mismatch is a bug — see
-  *What must be built*).
-- **Random, server-scoped user IDs** (replacing the Sqids counter in
-  `CreateUser`).
-- **A recovery report-back endpoint + `RECOVERY_MODE`**, a key-bundle **export**
-  command and matching boot-time **import**, and **multi-key** restore.
-- **An `unclaimed_accounts` recovery-only table + an authenticated presence
-  ("claim") call** — the gauge of restored-but-unclaimed accounts and the basis
-  for the incomplete-recovery startup warning.
-- **A user-facing notification system** (does not exist yet) to deliver the
-  "you were renamed" message on a collision loser's profile.
+- **Signed, server-countersigned, server-timestamped profile records.**
+- **Signed revocations**, replicated to followers.
+- **Reed `server` block** binding `reedID`, `authorID`, and the server signing-key
+  **fingerprint**, with one canonical form shared by signer and verifier.
+- **Random, server-scoped user IDs** (replacing the Sqids counter).
 
-Existing today: user signatures on reeds and the server countersignature on
-reeds (but the countersignature is not bound to the reed it belongs to, and the
-signer/verifier canonical forms disagree).
+**Not implemented yet** (recovery feature):
+
+- **`RECOVERY_MODE`**, boot-time key-bundle **import**, operator key-bundle
+  **export**, and the unauthenticated identity **report-back** endpoint.
+- **`unclaimed_accounts`** recovery-only table and the authenticated presence
+  ("claim") call — gauge of restored-but-unclaimed accounts and basis for the
+  incomplete-recovery startup warning.
+
+**Deferred** (not required for the first recovery cut):
+
+- **Per-user system notifications** for username-collision renames. Losers are
+  renamed in place during recovery; there is no persisted notification for now
+  (see Proposal 11).
 
 ## Motivation
 
@@ -93,7 +92,7 @@ the new one.
 All recovery verification is performed **server-side** using the restored keys,
 selecting the key **by fingerprint** for each record.
 
-### Required work (`services.go`)
+### Required work (`services.go`) — not yet built
 
 - `InitServerKey` currently only *generates* a keypair. Add a path to *import*
   operator-provided armored private keys (decryptable with
@@ -242,50 +241,33 @@ questions by that server timestamp — never the submitter's.
      then reused, where the rename record was never resubmitted), the newest
      server timestamp keeps the name.
    - Every loser is renamed with a permanent suffix (e.g. `alice#a1b2`, from
-     their `userID`) and receives a **system notification on their profile page**
-     explaining the rename (they can still change it later via the normal flow).
+     their `userID`). They can change it later via the normal flow. A persisted
+     system notification explaining the rename is **deferred** (Proposal 11) —
+     recovery does not write one for now.
 
-### What must be built
+### Prerequisites (status)
 
-These are prerequisites for the above:
+**Done** — shipped in normal operation (proposals 01–10):
 
-- **Identity countersignatures do not exist.** `Signup` / `AddPublicKey`
-  validate the user's self-signature but never produce a server signature over
-  the binding or the profile. Accounts created before this exists cannot be
-  recovered trustlessly.
-- **Profiles are not signed at all.** `UpdateUser` takes raw form fields.
-  Profile updates must become signed, server-countersigned, server-timestamped
-  records.
-- **Standalone revocations are unsigned and unreplicated.** `RevokeKey` records
-  only a reason. It must become a signed statement that recovery can trust and
-  apply monotonically, and it must replicate to followers (rule 2).
-- **Reed countersignature: fix the bug and bind identity in the `server` block.**
-  `SignReed` countersigns `algorithm/id/timestamp/---/userSignature` but
-  `VerifySignature` verifies against the bare `userSignature` — the two canonical
-  forms disagree. Fix both to one identical form, **pin the base64 layering**,
-  and require `server.id == serverID`. Additionally bind **`reedID`** and
-  **`authorID`** into the signed payload and include the server signing-key
-  **`fingerprint`** in the block, so that `(reedID, authorID, userSig,
-  serverSig)` is self-verifying against the correct restored server key **without
-  the reed content**. (Without the `reedID` binding, an attacker could present a
-  genuine signature pair from reed `Z` and claim it is for reed `X`.)
-- **Identity report-back endpoint (unauthenticated).** A recovery-only endpoint
-  that accepts a countersigned profile + key and puts the key back on record,
-  verified by signatures alone. It is the *only* unauthenticated recovery
-  endpoint; once a key is restored, holdings/follows re-reporting reuses the
-  existing signature-auth middleware unchanged.
-- **Random user IDs.** Replace the Sqids + `user_count` counter in `CreateUser`
-  with a random, server-scoped string (reuse the `generateServerID` alphabet at
-  ~12–14 chars, or base58 for nicer-looking IDs). Pre-check with `SELECT
-  EXISTS (SELECT 1 FROM users WHERE id = $1)` and, on collision, surface an
-  error to the client so it retries; no server-side retry loop. The ID is
-  effectively the composite `(serverID, userID)` globally, so collisions are
-  a non-issue. The `user_count` table is dropped outright as part of the same
-  change (see Proposal 02).
-- **User notification system (does not exist yet).** A persisted, per-user
-  system-message store surfaced on the profile page. Recovery uses it to tell a
-  collision loser they were renamed and why; it flows independently of the
-  rename since the affected user is likely offline at the time.
+- Identity countersignatures at signup / profile update / key rotation.
+- Signed, server-countersigned, server-timestamped profile records.
+- Signed, replicated revocations.
+- Reed countersignature with bound `reedID` / `authorID` / server key
+  `fingerprint` and one canonical signed form.
+- Random, server-scoped user IDs.
+
+**Remaining** — recovery feature:
+
+- **`RECOVERY_MODE`** and boot reconciliation against `RECOVERY_KEY_BUNDLE`.
+- Operator key-bundle **export** / matching boot-time **import** of the full
+  server signing-key history and `serverID` (see *Required work* below).
+- Unauthenticated identity **report-back** endpoint.
+- **`unclaimed_accounts`** table + authenticated presence ("claim") call.
+
+**Deferred**:
+
+- Per-user system notification store for collision renames (Proposal 11).
+  Recovery renames losers silently for now.
 
 ## What is reconstructed
 
@@ -391,9 +373,9 @@ record).** For each identity record:
    countersignature itself.
 3. Resolve any **username collision on the spot** (rule 3): apply the sniper
    filter (`accountCreatedAt` vs `recoveryStartedAt`), then newest
-   `server_signed_at`; rename the loser with a permanent suffix and queue its
-   system notification. The unique index therefore holds continuously — nothing
-   is deferred.
+   `server_signed_at`; rename the loser with a permanent suffix. The unique
+   index therefore holds continuously — nothing is deferred. (No system
+   notification is written; that is deferred — see Proposal 11.)
 4. **If this report-back *created* the `users` row** (a first-time restoration,
    not an update to an already-restored account), insert `userID` into
    `unclaimed_accounts` (`ON CONFLICT DO NOTHING`) — "restored, owner not yet
@@ -536,33 +518,33 @@ Inherent limitations (accept and document):
 
 ## Schema changes (summary)
 
-- **`users`**: add `server_signed_at` (server ts of the winning identity
-  record, for monotonic newest-wins) and `account_created_at`
-  (server-authoritative, countersigned, immutable, present on **every** account —
-  drives the username sniper filter). `id` becomes a random server-scoped string
-  (no counter). Username uniqueness is **enforced continuously** — including
-  during recovery — with collisions resolved by immediate rename (rule 3), so the
-  unique index never has to be dropped. A username-collision loser is renamed in
-  place (permanent suffix) and told via a system notification — there is **no
-  reselection flag**; the rename is final. **No `claimed` column** is added to
-  `users`: the only recovery-time per-account bookkeeping lives in the separate
-  `unclaimed_accounts` gauge table (below), which gates nothing — normal
-  operation trusts cryptographic validity per request, not a flag.
-- **`servers`**: add `recovery_started_at` (set when recovery is first entered;
-  the boundary the sniper filter compares `account_created_at` against).
-- **`reeds`**: `private_key_fingerprint` continues to reference `private_keys`
-  (now fully restored); `signed_at` = server countersignature timestamp.
-- **`user_key_revocations`**: the revocation must be a **signed** statement in
-  normal operation. At recovery it is verified then discarded — no signature is
-  stored server-side.
-- **Reed `server` block (client + wire)**: add `fingerprint` (server signing
-  key), `reedID`, and `author` to the countersigned payload; pin one canonical
-  form and the base64 layering.
-- **New `user_notifications`** (or similar): a per-user system-message store
-  (e.g. `user_id`, `kind`, `body`, `created_at`, `read_at`), surfaced on the
-  profile page. Recovery writes a "renamed on collision" message here; the
-  feature is general-purpose, not recovery-specific.
-- **New `unclaimed_accounts`** (recovery-only; **created on entering recovery**,
+Already in the base schema (normal operation):
+
+- **`users`**: `server_signed_at`, identity signature columns, random
+  server-scoped `id`. Username uniqueness is **enforced continuously** —
+  including during recovery — with collisions resolved by immediate rename
+  (rule 3), so the unique index never has to be dropped. A username-collision
+  loser is renamed in place (permanent suffix); there is **no reselection
+  flag** and **no notification** for now (Proposal 11 deferred). **No `claimed`
+  column** is added to `users`: the only recovery-time per-account bookkeeping
+  lives in the separate `unclaimed_accounts` gauge table (below), which gates
+  nothing — normal operation trusts cryptographic validity per request, not a
+  flag.
+- **`reeds`**: `private_key_fingerprint` references `private_keys`; `signed_at`
+  = server countersignature timestamp.
+- **`user_key_revocations`**: signed revocation statements in normal operation.
+  At recovery they are verified then discarded — no signature is stored
+  server-side.
+- **Reed `server` block (client + wire)**: `fingerprint` (server signing key),
+  `reedID`, and `author` in the countersigned payload; one canonical form and
+  pinned base64 layering.
+- **Removed**: the `user_count` table (Proposal 02).
+
+Still to add with the recovery feature:
+
+- **`servers`**: `recovery_started_at` (set when recovery is first entered;
+  the boundary the sniper filter compares `accountCreatedAt` against).
+- **`unclaimed_accounts`** (recovery-only; **created on entering recovery**,
   not part of the base schema): one `user_id` per account restored via
   report-back whose owner has not yet proven presence. A row is inserted when a
   report-back **creates** the `users` row and deleted on that account's first
@@ -570,8 +552,12 @@ Inherent limitations (accept and document):
   unclaimed" gauge and drives the non-fatal startup warning; normal operation
   never touches it and it is not an auth gate. Persists after recovery ends until
   the operator drops it.
-- **Removed**: the `user_count` table (was the ID source; dropped entirely, no
-  replacement — see Proposal 02).
+
+Deferred:
+
+- **`user_notifications`** (Proposal 11): per-user system-message store for
+  collision renames and other operator/system messages. Not part of the first
+  recovery cut.
 
 ## Resolved (decisions)
 
@@ -609,6 +595,8 @@ Inherent limitations (accept and document):
 - **Migration**: not applicable — pre-launch, blank-slate assumption (no
   legacy reed blocks or IDs exist).
 - **Abuse mitigation**: deferred.
+- **Collision-rename notifications**: deferred (Proposal 11). Recovery renames
+  losers in place without writing a persisted message.
 
 ## Open questions
 
