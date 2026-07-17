@@ -6,9 +6,20 @@ shippable pieces. Each one is valuable on its own (mostly bug fixes and
 hardening of normal operation) and does not require the recovery feature
 itself to be implemented.
 
-The recovery endpoints, `RECOVERY_MODE` boot reconciliation, key bundle
-export/import, `unclaimed_accounts`, client sync ledger, and the recovery
-UI are treated as a **single later unit of work** and are not proposed here.
+The recovery feature itself is specified in
+[`../takeover_recovery.md`](../takeover_recovery.md) and implemented under
+the **`syrinx/recovery`** package (main only wires boot, routes, and
+middleware). It is a **single unit of work** relative to these prerequisite
+proposals — not broken into proposals here. Design highlights already decided
+there:
+
+- Own claim via `GET`/`POST /api/recovery/identity/claim` (≤60s challenge).
+- Peer identity via authenticated `POST /api/recovery/identity` (one user,
+  full nested key chain).
+- One reed per request; follows in batches of ≤100; `POST /complete` clears
+  `ongoing_recoveries`.
+- Import gate: while `RECOVERY_MODE` and `ongoing_recoveries`, non-recovery
+  API use is blocked.
 
 ## Proposals
 
