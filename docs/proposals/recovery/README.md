@@ -8,7 +8,8 @@ otherwise.
 **Code organization:** all server-side recovery logic must live in the
 `syrinx/recovery` Go package. The main package only wires boot, routes, and
 middleware. Shared payload builders stay in `syrinx/identity`. Operator CLI
-lives under `cmd/ops/`.
+lives in root [`ops.go`](../../ops.go) (`//go:build ops`; build with
+`go build -tags ops -o bin/ops .`).
 
 | #                                          | Title                                                 | Depends on |
 |--------------------------------------------|-------------------------------------------------------|------------|
@@ -64,7 +65,8 @@ under `handlers.go` / `services.go` or other root files.
 
 Shared normal-operation helpers used by both live traffic and recovery (e.g.
 canonical identity/reed payload builders) live in `identity/`, not in
-`recovery/`. Operator CLI for the identity bundle lives under `cmd/ops/`.
+`recovery/`. Operator CLI for the identity bundle lives in root `ops.go`
+(`go build -tags ops -o bin/ops .`).
 
 ## Motivation
 
@@ -135,11 +137,13 @@ selecting the key **by fingerprint** for each record.
 
 Server identity import/export and recovery endpoints are implemented in
 `syrinx/recovery` (see *Code organization*). Identity is restored **only** via
-`ops import-identity` (prompt for bundle password, ensure schema, populate
-`servers` / `private_keys` / `public_keys`, optional delete of the bundle
-file). Boot with `RECOVERY_MODE` assumes that import already happened — it does
-**not** prompt for the bundle password. Operator CLI: `cmd/ops`
-(`export-identity`, `import-identity`, `rotate-passphrase`).
+`ops import-identity` (calls full `InitDB`, prompts for **bundle password** and
+resolves **server key passphrase** separately, populate `servers` /
+`private_keys` / `public_keys`, remind operator to enable `RECOVERY_MODE`,
+optional delete of the encrypted bundle file). Boot with `RECOVERY_MODE`
+assumes that import already happened — it does **not** prompt for the bundle
+password. Operator CLI: root `ops.go` (`export-identity`, `import-identity`,
+`rotate-passphrase`).
 
 ### Key bundle (export / import format)
 
@@ -155,11 +159,12 @@ That password is **never stored** — not in the file, not in the DB, not in env
 files checked into the repo.
 
 **Import** (`ops import-identity <file>`): the **only** path that decrypts a
-bundle. Prompt for the same password, ensure the identity tables exist, validate
-and populate them, then **prompt whether to delete the bundle file** (default
-recommend yes once the DB holds the keys — the file is a high-value secret at
-rest). Non-interactive use may read the password from stdin when not a TTY;
-do not put it in env or committed config.
+bundle. Run **before** first server boot on an empty Postgres. Calls full
+`InitDB`, prompts for the bundle password, resolves the server key passphrase
+(not in the bundle), validates and populates identity, reminds the operator to
+start with **`RECOVERY_MODE`**, and may optionally delete the encrypted file
+(default no). Non-interactive use may read passwords from a TTY-less stdin only
+where explicitly supported later; do not put secrets in env or committed config.
 
 On-disk artifact: an OpenPGP **symmetrically encrypted**, ASCII-armored
 message whose plaintext is the JSON below. Default export filename:
@@ -333,7 +338,7 @@ questions by that server timestamp — never the submitter's.
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
 
-**Remaining** — land numbered steps [02](02_key_bundle_import_ops_cli.md)–[07](07_spa_recover_client.md)
+**Remaining** — land numbered steps [03](03_bookkeeping_and_gates.md)–[07](07_spa_recover_client.md)
 in this directory (all server work under `syrinx/recovery`):
 
 - ~~**Server key passphrase** via OS keychain / optional HA env~~ **Done**
@@ -341,8 +346,8 @@ in this directory (all server work under `syrinx/recovery`):
 - ~~Operator key-bundle **export** (`ops export-identity`), `identity_backup_at`,
   stale-backup startup warning, `rotate-passphrase`~~ **Done**
   ([01](01_key_bundle_export_ops_cli.md)).
-- Operator key-bundle **import** (`ops import-identity`) — prompt for bundle
-  password; may delete the bundle file after success.
+- ~~Operator key-bundle **import** (`ops import-identity`)~~ **Done**
+  ([02](02_key_bundle_import_ops_cli.md)).
 - **`RECOVERY_MODE`** boot that requires a prior `ops import-identity` (no
   bundle password at process start), plus bookkeeping / import gate / flags.
 - Own-identity **claim** (challenge + nested key chain) and authenticated peer
@@ -451,14 +456,16 @@ the sync ledger and progress UI.
    `ops`), provide the **same server key passphrase** that wrapped the keys in
    the bundle so it can be stored in that host’s keychain; set `SERVER_NAME` as
    desired.
-2. Run **`ops import-identity <path-to-bundle.json.gpg>`**: prompt for the
-   **bundle password**, ensure identity schema exists, decrypt/validate, write
-   the full `private_keys` / `public_keys` history, restore `serverID`
-   verbatim, set the active signing key from `signingKeyFingerprint`, set
-   `identity_backup_at` from `exportedAt`. Then prompt whether to **delete the
-   bundle file**. If a self identity already exists and **matches** the
-   bundle, treat as success (idempotent). If it **does not match**, abort with
-   no writes.
+2. Run **`ops import-identity <path-to-bundle.json.gpg>`** (before first server
+   boot): call full **`InitDB`**, prompt for the **bundle password**, resolve the
+   **server key passphrase** (env / keychain / prompt — not in the bundle),
+   decrypt/validate, write the full `private_keys` / `public_keys` history,
+   restore `serverID` and `serverName` verbatim, set the active signing key from
+   `signingKeyFingerprint`, set `identity_backup_at` from `exportedAt`. Remind
+   the operator to start with **`RECOVERY_MODE`**. Optionally prompt whether to
+   delete the encrypted bundle file (default no). If a self identity already
+   exists and **matches** the bundle, treat as success (idempotent). If it
+   **does not match**, abort with no identity writes.
 3. Start the server with **`RECOVERY_MODE`**. Boot does **not** read a bundle
    or prompt for a password:
    - **Self identity present** (from step 2, or a previous interrupted recovery):
@@ -665,7 +672,7 @@ Deferred:
 
 - **Code organization**: all recovery logic in `syrinx/recovery`; main only
   wires boot/routes/middleware. Shared payload builders in `syrinx/identity`;
-  ops CLI in `cmd/ops`.
+  ops CLI in root `ops.go` (`go build -tags ops -o bin/ops .`).
 - **Activation**: `RECOVERY_MODE` env flag. Identity must already be in the DB
   via `ops import-identity`; boot **resumes** if a self identity exists and
   **aborts** if not. No `RECOVERY_KEY_BUNDLE` — bundle password is prompted only

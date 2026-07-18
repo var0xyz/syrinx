@@ -1,8 +1,18 @@
-// Command ops is the Syrinx operator CLI for server identity backup and
-// passphrase rotation. See docs/proposals/recovery/01_key_bundle_export_ops_cli.md.
+//go:build ops
+
+// Operator CLI for server identity backup/restore and passphrase rotation.
+//
+// Before running, copy .env.example to .env, fill in DB_* and SERVER_NAME, then
+// `source .env` in your shell (this binary reads the process environment; it
+// does not load .env itself).
+//
+// Build: go build -tags ops -o bin/ops .
+// See docs/proposals/recovery/01_key_bundle_export_ops_cli.md and
+// docs/proposals/recovery/02_key_bundle_import_ops_cli.md.
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -19,7 +29,7 @@ import (
 	"golang.org/x/term"
 )
 
-type config struct {
+type opsConfig struct {
 	DBHost     string `env:"name='DB_HOST'"`
 	DBPort     string `env:"name='DB_PORT'"`
 	DBUser     string `env:"name='DB_USER'"`
@@ -46,6 +56,13 @@ func main() {
 		if err := runExportIdentity(outfile); err != nil {
 			fail(err)
 		}
+	case "import-identity":
+		if len(os.Args) < 3 {
+			fail(fmt.Errorf("usage: ops import-identity <infile>"))
+		}
+		if err := runImportIdentity(os.Args[2]); err != nil {
+			fail(err)
+		}
 	case "rotate-passphrase":
 		if err := runRotatePassphrase(); err != nil {
 			fail(err)
@@ -68,6 +85,12 @@ Commands:
       OpenPGP-encrypted file. Prompts for a bundle password (never stored).
       Default outfile: syrinx-<serverID>-<YYYYMMDDTHHMMSSZ>.json.gpg
 
+  import-identity <infile>
+      Restore identity from an encrypted bundle before first server boot.
+      Calls InitDB (full schema), prompts for bundle password, resolves the
+      server key passphrase (not in the bundle), then writes identity.
+      Reminds you to start the server with RECOVERY_MODE.
+
   rotate-passphrase
       Re-wrap private_keys under a new server key passphrase, update the
       OS keychain when not using SERVER_KEY_PASSPHRASE, and remind you to
@@ -76,9 +99,9 @@ Commands:
   help
       Show this message.
 
-Environment: same DB_* and SERVER_NAME as the server process. Optional
-SERVER_KEY_PASSPHRASE is the HA escape hatch for the server key passphrase;
-otherwise the OS keychain / interactive prompt from syrinx/secret is used.
+Before running any command, copy .env.example to .env, set the variables
+accordingly, then source it:
+	$ source .env
 `)
 }
 
@@ -87,12 +110,12 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-func loadConfig() config {
-	var c config
+func loadOpsConfig() opsConfig {
+	var c opsConfig
 	return env.MustAssert(c)
 }
 
-func openDB(cfg config) (*sql.DB, error) {
+func openDB(cfg opsConfig) (*sql.DB, error) {
 	if cfg.ServerName == "" {
 		return nil, fmt.Errorf("SERVER_NAME is required")
 	}
@@ -110,7 +133,7 @@ func openDB(cfg config) (*sql.DB, error) {
 }
 
 func runExportIdentity(outfile string) error {
-	cfg := loadConfig()
+	cfg := loadOpsConfig()
 	db, err := openDB(cfg)
 	if err != nil {
 		return err
@@ -153,8 +176,77 @@ func runExportIdentity(outfile string) error {
 	return nil
 }
 
+func runImportIdentity(infile string) error {
+	cfg := loadOpsConfig()
+	db, err := openDB(cfg)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := InitDB(db); err != nil {
+		return fmt.Errorf("InitDB: %w", err)
+	}
+
+	armored, err := os.ReadFile(infile)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", infile, err)
+	}
+
+	password, err := promptBundlePassword()
+	if err != nil {
+		return err
+	}
+	plain, err := recovery.DecryptSymmetric(string(armored), password)
+	if err != nil {
+		return fmt.Errorf("decrypt bundle: %w", err)
+	}
+	bundle, err := recovery.ParseBundleJSON(plain)
+	if err != nil {
+		return err
+	}
+
+	if cfg.ServerName != bundle.ServerName {
+		fmt.Fprintf(os.Stderr, "warning: SERVER_NAME=%q differs from bundle serverName=%q (import will use the bundle name; boot may rename later)\n",
+			cfg.ServerName, bundle.ServerName)
+	}
+
+	resolver := secret.NewResolver(cfg.ServerKeyPassphrase, cfg.ServerName)
+	passphrase, err := resolver.Resolve()
+	if err != nil {
+		return fmt.Errorf("resolve server key passphrase: %w", err)
+	}
+
+	cryptoSvc := crypto.NewService()
+	if err := recovery.ValidateDecrypt(bundle, cryptoSvc, passphrase.Value); err != nil {
+		return err
+	}
+
+	result, err := recovery.ImportIntoDB(db, bundle)
+	if err != nil {
+		return err
+	}
+	switch result {
+	case recovery.ImportAlreadyPresent:
+		fmt.Println("Identity already present and matches the bundle (no changes).")
+	case recovery.ImportApplied:
+		fmt.Printf("Imported identity serverID=%s serverName=%s keys=%d\n",
+			bundle.ServerID, bundle.ServerName, len(bundle.Keys))
+		fmt.Printf("Recorded identity_backup_at=%s\n", bundle.ExportedAt.UTC().Format(time.RFC3339))
+	}
+
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Next: start the server with RECOVERY_MODE enabled.")
+	fmt.Fprintln(os.Stderr, "Do not boot in normal mode until recovery is complete — that would mint a new identity.")
+
+	if err := maybeDeleteBundle(infile); err != nil {
+		return err
+	}
+	return nil
+}
+
 func runRotatePassphrase() error {
-	cfg := loadConfig()
+	cfg := loadOpsConfig()
 	db, err := openDB(cfg)
 	if err != nil {
 		return err
@@ -203,15 +295,6 @@ func promptBundlePassword() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	fmt.Fprint(os.Stderr, "Confirm bundle password: ")
-	b, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr)
-	if err != nil {
-		return "", err
-	}
-	if string(a) != string(b) {
-		return "", fmt.Errorf("passwords do not match")
-	}
 	if string(a) == "" {
 		return "", fmt.Errorf("bundle password must not be empty")
 	}
@@ -254,4 +337,25 @@ func promptNewServerKeyPassphrase() (string, error) {
 		return "", fmt.Errorf("passphrases do not match")
 	}
 	return pw, nil
+}
+
+func maybeDeleteBundle(path string) error {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "Delete encrypted bundle file %s? [y/N] ", path)
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return err
+	}
+	ans := strings.TrimSpace(strings.ToLower(line))
+	if ans != "y" && ans != "yes" {
+		fmt.Fprintln(os.Stderr, "Keeping bundle file.")
+		return nil
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("delete %s: %w", path, err)
+	}
+	fmt.Fprintf(os.Stderr, "Deleted %s\n", path)
+	return nil
 }
