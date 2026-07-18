@@ -17,7 +17,7 @@ claim → peers → reeds → follows → complete. See [README](README.md)
 
 ## Scope
 
-- Detect `recoveryMode` / `signupsEnabled` from `/server/info`.
+- Detect `recoveryMode` from `/server/info`.
 - Unauthenticated allowlist includes claim GET/POST.
 - Build nested key chain from IndexedDB (full chain or skip peer).
 - Sync ledger module: claim (challenge + sign) → peer identities → reeds
@@ -45,4 +45,3 @@ existing ephemeral notification store. Keep recovery UI minimal.
       complete → normal navigation works
 - [ ] Mid-import request to a normal API returns 403
 - [ ] Peer without full nest is skipped without failing the whole run
-- [ ] Signups button hidden/disabled when `signupsEnabled` is false

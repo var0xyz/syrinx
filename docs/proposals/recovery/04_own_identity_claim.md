@@ -22,8 +22,7 @@ public-key chain. See [README](README.md) *Phase 1a*, *Nested key chain*.
 - Validate challenge ≤ 60s; verify full nest (server countersigs + predecessor
   links + optional revocations); verify challenge sig with outermost key.
 - Upsert user by verbatim `userID`, newest-wins on `server_signed_at`;
-  username collision → rename loser with permanent suffix (no sniper window;
-  prefer signups disabled during recovery).
+  username collision → rename loser with permanent suffix.
 - Insert keys **oldest → newest** (preserve `predecessor_fingerprint` FK).
 - Create → not unclaimed; if peer-seeded → delete `unclaimed_accounts`.
 - Insert `ongoing_recoveries` for claimant.
