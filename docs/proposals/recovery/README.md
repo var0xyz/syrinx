@@ -16,7 +16,7 @@ lives in root [`ops.go`](../../ops.go) (`//go:build ops`; build with
 | [00](00_server_key_passphrase_keychain.md) | Server key passphrase (keychain + optional env var)   | —          |
 | [01](01_key_bundle_export_ops_cli.md)      | Key bundle export (`ops` CLI)                         | 00         |
 | [02](02_key_bundle_import_ops_cli.md)      | Key bundle import (`ops` CLI)                         | 00, 01     |
-| [03](03_bookkeeping_and_gates.md)          | `RECOVERY_MODE` boot, bookkeeping, import gate, flags | 02         |
+| [03](03_bookkeeping_and_gates.md)          | `RECOVERY_MODE` boot, bookkeeping, import gate        | 02         |
 | [04](04_own_identity_claim.md)             | Own-identity claim (challenge + nested key chain)     | 03         |
 | [05](05_peer_identity_report.md)           | Peer identity report-back (`POST /recovery/identity`) | 04         |
 | [06](06_reeds_follows_complete.md)         | Reed holdings, batched follows, `/complete`           | 04         |
@@ -51,17 +51,19 @@ in place. Notifications (proposal 11) remain deferred.
 
 ## Code organization
 
-**All server-side recovery code lives in the `recovery/` Go package**
-(`syrinx/recovery`). That includes RECOVERY_MODE boot gates, key-bundle
-export/import helpers, nested key-chain types, persistence for
-`unclaimed_accounts` / `ongoing_recoveries`, signature verification for claim
-and peer report-back, HTTP handlers, and route registration.
+**All server-side recovery logic lives in the `recovery/` Go package**
+(`syrinx/recovery`). That includes key-bundle export/import helpers, nested
+key-chain types, store helpers for `unclaimed_accounts` / `ongoing_recoveries`,
+signature verification for claim and peer report-back, HTTP handlers, route
+registration, and import-gate helpers (`IsOngoing`, path allowlist).
 
-The main package only **wires** recovery in: env flags, calling
-`recovery.ReconcileBoot` at startup, `recovery.RegisterRoutes` when
-`RECOVERY_MODE` is on, and middleware checks such as `recovery.IsOngoing`.
-Do not add recovery endpoints, recovery SQL, or recovery verification logic
-under `handlers.go` / `services.go` or other root files.
+Bookkeeping **table DDL** lives in root `InitDB` (`db.go`) with the rest of
+the schema (always created). The main package only **wires** recovery in:
+`RECOVERY_MODE` env, passing it into `InitServer` (mint vs fatal on missing
+self), mode-on unclaimed count log, `recovery.RegisterRoutes` when
+`RECOVERY_MODE` is on, and mode-on middleware that calls `recovery.IsOngoing`.
+Do not add recovery endpoints or recovery verification logic under
+`handlers.go` or other root files.
 
 Shared normal-operation helpers used by both live traffic and recovery (e.g.
 canonical identity/reed payload builders) live in `identity/`, not in
@@ -218,8 +220,7 @@ Two independent secrets (do not conflate):
   self `servers` row matches the pre-wipe instance. After import, a different
   `SERVER_NAME` at boot may still rename the row (existing `InitServer` behavior).
 - **Delivery**: keep the encrypted file offline; pass its path to
-  `ops import-identity`. There is **no** `RECOVERY_KEY_BUNDLE` boot env — the
-  process never prompts for the bundle password.
+  `ops import-identity`, which prompts for the bundle password.
 
 **After decrypting the file**, restoring keys still needs the same server key
 passphrase that wrapped `private_keys.armor`. Keep these distinct:
@@ -324,9 +325,6 @@ questions by that server timestamp — never the submitter's.
    via the normal flow. A persisted system notification explaining the rename
    is **deferred** (Proposal 11).
 
-   To keep live signups from racing restored owners for names during recovery,
-   operators should set **`SIGNUPS_ENABLED=false`** for the window.
-
 ### Prerequisites (status)
 
 **Done** — shipped in normal operation (proposals 01–10):
@@ -348,8 +346,8 @@ in this directory (all server work under `syrinx/recovery`):
   ([01](01_key_bundle_export_ops_cli.md)).
 - ~~Operator key-bundle **import** (`ops import-identity`)~~ **Done**
   ([02](02_key_bundle_import_ops_cli.md)).
-- **`RECOVERY_MODE`** boot that requires a prior `ops import-identity` (no
-  bundle password at process start), plus bookkeeping / import gate / flags.
+- **`RECOVERY_MODE`** boot that requires a prior `ops import-identity`, plus
+  bookkeeping / import gate / `recoveryMode` on `/server/info`.
 - Own-identity **claim** (challenge + nested key chain) and authenticated peer
   **`POST /api/recovery/identity`**.
 - **`unclaimed_accounts`**, **`ongoing_recoveries`**, reed/follow/`complete`
@@ -403,10 +401,8 @@ not registered (no attack surface).
 
 **Normal use stays enabled during recovery** for anyone who has finished
 claim/import (or never entered `ongoing_recoveries`). Live writes carry the
-newest server timestamps and win newest-wins over restored records. Admins
-should set **`SIGNUPS_ENABLED=false`** while recovery is underway so new
-accounts cannot race restored users for usernames; that does **not** freeze
-writes for recovered users.
+newest server timestamps and win newest-wins over restored records. Signups
+stay enabled; username collisions use the same newest-`server_signed_at` rule.
 
 ### Nested key chain (claim and peer identity)
 
@@ -466,18 +462,21 @@ the sync ledger and progress UI.
    delete the encrypted bundle file (default no). If a self identity already
    exists and **matches** the bundle, treat as success (idempotent). If it
    **does not match**, abort with no identity writes.
-3. Start the server with **`RECOVERY_MODE`**. Boot does **not** read a bundle
-   or prompt for a password:
+3. Start the server with **`RECOVERY_MODE`**. `InitServer(recoveryMode)` loads
+   `servers WHERE self = TRUE`:
    - **Self identity present** (from step 2, or a previous interrupted recovery):
-     **resume** — keep already-restored data (including any live writes), ensure
-     recovery-only tables exist (`unclaimed_accounts`, `ongoing_recoveries`),
-     open recovery endpoints.
+     **resume** — keep already-restored data (including any live writes), open
+     recovery endpoints, log the current `unclaimed_accounts` count, install
+     the import-gate middleware.
    - **No self identity**: **abort startup** with a clear message to run
      `ops import-identity` first.
 
-The client learns recovery is active from `/server/info` (`recoveryMode`,
-`signupsEnabled`) and shows the recovery banner + "import your data" / signup
-buttons accordingly.
+Bookkeeping tables (`unclaimed_accounts`, `ongoing_recoveries`) are created by
+`InitDB` on every boot. The unclaimed gauge and import gate run while
+`RECOVERY_MODE` is on.
+
+The client learns recovery is active from `/server/info` (`recoveryMode`) and
+shows the recovery banner + "import your data" accordingly.
 
 ### Phase 1a — Own identity claim
 
@@ -573,19 +572,17 @@ unregisters recovery endpoints (including claim). Already-claimed users who
 still have `ongoing_recoveries` are no longer API-gated by that table once mode
 is off; they should have called `complete` while mode was on.
 
-`unclaimed_accounts` remains the admin “still unclaimed” gauge (floor on what is
-missing). It **persists** after mode-off until the operator drops it. If
-`RECOVERY_MODE` is off and the table is non-empty, startup logs a **non-fatal**
-warning with the residual count.
+`unclaimed_accounts` is the admin “still unclaimed” gauge while
+`RECOVERY_MODE` is on (startup log of `count(*)`). The table persists after
+mode-off until the operator drops it.
 
 > **Cutoff caveat.** A user whose data no one restored has no account at all —
 > reappearing means a fresh signup with a *new* random ID. Once recovery is off
 > there is no cooperative claim path.
 
-> **Username sniping.** Collisions resolve by newest `server_signed_at`; there
-> is no recovery-window sniper filter. Operators should set
-> **`SIGNUPS_ENABLED=false`** during recovery so live signups cannot race
-> restored owners for names.
+> **Username collisions.** Resolved by newest `server_signed_at`; loser renamed
+> with a permanent suffix. A live signup during recovery can keep a name against
+> a later claim with an older `server_signed_at`.
 
 ## Threat model & accepted limitations
 
@@ -652,15 +649,16 @@ Still to add with the recovery feature:
   (or not yet recorded). Drives the non-fatal startup warning when missing or
   older than the newest server signing key. Set by `ops export-identity` and by
   `ops import-identity` from the bundle.
-- **`unclaimed_accounts`** (recovery-only): one `user_id` per account **created
-  by peer** `POST /api/recovery/identity` whose owner has not yet claimed. Deleted
-  on successful own claim. `count(*)` is the admin gauge and drives the
-  non-fatal startup warning. Not an auth gate. Persists after recovery ends
-  until the operator drops it.
-- **`ongoing_recoveries`** (recovery-only): one `user_id` per claimant who has
-  not finished import. Inserted on successful claim; deleted by
+- **`unclaimed_accounts`**: one `user_id` per account **created by peer**
+  `POST /api/recovery/identity` whose owner has not yet claimed. Deleted on
+  successful own claim. DDL in `InitDB`. `count(*)` is the admin gauge logged
+  at startup while `RECOVERY_MODE` is on. Not an auth gate. Persists after
+  recovery ends until the operator drops it.
+- **`ongoing_recoveries`**: one `user_id` per claimant who has not finished
+  import. DDL in `InitDB`. Inserted on successful claim; deleted by
   `POST /api/recovery/complete`. While `RECOVERY_MODE` is on, presence of a row
-  blocks that user from non-recovery API routes.
+  blocks that user from non-recovery API routes (middleware installed in that
+  mode).
 
 Deferred:
 
@@ -670,18 +668,16 @@ Deferred:
 
 ## Resolved (decisions)
 
-- **Code organization**: all recovery logic in `syrinx/recovery`; main only
-  wires boot/routes/middleware. Shared payload builders in `syrinx/identity`;
+- **Code organization**: recovery logic in `syrinx/recovery`; bookkeeping DDL
+  in `InitDB`; main wires `RECOVERY_MODE`, `InitServer(recoveryMode)`,
+  mode-on routes/middleware. Shared payload builders in `syrinx/identity`;
   ops CLI in root `ops.go` (`go build -tags ops -o bin/ops .`).
 - **Activation**: `RECOVERY_MODE` env flag. Identity must already be in the DB
-  via `ops import-identity`; boot **resumes** if a self identity exists and
-  **aborts** if not. No `RECOVERY_KEY_BUNDLE` — bundle password is prompted only
-  by `ops export-identity` / `ops import-identity` (never stored). Server key
-  passphrase comes from proposal 00 (env if set, else keychain / prompt).
-  Optional `SIGNUPS_ENABLED=false` to disable new signups only (recovered users
-  keep full normal use).
-- **Client detection**: `/server/info` reports `recoveryMode` and
-  `signupsEnabled`.
+  via `ops import-identity`; `InitServer` **resumes** if a self identity exists
+  and **aborts** if not. Bundle password is prompted only by
+  `ops export-identity` / `ops import-identity`. Server key passphrase comes
+  from proposal 00 (env if set, else keychain / prompt).
+- **Client detection**: `/server/info` reports `recoveryMode`.
 - **Own claim**: `GET`/`POST /api/recovery/identity/claim` with a ≤60s challenge
   signed by the active key; body carries profile + **full nested** key chain.
   Creates a claimed user or claims a peer-seeded one (deletes
@@ -693,14 +689,13 @@ Deferred:
   `user_keys.predecessor_fingerprint` FK integrity.
 - **Reeds**: authenticated, **one reed** per request.
 - **Follows**: authenticated batches of **at most 100** userIDs.
-- **Import gate**: `ongoing_recoveries` + middleware 403 while
-  `RECOVERY_MODE && importing`; cleared by `POST /api/recovery/complete`.
-  Client mirrors the block in the UI.
+- **Import gate**: middleware registered when `RECOVERY_MODE` is on;
+  `ongoing_recoveries` → 403 on non-recovery routes until
+  `POST /api/recovery/complete`. Client mirrors the block in the UI.
 - **Unclaimed gauge**: peer-seeded accounts awaiting owner claim; startup
-  warning when mode is off but rows remain.
+  `count(*)` log while `RECOVERY_MODE` is on.
 - **Username collisions**: newest `server_signed_at` wins; loser renamed with
-  a permanent suffix. Prefer `SIGNUPS_ENABLED=false` during recovery to avoid
-  live signup races for names.
+  a permanent suffix.
 - **Completion**: no global finalize; operator turns `RECOVERY_MODE` off;
   per-user import ends via `complete`.
 - **Secrets**: bundle password (prompted by `ops` only, encrypts the export
