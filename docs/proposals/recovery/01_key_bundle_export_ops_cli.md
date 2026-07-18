@@ -57,6 +57,11 @@ them.
 **At-rest protection:** the file on disk is only the OpenPGP symmetrically
 encrypted ciphertext of that JSON. Export uses a hidden prompt
 (`term.ReadPassword` or equivalent) twice; mismatch aborts with no write.
+Empty passwords are rejected. **Weak passwords are accepted** but print a
+warning to stderr: a password is weak if it is shorter than 16 characters, or
+at least 16 characters but missing any of uppercase, lowercase, digit, or
+symbol (Unicode letter/digit/punct/symbol classes). Strength is advisory only
+— export still proceeds after the warning.
 
 **Bundle password vs server key passphrase:** independent. Losing the bundle
 password makes the backup unreadable even if the keychain passphrase is known;
@@ -78,6 +83,8 @@ bytes so import (step 02) can reuse it.
 - [ ] Decrypt with correct password yields valid bundle JSON
 - [ ] Wrong password fails; no partial plaintext leak in errors
 - [ ] `ValidateDecrypt` (server keys) still fails on wrong server key passphrase
+- [ ] Weak bundle password (short or missing character class) warns on stderr but still exports
+- [ ] Empty bundle password is rejected
 - [ ] Password is not written to the outfile or process env by the tool
 - [ ] Successful export sets `servers.identity_backup_at`; failed export leaves it unchanged
 - [ ] Startup with NULL `identity_backup_at` logs a non-fatal warning
