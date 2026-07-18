@@ -1,0 +1,131 @@
+# Invites 00 — `SIGNUP_MODE` + `MAX_INVITES_PER_USER`, server info, closed gate
+
+## Status
+
+Proposed.
+
+## Depends on
+
+—
+
+## Context
+
+Signup is unconditionally open today. Operators need a deploy-time switch
+among open registration, invite-gated registration, and fully closed
+registration, plus a per-user invite minting cap. The SPA needs those values
+on the unauthenticated `/api/server/info` response so it can hide the home
+“Sign Up” button and disable invite creation without being signed in.
+
+This step lands config parsing and the `closed` gate only. Mode `invite`
+is accepted and exposed but still behaves like `open` for signup until
+[03](03_signup_consume.md).
+
+## Scope
+
+- Add to `AppConfig` in [`main.go`](../../../main.go):
+  - `SignupMode string` with `env:"name='SIGNUP_MODE'"`
+  - `MaxInvitesPerUser string` (or dedicated parser input) with
+    `env:"name='MAX_INVITES_PER_USER'"` — raw env string so “unset” is
+    distinguishable; normalize to a typed value after `env.MustAssert`.
+- Parse / validate at boot (fatal on bad values). Default mode `open`;
+  default max infinite.
+- Extend `ServerInfo` / `GetServerInfo` with `signupMode` and
+  `maxInvitesPerUser` (`-1` = infinite).
+- When mode is `closed`, `Signup` and `CheckUsername` return **403** with a
+  stable plain/JSON error message (e.g. `"Signups are closed on this server"`).
+- Document both vars in [`.env.example`](../../../.env.example):
+  - `SIGNUP_MODE` commented or set to `open` as today-equivalent.
+  - `MAX_INVITES_PER_USER=3` as the example default, with a comment that
+    `-1` or leaving the variable unset disables the cap (infinite).
+- Prefer putting parse helpers in `syrinx/invites` (`ParseSignupMode`,
+  `ParseMaxInvitesPerUser`) even before other invite code exists, so main
+  stays thin.
+
+## Non-goals
+
+- `invites` table, create/list APIs, consume-at-signup (01–03).
+- SPA changes (04–05), except whatever already reads `server/info` keeps
+  working with the extra fields.
+- Changing signature-auth allowlists.
+- Enforcing `invite` mode yet.
+
+## Design
+
+### Mode values
+
+Exact strings (case-sensitive):
+
+| Value | Meaning |
+|-------|---------|
+| `open` | Anyone may sign up |
+| `invite` | Invite required (enforced in 03); bootstrap exception in 03 |
+| `closed` | No new signups |
+
+Empty / unset `SIGNUP_MODE` → `open`. Any other string → process exits with
+a message listing the allowed values.
+
+### Quota values
+
+| Input | Result |
+|-------|--------|
+| unset / empty | infinite (`-1`) |
+| `-1` | infinite |
+| integer `N` where `N >= 1` | cap at `N` |
+| `0`, other negatives, non-integer, whitespace junk | fatal |
+
+Typed representation in Go (suggested):
+
+```go
+type SignupMode string // "open" | "invite" | "closed"
+
+// MaxInvitesPerUser is the minting cap. -1 means infinite.
+type MaxInvitesPerUser int
+```
+
+### `ServerInfo` wire
+
+```go
+type ServerInfo struct {
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	SignupMode        string `json:"signupMode"`
+	MaxInvitesPerUser int    `json:"maxInvitesPerUser"` // -1 = infinite
+}
+```
+
+### Closed gate placement
+
+Early in `Handlers.Signup` and `Handlers.CheckUsername`, before form parsing
+heavy work is fine either before or after parse — prefer **before** crypto /
+DB work:
+
+```go
+if h.cfg.SignupMode == invites.ModeClosed {
+	writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
+	return
+}
+```
+
+Mode `invite` is a no-op in this step (fall through to today's open behavior).
+
+### Package stub
+
+Create `invites/` with at least:
+
+- `mode.go` — constants + `ParseSignupMode` + `ParseMaxInvitesPerUser`
+- tests for the parse matrix
+
+`RegisterRoutes` can wait for step 02.
+
+## Test plan
+
+- [ ] Unset `SIGNUP_MODE` → mode `open`, info reports `"open"`
+- [ ] `SIGNUP_MODE=invite` → boots; info reports `"invite"`; signup still succeeds (until 03)
+- [ ] `SIGNUP_MODE=closed` → signup 403; check-username 403; info reports `"closed"`
+- [ ] `SIGNUP_MODE=Invite` / `foo` → process exits non-zero
+- [ ] Unset max → info `maxInvitesPerUser: -1`
+- [ ] `MAX_INVITES_PER_USER=-1` → `-1`
+- [ ] `MAX_INVITES_PER_USER=10` → `10`
+- [ ] `MAX_INVITES_PER_USER=0` / `-2` / `abc` → fatal
+- [ ] `.env.example` documents both variables; `MAX_INVITES_PER_USER=3` with
+      a comment on disabling via `-1` or unset

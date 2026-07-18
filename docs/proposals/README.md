@@ -41,6 +41,19 @@ See [`recovery/`](recovery/README.md):
 | 06 | Reeds, follows, complete                              |
 | 07 | SPA recover client                                    |
 
+## Invites / signup modes
+
+See [`invites/`](invites/README.md):
+
+| #  | Title                                              |
+|----|----------------------------------------------------|
+| 00 | `SIGNUP_MODE` + `MAX_INVITES_PER_USER`, info gate  |
+| 01 | `invites` table, `users.invited_by`, store         |
+| 02 | Create / list / revoke / check APIs + quota        |
+| 03 | Consume at signup, identity, mutual follow         |
+| 04 | Home CTA + invite-link signup path                 |
+| 05 | Toolbar Invites tab + management UI                |
+
 ## Parallelism
 
 - **Immediately parallel**: 01, 02, 10, 11 have no (or only 01) dependencies and can be
@@ -58,6 +71,8 @@ See [`recovery/`](recovery/README.md):
 - **Recovery feature steps** land only after the prerequisites they need;
   within `recovery/`, follow that directory's depends-on column (00→07).
   Step 00 (keychain passphrase) can land independently and unblocks 01/02.
+- **Invites feature steps** are independent of recovery; within `invites/`,
+  follow that directory's depends-on column (00→05). Step 00 can land alone.
 
 ## Shared conventions
 
