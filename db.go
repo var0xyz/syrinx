@@ -152,6 +152,7 @@ func InitDB(db *sql.DB) error {
 		name VARCHAR(255) PRIMARY KEY,
 		self BOOLEAN NOT NULL DEFAULT FALSE,
 		signing_key VARCHAR(255),
+		identity_backup_at TIMESTAMP,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 

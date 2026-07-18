@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -37,8 +37,8 @@ See [README](README.md) *Key bundle* and *Code organization*.
 - Startup helper (e.g. `WarnStaleIdentityBackup`): if a self identity exists and
   `identity_backup_at` is NULL or `< MAX(private_keys.created_at)`, log a
   **non-fatal** warning. Wire from `main` on normal boot.
-- Makefile targets (`ops`, `export-identity`); ignore the `ops` binary;
-  document export in `.env.example` / ops help.
+- Makefile targets (`ops`, `export-identity`); build the binary to `bin/ops`
+  and ignore `bin/`; document export in `.env.example` / ops help.
 
 ## Non-goals
 

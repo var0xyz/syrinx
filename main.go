@@ -15,6 +15,7 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/realtime"
+	"syrinx/recovery"
 	"syrinx/secret"
 
 	"github.com/gorilla/mux"
@@ -126,6 +127,13 @@ func main() {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server signing key")
 	}
 	log.Info().Str("fingerprint", signingKey.Fingerprint).Msg("[OK] Server signing key ready")
+
+	if msg, err := recovery.StaleIdentityBackupMessage(db); err != nil {
+		log.Warn().Err(err).Msg("[WARN] Could not check identity backup freshness")
+	} else if msg != "" {
+		log.Warn().Msg("[WARN] " + msg)
+	}
+	log.Info().Msg("[OK] Server identity initialized successfully")
 
 	log.Debug().Msg("Initializing realtime service...")
 	realtimeService := realtime.NewService(db, cryptoService, cfg.AllowedOrigin)

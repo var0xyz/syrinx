@@ -1,10 +1,12 @@
-.PHONY: help build run up down clean test setup-env
+.PHONY: help build run up down clean test setup-env ops export-identity
 
 # Default target
 help:
 	@echo "Available targets:"
 	@echo "  build            - Build the API"
 	@echo "  run              - Run API locally"
+	@echo "  ops              - Build the operator CLI (bin/ops)"
+	@echo "  export-identity  - Build ops and run export-identity"
 	@echo "  up               - Run service with Docker Compose"
 	@echo "  down             - Stop all docker services"
 	@echo "  clean            - Clean up containers and volumes"
@@ -15,6 +17,14 @@ help:
 build:
 	@echo "Building API..."
 	go build .
+
+ops:
+	@echo "Building ops CLI..."
+	@mkdir -p bin
+	go build -o bin/ops ./cmd/ops
+
+export-identity: ops
+	./bin/ops export-identity
 
 # Run targets for development
 run:
