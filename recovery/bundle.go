@@ -13,11 +13,12 @@ const BundleVersion = 1
 
 // Bundle is the plaintext identity export (before symmetric encryption).
 type Bundle struct {
-	Version                 int         `json:"version"`
-	ExportedAt              time.Time   `json:"exportedAt"`
-	ServerID                string      `json:"serverID"`
-	SigningKeyFingerprint   string      `json:"signingKeyFingerprint"`
-	Keys                    []BundleKey `json:"keys"`
+	Version               int         `json:"version"`
+	ExportedAt            time.Time   `json:"exportedAt"`
+	ServerID              string      `json:"serverID"`
+	ServerName            string      `json:"serverName"`
+	SigningKeyFingerprint string      `json:"signingKeyFingerprint"`
+	Keys                  []BundleKey `json:"keys"`
 }
 
 // BundleKey is one server signing key (active or rotated/revoked).
@@ -42,10 +43,10 @@ func DefaultExportFilename(serverID string, exportedAt time.Time) string {
 func ExportFromDB(db *sql.DB, exportedAt time.Time) (*Bundle, error) {
 	exportedAt = exportedAt.UTC().Truncate(time.Second)
 
-	var serverID, signingFP string
+	var serverID, serverName, signingFP string
 	err := db.QueryRow(`
-		SELECT id, signing_key FROM servers WHERE self = TRUE
-	`).Scan(&serverID, &signingFP)
+		SELECT id, name, signing_key FROM servers WHERE self = TRUE
+	`).Scan(&serverID, &serverName, &signingFP)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("no self server row")
 	}
@@ -54,6 +55,9 @@ func ExportFromDB(db *sql.DB, exportedAt time.Time) (*Bundle, error) {
 	}
 	if signingFP == "" {
 		return nil, fmt.Errorf("self server has no signing_key")
+	}
+	if serverName == "" {
+		return nil, fmt.Errorf("self server has no name")
 	}
 
 	rows, err := db.Query(`
@@ -99,6 +103,7 @@ func ExportFromDB(db *sql.DB, exportedAt time.Time) (*Bundle, error) {
 		Version:               BundleVersion,
 		ExportedAt:            exportedAt,
 		ServerID:              serverID,
+		ServerName:            serverName,
 		SigningKeyFingerprint: signingFP,
 		Keys:                  keys,
 	}
@@ -118,6 +123,9 @@ func ValidateShape(b *Bundle) error {
 	}
 	if b.ServerID == "" {
 		return fmt.Errorf("serverID is empty")
+	}
+	if b.ServerName == "" {
+		return fmt.Errorf("serverName is empty")
 	}
 	if b.SigningKeyFingerprint == "" {
 		return fmt.Errorf("signingKeyFingerprint is empty")

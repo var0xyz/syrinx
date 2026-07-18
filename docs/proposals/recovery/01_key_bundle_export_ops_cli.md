@@ -50,7 +50,7 @@ See [README](README.md) *Key bundle* and *Code organization*.
 ## Design
 
 Plaintext JSON shape as in [README](README.md) (`version`, `exportedAt`,
-`serverID`, `signingKeyFingerprint`, `keys[]`). Private armors remain
+`serverID`, `serverName`, `signingKeyFingerprint`, `keys[]`). Private armors remain
 wrapped with the server key passphrase (env or keychain); export never decrypts
 them.
 
