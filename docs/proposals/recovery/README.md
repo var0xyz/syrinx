@@ -197,7 +197,7 @@ Two independent secrets (do not conflate):
 
 | Secret | Role |
 |--------|------|
-| **Bundle password** | Encrypts the exported file at rest. Prompted on `export-identity` and `import-identity` only. Never persisted by Syrinx. |
+| **Bundle password** | Encrypts the exported file at rest. Prompted on `export-identity` and `import-identity` only. Never persisted by Syrinx. Empty rejected; weak passwords (under 16 characters, or missing upper/lower/digit/symbol) are accepted with a stderr warning. |
 | **Server key passphrase** | Unwraps each `privateKeyArmor` inside the JSON (same as live server boot). Resolved via env (HA) **or** OS keychain (prompt + store when env unset/empty; empty prompt auto-generates a 24-char passphrase and prints it to stdout). See [00](00_server_key_passphrase_keychain.md). Not listed in `.env.example`. |
 
 - `exportedAt` is the UTC time the plaintext bundle was built (RFC3339, second

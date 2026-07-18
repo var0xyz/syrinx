@@ -215,7 +215,11 @@ func promptBundlePassword() (string, error) {
 	if string(a) == "" {
 		return "", fmt.Errorf("bundle password must not be empty")
 	}
-	return string(a), nil
+	pw := string(a)
+	if msg := recovery.PasswordStrengthWarning(pw); msg != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s — accepting anyway\n", msg)
+	}
+	return pw, nil
 }
 
 func promptNewServerKeyPassphrase() (string, error) {
