@@ -197,7 +197,7 @@ Two independent secrets (do not conflate):
 | Secret | Role |
 |--------|------|
 | **Bundle password** | Encrypts the exported file at rest. Prompted on `export-identity` and `import-identity` only. Never persisted by Syrinx. |
-| **Server key passphrase** | Unwraps each `privateKeyArmor` inside the JSON (same as live server boot). Resolved via env (HA) **or** OS keychain (prompt + store when env unset/empty). See [00](00_server_key_passphrase_keychain.md). Not listed in `.env.example`. |
+| **Server key passphrase** | Unwraps each `privateKeyArmor` inside the JSON (same as live server boot). Resolved via env (HA) **or** OS keychain (prompt + store when env unset/empty; empty prompt auto-generates a 24-char passphrase and prints it to stdout). See [00](00_server_key_passphrase_keychain.md). Not listed in `.env.example`. |
 
 - `exportedAt` is the UTC time the plaintext bundle was built (RFC3339, second
   precision). Operator metadata; not used for trust on import.
@@ -331,13 +331,11 @@ questions by that server timestamp — never the submitter's.
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
 
-**Remaining** — land numbered steps [00](00_server_key_passphrase_keychain.md)–[07](07_spa_recover_client.md)
-in this directory (all server work under `syrinx/recovery`, plus shared
-keychain helper as in step 00):
+**Remaining** — land numbered steps [01](01_key_bundle_export_ops_cli.md)–[07](07_spa_recover_client.md)
+in this directory (all server work under `syrinx/recovery`):
 
-- **Server key passphrase** via OS keychain when env is unset/empty (prompt on
-  miss); optional `SERVER_KEY_PASSPHRASE` for HA — not documented in
-  `.env.example`.
+- ~~**Server key passphrase** via OS keychain / optional HA env~~ **Done**
+  ([00](00_server_key_passphrase_keychain.md), `syrinx/secret`).
 - Operator key-bundle **export** (`ops export-identity`) and **import**
   (`ops import-identity`) — the only password prompts for the bundle;
   `identity_backup_at` + non-fatal stale-backup startup warning; import may
@@ -697,10 +695,11 @@ Deferred:
   per-user import ends via `complete`.
 - **Secrets**: bundle password (prompted by `ops` only, encrypts the export
   file, never stored) is independent of the server key passphrase (env for HA,
-  else OS keychain / prompt; unwraps private armors). Do not list
-  `SERVER_KEY_PASSPHRASE` in `.env.example`. Re-export after passphrase
-  rotate; bundle password may be changed by re-exporting. After
-  `import-identity`, offer to delete the bundle file.
+  else OS keychain / prompt; empty prompt auto-generates 24 chars to stdout;
+  unwraps private armors). Do not list `SERVER_KEY_PASSPHRASE` in
+  `.env.example`. Re-export after passphrase rotate; bundle password may be
+  changed by re-exporting. After `import-identity`, offer to delete the bundle
+  file.
 - **Keychain tradeoff**: preferred for long-running single-host services; HA
   fleets inject `SERVER_KEY_PASSPHRASE` via the orchestrator instead.
 - **Backup freshness**: `servers.identity_backup_at` updated on successful

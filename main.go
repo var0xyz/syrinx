@@ -15,6 +15,7 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/realtime"
+	"syrinx/secret"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
@@ -47,11 +48,6 @@ func main() {
 	// reasonable. Consider something short and unique.
 	if len(cfg.ServerName) == 0 {
 		l.Panicf("[ERR] ServerName cannot be empty")
-	}
-
-	// Passphrase must be present and strong enough to protect the server key.
-	if len(cfg.ServerKeyPassphrase) < 16 {
-		l.Panicf("[ERR] SERVER_KEY_PASSPHRASE must be at least 16 characters")
 	}
 
 	log.Info().Msg("Starting Syrinx API...")
@@ -101,7 +97,22 @@ func main() {
 	if err := dataService.InitServer(); err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server identity")
 	}
-	log.Info().Msg("[OK] Server identity initialized successfully")
+
+	log.Debug().Msg("Resolving server key passphrase...")
+	passphrase, err := secret.NewResolver(cfg.ServerKeyPassphrase, cfg.ServerName).Resolve()
+	if err != nil {
+		log.Fatal().Err(err).Msg("[ERR] Failed to resolve server key passphrase")
+	}
+	switch passphrase.Source {
+	case secret.SourceEnv:
+		log.Info().Msg("[OK] Server key passphrase found in SERVER_KEY_PASSPHRASE")
+	case secret.SourceKeychain:
+		log.Info().Msg("[OK] Server key passphrase fetched from OS keychain")
+	case secret.SourcePrompt:
+		log.Info().Msg("[OK] Server key passphrase stored in OS keychain")
+	case secret.SourceGenerated:
+		log.Info().Msg("[OK] Server key passphrase auto-generated and stored in OS keychain")
+	}
 
 	log.Debug().Msg("Processing key revocations...")
 	if err := dataService.ProcessRevocations(); err != nil {
@@ -110,7 +121,7 @@ func main() {
 	log.Info().Msg("[OK] Key revocations processed")
 
 	log.Debug().Msg("Initializing server signing key...")
-	signingKey, err := dataService.InitServerKey(cryptoService, cfg.ServerKeyPassphrase)
+	signingKey, err := dataService.InitServerKey(cryptoService, passphrase.Value)
 	if err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server signing key")
 	}
