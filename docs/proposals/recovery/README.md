@@ -178,6 +178,7 @@ Plaintext JSON (only after decrypt):
   "version": 1,
   "exportedAt": "2026-07-17T15:04:05Z",
   "serverID": "Ab3xY9pQ",
+  "serverName": "syrinx.example",
   "signingKeyFingerprint": "<hex fingerprint of the currently-active key>",
   "keys": [
     {
@@ -207,9 +208,10 @@ Two independent secrets (do not conflate):
 - The bundle carries the full key history (active + rotated/revoked) so every
   historical countersignature verifies and `reeds.private_key_fingerprint` FKs
   resolve.
-- `serverID` is restored verbatim; the server **name** is not part of the bundle
-  (it comes from `SERVER_NAME` and may change — countersignatures bind `serverID`
-  only).
+- `serverID` and `serverName` are restored verbatim from the bundle. Countersignatures
+  bind `serverID` only; the name is operator-facing identity restored so the
+  self `servers` row matches the pre-wipe instance. After import, a different
+  `SERVER_NAME` at boot may still rename the row (existing `InitServer` behavior).
 - **Delivery**: keep the encrypted file offline; pass its path to
   `ops import-identity`. There is **no** `RECOVERY_KEY_BUNDLE` boot env — the
   process never prompts for the bundle password.
