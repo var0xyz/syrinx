@@ -537,6 +537,11 @@ func (s *Service) AddIdentity(decryptedPrivateKeyArmor, name string) (string, er
 		Name:          uid.Id,
 		UserId:        uid,
 		SelfSignature: selfSig,
+		// SerializePrivate re-signs SelfSignature but emits ident.Signatures.
+		// Existing identities from the keyring keep SelfSignature in that
+		// slice; new ones must too or the User ID packet is written with no
+		// signature and is dropped on the next read.
+		Signatures: []*packet.Signature{selfSig},
 	}
 
 	var buf bytes.Buffer
