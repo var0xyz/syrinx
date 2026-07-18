@@ -73,6 +73,7 @@ func TestValidateShape_AndDecrypt(t *testing.T) {
 		Version:               BundleVersion,
 		ExportedAt:            now,
 		ServerID:              "Ab3xY9pQ",
+		ServerName:            "syrinx.example",
 		SigningKeyFingerprint: kp.Fingerprint,
 		Keys: []BundleKey{{
 			Fingerprint:     kp.Fingerprint,
@@ -107,7 +108,7 @@ func TestValidateShape_AndDecrypt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseBundleJSON: %v", err)
 	}
-	if parsed.ServerID != b.ServerID || parsed.SigningKeyFingerprint != b.SigningKeyFingerprint {
+	if parsed.ServerID != b.ServerID || parsed.ServerName != b.ServerName || parsed.SigningKeyFingerprint != b.SigningKeyFingerprint {
 		t.Fatalf("parsed mismatch: %+v", parsed)
 	}
 }
@@ -118,6 +119,7 @@ func TestValidateShape_SigningKeyMissing(t *testing.T) {
 		Version:               BundleVersion,
 		ExportedAt:            now,
 		ServerID:              "Ab3xY9pQ",
+		ServerName:            "syrinx.example",
 		SigningKeyFingerprint: "DEADBEEF",
 		Keys: []BundleKey{{
 			Fingerprint:     "CAFEBABE",

@@ -47,7 +47,8 @@ helper (proposal 00). See [README](README.md) *Phase 0* and *Key bundle*.
 ## Design
 
 Private armors are stored **verbatim** (still wrapped with the server key
-passphrase). Server **name** is not in the bundle (`SERVER_NAME` at runtime).
+passphrase). `serverID` and `serverName` come from the bundle (restored onto
+the self `servers` row).
 
 **Why CLI (not server boot):** a long-running process cannot reliably prompt;
 ops is interactive by design. After a successful import, deleting the file
