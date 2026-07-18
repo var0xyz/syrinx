@@ -152,8 +152,15 @@ func InitDB(db *sql.DB) error {
 		name VARCHAR(255) PRIMARY KEY,
 		self BOOLEAN NOT NULL DEFAULT FALSE,
 		signing_key VARCHAR(255),
+		identity_backup_at TIMESTAMP,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
+
+	// Existing deployments created servers without identity_backup_at.
+	alterServersIdentityBackupAt := `
+	ALTER TABLE servers
+		ADD COLUMN IF NOT EXISTS identity_backup_at TIMESTAMP;
+	`
 
 	// Signed identity record columns. All four are populated together
 	// at signup and re-populated together whenever a fresh identity
@@ -407,6 +414,7 @@ func InitDB(db *sql.DB) error {
 	queries := []string{
 		// Servers
 		createServersTable,
+		alterServersIdentityBackupAt,
 
 		createUsersTable,
 		createUserIndexes,

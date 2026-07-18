@@ -331,15 +331,16 @@ questions by that server timestamp — never the submitter's.
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
 
-**Remaining** — land numbered steps [01](01_key_bundle_export_ops_cli.md)–[07](07_spa_recover_client.md)
+**Remaining** — land numbered steps [02](02_key_bundle_import_ops_cli.md)–[07](07_spa_recover_client.md)
 in this directory (all server work under `syrinx/recovery`):
 
 - ~~**Server key passphrase** via OS keychain / optional HA env~~ **Done**
   ([00](00_server_key_passphrase_keychain.md), `syrinx/secret`).
-- Operator key-bundle **export** (`ops export-identity`) and **import**
-  (`ops import-identity`) — the only password prompts for the bundle;
-  `identity_backup_at` + non-fatal stale-backup startup warning; import may
-  delete the bundle file after success.
+- ~~Operator key-bundle **export** (`ops export-identity`), `identity_backup_at`,
+  stale-backup startup warning, `rotate-passphrase`~~ **Done**
+  ([01](01_key_bundle_export_ops_cli.md)).
+- Operator key-bundle **import** (`ops import-identity`) — prompt for bundle
+  password; may delete the bundle file after success.
 - **`RECOVERY_MODE`** boot that requires a prior `ops import-identity` (no
   bundle password at process start), plus bookkeeping / import gate / flags.
 - Own-identity **claim** (challenge + nested key chain) and authenticated peer

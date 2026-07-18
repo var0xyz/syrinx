@@ -1,5 +1,6 @@
 .env
 syrinx
+bin/
 keys/
 spa/node_modules
 spa/build
