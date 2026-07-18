@@ -1,4 +1,4 @@
-.PHONY: help build run up down clean test setup-env ops export-identity
+.PHONY: help build run up down clean test setup-env ops export-identity import-identity
 
 # Default target
 help:
@@ -7,6 +7,7 @@ help:
 	@echo "  run              - Run API locally"
 	@echo "  ops              - Build the operator CLI (bin/ops)"
 	@echo "  export-identity  - Build ops and run export-identity"
+	@echo "  import-identity  - Build ops (pass infile: make import-identity FILE=...)"
 	@echo "  up               - Run service with Docker Compose"
 	@echo "  down             - Stop all docker services"
 	@echo "  clean            - Clean up containers and volumes"
@@ -21,10 +22,14 @@ build:
 ops:
 	@echo "Building ops CLI..."
 	@mkdir -p bin
-	go build -o bin/ops ./cmd/ops
+	go build -tags ops -o bin/ops .
 
 export-identity: ops
 	./bin/ops export-identity
+
+import-identity: ops
+	@if [ -z "$(FILE)" ]; then echo "usage: make import-identity FILE=path/to/bundle.json.gpg"; exit 2; fi
+	./bin/ops import-identity "$(FILE)"
 
 # Run targets for development
 run:

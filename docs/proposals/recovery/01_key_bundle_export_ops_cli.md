@@ -24,7 +24,7 @@ See [README](README.md) *Key bundle* and *Code organization*.
   **symmetric encrypt/decrypt** of the JSON file (OpenPGP armored message).
 - Schema: nullable `servers.identity_backup_at` on the self row (see
   [README](README.md) *Backup freshness*).
-- Add `cmd/ops` with:
+- Add `ops.go` (`//go:build ops`) with:
   - `export-identity [outfile]` — build JSON, **prompt for bundle password**
     (and confirmation), write encrypted file, then set
     `identity_backup_at` to that export’s `exportedAt`. Default outfile name:
@@ -38,7 +38,7 @@ See [README](README.md) *Key bundle* and *Code organization*.
   `identity_backup_at` is NULL or `< MAX(private_keys.created_at)`, log a
   **non-fatal** warning. Wire from `main` on normal boot.
 - Makefile targets (`ops`, `export-identity`); build the binary to `bin/ops`
-  and ignore `bin/`; document export in `.env.example` / ops help.
+  and ignore `bin/`; document export in ops help.
 
 ## Non-goals
 
@@ -72,9 +72,9 @@ unwrap the private keys inside.
 `created_at` (covers rotate-away + new key). Does not detect passphrase-only
 re-wrap; the rotate command’s reminder covers that.
 
-All new code under `recovery/` and `cmd/ops/` only (plus the one column /
-startup call from `main`). Prefer a small encrypt/decrypt helper for arbitrary
-bytes so import (step 02) can reuse it.
+All new code under `recovery/` and `ops.go` (plus the one column / startup
+call from `main`). Prefer a small encrypt/decrypt helper for arbitrary bytes
+so import (step 02) can reuse it.
 
 ## Test plan
 
