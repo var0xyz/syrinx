@@ -351,7 +351,8 @@ in this directory (all server work under `syrinx/recovery`):
   ([03](03_bookkeeping_and_gates.md)).
 - ~~Own-identity **claim** (challenge + nested key chain)~~ **Done**
   ([04](04_own_identity_claim.md)).
-- Authenticated peer **`POST /api/recovery/identity`**.
+- ~~Authenticated peer **`POST /api/recovery/identity`**~~ **Done**
+  ([05](05_peer_identity_report.md)).
 - Reed/follow/`complete` endpoints (claim inserts into the bookkeeping tables
   from step 03).
 
