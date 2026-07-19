@@ -41,6 +41,8 @@ type AppConfig struct {
 	AllowedOrigin string `env:"name='ALLOWED_ORIGIN'"`
 
 	ServerKeyPassphrase string `env:"name='SERVER_KEY_PASSPHRASE'"`
+
+	RecoveryMode bool `env:"optional,default='false',name='RECOVERY_MODE'"`
 }
 
 func main() {
@@ -97,7 +99,7 @@ func main() {
 	log.Info().Msg("[OK] Services initialized successfully")
 
 	log.Debug().Msg("Initializing server identity...")
-	if err := dataService.InitServer(); err != nil {
+	if err := dataService.InitServer(cfg.RecoveryMode); err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server identity")
 	}
 
@@ -227,6 +229,24 @@ func main() {
 	// router.PathPrefix("/pwa").Handler(http.FileServer(http.Dir("pwa/")))
 	// Catch-all static file handler (must be last)
 	router.PathPrefix("/").Handler(http.FileServer(http.Dir("pwa/")))
+
+	if cfg.RecoveryMode {
+		log.Debug().Msg("Initializing recovery mode...")
+		unclaimedCount, err := recovery.CountUnclaimed(db)
+		if err != nil {
+			log.Warn().Err(err).Msg("[WARN] Could not count unclaimed accounts")
+		} else {
+			if unclaimedCount > 0 {
+				log.Warn().Msg(fmt.Sprintf("[OK] %d unclaimed accounts", unclaimedCount))
+			}
+		}
+		realtimeService.SetOngoingCheck(func(userID string) (bool, error) {
+			return recovery.IsOngoing(db, userID)
+		})
+		api.Use(recovery.Middleware(db, userIDKey))
+		// recovery.RegisterRoutes(api, ...)
+		log.Info().Msg("[OK] Recovery mode initialized successfully")
+	}
 
 	log.Info().Msg("[OK] Router configured successfully")
 

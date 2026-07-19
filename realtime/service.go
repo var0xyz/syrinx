@@ -22,6 +22,7 @@ type RealtimeService struct {
 	authService   *AuthService
 	crypto        *crypto.Service
 	allowedOrigin string
+	ongoingCheck  func(userID string) (bool, error)
 }
 
 // NewService creates a new realtime service
@@ -38,6 +39,32 @@ func NewService(db *sql.DB, crypto *crypto.Service, allowedOrigin string) *Realt
 		crypto:        crypto,
 		allowedOrigin: allowedOrigin,
 	}
+}
+
+// SetOngoingCheck installs an optional import-gate check used after WebSocket
+// auth succeeds. When the check returns true, the connection is rejected with 403.
+func (rs *RealtimeService) SetOngoingCheck(check func(userID string) (bool, error)) {
+	rs.ongoingCheck = check
+}
+
+// rejectOngoingImport writes an error response and returns true when the user
+// must finish recovery import before opening a WebSocket.
+func (rs *RealtimeService) rejectOngoingImport(w http.ResponseWriter, userID string) bool {
+	if rs.ongoingCheck == nil {
+		return false
+	}
+	ongoing, err := rs.ongoingCheck(userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Import gate check failed")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return true
+	}
+	if ongoing {
+		log.Info().Str("userID", userID).Msg("WebSocket rejected: ongoing recovery import")
+		http.Error(w, "Forbidden: finish recovery import first", http.StatusForbidden)
+		return true
+	}
+	return false
 }
 
 // Start starts the realtime service
@@ -164,6 +191,10 @@ func (rs *RealtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	log.Info().
 		Str("userID", userID).
 		Msg("WebSocket authentication successful")
+
+	if rs.rejectOngoingImport(w, userID) {
+		return
+	}
 
 	// Check if the response writer implements Hijacker
 	if _, ok := w.(http.Hijacker); !ok {

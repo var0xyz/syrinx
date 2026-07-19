@@ -18,6 +18,7 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/identity"
+	"syrinx/recovery"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -88,11 +89,14 @@ func generateUserID() (string, error) {
 	return generateID(12)
 }
 
-func (s *DataService) InitServer() error {
+func (s *DataService) InitServer(recoveryMode bool) error {
 	var id, name string
 
 	err := s.db.QueryRow(`SELECT id, name FROM servers WHERE self = TRUE`).Scan(&id, &name)
 	if err == sql.ErrNoRows {
+		if recoveryMode {
+			return recovery.ErrNoIdentityFound
+		}
 		id, err = generateServerID()
 		if err != nil {
 			return err
