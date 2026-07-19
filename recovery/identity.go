@@ -11,11 +11,12 @@ const challengeMaxAge = 60 * time.Second
 
 // Deps are dependencies RegisterRoutes needs from main.
 type Deps struct {
-	DB       *sql.DB
-	Crypto   Verifier
-	ServerID string
-	Lookup   ServerKeyLookup
-	Now      func() time.Time // optional; defaults to time.Now
+	DB        *sql.DB
+	Crypto    Verifier
+	ServerID  string
+	Lookup    ServerKeyLookup
+	UserIDKey any              // context key for authenticated caller (peer endpoints)
+	Now       func() time.Time // optional; defaults to time.Now
 }
 
 // now returns the current time. Deps.Now exists so tests can freeze the
@@ -60,6 +61,40 @@ func (d Deps) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := SaveOwnIdentity(d.DB, req.Profile, keys); err != nil {
+		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
+	writeJSON(w, http.StatusOK, req.Profile)
+}
+
+// ReportPeerIdentity handles POST /api/recovery/identity.
+func (d Deps) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
+	caller, ok := r.Context().Value(d.UserIDKey).(string)
+	if !ok || caller == "" {
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req PeerIdentityRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.Profile.ID == caller {
+		writeJSON(w, http.StatusBadRequest, "own identity must use claim")
+		return
+	}
+
+	active, keys, err := FlattenKeysNest(req.Profile, req.Key, d.ServerID, d.Lookup, d.Crypto)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if _, err := SavePeerIdentity(d.DB, req.Profile, keys); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}

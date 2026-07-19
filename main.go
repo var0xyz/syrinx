@@ -245,10 +245,11 @@ func main() {
 		})
 		api.Use(recovery.Middleware(db, userIDKey))
 		recovery.RegisterRoutes(api, recovery.Deps{
-			DB:       db,
-			Crypto:   cryptoService,
-			ServerID: dataService.GetServerID(),
-			Lookup:   dataService.GetServerPublicKeyByFingerprint,
+			DB:        db,
+			Crypto:    cryptoService,
+			ServerID:  dataService.GetServerID(),
+			Lookup:    dataService.GetServerPublicKeyByFingerprint,
+			UserIDKey: userIDKey,
 		})
 		log.Info().Msg("[OK] Recovery mode initialized successfully")
 	}
