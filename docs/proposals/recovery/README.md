@@ -336,7 +336,7 @@ questions by that server timestamp — never the submitter's.
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
 
-**Remaining** — land numbered steps [04](04_own_identity_claim.md)–[07](07_spa_recover_client.md)
+**Remaining** — land numbered steps [05](05_peer_identity_report.md)–[07](07_spa_recover_client.md)
 in this directory (all server work under `syrinx/recovery`):
 
 - ~~**Server key passphrase** via OS keychain / optional HA env~~ **Done**
@@ -349,8 +349,9 @@ in this directory (all server work under `syrinx/recovery`):
 - ~~**`RECOVERY_MODE`** boot that requires a prior `ops import-identity`, plus
   bookkeeping / import gate / `recoveryMode` on `/server/info`~~ **Done**
   ([03](03_bookkeeping_and_gates.md)).
-- Own-identity **claim** (challenge + nested key chain) and authenticated peer
-  **`POST /api/recovery/identity`**.
+- ~~Own-identity **claim** (challenge + nested key chain)~~ **Done**
+  ([04](04_own_identity_claim.md)).
+- Authenticated peer **`POST /api/recovery/identity`**.
 - Reed/follow/`complete` endpoints (claim inserts into the bookkeeping tables
   from step 03).
 
@@ -413,11 +414,19 @@ Identity submissions use a recursive nest (not a fingerprint map):
 {
   "profile": { "...User wire..." },
   "key": {
-    "key": { "...active Key wire..." },
+    "fingerprint": "...",
+    "armor": "<active public key armor>",
+    "userID": "...",
+    "createdAt": "...",
+    "server": { "...ServerSignature..." },
     "revocation": null,
     "predecessor": {
-      "signature": "<old key's detached sig over this key's armor>",
-      "key": { "...Key wire..." },
+      "signature": "<old key's detached sig over the parent key's armor>",
+      "fingerprint": "...",
+      "armor": "<older public key armor>",
+      "userID": "...",
+      "createdAt": "...",
+      "server": { "...ServerSignature..." },
       "revocation": { "...or null..." },
       "predecessor": null
     }
@@ -425,8 +434,9 @@ Identity submissions use a recursive nest (not a fingerprint map):
 }
 ```
 
-- Outermost node is the **active** key; nest walks back to the signup key
-  (`predecessor: null`).
+- Outermost node is the **active** key (`key.armor`); nest walks back to the
+  signup key (`predecessor: null`). Key material sits on the node itself
+  (`armor`, `fingerprint`, …) — not under a nested `key` object.
 - **Full chain required.** Incomplete nests are rejected with no partial write.
   If a reporter lacks every key in a peer's rotation history, they **skip** that
   peer rather than submit a partial chain.

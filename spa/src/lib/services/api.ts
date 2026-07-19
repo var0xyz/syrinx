@@ -28,6 +28,7 @@ const UNAUTHENTICATED_ENDPOINTS = [
   '/keys',
   '/server/info',
   '/server/keys',
+  '/recovery/identity/claim',
 ];
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
