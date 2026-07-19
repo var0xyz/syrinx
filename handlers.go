@@ -47,8 +47,9 @@ type Handlers struct {
 }
 
 type ServerInfo struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	RecoveryMode bool   `json:"recoveryMode"`
 }
 
 // ///////////// //
@@ -112,7 +113,11 @@ func (h *Handlers) noop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
-	writeResponse(w, http.StatusOK, ServerInfo{ID: h.services.db.GetServerID(), Name: h.cfg.ServerName})
+	writeResponse(w, http.StatusOK, ServerInfo{
+		ID:           h.services.db.GetServerID(),
+		Name:         h.cfg.ServerName,
+		RecoveryMode: h.cfg.RecoveryMode,
+	})
 }
 
 // GetServerPublicKey returns the armored public half of a server signing
