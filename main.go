@@ -244,7 +244,12 @@ func main() {
 			return recovery.IsOngoing(db, userID)
 		})
 		api.Use(recovery.Middleware(db, userIDKey))
-		// recovery.RegisterRoutes(api, ...)
+		recovery.RegisterRoutes(api, recovery.Deps{
+			DB:       db,
+			Crypto:   cryptoService,
+			ServerID: dataService.GetServerID(),
+			Lookup:   dataService.GetServerPublicKeyByFingerprint,
+		})
 		log.Info().Msg("[OK] Recovery mode initialized successfully")
 	}
 
