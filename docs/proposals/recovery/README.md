@@ -336,7 +336,7 @@ questions by that server timestamp — never the submitter's.
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
 
-**Remaining** — land numbered steps [03](03_bookkeeping_and_gates.md)–[07](07_spa_recover_client.md)
+**Remaining** — land numbered steps [04](04_own_identity_claim.md)–[07](07_spa_recover_client.md)
 in this directory (all server work under `syrinx/recovery`):
 
 - ~~**Server key passphrase** via OS keychain / optional HA env~~ **Done**
@@ -346,12 +346,13 @@ in this directory (all server work under `syrinx/recovery`):
   ([01](01_key_bundle_export_ops_cli.md)).
 - ~~Operator key-bundle **import** (`ops import-identity`)~~ **Done**
   ([02](02_key_bundle_import_ops_cli.md)).
-- **`RECOVERY_MODE`** boot that requires a prior `ops import-identity`, plus
-  bookkeeping / import gate / `recoveryMode` on `/server/info`.
+- ~~**`RECOVERY_MODE`** boot that requires a prior `ops import-identity`, plus
+  bookkeeping / import gate / `recoveryMode` on `/server/info`~~ **Done**
+  ([03](03_bookkeeping_and_gates.md)).
 - Own-identity **claim** (challenge + nested key chain) and authenticated peer
   **`POST /api/recovery/identity`**.
-- **`unclaimed_accounts`**, **`ongoing_recoveries`**, reed/follow/`complete`
-  endpoints, and the import gate.
+- Reed/follow/`complete` endpoints (claim inserts into the bookkeeping tables
+  from step 03).
 
 **Deferred**:
 

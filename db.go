@@ -411,6 +411,22 @@ func InitDB(db *sql.DB) error {
 		ON profile_subscriptions(author_user_id);
 	`
 
+	// //////////// //
+	//   Recovery   //
+	// //////////// //
+
+	createUnclaimedAccountsTable := `
+	CREATE TABLE IF NOT EXISTS unclaimed_accounts (
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createOngoingRecoveriesTable := `
+	CREATE TABLE IF NOT EXISTS ongoing_recoveries (
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
 	queries := []string{
 		// Servers
 		createServersTable,
@@ -455,6 +471,10 @@ func InitDB(db *sql.DB) error {
 
 		createPendingReedRequestsTable,
 		createPendingReedRequestsIndexes,
+
+		// Recovery
+		createUnclaimedAccountsTable,
+		createOngoingRecoveriesTable,
 	}
 
 	for i, query := range queries {
