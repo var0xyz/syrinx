@@ -68,6 +68,12 @@ type ClaimRequest struct {
 	Key       KeyNode `json:"key"`
 }
 
+// PeerIdentityRequest is the POST /api/recovery/identity body.
+type PeerIdentityRequest struct {
+	Profile Profile `json:"profile"`
+	Key     KeyNode `json:"key"`
+}
+
 // ChallengeResponse is the GET /api/recovery/identity/claim body.
 type ChallengeResponse struct {
 	Challenge int64 `json:"challenge"`

@@ -2,6 +2,7 @@ package recovery
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/gorilla/mux"
 )
+
+const testUserIDKey = "userID"
 
 func TestIssueChallenge(t *testing.T) {
 	fixed := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
@@ -107,14 +110,90 @@ func TestClaimIdentity_BadChallengeSignature(t *testing.T) {
 	}
 }
 
+func TestReportPeerIdentity_Unauthenticated(t *testing.T) {
+	deps := Deps{UserIDKey: testUserIDKey}
+	rr := httptest.NewRecorder()
+	deps.ReportPeerIdentity(rr, httptest.NewRequest(http.MethodPost, "/api/recovery/identity", bytes.NewReader([]byte(`{}`))))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestReportPeerIdentity_SelfSubmit(t *testing.T) {
+	deps := Deps{UserIDKey: testUserIDKey}
+	body, _ := json.Marshal(PeerIdentityRequest{
+		Profile: Profile{ID: "caller1"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/recovery/identity", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), testUserIDKey, "caller1"))
+	rr := httptest.NewRecorder()
+	deps.ReportPeerIdentity(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestReportPeerIdentity_BrokenNest(t *testing.T) {
+	serverID := "srv1"
+	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	profile := Profile{
+		ID:                   "peer1",
+		Username:             "bob",
+		MemberSince:          ts,
+		SignatureFingerprint: "BBB",
+		Signature:            "dXNlcg==",
+		Server: ServerSignature{
+			ID: serverID, Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy",
+		},
+	}
+	root := KeyNode{
+		KeyWire: KeyWire{
+			Fingerprint: "BBB", Armor: "armor-b", UserID: "peer1", CreatedAt: ts,
+			Server: ServerSignature{ID: serverID, Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy"},
+		},
+		Predecessor: &KeyNode{
+			Signature: "bad-pred-sig",
+			KeyWire: KeyWire{
+				Fingerprint: "AAA", Armor: "armor-a", UserID: "peer1", CreatedAt: ts,
+				Server: ServerSignature{ID: serverID, Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy"},
+			},
+		},
+	}
+	deps := Deps{
+		UserIDKey: testUserIDKey,
+		ServerID:  serverID,
+		Crypto:    &fakeVerifier{failChallenge: map[string]bool{"bad-pred-sig": true}},
+		Lookup: func(fp string) (string, error) {
+			if fp == "SKEY" {
+				return "server-pub", nil
+			}
+			return "", nil
+		},
+	}
+	body, _ := json.Marshal(PeerIdentityRequest{Profile: profile, Key: root})
+	req := httptest.NewRequest(http.MethodPost, "/api/recovery/identity", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), testUserIDKey, "caller1"))
+	rr := httptest.NewRecorder()
+	deps.ReportPeerIdentity(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestRegisterRoutes(t *testing.T) {
 	r := mux.NewRouter()
 	api := r.PathPrefix("/api").Subrouter()
-	RegisterRoutes(api, Deps{Now: time.Now})
-	req := httptest.NewRequest(http.MethodGet, "/api/recovery/identity/claim", nil)
+	RegisterRoutes(api, Deps{Now: time.Now, UserIDKey: testUserIDKey})
+
 	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/recovery/identity/claim", nil))
 	if rr.Code != http.StatusOK {
-		t.Fatalf("status=%d", rr.Code)
+		t.Fatalf("claim GET status=%d", rr.Code)
+	}
+
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/recovery/identity", bytes.NewReader([]byte(`{}`))))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("peer POST status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
