@@ -73,7 +73,7 @@ Bookkeeping **table DDL** lives in root `InitDB` (`db.go`) with the rest of
 the schema (always created). The main package only **wires** recovery in:
 `RECOVERY_MODE` env, passing it into `InitServer` (mint vs fatal on missing
 self), mode-on unclaimed count log, `recovery.RegisterRoutes` when
-`RECOVERY_MODE` is on, and mode-on middleware that calls `recovery.IsOngoing`.
+`RECOVERY_MODE` is on, and mode-on middleware that calls `DataService.IsOngoing`.
 Do not add recovery endpoints or recovery verification logic under
 `handlers.go` or other root files.
 
@@ -371,7 +371,7 @@ is **superseded** by [10](10_spa_unified_restore.md).
   ([06](06_reeds_follows_complete.md)).
 - ~~SPA: server info + signup gating + unreachable notice~~ **Done** ([07](07_spa_server_info.md)).
 - ~~SPA: recovery landing UX ([08](08_spa_recovery_landing.md))~~ **Superseded by 10**.
-- User status probe ([09](09_user_status.md)).
+- ~~User status probe~~ **Done** ([09](09_user_status.md)).
 - SPA: unified restore, backup-first ([10](10_spa_unified_restore.md)).
 - SPA: recovery progress table + generic UI ([11](11_spa_recovery_progress.md)).
 - SPA: own-identity claim ([12](12_spa_own_identity_claim.md)).

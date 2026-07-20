@@ -164,8 +164,8 @@ func InitDB(db *sql.DB) error {
 
 	// Signed identity record columns. All four are populated together
 	// at signup and re-populated together whenever a fresh identity
-	// record is minted (e.g. profile updates). They are NULLable for
-	// forward-compatibility with dev rows created before this schema.
+	// record is minted (e.g. profile updates). NOT NULL: every user
+	// row is a countersigned identity record.
 	//
 	// - user_signature: base64 of the user's armored PGP detached
 	//   signature over the user identity payload.
@@ -185,10 +185,10 @@ func InitDB(db *sql.DB) error {
 		bio TEXT,
 		fingerprint VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		user_signature TEXT,
-		server_signature TEXT,
-		server_signed_at TIMESTAMP,
-		server_fingerprint VARCHAR(255)
+		user_signature TEXT NOT NULL,
+		server_signature TEXT NOT NULL,
+		server_signed_at TIMESTAMP NOT NULL,
+		server_fingerprint VARCHAR(255) NOT NULL
 	);`
 
 	createUserIndexes := `

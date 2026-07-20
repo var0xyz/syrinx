@@ -24,6 +24,7 @@ const BASE_URL = '/api';
 // (e.g. mid-rotation, right after RevokeKey).
 const UNAUTHENTICATED_ENDPOINTS = [
   '/users/signup',
+  '/users/status',
   '/check-username',
   '/keys',
   '/server/info',
