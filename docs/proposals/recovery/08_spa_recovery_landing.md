@@ -2,7 +2,12 @@
 
 ## Status
 
-Implemented.
+**Superseded** by [10](10_spa_unified_restore.md).
+
+Implemented as a recovery-mode banner + “Recover your account” CTA assuming
+data might already live on this origin. That model is wrong after a domain
+move: the new origin starts empty; users bring an encrypted backup. Keep this
+file for history only.
 
 ## Depends on
 
@@ -15,6 +20,10 @@ When the operator runs with `RECOVERY_MODE`, clients learn that from
 and offer a path to report local data back. A device that already holds a
 normal logged-in session must not be offered recovery on that device (forfeit
 rule). See [README](README.md) *Client responsibilities*.
+
+> **Superseded note:** Do not implement further against this doc. Use
+> [10](10_spa_unified_restore.md) (backup-first unified restore) and the revised
+> client state model there.
 
 ## Scope
 

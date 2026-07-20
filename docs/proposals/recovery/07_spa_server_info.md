@@ -38,7 +38,8 @@ compromised Syrinx server looks “online” until writes pile up in pending sto
 
 ## Non-goals
 
-- Recovery landing copy, `/recover` route, or ledger (08+).
+- Recovery landing copy or unified restore / progress (08 superseded; see
+  [10](10_spa_unified_restore.md), [11](11_spa_recovery_progress.md)).
 - Signup page invite-token handling ([invites 04](../invites/04_spa_signup_gating.md)).
 - Playwright coverage (deferred).
 
@@ -49,7 +50,8 @@ Prefer one fetch path: layout or a top-level initializer calls
 state is `isOnline && lastInfoFetchFailed`, not a separate health endpoint.
 
 Signup gating copy on the landing page when hidden: none required (button absent).
-Do not block “Import backup” or other CTAs.
+Do not block the unified restore CTA (“Already a user” / backup restore —
+[10](10_spa_unified_restore.md)) or other non-signup CTAs.
 
 ## Test plan
 
