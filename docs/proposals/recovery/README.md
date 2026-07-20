@@ -21,12 +21,15 @@ lives in root [`ops.go`](../../ops.go) (`//go:build ops`; build with
 | [05](05_peer_identity_report.md)           | Peer identity report-back (`POST /recovery/identity`) | 04         |
 | [06](06_reeds_follows_complete.md)         | Reed holdings, batched follows, `/complete`           | 04         |
 | [07](07_spa_server_info.md)                | SPA server info, signup gating, unreachable notice    | 04–06, [invites 00](../invites/00_signup_mode.md) |
-| [08](08_spa_recovery_landing.md)           | SPA recovery landing UX                               | 07         |
-| [09](09_spa_recovery_ledger_ui.md)         | SPA ledger enumerate, persist, progress UI            | 08         |
-| [10](10_spa_own_identity_claim.md)         | SPA own-identity claim                                | 09         |
-| [11](11_spa_peer_identities.md)            | SPA peer identity report-back                         | 10         |
-| [12](12_spa_reeds_follows_complete.md)     | SPA reeds, follows, complete                          | 11         |
-| [13](13_spa_import_gate_mirror.md)         | SPA import-gate mirror                                | 10         |
+| [08](08_spa_recovery_landing.md)           | ~~SPA recovery landing UX~~ **Superseded by 10**      | 07         |
+| [09](09_user_status.md)                    | User status probe (`POST /api/users/status`)          | 03, 04     |
+| [10](10_spa_unified_restore.md)            | SPA unified restore (backup-first)                    | 07, 09     |
+| [11](11_spa_recovery_progress.md)          | SPA recovery progress (entity ledger + generic UI)    | 10         |
+| [12](12_spa_own_identity_claim.md)         | SPA own-identity claim                                | 10, 11     |
+| [13](13_spa_peer_identities.md)            | SPA peer identity report-back                         | 12         |
+| [14](14_spa_reeds_follows_complete.md)     | SPA reeds, follows, complete                          | 13         |
+| [15](15_spa_import_gate_mirror.md)         | SPA import-gate mirror                                | 11, 12     |
+| [16](16_device_binding.md)                 | Device binding (single active device)                 | 09–15      |
 
 Prerequisite normal-operation work is under
 [`../`](../README.md) (proposals 01–11).
@@ -35,7 +38,10 @@ Prerequisite normal-operation work is under
 
 ## Status
 
-**Spec complete; implementation proceeds via the numbered steps above.**
+**Spec updated** for backup-first restore ([09](09_user_status.md)–[15](15_spa_import_gate_mirror.md))
+and deferred device binding ([16](16_device_binding.md)). Implementation
+proceeds via the numbered steps (skip superseded [08](08_spa_recovery_landing.md);
+each step depends only on earlier numbers).
 Normal-operation prerequisites (proposals 01–10 under `docs/proposals/`) are
 in place. Notifications (proposal 11) remain deferred.
 
@@ -342,8 +348,10 @@ questions by that server timestamp — never the submitter's.
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
 
-**Remaining** — land numbered SPA steps [07](07_spa_server_info.md)–[13](13_spa_import_gate_mirror.md)
-in this directory:
+**Remaining** — land numbered SPA / client steps below. Server recovery API
+([00](00_server_key_passphrase_keychain.md)–[06](06_reeds_follows_complete.md))
+and [07](07_spa_server_info.md) are done. Step [08](08_spa_recovery_landing.md)
+is **superseded** by [10](10_spa_unified_restore.md).
 
 - ~~**Server key passphrase** via OS keychain / optional HA env~~ **Done**
   ([00](00_server_key_passphrase_keychain.md), `syrinx/secret`).
@@ -362,12 +370,15 @@ in this directory:
 - ~~Reed/follow/`complete` endpoints + `pending_follows`~~ **Done**
   ([06](06_reeds_follows_complete.md)).
 - ~~SPA: server info + signup gating + unreachable notice~~ **Done** ([07](07_spa_server_info.md)).
-- SPA: recovery landing UX ([08](08_spa_recovery_landing.md)).
-- SPA: ledger enumerate / persist / progress UI ([09](09_spa_recovery_ledger_ui.md)).
-- SPA: own-identity claim ([10](10_spa_own_identity_claim.md)).
-- SPA: peer identity report-back ([11](11_spa_peer_identities.md)).
-- SPA: reeds, follows, complete ([12](12_spa_reeds_follows_complete.md)).
-- SPA: import-gate mirror ([13](13_spa_import_gate_mirror.md)).
+- ~~SPA: recovery landing UX ([08](08_spa_recovery_landing.md))~~ **Superseded by 10**.
+- User status probe ([09](09_user_status.md)).
+- SPA: unified restore, backup-first ([10](10_spa_unified_restore.md)).
+- SPA: recovery progress table + generic UI ([11](11_spa_recovery_progress.md)).
+- SPA: own-identity claim ([12](12_spa_own_identity_claim.md)).
+- SPA: peer identity report-back ([13](13_spa_peer_identities.md)).
+- SPA: reeds, follows, complete ([14](14_spa_reeds_follows_complete.md)).
+- SPA: import-gate mirror ([15](15_spa_import_gate_mirror.md)).
+- Device binding ([16](16_device_binding.md)) — after 09–15.
 
 **Deferred**:
 
@@ -408,14 +419,15 @@ Not reconstructed (ephemeral/realtime, repopulate on reconnect):
 All recovery routes exist only while `RECOVERY_MODE` is on. When off, they are
 not registered (no attack surface).
 
-| Endpoint                            | Auth            | Cardinality      |
-|-------------------------------------|-----------------|------------------|
-| `GET /api/recovery/identity/claim`  | none            | —                |
-| `POST /api/recovery/identity/claim` | challenge + sig | own identity     |
-| `POST /api/recovery/identity`       | signature-auth  | **one** peer     |
-| `POST /api/recovery/reeds`          | signature-auth  | **one** reed     |
-| `POST /api/recovery/following`      | signature-auth  | **≤100** userIDs |
-| `POST /api/recovery/complete`       | signature-auth  | —                |
+| Endpoint                            | Auth                      | Cardinality      |
+|-------------------------------------|---------------------------|------------------|
+| `POST /api/users/status`            | none (profile countersig) | —                |
+| `GET /api/recovery/identity/claim`  | none                      | —                |
+| `POST /api/recovery/identity/claim` | challenge + sig           | own identity     |
+| `POST /api/recovery/identity`       | signature-auth            | **one** peer     |
+| `POST /api/recovery/reeds`          | signature-auth            | **one** reed     |
+| `POST /api/recovery/following`      | signature-auth            | **≤100** userIDs |
+| `POST /api/recovery/complete`       | signature-auth            | —                |
 
 **Normal use stays enabled during recovery** for anyone who has finished
 claim/import (or never entered `ongoing_recoveries`). Live writes carry the
@@ -463,15 +475,42 @@ Identity submissions use a recursive nest (not a fingerprint map):
 ### Client responsibilities
 
 Recovery is **client-driven**: the server exposes the steps; the client owns
-the sync ledger and progress UI.
+backup restore, the progress table, and UI.
 
-- **Order:** claim self → each peer identity (complete nest only) → each reed →
-  follows in chunks of 100 → `POST /complete`.
-- **Import gate:** after claim, the server inserts `ongoing_recoveries`. While
-  `RECOVERY_MODE` is on **and** that row exists, non-recovery API routes return
-  `403`. The client also blocks normal UI until `complete`.
-- **A live account forfeits recovery.** If the device already has a logged-in
-  account, the client does **not** offer recovery on that device.
+**Domain move.** After a hostile takeover the community stands up a **new
+origin**. That origin’s browser storage is empty. Users must export an encrypted
+backup from the **old** app and restore it here. The client must never assume
+IndexedDB / localStorage from another domain is available.
+
+**Unified restore** ([09](09_user_status.md), [10](10_spa_unified_restore.md)):
+
+1. Homepage CTA (e.g. “Already a user”) → pick backup → backup passphrase.
+2. Decrypt in memory; `POST /api/users/status` with the countersigned profile
+   (no user signature on this call).
+3. Branch: **200** → write backup, normal session (import); **404** +
+   `recoveryMode` → write backup, start recovery; **404** without recovery →
+   write nothing; **409** → write backup and start or resume recovery
+   (idempotent server handlers); **400** → write nothing.
+4. Users are not asked to choose “import” vs “recover.”
+
+**Recovery order** (after backup write): claim self → each peer identity
+(complete nest only) → each reed → follows in pages of 100 → `POST /complete`.
+
+**Progress** ([11](11_spa_recovery_progress.md)): local per-entity table with
+start/end timestamps (follows grouped by page). UI is a generic percent bar,
+not a phase checklist.
+
+**Import gate:** after claim, the server inserts `ongoing_recoveries`. While
+`RECOVERY_MODE` is on **and** that row exists, non-recovery API routes return
+`403`. The client also blocks normal UI until `complete` ([15](15_spa_import_gate_mirror.md)).
+Local state is “recovery in progress,” not a finished login — `userId` in
+localStorage alone must not unlock the normal app.
+
+**Device binding** ([16](16_device_binding.md), after 09–15): one active device
+id per user; not stored in backups; mismatch wipes the offending client.
+
+The client learns recovery is active from `/server/info` (`recoveryMode`) and
+may show an informational banner; restore itself is always backup-first.
 
 ### Phase 0 — Operator redeploy
 
@@ -502,8 +541,9 @@ Bookkeeping tables (`unclaimed_accounts`, `ongoing_recoveries`) are created by
 `InitDB` on every boot. The unclaimed gauge and import gate run while
 `RECOVERY_MODE` is on.
 
-The client learns recovery is active from `/server/info` (`recoveryMode`) and
-shows the recovery banner + "import your data" accordingly.
+The client learns recovery is active from `/server/info` (`recoveryMode`).
+Restore and recovery reporting follow [10](10_spa_unified_restore.md) (backup
+first), not “data already on this device.”
 
 ### Phase 1a — Own identity claim
 
@@ -729,6 +769,12 @@ Deferred:
   `ops export-identity` / `ops import-identity`. Server key passphrase comes
   from proposal 00 (env if set, else keychain / prompt).
 - **Client detection**: `/server/info` reports `recoveryMode`.
+- **User status probe**: unauthenticated `POST /api/users/status` with the
+  countersigned profile; **200** `complete` / **404** `unknown` /
+  **409** `ongoing` / **400** on bad or stale profile ([09](09_user_status.md)).
+- **SPA restore**: backup-first unified flow; import vs recovery is decided by
+  the probe + `recoveryMode`, not by the user ([10](10_spa_unified_restore.md)).
+  Supersedes implemented [08](08_spa_recovery_landing.md).
 - **Own claim**: `GET`/`POST /api/recovery/identity/claim` with a ≤60s challenge
   signed by the active key; body carries profile + **full nested** key chain.
   Creates a claimed user or claims a peer-seeded one (deletes
@@ -742,17 +788,22 @@ Deferred:
   quiet restore; conflicting metadata → 409.
 - **Follows**: authenticated batches of **at most 100** userIDs; missing
   targets → `pending_follows`; drain on claim / peer report (not signup).
-- **Import progress**: client-owned; no `GET /api/recovery/status`; finish via
-  `POST /complete`.
+- **Import progress**: client-owned entity progress table + generic percent UI;
+  no `GET /api/recovery/status`; finish via `POST /complete`
+  ([11](11_spa_recovery_progress.md)).
 - **Import gate**: middleware registered when `RECOVERY_MODE` is on;
   `ongoing_recoveries` → 403 on non-recovery routes until
-  `POST /api/recovery/complete`. Client mirrors the block in the UI.
+  `POST /api/recovery/complete`. Client mirrors the block in the UI
+  ([15](15_spa_import_gate_mirror.md)); `userId` alone is not a finished session.
 - **Unclaimed gauge**: peer-seeded accounts awaiting owner claim; startup
   `count(*)` log while `RECOVERY_MODE` is on.
 - **Username collisions**: newest `server_signed_at` wins; loser renamed with
   a permanent suffix.
 - **Completion**: no global finalize; operator turns `RECOVERY_MODE` off;
   per-user import ends via `complete`.
+- **Device binding** (after SPA restore): one device id per user, not in
+  backups; `POST /api/users/device` overwrites; mismatch rejects and client
+  wipes ([16](16_device_binding.md)).
 - **Secrets**: bundle password (prompted by `ops` only, encrypts the export
   file, never stored) is independent of the server key passphrase (env for HA,
   else OS keychain / prompt; empty prompt auto-generates 24 chars to stdout;
