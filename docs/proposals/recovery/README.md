@@ -336,8 +336,8 @@ questions by that server timestamp — never the submitter's.
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
 
-**Remaining** — land numbered steps [05](05_peer_identity_report.md)–[07](07_spa_recover_client.md)
-in this directory (all server work under `syrinx/recovery`):
+**Remaining** — land numbered step [07](07_spa_recover_client.md)
+in this directory:
 
 - ~~**Server key passphrase** via OS keychain / optional HA env~~ **Done**
   ([00](00_server_key_passphrase_keychain.md), `syrinx/secret`).
@@ -353,8 +353,9 @@ in this directory (all server work under `syrinx/recovery`):
   ([04](04_own_identity_claim.md)).
 - ~~Authenticated peer **`POST /api/recovery/identity`**~~ **Done**
   ([05](05_peer_identity_report.md)).
-- Reed/follow/`complete` endpoints (claim inserts into the bookkeeping tables
-  from step 03).
+- ~~Reed/follow/`complete` endpoints + `pending_follows`~~ **Done**
+  ([06](06_reeds_follows_complete.md)).
+- SPA recover path + sync ledger ([07](07_spa_recover_client.md)).
 
 **Deferred**:
 
@@ -372,7 +373,7 @@ User-recoverable:
 | `user_key_revocations` | signed revocations (replicated)           | signed + monotonic |
 | `reeds`                | reed `server` block (`reedID`, `author`, server `fingerprint`, `ts`) | server countersig bound to `reedID`+`author`, verified against the matching restored server key |
 | `reed_allocations`     | holder's own report                       | normal signature-auth (holder signs the request) |
-| `user_following`       | user's own follow list                    | normal signature-auth (no per-edge signature) |
+| `user_following`       | user's own follow list                    | normal signature-auth (no per-edge signature); missing targets held in `pending_follows` until the target is restored |
 
 Operator-restored (not from users): `servers` (preserved ID + name),
 `private_keys` (**full history**), `public_keys` (derived).
@@ -383,6 +384,8 @@ Recovery-internal bookkeeping (not reconstructed from users):
   yet claimed.
 - `ongoing_recoveries` — claimants who have not finished their import ledger;
   while `RECOVERY_MODE` is on, these users are barred from non-recovery API use.
+- `pending_follows` — follow edges whose target user is not yet in `users`;
+  drained when that user is claimed or peer-reported.
 
 Not reconstructed (ephemeral/realtime, repopulate on reconnect):
 `online_users`, `broadcast_subscriptions`, `pending_events`,
@@ -559,22 +562,40 @@ is off, the gate does not apply even if rows remain.
 **`POST /api/recovery/reeds`** — **one reed per request** (no batches; keeps
 verification bounded):
 
-`{ reedID, authorID, userSignature, serverSignature, serverFingerprint, ... }`
+```json
+{
+  "reedID": "...",
+  "authorID": "...",
+  "userSignature": "<base64 armored>",
+  "server": {
+    "id": "<serverID>",
+    "fingerprint": "<server signing key>",
+    "timestamp": "...",
+    "signature": "<base64 armored countersig>"
+  }
+}
+```
 
 1. Author must already exist.
 2. Verify the server countersignature (binds `reedID` + `authorID` + server ts +
-   `serverID`) against the restored key of `serverFingerprint`.
+   `serverID`) against the restored key of `server.fingerprint`.
 3. Upsert `reeds` metadata idempotently; insert
    `reed_allocations(reedID, reportingUserID)`. No reed content is stored.
+   Quiet — no realtime broadcast. Re-POST of the same metadata succeeds;
+   conflicting metadata for an existing `reedID` → **409** + error log.
 
 ### Phase 3 — Follows (authenticated)
 
 **`POST /api/recovery/following`** — body `{ "userIDs": [ ... ] }`, **at most
-100** IDs per request (reject larger bodies).
+100** IDs per request (reject larger bodies). Self-follow → **400**.
 
-Caller asserts their own follow list. Inserts use `ON CONFLICT DO NOTHING`;
-edges toward not-yet-restored users are skipped; the client retries or drops
-them as the ledger advances.
+Caller asserts their own follow list. Existing targets get
+`user_following` + `user_followers` (`ON CONFLICT DO NOTHING`). Targets not
+yet in `users` go into `pending_follows` (no FK on the target ID). When that
+user later appears via own claim or peer identity report, pending edges are
+drained into the real follow tables in the same transaction. Live signup does
+not drain (new random IDs never match). Rows left behind after
+`RECOVERY_MODE` turns off are left for the operator.
 
 ### Ending recovery
 
@@ -654,7 +675,7 @@ Already in the base schema (normal operation):
   pinned base64 layering.
 - **Removed**: the `user_count` table (Proposal 02).
 
-Still to add with the recovery feature:
+Added with the recovery feature:
 
 - **`servers.identity_backup_at`** (nullable timestamp on the self row): last
   successful identity-bundle export (`exportedAt`). NULL means never exported
@@ -671,6 +692,12 @@ Still to add with the recovery feature:
   `POST /api/recovery/complete`. While `RECOVERY_MODE` is on, presence of a row
   blocks that user from non-recovery API routes (middleware installed in that
   mode).
+- **`pending_follows`**: follow edges reported during recovery whose target
+  `user_id` is not yet in `users`. DDL in `InitDB`.
+  `(follower_user_id → users, following_user_id TEXT, PK)`; no FK on the
+  target. Drained into `user_following` / `user_followers` when the target is
+  saved via claim or peer identity report. Not cleaned up when recovery mode
+  ends.
 
 Deferred:
 
@@ -699,8 +726,12 @@ Deferred:
   new. No list endpoint (verification cost).
 - **Key chains**: incomplete nests rejected; insert oldest→newest to preserve
   `user_keys.predecessor_fingerprint` FK integrity.
-- **Reeds**: authenticated, **one reed** per request.
-- **Follows**: authenticated batches of **at most 100** userIDs.
+- **Reeds**: authenticated, **one reed** per request; nested `server` block;
+  quiet restore; conflicting metadata → 409.
+- **Follows**: authenticated batches of **at most 100** userIDs; missing
+  targets → `pending_follows`; drain on claim / peer report (not signup).
+- **Import progress**: client-owned; no `GET /api/recovery/status`; finish via
+  `POST /complete`.
 - **Import gate**: middleware registered when `RECOVERY_MODE` is on;
   `ongoing_recoveries` → 403 on non-recovery routes until
   `POST /api/recovery/complete`. Client mirrors the block in the UI.

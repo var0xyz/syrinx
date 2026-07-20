@@ -421,6 +421,23 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
+	// Follow edges reported during recovery whose target is not yet in users.
+	// following_user_id has no FK — the whole point is to hold unknown targets
+	// until claim / peer report drains them into user_following / user_followers.
+	createPendingFollowsTable := `
+	CREATE TABLE IF NOT EXISTS pending_follows (
+		follower_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		following_user_id VARCHAR(255) NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (follower_user_id, following_user_id)
+	);`
+
+	createPendingFollowsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_pending_follows_following_user_id
+		ON pending_follows(following_user_id);
+	`
+
 	queries := []string{
 		// Servers
 		createServersTable,
@@ -467,7 +484,11 @@ func InitDB(db *sql.DB) error {
 
 		// Recovery
 		createUnclaimedAccountsTable,
+
 		createOngoingRecoveriesTable,
+
+		createPendingFollowsTable,
+		createPendingFollowsIndexes,
 	}
 
 	for i, query := range queries {

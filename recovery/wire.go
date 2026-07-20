@@ -79,6 +79,19 @@ type ChallengeResponse struct {
 	Challenge int64 `json:"challenge"`
 }
 
+// ReedRequest is the POST /api/recovery/reeds body.
+type ReedRequest struct {
+	ReedID        string          `json:"reedID"`
+	AuthorID      string          `json:"authorID"`
+	UserSignature string          `json:"userSignature"`
+	Server        ServerSignature `json:"server"`
+}
+
+// FollowingRequest is the POST /api/recovery/following body.
+type FollowingRequest struct {
+	UserIDs []string `json:"userIDs"`
+}
+
 // FlatKey is one key in oldest→newest order after nest verification.
 // Oldest-first matches user_keys.predecessor_fingerprint FK insert order.
 type FlatKey struct {
