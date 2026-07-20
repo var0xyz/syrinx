@@ -11,6 +11,11 @@ export const isSignupOpen = derived(
   ($info) => $info?.signupMode === 'open'
 );
 
+export const isRecoveryMode = derived(
+  serverInfo,
+  ($info) => $info?.recoveryMode === true
+);
+
 /** Device is online but GET /api/server/info failed. */
 export const isServerUnreachable = derived(
   [isOnline, serverInfoFetchFailed],

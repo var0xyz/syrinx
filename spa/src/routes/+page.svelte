@@ -3,7 +3,10 @@
   import { goto } from '$app/navigation';
   import { authService } from '$lib/services/auth';
   import { requestPersistentStorage } from '$lib/services/pwa';
-  import { isSignupOpen, serverInfoLoading } from '$lib/services/serverInfo';
+  import { isRecoveryMode, isSignupOpen, serverInfoLoading } from '$lib/services/serverInfo';
+
+  $: showRecoveryLanding =
+    !$serverInfoLoading && $isRecoveryMode && !authService.isLoggedIn();
 
   let deferredPrompt = null;
   let showInstallButton = false;
@@ -50,7 +53,17 @@
 <div class="container">
   <div class="card">
     <h1>Welcome to Syrinx</h1>
-    <p>A distributed, P2P content-distribution platform</p>
+    {#if showRecoveryLanding}
+      <div class="recovery-banner" role="status">
+        <p>
+          This server is in recovery mode. If you have Syrinx data on this device,
+          report it back to help restore the server.
+        </p>
+      </div>
+      <p class="subtitle">Report your local data to restore this server</p>
+    {:else}
+      <p class="subtitle">A distributed, P2P content-distribution platform</p>
+    {/if}
 
     {#if showInstallButton && !isPWAInstalled}
       <div class="install-section">
@@ -66,8 +79,13 @@
     {/if}
 
     <div class="action-buttons">
+      {#if showRecoveryLanding}
+        <a href="/recover" class="btn btn-primary">Recover your account</a>
+      {/if}
       {#if !$serverInfoLoading && $isSignupOpen}
-        <a href="/preamble" class="btn btn-primary">Sign Up</a>
+        <a href="/preamble" class="btn {showRecoveryLanding ? 'btn-secondary' : 'btn-primary'}">
+          Sign Up
+        </a>
       {/if}
       <a href="/import" class="btn btn-secondary">Import backup</a>
     </div>
@@ -96,10 +114,26 @@
     font-size: 2rem;
   }
 
-  .card p {
+  .card p.subtitle {
     margin: 0 0 2rem 0;
     color: var(--muted);
     font-size: 1.1rem;
+  }
+
+  .recovery-banner {
+    margin: 0 0 1.5rem 0;
+    padding: 1rem;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(230, 126, 34, 0.15), rgba(214, 48, 49, 0.12));
+    border: 1px solid rgba(230, 126, 34, 0.45);
+    text-align: left;
+  }
+
+  .recovery-banner p {
+    margin: 0;
+    color: var(--fg);
+    font-size: 0.95rem;
+    line-height: 1.5;
   }
 
   .action-buttons {
