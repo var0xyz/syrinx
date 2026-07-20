@@ -35,6 +35,9 @@ func SaveOwnIdentity(db *sql.DB, profile Profile, flat []FlatKey) (*SaveIdentity
 	`, profile.ID); err != nil {
 		return nil, err
 	}
+	if err := drainPendingFollows(tx, profile.ID); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -62,6 +65,9 @@ func SavePeerIdentity(db *sql.DB, profile Profile, flat []FlatKey) (*SaveIdentit
 		`, profile.ID); err != nil {
 			return nil, err
 		}
+	}
+	if err := drainPendingFollows(tx, profile.ID); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -322,4 +328,33 @@ func nullIfEmpty(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+// drainPendingFollows moves pending edges targeting targetUserID into the
+// real follow tables, then deletes those pending rows.
+func drainPendingFollows(tx *sql.Tx, targetUserID string) error {
+	if _, err := tx.Exec(`
+		INSERT INTO user_following (user_id, following_user_id)
+		SELECT follower_user_id, following_user_id
+		FROM pending_follows
+		WHERE following_user_id = $1
+		ON CONFLICT DO NOTHING
+	`, targetUserID); err != nil {
+		return fmt.Errorf("drain pending following: %w", err)
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO user_followers (user_id, follower_user_id)
+		SELECT following_user_id, follower_user_id
+		FROM pending_follows
+		WHERE following_user_id = $1
+		ON CONFLICT DO NOTHING
+	`, targetUserID); err != nil {
+		return fmt.Errorf("drain pending followers: %w", err)
+	}
+	if _, err := tx.Exec(`
+		DELETE FROM pending_follows WHERE following_user_id = $1
+	`, targetUserID); err != nil {
+		return fmt.Errorf("delete pending follows: %w", err)
+	}
+	return nil
 }
