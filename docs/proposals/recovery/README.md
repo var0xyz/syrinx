@@ -361,7 +361,7 @@ in this directory:
   ([05](05_peer_identity_report.md)).
 - ~~Reed/follow/`complete` endpoints + `pending_follows`~~ **Done**
   ([06](06_reeds_follows_complete.md)).
-- SPA: server info + signup gating + unreachable notice ([07](07_spa_server_info.md)).
+- ~~SPA: server info + signup gating + unreachable notice~~ **Done** ([07](07_spa_server_info.md)).
 - SPA: recovery landing UX ([08](08_spa_recovery_landing.md)).
 - SPA: ledger enumerate / persist / progress UI ([09](09_spa_recovery_ledger_ui.md)).
 - SPA: own-identity claim ([10](10_spa_own_identity_claim.md)).
