@@ -280,6 +280,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			excludePaths := []string{
 				prefix + "/users/login",
 				prefix + "/users/signup",
+				prefix + "/users/status",
 				prefix + "/check-username",
 				prefix + "/keys",
 				prefix + "/server/info",

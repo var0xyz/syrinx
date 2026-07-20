@@ -1,7 +1,6 @@
 package recovery
 
 import (
-	"database/sql"
 	"net/http"
 	"strings"
 )
@@ -10,6 +9,9 @@ import (
 // ongoing_recoveries. path is the request URL path (e.g. /api/server/info).
 func AllowedDuringImport(path string) bool {
 	if path == "/api/server/info" {
+		return true
+	}
+	if path == "/api/users/status" {
 		return true
 	}
 	if strings.HasPrefix(path, "/api/recovery/") {
@@ -22,12 +24,11 @@ func AllowedDuringImport(path string) bool {
 }
 
 // Middleware returns the import-gate middleware. userIDKey is the context key
-// signature-auth uses for the authenticated user id. Authenticated users in
-// ongoing_recoveries get 403 on non-allowlisted paths. OPTIONS always passes.
-func Middleware(db *sql.DB, userIDKey any) func(http.Handler) http.Handler {
-	return middleware(userIDKey, func(userID string) (bool, error) {
-		return IsOngoing(db, userID)
-	})
+// signature-auth uses for the authenticated user id. isOngoing reports whether
+// that user is mid-import. Authenticated users mid-import get 403 on
+// non-allowlisted paths. OPTIONS always passes.
+func Middleware(userIDKey any, isOngoing func(userID string) (bool, error)) func(http.Handler) http.Handler {
+	return middleware(userIDKey, isOngoing)
 }
 
 func middleware(userIDKey any, isOngoing func(userID string) (bool, error)) func(http.Handler) http.Handler {

@@ -176,6 +176,9 @@ func main() {
 	api.HandleFunc("/users/signup", h.Signup).Methods("POST")
 	api.HandleFunc("/users/signup", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/users/status", h.UserStatus).Methods("POST")
+	api.HandleFunc("/users/status", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/users/me", h.UpdateUser).Methods("PUT")
 	api.HandleFunc("/users/me", h.DeleteMe).Methods("DELETE")
 	api.HandleFunc("/users/me", h.noop).Methods("OPTIONS")
@@ -240,10 +243,8 @@ func main() {
 				log.Warn().Msg(fmt.Sprintf("[OK] %d unclaimed accounts", unclaimedCount))
 			}
 		}
-		realtimeService.SetOngoingCheck(func(userID string) (bool, error) {
-			return recovery.IsOngoing(db, userID)
-		})
-		api.Use(recovery.Middleware(db, userIDKey))
+		realtimeService.SetOngoingCheck(dataService.IsOngoing)
+		api.Use(recovery.Middleware(userIDKey, dataService.IsOngoing))
 		recovery.RegisterRoutes(api, recovery.Deps{
 			DB:        db,
 			Crypto:    cryptoService,

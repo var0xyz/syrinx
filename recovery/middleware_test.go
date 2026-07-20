@@ -13,6 +13,7 @@ func TestAllowedDuringImport(t *testing.T) {
 		want bool
 	}{
 		{"/api/server/info", true},
+		{"/api/users/status", true},
 		{"/api/recovery/identity/claim", true},
 		{"/api/recovery/", true},
 		{"/api/server/keys/ABC", true},

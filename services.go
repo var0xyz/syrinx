@@ -66,6 +66,35 @@ func (s *DataService) GetServerID() string {
 	return s.serverID
 }
 
+// UserServerSignedAt returns the identity countersignature time for userID.
+// Returns sql.ErrNoRows when the user does not exist.
+func (s *DataService) UserServerSignedAt(userID string) (time.Time, error) {
+	var ts time.Time
+	err := s.db.QueryRow(`SELECT server_signed_at FROM users WHERE id = $1`, userID).Scan(&ts)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return ts.UTC().Truncate(time.Second), nil
+}
+
+// IsUnclaimed reports whether userID is still in the peer-seeded gauge.
+func (s *DataService) IsUnclaimed(userID string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM unclaimed_accounts WHERE user_id = $1)
+	`, userID).Scan(&exists)
+	return exists, err
+}
+
+// IsOngoing reports whether userID is mid-recovery import.
+func (s *DataService) IsOngoing(userID string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM ongoing_recoveries WHERE user_id = $1)
+	`, userID).Scan(&exists)
+	return exists, err
+}
+
 const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 func generateID(n int) (string, error) {
@@ -424,8 +453,6 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 func (s *DataService) GetUser(userID string) (*User, error) {
 	var user User
 	var avatarURL, bio, fingerprint sql.NullString
-	var userSig, serverSig, serverKeyFP sql.NullString
-	var signedAt sql.NullTime
 
 	err := s.db.QueryRow(`
 		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at,
@@ -444,10 +471,10 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		&bio,
 		&user.CreatedAt,
 		&fingerprint,
-		&userSig,
-		&serverSig,
-		&serverKeyFP,
-		&signedAt,
+		&user.UserSignatureB64,
+		&user.Server.Armor,
+		&user.Server.Fingerprint,
+		&user.Server.SignedAt,
 		&user.HasReeds,
 	)
 	if err != nil {
@@ -466,19 +493,8 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		user.SignatureFingerprint = fingerprint.String
 		user.ActiveKeyFingerprint = fingerprint.String
 	}
-	// Signed identity record. Rows that predate signed identity records
-	// (or dev rows created outside the Signup flow) have NULLs in these
-	// columns — for those, sql.Null*.String/.Time are zero-valued and
-	// the block ends up empty, which is the intended failure mode: no
-	// signature, no trust.
-	user.UserSignatureB64 = userSig.String
-	user.Server = Signature{
-		ServerID:    s.serverID,
-		Fingerprint: serverKeyFP.String,
-		Algorithm:   identity.Algorithm,
-		Armor:       serverSig.String,
-		SignedAt:    signedAt.Time,
-	}
+	user.Server.ServerID = s.serverID
+	user.Server.Algorithm = identity.Algorithm
 
 	return &user, nil
 }

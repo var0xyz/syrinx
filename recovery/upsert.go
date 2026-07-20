@@ -82,7 +82,7 @@ func upsertIdentity(tx *sql.Tx, profile Profile, flat []FlatKey) (*SaveIdentityR
 	activeFP := flat[len(flat)-1].Key.Fingerprint
 	incomingSignedAt := profile.Server.Timestamp.UTC().Truncate(time.Second)
 
-	var existingSignedAt sql.NullTime
+	var existingSignedAt time.Time
 	err := tx.QueryRow(`
 		SELECT server_signed_at FROM users WHERE id = $1 FOR UPDATE
 	`, profile.ID).Scan(&existingSignedAt)
@@ -141,11 +141,10 @@ func updateUserIfNewer(
 	tx *sql.Tx,
 	profile Profile,
 	activeFP string,
-	existingSignedAt sql.NullTime,
+	existingSignedAt time.Time,
 	incomingSignedAt time.Time,
 ) (bool, error) {
-	shouldUpdate := !existingSignedAt.Valid || incomingSignedAt.After(existingSignedAt.Time)
-	if !shouldUpdate {
+	if !incomingSignedAt.After(existingSignedAt) {
 		return false, nil
 	}
 	username, err := claimUsername(tx, profile.ID, profile.Username, incomingSignedAt)
@@ -236,7 +235,7 @@ func insertKeys(tx *sql.Tx, userID string, flat []FlatKey) error {
 
 func claimUsername(tx *sql.Tx, userID, username string, signedAt time.Time) (string, error) {
 	var holderID string
-	var holderSignedAt sql.NullTime
+	var holderSignedAt time.Time
 	err := tx.QueryRow(`
 		SELECT id, server_signed_at FROM users
 		WHERE LOWER(username) = LOWER($1) AND id <> $2
@@ -249,7 +248,7 @@ func claimUsername(tx *sql.Tx, userID, username string, signedAt time.Time) (str
 		return "", err
 	}
 
-	holderWins := holderSignedAt.Valid && !signedAt.After(holderSignedAt.Time)
+	holderWins := !signedAt.After(holderSignedAt)
 	if holderWins {
 		// Incoming loses: store under renamed form.
 		return uniqueRenamedUsername(tx, username, userID)

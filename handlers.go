@@ -3,6 +3,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 
 	"syrinx/identity"
 	"syrinx/realtime"
+	"syrinx/recovery"
 	"syrinx/signing"
 
 	"github.com/gorilla/mux"
@@ -372,6 +374,78 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeResponse(w, http.StatusOK, "Username is available")
+}
+
+// UserStatus handles POST /api/users/status. Unauthenticated probe: client
+// sends a countersigned profile; server verifies its own countersignature and
+// reports claimed / unclaimed / mid-recovery state.
+func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
+	var profile recovery.Profile
+	if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if profile.ID == "" || profile.Username == "" || profile.SignatureFingerprint == "" {
+		writeResponse(w, http.StatusBadRequest, "profile id, username, and signatureFingerprint are required")
+		return
+	}
+
+	// Profile must carry this server's countersignature (wrong serverID or
+	// bad/missing sig → 400).
+	if err := recovery.VerifyProfileServerCountersig(
+		profile,
+		h.services.db.GetServerID(),
+		h.services.db.GetServerPublicKeyByFingerprint,
+		h.services.crypto,
+	); err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Peer-seeded only (in unclaimed_accounts) → unknown. Implies a users
+	// row exists; no need to read users yet.
+	unclaimed, err := h.services.db.IsUnclaimed(profile.ID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if unclaimed {
+		writeResponse(w, http.StatusNotFound, recovery.UserStatusUnknownResponse)
+		return
+	}
+
+	// No users row → unknown.
+	signedAt, err := h.services.db.UserServerSignedAt(profile.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeResponse(w, http.StatusNotFound, recovery.UserStatusUnknownResponse)
+			return
+		}
+		internalServerError(w)
+		return
+	}
+
+	// Submitted profile older than the claimed DB record → reject (would
+	// fork the identity / key chain).
+	submittedAt := profile.Server.Timestamp.UTC().Truncate(time.Second)
+	if submittedAt.Before(signedAt) {
+		writeResponse(w, http.StatusBadRequest, "stale profile: backup is older than the server record")
+		return
+	}
+
+	// Claimed and mid-import → ongoing.
+	ongoing, err := h.services.db.IsOngoing(profile.ID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if ongoing {
+		writeResponse(w, http.StatusConflict, recovery.UserStatusOngoingResponse)
+		return
+	}
+
+	// Claimed, not mid-import, profile not older than DB → complete.
+	writeResponse(w, http.StatusOK, recovery.UserStatusCompleteResponse)
 }
 
 func (h *Handlers) GetUser(w http.ResponseWriter, r *http.Request) {
