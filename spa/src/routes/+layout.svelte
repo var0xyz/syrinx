@@ -3,8 +3,10 @@
   import "$lib/styles.css";
   import Notifications from '$lib/components/Notifications.svelte';
   import OfflineIndicator from '$lib/components/OfflineIndicator.svelte';
+  import ServerUnreachableIndicator from '$lib/components/ServerUnreachableIndicator.svelte';
   import InstallButton from '$lib/components/InstallButton.svelte';
   import { initializePWA, isOnline } from '$lib/services/pwa';
+  import { refreshServerInfo } from '$lib/services/serverInfo';
   import { authService } from '$lib/services/auth';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { dbService } from '$lib/services/db';
@@ -36,6 +38,7 @@
   let wasOnline = false;
   $: if ($isOnline && !wasOnline) {
     wasOnline = true;
+    refreshServerInfo();
     authService.getCurrentUser().then(currentUser => {
       if (currentUser) {
         reedsService.processUnsignedReeds();
@@ -49,6 +52,7 @@
 
   onMount(async () => {
     initializePWA();
+    refreshServerInfo();
 
     // Register WS handlers unconditionally so they're in place whether the
     // connection is established now (existing user) or later (post-signup).
@@ -102,6 +106,7 @@
   <h1><a href={headerLink}>💫 Syrinx</a></h1>
 </header>
 
+<ServerUnreachableIndicator />
 <OfflineIndicator />
 <slot />
 

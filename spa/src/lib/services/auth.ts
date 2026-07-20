@@ -1,6 +1,8 @@
+import { get } from 'svelte/store';
 import type * as api from '$lib/types/api';
 import { requestSigner } from './request-signer';
 import { serverConnection } from './serverConnection';
+import { refreshServerInfo, serverInfo } from './serverInfo';
 
 interface SignupUser {
   username: string;
@@ -84,18 +86,17 @@ export class AuthService {
   }
 
   /**
-   * Get the server name from the /api/server/info endpoint
+   * Get the server name from cached server info, refreshing if needed.
    */
   async getServerName(): Promise<string> {
-    const response = await fetch('/api/server/info');
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    let info = get(serverInfo);
+    if (!info) {
+      info = await refreshServerInfo();
     }
-
-    const server = await response.json();
-    localStorage.setItem('serverId', server.id);
-    return server.name;
+    if (!info) {
+      throw new Error('Failed to fetch server info');
+    }
+    return info.name;
   }
 
   /**

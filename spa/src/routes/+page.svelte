@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { authService } from '$lib/services/auth';
   import { requestPersistentStorage } from '$lib/services/pwa';
+  import { isSignupOpen, serverInfoLoading } from '$lib/services/serverInfo';
 
   let deferredPrompt = null;
   let showInstallButton = false;
@@ -65,7 +66,9 @@
     {/if}
 
     <div class="action-buttons">
-      <a href="/preamble" class="btn btn-primary">Sign Up</a>
+      {#if !$serverInfoLoading && $isSignupOpen}
+        <a href="/preamble" class="btn btn-primary">Sign Up</a>
+      {/if}
       <a href="/import" class="btn btn-secondary">Import backup</a>
     </div>
   </div>
