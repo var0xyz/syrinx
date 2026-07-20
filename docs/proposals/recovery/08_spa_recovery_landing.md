@@ -1,0 +1,51 @@
+# Recovery 08 — SPA recovery landing UX
+
+## Status
+
+Proposed.
+
+## Depends on
+
+[07](07_spa_server_info.md)
+
+## Context
+
+When the operator runs with `RECOVERY_MODE`, clients learn that from
+`/api/server/info` (`recoveryMode`). The landing page must explain the situation
+and offer a path to report local data back. A device that already holds a
+normal logged-in session must not be offered recovery on that device (forfeit
+rule). See [README](README.md) *Client responsibilities*.
+
+## Scope
+
+- When `recoveryMode` is true and the user is **not** logged in: adjust homepage
+  copy (banner / subtitle) to explain the server is in recovery and the user
+  should report their data.
+- Show a primary CTA (e.g. “Recover your account”) linking to `/recover`.
+- **Forfeit rule:** if `authService.isLoggedIn()` is true, do **not** show the
+  recovery CTA or recovery-specific homepage messaging (user is using a live
+  session on this device; recovery is for restoring onto a wiped server, not
+  for multi-device use).
+- While `recoveryMode` is false: no recovery banner or CTA.
+
+## Non-goals
+
+- `/recover` page implementation beyond a stub route if needed for the link
+  (full page lands in 09).
+- Import backup flow (`/import`) — out of scope for recovery slices.
+- Ledger, API calls, or import-gate handling (09+).
+- Playwright coverage (deferred).
+
+## Design
+
+Recovery messaging and signup gating are independent: signup follows
+`signupMode` only (07). During recovery the homepage may show both “Sign Up”
+(open mode) and “Recover your account” when not logged in.
+
+Logged-in users visiting `/` continue to redirect to `/reeds` as today.
+
+## Test plan
+
+- [ ] `recoveryMode: true`, logged out → banner + recover CTA visible
+- [ ] `recoveryMode: true`, logged in → no recover CTA; redirect to app
+- [ ] `recoveryMode: false` → no recovery messaging

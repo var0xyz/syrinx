@@ -20,7 +20,13 @@ lives in root [`ops.go`](../../ops.go) (`//go:build ops`; build with
 | [04](04_own_identity_claim.md)             | Own-identity claim (challenge + nested key chain)     | 03         |
 | [05](05_peer_identity_report.md)           | Peer identity report-back (`POST /recovery/identity`) | 04         |
 | [06](06_reeds_follows_complete.md)         | Reed holdings, batched follows, `/complete`           | 04         |
-| [07](07_spa_recover_client.md)             | SPA recover path + sync ledger                        | 04–06      |
+| [07](07_spa_server_info.md)                | SPA server info, signup gating, unreachable notice    | 04–06, [invites 00](../invites/00_signup_mode.md) |
+| [08](08_spa_recovery_landing.md)           | SPA recovery landing UX                               | 07         |
+| [09](09_spa_recovery_ledger_ui.md)         | SPA ledger enumerate, persist, progress UI            | 08         |
+| [10](10_spa_own_identity_claim.md)         | SPA own-identity claim                                | 09         |
+| [11](11_spa_peer_identities.md)            | SPA peer identity report-back                         | 10         |
+| [12](12_spa_reeds_follows_complete.md)     | SPA reeds, follows, complete                          | 11         |
+| [13](13_spa_import_gate_mirror.md)         | SPA import-gate mirror                                | 10         |
 
 Prerequisite normal-operation work is under
 [`../`](../README.md) (proposals 01–11).
@@ -336,7 +342,7 @@ questions by that server timestamp — never the submitter's.
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
 
-**Remaining** — land numbered step [07](07_spa_recover_client.md)
+**Remaining** — land numbered SPA steps [07](07_spa_server_info.md)–[13](13_spa_import_gate_mirror.md)
 in this directory:
 
 - ~~**Server key passphrase** via OS keychain / optional HA env~~ **Done**
@@ -355,7 +361,13 @@ in this directory:
   ([05](05_peer_identity_report.md)).
 - ~~Reed/follow/`complete` endpoints + `pending_follows`~~ **Done**
   ([06](06_reeds_follows_complete.md)).
-- SPA recover path + sync ledger ([07](07_spa_recover_client.md)).
+- SPA: server info + signup gating + unreachable notice ([07](07_spa_server_info.md)).
+- SPA: recovery landing UX ([08](08_spa_recovery_landing.md)).
+- SPA: ledger enumerate / persist / progress UI ([09](09_spa_recovery_ledger_ui.md)).
+- SPA: own-identity claim ([10](10_spa_own_identity_claim.md)).
+- SPA: peer identity report-back ([11](11_spa_peer_identities.md)).
+- SPA: reeds, follows, complete ([12](12_spa_reeds_follows_complete.md)).
+- SPA: import-gate mirror ([13](13_spa_import_gate_mirror.md)).
 
 **Deferred**:
 
