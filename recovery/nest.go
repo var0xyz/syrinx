@@ -107,12 +107,34 @@ func FlattenKeysNest(
 		return FlatKey{}, nil, fmt.Errorf("profile user signature: %w", err)
 	}
 
-	serverPub, err := lookup(profile.Server.Fingerprint)
-	if err != nil {
+	if err := VerifyProfileServerCountersig(profile, serverID, lookup, v); err != nil {
 		return FlatKey{}, nil, err
 	}
+
+	// Oldest → newest for user_keys.predecessor_fingerprint inserts.
+	flat = make([]FlatKey, 0, len(newestFirst))
+	for i := len(newestFirst) - 1; i >= 0; i-- {
+		flat = append(flat, newestFirst[i])
+	}
+	return active, flat, nil
+}
+
+// VerifyProfileServerCountersig checks profile.server.id against serverID and
+// verifies the server countersignature. It does not verify the user signature
+// or key nest (those are claim/peer concerns).
+func VerifyProfileServerCountersig(profile Profile, serverID string, lookup ServerKeyLookup, v Verifier) error {
+	if profile.Server.ID != serverID {
+		return fmt.Errorf("profile server id mismatch")
+	}
+	if profile.Server.Fingerprint == "" || profile.Server.Signature == "" || profile.Server.Timestamp.IsZero() {
+		return fmt.Errorf("missing server countersignature")
+	}
+	serverPub, err := lookup(profile.Server.Fingerprint)
+	if err != nil {
+		return err
+	}
 	if serverPub == "" {
-		return FlatKey{}, nil, fmt.Errorf("unknown server key %s for profile", profile.Server.Fingerprint)
+		return fmt.Errorf("unknown server key %s for profile", profile.Server.Fingerprint)
 	}
 	profilePayload := identity.BuildProfilePayload(
 		profile.ID,
@@ -128,18 +150,12 @@ func FlattenKeysNest(
 	)
 	serverSigArmor, err := decodeB64Armor(profile.Server.Signature)
 	if err != nil {
-		return FlatKey{}, nil, fmt.Errorf("profile server signature: %w", err)
+		return fmt.Errorf("profile server signature: %w", err)
 	}
 	if err := v.VerifySignature(string(profilePayload), serverSigArmor, serverPub); err != nil {
-		return FlatKey{}, nil, fmt.Errorf("profile server signature: %w", err)
+		return fmt.Errorf("profile server signature: %w", err)
 	}
-
-	// Oldest → newest for user_keys.predecessor_fingerprint inserts.
-	flat = make([]FlatKey, 0, len(newestFirst))
-	for i := len(newestFirst) - 1; i >= 0; i-- {
-		flat = append(flat, newestFirst[i])
-	}
-	return active, flat, nil
+	return nil
 }
 
 func verifyKeyCountersig(key KeyWire, userID, serverID string, lookup ServerKeyLookup, v Verifier) error {

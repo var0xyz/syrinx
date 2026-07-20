@@ -36,15 +36,6 @@ func DeleteOngoing(db *sql.DB, userID string) error {
 	return err
 }
 
-// IsOngoing reports whether userID is mid-import.
-func IsOngoing(db *sql.DB, userID string) (bool, error) {
-	var exists bool
-	err := db.QueryRow(`
-		SELECT EXISTS(SELECT 1 FROM ongoing_recoveries WHERE user_id = $1)
-	`, userID).Scan(&exists)
-	return exists, err
-}
-
 // CountUnclaimed returns how many peer-seeded accounts still await claim.
 func CountUnclaimed(db *sql.DB) (int, error) {
 	var n int
