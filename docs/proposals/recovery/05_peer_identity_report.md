@@ -23,11 +23,14 @@ profiles. Those accounts stay unclaimed until their owners claim. See
 - Newest-wins profile upsert; username collision rename as in step 04.
 - If the `users` row is **created** → `INSERT unclaimed_accounts`.
 - Never resurrect unclaimed for an already-claimed account.
+- Drain `pending_follows` targeting the peer into real follow tables
+  (step 06); same transaction as the identity save.
 
 ## Non-goals
 
 - No batch/list of users (verification cost).
-- No reeds/follows/complete.
+- No reeds/follows/`complete` endpoints (drain of pending follows lands with
+  step 06 store helpers, called from this upsert).
 - Clients that lack a full nest for a peer must skip that peer (document only).
 
 ## Design

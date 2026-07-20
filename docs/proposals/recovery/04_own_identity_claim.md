@@ -26,6 +26,8 @@ public-key chain. See [README](README.md) *Phase 1a*, *Nested key chain*.
 - Insert keys **oldest → newest** (preserve `predecessor_fingerprint` FK).
 - Create → not unclaimed; if peer-seeded → delete `unclaimed_accounts`.
 - Insert `ongoing_recoveries` for claimant.
+- Drain `pending_follows` targeting the claimant into real follow tables
+  (step 06); same transaction as the identity save.
 - `recovery.RegisterRoutes` when `RECOVERY_MODE`; claim paths unauthenticated
   in middleware / SPA allowlist.
 
