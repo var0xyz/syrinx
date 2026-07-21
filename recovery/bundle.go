@@ -32,10 +32,10 @@ type BundleKey struct {
 	RevokeReason    *string    `json:"revokeReason"`
 }
 
-// DefaultExportFilename returns syrinx-<serverID>-<YYYYMMDDTHHMMSSZ>.json.gpg.
+// DefaultExportFilename returns syrinx-<serverID>-<YYYYMMDDTHHMMSSZ>.sxi.gpg.
 func DefaultExportFilename(serverID string, exportedAt time.Time) string {
 	ts := exportedAt.UTC().Format("20060102T150405Z")
-	return fmt.Sprintf("syrinx-%s-%s.json.gpg", serverID, ts)
+	return fmt.Sprintf("syrinx-%s-%s.sxi.gpg", serverID, ts)
 }
 
 // ExportFromDB builds a Bundle from the self server row and full key history.

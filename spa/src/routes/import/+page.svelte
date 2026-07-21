@@ -1,150 +1,125 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { cryptoService } from '$lib/services/crypto';
-  import { dbService } from '$lib/services/db';
+  import { get } from 'svelte/store';
+  import { apiService } from '$lib/services/api';
+  import { authService } from '$lib/services/auth';
+  import {
+    assertBackupIdentity,
+    decryptBackupFile,
+    extractProfile,
+    isBackupFilename,
+    writeBackup,
+  } from '$lib/services/backupRestore';
+  import {
+    completeImportRun,
+    isImportComplete,
+    isImportInProgress,
+    startImportRun,
+  } from '$lib/services/importRun';
+  import {
+    clearRecoveryRun,
+    startRecoveryRun,
+    isRecoveryInProgress,
+    resumeRecoveryRun,
+  } from '$lib/services/recoveryRun';
+  import { redirectForRestoreState } from '$lib/services/restoreFlow';
+  import { isRecoveryMode, serverInfoLoading } from '$lib/services/serverInfo';
 
   let files: FileList | null = null;
   let password = '';
-  let importing = false;
+  let restoring = false;
   let error = '';
-  let success = false;
+  let importSucceeded = false;
 
   $: file = files?.[0] ?? null;
-  $: canImport = file !== null && password.length > 0;
+  $: canRestore = file !== null && password.length > 0;
+  $: resumeImport = isImportInProgress();
 
-  async function handleImport() {
+  onMount(() => {
+    if (redirectForRestoreState()) return;
+    if (isImportComplete() && !isRecoveryInProgress()) {
+      importSucceeded = true;
+    }
+  });
+
+  async function handleRestore() {
     if (!file) return;
-    importing = true;
+    restoring = true;
     error = '';
+    importSucceeded = false;
+    startImportRun();
 
     try {
-      // 1. Read file bytes
-      const fileBytes = new Uint8Array(await file.arrayBuffer());
-
-      // 2. Decrypt with provided password
-      let decrypted: Uint8Array;
-      try {
-        decrypted = await cryptoService.decryptBackup(fileBytes, password);
-      } catch {
-        throw new Error('Failed to decrypt backup. Check that the password is correct and the file is not corrupted.');
+      if (!isBackupFilename(file.name)) {
+        throw new Error('Please select a Syrinx backup file (syrinx-….sxb.gz.gpg).');
       }
 
-      // 3. Decompress gzip
-      const decompressed = await decompressGzip(decrypted);
+      const backup = await decryptBackupFile(file, password);
+      assertBackupIdentity(backup);
+      const profile = extractProfile(backup);
 
-      // 4. Parse JSON
-      const backup = JSON.parse(new TextDecoder().decode(decompressed));
-
-      // 5. Extract identity from backup
-      const ls: Record<string, string> = backup.localStorage ?? {};
-      const userId: string = ls['userId'];
-      const keyFingerprint: string = ls['keyFingerprint'];
-      const keyPassphrase: string = ls['keyPassphrase'];
-
-      const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t: any) => t.name === 'privateKeys');
-      const privateKeyEntry = privateKeysTable?.items?.find((k: any) => k.fingerprint === keyFingerprint);
-
-      if (!userId || !keyFingerprint || !keyPassphrase || !privateKeyEntry?.armor) {
-        throw new Error('Invalid backup file: missing required identity data.');
+      const probe = await apiService.probeUserStatus(profile);
+      if (probe.httpStatus === 400) {
+        throw new Error(probe.error || 'This backup was rejected by the server.');
+      }
+      if (probe.error) {
+        throw new Error(probe.error);
       }
 
-      // 6. Check if the user already exists on this server
-      const exists = await checkUserExists(userId, keyFingerprint, keyPassphrase, privateKeyEntry.armor);
-      if (exists) {
-        throw new Error('This account already exists on this server. Multiple devices are currently not supported.');
-      }
+      const recoveryMode = !get(serverInfoLoading) && get(isRecoveryMode);
+      const localRecovery = isRecoveryInProgress();
 
-      // 7. Restore localStorage
-      for (const [key, value] of Object.entries(ls)) {
-        localStorage.setItem(key, value);
-      }
-
-      // 8. Restore IndexedDB tables
-      await dbService.init();
-      for (const table of (backup.indexedDB?.tables ?? [])) {
-        for (const item of (table.items ?? [])) {
-          try {
-            await dbService.put(table.name, item as any);
-          } catch (e) {
-            console.error(`Failed to restore item in table ${table.name}:`, e);
-          }
+      if (probe.httpStatus === 200 && probe.status === 'complete') {
+        if (localRecovery) {
+          clearRecoveryRun();
         }
+        await writeBackup(backup);
+        clearRecoveryRun();
+        completeImportRun();
+        importSucceeded = true;
+        return;
       }
 
-      success = true;
+      const needsRecovery =
+        (probe.httpStatus === 404 && probe.status === 'unknown' && recoveryMode) ||
+        (probe.httpStatus === 409 && probe.status === 'ongoing');
+
+      if (probe.httpStatus === 404 && probe.status === 'unknown' && !recoveryMode) {
+        throw new Error(
+          'This account is not recognized on this server. Nothing was written.'
+        );
+      }
+
+      if (needsRecovery) {
+        await writeBackup(backup);
+        if (localRecovery) {
+          resumeRecoveryRun();
+        } else {
+          startRecoveryRun();
+        }
+        completeImportRun();
+        goto('/recovery');
+        return;
+      }
+
+      throw new Error(
+        `Unexpected account status (HTTP ${probe.httpStatus}). Nothing was written.`
+      );
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Import failed. Please try again.';
+      error = e instanceof Error ? e.message : 'Restore failed. Please try again.';
     } finally {
-      importing = false;
+      restoring = false;
     }
-  }
-
-  async function checkUserExists(
-    userId: string,
-    fingerprint: string,
-    passphrase: string,
-    privateKeyArmor: string
-  ): Promise<boolean> {
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const path = `/api/users/${userId}`;
-
-    // Build canonical request string matching the server's expected format
-    const canonical = [`GET ${path}`, '', '', '', timestamp].join('\n');
-    const signature = await cryptoService.signMessage(canonical, privateKeyArmor, passphrase);
-    const signatureB64 = btoa(signature.trim());
-
-    const res = await fetch(path, {
-      method: 'GET',
-      headers: {
-        'X-Syrinx-User-Id': userId,
-        'X-Syrinx-Fingerprint': fingerprint,
-        'X-Syrinx-Algorithm': 'PGP+base64',
-        'X-Syrinx-Signature-Scope': 'body',
-        'X-Syrinx-Timestamp': timestamp,
-        'X-Syrinx-Signature': signatureB64,
-      }
-    });
-
-    if (res.status === 200) return true;
-    if (res.status === 404) return false;
-    throw new Error(`Unexpected server response while checking account: HTTP ${res.status}`);
-  }
-
-  async function decompressGzip(data: Uint8Array): Promise<Uint8Array> {
-    const stream = new DecompressionStream('gzip');
-    const writer = stream.writable.getWriter();
-    writer.write(data);
-    writer.close();
-
-    const chunks: Uint8Array[] = [];
-    const reader = stream.readable.getReader();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-      }
-    } finally {
-      reader.releaseLock();
-    }
-
-    const total = chunks.reduce((sum, c) => sum + c.length, 0);
-    const result = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.length;
-    }
-    return result;
   }
 </script>
 
 <div class="container">
   <div class="card">
-    {#if success}
+    {#if importSucceeded}
       <div class="success-view">
         <div class="success-icon">✓</div>
-        <h2>Import successful</h2>
+        <h2>Import complete</h2>
         <p>Your backup has been restored. You can now access your account.</p>
         <div class="success-actions">
           <a href="/reeds" class="btn btn-primary">Go to reeds</a>
@@ -153,20 +128,29 @@
       </div>
     {:else}
       <h2>Import backup</h2>
-      <p class="subtitle">Restore your account from an encrypted <code>.sxb.gz.gpg</code> backup file.</p>
+      <p class="subtitle">
+        Restore your account from an encrypted <code>syrinx-….sxb.gz.gpg</code> backup
+        created on your previous Syrinx app. You will need the backup password.
+      </p>
+
+      {#if resumeImport}
+        <div class="info-box" role="status">
+          An import was interrupted. Select your backup again to continue.
+        </div>
+      {/if}
 
       <div class="field">
         <label for="backup-file">Backup file</label>
         <input
           id="backup-file"
           type="file"
-          accept=".gpg,.sxb.gz.gpg"
+          accept=".sxb.gz.gpg"
           bind:files
         />
       </div>
 
       <div class="field">
-        <label for="import-password">Encryption password</label>
+        <label for="import-password">Backup password</label>
         <input
           id="import-password"
           type="password"
@@ -184,10 +168,10 @@
         <a href="/" class="btn btn-secondary">Cancel</a>
         <button
           class="btn btn-primary"
-          on:click={handleImport}
-          disabled={!canImport || importing}
+          on:click={handleRestore}
+          disabled={!canRestore || restoring}
         >
-          {importing ? 'Importing...' : 'Import'}
+          {restoring ? 'Importing...' : 'Import'}
         </button>
       </div>
     {/if}
@@ -233,6 +217,16 @@
     background: var(--input-bg);
     padding: 0.1em 0.3em;
     border-radius: 3px;
+  }
+
+  .info-box {
+    background: rgba(33, 150, 243, 0.08);
+    border: 1px solid rgba(33, 150, 243, 0.3);
+    border-radius: 6px;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+    color: var(--fg);
+    line-height: 1.5;
   }
 
   .field {
@@ -317,7 +311,6 @@
 
   .btn-secondary:hover { background: var(--input-bg); }
 
-  /* Success view */
   .success-view {
     display: flex;
     flex-direction: column;

@@ -101,7 +101,7 @@ Generated passphrases are 24 characters from a URL-/shell-safe alphabet
 | Secret | Where it lives |
 |--------|----------------|
 | Server key passphrase | Env (HA) **or** OS keychain after first prompt / auto-generate; unwraps `privateKeyArmor` |
-| Bundle password | Operator memory / password manager; encrypts the `.json.gpg` file; never in keychain |
+| Bundle password | Operator memory / password manager; encrypts the `.sxi.gpg` file; never in keychain |
 
 `ops import-identity` still needs the server key passphrase (env / keychain /
 prompt) to `ValidateDecrypt` after the bundle password decrypts the file.

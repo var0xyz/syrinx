@@ -39,13 +39,15 @@
   $: if ($isOnline && !wasOnline) {
     wasOnline = true;
     refreshServerInfo();
-    authService.getCurrentUser().then(currentUser => {
-      if (currentUser) {
-        reedsService.processUnsignedReeds();
-        followingRepository.syncPending();
-        pendingRevocationRepository.syncPending();
-      }
-    });
+    if (authService.isLoggedIn()) {
+      authService.getCurrentUser().then(currentUser => {
+        if (currentUser) {
+          reedsService.processUnsignedReeds();
+          followingRepository.syncPending();
+          pendingRevocationRepository.syncPending();
+        }
+      });
+    }
   } else if (!$isOnline) {
     wasOnline = false;
   }
@@ -88,16 +90,19 @@
       dispatchReedToQueue(data.data, 'broadcast_reed');
     });
 
-    // Check authentication status for header
-    user = await authService.getCurrentUser();
+    // Check authentication status for header. Mid-recovery has local identity
+    // but is not a finished session — do not connect or treat as logged in.
+    if (authService.isLoggedIn()) {
+      user = await authService.getCurrentUser();
 
-    if (user) {
-      reedsService.processUnsignedReeds();
-      followingRepository.syncPending();
-      pendingRevocationRepository.syncPending();
-      serverConnection.connect()
-        .then(() => serverConnection.syncRequest())
-        .catch(err => console.error('ServerConnection failed:', err));
+      if (user) {
+        reedsService.processUnsignedReeds();
+        followingRepository.syncPending();
+        pendingRevocationRepository.syncPending();
+        serverConnection.connect()
+          .then(() => serverConnection.syncRequest())
+          .catch(err => console.error('ServerConnection failed:', err));
+      }
     }
   });
 </script>

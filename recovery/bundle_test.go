@@ -50,7 +50,7 @@ func TestDecryptSymmetric_WrongPassword(t *testing.T) {
 func TestDefaultExportFilename(t *testing.T) {
 	at := time.Date(2026, 7, 17, 15, 4, 5, 0, time.UTC)
 	got := DefaultExportFilename("Ab3xY9pQ", at)
-	want := "syrinx-Ab3xY9pQ-20260717T150405Z.json.gpg"
+	want := "syrinx-Ab3xY9pQ-20260717T150405Z.sxi.gpg"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

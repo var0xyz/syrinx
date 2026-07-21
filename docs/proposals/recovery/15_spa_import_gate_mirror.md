@@ -22,8 +22,9 @@ state model in [10](10_spa_unified_restore.md).
 - Allow recovery endpoints, `/api/server/info`, `/api/server/keys/`, and
   `POST /api/users/status` (same spirit as server allowlist; status is
   unauthenticated and always reachable).
-- On app load: if local recovery run is in progress (10/11), send the user to
-  the recovery progress UI even if `userId` is present in `localStorage`.
+- On app load: if import is complete and local recovery is started but not
+  completed (10/11), send the user to `/recovery` even if `userId` is present
+  in `localStorage`. If import is mid-run, send to `/import`.
 - After `complete` + user reload (14), gate is off — normal routes work.
 - Optional fallback: signed request returns 403 “finish recovery” → force
   recovery UI / re-probe status ([09](09_user_status.md)).
@@ -35,8 +36,8 @@ state model in [10](10_spa_unified_restore.md).
 
 ## Design
 
-Gate from **local recovery run state** (claim finished ∧ `complete` not done),
-not from “has `userId`” alone. Align with 10’s state model.
+Gate from **local recovery run state** (import complete ∧ recovery started ∧
+`complete` not done), not from “has `userId`” alone. Align with 10’s state model.
 
 ## Test plan
 

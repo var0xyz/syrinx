@@ -28,7 +28,7 @@ See [README](README.md) *Key bundle* and *Code organization*.
   - `export-identity [outfile]` — build JSON, **prompt for bundle password**
     (and confirmation), write encrypted file, then set
     `identity_backup_at` to that export’s `exportedAt`. Default outfile name:
-    `syrinx-<serverID>-<timestamp>.json.gpg` with `<timestamp>` =
+    `syrinx-<serverID>-<timestamp>.sxi.gpg` with `<timestamp>` =
     `YYYYMMDDTHHMMSSZ` from `exportedAt`. Optional `[outfile]` overrides the
     path. Failed encrypt/write must **not** update the timestamp.
   - `rotate-passphrase` — re-wrap `private_keys` under a new server key
@@ -78,7 +78,7 @@ so import (step 02) can reuse it.
 
 ## Test plan
 
-- [ ] Default export path matches `syrinx-<serverID>-<YYYYMMDDTHHMMSSZ>.json.gpg`
+- [ ] Default export path matches `syrinx-<serverID>-<YYYYMMDDTHHMMSSZ>.sxi.gpg`
 - [ ] Export produces armored ciphertext, not plaintext JSON
 - [ ] Decrypt with correct password yields valid bundle JSON
 - [ ] Wrong password fails; no partial plaintext leak in errors

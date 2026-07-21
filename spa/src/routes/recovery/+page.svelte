@@ -1,31 +1,37 @@
-<script>
+<script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { get } from 'svelte/store';
   import { authService } from '$lib/services/auth';
-  import { isRecoveryMode, serverInfoLoading } from '$lib/services/serverInfo';
+  import { isImportComplete } from '$lib/services/importRun';
+  import { isRecoveryComplete, isRecoveryInProgress } from '$lib/services/recoveryRun';
+  import { redirectForRestoreState } from '$lib/services/restoreFlow';
 
-  function checkAccess() {
+  onMount(() => {
     if (authService.isLoggedIn()) {
       goto('/reeds');
       return;
     }
-
-    if (!get(serverInfoLoading) && !get(isRecoveryMode)) {
-      goto('/');
+    if (!isImportComplete()) {
+      goto('/import');
+      return;
     }
-  }
-
-  onMount(() => {
-    checkAccess();
-    return serverInfoLoading.subscribe(() => checkAccess());
+    if (isRecoveryComplete()) {
+      goto('/reeds');
+      return;
+    }
+    if (!isRecoveryInProgress()) {
+      goto('/import');
+    }
   });
 </script>
 
 <div class="container">
   <div class="card">
     <h1>Recover your account</h1>
-    <p>Recovery tools will be available here soon.</p>
+    <p>
+      Your backup is on this device. Account recovery will continue here —
+      progress tools are coming next.
+    </p>
     <a href="/" class="btn btn-secondary">Back to home</a>
   </div>
 </div>
@@ -33,9 +39,12 @@
 <style>
   .container {
     max-width: 640px;
+    margin: 0 auto;
     display: flex;
     align-items: center;
     justify-content: center;
+    min-height: 60vh;
+    padding: 1rem;
   }
 
   .card {
@@ -44,6 +53,7 @@
     border-radius: 12px;
     padding: 2rem;
     text-align: center;
+    width: min(480px, 100%);
   }
 
   .card h1 {
@@ -55,7 +65,8 @@
   .card p {
     margin: 0 0 2rem 0;
     color: var(--muted);
-    font-size: 1.1rem;
+    font-size: 1.05rem;
+    line-height: 1.5;
   }
 
   .btn {
