@@ -1,6 +1,8 @@
 import { get } from 'svelte/store';
 import type * as api from '$lib/types/api';
 import { requestSigner } from './request-signer';
+import { isImportInProgress } from './importRun';
+import { isRecoveryInProgress } from './recoveryRun';
 import { serverConnection } from './serverConnection';
 import { refreshServerInfo, serverInfo } from './serverInfo';
 
@@ -14,8 +16,24 @@ interface SignupUser {
 export class AuthService {
   private _user: api.User | null = null;
 
-  isLoggedIn(): boolean {
+  /**
+   * Identity material is present locally (userId). Does not mean the user
+   * has a finished session — mid-recovery also has userId after backup write.
+   */
+  hasLocalIdentity(): boolean {
     return !!localStorage.getItem('userId');
+  }
+
+  /**
+   * Usable finished session: local identity present, import not mid-run, and
+   * recovery not mid-run. Uses only localStorage markers — no network.
+   */
+  isLoggedIn(): boolean {
+    return (
+      this.hasLocalIdentity() &&
+      !isImportInProgress() &&
+      !isRecoveryInProgress()
+    );
   }
 
   /**

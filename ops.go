@@ -83,7 +83,7 @@ Commands:
   export-identity [outfile]
       Export the server identity (ID + full signing-key history) as an
       OpenPGP-encrypted file. Prompts for a bundle password (never stored).
-      Default outfile: syrinx-<serverID>-<YYYYMMDDTHHMMSSZ>.json.gpg
+      Default outfile: syrinx-<serverID>-<YYYYMMDDTHHMMSSZ>.sxi.gpg
 
   import-identity <infile>
       Restore identity from an encrypted bundle before first server boot.

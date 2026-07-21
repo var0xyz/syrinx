@@ -16,6 +16,14 @@ export type SignupInput = {
   signature: string;
 };
 
+export type UserStatus = 'complete' | 'unknown' | 'ongoing';
+
+export type UserStatusProbeResult = {
+  httpStatus: number;
+  status?: UserStatus;
+  error?: string;
+};
+
 const BASE_URL = '/api';
 
 // Unauthenticated endpoints that don't need signing.
@@ -88,6 +96,50 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const apiService = {
+  /**
+   * Unauthenticated probe: POST countersigned profile, branch on HTTP status.
+   * Does not throw on 404/409 — those are meaningful probe outcomes.
+   */
+  async probeUserStatus(profile: api.User): Promise<UserStatusProbeResult> {
+    const res = await fetch(`${BASE_URL}/users/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(profile),
+    });
+
+    if (res.status === 200 || res.status === 404 || res.status === 409) {
+      try {
+        const body = (await res.json()) as { status?: string };
+        const status = body?.status;
+        if (status === 'complete' || status === 'unknown' || status === 'ongoing') {
+          return { httpStatus: res.status, status };
+        }
+      } catch {
+        // fall through
+      }
+      return { httpStatus: res.status };
+    }
+
+    if (res.status === 400) {
+      let message = 'Bad Request';
+      try {
+        const errorData = await res.json();
+        message =
+          typeof errorData === 'string'
+            ? errorData
+            : errorData.message || errorData.error || message;
+      } catch {
+        message = res.statusText || message;
+      }
+      return { httpStatus: 400, error: message };
+    }
+
+    return {
+      httpStatus: res.status,
+      error: `Unexpected server response: HTTP ${res.status}`,
+    };
+  },
+
   async signup(input: SignupInput): Promise<api.User> {
     const formData = new URLSearchParams();
     formData.append('username', input.username);

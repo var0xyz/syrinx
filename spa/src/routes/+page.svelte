@@ -1,20 +1,17 @@
 <script>
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { authService } from '$lib/services/auth';
   import { requestPersistentStorage } from '$lib/services/pwa';
+  import { redirectForRestoreState } from '$lib/services/restoreFlow';
   import { isRecoveryMode, isSignupOpen, serverInfoLoading } from '$lib/services/serverInfo';
 
-  $: showRecoveryLanding =
-    !$serverInfoLoading && $isRecoveryMode && !authService.isLoggedIn();
+  $: showRecoveryBanner = !$serverInfoLoading && $isRecoveryMode;
 
   let deferredPrompt = null;
   let showInstallButton = false;
   let isPWAInstalled = false;
 
   onMount(async () => {
-    if (authService.isLoggedIn()) {
-      goto('/reeds');
+    if (redirectForRestoreState()) {
       return;
     }
 
@@ -53,14 +50,14 @@
 <div class="container">
   <div class="card">
     <h1>Welcome to Syrinx</h1>
-    {#if showRecoveryLanding}
+    {#if showRecoveryBanner}
       <div class="recovery-banner" role="status">
         <p>
-          This server is in recovery mode. If you have Syrinx data on this device,
-          report it back to help restore the server.
+          This server is rebuilding. Restore from an encrypted backup created on
+          your previous Syrinx app — this device does not yet hold your data.
         </p>
       </div>
-      <p class="subtitle">Report your local data to restore this server</p>
+      <p class="subtitle">Restore from a backup to continue</p>
     {:else}
       <p class="subtitle">A distributed, P2P content-distribution platform</p>
     {/if}
@@ -79,15 +76,10 @@
     {/if}
 
     <div class="action-buttons">
-      {#if showRecoveryLanding}
-        <a href="/recover" class="btn btn-primary">Recover your account</a>
-      {/if}
+      <a href="/import" class="btn btn-primary">Already a user</a>
       {#if !$serverInfoLoading && $isSignupOpen}
-        <a href="/preamble" class="btn {showRecoveryLanding ? 'btn-secondary' : 'btn-primary'}">
-          Sign Up
-        </a>
+        <a href="/preamble" class="btn btn-secondary">Sign Up</a>
       {/if}
-      <a href="/import" class="btn btn-secondary">Import backup</a>
     </div>
   </div>
 </div>

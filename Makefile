@@ -28,7 +28,7 @@ export-identity: ops
 	./bin/ops export-identity
 
 import-identity: ops
-	@if [ -z "$(FILE)" ]; then echo "usage: make import-identity FILE=path/to/bundle.json.gpg"; exit 2; fi
+	@if [ -z "$(FILE)" ]; then echo "usage: make import-identity FILE=path/to/bundle.sxi.gpg"; exit 2; fi
 	./bin/ops import-identity "$(FILE)"
 
 # Run targets for development
