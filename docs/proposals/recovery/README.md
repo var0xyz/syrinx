@@ -183,11 +183,11 @@ where explicitly supported later; do not put secrets in env or committed config.
 On-disk artifact: an OpenPGP **symmetrically encrypted**, ASCII-armored
 message whose plaintext is the JSON below. Default export filename:
 
-`syrinx-<serverID>-<timestamp>.json.gpg`
+`syrinx-<serverID>-<timestamp>.sxi.gpg`
 
 where `<timestamp>` is the same instant as `exportedAt`, formatted for
 filenames as UTC `YYYYMMDDTHHMMSSZ` (e.g.
-`syrinx-Ab3xY9pQ-20260717T150405Z.json.gpg`). The operator may pass another
+`syrinx-Ab3xY9pQ-20260717T150405Z.sxi.gpg`). The operator may pass another
 path on export or import.
 
 Plaintext JSON (only after decrypt):
@@ -372,7 +372,7 @@ is **superseded** by [10](10_spa_unified_restore.md).
 - ~~SPA: server info + signup gating + unreachable notice~~ **Done** ([07](07_spa_server_info.md)).
 - ~~SPA: recovery landing UX ([08](08_spa_recovery_landing.md))~~ **Superseded by 10**.
 - ~~User status probe~~ **Done** ([09](09_user_status.md)).
-- SPA: unified restore, backup-first ([10](10_spa_unified_restore.md)).
+- ~~SPA: unified restore, backup-first~~ **Done** ([10](10_spa_unified_restore.md)).
 - SPA: recovery progress table + generic UI ([11](11_spa_recovery_progress.md)).
 - SPA: own-identity claim ([12](12_spa_own_identity_claim.md)).
 - SPA: peer identity report-back ([13](13_spa_peer_identities.md)).
@@ -518,7 +518,7 @@ may show an informational banner; restore itself is always backup-first.
    `ops`), provide the **same server key passphrase** that wrapped the keys in
    the bundle so it can be stored in that host’s keychain; set `SERVER_NAME` as
    desired.
-2. Run **`ops import-identity <path-to-bundle.json.gpg>`** (before first server
+2. Run **`ops import-identity <path-to-bundle.sxi.gpg>`** (before first server
    boot): call full **`InitDB`**, prompt for the **bundle password**, resolve the
    **server key passphrase** (env / keychain / prompt — not in the bundle),
    decrypt/validate, write the full `private_keys` / `public_keys` history,

@@ -553,7 +553,7 @@
       // Encrypt the compressed data with the user-provided password
       const encryptedData = await cryptoService.encryptBackup(compressedData, backupPassword);
 
-      const filename = `${user.id}-${timestamp}.sxb.gz.gpg`;
+      const filename = `syrinx-${user.id}-${timestamp}.sxb.gz.gpg`;
 
       let exported = false;
 
