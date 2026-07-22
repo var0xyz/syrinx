@@ -114,3 +114,9 @@ export type IdentityClaimRequest = {
   profile: User;
   key: RecoveryKeyNode;
 };
+
+/** Authenticated POST /recovery/identity body (one peer, no challenge). */
+export type PeerIdentityRequest = {
+  profile: User;
+  key: RecoveryKeyNode;
+};

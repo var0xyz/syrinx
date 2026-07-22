@@ -41,7 +41,7 @@
     running = true;
     errorMessage = '';
     try {
-      const result = await runRecoveryWork();
+      const result = await runRecoveryWork({ onProgress: refreshSummary });
       refreshSummary();
       if (result.ok === false) {
         errorMessage = result.error;
