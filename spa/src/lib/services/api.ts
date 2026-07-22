@@ -330,4 +330,13 @@ export const apiService = {
       body: JSON.stringify(body),
     });
   },
+
+  /** Authenticated: report one peer identity with nested key chain. */
+  async reportPeerIdentity(body: api.PeerIdentityRequest): Promise<api.User> {
+    return request<api.User>('/recovery/identity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
 };
