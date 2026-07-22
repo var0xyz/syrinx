@@ -62,7 +62,7 @@ SPA branching on the response is [10](10_spa_unified_restore.md).
 
 - SPA backup UX or branching ([10](10_spa_unified_restore.md)).
 - Writing user rows or advancing recovery (claim / peer / reeds stay 04–06).
-- Device binding ([16](16_device_binding.md)).
+- Device binding ([17](17_device_binding.md)).
 
 ## Design
 
