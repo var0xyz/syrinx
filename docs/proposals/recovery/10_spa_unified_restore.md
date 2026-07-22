@@ -105,7 +105,7 @@ Mid-recovery: show recovery UI at `/recovery`, not the normal app shell routes
 
 - Implementing claim / peer / reed / follow HTTP calls (12–14).
 - Progress table shape beyond initializing it (11).
-- Device binding (16).
+- Device binding (17).
 - Playwright (deferred).
 
 ## Design

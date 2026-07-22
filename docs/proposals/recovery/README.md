@@ -29,7 +29,8 @@ lives in root [`ops.go`](../../ops.go) (`//go:build ops`; build with
 | [13](13_spa_peer_identities.md)            | SPA peer identity report-back                         | 12         |
 | [14](14_spa_reeds_follows_complete.md)     | SPA reeds, follows, complete                          | 13         |
 | [15](15_spa_import_gate_mirror.md)         | SPA import-gate mirror                                | 11, 12     |
-| [16](16_device_binding.md)                 | Device binding (single active device)                 | 09–15      |
+| [16](16_reed_tip_check.md)                 | Reed tip check (history-fork safeguard)               | — (complements 17) |
+| [17](17_device_binding.md)                 | Device binding (single active device)                 | 09–15      |
 
 Prerequisite normal-operation work is under
 [`../`](../README.md) (proposals 01–11).
@@ -39,9 +40,10 @@ Prerequisite normal-operation work is under
 ## Status
 
 **Spec updated** for backup-first restore ([09](09_user_status.md)–[15](15_spa_import_gate_mirror.md))
-and deferred device binding ([16](16_device_binding.md)). Implementation
-proceeds via the numbered steps (skip superseded [08](08_spa_recovery_landing.md);
-each step depends only on earlier numbers).
+the history-fork tip check ([16](16_reed_tip_check.md)), and deferred
+device binding ([17](17_device_binding.md)). Implementation proceeds via the
+numbered steps (skip superseded [08](08_spa_recovery_landing.md); each step
+depends only on earlier numbers).
 Normal-operation prerequisites (proposals 01–10 under `docs/proposals/`) are
 in place. Notifications (proposal 11) remain deferred.
 
@@ -378,7 +380,8 @@ is **superseded** by [10](10_spa_unified_restore.md).
 - ~~SPA: peer identity report-back~~ **Done** ([13](13_spa_peer_identities.md)).
 - ~~SPA: reeds, follows, complete~~ **Done** ([14](14_spa_reeds_follows_complete.md)).
 - ~~SPA: import-gate mirror~~ **Done** ([15](15_spa_import_gate_mirror.md)).
-- Device binding ([16](16_device_binding.md)) — after 09–15.
+- Reed tip check history-fork safeguard ([16](16_reed_tip_check.md)).
+- Device binding ([17](17_device_binding.md)) — after 09–15.
 
 **Deferred**:
 
@@ -506,7 +509,7 @@ not a phase checklist.
 Local state is “recovery in progress,” not a finished login — `userId` in
 localStorage alone must not unlock the normal app.
 
-**Device binding** ([16](16_device_binding.md), after 09–15): `user_devices`
+**Device binding** ([17](17_device_binding.md), after 09–15): `user_devices`
 history with one active (`revoked_at IS NULL`) per user; device id never in
 backups or the signed profile; claim / `POST /users/device` revoke-then-bind;
 mismatch wipes the offending client.
@@ -803,10 +806,13 @@ Deferred:
   a permanent suffix.
 - **Completion**: no global finalize; operator turns `RECOVERY_MODE` off;
   per-user import ends via `complete`.
+- **Reed tip check** (history-fork safeguard): client sends believed tip;
+  create rejected unless it matches the author’s newest reed (transactional)
+  ([16](16_reed_tip_check.md)). Complements device binding.
 - **Device binding** (after SPA restore): `user_devices` (link + revoke
   times); not in backups or signed profile; signup / claim /
   `POST /api/users/device` revoke-then-bind; mismatch rejects and client
-  wipes ([16](16_device_binding.md)).
+  wipes ([17](17_device_binding.md)).
 - **Secrets**: bundle password (prompted by `ops` only, encrypts the export
   file, never stored) is independent of the server key passphrase (env for HA,
   else OS keychain / prompt; empty prompt auto-generates 24 chars to stdout;

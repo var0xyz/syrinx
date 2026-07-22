@@ -1,4 +1,4 @@
-# Recovery 16 — Device binding (single active device)
+# Recovery 17 — Device binding (single active device)
 
 ## Status
 
@@ -16,6 +16,10 @@ exists, nothing stops two browsers from holding the same keys and acting as the
 same user. This proposal introduces a **server-side device binding** so only one
 active client is accepted at a time. It is **not** part of the first recovery
 SPA cut — spec now, implement after 09–15.
+
+History linearity under concurrent publish is a separate concern: see
+[16](16_reed_tip_check.md) (tip check on create). Device binding is the
+session/UX gate; it does not by itself make forked reed chains impossible.
 
 **Clean slate:** no migration for pre-existing accounts without a device row.
 Every live account gets a binding at signup or claim.
