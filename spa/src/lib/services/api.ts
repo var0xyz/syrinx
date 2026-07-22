@@ -71,19 +71,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, signedInit);
 
   if (!res.ok) {
-    // For 400 errors, try to parse the response as JSON to get the actual error message
-    if (res.status === 400) {
+    if (res.status === 400 || res.status === 401) {
+      let message =
+        res.status === 401
+          ? 'Authentication failed. Please check your credentials.'
+          : res.statusText || 'Bad Request';
       try {
         const errorData = await res.json();
-        throw new Error(typeof errorData === 'string' ? errorData : errorData.message || 'Bad Request');
+        if (typeof errorData === 'string' && errorData) {
+          message = errorData;
+        }
       } catch {
-        // If JSON parsing fails, fall back to status text or generic message
-        throw new Error(res.statusText || 'Bad Request');
+        // Non-JSON body (proxy HTML, empty, text/plain) — keep default.
       }
-    }
-    // For 401 errors, throw a specific authentication error
-    if (res.status === 401) {
-      throw new Error('Authentication failed. Please check your credentials.');
+      throw new Error(message);
     }
     throw new Error(`HTTP ${res.status}`);
   }
@@ -121,15 +122,14 @@ export const apiService = {
     }
 
     if (res.status === 400) {
-      let message = 'Bad Request';
+      let message = res.statusText || 'Bad Request';
       try {
         const errorData = await res.json();
-        message =
-          typeof errorData === 'string'
-            ? errorData
-            : errorData.message || errorData.error || message;
+        if (typeof errorData === 'string' && errorData) {
+          message = errorData;
+        }
       } catch {
-        message = res.statusText || message;
+        // Non-JSON body — keep default.
       }
       return { httpStatus: 400, error: message };
     }
@@ -313,5 +313,21 @@ export const apiService = {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()
     });
-  }
+  },
+
+  /** Unauthenticated: GET recovery challenge (unix seconds). */
+  async getIdentityClaimChallenge(): Promise<api.IdentityClaimChallenge> {
+    return request<api.IdentityClaimChallenge>('/recovery/identity/claim', {
+      method: 'GET',
+    });
+  },
+
+  /** Unauthenticated: claim own identity with challenge + nested key chain. */
+  async claimOwnIdentity(body: api.IdentityClaimRequest): Promise<api.User> {
+    return request<api.User>('/recovery/identity/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
 };

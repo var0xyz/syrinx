@@ -85,3 +85,32 @@ export interface KeyRevocation extends Base {
   signature: string;
   server: ServerSignature;
 };
+
+// RecoveryKeyNode is one level of the nested key chain for recovery claim /
+// peer identity POST bodies (matches recovery.KeyNode). Outermost is the
+// active key; predecessor walks back to the signup key (null). `signature`
+// is set only on predecessor links: the older key's detached sig over the
+// newer (parent) key's armor.
+export interface RecoveryKeyNode extends Base {
+  fingerprint: string;
+  userID: string;
+  armor: string;
+  createdAt?: string;
+  expiresAt?: string | null;
+  revoked: boolean;
+  server: ServerSignature;
+  signature?: string;
+  revocation: KeyRevocation | null;
+  predecessor: RecoveryKeyNode | null;
+};
+
+export type IdentityClaimChallenge = {
+  challenge: number;
+};
+
+export type IdentityClaimRequest = {
+  challenge: number;
+  signature: string;
+  profile: User;
+  key: RecoveryKeyNode;
+};

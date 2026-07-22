@@ -1,5 +1,5 @@
 /**
- * Local import-run marker (proposal 10). Tracks backup restore before recovery handoff.
+ * Local import-run marker. Tracks backup restore before recovery handoff.
  */
 
 const IMPORT_RUN_KEY = 'importRun';
