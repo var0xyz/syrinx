@@ -120,3 +120,16 @@ export type PeerIdentityRequest = {
   profile: User;
   key: RecoveryKeyNode;
 };
+
+/** Authenticated POST /recovery/reeds body (one reed). */
+export type RecoveryReedRequest = {
+  reedID: string;
+  authorID: string;
+  userSignature: string;
+  server: ServerSignature;
+};
+
+/** Authenticated POST /recovery/following body (≤100 user IDs). */
+export type RecoveryFollowingRequest = {
+  userIDs: string[];
+};

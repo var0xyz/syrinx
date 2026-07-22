@@ -339,4 +339,31 @@ export const apiService = {
       body: JSON.stringify(body),
     });
   },
+
+  /** Authenticated: report one reed's countersigned metadata. */
+  async reportRecoveryReed(body: api.RecoveryReedRequest): Promise<void> {
+    await request<void>('/recovery/reeds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** Authenticated: report a page of following user IDs (≤100). */
+  async reportRecoveryFollowing(
+    body: api.RecoveryFollowingRequest
+  ): Promise<void> {
+    await request<void>('/recovery/following', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** Authenticated: clear ongoing_recoveries for the caller. */
+  async completeRecovery(): Promise<void> {
+    await request<void>('/recovery/complete', {
+      method: 'POST',
+    });
+  },
 };
