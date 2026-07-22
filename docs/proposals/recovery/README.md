@@ -506,8 +506,10 @@ not a phase checklist.
 Local state is “recovery in progress,” not a finished login — `userId` in
 localStorage alone must not unlock the normal app.
 
-**Device binding** ([16](16_device_binding.md), after 09–15): one active device
-id per user; not stored in backups; mismatch wipes the offending client.
+**Device binding** ([16](16_device_binding.md), after 09–15): `user_devices`
+history with one active (`revoked_at IS NULL`) per user; device id never in
+backups or the signed profile; claim / `POST /users/device` revoke-then-bind;
+mismatch wipes the offending client.
 
 The client learns recovery is active from `/server/info` (`recoveryMode`) and
 may show an informational banner; restore itself is always backup-first.
@@ -801,8 +803,9 @@ Deferred:
   a permanent suffix.
 - **Completion**: no global finalize; operator turns `RECOVERY_MODE` off;
   per-user import ends via `complete`.
-- **Device binding** (after SPA restore): one device id per user, not in
-  backups; `POST /api/users/device` overwrites; mismatch rejects and client
+- **Device binding** (after SPA restore): `user_devices` (link + revoke
+  times); not in backups or signed profile; signup / claim /
+  `POST /api/users/device` revoke-then-bind; mismatch rejects and client
   wipes ([16](16_device_binding.md)).
 - **Secrets**: bundle password (prompted by `ops` only, encrypts the export
   file, never stored) is independent of the server key passphrase (env for HA,
