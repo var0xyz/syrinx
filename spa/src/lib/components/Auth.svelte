@@ -3,6 +3,11 @@
   import { goto } from '$app/navigation';
   import { requestSigner } from '../services/request-signer';
   import { authService } from '../services/auth';
+  import {
+    enforceImportGate,
+    isImportGated,
+  } from '../services/restoreFlow';
+  import { isImportInProgress } from '../services/importRun';
 
   export let children;
 
@@ -14,16 +19,24 @@
 
   async function checkAuthentication() {
     try {
-      // Check if user has required data
-      const user = await authService.getCurrentUser();
+      // Mid-import / mid-recovery: never treat local identity as a finished session.
+      if (isImportInProgress() || isImportGated()) {
+        enforceImportGate(window.location.pathname);
+        return;
+      }
 
-      if (!user) {
-        // No user ID or active key, redirect to signup
+      if (!authService.isLoggedIn()) {
         goto('/signup');
         return;
       }
 
-      // Get passphrase and fingerprint from auth service
+      const user = await authService.getCurrentUser();
+
+      if (!user) {
+        goto('/signup');
+        return;
+      }
+
       const passphrase = authService.getPassphrase();
       const fingerprint = authService.getActiveKeyFingerprint();
 
@@ -38,7 +51,6 @@
           console.log('Request signer auto-initialized successfully');
         } catch (error) {
           console.warn('Failed to auto-initialize request signer:', error);
-          // Redirect to signup if initialization fails
           goto('/signup');
           return;
         }
