@@ -36,7 +36,7 @@ recovery path ([10](10_spa_unified_restore.md)).
 - Import-gate UI mirror ([15](15_spa_import_gate_mirror.md)) — server enforces
   gate after claim; client mirror lands in 15.
 - Re-submitting pending revocations or other pending stores during claim.
-- Device binding ([16](16_device_binding.md)).
+- Device binding ([17](17_device_binding.md)).
 - Playwright coverage (deferred).
 
 ## Design
