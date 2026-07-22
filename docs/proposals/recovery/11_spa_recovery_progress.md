@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -73,9 +73,12 @@ under the assumption that the new origin already had data.
 
 ## Test plan
 
-- [ ] After fixture backup write, totals match restored IndexedDB
-- [ ] Peers from `users` minus self only
-- [ ] Incomplete peer nest → skipped entry with reason
-- [ ] Follow pages of ≤100 with per-page timestamps
-- [ ] Refresh mid-run → completed entities keep `endTime`; work resumes
-- [ ] UI shows only generic percent (+ optional total duration), not phase lists
+- [x] After fixture backup write, totals match restored IndexedDB
+  (`enumerateRecoveryWork` / `ensureRecoveryProgress`)
+- [x] Peers from `users` minus self only
+- [x] Incomplete peer nest → skipped entry with reason
+  (`canAssembleKeyNest`)
+- [x] Follow pages of ≤100 with per-page timestamps
+- [x] Refresh mid-run → completed entities keep `endTime`; work resumes
+  (`mergeRecoveryProgress`)
+- [x] UI shows only generic percent (+ optional total duration), not phase lists

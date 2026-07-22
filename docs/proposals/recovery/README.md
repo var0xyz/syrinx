@@ -373,7 +373,7 @@ is **superseded** by [10](10_spa_unified_restore.md).
 - ~~SPA: recovery landing UX ([08](08_spa_recovery_landing.md))~~ **Superseded by 10**.
 - ~~User status probe~~ **Done** ([09](09_user_status.md)).
 - ~~SPA: unified restore, backup-first~~ **Done** ([10](10_spa_unified_restore.md)).
-- SPA: recovery progress table + generic UI ([11](11_spa_recovery_progress.md)).
+- ~~SPA: recovery progress table + generic UI~~ **Done** ([11](11_spa_recovery_progress.md)).
 - SPA: own-identity claim ([12](12_spa_own_identity_claim.md)).
 - SPA: peer identity report-back ([13](13_spa_peer_identities.md)).
 - SPA: reeds, follows, complete ([14](14_spa_reeds_follows_complete.md)).
