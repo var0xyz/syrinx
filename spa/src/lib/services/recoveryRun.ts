@@ -1,6 +1,5 @@
 /**
- * Local recovery-run marker (proposal 10). Progress ledger lives in
- * recoveryProgress.ts (proposal 11).
+ * Local recovery-run marker. Progress ledger lives in recoveryProgress.ts.
  */
 
 import {

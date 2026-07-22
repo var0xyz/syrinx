@@ -9,10 +9,13 @@
     getRecoveryProgressSummary,
     type RecoveryProgressSummary,
   } from '$lib/services/recoveryProgress';
+  import { runRecoveryWork } from '$lib/services/recoveryRunner';
   import { isRecoveryComplete, isRecoveryInProgress } from '$lib/services/recoveryRun';
 
   let ready = false;
   let recoveryComplete = false;
+  let running = false;
+  let errorMessage = '';
   let summary: RecoveryProgressSummary = {
     completed: 0,
     total: 0,
@@ -29,6 +32,25 @@
     return rem > 0 ? `${minutes}m ${rem}s` : `${minutes}m`;
   }
 
+  function refreshSummary() {
+    summary = getRecoveryProgressSummary();
+  }
+
+  async function runSteps() {
+    if (running) return;
+    running = true;
+    errorMessage = '';
+    try {
+      const result = await runRecoveryWork();
+      refreshSummary();
+      if (result.ok === false) {
+        errorMessage = result.error;
+      }
+    } finally {
+      running = false;
+    }
+  }
+
   onMount(() => {
     if (authService.isLoggedIn()) {
       goto('/reeds');
@@ -42,7 +64,7 @@
     recoveryComplete = isRecoveryComplete();
     if (recoveryComplete) {
       ready = true;
-      summary = getRecoveryProgressSummary();
+      refreshSummary();
       return;
     }
     if (!isRecoveryInProgress()) {
@@ -52,8 +74,9 @@
 
     void (async () => {
       await ensureRecoveryProgress();
-      summary = getRecoveryProgressSummary();
+      refreshSummary();
       ready = true;
+      await runSteps();
     })();
   });
 </script>
@@ -82,9 +105,26 @@
         {#if summary.elapsedMs > 0}
           <p class="elapsed">Elapsed: {formatElapsed(summary.elapsedMs)}</p>
         {/if}
-        <p class="hint">
-          Recovery steps will continue automatically. You can leave this page open.
-        </p>
+        {#if errorMessage}
+          <p class="error" role="alert">{errorMessage}</p>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            disabled={running}
+            onclick={() => void runSteps()}
+          >
+            {running ? 'Retrying…' : 'Retry'}
+          </button>
+        {:else}
+          <p class="hint">
+            {#if running}
+              Recovery steps are running…
+            {:else}
+              Recovery steps will continue automatically. You can leave this page
+              open.
+            {/if}
+          </p>
+        {/if}
       {:else}
         <p class="hint">Preparing recovery…</p>
       {/if}
@@ -144,6 +184,13 @@
     font-size: 0.95rem !important;
   }
 
+  .error {
+    margin: 1rem 0 1rem 0 !important;
+    color: var(--danger, #b42318) !important;
+    font-size: 0.95rem !important;
+    line-height: 1.4;
+  }
+
   .btn {
     display: inline-flex;
     align-items: center;
@@ -156,13 +203,18 @@
     cursor: pointer;
   }
 
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
   .btn-secondary {
     background: var(--surface);
     color: var(--fg);
     border: 1px solid var(--border);
   }
 
-  .btn-secondary:hover {
+  .btn-secondary:hover:not(:disabled) {
     background: var(--input-bg);
     transform: translateY(-1px);
   }
