@@ -1,7 +1,7 @@
 /**
  * Recovery progress ledger: enumerate restored IndexedDB work units, persist
- * per-entity / follow-page timestamps, and expose a generic percent summary
- * (proposal 11). Network execution of units is 12–14.
+ * per-entity / follow-page timestamps, and expose a generic percent summary.
+ * Network execution of units is separate.
  */
 
 import type * as api from '$lib/types/api';
