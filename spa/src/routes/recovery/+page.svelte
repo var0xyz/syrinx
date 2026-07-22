@@ -36,6 +36,11 @@
     summary = getRecoveryProgressSummary();
   }
 
+  function reloadHome() {
+    // Full navigation so normal startup can drain pending stores.
+    window.location.assign('/');
+  }
+
   async function runSteps() {
     if (running) return;
     running = true;
@@ -45,6 +50,8 @@
       refreshSummary();
       if (result.ok === false) {
         errorMessage = result.error;
+      } else if (isRecoveryComplete()) {
+        recoveryComplete = true;
       }
     } finally {
       running = false;
@@ -89,7 +96,9 @@
       {#if summary.elapsedMs > 0}
         <p class="elapsed">Elapsed: {formatElapsed(summary.elapsedMs)}</p>
       {/if}
-      <a href="/" class="btn btn-secondary">Back to home</a>
+      <button type="button" class="btn btn-secondary" onclick={reloadHome}>
+        Continue
+      </button>
     {:else}
       <p>
         Your backup is on this device. Restoring your account on this server —
