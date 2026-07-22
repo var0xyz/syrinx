@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { afterNavigate } from '$app/navigation';
   import "$lib/styles.css";
   import Notifications from '$lib/components/Notifications.svelte';
   import OfflineIndicator from '$lib/components/OfflineIndicator.svelte';
@@ -8,6 +9,7 @@
   import { initializePWA, isOnline } from '$lib/services/pwa';
   import { refreshServerInfo } from '$lib/services/serverInfo';
   import { authService } from '$lib/services/auth';
+  import { enforceImportGate } from '$lib/services/restoreFlow';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { dbService } from '$lib/services/db';
   import { reedsService, dispatchReedToQueue, initFollowcastIds, prependFollowcastId } from '$lib/repositories/reeds';
@@ -52,9 +54,14 @@
     wasOnline = false;
   }
 
+  afterNavigate(({ to }) => {
+    if (to) enforceImportGate(to.url.pathname);
+  });
+
   onMount(async () => {
     initializePWA();
     refreshServerInfo();
+    enforceImportGate(window.location.pathname);
 
     // Register WS handlers unconditionally so they're in place whether the
     // connection is established now (existing user) or later (post-signup).
