@@ -1,22 +1,21 @@
 /**
- * Local recovery-run marker and minimal progress ledger (proposal 10/11).
- * Full entity enumeration and percent UI land in proposal 11.
+ * Local recovery-run marker (proposal 10). Progress ledger lives in
+ * recoveryProgress.ts (proposal 11).
  */
 
+import {
+  clearRecoveryProgress,
+  hasRecoveryProgress,
+  initEmptyRecoveryProgress,
+} from './recoveryProgress';
+
 const RECOVERY_RUN_KEY = 'recoveryRun';
-const RECOVERY_PROGRESS_KEY = 'recoveryProgress';
 
 export type RecoveryRunMarker = {
   started: true;
   startedAt: number;
   completed?: true;
   completedAt?: number;
-};
-
-/** Minimal stub so resume vs scratch is detectable before proposal 11 fills it. */
-export type RecoveryProgressLedger = {
-  version: 1;
-  entities: Record<string, unknown>;
 };
 
 function readJson<T>(key: string): T | null {
@@ -46,13 +45,9 @@ export function isRecoveryComplete(): boolean {
   return marker?.completed === true;
 }
 
-export function hasRecoveryProgress(): boolean {
-  const ledger = readJson<RecoveryProgressLedger>(RECOVERY_PROGRESS_KEY);
-  return ledger != null && typeof ledger === 'object';
-}
-
 /**
- * Mark recovery as started: run marker + empty progress ledger.
+ * Mark recovery as started: run marker + empty progress ledger shell.
+ * Call ensureRecoveryProgress() after backup write to populate entities.
  */
 export function startRecoveryRun(): void {
   if (typeof localStorage === 'undefined') return;
@@ -61,8 +56,7 @@ export function startRecoveryRun(): void {
     startedAt: Date.now(),
   };
   localStorage.setItem(RECOVERY_RUN_KEY, JSON.stringify(marker));
-  const ledger: RecoveryProgressLedger = { version: 1, entities: {} };
-  localStorage.setItem(RECOVERY_PROGRESS_KEY, JSON.stringify(ledger));
+  initEmptyRecoveryProgress();
 }
 
 /**
@@ -78,8 +72,7 @@ export function resumeRecoveryRun(): void {
     localStorage.setItem(RECOVERY_RUN_KEY, JSON.stringify(marker));
   }
   if (!hasRecoveryProgress()) {
-    const ledger: RecoveryProgressLedger = { version: 1, entities: {} };
-    localStorage.setItem(RECOVERY_PROGRESS_KEY, JSON.stringify(ledger));
+    initEmptyRecoveryProgress();
   }
 }
 
@@ -99,5 +92,5 @@ export function completeRecoveryRun(): void {
 export function clearRecoveryRun(): void {
   if (typeof localStorage === 'undefined') return;
   localStorage.removeItem(RECOVERY_RUN_KEY);
-  localStorage.removeItem(RECOVERY_PROGRESS_KEY);
+  clearRecoveryProgress();
 }

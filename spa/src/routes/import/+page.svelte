@@ -23,6 +23,7 @@
     isRecoveryInProgress,
     resumeRecoveryRun,
   } from '$lib/services/recoveryRun';
+  import { ensureRecoveryProgress } from '$lib/services/recoveryProgress';
   import { redirectForRestoreState } from '$lib/services/restoreFlow';
   import { isRecoveryMode, serverInfoLoading } from '$lib/services/serverInfo';
 
@@ -98,6 +99,7 @@
         } else {
           startRecoveryRun();
         }
+        await ensureRecoveryProgress();
         completeImportRun();
         goto('/recovery');
         return;
