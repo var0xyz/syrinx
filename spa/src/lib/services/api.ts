@@ -1,6 +1,10 @@
 import type * as api from '$lib/types/api';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
+import {
+  handleFinishRecoveryForbidden,
+  isFinishRecoveryForbiddenMessage,
+} from './restoreFlow';
 
 export type SignReedResponse = {
   id: string;
@@ -71,19 +75,37 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, signedInit);
 
   if (!res.ok) {
-    if (res.status === 400 || res.status === 401) {
+    if (res.status === 400 || res.status === 401 || res.status === 403) {
       let message =
         res.status === 401
           ? 'Authentication failed. Please check your credentials.'
-          : res.statusText || 'Bad Request';
+          : res.status === 403
+            ? 'Forbidden'
+            : res.statusText || 'Bad Request';
       try {
-        const errorData = await res.json();
-        if (typeof errorData === 'string' && errorData) {
-          message = errorData;
+        const raw = await res.text();
+        if (raw.trim()) {
+          try {
+            const errorData = JSON.parse(raw);
+            message =
+              typeof errorData === 'string' && errorData
+                ? errorData
+                : raw.trim();
+          } catch {
+            message = raw.trim();
+          }
         }
       } catch {
-        // Non-JSON body (proxy HTML, empty, text/plain) — keep default.
+        // Empty / unreadable body — keep default.
       }
+
+      if (
+        res.status === 403 &&
+        isFinishRecoveryForbiddenMessage(message)
+      ) {
+        handleFinishRecoveryForbidden();
+      }
+
       throw new Error(message);
     }
     throw new Error(`HTTP ${res.status}`);

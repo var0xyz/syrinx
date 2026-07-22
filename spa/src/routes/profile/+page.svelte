@@ -89,6 +89,10 @@
 
   onMount(async () => {
     try {
+      if (!authService.isLoggedIn()) {
+        goto('/');
+        return;
+      }
       user = await authService.getCurrentUser();
       if (!user) {
         goto('/');

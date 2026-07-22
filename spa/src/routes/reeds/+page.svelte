@@ -10,6 +10,11 @@
 
   onMount(async () => {
     try {
+      if (!authService.isLoggedIn()) {
+        window.location.href = '/';
+        return;
+      }
+
       user = await authService.getCurrentUser();
 
       if (!user) {
