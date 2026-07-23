@@ -190,11 +190,21 @@ export const apiService = {
     });
   },
 
-  async getUserWithStatus(userId: string): Promise<{ status: number; user?: api.User }> {
+  async getUserWithStatus(userId: string): Promise<{
+    status: number;
+    user?: api.User;
+    removal?: api.AccountRemoval;
+  }> {
     try {
       const user = await request<api.User>(`/users/${userId}`, { method: 'GET' });
       return { status: 200, user };
     } catch (error: any) {
+      if (error?.status === 410 && error.body?.type === 'account') {
+        return { status: 410, removal: error.body as api.AccountRemoval };
+      }
+      if (error?.status) {
+        return { status: error.status };
+      }
       const match = error?.message?.match(/HTTP (\d+)/);
       return { status: match ? parseInt(match[1]) : 0 };
     }
@@ -227,8 +237,15 @@ export const apiService = {
       body: formData.toString()
     });
   },
-  async deleteAccount(): Promise<void> {
-    return request<void>('/users/me', { method: 'DELETE' });
+  async deleteAccount(signature: string, note: string = ''): Promise<api.AccountRemoval> {
+    const formData = new URLSearchParams();
+    formData.append('signature', signature);
+    formData.append('note', note);
+    return request<api.AccountRemoval>('/users/me', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString(),
+    });
   },
   async createUserKeys(userId: string, email: string): Promise<{ success: boolean }> {
     const formData = new URLSearchParams();

@@ -229,3 +229,41 @@ export function buildReedRemovalServerPayload(
     ''
   );
 }
+
+/** Mirror of BuildAccountRemovalUserPayload (`type: account`, note as content). */
+export function buildAccountRemovalUserPayload(
+  serverID: string,
+  userID: string,
+  note: string
+): string {
+  return stringToSign(
+    {
+      type: 'account',
+      serverID,
+      userID
+    },
+    note
+  );
+}
+
+/** Mirror of BuildAccountRemovalServerPayload in identity.go. */
+export function buildAccountRemovalServerPayload(
+  serverID: string,
+  userID: string,
+  note: string,
+  serverKeyFingerprint: string,
+  userSignatureB64: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'account',
+      serverID,
+      userID,
+      signedAt,
+      serverKeyFingerprint,
+      userSignature: userSignatureB64
+    },
+    note
+  );
+}

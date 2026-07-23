@@ -47,8 +47,9 @@ purging peer account data. Either failure → ignore the event / keep data.
 4. Delete reed from `reeds`.
 5. Delete `pendingRemoval` entry.
 
-Account flow mirrors this with `pendingAccountRemoval` and an optional
-`note` (≤140).
+Account author flow is **online-only** (sign → DELETE → verify → wipe
+local session) with an optional `note` (≤140). No `pendingAccountRemoval`
+queue — unlike reed removal, this must not silently retry later.
 
 ### Idempotency
 
