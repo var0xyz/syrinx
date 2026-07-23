@@ -459,6 +459,17 @@ func (h *Handlers) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	removal, err := h.services.db.GetAccountRemoval(userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
+		internalServerError(w)
+		return
+	}
+	if removal != nil {
+		writeResponse(w, http.StatusGone, h.accountRemovalWire(removal))
+		return
+	}
+
 	user, err := h.services.db.GetUser(userID)
 	if err != nil {
 		log.Error().
@@ -510,22 +521,145 @@ func (h *Handlers) UnfollowUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("DeleteCurrentlyLoggedInUser request received")
+	log.Info().Msg("DeleteMe (account removal) request received")
 
 	userID := h.getUserID(r)
-	err := h.services.db.DeleteUser(userID)
+	if userID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		log.Error().Err(err).Msg("Error parsing form")
+		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		return
+	}
+	userSignatureB64 := strings.TrimSpace(r.FormValue("signature"))
+	if userSignatureB64 == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+		return
+	}
+	note := r.FormValue("note")
+	if err := deletion.ValidateAccountNote(note); err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	serverID := h.services.db.GetServerID()
+
+	existing, err := h.services.db.GetAccountRemoval(userID)
 	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).Msg("Error deleting user")
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
 		internalServerError(w)
 		return
 	}
-	log.Info().
-		Str("userID", userID).
-		Msg("User deleted")
+	if existing != nil {
+		if existing.UserSignature != userSignatureB64 || existing.Note != note {
+			writeResponse(w, http.StatusConflict, "Account removal already exists with a different attestation")
+			return
+		}
+		writeResponse(w, http.StatusOK, h.accountRemovalWire(existing))
+		return
+	}
 
-	writeResponse(w, http.StatusOK, "user deleted successfully")
+	user, err := h.services.db.GetUser(userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error getting user")
+		internalServerError(w)
+		return
+	}
+	if user == nil {
+		writeResponse(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	fingerprint := user.ActiveKeyFingerprint
+	userPayload := identity.BuildAccountRemovalUserPayload(serverID, userID, note)
+	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
+		return
+	}
+	pubKey, err := h.services.db.GetPublicKey(userID, fingerprint)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("fingerprint", fingerprint).Err(err).Msg("Error loading public key")
+		internalServerError(w)
+		return
+	}
+	if pubKey == nil || pubKey.Revoked {
+		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		return
+	}
+	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("account removal signature verification failed")
+		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		return
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	serverPayload := identity.BuildAccountRemovalServerPayload(
+		serverID, userID, note,
+		h.signingKey.Fingerprint, userSignatureB64, now,
+	)
+	serverSignature, err := h.countersign(serverPayload, now)
+	if err != nil {
+		log.Error().Err(err).Msg("Error producing account-removal countersignature")
+		internalServerError(w)
+		return
+	}
+
+	cert := deletion.AccountCert{
+		UserID:            userID,
+		Note:              note,
+		UserSignature:     userSignatureB64,
+		UserFingerprint:   fingerprint,
+		ServerSignature:   serverSignature.Armor,
+		ServerFingerprint: serverSignature.Fingerprint,
+		ServerSignedAt:    serverSignature.SignedAt,
+	}
+	if err := h.services.db.InsertAccountRemoval(cert); err != nil {
+		if errors.Is(err, deletion.ErrConflict) {
+			existing, getErr := h.services.db.GetAccountRemoval(userID)
+			if getErr == nil && existing != nil && existing.UserSignature == userSignatureB64 && existing.Note == note {
+				writeResponse(w, http.StatusOK, h.accountRemovalWire(existing))
+				return
+			}
+			writeResponse(w, http.StatusConflict, "Account removal already exists with a different attestation")
+			return
+		}
+		log.Error().Str("userID", userID).Err(err).Msg("Error storing account removal")
+		internalServerError(w)
+		return
+	}
+
+	h.broadcastChan <- realtime.BroadcastMessage{
+		Type:     realtime.AccountRemoved,
+		ServerID: serverID,
+		UserID:   userID,
+		Data: map[string]interface{}{
+			"cert": h.accountRemovalWire(&cert),
+		},
+	}
+
+	log.Info().Str("userID", userID).Msg("Account removal accepted")
+	writeResponse(w, http.StatusOK, h.accountRemovalWire(&cert))
+}
+
+func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval {
+	return AccountRemoval{
+		Type:      identity.TypeAccount,
+		ServerID:  h.services.db.GetServerID(),
+		UserID:    cert.UserID,
+		Note:      cert.Note,
+		Signature: cert.UserSignature,
+		Server: Signature{
+			ServerID:    h.services.db.GetServerID(),
+			Fingerprint: cert.ServerFingerprint,
+			Algorithm:   identity.Algorithm,
+			Armor:       cert.ServerSignature,
+			SignedAt:    cert.ServerSignedAt,
+		},
+	}
 }
 
 // UpdateUser mints a fresh signed identity record for an authenticated
@@ -1380,7 +1514,18 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Account-removal check lands in deletion 08; reed removal first for now.
+	// Account-removal check first (deletion 08): tombstone wins over reed cert.
+	accountRemoval, err := h.services.db.GetAccountRemoval(userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
+		internalServerError(w)
+		return
+	}
+	if accountRemoval != nil {
+		writeResponse(w, http.StatusGone, h.accountRemovalWire(accountRemoval))
+		return
+	}
+
 	removal, err := h.services.db.GetReedRemoval(userID, reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed removal")

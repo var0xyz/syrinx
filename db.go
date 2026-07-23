@@ -140,6 +140,17 @@ type ReedRemoval struct {
 	Server    Signature `json:"server"`
 }
 
+// AccountRemoval is the wire shape of a signed account-removal certificate
+// (JSON `type: "account"`). See docs/proposals/deletion/.
+type AccountRemoval struct {
+	Type      string    `json:"type"`
+	ServerID  string    `json:"serverID"`
+	UserID    string    `json:"userID"`
+	Note      string    `json:"note"`
+	Signature string    `json:"signature"`
+	Server    Signature `json:"server"`
+}
+
 // /////// //
 //   P2P   //
 // /////// //

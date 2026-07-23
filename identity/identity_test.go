@@ -269,6 +269,43 @@ func TestReedRemovalUserPayloadCanonicalShape(t *testing.T) {
 	}
 }
 
+func TestAccountRemovalUserPayloadCanonicalShape(t *testing.T) {
+	got := BuildAccountRemovalUserPayload("Server01", "abc123", "Taking a break.")
+	want := "---\n" +
+		"serverID: Server01\n" +
+		"type: account\n" +
+		"userID: abc123\n" +
+		"---\n" +
+		"Taking a break."
+	if string(got) != want {
+		t.Errorf("account-removal user payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+	if TypeAccount != "account" {
+		t.Errorf("TypeAccount=%q, want account", TypeAccount)
+	}
+}
+
+func TestAccountRemovalServerPayloadCanonicalShape(t *testing.T) {
+	signedAt := time.Date(2026, 7, 22, 17, 2, 5, 0, time.UTC)
+	got := BuildAccountRemovalServerPayload(
+		"Server01", "abc123", "Taking a break.",
+		"0011FF", "dXNlcnNpZw==",
+		signedAt,
+	)
+	want := "---\n" +
+		"serverID: Server01\n" +
+		"serverKeyFingerprint: 0011FF\n" +
+		"signedAt: 2026-07-22T17:02:05Z\n" +
+		"type: account\n" +
+		"userID: abc123\n" +
+		"userSignature: dXNlcnNpZw==\n" +
+		"---\n" +
+		"Taking a break."
+	if string(got) != want {
+		t.Errorf("account-removal server payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}
+
 func TestReedRemovalServerPayloadCanonicalShape(t *testing.T) {
 	signedAt := time.Date(2026, 7, 22, 17, 2, 5, 0, time.UTC)
 	got := BuildReedRemovalServerPayload(

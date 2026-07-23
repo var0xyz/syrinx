@@ -98,6 +98,17 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 		return "", fmt.Errorf("key is revoked")
 	}
 
+	var removed bool
+	if err := as.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM account_removals WHERE user_id = $1)
+	`, userID).Scan(&removed); err != nil {
+		return "", fmt.Errorf("error checking account removal: %w", err)
+	}
+	if removed {
+		log.Error().Str("userID", userID).Msg("WebSocket auth rejected: account removed")
+		return "", fmt.Errorf("account removed")
+	}
+
 	// Decode base64 signature first
 	decodedSignature, err := as.decodeBase64Signature(signature)
 	if err != nil {

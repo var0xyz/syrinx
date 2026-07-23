@@ -404,6 +404,23 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				return
 			}
 
+			// Account-removed users may only replay DELETE /users/me (idempotent
+			// cert fetch). All other authenticated actions are forbidden.
+			removed, remErr := h.services.db.HasAccountRemoval(userID)
+			if remErr != nil {
+				log.Error().Str("userID", userID).Err(remErr).Msg("Error checking account removal")
+				internalServerError(w)
+				return
+			}
+			if removed {
+				path := r.URL.Path
+				if !(r.Method == http.MethodDelete && (path == prefix+"/users/me" || strings.HasSuffix(path, "/users/me"))) {
+					log.Info().Str("userID", userID).Str("path", path).Msg("Rejected auth for removed account")
+					writeResponse(w, http.StatusGone, "Account removed")
+					return
+				}
+			}
+
 			// Verify signature
 			if err := h.verifyRequestSignature(r, signatureHeader, publicKey.Armor); err != nil {
 				log.Error().

@@ -729,10 +729,10 @@ func reedRemovalWireMap(
 	serverID, userID, reedID, userSig, serverSig, serverFP string, signedAt time.Time,
 ) map[string]interface{} {
 	return map[string]interface{}{
-		"type":     identity.TypeReed,
-		"serverID": serverID,
-		"userID":   userID,
-		"reedID":   reedID,
+		"type":      identity.TypeReed,
+		"serverID":  serverID,
+		"userID":    userID,
+		"reedID":    reedID,
 		"signature": userSig,
 		"server": map[string]interface{}{
 			"id":          serverID,
@@ -742,4 +742,120 @@ func reedRemovalWireMap(
 			"timestamp":   signedAt.UTC(),
 		},
 	}
+}
+
+// MissingAccountRemoval is a catch-up row: viewer still follows or holds
+// allocations for a removed author's reeds.
+type MissingAccountRemoval struct {
+	UserID string
+	Cert   map[string]interface{}
+}
+
+// GetMissingAccountRemovals returns account_removals that still apply to viewer
+// (follow ∪ allocations for that author's reeds).
+func (ds *DBService) GetMissingAccountRemovals(viewerUserID string) ([]MissingAccountRemoval, error) {
+	serverID, err := ds.serverID()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := ds.db.Query(`
+		SELECT ar.user_id, ar.note, ar.user_signature, ar.server_signature,
+		       ar.server_fingerprint, ar.server_signed_at
+		FROM account_removals ar
+		WHERE EXISTS (
+			SELECT 1 FROM user_following uf
+			WHERE uf.user_id = $1 AND uf.following_user_id = ar.user_id
+		) OR EXISTS (
+			SELECT 1 FROM reed_allocations ra
+			JOIN reeds r ON r.id = ra.reed_id
+			WHERE ra.user_id = $1 AND r.user_id = ar.user_id
+		)
+	`, viewerUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []MissingAccountRemoval
+	for rows.Next() {
+		var removedUserID, note, userSig, serverSig, serverFP string
+		var signedAt time.Time
+		if err := rows.Scan(&removedUserID, &note, &userSig, &serverSig, &serverFP, &signedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, MissingAccountRemoval{
+			UserID: removedUserID,
+			Cert:   accountRemovalWireMap(serverID, removedUserID, note, userSig, serverSig, serverFP, signedAt),
+		})
+	}
+	return out, rows.Err()
+}
+
+// GetAccountRemovalWire loads an account-removal cert as a wire-shaped map.
+func (ds *DBService) GetAccountRemovalWire(userID string) (map[string]interface{}, error) {
+	cert, err := deletion.GetAccountCert(ds.db, userID)
+	if err != nil || cert == nil {
+		return nil, err
+	}
+	serverID, err := ds.serverID()
+	if err != nil {
+		return nil, err
+	}
+	return accountRemovalWireMap(
+		serverID, cert.UserID, cert.Note,
+		cert.UserSignature, cert.ServerSignature, cert.ServerFingerprint, cert.ServerSignedAt,
+	), nil
+}
+
+func accountRemovalWireMap(
+	serverID, userID, note, userSig, serverSig, serverFP string, signedAt time.Time,
+) map[string]interface{} {
+	return map[string]interface{}{
+		"type":      identity.TypeAccount,
+		"serverID":  serverID,
+		"userID":    userID,
+		"note":      note,
+		"signature": userSig,
+		"server": map[string]interface{}{
+			"id":          serverID,
+			"fingerprint": serverFP,
+			"algorithm":   identity.Algorithm,
+			"signature":   serverSig,
+			"timestamp":   signedAt.UTC(),
+		},
+	}
+}
+
+// ClearPeerStateForRemovedAccount drops follow edges and allocations so
+// catch-up no longer re-delivers the account cert to this viewer.
+func (ds *DBService) ClearPeerStateForRemovedAccount(viewerUserID, removedUserID string) error {
+	tx, err := ds.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []struct {
+		q  string
+		a1 string
+		a2 string
+	}{
+		{`DELETE FROM user_following WHERE user_id = $1 AND following_user_id = $2`, viewerUserID, removedUserID},
+		{`DELETE FROM user_following WHERE user_id = $1 AND following_user_id = $2`, removedUserID, viewerUserID},
+		{`DELETE FROM user_followers WHERE user_id = $1 AND follower_user_id = $2`, removedUserID, viewerUserID},
+		{`DELETE FROM user_followers WHERE user_id = $1 AND follower_user_id = $2`, viewerUserID, removedUserID},
+	}
+	for _, s := range stmts {
+		if _, err := tx.Exec(s.q, s.a1, s.a2); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`
+		DELETE FROM reed_allocations
+		WHERE user_id = $1
+		  AND reed_id IN (SELECT id FROM reeds WHERE user_id = $2)
+	`, viewerUserID, removedUserID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
