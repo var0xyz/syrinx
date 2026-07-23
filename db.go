@@ -163,6 +163,8 @@ func InitDB(db *sql.DB) error {
 	//
 	// - user_signature: base64 of the user's armored PGP detached
 	//   signature over the user identity payload.
+	// - user_fingerprint: user key that produced user_signature (active
+	//   key hint at mint time; pairs with user_signature).
 	// - server_signature: base64 of the server's armored PGP detached
 	//   signature over the server identity payload.
 	// - server_signed_at: timestamp inside the server-signed payload.
@@ -177,7 +179,7 @@ func InitDB(db *sql.DB) error {
 		username VARCHAR(255) UNIQUE NOT NULL,
 		avatar_url VARCHAR(255),
 		bio TEXT,
-		fingerprint VARCHAR(255),
+		user_fingerprint VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		user_signature TEXT NOT NULL,
 		server_signature TEXT NOT NULL,
@@ -247,7 +249,7 @@ func InitDB(db *sql.DB) error {
 	// the successor.
 	createUserKeyRevocationsTable := `
 	CREATE TABLE IF NOT EXISTS user_key_revocations (
-		fingerprint VARCHAR(255),
+		user_fingerprint VARCHAR(255),
 		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		reason TEXT,
 		user_signature TEXT NOT NULL,
@@ -256,17 +258,17 @@ func InitDB(db *sql.DB) error {
 		server_signed_at TIMESTAMP NOT NULL,
 		successor VARCHAR(255) REFERENCES user_keys(fingerprint),
 
-		PRIMARY KEY (fingerprint, owner),
-		FOREIGN KEY (fingerprint, owner)
-			REFERENCES user_keys(fingerprint, owner)
+		PRIMARY KEY (owner, user_fingerprint),
+		FOREIGN KEY (owner, user_fingerprint)
+			REFERENCES user_keys(owner, fingerprint)
 			ON DELETE CASCADE
 	);`
 
-	// We only need one index on `owner` here because `fingerprint` is covered
-	// by being the first field in the `PRIMARY KEY` clause.
+	// We only need one index on `user_fingerprint` here because `owner` is
+	// covered by being the first field in the `PRIMARY KEY` clause.
 	createUserKeyRevocationsIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_user_key_revocations_owner
-		ON user_key_revocations(owner);
+	CREATE INDEX IF NOT EXISTS idx_user_key_revocations_user_fingerprint
+		ON user_key_revocations(user_fingerprint);
 	`
 
 	createReedsTable := `
@@ -276,12 +278,12 @@ func InitDB(db *sql.DB) error {
 		private_key_fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
 		signed_at TIMESTAMP NOT NULL,
 
-		PRIMARY KEY (id, user_id)
+		PRIMARY KEY (user_id, id)
 	);`
 
 	createReedIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_reeds_user_id
-		ON reeds(user_id);
+	CREATE INDEX IF NOT EXISTS idx_reeds_id
+		ON reeds(id);
 	CREATE INDEX IF NOT EXISTS idx_reeds_signed_at
 		ON reeds(signed_at);
 	`
@@ -351,14 +353,14 @@ func InitDB(db *sql.DB) error {
 		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-		PRIMARY KEY (reed_id, user_id)
+		PRIMARY KEY (user_id, reed_id)
 	);`
 
-	// We only need one index on `user_id` here because `reed_id` is covered by
+	// We only need one index on `reed_id` here because `user_id` is covered by
 	// being the first field in the `PRIMARY KEY` clause.
 	createReedAllocationIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_reed_allocations_user_id
-		ON reed_allocations(user_id);
+	CREATE INDEX IF NOT EXISTS idx_reed_allocations_reed_id
+		ON reed_allocations(reed_id);
 	`
 
 	createPendingEventsTable := `
