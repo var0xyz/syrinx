@@ -294,6 +294,25 @@ func InitDB(db *sql.DB) error {
 		ON reeds(signed_at);
 	`
 
+	// Signed reed-removal certificates. Source of truth for “gone”; no FK to
+	// reeds(id) so the live row may be dropped after the cert is stored.
+	// PK is (user_id, reed_id); reed_id is also UNIQUE for reed-only lookups.
+	createReedRemovalsTable := `
+	CREATE TABLE IF NOT EXISTS reed_removals (
+		reed_id VARCHAR(255) UNIQUE NOT NULL,
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id),
+		user_signature TEXT NOT NULL,
+		user_fingerprint VARCHAR(255) NOT NULL,
+		server_signature TEXT NOT NULL,
+		server_fingerprint VARCHAR(255) NOT NULL,
+		server_signed_at TIMESTAMP NOT NULL,
+
+		PRIMARY KEY (user_id, reed_id),
+		FOREIGN KEY (user_id, user_fingerprint)
+			REFERENCES user_keys(owner, fingerprint)
+			ON DELETE CASCADE
+	);`
+
 	// ////////// //
 	//   Social   //
 	// ////////// //
@@ -465,6 +484,8 @@ func InitDB(db *sql.DB) error {
 
 		createReedsTable,
 		createReedIndexes,
+
+		createReedRemovalsTable,
 
 		// Social
 		createUserFollowersTable,
