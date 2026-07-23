@@ -45,9 +45,12 @@ Client sends `previousID` (form field alongside `reedID` / `signature`):
 - **Set** — must be an existing reed **owned by the author**, and must equal
   the author’s **current tip**.
 
-**Tip definition:** newest row for `user_id` by `signed_at DESC`, with
-`id DESC` as tie-break (server timestamps are truncated to seconds today, so
-ties are possible under concurrency).
+**Tip definition:** newest **non-removed** row for `user_id` by
+`signed_at DESC`, with `id DESC` as tie-break (server timestamps are
+truncated to seconds today, so ties are possible under concurrency). Once
+signed reed removal exists
+([deletion](../deletion/README.md)), ids present in `reed_removals` (or
+equivalent) are not tips; an account-removed author cannot publish.
 
 On mismatch (unknown id, other user’s reed, or not the tip) → reject with a
 **distinct** client error (e.g. `{ "error": "reed_fork" }` / **409**), not a

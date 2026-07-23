@@ -54,6 +54,23 @@ See [`invites/`](invites/README.md):
 | 04 | Home CTA + invite-link signup path                 |
 | 05 | Toolbar Invites tab + management UI                |
 
+## Signed deletions (reeds + accounts)
+
+See [`deletion/`](deletion/README.md):
+
+| #  | Title                                        |
+|----|----------------------------------------------|
+| 00 | Design + trust model                         |
+| 01 | Reed-removal schema + store                  |
+| 02 | Reed-removal canonical payload + countersign |
+| 03 | Reed-removal API (idempotent)                |
+| 04 | Reed-removal realtime fanout + sync catch-up |
+| 05 | SPA author queue (`pendingRemoval`)          |
+| 06 | SPA holders: verify cert → drop reed         |
+| 07 | Account-removal schema + store               |
+| 08 | Account-removal API, 410 bodies, fanout      |
+| 09 | SPA account removal (author + peers)         |
+
 ## Parallelism
 
 - **Immediately parallel**: 01, 02, 10, 11 have no (or only 01) dependencies and can be
@@ -73,6 +90,11 @@ See [`invites/`](invites/README.md):
   Step 00 (keychain passphrase) can land independently and unblocks 01/02.
 - **Invites feature steps** are independent of recovery; within `invites/`,
   follow that directory's depends-on column (00→05). Step 00 can land alone.
+- **Deletion feature steps** are independent of recovery; within
+  `deletion/`, follow that directory's depends-on column. After 00, account
+  schema (07) may parallel the reed track; 08 needs 02+04; 09 needs 06+08.
+  Tip check ([recovery 16](recovery/16_reed_tip_check.md)) should exclude
+  removed reeds (and block account-removed authors) once deletion lands.
 
 ## Shared conventions
 
