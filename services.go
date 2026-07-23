@@ -1055,6 +1055,21 @@ func (s *DataService) InsertReedRemoval(cert deletion.Cert) error {
 	return deletion.InsertCert(s.db, cert)
 }
 
+// GetAccountRemoval returns the stored account-removal cert for userID.
+func (s *DataService) GetAccountRemoval(userID string) (*deletion.AccountCert, error) {
+	return deletion.GetAccountCert(s.db, userID)
+}
+
+// InsertAccountRemoval persists an account-removal cert (idempotent / conflict).
+func (s *DataService) InsertAccountRemoval(cert deletion.AccountCert) error {
+	return deletion.InsertAccountCert(s.db, cert)
+}
+
+// HasAccountRemoval reports whether userID has an account-removal row.
+func (s *DataService) HasAccountRemoval(userID string) (bool, error) {
+	return deletion.HasAccountRemoval(s.db, userID)
+}
+
 // ================== //
 //   LoggingService   //
 // ================== //

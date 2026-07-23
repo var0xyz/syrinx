@@ -318,6 +318,25 @@ func InitDB(db *sql.DB) error {
 			ON DELETE CASCADE
 	);`
 
+	// Signed account-removal certificates. One cert per user; public keys
+	// remain. user_fingerprint binds the signing key (same class as reed
+	// removals). note ≤140 enforced by CHECK + API.
+	createAccountRemovalsTable := `
+	CREATE TABLE IF NOT EXISTS account_removals (
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id),
+		note VARCHAR(140) NOT NULL DEFAULT '',
+		user_signature TEXT NOT NULL,
+		user_fingerprint VARCHAR(255) NOT NULL,
+		server_signature TEXT NOT NULL,
+		server_fingerprint VARCHAR(255) NOT NULL,
+		server_signed_at TIMESTAMP NOT NULL,
+
+		FOREIGN KEY (user_id, user_fingerprint)
+			REFERENCES user_keys(owner, fingerprint)
+			ON DELETE CASCADE,
+		CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140)
+	);`
+
 	// ////////// //
 	//   Social   //
 	// ////////// //
@@ -490,6 +509,7 @@ func InitDB(db *sql.DB) error {
 		createReedIndexes,
 
 		createReedRemovalsTable,
+		createAccountRemovalsTable,
 
 		// Social
 		createUserFollowersTable,
