@@ -133,3 +133,13 @@ export type RecoveryReedRequest = {
 export type RecoveryFollowingRequest = {
   userIDs: string[];
 };
+
+/** Wire shape of a signed reed removal certificate (DELETE /reeds response / 410 body). */
+export interface ReedRemoval extends Base {
+  type: 'reed';
+  serverID: string;
+  userID: string;
+  reedID: string;
+  signature: string;
+  server: ServerSignature;
+}

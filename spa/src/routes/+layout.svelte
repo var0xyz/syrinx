@@ -15,6 +15,7 @@
   import { reedsService, dispatchReedToQueue, initFollowcastIds, prependFollowcastId } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
   import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
+  import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
 
   // TODO: the echoing/replying header currently encodes only "authorId!reedId", which loses
   // the server dimension. Once we have federated reeds, this needs to become a full
@@ -47,6 +48,7 @@
           reedsService.processUnsignedReeds();
           followingRepository.syncPending();
           pendingRevocationRepository.syncPending();
+          pendingRemovalRepository.syncPending();
         }
       });
     }
@@ -106,6 +108,7 @@
         reedsService.processUnsignedReeds();
         followingRepository.syncPending();
         pendingRevocationRepository.syncPending();
+        pendingRemovalRepository.syncPending();
         serverConnection.connect()
           .then(() => serverConnection.syncRequest())
           .catch(err => console.error('ServerConnection failed:', err));

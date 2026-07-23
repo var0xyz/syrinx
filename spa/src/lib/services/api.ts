@@ -263,8 +263,18 @@ export const apiService = {
     });
   },
 
-  async deleteReed(userId: string, reedId: string): Promise<void> {
-    return request(`/reeds/${userId}/${reedId}`, { method: 'DELETE' });
+  async deleteReed(
+    userId: string,
+    reedId: string,
+    signature: string
+  ): Promise<api.ReedRemoval> {
+    const formData = new URLSearchParams();
+    formData.append('signature', signature);
+    return request<api.ReedRemoval>(`/reeds/${userId}/${reedId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString(),
+    });
   },
 
   async revokeKey(

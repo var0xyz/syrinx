@@ -9,6 +9,7 @@
   import { Reed } from '$lib/types/reed';
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
+  import { removeReedAsAuthor } from '$lib/services/reedRemoval';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
@@ -159,13 +160,7 @@
 
   async function performDelete() {
     try {
-      // Delete from server
-      await apiService.deleteReed(userID, reedID);
-
-      // Delete from IndexedDB
-      await dbService.delete('reeds', reedID);
-
-      // Navigate back to reeds list
+      await removeReedAsAuthor(userID, reedID);
       goto('/reeds');
     } catch (error) {
       console.error('Error deleting reed:', error);
