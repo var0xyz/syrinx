@@ -311,11 +311,6 @@ export const apiService = {
     );
   },
 
-  async getUserReedIds(userId: string, from?: string): Promise<string[]> {
-    const params = from ? `?from=${encodeURIComponent(from)}` : '';
-    return request<string[]>(`/users/${userId}/reeds${params}`, { method: 'GET' });
-  },
-
   async addPublicKey(
     userID: string,
     publicKey: string,

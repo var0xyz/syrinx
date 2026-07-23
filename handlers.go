@@ -1128,27 +1128,6 @@ func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, revocation)
 }
 
-func (h *Handlers) GetReedsByUserID(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("GetReedsByUserID request received")
-
-	userID := mux.Vars(r)["userID"]
-	if userID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
-		return
-	}
-
-	from := r.URL.Query().Get("from")
-	ids, err := h.services.db.GetReedsByUserID(userID, from)
-	if err != nil {
-		log.Error().Str("userID", userID).Err(err).Msg("Error getting reeds for user")
-		internalServerError(w)
-		return
-	}
-
-	writeResponse(w, http.StatusOK, ids)
-}
-
 func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("SignReed request received")

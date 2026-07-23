@@ -190,9 +190,6 @@ func main() {
 	api.HandleFunc("/users/{userID}/follow", h.UnfollowUser).Methods("DELETE")
 	api.HandleFunc("/users/{userID}/follow", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/users/{userID}/reeds", h.GetReedsByUserID).Methods("GET")
-	api.HandleFunc("/users/{userID}/reeds", h.noop).Methods("OPTIONS")
-
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.GetPublicKey).Methods("GET")
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.noop).Methods("OPTIONS")
 

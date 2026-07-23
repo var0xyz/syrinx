@@ -1005,47 +1005,6 @@ func (s *DataService) CreateReed(reedID string, userID string, fingerprint strin
 	return &reed, nil
 }
 
-func (s *DataService) GetReedsByUserID(userID, from string) ([]string, error) {
-	var rows *sql.Rows
-	var err error
-
-	if from == "" {
-		rows, err = s.db.Query(`
-			SELECT id FROM reeds
-			WHERE user_id = $1
-			ORDER BY signed_at DESC
-			LIMIT 100
-		`, userID)
-	} else {
-		rows, err = s.db.Query(`
-			SELECT id FROM reeds
-			WHERE user_id = $1
-			  AND signed_at < (SELECT signed_at FROM reeds WHERE id = $2)
-			ORDER BY signed_at DESC
-			LIMIT 100
-		`, userID, from)
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-
-	if len(ids) == 0 {
-		return []string{}, nil
-	}
-
-	return ids, nil
-}
-
 func (s *DataService) GetReed(userID string, reedID string) (*Reed, error) {
 	var reed Reed
 	err := s.db.QueryRow(`
