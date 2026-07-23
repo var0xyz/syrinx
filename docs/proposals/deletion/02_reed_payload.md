@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (identity payload helpers + tests).
 
 ## Depends on
 
@@ -17,10 +17,11 @@ Author and server must sign the same canonical bytes. Follow shared
 
 - User payload headers/content for reed removal.
 - Server countersign payload (binds user signature + server ts + fingerprint).
-- `identity` (or deletion package) helpers: build, verify user, countersign,
-  verify server.
+- `identity` helpers: build user payload, build server countersign payload.
+  Verification is via `crypto.Service` against rebuilt payloads (same as
+  identity / revocation) — no unused verify wrappers ahead of handlers.
 - Wire `type: "reed"` on the JSON resource and in signed headers
-  (`type: reed`). Same spelling everywhere.
+  (`type: reed`). Same spelling everywhere (`identity.TypeReed`).
 
 ## Non-goals
 
@@ -31,24 +32,31 @@ Author and server must sign the same canonical bytes. Follow shared
 
 ### User-signed payload
 
-Headers (illustrative):
+Headers:
 
 - `type: reed`
 - `serverID: <serverID>`
 - `userID: <authorID>`
 - `reedID: <reedID>`
 
-Content: empty (or omit).
+Content: empty.
 
 Signed by the author’s **active** key.
+Helper: `identity.BuildReedRemovalUserPayload`.
 
 ### Server countersign payload
 
-Headers: user headers + `timestamp` / `fingerprint` / `serverID` as needed to
-match other resources, plus binding of `userSignature` (same class as
-identity / revocation countersign).
+Headers (revocation / identity class — `userSignature` bound as a header):
+
+- `type: reed`
+- `serverID`, `userID`, `reedID`
+- `signedAt` (wire `server.timestamp`)
+- `serverKeyFingerprint`
+- `userSignature`
 
 Content: empty.
+
+Helper: `identity.BuildReedRemovalServerPayload`.
 
 Wire resource matches [README example](README.md#example--reed).
 
@@ -60,6 +68,6 @@ Wire resource matches [README example](README.md#example--reed).
 
 ## Test plan
 
-- [ ] Roundtrip: sign → countersign → verify both
-- [ ] Tamper `reedID` / `userID` → verify fails
-- [ ] JSON `type` is `"reed"`
+- [x] Roundtrip: sign → countersign → verify both
+- [x] Tamper `reedID` / `userID` → verify fails
+- [x] JSON / header `type` is `"reed"` (`TypeReed`)

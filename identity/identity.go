@@ -1,5 +1,6 @@
 // Package identity holds canonical byte sequences for signed identity
-// records and related countersignatures (keys, reeds, revocations).
+// records and related countersignatures (keys, reeds, revocations,
+// reed removals).
 //
 // An identity record has two signed byte sequences that overlap but are
 // not identical:
@@ -296,6 +297,80 @@ func BuildServerRevocationPayload(
 			signedAt,
 		),
 		reason,
+	)
+}
+
+// TypeReed is the wire and signed-header `type` for a single-reed removal
+// certificate (JSON `"type": "reed"`). Account removals use a different
+// value; do not invent aliases such as `reed_removal`.
+const TypeReed = "reed"
+
+// reedRemovalUserHeaders returns the header map the reed author signs when
+// requesting removal. Content is empty.
+func reedRemovalUserHeaders(serverID, userID, reedID string) map[string]string {
+	return map[string]string{
+		"type":     TypeReed,
+		"serverID": serverID,
+		"userID":   userID,
+		"reedID":   reedID,
+	}
+}
+
+// BuildReedRemovalUserPayload returns the exact bytes the reed author signs
+// to produce the wire `signature` field on a reed-removal cert.
+func BuildReedRemovalUserPayload(serverID, userID, reedID string) []byte {
+	return signing.BytesToSign(
+		reedRemovalUserHeaders(serverID, userID, reedID),
+		"",
+	)
+}
+
+// reedRemovalServerHeaders returns the header map the server countersigns.
+// userSignatureB64 binds the author's attestation into the server-signed
+// bytes (same class as identity / revocation countersign).
+func reedRemovalServerHeaders(
+	serverID,
+	userID,
+	reedID,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	signedAt time.Time,
+) map[string]string {
+	return map[string]string{
+		"type":                 TypeReed,
+		"serverID":             serverID,
+		"userID":               userID,
+		"reedID":               reedID,
+		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignatureB64,
+	}
+}
+
+// BuildReedRemovalServerPayload returns the exact bytes the server signs
+// when countersigning a reed removal. signedAt becomes server.timestamp
+// on the wire.
+//
+// `signedAt` must already be truncated to whole seconds so that what is
+// signed matches what Postgres stores after any timestamp round-trip.
+func BuildReedRemovalServerPayload(
+	serverID,
+	userID,
+	reedID,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	signedAt time.Time,
+) []byte {
+	return signing.BytesToSign(
+		reedRemovalServerHeaders(
+			serverID,
+			userID,
+			reedID,
+			serverKeyFingerprint,
+			userSignatureB64,
+			signedAt,
+		),
+		"",
 	)
 }
 
