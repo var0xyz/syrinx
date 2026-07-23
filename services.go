@@ -460,7 +460,11 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		       u.user_signature, u.server_signature,
 		       u.server_fingerprint, u.server_signed_at,
 		       EXISTS (
-		           SELECT 1 FROM reeds WHERE user_id = u.id
+		           SELECT 1 FROM reeds r
+		           WHERE r.user_id = u.id
+		             AND NOT EXISTS (
+		                 SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
+		             )
 		       ) AS has_reeds
 		FROM users u
 		WHERE u.id = $1

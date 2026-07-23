@@ -1,8 +1,9 @@
-# Deletion 01 — Reed-removal schema + store
+# Deletion 01 — Reed-removal schema
 
 ## Status
 
-Proposed.
+Implemented (DDL + list/tip exclusions). Store helpers deferred to the
+handler step that first needs them ([03](03_reed_api.md)).
 
 ## Depends on
 
@@ -15,49 +16,55 @@ can return a stable attestation. See [README](README.md).
 
 ## Scope
 
-- DDL for reed-removal storage (suggested table `reed_removals`).
-- Store helpers: insert-once, get-by-reed, exists.
-- Listing / tip queries exclude removed reeds (or treat removal as
+- DDL for reed-removal storage (`reed_removals`).
+- Listing / tip-related queries exclude removed reeds (or treat removal as
   authoritative over a live row).
 
 ## Non-goals
 
+- Store / service package helpers (introduce with handlers when used).
 - Canonical payload bytes (02).
 - HTTP handlers (03).
 - Account removals (07).
 
 ## Design
 
-### Suggested DDL
+### DDL
 
 ```sql
 CREATE TABLE IF NOT EXISTS reed_removals (
-	reed_id              VARCHAR(255) PRIMARY KEY,
-	user_id              VARCHAR(255) NOT NULL REFERENCES users(id),
-	user_signature       TEXT NOT NULL,
-	server_signature     TEXT NOT NULL,
-	server_fingerprint   VARCHAR(255) NOT NULL,
-	server_signed_at     TIMESTAMPTZ NOT NULL
-);
+	reed_id VARCHAR(255) UNIQUE NOT NULL,
+	user_id VARCHAR(255) NOT NULL REFERENCES users(id),
+	user_signature TEXT NOT NULL,
+	user_fingerprint VARCHAR(255) NOT NULL,
+	server_signature TEXT NOT NULL,
+	server_fingerprint VARCHAR(255) NOT NULL,
+	server_signed_at TIMESTAMP NOT NULL,
 
-CREATE INDEX IF NOT EXISTS idx_reed_removals_user_id
-	ON reed_removals(user_id);
+	PRIMARY KEY (user_id, reed_id),
+	FOREIGN KEY (user_id, user_fingerprint)
+		REFERENCES user_keys(owner, fingerprint)
+		ON DELETE CASCADE
+);
 ```
 
-`reed_id` need not FK to `reeds(id)` if the live row may be dropped after
-cert persistence; the cert is the source of truth for “gone.” If the reed
-row is kept for bookkeeping, tip/list queries must still exclude ids present
-in `reed_removals`.
+`reed_id` is UNIQUE so reed-only lookups stay efficient; the composite PK
+is `(user_id, reed_id)` (user-first convention). No FK to `reeds(id)` so
+the live row may be dropped after the cert is stored — the cert is the
+source of truth for “gone.” Tip/list queries must exclude ids present in
+`reed_removals`.
 
-### Store API (suggested)
+`user_fingerprint` is the author key that produced `user_signature` (same
+pairing as on `users` / `user_key_revocations`).
 
-- `InsertReedRemoval(cert) error` — conflict if row exists with different
-  signatures; success if identical (idempotent).
-- `GetReedRemoval(reedID) (*ReedRemoval, error)`
-- `HasReedRemoval(reedID) (bool, error)`
+### Store API (deferred)
+
+When handlers land, helpers should take **both** `userID` and `reedID`
+(composite PK), include `user_fingerprint` on the cert struct, and follow
+insert-once / conflict-on-mismatch semantics. Do not add unused store
+code ahead of callers.
 
 ## Test plan
 
-- [ ] Insert once; second insert with same cert succeeds / no-op
-- [ ] Second insert with different user or server sig → conflict
-- [ ] Tip/list helpers skip removed reed ids
+- [x] Tip/list helpers skip removed reed ids (`HasReeds`, realtime diffs)
+- [ ] Insert-once / conflict (with store in 03)
