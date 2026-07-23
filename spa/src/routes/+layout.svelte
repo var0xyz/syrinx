@@ -17,6 +17,7 @@
   import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
   import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
+  import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
 
   // TODO: the echoing/replying header currently encodes only "authorId!reedId", which loses
   // the server dimension. Once we have federated reeds, this needs to become a full
@@ -111,6 +112,21 @@
         serverConnection.sendDataAck(eventId);
       } else {
         console.warn('ServerConnection: reed removal cert failed verification:', cert.reedID);
+        serverConnection.sendDataInvalid(eventId);
+      }
+    });
+    serverConnection.on(ServerEvent.AccountRemoved, async (data) => {
+      const eventId = data.event_id;
+      const cert = data.data;
+      if (!cert || cert.type !== 'account') {
+        console.warn('ServerConnection: ignoring non-account removal cert', cert?.type);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+      if (await verifyAndCommitAccountRemoval(cert)) {
+        serverConnection.sendDataAck(eventId);
+      } else {
+        console.warn('ServerConnection: account removal cert failed verification:', cert.userID);
         serverConnection.sendDataInvalid(eventId);
       }
     });

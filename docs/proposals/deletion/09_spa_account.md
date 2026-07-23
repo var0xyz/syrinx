@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (online-only author delete + peer apply / tombstone note).
 
 ## Depends on
 
@@ -10,18 +10,19 @@ Proposed.
 
 ## Context
 
-Author queues account removal offline-first; peers apply `type: "account"`
-certs from fanout or 410 responses and purge per [07](07_account_schema.md).
+Author deletes their account **while online** (no offline pending queue).
+Peers apply `type: "account"` certs from fanout or 410 responses and purge
+per [07](07_account_schema.md).
 
 ## Scope
 
 ### Author
 
-- `pendingAccountRemoval` (serverID, userID, note, user signature).
-- DELETE → store local tombstone/cert → purge local account data per purge
-  set (keep own keys as needed for the device) → clear pending.
-- Flush pending on startup/online; idempotent DELETEs.
-- Verify countersig before committing local purge.
+- Require network connectivity before signing / DELETE.
+- Sign → DELETE with optional `note` → verify countersig → wipe local
+  device session. **No** `pendingAccountRemoval` / retry-later path —
+  failure leaves the account intact for the user to try again while online.
+- Verify countersig before wiping the local device.
 
 ### Peers
 
@@ -34,6 +35,7 @@ certs from fanout or 410 responses and purge per [07](07_account_schema.md).
 
 ## Non-goals
 
+- Offline-first author queue (reed removal only).
 - Recovery re-submit of account certs.
 - Re-registering the same user id after deletion (clean-slate product
   rules stay elsewhere).
@@ -46,7 +48,8 @@ exposed.
 
 ## Test plan
 
-- [ ] Author offline queue survives reload; flush converges
+- [ ] Offline: delete control disabled / API path rejects; no pending row
+- [ ] Online success: cert accepted; local session wiped
 - [ ] Peer fanout + 410 profile + 410 reed share one account-apply helper
 - [ ] Valid cert → reeds/profile/follows gone; keys remain; note visible
 - [ ] Invalid sig → no purge

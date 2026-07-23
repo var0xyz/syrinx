@@ -10,6 +10,7 @@
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
   import { removeReedAsAuthor, verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
+  import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
@@ -91,7 +92,7 @@
               await verifyAndCommitReedRemoval(result.removal);
               reedNotFound = true;
             } else if (result.removal.type === 'account') {
-              // Account purge lands in deletion 09; do not mis-apply as reed cert.
+              await verifyAndCommitAccountRemoval(result.removal);
               reedNotFound = true;
             } else {
               reedNotFound = true;

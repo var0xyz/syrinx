@@ -143,3 +143,13 @@ export interface ReedRemoval extends Base {
   signature: string;
   server: ServerSignature;
 }
+
+/** Wire shape of a signed account removal certificate (DELETE /users/me / 410 body). */
+export interface AccountRemoval extends Base {
+  type: 'account';
+  serverID: string;
+  userID: string;
+  note: string;
+  signature: string;
+  server: ServerSignature;
+}

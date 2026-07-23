@@ -8,7 +8,8 @@
   import { userRepository } from '$lib/repositories/user';
   import { reedsService } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
-  import { publicKeyRepository } from '$lib/repositories/publicKey';
+  import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
+  import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import ReedsList from '$lib/components/ReedsList.svelte';
   import UserProfileCard from '$lib/components/UserProfileCard.svelte';
@@ -20,6 +21,7 @@
   let isOwner = false;
   let profileUser = null;
   let profileSubscriptionActive = false;
+  let tombstoneNote = '';
 
   onMount(async () => {
     const currentUser = await authService.getCurrentUser().catch(() => null);
@@ -27,6 +29,8 @@
 
     // Tombstone check — runs first, always
     if (await userRepository.isTombstone(userId)) {
+      const cert = await removedAccountsRepository.get(userId);
+      tombstoneNote = cert?.note ?? '';
       status = 'tombstone';
       return;
     }
@@ -41,12 +45,12 @@
       subscribeToProfileIfNotFollowing(userId);
     } else {
       // Case 2 — no local data, ask the server
-      const { status: httpStatus, user } = await apiService.getUserWithStatus(userId);
+      const { status: httpStatus, user, removal } = await apiService.getUserWithStatus(userId);
 
       if (httpStatus === 404) {
         status = 'notFound';
       } else if (httpStatus === 410) {
-        await handleGone();
+        await handleGone(removal);
       } else if (httpStatus === 200) {
         await userRepository.put(user);
         profileUser = user;
@@ -63,13 +67,13 @@
 
   async function refreshUserInBackground() {
     try {
-      const { status: httpStatus, user } = await apiService.getUserWithStatus(userId);
+      const { status: httpStatus, user, removal } = await apiService.getUserWithStatus(userId);
 
       if (httpStatus === 200) {
         await userRepository.put(user);
         profileUser = user;
       } else if (httpStatus === 410) {
-        await handleGone();
+        await handleGone(removal);
       }
     } catch (error) {
       console.error('Background user refresh failed:', error);
@@ -103,16 +107,19 @@
     cleanupProfileSubscription();
   });
 
-  async function handleGone() {
-    await reedsService.deleteReedsByAuthor(userId);
-
-    // Delete associated public keys
-    const userRecord = await userRepository.get(userId);
-    if (userRecord?.publicKeys?.length) {
-      await Promise.all(userRecord.publicKeys.map(fp => publicKeyRepository.deletePublicKey(fp)));
+  async function handleGone(removal) {
+    if (removal?.type === 'account') {
+      if (!(await verifyAndCommitAccountRemoval(removal))) {
+        console.warn('Account removal cert failed verification; retaining local data');
+        return;
+      }
+      tombstoneNote = removal.note ?? '';
+    } else {
+      // Legacy/unknown Gone without cert — purge reeds + tombstone, keep keys.
+      await reedsService.deleteReedsByAuthor(userId);
+      await userRepository.writeTombstone(userId);
+      tombstoneNote = '';
     }
-
-    await userRepository.writeTombstone(userId);
     profileUser = null;
     status = 'tombstone';
   }
@@ -136,7 +143,11 @@
       <div class="state-message">
         <div class="state-icon">🪦</div>
         <h3>Account deleted</h3>
-        <p>This account no longer exists.</p>
+        {#if tombstoneNote}
+          <p class="tombstone-note">{tombstoneNote}</p>
+        {:else}
+          <p>This account no longer exists.</p>
+        {/if}
       </div>
 
     {:else if status === 'notFound'}
@@ -211,6 +222,12 @@
   .state-message p {
     margin: 0;
     font-size: 0.9rem;
+  }
+
+  .tombstone-note {
+    margin-top: 1rem !important;
+    font-style: italic;
+    color: var(--fg);
   }
 
   @media (max-width: 768px) {
