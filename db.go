@@ -129,6 +129,17 @@ type Reed struct {
 	Timestamp   time.Time `json:"timestamp"`
 }
 
+// ReedRemoval is the wire shape of a signed reed-removal certificate
+// (JSON `type: "reed"`). See docs/proposals/deletion/.
+type ReedRemoval struct {
+	Type      string    `json:"type"`
+	ServerID  string    `json:"serverID"`
+	UserID    string    `json:"userID"`
+	ReedID    string    `json:"reedID"`
+	Signature string    `json:"signature"`
+	Server    Signature `json:"server"`
+}
+
 // /////// //
 //   P2P   //
 // /////// //

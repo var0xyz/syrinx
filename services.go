@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"syrinx/crypto"
+	"syrinx/deletion"
 	"syrinx/identity"
 	"syrinx/recovery"
 
@@ -1042,6 +1043,16 @@ func (s *DataService) DeleteReed(reedID string) error {
 	}
 
 	return nil
+}
+
+// GetReedRemoval returns the stored reed-removal cert for (userID, reedID).
+func (s *DataService) GetReedRemoval(userID, reedID string) (*deletion.Cert, error) {
+	return deletion.GetCert(s.db, userID, reedID)
+}
+
+// InsertReedRemoval persists a reed-removal cert (idempotent / conflict).
+func (s *DataService) InsertReedRemoval(cert deletion.Cert) error {
+	return deletion.InsertCert(s.db, cert)
 }
 
 // ================== //

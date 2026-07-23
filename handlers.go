@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"syrinx/deletion"
 	"syrinx/identity"
 	"syrinx/realtime"
 	"syrinx/recovery"
@@ -1207,35 +1208,50 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("DeleteReed request received")
 
+	pathUserID := mux.Vars(r)["userID"]
 	reedID := mux.Vars(r)["reedID"]
-	if reedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
+	if pathUserID == "" || reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
 
 	userID := h.getUserID(r)
+	if userID != pathUserID {
+		writeResponse(w, http.StatusForbidden, "You can only delete your own reeds")
+		return
+	}
 
-	// Get user information for broadcast
-	user, err := h.services.db.GetUser(userID)
+	if err := r.ParseForm(); err != nil {
+		log.Error().Err(err).Msg("Error parsing form")
+		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		return
+	}
+	userSignatureB64 := strings.TrimSpace(r.FormValue("signature"))
+	if userSignatureB64 == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+		return
+	}
+
+	serverID := h.services.db.GetServerID()
+
+	existing, err := h.services.db.GetReedRemoval(userID, reedID)
 	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).Msg("Error getting user")
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed removal")
 		internalServerError(w)
 		return
 	}
-	if user == nil {
-		writeResponse(w, http.StatusBadRequest, "User not found")
+	if existing != nil {
+		if existing.UserSignature != userSignatureB64 {
+			writeResponse(w, http.StatusConflict, "Reed removal already exists with a different signature")
+			return
+		}
+		writeResponse(w, http.StatusOK, h.reedRemovalWire(existing))
 		return
 	}
 
-	// Check if reed exists and belongs to user
 	reed, err := h.services.db.GetReed(userID, reedID)
 	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("reedID", reedID).
-			Err(err).Msg("Error getting reed")
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error getting reed")
 		internalServerError(w)
 		return
 	}
@@ -1244,42 +1260,108 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if reed.UserID != userID {
-		log.Error().
-			Str("userID", userID).
-			Str("reedID", reedID).
-			Str("reedUserID", reed.UserID).
-			Msg("User does not own this reed")
 		writeResponse(w, http.StatusForbidden, "You can only delete your own reeds")
 		return
 	}
 
-	// Delete the reed
-	err = h.services.db.DeleteReed(reedID)
+	user, err := h.services.db.GetUser(userID)
 	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("reedID", reedID).
-			Err(err).Msg("Error deleting reed")
+		log.Error().Str("userID", userID).Err(err).Msg("Error getting user")
+		internalServerError(w)
+		return
+	}
+	if user == nil {
+		writeResponse(w, http.StatusBadRequest, "User not found")
+		return
+	}
+
+	fingerprint := user.ActiveKeyFingerprint
+	userPayload := identity.BuildReedRemovalUserPayload(serverID, userID, reedID)
+	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
+		return
+	}
+	pubKey, err := h.services.db.GetPublicKey(userID, fingerprint)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("fingerprint", fingerprint).Err(err).Msg("Error loading public key")
+		internalServerError(w)
+		return
+	}
+	if pubKey == nil || pubKey.Revoked {
+		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		return
+	}
+	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("signature verification failed")
+		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		return
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	serverPayload := identity.BuildReedRemovalServerPayload(
+		serverID, userID, reedID,
+		h.signingKey.Fingerprint, userSignatureB64, now,
+	)
+	serverSignature, err := h.countersign(serverPayload, now)
+	if err != nil {
+		log.Error().Err(err).Msg("Error producing reed-removal countersignature")
 		internalServerError(w)
 		return
 	}
 
-	log.Info().
-		Str("userID", userID).
-		Str("reedID", reedID).
-		Msg("Reed deleted successfully")
-
-	// Broadcast the reed deletion to realtime subscribers
-	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:   realtime.ReedDeleted,
-		UserID: userID,
-		ReedID: reedID,
-		Data: map[string]interface{}{
-			"username": user.Username,
-		},
+	cert := deletion.Cert{
+		ReedID:            reedID,
+		UserID:            userID,
+		UserSignature:     userSignatureB64,
+		UserFingerprint:   fingerprint,
+		ServerSignature:   serverSignature.Armor,
+		ServerFingerprint: serverSignature.Fingerprint,
+		ServerSignedAt:    serverSignature.SignedAt,
+	}
+	if err := h.services.db.InsertReedRemoval(cert); err != nil {
+		if errors.Is(err, deletion.ErrConflict) {
+			// Concurrent first accept: return the stored cert if the user
+			// signature matches; otherwise a true conflicting attestation.
+			existing, getErr := h.services.db.GetReedRemoval(userID, reedID)
+			if getErr == nil && existing != nil && existing.UserSignature == userSignatureB64 {
+				writeResponse(w, http.StatusOK, h.reedRemovalWire(existing))
+				return
+			}
+			writeResponse(w, http.StatusConflict, "Reed removal already exists with a different signature")
+			return
+		}
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error storing reed removal")
+		internalServerError(w)
+		return
 	}
 
-	writeResponse(w, http.StatusOK, "Reed deleted successfully")
+	// Live row is bookkeeping; cert is source of truth. Drop it after persist.
+	if err := h.services.db.DeleteReed(reedID); err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error deleting reed row after removal cert")
+		internalServerError(w)
+		return
+	}
+
+	log.Info().Str("userID", userID).Str("reedID", reedID).Msg("Reed removal accepted")
+	writeResponse(w, http.StatusOK, h.reedRemovalWire(&cert))
+}
+
+func (h *Handlers) reedRemovalWire(cert *deletion.Cert) ReedRemoval {
+	return ReedRemoval{
+		Type:      identity.TypeReed,
+		ServerID:  h.services.db.GetServerID(),
+		UserID:    cert.UserID,
+		ReedID:    cert.ReedID,
+		Signature: cert.UserSignature,
+		Server: Signature{
+			ServerID:    h.services.db.GetServerID(),
+			Fingerprint: cert.ServerFingerprint,
+			Algorithm:   identity.Algorithm,
+			Armor:       cert.ServerSignature,
+			SignedAt:    cert.ServerSignedAt,
+		},
+	}
 }
 
 func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
@@ -1287,12 +1369,24 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("GetReed request received")
 
 	reedID := mux.Vars(r)["reedID"]
-	if reedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
+	userID := mux.Vars(r)["userID"]
+	if userID == "" || reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
 
-	userID := mux.Vars(r)["userID"]
+	// Account-removal check lands in deletion 08; reed removal first for now.
+	removal, err := h.services.db.GetReedRemoval(userID, reedID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed removal")
+		internalServerError(w)
+		return
+	}
+	if removal != nil {
+		writeResponse(w, http.StatusGone, h.reedRemovalWire(removal))
+		return
+	}
+
 	reed, err := h.services.db.GetReed(userID, reedID)
 	if err != nil {
 		log.Error().
