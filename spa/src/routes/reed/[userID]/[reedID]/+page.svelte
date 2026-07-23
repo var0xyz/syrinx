@@ -9,7 +9,7 @@
   import { Reed } from '$lib/types/reed';
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
-  import { removeReedAsAuthor } from '$lib/services/reedRemoval';
+  import { removeReedAsAuthor, verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
@@ -79,13 +79,26 @@
           return; // stay in loading state; $isOnline reactive will retry
         }
 
-        // REST existence check
+        // REST existence check (also applies reed-removal 410 certs)
         try {
-          await apiService.getReed(userID, reedID);
-        } catch (err) {
-          if (err?.status === 404) {
+          const result = await apiService.getReedOrRemoval(userID, reedID);
+          if (result.kind === 'not_found') {
             reedNotFound = true;
+            return;
           }
+          if (result.kind === 'gone') {
+            if (result.removal.type === 'reed') {
+              await verifyAndCommitReedRemoval(result.removal);
+              reedNotFound = true;
+            } else if (result.removal.type === 'account') {
+              // Account purge lands in deletion 09; do not mis-apply as reed cert.
+              reedNotFound = true;
+            } else {
+              reedNotFound = true;
+            }
+            return;
+          }
+        } catch (err) {
           // on network error: stay in loading state, $isOnline reactive will retry
           return;
         }
