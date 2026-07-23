@@ -1336,11 +1336,16 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Live row is bookkeeping; cert is source of truth. Drop it after persist.
-	if err := h.services.db.DeleteReed(reedID); err != nil {
-		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error deleting reed row after removal cert")
-		internalServerError(w)
-		return
+	// Keep the reeds row for allocation catch-up (04): reed_allocations FK
+	// cascades on reed delete. Tip/list already exclude reed_removals.
+	h.broadcastChan <- realtime.BroadcastMessage{
+		Type:     realtime.ReedRemoved,
+		ServerID: serverID,
+		UserID:   userID,
+		ReedID:   reedID,
+		Data: map[string]interface{}{
+			"cert": h.reedRemovalWire(&cert),
+		},
 	}
 
 	log.Info().Str("userID", userID).Str("reedID", reedID).Msg("Reed removal accepted")
