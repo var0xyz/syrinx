@@ -71,6 +71,23 @@ See [`deletion/`](deletion/README.md):
 | 08 | Account-removal API, 410 bodies, fanout      |
 | 09 | SPA account removal (author + peers)         |
 
+## Signature storage (`user_signatures` / `server_signatures`)
+
+See [`signatures/`](signatures/README.md). **Blank slate — no migration,
+no dual-write, no backwards compatibility** (hard cutover; recreate DB).
+
+| #  | Title                                              |
+|----|----------------------------------------------------|
+| 00 | Design + table shapes                              |
+| 01 | DDL for `user_signatures` + `server_signatures`    |
+| 02 | Store helpers                                      |
+| 03 | Switch `users` to signature FKs                    |
+| 04 | Switch `user_keys` to server signature FK          |
+| 05 | Switch `user_key_revocations` to signature FKs     |
+| 06 | Switch `reed_removals` (and account later)         |
+| 07 | Drop legacy columns *(cancelled — absorbed into 03–06)* |
+| 08 | Nested `userSignature` / `serverSignature` wire *(draft)* |
+
 ## Parallelism
 
 - **Immediately parallel**: 01, 02, 10, 11 have no (or only 01) dependencies and can be
@@ -95,6 +112,11 @@ See [`deletion/`](deletion/README.md):
   schema (07) may parallel the reed track; 08 needs 02+04; 09 needs 06+08.
   Tip check ([recovery 16](recovery/16_reed_tip_check.md)) should exclude
   removed reeds (and block account-removed authors) once deletion lands.
+- **Signature storage steps** are deferred relative to deletion and are
+  **blank slate** (no migration / dual-write / client compat); within
+  `signatures/`, follow that directory's depends-on column (00→06; 07
+  cancelled). Steps 03–06 may parallel after 02. Deletion may keep
+  inlined columns until signatures 06.
 
 ## Shared conventions
 
