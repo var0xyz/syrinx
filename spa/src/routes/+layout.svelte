@@ -16,6 +16,7 @@
   import { followingRepository } from '$lib/repositories/following';
   import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
   import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
+  import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
 
   // TODO: the echoing/replying header currently encodes only "authorId!reedId", which loses
   // the server dimension. Once we have federated reeds, this needs to become a full
@@ -97,6 +98,21 @@
     serverConnection.on(ServerEvent.BroadcastReed, (data) => {
       // Broadcast reeds are ephemeral: never stored in IndexedDB.
       dispatchReedToQueue(data.data, 'broadcast_reed');
+    });
+    serverConnection.on(ServerEvent.ReedRemoved, async (data) => {
+      const eventId = data.event_id;
+      const cert = data.data;
+      if (!cert || cert.type !== 'reed') {
+        console.warn('ServerConnection: ignoring non-reed removal cert', cert?.type);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+      if (await verifyAndCommitReedRemoval(cert)) {
+        serverConnection.sendDataAck(eventId);
+      } else {
+        console.warn('ServerConnection: reed removal cert failed verification:', cert.reedID);
+        serverConnection.sendDataInvalid(eventId);
+      }
     });
 
     // Check authentication status for header. Mid-recovery has local identity

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (WS `REED_REMOVED` + GET 410 share `verifyAndCommitReedRemoval`).
 
 ## Depends on
 

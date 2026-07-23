@@ -108,7 +108,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
       throw new Error(message);
     }
-    throw new Error(`HTTP ${res.status}`);
+    const err = new Error(`HTTP ${res.status}`) as Error & { status?: number; body?: unknown };
+    err.status = res.status;
+    try {
+      err.body = await res.json();
+    } catch {
+      // no JSON body
+    }
+    throw err;
   }
 
   try {
@@ -248,6 +255,32 @@ export const apiService = {
 
   async getReed(userId: string, reedId: string): Promise<any> {
     return request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
+  },
+
+  /**
+   * GET reed with 410 handling. Account certs are returned as-is for 09;
+   * callers must switch on `removal.type` and not treat account as reed.
+   */
+  async getReedOrRemoval(
+    userId: string,
+    reedId: string
+  ): Promise<
+    | { kind: 'reed'; reed: any }
+    | { kind: 'gone'; removal: api.ReedRemoval | { type: string } }
+    | { kind: 'not_found' }
+  > {
+    try {
+      const reed = await request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
+      return { kind: 'reed', reed };
+    } catch (err: any) {
+      if (err?.status === 404) {
+        return { kind: 'not_found' };
+      }
+      if (err?.status === 410 && err.body && typeof err.body === 'object') {
+        return { kind: 'gone', removal: err.body };
+      }
+      throw err;
+    }
   },
 
   // Ask the server to verify a stored (userSignature, serverSignature) pair

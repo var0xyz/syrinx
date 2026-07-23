@@ -15,6 +15,7 @@ export enum ServerEvent {
   DataResponse     = 'DATA_RESPONSE',
   BroadcastReed    = 'BROADCAST_REED',
   ReedNotFound     = 'REED_NOT_FOUND',
+  ReedRemoved      = 'REED_REMOVED',
 }
 
 class ServerConnection {
