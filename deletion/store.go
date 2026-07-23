@@ -7,9 +7,10 @@ import (
 	"time"
 )
 
-// ErrConflict is returned when an existing reed_removals row differs from the
-// cert being inserted (identical replay succeeds).
-var ErrConflict = errors.New("reed removal conflict")
+// ErrConflict is returned when an existing removal row differs from the
+// cert being inserted (identical replay succeeds). Used for reed and
+// account removals.
+var ErrConflict = errors.New("removal conflict")
 
 // Cert is the stored reed-removal attestation (DB shape).
 type Cert struct {
