@@ -5,6 +5,8 @@
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
   import { userRepository } from '$lib/repositories/user';
+  import { removeReedAsAuthor } from '$lib/services/reedRemoval';
+  import { pendingRemovalSynced } from '$lib/repositories/pendingRemoval';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -25,6 +27,7 @@
   let echoedReedUsers = new Map();
 
   $: if ($unsignedReedsProcessed > 0) loadReeds();
+  $: if ($pendingRemovalSynced > 0) loadReeds();
   // profileReedQueue carries explicitly requested content (profile subscription / REQUEST_REED).
   // We reload immediately only when the user is already at the top (no scroll loss risk).
   // Otherwise we show a banner instead, letting the user decide when to reload.
@@ -139,8 +142,7 @@
     }
 
     try {
-      await apiService.deleteReed(authorId, reedId);
-      await dbService.delete('reeds', reedId);
+      await removeReedAsAuthor(authorId, reedId);
       reeds = reeds.filter(reed => reed.headers.id !== reedId);
     } catch (error) {
       console.error('Error deleting reed:', error);
