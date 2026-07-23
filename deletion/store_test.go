@@ -66,7 +66,7 @@ func ensureTestSchema(db *sql.DB) error {
 			server_signed_at TIMESTAMP NOT NULL,
 			PRIMARY KEY (owner, fingerprint)
 		)`,
-		// Drop so iterative DDL during proposal work does not leave a stale shape.
+		`DROP TABLE IF EXISTS account_removals`,
 		`DROP TABLE IF EXISTS reed_removals`,
 		`CREATE TABLE reed_removals (
 			reed_id VARCHAR(255) UNIQUE NOT NULL,
@@ -80,6 +80,19 @@ func ensureTestSchema(db *sql.DB) error {
 			FOREIGN KEY (user_id, user_fingerprint)
 				REFERENCES user_keys(owner, fingerprint)
 				ON DELETE CASCADE
+		)`,
+		`CREATE TABLE account_removals (
+			user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id),
+			note VARCHAR(140) NOT NULL DEFAULT '',
+			user_signature TEXT NOT NULL,
+			user_fingerprint VARCHAR(255) NOT NULL,
+			server_signature TEXT NOT NULL,
+			server_fingerprint VARCHAR(255) NOT NULL,
+			server_signed_at TIMESTAMP NOT NULL,
+			FOREIGN KEY (user_id, user_fingerprint)
+				REFERENCES user_keys(owner, fingerprint)
+				ON DELETE CASCADE,
+			CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140)
 		)`,
 	}
 	for _, s := range stmts {
@@ -144,5 +157,75 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 	conflict.UserSignature = "other"
 	if err := InsertCert(db, conflict); err != ErrConflict {
 		t.Fatalf("want ErrConflict, got %v", err)
+	}
+}
+
+func TestInsertAccountCert_IdempotentConflictAndNote(t *testing.T) {
+	db := openTestDB(t)
+	userID := fmt.Sprintf("ar-user-%d", time.Now().UnixNano())
+	fp := fmt.Sprintf("ar-fp-%d", time.Now().UnixNano())
+
+	_, err := db.Exec(`
+		INSERT INTO users (id, username, user_signature, server_signature, server_signed_at, server_fingerprint)
+		VALUES ($1, $2, 'u', 's', NOW(), 'sfp')
+	`, userID, "u-"+userID)
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	_, err = db.Exec(`
+		INSERT INTO user_keys (fingerprint, owner, armor, server_signature, server_fingerprint, server_signed_at)
+		VALUES ($1, $2, 'armor', 's', 'sfp', NOW())
+	`, fp, userID)
+	if err != nil {
+		t.Fatalf("seed key: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM account_removals WHERE user_id = $1`, userID)
+		_, _ = db.Exec(`DELETE FROM user_keys WHERE owner = $1`, userID)
+		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	if err := ValidateAccountNote(string(make([]rune, MaxAccountNoteLen+1))); err == nil {
+		t.Fatal("expected note length error")
+	}
+
+	cert := AccountCert{
+		UserID:            userID,
+		Note:              "goodbye",
+		UserSignature:     "user-sig",
+		UserFingerprint:   fp,
+		ServerSignature:   "server-sig",
+		ServerFingerprint: "server-fp",
+		ServerSignedAt:    time.Now().UTC(),
+	}
+	if err := InsertAccountCert(db, cert); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	if err := InsertAccountCert(db, cert); err != nil {
+		t.Fatalf("identical replay: %v", err)
+	}
+
+	got, err := GetAccountCert(db, userID)
+	if err != nil || got == nil {
+		t.Fatalf("get: got=%v err=%v", got, err)
+	}
+	if got.Note != "goodbye" {
+		t.Fatalf("note=%q", got.Note)
+	}
+	ok, err := HasAccountRemoval(db, userID)
+	if err != nil || !ok {
+		t.Fatalf("has: ok=%v err=%v", ok, err)
+	}
+
+	conflict := cert
+	conflict.UserSignature = "other"
+	if err := InsertAccountCert(db, conflict); err != ErrConflict {
+		t.Fatalf("want ErrConflict, got %v", err)
+	}
+
+	long := cert
+	long.Note = string(make([]rune, MaxAccountNoteLen+1))
+	if err := InsertAccountCert(db, long); err == nil {
+		t.Fatal("expected note length rejection")
 	}
 }

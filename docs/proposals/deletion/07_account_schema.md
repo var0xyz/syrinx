@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (`account_removals` DDL + store helpers).
 
 ## Depends on
 
@@ -33,16 +33,23 @@ goodbye note ≤140 characters.
 
 ## Design
 
-### Suggested DDL
+### DDL (shipped)
+
+Includes `user_fingerprint` (FK to `user_keys`) so the signing key is
+retained for verification — same class as `reed_removals`.
 
 ```sql
 CREATE TABLE IF NOT EXISTS account_removals (
 	user_id              VARCHAR(255) PRIMARY KEY REFERENCES users(id),
 	note                 VARCHAR(140) NOT NULL DEFAULT '',
 	user_signature       TEXT NOT NULL,
+	user_fingerprint     VARCHAR(255) NOT NULL,
 	server_signature     TEXT NOT NULL,
 	server_fingerprint   VARCHAR(255) NOT NULL,
-	server_signed_at     TIMESTAMPTZ NOT NULL
+	server_signed_at     TIMESTAMP NOT NULL,
+	FOREIGN KEY (user_id, user_fingerprint)
+		REFERENCES user_keys(owner, fingerprint) ON DELETE CASCADE,
+	CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140)
 );
 ```
 
