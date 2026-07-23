@@ -16,7 +16,7 @@ DDL, routes, and realtime fanout. SPA owns `pendingRemoval` /
 | #                                    | Title                                              | Depends on |
 |--------------------------------------|----------------------------------------------------|------------|
 | [00](00_design.md)                   | Design + trust model                               | —          |
-| [01](01_reed_schema.md)              | Reed-removal schema + store                        | 00         |
+| [01](01_reed_schema.md)              | Reed-removal schema                                | 00         |
 | [02](02_reed_payload.md)             | Reed-removal canonical payload + countersign       | 01         |
 | [03](03_reed_api.md)                 | Reed-removal API (idempotent)                      | 02         |
 | [04](04_reed_fanout.md)              | Reed-removal realtime fanout + sync catch-up       | 03         |
