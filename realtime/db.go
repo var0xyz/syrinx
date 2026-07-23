@@ -463,6 +463,9 @@ func (ds *DBService) GetMissingReedIDsForViewer(authorID, viewerID string, owned
 		      SELECT 1 FROM reed_allocations ra
 		      WHERE ra.reed_id = r.id AND ra.user_id = $2
 		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
+		  )
 	`, authorID, viewerID, pq.Array(ownedIDs))
 	if err != nil {
 		return nil, err
@@ -498,6 +501,9 @@ func (ds *DBService) GetMissingOut(userID string) ([]UnallocatedReed, error) {
 		      SELECT 1 FROM reed_allocations ra
 		      WHERE ra.reed_id = r.id AND ra.user_id = $1
 		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
+		  )
 	`, userID)
 	if err != nil {
 		return nil, err
@@ -523,6 +529,9 @@ func (ds *DBService) GetUnallocatedReeds(authorID, viewerID string) ([]string, e
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_allocations ra
 		      WHERE ra.reed_id = r.id AND ra.user_id = $2
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
 		  )
 	`, authorID, viewerID)
 	if err != nil {

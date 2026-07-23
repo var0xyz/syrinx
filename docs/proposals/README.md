@@ -61,7 +61,7 @@ See [`deletion/`](deletion/README.md):
 | #  | Title                                        |
 |----|----------------------------------------------|
 | 00 | Design + trust model                         |
-| 01 | Reed-removal schema + store                  |
+| 01 | Reed-removal schema                              |
 | 02 | Reed-removal canonical payload + countersign |
 | 03 | Reed-removal API (idempotent)                |
 | 04 | Reed-removal realtime fanout + sync catch-up |
