@@ -1,13 +1,15 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { apiService } from '$lib/services/api';
+  import { removeAccountAsAuthor } from '$lib/services/accountRemoval';
   import { authService } from '$lib/services/auth';
   import { dbService } from '$lib/services/db';
   import { localStorageService } from '$lib/services/localstorage';
   import { notificationStore } from '$lib/stores/notifications';
+  import { isOnline } from '$lib/services/pwa';
 
   let deleting = false;
   let error: string = '';
+  let note = '';
 
   async function handleDeleteAccount(): Promise<void> {
     if (deleting) return;
@@ -16,19 +18,12 @@
     error = '';
 
     try {
-      // Call the API to delete the account
-      await apiService.deleteAccount();
+      await removeAccountAsAuthor(note.trim());
 
-      // Clear localStorage
       localStorageService.clearAllData();
-
-      // Delete IndexedDB database
       await dbService.deleteDatabase();
-
-      // Clear service worker session and disconnect WebSocket
       await authService.clearSession();
 
-      // Redirect to goodbye page
       goto('/goodbye');
     } catch (err) {
       console.error('Error deleting account:', err);
@@ -49,6 +44,12 @@
     <p class="subtitle">This action cannot be undone</p>
 
     <div class="content">
+      {#if !$isOnline}
+        <div class="offline-banner">
+          <p>You must be online to delete your account. Reconnect and try again.</p>
+        </div>
+      {/if}
+
       <div class="warning-section">
         <h2>⚠️ Important Information</h2>
         <p class="intro">Before proceeding, please understand the following:</p>
@@ -59,13 +60,13 @@
         </div>
 
         <div class="warning-item info-item">
-          <h3>👤 Your profile will be deleted from the server</h3>
-          <p>Your account and profile information will be permanently removed.</p>
+          <h3>👤 Your profile becomes a tombstone</h3>
+          <p>Peers see that the account is gone. An optional goodbye note can be shown.</p>
         </div>
 
         <div class="warning-item">
-          <h3>📤 Reeds distributed to other users</h3>
-          <p>If you posted any reeds, users who received them will be asked to delete them, but deletion cannot be guaranteed.</p>
+          <h3>📤 Reeds on other devices</h3>
+          <p>Followers receive a signed account-removal certificate and are expected to purge your reeds locally.</p>
         </div>
 
         <div class="warning-item">
@@ -73,6 +74,20 @@
           <p>Public keys are retained to prevent impersonation and maintain cryptographic integrity.</p>
         </div>
       </div>
+
+      <label class="note-label" for="goodbye-note">
+        Optional goodbye note
+        <span class="note-count">{note.length}/140</span>
+      </label>
+      <textarea
+        id="goodbye-note"
+        class="note-input"
+        maxlength="140"
+        rows="3"
+        placeholder="Taking a long break. Thanks for reading."
+        bind:value={note}
+        disabled={deleting || !$isOnline}
+      ></textarea>
     </div>
 
     {#if error}
@@ -92,7 +107,7 @@
       <button
         class="btn btn-danger"
         on:click={handleDeleteAccount}
-        disabled={deleting}
+        disabled={deleting || !$isOnline}
       >
         {deleting ? 'Deleting...' : 'I understand, delete my account'}
       </button>
@@ -133,6 +148,21 @@
 
   .content {
     margin-bottom: 2rem;
+  }
+
+  .offline-banner {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    border-left: 4px solid #f59e0b;
+    border-radius: 8px;
+  }
+
+  .offline-banner p {
+    margin: 0;
+    color: var(--fg);
+    line-height: 1.5;
   }
 
   .intro {
@@ -180,6 +210,32 @@
   .warning-item p {
     margin: 0;
     line-height: 1.5;
+  }
+
+  .note-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .note-count {
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .note-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--input-bg);
+    color: var(--fg);
+    font: inherit;
+    resize: vertical;
   }
 
   .error-message {
@@ -276,4 +332,3 @@
     }
   }
 </style>
-

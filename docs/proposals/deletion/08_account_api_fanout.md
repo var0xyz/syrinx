@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (DELETE `/users/me`, 410 profile/reed, fanout + catch-up).
 
 ## Depends on
 

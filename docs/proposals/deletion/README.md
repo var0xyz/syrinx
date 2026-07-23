@@ -11,7 +11,8 @@ resources. Recovery ingest of deletion certs is out of scope here.
 `syrinx/deletion` package (or colocated with reed/user handlers if thin).
 Shared canonical payload builders live in `syrinx/identity`. Main wires
 DDL, routes, and realtime fanout. SPA owns `pendingRemoval` /
-`pendingAccountRemoval` queues and `removedReeds` / tombstone stores.
+`removedReeds` (reed offline-first) and `removedAccounts` / tombstone
+stores. Account author delete is **online-only** (no pending queue).
 
 | #                                    | Title                                              | Depends on |
 |--------------------------------------|----------------------------------------------------|------------|
@@ -48,7 +49,7 @@ the row with no attestation and no holder notification.
 Hard-deleting a reed (or wiping an account) leaves holders with stale local
 copies and no verifiable proof they should purge. Deletions must be:
 
-1. **Author-signed** (offline-first: queue locally, retry after close).
+1. **Author-signed** (reeds: offline-first queue + retry; accounts: online-only).
 2. **Server-countersigned** once (idempotent replay of the same cert).
 3. **Fanout** to connected peers as the signed certificate.
 4. **Verified on every client** (user + server sigs) before local purge.
@@ -76,9 +77,11 @@ the account cert and shown on the tombstone profile.
 
 ## Protocol sketch (accounts)
 
-Same queue → countersign-once → store → fanout pattern with
-`type: "account"` and optional `note`. Peers purge profile/reeds/follows
-(etc.) per [07](07_account_schema.md); **keep public keys**.
+Author must be **online**: sign → DELETE → countersign-once → fanout with
+`type: "account"` and optional `note`. No client-side pending queue.
+Peers purge profile/reeds/follows (etc.) per [07](07_account_schema.md);
+**keep public keys**. Idempotent retry of the same DELETE is still fine if
+the first response was lost.
 
 ## HTTP 410 bodies
 
