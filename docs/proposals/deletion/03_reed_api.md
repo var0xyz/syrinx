@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (DELETE + GET 410; fanout deferred to 04).
 
 ## Depends on
 
@@ -24,34 +24,37 @@ the cert (including on replay). See [README](README.md).
   on replay (body = cert). **410** only on GET of a removed reed (see
   [README 410 bodies](README.md#http-410-bodies)).
 - `GET /reeds/{userID}/{reedID}`: apply [README decision tree](README.md#get-reed-decision-tree)
-  (account cert wins over reed cert when both could apply — account first).
-- Stop hard-deleting without a cert. Live `reeds` row may be deleted or
-  retained after cert insert; tip must ignore removed ids.
+  (account cert wins over reed cert when both could apply — account first;
+  account check deferred to [08](08_account_api_fanout.md)).
+- Stop hard-deleting without a cert. Live `reeds` row is dropped after cert
+  insert; tip/list already ignore removed ids (01).
 
 ## Non-goals
 
-- Realtime fanout (04).
+- Realtime fanout (04) — old unsigned `ReedDeleted` broadcast removed.
 - SPA queues (05–06).
 
 ## Design
 
 ### Submit
 
-`DELETE /reeds/{userID}/{reedID}` with body including at least `signature`
-(user) over the canonical reed-removal payload. Server checks author,
-verifies, inserts-or-returns **200** + cert (same on replay).
+`DELETE /reeds/{userID}/{reedID}` with form field `signature` (user) over
+`identity.BuildReedRemovalUserPayload`. Path `userID` must match the
+authenticated author. Server verifies, countersigns once, stores via
+`deletion.InsertCert`, deletes the live reed row, returns **200** + wire
+cert. Replay with the same user signature returns the stored cert.
 
 ### GET reed
 
-1. Account removal for `userID`? → **410** + account cert (`type: "account"`)
-   — implemented fully in [08](08_account_api_fanout.md); until then skip.
+1. Account removal for `userID`? → **410** + account cert — skip until 08.
 2. Reed removal exists? → **410** + reed cert (`type: "reed"`).
 3. Row exists? → **200**.
 4. Else → **404**.
 
 ## Test plan
 
-- [ ] First removal → cert stored; response has `type: "reed"` + `server` block
+- [x] Store insert-once / conflict (`deletion` package tests)
+- [ ] First removal → cert stored; response has `type: "reed"` + `server` block (manual / e2e with 05)
 - [ ] Retry → identical `server.signature` / timestamp
 - [ ] Non-author → reject
 - [ ] GET removed reed → 410 reed cert
