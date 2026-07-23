@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (SPA `pendingRemoval` / `removedReeds`, author DELETE queue).
 
 ## Depends on
 

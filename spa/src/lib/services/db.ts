@@ -22,10 +22,8 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  // v16: revocations store for signed attestation records; publicKeys.revoked
-  // is a boolean only. Clear publicKeys on upgrade so nested revoke metadata
-  // cannot be mistaken for the new shape.
-  private readonly version = 16;
+  // v17: pendingRemoval + removedReeds for signed reed deletion (deletion 05).
+  private readonly version = 17;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -40,6 +38,8 @@ export class IndexedDbService implements DbService {
     ['unsignedReeds',     'headers.id' ],
     ['pendingFollows',    'userId'     ],
     ['pendingRevocation', 'fingerprint'],
+    ['pendingRemoval',    'reedID'     ],
+    ['removedReeds',      'reedID'     ],
   ];
 
   async init(): Promise<void> {
