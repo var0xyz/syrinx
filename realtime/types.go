@@ -13,7 +13,8 @@ type BroadcastType int
 const (
 	NewReed BroadcastType = iota
 	UserUpdate
-	ReedDeleted
+	ReedDeleted // legacy unused; prefer ReedRemoved
+	ReedRemoved
 )
 
 // BroadcastMessage represents a message sent from the main app to the realtime service
@@ -62,6 +63,8 @@ func (bt BroadcastType) String() string {
 		return "UserUpdate"
 	case ReedDeleted:
 		return "ReedDeleted"
+	case ReedRemoved:
+		return "ReedRemoved"
 	default:
 		return "Unknown"
 	}

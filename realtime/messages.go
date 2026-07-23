@@ -8,6 +8,7 @@ const (
 	ProfileSubscriptionEvent EventName = "profile_subscription"
 	NewReedEvent             EventName = "new_reed"
 	BroadcastReedEvent       EventName = "broadcast_reed"
+	ReedRemovedEvent         EventName = "reed_removed"
 )
 
 // RelayRequestMsg is sent from the server to a holder to request reed content.
@@ -61,6 +62,19 @@ func NewDataResponseMsg(eventID, requestID, reedID string, data interface{}) Dat
 // NewBroadcastReedMsg builds a BROADCAST_REED delivery message (no request_id needed).
 func NewBroadcastReedMsg(reedID string, data interface{}) DataResponseMsg {
 	return DataResponseMsg{Type: "BROADCAST_REED", Data: DataResponseData{ReedID: reedID, Data: data}}
+}
+
+// NewReedRemovedMsg builds a REED_REMOVED delivery with the full signed cert as data.
+func NewReedRemovedMsg(eventID, requestID, reedID string, cert interface{}) DataResponseMsg {
+	return DataResponseMsg{
+		Type: "REED_REMOVED",
+		Data: DataResponseData{
+			EventID:   eventID,
+			RequestID: requestID,
+			ReedID:    reedID,
+			Data:      cert,
+		},
+	}
 }
 
 // RelayMissData is the parsed payload of an incoming RELAY_MISS message.
