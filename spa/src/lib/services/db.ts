@@ -22,8 +22,9 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  // v17: pendingRemoval + removedReeds for signed reed deletion (deletion 05).
-  private readonly version = 17;
+  // v19: drop pendingAccountRemoval — account deletion is online-only (09).
+  // removedAccounts remains for peer tombstones.
+  private readonly version = 19;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -40,6 +41,7 @@ export class IndexedDbService implements DbService {
     ['pendingRevocation', 'fingerprint'],
     ['pendingRemoval',    'reedID'     ],
     ['removedReeds',      'reedID'     ],
+    ['removedAccounts',   'userID'     ],
   ];
 
   async init(): Promise<void> {
@@ -73,6 +75,9 @@ export class IndexedDbService implements DbService {
 
         if (oldVersion > 0 && oldVersion < 16 && db.objectStoreNames.contains('publicKeys')) {
           tx.objectStore('publicKeys').clear();
+        }
+        if (oldVersion > 0 && oldVersion < 19 && db.objectStoreNames.contains('pendingAccountRemoval')) {
+          db.deleteObjectStore('pendingAccountRemoval');
         }
       };
     });

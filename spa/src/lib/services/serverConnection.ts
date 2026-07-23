@@ -16,6 +16,7 @@ export enum ServerEvent {
   BroadcastReed    = 'BROADCAST_REED',
   ReedNotFound     = 'REED_NOT_FOUND',
   ReedRemoved      = 'REED_REMOVED',
+  AccountRemoved   = 'ACCOUNT_REMOVED',
 }
 
 class ServerConnection {
