@@ -9,6 +9,7 @@ const (
 	NewReedEvent             EventName = "new_reed"
 	BroadcastReedEvent       EventName = "broadcast_reed"
 	ReedRemovedEvent         EventName = "reed_removed"
+	AccountRemovedEvent      EventName = "account_removed"
 )
 
 // RelayRequestMsg is sent from the server to a holder to request reed content.
@@ -72,6 +73,20 @@ func NewReedRemovedMsg(eventID, requestID, reedID string, cert interface{}) Data
 			EventID:   eventID,
 			RequestID: requestID,
 			ReedID:    reedID,
+			Data:      cert,
+		},
+	}
+}
+
+// NewAccountRemovedMsg builds an ACCOUNT_REMOVED delivery with the full signed cert.
+// ReedID carries the removed user id (pending_reed_requests reuse).
+func NewAccountRemovedMsg(eventID, requestID, removedUserID string, cert interface{}) DataResponseMsg {
+	return DataResponseMsg{
+		Type: "ACCOUNT_REMOVED",
+		Data: DataResponseData{
+			EventID:   eventID,
+			RequestID: requestID,
+			ReedID:    removedUserID,
 			Data:      cert,
 		},
 	}
