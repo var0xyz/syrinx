@@ -421,7 +421,7 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	// silently truncate to whatever precision Postgres chooses.
 	if _, err := tx.Exec(`
 		INSERT INTO users (
-			id, username, created_at, fingerprint,
+			id, username, created_at, user_fingerprint,
 			user_signature, server_signature,
 			server_signed_at, server_fingerprint
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -456,7 +456,7 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 
 	err := s.db.QueryRow(`
 		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at,
-		       u.fingerprint,
+		       u.user_fingerprint,
 		       u.user_signature, u.server_signature,
 		       u.server_fingerprint, u.server_signed_at,
 		       EXISTS (
@@ -652,7 +652,7 @@ func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, err
 		       uk.predecessor_signature, uk.predecessor_fingerprint,
 		       EXISTS(
 			SELECT 1 FROM user_key_revocations rv
-			WHERE rv.fingerprint = uk.fingerprint AND rv.owner = uk.owner
+			WHERE rv.user_fingerprint = uk.fingerprint AND rv.owner = uk.owner
 		       )
 		FROM user_keys uk
 		WHERE uk.owner = $1 AND uk.fingerprint = $2
@@ -701,11 +701,11 @@ func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocati
 	var reason sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT rv.fingerprint, rv.owner, rv.reason, rv.successor,
+		SELECT rv.user_fingerprint, rv.owner, rv.reason, rv.successor,
 		       rv.user_signature, rv.server_signature, rv.server_fingerprint,
 		       rv.server_signed_at
 		FROM user_key_revocations rv
-		WHERE rv.owner = $1 AND rv.fingerprint = $2
+		WHERE rv.owner = $1 AND rv.user_fingerprint = $2
 	`, userID, fingerprint).Scan(
 		&rev.Fingerprint, &rev.UserID, &reason, &successor,
 		&userSig, &serverSig, &serverFP, &serverSignedAt,
@@ -774,7 +774,7 @@ type AddPublicKeyInput struct {
 	PredecessorSignature   string
 }
 
-// On success it inserts the key, points users.fingerprint at it, and
+// On success it inserts the key, points users.user_fingerprint at it, and
 // writes the successor pointer on the predecessor's revocation row.
 func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 	if in.PredecessorFingerprint == "" {
@@ -840,7 +840,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 	err = tx.QueryRow(`
 		SELECT successor
 		FROM user_key_revocations
-		WHERE fingerprint = $1 AND owner = $2
+		WHERE user_fingerprint = $1 AND owner = $2
 		FOR UPDATE
 	`, predecessor, userID).Scan(&successor)
 	if err == sql.ErrNoRows {
@@ -863,7 +863,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 			WHERE uk.owner = $1
 			  AND NOT EXISTS (
 				SELECT 1 FROM user_key_revocations rv
-				WHERE rv.fingerprint = uk.fingerprint AND rv.owner = uk.owner
+				WHERE rv.user_fingerprint = uk.fingerprint AND rv.owner = uk.owner
 			  )
 		)
 	`, userID).Scan(&hasActive)
@@ -897,7 +897,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 		}
 	}
 
-	_, err = tx.Exec(`UPDATE users SET fingerprint = $1 WHERE id = $2`, fingerprint, userID)
+	_, err = tx.Exec(`UPDATE users SET user_fingerprint = $1 WHERE id = $2`, fingerprint, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -905,7 +905,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 	_, err = tx.Exec(`
 		UPDATE user_key_revocations
 		SET successor = $1
-		WHERE fingerprint = $2 AND owner = $3
+		WHERE user_fingerprint = $2 AND owner = $3
 	`, fingerprint, predecessor, userID)
 	if err != nil {
 		return nil, err
@@ -933,7 +933,7 @@ func (s *DataService) RevokeKey(in RevokeKeyInput) error {
 	// A key is revoked iff a row exists in user_key_revocations.
 	_, err = tx.Exec(`
 		INSERT INTO user_key_revocations (
-			fingerprint, owner, reason,
+			user_fingerprint, owner, reason,
 			user_signature, server_signature, server_fingerprint, server_signed_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`, in.Fingerprint, in.UserID, in.Reason,

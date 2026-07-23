@@ -138,8 +138,8 @@ func (as *AuthService) getPublicKey(userID, fingerprint string) (string, bool, e
 		SELECT uk.armor,
 		       EXISTS(
 			SELECT 1 FROM user_key_revocations rv
-			WHERE rv.fingerprint = uk.fingerprint AND rv.owner = uk.owner
-		       )
+			WHERE rv.user_fingerprint = uk.fingerprint AND rv.owner = uk.owner
+		)
 		FROM user_keys uk
 		WHERE uk.owner = $1 AND uk.fingerprint = $2
 	`, userID, fingerprint).Scan(&armor, &revoked)

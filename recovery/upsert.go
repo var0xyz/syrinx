@@ -121,7 +121,7 @@ func insertUser(tx *sql.Tx, profile Profile, activeFP string, signedAt time.Time
 	}
 	_, err = tx.Exec(`
 		INSERT INTO users (
-			id, username, created_at, fingerprint, avatar_url, bio,
+			id, username, created_at, user_fingerprint, avatar_url, bio,
 			user_signature, server_signature,
 			server_signed_at, server_fingerprint
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -156,7 +156,7 @@ func updateUserIfNewer(
 			username = $1,
 			avatar_url = $2,
 			bio = $3,
-			fingerprint = $4,
+			user_fingerprint = $4,
 			user_signature = $5,
 			server_signature = $6,
 			server_signed_at = $7,
@@ -201,11 +201,11 @@ func insertKeys(tx *sql.Tx, userID string, flat []FlatKey) error {
 		if fk.Revocation != nil {
 			_, err := tx.Exec(`
 				INSERT INTO user_key_revocations (
-					fingerprint, owner, reason,
+					user_fingerprint, owner, reason,
 					user_signature, server_signature,
 					server_fingerprint, server_signed_at
 				) VALUES ($1, $2, $3, $4, $5, $6, $7)
-				ON CONFLICT (fingerprint, owner) DO NOTHING
+				ON CONFLICT (owner, user_fingerprint) DO NOTHING
 			`,
 				fk.Revocation.Fingerprint, userID, fk.Revocation.Reason,
 				fk.Revocation.Signature, fk.Revocation.Server.Signature,
@@ -222,7 +222,7 @@ func insertKeys(tx *sql.Tx, userID string, flat []FlatKey) error {
 			_, err := tx.Exec(`
 				UPDATE user_key_revocations
 				SET successor = $1
-				WHERE fingerprint = $2 AND owner = $3
+				WHERE user_fingerprint = $2 AND owner = $3
 				  AND (successor IS NULL OR successor = '')
 			`, fk.Key.Fingerprint, flat[i-1].Key.Fingerprint, userID)
 			if err != nil {
