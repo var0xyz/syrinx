@@ -26,8 +26,9 @@ the cert (including on replay). See [README](README.md).
 - `GET /reeds/{userID}/{reedID}`: apply [README decision tree](README.md#get-reed-decision-tree)
   (account cert wins over reed cert when both could apply — account first;
   account check deferred to [08](08_account_api_fanout.md)).
-- Stop hard-deleting without a cert. Live `reeds` row is dropped after cert
-  insert; tip/list already ignore removed ids (01).
+- Stop hard-deleting without a cert. Live `reeds` row is **retained** after
+  cert insert so `reed_allocations` survive for catch-up (04); tip/list
+  already ignore removed ids (01).
 
 ## Non-goals
 

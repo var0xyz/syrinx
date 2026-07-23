@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"time"
 
+	"syrinx/deletion"
+	"syrinx/identity"
+
 	"github.com/lib/pq"
 	"github.com/rs/zerolog/log"
 )
@@ -658,4 +661,85 @@ func (ds *DBService) ReedExists(reedID string) (bool, error) {
 	var exists bool
 	err := ds.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM reeds WHERE id = $1)`, reedID).Scan(&exists)
 	return exists, err
+}
+
+// MissingRemoval is a reed_allocations ∩ reed_removals row for catch-up.
+type MissingRemoval struct {
+	ReedID string
+	Cert   map[string]interface{}
+}
+
+// GetMissingRemovals returns removal certs for reeds this user still holds.
+func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error) {
+	rows, err := ds.db.Query(`
+		SELECT rr.reed_id, rr.user_id, rr.user_signature,
+		       rr.server_signature, rr.server_fingerprint, rr.server_signed_at
+		FROM reed_allocations ra
+		JOIN reed_removals rr ON rr.reed_id = ra.reed_id
+		WHERE ra.user_id = $1
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	serverID, err := ds.serverID()
+	if err != nil {
+		return nil, err
+	}
+
+	var out []MissingRemoval
+	for rows.Next() {
+		var reedID, authorID, userSig, serverSig, serverFP string
+		var signedAt time.Time
+		if err := rows.Scan(&reedID, &authorID, &userSig, &serverSig, &serverFP, &signedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, MissingRemoval{
+			ReedID: reedID,
+			Cert:   reedRemovalWireMap(serverID, authorID, reedID, userSig, serverSig, serverFP, signedAt),
+		})
+	}
+	return out, nil
+}
+
+// GetReedRemovalWire loads a removal cert as a wire-shaped map for WS delivery.
+func (ds *DBService) GetReedRemovalWire(reedID string) (map[string]interface{}, error) {
+	cert, err := deletion.GetCertByReedID(ds.db, reedID)
+	if err != nil || cert == nil {
+		return nil, err
+	}
+	serverID, err := ds.serverID()
+	if err != nil {
+		return nil, err
+	}
+	return reedRemovalWireMap(
+		serverID, cert.UserID, cert.ReedID,
+		cert.UserSignature, cert.ServerSignature, cert.ServerFingerprint, cert.ServerSignedAt,
+	), nil
+}
+
+func (ds *DBService) serverID() (string, error) {
+	var id string
+	err := ds.db.QueryRow(`SELECT id FROM servers WHERE self = TRUE`).Scan(&id)
+	return id, err
+}
+
+func reedRemovalWireMap(
+	serverID, userID, reedID, userSig, serverSig, serverFP string, signedAt time.Time,
+) map[string]interface{} {
+	return map[string]interface{}{
+		"type":     identity.TypeReed,
+		"serverID": serverID,
+		"userID":   userID,
+		"reedID":   reedID,
+		"signature": userSig,
+		"server": map[string]interface{}{
+			"id":          serverID,
+			"fingerprint": serverFP,
+			"algorithm":   identity.Algorithm,
+			"signature":   serverSig,
+			"timestamp":   signedAt.UTC(),
+		},
+	}
 }

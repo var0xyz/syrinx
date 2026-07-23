@@ -102,3 +102,29 @@ func GetCert(db *sql.DB, userID, reedID string) (*Cert, error) {
 	}
 	return &cert, nil
 }
+
+// GetCertByReedID looks up a removal cert by reed id only (UNIQUE).
+func GetCertByReedID(db *sql.DB, reedID string) (*Cert, error) {
+	var cert Cert
+	err := db.QueryRow(`
+		SELECT reed_id, user_id, user_signature, user_fingerprint,
+		       server_signature, server_fingerprint, server_signed_at
+		FROM reed_removals
+		WHERE reed_id = $1
+	`, reedID).Scan(
+		&cert.ReedID,
+		&cert.UserID,
+		&cert.UserSignature,
+		&cert.UserFingerprint,
+		&cert.ServerSignature,
+		&cert.ServerFingerprint,
+		&cert.ServerSignedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &cert, nil
+}
