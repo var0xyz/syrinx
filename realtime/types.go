@@ -15,6 +15,7 @@ const (
 	UserUpdate
 	ReedDeleted // legacy unused; prefer ReedRemoved
 	ReedRemoved
+	AccountRemoved
 )
 
 // BroadcastMessage represents a message sent from the main app to the realtime service
@@ -65,6 +66,8 @@ func (bt BroadcastType) String() string {
 		return "ReedDeleted"
 	case ReedRemoved:
 		return "ReedRemoved"
+	case AccountRemoved:
+		return "AccountRemoved"
 	default:
 		return "Unknown"
 	}

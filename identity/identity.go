@@ -374,6 +374,65 @@ func BuildReedRemovalServerPayload(
 	)
 }
 
+// TypeAccount is the wire and signed-header `type` for account removal.
+const TypeAccount = "account"
+
+func accountRemovalUserHeaders(serverID, userID string) map[string]string {
+	return map[string]string{
+		"type":     TypeAccount,
+		"serverID": serverID,
+		"userID":   userID,
+	}
+}
+
+// BuildAccountRemovalUserPayload returns the bytes the user signs to remove
+// their account. note is envelope content (may be empty; ≤140 enforced at API).
+func BuildAccountRemovalUserPayload(serverID, userID, note string) []byte {
+	return signing.BytesToSign(
+		accountRemovalUserHeaders(serverID, userID),
+		note,
+	)
+}
+
+func accountRemovalServerHeaders(
+	serverID,
+	userID,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	signedAt time.Time,
+) map[string]string {
+	return map[string]string{
+		"type":                 TypeAccount,
+		"serverID":             serverID,
+		"userID":               userID,
+		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignatureB64,
+	}
+}
+
+// BuildAccountRemovalServerPayload returns the bytes the server countersigns.
+// note is the same content the user signed.
+func BuildAccountRemovalServerPayload(
+	serverID,
+	userID,
+	note,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	signedAt time.Time,
+) []byte {
+	return signing.BytesToSign(
+		accountRemovalServerHeaders(
+			serverID,
+			userID,
+			serverKeyFingerprint,
+			userSignatureB64,
+			signedAt,
+		),
+		note,
+	)
+}
+
 // BuildNewProfilePayload is a convenience wrapper around
 // BuildProfilePayload for the initial signup record: avatarURL
 // and bio are always empty (users can't set them before their account
