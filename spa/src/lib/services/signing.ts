@@ -189,3 +189,43 @@ export function buildServerRevocationPayload(
     reason
   );
 }
+
+/** Mirror of BuildReedRemovalUserPayload in identity.go (`type: reed`). */
+export function buildReedRemovalUserPayload(
+  serverID: string,
+  userID: string,
+  reedID: string
+): string {
+  return stringToSign(
+    {
+      type: 'reed',
+      serverID,
+      userID,
+      reedID
+    },
+    ''
+  );
+}
+
+/** Mirror of BuildReedRemovalServerPayload in identity.go. */
+export function buildReedRemovalServerPayload(
+  serverID: string,
+  userID: string,
+  reedID: string,
+  serverKeyFingerprint: string,
+  userSignatureB64: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'reed',
+      serverID,
+      userID,
+      reedID,
+      signedAt,
+      serverKeyFingerprint,
+      userSignature: userSignatureB64
+    },
+    ''
+  );
+}
