@@ -184,6 +184,28 @@ func InitDB(db *sql.DB) error {
 		ADD COLUMN IF NOT EXISTS identity_backup_at TIMESTAMP;
 	`
 
+	// Normalized attestation rows (signatures proposal 01). Entities will
+	// FK here in later migrate steps; fingerprint is not FK'd to key
+	// tables (historical / rotated keys). signed_fields is informational.
+	createUserSignaturesTable := `
+	CREATE TABLE IF NOT EXISTS user_signatures (
+		id SERIAL PRIMARY KEY,
+		fingerprint VARCHAR(255) NOT NULL,
+		signature TEXT NOT NULL,
+		algorithm TEXT NOT NULL DEFAULT 'PGP+base64',
+		signed_fields TEXT[] NOT NULL DEFAULT '{}'
+	);`
+
+	createServerSignaturesTable := `
+	CREATE TABLE IF NOT EXISTS server_signatures (
+		id SERIAL PRIMARY KEY,
+		fingerprint VARCHAR(255) NOT NULL,
+		signature TEXT NOT NULL,
+		signed_at TIMESTAMP NOT NULL,
+		algorithm TEXT NOT NULL DEFAULT 'PGP+base64',
+		signed_fields TEXT[] NOT NULL DEFAULT '{}'
+	);`
+
 	// Signed identity record columns. All four are populated together
 	// at signup and re-populated together whenever a fresh identity
 	// record is minted (e.g. profile updates). NOT NULL: every user
@@ -510,6 +532,10 @@ func InitDB(db *sql.DB) error {
 		// Servers
 		createServersTable,
 		alterServersIdentityBackupAt,
+
+		// Shared attestation tables (before entity FKs land)
+		createUserSignaturesTable,
+		createServerSignaturesTable,
 
 		createUsersTable,
 		createUserIndexes,
