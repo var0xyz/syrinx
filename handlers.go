@@ -529,17 +529,18 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
+	values, err := parseFormData(r)
+	if err != nil {
 		log.Error().Err(err).Msg("Error parsing form")
 		writeResponse(w, http.StatusBadRequest, "Invalid request format")
 		return
 	}
-	userSignatureB64 := strings.TrimSpace(r.FormValue("signature"))
+	userSignatureB64 := strings.TrimSpace(values.Get("signature"))
 	if userSignatureB64 == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
-	note := r.FormValue("note")
+	note := values.Get("note")
 	if err := deletion.ValidateAccountNote(note); err != nil {
 		writeResponse(w, http.StatusBadRequest, err.Error())
 		return
@@ -1355,12 +1356,13 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
+	values, err := parseFormData(r)
+	if err != nil {
 		log.Error().Err(err).Msg("Error parsing form")
 		writeResponse(w, http.StatusBadRequest, "Invalid request format")
 		return
 	}
-	userSignatureB64 := strings.TrimSpace(r.FormValue("signature"))
+	userSignatureB64 := strings.TrimSpace(values.Get("signature"))
 	if userSignatureB64 == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
