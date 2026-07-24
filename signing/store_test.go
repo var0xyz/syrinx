@@ -49,7 +49,7 @@ func envOr(key, fallback string) string {
 func ensureSignatureTables(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS user_signatures (
-			id             BIGSERIAL PRIMARY KEY,
+			id             SERIAL PRIMARY KEY,
 			fingerprint    VARCHAR(255) NOT NULL,
 			signature      TEXT NOT NULL,
 			algorithm      TEXT NOT NULL DEFAULT 'PGP+base64',

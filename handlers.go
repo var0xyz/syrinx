@@ -673,7 +673,7 @@ func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval
 // The client is expected to skip the network call entirely when nothing
 // changed. As a defence against clients that don't (or against probes),
 // the server treats byte-equality between the submitted `userSignature`
-// and the row's stored `user_signature` as the authoritative "did
+// and the row's stored user attestation as the authoritative "did
 // anything change?" test. A valid detached signature deterministically
 // binds a specific (username, fingerprint, avatarURL, bio) tuple under a
 // specific key, so equal signature bytes ⇒ equal signed bytes ⇒ equal
@@ -683,10 +683,8 @@ func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval
 //
 // On a real change: validate the submitted fields, verify
 // `userSignature` against the caller's active public key, mint a fresh
-// signedAt, countersign the server payload, persist all seven fields
-// (username, avatar_url, bio, user_signature, server_signature,
-// server_signed_at, server_fingerprint) in one UPDATE, broadcast, and
-// return the fresh identity record.
+// signedAt, countersign the server payload, persist profile fields plus
+// new signature rows/FKs, broadcast, and return the fresh identity record.
 func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("UpdateUser request received")
@@ -896,6 +894,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Username:         username,
 		AvatarURL:        avatarURL,
 		Bio:              bio,
+		Fingerprint:      fingerprint,
 		UserSignatureB64: userSignatureB64,
 		ProfileSignature: profileSignature,
 	}); err != nil {
