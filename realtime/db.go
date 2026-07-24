@@ -672,8 +672,7 @@ type MissingRemoval struct {
 // GetMissingRemovals returns removal certs for reeds this user still holds.
 func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error) {
 	rows, err := ds.db.Query(`
-		SELECT rr.reed_id, rr.user_id, rr.user_signature,
-		       rr.server_signature, rr.server_fingerprint, rr.server_signed_at
+		SELECT rr.reed_id
 		FROM reed_allocations ra
 		JOIN reed_removals rr ON rr.reed_id = ra.reed_id
 		WHERE ra.user_id = $1
@@ -690,17 +689,20 @@ func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error)
 
 	var out []MissingRemoval
 	for rows.Next() {
-		var reedID, authorID, userSig, serverSig, serverFP string
-		var signedAt time.Time
-		if err := rows.Scan(&reedID, &authorID, &userSig, &serverSig, &serverFP, &signedAt); err != nil {
+		var reedID string
+		if err := rows.Scan(&reedID); err != nil {
+			return nil, err
+		}
+		cert, err := deletion.GetCertByReedID(ds.db, reedID)
+		if err != nil || cert == nil {
 			return nil, err
 		}
 		out = append(out, MissingRemoval{
 			ReedID: reedID,
-			Cert:   reedRemovalWireMap(serverID, authorID, reedID, userSig, serverSig, serverFP, signedAt),
+			Cert:   reedRemovalWireMap(serverID, cert),
 		})
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // GetReedRemovalWire loads a removal cert as a wire-shaped map for WS delivery.
@@ -713,10 +715,7 @@ func (ds *DBService) GetReedRemovalWire(reedID string) (map[string]interface{}, 
 	if err != nil {
 		return nil, err
 	}
-	return reedRemovalWireMap(
-		serverID, cert.UserID, cert.ReedID,
-		cert.UserSignature, cert.ServerSignature, cert.ServerFingerprint, cert.ServerSignedAt,
-	), nil
+	return reedRemovalWireMap(serverID, cert), nil
 }
 
 func (ds *DBService) serverID() (string, error) {
@@ -725,21 +724,21 @@ func (ds *DBService) serverID() (string, error) {
 	return id, err
 }
 
-func reedRemovalWireMap(
-	serverID, userID, reedID, userSig, serverSig, serverFP string, signedAt time.Time,
-) map[string]interface{} {
+func reedRemovalWireMap(serverID string, cert *deletion.Cert) map[string]interface{} {
 	return map[string]interface{}{
-		"type":      identity.TypeReed,
-		"serverID":  serverID,
-		"userID":    userID,
-		"reedID":    reedID,
-		"signature": userSig,
+		"type":         identity.TypeReed,
+		"serverID":     serverID,
+		"userID":       cert.UserID,
+		"reedID":       cert.ReedID,
+		"signature":    cert.UserSignature,
+		"signedFields": cert.UserSignedFields,
 		"server": map[string]interface{}{
-			"id":          serverID,
-			"fingerprint": serverFP,
-			"algorithm":   identity.Algorithm,
-			"signature":   serverSig,
-			"timestamp":   signedAt.UTC(),
+			"id":           serverID,
+			"fingerprint":  cert.ServerFingerprint,
+			"algorithm":    identity.Algorithm,
+			"signature":    cert.ServerSignature,
+			"timestamp":    cert.ServerSignedAt.UTC(),
+			"signedFields": cert.ServerSignedFields,
 		},
 	}
 }
@@ -759,8 +758,7 @@ func (ds *DBService) GetMissingAccountRemovals(viewerUserID string) ([]MissingAc
 		return nil, err
 	}
 	rows, err := ds.db.Query(`
-		SELECT ar.user_id, ar.note, ar.user_signature, ar.server_signature,
-		       ar.server_fingerprint, ar.server_signed_at
+		SELECT ar.user_id
 		FROM account_removals ar
 		WHERE EXISTS (
 			SELECT 1 FROM user_following uf
@@ -778,14 +776,17 @@ func (ds *DBService) GetMissingAccountRemovals(viewerUserID string) ([]MissingAc
 
 	var out []MissingAccountRemoval
 	for rows.Next() {
-		var removedUserID, note, userSig, serverSig, serverFP string
-		var signedAt time.Time
-		if err := rows.Scan(&removedUserID, &note, &userSig, &serverSig, &serverFP, &signedAt); err != nil {
+		var removedUserID string
+		if err := rows.Scan(&removedUserID); err != nil {
+			return nil, err
+		}
+		cert, err := deletion.GetAccountCert(ds.db, removedUserID)
+		if err != nil || cert == nil {
 			return nil, err
 		}
 		out = append(out, MissingAccountRemoval{
 			UserID: removedUserID,
-			Cert:   accountRemovalWireMap(serverID, removedUserID, note, userSig, serverSig, serverFP, signedAt),
+			Cert:   accountRemovalWireMap(serverID, cert),
 		})
 	}
 	return out, rows.Err()
@@ -801,27 +802,24 @@ func (ds *DBService) GetAccountRemovalWire(userID string) (map[string]interface{
 	if err != nil {
 		return nil, err
 	}
-	return accountRemovalWireMap(
-		serverID, cert.UserID, cert.Note,
-		cert.UserSignature, cert.ServerSignature, cert.ServerFingerprint, cert.ServerSignedAt,
-	), nil
+	return accountRemovalWireMap(serverID, cert), nil
 }
 
-func accountRemovalWireMap(
-	serverID, userID, note, userSig, serverSig, serverFP string, signedAt time.Time,
-) map[string]interface{} {
+func accountRemovalWireMap(serverID string, cert *deletion.AccountCert) map[string]interface{} {
 	return map[string]interface{}{
-		"type":      identity.TypeAccount,
-		"serverID":  serverID,
-		"userID":    userID,
-		"note":      note,
-		"signature": userSig,
+		"type":         identity.TypeAccount,
+		"serverID":     serverID,
+		"userID":       cert.UserID,
+		"note":         cert.Note,
+		"signature":    cert.UserSignature,
+		"signedFields": cert.UserSignedFields,
 		"server": map[string]interface{}{
-			"id":          serverID,
-			"fingerprint": serverFP,
-			"algorithm":   identity.Algorithm,
-			"signature":   serverSig,
-			"timestamp":   signedAt.UTC(),
+			"id":           serverID,
+			"fingerprint":  cert.ServerFingerprint,
+			"algorithm":    identity.Algorithm,
+			"signature":    cert.ServerSignature,
+			"timestamp":    cert.ServerSignedAt.UTC(),
+			"signedFields": cert.ServerSignedFields,
 		},
 	}
 }

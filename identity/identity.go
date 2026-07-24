@@ -77,6 +77,32 @@ var ServerRevocationSignedFields = []string{
 	"serverKeyFingerprint", "userSignature", "reason",
 }
 
+// ReedRemovalUserSignedFields lists fields covered by
+// BuildReedRemovalUserPayload.
+var ReedRemovalUserSignedFields = []string{
+	"type", "serverID", "userID", "reedID",
+}
+
+// ReedRemovalServerSignedFields lists fields covered by
+// BuildReedRemovalServerPayload.
+var ReedRemovalServerSignedFields = []string{
+	"type", "serverID", "userID", "reedID", "signedAt",
+	"serverKeyFingerprint", "userSignature",
+}
+
+// AccountRemovalUserSignedFields lists fields covered by
+// BuildAccountRemovalUserPayload (headers + note content).
+var AccountRemovalUserSignedFields = []string{
+	"type", "serverID", "userID", "note",
+}
+
+// AccountRemovalServerSignedFields lists fields covered by
+// BuildAccountRemovalServerPayload (headers + note content).
+var AccountRemovalServerSignedFields = []string{
+	"type", "serverID", "userID", "signedAt",
+	"serverKeyFingerprint", "userSignature", "note",
+}
+
 // recordTimeFormat is the canonical time format used for memberSince
 // and signedAt headers in the signed bytes. UTC + RFC3339 seconds
 // resolution. Callers MUST pass timestamps already truncated to this

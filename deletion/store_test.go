@@ -87,11 +87,9 @@ func ensureTestSchema(db *sql.DB) error {
 		`CREATE TABLE reed_removals (
 			reed_id VARCHAR(255) UNIQUE NOT NULL,
 			user_id VARCHAR(255) NOT NULL REFERENCES users(id),
-			user_signature TEXT NOT NULL,
 			user_fingerprint VARCHAR(255) NOT NULL,
-			server_signature TEXT NOT NULL,
-			server_fingerprint VARCHAR(255) NOT NULL,
-			server_signed_at TIMESTAMP NOT NULL,
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			PRIMARY KEY (user_id, reed_id),
 			FOREIGN KEY (user_id, user_fingerprint)
 				REFERENCES user_keys(owner, fingerprint)
@@ -100,11 +98,9 @@ func ensureTestSchema(db *sql.DB) error {
 		`CREATE TABLE account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id),
 			note VARCHAR(140) NOT NULL DEFAULT '',
-			user_signature TEXT NOT NULL,
 			user_fingerprint VARCHAR(255) NOT NULL,
-			server_signature TEXT NOT NULL,
-			server_fingerprint VARCHAR(255) NOT NULL,
-			server_signed_at TIMESTAMP NOT NULL,
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			FOREIGN KEY (user_id, user_fingerprint)
 				REFERENCES user_keys(owner, fingerprint)
 				ON DELETE CASCADE,

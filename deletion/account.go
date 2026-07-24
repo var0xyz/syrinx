@@ -5,20 +5,25 @@ import (
 	"fmt"
 	"time"
 	"unicode/utf8"
+
+	"syrinx/identity"
+	"syrinx/signing"
 )
 
 // MaxAccountNoteLen is the goodbye note limit (API + DB).
 const MaxAccountNoteLen = 140
 
-// AccountCert is the stored account-removal attestation (DB shape).
+// AccountCert is the account-removal attestation (in-memory / wire-facing).
 type AccountCert struct {
-	UserID            string
-	Note              string
-	UserSignature     string
-	UserFingerprint   string
-	ServerSignature   string
-	ServerFingerprint string
-	ServerSignedAt    time.Time
+	UserID             string
+	Note               string
+	UserSignature      string
+	UserFingerprint    string
+	UserSignedFields   []string
+	ServerSignature    string
+	ServerFingerprint  string
+	ServerSignedAt     time.Time
+	ServerSignedFields []string
 }
 
 // ValidateAccountNote returns an error if note exceeds MaxAccountNoteLen.
@@ -36,6 +41,14 @@ func InsertAccountCert(db *sql.DB, cert AccountCert) error {
 		return err
 	}
 	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
+	userFields := cert.UserSignedFields
+	if len(userFields) == 0 {
+		userFields = identity.AccountRemovalUserSignedFields
+	}
+	serverFields := cert.ServerSignedFields
+	if len(serverFields) == 0 {
+		serverFields = identity.AccountRemovalServerSignedFields
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -43,38 +56,32 @@ func InsertAccountCert(db *sql.DB, cert AccountCert) error {
 	}
 	defer tx.Rollback()
 
-	var existing AccountCert
-	err = tx.QueryRow(`
-		SELECT user_id, note, user_signature, user_fingerprint,
-		       server_signature, server_fingerprint, server_signed_at
-		FROM account_removals
-		WHERE user_id = $1
-		FOR UPDATE
-	`, cert.UserID).Scan(
-		&existing.UserID,
-		&existing.Note,
-		&existing.UserSignature,
-		&existing.UserFingerprint,
-		&existing.ServerSignature,
-		&existing.ServerFingerprint,
-		&existing.ServerSignedAt,
-	)
-
+	existing, err := loadAccountCertTx(tx, cert.UserID, true)
 	switch {
 	case err == sql.ErrNoRows:
+		userSigID, err := signing.InsertUserSignature(
+			tx, cert.UserFingerprint, cert.UserSignature, userFields,
+		)
+		if err != nil {
+			return err
+		}
+		serverSigID, err := signing.InsertServerSignature(
+			tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt, serverFields,
+		)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`
 			INSERT INTO account_removals (
-				user_id, note, user_signature, user_fingerprint,
-				server_signature, server_fingerprint, server_signed_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, cert.UserID, cert.Note, cert.UserSignature, cert.UserFingerprint,
-			cert.ServerSignature, cert.ServerFingerprint, cert.ServerSignedAt); err != nil {
+				user_id, note, user_fingerprint,
+				user_signature_id, server_signature_id
+			) VALUES ($1, $2, $3, $4, $5)
+		`, cert.UserID, cert.Note, cert.UserFingerprint, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert account removal: %w", err)
 		}
 	case err != nil:
 		return err
 	default:
-		existing.ServerSignedAt = existing.ServerSignedAt.UTC().Truncate(time.Second)
 		if existing.Note != cert.Note ||
 			existing.UserSignature != cert.UserSignature ||
 			existing.UserFingerprint != cert.UserFingerprint ||
@@ -90,28 +97,14 @@ func InsertAccountCert(db *sql.DB, cert AccountCert) error {
 
 // GetAccountCert returns the stored account-removal cert, or nil if none.
 func GetAccountCert(db *sql.DB, userID string) (*AccountCert, error) {
-	var cert AccountCert
-	err := db.QueryRow(`
-		SELECT user_id, note, user_signature, user_fingerprint,
-		       server_signature, server_fingerprint, server_signed_at
-		FROM account_removals
-		WHERE user_id = $1
-	`, userID).Scan(
-		&cert.UserID,
-		&cert.Note,
-		&cert.UserSignature,
-		&cert.UserFingerprint,
-		&cert.ServerSignature,
-		&cert.ServerFingerprint,
-		&cert.ServerSignedAt,
-	)
+	cert, err := loadAccountCertTx(db, userID, false)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &cert, nil
+	return cert, nil
 }
 
 // HasAccountRemoval reports whether userID has an account-removal cert.
@@ -127,4 +120,43 @@ func HasAccountRemoval(db *sql.DB, userID string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func loadAccountCertTx(q reedQuerier, userID string, forUpdate bool) (*AccountCert, error) {
+	query := `
+		SELECT note, user_fingerprint, user_signature_id, server_signature_id
+		FROM account_removals
+		WHERE user_id = $1`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
+	var note, userFP string
+	var userSigID, serverSigID int64
+	err := q.QueryRow(query, userID).Scan(&note, &userFP, &userSigID, &serverSigID)
+	if err != nil {
+		return nil, err
+	}
+	dbtx, ok := q.(signing.DBTX)
+	if !ok {
+		return nil, fmt.Errorf("account removal load: querier is not signing.DBTX")
+	}
+	userRow, err := signing.GetUserSignature(dbtx, userSigID)
+	if err != nil {
+		return nil, err
+	}
+	serverRow, err := signing.GetServerSignature(dbtx, serverSigID)
+	if err != nil {
+		return nil, err
+	}
+	return &AccountCert{
+		UserID:             userID,
+		Note:               note,
+		UserFingerprint:    userFP,
+		UserSignature:      userRow.Signature,
+		UserSignedFields:   userRow.SignedFields,
+		ServerSignature:    serverRow.Signature,
+		ServerFingerprint:  serverRow.Fingerprint,
+		ServerSignedAt:     serverRow.SignedAt,
+		ServerSignedFields: serverRow.SignedFields,
+	}, nil
 }
