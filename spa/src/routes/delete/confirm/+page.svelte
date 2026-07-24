@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { removeAccountAsAuthor } from '$lib/services/accountRemoval';
   import { authService } from '$lib/services/auth';
@@ -6,13 +7,28 @@
   import { localStorageService } from '$lib/services/localstorage';
   import { notificationStore } from '$lib/stores/notifications';
   import { isOnline } from '$lib/services/pwa';
+  import Auth from '$lib/components/Auth.svelte';
 
+  let ready = false;
   let deleting = false;
   let error: string = '';
   let note = '';
 
+  onMount(async () => {
+    if (!authService.isLoggedIn()) {
+      goto('/');
+      return;
+    }
+    const user = await authService.getCurrentUser().catch(() => null);
+    if (!user) {
+      goto('/');
+      return;
+    }
+    ready = true;
+  });
+
   async function handleDeleteAccount(): Promise<void> {
-    if (deleting) return;
+    if (deleting || !ready) return;
 
     deleting = true;
     error = '';
@@ -38,6 +54,8 @@
   }
 </script>
 
+<Auth>
+{#if ready}
 <div class="container">
   <div class="card">
     <h1>Delete Account</h1>
@@ -114,6 +132,8 @@
     </div>
   </div>
 </div>
+{/if}
+</Auth>
 
 <style>
   .container {
