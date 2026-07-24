@@ -138,6 +138,8 @@ window. Recreate the DB when reshaping existing deployments.
 1. Store a payload content-hash on signature rows for audit?
 2. Keep a denormalized active-key hint on `users`, or derive only via
    `user_signature_id`?
+   **Resolved in 03:** keep `users.user_fingerprint` as the active-key hint;
+   `SignatureFingerprint` comes from the user-signature row.
 3. Whether reed countersignatures (today on a different path) join this
    model in a later step.
 

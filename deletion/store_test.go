@@ -46,17 +46,37 @@ func envOr(key, fallback string) string {
 
 func ensureTestSchema(db *sql.DB) error {
 	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS users (
+		`CREATE TABLE IF NOT EXISTS user_signatures (
+			id             BIGSERIAL PRIMARY KEY,
+			fingerprint    VARCHAR(255) NOT NULL,
+			signature      TEXT NOT NULL,
+			algorithm      TEXT NOT NULL DEFAULT 'PGP+base64',
+			signed_fields  TEXT[] NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS server_signatures (
+			id             BIGSERIAL PRIMARY KEY,
+			fingerprint    VARCHAR(255) NOT NULL,
+			signature      TEXT NOT NULL,
+			signed_at      TIMESTAMP NOT NULL,
+			algorithm      TEXT NOT NULL DEFAULT 'PGP+base64',
+			signed_fields  TEXT[] NOT NULL DEFAULT '{}'
+		)`,
+		// Blank-slate reshape: drop dependents then users so CREATE matches
+		// current DDL (IF NOT EXISTS would leave a stale inline-column table).
+		`DROP TABLE IF EXISTS account_removals`,
+		`DROP TABLE IF EXISTS reed_removals`,
+		`DROP TABLE IF EXISTS user_key_revocations`,
+		`DROP TABLE IF EXISTS user_keys CASCADE`,
+		`DROP TABLE IF EXISTS users CASCADE`,
+		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY,
 			username VARCHAR(255) UNIQUE NOT NULL,
 			user_fingerprint VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			user_signature TEXT NOT NULL,
-			server_signature TEXT NOT NULL,
-			server_signed_at TIMESTAMP NOT NULL,
-			server_fingerprint VARCHAR(255) NOT NULL
+			user_signature_id BIGINT NOT NULL REFERENCES user_signatures(id),
+			server_signature_id BIGINT NOT NULL REFERENCES server_signatures(id)
 		)`,
-		`CREATE TABLE IF NOT EXISTS user_keys (
+		`CREATE TABLE user_keys (
 			fingerprint VARCHAR(255) UNIQUE NOT NULL,
 			owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			armor TEXT NOT NULL,
@@ -66,8 +86,6 @@ func ensureTestSchema(db *sql.DB) error {
 			server_signed_at TIMESTAMP NOT NULL,
 			PRIMARY KEY (owner, fingerprint)
 		)`,
-		`DROP TABLE IF EXISTS account_removals`,
-		`DROP TABLE IF EXISTS reed_removals`,
 		`CREATE TABLE reed_removals (
 			reed_id VARCHAR(255) UNIQUE NOT NULL,
 			user_id VARCHAR(255) NOT NULL REFERENCES users(id),
@@ -103,20 +121,40 @@ func ensureTestSchema(db *sql.DB) error {
 	return nil
 }
 
+func seedUser(t *testing.T, db *sql.DB, userID, username string) {
+	t.Helper()
+	var userSigID, serverSigID int64
+	err := db.QueryRow(`
+		INSERT INTO user_signatures (fingerprint, signature)
+		VALUES ('seed-ufp', 'u') RETURNING id
+	`).Scan(&userSigID)
+	if err != nil {
+		t.Fatalf("seed user_signatures: %v", err)
+	}
+	err = db.QueryRow(`
+		INSERT INTO server_signatures (fingerprint, signature, signed_at)
+		VALUES ('seed-sfp', 's', NOW()) RETURNING id
+	`).Scan(&serverSigID)
+	if err != nil {
+		t.Fatalf("seed server_signatures: %v", err)
+	}
+	_, err = db.Exec(`
+		INSERT INTO users (id, username, user_signature_id, server_signature_id)
+		VALUES ($1, $2, $3, $4)
+	`, userID, username, userSigID, serverSigID)
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+}
+
 func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 	db := openTestDB(t)
 	userID := fmt.Sprintf("rm-user-%d", time.Now().UnixNano())
 	reedID := fmt.Sprintf("rm-reed-%d", time.Now().UnixNano())
 	fp := fmt.Sprintf("rm-fp-%d", time.Now().UnixNano())
 
+	seedUser(t, db, userID, "u-"+userID)
 	_, err := db.Exec(`
-		INSERT INTO users (id, username, user_signature, server_signature, server_signed_at, server_fingerprint)
-		VALUES ($1, $2, 'u', 's', NOW(), 'sfp')
-	`, userID, "u-"+userID)
-	if err != nil {
-		t.Fatalf("seed user: %v", err)
-	}
-	_, err = db.Exec(`
 		INSERT INTO user_keys (fingerprint, owner, armor, server_signature, server_fingerprint, server_signed_at)
 		VALUES ($1, $2, 'armor', 's', 'sfp', NOW())
 	`, fp, userID)
@@ -165,14 +203,8 @@ func TestInsertAccountCert_IdempotentConflictAndNote(t *testing.T) {
 	userID := fmt.Sprintf("ar-user-%d", time.Now().UnixNano())
 	fp := fmt.Sprintf("ar-fp-%d", time.Now().UnixNano())
 
+	seedUser(t, db, userID, "u-"+userID)
 	_, err := db.Exec(`
-		INSERT INTO users (id, username, user_signature, server_signature, server_signed_at, server_fingerprint)
-		VALUES ($1, $2, 'u', 's', NOW(), 'sfp')
-	`, userID, "u-"+userID)
-	if err != nil {
-		t.Fatalf("seed user: %v", err)
-	}
-	_, err = db.Exec(`
 		INSERT INTO user_keys (fingerprint, owner, armor, server_signature, server_fingerprint, server_signed_at)
 		VALUES ($1, $2, 'armor', 's', 'sfp', NOW())
 	`, fp, userID)

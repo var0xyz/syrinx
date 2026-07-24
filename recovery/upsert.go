@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"syrinx/identity"
+	"syrinx/signing"
 )
 
 // SaveIdentityResult describes what a save did to the users row.
@@ -84,7 +87,11 @@ func upsertIdentity(tx *sql.Tx, profile Profile, flat []FlatKey) (*SaveIdentityR
 
 	var existingSignedAt time.Time
 	err := tx.QueryRow(`
-		SELECT server_signed_at FROM users WHERE id = $1 FOR UPDATE
+		SELECT ss.signed_at
+		FROM users u
+		JOIN server_signatures ss ON ss.id = u.server_signature_id
+		WHERE u.id = $1
+		FOR UPDATE OF u
 	`, profile.ID).Scan(&existingSignedAt)
 
 	created := false
@@ -114,22 +121,51 @@ func upsertIdentity(tx *sql.Tx, profile Profile, flat []FlatKey) (*SaveIdentityR
 	return &SaveIdentityResult{Created: created, Updated: updated}, nil
 }
 
+func profileUserSignedFields(profile Profile) []string {
+	if len(profile.SignedFields) > 0 {
+		return profile.SignedFields
+	}
+	return identity.UserIdentitySignedFields
+}
+
+func profileServerSignedFields(profile Profile) []string {
+	if len(profile.Server.SignedFields) > 0 {
+		return profile.Server.SignedFields
+	}
+	return identity.ProfileSignedFields
+}
+
 func insertUser(tx *sql.Tx, profile Profile, activeFP string, signedAt time.Time) error {
 	username, err := claimUsername(tx, profile.ID, profile.Username, signedAt)
+	if err != nil {
+		return err
+	}
+	fingerprint := profile.SignatureFingerprint
+	if fingerprint == "" {
+		fingerprint = activeFP
+	}
+	userSignatureID, err := signing.InsertUserSignature(
+		tx, fingerprint, profile.Signature, profileUserSignedFields(profile),
+	)
+	if err != nil {
+		return err
+	}
+	serverSignatureID, err := signing.InsertServerSignature(
+		tx, profile.Server.Fingerprint, profile.Server.Signature, signedAt,
+		profileServerSignedFields(profile),
+	)
 	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(`
 		INSERT INTO users (
 			id, username, created_at, user_fingerprint, avatar_url, bio,
-			user_signature, server_signature,
-			server_signed_at, server_fingerprint
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			user_signature_id, server_signature_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`,
 		profile.ID, username, profile.MemberSince.UTC().Truncate(time.Second),
 		activeFP, nullIfEmpty(profile.AvatarURL), nullIfEmpty(profile.Bio),
-		profile.Signature, profile.Server.Signature,
-		signedAt, profile.Server.Fingerprint,
+		userSignatureID, serverSignatureID,
 	)
 	if err != nil {
 		return fmt.Errorf("insert user: %w", err)
@@ -151,21 +187,35 @@ func updateUserIfNewer(
 	if err != nil {
 		return false, err
 	}
+	fingerprint := profile.SignatureFingerprint
+	if fingerprint == "" {
+		fingerprint = activeFP
+	}
+	userSignatureID, err := signing.InsertUserSignature(
+		tx, fingerprint, profile.Signature, profileUserSignedFields(profile),
+	)
+	if err != nil {
+		return false, err
+	}
+	serverSignatureID, err := signing.InsertServerSignature(
+		tx, profile.Server.Fingerprint, profile.Server.Signature, incomingSignedAt,
+		profileServerSignedFields(profile),
+	)
+	if err != nil {
+		return false, err
+	}
 	_, err = tx.Exec(`
 		UPDATE users SET
 			username = $1,
 			avatar_url = $2,
 			bio = $3,
 			user_fingerprint = $4,
-			user_signature = $5,
-			server_signature = $6,
-			server_signed_at = $7,
-			server_fingerprint = $8
-		WHERE id = $9
+			user_signature_id = $5,
+			server_signature_id = $6
+		WHERE id = $7
 	`,
 		username, nullIfEmpty(profile.AvatarURL), nullIfEmpty(profile.Bio),
-		activeFP, profile.Signature, profile.Server.Signature,
-		incomingSignedAt, profile.Server.Fingerprint, profile.ID,
+		activeFP, userSignatureID, serverSignatureID, profile.ID,
 	)
 	if err != nil {
 		return false, fmt.Errorf("update user: %w", err)
@@ -237,9 +287,11 @@ func claimUsername(tx *sql.Tx, userID, username string, signedAt time.Time) (str
 	var holderID string
 	var holderSignedAt time.Time
 	err := tx.QueryRow(`
-		SELECT id, server_signed_at FROM users
-		WHERE LOWER(username) = LOWER($1) AND id <> $2
-		FOR UPDATE
+		SELECT u.id, ss.signed_at
+		FROM users u
+		JOIN server_signatures ss ON ss.id = u.server_signature_id
+		WHERE LOWER(u.username) = LOWER($1) AND u.id <> $2
+		FOR UPDATE OF u
 	`, username, userID).Scan(&holderID, &holderSignedAt)
 	if err == sql.ErrNoRows {
 		return username, nil

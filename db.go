@@ -67,6 +67,7 @@ type User struct {
 	// the struct-level doc comment for the trust-tier caveat.
 	ActiveKeyFingerprint string    `json:"activeKeyFingerprint"`
 	UserSignatureB64     string    `json:"signature"`
+	SignedFields         []string  `json:"signedFields"`
 	Server               Signature `json:"server"`
 }
 
@@ -74,11 +75,12 @@ type User struct {
 // (identity, public key, reed, …): which server key signed it, when,
 // and the signature itself.
 type Signature struct {
-	ServerID    string    `json:"id"`
-	Fingerprint string    `json:"fingerprint"`
-	Algorithm   string    `json:"algorithm"`
-	Armor       string    `json:"signature"`
-	SignedAt    time.Time `json:"timestamp"`
+	ServerID     string    `json:"id"`
+	Fingerprint  string    `json:"fingerprint"`
+	Algorithm    string    `json:"algorithm"`
+	Armor        string    `json:"signature"`
+	SignedAt     time.Time `json:"timestamp"`
+	SignedFields []string  `json:"signedFields"`
 }
 
 // KeyPredecessor is the rotation handoff proof bundled on keys uploaded
@@ -206,23 +208,10 @@ func InitDB(db *sql.DB) error {
 		signed_fields TEXT[] NOT NULL DEFAULT '{}'
 	);`
 
-	// Signed identity record columns. All four are populated together
-	// at signup and re-populated together whenever a fresh identity
-	// record is minted (e.g. profile updates). NOT NULL: every user
-	// row is a countersigned identity record.
-	//
-	// - user_signature: base64 of the user's armored PGP detached
-	//   signature over the user identity payload.
-	// - user_fingerprint: user key that produced user_signature (active
-	//   key hint at mint time; pairs with user_signature).
-	// - server_signature: base64 of the server's armored PGP detached
-	//   signature over the server identity payload.
-	// - server_signed_at: timestamp inside the server-signed payload.
-	//   Used later for monotonic newest-wins during recovery.
-	// - server_fingerprint: fingerprint of the server key that produced
-	//   server_signature. Stored explicitly because the server's
-	//   active signing key can rotate; verifiers need to know which
-	//   historical key to look up.
+	// users holds profile fields plus FKs to normalized attestation
+	// rows. user_fingerprint is the denormalized active-key hint (updated
+	// on key rotation); the signing key for the current identity record
+	// lives on user_signatures via user_signature_id.
 	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
 		id VARCHAR(255) PRIMARY KEY,
@@ -231,10 +220,8 @@ func InitDB(db *sql.DB) error {
 		bio TEXT,
 		user_fingerprint VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		user_signature TEXT NOT NULL,
-		server_signature TEXT NOT NULL,
-		server_signed_at TIMESTAMP NOT NULL,
-		server_fingerprint VARCHAR(255) NOT NULL
+		user_signature_id BIGINT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id BIGINT NOT NULL REFERENCES server_signatures(id)
 	);`
 
 	createUserIndexes := `
