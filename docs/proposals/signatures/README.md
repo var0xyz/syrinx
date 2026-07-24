@@ -39,7 +39,7 @@ JSON reshape.
 
 ## Status
 
-**Spec via the numbered steps above.** Not started in code.
+- **01 implemented** (`InitDB` DDL + smoke test).
 
 ## Motivation
 
