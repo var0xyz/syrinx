@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (`syrinx/signing` store helpers + tests).
 
 ## Depends on
 

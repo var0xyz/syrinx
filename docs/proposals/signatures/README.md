@@ -40,6 +40,7 @@ JSON reshape.
 ## Status
 
 - **01 implemented** (`InitDB` DDL + smoke test).
+- **02 implemented** (`syrinx/signing` store).
 
 ## Motivation
 
