@@ -221,7 +221,7 @@ func InitDB(db *sql.DB) error {
 		user_fingerprint VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-		server_signature_id BIGINT NOT NULL REFERENCES server_signatures(id)
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
 
 	createUserIndexes := `
@@ -247,7 +247,8 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	// Client-managed public keys. predecessor_signature and
+	// Client-managed public keys. Server countersignature is via
+	// server_signature_id. predecessor_signature and
 	// predecessor_fingerprint are set together for rotation keys only
 	// (AddPublicKey): the old key's detached signature over this row's
 	// armor, and which key produced it. Signup keys leave both NULL.
@@ -258,9 +259,7 @@ func InitDB(db *sql.DB) error {
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		expires_at TIMESTAMP,
-		server_signature TEXT NOT NULL,
-		server_fingerprint VARCHAR(255) NOT NULL,
-		server_signed_at TIMESTAMP NOT NULL,
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		predecessor_signature TEXT,
 		predecessor_fingerprint VARCHAR(255) REFERENCES user_keys(fingerprint),
 
