@@ -42,6 +42,7 @@ JSON reshape.
 - **01 implemented** (`InitDB` DDL + smoke test).
 - **02 implemented** (`syrinx/signing` store).
 - **03 implemented** (`users` → signature FKs).
+- **04 implemented** (`user_keys` → server signature FK).
 
 ## Motivation
 

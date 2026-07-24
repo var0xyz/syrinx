@@ -56,7 +56,7 @@ func ensureSignatureTables(db *sql.DB) error {
 			signed_fields  TEXT[] NOT NULL DEFAULT '{}'
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (
-			id             BIGSERIAL PRIMARY KEY,
+			id             SERIAL PRIMARY KEY,
 			fingerprint    VARCHAR(255) NOT NULL,
 			signature      TEXT NOT NULL,
 			signed_at      TIMESTAMP NOT NULL,
