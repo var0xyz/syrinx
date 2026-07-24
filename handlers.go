@@ -648,17 +648,19 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval {
 	return AccountRemoval{
-		Type:      identity.TypeAccount,
-		ServerID:  h.services.db.GetServerID(),
-		UserID:    cert.UserID,
-		Note:      cert.Note,
-		Signature: cert.UserSignature,
+		Type:         identity.TypeAccount,
+		ServerID:     h.services.db.GetServerID(),
+		UserID:       cert.UserID,
+		Note:         cert.Note,
+		Signature:    cert.UserSignature,
+		SignedFields: cert.UserSignedFields,
 		Server: Signature{
-			ServerID:    h.services.db.GetServerID(),
-			Fingerprint: cert.ServerFingerprint,
-			Algorithm:   identity.Algorithm,
-			Armor:       cert.ServerSignature,
-			SignedAt:    cert.ServerSignedAt,
+			ServerID:     h.services.db.GetServerID(),
+			Fingerprint:  cert.ServerFingerprint,
+			Algorithm:    identity.Algorithm,
+			Armor:        cert.ServerSignature,
+			SignedAt:     cert.ServerSignedAt,
+			SignedFields: cert.ServerSignedFields,
 		},
 	}
 }
@@ -1489,17 +1491,19 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) reedRemovalWire(cert *deletion.Cert) ReedRemoval {
 	return ReedRemoval{
-		Type:      identity.TypeReed,
-		ServerID:  h.services.db.GetServerID(),
-		UserID:    cert.UserID,
-		ReedID:    cert.ReedID,
-		Signature: cert.UserSignature,
+		Type:         identity.TypeReed,
+		ServerID:     h.services.db.GetServerID(),
+		UserID:       cert.UserID,
+		ReedID:       cert.ReedID,
+		Signature:    cert.UserSignature,
+		SignedFields: cert.UserSignedFields,
 		Server: Signature{
-			ServerID:    h.services.db.GetServerID(),
-			Fingerprint: cert.ServerFingerprint,
-			Algorithm:   identity.Algorithm,
-			Armor:       cert.ServerSignature,
-			SignedAt:    cert.ServerSignedAt,
+			ServerID:     h.services.db.GetServerID(),
+			Fingerprint:  cert.ServerFingerprint,
+			Algorithm:    identity.Algorithm,
+			Armor:        cert.ServerSignature,
+			SignedAt:     cert.ServerSignedAt,
+			SignedFields: cert.ServerSignedFields,
 		},
 	}
 }

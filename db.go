@@ -135,23 +135,25 @@ type Reed struct {
 // ReedRemoval is the wire shape of a signed reed-removal certificate
 // (JSON `type: "reed"`). See docs/proposals/deletion/.
 type ReedRemoval struct {
-	Type      string    `json:"type"`
-	ServerID  string    `json:"serverID"`
-	UserID    string    `json:"userID"`
-	ReedID    string    `json:"reedID"`
-	Signature string    `json:"signature"`
-	Server    Signature `json:"server"`
+	Type         string    `json:"type"`
+	ServerID     string    `json:"serverID"`
+	UserID       string    `json:"userID"`
+	ReedID       string    `json:"reedID"`
+	Signature    string    `json:"signature"`
+	SignedFields []string  `json:"signedFields"`
+	Server       Signature `json:"server"`
 }
 
 // AccountRemoval is the wire shape of a signed account-removal certificate
 // (JSON `type: "account"`). See docs/proposals/deletion/.
 type AccountRemoval struct {
-	Type      string    `json:"type"`
-	ServerID  string    `json:"serverID"`
-	UserID    string    `json:"userID"`
-	Note      string    `json:"note"`
-	Signature string    `json:"signature"`
-	Server    Signature `json:"server"`
+	Type         string    `json:"type"`
+	ServerID     string    `json:"serverID"`
+	UserID       string    `json:"userID"`
+	Note         string    `json:"note"`
+	Signature    string    `json:"signature"`
+	SignedFields []string  `json:"signedFields"`
+	Server       Signature `json:"server"`
 }
 
 // /////// //
@@ -319,15 +321,14 @@ func InitDB(db *sql.DB) error {
 	// Signed reed-removal certificates. Source of truth for “gone”; no FK to
 	// reeds(id) so the live row may be dropped after the cert is stored.
 	// PK is (user_id, reed_id); reed_id is also UNIQUE for reed-only lookups.
+	// user_fingerprint binds the signing key; signatures via FKs.
 	createReedRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS reed_removals (
 		reed_id VARCHAR(255) UNIQUE NOT NULL,
 		user_id VARCHAR(255) NOT NULL REFERENCES users(id),
-		user_signature TEXT NOT NULL,
 		user_fingerprint VARCHAR(255) NOT NULL,
-		server_signature TEXT NOT NULL,
-		server_fingerprint VARCHAR(255) NOT NULL,
-		server_signed_at TIMESTAMP NOT NULL,
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
 		PRIMARY KEY (user_id, reed_id),
 		FOREIGN KEY (user_id, user_fingerprint)
@@ -342,11 +343,9 @@ func InitDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS account_removals (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id),
 		note VARCHAR(140) NOT NULL DEFAULT '',
-		user_signature TEXT NOT NULL,
 		user_fingerprint VARCHAR(255) NOT NULL,
-		server_signature TEXT NOT NULL,
-		server_fingerprint VARCHAR(255) NOT NULL,
-		server_signed_at TIMESTAMP NOT NULL,
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
 		FOREIGN KEY (user_id, user_fingerprint)
 			REFERENCES user_keys(owner, fingerprint)

@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed.
+Implemented (`reed_removals` + `account_removals` signature FKs; kept
+`user_fingerprint` as signing-key bind). Store / handlers / realtime wire
+via `syrinx/signing`.
 
 ## Depends on
 
@@ -33,7 +35,7 @@ Hard cutover: FKs only, no dual-write, no backfill.
 
 ## Test plan
 
-- [ ] Fresh `InitDB` `reed_removals` has FKs, no inline signature columns
-- [ ] Insert path writes FKs only
-- [ ] GET 410 body includes flattened cert JSON with `signedFields` /
+- [x] Fresh `InitDB` `reed_removals` has FKs, no inline signature columns
+- [x] Insert path writes FKs only
+- [x] GET 410 body includes flattened cert JSON with `signedFields` /
       `server.signedFields`

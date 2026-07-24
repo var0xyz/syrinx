@@ -44,6 +44,7 @@ JSON reshape.
 - **03 implemented** (`users` → signature FKs).
 - **04 implemented** (`user_keys` → server signature FK).
 - **05 implemented** (`user_key_revocations` → signature FKs).
+- **06 implemented** (`reed_removals` + `account_removals` → signature FKs).
 
 ## Motivation
 
