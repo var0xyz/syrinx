@@ -81,9 +81,7 @@ func ensureTestSchema(db *sql.DB) error {
 			owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			armor TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			server_signature TEXT NOT NULL,
-			server_fingerprint VARCHAR(255) NOT NULL,
-			server_signed_at TIMESTAMP NOT NULL,
+			server_signature_id BIGINT NOT NULL REFERENCES server_signatures(id),
 			PRIMARY KEY (owner, fingerprint)
 		)`,
 		`CREATE TABLE reed_removals (
@@ -147,6 +145,25 @@ func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 	}
 }
 
+func seedUserKey(t *testing.T, db *sql.DB, userID, fingerprint string) {
+	t.Helper()
+	var serverSigID int64
+	err := db.QueryRow(`
+		INSERT INTO server_signatures (fingerprint, signature, signed_at)
+		VALUES ('key-sfp', 's', NOW()) RETURNING id
+	`).Scan(&serverSigID)
+	if err != nil {
+		t.Fatalf("seed key server_signatures: %v", err)
+	}
+	_, err = db.Exec(`
+		INSERT INTO user_keys (fingerprint, owner, armor, server_signature_id)
+		VALUES ($1, $2, 'armor', $3)
+	`, fingerprint, userID, serverSigID)
+	if err != nil {
+		t.Fatalf("seed key: %v", err)
+	}
+}
+
 func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 	db := openTestDB(t)
 	userID := fmt.Sprintf("rm-user-%d", time.Now().UnixNano())
@@ -154,13 +171,7 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 	fp := fmt.Sprintf("rm-fp-%d", time.Now().UnixNano())
 
 	seedUser(t, db, userID, "u-"+userID)
-	_, err := db.Exec(`
-		INSERT INTO user_keys (fingerprint, owner, armor, server_signature, server_fingerprint, server_signed_at)
-		VALUES ($1, $2, 'armor', 's', 'sfp', NOW())
-	`, fp, userID)
-	if err != nil {
-		t.Fatalf("seed key: %v", err)
-	}
+	seedUserKey(t, db, userID, fp)
 	t.Cleanup(func() {
 		_, _ = db.Exec(`DELETE FROM reed_removals WHERE user_id = $1`, userID)
 		_, _ = db.Exec(`DELETE FROM user_keys WHERE owner = $1`, userID)
@@ -204,13 +215,7 @@ func TestInsertAccountCert_IdempotentConflictAndNote(t *testing.T) {
 	fp := fmt.Sprintf("ar-fp-%d", time.Now().UnixNano())
 
 	seedUser(t, db, userID, "u-"+userID)
-	_, err := db.Exec(`
-		INSERT INTO user_keys (fingerprint, owner, armor, server_signature, server_fingerprint, server_signed_at)
-		VALUES ($1, $2, 'armor', 's', 'sfp', NOW())
-	`, fp, userID)
-	if err != nil {
-		t.Fatalf("seed key: %v", err)
-	}
+	seedUserKey(t, db, userID, fp)
 	t.Cleanup(func() {
 		_, _ = db.Exec(`DELETE FROM account_removals WHERE user_id = $1`, userID)
 		_, _ = db.Exec(`DELETE FROM user_keys WHERE owner = $1`, userID)

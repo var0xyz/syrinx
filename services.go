@@ -422,13 +422,13 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	}
 	defer tx.Rollback()
 
-	userSigID, err := signing.InsertUserSignature(
+	userSignatureID, err := signing.InsertUserSignature(
 		tx, in.Fingerprint, in.UserSignatureB64, identity.UserIdentitySignedFields,
 	)
 	if err != nil {
 		return nil, err
 	}
-	serverSigID, err := signing.InsertServerSignature(
+	serverSignatureID, err := signing.InsertServerSignature(
 		tx,
 		in.ProfileSignature.Fingerprint,
 		in.ProfileSignature.Armor,
@@ -450,18 +450,29 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		) VALUES ($1, $2, $3, $4, $5, $6)
 	`,
 		in.UserID, in.Username, in.MemberSince, in.Fingerprint,
-		userSigID, serverSigID,
+		userSignatureID, serverSignatureID,
 	); err != nil {
+		return nil, err
+	}
+
+	keyServerSigID, err := signing.InsertServerSignature(
+		tx,
+		in.PublicKeySignature.Fingerprint,
+		in.PublicKeySignature.Armor,
+		in.PublicKeySignature.SignedAt,
+		identity.PublicKeySignedFields,
+	)
+	if err != nil {
 		return nil, err
 	}
 
 	if _, err := tx.Exec(`
 		INSERT INTO user_keys (
 			fingerprint, owner, armor, created_at, expires_at,
-			server_signature, server_fingerprint, server_signed_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			server_signature_id
+		) VALUES ($1, $2, $3, $4, $5, $6)
 	`, in.Fingerprint, in.UserID, in.PublicKeyArmor, in.KeyCreatedAt, in.KeyExpiresAt,
-		in.PublicKeySignature.Armor, in.PublicKeySignature.Fingerprint, in.PublicKeySignature.SignedAt); err != nil {
+		keyServerSigID); err != nil {
 		return nil, err
 	}
 
@@ -475,7 +486,7 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 func (s *DataService) GetUser(userID string) (*User, error) {
 	var user User
 	var avatarURL, bio, activeFP sql.NullString
-	var userSigID, serverSigID int64
+	var userSignatureID, serverSignatureID int64
 
 	err := s.db.QueryRow(`
 		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at,
@@ -497,8 +508,8 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		&bio,
 		&user.CreatedAt,
 		&activeFP,
-		&userSigID,
-		&serverSigID,
+		&userSignatureID,
+		&serverSignatureID,
 		&user.HasReeds,
 	)
 	if err != nil {
@@ -517,7 +528,7 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		user.ActiveKeyFingerprint = activeFP.String
 	}
 
-	userRow, err := signing.GetUserSignature(s.db, userSigID)
+	userRow, err := signing.GetUserSignature(s.db, userSignatureID)
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +537,7 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	user.SignatureFingerprint = uw.SignatureFingerprint
 	user.SignedFields = uw.SignedFields
 
-	serverRow, err := signing.GetServerSignature(s.db, serverSigID)
+	serverRow, err := signing.GetServerSignature(s.db, serverSignatureID)
 	if err != nil {
 		return nil, err
 	}
@@ -571,13 +582,13 @@ func (s *DataService) UpdateUser(in UpdateUserInput) error {
 	}
 	defer tx.Rollback()
 
-	userSigID, err := signing.InsertUserSignature(
+	userSignatureID, err := signing.InsertUserSignature(
 		tx, in.Fingerprint, in.UserSignatureB64, identity.UserIdentitySignedFields,
 	)
 	if err != nil {
 		return err
 	}
-	serverSigID, err := signing.InsertServerSignature(
+	serverSignatureID, err := signing.InsertServerSignature(
 		tx,
 		in.ProfileSignature.Fingerprint,
 		in.ProfileSignature.Armor,
@@ -598,7 +609,7 @@ func (s *DataService) UpdateUser(in UpdateUserInput) error {
 		WHERE id = $6
 	`,
 		in.Username, in.AvatarURL, in.Bio,
-		userSigID, serverSigID,
+		userSignatureID, serverSignatureID,
 		in.UserID,
 	)
 	if err != nil {
@@ -708,13 +719,12 @@ func (s *DataService) SetDefaultIdentity(userID string, identityID uuid.UUID) er
 func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, error) {
 	var key Key
 	var revoked bool
-	var serverSig, serverKeyFP sql.NullString
-	var serverSignedAt sql.NullTime
+	var serverSignatureID int64
 	var predSig, predFP sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT uk.fingerprint, uk.owner, uk.armor, uk.created_at,
-		       uk.server_signature, uk.server_fingerprint, uk.server_signed_at,
+		       uk.server_signature_id,
 		       uk.predecessor_signature, uk.predecessor_fingerprint,
 		       EXISTS(
 			SELECT 1 FROM user_key_revocations rv
@@ -724,7 +734,7 @@ func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, err
 		WHERE uk.owner = $1 AND uk.fingerprint = $2
 	`, userID, fingerprint).Scan(
 		&key.Fingerprint, &key.UserID, &key.Armor, &key.CreatedAt,
-		&serverSig, &serverKeyFP, &serverSignedAt,
+		&serverSignatureID,
 		&predSig, &predFP,
 		&revoked,
 	)
@@ -734,15 +744,18 @@ func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, err
 		}
 		return nil, err
 	}
-	if !serverSig.Valid || !serverKeyFP.Valid || !serverSignedAt.Valid {
-		return nil, fmt.Errorf("public key %s for user %s is missing server signature", fingerprint, userID)
+	serverRow, err := signing.GetServerSignature(s.db, serverSignatureID)
+	if err != nil {
+		return nil, err
 	}
+	sw := signing.ServerWire(serverRow, s.serverID)
 	key.Server = Signature{
-		ServerID:    s.serverID,
-		Fingerprint: serverKeyFP.String,
-		Algorithm:   identity.Algorithm,
-		Armor:       serverSig.String,
-		SignedAt:    serverSignedAt.Time,
+		ServerID:     sw.ID,
+		Fingerprint:  sw.Fingerprint,
+		Algorithm:    sw.Algorithm,
+		Armor:        sw.Signature,
+		SignedAt:     sw.Timestamp,
+		SignedFields: sw.SignedFields,
 	}
 	key.Revoked = revoked
 	if predSig.Valid && predFP.Valid {
@@ -762,7 +775,7 @@ func (s *DataService) IsPublicKeyRevoked(key *Key) (bool, error) {
 func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocation, error) {
 	var rev KeyRevocation
 	var successor sql.NullString
-	var userSig, serverSig, serverFP sql.NullString
+	var userSignature, serverSignature, serverFP sql.NullString
 	var serverSignedAt sql.NullTime
 	var reason sql.NullString
 
@@ -774,7 +787,7 @@ func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocati
 		WHERE rv.owner = $1 AND rv.user_fingerprint = $2
 	`, userID, fingerprint).Scan(
 		&rev.Fingerprint, &rev.UserID, &reason, &successor,
-		&userSig, &serverSig, &serverFP, &serverSignedAt,
+		&userSignature, &serverSignature, &serverFP, &serverSignedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -782,11 +795,11 @@ func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocati
 		}
 		return nil, err
 	}
-	if !userSig.Valid || !serverSig.Valid || !serverFP.Valid || !serverSignedAt.Valid {
+	if !userSignature.Valid || !serverSignature.Valid || !serverFP.Valid || !serverSignedAt.Valid {
 		return nil, fmt.Errorf("revocation for key %s user %s is missing signatures", fingerprint, userID)
 	}
 	rev.Reason = reason.String
-	rev.Signature = userSig.String
+	rev.Signature = userSignature.String
 	if successor.Valid && successor.String != "" {
 		s := successor.String
 		rev.Successor = &s
@@ -795,7 +808,7 @@ func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocati
 		ServerID:    s.serverID,
 		Fingerprint: serverFP.String,
 		Algorithm:   identity.Algorithm,
-		Armor:       serverSig.String,
+		Armor:       serverSignature.String,
 		SignedAt:    serverSignedAt.Time,
 	}
 	return &rev, nil
@@ -940,22 +953,42 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 		return nil, ErrActiveKeyExists
 	}
 
+	serverSignatureID, err := signing.InsertServerSignature(
+		tx,
+		in.Server.Fingerprint,
+		in.Server.Armor,
+		in.Server.SignedAt,
+		identity.PublicKeySignedFields,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	var key Key
 	err = tx.QueryRow(`
 		INSERT INTO user_keys (
 			fingerprint, owner, armor, created_at, expires_at,
-			server_signature, server_fingerprint, server_signed_at,
+			server_signature_id,
 			predecessor_signature, predecessor_fingerprint
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING fingerprint, owner, armor, created_at
 	`, fingerprint, userID, armor, createdAt, expiresAt,
-		in.Server.Armor, in.Server.Fingerprint, in.Server.SignedAt,
+		serverSignatureID,
 		in.PredecessorSignature, predecessor,
 	).Scan(&key.Fingerprint, &key.UserID, &key.Armor, &key.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
 	key.Server = in.Server
+	if key.Server.SignedFields == nil {
+		key.Server.SignedFields = append([]string(nil), identity.PublicKeySignedFields...)
+	}
+	if key.Server.Algorithm == "" {
+		key.Server.Algorithm = identity.Algorithm
+	}
+	if key.Server.ServerID == "" {
+		key.Server.ServerID = s.serverID
+	}
 	if in.PredecessorSignature != "" {
 		key.Predecessor = &KeyPredecessor{
 			Fingerprint: predecessor,
