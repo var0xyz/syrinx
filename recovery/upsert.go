@@ -230,18 +230,31 @@ func insertKeys(tx *sql.Tx, userID string, flat []FlatKey) error {
 			predFP = fk.PredecessorFingerprint
 			predSig = fk.PredecessorSignature
 		}
-		_, err := tx.Exec(`
+		fields := fk.Key.Server.SignedFields
+		if len(fields) == 0 {
+			fields = identity.PublicKeySignedFields
+		}
+		serverSigID, err := signing.InsertServerSignature(
+			tx,
+			fk.Key.Server.Fingerprint,
+			fk.Key.Server.Signature,
+			fk.Key.Server.Timestamp,
+			fields,
+		)
+		if err != nil {
+			return fmt.Errorf("insert key server signature %s: %w", fk.Key.Fingerprint, err)
+		}
+		_, err = tx.Exec(`
 			INSERT INTO user_keys (
 				fingerprint, owner, armor, created_at, expires_at,
-				server_signature, server_fingerprint, server_signed_at,
+				server_signature_id,
 				predecessor_signature, predecessor_fingerprint
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (owner, fingerprint) DO NOTHING
 		`,
 			fk.Key.Fingerprint, userID, fk.Key.Armor,
 			fk.Key.CreatedAt.UTC().Truncate(time.Second), fk.Key.ExpiresAt,
-			fk.Key.Server.Signature, fk.Key.Server.Fingerprint,
-			fk.Key.Server.Timestamp.UTC().Truncate(time.Second),
+			serverSigID,
 			predSig, predFP,
 		)
 		if err != nil {

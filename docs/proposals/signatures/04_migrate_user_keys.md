@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed.
+Implemented (`user_keys.server_signature_id`; signup / AddPublicKey /
+recovery / GetPublicKey via `syrinx/signing`).
 
 ## Depends on
 
@@ -32,6 +33,6 @@ Hard cutover: FK only, no dual-write, no backfill.
 
 ## Test plan
 
-- [ ] Fresh `InitDB` `user_keys` has FK, no inline server signature columns
-- [ ] AddPublicKey / recovery insert populate FK only
-- [ ] GetPublicKey wire `server` includes `signedFields`
+- [x] Fresh `InitDB` `user_keys` has FK, no inline server signature columns
+- [x] AddPublicKey / recovery insert populate FK only
+- [x] GetPublicKey wire `server` includes `signedFields`

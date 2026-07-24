@@ -57,6 +57,13 @@ var ProfileSignedFields = []string{
 	"userSignature", "bio",
 }
 
+// PublicKeySignedFields lists the logical fields covered by
+// BuildPublicKeyPayload (headers + armor content).
+var PublicKeySignedFields = []string{
+	"fingerprint", "serverID", "serverKeyFingerprint", "signedAt",
+	"userID", "armor",
+}
+
 // recordTimeFormat is the canonical time format used for memberSince
 // and signedAt headers in the signed bytes. UTC + RFC3339 seconds
 // resolution. Callers MUST pass timestamps already truncated to this
