@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed.
+Implemented (`user_key_revocations` signature FKs; kept
+`user_fingerprint` as revoked-key identity). RevokeKey / recovery /
+GetKeyRevocation via `syrinx/signing`.
 
 ## Depends on
 
@@ -39,6 +41,6 @@ stay consistent.
 
 ## Test plan
 
-- [ ] Fresh `InitDB` revocations have FKs, no inline signature columns
-- [ ] RevokeKey writes FKs only
-- [ ] GET revocation wire includes `signedFields` / `server.signedFields`
+- [x] Fresh `InitDB` revocations have FKs, no inline signature columns
+- [x] RevokeKey writes FKs only
+- [x] GET revocation wire includes `signedFields` / `server.signedFields`

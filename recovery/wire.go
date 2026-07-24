@@ -42,12 +42,13 @@ type KeyWire struct {
 
 // Revocation is a signed revocation attestation for a user key.
 type Revocation struct {
-	Fingerprint string          `json:"fingerprint"`
-	UserID      string          `json:"userID"`
-	Reason      string          `json:"reason"`
-	Successor   *string         `json:"successor"`
-	Signature   string          `json:"signature"`
-	Server      ServerSignature `json:"server"`
+	Fingerprint  string          `json:"fingerprint"`
+	UserID       string          `json:"userID"`
+	Reason       string          `json:"reason"`
+	Successor    *string         `json:"successor"`
+	Signature    string          `json:"signature"`
+	SignedFields []string        `json:"signedFields"`
+	Server       ServerSignature `json:"server"`
 }
 
 // KeyNode is one level of the nested key chain. KeyWire is embedded so the
