@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed.
+Implemented (users FKs only; signup/update/recovery/GetUser via
+`syrinx/signing`). Kept `users.user_fingerprint` as active-key hint.
 
 ## Depends on
 
@@ -40,6 +41,6 @@ the user-signature row (open Q in 00).
 
 ## Test plan
 
-- [ ] Fresh `InitDB` `users` has FKs, no inline signature columns
-- [ ] Signup / update / recovery write signature rows + FKs only
-- [ ] GetUser wire includes `signedFields` / `server.signedFields`
+- [x] Fresh `InitDB` `users` has FKs, no inline signature columns
+- [x] Signup / update / recovery write signature rows + FKs only
+- [x] GetUser wire includes `signedFields` / `server.signedFields`

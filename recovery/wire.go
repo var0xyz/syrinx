@@ -5,11 +5,12 @@ import "time"
 // ServerSignature is the server's countersignature metadata on a signed
 // resource (identity, public key, revocation).
 type ServerSignature struct {
-	ID          string    `json:"id"`
-	Fingerprint string    `json:"fingerprint"`
-	Timestamp   time.Time `json:"timestamp"`
-	Algorithm   string    `json:"algorithm"`
-	Signature   string    `json:"signature"`
+	ID           string    `json:"id"`
+	Fingerprint  string    `json:"fingerprint"`
+	Timestamp    time.Time `json:"timestamp"`
+	Algorithm    string    `json:"algorithm"`
+	Signature    string    `json:"signature"`
+	SignedFields []string  `json:"signedFields"`
 }
 
 // Profile is the User wire shape of a countersigned identity record.
@@ -22,6 +23,7 @@ type Profile struct {
 	SignatureFingerprint string          `json:"signatureFingerprint"`
 	ActiveKeyFingerprint string          `json:"activeKeyFingerprint"`
 	Signature            string          `json:"signature"`
+	SignedFields         []string        `json:"signedFields"`
 	Server               ServerSignature `json:"server"`
 	HasReeds             bool            `json:"hasReeds"`
 }

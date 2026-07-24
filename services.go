@@ -20,6 +20,7 @@ import (
 	"syrinx/deletion"
 	"syrinx/identity"
 	"syrinx/recovery"
+	"syrinx/signing"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -71,7 +72,12 @@ func (s *DataService) GetServerID() string {
 // Returns sql.ErrNoRows when the user does not exist.
 func (s *DataService) UserServerSignedAt(userID string) (time.Time, error) {
 	var ts time.Time
-	err := s.db.QueryRow(`SELECT server_signed_at FROM users WHERE id = $1`, userID).Scan(&ts)
+	err := s.db.QueryRow(`
+		SELECT ss.signed_at
+		FROM users u
+		JOIN server_signatures ss ON ss.id = u.server_signature_id
+		WHERE u.id = $1
+	`, userID).Scan(&ts)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -416,6 +422,23 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	}
 	defer tx.Rollback()
 
+	userSigID, err := signing.InsertUserSignature(
+		tx, in.Fingerprint, in.UserSignatureB64, identity.UserIdentitySignedFields,
+	)
+	if err != nil {
+		return nil, err
+	}
+	serverSigID, err := signing.InsertServerSignature(
+		tx,
+		in.ProfileSignature.Fingerprint,
+		in.ProfileSignature.Armor,
+		in.ProfileSignature.SignedAt,
+		identity.ProfileSignedFields,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// created_at is set explicitly to memberSince — the value that was
 	// signed by the server. Using the DB's DEFAULT would create a
 	// race between what was signed and what is persisted, and would
@@ -423,13 +446,11 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	if _, err := tx.Exec(`
 		INSERT INTO users (
 			id, username, created_at, user_fingerprint,
-			user_signature, server_signature,
-			server_signed_at, server_fingerprint
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			user_signature_id, server_signature_id
+		) VALUES ($1, $2, $3, $4, $5, $6)
 	`,
 		in.UserID, in.Username, in.MemberSince, in.Fingerprint,
-		in.UserSignatureB64, in.ProfileSignature.Armor,
-		in.ProfileSignature.SignedAt, in.ProfileSignature.Fingerprint,
+		userSigID, serverSigID,
 	); err != nil {
 		return nil, err
 	}
@@ -453,13 +474,13 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 
 func (s *DataService) GetUser(userID string) (*User, error) {
 	var user User
-	var avatarURL, bio, fingerprint sql.NullString
+	var avatarURL, bio, activeFP sql.NullString
+	var userSigID, serverSigID int64
 
 	err := s.db.QueryRow(`
 		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at,
 		       u.user_fingerprint,
-		       u.user_signature, u.server_signature,
-		       u.server_fingerprint, u.server_signed_at,
+		       u.user_signature_id, u.server_signature_id,
 		       EXISTS (
 		           SELECT 1 FROM reeds r
 		           WHERE r.user_id = u.id
@@ -475,11 +496,9 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		&avatarURL,
 		&bio,
 		&user.CreatedAt,
-		&fingerprint,
-		&user.UserSignatureB64,
-		&user.Server.Armor,
-		&user.Server.Fingerprint,
-		&user.Server.SignedAt,
+		&activeFP,
+		&userSigID,
+		&serverSigID,
 		&user.HasReeds,
 	)
 	if err != nil {
@@ -494,12 +513,32 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	if bio.Valid {
 		user.Bio = bio.String
 	}
-	if fingerprint.Valid {
-		user.SignatureFingerprint = fingerprint.String
-		user.ActiveKeyFingerprint = fingerprint.String
+	if activeFP.Valid {
+		user.ActiveKeyFingerprint = activeFP.String
 	}
-	user.Server.ServerID = s.serverID
-	user.Server.Algorithm = identity.Algorithm
+
+	userRow, err := signing.GetUserSignature(s.db, userSigID)
+	if err != nil {
+		return nil, err
+	}
+	uw := signing.UserWire(userRow)
+	user.UserSignatureB64 = uw.Signature
+	user.SignatureFingerprint = uw.SignatureFingerprint
+	user.SignedFields = uw.SignedFields
+
+	serverRow, err := signing.GetServerSignature(s.db, serverSigID)
+	if err != nil {
+		return nil, err
+	}
+	sw := signing.ServerWire(serverRow, s.serverID)
+	user.Server = Signature{
+		ServerID:     sw.ID,
+		Fingerprint:  sw.Fingerprint,
+		Algorithm:    sw.Algorithm,
+		Armor:        sw.Signature,
+		SignedAt:     sw.Timestamp,
+		SignedFields: sw.SignedFields,
+	}
 
 	return &user, nil
 }
@@ -507,43 +546,65 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 // UpdateUserInput carries everything needed to persist a fresh signed
 // identity record produced by a profile edit. Every field is populated
 // on every accepted update — this is a full replacement of the signed
-// user-authored fields plus the four identity columns that record who
-// signed what and when.
+// user-authored fields plus new attestation rows.
 type UpdateUserInput struct {
 	UserID           string
 	Username         string
 	AvatarURL        string
 	Bio              string
+	Fingerprint      string
 	UserSignatureB64 string
 	ProfileSignature Signature
 }
 
 // UpdateUser writes a fresh signed identity record for an existing user.
-// It updates username/avatar_url/bio alongside the four identity columns
-// (user_signature, server_signature, server_signed_at, server_fingerprint)
-// in a single UPDATE so a mid-write crash can never split the signature
-// from the fields it covers.
+// It updates username/avatar_url/bio alongside new signature rows and
+// FKs in one transaction so a mid-write crash can never split the
+// signature from the fields it covers.
 //
 // The caller owns signature verification and countersigning — this
 // function just persists.
 func (s *DataService) UpdateUser(in UpdateUserInput) error {
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	userSigID, err := signing.InsertUserSignature(
+		tx, in.Fingerprint, in.UserSignatureB64, identity.UserIdentitySignedFields,
+	)
+	if err != nil {
+		return err
+	}
+	serverSigID, err := signing.InsertServerSignature(
+		tx,
+		in.ProfileSignature.Fingerprint,
+		in.ProfileSignature.Armor,
+		in.ProfileSignature.SignedAt,
+		identity.ProfileSignedFields,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
 		UPDATE users
 		SET username = $1,
 		    avatar_url = $2,
 		    bio = $3,
-		    user_signature = $4,
-		    server_signature = $5,
-		    server_signed_at = $6,
-		    server_fingerprint = $7
-		WHERE id = $8
+		    user_signature_id = $4,
+		    server_signature_id = $5
+		WHERE id = $6
 	`,
 		in.Username, in.AvatarURL, in.Bio,
-		in.UserSignatureB64, in.ProfileSignature.Armor,
-		in.ProfileSignature.SignedAt, in.ProfileSignature.Fingerprint,
+		userSigID, serverSigID,
 		in.UserID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *DataService) UsernameExists(username string) (bool, error) {

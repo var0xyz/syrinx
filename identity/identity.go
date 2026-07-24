@@ -42,6 +42,21 @@ import (
 // detached signature transported as base64 on the wire.
 const Algorithm = "PGP+base64"
 
+// UserIdentitySignedFields lists the logical fields covered by
+// BuildUserIdentityPayload (headers + bio content). Informational for
+// storage / wire signedFields.
+var UserIdentitySignedFields = []string{
+	"type", "username", "fingerprint", "avatarURL", "bio",
+}
+
+// ProfileSignedFields lists the logical fields covered by
+// BuildProfilePayload (headers + bio content).
+var ProfileSignedFields = []string{
+	"type", "userID", "username", "fingerprint", "avatarURL",
+	"memberSince", "serverID", "serverKeyFingerprint", "signedAt",
+	"userSignature", "bio",
+}
+
 // recordTimeFormat is the canonical time format used for memberSince
 // and signedAt headers in the signed bytes. UTC + RFC3339 seconds
 // resolution. Callers MUST pass timestamps already truncated to this
