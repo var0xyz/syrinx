@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (`InitDB` DDL + smoke roundtrip in `db_test.go`).
 
 ## Depends on
 
@@ -34,5 +34,5 @@ server-key rotation already rely on fingerprint lookup tables separately.
 
 ## Test plan
 
-- [ ] Fresh `InitDB` creates both tables
-- [ ] Insert/select roundtrip on each table (smoke)
+- [x] Fresh `InitDB` creates both tables
+- [x] Insert/select roundtrip on each table (smoke)
