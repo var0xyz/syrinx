@@ -262,18 +262,39 @@ func insertKeys(tx *sql.Tx, userID string, flat []FlatKey) error {
 		}
 
 		if fk.Revocation != nil {
-			_, err := tx.Exec(`
+			userFields := identity.UserRevocationSignedFields
+			serverFields := identity.ServerRevocationSignedFields
+			if len(fk.Revocation.SignedFields) > 0 {
+				userFields = fk.Revocation.SignedFields
+			}
+			if len(fk.Revocation.Server.SignedFields) > 0 {
+				serverFields = fk.Revocation.Server.SignedFields
+			}
+			userSigID, err := signing.InsertUserSignature(
+				tx, fk.Revocation.Fingerprint, fk.Revocation.Signature, userFields,
+			)
+			if err != nil {
+				return fmt.Errorf("insert revocation user signature %s: %w", fk.Key.Fingerprint, err)
+			}
+			serverSigID, err := signing.InsertServerSignature(
+				tx,
+				fk.Revocation.Server.Fingerprint,
+				fk.Revocation.Server.Signature,
+				fk.Revocation.Server.Timestamp,
+				serverFields,
+			)
+			if err != nil {
+				return fmt.Errorf("insert revocation server signature %s: %w", fk.Key.Fingerprint, err)
+			}
+			_, err = tx.Exec(`
 				INSERT INTO user_key_revocations (
 					user_fingerprint, owner, reason,
-					user_signature, server_signature,
-					server_fingerprint, server_signed_at
-				) VALUES ($1, $2, $3, $4, $5, $6, $7)
+					user_signature_id, server_signature_id
+				) VALUES ($1, $2, $3, $4, $5)
 				ON CONFLICT (owner, user_fingerprint) DO NOTHING
 			`,
 				fk.Revocation.Fingerprint, userID, fk.Revocation.Reason,
-				fk.Revocation.Signature, fk.Revocation.Server.Signature,
-				fk.Revocation.Server.Fingerprint,
-				fk.Revocation.Server.Timestamp.UTC().Truncate(time.Second),
+				userSigID, serverSigID,
 			)
 			if err != nil {
 				return fmt.Errorf("insert revocation %s: %w", fk.Key.Fingerprint, err)
