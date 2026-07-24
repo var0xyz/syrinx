@@ -116,12 +116,13 @@ type Key struct {
 // replacement key is uploaded. It is returned on GET when present but
 // is not covered by either signature — it is unknown at revoke time.
 type KeyRevocation struct {
-	Fingerprint string    `json:"fingerprint"`
-	UserID      string    `json:"userID"`
-	Reason      string    `json:"reason"`
-	Successor   *string   `json:"successor"`
-	Signature   string    `json:"signature"`
-	Server      Signature `json:"server"`
+	Fingerprint  string    `json:"fingerprint"`
+	UserID       string    `json:"userID"`
+	Reason       string    `json:"reason"`
+	Successor    *string   `json:"successor"`
+	Signature    string    `json:"signature"`
+	SignedFields []string  `json:"signedFields"`
+	Server       Signature `json:"server"`
 }
 
 type Reed struct {
@@ -274,10 +275,9 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// Revocation attestation for a user key. A row's existence means the
-	// key is revoked. Revoke time is server_signed_at (wire:
-	// server.timestamp), not a separate column. user_signature and
-	// server_signature are base64 armored PGP detached signatures over
-	// the canonical revocation payloads (see identity.go).
+	// key is revoked. user_fingerprint identifies which key was revoked
+	// (PK + FK to user_keys). Signatures live in user_signatures /
+	// server_signatures; revoke time is server_signatures.signed_at.
 	//
 	// successor is written when the replacement key is uploaded via
 	// AddPublicKey, not at revocation time — the client revokes first
@@ -285,13 +285,11 @@ func InitDB(db *sql.DB) error {
 	// the successor.
 	createUserKeyRevocationsTable := `
 	CREATE TABLE IF NOT EXISTS user_key_revocations (
-		user_fingerprint VARCHAR(255),
+		user_fingerprint VARCHAR(255) NOT NULL,
 		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		reason TEXT,
-		user_signature TEXT NOT NULL,
-		server_signature TEXT NOT NULL,
-		server_fingerprint VARCHAR(255) NOT NULL,
-		server_signed_at TIMESTAMP NOT NULL,
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		successor VARCHAR(255) REFERENCES user_keys(fingerprint),
 
 		PRIMARY KEY (owner, user_fingerprint),

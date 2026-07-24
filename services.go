@@ -775,19 +775,17 @@ func (s *DataService) IsPublicKeyRevoked(key *Key) (bool, error) {
 func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocation, error) {
 	var rev KeyRevocation
 	var successor sql.NullString
-	var userSignature, serverSignature, serverFP sql.NullString
-	var serverSignedAt sql.NullTime
 	var reason sql.NullString
+	var userSigID, serverSigID int64
 
 	err := s.db.QueryRow(`
 		SELECT rv.user_fingerprint, rv.owner, rv.reason, rv.successor,
-		       rv.user_signature, rv.server_signature, rv.server_fingerprint,
-		       rv.server_signed_at
+		       rv.user_signature_id, rv.server_signature_id
 		FROM user_key_revocations rv
 		WHERE rv.owner = $1 AND rv.user_fingerprint = $2
 	`, userID, fingerprint).Scan(
 		&rev.Fingerprint, &rev.UserID, &reason, &successor,
-		&userSignature, &serverSignature, &serverFP, &serverSignedAt,
+		&userSigID, &serverSigID,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -795,21 +793,32 @@ func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocati
 		}
 		return nil, err
 	}
-	if !userSignature.Valid || !serverSignature.Valid || !serverFP.Valid || !serverSignedAt.Valid {
-		return nil, fmt.Errorf("revocation for key %s user %s is missing signatures", fingerprint, userID)
-	}
 	rev.Reason = reason.String
-	rev.Signature = userSignature.String
 	if successor.Valid && successor.String != "" {
 		s := successor.String
 		rev.Successor = &s
 	}
+
+	userRow, err := signing.GetUserSignature(s.db, userSigID)
+	if err != nil {
+		return nil, err
+	}
+	uw := signing.UserWire(userRow)
+	rev.Signature = uw.Signature
+	rev.SignedFields = uw.SignedFields
+
+	serverRow, err := signing.GetServerSignature(s.db, serverSigID)
+	if err != nil {
+		return nil, err
+	}
+	sw := signing.ServerWire(serverRow, s.serverID)
 	rev.Server = Signature{
-		ServerID:    s.serverID,
-		Fingerprint: serverFP.String,
-		Algorithm:   identity.Algorithm,
-		Armor:       serverSignature.String,
-		SignedAt:    serverSignedAt.Time,
+		ServerID:     sw.ID,
+		Fingerprint:  sw.Fingerprint,
+		Algorithm:    sw.Algorithm,
+		Armor:        sw.Signature,
+		SignedAt:     sw.Timestamp,
+		SignedFields: sw.SignedFields,
 	}
 	return &rev, nil
 }
@@ -1029,14 +1038,30 @@ func (s *DataService) RevokeKey(in RevokeKeyInput) error {
 	}
 	defer tx.Rollback()
 
+	userSigID, err := signing.InsertUserSignature(
+		tx, in.Fingerprint, in.UserSignatureB64, identity.UserRevocationSignedFields,
+	)
+	if err != nil {
+		return err
+	}
+	serverSigID, err := signing.InsertServerSignature(
+		tx,
+		in.Server.Fingerprint,
+		in.Server.Armor,
+		in.Server.SignedAt,
+		identity.ServerRevocationSignedFields,
+	)
+	if err != nil {
+		return err
+	}
+
 	// A key is revoked iff a row exists in user_key_revocations.
 	_, err = tx.Exec(`
 		INSERT INTO user_key_revocations (
 			user_fingerprint, owner, reason,
-			user_signature, server_signature, server_fingerprint, server_signed_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, in.Fingerprint, in.UserID, in.Reason,
-		in.UserSignatureB64, in.Server.Armor, in.Server.Fingerprint, in.Server.SignedAt)
+			user_signature_id, server_signature_id
+		) VALUES ($1, $2, $3, $4, $5)
+	`, in.Fingerprint, in.UserID, in.Reason, userSigID, serverSigID)
 	if err != nil {
 		return err
 	}

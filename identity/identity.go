@@ -64,6 +64,19 @@ var PublicKeySignedFields = []string{
 	"userID", "armor",
 }
 
+// UserRevocationSignedFields lists the logical fields covered by
+// BuildUserRevocationPayload (headers + reason content).
+var UserRevocationSignedFields = []string{
+	"type", "userID", "fingerprint", "reason",
+}
+
+// ServerRevocationSignedFields lists the logical fields covered by
+// BuildServerRevocationPayload (headers + reason content).
+var ServerRevocationSignedFields = []string{
+	"type", "userID", "fingerprint", "signedAt", "serverID",
+	"serverKeyFingerprint", "userSignature", "reason",
+}
+
 // recordTimeFormat is the canonical time format used for memberSince
 // and signedAt headers in the signed bytes. UTC + RFC3339 seconds
 // resolution. Callers MUST pass timestamps already truncated to this
