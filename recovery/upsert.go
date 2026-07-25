@@ -144,12 +144,12 @@ func insertUser(tx *sql.Tx, profile Profile, activeFP string, signedAt time.Time
 	_, err = tx.Exec(`
 		INSERT INTO users (
 			id, username, created_at, user_fingerprint, avatar_url, bio,
-			user_signature_id, server_signature_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			user_signature_id, server_signature_id, invited_by
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`,
 		profile.ID, username, profile.MemberSince.UTC().Truncate(time.Second),
 		activeFP, nullIfEmpty(profile.AvatarURL), nullIfEmpty(profile.Bio),
-		userSignatureID, serverSignatureID,
+		userSignatureID, serverSignatureID, nullIfEmpty(profileInvitedByID(profile)),
 	)
 	if err != nil {
 		return fmt.Errorf("insert user: %w", err)

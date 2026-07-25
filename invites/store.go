@@ -66,7 +66,19 @@ func (s *Store) ListByCreator(ctx context.Context, creatorID string) ([]Invite, 
 }
 
 func (s *Store) GetByTokenHash(ctx context.Context, hash []byte) (*Invite, error) {
-	row := s.DB.QueryRowContext(ctx, `
+	return getByTokenHash(ctx, s.DB, hash)
+}
+
+func (s *Store) GetByTokenHashTx(ctx context.Context, tx *sql.Tx, hash []byte) (*Invite, error) {
+	return getByTokenHash(ctx, tx, hash)
+}
+
+type tokenHashQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func getByTokenHash(ctx context.Context, q tokenHashQuerier, hash []byte) (*Invite, error) {
+	row := q.QueryRowContext(ctx, `
 		SELECT id, created_by, created_at, claimed_at, claimed_by, revoked_at
 		FROM invites
 		WHERE token_hash = $1

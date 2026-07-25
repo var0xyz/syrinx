@@ -28,6 +28,13 @@ type Profile struct {
 	UserSignature        UserSignature   `json:"userSignature"`
 	ServerSignature      ServerSignature `json:"serverSignature"`
 	HasReeds             bool            `json:"hasReeds"`
+	InvitedBy            *InvitedBy      `json:"invitedBy"`
+}
+
+// InvitedBy is the inviter identity nested on User/Profile wire when set.
+type InvitedBy struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
 }
 
 // KeyWire is the public-key fields shared by live Key responses and each

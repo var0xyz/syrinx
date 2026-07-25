@@ -90,6 +90,7 @@ func TestServerPayloadCanonicalShape(t *testing.T) {
 		"abc123", "alice", "ABCDEF", "https://ex.com/a.png",
 		"Server01", "0011FF",
 		"dXNlcnNpZw==",
+		"",
 		"bio text",
 		memberSince, signedAt,
 	)
@@ -108,6 +109,33 @@ func TestServerPayloadCanonicalShape(t *testing.T) {
 		"bio text"
 	if string(got) != want {
 		t.Errorf("server payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}
+
+func TestServerPayloadInvitedBy(t *testing.T) {
+	memberSince := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	signedAt := memberSince
+	with := string(BuildProfilePayload(
+		"abc123", "bob", "ABCDEF", "",
+		"Server01", "0011FF",
+		"dXNlcnNpZw==",
+		"inviter99",
+		"",
+		memberSince, signedAt,
+	))
+	if !strings.Contains(with, "invitedBy: inviter99\n") {
+		t.Fatalf("missing invitedBy header:\n%s", with)
+	}
+	without := string(BuildProfilePayload(
+		"abc123", "bob", "ABCDEF", "",
+		"Server01", "0011FF",
+		"dXNlcnNpZw==",
+		"",
+		"",
+		memberSince, signedAt,
+	))
+	if strings.Contains(without, "invitedBy") {
+		t.Fatalf("empty invitedBy must be omitted:\n%s", without)
 	}
 }
 
@@ -136,6 +164,7 @@ func TestIdentityRoundTrip(t *testing.T) {
 		"srv_xyz", serverKP.Fingerprint,
 		userSigB64,
 		"",
+		"",
 		memberSince, signedAt,
 	)
 	serverSigB64 := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
@@ -150,6 +179,7 @@ func TestIdentityRoundTrip(t *testing.T) {
 		"user_abc", "alice", userKP.Fingerprint, "",
 		"srv_xyz", serverKP.Fingerprint,
 		userSigB64,
+		"",
 		"",
 		memberSince, signedAt,
 	)
@@ -181,6 +211,7 @@ func TestServerPayloadBindsUserSignature(t *testing.T) {
 		"srv_xyz", serverKP.Fingerprint,
 		sigAlice,
 		"",
+		"",
 		ts, ts,
 	)
 	serverSig := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
@@ -190,6 +221,7 @@ func TestServerPayloadBindsUserSignature(t *testing.T) {
 		"user_abc", "alice", userKP.Fingerprint, "",
 		"srv_xyz", serverKP.Fingerprint,
 		sigBob,
+		"",
 		"",
 		ts, ts,
 	)

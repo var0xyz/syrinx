@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed.
+Implemented (signup invite policy + consume in TX; `invitedBy` on
+identity payload / User wire; mutual follow on redeem; profile update
+preserves `invitedBy`).
 
 ## Depends on
 
@@ -166,22 +168,22 @@ Avoid duplicating signature logic inside `invites/`.
 
 ## Test plan
 
-- [ ] `closed` → still 403
-- [ ] `invite`, empty DB, no token → 201; `invitedBy` null; no follows
-- [ ] `invite`, empty DB, two parallel signups without token → exactly one
+- [x] `closed` → still 403
+- [x] `invite`, empty DB, no token → 201; `invitedBy` null; no follows
+- [x] `invite`, empty DB, two parallel signups without token → exactly one
       succeeds without invite **or** both serialize such that the second
       requires an invite (assert invariant: never two users both without
       invite when mode is `invite` and an invite never existed — i.e. at
       most one bootstrap user)
-- [ ] `invite`, one user exists, no token → 403 `Invite required`
-- [ ] `invite`, valid token → 201; `invitedBy.id` = inviter; invite
+- [x] `invite`, one user exists, no token → 403 `Invite required`
+- [x] `invite`, valid token → 201; `invitedBy.id` = inviter; invite
       `status=claimed`; mutual follows present both ways
-- [ ] Same token twice → second 403; only one user
-- [ ] Revoked / claimed token → 403
-- [ ] `open`, no token → 201; `invitedBy` null
-- [ ] `open`, valid token → 201; `invitedBy` set; mutual follows
-- [ ] `open`, invalid token → 403 (does not create user)
-- [ ] Profile payload bytes include `invitedBy:` when set; omit when null
-- [ ] `PUT /users/me` after invited signup still verifies with same
+- [x] Same token twice → second 403; only one user
+- [x] Revoked / claimed token → 403
+- [x] `open`, no token → 201; `invitedBy` null
+- [x] `open`, valid token → 201; `invitedBy` set; mutual follows
+- [x] `open`, invalid token → 403 (does not create user)
+- [x] Profile payload bytes include `invitedBy:` when set; omit when null
+- [x] `PUT /users/me` after invited signup still verifies with same
       `invitedBy` header
-- [ ] Identity unit tests updated in Go + TS mirrors stay in lockstep
+- [x] Identity unit tests updated in Go + TS mirrors stay in lockstep

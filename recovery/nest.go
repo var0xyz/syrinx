@@ -119,6 +119,13 @@ func FlattenKeysNest(
 	return active, flat, nil
 }
 
+func profileInvitedByID(profile Profile) string {
+	if profile.InvitedBy == nil {
+		return ""
+	}
+	return profile.InvitedBy.ID
+}
+
 // VerifyProfileServerCountersig checks profile.serverSignature.serverID
 // against serverID and verifies the server countersignature. It does not
 // verify the user signature or key nest (those are claim/peer concerns).
@@ -144,6 +151,7 @@ func VerifyProfileServerCountersig(profile Profile, serverID string, lookup Serv
 		serverID,
 		profile.ServerSignature.Fingerprint,
 		profile.UserSignature.Armor,
+		profileInvitedByID(profile),
 		profile.Bio,
 		profile.MemberSince.UTC().Truncate(time.Second),
 		profile.ServerSignature.Timestamp.UTC().Truncate(time.Second),
