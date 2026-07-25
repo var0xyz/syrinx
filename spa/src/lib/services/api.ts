@@ -17,6 +17,8 @@ export type SignupInput = {
   username: string;
   publicKey: string;
   signature: string;
+  userSignature?: string;
+  invite?: string;
 };
 
 export type UserStatus = 'complete' | 'unknown' | 'ongoing';
@@ -41,6 +43,7 @@ const UNAUTHENTICATED_ENDPOINTS = [
   '/server/info',
   '/server/keys',
   '/recovery/identity/claim',
+  '/invites/check',
 ];
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -173,11 +176,24 @@ export const apiService = {
     formData.append('username', input.username);
     formData.append('publicKey', input.publicKey);
     formData.append('signature', input.signature);
+    if (input.userSignature) {
+      formData.append('userSignature', input.userSignature);
+    }
+    if (input.invite) {
+      formData.append('invite', input.invite);
+    }
 
     return request<api.User>('/users/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()
+    });
+  },
+
+  async checkInvite(token: string): Promise<{ valid: boolean }> {
+    const q = encodeURIComponent(token);
+    return request<{ valid: boolean }>(`/invites/check?token=${q}`, {
+      method: 'GET'
     });
   },
   async whoami() {
