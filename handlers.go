@@ -15,6 +15,7 @@ import (
 
 	"syrinx/deletion"
 	"syrinx/identity"
+	"syrinx/invites"
 	"syrinx/realtime"
 	"syrinx/recovery"
 	"syrinx/signing"
@@ -49,9 +50,11 @@ type Handlers struct {
 }
 
 type ServerInfo struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	RecoveryMode bool   `json:"recoveryMode"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	RecoveryMode      bool   `json:"recoveryMode"`
+	SignupMode        string `json:"signupMode"`
+	MaxInvitesPerUser int    `json:"maxInvitesPerUser"` // -1 = infinite
 }
 
 // ///////////// //
@@ -116,9 +119,11 @@ func (h *Handlers) noop(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, ServerInfo{
-		ID:           h.services.db.GetServerID(),
-		Name:         h.cfg.ServerName,
-		RecoveryMode: h.cfg.RecoveryMode,
+		ID:                h.services.db.GetServerID(),
+		Name:              h.cfg.ServerName,
+		RecoveryMode:      h.cfg.RecoveryMode,
+		SignupMode:        string(h.cfg.SignupMode),
+		MaxInvitesPerUser: int(h.cfg.MaxInvitesPerUser),
 	})
 }
 
@@ -169,6 +174,11 @@ func (h *Handlers) GetServerPublicKey(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("Signup request received")
+
+	if h.cfg.SignupMode == invites.ModeClosed {
+		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
+		return
+	}
 
 	values, err := parseFormData(r)
 	if err != nil {
@@ -340,6 +350,11 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("CheckUsername request received")
+
+	if h.cfg.SignupMode == invites.ModeClosed {
+		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
+		return
+	}
 
 	values, err := parseFormData(r)
 	if err != nil {

@@ -5,4 +5,6 @@ export interface ServerInfo {
   name: string;
   recoveryMode: boolean;
   signupMode: SignupMode;
+  /** -1 means unlimited. */
+  maxInvitesPerUser: number;
 }

@@ -2,7 +2,10 @@
 
 ## Status
 
-Proposed.
+Implemented (`syrinx/invites` parse helpers; boot wiring; `signupMode` /
+`maxInvitesPerUser` on `/api/server/info`; closed gate on Signup /
+CheckUsername). Mode `invite` accepted and exposed but still behaves
+like `open` until [03](03_signup_consume.md).
 
 ## Depends on
 
@@ -119,13 +122,13 @@ Create `invites/` with at least:
 
 ## Test plan
 
-- [ ] Unset `SIGNUP_MODE` → mode `open`, info reports `"open"`
-- [ ] `SIGNUP_MODE=invite` → boots; info reports `"invite"`; signup still succeeds (until 03)
-- [ ] `SIGNUP_MODE=closed` → signup 403; check-username 403; info reports `"closed"`
-- [ ] `SIGNUP_MODE=Invite` / `foo` → process exits non-zero
-- [ ] Unset max → info `maxInvitesPerUser: -1`
-- [ ] `MAX_INVITES_PER_USER=-1` → `-1`
-- [ ] `MAX_INVITES_PER_USER=10` → `10`
-- [ ] `MAX_INVITES_PER_USER=0` / `-2` / `abc` → fatal
-- [ ] `.env.example` documents both variables; `MAX_INVITES_PER_USER=3` with
+- [x] Unset `SIGNUP_MODE` → mode `open`, info reports `"open"`
+- [x] `SIGNUP_MODE=invite` → boots; info reports `"invite"`; signup still succeeds (until 03)
+- [x] `SIGNUP_MODE=closed` → signup 403; check-username 403; info reports `"closed"`
+- [x] `SIGNUP_MODE=Invite` / `foo` → process exits non-zero
+- [x] Unset max → info `maxInvitesPerUser: -1`
+- [x] `MAX_INVITES_PER_USER=-1` → `-1`
+- [x] `MAX_INVITES_PER_USER=10` → `10`
+- [x] `MAX_INVITES_PER_USER=0` / `-2` / `abc` → fatal
+- [x] `.env.example` documents both variables; `MAX_INVITES_PER_USER=3` with
       a comment on disabling via `-1` or unset
