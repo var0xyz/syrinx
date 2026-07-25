@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed.
+Implemented (toolbar Invites tab; `/invites` management page; create/
+list/revoke client; one-time share URL panel; profile `invitedBy`
+display).
 
 ## Depends on
 
@@ -92,12 +94,12 @@ is introduced; do not require a new global store — local fetch is fine).
 
 ## Test plan
 
-- [ ] Toolbar shows Invites on reeds/feeds/profile/invites pages; active
+- [x] Toolbar shows Invites on reeds/feeds/profile/invites pages; active
       state works
-- [ ] Create in `open` / `invite` → token panel; list gains pending row
-- [ ] After create, reload list does not expose token
-- [ ] Revoke pending → status revoked; check endpoint false
-- [ ] Claimed invite shows claimant username
-- [ ] `closed`: create disabled + message; list still loads
-- [ ] At quota: create disabled + message
-- [ ] Profile shows `invitedBy` after redeem signup (e2e or component test)
+- [x] Create in `open` / `invite` → token panel; list gains pending row
+- [x] After create, reload list does not expose token
+- [x] Revoke pending → status revoked; check endpoint false
+- [x] Claimed invite shows claimant username
+- [x] `closed`: create disabled + message; list still loads
+- [x] At quota: create disabled + message
+- [x] Profile shows `invitedBy` after redeem signup (e2e or component test)

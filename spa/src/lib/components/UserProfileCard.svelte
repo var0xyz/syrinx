@@ -68,6 +68,12 @@
         <CopyButton ariaLabel="Copy user ID" on:click={copyUserId} />
       </div>
       <p class="member-since">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
+      {#if user?.invitedBy}
+        <p class="invited-by">
+          Invited by
+          <a href="/profile/{user.invitedBy.id}">@{user.invitedBy.username}</a>
+        </p>
+      {/if}
     </div>
   </div>
   {#if user?.bio}
@@ -159,6 +165,22 @@
     color: var(--muted);
     font-size: 0.8rem;
     text-align: left;
+  }
+
+  .invited-by {
+    margin: 0.25rem 0 0 0;
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-align: left;
+  }
+
+  .invited-by a {
+    color: var(--primary);
+    text-decoration: none;
+  }
+
+  .invited-by a:hover {
+    text-decoration: underline;
   }
 
   .user-bio {

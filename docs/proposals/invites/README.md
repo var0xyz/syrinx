@@ -23,7 +23,7 @@ the invites consume helper. Shared identity payload builders stay in
 
 ## Status
 
-**00–04 implemented.** **05 proposed.**
+**00–05 implemented.**
 
 ## Motivation
 

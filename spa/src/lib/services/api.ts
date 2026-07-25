@@ -196,6 +196,30 @@ export const apiService = {
       method: 'GET'
     });
   },
+
+  async createInvite(): Promise<{ id: string; token: string; createdAt: string }> {
+    return request<{ id: string; token: string; createdAt: string }>('/invites', {
+      method: 'POST'
+    });
+  },
+
+  async listInvites(): Promise<{
+    invites: Array<{
+      id: string;
+      createdAt: string;
+      status: 'pending' | 'claimed' | 'revoked';
+      claimedAt: string | null;
+      claimedBy: { id: string; username: string } | null;
+      revokedAt: string | null;
+    }>;
+  }> {
+    return request('/invites', { method: 'GET' });
+  },
+
+  async revokeInvite(id: string): Promise<void> {
+    await request(`/invites/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
   async whoami() {
     return request<{ id: string; username: string }>('/users/me', { method: 'GET' });
   },
