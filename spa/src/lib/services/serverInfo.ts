@@ -11,6 +11,16 @@ export const isSignupOpen = derived(
   ($info) => $info?.signupMode === 'open'
 );
 
+export const isSignupClosed = derived(
+  serverInfo,
+  ($info) => $info?.signupMode === 'closed'
+);
+
+export const signupMode = derived(
+  serverInfo,
+  ($info): SignupMode | null => $info?.signupMode ?? null
+);
+
 export const isRecoveryMode = derived(
   serverInfo,
   ($info) => $info?.recoveryMode === true
