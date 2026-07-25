@@ -44,7 +44,7 @@ the history-fork tip check ([16](16_reed_tip_check.md)), and deferred
 device binding ([17](17_device_binding.md)). Implementation proceeds via the
 numbered steps (skip superseded [08](08_spa_recovery_landing.md); each step
 depends only on earlier numbers).
-Normal-operation prerequisites (proposals 01–10 under `docs/proposals/`) are
+Normal-operation prerequisites (proposals 01–10 under `specs/`) are
 in place. Notifications (proposal 11) remain deferred.
 
 **Implemented** (normal operation — not part of this directory):

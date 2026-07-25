@@ -1,5 +1,5 @@
 // Package recovery implements server identity backup/restore and (later)
-// takeover-recovery endpoints. See docs/proposals/recovery/.
+// takeover-recovery endpoints.
 package recovery
 
 import (
