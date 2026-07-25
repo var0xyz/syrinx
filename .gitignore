@@ -8,3 +8,6 @@ spa/.svelte-kit
 spa/certs
 spa/test-results
 spa/playwright-report
+docs/node_modules
+docs/.vitepress/dist
+docs/.vitepress/cache
