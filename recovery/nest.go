@@ -22,8 +22,8 @@ type ServerKeyLookup func(fingerprint string) (armor string, err error)
 // FlattenKeysNest walks the nest outermost→oldest, verifying each key
 // (and its predecessor link / optional revocation) as soon as it is
 // visited, then returns the active (outermost) key and the full chain
-// oldest→newest for FK-safe insert. serverID must match profile.server.id.
-// Any failure aborts with no partial write.
+// oldest→newest for FK-safe insert. serverID must match
+// profile.serverSignature.serverID. Any failure aborts with no partial write.
 func FlattenKeysNest(
 	profile Profile,
 	root KeyNode,
@@ -34,10 +34,10 @@ func FlattenKeysNest(
 	if profile.ID == "" || profile.Username == "" {
 		return FlatKey{}, nil, fmt.Errorf("profile id and username are required")
 	}
-	if profile.Server.ID != serverID {
+	if profile.ServerSignature.ServerID != serverID {
 		return FlatKey{}, nil, fmt.Errorf("profile server id mismatch")
 	}
-	if profile.SignatureFingerprint == "" || profile.Signature == "" {
+	if profile.UserSignature.Fingerprint == "" || profile.UserSignature.Armor == "" {
 		return FlatKey{}, nil, fmt.Errorf("profile signature is required")
 	}
 
@@ -88,18 +88,18 @@ func FlattenKeysNest(
 	}
 	active = newestFirst[0]
 
-	signer, ok := byFP[profile.SignatureFingerprint]
+	signer, ok := byFP[profile.UserSignature.Fingerprint]
 	if !ok {
 		return FlatKey{}, nil, fmt.Errorf("profile signatureFingerprint not in nest")
 	}
 
 	userPayload := identity.BuildUserIdentityPayload(
 		profile.Username,
-		profile.SignatureFingerprint,
+		profile.UserSignature.Fingerprint,
 		profile.AvatarURL,
 		profile.Bio,
 	)
-	userSigArmor, err := decodeB64Armor(profile.Signature)
+	userSigArmor, err := decodeB64Armor(profile.UserSignature.Armor)
 	if err != nil {
 		return FlatKey{}, nil, fmt.Errorf("profile user signature: %w", err)
 	}
@@ -119,36 +119,36 @@ func FlattenKeysNest(
 	return active, flat, nil
 }
 
-// VerifyProfileServerCountersig checks profile.server.id against serverID and
-// verifies the server countersignature. It does not verify the user signature
-// or key nest (those are claim/peer concerns).
+// VerifyProfileServerCountersig checks profile.serverSignature.serverID
+// against serverID and verifies the server countersignature. It does not
+// verify the user signature or key nest (those are claim/peer concerns).
 func VerifyProfileServerCountersig(profile Profile, serverID string, lookup ServerKeyLookup, v Verifier) error {
-	if profile.Server.ID != serverID {
+	if profile.ServerSignature.ServerID != serverID {
 		return fmt.Errorf("profile server id mismatch")
 	}
-	if profile.Server.Fingerprint == "" || profile.Server.Signature == "" || profile.Server.Timestamp.IsZero() {
+	if profile.ServerSignature.Fingerprint == "" || profile.ServerSignature.Armor == "" || profile.ServerSignature.Timestamp.IsZero() {
 		return fmt.Errorf("missing server countersignature")
 	}
-	serverPub, err := lookup(profile.Server.Fingerprint)
+	serverPub, err := lookup(profile.ServerSignature.Fingerprint)
 	if err != nil {
 		return err
 	}
 	if serverPub == "" {
-		return fmt.Errorf("unknown server key %s for profile", profile.Server.Fingerprint)
+		return fmt.Errorf("unknown server key %s for profile", profile.ServerSignature.Fingerprint)
 	}
 	profilePayload := identity.BuildProfilePayload(
 		profile.ID,
 		profile.Username,
-		profile.SignatureFingerprint,
+		profile.UserSignature.Fingerprint,
 		profile.AvatarURL,
 		serverID,
-		profile.Server.Fingerprint,
-		profile.Signature,
+		profile.ServerSignature.Fingerprint,
+		profile.UserSignature.Armor,
 		profile.Bio,
 		profile.MemberSince.UTC().Truncate(time.Second),
-		profile.Server.Timestamp.UTC().Truncate(time.Second),
+		profile.ServerSignature.Timestamp.UTC().Truncate(time.Second),
 	)
-	serverSigArmor, err := decodeB64Armor(profile.Server.Signature)
+	serverSigArmor, err := decodeB64Armor(profile.ServerSignature.Armor)
 	if err != nil {
 		return fmt.Errorf("profile server signature: %w", err)
 	}
@@ -159,28 +159,28 @@ func VerifyProfileServerCountersig(profile Profile, serverID string, lookup Serv
 }
 
 func verifyKeyCountersig(key KeyWire, userID, serverID string, lookup ServerKeyLookup, v Verifier) error {
-	if key.Server.ID != "" && key.Server.ID != serverID {
+	if key.ServerSignature.ServerID != "" && key.ServerSignature.ServerID != serverID {
 		return fmt.Errorf("server id mismatch")
 	}
-	if key.Server.Fingerprint == "" || key.Server.Signature == "" {
+	if key.ServerSignature.Fingerprint == "" || key.ServerSignature.Armor == "" {
 		return fmt.Errorf("missing server countersignature")
 	}
-	serverPub, err := lookup(key.Server.Fingerprint)
+	serverPub, err := lookup(key.ServerSignature.Fingerprint)
 	if err != nil {
 		return err
 	}
 	if serverPub == "" {
-		return fmt.Errorf("unknown server key %s", key.Server.Fingerprint)
+		return fmt.Errorf("unknown server key %s", key.ServerSignature.Fingerprint)
 	}
 	payload := identity.BuildPublicKeyPayload(
 		serverID,
 		userID,
 		key.Fingerprint,
-		key.Server.Fingerprint,
+		key.ServerSignature.Fingerprint,
 		key.Armor,
-		key.Server.Timestamp.UTC().Truncate(time.Second),
+		key.ServerSignature.Timestamp.UTC().Truncate(time.Second),
 	)
-	sigArmor, err := decodeB64Armor(key.Server.Signature)
+	sigArmor, err := decodeB64Armor(key.ServerSignature.Armor)
 	if err != nil {
 		return err
 	}
@@ -194,34 +194,34 @@ func verifyRevocation(rev *Revocation, key KeyWire, userID, serverID string, loo
 	if rev.UserID != "" && rev.UserID != userID {
 		return fmt.Errorf("userID mismatch")
 	}
-	if rev.Server.ID != "" && rev.Server.ID != serverID {
+	if rev.ServerSignature.ServerID != "" && rev.ServerSignature.ServerID != serverID {
 		return fmt.Errorf("server id mismatch")
 	}
 	userPayload := identity.BuildUserRevocationPayload(userID, rev.Fingerprint, rev.Reason)
-	userSigArmor, err := decodeB64Armor(rev.Signature)
+	userSigArmor, err := decodeB64Armor(rev.UserSignature.Armor)
 	if err != nil {
 		return err
 	}
 	if err := v.VerifySignature(string(userPayload), userSigArmor, key.Armor); err != nil {
 		return fmt.Errorf("user signature: %w", err)
 	}
-	serverPub, err := lookup(rev.Server.Fingerprint)
+	serverPub, err := lookup(rev.ServerSignature.Fingerprint)
 	if err != nil {
 		return err
 	}
 	if serverPub == "" {
-		return fmt.Errorf("unknown server key %s", rev.Server.Fingerprint)
+		return fmt.Errorf("unknown server key %s", rev.ServerSignature.Fingerprint)
 	}
 	serverPayload := identity.BuildServerRevocationPayload(
 		userID,
 		rev.Fingerprint,
 		rev.Reason,
 		serverID,
-		rev.Server.Fingerprint,
-		rev.Signature,
-		rev.Server.Timestamp.UTC().Truncate(time.Second),
+		rev.ServerSignature.Fingerprint,
+		rev.UserSignature.Armor,
+		rev.ServerSignature.Timestamp.UTC().Truncate(time.Second),
 	)
-	serverSigArmor, err := decodeB64Armor(rev.Server.Signature)
+	serverSigArmor, err := decodeB64Armor(rev.ServerSignature.Armor)
 	if err != nil {
 		return err
 	}

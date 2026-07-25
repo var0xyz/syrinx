@@ -24,7 +24,7 @@ Hard cutover: FKs only, no dual-write, no backfill.
 - Rewrite `reed_removals` DDL: user/server signature FKs `NOT NULL`;
   remove inline signature columns.
 - Removal insert path: signature rows + FKs only.
-- GET 410 body loads via FKs; includes `signedFields`.
+- GET 410 body loads via FKs.
 - Account-removal table (deletion 07) should follow the same pattern when
   created — either extend this step or add 06b.
 
@@ -37,5 +37,4 @@ Hard cutover: FKs only, no dual-write, no backfill.
 
 - [x] Fresh `InitDB` `reed_removals` has FKs, no inline signature columns
 - [x] Insert path writes FKs only
-- [x] GET 410 body includes flattened cert JSON with `signedFields` /
-      `server.signedFields`
+- [x] GET 410 body includes nested signature blocks

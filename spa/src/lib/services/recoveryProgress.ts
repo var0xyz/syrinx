@@ -162,8 +162,8 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
   }
 
   for (const reed of input.reeds) {
-    if (!reed.server || !reed.headers?.id) continue;
-    entities[reedEntityKey(reed.headers.id)] = {};
+    if (!reed.serverSignature || !reed.id) continue;
+    entities[reedEntityKey(reed.id)] = {};
   }
 
   const followIds = input.following.map((f) => f.userId).filter(Boolean);

@@ -7,11 +7,10 @@ import {
 } from './restoreFlow';
 
 export type SignReedResponse = {
-  id: string;
+  serverID: string;
   fingerprint: string;
   timestamp: string;
-  algorithm: string;
-  signature: string;
+  armor: string;
 };
 
 export type SignupInput = {

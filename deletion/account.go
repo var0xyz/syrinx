@@ -6,7 +6,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"syrinx/identity"
 	"syrinx/signing"
 )
 
@@ -15,15 +14,13 @@ const MaxAccountNoteLen = 140
 
 // AccountCert is the account-removal attestation (in-memory / wire-facing).
 type AccountCert struct {
-	UserID             string
-	Note               string
-	UserSignature      string
-	UserFingerprint    string
-	UserSignedFields   []string
-	ServerSignature    string
-	ServerFingerprint  string
-	ServerSignedAt     time.Time
-	ServerSignedFields []string
+	UserID            string
+	Note              string
+	UserSignature     string
+	UserFingerprint   string
+	ServerSignature   string
+	ServerFingerprint string
+	ServerSignedAt    time.Time
 }
 
 // ValidateAccountNote returns an error if note exceeds MaxAccountNoteLen.
@@ -41,14 +38,6 @@ func InsertAccountCert(db *sql.DB, cert AccountCert) error {
 		return err
 	}
 	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
-	userFields := cert.UserSignedFields
-	if len(userFields) == 0 {
-		userFields = identity.AccountRemovalUserSignedFields
-	}
-	serverFields := cert.ServerSignedFields
-	if len(serverFields) == 0 {
-		serverFields = identity.AccountRemovalServerSignedFields
-	}
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -60,13 +49,13 @@ func InsertAccountCert(db *sql.DB, cert AccountCert) error {
 	switch {
 	case err == sql.ErrNoRows:
 		userSigID, err := signing.InsertUserSignature(
-			tx, cert.UserFingerprint, cert.UserSignature, userFields,
+			tx, cert.UserFingerprint, cert.UserSignature,
 		)
 		if err != nil {
 			return err
 		}
 		serverSigID, err := signing.InsertServerSignature(
-			tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt, serverFields,
+			tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
 		)
 		if err != nil {
 			return err
@@ -149,14 +138,12 @@ func loadAccountCertTx(q reedQuerier, userID string, forUpdate bool) (*AccountCe
 		return nil, err
 	}
 	return &AccountCert{
-		UserID:             userID,
-		Note:               note,
-		UserFingerprint:    userFP,
-		UserSignature:      userRow.Signature,
-		UserSignedFields:   userRow.SignedFields,
-		ServerSignature:    serverRow.Signature,
-		ServerFingerprint:  serverRow.Fingerprint,
-		ServerSignedAt:     serverRow.SignedAt,
-		ServerSignedFields: serverRow.SignedFields,
+		UserID:            userID,
+		Note:              note,
+		UserFingerprint:   userFP,
+		UserSignature:     userRow.Signature,
+		ServerSignature:   serverRow.Signature,
+		ServerFingerprint: serverRow.Fingerprint,
+		ServerSignedAt:    serverRow.SignedAt,
 	}, nil
 }

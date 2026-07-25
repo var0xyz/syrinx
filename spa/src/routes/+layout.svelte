@@ -24,7 +24,7 @@
   // server/user/reed hierarchy so we can route requests to the correct origin server.
   // A potential format: "userID@serverID/reedID"
   async function requestReferencedReeds(reed: any) {
-    const refs = [reed.headers?.echoing, reed.headers?.replying].filter(Boolean);
+    const refs = [reed.echoing, reed.replying].filter(Boolean);
     for (const ref of refs) {
       const sep = ref.lastIndexOf('!');
       if (sep === -1) continue;
@@ -89,10 +89,10 @@
         await reedsService.storeReed(reed);
         serverConnection.sendDataAck(eventId);
         dispatchReedToQueue(reed, ServerEvent.DataResponse);
-        prependFollowcastId(reed.headers.id);
+        prependFollowcastId(reed.id);
         await requestReferencedReeds(reed);
       } else {
-        console.warn('ServerConnection: invalid reed signature, rejecting:', reed.headers.id);
+        console.warn('ServerConnection: invalid reed signature, rejecting:', reed.id);
         serverConnection.sendDataInvalid(eventId);
       }
     });

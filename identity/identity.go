@@ -37,72 +37,6 @@ import (
 	"syrinx/signing"
 )
 
-// Algorithm is the value stored in the response's `server.algorithm`
-// field and, by convention, describes both signatures: an armored PGP
-// detached signature transported as base64 on the wire.
-const Algorithm = "PGP+base64"
-
-// UserIdentitySignedFields lists the logical fields covered by
-// BuildUserIdentityPayload (headers + bio content). Informational for
-// storage / wire signedFields.
-var UserIdentitySignedFields = []string{
-	"type", "username", "fingerprint", "avatarURL", "bio",
-}
-
-// ProfileSignedFields lists the logical fields covered by
-// BuildProfilePayload (headers + bio content).
-var ProfileSignedFields = []string{
-	"type", "userID", "username", "fingerprint", "avatarURL",
-	"memberSince", "serverID", "serverKeyFingerprint", "signedAt",
-	"userSignature", "bio",
-}
-
-// PublicKeySignedFields lists the logical fields covered by
-// BuildPublicKeyPayload (headers + armor content).
-var PublicKeySignedFields = []string{
-	"fingerprint", "serverID", "serverKeyFingerprint", "signedAt",
-	"userID", "armor",
-}
-
-// UserRevocationSignedFields lists the logical fields covered by
-// BuildUserRevocationPayload (headers + reason content).
-var UserRevocationSignedFields = []string{
-	"type", "userID", "fingerprint", "reason",
-}
-
-// ServerRevocationSignedFields lists the logical fields covered by
-// BuildServerRevocationPayload (headers + reason content).
-var ServerRevocationSignedFields = []string{
-	"type", "userID", "fingerprint", "signedAt", "serverID",
-	"serverKeyFingerprint", "userSignature", "reason",
-}
-
-// ReedRemovalUserSignedFields lists fields covered by
-// BuildReedRemovalUserPayload.
-var ReedRemovalUserSignedFields = []string{
-	"type", "serverID", "userID", "reedID",
-}
-
-// ReedRemovalServerSignedFields lists fields covered by
-// BuildReedRemovalServerPayload.
-var ReedRemovalServerSignedFields = []string{
-	"type", "serverID", "userID", "reedID", "signedAt",
-	"serverKeyFingerprint", "userSignature",
-}
-
-// AccountRemovalUserSignedFields lists fields covered by
-// BuildAccountRemovalUserPayload (headers + note content).
-var AccountRemovalUserSignedFields = []string{
-	"type", "serverID", "userID", "note",
-}
-
-// AccountRemovalServerSignedFields lists fields covered by
-// BuildAccountRemovalServerPayload (headers + note content).
-var AccountRemovalServerSignedFields = []string{
-	"type", "serverID", "userID", "signedAt",
-	"serverKeyFingerprint", "userSignature", "note",
-}
-
 // recordTimeFormat is the canonical time format used for memberSince
 // and signedAt headers in the signed bytes. UTC + RFC3339 seconds
 // resolution. Callers MUST pass timestamps already truncated to this
@@ -206,14 +140,13 @@ func BuildProfilePayload(
 // identical map and feed it to signing.BytesToSign; that single source of
 // truth is what keeps the two sides in lockstep.
 //
-// The header set binds `algorithm`, `id`, `timestamp`, `reedID`, `authorID`,
-// and the server signing-key `fingerprint`. Binding reedID/authorID kills
-// the cross-reed and cross-author replay classes; binding the fingerprint
-// lets a verifier with multiple historical server keys pick the right one
-// and keeps the signer's own identity covered by the signature.
+// The header set binds `serverID`, `timestamp`, `reedID`, `authorID`, and
+// the server signing-key `fingerprint`. Binding reedID/authorID kills the
+// cross-reed and cross-author replay classes; binding the fingerprint lets
+// a verifier with multiple historical server keys pick the right one and
+// keeps the signer's own identity covered by the signature.
 func ReedCountersignHeaders(serverID, reedID, authorID, fingerprint string, ts time.Time) map[string]string {
 	return map[string]string{
-		"algorithm":   "PGP+base64",
 		"authorID":    authorID,
 		"fingerprint": fingerprint,
 		"serverID":    serverID,

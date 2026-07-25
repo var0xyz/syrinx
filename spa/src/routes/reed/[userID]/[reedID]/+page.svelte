@@ -66,7 +66,7 @@
   });
 
   async function loadReed() {
-    if (reed && reed.headers.id === reedID) return;
+    if (reed && reed.id === reedID) return;
     try {
       loadingReed = true;
       errorMessage = '';
@@ -120,7 +120,7 @@
       }
 
       // Verify that the user matches
-      if (reed.headers.author !== userID) {
+      if (reed.userID !== userID) {
         errorMessage = 'This reed does not belong to the specified user';
         return;
       }
@@ -128,8 +128,8 @@
       // Load echoed reed if this is an echo
       echoedReed = null;
       echoedReedMissing = false;
-      if (reed.headers.echoing) {
-        const [echoAuthor, echoId] = reed.headers.echoing.split('!');
+      if (reed.echoing) {
+        const [echoAuthor, echoId] = reed.echoing.split('!');
         try {
           echoedReed = await reedsService.getReed(echoAuthor, echoId);
           if (!echoedReed) {
@@ -145,9 +145,9 @@
       // Load replied-to reed if this is a reply
       repliedToReed = null;
       repliedToReedMissing = false;
-      if (reed.headers.replying) {
+      if (reed.replying) {
         try {
-          repliedToReed = await reedsService.getReed('', reed.headers.replying);
+          repliedToReed = await reedsService.getReed('', reed.replying);
           if (!repliedToReed) repliedToReedMissing = true;
         } catch {
           repliedToReedMissing = true;
@@ -294,7 +294,7 @@
                 </a>
                 <div class="author-info">
                   <a href="/profile/{userID}" class="author-name">{authorUser?.username ?? userID}</a>
-                  <p class="reed-date">{formatAbsoluteDateTime(reed.server?.timestamp)}</p>
+                  <p class="reed-date">{formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
                 </div>
               </div>
               <div class="reed-actions">
@@ -305,7 +305,7 @@
             </div>
 
             <div class="reed-body">
-              {#if reed.headers.replying}
+              {#if reed.replying}
                 <div class="quote-container">
                   <Quote reed={repliedToReed} missing={repliedToReedMissing} type="reply" linked={true} />
                 </div>
@@ -313,7 +313,7 @@
               {#if reed.content}
                 <MarkdownParser text={reed.content} />
               {/if}
-              {#if reed.headers.echoing}
+              {#if reed.echoing}
                 <div class="quote-container">
                   <Quote reed={echoedReed} missing={echoedReedMissing} type="echo" linked={true} />
                 </div>

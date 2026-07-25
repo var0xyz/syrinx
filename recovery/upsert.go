@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"syrinx/identity"
 	"syrinx/signing"
 )
 
@@ -83,7 +82,7 @@ func upsertIdentity(tx *sql.Tx, profile Profile, flat []FlatKey) (*SaveIdentityR
 		return nil, fmt.Errorf("empty key nest")
 	}
 	activeFP := flat[len(flat)-1].Key.Fingerprint
-	incomingSignedAt := profile.Server.Timestamp.UTC().Truncate(time.Second)
+	incomingSignedAt := profile.ServerSignature.Timestamp.UTC().Truncate(time.Second)
 
 	var existingSignedAt time.Time
 	err := tx.QueryRow(`
@@ -121,38 +120,23 @@ func upsertIdentity(tx *sql.Tx, profile Profile, flat []FlatKey) (*SaveIdentityR
 	return &SaveIdentityResult{Created: created, Updated: updated}, nil
 }
 
-func profileUserSignedFields(profile Profile) []string {
-	if len(profile.SignedFields) > 0 {
-		return profile.SignedFields
-	}
-	return identity.UserIdentitySignedFields
-}
-
-func profileServerSignedFields(profile Profile) []string {
-	if len(profile.Server.SignedFields) > 0 {
-		return profile.Server.SignedFields
-	}
-	return identity.ProfileSignedFields
-}
-
 func insertUser(tx *sql.Tx, profile Profile, activeFP string, signedAt time.Time) error {
 	username, err := claimUsername(tx, profile.ID, profile.Username, signedAt)
 	if err != nil {
 		return err
 	}
-	fingerprint := profile.SignatureFingerprint
+	fingerprint := profile.UserSignature.Fingerprint
 	if fingerprint == "" {
 		fingerprint = activeFP
 	}
 	userSignatureID, err := signing.InsertUserSignature(
-		tx, fingerprint, profile.Signature, profileUserSignedFields(profile),
+		tx, fingerprint, profile.UserSignature.Armor,
 	)
 	if err != nil {
 		return err
 	}
 	serverSignatureID, err := signing.InsertServerSignature(
-		tx, profile.Server.Fingerprint, profile.Server.Signature, signedAt,
-		profileServerSignedFields(profile),
+		tx, profile.ServerSignature.Fingerprint, profile.ServerSignature.Armor, signedAt,
 	)
 	if err != nil {
 		return err
@@ -187,19 +171,18 @@ func updateUserIfNewer(
 	if err != nil {
 		return false, err
 	}
-	fingerprint := profile.SignatureFingerprint
+	fingerprint := profile.UserSignature.Fingerprint
 	if fingerprint == "" {
 		fingerprint = activeFP
 	}
 	userSignatureID, err := signing.InsertUserSignature(
-		tx, fingerprint, profile.Signature, profileUserSignedFields(profile),
+		tx, fingerprint, profile.UserSignature.Armor,
 	)
 	if err != nil {
 		return false, err
 	}
 	serverSignatureID, err := signing.InsertServerSignature(
-		tx, profile.Server.Fingerprint, profile.Server.Signature, incomingSignedAt,
-		profileServerSignedFields(profile),
+		tx, profile.ServerSignature.Fingerprint, profile.ServerSignature.Armor, incomingSignedAt,
 	)
 	if err != nil {
 		return false, err
@@ -230,16 +213,11 @@ func insertKeys(tx *sql.Tx, userID string, flat []FlatKey) error {
 			predFP = fk.PredecessorFingerprint
 			predSig = fk.PredecessorSignature
 		}
-		fields := fk.Key.Server.SignedFields
-		if len(fields) == 0 {
-			fields = identity.PublicKeySignedFields
-		}
 		serverSigID, err := signing.InsertServerSignature(
 			tx,
-			fk.Key.Server.Fingerprint,
-			fk.Key.Server.Signature,
-			fk.Key.Server.Timestamp,
-			fields,
+			fk.Key.ServerSignature.Fingerprint,
+			fk.Key.ServerSignature.Armor,
+			fk.Key.ServerSignature.Timestamp,
 		)
 		if err != nil {
 			return fmt.Errorf("insert key server signature %s: %w", fk.Key.Fingerprint, err)
@@ -262,26 +240,17 @@ func insertKeys(tx *sql.Tx, userID string, flat []FlatKey) error {
 		}
 
 		if fk.Revocation != nil {
-			userFields := identity.UserRevocationSignedFields
-			serverFields := identity.ServerRevocationSignedFields
-			if len(fk.Revocation.SignedFields) > 0 {
-				userFields = fk.Revocation.SignedFields
-			}
-			if len(fk.Revocation.Server.SignedFields) > 0 {
-				serverFields = fk.Revocation.Server.SignedFields
-			}
 			userSigID, err := signing.InsertUserSignature(
-				tx, fk.Revocation.Fingerprint, fk.Revocation.Signature, userFields,
+				tx, fk.Revocation.Fingerprint, fk.Revocation.UserSignature.Armor,
 			)
 			if err != nil {
 				return fmt.Errorf("insert revocation user signature %s: %w", fk.Key.Fingerprint, err)
 			}
 			serverSigID, err := signing.InsertServerSignature(
 				tx,
-				fk.Revocation.Server.Fingerprint,
-				fk.Revocation.Server.Signature,
-				fk.Revocation.Server.Timestamp,
-				serverFields,
+				fk.Revocation.ServerSignature.Fingerprint,
+				fk.Revocation.ServerSignature.Armor,
+				fk.Revocation.ServerSignature.Timestamp,
 			)
 			if err != nil {
 				return fmt.Errorf("insert revocation server signature %s: %w", fk.Key.Fingerprint, err)

@@ -70,7 +70,6 @@ class ServerConnection {
       url.searchParams.set('fingerprint', fingerprint);
       url.searchParams.set('timestamp', timestamp);
       url.searchParams.set('signature', signature);
-      url.searchParams.set('algorithm', 'PGP+base64');
 
       console.log('ServerConnection: connecting...');
       this.ws = new WebSocket(url.toString());

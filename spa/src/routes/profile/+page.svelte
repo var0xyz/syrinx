@@ -137,7 +137,7 @@
       let publicKey = await publicKeyRepository.getPublicKey(fingerprint);
       // After the v15 store wipe (or a cold cache), re-fetch the
       // server-attested key so the profile can show armor + revocation.
-      if (!publicKey?.server) {
+      if (!publicKey?.serverSignature) {
         try {
           publicKey = await apiService.getPublicKey(user.id, fingerprint);
           await publicKeyRepository.put(publicKey);
@@ -163,7 +163,7 @@
           if (revocation) {
             revokedInfo = {
               reason: revocation.reason,
-              timestamp: revocation.server.timestamp,
+              timestamp: revocation.serverSignature.timestamp,
               successor: revocation.successor,
             };
           }
@@ -403,7 +403,7 @@
       //
       // Sign with the currently-active key. Once rotation issues its
       // own identity record, activeKeyFingerprint and
-      // signatureFingerprint can differ; new signatures must always
+      // userSignature.fingerprint can differ; new signatures must always
       // use the active one.
       const fingerprint = user.activeKeyFingerprint;
       const passphrase = authService.getPassphrase();

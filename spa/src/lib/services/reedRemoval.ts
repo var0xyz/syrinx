@@ -17,7 +17,12 @@ import { serverInfo } from './serverInfo';
 
 /** Verify author + server signatures on a reed-removal cert. */
 export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean> {
-  if (!cert || cert.type !== 'reed' || !cert.signature || !cert.server) {
+  if (
+    !cert ||
+    cert.type !== 'reed' ||
+    !cert.userSignature?.armor ||
+    !cert.serverSignature
+  ) {
     console.error('[verifyReedRemoval] missing fields or wrong type', cert?.type);
     return false;
   }
@@ -31,7 +36,7 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
 
   let userSigArmor: string;
   try {
-    userSigArmor = atob(cert.signature);
+    userSigArmor = atob(cert.userSignature.armor);
   } catch {
     console.error('[verifyReedRemoval] invalid signature encoding');
     return false;
@@ -47,11 +52,11 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
     cert.serverID,
     cert.userID,
     cert.reedID,
-    cert.server.fingerprint,
-    cert.signature,
-    signedAtHeader(cert.server.timestamp)
+    cert.serverSignature.fingerprint,
+    cert.userSignature.armor,
+    signedAtHeader(cert.serverSignature.timestamp)
   );
-  const serverResult = await verify(cert.server, serverPayload);
+  const serverResult = await verify(cert.serverSignature, serverPayload);
   if (serverResult.ok === false) {
     console.error('[verifyReedRemoval] server signature failed', serverResult);
     return false;
@@ -62,7 +67,7 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
 async function resolveAuthorArmor(userID: string): Promise<string | null> {
   try {
     const user = await apiService.getUser(userID);
-    const fp = user.activeKeyFingerprint || user.signatureFingerprint;
+    const fp = user.activeKeyFingerprint || user.userSignature?.fingerprint;
     if (!fp) return null;
 
     const cached = await publicKeyRepository.getPublicKey(fp);

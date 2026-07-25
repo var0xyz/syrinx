@@ -21,7 +21,12 @@ const MAX_NOTE_LEN = 140;
 
 /** Verify author + server signatures on an account-removal cert. */
 export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<boolean> {
-  if (!cert || cert.type !== 'account' || !cert.signature || !cert.server) {
+  if (
+    !cert ||
+    cert.type !== 'account' ||
+    !cert.userSignature?.armor ||
+    !cert.serverSignature
+  ) {
     console.error('[verifyAccountRemoval] missing fields or wrong type', cert?.type);
     return false;
   }
@@ -43,7 +48,7 @@ export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<bo
 
   let userSigArmor: string;
   try {
-    userSigArmor = atob(cert.signature);
+    userSigArmor = atob(cert.userSignature.armor);
   } catch {
     console.error('[verifyAccountRemoval] invalid signature encoding');
     return false;
@@ -59,11 +64,11 @@ export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<bo
     cert.serverID,
     cert.userID,
     cert.note ?? '',
-    cert.server.fingerprint,
-    cert.signature,
-    signedAtHeader(cert.server.timestamp)
+    cert.serverSignature.fingerprint,
+    cert.userSignature.armor,
+    signedAtHeader(cert.serverSignature.timestamp)
   );
-  const serverResult = await verify(cert.server, serverPayload);
+  const serverResult = await verify(cert.serverSignature, serverPayload);
   if (serverResult.ok === false) {
     console.error('[verifyAccountRemoval] server signature failed', serverResult);
     return false;
@@ -83,7 +88,7 @@ async function resolveAuthorArmor(userID: string): Promise<string | null> {
     const user = await apiService.getUser(userID).catch(() => null);
     const fp =
       user?.activeKeyFingerprint ||
-      user?.signatureFingerprint ||
+      user?.userSignature?.fingerprint ||
       forUser[0]?.fingerprint;
     if (!fp) {
       return forUser[0]?.armor ?? null;

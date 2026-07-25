@@ -31,11 +31,11 @@
     }
 
     try {
-      const user = await userRepository.getByUserId(reed.headers.author);
-      username = user?.username || reed.headers.author;
+      const user = await userRepository.getByUserId(reed.userID);
+      username = user?.username || reed.userID;
     } catch (error) {
       console.error('Error fetching user:', error);
-      username = reed.headers.author;
+      username = reed.userID;
     } finally {
       loading = false;
     }
@@ -44,7 +44,7 @@
   function handleClick(event) {
     if (!linked || !reed) return;
     event.stopPropagation();
-    goto(`/reed/${reed.headers.author}/${reed.headers.id}`);
+    goto(`/reed/${reed.userID}/${reed.id}`);
   }
 </script>
 
@@ -65,7 +65,7 @@
     {#if loading}
       <div class="quote-meta">{icon} Loading...</div>
     {:else}
-      <div class="quote-meta">{icon} {label}{username} · {formatRelativeTime(reed.server.timestamp)}</div>
+      <div class="quote-meta">{icon} {label}{username} · {formatRelativeTime(reed.serverSignature.timestamp)}</div>
       <MarkdownParser text={reed.content} preview={true} className="quote-content" />
     {/if}
   </div>

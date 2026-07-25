@@ -101,12 +101,12 @@ Testing special characters: @#$%^&*()_+-=[]{}|;:,.<>?`;
       });
       const { apiService } = await import('/src/lib/services/api.ts');
       await apiService.verifyReed(
-        reed.headers.author,
-        reed.headers.id,
-        reed.signature,
-        reed.server.signature,
+        reed.userID,
+        reed.id,
+        reed.userSignature.armor,
+        reed.serverSignature.armor,
       );
-      return { ok: true, fingerprint: reed.server.fingerprint };
+      return { ok: true, fingerprint: reed.serverSignature.fingerprint };
     });
     expect(verifyResult.ok).toBe(true);
     // Sanity: the fingerprint must be populated in the persisted server

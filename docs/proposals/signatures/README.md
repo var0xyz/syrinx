@@ -45,6 +45,7 @@ JSON reshape.
 - **04 implemented** (`user_keys` → server signature FK).
 - **05 implemented** (`user_key_revocations` → signature FKs).
 - **06 implemented** (`reed_removals` + `account_removals` → signature FKs).
+- **08 implemented** (nested `userSignature` / `serverSignature` wire).
 
 ## Motivation
 
@@ -60,8 +61,8 @@ Many entities repeat the same attestation columns:
 That duplication is easy to get wrong when adding a signed resource and
 embeds wire-format storage in every table. Normalize into two tables —
 **`user_signatures`** and **`server_signatures`** — and point entities at
-them with FKs. Wire JSON stays flattened at the API boundary and includes
-`signedFields` on each signature.
+them with FKs. Wire JSON nests attestations under `userSignature` /
+`serverSignature` ([08](08_wire_nested_blocks.md)).
 
 ## Shape (summary)
 
@@ -72,13 +73,9 @@ user_signatures     server_signatures
    entity rows  (users, user_keys, revocations, reed_removals, …)
 ```
 
-- **User** rows: fingerprint + detached signature + `signed_fields`
-  (no server timestamp).
+- **User** rows: fingerprint + detached signature (no server timestamp).
 - **Server** rows: fingerprint + detached signature + `signed_at`
-  (authoritative countersign time) + `signed_fields`.
-- **`signed_fields` / wire `signedFields`:** informational list of field
-  names covered by the signature; stored as `TEXT[]`, exposed on the
-  wire; not queried in v1.
+  (authoritative countersign time).
 
 See [00](00_design.md) for DDL sketches and resolved decisions.
 
@@ -90,12 +87,10 @@ See [00](00_design.md) for DDL sketches and resolved decisions.
    `role` column.
 3. Entities hold FKs to those tables (**1:1**, no intermediate join
    tables); inline columns removed in the same entity step.
-4. Wire responses stay flattened (`signature` + `server` block) and
-   include `signedFields` (root for user sigs; `server.signedFields`
-   for countersigns).
-5. Both tables carry informational `signed_fields TEXT[]` (default `{}`;
-   not queried in v1).
-6. Timing: deferred; do not block deletion on this set.
+4. Wire responses nest attestations under `userSignature` /
+   `serverSignature` ([08](08_wire_nested_blocks.md)): `fingerprint` +
+   `armor` (server blocks also `serverID` + `timestamp`).
+5. Timing: deferred; do not block deletion on this set.
 
 ## Open questions
 
