@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Accepted — design locked; landed via [01](01_reed_schema.md)–[09](09_spa_account.md).
 
 ## Depends on
 

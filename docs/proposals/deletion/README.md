@@ -41,8 +41,8 @@ an account-removed author cannot publish.
 
 ## Status
 
-**Spec via the numbered steps above.** Today `DELETE /reeds/...` hard-deletes
-the row with no attestation and no holder notification.
+**Implemented** via the numbered steps above (00 design accepted; 01–09
+landed).
 
 ## Motivation
 

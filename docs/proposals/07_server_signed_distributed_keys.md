@@ -2,11 +2,8 @@
 
 ## Status
 
-Proposed. Hardening prerequisite for client-side trust of public keys
-fetched from the server (see Proposal 08). Useful on its own: without
-this, every `GET /users/{userID}/keys/{fingerprint}` response is an
-unsigned assertion the client must trust the transport and the server
-process for.
+Implemented (persist + distribute server countersignature on user public
+keys; SPA verifies before caching).
 
 ## Context
 
@@ -41,7 +38,8 @@ signing key.
 
 ## Non-goals
 
-- Signed revocations remain Proposal 06. This proposal attests the key
+- Signed revocations remain Proposal 06 (fanout: [09](09_revocation_fanout.md)).
+  This proposal attests the key
   material and its binding to `userID`; revocation state may appear on
   the wire for convenience but the authoritative signed revocation is
   06's artifact.
@@ -125,9 +123,10 @@ received; never normalize.
 - When `AddPublicKey` writes `successor` on the predecessor's
   revocation row, the **predecessor's** key-attestation signature does
   not need to change (it still correctly attests the old armor).
-- Clients learn revocation via Proposal 06's signed revocation and/or
-  the `revoked` field on fetch; verifying the key attestation and
-  verifying the revocation are separate checks.
+- Clients learn revocation via Proposal 06/10’s signed resource, Proposal
+  09’s fanout (when landed), and/or the `revoked` field on fetch;
+  verifying the key attestation and verifying the revocation are separate
+  checks.
 
 ## Work items
 
@@ -159,7 +158,8 @@ received; never normalize.
 
 - **Requires Proposal 01's `BytesToSign` helper.**
 - Independent of 02–06 for the server half; the client verify step is
-  consumed by Proposal 08.
+  consumed by Proposal 08 /
+  [signatures 09](signatures/09_verify_server_countersignatures.md).
 
 ## Parallelism
 
