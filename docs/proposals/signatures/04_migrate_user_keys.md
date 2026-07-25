@@ -23,7 +23,7 @@ Hard cutover: FK only, no dual-write, no backfill.
   inline server signature columns.
 - Key upload / recovery insert: insert server signature row, store FK
   only.
-- Key GET paths load via FK; wire `server` includes `signedFields`.
+- Key GET paths load via FK
 
 ## Non-goals
 
@@ -35,4 +35,4 @@ Hard cutover: FK only, no dual-write, no backfill.
 
 - [x] Fresh `InitDB` `user_keys` has FK, no inline server signature columns
 - [x] AddPublicKey / recovery insert populate FK only
-- [x] GetPublicKey wire `server` includes `signedFields`
+- [x] GetPublicKey wire uses serverSignature

@@ -23,16 +23,15 @@ import (
 )
 
 // countersign signs payload with the active server key and returns a
-// Signature. Used for keys, reeds, identity, etc.
-func (h *Handlers) countersign(payload []byte, ts time.Time) (Signature, error) {
+// ServerSignature. Used for keys, reeds, identity, etc.
+func (h *Handlers) countersign(payload []byte, ts time.Time) (ServerSignature, error) {
 	sigArmor, err := h.services.crypto.Sign(string(payload), h.signingKey.Armor)
 	if err != nil {
-		return Signature{}, err
+		return ServerSignature{}, err
 	}
-	return Signature{
+	return ServerSignature{
 		ServerID:    h.services.db.GetServerID(),
 		Fingerprint: h.signingKey.Fingerprint,
-		Algorithm:   "PGP+base64",
 		Armor:       base64.StdEncoding.EncodeToString([]byte(sigArmor)),
 		SignedAt:    ts,
 	}, nil
@@ -386,8 +385,8 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if profile.ID == "" || profile.Username == "" || profile.SignatureFingerprint == "" {
-		writeResponse(w, http.StatusBadRequest, "profile id, username, and signatureFingerprint are required")
+	if profile.ID == "" || profile.Username == "" || profile.UserSignature.Fingerprint == "" {
+		writeResponse(w, http.StatusBadRequest, "profile id, username, and userSignature.fingerprint are required")
 		return
 	}
 
@@ -428,7 +427,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 
 	// Submitted profile older than the claimed DB record → reject (would
 	// fork the identity / key chain).
-	submittedAt := profile.Server.Timestamp.UTC().Truncate(time.Second)
+	submittedAt := profile.ServerSignature.Timestamp.UTC().Truncate(time.Second)
 	if submittedAt.Before(signedAt) {
 		writeResponse(w, http.StatusBadRequest, "stale profile: backup is older than the server record")
 		return
@@ -648,19 +647,19 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval {
 	return AccountRemoval{
-		Type:         identity.TypeAccount,
-		ServerID:     h.services.db.GetServerID(),
-		UserID:       cert.UserID,
-		Note:         cert.Note,
-		Signature:    cert.UserSignature,
-		SignedFields: cert.UserSignedFields,
-		Server: Signature{
-			ServerID:     h.services.db.GetServerID(),
-			Fingerprint:  cert.ServerFingerprint,
-			Algorithm:    identity.Algorithm,
-			Armor:        cert.ServerSignature,
-			SignedAt:     cert.ServerSignedAt,
-			SignedFields: cert.ServerSignedFields,
+		Type:     identity.TypeAccount,
+		ServerID: h.services.db.GetServerID(),
+		UserID:   cert.UserID,
+		Note:     cert.Note,
+		UserSignature: UserSignature{
+			Fingerprint: cert.UserFingerprint,
+			Armor:       cert.UserSignature,
+		},
+		ServerSignature: ServerSignature{
+			ServerID:    h.services.db.GetServerID(),
+			Fingerprint: cert.ServerFingerprint,
+			Armor:       cert.ServerSignature,
+			SignedAt:    cert.ServerSignedAt,
 		},
 	}
 }
@@ -720,7 +719,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// No-op fast path. See doc comment on this function for why byte
 	// equality on the signature is a sufficient change detector.
-	if userSignatureB64 == currentUser.UserSignatureB64 {
+	if userSignatureB64 == currentUser.UserSignature.Armor {
 		log.Info().
 			Str("userID", userID).
 			Msg("UpdateUser no-op (signature unchanged)")
@@ -1312,7 +1311,6 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-
 	reed, err := h.services.db.CreateReed(reedID, userID, reedSignature.Fingerprint, reedSignature.SignedAt)
 	if err != nil {
 		log.Error().
@@ -1491,19 +1489,19 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) reedRemovalWire(cert *deletion.Cert) ReedRemoval {
 	return ReedRemoval{
-		Type:         identity.TypeReed,
-		ServerID:     h.services.db.GetServerID(),
-		UserID:       cert.UserID,
-		ReedID:       cert.ReedID,
-		Signature:    cert.UserSignature,
-		SignedFields: cert.UserSignedFields,
-		Server: Signature{
-			ServerID:     h.services.db.GetServerID(),
-			Fingerprint:  cert.ServerFingerprint,
-			Algorithm:    identity.Algorithm,
-			Armor:        cert.ServerSignature,
-			SignedAt:     cert.ServerSignedAt,
-			SignedFields: cert.ServerSignedFields,
+		Type:     identity.TypeReed,
+		ServerID: h.services.db.GetServerID(),
+		UserID:   cert.UserID,
+		ReedID:   cert.ReedID,
+		UserSignature: UserSignature{
+			Fingerprint: cert.UserFingerprint,
+			Armor:       cert.UserSignature,
+		},
+		ServerSignature: ServerSignature{
+			ServerID:    h.services.db.GetServerID(),
+			Fingerprint: cert.ServerFingerprint,
+			Armor:       cert.ServerSignature,
+			SignedAt:    cert.ServerSignedAt,
 		},
 	}
 }

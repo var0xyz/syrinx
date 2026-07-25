@@ -22,21 +22,23 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
+  // v21: reed JSON flattened — headers.id/author → id/userID (signatures 08).
+  // v20: reeds index server.timestamp → serverSignature.timestamp (signatures 08).
   // v19: drop pendingAccountRemoval — account deletion is online-only (09).
   // removedAccounts remains for peer tombstones.
-  private readonly version = 19;
+  private readonly version = 21;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
     ['publicKeys',  'fingerprint'],
     ['revocations', 'fingerprint'],
-    ['reeds',       'headers.id', 'headers.author', 'server.timestamp'],
+    ['reeds',       'id', 'userID', 'serverSignature.timestamp'],
     ['tags',        'tagName'    ],
     ['users',       'id'         ],
 
     // Offline-first
     ['unfollow',          'userId'     ],
-    ['unsignedReeds',     'headers.id' ],
+    ['unsignedReeds',     'id' ],
     ['pendingFollows',    'userId'     ],
     ['pendingRevocation', 'fingerprint'],
     ['pendingRemoval',    'reedID'     ],
@@ -61,6 +63,15 @@ export class IndexedDbService implements DbService {
         const tx = (event.target as IDBOpenDBRequest).transaction!;
         const oldVersion = event.oldVersion;
 
+        // KeyPath change headers.id → id: drop reed stores so forEach recreates them.
+        if (oldVersion > 0 && oldVersion < 21) {
+          for (const name of ['reeds', 'unsignedReeds'] as const) {
+            if (db.objectStoreNames.contains(name)) {
+              db.deleteObjectStore(name);
+            }
+          }
+        }
+
         this.storeNames.forEach(([storeName, keyPath, ...indexes]) => {
           const store = db.objectStoreNames.contains(storeName)
             ? tx.objectStore(storeName)
@@ -78,6 +89,12 @@ export class IndexedDbService implements DbService {
         }
         if (oldVersion > 0 && oldVersion < 19 && db.objectStoreNames.contains('pendingAccountRemoval')) {
           db.deleteObjectStore('pendingAccountRemoval');
+        }
+        if (oldVersion > 0 && oldVersion < 20 && db.objectStoreNames.contains('reeds')) {
+          const reedsStore = tx.objectStore('reeds');
+          if (reedsStore.indexNames.contains('server.timestamp')) {
+            reedsStore.deleteIndex('server.timestamp');
+          }
         }
       };
     });

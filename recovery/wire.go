@@ -2,15 +2,19 @@ package recovery
 
 import "time"
 
+// UserSignature is the nested user attestation wire block.
+type UserSignature struct {
+	Fingerprint string `json:"fingerprint"`
+	Armor       string `json:"armor"`
+}
+
 // ServerSignature is the server's countersignature metadata on a signed
-// resource (identity, public key, revocation).
+// resource (identity, public key, revocation, reed).
 type ServerSignature struct {
-	ID           string    `json:"id"`
-	Fingerprint  string    `json:"fingerprint"`
-	Timestamp    time.Time `json:"timestamp"`
-	Algorithm    string    `json:"algorithm"`
-	Signature    string    `json:"signature"`
-	SignedFields []string  `json:"signedFields"`
+	ServerID    string    `json:"serverID"`
+	Fingerprint string    `json:"fingerprint"`
+	Armor       string    `json:"armor"`
+	Timestamp   time.Time `json:"timestamp"`
 }
 
 // Profile is the User wire shape of a countersigned identity record.
@@ -20,35 +24,32 @@ type Profile struct {
 	MemberSince          time.Time       `json:"memberSince"`
 	AvatarURL            string          `json:"avatarURL"`
 	Bio                  string          `json:"bio"`
-	SignatureFingerprint string          `json:"signatureFingerprint"`
 	ActiveKeyFingerprint string          `json:"activeKeyFingerprint"`
-	Signature            string          `json:"signature"`
-	SignedFields         []string        `json:"signedFields"`
-	Server               ServerSignature `json:"server"`
+	UserSignature        UserSignature   `json:"userSignature"`
+	ServerSignature      ServerSignature `json:"serverSignature"`
 	HasReeds             bool            `json:"hasReeds"`
 }
 
 // KeyWire is the public-key fields shared by live Key responses and each
 // level of a recovery nest (fingerprint, armor, server countersig, …).
 type KeyWire struct {
-	Fingerprint string          `json:"fingerprint"`
-	UserID      string          `json:"userID"`
-	Armor       string          `json:"armor"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	ExpiresAt   *time.Time      `json:"expiresAt,omitempty"`
-	Revoked     bool            `json:"revoked"`
-	Server      ServerSignature `json:"server"`
+	Fingerprint     string          `json:"fingerprint"`
+	UserID          string          `json:"userID"`
+	Armor           string          `json:"armor"`
+	CreatedAt       time.Time       `json:"createdAt"`
+	ExpiresAt       *time.Time      `json:"expiresAt,omitempty"`
+	Revoked         bool            `json:"revoked"`
+	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
 // Revocation is a signed revocation attestation for a user key.
 type Revocation struct {
-	Fingerprint  string          `json:"fingerprint"`
-	UserID       string          `json:"userID"`
-	Reason       string          `json:"reason"`
-	Successor    *string         `json:"successor"`
-	Signature    string          `json:"signature"`
-	SignedFields []string        `json:"signedFields"`
-	Server       ServerSignature `json:"server"`
+	Fingerprint     string          `json:"fingerprint"`
+	UserID          string          `json:"userID"`
+	Reason          string          `json:"reason"`
+	Successor       *string         `json:"successor"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
 // KeyNode is one level of the nested key chain. KeyWire is embedded so the
@@ -84,10 +85,10 @@ type ChallengeResponse struct {
 
 // ReedRequest is the POST /api/recovery/reeds body.
 type ReedRequest struct {
-	ReedID        string          `json:"reedID"`
-	AuthorID      string          `json:"authorID"`
-	UserSignature string          `json:"userSignature"`
-	Server        ServerSignature `json:"server"`
+	ReedID          string          `json:"reedID"`
+	AuthorID        string          `json:"authorID"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
 // FollowingRequest is the POST /api/recovery/following body.

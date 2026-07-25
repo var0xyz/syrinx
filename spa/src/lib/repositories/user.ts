@@ -47,13 +47,16 @@ export class UserRepository {
 
     await this.put(user);
 
-    // Use signatureFingerprint here: we're caching the key that
+    // Use userSignature.fingerprint here: we're caching the key that
     // signed this identity record so we can verify it locally later.
     // (activeKeyFingerprint would be the key to use for *new* signed
     // operations, but that's a separate concern.)
-    if (user.signatureFingerprint && !(await publicKeyRepository.hasPublicKey(user.signatureFingerprint))) {
+    if (
+      user.userSignature?.fingerprint &&
+      !(await publicKeyRepository.hasPublicKey(user.userSignature.fingerprint))
+    ) {
       try {
-        const key = await apiService.getPublicKey(userId, user.signatureFingerprint);
+        const key = await apiService.getPublicKey(userId, user.userSignature.fingerprint);
         await publicKeyRepository.put(key);
       } catch (error) {
         console.error('Error fetching public key for user:', error);

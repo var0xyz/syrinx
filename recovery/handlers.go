@@ -25,11 +25,11 @@ func (d Deps) ReportReed(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if req.ReedID == "" || req.AuthorID == "" || req.UserSignature == "" {
+	if req.ReedID == "" || req.AuthorID == "" || req.UserSignature.Armor == "" {
 		writeJSON(w, http.StatusBadRequest, "reedID, authorID, and userSignature are required")
 		return
 	}
-	if req.Server.Fingerprint == "" || req.Server.Signature == "" || req.Server.Timestamp.IsZero() {
+	if req.ServerSignature.Fingerprint == "" || req.ServerSignature.Armor == "" || req.ServerSignature.Timestamp.IsZero() {
 		writeJSON(w, http.StatusBadRequest, "server countersignature is required")
 		return
 	}
@@ -43,8 +43,8 @@ func (d Deps) ReportReed(w http.ResponseWriter, r *http.Request) {
 		d.DB,
 		req.ReedID,
 		req.AuthorID,
-		req.Server.Fingerprint,
-		req.Server.Timestamp,
+		req.ServerSignature.Fingerprint,
+		req.ServerSignature.Timestamp,
 		caller,
 	)
 	switch {
@@ -106,27 +106,27 @@ func (d Deps) CompleteImport(w http.ResponseWriter, r *http.Request) {
 }
 
 func verifyReedCountersig(req ReedRequest, serverID string, lookup ServerKeyLookup, v Verifier) error {
-	if req.Server.ID != "" && req.Server.ID != serverID {
+	if req.ServerSignature.ServerID != "" && req.ServerSignature.ServerID != serverID {
 		return fmt.Errorf("server id mismatch")
 	}
-	serverPub, err := lookup(req.Server.Fingerprint)
+	serverPub, err := lookup(req.ServerSignature.Fingerprint)
 	if err != nil {
 		return err
 	}
 	if serverPub == "" {
-		return fmt.Errorf("unknown server key %s", req.Server.Fingerprint)
+		return fmt.Errorf("unknown server key %s", req.ServerSignature.Fingerprint)
 	}
 
-	ts := req.Server.Timestamp.UTC().Truncate(time.Second)
+	ts := req.ServerSignature.Timestamp.UTC().Truncate(time.Second)
 	payload := identity.BuildReedPayload(
 		serverID,
 		req.AuthorID,
 		req.ReedID,
-		req.Server.Fingerprint,
-		req.UserSignature,
+		req.ServerSignature.Fingerprint,
+		req.UserSignature.Armor,
 		ts,
 	)
-	sigArmor, err := decodeB64Armor(req.Server.Signature)
+	sigArmor, err := decodeB64Armor(req.ServerSignature.Armor)
 	if err != nil {
 		return fmt.Errorf("server signature: %w", err)
 	}

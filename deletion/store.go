@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"syrinx/identity"
 	"syrinx/signing"
 )
 
@@ -17,29 +16,19 @@ var ErrConflict = errors.New("removal conflict")
 
 // Cert is the reed-removal attestation (in-memory / wire-facing shape).
 type Cert struct {
-	ReedID             string
-	UserID             string
-	UserSignature      string
-	UserFingerprint    string
-	UserSignedFields   []string
-	ServerSignature    string
-	ServerFingerprint  string
-	ServerSignedAt     time.Time
-	ServerSignedFields []string
+	ReedID            string
+	UserID            string
+	UserSignature     string
+	UserFingerprint   string
+	ServerSignature   string
+	ServerFingerprint string
+	ServerSignedAt    time.Time
 }
 
 // InsertCert stores a reed-removal cert once. Same signatures → no-op;
 // different signatures for the same (userID, reedID) → ErrConflict.
 func InsertCert(db *sql.DB, cert Cert) error {
 	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
-	userFields := cert.UserSignedFields
-	if len(userFields) == 0 {
-		userFields = identity.ReedRemovalUserSignedFields
-	}
-	serverFields := cert.ServerSignedFields
-	if len(serverFields) == 0 {
-		serverFields = identity.ReedRemovalServerSignedFields
-	}
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -51,13 +40,13 @@ func InsertCert(db *sql.DB, cert Cert) error {
 	switch {
 	case err == sql.ErrNoRows:
 		userSigID, err := signing.InsertUserSignature(
-			tx, cert.UserFingerprint, cert.UserSignature, userFields,
+			tx, cert.UserFingerprint, cert.UserSignature,
 		)
 		if err != nil {
 			return err
 		}
 		serverSigID, err := signing.InsertServerSignature(
-			tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt, serverFields,
+			tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
 		)
 		if err != nil {
 			return err
@@ -152,14 +141,12 @@ func assembleReedCert(q reedQuerier, reedID, userID, userFP string, userSigID, s
 		return nil, err
 	}
 	return &Cert{
-		ReedID:             reedID,
-		UserID:             userID,
-		UserFingerprint:    userFP,
-		UserSignature:      userRow.Signature,
-		UserSignedFields:   userRow.SignedFields,
-		ServerSignature:    serverRow.Signature,
-		ServerFingerprint:  serverRow.Fingerprint,
-		ServerSignedAt:     serverRow.SignedAt,
-		ServerSignedFields: serverRow.SignedFields,
+		ReedID:            reedID,
+		UserID:            userID,
+		UserFingerprint:   userFP,
+		UserSignature:     userRow.Signature,
+		ServerSignature:   serverRow.Signature,
+		ServerFingerprint: serverRow.Fingerprint,
+		ServerSignedAt:    serverRow.SignedAt,
 	}, nil
 }

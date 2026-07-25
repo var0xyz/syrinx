@@ -26,7 +26,7 @@ Hard cutover: FKs only, no dual-write, no backfill.
   fingerprint lives on the user-signature row).
 - Revoke / recovery insert: signature rows + FKs only.
 - `GetKeyRevocation` loads via FKs; existence checks may stay on the
-  revocation row. Wire includes `signedFields`.
+  revocation row.
 
 ## Non-goals
 
@@ -43,4 +43,4 @@ stay consistent.
 
 - [x] Fresh `InitDB` revocations have FKs, no inline signature columns
 - [x] RevokeKey writes FKs only
-- [x] GET revocation wire includes `signedFields` / `server.signedFields`
+- [x] GET revocation wire nests userSignature / serverSignature

@@ -20,32 +20,20 @@ type Server struct {
 
 // User is the wire shape of an identity record.
 //
-// Layout: user-authored fields live at the root; the server-authored
-// countersignature and its metadata live under `server`. `signature` (at
-// the root) is the user's detached PGP signature over the user identity
-// payload (see identity.go). `SignatureFingerprint` identifies the user
-// key that produced `Signature` — it is self-describing per record, not
-// a pointer to the user's "current" key.
+// Layout: user-authored fields live at the root; attestations nest under
+// `userSignature` and `serverSignature`. See docs/proposals/signatures/08.
 //
 // `ActiveKeyFingerprint` is a server-provided convenience field
 // carrying the user's currently-active key fingerprint at response
-// time. It is deliberately **outside** the signed payload: the identity
-// record is a frozen artifact from the moment it was minted, whereas
-// the "current" key can change without a new identity record (a
+// time. It is deliberately **outside** both signature blocks: the
+// identity record is a frozen artifact from the moment it was minted,
+// whereas the "current" key can change without a new identity record (a
 // rotation may occur between profile updates). Clients use
 // `ActiveKeyFingerprint` as a hint to decide whether to re-fetch the
 // record's signing key (if
-// `SignatureFingerprint != ActiveKeyFingerprint`, the signer has been
-// rotated and the client should pull the fresh key to learn revocation
-// state and walk the successor chain to the active one).
-//
-// TODO(signed-fields): the response now mixes three trust tiers —
-// fields signed by the user, fields signed by the server, and unsigned
-// server-provided hints like ActiveKeyFingerprint. This is currently
-// implicit and easy to get wrong. We should rework the wire shape so
-// each signature is accompanied by an explicit manifest of which fields
-// it covers, so a verifier can programmatically distinguish "signed by
-// X", "signed by Y", and "not signed" without out-of-band knowledge.
+// `UserSignature.Fingerprint != ActiveKeyFingerprint`, the signer has
+// been rotated and the client should pull the fresh key to learn
+// revocation state and walk the successor chain to the active one).
 type User struct {
 	ID        string    `json:"id"`
 	Username  string    `json:"username"`
@@ -54,33 +42,28 @@ type User struct {
 	CreatedAt time.Time `json:"memberSince"`
 	HasReeds  bool      `json:"hasReeds"`
 
-	// SignatureFingerprint is the fingerprint of the user key that
-	// produced `Signature`. Self-describing per record: it identifies
-	// which key to verify with, not which key is currently active. Note
-	// that the canonical signed payload (see identity.go) still spells
-	// this header `fingerprint`; the JSON field is a wire-only alias
-	// and does not affect signature verification.
-	SignatureFingerprint string `json:"signatureFingerprint"`
-
 	// ActiveKeyFingerprint is a server-provided hint carrying the
 	// user's currently-active key fingerprint at response time. See
 	// the struct-level doc comment for the trust-tier caveat.
-	ActiveKeyFingerprint string    `json:"activeKeyFingerprint"`
-	UserSignatureB64     string    `json:"signature"`
-	SignedFields         []string  `json:"signedFields"`
-	Server               Signature `json:"server"`
+	ActiveKeyFingerprint string          `json:"activeKeyFingerprint"`
+	UserSignature        UserSignature   `json:"userSignature"`
+	ServerSignature      ServerSignature `json:"serverSignature"`
 }
 
-// Signature is the server's countersignature over a signed resource
+// UserSignature is the nested user attestation wire block.
+type UserSignature struct {
+	Fingerprint string `json:"fingerprint"`
+	Armor       string `json:"armor"`
+}
+
+// ServerSignature is the nested server countersignature wire block
 // (identity, public key, reed, …): which server key signed it, when,
 // and the signature itself.
-type Signature struct {
-	ServerID     string    `json:"id"`
-	Fingerprint  string    `json:"fingerprint"`
-	Algorithm    string    `json:"algorithm"`
-	Armor        string    `json:"signature"`
-	SignedAt     time.Time `json:"timestamp"`
-	SignedFields []string  `json:"signedFields"`
+type ServerSignature struct {
+	ServerID    string    `json:"serverID"`
+	Fingerprint string    `json:"fingerprint"`
+	Armor       string    `json:"armor"`
+	SignedAt    time.Time `json:"timestamp"`
 }
 
 // KeyPredecessor is the rotation handoff proof bundled on keys uploaded
@@ -91,38 +74,37 @@ type KeyPredecessor struct {
 	Signature   string `json:"signature"`
 }
 
-// Key is the wire shape of a distributed user public key. `Server` is
-// required: the countersignature over (userID, fingerprint, armor).
-// `Revoked` is computed on read from user_key_revocations — never stored
-// on user_keys.
+// Key is the wire shape of a distributed user public key.
+// `ServerSignature` is required: the countersignature over
+// (userID, fingerprint, armor). `Revoked` is computed on read from
+// user_key_revocations — never stored on user_keys.
 //
 // `Predecessor` is set for rotation keys only; signup keys return null.
 type Key struct {
-	Fingerprint string          `json:"fingerprint"`
-	UserID      string          `json:"userID"`
-	Armor       string          `json:"armor"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	Revoked     bool            `json:"revoked"`
-	Predecessor *KeyPredecessor `json:"predecessor"`
-	Server      Signature       `json:"server"`
+	Fingerprint     string          `json:"fingerprint"`
+	UserID          string          `json:"userID"`
+	Armor           string          `json:"armor"`
+	CreatedAt       time.Time       `json:"createdAt"`
+	Revoked         bool            `json:"revoked"`
+	Predecessor     *KeyPredecessor `json:"predecessor"`
+	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
 // KeyRevocation is the wire shape of a signed revocation attestation.
 // The user signature covers (userID, fingerprint, reason); the server
 // countersignature binds that user attestation and supplies the
-// authoritative revoke time as server.timestamp.
+// authoritative revoke time as serverSignature.timestamp.
 //
 // Successor is bookkeeping written later by AddPublicKey when the
 // replacement key is uploaded. It is returned on GET when present but
 // is not covered by either signature — it is unknown at revoke time.
 type KeyRevocation struct {
-	Fingerprint  string    `json:"fingerprint"`
-	UserID       string    `json:"userID"`
-	Reason       string    `json:"reason"`
-	Successor    *string   `json:"successor"`
-	Signature    string    `json:"signature"`
-	SignedFields []string  `json:"signedFields"`
-	Server       Signature `json:"server"`
+	Fingerprint     string          `json:"fingerprint"`
+	UserID          string          `json:"userID"`
+	Reason          string          `json:"reason"`
+	Successor       *string         `json:"successor"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
 type Reed struct {
@@ -135,25 +117,23 @@ type Reed struct {
 // ReedRemoval is the wire shape of a signed reed-removal certificate
 // (JSON `type: "reed"`). See docs/proposals/deletion/.
 type ReedRemoval struct {
-	Type         string    `json:"type"`
-	ServerID     string    `json:"serverID"`
-	UserID       string    `json:"userID"`
-	ReedID       string    `json:"reedID"`
-	Signature    string    `json:"signature"`
-	SignedFields []string  `json:"signedFields"`
-	Server       Signature `json:"server"`
+	Type            string          `json:"type"`
+	ServerID        string          `json:"serverID"`
+	UserID          string          `json:"userID"`
+	ReedID          string          `json:"reedID"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
 // AccountRemoval is the wire shape of a signed account-removal certificate
 // (JSON `type: "account"`). See docs/proposals/deletion/.
 type AccountRemoval struct {
-	Type         string    `json:"type"`
-	ServerID     string    `json:"serverID"`
-	UserID       string    `json:"userID"`
-	Note         string    `json:"note"`
-	Signature    string    `json:"signature"`
-	SignedFields []string  `json:"signedFields"`
-	Server       Signature `json:"server"`
+	Type            string          `json:"type"`
+	ServerID        string          `json:"serverID"`
+	UserID          string          `json:"userID"`
+	Note            string          `json:"note"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
 // /////// //
@@ -185,14 +165,12 @@ func InitDB(db *sql.DB) error {
 
 	// Normalized attestation rows (signatures proposal 01). Entities will
 	// FK here in later migrate steps; fingerprint is not FK'd to key
-	// tables (historical / rotated keys). signed_fields is informational.
+	// tables (historical / rotated keys).
 	createUserSignaturesTable := `
 	CREATE TABLE IF NOT EXISTS user_signatures (
 		id SERIAL PRIMARY KEY,
 		fingerprint VARCHAR(255) NOT NULL,
-		signature TEXT NOT NULL,
-		algorithm TEXT NOT NULL DEFAULT 'PGP+base64',
-		signed_fields TEXT[] NOT NULL DEFAULT '{}'
+		signature TEXT NOT NULL
 	);`
 
 	createServerSignaturesTable := `
@@ -200,9 +178,7 @@ func InitDB(db *sql.DB) error {
 		id SERIAL PRIMARY KEY,
 		fingerprint VARCHAR(255) NOT NULL,
 		signature TEXT NOT NULL,
-		signed_at TIMESTAMP NOT NULL,
-		algorithm TEXT NOT NULL DEFAULT 'PGP+base64',
-		signed_fields TEXT[] NOT NULL DEFAULT '{}'
+		signed_at TIMESTAMP NOT NULL
 	);`
 
 	// users holds profile fields plus FKs to normalized attestation

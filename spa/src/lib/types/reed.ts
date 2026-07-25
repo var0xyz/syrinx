@@ -5,86 +5,78 @@
 
 import { v7 as uuidv7 } from 'uuid';
 import { Uuid25 } from 'uuid25';
-import type { ServerSignature } from '$lib/types/api';
+import type { ServerSignature, UserSignature } from '$lib/types/api';
 
-// Reed markdown headers. Note: there is intentionally no client-side
+// Reed markdown frontmatter fields. Note: there is intentionally no client-side
 // `timestamp` field. The canonical publication date is the server's
 // countersigned timestamp, bound into the countersigned payload.
-export type Headers = {
+export interface ReedType {
   id: string;
-  author: string;
-  origin: string;
-  fingerprint: string;
-  algorithm: string;
-  format: string;
+  userID: string;
   replying?: string;
   echoing?: string;
-};
-
-export interface ReedType {
-  headers: Headers;
-  server?: ServerSignature;
-  signature?: string;
+  userSignature?: UserSignature;
+  serverSignature?: ServerSignature;
   content: string;
   tags: string[];
 }
 
+/** Reconstruct the signed markdown payload from a reed object. */
+export function reedAsMarkdown(reed: Pick<ReedType, 'id' | 'userID' | 'replying' | 'echoing' | 'content'>): string {
+  const headers: Record<string, string> = {
+    id: reed.id,
+    userID: reed.userID,
+  };
+  if (reed.replying) headers.replying = reed.replying;
+  if (reed.echoing) headers.echoing = reed.echoing;
+
+  return (
+    "---\n" +
+    Object.keys(headers)
+      .sort()
+      .map(key => `${key}: ${headers[key]}`)
+      .join('\n') +
+    "\n---\n" +
+    reed.content
+  );
+}
+
 export class Reed {
-  private _headers: Headers;
-  private _server: ServerSignature | undefined = undefined;
-  private _signature: string | undefined = undefined;
+  private _id: string;
+  private _userID: string;
+  private _replying: string | undefined = undefined;
+  private _echoing: string | undefined = undefined;
+  private _userSignature: UserSignature | undefined = undefined;
+  private _serverSignature: ServerSignature | undefined = undefined;
   private _content: string = '';
   private _tags: string[] = [];
 
   constructor() {
     // Auto-generate id using UUID v7 for time-based ordering, encoded as 25-char string
-    const id = Uuid25.parse(uuidv7()).value;
+    this._id = Uuid25.parse(uuidv7()).value;
 
-    // Auto-populate origin and author
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const author = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';
-
-    this._headers = {
-      algorithm: 'PGP+base64',
-      author,
-      origin,
-      id,
-      fingerprint: '',
-      format: 'markdown'
-    };
+    // Auto-populate userID
+    this._userID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';
   }
 
-  // Getters for header fields
-  get algorithm(): string {
-    return this._headers.algorithm;
-  }
-
-  get author(): string {
-    return this._headers.author;
-  }
-
-  get key(): string {
-    return this._headers.fingerprint;
-  }
-
-  get origin(): string {
-    return this._headers.origin;
+  get userID(): string {
+    return this._userID;
   }
 
   get id(): string {
-    return this._headers.id;
+    return this._id;
   }
 
-  get fingerprint(): string {
-    return this._headers.fingerprint;
+  get userSignature(): UserSignature | undefined {
+    return this._userSignature;
   }
 
-  get signature(): string {
-    return this._signature;
+  get serverSignature(): ServerSignature | undefined {
+    return this._serverSignature;
   }
 
   get replying(): string | undefined {
-    return this._headers.replying;
+    return this._replying;
   }
 
   get content(): string {
@@ -95,55 +87,46 @@ export class Reed {
     return this._tags;
   }
 
-  // Setters for header fields
-  set algorithm(value: string) {
-    this._headers.algorithm = value;
-  }
-
-  set author(value: string) {
-    this._headers.author = value;
-  }
-
-  set key(value: string) {
-    this._headers.fingerprint = value;
-  }
-
-  set origin(value: string) {
-    this._headers.origin = value;
+  set userID(value: string) {
+    this._userID = value;
   }
 
   set id(value: string) {
-    this._headers.id = value;
+    this._id = value;
   }
 
-  set fingerprint(value: string) {
-    this._headers.fingerprint = value;
+  /** Record the user's detached signature over asMarkdown(). */
+  setUserSignature(fingerprint: string, detachedArmor: string): void {
+    this._userSignature = {
+      fingerprint,
+      armor: btoa(detachedArmor.trim()).trim(),
+    };
   }
 
-  set signature(value: string) {
-    this._signature = btoa(value.trim()).trim();
-  }
-
-  applyServerResponse(r: { id: string; fingerprint: string; timestamp: string; algorithm: string; signature: string }): void {
-    this._server = {
-      id: r.id,
+  applyServerResponse(r: {
+    serverID: string;
+    fingerprint: string;
+    timestamp: string;
+    armor: string;
+  }): void {
+    this._serverSignature = {
+      serverID: r.serverID,
       fingerprint: r.fingerprint,
-      algorithm: r.algorithm,
-      signature: r.signature,
+      armor: r.armor,
       timestamp: r.timestamp,
     };
   }
 
   set replying(value: string) {
-    this._headers.replying = value;
+    this._replying = value;
   }
 
   get echoing(): string | undefined {
-    return this._headers.echoing;
+    return this._echoing;
   }
 
   set echoing(value: string) {
-    this._headers.echoing = value;
+    this._echoing = value;
   }
 
   set content(value: string) {
@@ -169,19 +152,10 @@ export class Reed {
   }
 
   /**
-   * Generate markdown representation with alphabetically ordered headers
+   * Generate markdown representation with alphabetically ordered frontmatter
    */
   asMarkdown(): string {
-    return (
-        "---\n" +
-        Object.keys(this._headers)
-            .filter(key => !!this._headers[key])
-            .sort()
-            .map(key => `${key}: ${this._headers[key]}`)
-            .join('\n') +
-        "\n---\n" +
-        this.content
-    );
+    return reedAsMarkdown(this);
   }
 
   /**
@@ -189,9 +163,12 @@ export class Reed {
    */
   asObject(): ReedType {
     return {
-      headers: { ...this._headers },
-      server: this._server ? { ...this._server } : undefined,
-      signature: this._signature,
+      id: this._id,
+      userID: this._userID,
+      replying: this._replying,
+      echoing: this._echoing,
+      userSignature: this._userSignature ? { ...this._userSignature } : undefined,
+      serverSignature: this._serverSignature ? { ...this._serverSignature } : undefined,
       content: this.content,
       tags: this.tags
     };

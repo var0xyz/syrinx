@@ -7,20 +7,29 @@ import (
 	"syrinx/identity"
 )
 
+func testUserSig(fingerprint string) UserSignature {
+	return UserSignature{
+		Fingerprint: fingerprint,
+		Armor:       "dXNlcg==",
+	}
+}
+
+func testServerSig(serverID string, ts time.Time) ServerSignature {
+	return ServerSignature{
+		ServerID:    serverID,
+		Fingerprint: "SKEY",
+		Timestamp:   ts,
+		Armor:       "c2VydmVy",
+	}
+}
+
 func testStatusProfile(serverID string, ts time.Time) Profile {
 	return Profile{
-		ID:                   "user1",
-		Username:             "alice",
-		MemberSince:          ts,
-		SignatureFingerprint: "AAA",
-		Signature:            "dXNlcg==",
-		Server: ServerSignature{
-			ID:          serverID,
-			Fingerprint: "SKEY",
-			Timestamp:   ts,
-			Algorithm:   identity.Algorithm,
-			Signature:   "c2VydmVy",
-		},
+		ID:              "user1",
+		Username:        "alice",
+		MemberSince:     ts,
+		UserSignature:   testUserSig("AAA"),
+		ServerSignature: testServerSig(serverID, ts),
 	}
 }
 
@@ -50,9 +59,9 @@ func TestVerifyProfileServerCountersig_BadSignature(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	profile := testStatusProfile("srv1", ts)
 	payload := string(identity.BuildProfilePayload(
-		profile.ID, profile.Username, profile.SignatureFingerprint, profile.AvatarURL,
-		"srv1", profile.Server.Fingerprint, profile.Signature, profile.Bio,
-		profile.MemberSince, profile.Server.Timestamp,
+		profile.ID, profile.Username, profile.UserSignature.Fingerprint, profile.AvatarURL,
+		"srv1", profile.ServerSignature.Fingerprint, profile.UserSignature.Armor, profile.Bio,
+		profile.MemberSince, profile.ServerSignature.Timestamp,
 	))
 	err := VerifyProfileServerCountersig(profile, "srv1",
 		func(string) (string, error) { return "pub", nil },

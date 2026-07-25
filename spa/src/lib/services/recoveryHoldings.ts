@@ -13,21 +13,21 @@ export async function reportRecoveryReed(reedId: string): Promise<void> {
   if (!reed) {
     throw new Error(`Missing reed ${reedId}`);
   }
-  if (!reed.server) {
+  if (!reed.serverSignature) {
     throw new Error(`Reed ${reedId} missing server countersignature`);
   }
-  if (!reed.signature) {
+  if (!reed.userSignature?.armor) {
     throw new Error(`Reed ${reedId} missing user signature`);
   }
-  if (!reed.headers?.author) {
-    throw new Error(`Reed ${reedId} missing author`);
+  if (!reed.userID) {
+    throw new Error(`Reed ${reedId} missing userID`);
   }
 
   await apiService.reportRecoveryReed({
-    reedID: reed.headers.id,
-    authorID: reed.headers.author,
-    userSignature: reed.signature,
-    server: reed.server,
+    reedID: reed.id,
+    authorID: reed.userID,
+    userSignature: reed.userSignature,
+    serverSignature: reed.serverSignature,
   });
 }
 
