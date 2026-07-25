@@ -236,6 +236,13 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	}).Methods("GET")
 
+	invites.RegisterRoutes(api, invites.Deps{
+		Store:     &invites.Store{DB: db},
+		Mode:      cfg.SignupMode,
+		Max:       cfg.MaxInvitesPerUser,
+		UserIDKey: userIDKey,
+	})
+
 	// Serve static files
 	router.PathPrefix("/static/").
 		Handler(
