@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed.
+Implemented (`invites` DDL + `users.invited_by`; `syrinx/invites` store
+helpers + token hash).
 
 ## Depends on
 
@@ -136,10 +137,10 @@ happen).
 
 ## Test plan
 
-- [ ] `InitDB` creates `invites` and `users.invited_by` on empty DB
-- [ ] Re-running `InitDB` on existing DB adds `invited_by` via `IF NOT EXISTS`
-- [ ] `HashToken` is stable; different inputs differ
-- [ ] `Insert` + `GetByTokenHash` round-trip
-- [ ] `CountByCreator` counts used and revoked rows
-- [ ] `MarkClaimed` second call returns false / no row updated
-- [ ] `Revoke` on used invite fails distinctly from not-found
+- [x] `InitDB` creates `invites` and `users.invited_by` on empty DB
+- [x] Re-running `InitDB` on existing DB adds `invited_by` via `IF NOT EXISTS`
+- [x] `HashToken` is stable; different inputs differ
+- [x] `Insert` + `GetByTokenHash` round-trip
+- [x] `CountByCreator` counts used and revoked rows
+- [x] `MarkClaimed` second call returns false / no row updated
+- [x] `Revoke` on used invite fails distinctly from not-found
