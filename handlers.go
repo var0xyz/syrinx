@@ -215,6 +215,34 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	inviteToken := strings.TrimSpace(values.Get("invite"))
+	n, err := h.services.db.CountUsers(r.Context())
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to count users")
+		internalServerError(w)
+		return
+	}
+	inv, err := h.services.db.LookupPendingInvite(r.Context(), inviteToken)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to look up invite")
+		internalServerError(w)
+		return
+	}
+	resolved, err := invites.ResolveSignup(h.cfg.SignupMode, n, inviteToken, inv)
+	if err != nil {
+		if errors.Is(err, invites.ErrInviteRequired) {
+			writeResponse(w, http.StatusForbidden, "Invite required")
+			return
+		}
+		if errors.Is(err, invites.ErrInvalidInvite) {
+			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
+			return
+		}
+		log.Error().Err(err).Msg("Invite policy error")
+		internalServerError(w)
+		return
+	}
+
 	exists, err := h.services.db.UsernameExists(username)
 	if err != nil {
 		log.Error().
@@ -283,6 +311,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		h.services.db.GetServerID(),
 		h.signingKey.Fingerprint,
 		userSignatureB64,
+		resolved.InviterID,
 		now,
 	)
 	// Server signature over the user's brand new profile
@@ -320,8 +349,19 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		MemberSince:        now,
 		ProfileSignature:   profileSignature,
 		PublicKeySignature: keySignature,
+		SignupMode:         h.cfg.SignupMode,
+		InviteToken:        inviteToken,
+		InvitedBy:          resolved.InviterID,
 	})
 	if err != nil {
+		if errors.Is(err, invites.ErrInviteRequired) {
+			writeResponse(w, http.StatusForbidden, "Invite required")
+			return
+		}
+		if errors.Is(err, invites.ErrInvalidInvite) {
+			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
+			return
+		}
 		// Discriminate between a username race (client-visible 400)
 		// and a userID collision or other duplicate (500, retryable
 		// by the client — a fresh signup will pick a new random ID).
@@ -885,6 +925,11 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Mint the server-authored fields and countersign. createdAt
 	// stays pinned to the value set at signup; only signedAt advances.
+	// invitedBy is immutable — always re-bind the value stored on the row.
+	invitedByID := ""
+	if currentUser.InvitedBy != nil {
+		invitedByID = currentUser.InvitedBy.ID
+	}
 	signedAt := time.Now().UTC().Truncate(time.Second)
 	profilePayload := identity.BuildProfilePayload(
 		userID,
@@ -894,6 +939,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		h.services.db.GetServerID(),
 		h.signingKey.Fingerprint,
 		userSignatureB64,
+		invitedByID,
 		bio,
 		currentUser.CreatedAt,
 		signedAt,

@@ -48,6 +48,13 @@ type User struct {
 	ActiveKeyFingerprint string          `json:"activeKeyFingerprint"`
 	UserSignature        UserSignature   `json:"userSignature"`
 	ServerSignature      ServerSignature `json:"serverSignature"`
+	InvitedBy            *InvitedBy      `json:"invitedBy"`
+}
+
+// InvitedBy is the durable inviter binding nested on User wire when set.
+type InvitedBy struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
 }
 
 // UserSignature is the nested user attestation wire block.
