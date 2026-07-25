@@ -3,10 +3,17 @@ import type { Verifier } from '$lib/verifiers';
 
 export interface DbMetadata {
   created: number;
+  /** UTF-8 byte length of JSON.stringify(payload), excluding __meta__. */
+  bytes: number;
 }
 
 export type DbWrapper<T> = T & {
   __meta__: DbMetadata;
+}
+
+/** UTF-8 size of the durable payload (what abuse detection should watch). */
+export function payloadByteLength(data: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(data)).byteLength;
 }
 
 export interface DbService {
@@ -23,11 +30,12 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
+  // v22: local signed invites (client id + countersig; status unsigned).
   // v21: reed JSON flattened — headers.id/author → id/userID (signatures 08).
   // v20: reeds index server.timestamp → serverSignature.timestamp (signatures 08).
   // v19: drop pendingAccountRemoval — account deletion is online-only (09).
   // removedAccounts remains for peer tombstones.
-  private readonly version = 21;
+  private readonly version = 22;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -36,6 +44,7 @@ export class IndexedDbService implements DbService {
     ['reeds',       'id', 'userID', 'serverSignature.timestamp'],
     ['tags',        'tagName'    ],
     ['users',       'id'         ],
+    ['invites',     'id'         ],
 
     // Offline-first
     ['unfollow',          'userId'     ],
@@ -117,7 +126,8 @@ export class IndexedDbService implements DbService {
     const wrappedData: DbWrapper<T> = {
       ...data,
       __meta__: {
-        created: Date.now()
+        created: Date.now(),
+        bytes: payloadByteLength(data),
       }
     };
 

@@ -1258,7 +1258,7 @@
     border-radius: 6px;
     word-break: break-all;
     font-family: monospace;
-    overflow: scroll;
+    overflow: auto;
     white-space: pre;
   }
 

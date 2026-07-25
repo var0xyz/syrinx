@@ -18,7 +18,7 @@ func openTestDB(t *testing.T) *sql.DB {
 		envOr("DB_PORT", "5432"),
 		envOr("DB_USER", "syrinx"),
 		envOr("DB_PASSWORD", "syrinx"),
-		envOr("DB_NAME", "syrinx"),
+		envOr("DB_NAME", "syrinx_test"),
 		envOr("DB_SSLMODE", "disable"),
 	)
 	db, err := sql.Open("postgres", dsn)

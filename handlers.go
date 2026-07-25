@@ -122,8 +122,8 @@ func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 		ID:                h.services.db.GetServerID(),
 		Name:              h.cfg.ServerName,
 		RecoveryMode:      h.cfg.RecoveryMode,
-		SignupMode:        string(h.cfg.SignupMode),
-		MaxInvitesPerUser: int(h.cfg.MaxInvitesPerUser),
+		SignupMode:        h.cfg.SignupMode,
+		MaxInvitesPerUser: h.cfg.MaxInvitesPerUser,
 	})
 }
 
@@ -175,7 +175,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("Signup request received")
 
-	if h.cfg.SignupMode == invites.ModeClosed {
+	if invites.SignupMode(h.cfg.SignupMode) == invites.ModeClosed {
 		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
 		return
 	}
@@ -215,20 +215,21 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inviteToken := strings.TrimSpace(values.Get("invite"))
+	inviteID := strings.TrimSpace(values.Get("inviteID"))
+	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
 	n, err := h.services.db.CountUsers(r.Context())
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to count users")
 		internalServerError(w)
 		return
 	}
-	inv, err := h.services.db.LookupPendingInvite(r.Context(), inviteToken)
+	inv, err := h.services.db.LookupPendingInvite(r.Context(), inviteID, inviteSecret)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to look up invite")
 		internalServerError(w)
 		return
 	}
-	resolved, err := invites.ResolveSignup(h.cfg.SignupMode, n, inviteToken, inv)
+	resolved, err := invites.ResolveSignup(invites.SignupMode(h.cfg.SignupMode), n, inviteID, inviteSecret, inv)
 	if err != nil {
 		if errors.Is(err, invites.ErrInviteRequired) {
 			writeResponse(w, http.StatusForbidden, "Invite required")
@@ -349,8 +350,9 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		MemberSince:        now,
 		ProfileSignature:   profileSignature,
 		PublicKeySignature: keySignature,
-		SignupMode:         h.cfg.SignupMode,
-		InviteToken:        inviteToken,
+		SignupMode:         invites.SignupMode(h.cfg.SignupMode),
+		InviteID:           inviteID,
+		InviteSecret:       inviteSecret,
 		InvitedBy:          resolved.InviterID,
 	})
 	if err != nil {
@@ -391,7 +393,7 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("CheckUsername request received")
 
-	if h.cfg.SignupMode == invites.ModeClosed {
+	if invites.SignupMode(h.cfg.SignupMode) == invites.ModeClosed {
 		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
 		return
 	}

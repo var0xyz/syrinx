@@ -402,7 +402,8 @@ type SignupInput struct {
 	ProfileSignature   ServerSignature
 	PublicKeySignature ServerSignature
 	SignupMode         invites.SignupMode
-	InviteToken        string
+	InviteID           string
+	InviteSecret       string
 	// InvitedBy is the inviter userID bound into ProfileSignature (empty if none).
 	// Must match the invite resolved inside the signup transaction.
 	InvitedBy string
@@ -415,14 +416,21 @@ func (s *DataService) CountUsers(ctx context.Context) (int, error) {
 	return n, err
 }
 
-// LookupPendingInvite resolves a raw invite token for pre-signup policy
-// checks (outside the signup TX). Returns nil invite when unknown.
-func (s *DataService) LookupPendingInvite(ctx context.Context, rawToken string) (*invites.Invite, error) {
-	token := strings.TrimSpace(rawToken)
-	if token == "" {
+// LookupPendingInvite resolves invite id + fragment secret for pre-signup
+// policy checks. Returns nil invite when unknown or id mismatch.
+func (s *DataService) LookupPendingInvite(ctx context.Context, inviteID, secret string) (*invites.Invite, error) {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
 		return nil, nil
 	}
-	return s.invites.GetByTokenHash(ctx, invites.HashToken(token))
+	inv, err := s.invites.GetByTokenHash(ctx, invites.HashSecret(secret))
+	if err != nil || inv == nil {
+		return inv, err
+	}
+	if strings.TrimSpace(inviteID) != "" && inv.ID != inviteID {
+		return nil, nil
+	}
+	return inv, nil
 }
 
 // Signup materialises a fresh identity record: it writes the users row
@@ -464,13 +472,13 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	}
 
 	var inv *invites.Invite
-	if strings.TrimSpace(in.InviteToken) != "" {
-		inv, err = s.invites.GetByTokenHashTx(ctx, tx, invites.HashToken(in.InviteToken))
+	if strings.TrimSpace(in.InviteSecret) != "" {
+		inv, err = s.invites.GetByTokenHashTx(ctx, tx, invites.HashSecret(in.InviteSecret))
 		if err != nil {
 			return nil, err
 		}
 	}
-	resolved, err := invites.ResolveSignup(in.SignupMode, userCount, in.InviteToken, inv)
+	resolved, err := invites.ResolveSignup(in.SignupMode, userCount, in.InviteID, in.InviteSecret, inv)
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +543,7 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	}
 
 	if resolved.InviteID != "" {
-		ok, err := s.invites.MarkClaimed(ctx, tx, resolved.InviteID, in.UserID, in.MemberSince)
+		ok, err := s.invites.MarkClaimed(ctx, tx, resolved.InviterID, resolved.InviteID, in.UserID, in.MemberSince)
 		if err != nil {
 			return nil, err
 		}

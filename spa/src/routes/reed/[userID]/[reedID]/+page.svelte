@@ -333,6 +333,7 @@
                 <span class="action-icon">🔗</span>
                 <span class="action-label">Share</span>
               </button>
+              <!--
               <button
                 class="action-btn like-btn"
                 class:liked={isLiked}
@@ -344,6 +345,7 @@
                   {likesCount > 0 ? likesCount : 'Like'}
                 </span>
               </button>
+              -->
             </div>
           </div>
         {/if}

@@ -11,6 +11,11 @@ import type { User } from '$lib/types/api';
 import { serverConnection } from '$lib/services/serverConnection';
 import { writable } from 'svelte/store';
 import { allowUnsigned, verifyReed } from '$lib/verifiers';
+import {
+  MAX_REED_RAW_CHARS,
+  MAX_REED_VISIBLE_CHARS,
+  reedContentWithinLimits,
+} from '$lib/utils/reedContent';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
@@ -47,6 +52,14 @@ class ReedsService {
    * Throws if local storage fails.
    */
   async createReed(reed: ReedClass): Promise<boolean> {
+    if (!reedContentWithinLimits(reed.content)) {
+      throw new Error(
+        reed.content.length > MAX_REED_RAW_CHARS
+          ? `Reed exceeds ${MAX_REED_RAW_CHARS} raw characters`
+          : `Reed exceeds ${MAX_REED_VISIBLE_CHARS} visible characters`
+      );
+    }
+
     console.log('Storing unsigned reed in IndexedDB:', reed.asObject());
     await dbService.put('unsignedReeds', reed.asObject(), allowUnsigned);
 
@@ -168,70 +181,36 @@ class ReedsService {
   }
 }
 
-/**
- * Count characters in markdown text, stripping formatting syntax
- * Supports: bold (*text*), italic (_text_), strikethrough (~text~), inline code (`text`), links [text](url)
- * Handles nested formatting and whitespace rules
- */
-export function countMarkdownCharacters(text: string): number {
-  if (!text) return 0;
-
-  let result = text;
-
-  // Remove links first (keep only the text part)
-  result = result.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-
-  // Remove code fences (triple backticks, optional language tag)
-  result = result.replace(/```[^\n]*\n?([\s\S]*?)\n```/g, '$1');
-
-  // Remove inline code (single backticks)
-  result = result.replace(/`([^`]+)`/g, '$1');
-
-  // Remove strikethrough (single tildes)
-  result = result.replace(/~([^~]+)~/g, '$1');
-
-  // Remove italic (single underscores)
-  result = result.replace(/_([^_]+)_/g, '$1');
-
-  // Remove bold (single asterisks)
-  result = result.replace(/\*([^*]+)\*/g, '$1');
-
-  // Remove # prefix from hashtags (# followed by a non-space character)
-  result = result.replace(/(^|\s)#(?=\S)/g, '$1');
-
-  return result.length;
-}
-
-/**
- * Strip markdown formatting from text
- */
-export function stripMarkdown(text: string): string {
-  if (!text) return '';
-
-  let result = text;
-
-  // Remove links first (keep only the text part)
-  result = result.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-
-  // Remove inline code (single backticks)
-  result = result.replace(/`([^`]+)`/g, '$1');
-
-  // Remove strikethrough (single tildes)
-  result = result.replace(/~([^~]+)~/g, '$1');
-
-  // Remove italic (single underscores)
-  result = result.replace(/_([^_]+)_/g, '$1');
-
-  // Remove bold (single asterisks)
-  result = result.replace(/\*([^*]+)\*/g, '$1');
-
-  return result;
-}
+export {
+  MAX_REED_RAW_CHARS,
+  MAX_REED_VISIBLE_CHARS,
+  countMarkdownCharacters,
+  reedContentWithinLimits,
+  stripMarkdown,
+} from '$lib/utils/reedContent';
 
 export const reedsService = new ReedsService();
 
 const FOLLOWCAST_KEY = 'followcastIds';
 const FOLLOWCAST_LIMIT = 50;
+const BROADCAST_KEY = 'broadcastReeds';
+
+/** Drop a reed from the ephemeral broadcast session list (e.g. it arrived via follow). */
+export function removeBroadcastReed(reedId: string): void {
+  try {
+    const raw = sessionStorage.getItem(BROADCAST_KEY);
+    if (!raw) return;
+    const existing = JSON.parse(raw) as { reeds: ReedType[]; authors: Record<string, User> };
+    if (!existing?.reeds?.some((r) => r.id === reedId)) return;
+    const updated = {
+      reeds: existing.reeds.filter((r) => r.id !== reedId),
+      authors: existing.authors,
+    };
+    sessionStorage.setItem(BROADCAST_KEY, JSON.stringify(updated));
+  } catch {
+    // ignore corrupt session storage
+  }
+}
 
 export async function initFollowcastIds(): Promise<void> {
   console.log("initFollowcastIds");

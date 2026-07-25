@@ -18,26 +18,37 @@ type ResolvedInvite struct {
 }
 
 // ResolveSignup applies SIGNUP_MODE invite policy given a locked user count
-// and an optional invite row looked up by token hash (nil if absent/unknown).
+// and an optional invite row looked up by HashSecret(secret) (nil if absent).
+//
+// When inviteID/secret are provided, inv must be pending and inv.ID must
+// equal inviteID.
 //
 // Policy:
-//   - invite mode with users present → token required
-//   - invite mode with empty users (bootstrap) → token optional
-//   - open mode → token optional
-//   - if a token is provided it must resolve to a pending invite
-func ResolveSignup(mode SignupMode, userCount int, rawToken string, inv *Invite) (ResolvedInvite, error) {
-	token := strings.TrimSpace(rawToken)
-	hasToken := token != ""
+//   - invite mode with users present → id+secret required
+//   - invite mode with empty users (bootstrap) → optional
+//   - open mode → optional
+//   - if credentials are provided they must resolve to a pending invite
+func ResolveSignup(
+	mode SignupMode,
+	userCount int,
+	inviteID, secret string,
+	inv *Invite,
+) (ResolvedInvite, error) {
+	id := strings.TrimSpace(inviteID)
+	sec := strings.TrimSpace(secret)
+	hasCreds := id != "" || sec != ""
 
 	requireInvite := mode == ModeInvite && userCount > 0
-	if !hasToken {
+	if !hasCreds {
 		if requireInvite {
 			return ResolvedInvite{}, ErrInviteRequired
 		}
 		return ResolvedInvite{}, nil
 	}
-
-	if inv == nil || inv.Status() != "pending" {
+	if id == "" || sec == "" {
+		return ResolvedInvite{}, ErrInvalidInvite
+	}
+	if inv == nil || inv.Status() != "pending" || inv.ID != id {
 		return ResolvedInvite{}, ErrInvalidInvite
 	}
 	return ResolvedInvite{

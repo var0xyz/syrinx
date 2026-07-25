@@ -22,6 +22,20 @@ export const followingRepository = {
     return !!record;
   },
 
+  /**
+   * Record a follow that already exists on the server (e.g. invite mutual
+   * follow) without enqueueing a pending sync POST.
+   */
+  async recordLocalFollow(userId: string): Promise<void> {
+    const existing = await dbService.get<FollowRecord>(FOLLOWING_STORE, userId);
+    if (existing) return;
+    await dbService.put<FollowRecord>(
+      FOLLOWING_STORE,
+      { userId, timestamp: Date.now() },
+      allowUnsigned
+    );
+  },
+
   async follow(userId: string): Promise<void> {
     const existing = await dbService.get<FollowRecord>(FOLLOWING_STORE, userId);
     if (existing) return;

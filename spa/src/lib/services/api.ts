@@ -18,7 +18,8 @@ export type SignupInput = {
   publicKey: string;
   signature: string;
   userSignature?: string;
-  invite?: string;
+  inviteID?: string;
+  inviteSecret?: string;
 };
 
 export type UserStatus = 'complete' | 'unknown' | 'ongoing';
@@ -179,8 +180,11 @@ export const apiService = {
     if (input.userSignature) {
       formData.append('userSignature', input.userSignature);
     }
-    if (input.invite) {
-      formData.append('invite', input.invite);
+    if (input.inviteID) {
+      formData.append('inviteID', input.inviteID);
+    }
+    if (input.inviteSecret) {
+      formData.append('inviteSecret', input.inviteSecret);
     }
 
     return request<api.User>('/users/signup', {
@@ -190,30 +194,41 @@ export const apiService = {
     });
   },
 
-  async checkInvite(token: string): Promise<{ valid: boolean }> {
-    const q = encodeURIComponent(token);
-    return request<{ valid: boolean }>(`/invites/check?token=${q}`, {
+  async checkInvite(id: string, secret: string): Promise<{ valid: boolean }> {
+    const q = new URLSearchParams({ id, secret });
+    return request<{ valid: boolean }>(`/invites/check?${q}`, {
       method: 'GET'
     });
   },
 
-  async createInvite(): Promise<{ id: string; token: string; createdAt: string }> {
-    return request<{ id: string; token: string; createdAt: string }>('/invites', {
-      method: 'POST'
+  async createInvite(body: {
+    id: string;
+    tokenHash: string;
+    createdAt: string;
+    userSignature: api.UserSignature;
+  }): Promise<{
+    id: string;
+    tokenHash: string;
+    createdAt: string;
+    userSignature: api.UserSignature;
+    serverSignature: api.ServerSignature;
+  }> {
+    return request('/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
   },
 
-  async listInvites(): Promise<{
-    invites: Array<{
-      id: string;
-      createdAt: string;
-      status: 'pending' | 'claimed' | 'revoked';
-      claimedAt: string | null;
-      claimedBy: { id: string; username: string } | null;
-      revokedAt: string | null;
-    }>;
+  async getInviteStatus(id: string): Promise<{
+    id: string;
+    createdAt: string;
+    status: 'pending' | 'claimed' | 'revoked';
+    claimedAt: string | null;
+    claimedBy: { id: string; username: string } | null;
+    revokedAt: string | null;
   }> {
-    return request('/invites', { method: 'GET' });
+    return request(`/invites/${encodeURIComponent(id)}`, { method: 'GET' });
   },
 
   async revokeInvite(id: string): Promise<void> {

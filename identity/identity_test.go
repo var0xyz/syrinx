@@ -440,3 +440,43 @@ func TestReedRemovalTamperFails(t *testing.T) {
 		t.Fatal("server signature must not verify after userSignature re-pair")
 	}
 }
+
+func TestInviteUserPayloadCanonicalShape(t *testing.T) {
+	createdAt := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	got := BuildInviteUserPayload("Server01", "abc123", "inviteId0001", "deadbeef", createdAt)
+	want := "---\n" +
+		"createdAt: 2026-07-25T12:00:00Z\n" +
+		"inviteID: inviteId0001\n" +
+		"serverID: Server01\n" +
+		"tokenHash: deadbeef\n" +
+		"type: invite-user\n" +
+		"userID: abc123\n" +
+		"---\n"
+	if string(got) != want {
+		t.Errorf("invite-user payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}
+
+func TestInviteServerPayloadCanonicalShape(t *testing.T) {
+	createdAt := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	signedAt := time.Date(2026, 7, 25, 12, 0, 1, 0, time.UTC)
+	got := BuildInviteServerPayload(
+		"Server01", "abc123", "inviteId0001", "deadbeef",
+		"0011FF", "dXNlcnNpZw==",
+		createdAt, signedAt,
+	)
+	want := "---\n" +
+		"createdAt: 2026-07-25T12:00:00Z\n" +
+		"inviteID: inviteId0001\n" +
+		"serverID: Server01\n" +
+		"serverKeyFingerprint: 0011FF\n" +
+		"signedAt: 2026-07-25T12:00:01Z\n" +
+		"tokenHash: deadbeef\n" +
+		"type: invite-server\n" +
+		"userID: abc123\n" +
+		"userSignature: dXNlcnNpZw==\n" +
+		"---\n"
+	if string(got) != want {
+		t.Errorf("invite-server payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}

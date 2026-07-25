@@ -9,9 +9,12 @@ import { reedAsMarkdown, type ReedType } from '$lib/types/reed';
 import { apiService } from '$lib/services/api';
 import { cryptoService } from '$lib/services/crypto';
 import { dbService } from '$lib/services/db';
+import { reedContentWithinLimits } from '$lib/utils/reedContent';
 import {
   buildAccountRemovalServerPayload,
   buildAccountRemovalUserPayload,
+  buildInviteServerPayload,
+  buildInviteUserPayload,
   buildProfilePayload,
   buildPublicKeyPayload,
   buildReedPayload,
@@ -220,6 +223,17 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     return false;
   }
 
+  // Persist path only (broadcast is ephemeral and never hits IndexedDB put).
+  if (!reedContentWithinLimits(reed.content)) {
+    console.error(
+      '[verifyReed] content exceeds size limits',
+      reed.id,
+      'raw=',
+      reed.content?.length ?? 0
+    );
+    return false;
+  }
+
   const publicKeyData = await apiService.getPublicKey(reed.userID, reed.userSignature.fingerprint);
   if (!(await verifyPublicKey(publicKeyData))) {
     console.error('[verifyReed] author public key attestation failed', reed.id);
@@ -343,6 +357,74 @@ export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<bo
   const serverResult = await verify(cert.serverSignature, serverPayload);
   if (serverResult.ok === false) {
     console.error('[verifyAccountRemoval] server signature failed', serverResult);
+    return false;
+  }
+  return true;
+}
+
+export async function verifyInvite(invite: api.Invite): Promise<boolean> {
+  if (
+    !invite?.id ||
+    !invite.createdAt ||
+    !invite.userSignature?.armor ||
+    !invite.userSignature?.fingerprint ||
+    !invite.serverSignature
+  ) {
+    console.error('[verifyInvite] missing fields', invite?.id);
+    return false;
+  }
+
+  const userID = localStorage.getItem('userId');
+  if (!userID) {
+    console.error('[verifyInvite] no local userId');
+    return false;
+  }
+
+  const armor = await resolvePublicKeyArmor(userID, invite.userSignature.fingerprint);
+  if (!armor) {
+    console.error('[verifyInvite] no public key', userID);
+    return false;
+  }
+
+  let userSigArmor: string;
+  try {
+    userSigArmor = atob(invite.userSignature.armor);
+  } catch {
+    console.error('[verifyInvite] invalid userSignature encoding');
+    return false;
+  }
+
+  const createdAt = signedAtHeader(invite.createdAt);
+  if (!invite.tokenHash) {
+    console.error('[verifyInvite] missing tokenHash', invite.id);
+    return false;
+  }
+  const userPayload = buildInviteUserPayload(
+    invite.serverSignature.serverID,
+    userID,
+    invite.id,
+    invite.tokenHash,
+    createdAt
+  );
+  const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, armor);
+  if (!userValid) {
+    console.error('[verifyInvite] user signature failed', invite.id);
+    return false;
+  }
+
+  const serverPayload = buildInviteServerPayload(
+    invite.serverSignature.serverID,
+    userID,
+    invite.id,
+    invite.tokenHash,
+    invite.serverSignature.fingerprint,
+    invite.userSignature.armor,
+    createdAt,
+    signedAtHeader(invite.serverSignature.timestamp)
+  );
+  const serverResult = await verify(invite.serverSignature, serverPayload);
+  if (serverResult.ok === false) {
+    console.error('[verifyInvite] server signature failed', serverResult);
     return false;
   }
   return true;

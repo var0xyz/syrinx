@@ -43,31 +43,18 @@ type AppConfig struct {
 
 	ServerKeyPassphrase string `env:"name='SERVER_KEY_PASSPHRASE'"`
 
-	RecoveryMode bool `env:"optional,default='false',name='RECOVERY_MODE'"`
-
-	// Raw env inputs; normalized into SignupMode / MaxInvitesPerUser below.
-	SignupModeRaw        string `env:"optional,default='',name='SIGNUP_MODE'"`
-	MaxInvitesPerUserRaw string `env:"optional,default='',name='MAX_INVITES_PER_USER'"`
-
-	SignupMode        invites.SignupMode
-	MaxInvitesPerUser invites.MaxInvitesPerUser
+	RecoveryMode      bool   `env:"optional,default='false',name='RECOVERY_MODE'"`
+	SignupMode        string `env:"optional,default='invite',values='open,invite,closed',name='SIGNUP_MODE'"`
+	MaxInvitesPerUser int    `env:"optional,default='-1',name='MAX_INVITES_PER_USER'"`
 }
 
 func main() {
 	var appConfig AppConfig
 	cfg := env.MustAssert(appConfig)
 
-	mode, err := invites.ParseSignupMode(cfg.SignupModeRaw)
-	if err != nil {
-		l.Panicf("[ERR] %v", err)
+	if cfg.MaxInvitesPerUser < 1 && cfg.MaxInvitesPerUser != int(invites.MaxInvitesUnlimited) {
+		l.Panicf("[ERR] invalid MAX_INVITES_PER_USER %d: must be >= 1, or -1 for unlimited", cfg.MaxInvitesPerUser)
 	}
-	cfg.SignupMode = mode
-
-	maxInvites, err := invites.ParseMaxInvitesPerUser(cfg.MaxInvitesPerUserRaw)
-	if err != nil {
-		l.Panicf("[ERR] %v", err)
-	}
-	cfg.MaxInvitesPerUser = maxInvites
 
 	// ServerName cannot be empty. There's no max though, but please be
 	// reasonable. Consider something short and unique.
@@ -237,10 +224,37 @@ func main() {
 	}).Methods("GET")
 
 	invites.RegisterRoutes(api, invites.Deps{
-		Store:     &invites.Store{DB: db},
-		Mode:      cfg.SignupMode,
-		Max:       cfg.MaxInvitesPerUser,
-		UserIDKey: userIDKey,
+		Store:                &invites.Store{DB: db},
+		Mode:                 invites.SignupMode(cfg.SignupMode),
+		Max:                  invites.MaxInvitesPerUser(cfg.MaxInvitesPerUser),
+		UserIDKey:            userIDKey,
+		ServerID:             dataService.GetServerID(),
+		ServerKeyFingerprint: signingKey.Fingerprint,
+		GetPublicKeyArmor: func(ctx context.Context, userID, fingerprint string) (string, error) {
+			key, err := dataService.GetPublicKey(userID, fingerprint)
+			if err != nil {
+				return "", err
+			}
+			if key == nil || key.Revoked {
+				return "", nil
+			}
+			return key.Armor, nil
+		},
+		VerifySignature: func(payload, sigArmor, pubKeyArmor string) error {
+			return cryptoService.VerifySignature(payload, sigArmor, pubKeyArmor)
+		},
+		Countersign: func(payload []byte, ts time.Time) (invites.ServerSignatureWire, error) {
+			sig, err := h.countersign(payload, ts)
+			if err != nil {
+				return invites.ServerSignatureWire{}, err
+			}
+			return invites.ServerSignatureWire{
+				ServerID:    sig.ServerID,
+				Fingerprint: sig.Fingerprint,
+				Armor:       sig.Armor,
+				Timestamp:   sig.SignedAt.UTC().Format(time.RFC3339),
+			}, nil
+		},
 	})
 
 	// Serve static files

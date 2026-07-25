@@ -22,9 +22,10 @@ test.describe('Invites management UI', () => {
 
   test('invites route exists and profile card shows invitedBy', () => {
     const page = readFileSync(join(root, 'src/routes/invites/+page.svelte'), 'utf8');
-    expect(page).toContain('createInvite');
-    expect(page).toContain('revokeInvite');
-    expect(page).toContain('signup?invite=');
+    expect(page).toContain('createSignedInvite');
+    expect(page).toContain('inviteShareURL');
+    expect(page).toContain('No invites yet');
+    expect(page).toContain('floating-create-btn');
     expect(page).toContain('Signups are closed');
 
     const card = readFileSync(
