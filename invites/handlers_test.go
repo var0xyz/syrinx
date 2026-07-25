@@ -1,7 +1,10 @@
 package invites
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -24,20 +27,77 @@ func testDeps(t *testing.T, mode SignupMode, max MaxInvitesPerUser) Deps {
 	db := openTestDB(t)
 	fixed := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 	return Deps{
-		Store:     &Store{DB: db},
-		Mode:      mode,
-		Max:       max,
-		UserIDKey: testUserIDKey,
-		Now:       func() time.Time { return fixed },
+		Store:                &Store{DB: db},
+		Mode:                 mode,
+		Max:                  max,
+		UserIDKey:            testUserIDKey,
+		Now:                  func() time.Time { return fixed },
+		ServerID:             "test-server",
+		ServerKeyFingerprint: "server-fp",
+		GetPublicKeyArmor: func(ctx context.Context, userID, fingerprint string) (string, error) {
+			return "pub-armor", nil
+		},
+		VerifySignature: func(payload, sigArmor, pubKeyArmor string) error {
+			return nil
+		},
+		Countersign: func(payload []byte, ts time.Time) (ServerSignatureWire, error) {
+			return ServerSignatureWire{
+				ServerID:    "test-server",
+				Fingerprint: "server-fp",
+				Armor:       base64.StdEncoding.EncodeToString([]byte("server-sig")),
+				Timestamp:   ts.UTC().Format(time.RFC3339),
+			}, nil
+		},
 	}
+}
+
+func createBody(t *testing.T, id, tokenHashHex string, createdAt time.Time) *bytes.Buffer {
+	t.Helper()
+	var err error
+	if tokenHashHex == "" {
+		secret, err := NewSecret()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tokenHashHex = EncodeHashHex(HashSecret(secret))
+	}
+	if id == "" {
+		id, err = NewInviteID()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := json.Marshal(createRequest{
+		ID:        id,
+		TokenHash: tokenHashHex,
+		CreatedAt: createdAt,
+		UserSignature: UserSignatureWire{
+			Fingerprint: "user-fp",
+			Armor:       base64.StdEncoding.EncodeToString([]byte("user-sig")),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bytes.NewBuffer(b)
+}
+
+func postCreate(deps Deps, uid string, body *bytes.Buffer) *httptest.ResponseRecorder {
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/invites", body)
+	if uid != "" {
+		req = withUID(req, uid)
+	}
+	deps.Create(rr, req)
+	return rr
 }
 
 func TestCreate_Open(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
 	seedUser(t, deps.Store.DB, "u1", "alice")
+	fixed := deps.Now()
 
-	rr := httptest.NewRecorder()
-	deps.Create(rr, withUID(httptest.NewRequest(http.MethodPost, "/api/invites", nil), "u1"))
+	rr := postCreate(deps, "u1", createBody(t, "", "", fixed))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -45,12 +105,14 @@ func TestCreate_Open(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.ID == "" || body.Token == "" {
-		t.Fatalf("empty id/token: %+v", body)
+	if body.ID == "" || body.TokenHash == "" || body.ServerSignature.Armor == "" {
+		t.Fatalf("empty fields: %+v", body)
+	}
+	if len(body.TokenHash) != sha256.Size*2 {
+		t.Fatalf("tokenHash len = %d", len(body.TokenHash))
 	}
 
-	rr2 := httptest.NewRecorder()
-	deps.Create(rr2, withUID(httptest.NewRequest(http.MethodPost, "/api/invites", nil), "u1"))
+	rr2 := postCreate(deps, "u1", createBody(t, "", "", fixed))
 	if rr2.Code != http.StatusCreated {
 		t.Fatalf("second create status = %d", rr2.Code)
 	}
@@ -63,28 +125,21 @@ func TestCreate_Open(t *testing.T) {
 func TestCreate_Quota(t *testing.T) {
 	deps := testDeps(t, ModeInvite, MaxInvitesPerUser(1))
 	seedUser(t, deps.Store.DB, "u1", "alice")
+	fixed := deps.Now()
 
-	rr := httptest.NewRecorder()
-	deps.Create(rr, withUID(httptest.NewRequest(http.MethodPost, "/api/invites", nil), "u1"))
+	rr := postCreate(deps, "u1", createBody(t, "", "", fixed))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("first create = %d", rr.Code)
 	}
 
-	rr2 := httptest.NewRecorder()
-	deps.Create(rr2, withUID(httptest.NewRequest(http.MethodPost, "/api/invites", nil), "u1"))
+	rr2 := postCreate(deps, "u1", createBody(t, "", "", fixed))
 	if rr2.Code != http.StatusForbidden {
 		t.Fatalf("quota create = %d want 403", rr2.Code)
 	}
 
-	depsUnlimited := Deps{
-		Store:     deps.Store,
-		Mode:      ModeInvite,
-		Max:       MaxInvitesUnlimited,
-		UserIDKey: testUserIDKey,
-		Now:       deps.Now,
-	}
-	rr3 := httptest.NewRecorder()
-	depsUnlimited.Create(rr3, withUID(httptest.NewRequest(http.MethodPost, "/api/invites", nil), "u1"))
+	depsUnlimited := deps
+	depsUnlimited.Max = MaxInvitesUnlimited
+	rr3 := postCreate(depsUnlimited, "u1", createBody(t, "", "", fixed))
 	if rr3.Code != http.StatusCreated {
 		t.Fatalf("unlimited create = %d", rr3.Code)
 	}
@@ -93,219 +148,191 @@ func TestCreate_Quota(t *testing.T) {
 func TestCreate_Closed(t *testing.T) {
 	deps := testDeps(t, ModeClosed, MaxInvitesUnlimited)
 	seedUser(t, deps.Store.DB, "u1", "alice")
+	fixed := deps.Now()
 
-	rr := httptest.NewRecorder()
-	deps.Create(rr, withUID(httptest.NewRequest(http.MethodPost, "/api/invites", nil), "u1"))
+	rr := postCreate(deps, "u1", createBody(t, "", "", fixed))
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("create closed = %d want 403", rr.Code)
 	}
 
-	rrList := httptest.NewRecorder()
-	deps.List(rrList, withUID(httptest.NewRequest(http.MethodGet, "/api/invites", nil), "u1"))
-	if rrList.Code != http.StatusOK {
-		t.Fatalf("list closed = %d", rrList.Code)
+	id, err := NewInviteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := NewSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deps.Store.Insert(context.Background(), id, "u1", HashSecret(secret), fixed); err != nil {
+		t.Fatal(err)
+	}
+	rrStatus := httptest.NewRecorder()
+	deps.Status(rrStatus, withUID(httptest.NewRequest(http.MethodGet, "/api/invites/"+id, nil), "u1"))
+	if rrStatus.Code != http.StatusOK {
+		t.Fatalf("status closed = %d", rrStatus.Code)
 	}
 }
 
 func TestCreate_Unauthenticated(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
-	rr := httptest.NewRecorder()
-	deps.Create(rr, httptest.NewRequest(http.MethodPost, "/api/invites", nil))
+	rr := postCreate(deps, "", createBody(t, "", "", deps.Now()))
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d want 401", rr.Code)
 	}
 }
 
-func TestList_ClaimedBy(t *testing.T) {
+func TestCreate_DuplicateID(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
-	seedUser(t, deps.Store.DB, "creator", "alice")
-	seedUser(t, deps.Store.DB, "invitee", "bob")
-
-	raw, hash, err := NewToken()
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedUser(t, deps.Store.DB, "u1", "alice")
+	fixed := deps.Now()
 	id, err := NewInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := deps.now()
-	if err := deps.Store.Insert(context.Background(), id, "creator", hash, now); err != nil {
+
+	rr := postCreate(deps, "u1", createBody(t, id, "", fixed))
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("first = %d", rr.Code)
+	}
+	rr2 := postCreate(deps, "u1", createBody(t, id, "", fixed))
+	if rr2.Code != http.StatusConflict {
+		t.Fatalf("dup = %d want 409 body=%s", rr2.Code, rr2.Body.String())
+	}
+}
+
+func TestStatus_ClaimedBy(t *testing.T) {
+	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
+	seedUser(t, deps.Store.DB, "creator", "alice")
+	seedUser(t, deps.Store.DB, "invitee", "bob")
+	now := deps.Now()
+
+	id, err := NewInviteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := NewSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deps.Store.Insert(context.Background(), id, "creator", HashSecret(secret), now); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := deps.Store.DB.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok, err := deps.Store.MarkClaimed(context.Background(), tx, id, "invitee", now.Add(time.Minute))
+	ok, err := deps.Store.MarkClaimed(context.Background(), tx, "creator", id, "invitee", now.Add(time.Minute))
 	if err != nil || !ok {
+		tx.Rollback()
 		t.Fatalf("MarkClaimed ok=%v err=%v", ok, err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	_ = raw
 
 	rr := httptest.NewRecorder()
-	deps.List(rr, withUID(httptest.NewRequest(http.MethodGet, "/api/invites", nil), "creator"))
+	deps.Status(rr, withUID(httptest.NewRequest(http.MethodGet, "/api/invites/"+id, nil), "creator"))
 	if rr.Code != http.StatusOK {
-		t.Fatalf("list = %d body=%s", rr.Code, rr.Body.String())
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
-	var body listResponse
+	var body statusResponse
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Invites) != 1 {
-		t.Fatalf("len = %d", len(body.Invites))
-	}
-	item := body.Invites[0]
-	if item.Status != "claimed" {
-		t.Fatalf("status = %q", item.Status)
-	}
-	if item.ClaimedBy == nil || item.ClaimedBy.ID != "invitee" || item.ClaimedBy.Username != "bob" {
-		t.Fatalf("claimedBy = %+v", item.ClaimedBy)
+	if body.Status != "claimed" || body.ClaimedBy == nil || body.ClaimedBy.Username != "bob" {
+		t.Fatalf("unexpected status body: %+v", body)
 	}
 }
 
-func TestRevoke_PendingAndIdempotent(t *testing.T) {
+func TestRevokeAndCheck(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
 	seedUser(t, deps.Store.DB, "u1", "alice")
+	fixed := deps.Now()
 
-	rrCreate := httptest.NewRecorder()
-	deps.Create(rrCreate, withUID(httptest.NewRequest(http.MethodPost, "/api/invites", nil), "u1"))
-	var created createResponse
-	_ = json.Unmarshal(rrCreate.Body.Bytes(), &created)
-
-	rrCheck := httptest.NewRecorder()
-	deps.Check(rrCheck, httptest.NewRequest(http.MethodGet, "/api/invites/check?token="+created.Token, nil))
-	var checkBody checkResponse
-	_ = json.Unmarshal(rrCheck.Body.Bytes(), &checkBody)
-	if !checkBody.Valid {
-		t.Fatal("expected valid before revoke")
+	secret, err := NewSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashHex := EncodeHashHex(HashSecret(secret))
+	id, err := NewInviteID()
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	r := mux.SetURLVars(
-		withUID(httptest.NewRequest(http.MethodDelete, "/api/invites/"+created.ID, nil), "u1"),
-		map[string]string{"id": created.ID},
+	rrCreate := postCreate(deps, "u1", createBody(t, id, hashHex, fixed))
+	if rrCreate.Code != http.StatusCreated {
+		t.Fatalf("create = %d", rrCreate.Code)
+	}
+
+	rrCheck := httptest.NewRecorder()
+	deps.Check(rrCheck, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
+	if rrCheck.Code != http.StatusOK || !bytes.Contains(rrCheck.Body.Bytes(), []byte(`"valid":true`)) {
+		t.Fatalf("check pending: %d %s", rrCheck.Code, rrCheck.Body.String())
+	}
+
+	rrRevoke := httptest.NewRecorder()
+	deps.RevokeInvite(
+		rrRevoke,
+		withUID(httptest.NewRequest(http.MethodDelete, "/api/invites/"+id, nil), "u1"),
 	)
-	rr := httptest.NewRecorder()
-	deps.RevokeInvite(rr, r)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("revoke = %d", rr.Code)
+	if rrRevoke.Code != http.StatusNoContent {
+		t.Fatalf("revoke = %d", rrRevoke.Code)
 	}
 
 	rrCheck2 := httptest.NewRecorder()
-	deps.Check(rrCheck2, httptest.NewRequest(http.MethodGet, "/api/invites/check?token="+created.Token, nil))
-	_ = json.Unmarshal(rrCheck2.Body.Bytes(), &checkBody)
-	if checkBody.Valid {
-		t.Fatal("expected invalid after revoke")
-	}
-
-	r2 := mux.SetURLVars(
-		withUID(httptest.NewRequest(http.MethodDelete, "/api/invites/"+created.ID, nil), "u1"),
-		map[string]string{"id": created.ID},
-	)
-	rr2 := httptest.NewRecorder()
-	deps.RevokeInvite(rr2, r2)
-	if rr2.Code != http.StatusNoContent {
-		t.Fatalf("second revoke = %d", rr2.Code)
+	deps.Check(rrCheck2, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
+	if rrCheck2.Code != http.StatusOK || !bytes.Contains(rrCheck2.Body.Bytes(), []byte(`"valid":false`)) {
+		t.Fatalf("check revoked: %d %s", rrCheck2.Code, rrCheck2.Body.String())
 	}
 }
 
-func TestRevoke_Claimed(t *testing.T) {
-	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
-	seedUser(t, deps.Store.DB, "creator", "alice")
-	seedUser(t, deps.Store.DB, "invitee", "bob")
-
-	_, hash, _ := NewToken()
-	id, _ := NewInviteID()
-	now := deps.now()
-	_ = deps.Store.Insert(context.Background(), id, "creator", hash, now)
-	tx, _ := deps.Store.DB.Begin()
-	_, _ = deps.Store.MarkClaimed(context.Background(), tx, id, "invitee", now)
-	_ = tx.Commit()
-
-	r := mux.SetURLVars(
-		withUID(httptest.NewRequest(http.MethodDelete, "/api/invites/"+id, nil), "creator"),
-		map[string]string{"id": id},
-	)
-	rr := httptest.NewRecorder()
-	deps.RevokeInvite(rr, r)
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("revoke claimed = %d want 409", rr.Code)
-	}
-}
-
-func TestRevoke_OtherUser(t *testing.T) {
-	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
-	seedUser(t, deps.Store.DB, "owner", "alice")
-	seedUser(t, deps.Store.DB, "other", "eve")
-
-	rrCreate := httptest.NewRecorder()
-	deps.Create(rrCreate, withUID(httptest.NewRequest(http.MethodPost, "/api/invites", nil), "owner"))
-	var created createResponse
-	_ = json.Unmarshal(rrCreate.Body.Bytes(), &created)
-
-	r := mux.SetURLVars(
-		withUID(httptest.NewRequest(http.MethodDelete, "/api/invites/"+created.ID, nil), "other"),
-		map[string]string{"id": created.ID},
-	)
-	rr := httptest.NewRecorder()
-	deps.RevokeInvite(rr, r)
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("revoke other = %d want 404", rr.Code)
-	}
-}
-
-func TestCheck(t *testing.T) {
+func TestCheck_Variants(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
 	seedUser(t, deps.Store.DB, "u1", "alice")
+	fixed := deps.Now()
 
 	rrMissing := httptest.NewRecorder()
 	deps.Check(rrMissing, httptest.NewRequest(http.MethodGet, "/api/invites/check", nil))
 	if rrMissing.Code != http.StatusBadRequest {
-		t.Fatalf("missing token = %d", rrMissing.Code)
+		t.Fatalf("missing = %d", rrMissing.Code)
 	}
 
 	rrUnknown := httptest.NewRecorder()
-	deps.Check(rrUnknown, httptest.NewRequest(http.MethodGet, "/api/invites/check?token=not-a-real-token", nil))
-	if rrUnknown.Code != http.StatusOK {
-		t.Fatalf("unknown = %d", rrUnknown.Code)
-	}
-	var body checkResponse
-	_ = json.Unmarshal(rrUnknown.Body.Bytes(), &body)
-	if body.Valid {
-		t.Fatal("unknown should be invalid")
+	deps.Check(rrUnknown, httptest.NewRequest(http.MethodGet, "/api/invites/check?id=abcdefghijkl&secret=nope", nil))
+	if rrUnknown.Code != http.StatusOK || !bytes.Contains(rrUnknown.Body.Bytes(), []byte(`"valid":false`)) {
+		t.Fatalf("unknown: %s", rrUnknown.Body.String())
 	}
 
-	rrCreate := httptest.NewRecorder()
-	deps.Create(rrCreate, withUID(httptest.NewRequest(http.MethodPost, "/api/invites", nil), "u1"))
-	var created createResponse
-	_ = json.Unmarshal(rrCreate.Body.Bytes(), &created)
-
+	secret, _ := NewSecret()
+	id, _ := NewInviteID()
+	hashHex := EncodeHashHex(HashSecret(secret))
+	rrCreate := postCreate(deps, "u1", createBody(t, id, hashHex, fixed))
+	if rrCreate.Code != http.StatusCreated {
+		t.Fatalf("create = %d", rrCreate.Code)
+	}
 	rrOk := httptest.NewRecorder()
-	deps.Check(rrOk, httptest.NewRequest(http.MethodGet, "/api/invites/check?token="+created.Token, nil))
-	_ = json.Unmarshal(rrOk.Body.Bytes(), &body)
-	if rrOk.Code != http.StatusOK || !body.Valid {
-		t.Fatalf("pending check = %d valid=%v", rrOk.Code, body.Valid)
+	deps.Check(rrOk, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
+	if rrOk.Code != http.StatusOK || !bytes.Contains(rrOk.Body.Bytes(), []byte(`"valid":true`)) {
+		t.Fatalf("pending check: %s", rrOk.Body.String())
+	}
+
+	// Wrong id for valid secret → invalid
+	rrWrongID := httptest.NewRecorder()
+	deps.Check(rrWrongID, httptest.NewRequest(http.MethodGet, "/api/invites/check?id=zzzzzzzzzzzz&secret="+secret, nil))
+	if !bytes.Contains(rrWrongID.Body.Bytes(), []byte(`"valid":false`)) {
+		t.Fatalf("wrong id: %s", rrWrongID.Body.String())
 	}
 }
 
-func TestRegisterRoutes_CheckUnauthenticated(t *testing.T) {
+func TestRegisterRoutes_CheckAllowlistedPath(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
 	r := mux.NewRouter()
 	api := r.PathPrefix("/api").Subrouter()
 	RegisterRoutes(api, deps)
 
 	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/invites/check?token=x", nil))
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/invites/check?id=x&secret=y", nil))
 	if rr.Code != http.StatusOK {
-		t.Fatalf("check via router = %d", rr.Code)
-	}
-
-	rrOpt := httptest.NewRecorder()
-	r.ServeHTTP(rrOpt, httptest.NewRequest(http.MethodOptions, "/api/invites", nil))
-	if rrOpt.Code != http.StatusOK {
-		t.Fatalf("options = %d", rrOpt.Code)
+		t.Fatalf("check route = %d", rr.Code)
 	}
 }

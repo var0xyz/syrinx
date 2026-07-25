@@ -489,22 +489,20 @@ func InitDB(db *sql.DB) error {
 		ON pending_follows(following_user_id);
 	`
 
-	// Invites — operational bookkeeping (token hash only; no expiry).
+	// Invites — operational redeem state. PK is (created_by, id) because
+	// clients mint ids; scoping to the issuer prevents cross-user collisions.
 	createInvitesTable := `
 	CREATE TABLE IF NOT EXISTS invites (
-		id         VARCHAR(255) PRIMARY KEY,
-		token_hash BYTEA NOT NULL UNIQUE,
 		created_by VARCHAR(255) NOT NULL REFERENCES users(id),
+		id VARCHAR(255) NOT NULL,
+		token_hash BYTEA NOT NULL UNIQUE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		claimed_at TIMESTAMPTZ,
 		claimed_by VARCHAR(255) REFERENCES users(id),
-		revoked_at TIMESTAMPTZ
-	);`
+		revoked_at TIMESTAMPTZ,
 
-	createInvitesIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_invites_created_by
-		ON invites(created_by);
-	`
+		PRIMARY KEY (created_by, id)
+	);`
 
 	queries := []string{
 		// Servers
@@ -567,7 +565,6 @@ func InitDB(db *sql.DB) error {
 
 		// Invites
 		createInvitesTable,
-		createInvitesIndexes,
 	}
 
 	for i, query := range queries {

@@ -17,10 +17,10 @@ the invites consume helper. Shared identity payload builders stay in
 |--------------------------------------|----------------------------------------------------|------------|
 | [00](00_signup_mode.md)              | `SIGNUP_MODE` + `MAX_INVITES_PER_USER`, info gate  | —          |
 | [01](01_schema_and_store.md)         | `invites` table, `users.invited_by`, store         | 00         |
-| [02](02_lifecycle_api.md)            | Create / list / revoke / check APIs + quota        | 01         |
+| [02](02_lifecycle_api.md)            | Create / status / revoke / check APIs + quota | 01         |
 | [03](03_signup_consume.md)           | Consume at signup, identity, mutual follow         | 02         |
 | [04](04_spa_signup_gating.md)        | Home CTA + invite-link signup path                 | 00, 03     |
-| [05](05_spa_invite_management.md)    | Toolbar Invites tab + management UI                | 02, 03     |
+| [05](05_spa_invite_management.md)    | Toolbar Invites + local signed invites             | 02, 03     |
 
 ---
 
@@ -37,10 +37,11 @@ to an optional per-user cap. Redeeming an invite records a durable,
 **server-countersigned** `invitedBy` binding on the new user and establishes
 a mutual follow between inviter and invitee.
 
-Invites themselves are **operational bookkeeping**, not offline-first signed
-resources. Losing the `invites` table after a DB wipe is acceptable; the
-durable social fact that survives is `users.invited_by` inside the signed
-identity record.
+Invites are **signed resources** on the client (user attestation + server
+countersignature over id + `createdAt`). The server `invites` table remains
+**operational redeem state** (token hash + claim/revoke); losing it after a DB
+wipe is acceptable. The durable social fact that survives is
+`users.invited_by` inside the signed identity record.
 
 ## Locked decisions
 
@@ -52,18 +53,21 @@ identity record.
 | Token | Opaque ≥256-bit URL-safe secret; store SHA-256 only |
 | Expiry | None |
 | Revoke | Issuer may revoke unused invites |
-| Attribution | `invites.used_by` + `users.invited_by`; both visible in UI |
+| Attribution | `invites.claimed_by` + `users.invited_by`; both visible in UI |
 | Mutual follow | Yes, both edges, same TX as signup redeem |
 | `invitedBy` signed | Server identity header only (like `userID`) |
-| Offline-first invites | No (v1) |
+| Invite attestation | User signs id + `createdAt` + `tokenHash`; server countersigns; status unsigned |
+| Invite PK | `(created_by, id)` — client-minted ids scoped to issuer |
+| Invite secret | Fragment-only; create sends hash; redeem sends secret |
+| Local invites | IndexedDB; no server list; refresh pending via status-by-id |
 | Home “Sign Up” | Only when `open` |
 | Toolbar Invites | Always visible; create disabled when `closed` |
 
 ## Actors
 
 - **Operator** — sets `SIGNUP_MODE` and `MAX_INVITES_PER_USER` at deploy time.
-- **Inviter** — authenticated user who creates / lists / revokes invites and
-  sees who claimed them.
+- **Inviter** — authenticated user who creates / revokes invites, stores them
+  locally, refreshes pending status, and sees who claimed them.
 - **Invitee** — person holding an invite link; completes normal PGP signup
   with the token; sees `invitedBy` on their (and others') profile.
 
@@ -110,7 +114,7 @@ Parse rules (fatal at boot on violation):
 |------|----------------|----------------------|------------------------|---------------------|---------------------|
 | `open` | Visible | Allowed; invite **optional** (if present → must be valid, consume, set `invited_by`, mutual follow) | Allowed | Allowed (quota) | N/A |
 | `invite` | Hidden | Valid unused invite required | Allowed | Allowed (quota) | Allowed without invite |
-| `closed` | Hidden | 403 | 403 | 403 on **create** (list/revoke still ok) | No |
+| `closed` | Hidden | 403 | 403 | 403 on **create** (status/revoke still ok) | No |
 
 Import / backup restore is **not** signup and remains allowed in all modes.
 
@@ -118,56 +122,66 @@ Import / backup restore is **not** signup and remains allowed in all modes.
 
 ```
 invites
-  id            VARCHAR  PK          -- server-scoped random id (same alphabet as user IDs)
-  token_hash    BYTEA    UNIQUE      -- SHA-256 of raw token
-  created_by    VARCHAR  NOT NULL REFERENCES users(id)
+  created_by    VARCHAR  NOT NULL REFERENCES users(id)  -- PK lead
+  id            VARCHAR  NOT NULL                       -- client-minted
+  token_hash    BYTEA    UNIQUE                         -- SHA-256 of raw token
   created_at    TIMESTAMPTZ NOT NULL
-  used_at       TIMESTAMPTZ NULL
-  used_by       VARCHAR  NULL REFERENCES users(id)
+  claimed_at    TIMESTAMPTZ NULL
+  claimed_by    VARCHAR  NULL REFERENCES users(id)
   revoked_at    TIMESTAMPTZ NULL
+  PRIMARY KEY (created_by, id)
 ```
 
-- **Valid** = `revoked_at IS NULL AND used_at IS NULL`.
-- **Raw token**: 32 cryptographically random bytes, base64url, no padding.
-  Returned **once** at create; never logged; never stored plaintext.
+- **Valid** = `revoked_at IS NULL AND claimed_at IS NULL`.
+- **ID**: client-minted (same alphabet/length as user IDs). PK is scoped to
+  `created_by` because the server no longer allocates ids.
+- **Secret**: client-minted ≥256-bit fragment secret. Create sends only
+  `tokenHash = SHA-256(secret)` (hex); the secret never hits the create API.
+  Redeem/check send the raw secret; the server hashes and compares.
+- **Share URL**: `{origin}/signup?invite={id}#{secret}` — fragment is not
+  sent on navigation, so the secret does not appear in server access logs.
+- **Signed create**: user signs `invite-user` over `serverID`, `userID`,
+  `inviteID`, `tokenHash`, `createdAt`; server countersigns `invite-server`.
+  Status is unsigned bookkeeping.
 - **Quota**: `COUNT(*) FROM invites WHERE created_by = $user` (all-time,
-  including used and revoked) must be `< max` before insert when max ≠ −1.
-  All-time counting prevents revoke-and-recreate abuse.
-- **Share URL** (client-built): `{origin}/signup?invite={token}`.
+  including claimed and revoked) must be `< max` before insert when max ≠ −1.
 
 ### HTTP API catalog
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| `POST` | `/api/invites` | Signed | Create invite; returns `{ id, token, createdAt }` |
-| `GET` | `/api/invites` | Signed | List caller's invites (status + `usedBy` when set) |
+| `POST` | `/api/invites` | Signed | Create; body `{ id, tokenHash, createdAt, userSignature }` → nested sigs |
+| `GET` | `/api/invites/{id}` | Signed | Status for caller’s invite (unsigned bookkeeping) |
 | `DELETE` | `/api/invites/{id}` | Signed | Revoke unused invite owned by caller |
-| `GET` | `/api/invites/check?token=` | None | `{ valid: bool }` for pre-signup UX |
+| `GET` | `/api/invites/check?id=&secret=` | None | `{ valid: bool }` — server hashes `secret` |
+
+No list endpoint — the SPA keeps invites in IndexedDB and refreshes
+**pending** rows via status-by-id on page load.
 
 Unauthenticated allowlist gains `/api/invites/check` (exact path; query string
 ignored for matching, same pattern as other allowlisted routes).
 
-### List item wire shape
+### Status wire shape
 
 ```json
 {
   "id": "...",
   "createdAt": "2026-07-18T20:00:00Z",
-  "status": "pending" | "used" | "revoked",
-  "usedAt": null,
-  "usedBy": null,
+  "status": "pending" | "claimed" | "revoked",
+  "claimedAt": null,
+  "claimedBy": null,
   "revokedAt": null
 }
 ```
 
-When `status === "used"`:
+When `status === "claimed"`:
 
 ```json
-"usedAt": "2026-07-18T21:00:00Z",
-"usedBy": { "id": "...", "username": "..." }
+"claimedAt": "2026-07-18T21:00:00Z",
+"claimedBy": { "id": "...", "username": "..." }
 ```
 
-The raw `token` is **never** returned on list (only on create).
+The raw secret is **never** returned by the API (create echoes only `tokenHash`).
 
 ## `users.invited_by` and signed identity
 

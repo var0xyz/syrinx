@@ -4,7 +4,13 @@
   import { cryptoService } from '$lib/services/crypto';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
-  import { reedsService, countMarkdownCharacters } from '$lib/repositories/reeds';
+  import { reedsService } from '$lib/repositories/reeds';
+  import {
+    MAX_REED_RAW_CHARS,
+    MAX_REED_VISIBLE_CHARS,
+    countMarkdownCharacters,
+    reedContentWithinLimits,
+  } from '$lib/utils/reedContent';
   import { notificationStore } from '$lib/stores/notifications';
   import { Reed } from '$lib/types/reed';
   import { goto } from '$app/navigation';
@@ -41,8 +47,12 @@
   $: contentRequired = !echoOf;
 
   $: characterCount = countMarkdownCharacters(content);
-  $: characterLimit = 140;
-  $: isOverLimit = characterCount > characterLimit;
+  $: characterLimit = MAX_REED_VISIBLE_CHARS;
+  $: rawCharacterCount = content.length;
+  $: rawCharacterLimit = MAX_REED_RAW_CHARS;
+  $: isOverVisibleLimit = characterCount > characterLimit;
+  $: isOverRawLimit = rawCharacterCount > rawCharacterLimit;
+  $: isOverLimit = isOverVisibleLimit || isOverRawLimit;
 
   // Load draft when opened as a new reed only
   $: if (open && !replyingTo && !echoOf) {
@@ -99,6 +109,15 @@
         return;
       }
 
+      if (!reedContentWithinLimits(content)) {
+        if (content.length > MAX_REED_RAW_CHARS) {
+          errorMessage = `Message is too long (${content.length}/${MAX_REED_RAW_CHARS} characters).`;
+        } else {
+          errorMessage = `Message is too long (${countMarkdownCharacters(content)}/${MAX_REED_VISIBLE_CHARS} characters).`;
+        }
+        return;
+      }
+
       const fingerprint = authService.getActiveKeyFingerprint();
       const keyData = await privateKeyRepository.getPrivateKey(fingerprint);
       if (!keyData) throw new Error('Private key not found. Please import your key.');
@@ -122,12 +141,12 @@
       } else {
         notificationStore.info("There was an issue with the server. Your reed will be published automatically once it's resolved.", 10000);
       }
+      close();
     } catch (error) {
       console.error('Error publishing reed:', error);
       errorMessage = error.message || 'Failed to publish reed';
     } finally {
       isPublishing = false;
-      close();
     }
   }
 </script>
@@ -156,10 +175,15 @@
         ></textarea>
         <div class="content-info">
           <div class="draft-saved" class:hidden={!draftSaved}>Draft saved</div>
-          <div class="character-counter" class:over-limit={isOverLimit}>
+          <div class="character-counter" class:over-limit={isOverVisibleLimit}>
             {characterCount}/{characterLimit} characters
           </div>
         </div>
+        {#if isOverRawLimit}
+          <div class="error-message">
+            Message is too long ({rawCharacterCount}/{rawCharacterLimit} characters).
+          </div>
+        {/if}
       </div>
       {#if hasPendingRevocation}
         <div class="revocation-warning">

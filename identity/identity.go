@@ -433,6 +433,85 @@ func BuildAccountRemovalServerPayload(
 	)
 }
 
+// TypeInviteUser / TypeInviteServer distinguish user vs server invite payloads
+// (same split as identity-user / identity-server).
+const (
+	TypeInviteUser   = "invite-user"
+	TypeInviteServer = "invite-server"
+)
+
+func inviteUserHeaders(serverID, userID, inviteID, tokenHash string, createdAt time.Time) map[string]string {
+	return map[string]string{
+		"type":      TypeInviteUser,
+		"serverID":  serverID,
+		"userID":    userID,
+		"inviteID":  inviteID,
+		"tokenHash": tokenHash,
+		"createdAt": createdAt.UTC().Format(recordTimeFormat),
+	}
+}
+
+// BuildInviteUserPayload returns the bytes the issuer signs over invite id,
+// createdAt, and tokenHash (SHA-256 of the fragment secret). The secret
+// itself is never signed or sent on create.
+func BuildInviteUserPayload(serverID, userID, inviteID, tokenHash string, createdAt time.Time) []byte {
+	return signing.BytesToSign(
+		inviteUserHeaders(serverID, userID, inviteID, tokenHash, createdAt),
+		"",
+	)
+}
+
+func inviteServerHeaders(
+	serverID,
+	userID,
+	inviteID,
+	tokenHash,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	createdAt,
+	signedAt time.Time,
+) map[string]string {
+	return map[string]string{
+		"type":                 TypeInviteServer,
+		"serverID":             serverID,
+		"userID":               userID,
+		"inviteID":             inviteID,
+		"tokenHash":            tokenHash,
+		"createdAt":            createdAt.UTC().Format(recordTimeFormat),
+		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignatureB64,
+	}
+}
+
+// BuildInviteServerPayload returns the bytes the server countersigns for an
+// invite. createdAt is the user-authored resource time; signedAt is when the
+// server attested. Both must already be truncated to whole seconds.
+func BuildInviteServerPayload(
+	serverID,
+	userID,
+	inviteID,
+	tokenHash,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	createdAt,
+	signedAt time.Time,
+) []byte {
+	return signing.BytesToSign(
+		inviteServerHeaders(
+			serverID,
+			userID,
+			inviteID,
+			tokenHash,
+			serverKeyFingerprint,
+			userSignatureB64,
+			createdAt,
+			signedAt,
+		),
+		"",
+	)
+}
+
 // BuildNewProfilePayload is a convenience wrapper around
 // BuildProfilePayload for the initial signup record: avatarURL
 // and bio are always empty (users can't set them before their account

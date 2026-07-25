@@ -11,7 +11,8 @@ interface SignupUser {
   publicKey: string;
   signature: string;
   userSignature: string;
-  invite?: string;
+  inviteID?: string;
+  inviteSecret?: string;
 }
 
 export class AuthService {
@@ -38,11 +39,12 @@ export class AuthService {
   }
 
   /**
-   * Get the current user from localStorage
+   * Get the current user from IndexedDB, falling back to the in-memory
+   * session user (e.g. right after signup, before verify-on-put can
+   * succeed because the attested public key is not cached yet).
    */
   async getCurrentUser(): Promise<api.User | null> {
     try {
-      // Check if user ID exists in localStorage
       const userId = localStorage.getItem('userId');
       if (!userId) {
         this._user = null;
@@ -51,8 +53,19 @@ export class AuthService {
 
       const { userRepository } = await import('$lib/repositories/user');
       const user = await userRepository.get(userId);
-      this._user = user;
+      if (user) {
+        this._user = user;
+        return user;
+      }
+      if (this._user?.id === userId) {
+        return this._user;
+      }
+      this._user = null;
     } catch (error) {
+      // Keep in-memory user if IDB read fails mid-signup.
+      if (this._user && localStorage.getItem('userId') === this._user.id) {
+        return this._user;
+      }
       this._user = null;
     }
 
@@ -64,15 +77,15 @@ export class AuthService {
    */
   async saveUserToStorage(user: api.User): Promise<void> {
     localStorage.setItem('userId', user.id);
+    this._user = user;
 
-    // Also store in IndexedDB
+    // Also store in IndexedDB (verify-on-put needs the attested public key
+    // already cached — callers that run before that must tolerate failure).
     try {
       const { userRepository } = await import('$lib/repositories/user');
       await userRepository.put(user);
-      this._user = user;
     } catch (error) {
       console.error('Failed to store user in IndexedDB:', error);
-      // Don't throw - localStorage is the primary storage
     }
   }
 
@@ -134,8 +147,11 @@ export class AuthService {
     formData.append('publicKey', userData.publicKey);
     formData.append('signature', userData.signature);
     formData.append('userSignature', userData.userSignature);
-    if (userData.invite) {
-      formData.append('invite', userData.invite);
+    if (userData.inviteID) {
+      formData.append('inviteID', userData.inviteID);
+    }
+    if (userData.inviteSecret) {
+      formData.append('inviteSecret', userData.inviteSecret);
     }
 
     const response = await fetch('/api/users/signup', {

@@ -50,7 +50,7 @@ test.describe('Signup mode gating', () => {
         body: JSON.stringify({ valid: true }),
       });
     });
-    await page.goto('/signup?invite=test-token-abc');
+    await page.goto('/signup?invite=abcdefghijkl#test-secret-abc');
     await expect(page.locator('text=Signing up with an invite link.')).toBeVisible();
     await expect(page.locator('#username')).toBeVisible();
   });

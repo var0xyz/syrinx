@@ -9,7 +9,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/lib/pq v1.10.9
 	github.com/rs/zerolog v1.32.0
-	github.com/tooxie/env v0.0.0-20250927113848-0a8b7c85459d
+	github.com/tooxie/env v0.0.0-20250928142243-0d8d606534b8
 	github.com/uuid25/go-uuid25 v0.1.0
 	github.com/zalando/go-keyring v0.2.8
 	go.opentelemetry.io/contrib/instrumentation/runtime v0.63.0

@@ -324,3 +324,51 @@ export function buildAccountRemovalServerPayload(
     note
   );
 }
+
+/** Mirror of BuildInviteUserPayload in identity.go (`type: invite-user`). */
+export function buildInviteUserPayload(
+  serverID: string,
+  userID: string,
+  inviteID: string,
+  tokenHash: string,
+  createdAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'invite-user',
+      serverID,
+      userID,
+      inviteID,
+      tokenHash,
+      createdAt
+    },
+    ''
+  );
+}
+
+/** Mirror of BuildInviteServerPayload in identity.go (`type: invite-server`). */
+export function buildInviteServerPayload(
+  serverID: string,
+  userID: string,
+  inviteID: string,
+  tokenHash: string,
+  serverKeyFingerprint: string,
+  userSignatureB64: string,
+  createdAt: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'invite-server',
+      serverID,
+      userID,
+      inviteID,
+      tokenHash,
+      createdAt,
+      signedAt,
+      serverKeyFingerprint,
+      userSignature: userSignatureB64
+    },
+    ''
+  );
+}

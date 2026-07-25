@@ -1,7 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { authService } from '$lib/services/auth';
-  import { apiService } from '$lib/services/api';
+  import type * as api from '$lib/types/api';
+  import {
+    createSignedInvite,
+    inviteShareURL,
+    refreshPendingInviteStatuses,
+    revokeLocalInvite,
+  } from '$lib/services/invites';
+  import { invitesRepository } from '$lib/repositories/invites';
   import {
     isSignupClosed,
     refreshServerInfo,
@@ -13,28 +20,26 @@
   import CopyButton from '$lib/components/CopyButton.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
 
-  type InviteRow = {
-    id: string;
-    createdAt: string;
-    status: 'pending' | 'claimed' | 'revoked';
-    claimedAt: string | null;
-    claimedBy: { id: string; username: string } | null;
-    revokedAt: string | null;
-  };
-
   let user = null;
   let loading = true;
-  let invites: InviteRow[] = [];
+  let invites: api.Invite[] = [];
   let creating = false;
   let revokingId: string | null = null;
   let freshShareURL = '';
   let showFreshLink = false;
 
   $: maxInvites = $serverInfo?.maxInvitesPerUser ?? -1;
-  $: atQuota = maxInvites !== -1 && invites.length >= maxInvites;
+  $: usedInvites = invites.length;
+  $: atQuota = maxInvites !== -1 && usedInvites >= maxInvites;
   $: canCreate = !$isSignupClosed && !atQuota;
-  $: quotaLabel =
-    maxInvites === -1 ? '' : `${invites.length} / ${maxInvites}`;
+  $: invitesRemaining =
+    maxInvites === -1 ? null : Math.max(0, maxInvites - usedInvites);
+  $: quotaSummary =
+    maxInvites === -1
+      ? 'No invite limit on this server.'
+      : invitesRemaining === 0
+        ? `You’ve used all ${maxInvites} invite${maxInvites === 1 ? '' : 's'}. Revoking unused invites does not free quota.`
+        : `You can create ${maxInvites} invite${maxInvites === 1 ? '' : 's'} — ${invitesRemaining} left.`;
 
   onMount(async () => {
     user = await authService.getCurrentUser();
@@ -49,10 +54,14 @@
 
   async function loadInvites() {
     try {
-      const res = await apiService.listInvites();
-      invites = res.invites ?? [];
+      invites = await refreshPendingInviteStatuses();
     } catch (err) {
       console.error(err);
+      try {
+        invites = await invitesRepository.getAll();
+      } catch {
+        invites = [];
+      }
       notificationStore.error(
         err instanceof Error ? err.message : 'Failed to load invites'
       );
@@ -63,10 +72,12 @@
     if (!canCreate || creating) return;
     creating = true;
     try {
-      const created = await apiService.createInvite();
-      freshShareURL = `${window.location.origin}/signup?invite=${created.token}`;
-      showFreshLink = true;
-      await loadInvites();
+      const created = await createSignedInvite();
+      if (created.secret) {
+        freshShareURL = inviteShareURL(created.id, created.secret);
+        showFreshLink = true;
+      }
+      invites = await invitesRepository.getAll();
     } catch (err) {
       console.error(err);
       notificationStore.error(
@@ -79,10 +90,13 @@
 
   async function revokeInvite(id: string) {
     if (revokingId) return;
+    if (!confirm('Are you sure you want to revoke this invite?')) {
+      return;
+    }
     revokingId = id;
     try {
-      await apiService.revokeInvite(id);
-      await loadInvites();
+      await revokeLocalInvite(id);
+      invites = await invitesRepository.getAll();
       notificationStore.success('Invite revoked');
     } catch (err) {
       console.error(err);
@@ -94,14 +108,23 @@
     }
   }
 
-  async function copyFreshLink() {
+  function shareURL(invite: api.Invite): string | null {
+    if (!invite.secret) return null;
+    return inviteShareURL(invite.id, invite.secret);
+  }
+
+  async function copyLink(url: string) {
     try {
-      await navigator.clipboard.writeText(freshShareURL);
+      await navigator.clipboard.writeText(url);
       notificationStore.success('Invite link copied');
     } catch (err) {
       console.error(err);
       notificationStore.error('Failed to copy invite link');
     }
+  }
+
+  async function copyFreshLink() {
+    await copyLink(freshShareURL);
   }
 
   function dismissFreshLink() {
@@ -116,50 +139,48 @@
   }
 </script>
 
-<Auth>
-  <div class="page">
-    <div class="container">
-      <header class="header">
-        <h1>Invites</h1>
-        {#if quotaLabel}
-          <p class="quota">{quotaLabel} used</p>
-        {/if}
-      </header>
-
-      {#if loading}
-        <p class="muted">Loading…</p>
-      {:else}
-        {#if $isSignupClosed}
-          <p class="notice">
-            Signups are closed on this server — you can’t create new invites.
-          </p>
-        {:else if atQuota}
-          <p class="notice">
-            You’ve reached the invite limit ({maxInvites}). Revoking unused
-            invites does not free quota.
-          </p>
-        {/if}
-
-        <div class="actions">
+{#if loading}
+  <div class="container">
+    <div class="card">
+      <div class="loading">
+        <h2>Loading invites...</h2>
+        <p>Please wait while we fetch your invites.</p>
+      </div>
+    </div>
+  </div>
+{:else}
+  <Auth>
+    <div class="invites-container">
+      <div class="invites-content">
+        {#if canCreate}
           <button
-            class="btn primary"
-            disabled={!canCreate || creating}
+            class="floating-create-btn"
+            disabled={creating}
             on:click={createInvite}
+            aria-label={creating ? 'Creating invite' : 'Create invite'}
           >
-            {creating ? 'Creating…' : 'Create invite'}
+            <span class="icon">{creating ? '…' : '✉️'}</span>
           </button>
-        </div>
+        {/if}
 
-        {#if invites.length === 0}
-          <p class="muted empty">
-            {#if canCreate}
-              No invites yet. Create one to share a signup link.
-            {:else if $isSignupClosed}
-              No invites to show.
-            {:else}
-              No invites yet.
-            {/if}
-          </p>
+        {#if !$isSignupClosed}
+          <p class="quota">{quotaSummary}</p>
+        {/if}
+
+        {#if $isSignupClosed}
+          <div class="empty-state">
+            <div class="empty-icon">🚫</div>
+            <h3>Signups are closed</h3>
+            <p>This server isn’t accepting new invites right now.</p>
+          </div>
+        {:else if invites.length === 0}
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <h3>No invites yet</h3>
+            <p>
+              Create an invite to share a signup link with someone you trust.
+            </p>
+          </div>
         {:else}
           <ul class="invite-list">
             {#each invites as invite (invite.id)}
@@ -180,87 +201,148 @@
                     </span>
                   {/if}
                 </div>
-                {#if invite.status === 'pending'}
-                  <button
-                    class="btn danger"
-                    disabled={revokingId === invite.id}
-                    on:click={() => revokeInvite(invite.id)}
-                  >
-                    {revokingId === invite.id ? 'Revoking…' : 'Revoke'}
-                  </button>
-                {/if}
+                <div class="invite-actions">
+                  {#if invite.status === 'pending' && shareURL(invite)}
+                    <CopyButton
+                      ariaLabel="Copy invite link"
+                      on:click={() => copyLink(shareURL(invite)!)}
+                    />
+                  {/if}
+                  {#if invite.status === 'pending'}
+                    <button
+                      class="btn danger"
+                      disabled={revokingId === invite.id}
+                      on:click={() => revokeInvite(invite.id)}
+                    >
+                      {revokingId === invite.id ? 'Revoking…' : 'Revoke'}
+                    </button>
+                  {/if}
+                </div>
               </li>
             {/each}
           </ul>
         {/if}
-      {/if}
-    </div>
-
-    {#if showFreshLink}
-      <div class="modal-backdrop" role="presentation" on:click={dismissFreshLink}>
-        <div
-          class="modal"
-          role="dialog"
-          aria-labelledby="fresh-invite-title"
-          on:click|stopPropagation
-        >
-          <h2 id="fresh-invite-title">Invite link ready</h2>
-          <p class="notice">
-            Copy this link now — you won’t be able to see it again.
-          </p>
-          <div class="link-row">
-            <code class="share-url">{freshShareURL}</code>
-            <CopyButton ariaLabel="Copy invite link" on:click={copyFreshLink} />
-          </div>
-          <button class="btn primary" on:click={dismissFreshLink}>Done</button>
-        </div>
       </div>
-    {/if}
 
-    <BottomToolbar currentPage="invites" />
-  </div>
-</Auth>
+      {#if showFreshLink}
+        <div
+          class="modal-backdrop"
+          role="presentation"
+          on:click={dismissFreshLink}
+        >
+          <div
+            class="modal"
+            role="dialog"
+            aria-labelledby="fresh-invite-title"
+            on:click|stopPropagation
+          >
+            <h2 id="fresh-invite-title">Invite link ready</h2>
+            <div class="link-row">
+              <code class="share-url">{freshShareURL}</code>
+              <CopyButton
+                ariaLabel="Copy invite link"
+                on:click={copyFreshLink}
+              />
+            </div>
+            <button class="btn primary" on:click={dismissFreshLink}>Done</button>
+          </div>
+        </div>
+      {/if}
+
+      <BottomToolbar currentPage="invites" />
+    </div>
+  </Auth>
+{/if}
 
 <style>
-  .page {
+  .invites-container {
+    min-height: calc(100vh - 4rem - 1px);
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    background: var(--bg);
   }
 
-  .container {
+  .invites-content {
     flex: 1;
-    max-width: 640px;
-    width: 100%;
+    max-width: 600px;
     margin: 0 auto;
-    padding: 1.5rem 1rem 2rem;
-  }
-
-  .header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 1rem;
-  }
-
-  .header h1 {
-    margin: 0;
-    font-size: 1.5rem;
+    width: 100%;
+    padding: 1rem;
   }
 
   .quota {
-    margin: 0;
+    margin: 0 0 1rem 0;
     color: var(--muted);
     font-size: 0.9rem;
   }
 
-  .muted {
+  .loading {
+    text-align: center;
+    padding: 2rem;
     color: var(--muted);
   }
 
-  .empty {
-    margin-top: 1.5rem;
+  .loading h2 {
+    margin: 0 0 0.5rem 0;
+    color: var(--fg);
+  }
+
+  .loading p {
+    margin: 0;
+  }
+
+  .floating-create-btn {
+    position: fixed;
+    bottom: 5rem;
+    right: 1.5rem;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: var(--button-text);
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(88, 166, 255, 0.3);
+    transition: all 0.2s ease;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .floating-create-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(88, 166, 255, 0.4);
+  }
+
+  .floating-create-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .floating-create-btn .icon {
+    font-size: 1.5rem;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--muted);
+  }
+
+  .empty-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+  }
+
+  .empty-state h3 {
+    margin: 0 0 0.5rem 0;
+    color: var(--fg);
+  }
+
+  .empty-state p {
+    margin: 0;
+    line-height: 1.4;
   }
 
   .notice {
@@ -271,10 +353,6 @@
     color: var(--fg);
     margin: 0 0 1rem 0;
     line-height: 1.4;
-  }
-
-  .actions {
-    margin-bottom: 1.25rem;
   }
 
   .btn {
@@ -317,7 +395,7 @@
     gap: 1rem;
     padding: 0.85rem 1rem;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 12px;
     background: var(--surface);
   }
 
@@ -326,6 +404,13 @@
     flex-direction: column;
     gap: 0.25rem;
     min-width: 0;
+  }
+
+  .invite-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
   }
 
   .badge {
@@ -398,5 +483,11 @@
     background: var(--input-bg);
     padding: 0.5rem;
     border-radius: 6px;
+  }
+
+  @media (max-width: 768px) {
+    .invites-content {
+      padding: 0.5rem;
+    }
   }
 </style>

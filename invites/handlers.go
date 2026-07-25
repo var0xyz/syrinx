@@ -2,22 +2,45 @@ package invites
 
 import (
 	"context"
-	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"strings"
 	"time"
+
+	"syrinx/identity"
 
 	"github.com/gorilla/mux"
 )
 
+// UserSignatureWire is the nested user attestation on create/response.
+type UserSignatureWire struct {
+	Fingerprint string `json:"fingerprint"`
+	Armor       string `json:"armor"`
+}
+
+// ServerSignatureWire is the nested server countersignature on create response.
+type ServerSignatureWire struct {
+	ServerID    string `json:"serverID"`
+	Fingerprint string `json:"fingerprint"`
+	Armor       string `json:"armor"`
+	Timestamp   string `json:"timestamp"`
+}
+
 // Deps are dependencies RegisterRoutes needs from main.
 type Deps struct {
-	Store     *Store
-	Mode      SignupMode
-	Max       MaxInvitesPerUser
-	UserIDKey any
-	Now       func() time.Time
+	Store                *Store
+	Mode                 SignupMode
+	Max                  MaxInvitesPerUser
+	UserIDKey            any
+	Now                  func() time.Time
+	ServerID             string
+	ServerKeyFingerprint string
+	GetPublicKeyArmor    func(ctx context.Context, userID, fingerprint string) (string, error)
+	VerifySignature      func(payload, sigArmor, pubKeyArmor string) error
+	Countersign          func(payload []byte, ts time.Time) (ServerSignatureWire, error)
 }
 
 func (d Deps) now() time.Time {
@@ -30,10 +53,10 @@ func (d Deps) now() time.Time {
 // RegisterRoutes mounts invite HTTP endpoints on api (typically /api).
 func RegisterRoutes(api *mux.Router, deps Deps) {
 	api.HandleFunc("/invites", deps.Create).Methods(http.MethodPost)
-	api.HandleFunc("/invites", deps.List).Methods(http.MethodGet)
 	api.HandleFunc("/invites", noop).Methods(http.MethodOptions)
 	api.HandleFunc("/invites/check", deps.Check).Methods(http.MethodGet)
 	api.HandleFunc("/invites/check", noop).Methods(http.MethodOptions)
+	api.HandleFunc("/invites/{id}", deps.Status).Methods(http.MethodGet)
 	api.HandleFunc("/invites/{id}", deps.RevokeInvite).Methods(http.MethodDelete)
 	api.HandleFunc("/invites/{id}", noop).Methods(http.MethodOptions)
 }
@@ -53,13 +76,23 @@ func (d Deps) callerID(r *http.Request) (string, bool) {
 	return id, ok && id != ""
 }
 
+type createRequest struct {
+	ID            string            `json:"id"`
+	TokenHash     string            `json:"tokenHash"`
+	CreatedAt     time.Time         `json:"createdAt"`
+	UserSignature UserSignatureWire `json:"userSignature"`
+}
+
 type createResponse struct {
-	ID        string    `json:"id"`
-	Token     string    `json:"token"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID              string              `json:"id"`
+	TokenHash       string              `json:"tokenHash"`
+	CreatedAt       time.Time           `json:"createdAt"`
+	UserSignature   UserSignatureWire   `json:"userSignature"`
+	ServerSignature ServerSignatureWire `json:"serverSignature"`
 }
 
 // Create handles POST /api/invites.
+// Client mints id + secret; only SHA-256(secret) is sent (tokenHash).
 func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 	caller, ok := d.callerID(r)
 	if !ok {
@@ -70,6 +103,51 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, "Signups are closed on this server")
 		return
 	}
+	if d.GetPublicKeyArmor == nil || d.VerifySignature == nil || d.Countersign == nil {
+		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	var req createRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if !ValidInviteID(req.ID) {
+		writeJSON(w, http.StatusBadRequest, "Invalid invite id")
+		return
+	}
+	tokenHash, err := DecodeHashHex(req.TokenHash)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, "Invalid tokenHash")
+		return
+	}
+	tokenHashHex := EncodeHashHex(tokenHash)
+	if req.UserSignature.Fingerprint == "" || req.UserSignature.Armor == "" {
+		writeJSON(w, http.StatusBadRequest, "userSignature is required")
+		return
+	}
+
+	createdAt := req.CreatedAt.UTC().Truncate(time.Second)
+	if createdAt.IsZero() {
+		writeJSON(w, http.StatusBadRequest, "createdAt is required")
+		return
+	}
+	now := d.now().UTC().Truncate(time.Second)
+	skew := now.Sub(createdAt)
+	if skew < 0 {
+		skew = -skew
+	}
+	if skew > InviteCreateSkew {
+		writeJSON(w, http.StatusBadRequest, "createdAt out of range")
+		return
+	}
+
 	if d.Max != MaxInvitesUnlimited {
 		n, err := d.Store.CountByCreator(r.Context(), caller)
 		if err != nil {
@@ -82,32 +160,61 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	raw, hash, err := NewToken()
+	userPayload := identity.BuildInviteUserPayload(
+		d.ServerID, caller, req.ID, tokenHashHex, createdAt,
+	)
+	userSigArmor, err := base64.StdEncoding.DecodeString(req.UserSignature.Armor)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, "Invalid userSignature encoding")
+		return
+	}
+	pubArmor, err := d.GetPublicKeyArmor(r.Context(), caller, req.UserSignature.Fingerprint)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
-	createdAt := d.now().UTC().Truncate(time.Second)
-
-	var id string
-	for attempt := 0; attempt < 5; attempt++ {
-		id, err = NewInviteID()
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
-			return
-		}
-		err = d.Store.Insert(r.Context(), id, caller, hash, createdAt)
-		if err == nil {
-			writeJSON(w, http.StatusCreated, createResponse{
-				ID:        id,
-				Token:     raw,
-				CreatedAt: createdAt,
-			})
-			return
-		}
-		// retry only on primary-key collision
+	if pubArmor == "" {
+		writeJSON(w, http.StatusUnauthorized, "Active public key not available")
+		return
 	}
-	writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
+	if err := d.VerifySignature(string(userPayload), string(userSigArmor), pubArmor); err != nil {
+		writeJSON(w, http.StatusUnauthorized, "signature verification failed")
+		return
+	}
+
+	if err := d.Store.Insert(r.Context(), req.ID, caller, tokenHash, createdAt); err != nil {
+		if errors.Is(err, ErrInviteExists) {
+			writeJSON(w, http.StatusConflict, "Invite already exists")
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	signedAt := now
+	serverPayload := identity.BuildInviteServerPayload(
+		d.ServerID,
+		caller,
+		req.ID,
+		tokenHashHex,
+		d.ServerKeyFingerprint,
+		req.UserSignature.Armor,
+		createdAt,
+		signedAt,
+	)
+	serverSig, err := d.Countersign(serverPayload, signedAt)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, createResponse{
+		ID:              req.ID,
+		TokenHash:       tokenHashHex,
+		CreatedAt:       createdAt,
+		UserSignature:   req.UserSignature,
+		ServerSignature: serverSig,
+	})
 }
 
 type claimedByWire struct {
@@ -115,7 +222,7 @@ type claimedByWire struct {
 	Username string `json:"username"`
 }
 
-type inviteWire struct {
+type statusResponse struct {
 	ID        string         `json:"id"`
 	CreatedAt time.Time      `json:"createdAt"`
 	Status    string         `json:"status"`
@@ -124,42 +231,43 @@ type inviteWire struct {
 	RevokedAt *time.Time     `json:"revokedAt"`
 }
 
-type listResponse struct {
-	Invites []inviteWire `json:"invites"`
-}
-
-// List handles GET /api/invites.
-func (d Deps) List(w http.ResponseWriter, r *http.Request) {
+// Status handles GET /api/invites/{id} for the caller's invite.
+func (d Deps) Status(w http.ResponseWriter, r *http.Request) {
 	caller, ok := d.callerID(r)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
+	id := mux.Vars(r)["id"]
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, "Invite id is required")
+		return
+	}
 
-	rows, err := d.Store.ListByCreatorWithUsernames(r.Context(), caller)
+	inv, username, err := d.Store.GetStatusByCreatorAndID(r.Context(), caller, id)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
-
-	out := make([]inviteWire, 0, len(rows))
-	for _, row := range rows {
-		item := inviteWire{
-			ID:        row.Invite.ID,
-			CreatedAt: row.Invite.CreatedAt.UTC(),
-			Status:    row.Invite.Status(),
-			ClaimedAt: row.Invite.ClaimedAt,
-			RevokedAt: row.Invite.RevokedAt,
-		}
-		if row.Invite.ClaimedBy != nil {
-			item.ClaimedBy = &claimedByWire{
-				ID:       *row.Invite.ClaimedBy,
-				Username: row.ClaimedUsername,
-			}
-		}
-		out = append(out, item)
+	if inv == nil {
+		writeJSON(w, http.StatusNotFound, "Invite not found")
+		return
 	}
-	writeJSON(w, http.StatusOK, listResponse{Invites: out})
+
+	out := statusResponse{
+		ID:        inv.ID,
+		CreatedAt: inv.CreatedAt.UTC(),
+		Status:    inv.Status(),
+		ClaimedAt: inv.ClaimedAt,
+		RevokedAt: inv.RevokedAt,
+	}
+	if inv.ClaimedBy != nil {
+		out.ClaimedBy = &claimedByWire{
+			ID:       *inv.ClaimedBy,
+			Username: username,
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // RevokeInvite handles DELETE /api/invites/{id}.
@@ -194,68 +302,20 @@ type checkResponse struct {
 	Valid bool `json:"valid"`
 }
 
-// Check handles GET /api/invites/check?token=.
+// Check handles GET /api/invites/check?id=&secret=.
+// Client sends the fragment secret; server hashes and looks up.
 func (d Deps) Check(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		writeJSON(w, http.StatusBadRequest, "Argument `token` is required")
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	secret := strings.TrimSpace(r.URL.Query().Get("secret"))
+	if id == "" || secret == "" {
+		writeJSON(w, http.StatusBadRequest, "Arguments `id` and `secret` are required")
 		return
 	}
-	inv, err := d.Store.GetByTokenHash(r.Context(), HashToken(token))
+	inv, err := d.Store.GetByTokenHash(r.Context(), HashSecret(secret))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
-	valid := inv != nil && inv.Status() == "pending"
+	valid := inv != nil && inv.ID == id && inv.Status() == "pending"
 	writeJSON(w, http.StatusOK, checkResponse{Valid: valid})
-}
-
-// ListedInvite is an invite plus optional claimed username for list API.
-type ListedInvite struct {
-	Invite          Invite
-	ClaimedUsername string
-}
-
-// ListByCreatorWithUsernames joins claimed_by usernames for the list API.
-func (s *Store) ListByCreatorWithUsernames(ctx context.Context, creatorID string) ([]ListedInvite, error) {
-	rows, err := s.DB.QueryContext(ctx, `
-		SELECT i.id, i.created_by, i.created_at, i.claimed_at, i.claimed_by, i.revoked_at,
-		       COALESCE(u.username, '')
-		FROM invites i
-		LEFT JOIN users u ON u.id = i.claimed_by
-		WHERE i.created_by = $1
-		ORDER BY i.created_at DESC
-	`, creatorID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []ListedInvite
-	for rows.Next() {
-		var inv Invite
-		var claimedAt, revokedAt sql.NullTime
-		var claimedBy sql.NullString
-		var username string
-		if err := rows.Scan(
-			&inv.ID, &inv.CreatedBy, &inv.CreatedAt,
-			&claimedAt, &claimedBy, &revokedAt, &username,
-		); err != nil {
-			return nil, err
-		}
-		if claimedAt.Valid {
-			t := claimedAt.Time.UTC()
-			inv.ClaimedAt = &t
-		}
-		if claimedBy.Valid {
-			s := claimedBy.String
-			inv.ClaimedBy = &s
-		}
-		if revokedAt.Valid {
-			t := revokedAt.Time.UTC()
-			inv.RevokedAt = &t
-		}
-		out = append(out, ListedInvite{Invite: inv, ClaimedUsername: username})
-	}
-	return out, rows.Err()
 }

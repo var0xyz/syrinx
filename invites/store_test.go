@@ -20,7 +20,7 @@ func openTestDB(t *testing.T) *sql.DB {
 		envOr("DB_PORT", "5432"),
 		envOr("DB_USER", "syrinx"),
 		envOr("DB_PASSWORD", "syrinx"),
-		envOr("DB_NAME", "syrinx"),
+		envOr("DB_NAME", "syrinx_test"),
 		envOr("DB_SSLMODE", "disable"),
 	)
 	db, err := sql.Open("postgres", dsn)
@@ -64,6 +64,8 @@ func ensureInviteSchema(db *sql.DB) error {
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY,
 			username VARCHAR(255) UNIQUE NOT NULL,
+			avatar_url VARCHAR(255),
+			bio TEXT,
 			user_fingerprint VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
@@ -71,15 +73,15 @@ func ensureInviteSchema(db *sql.DB) error {
 			invited_by VARCHAR(255) REFERENCES users(id)
 		)`,
 		`CREATE TABLE invites (
-			id         VARCHAR(255) PRIMARY KEY,
-			token_hash BYTEA NOT NULL UNIQUE,
 			created_by VARCHAR(255) NOT NULL REFERENCES users(id),
+			id         VARCHAR(255) NOT NULL,
+			token_hash BYTEA NOT NULL UNIQUE,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			claimed_at TIMESTAMPTZ,
 			claimed_by VARCHAR(255) REFERENCES users(id),
-			revoked_at TIMESTAMPTZ
+			revoked_at TIMESTAMPTZ,
+			PRIMARY KEY (created_by, id)
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_invites_created_by ON invites(created_by)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -115,31 +117,31 @@ func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 	}
 }
 
-func TestHashToken(t *testing.T) {
-	a := HashToken("same")
-	b := HashToken("same")
-	c := HashToken("other")
+func TestHashSecret(t *testing.T) {
+	a := HashSecret("same")
+	b := HashSecret("same")
+	c := HashSecret("other")
 	if !bytes.Equal(a, b) {
-		t.Fatal("HashToken not stable")
+		t.Fatal("HashSecret not stable")
 	}
 	if bytes.Equal(a, c) {
-		t.Fatal("HashToken collided for different inputs")
+		t.Fatal("HashSecret collided for different inputs")
 	}
 	if len(a) != 32 {
-		t.Fatalf("HashToken len = %d, want 32", len(a))
+		t.Fatalf("HashSecret len = %d, want 32", len(a))
 	}
 }
 
-func TestNewToken(t *testing.T) {
-	raw, hash, err := NewToken()
+func TestNewSecret(t *testing.T) {
+	raw, err := NewSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if raw == "" || len(hash) != 32 {
-		t.Fatalf("empty token or bad hash")
+	if raw == "" {
+		t.Fatal("empty secret")
 	}
-	if !bytes.Equal(HashToken(raw), hash) {
-		t.Fatal("NewToken hash mismatch")
+	if len(HashSecret(raw)) != 32 {
+		t.Fatal("bad hash")
 	}
 }
 
@@ -151,10 +153,11 @@ func TestStoreRoundTrip(t *testing.T) {
 	seedUser(t, db, "creator1", "alice")
 	seedUser(t, db, "invitee1", "bob")
 
-	raw, hash, err := NewToken()
+	raw, err := NewSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
+	hash := HashSecret(raw)
 	id, err := NewInviteID()
 	if err != nil {
 		t.Fatal(err)
@@ -166,7 +169,7 @@ func TestStoreRoundTrip(t *testing.T) {
 
 	got, err := store.GetByTokenHash(ctx, hash)
 	if err != nil || got == nil {
-		t.Fatalf("GetByTokenHash: %v %#v", err, got)
+		t.Fatalf("GetByTokenHash: %v %#v", got, err)
 	}
 	if got.ID != id || got.CreatedBy != "creator1" || got.Status() != "pending" {
 		t.Fatalf("unexpected invite: %+v", got)
@@ -182,7 +185,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok, err := store.MarkClaimed(ctx, tx, id, "invitee1", now.Add(time.Minute))
+	ok, err := store.MarkClaimed(ctx, tx, "creator1", id, "invitee1", now.Add(time.Minute))
 	if err != nil || !ok {
 		tx.Rollback()
 		t.Fatalf("MarkClaimed: ok=%v err=%v", ok, err)
@@ -195,7 +198,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok2, err := store.MarkClaimed(ctx, tx2, id, "invitee1", now.Add(2*time.Minute))
+	ok2, err := store.MarkClaimed(ctx, tx2, "creator1", id, "invitee1", now.Add(2*time.Minute))
 	tx2.Rollback()
 	if err != nil {
 		t.Fatalf("second MarkClaimed err: %v", err)
@@ -223,10 +226,11 @@ func TestRevokeDistinguishesClaimed(t *testing.T) {
 	seedUser(t, db, "creator2", "carol")
 	seedUser(t, db, "invitee2", "dave")
 
-	_, hash, err := NewToken()
+	secret, err := NewSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
+	hash := HashSecret(secret)
 	id, err := NewInviteID()
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +244,7 @@ func TestRevokeDistinguishesClaimed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok, err := store.MarkClaimed(ctx, tx, id, "invitee2", now)
+	ok, err := store.MarkClaimed(ctx, tx, "creator2", id, "invitee2", now)
 	if err != nil || !ok {
 		tx.Rollback()
 		t.Fatalf("MarkClaimed: %v %v", ok, err)
@@ -267,10 +271,11 @@ func TestRevokeAndCountIncludesRevoked(t *testing.T) {
 
 	seedUser(t, db, "creator3", "erin")
 
-	_, hash, err := NewToken()
+	secret, err := NewSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
+	hash := HashSecret(secret)
 	id, err := NewInviteID()
 	if err != nil {
 		t.Fatal(err)
@@ -291,8 +296,8 @@ func TestRevokeAndCountIncludesRevoked(t *testing.T) {
 		t.Fatalf("CountByCreator should include revoked: %d %v", n, err)
 	}
 
-	list, err := store.ListByCreator(ctx, "creator3")
-	if err != nil || len(list) != 1 || list[0].Status() != "revoked" {
-		t.Fatalf("ListByCreator: %+v %v", list, err)
+	got, err := store.GetByCreatorAndID(ctx, "creator3", id)
+	if err != nil || got == nil || got.Status() != "revoked" {
+		t.Fatalf("GetByCreatorAndID: %+v %v", got, err)
 	}
 }
