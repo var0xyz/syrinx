@@ -2,115 +2,25 @@ import type * as api from '$lib/types/api';
 import { apiService } from './api';
 import { authService } from './auth';
 import { cryptoService } from './crypto';
-import {
-  buildAccountRemovalServerPayload,
-  buildAccountRemovalUserPayload,
-} from './signing';
-import { signedAtHeader, verify } from './verify';
+import { buildAccountRemovalUserPayload } from './signing';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
-import { publicKeyRepository } from '$lib/repositories/publicKey';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
 import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
 import { dbService } from './db';
+import { verifyAccountRemoval } from '$lib/verifiers';
 import { get } from 'svelte/store';
 import { isOnline } from './pwa';
 import { serverInfo } from './serverInfo';
 
 const MAX_NOTE_LEN = 140;
 
-/** Verify author + server signatures on an account-removal cert. */
-export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<boolean> {
-  if (
-    !cert ||
-    cert.type !== 'account' ||
-    !cert.userSignature?.armor ||
-    !cert.serverSignature
-  ) {
-    console.error('[verifyAccountRemoval] missing fields or wrong type', cert?.type);
-    return false;
-  }
-  if ((cert.note?.length ?? 0) > MAX_NOTE_LEN) {
-    console.error('[verifyAccountRemoval] note too long');
-    return false;
-  }
-
-  const userPayload = buildAccountRemovalUserPayload(
-    cert.serverID,
-    cert.userID,
-    cert.note ?? ''
-  );
-  const armor = await resolveAuthorArmor(cert.userID);
-  if (!armor) {
-    console.error('[verifyAccountRemoval] no public key for author', cert.userID);
-    return false;
-  }
-
-  let userSigArmor: string;
-  try {
-    userSigArmor = atob(cert.userSignature.armor);
-  } catch {
-    console.error('[verifyAccountRemoval] invalid signature encoding');
-    return false;
-  }
-
-  const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, armor);
-  if (!userValid) {
-    console.error('[verifyAccountRemoval] user signature failed', cert.userID);
-    return false;
-  }
-
-  const serverPayload = buildAccountRemovalServerPayload(
-    cert.serverID,
-    cert.userID,
-    cert.note ?? '',
-    cert.serverSignature.fingerprint,
-    cert.userSignature.armor,
-    signedAtHeader(cert.serverSignature.timestamp)
-  );
-  const serverResult = await verify(cert.serverSignature, serverPayload);
-  if (serverResult.ok === false) {
-    console.error('[verifyAccountRemoval] server signature failed', serverResult);
-    return false;
-  }
-  return true;
-}
-
-async function resolveAuthorArmor(userID: string): Promise<string | null> {
-  try {
-    // Prefer a cached key — profile GET may already be Gone.
-    const allKeys = await dbService.getAll<api.PublicKey>('publicKeys');
-    const forUser = allKeys.filter((k) => k.userID === userID && k.armor);
-    if (forUser.length === 1) {
-      return forUser[0].armor;
-    }
-
-    const user = await apiService.getUser(userID).catch(() => null);
-    const fp =
-      user?.activeKeyFingerprint ||
-      user?.userSignature?.fingerprint ||
-      forUser[0]?.fingerprint;
-    if (!fp) {
-      return forUser[0]?.armor ?? null;
-    }
-
-    const cached = await publicKeyRepository.getPublicKey(fp);
-    if (cached?.armor) return cached.armor;
-
-    const key = await apiService.getPublicKey(userID, fp);
-    if (key?.armor) {
-      await publicKeyRepository.put(key);
-      return key.armor;
-    }
-  } catch (error) {
-    console.error('[verifyAccountRemoval] failed to resolve author key', userID, error);
-  }
-  return null;
-}
+export { verifyAccountRemoval };
 
 /**
  * Peer purge set (07): drop profile/reeds/follows; keep public keys;
- * store cert for tombstone note.
+ * store cert for tombstone note. Verification runs inside
+ * `removedAccountsRepository.put`.
  */
 export async function commitAccountRemovalLocally(cert: api.AccountRemoval): Promise<void> {
   await removedAccountsRepository.put(cert);
@@ -124,11 +34,13 @@ export async function commitAccountRemovalLocally(cert: api.AccountRemoval): Pro
 export async function verifyAndCommitAccountRemoval(
   cert: api.AccountRemoval
 ): Promise<boolean> {
-  if (!(await verifyAccountRemoval(cert))) {
+  try {
+    await commitAccountRemovalLocally(cert);
+    return true;
+  } catch (error) {
+    console.error('[verifyAndCommitAccountRemoval] refused', cert?.userID, error);
     return false;
   }
-  await commitAccountRemovalLocally(cert);
-  return true;
 }
 
 /**

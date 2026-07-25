@@ -1,5 +1,6 @@
 import { dbService } from '$lib/services/db';
 import { apiService } from '$lib/services/api';
+import { allowUnsigned } from '$lib/verifiers';
 
 interface FollowRecord {
   userId: string;
@@ -26,8 +27,8 @@ export const followingRepository = {
     if (existing) return;
 
     const record: FollowRecord = { userId, timestamp: Date.now() };
-    await dbService.put<FollowRecord>(FOLLOWING_STORE, record);
-    await dbService.put<FollowRecord>(PENDING_FOLLOWS_STORE, record);
+    await dbService.put<FollowRecord>(FOLLOWING_STORE, record, allowUnsigned);
+    await dbService.put<FollowRecord>(PENDING_FOLLOWS_STORE, record, allowUnsigned);
 
     try {
       await apiService.followUser(userId);
@@ -39,7 +40,11 @@ export const followingRepository = {
 
   async unfollow(userId: string): Promise<void> {
     await dbService.delete(FOLLOWING_STORE, userId);
-    await dbService.put<UnfollowRecord>(UNFOLLOW_STORE, { userId, timestamp: Date.now() });
+    await dbService.put<UnfollowRecord>(
+      UNFOLLOW_STORE,
+      { userId, timestamp: Date.now() },
+      allowUnsigned
+    );
 
     try {
       await apiService.unfollowUser(userId);

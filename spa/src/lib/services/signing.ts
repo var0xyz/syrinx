@@ -129,6 +129,61 @@ export function buildNewUserIdentityPayload(
   );
 }
 
+/** Mirror of BuildProfilePayload in identity.go (server identity countersign). */
+export function buildProfilePayload(
+  userID: string,
+  username: string,
+  fingerprint: string,
+  avatarURL: string,
+  serverID: string,
+  serverKeyFingerprint: string,
+  userSignatureB64: string,
+  bio: string,
+  memberSince: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'identity-server',
+      userID,
+      username,
+      fingerprint,
+      avatarURL,
+      memberSince,
+      serverID,
+      serverKeyFingerprint,
+      signedAt,
+      userSignature: userSignatureB64
+    },
+    bio
+  );
+}
+
+/**
+ * Mirror of BuildReedPayload / ReedCountersignHeaders in identity.go.
+ * Content is the author userSignature wire value (base64 armor), same as
+ * POST /reeds `signature` form field.
+ */
+export function buildReedPayload(
+  serverID: string,
+  authorID: string,
+  reedID: string,
+  serverKeyFingerprint: string,
+  userSignatureB64: string,
+  timestamp: string
+): string {
+  return stringToSign(
+    {
+      authorID,
+      fingerprint: serverKeyFingerprint,
+      serverID,
+      reedID,
+      timestamp
+    },
+    userSignatureB64
+  );
+}
+
 /** Mirror of publicKeyCountersignHeaders + armor in handlers.go. */
 export function buildPublicKeyPayload(
   userID: string,

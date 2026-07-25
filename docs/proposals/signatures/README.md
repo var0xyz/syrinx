@@ -27,14 +27,14 @@ entity step.
 | [05](05_migrate_revocations.md)      | Switch `user_key_revocations` to signature FKs     | 02, 03     |
 | [06](06_migrate_reed_removals.md)    | Switch `reed_removals` (and account later)         | 02; deletion 01 |
 | [08](08_wire_nested_blocks.md)       | Nested `userSignature` / `serverSignature` wire    | 00; after 03–06 preferred |
-| [09](09_verify_server_countersignatures.md) | Verify every signed resource before store (+ possession) | 08; prereq [08](../08_client_signature_validation.md) |
+| [09](09_verify_server_countersignatures.md) | Verify every signed resource before store | 08; prereq [08](../08_client_signature_validation.md) |
 
 Steps 03–06 may proceed in parallel after 02 (except 05 prefers 03 if
 identity active-key hints stay on `users`). Prefer one entity at a time
 if staffing is serial. There is no separate “drop legacy columns” step —
 each entity step removes inline signature columns when it switches.
 Wire nesting ([08](08_wire_nested_blocks.md)) is a separate blank-slate
-JSON reshape. Universal verify-before-store + possession
+JSON reshape. Universal verify-before-store
 ([09](09_verify_server_countersignatures.md)) follows wire nesting.
 
 ---
@@ -49,7 +49,7 @@ JSON reshape. Universal verify-before-store + possession
 - **05 implemented** (`user_key_revocations` → signature FKs).
 - **06 implemented** (`reed_removals` + `account_removals` → signature FKs).
 - **08 implemented** (nested `userSignature` / `serverSignature` wire).
-- **09 proposed** (verify every signed resource before store + possession).
+- **09 implemented** (verify-on-`put`; attested possession cancelled).
 
 ## Motivation
 

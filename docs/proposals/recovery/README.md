@@ -343,7 +343,8 @@ questions by that server timestamp — never the submitter's.
 
 ### Prerequisites (status)
 
-**Done** — shipped in normal operation (proposals 01–08, 10):
+**Done** — shipped in normal operation (proposals 01–08, 10;
+[signatures 09](../signatures/09_verify_server_countersignatures.md)):
 
 - Identity countersignatures at signup / profile update / key rotation.
 - Signed, server-countersigned, server-timestamped profile records.
@@ -352,15 +353,13 @@ questions by that server timestamp — never the submitter's.
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
 - Server-signed client keys on distribution.
-- Client verify-then-store for keys, revocations, deletion certs; reed
-  author-signature checks.
+- Client verify-before-store for every signed resource (`dbService.put` +
+  verifiers). Attested possession cancelled; allocations stay
+  ACK-after-delivery.
 
 **Partial / proposed** — still open in normal operation:
 
 - Revocation **follower fanout** ([09](../09_revocation_fanout.md)).
-- Reed/identity **verify-before-store** (all signed resources) + attested
-  possession
-  ([signatures 09](../signatures/09_verify_server_countersignatures.md)).
 - Per-user system notifications ([11](../11_user_notifications.md))
   (also listed under Deferred below).
 

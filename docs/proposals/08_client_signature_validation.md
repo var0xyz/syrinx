@@ -3,32 +3,34 @@
 ## Status
 
 Implemented (verify-then-store for public keys, revocations, and
-deletion certs; reed ingest checks **author** signature). Remaining
-work — verify **every** attestation on every signed resource before
-store, plus attested possession — is
+deletion certs; reed ingest checks **author** signature). Full
+verify-before-store for every signed resource (including reed server
+countersig and identity) landed in
 [signatures 09](signatures/09_verify_server_countersignatures.md).
+Attested possession from early drafts was **cancelled** there.
 
 ## Context
 
-Without client gates, a build can store reeds and register as a holder
-without proving it verified anything. Allocations written on mere
-delivery ACK pollute `reed_allocations` when the client skipped crypto
-checks.
+Without client gates, a build can store reeds without proving it
+verified anything. Local trust depends on verify-before-store.
 
 ## Scope
 
 - Define **client verification gates** for inbound signed artifacts
   (reeds, identity, distributed public keys, revocations).
-- On successful reed verification: store locally, then **report
-  possession** with a proof (server verifies its own countersignature).
-- Failed verification: **discard silently**.
+- On successful reed verification: store locally; allocate via existing
+  `DATA_ACK` after delivery (attested possession cancelled in
+  [signatures 09](signatures/09_verify_server_countersignatures.md)).
+- Failed verification: **discard silently** (and `DATA_INVALID`, no
+  allocation).
 
 Landed under this proposal / adjacent work: key attestation verify
 ([07](07_server_signed_distributed_keys.md)), revocation verify
 ([06](06_signed_replicated_revocations.md) / [10](10_revocation_resource.md)),
 deletion-cert verify ([deletion](deletion/README.md)), and author-sig
-checks on reed receive. Follow-through for server countersignatures and
-possession: [signatures 09](signatures/09_verify_server_countersignatures.md).
+checks on reed receive. Universal verify-before-store completed in
+[signatures 09](signatures/09_verify_server_countersignatures.md)
+(attested possession cancelled).
 
 ## Non-goals
 
@@ -44,11 +46,12 @@ possession: [signatures 09](signatures/09_verify_server_countersignatures.md).
 | Check | Who | Purpose |
 |-------|-----|---------|
 | Author signature over content | Receiving client | Content authenticity |
-| Server countersignature over `(reedID, authorID, …, userSignature)` | Receiving client **and** server on allocation report | Attestation / proof of possession of the attested tuple |
+| Server countersignature over `(reedID, authorID, …, userSignature)` | Receiving client | Attestation before local store |
 | Holder request auth (existing middleware) | Server | Who is registering as holder |
 
-Details for universal verify-before-store and possession live in
+Universal verify-before-store lives in
 [signatures 09](signatures/09_verify_server_countersignatures.md).
+Allocation remains ACK-after-delivery (attested possession cancelled).
 
 ### Other client gates
 
@@ -58,8 +61,7 @@ Apply “verify then store, else discard” to:
 - **Revocation / successor walks** (06 / 10; fanout 09) — **landed**
   for verify-before-store; fanout remains [09](09_revocation_fanout.md).
 - **Deletion certs** — **landed**.
-- **Identity records** and full reed attestation / possession —
-  **signatures 09**.
+- **Identity records** and full reed attestation — **signatures 09**.
 
 ## Dependencies
 
@@ -69,4 +71,4 @@ Apply “verify then store, else discard” to:
 
 ## Parallelism
 
-- Follow-on: [signatures 09](signatures/09_verify_server_countersignatures.md).
+- Completed follow-on: [signatures 09](signatures/09_verify_server_countersignatures.md).

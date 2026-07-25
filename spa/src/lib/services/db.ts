@@ -1,4 +1,5 @@
 import type * as api from '$lib/types/api';
+import type { Verifier } from '$lib/verifiers';
 
 export interface DbMetadata {
   created: number;
@@ -10,7 +11,7 @@ export type DbWrapper<T> = T & {
 
 export interface DbService {
   init(): Promise<void>;
-  put<T extends api.Base>(storeName: string, data: T): Promise<void>;
+  put<T extends api.Base>(storeName: string, data: T, verifier: Verifier<T>): Promise<void>;
   get<T extends api.Base>(storeName: string, key: string): Promise<T | null>;
   delete(storeName: string, key: string): Promise<void>;
   getAll<T extends api.Base>(storeName: string): Promise<T[]>;
@@ -100,9 +101,18 @@ export class IndexedDbService implements DbService {
     });
   }
 
-  async put<T extends api.Base>(storeName: string, data: T): Promise<void> {
+  async put<T extends api.Base>(
+    storeName: string,
+    data: T,
+    verifier: Verifier<T>
+  ): Promise<void> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
+
+    const ok = await verifier(data);
+    if (!ok) {
+      throw new Error(`Refusing to store in ${storeName}: verification failed`);
+    }
 
     const wrappedData: DbWrapper<T> = {
       ...data,
