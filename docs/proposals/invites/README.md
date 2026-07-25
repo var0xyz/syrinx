@@ -23,7 +23,7 @@ the invites consume helper. Shared identity payload builders stay in
 
 ## Status
 
-**00–01 implemented.** **02–05 proposed.** Signup remains open unless
+**00–02 implemented.** **03–05 proposed.** Signup remains open unless
 `SIGNUP_MODE=closed` (invite consume lands in 03).
 
 ## Motivation

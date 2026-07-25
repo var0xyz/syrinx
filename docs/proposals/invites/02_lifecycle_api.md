@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed.
+Implemented (`invites.RegisterRoutes` create/list/revoke/check; quota +
+closed-mode on create; `/api/invites/check` allowlisted).
 
 ## Depends on
 
@@ -128,13 +129,13 @@ off status codes alone.
 
 ## Test plan
 
-- [ ] Create while `open` / `invite` → 201 with token; second create increments count
-- [ ] Create at quota → 403; `max=-1` never hits quota
-- [ ] Create while `closed` → 403; list still 200
-- [ ] List shows `claimedBy` after a manual `MarkClaimed` in test
-- [ ] Revoke pending → check becomes `valid: false`; revoke again → 204
-- [ ] Revoke claimed → 409
-- [ ] Revoke other user's id → 404
-- [ ] Check missing token → 400; unknown token → `{valid:false}`; pending → `{valid:true}`
-- [ ] Unauthenticated create → 401/403 from existing auth middleware
-- [ ] Unauthenticated check → allowed
+- [x] Create while `open` / `invite` → 201 with token; second create increments count
+- [x] Create at quota → 403; `max=-1` never hits quota
+- [x] Create while `closed` → 403; list still 200
+- [x] List shows `claimedBy` after a manual `MarkClaimed` in test
+- [x] Revoke pending → check becomes `valid: false`; revoke again → 204
+- [x] Revoke claimed → 409
+- [x] Revoke other user's id → 404
+- [x] Check missing token → 400; unknown token → `{valid:false}`; pending → `{valid:true}`
+- [x] Unauthenticated create → 401/403 from existing auth middleware
+- [x] Unauthenticated check → allowed
