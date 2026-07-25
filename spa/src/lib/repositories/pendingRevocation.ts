@@ -6,6 +6,7 @@ import { requestSigner } from '$lib/services/request-signer';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
 import { revocationRepository } from '$lib/repositories/revocation';
+import { allowUnsigned } from '$lib/verifiers';
 
 export interface PendingRevocationRecord {
   fingerprint: string;          // old key — keyPath
@@ -24,7 +25,7 @@ export const pendingRevocationSynced = writable(0);
 
 export const pendingRevocationRepository = {
   async put(record: PendingRevocationRecord): Promise<void> {
-    await dbService.put('pendingRevocation', record);
+    await dbService.put('pendingRevocation', record, allowUnsigned);
   },
 
   async delete(fingerprint: string): Promise<void> {
@@ -34,7 +35,11 @@ export const pendingRevocationRepository = {
   async markRevoked(fingerprint: string): Promise<void> {
     const existing = await dbService.get<PendingRevocationRecord>('pendingRevocation', fingerprint);
     if (!existing) throw new Error(`Pending revocation not found: ${fingerprint}`);
-    await dbService.put('pendingRevocation', { ...existing, keyRevoked: true });
+    await dbService.put(
+      'pendingRevocation',
+      { ...existing, keyRevoked: true },
+      allowUnsigned
+    );
   },
 
   async get(fingerprint: string): Promise<PendingRevocationRecord | null> {

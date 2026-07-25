@@ -1,6 +1,7 @@
 import { apiService } from '$lib/services/api';
 import { dbService } from '$lib/services/db';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
+import { allowUnsigned, verifyUser } from '$lib/verifiers';
 import type * as api from '$lib/types/api';
 
 export class UserRepository {
@@ -11,7 +12,7 @@ export class UserRepository {
   }
 
   async put(user: api.User): Promise<void> {
-    await dbService.put<api.User>(this.storeName, user);
+    await dbService.put<api.User>(this.storeName, user, verifyUser);
   }
 
   async delete(userId: string): Promise<void> {
@@ -24,10 +25,14 @@ export class UserRepository {
   }
 
   async writeTombstone(userId: string): Promise<void> {
-    await dbService.put(this.storeName, {
-      id: userId,
-      __meta__: { deleted: true, timestamp: Date.now() }
-    } as any);
+    await dbService.put(
+      this.storeName,
+      {
+        id: userId,
+        __meta__: { deleted: true, timestamp: Date.now() }
+      } as any,
+      allowUnsigned
+    );
   }
 
   async getByUserId(userId: string): Promise<api.User> {
@@ -37,7 +42,6 @@ export class UserRepository {
       return user;
     }
 
-    // No cached data, fetch from server
     try {
       user = await apiService.getUser(userId);
     } catch (error) {
@@ -47,10 +51,6 @@ export class UserRepository {
 
     await this.put(user);
 
-    // Use userSignature.fingerprint here: we're caching the key that
-    // signed this identity record so we can verify it locally later.
-    // (activeKeyFingerprint would be the key to use for *new* signed
-    // operations, but that's a separate concern.)
     if (
       user.userSignature?.fingerprint &&
       !(await publicKeyRepository.hasPublicKey(user.userSignature.fingerprint))
