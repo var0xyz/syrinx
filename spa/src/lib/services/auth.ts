@@ -11,6 +11,7 @@ interface SignupUser {
   publicKey: string;
   signature: string;
   userSignature: string;
+  invite?: string;
 }
 
 export class AuthService {
@@ -133,6 +134,9 @@ export class AuthService {
     formData.append('publicKey', userData.publicKey);
     formData.append('signature', userData.signature);
     formData.append('userSignature', userData.userSignature);
+    if (userData.invite) {
+      formData.append('invite', userData.invite);
+    }
 
     const response = await fetch('/api/users/signup', {
       method: 'POST',
@@ -141,7 +145,16 @@ export class AuthService {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      let message = `HTTP ${response.status}`;
+      try {
+        const body = await response.json();
+        if (typeof body === 'string' && body.trim() !== '') {
+          message = body;
+        }
+      } catch {
+        // keep status message
+      }
+      throw new Error(message);
     }
 
     const user = await response.json();

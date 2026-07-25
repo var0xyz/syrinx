@@ -2,7 +2,12 @@
 
 ## Status
 
-Proposed.
+Implemented (home Sign Up gated on `signupMode === open`; invite links
+via `/signup?invite=`; closed/preamble gates; invite form field + check;
+friendly errors and failed-signup cleanup).
+
+Invite links target `/signup?invite=TOKEN` directly (preamble remains for
+the open-mode home CTA only).
 
 ## Depends on
 
@@ -102,10 +107,10 @@ No special “you are the founder” UI required.
 
 ## Test plan
 
-- [ ] Mock/info `open` → Sign Up visible; signup without invite works
-- [ ] Mock/info `invite` → Sign Up hidden; `/signup?invite=valid` works
-- [ ] Mock/info `closed` → Sign Up hidden; `/signup` shows closed, no form
-- [ ] Invite query forwarded into API form body
-- [ ] Invalid invite shows error; no partial local session left behind
+- [x] Mock/info `open` → Sign Up visible; signup without invite works
+- [x] Mock/info `invite` → Sign Up hidden; `/signup?invite=valid` works
+- [x] Mock/info `closed` → Sign Up hidden; `/signup` shows closed, no form
+- [x] Invite query forwarded into API form body
+- [x] Invalid invite shows error; no partial local session left behind
       (if signup fails mid-flow, clean up any keys written before the POST —
       match existing failure handling on signup page)
