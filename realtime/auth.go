@@ -32,26 +32,16 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	userID := r.URL.Query().Get("userID")
 	fingerprint := r.URL.Query().Get("fingerprint")
 	signature := r.URL.Query().Get("signature")
-	algorithm := r.URL.Query().Get("algorithm")
 	timestamp := r.URL.Query().Get("timestamp")
 
-	if userID == "" || fingerprint == "" || signature == "" || algorithm == "" || timestamp == "" {
+	if userID == "" || fingerprint == "" || signature == "" || timestamp == "" {
 		log.Error().
 			Str("userID", userID).
 			Str("fingerprint", fingerprint).
 			Bool("hasSignature", signature != "").
-			Str("algorithm", algorithm).
 			Str("timestamp", timestamp).
 			Msg("Missing authentication parameters")
 		return "", fmt.Errorf("missing authentication parameters")
-	}
-
-	// Validate algorithm
-	if algorithm != "PGP+base64" {
-		log.Error().
-			Str("algorithm", algorithm).
-			Msg("Unsupported signature algorithm")
-		return "", fmt.Errorf("unsupported signature algorithm: %s", algorithm)
 	}
 
 	// Validate timestamp for replay protection

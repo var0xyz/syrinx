@@ -108,14 +108,14 @@
 
       const reed = new Reed();
       reed.content = content;
-      reed.fingerprint = activeKeyFingerprint;
       if (replyingTo) {
-        reed.replying = replyingTo.headers.id;
+        reed.replying = replyingTo.id;
       }
       if (echoOf) {
-        reed.echoing = `${echoOf.headers.author}!${echoOf.headers.id}`;
+        reed.echoing = `${echoOf.userID}!${echoOf.id}`;
       }
-      reed.signature = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
+      const detachedArmor = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
+      reed.setUserSignature(fingerprint, detachedArmor);
       const published = await reedsService.createReed(reed);
       if (published) {
         goto(`/reed/${user.id}/${reed.id}`);

@@ -27,19 +27,19 @@ export async function verifyPublicKey(
   key: api.PublicKey,
   cache: Pick<PublicKeyRepository, 'getPublicKey'>
 ): Promise<boolean> {
-  if (!key?.server) {
-    console.error('[verifyPublicKey] missing server block', key?.fingerprint);
+  if (!key?.serverSignature) {
+    console.error('[verifyPublicKey] missing serverSignature block', key?.fingerprint);
     return false;
   }
   const result = await verify(
-    key.server,
+    key.serverSignature,
     buildPublicKeyPayload(
       key.userID,
       key.fingerprint,
-      key.server.id,
-      key.server.fingerprint,
+      key.serverSignature.serverID,
+      key.serverSignature.fingerprint,
       key.armor,
-      signedAtHeader(key.server.timestamp)
+      signedAtHeader(key.serverSignature.timestamp)
     )
   );
   if (result.ok === false) {
@@ -78,7 +78,7 @@ export async function verifyPublicKey(
 
 /**
  * Local public-key cache. Records are the full wire `PublicKey` shape
- * (including `server` and boolean `revoked`) — never armor-only stubs.
+ * (including `serverSignature` and boolean `revoked`) — never armor-only stubs.
  */
 export class PublicKeyRepository {
   private db: DbService;

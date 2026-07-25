@@ -17,17 +17,15 @@ func TestMarkdownService_ExtractReedHeader(t *testing.T) {
 		{
 			name: "complete header with all fields",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 replying: post123
 echoing: post456
 ---
 Content here`,
 			expected: ReedHeader{
-				Date:     "2024-01-15",
-				Author:   "testuser",
-				Origin:   "example.com",
+				ID:       "reed123",
+				UserID:   "testuser",
 				Replying: "post123",
 				Echoing:  "post456",
 			},
@@ -35,15 +33,13 @@ Content here`,
 		{
 			name: "minimal header with only mandatory fields",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 ---
 Content here`,
 			expected: ReedHeader{
-				Date:     "2024-01-15",
-				Author:   "testuser",
-				Origin:   "example.com",
+				ID:       "reed123",
+				UserID:   "testuser",
 				Replying: "",
 				Echoing:  "",
 			},
@@ -51,16 +47,14 @@ Content here`,
 		{
 			name: "header with only replying field",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 replying: post123
 ---
 Content here`,
 			expected: ReedHeader{
-				Date:     "2024-01-15",
-				Author:   "testuser",
-				Origin:   "example.com",
+				ID:       "reed123",
+				UserID:   "testuser",
 				Replying: "post123",
 				Echoing:  "",
 			},
@@ -68,16 +62,14 @@ Content here`,
 		{
 			name: "header with only echoing field",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 echoing: post456
 ---
 Content here`,
 			expected: ReedHeader{
-				Date:     "2024-01-15",
-				Author:   "testuser",
-				Origin:   "example.com",
+				ID:       "reed123",
+				UserID:   "testuser",
 				Replying: "",
 				Echoing:  "post456",
 			},
@@ -86,23 +78,20 @@ Content here`,
 			name: "empty reed",
 			reed: "",
 			expected: ReedHeader{
-				Date:     "",
-				Author:   "",
-				Origin:   "",
+				ID:       "",
+				UserID:   "",
 				Replying: "",
 				Echoing:  "",
 			},
 		},
 		{
 			name: "reed without header markers",
-			reed: `date: 2024-01-15
-author: testuser
-origin: example.com
+			reed: `id: reed123
+userID: testuser
 Content here`,
 			expected: ReedHeader{
-				Date:     "",
-				Author:   "",
-				Origin:   "",
+				ID:       "",
+				UserID:   "",
 				Replying: "",
 				Echoing:  "",
 			},
@@ -110,14 +99,12 @@ Content here`,
 		{
 			name: "reed with only opening header marker",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 Content here`,
 			expected: ReedHeader{
-				Date:     "2024-01-15",
-				Author:   "testuser",
-				Origin:   "example.com",
+				ID:       "reed123",
+				UserID:   "testuser",
 				Replying: "",
 				Echoing:  "",
 			},
@@ -125,15 +112,13 @@ Content here`,
 		{
 			name: "header with extra whitespace",
 			reed: `---
-date:  2024-01-15
-author:  testuser
-origin:  example.com
+id:  reed123
+userID:  testuser
 ---
 Content here`,
 			expected: ReedHeader{
-				Date:     "2024-01-15",
-				Author:   "testuser",
-				Origin:   "example.com",
+				ID:       "reed123",
+				UserID:   "testuser",
 				Replying: "",
 				Echoing:  "",
 			},
@@ -141,17 +126,15 @@ Content here`,
 		{
 			name: "header with duplicate fields (last one wins)",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
-date: 2024-01-16
-author: anotheruser
+id: reed123
+userID: testuser
+id: reed456
+userID: anotheruser
 ---
 Content here`,
 			expected: ReedHeader{
-				Date:     "2024-01-16",
-				Author:   "anotheruser",
-				Origin:   "example.com",
+				ID:       "reed456",
+				UserID:   "anotheruser",
 				Replying: "",
 				Echoing:  "",
 			},
@@ -180,9 +163,8 @@ func TestMarkdownService_ValidateReedHeader(t *testing.T) {
 		{
 			name: "valid header with all mandatory fields",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 ---
 Content here`,
 			wantErr: false,
@@ -190,9 +172,8 @@ Content here`,
 		{
 			name: "valid header with optional fields",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 replying: post123
 echoing: post456
 ---
@@ -200,30 +181,18 @@ Content here`,
 			wantErr: false,
 		},
 		{
-			name: "missing date field",
+			name: "missing id field",
 			reed: `---
-author: testuser
-origin: example.com
+userID: testuser
 ---
 Content here`,
 			wantErr: true,
 			errMsg:  "mandatory headers missing",
 		},
 		{
-			name: "missing author field",
+			name: "missing userID field",
 			reed: `---
-date: 2024-01-15
-origin: example.com
----
-Content here`,
-			wantErr: true,
-			errMsg:  "mandatory headers missing",
-		},
-		{
-			name: "missing origin field",
-			reed: `---
-date: 2024-01-15
-author: testuser
+id: reed123
 ---
 Content here`,
 			wantErr: true,
@@ -242,9 +211,8 @@ Content here`,
 		{
 			name: "unrecognized header field",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 invalid: field
 ---
 Content here`,
@@ -254,9 +222,8 @@ Content here`,
 		{
 			name: "invalid header format (no colon)",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 invalid field
 ---
 Content here`,
@@ -271,9 +238,8 @@ Content here`,
 		},
 		{
 			name: "reed without header markers",
-			reed: `date: 2024-01-15
-author: testuser
-origin: example.com
+			reed: `id: reed123
+userID: testuser
 Content here`,
 			wantErr: true,
 			errMsg:  "mandatory headers missing",
@@ -281,9 +247,8 @@ Content here`,
 		{
 			name: "reed with only opening header marker",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 Content here`,
 			wantErr: true, // This should fail because content after header without closing --- is invalid
 			errMsg:  "invalid header format",
@@ -291,9 +256,8 @@ Content here`,
 		{
 			name: "header with extra whitespace",
 			reed: `---
-date:  2024-01-15
-author:  testuser
-origin:  example.com
+id:  reed123
+userID:  testuser
 ---
 Content here`,
 			wantErr: false,
@@ -327,9 +291,8 @@ func TestMarkdownService_ExtractReedContent(t *testing.T) {
 		{
 			name: "content after header",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 ---
 This is the content
 With multiple lines
@@ -341,9 +304,8 @@ And more text`,
 		{
 			name: "content with empty lines",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 ---
 
 This is the content
@@ -360,26 +322,23 @@ And more text`,
 		{
 			name: "content with only header",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 ---`,
 			expected: "",
 		},
 		{
 			name: "content without header markers",
-			reed: `date: 2024-01-15
-author: testuser
-origin: example.com
+			reed: `id: reed123
+userID: testuser
 This is the content`,
 			expected: "",
 		},
 		{
 			name: "content with only opening header marker",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 This is the content`,
 			expected: ``, // Content extraction requires proper header closing
 		},
@@ -391,9 +350,8 @@ This is the content`,
 		{
 			name: "content with multiple header sections",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 ---
 First content section
 ---
@@ -409,9 +367,8 @@ Second content section`,
 		{
 			name: "content with whitespace",
 			reed: `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 ---
 
     Indented content
@@ -546,9 +503,8 @@ func TestMarkdownService_EdgeCases(t *testing.T) {
 
 	t.Run("ExtractReedHeader with malformed header", func(t *testing.T) {
 		reed := `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 malformed line without colon
 ---
 Content here`
@@ -556,9 +512,8 @@ Content here`
 		result := service.ExtractReedHeader(reed)
 		// Should still extract valid fields and ignore malformed ones
 		expected := ReedHeader{
-			Date:     "2024-01-15",
-			Author:   "testuser",
-			Origin:   "example.com",
+			ID:       "reed123",
+			UserID:   "testuser",
 			Replying: "",
 			Echoing:  "",
 		}
@@ -569,9 +524,8 @@ Content here`
 
 	t.Run("ValidateReedHeader with malformed header", func(t *testing.T) {
 		reed := `---
-date: 2024-01-15
-author: testuser
-origin: example.com
+id: reed123
+userID: testuser
 malformed line without colon
 ---
 Content here`

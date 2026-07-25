@@ -5,7 +5,7 @@ This package provides real-time WebSocket functionality for the Syrinx applicati
 ## Features
 
 - **WebSocket Connection Management**: Handles client connections with proper authentication
-- **PGP+base64 Authentication**: Uses signature-based authentication with base64-encoded PGP signatures
+- **PGP signature authentication**: Base64-encoded detached PGP signatures over the timestamp
 - **Subscription Management**: Supports user-specific and broadcast subscriptions
 - **Real-time Broadcasting**: Broadcasts reed notifications, user updates, and other events
 - **Online User Tracking**: Tracks online users in the database
@@ -37,13 +37,13 @@ Main App HTTP API → Go Channel → Realtime Service → WebSocket Clients
 
 ## Authentication
 
-WebSocket connections require PGP+base64 authentication via headers:
+WebSocket connections authenticate via query parameters (browsers cannot set
+custom headers on the upgrade request):
 
-- `X-Syrinx-User-Id` - User ID
-- `X-Syrinx-Fingerprint` - Public key fingerprint
-- `X-Syrinx-Signature` - Base64-encoded PGP signature
-- `X-Syrinx-Algorithm` - "PGP+base64"
-- `X-Syrinx-Timestamp` - Unix timestamp for replay protection
+- `userID` — User ID
+- `fingerprint` — Public key fingerprint
+- `signature` — Base64-encoded PGP signature over the timestamp
+- `timestamp` — Unix timestamp for replay protection
 
 ## Usage
 

@@ -726,19 +726,19 @@ func (ds *DBService) serverID() (string, error) {
 
 func reedRemovalWireMap(serverID string, cert *deletion.Cert) map[string]interface{} {
 	return map[string]interface{}{
-		"type":         identity.TypeReed,
-		"serverID":     serverID,
-		"userID":       cert.UserID,
-		"reedID":       cert.ReedID,
-		"signature":    cert.UserSignature,
-		"signedFields": cert.UserSignedFields,
-		"server": map[string]interface{}{
-			"id":           serverID,
-			"fingerprint":  cert.ServerFingerprint,
-			"algorithm":    identity.Algorithm,
-			"signature":    cert.ServerSignature,
-			"timestamp":    cert.ServerSignedAt.UTC(),
-			"signedFields": cert.ServerSignedFields,
+		"type":     identity.TypeReed,
+		"serverID": serverID,
+		"userID":   cert.UserID,
+		"reedID":   cert.ReedID,
+		"userSignature": map[string]interface{}{
+			"fingerprint": cert.UserFingerprint,
+			"armor":       cert.UserSignature,
+		},
+		"serverSignature": map[string]interface{}{
+			"serverID":    serverID,
+			"fingerprint": cert.ServerFingerprint,
+			"armor":       cert.ServerSignature,
+			"timestamp":   cert.ServerSignedAt.UTC(),
 		},
 	}
 }
@@ -807,19 +807,19 @@ func (ds *DBService) GetAccountRemovalWire(userID string) (map[string]interface{
 
 func accountRemovalWireMap(serverID string, cert *deletion.AccountCert) map[string]interface{} {
 	return map[string]interface{}{
-		"type":         identity.TypeAccount,
-		"serverID":     serverID,
-		"userID":       cert.UserID,
-		"note":         cert.Note,
-		"signature":    cert.UserSignature,
-		"signedFields": cert.UserSignedFields,
-		"server": map[string]interface{}{
-			"id":           serverID,
-			"fingerprint":  cert.ServerFingerprint,
-			"algorithm":    identity.Algorithm,
-			"signature":    cert.ServerSignature,
-			"timestamp":    cert.ServerSignedAt.UTC(),
-			"signedFields": cert.ServerSignedFields,
+		"type":     identity.TypeAccount,
+		"serverID": serverID,
+		"userID":   cert.UserID,
+		"note":     cert.Note,
+		"userSignature": map[string]interface{}{
+			"fingerprint": cert.UserFingerprint,
+			"armor":       cert.UserSignature,
+		},
+		"serverSignature": map[string]interface{}{
+			"serverID":    serverID,
+			"fingerprint": cert.ServerFingerprint,
+			"armor":       cert.ServerSignature,
+			"timestamp":   cert.ServerSignedAt.UTC(),
 		},
 	}
 }

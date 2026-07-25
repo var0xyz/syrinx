@@ -79,7 +79,7 @@ export function buildKeyNest(
     if (!key.armor) {
       return { ok: false, reason: `missing armor for ${fingerprint}` };
     }
-    if (!key.server) {
+    if (!key.serverSignature) {
       return {
         ok: false,
         reason: `missing server countersignature for ${fingerprint}`,
@@ -116,7 +116,7 @@ export function buildKeyNest(
       userID: key.userID,
       armor: key.armor,
       revoked: key.revoked,
-      server: key.server,
+      serverSignature: key.serverSignature,
       revocation,
       predecessor,
     };

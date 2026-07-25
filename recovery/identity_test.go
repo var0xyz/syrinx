@@ -68,19 +68,16 @@ func TestClaimIdentity_BadChallengeSignature(t *testing.T) {
 	ts := fixed
 	serverID := "srv1"
 	profile := Profile{
-		ID:                   "user1",
-		Username:             "alice",
-		MemberSince:          ts,
-		SignatureFingerprint: "AAA",
-		Signature:            "dXNlcg==",
-		Server: ServerSignature{
-			ID: serverID, Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy",
-		},
+		ID:              "user1",
+		Username:        "alice",
+		MemberSince:     ts,
+		UserSignature:   testUserSig("AAA"),
+		ServerSignature: testServerSig(serverID, ts),
 	}
 	root := KeyNode{
 		KeyWire: KeyWire{
 			Fingerprint: "AAA", Armor: "armor-a", UserID: "user1", CreatedAt: ts,
-			Server: ServerSignature{ID: serverID, Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy"},
+			ServerSignature: testServerSig(serverID, ts),
 		},
 	}
 	challengeMsg := strconv.FormatInt(fixed.Unix(), 10)
@@ -137,25 +134,22 @@ func TestReportPeerIdentity_BrokenNest(t *testing.T) {
 	serverID := "srv1"
 	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	profile := Profile{
-		ID:                   "peer1",
-		Username:             "bob",
-		MemberSince:          ts,
-		SignatureFingerprint: "BBB",
-		Signature:            "dXNlcg==",
-		Server: ServerSignature{
-			ID: serverID, Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy",
-		},
+		ID:              "peer1",
+		Username:        "bob",
+		MemberSince:     ts,
+		UserSignature:   testUserSig("BBB"),
+		ServerSignature: testServerSig(serverID, ts),
 	}
 	root := KeyNode{
 		KeyWire: KeyWire{
 			Fingerprint: "BBB", Armor: "armor-b", UserID: "peer1", CreatedAt: ts,
-			Server: ServerSignature{ID: serverID, Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy"},
+			ServerSignature: testServerSig(serverID, ts),
 		},
 		Predecessor: &KeyNode{
 			Signature: "bad-pred-sig",
 			KeyWire: KeyWire{
 				Fingerprint: "AAA", Armor: "armor-a", UserID: "peer1", CreatedAt: ts,
-				Server: ServerSignature{ID: serverID, Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy"},
+				ServerSignature: testServerSig(serverID, ts),
 			},
 		},
 	}

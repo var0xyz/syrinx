@@ -10,7 +10,7 @@ export async function verifyKeyRevocation(
   revocation: api.KeyRevocation,
   publicKeyArmor: string
 ): Promise<boolean> {
-  if (!revocation?.server || !revocation.signature) {
+  if (!revocation?.serverSignature || !revocation.userSignature?.armor) {
     console.error('[verifyKeyRevocation] missing signatures', revocation?.fingerprint);
     return false;
   }
@@ -22,7 +22,7 @@ export async function verifyKeyRevocation(
   );
   const userValid = await cryptoService.verifySignature(
     userPayload,
-    atob(revocation.signature),
+    atob(revocation.userSignature.armor),
     publicKeyArmor
   );
   if (!userValid) {
@@ -34,12 +34,12 @@ export async function verifyKeyRevocation(
     revocation.userID,
     revocation.fingerprint,
     revocation.reason,
-    revocation.server.id,
-    revocation.server.fingerprint,
-    revocation.signature,
-    signedAtHeader(revocation.server.timestamp)
+    revocation.serverSignature.serverID,
+    revocation.serverSignature.fingerprint,
+    revocation.userSignature.armor,
+    signedAtHeader(revocation.serverSignature.timestamp)
   );
-  const serverResult = await verify(revocation.server, serverPayload);
+  const serverResult = await verify(revocation.serverSignature, serverPayload);
   if (serverResult.ok === false) {
     console.error('[verifyKeyRevocation] server signature failed', serverResult);
     return false;

@@ -7,7 +7,7 @@ import { apiService as api } from '../services/api';
 import { cryptoService } from '../services/crypto';
 import { dbService } from '../services/db';
 import { verifyPublicKey, publicKeyRepository } from './publicKey';
-import { Reed as ReedClass, type ReedType } from '$lib/types/reed';
+import { Reed as ReedClass, reedAsMarkdown, type ReedType } from '$lib/types/reed';
 import type { User } from '$lib/types/api';
 import { serverConnection } from '$lib/services/serverConnection';
 import { writable } from 'svelte/store';
@@ -50,9 +50,12 @@ class ReedsService {
     console.log('Storing unsigned reed in IndexedDB:', reed.asObject());
     await dbService.put('unsignedReeds', reed.asObject());
 
+    if (!reed.userSignature?.armor) {
+      throw new Error('Reed is missing userSignature');
+    }
     try {
       console.log('Getting signature from server...');
-      const response = await api.createReed(reed.id, reed.signature);
+      const response = await api.createReed(reed.id, reed.userSignature.armor);
       reed.applyServerResponse(response);
     } catch (error) {
       console.error('Failed to publish reed to server, queued for later:', error);
@@ -75,21 +78,24 @@ class ReedsService {
 
     for (const reed of unsignedReeds) {
       try {
-        console.log('Processing unsigned reed:', reed.headers.id);
-        const response = await api.createReed(reed.headers.id, reed.signature);
+        if (!reed.userSignature?.armor) {
+          console.error('Skipping unsigned reed without userSignature:', reed.id);
+          continue;
+        }
+        console.log('Processing unsigned reed:', reed.id);
+        const response = await api.createReed(reed.id, reed.userSignature.armor);
         await this.storeReedInIndexedDB({
           ...reed,
-          server: {
-            id: response.id,
+          serverSignature: {
+            serverID: response.serverID,
             fingerprint: response.fingerprint,
-            algorithm: response.algorithm,
-            signature: response.signature,
+            armor: response.armor,
             timestamp: response.timestamp,
           },
         });
-        await dbService.delete('unsignedReeds', reed.headers.id);
+        await dbService.delete('unsignedReeds', reed.id);
       } catch (error) {
-        console.error('Failed to process unsigned reed:', reed.headers.id, error);
+        console.error('Failed to process unsigned reed:', reed.id, error);
       }
     }
 
@@ -109,24 +115,19 @@ class ReedsService {
   }
 
   async validateReed(reed: ReedType): Promise<boolean> {
-    if (!reed.signature || !reed.headers?.author || !reed.headers?.fingerprint) {
+    if (!reed.userSignature?.armor || !reed.userSignature?.fingerprint || !reed.userID) {
       return false;
     }
     try {
-      const publicKeyData = await api.getPublicKey(reed.headers.author, reed.headers.fingerprint);
+      const publicKeyData = await api.getPublicKey(reed.userID, reed.userSignature.fingerprint);
       if (!(await verifyPublicKey(publicKeyData, publicKeyRepository))) {
         return false;
       }
-      const message =
-        "---\n" +
-        Object.keys(reed.headers)
-          .filter((k) => !!reed.headers[k])
-          .sort()
-          .map((k) => `${k}: ${reed.headers[k]}`)
-          .join('\n') +
-        "\n---\n" +
-        reed.content;
-      return await cryptoService.verifySignature(message, atob(reed.signature), publicKeyData.armor);
+      return await cryptoService.verifySignature(
+        reedAsMarkdown(reed),
+        atob(reed.userSignature.armor),
+        publicKeyData.armor,
+      );
     } catch {
       return false;
     }
@@ -160,8 +161,8 @@ class ReedsService {
         for (const tag of reed.tags) {
           let reeds = await this.getTaggedReeds(tagsStore, tag);
           console.log('Tagged reeds:', reeds);
-          if (!reeds.includes(reed.headers.id)) {
-            reeds = [...reeds, reed.headers.id];
+          if (!reeds.includes(reed.id)) {
+            reeds = [...reeds, reed.id];
           }
           tagsStore.put({ tagName: tag, reeds, __meta__: { created: Date.now() } });
         }
@@ -174,7 +175,7 @@ class ReedsService {
     }
 
     console.log('Reed stored in IndexedDB:', reed);
-    serverConnection.fulfillPendingRelayRequest(reed.headers.id, reed);
+    serverConnection.fulfillPendingRelayRequest(reed.id, reed);
   }
 
   /**
@@ -223,8 +224,8 @@ class ReedsService {
   }
 
   async deleteReedsByAuthor(authorId: string): Promise<void> {
-    const reeds = await dbService.getAllByIndex<ReedType>('reeds', 'headers.author', authorId);
-    await Promise.all(reeds.map(r => dbService.delete('reeds', r.headers.id)));
+    const reeds = await dbService.getAllByIndex<ReedType>('reeds', 'userID', authorId);
+    await Promise.all(reeds.map(r => dbService.delete('reeds', r.id)));
   }
 
   /**
@@ -232,7 +233,7 @@ class ReedsService {
    */
   async getReedsByAuthor(authorId: string): Promise<ReedType[]> {
     try {
-      const reeds = await dbService.getAllByIndex<ReedType>('reeds', 'headers.author', authorId);
+      const reeds = await dbService.getAllByIndex<ReedType>('reeds', 'userID', authorId);
       return reeds;
     } catch (error) {
       console.error('Failed to get reeds by author:', error);
@@ -349,10 +350,10 @@ export async function initFollowcastIds(): Promise<void> {
   if (following.length === 0) return;
   const followedSet = new Set(following.map(f => f.userId));
   const reeds = await dbService.getLatestFromIndex<ReedType>(
-    'reeds', 'server.timestamp', FOLLOWCAST_LIMIT,
-    reed => followedSet.has(reed.headers.author)
+    'reeds', 'serverSignature.timestamp', FOLLOWCAST_LIMIT,
+    reed => followedSet.has(reed.userID)
   );
-  sessionStorage.setItem(FOLLOWCAST_KEY, JSON.stringify(reeds.map(r => r.headers.id)));
+  sessionStorage.setItem(FOLLOWCAST_KEY, JSON.stringify(reeds.map(r => r.id)));
 }
 
 export function prependFollowcastId(reedId: string): void {
@@ -382,7 +383,7 @@ export async function getFollowcastReeds(): Promise<{ reeds: ReedType[]; authors
   }
   const authors: Record<string, User> = {};
   for (const reed of reeds) {
-    const authorId = reed.headers.author;
+    const authorId = reed.userID;
     if (!authors[authorId]) {
       const user = await dbService.get<User>('users', authorId);
       if (user) authors[authorId] = user;

@@ -159,7 +159,6 @@ func (rs *responseSigner) signCompleteResponse() error {
 
 	// Add signature to headers (stripped of armor delimiters)
 	rs.ResponseWriter.Header().Set("Signature", escapedSignature)
-	rs.ResponseWriter.Header().Set("X-Syrinx-Algorithm", "PGP+base64")
 	rs.ResponseWriter.Header().Set("X-Syrinx-Signature-Scope", "body")
 
 	return nil
@@ -310,30 +309,19 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			userID := r.Header.Get("X-Syrinx-User-Id")
 			fingerprintHeader := r.Header.Get("X-Syrinx-Fingerprint")
 			signatureHeader := r.Header.Get("X-Syrinx-Signature")
-			algorithmHeader := r.Header.Get("X-Syrinx-Algorithm")
 			signatureScopeHeader := r.Header.Get("X-Syrinx-Signature-Scope")
 			timestampHeader := r.Header.Get("X-Syrinx-Timestamp")
 
-			if userID == "" || fingerprintHeader == "" || signatureHeader == "" || algorithmHeader == "" || signatureScopeHeader == "" || timestampHeader == "" {
+			if userID == "" || fingerprintHeader == "" || signatureHeader == "" || signatureScopeHeader == "" || timestampHeader == "" {
 				log.Error().
 					Str("userID", userID).
 					Str("fingerprint", fingerprintHeader).
 					Bool("hasSignature", signatureHeader != "").
-					Str("algorithm", algorithmHeader).
 					Str("signatureScope", signatureScopeHeader).
 					Str("timestamp", timestampHeader).
 					Str("path", r.URL.Path).
 					Msg("Missing authentication headers")
 				writeResponse(w, http.StatusBadRequest, "Missing authentication headers")
-				return
-			}
-
-			// Validate algorithm
-			if algorithmHeader != "PGP+base64" {
-				log.Error().
-					Str("algorithm", algorithmHeader).
-					Msg("Unsupported signature algorithm")
-				writeResponse(w, http.StatusBadRequest, "Unsupported signature algorithm")
 				return
 			}
 
@@ -545,7 +533,6 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 			"X-Syrinx-User-Id",
 			"X-Syrinx-Fingerprint",
 			"X-Syrinx-Signature",
-			"X-Syrinx-Algorithm",
 			"X-Syrinx-Signature-Scope",
 			"X-Syrinx-Timestamp",
 		}
@@ -555,7 +542,7 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", strings.Join(allowedHeaders, ", "))
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Expose-Headers", "Signature, X-Syrinx-Algorithm")
+			w.Header().Set("Access-Control-Expose-Headers", "Signature")
 
 			// Handle preflight requests
 			if r.Method == "OPTIONS" {

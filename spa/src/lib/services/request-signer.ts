@@ -312,7 +312,6 @@ class RequestSignerService {
     const signedHeaders = new Headers(options.headers);
     signedHeaders.set('X-Syrinx-User-Id', user.id);
     signedHeaders.set('X-Syrinx-Fingerprint', fingerprint);
-    signedHeaders.set('X-Syrinx-Algorithm', 'PGP+base64');
     signedHeaders.set('X-Syrinx-Signature-Scope', 'body');
     signedHeaders.set('X-Syrinx-Timestamp', timestamp);
     signedHeaders.set('X-Syrinx-Signature', signature);
@@ -351,7 +350,7 @@ class RequestSignerService {
   }
 
   /**
-   * Encode signature as base64 for PGP+base64 algorithm
+   * Encode signature as base64
    */
   private encodeBase64Signature(signature: string): string {
 

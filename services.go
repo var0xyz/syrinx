@@ -18,7 +18,6 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/deletion"
-	"syrinx/identity"
 	"syrinx/recovery"
 	"syrinx/signing"
 
@@ -397,8 +396,8 @@ type SignupInput struct {
 	KeyExpiresAt       *time.Time
 	UserSignatureB64   string
 	MemberSince        time.Time
-	ProfileSignature   Signature
-	PublicKeySignature Signature
+	ProfileSignature   ServerSignature
+	PublicKeySignature ServerSignature
 }
 
 // Signup materialises a fresh identity record: it writes the users row
@@ -422,9 +421,7 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	}
 	defer tx.Rollback()
 
-	userSignatureID, err := signing.InsertUserSignature(
-		tx, in.Fingerprint, in.UserSignatureB64, identity.UserIdentitySignedFields,
-	)
+	userSignatureID, err := signing.InsertUserSignature(tx, in.Fingerprint, in.UserSignatureB64)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +430,6 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		in.ProfileSignature.Fingerprint,
 		in.ProfileSignature.Armor,
 		in.ProfileSignature.SignedAt,
-		identity.ProfileSignedFields,
 	)
 	if err != nil {
 		return nil, err
@@ -460,7 +456,6 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		in.PublicKeySignature.Fingerprint,
 		in.PublicKeySignature.Armor,
 		in.PublicKeySignature.SignedAt,
-		identity.PublicKeySignedFields,
 	)
 	if err != nil {
 		return nil, err
@@ -533,22 +528,21 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		return nil, err
 	}
 	uw := signing.UserWire(userRow)
-	user.UserSignatureB64 = uw.Signature
-	user.SignatureFingerprint = uw.SignatureFingerprint
-	user.SignedFields = uw.SignedFields
+	user.UserSignature = UserSignature{
+		Fingerprint: uw.Fingerprint,
+		Armor:       uw.Armor,
+	}
 
 	serverRow, err := signing.GetServerSignature(s.db, serverSignatureID)
 	if err != nil {
 		return nil, err
 	}
 	sw := signing.ServerWire(serverRow, s.serverID)
-	user.Server = Signature{
-		ServerID:     sw.ID,
-		Fingerprint:  sw.Fingerprint,
-		Algorithm:    sw.Algorithm,
-		Armor:        sw.Signature,
-		SignedAt:     sw.Timestamp,
-		SignedFields: sw.SignedFields,
+	user.ServerSignature = ServerSignature{
+		ServerID:    sw.ServerID,
+		Fingerprint: sw.Fingerprint,
+		Armor:       sw.Armor,
+		SignedAt:    sw.Timestamp,
 	}
 
 	return &user, nil
@@ -565,7 +559,7 @@ type UpdateUserInput struct {
 	Bio              string
 	Fingerprint      string
 	UserSignatureB64 string
-	ProfileSignature Signature
+	ProfileSignature ServerSignature
 }
 
 // UpdateUser writes a fresh signed identity record for an existing user.
@@ -582,9 +576,7 @@ func (s *DataService) UpdateUser(in UpdateUserInput) error {
 	}
 	defer tx.Rollback()
 
-	userSignatureID, err := signing.InsertUserSignature(
-		tx, in.Fingerprint, in.UserSignatureB64, identity.UserIdentitySignedFields,
-	)
+	userSignatureID, err := signing.InsertUserSignature(tx, in.Fingerprint, in.UserSignatureB64)
 	if err != nil {
 		return err
 	}
@@ -593,7 +585,6 @@ func (s *DataService) UpdateUser(in UpdateUserInput) error {
 		in.ProfileSignature.Fingerprint,
 		in.ProfileSignature.Armor,
 		in.ProfileSignature.SignedAt,
-		identity.ProfileSignedFields,
 	)
 	if err != nil {
 		return err
@@ -749,13 +740,11 @@ func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, err
 		return nil, err
 	}
 	sw := signing.ServerWire(serverRow, s.serverID)
-	key.Server = Signature{
-		ServerID:     sw.ID,
-		Fingerprint:  sw.Fingerprint,
-		Algorithm:    sw.Algorithm,
-		Armor:        sw.Signature,
-		SignedAt:     sw.Timestamp,
-		SignedFields: sw.SignedFields,
+	key.ServerSignature = ServerSignature{
+		ServerID:    sw.ServerID,
+		Fingerprint: sw.Fingerprint,
+		Armor:       sw.Armor,
+		SignedAt:    sw.Timestamp,
 	}
 	key.Revoked = revoked
 	if predSig.Valid && predFP.Valid {
@@ -804,21 +793,21 @@ func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocati
 		return nil, err
 	}
 	uw := signing.UserWire(userRow)
-	rev.Signature = uw.Signature
-	rev.SignedFields = uw.SignedFields
+	rev.UserSignature = UserSignature{
+		Fingerprint: uw.Fingerprint,
+		Armor:       uw.Armor,
+	}
 
 	serverRow, err := signing.GetServerSignature(s.db, serverSigID)
 	if err != nil {
 		return nil, err
 	}
 	sw := signing.ServerWire(serverRow, s.serverID)
-	rev.Server = Signature{
-		ServerID:     sw.ID,
-		Fingerprint:  sw.Fingerprint,
-		Algorithm:    sw.Algorithm,
-		Armor:        sw.Signature,
-		SignedAt:     sw.Timestamp,
-		SignedFields: sw.SignedFields,
+	rev.ServerSignature = ServerSignature{
+		ServerID:    sw.ServerID,
+		Fingerprint: sw.Fingerprint,
+		Armor:       sw.Armor,
+		SignedAt:    sw.Timestamp,
 	}
 	return &rev, nil
 }
@@ -856,7 +845,7 @@ type AddPublicKeyInput struct {
 	CreatedAt   time.Time
 	ExpiresAt   *time.Time
 	Armor       string
-	Server      Signature
+	Server      ServerSignature
 
 	PredecessorFingerprint string
 	PredecessorSignature   string
@@ -967,7 +956,6 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 		in.Server.Fingerprint,
 		in.Server.Armor,
 		in.Server.SignedAt,
-		identity.PublicKeySignedFields,
 	)
 	if err != nil {
 		return nil, err
@@ -988,15 +976,9 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 	if err != nil {
 		return nil, err
 	}
-	key.Server = in.Server
-	if key.Server.SignedFields == nil {
-		key.Server.SignedFields = append([]string(nil), identity.PublicKeySignedFields...)
-	}
-	if key.Server.Algorithm == "" {
-		key.Server.Algorithm = identity.Algorithm
-	}
-	if key.Server.ServerID == "" {
-		key.Server.ServerID = s.serverID
+	key.ServerSignature = in.Server
+	if key.ServerSignature.ServerID == "" {
+		key.ServerSignature.ServerID = s.serverID
 	}
 	if in.PredecessorSignature != "" {
 		key.Predecessor = &KeyPredecessor{
@@ -1028,7 +1010,7 @@ type RevokeKeyInput struct {
 	UserID           string
 	Reason           string
 	UserSignatureB64 string
-	Server           Signature
+	Server           ServerSignature
 }
 
 func (s *DataService) RevokeKey(in RevokeKeyInput) error {
@@ -1038,9 +1020,7 @@ func (s *DataService) RevokeKey(in RevokeKeyInput) error {
 	}
 	defer tx.Rollback()
 
-	userSigID, err := signing.InsertUserSignature(
-		tx, in.Fingerprint, in.UserSignatureB64, identity.UserRevocationSignedFields,
-	)
+	userSigID, err := signing.InsertUserSignature(tx, in.Fingerprint, in.UserSignatureB64)
 	if err != nil {
 		return err
 	}
@@ -1049,7 +1029,6 @@ func (s *DataService) RevokeKey(in RevokeKeyInput) error {
 		in.Server.Fingerprint,
 		in.Server.Armor,
 		in.Server.SignedAt,
-		identity.ServerRevocationSignedFields,
 	)
 	if err != nil {
 		return err
@@ -1224,54 +1203,37 @@ func NewMarkdownService() *MarkdownService {
 }
 
 type ReedHeader struct {
-	Author string
-	Date   string
-	Origin string
+	ID     string
+	UserID string
 
 	// Social
 	Replying string
 	Echoing  string
-
-	// Crypto
-	UserFingerprint   string
-	ServerFingerprint string
 }
 
 func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
 	lines := strings.Split(reed, "\n")
 	inHeader := false
-	var date,
-		author,
-		origin,
+	var id,
+		userID,
 		replying,
-		echoing,
-		userFingerprint,
-		serverFingerprint string
+		echoing string
 	for _, line := range lines {
 		if inHeader {
 			if line == "---" {
 				break
 			}
-			if strings.HasPrefix(line, "date:") {
-				date, _ = strings.CutPrefix(line, "date:")
+			if strings.HasPrefix(line, "id:") {
+				id, _ = strings.CutPrefix(line, "id:")
 			}
-			if strings.HasPrefix(line, "author:") {
-				author, _ = strings.CutPrefix(line, "author:")
-			}
-			if strings.HasPrefix(line, "origin:") {
-				origin, _ = strings.CutPrefix(line, "origin:")
+			if strings.HasPrefix(line, "userID:") {
+				userID, _ = strings.CutPrefix(line, "userID:")
 			}
 			if strings.HasPrefix(line, "replying:") {
 				replying, _ = strings.CutPrefix(line, "replying:")
 			}
 			if strings.HasPrefix(line, "echoing:") {
 				echoing, _ = strings.CutPrefix(line, "echoing:")
-			}
-			if strings.HasPrefix(line, "userFingerprint:") {
-				userFingerprint, _ = strings.CutPrefix(line, "userFingerprint:")
-			}
-			if strings.HasPrefix(line, "serverFingerprint:") {
-				serverFingerprint, _ = strings.CutPrefix(line, "serverFingerprint:")
 			}
 		}
 
@@ -1281,15 +1243,10 @@ func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
 	}
 
 	header := ReedHeader{
-		Date:   strings.TrimSpace(date),
-		Author: strings.TrimSpace(author),
-		Origin: strings.TrimSpace(origin),
-
+		ID:       strings.TrimSpace(id),
+		UserID:   strings.TrimSpace(userID),
 		Replying: strings.TrimSpace(replying),
 		Echoing:  strings.TrimSpace(echoing),
-
-		UserFingerprint:   strings.TrimSpace(userFingerprint),
-		ServerFingerprint: strings.TrimSpace(serverFingerprint),
 	}
 
 	return header
@@ -1298,12 +1255,8 @@ func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
 func (s *MarkdownService) ValidateReedHeader(reed string) error {
 	mandatoryFoundCount := 0
 	mandatoryHeaders := []string{
-		"date",
-		"author",
-		"origin",
-		"key",
-		"algorithm",
-		"signature",
+		"id",
+		"userID",
 	}
 	optionalHeaders := []string{
 		"replying",

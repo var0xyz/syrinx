@@ -1,8 +1,8 @@
 /**
  * Verify a server countersignature over a caller-built payload.
  *
- * Every signed resource carries the same `server` block. Rebuild that
- * resource's canonical bytes, then call `verify(server, payload)`.
+ * Every signed resource carries the same `serverSignature` block. Rebuild
+ * that resource's canonical bytes, then call `verify(serverSignature, payload)`.
  */
 
 import type { ServerSignature } from '$lib/types/api';
@@ -20,8 +20,16 @@ export function signedAtHeader(timestamp: string | Date): string {
   return new Date(ms - (ms % 1000)).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-export async function verify(server: ServerSignature | null | undefined, payload: string): Promise<VerifyResult> {
-  if (!server?.id || !server.fingerprint || !server.signature || !server.timestamp) {
+export async function verify(
+  serverSignature: ServerSignature | null | undefined,
+  payload: string
+): Promise<VerifyResult> {
+  if (
+    !serverSignature?.serverID ||
+    !serverSignature.fingerprint ||
+    !serverSignature.armor ||
+    !serverSignature.timestamp
+  ) {
     return { ok: false, reason: 'missing_fields' };
   }
   if (!payload) {
@@ -29,12 +37,16 @@ export async function verify(server: ServerSignature | null | undefined, payload
   }
 
   try {
-    const serverPub = await apiService.getServerPublicKey(server.fingerprint);
+    const serverPub = await apiService.getServerPublicKey(serverSignature.fingerprint);
     if (!serverPub?.armor) {
-      return { ok: false, reason: 'server_key_unavailable', detail: server.fingerprint };
+      return { ok: false, reason: 'server_key_unavailable', detail: serverSignature.fingerprint };
     }
 
-    const valid = await cryptoService.verifySignature(payload, atob(server.signature), serverPub.armor);
+    const valid = await cryptoService.verifySignature(
+      payload,
+      atob(serverSignature.armor),
+      serverPub.armor
+    );
     if (!valid) {
       return { ok: false, reason: 'signature_invalid' };
     }

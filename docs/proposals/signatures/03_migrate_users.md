@@ -26,7 +26,7 @@ columns.
   00).
 - Signup / profile update / recovery upsert: insert signature rows, store
   FKs only.
-- `GetUser` (and equivalents) load via FKs; wire includes `signedFields`.
+- `GetUser` (and equivalents) load via FKs
 
 ## Non-goals
 
@@ -43,4 +43,4 @@ the user-signature row (open Q in 00).
 
 - [x] Fresh `InitDB` `users` has FKs, no inline signature columns
 - [x] Signup / update / recovery write signature rows + FKs only
-- [x] GetUser wire includes `signedFields` / `server.signedFields`
+- [x] GetUser wire nests userSignature / serverSignature

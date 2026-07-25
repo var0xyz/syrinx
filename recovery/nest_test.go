@@ -53,34 +53,28 @@ func TestFlattenKeysNest_BrokenPredecessor(t *testing.T) {
 	serverID := "srv1"
 	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	profile := Profile{
-		ID:                   "user1",
-		Username:             "alice",
-		MemberSince:          ts,
-		SignatureFingerprint: "BBB",
-		Signature:            "dXNlcg==",
-		Server: ServerSignature{
-			ID:          serverID,
-			Fingerprint: "SKEY",
-			Timestamp:   ts,
-			Signature:   "c2VydmVy",
-		},
+		ID:              "user1",
+		Username:        "alice",
+		MemberSince:     ts,
+		UserSignature:   testUserSig("BBB"),
+		ServerSignature: testServerSig(serverID, ts),
 	}
 	root := KeyNode{
 		KeyWire: KeyWire{
-			Fingerprint: "BBB",
-			Armor:       "armor-b",
-			UserID:      "user1",
-			CreatedAt:   ts,
-			Server:      ServerSignature{ID: serverID, Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy"},
+			Fingerprint:     "BBB",
+			Armor:           "armor-b",
+			UserID:          "user1",
+			CreatedAt:       ts,
+			ServerSignature: testServerSig(serverID, ts),
 		},
 		Predecessor: &KeyNode{
 			Signature: "bad-pred-sig",
 			KeyWire: KeyWire{
-				Fingerprint: "AAA",
-				Armor:       "armor-a",
-				UserID:      "user1",
-				CreatedAt:   ts,
-				Server:      ServerSignature{ID: serverID, Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy"},
+				Fingerprint:     "AAA",
+				Armor:           "armor-a",
+				UserID:          "user1",
+				CreatedAt:       ts,
+				ServerSignature: testServerSig(serverID, ts),
 			},
 		},
 	}
@@ -100,13 +94,12 @@ func TestFlattenKeysNest_BrokenPredecessor(t *testing.T) {
 func TestFlattenKeysNest_ServerIDMismatch(t *testing.T) {
 	ts := time.Now().UTC().Truncate(time.Second)
 	profile := Profile{
-		ID:                   "user1",
-		Username:             "alice",
-		SignatureFingerprint: "AAA",
-		Signature:            "dXNlcg==",
-		Server:               ServerSignature{ID: "other", Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy"},
+		ID:              "user1",
+		Username:        "alice",
+		UserSignature:   testUserSig("AAA"),
+		ServerSignature: testServerSig("other", ts),
 	}
-	root := KeyNode{KeyWire: KeyWire{Fingerprint: "AAA", Armor: "a", Server: ServerSignature{Fingerprint: "SKEY", Timestamp: ts, Signature: "c2VydmVy"}}}
+	root := KeyNode{KeyWire: KeyWire{Fingerprint: "AAA", Armor: "a", ServerSignature: testServerSig("", ts)}}
 	_, _, err := FlattenKeysNest(profile, root, "srv1", func(string) (string, error) { return "pub", nil }, &fakeVerifier{})
 	if err == nil {
 		t.Fatal("expected server id mismatch")

@@ -31,10 +31,10 @@
   }
 
   function saveBroadcastReed(reed, author, existing) {
-    if (existing.reeds.some(r => r.headers.id === reed.headers.id)) return existing;
+    if (existing.reeds.some(r => r.id === reed.id)) return existing;
     const updatedReeds = [reed, ...existing.reeds].slice(0, BROADCAST_LIMIT);
     const updatedAuthors = author
-      ? { ...existing.authors, [reed.headers.author]: author }
+      ? { ...existing.authors, [reed.userID]: author }
       : existing.authors;
     const updated = { reeds: updatedReeds, authors: updatedAuthors };
     sessionStorage.setItem(BROADCAST_KEY, JSON.stringify(updated));
@@ -50,7 +50,7 @@
   async function handleBroadcastReed(reed) {
     let author = null;
     try {
-      author = await apiService.getUser(reed.headers.author);
+      author = await apiService.getUser(reed.userID);
     } catch (e) {
       console.error('Failed to fetch broadcast reed author:', e);
     }
@@ -146,22 +146,22 @@
               <p>Listening for new reeds...</p>
             </div>
           {:else}
-            {#each broadcastReeds.reeds as reed (reed.headers.id)}
+            {#each broadcastReeds.reeds as reed (reed.id)}
               <div class="feed-item" role="button" tabindex="0"
-                on:click={() => goto(`/reed/${reed.headers.author}/${reed.headers.id}`)}
-                on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.headers.author}/${reed.headers.id}`)}>
+                on:click={() => goto(`/reed/${reed.userID}/${reed.id}`)}
+                on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.userID}/${reed.id}`)}>
                 <div class="feed-header">
                   <div class="feed-author">
                     <div class="avatar">
-                      {#if broadcastReeds.authors[reed.headers.author]?.avatarURL}
-                        <img src={broadcastReeds.authors[reed.headers.author].avatarURL} alt="avatar" />
+                      {#if broadcastReeds.authors[reed.userID]?.avatarURL}
+                        <img src={broadcastReeds.authors[reed.userID].avatarURL} alt="avatar" />
                       {:else}
                         👤
                       {/if}
                     </div>
                     <div class="author-info">
-                      <span class="author-name">{broadcastReeds.authors[reed.headers.author]?.username ?? reed.headers.author}</span>
-                      <span class="feed-time">{formatRelativeTime(reed.server.timestamp)}</span>
+                      <span class="author-name">{broadcastReeds.authors[reed.userID]?.username ?? reed.userID}</span>
+                      <span class="feed-time">{formatRelativeTime(reed.serverSignature.timestamp)}</span>
                     </div>
                   </div>
                 </div>
@@ -186,22 +186,22 @@
               <p>Follow people and their reeds will appear here.</p>
             </div>
           {:else}
-            {#each followcastReeds.reeds as reed (reed.headers.id)}
+            {#each followcastReeds.reeds as reed (reed.id)}
               <div class="feed-item" role="button" tabindex="0"
-                on:click={() => goto(`/reed/${reed.headers.author}/${reed.headers.id}`)}
-                on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.headers.author}/${reed.headers.id}`)}>
+                on:click={() => goto(`/reed/${reed.userID}/${reed.id}`)}
+                on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.userID}/${reed.id}`)}>
                 <div class="feed-header">
                   <div class="feed-author">
                     <div class="avatar">
-                      {#if followcastReeds.authors[reed.headers.author]?.avatarURL}
-                        <img src={followcastReeds.authors[reed.headers.author].avatarURL} alt="avatar" />
+                      {#if followcastReeds.authors[reed.userID]?.avatarURL}
+                        <img src={followcastReeds.authors[reed.userID].avatarURL} alt="avatar" />
                       {:else}
                         👤
                       {/if}
                     </div>
                     <div class="author-info">
-                      <span class="author-name">{followcastReeds.authors[reed.headers.author]?.username ?? reed.headers.author}</span>
-                      <span class="feed-time">{formatRelativeTime(reed.server.timestamp)}</span>
+                      <span class="author-name">{followcastReeds.authors[reed.userID]?.username ?? reed.userID}</span>
+                      <span class="feed-time">{formatRelativeTime(reed.serverSignature.timestamp)}</span>
                     </div>
                   </div>
                 </div>
