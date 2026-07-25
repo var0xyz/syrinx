@@ -11,6 +11,10 @@
     <span class="icon">📰</span>
     <span class="label">Feed</span>
   </a>
+  <a href="/invites" class="toolbar-btn" class:active={currentPage === 'invites'}>
+    <span class="icon">✉️</span>
+    <span class="label">Invites</span>
+  </a>
   <a href="/profile" class="toolbar-btn" class:active={currentPage === 'profile'}>
     <span class="icon">👤</span>
     <span class="label">Profile</span>
