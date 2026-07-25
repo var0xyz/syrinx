@@ -18,14 +18,8 @@ the later steps call.
 ## Scope
 
 - Add `invites` table DDL to `InitDB` in [`db.go`](../../../db.go).
-- Add nullable `invited_by` column on `users` (new installs via `CREATE TABLE`
-  update; existing DBs via `ALTER TABLE … ADD COLUMN IF NOT EXISTS` in the
-  same init path the project already uses for schema evolution, or fold into
-  the `CREATE TABLE` definition for greenfield — match whatever pattern
-  nearby tables use; today most tables are `CREATE TABLE IF NOT EXISTS` only,
-  so **include `invited_by` in the `users` CREATE** and add a separate
-  `ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by …` so existing
-  deployments pick it up without a migrator).
+- Add nullable `invited_by` on `users` in the `CREATE TABLE` definition
+  (blank slate — no `ALTER TABLE` shim for older DBs).
 - Implement store in `syrinx/invites`: hash helper, create, count-by-creator,
   get-by-token-hash, mark-claimed, revoke, list-by-creator.
 - Indexes needed for lookup by `token_hash` and list-by-`created_by`.
@@ -62,13 +56,11 @@ when `claimed_at IS NULL`).
 
 ### `users.invited_by`
 
-```sql
-ALTER TABLE users
-	ADD COLUMN IF NOT EXISTS invited_by VARCHAR(255) REFERENCES users(id);
-```
+Include in the `CREATE TABLE users (…)` definition:
 
-Also add the column to the `CREATE TABLE users (…)` definition for new
-databases so greenfield schemas match.
+```sql
+invited_by VARCHAR(255) REFERENCES users(id)
+```
 
 No index required for v1 (lookups are by user id primary key when loading a
 profile).
@@ -138,7 +130,6 @@ happen).
 ## Test plan
 
 - [x] `InitDB` creates `invites` and `users.invited_by` on empty DB
-- [x] Re-running `InitDB` on existing DB adds `invited_by` via `IF NOT EXISTS`
 - [x] `HashToken` is stable; different inputs differ
 - [x] `Insert` + `GetByTokenHash` round-trip
 - [x] `CountByCreator` counts used and revoked rows

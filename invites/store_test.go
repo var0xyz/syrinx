@@ -70,8 +70,6 @@ func ensureInviteSchema(db *sql.DB) error {
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			invited_by VARCHAR(255) REFERENCES users(id)
 		)`,
-		`ALTER TABLE users
-			ADD COLUMN IF NOT EXISTS invited_by VARCHAR(255) REFERENCES users(id)`,
 		`CREATE TABLE invites (
 			id         VARCHAR(255) PRIMARY KEY,
 			token_hash BYTEA NOT NULL UNIQUE,
