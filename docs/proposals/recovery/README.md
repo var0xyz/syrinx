@@ -51,7 +51,8 @@ in place. Notifications (proposal 11) remain deferred.
 
 - **Identity countersignatures** at signup / profile update / key rotation.
 - **Signed, server-countersigned, server-timestamped profile records.**
-- **Signed revocations**, replicated to followers.
+- **Signed revocations** (create + fetch). Follower fanout:
+  [proposal 09](../09_revocation_fanout.md) (proposed).
 - **Reed `server` block** binding `reedID`, `authorID`, and the server signing-key
   **fingerprint**, with one canonical form shared by signer and verifier.
 - **Random, server-scoped user IDs** (replacing the Sqids counter).
@@ -325,8 +326,9 @@ questions by that server timestamp — never the submitter's.
    key can never be overridden back to active by replaying an older "valid"
    record. **To keep revocations available after a wipe**, a signed revocation
    (and the old→new rotation proof) is **replicated to the revoker's followers**
-   in normal operation, the same way reeds propagate — so it survives as widely
-   as any cached profile and any one holder can resubmit it during recovery.
+   in normal operation ([proposal 09](../09_revocation_fanout.md)), the same way
+   reeds propagate — so it survives as widely as any cached profile and any one
+   holder can resubmit it during recovery.
 
 3. **Conflict resolution by server timestamp.** When multiple submissions
    describe the same entity, the record with the newest **server** timestamp
@@ -341,14 +343,26 @@ questions by that server timestamp — never the submitter's.
 
 ### Prerequisites (status)
 
-**Done** — shipped in normal operation (proposals 01–10):
+**Done** — shipped in normal operation (proposals 01–08, 10):
 
 - Identity countersignatures at signup / profile update / key rotation.
 - Signed, server-countersigned, server-timestamped profile records.
-- Signed, replicated revocations.
+- Signed revocations as a separate resource (fetch path + signatures).
 - Reed countersignature with bound `reedID` / `authorID` / server key
   `fingerprint` and one canonical signed form.
 - Random, server-scoped user IDs.
+- Server-signed client keys on distribution.
+- Client verify-then-store for keys, revocations, deletion certs; reed
+  author-signature checks.
+
+**Partial / proposed** — still open in normal operation:
+
+- Revocation **follower fanout** ([09](../09_revocation_fanout.md)).
+- Reed/identity **verify-before-store** (all signed resources) + attested
+  possession
+  ([signatures 09](../signatures/09_verify_server_countersignatures.md)).
+- Per-user system notifications ([11](../11_user_notifications.md))
+  (also listed under Deferred below).
 
 **Remaining** — land numbered SPA / client steps below. Server recovery API
 ([00](00_server_key_passphrase_keychain.md)–[06](06_reeds_follows_complete.md))
@@ -396,7 +410,7 @@ User-recoverable:
 |------------------------|-------------------------------------------|--------------|
 | `users`                | latest signed identity record             | server countersig (server ts) |
 | `user_keys`            | identity record active key + bindings     | server countersig over `(userID, fingerprint, createdAt)` |
-| `user_key_revocations` | signed revocations (replicated)           | signed + monotonic |
+| `user_key_revocations` | signed revocations (fanout: [09](../09_revocation_fanout.md)) | signed + monotonic |
 | `reeds`                | reed `server` block (`reedID`, `author`, server `fingerprint`, `ts`) | server countersig bound to `reedID`+`author`, verified against the matching restored server key |
 | `reed_allocations`     | holder's own report                       | normal signature-auth (holder signs the request) |
 | `user_following`       | user's own follow list                    | normal signature-auth (no per-edge signature); missing targets held in `pending_follows` until the target is restored |

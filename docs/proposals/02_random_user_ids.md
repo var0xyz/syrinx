@@ -2,8 +2,7 @@
 
 ## Status
 
-Proposed. Prerequisite for recovery (see [`takeover_recovery.md`](../takeover_recovery.md),
-"What must be built").
+Implemented (`generateUserID()`; `user_count` / sqids removed).
 
 ## Context
 
