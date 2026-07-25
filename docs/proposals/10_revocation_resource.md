@@ -2,11 +2,9 @@
 
 ## Status
 
-Proposed. Splits revocation **attestation** from the public-key resource,
-adds user + server signatures on `user_key_revocations`, and gives the
-client a dedicated fetch path. Complements (and partially supersedes the
-wire shape of) [`06_signed_replicated_revocations.md`](./06_signed_replicated_revocations.md);
-follower **replication** stays deferred to a follow-up on 06.
+Implemented (`GET .../keys/{fingerprint}/revocation`; `Key.revoked` is a
+boolean; signatures on `user_key_revocations`). Follower **fanout** is
+[09](09_revocation_fanout.md).
 
 ## Context
 
@@ -38,8 +36,7 @@ for both local storage and recovery.
 
 ## Non-goals
 
-- Follower replication / realtime fanout (remains on proposal 06,
-  deferred).
+- Follower replication / realtime fanout ([09](09_revocation_fanout.md)).
 - Recovery report-back ingestion of revocations.
 - Changing PGP revocation certificates inside OpenPGP keys.
 - Two-round init/complete (not required: user payload has no
@@ -179,17 +176,15 @@ Keep the existing table; **drop** `revoked_at`; add:
 - Profile / rotation UI: boolean from the key; reason / successor /
   verify proof from the revocations store (fetch on demand).
 
-## Relationship to proposal 06
+## Relationship to proposals 06 / 09
 
-| Topic | 06 (as written) | This proposal |
-|-------|-----------------|---------------|
-| Signer of user revoke | “currently active” (new) key | **old** key being revoked |
-| Replication to followers | in scope | **deferred** |
-| Storage / API split | not specified | **this doc** |
-| Server countersign | recommended | **required** |
-
-Update 06 later so replication assumes this resource shape and the
-old-key user signature rule.
+| Topic | 06 | 09 | This proposal |
+|-------|----|----|---------------|
+| Signed revoke create | **landed** | — | assumes 06 |
+| Signer of user revoke | aligned on **old** key | — | **old** key being revoked |
+| Storage / API split | early sketches | — | **this doc** |
+| Server countersign | required | — | **required** |
+| Replication to followers | — | **in scope** | deferred to 09 |
 
 ## Work items
 
@@ -227,19 +222,15 @@ old-key user signature rule.
 - **404 ambiguity:** “not revoked” vs “no such user/key” — prefer
   checking key existence if we need clearer errors; not required for
   v1.
-- **Proposal 06 drift:** signing-key rule and wire shape diverge until
-  06 is updated.
 
 ## Dependencies
 
 - Requires Proposal 01 (`BytesToSign`).
+- Completes the create/fetch half of [06](06_signed_replicated_revocations.md);
+  fanout is [09](09_revocation_fanout.md).
 - Independent of 02–05, 07–08, 11.
-- Should land before recovery work that must re-verify revocations.
-- Coordinates with in-progress client key-cache work (boolean
-  `revoked` on public/private keys).
 
 ## Parallelism
 
-- Can proceed in parallel with 11 and with signed-fields work.
-- Touch the same `RevokeKey` / key serializers as any leftover 06
-  drafts — rebase onto this shape first.
+- Fanout ([09](09_revocation_fanout.md)) can proceed independently once
+  this resource shape is stable.

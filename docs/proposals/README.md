@@ -20,9 +20,10 @@ and middleware.
 | 03 | reed `server` block (bind reedID/authorID/fp)      | 01         |
 | 04 | Signed identity records at signup / rotation       | 01; and 02 should land first to avoid re-signing |
 | 05 | Signed profile updates                             | 01, 04     |
-| 06 | Signed, replicated key revocations                 | 01; shares two-round scaffolding with 04; wire/storage shape superseded in part by 10 |
+| 06 | Signed key revocations                             | 01; wire/storage shape finalized in 10 |
 | 07 | Server-signed client keys on distribution          | 01         |
-| 08 | Client signature validation and reed possession    | 01, 03, 07; benefits from 04–06 |
+| 08 | Client signature validation (keys / revokes / deletions; author reed sig) | 01, 03, 07, 09 |
+| 09 | Revocation realtime fanout + catch-up              | 06, 10     |
 | 10 | Revocations as a separate signed resource          | 01         |
 | 11 | Per-user system-notification store                 | —          |
 
@@ -86,22 +87,19 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
 | 05 | Switch `user_key_revocations` to signature FKs     |
 | 06 | Switch `reed_removals` (and account later)         |
 | 07 | Drop legacy columns *(cancelled — absorbed into 03–06)* |
-| 08 | Nested `userSignature` / `serverSignature` wire *(draft)* |
+| 08 | Nested `userSignature` / `serverSignature` wire |
+| 09 | Verify every signed resource before store (+ possession) |
 
 ## Parallelism
 
-- **Immediately parallel**: 01, 02, 10, 11 have no (or only 01) dependencies and can be
-  picked up by separate contributors right now.
-- **After 01 lands**: 03, 04, 05, 06, 07 all unblock on the shared
-  `BytesToSign` helper.
-- **After 02 lands**: 04 is safe to start (avoids re-signing identity
-  records with regenerated IDs).
-- **After 04 lands**: 05 unblocks. 06 can proceed in parallel with 04 but
-  should coordinate on the two-round scaffolding (`pending_*` table
-  pattern, TTL cleanup) to avoid duplication — and should follow **10**
-  for the resource split / old-key user signature rule.
-- **After 01+03+07 land**: 08's reed ingest + possession path is
-  unblocked; identity/revocation client gates track 04–06 and 10.
+- **Remaining open (prerequisites):** 09 (revocation fanout), 11;
+  [signatures 09](signatures/09_verify_server_countersignatures.md)
+  (verify-before-store for all signed resources + possession).
+- **After 01 lands**: 03, 04, 05, 06, 07 unblocked on `BytesToSign`
+  (most of these are already shipped).
+- **After 06+10 land**: 09 (revocation fanout) unblocks.
+- **After signatures 08 (wire) + prereq 08:** signatures 09
+  (verify-before-store + possession) unblocks.
 - **Recovery feature steps** land only after the prerequisites they need;
   within `recovery/`, follow that directory's depends-on column (00→07).
   Step 00 (keychain passphrase) can land independently and unblocks 01/02.
@@ -114,8 +112,9 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
   removed reeds (and block account-removed authors) once deletion lands.
 - **Signature storage steps** are deferred relative to deletion and are
   **blank slate** (no migration / dual-write / client compat); within
-  `signatures/`, follow that directory's depends-on column (00→06; 07
-  cancelled). Steps 03–06 may parallel after 02. Deletion may keep
+  `signatures/`, follow that directory's depends-on column (00→06, 08;
+  07 cancelled; 09 proposed after wire). Steps 03–06 may parallel after
+  02. Deletion may keep
   inlined columns until signatures 06.
 
 ## Shared conventions

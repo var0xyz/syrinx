@@ -2,9 +2,8 @@
 
 ## Status
 
-Proposed. Directly required by recovery Phase 2 (see
-[`takeover_recovery.md`](../takeover_recovery.md), "What must be built" and
-"Phase 2 — Reeds and holdings").
+Implemented (`ReedCountersignHeaders` binds `reedID` / `authorID` /
+server-key `fingerprint`; nested `serverSignature` on the wire).
 
 ## Context
 

@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed.
+Accepted — design locked; landed via [01](01_schema.md)–[06](06_migrate_reed_removals.md)
+and [08](08_wire_nested_blocks.md).
 
 ## Depends on
 

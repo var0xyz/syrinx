@@ -2,9 +2,8 @@
 
 ## Status
 
-Proposed. Rule 1 of the recovery trust model (see
-[`takeover_recovery.md`](../takeover_recovery.md), "The three rules" and "What
-must be built").
+Implemented (signup produces user-signed, server-countersigned identity;
+persisted via `user_signatures` / `server_signatures` FKs).
 
 ## Context
 
@@ -40,7 +39,7 @@ visitors to trust the server for every field the server serves.
   record with a bumped `signedAt` reusing the shape defined here).
 - **Key rotation is out of scope.** Identity records are decoupled from
   key rotation — see "Fingerprint semantics" and "Key rotation" below.
-- Revocations are Proposal 06.
+- Revocations are Proposal 06 (fanout: [09](09_revocation_fanout.md)).
 - The recovery **report-back endpoint** that ingests these records is part
   of the later "unit of work". This proposal only produces the records in
   normal operation.

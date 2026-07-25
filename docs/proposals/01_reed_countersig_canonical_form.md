@@ -2,9 +2,8 @@
 
 ## Status
 
-Proposed. Precursor to [`takeover_recovery.md`](../takeover_recovery.md). Also a
-standalone bug fix: today the server's own countersignature does not verify
-against its own signing key.
+Implemented (`signing.BytesToSign` / SPA `bytesToSign`; SignReed and
+VerifySignature share one canonical form).
 
 ## The bug
 

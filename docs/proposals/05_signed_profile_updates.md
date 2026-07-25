@@ -2,9 +2,8 @@
 
 ## Status
 
-Proposed. Same trust-model rule as Proposal 04 (Rule 1), applied to the
-update path (see [`takeover_recovery.md`](../takeover_recovery.md), "What must
-be built").
+Implemented (`PUT /users/me` full signed identity replacement via
+`UpdateUser`).
 
 ## Context
 
