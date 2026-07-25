@@ -615,6 +615,8 @@ func (ds *DBService) GetProfileSubscribers(authorID string) ([]ProfileSubscriber
 
 // GetBroadcastSubscribers returns up to 100 broadcast subscribers for the given author,
 // throttled to one delivery per second per subscriber.
+// Followers of the author are excluded — they receive the reed via the follow
+// path (new_reed → followcast), not as ephemeral broadcast.
 // Subscribers are selected in order of oldest last_delivery (NULLS FIRST) and their
 // last_delivery timestamp is updated atomically.
 //
@@ -625,11 +627,15 @@ func (ds *DBService) GetProfileSubscribers(authorID string) ([]ProfileSubscriber
 func (ds *DBService) GetBroadcastSubscribers(authorID string) ([]string, error) {
 	rows, err := ds.db.Query(`
 		WITH eligible AS (
-			SELECT user_id
-			FROM broadcast_subscriptions
-			WHERE user_id != $1
-			  AND (last_delivery IS NULL OR last_delivery < NOW() - INTERVAL '1 second')
-			ORDER BY last_delivery ASC NULLS FIRST
+			SELECT bs.user_id
+			FROM broadcast_subscriptions bs
+			WHERE bs.user_id != $1
+			  AND (bs.last_delivery IS NULL OR bs.last_delivery < NOW() - INTERVAL '1 second')
+			  AND NOT EXISTS (
+				SELECT 1 FROM user_following uf
+				WHERE uf.user_id = bs.user_id AND uf.following_user_id = $1
+			  )
+			ORDER BY bs.last_delivery ASC NULLS FIRST
 			LIMIT 100
 		),
 		updated AS (

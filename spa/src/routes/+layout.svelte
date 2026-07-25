@@ -12,7 +12,7 @@
   import { enforceImportGate } from '$lib/services/restoreFlow';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { dbService } from '$lib/services/db';
-  import { reedsService, dispatchReedToQueue, initFollowcastIds, prependFollowcastId } from '$lib/repositories/reeds';
+  import { reedsService, dispatchReedToQueue, initFollowcastIds, prependFollowcastId, removeBroadcastReed } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
   import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
   import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
@@ -88,6 +88,7 @@
       try {
         await reedsService.storeReed(reed);
         serverConnection.sendDataAck(eventId);
+        removeBroadcastReed(reed.id);
         dispatchReedToQueue(reed, ServerEvent.DataResponse);
         prependFollowcastId(reed.id);
         await requestReferencedReeds(reed);
@@ -96,9 +97,14 @@
         serverConnection.sendDataInvalid(eventId);
       }
     });
-    serverConnection.on(ServerEvent.BroadcastReed, (data) => {
+    serverConnection.on(ServerEvent.BroadcastReed, async (data) => {
       // Broadcast reeds are ephemeral: never stored in IndexedDB.
-      dispatchReedToQueue(data.data, 'broadcast_reed');
+      // Followed authors belong in followcast only — ignore if we follow them.
+      const reed = data.data;
+      if (reed?.userID && (await followingRepository.isFollowing(reed.userID))) {
+        return;
+      }
+      dispatchReedToQueue(reed, 'broadcast_reed');
     });
     serverConnection.on(ServerEvent.ReedRemoved, async (data) => {
       const eventId = data.event_id;

@@ -25,7 +25,7 @@ func openSignupTestDB(t *testing.T) *sql.DB {
 		envOr("DB_PORT", "5432"),
 		envOr("DB_USER", "syrinx"),
 		envOr("DB_PASSWORD", "syrinx"),
-		envOr("DB_NAME", "syrinx"),
+		envOr("DB_NAME", "syrinx_test"),
 		envOr("DB_SSLMODE", "disable"),
 	)
 	db, err := sql.Open("postgres", dsn)
@@ -72,10 +72,10 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY,
 			username VARCHAR(255) UNIQUE NOT NULL,
+			avatar_url VARCHAR(255),
+			bio TEXT,
 			user_fingerprint VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			avatar_url TEXT,
-			bio TEXT,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			invited_by VARCHAR(255) REFERENCES users(id)
@@ -89,13 +89,14 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE invites (
-			id VARCHAR(255) PRIMARY KEY,
-			token_hash BYTEA NOT NULL UNIQUE,
 			created_by VARCHAR(255) NOT NULL REFERENCES users(id),
+			id VARCHAR(255) NOT NULL,
+			token_hash BYTEA NOT NULL UNIQUE,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			claimed_at TIMESTAMPTZ,
 			claimed_by VARCHAR(255) REFERENCES users(id),
-			revoked_at TIMESTAMPTZ
+			revoked_at TIMESTAMPTZ,
+			PRIMARY KEY (created_by, id)
 		)`,
 		`CREATE TABLE user_following (
 			user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -118,7 +119,7 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 	return nil
 }
 
-func signupInput(userID, username, invitedBy, token string, mode invites.SignupMode) SignupInput {
+func signupInput(userID, username, invitedBy, inviteID, secret string, mode invites.SignupMode) SignupInput {
 	now := time.Now().UTC().Truncate(time.Second)
 	return SignupInput{
 		UserID:           userID,
@@ -138,9 +139,10 @@ func signupInput(userID, username, invitedBy, token string, mode invites.SignupM
 			Armor:       "ksig-" + userID,
 			SignedAt:    now,
 		},
-		SignupMode:  mode,
-		InviteToken: token,
-		InvitedBy:   invitedBy,
+		SignupMode:   mode,
+		InviteID:     inviteID,
+		InviteSecret: secret,
+		InvitedBy:    invitedBy,
 	}
 }
 
@@ -149,7 +151,7 @@ func TestSignup_OpenNoInvite(t *testing.T) {
 	svc := NewDataService(db, "test")
 	svc.serverID = "srv"
 
-	user, err := svc.Signup(signupInput("u1", "alice", "", "", invites.ModeOpen))
+	user, err := svc.Signup(signupInput("u1", "alice", "", "", "", invites.ModeOpen))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +165,7 @@ func TestSignup_InviteBootstrap(t *testing.T) {
 	svc := NewDataService(db, "test")
 	svc.serverID = "srv"
 
-	user, err := svc.Signup(signupInput("u1", "alice", "", "", invites.ModeInvite))
+	user, err := svc.Signup(signupInput("u1", "alice", "", "", "", invites.ModeInvite))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,10 +178,10 @@ func TestSignup_InviteRequiredAfterBootstrap(t *testing.T) {
 	db := openSignupTestDB(t)
 	svc := NewDataService(db, "test")
 	svc.serverID = "srv"
-	if _, err := svc.Signup(signupInput("u1", "alice", "", "", invites.ModeInvite)); err != nil {
+	if _, err := svc.Signup(signupInput("u1", "alice", "", "", "", invites.ModeInvite)); err != nil {
 		t.Fatal(err)
 	}
-	_, err := svc.Signup(signupInput("u2", "bob", "", "", invites.ModeInvite))
+	_, err := svc.Signup(signupInput("u2", "bob", "", "", "", invites.ModeInvite))
 	if !errors.Is(err, invites.ErrInviteRequired) {
 		t.Fatalf("err = %v, want ErrInviteRequired", err)
 	}
@@ -191,14 +193,15 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 	svc.serverID = "srv"
 	ctx := context.Background()
 
-	if _, err := svc.Signup(signupInput("inviter", "alice", "", "", invites.ModeOpen)); err != nil {
+	if _, err := svc.Signup(signupInput("inviter", "alice", "", "", "", invites.ModeOpen)); err != nil {
 		t.Fatal(err)
 	}
 
-	raw, hash, err := invites.NewToken()
+	raw, err := invites.NewSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
+	hash := invites.HashSecret(raw)
 	id, err := invites.NewInviteID()
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +211,7 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	user, err := svc.Signup(signupInput("invitee", "bob", "inviter", raw, invites.ModeInvite))
+	user, err := svc.Signup(signupInput("invitee", "bob", "inviter", id, raw, invites.ModeInvite))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +242,7 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 		t.Fatal("missing invitee as follower of inviter")
 	}
 
-	_, err = svc.Signup(signupInput("other", "carol", "inviter", raw, invites.ModeInvite))
+	_, err = svc.Signup(signupInput("other", "carol", "inviter", id, raw, invites.ModeInvite))
 	if !errors.Is(err, invites.ErrInvalidInvite) {
 		t.Fatalf("reuse = %v, want ErrInvalidInvite", err)
 	}
@@ -251,13 +254,14 @@ func TestSignup_OpenValidToken(t *testing.T) {
 	svc.serverID = "srv"
 	ctx := context.Background()
 
-	if _, err := svc.Signup(signupInput("inviter", "alice", "", "", invites.ModeOpen)); err != nil {
+	if _, err := svc.Signup(signupInput("inviter", "alice", "", "", "", invites.ModeOpen)); err != nil {
 		t.Fatal(err)
 	}
-	raw, hash, err := invites.NewToken()
+	raw, err := invites.NewSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
+	hash := invites.HashSecret(raw)
 	id, err := invites.NewInviteID()
 	if err != nil {
 		t.Fatal(err)
@@ -266,7 +270,7 @@ func TestSignup_OpenValidToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	user, err := svc.Signup(signupInput("invitee", "bob", "inviter", raw, invites.ModeOpen))
+	user, err := svc.Signup(signupInput("invitee", "bob", "inviter", id, raw, invites.ModeOpen))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +288,7 @@ func TestSignup_OpenInvalidToken(t *testing.T) {
 	db := openSignupTestDB(t)
 	svc := NewDataService(db, "test")
 	svc.serverID = "srv"
-	_, err := svc.Signup(signupInput("u1", "alice", "nobody", "bad-token", invites.ModeOpen))
+	_, err := svc.Signup(signupInput("u1", "alice", "nobody", "abcdefghijkl", "bad-secret", invites.ModeOpen))
 	if !errors.Is(err, invites.ErrInvalidInvite) {
 		t.Fatalf("err = %v", err)
 	}
@@ -306,7 +310,7 @@ func TestSignup_ParallelBootstrap(t *testing.T) {
 		wg.Add(1)
 		go func(i int, id string) {
 			defer wg.Done()
-			_, err := svc.Signup(signupInput(id, "user"+id, "", "", invites.ModeInvite))
+			_, err := svc.Signup(signupInput(id, "user"+id, "", "", "", invites.ModeInvite))
 			results <- err
 		}(i, id)
 	}

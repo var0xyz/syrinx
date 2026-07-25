@@ -22,19 +22,26 @@
   let password = "";
   let loading = false;
   let currentStep = 0;
-  let inviteToken = "";
+  let inviteID = "";
+  let inviteSecret = "";
   let inviteCheckFailed = false;
   let inviteChecking = false;
   let gateReady = false;
 
-  // Invite links land on /signup?invite=TOKEN (skip preamble).
-  $: inviteToken = ($page.url.searchParams.get("invite") || "").trim();
+  // Invite links: /signup?invite=<id>#<secret> (secret stays in the fragment).
+  $: inviteID = ($page.url.searchParams.get("invite") || "").trim();
 
   onMount(async () => {
     if (authService.isLoggedIn()) {
       goto("/reeds");
       return;
     }
+
+    // Fragment is not always on $page.url in SSR; read from location.
+    inviteSecret = (typeof window !== "undefined"
+      ? window.location.hash.replace(/^#/, "")
+      : ""
+    ).trim();
 
     const waitForInfo = () =>
       new Promise((resolve) => {
@@ -56,12 +63,11 @@
       return;
     }
 
-    const token = ($page.url.searchParams.get("invite") || "").trim();
-    if (token) {
+    if (inviteID && inviteSecret) {
       inviteChecking = true;
       try {
         const { apiService } = await import("$lib/services/api");
-        const result = await apiService.checkInvite(token);
+        const result = await apiService.checkInvite(inviteID, inviteSecret);
         inviteCheckFailed = !result.valid;
       } catch (err) {
         console.error("invite check failed", err);
@@ -69,6 +75,9 @@
       } finally {
         inviteChecking = false;
       }
+    } else if (inviteID && !inviteSecret) {
+      // Query id without fragment secret — treat as broken link.
+      inviteCheckFailed = true;
     }
   });
 
@@ -170,14 +179,16 @@
         publicKey: keyPair.publicKey,
         signature,
         userSignature,
+        ...(inviteID && inviteSecret
+          ? { inviteID, inviteSecret }
+          : {}),
       };
-      if (inviteToken) {
-        signupPayload.invite = inviteToken;
-      }
       const user = await authService.signup(signupPayload);
 
+      // Request signing needs the session user id; getPublicKey is
+      // authenticated. Cache the attested public key before the verified
+      // user put — verifyUser resolves armor from IndexedDB.
       currentStep = 6;
-      await authService.saveUserToStorage(user);
       authService.setActiveKey(keyPair.fingerprint);
       await requestSigner.initializeWorker(keyPair.fingerprint, password);
 
@@ -187,6 +198,11 @@
         keyPair.fingerprint,
       );
       await publicKeyRepository.put(attestedKey);
+      await authService.saveUserToStorage(user);
+      if (user.invitedBy?.id) {
+        const { followingRepository } = await import("$lib/repositories/following");
+        await followingRepository.recordLocalFollow(user.invitedBy.id);
+      }
 
       serverConnection.connect().then(() => serverConnection.syncRequest());
 
@@ -221,13 +237,13 @@
       </p>
       <a href="/" class="back-link">Back to home</a>
     {:else}
-      {#if $signupMode === "invite" && !inviteToken}
+      {#if $signupMode === "invite" && !inviteID}
         <p class="invite-hint">
           This server requires an invite. If you are the first user you can
           continue; otherwise open the invite link you were given.
         </p>
       {/if}
-      {#if inviteToken}
+      {#if inviteID && inviteSecret}
         <p class="invite-hint">Signing up with an invite link.</p>
       {/if}
 

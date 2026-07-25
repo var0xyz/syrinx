@@ -84,7 +84,7 @@ called from the handler) to run in one `BEGIN … COMMIT`:
 5. `INSERT users (…, invited_by)`.
 6. `INSERT user_keys (…)`.
 7. If inviter set:
-   - `MarkClaimed(tx, inviteID, newUserID, now)` — must affect 1 row; else
+   - `MarkClaimed(tx, inviterID, inviteID, newUserID, now)` — must affect 1 row; else
      abort (race lost).
    - Mutual follow:
      - following: `(inviter → invitee)` and `(invitee → inviter)`

@@ -3,7 +3,8 @@
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
   import { serverConnection } from '$lib/services/serverConnection';
-  import { broadcastReedQueue, getFollowcastReeds, initFollowcastIds } from '$lib/repositories/reeds';
+  import { broadcastReedQueue, getFollowcastReeds, initFollowcastIds, removeBroadcastReed } from '$lib/repositories/reeds';
+  import { followingRepository } from '$lib/repositories/following';
   import { formatRelativeTime } from '$lib/utils/time';
   import { goto } from '$app/navigation';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -48,6 +49,9 @@
   }
 
   async function handleBroadcastReed(reed) {
+    if (reed?.userID && (await followingRepository.isFollowing(reed.userID))) {
+      return;
+    }
     let author = null;
     try {
       author = await apiService.getUser(reed.userID);
@@ -68,6 +72,28 @@
     if (section === 'followcast') loadFollowcast();
   }
 
+  // Drop session-broadcast reeds that already arrived via followcast.
+  // Pre-follow broadcast reeds (not in followcastIds) stay put.
+  async function pruneBroadcastFollowedReeds(current) {
+    let followIds = new Set();
+    try {
+      followIds = new Set(JSON.parse(sessionStorage.getItem('followcastIds') ?? '[]'));
+    } catch {
+      // ignore
+    }
+    const kept = [];
+    let changed = false;
+    for (const reed of current.reeds) {
+      if (followIds.has(reed.id)) {
+        removeBroadcastReed(reed.id);
+        changed = true;
+        continue;
+      }
+      kept.push(reed);
+    }
+    return changed ? { reeds: kept, authors: current.authors } : current;
+  }
+
   onMount(async () => {
     broadcastReeds = loadBroadcastReeds();
 
@@ -80,6 +106,7 @@
     }
 
     await initFollowcastIds();
+    broadcastReeds = await pruneBroadcastFollowedReeds(broadcastReeds);
     if (activeSection === 'followcast') loadFollowcast();
 
     await serverConnection.connect();

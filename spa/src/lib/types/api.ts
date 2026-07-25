@@ -151,3 +151,19 @@ export interface AccountRemoval extends Base {
   userSignature: UserSignature;
   serverSignature: ServerSignature;
 }
+
+/** Local + create-response shape for a signed invite (status is unsigned). */
+export interface Invite extends Base {
+  id: string;
+  /** SHA-256(secret) hex — signed and stored on the server. */
+  tokenHash: string;
+  /** Fragment secret; local-only while pending. Never sent on create. */
+  secret?: string;
+  createdAt: string;
+  status: 'pending' | 'claimed' | 'revoked';
+  claimedAt?: string | null;
+  claimedBy?: { id: string; username: string } | null;
+  revokedAt?: string | null;
+  userSignature: UserSignature;
+  serverSignature: ServerSignature;
+}

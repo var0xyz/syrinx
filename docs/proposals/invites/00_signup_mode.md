@@ -2,10 +2,10 @@
 
 ## Status
 
-Implemented (`syrinx/invites` parse helpers; boot wiring; `signupMode` /
+Implemented (`SIGNUP_MODE` via tooxie/env `values=`;
 `maxInvitesPerUser` on `/api/server/info`; closed gate on Signup /
-CheckUsername). Mode `invite` accepted and exposed but still behaves
-like `open` until [03](03_signup_consume.md).
+CheckUsername). Mode `invite` accepted and exposed; consume lands in
+[03](03_signup_consume.md) (already Implemented in this tree).
 
 ## Depends on
 
@@ -26,12 +26,10 @@ is accepted and exposed but still behaves like `open` for signup until
 ## Scope
 
 - Add to `AppConfig` in [`main.go`](../../../main.go):
-  - `SignupMode string` with `env:"name='SIGNUP_MODE'"`
-  - `MaxInvitesPerUser string` (or dedicated parser input) with
-    `env:"name='MAX_INVITES_PER_USER'"` — raw env string so “unset” is
-    distinguishable; normalize to a typed value after `env.MustAssert`.
-- Parse / validate at boot (fatal on bad values). Default mode `open`;
-  default max infinite.
+  - `SignupMode` with `env:"optional,default='open',values='open,invite,closed',name='SIGNUP_MODE'"`
+    (tooxie/env enforces the allow-list; no custom parser).
+  - `MaxInvitesPerUser int` with `env:"optional,default='-1',name='MAX_INVITES_PER_USER'"`;
+    after `MustAssert`, reject values other than `-1` or `>= 1`.
 - Extend `ServerInfo` / `GetServerInfo` with `signupMode` and
   `maxInvitesPerUser` (`-1` = infinite).
 - When mode is `closed`, `Signup` and `CheckUsername` return **403** with a
@@ -40,9 +38,6 @@ is accepted and exposed but still behaves like `open` for signup until
   - `SIGNUP_MODE` commented or set to `open` as today-equivalent.
   - `MAX_INVITES_PER_USER=3` as the example default, with a comment that
     `-1` or leaving the variable unset disables the cap (infinite).
-- Prefer putting parse helpers in `syrinx/invites` (`ParseSignupMode`,
-  `ParseMaxInvitesPerUser`) even before other invite code exists, so main
-  stays thin.
 
 ## Non-goals
 
@@ -115,8 +110,7 @@ Mode `invite` is a no-op in this step (fall through to today's open behavior).
 
 Create `invites/` with at least:
 
-- `mode.go` — constants + `ParseSignupMode` + `ParseMaxInvitesPerUser`
-- tests for the parse matrix
+- `mode.go` — `SignupMode` / `MaxInvitesPerUser` constants used by later steps
 
 `RegisterRoutes` can wait for step 02.
 
