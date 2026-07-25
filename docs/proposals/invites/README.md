@@ -4,6 +4,9 @@ This directory is the **invite-only signup** feature proposal set. Numbered
 files below are independently reviewable implementation steps. Land them in
 order unless a step's "Depends on" says otherwise.
 
+**Blank slate — no migration, no backwards compatibility.** Recreate the DB
+when schema changes; do not add `ALTER TABLE` shims for existing deploys.
+
 **Code organization:** all invite-specific server logic lives in the
 `syrinx/invites` Go package. The main package only wires boot config, DDL
 registration in `InitDB`, route mounting, and a thin call from `Signup` into
