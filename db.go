@@ -205,11 +205,6 @@ func InitDB(db *sql.DB) error {
 		invited_by VARCHAR(255) REFERENCES users(id)
 	);`
 
-	alterUsersInvitedBy := `
-	ALTER TABLE users
-		ADD COLUMN IF NOT EXISTS invited_by VARCHAR(255) REFERENCES users(id);
-	`
-
 	createUserIndexes := `
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_lower_users_username
 		ON users(LOWER(username));
@@ -520,7 +515,6 @@ func InitDB(db *sql.DB) error {
 		createServerSignaturesTable,
 
 		createUsersTable,
-		alterUsersInvitedBy,
 		createUserIndexes,
 
 		createPrivateKeysTable,
