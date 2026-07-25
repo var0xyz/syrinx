@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"syrinx/crypto"
+	"syrinx/invites"
 	"syrinx/realtime"
 	"syrinx/recovery"
 	"syrinx/secret"
@@ -43,11 +44,30 @@ type AppConfig struct {
 	ServerKeyPassphrase string `env:"name='SERVER_KEY_PASSPHRASE'"`
 
 	RecoveryMode bool `env:"optional,default='false',name='RECOVERY_MODE'"`
+
+	// Raw env inputs; normalized into SignupMode / MaxInvitesPerUser below.
+	SignupModeRaw        string `env:"optional,default='',name='SIGNUP_MODE'"`
+	MaxInvitesPerUserRaw string `env:"optional,default='',name='MAX_INVITES_PER_USER'"`
+
+	SignupMode        invites.SignupMode
+	MaxInvitesPerUser invites.MaxInvitesPerUser
 }
 
 func main() {
 	var appConfig AppConfig
 	cfg := env.MustAssert(appConfig)
+
+	mode, err := invites.ParseSignupMode(cfg.SignupModeRaw)
+	if err != nil {
+		l.Panicf("[ERR] %v", err)
+	}
+	cfg.SignupMode = mode
+
+	maxInvites, err := invites.ParseMaxInvitesPerUser(cfg.MaxInvitesPerUserRaw)
+	if err != nil {
+		l.Panicf("[ERR] %v", err)
+	}
+	cfg.MaxInvitesPerUser = maxInvites
 
 	// ServerName cannot be empty. There's no max though, but please be
 	// reasonable. Consider something short and unique.

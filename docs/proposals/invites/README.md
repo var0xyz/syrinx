@@ -23,9 +23,9 @@ the invites consume helper. Shared identity payload builders stay in
 
 ## Status
 
-**Spec in progress via the numbered steps above.** No invite code exists in
-the tree today; signup is open to anyone who can complete the PGP signup
-flow (`POST /api/users/signup`).
+**00 implemented** (`SIGNUP_MODE` / `MAX_INVITES_PER_USER`, info fields,
+closed gate). **01–05 proposed.** Signup remains open unless
+`SIGNUP_MODE=closed` (invite consume lands in 03).
 
 ## Motivation
 

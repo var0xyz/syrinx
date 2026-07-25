@@ -29,6 +29,19 @@ function normalizeSignupMode(value: unknown): SignupMode {
   return 'open';
 }
 
+function normalizeMaxInvites(value: unknown): number {
+  if (typeof value === 'number' && Number.isInteger(value) && (value === -1 || value >= 1)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    if (Number.isInteger(n) && (n === -1 || n >= 1)) {
+      return n;
+    }
+  }
+  return -1;
+}
+
 export async function refreshServerInfo(): Promise<ServerInfo | null> {
   if (!navigator.onLine) {
     serverInfoFetchFailed.set(false);
@@ -51,6 +64,7 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
       name: data.name,
       recoveryMode: !!data.recoveryMode,
       signupMode: normalizeSignupMode(data.signupMode),
+      maxInvitesPerUser: normalizeMaxInvites(data.maxInvitesPerUser),
     };
 
     localStorage.setItem('serverId', info.id);
