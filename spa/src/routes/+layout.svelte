@@ -85,14 +85,14 @@
       const reed = data.data;
       const eventId = data.event_id;
 
-      if (await reedsService.validateReed(reed)) {
+      try {
         await reedsService.storeReed(reed);
         serverConnection.sendDataAck(eventId);
         dispatchReedToQueue(reed, ServerEvent.DataResponse);
         prependFollowcastId(reed.id);
         await requestReferencedReeds(reed);
-      } else {
-        console.warn('ServerConnection: invalid reed signature, rejecting:', reed.id);
+      } catch (error) {
+        console.warn('ServerConnection: invalid reed signature, rejecting:', reed.id, error);
         serverConnection.sendDataInvalid(eventId);
       }
     });

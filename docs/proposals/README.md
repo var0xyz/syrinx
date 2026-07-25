@@ -88,18 +88,16 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
 | 06 | Switch `reed_removals` (and account later)         |
 | 07 | Drop legacy columns *(cancelled — absorbed into 03–06)* |
 | 08 | Nested `userSignature` / `serverSignature` wire |
-| 09 | Verify every signed resource before store (+ possession) |
+| 09 | Verify every signed resource before store |
 
 ## Parallelism
 
-- **Remaining open (prerequisites):** 09 (revocation fanout), 11;
-  [signatures 09](signatures/09_verify_server_countersignatures.md)
-  (verify-before-store for all signed resources + possession).
+- **Remaining open (prerequisites):** 09 (revocation fanout), 11.
 - **After 01 lands**: 03, 04, 05, 06, 07 unblocked on `BytesToSign`
   (most of these are already shipped).
 - **After 06+10 land**: 09 (revocation fanout) unblocks.
-- **After signatures 08 (wire) + prereq 08:** signatures 09
-  (verify-before-store + possession) unblocks.
+- **Signatures 09** (verify-before-store) is implemented; attested
+  possession cancelled.
 - **Recovery feature steps** land only after the prerequisites they need;
   within `recovery/`, follow that directory's depends-on column (00→07).
   Step 00 (keychain passphrase) can land independently and unblocks 01/02.

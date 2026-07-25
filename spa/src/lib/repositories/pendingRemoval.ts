@@ -2,6 +2,7 @@ import { writable } from 'svelte/store';
 import { dbService } from '$lib/services/db';
 import { apiService } from '$lib/services/api';
 import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
+import { allowUnsigned } from '$lib/verifiers';
 
 export interface PendingRemovalRecord {
   reedID: string;
@@ -15,7 +16,7 @@ export const pendingRemovalSynced = writable(0);
 
 export const pendingRemovalRepository = {
   async put(record: PendingRemovalRecord): Promise<void> {
-    await dbService.put('pendingRemoval', record);
+    await dbService.put('pendingRemoval', record, allowUnsigned);
   },
 
   async delete(reedID: string): Promise<void> {

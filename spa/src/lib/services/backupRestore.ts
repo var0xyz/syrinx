@@ -1,6 +1,16 @@
 import type * as api from '$lib/types/api';
 import { cryptoService } from './crypto';
 import { dbService } from './db';
+import { publicKeyRepository } from '$lib/repositories/publicKey';
+import { revocationRepository } from '$lib/repositories/revocation';
+import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
+import { removedReedsRepository } from '$lib/repositories/removedReeds';
+import { reedsService } from '$lib/repositories/reeds';
+import { userRepository } from '$lib/repositories/user';
+import { privateKeyRepository } from '$lib/repositories/privateKey';
+import { allowUnsigned } from '$lib/verifiers';
+import type { PrivateKey } from '$lib/repositories/privateKey';
+import type { ReedType } from '$lib/types/reed';
 
 export type BackupTable = {
   name: string;
@@ -126,8 +136,48 @@ export function assertBackupIdentity(backup: BackupPayload): void {
   }
 }
 
+async function restoreItem(storeName: string, item: unknown): Promise<void> {
+  switch (storeName) {
+    case 'publicKeys':
+      await publicKeyRepository.put(item as api.PublicKey);
+      return;
+    case 'revocations':
+      await revocationRepository.put(item as api.KeyRevocation);
+      return;
+    case 'users': {
+      const user = item as api.User & { __meta__?: { deleted?: boolean } };
+      if ((user as any)?.__meta__?.deleted || (user as any)?.deleted) {
+        await userRepository.writeTombstone(user.id);
+        return;
+      }
+      await userRepository.put(user);
+      return;
+    }
+    case 'reeds':
+      await reedsService.storeReed(item as ReedType);
+      return;
+    case 'removedReeds':
+      await removedReedsRepository.put(item as api.ReedRemoval);
+      return;
+    case 'removedAccounts':
+      await removedAccountsRepository.put(item as api.AccountRemoval);
+      return;
+    case 'privateKeys': {
+      const key = item as PrivateKey;
+      await privateKeyRepository.put(key.fingerprint, key.armor);
+      if (key.revoked) {
+        await privateKeyRepository.setRevoked(key.fingerprint);
+      }
+      return;
+    }
+    default:
+      await dbService.put(storeName, item as api.Base, allowUnsigned);
+  }
+}
+
 /**
  * Write backup contents to localStorage and IndexedDB.
+ * Signed stores go through repository puts (real verifiers).
  */
 export async function writeBackup(backup: BackupPayload): Promise<void> {
   const ls = backup.localStorage ?? {};
@@ -136,10 +186,19 @@ export async function writeBackup(backup: BackupPayload): Promise<void> {
   }
 
   await dbService.init();
-  for (const table of backup.indexedDB?.tables ?? []) {
+
+  // Restore public keys before users/reeds/revocations so verifiers can resolve armor.
+  const tables = backup.indexedDB?.tables ?? [];
+  const ordered = [
+    ...tables.filter((t) => t.name === 'publicKeys'),
+    ...tables.filter((t) => t.name === 'privateKeys'),
+    ...tables.filter((t) => t.name !== 'publicKeys' && t.name !== 'privateKeys'),
+  ];
+
+  for (const table of ordered) {
     for (const item of table.items ?? []) {
       try {
-        await dbService.put(table.name, item as api.Base);
+        await restoreItem(table.name, item);
       } catch (e) {
         console.error(`Failed to restore item in table ${table.name}:`, e);
       }

@@ -4,13 +4,13 @@
  */
 
 import { apiService as api } from '../services/api';
-import { cryptoService } from '../services/crypto';
 import { dbService } from '../services/db';
-import { verifyPublicKey, publicKeyRepository } from './publicKey';
-import { Reed as ReedClass, reedAsMarkdown, type ReedType } from '$lib/types/reed';
+import { publicKeyRepository } from './publicKey';
+import { Reed as ReedClass, type ReedType } from '$lib/types/reed';
 import type { User } from '$lib/types/api';
 import { serverConnection } from '$lib/services/serverConnection';
 import { writable } from 'svelte/store';
+import { allowUnsigned, verifyReed } from '$lib/verifiers';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
@@ -48,7 +48,7 @@ class ReedsService {
    */
   async createReed(reed: ReedClass): Promise<boolean> {
     console.log('Storing unsigned reed in IndexedDB:', reed.asObject());
-    await dbService.put('unsignedReeds', reed.asObject());
+    await dbService.put('unsignedReeds', reed.asObject(), allowUnsigned);
 
     if (!reed.userSignature?.armor) {
       throw new Error('Reed is missing userSignature');
@@ -63,7 +63,7 @@ class ReedsService {
     }
 
     console.log('Storing signed reed...', reed.asObject());
-    await this.storeReedInIndexedDB(reed.asObject());
+    await this.storeReed(reed.asObject());
     await dbService.delete('unsignedReeds', reed.id);
     return true;
   }
@@ -84,7 +84,7 @@ class ReedsService {
         }
         console.log('Processing unsigned reed:', reed.id);
         const response = await api.createReed(reed.id, reed.userSignature.armor);
-        await this.storeReedInIndexedDB({
+        await this.storeReed({
           ...reed,
           serverSignature: {
             serverID: response.serverID,
@@ -107,120 +107,46 @@ class ReedsService {
    */
   async getReed(userId: string, reedId: string): Promise<ReedType | null> {
     try {
-      return await this.getReedFromIndexedDB(reedId);
+      return await dbService.get<ReedType>('reeds', reedId);
     } catch (error) {
       console.error('Failed to get reed:', error);
       throw error;
     }
   }
 
+  /** @deprecated Prefer storeReed — verification runs inside put. */
   async validateReed(reed: ReedType): Promise<boolean> {
-    if (!reed.userSignature?.armor || !reed.userSignature?.fingerprint || !reed.userID) {
-      return false;
-    }
-    try {
-      const publicKeyData = await api.getPublicKey(reed.userID, reed.userSignature.fingerprint);
-      if (!(await verifyPublicKey(publicKeyData, publicKeyRepository))) {
-        return false;
-      }
-      return await cryptoService.verifySignature(
-        reedAsMarkdown(reed),
-        atob(reed.userSignature.armor),
-        publicKeyData.armor,
-      );
-    } catch {
-      return false;
-    }
+    return verifyReed(reed);
   }
 
+  /**
+   * Persist a countersigned reed. Verification (author + server) runs in
+   * `dbService.put` via `verifyReed`.
+   */
   async storeReed(reed: ReedType): Promise<void> {
-    await this.storeReedInIndexedDB(reed);
-  }
-
-  /**
-   * Store a reed in IndexedDB
-   */
-  private async storeReedInIndexedDB(reed: ReedType): Promise<void> {
-    console.log('Storing reed in IndexedDB:', reed);
-    try {
-      const db = await this.openIndexedDB();
-      console.log('Database opened:', db);
-      const transaction = db.transaction(['reeds', 'tags'], 'readwrite');
-      console.log('Transaction opened:', transaction);
-
-      // Store the reed with its tags array and metadata
-      const reedsStore = transaction.objectStore('reeds');
-      console.log('Reeds store opened:', reedsStore);
-      reedsStore.put({ ...reed, __meta__: { created: Date.now() } });
-
-      // Store tags in the tags object store
-      if (reed.tags.length > 0) {
-        const tagsStore = transaction.objectStore('tags');
-        console.log('Tags store opened:', tagsStore);
-
-        for (const tag of reed.tags) {
-          let reeds = await this.getTaggedReeds(tagsStore, tag);
-          console.log('Tagged reeds:', reeds);
-          if (!reeds.includes(reed.id)) {
-            reeds = [...reeds, reed.id];
-          }
-          tagsStore.put({ tagName: tag, reeds, __meta__: { created: Date.now() } });
-        }
+    // Ensure author key is cached (verifyReed fetches; put attests).
+    if (reed.userSignature?.fingerprint && reed.userID) {
+      try {
+        const key = await api.getPublicKey(reed.userID, reed.userSignature.fingerprint);
+        await publicKeyRepository.put(key);
+      } catch (error) {
+        console.error('Failed to cache author public key before reed store:', error);
       }
-
-      transaction.commit();
-    } catch (error) {
-      console.error('Failed to store reed in IndexedDB:', error);
-      throw error;
     }
 
-    console.log('Reed stored in IndexedDB:', reed);
+    await dbService.put('reeds', reed, verifyReed);
+
+    if (reed.tags?.length > 0) {
+      for (const tag of reed.tags) {
+        const existing = await dbService.get<{ tagName: string; reeds: string[] }>('tags', tag);
+        const reeds = existing?.reeds?.includes(reed.id)
+          ? existing.reeds
+          : [...(existing?.reeds ?? []), reed.id];
+        await dbService.put('tags', { tagName: tag, reeds }, allowUnsigned);
+      }
+    }
+
     serverConnection.fulfillPendingRelayRequest(reed.id, reed);
-  }
-
-  /**
-   * Store multiple reeds in IndexedDB
-   */
-  private async storeReedsInIndexedDB(reeds: ReedType[]): Promise<void> {
-    try {
-      const db = await this.openIndexedDB();
-      const transaction = db.transaction(['reeds'], 'readwrite');
-      const store = transaction.objectStore('reeds');
-
-      for (const reed of reeds) {
-        await store.put({ ...reed, __meta__: { created: Date.now() } });
-      }
-    } catch (error) {
-      console.error('Failed to store reeds in IndexedDB:', error);
-    }
-  }
-
-  /**
-   * Get a specific reed from IndexedDB
-   */
-  private async getReedFromIndexedDB(id: string): Promise<ReedType | null> {
-    try {
-      const db = await this.openIndexedDB();
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction(['reeds'], 'readonly');
-        const store = transaction.objectStore('reeds');
-        const request = store.get(id);
-
-        request.onsuccess = () => {
-          const result = request.result;
-          if (!result) {
-            resolve(null);
-            return;
-          }
-          const { __meta__, ...data } = result;
-          resolve(data as ReedType);
-        };
-        request.onerror = () => reject(request.error);
-      });
-    } catch (error) {
-      console.error('Failed to get reed from IndexedDB:', error);
-      return null;
-    }
   }
 
   async deleteReedsByAuthor(authorId: string): Promise<void> {
@@ -239,41 +165,6 @@ class ReedsService {
       console.error('Failed to get reeds by author:', error);
       return [];
     }
-  }
-
-  /**
-   * Open IndexedDB connection
-   */
-  private async openIndexedDB(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('Syrinx');
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-      };
-    });
-  }
-
-  /**
-   * Get tag data from tags store
-   */
-  private async getTaggedReeds(tagsStore: IDBObjectStore, tagName: string): Promise<string[]> {
-    return new Promise((resolve, reject) => {
-      const request = tagsStore.get(tagName);
-      request.onsuccess = () => {
-        const result = request.result;
-        if (!result) {
-          resolve([]);
-          return;
-        }
-        const { __meta__, ...data } = result;
-        resolve(data.reeds || []);
-      };
-      request.onerror = () => reject(request.error);
-    });
   }
 }
 
