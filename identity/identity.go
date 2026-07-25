@@ -11,9 +11,10 @@
 //
 //   - The SERVER payload covers a superset: user-authored fields + all
 //     server-authored fields (userID, memberSince, serverID,
-//     serverKeyFingerprint, signedAt) + the userSignature itself as a
-//     header. The server's detached PGP signature over these bytes is
-//     `serverSignature`.
+//     serverKeyFingerprint, signedAt, invitedBy) + the userSignature
+//     itself as a header. The server's detached PGP signature over these
+//     bytes is `serverSignature`. `invitedBy` is omitted when empty
+//     (open/bootstrap signup with no invite).
 //
 // Including `userSignature` as a header inside the server payload welds
 // the two attestations together: a compromised server cannot re-pair
@@ -85,7 +86,8 @@ func profileHeaders(
 	avatarURL,
 	serverID,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignatureB64,
+	invitedBy string,
 	memberSince,
 	signedAt time.Time,
 ) map[string]string {
@@ -100,13 +102,15 @@ func profileHeaders(
 		"serverKeyFingerprint": serverKeyFingerprint,
 		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
 		"userSignature":        userSignatureB64,
+		"invitedBy":            invitedBy,
 	}
 }
 
 // BuildProfilePayload returns the exact bytes the server signs.
 // `bio` is the same string that appeared in the user payload's content
 // section — the two payloads share the same content, they only differ
-// in headers.
+// in headers. `invitedBy` is the inviter's userID when set; empty omits
+// the header (BytesToSign drops empty values).
 func BuildProfilePayload(
 	userID,
 	username,
@@ -115,6 +119,7 @@ func BuildProfilePayload(
 	serverID,
 	serverKeyFingerprint,
 	userSignatureB64,
+	invitedBy,
 	bio string,
 	memberSince,
 	signedAt time.Time,
@@ -128,6 +133,7 @@ func BuildProfilePayload(
 			serverID,
 			serverKeyFingerprint,
 			userSignatureB64,
+			invitedBy,
 			memberSince,
 			signedAt,
 		),
@@ -444,7 +450,8 @@ func BuildNewProfilePayload(
 	fingerprint,
 	serverID,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignatureB64,
+	invitedBy string,
 	timestamp time.Time,
 ) []byte {
 	return BuildProfilePayload(
@@ -455,6 +462,7 @@ func BuildNewProfilePayload(
 		serverID,
 		serverKeyFingerprint,
 		userSignatureB64,
+		invitedBy,
 		"",        // bio
 		timestamp, // memberSince
 		timestamp, // signedAt

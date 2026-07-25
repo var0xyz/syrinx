@@ -18,6 +18,7 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/deletion"
+	"syrinx/invites"
 	"syrinx/recovery"
 	"syrinx/signing"
 
@@ -54,12 +55,14 @@ type DataService struct {
 	db         *sql.DB
 	serverName string
 	serverID   string
+	invites    *invites.Store
 }
 
 func NewDataService(db *sql.DB, serverName string) *DataService {
 	return &DataService{
 		db:         db,
 		serverName: serverName,
+		invites:    &invites.Store{DB: db},
 	}
 }
 
@@ -398,11 +401,37 @@ type SignupInput struct {
 	MemberSince        time.Time
 	ProfileSignature   ServerSignature
 	PublicKeySignature ServerSignature
+	SignupMode         invites.SignupMode
+	InviteToken        string
+	// InvitedBy is the inviter userID bound into ProfileSignature (empty if none).
+	// Must match the invite resolved inside the signup transaction.
+	InvitedBy string
+}
+
+// CountUsers returns the number of rows in users.
+func (s *DataService) CountUsers(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
+}
+
+// LookupPendingInvite resolves a raw invite token for pre-signup policy
+// checks (outside the signup TX). Returns nil invite when unknown.
+func (s *DataService) LookupPendingInvite(ctx context.Context, rawToken string) (*invites.Invite, error) {
+	token := strings.TrimSpace(rawToken)
+	if token == "" {
+		return nil, nil
+	}
+	return s.invites.GetByTokenHash(ctx, invites.HashToken(token))
 }
 
 // Signup materialises a fresh identity record: it writes the users row
 // (with both signatures + the server key fingerprint stored alongside
 // them) and inserts the initial user_keys row — all in one transaction.
+// When an invite is consumed, MarkClaimed and mutual follows run in the
+// same TX under LOCK TABLE users so bootstrap races cannot mint two
+// invite-free accounts in invite mode.
+//
 // Callers own userID allocation and signature verification; this
 // function just persists.
 //
@@ -421,6 +450,35 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	}
 	defer tx.Rollback()
 
+	ctx := context.Background()
+
+	// SHARE ROW EXCLUSIVE serializes concurrent signup inserts + counts
+	// so invite-mode bootstrap cannot skip the invite twice.
+	if _, err := tx.ExecContext(ctx, `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+		return nil, err
+	}
+
+	var userCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&userCount); err != nil {
+		return nil, err
+	}
+
+	var inv *invites.Invite
+	if strings.TrimSpace(in.InviteToken) != "" {
+		inv, err = s.invites.GetByTokenHashTx(ctx, tx, invites.HashToken(in.InviteToken))
+		if err != nil {
+			return nil, err
+		}
+	}
+	resolved, err := invites.ResolveSignup(in.SignupMode, userCount, in.InviteToken, inv)
+	if err != nil {
+		return nil, err
+	}
+	if resolved.InviterID != in.InvitedBy {
+		// Signed invitedBy diverged from TX resolution (lost race).
+		return nil, invites.ErrInvalidInvite
+	}
+
 	userSignatureID, err := signing.InsertUserSignature(tx, in.Fingerprint, in.UserSignatureB64)
 	if err != nil {
 		return nil, err
@@ -435,6 +493,11 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		return nil, err
 	}
 
+	var invitedBy any
+	if resolved.InviterID != "" {
+		invitedBy = resolved.InviterID
+	}
+
 	// created_at is set explicitly to memberSince — the value that was
 	// signed by the server. Using the DB's DEFAULT would create a
 	// race between what was signed and what is persisted, and would
@@ -442,11 +505,11 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	if _, err := tx.Exec(`
 		INSERT INTO users (
 			id, username, created_at, user_fingerprint,
-			user_signature_id, server_signature_id
-		) VALUES ($1, $2, $3, $4, $5, $6)
+			user_signature_id, server_signature_id, invited_by
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`,
 		in.UserID, in.Username, in.MemberSince, in.Fingerprint,
-		userSignatureID, serverSignatureID,
+		userSignatureID, serverSignatureID, invitedBy,
 	); err != nil {
 		return nil, err
 	}
@@ -471,6 +534,19 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		return nil, err
 	}
 
+	if resolved.InviteID != "" {
+		ok, err := s.invites.MarkClaimed(ctx, tx, resolved.InviteID, in.UserID, in.MemberSince)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, invites.ErrInvalidInvite
+		}
+		if err := insertMutualFollow(tx, resolved.InviterID, in.UserID); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -478,10 +554,27 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	return s.GetUser(in.UserID)
 }
 
+func insertMutualFollow(tx *sql.Tx, inviterID, inviteeID string) error {
+	if _, err := tx.Exec(`
+		INSERT INTO user_following (user_id, following_user_id) VALUES
+			($1, $2), ($2, $1)
+		ON CONFLICT DO NOTHING
+	`, inviterID, inviteeID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`
+		INSERT INTO user_followers (user_id, follower_user_id) VALUES
+			($2, $1), ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, inviterID, inviteeID)
+	return err
+}
+
 func (s *DataService) GetUser(userID string) (*User, error) {
 	var user User
 	var avatarURL, bio, activeFP sql.NullString
 	var userSignatureID, serverSignatureID int64
+	var inviterID, inviterUsername sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at,
@@ -493,8 +586,10 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		             AND NOT EXISTS (
 		                 SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
 		             )
-		       ) AS has_reeds
+		       ) AS has_reeds,
+		       inv.id, inv.username
 		FROM users u
+		LEFT JOIN users inv ON inv.id = u.invited_by
 		WHERE u.id = $1
 	`, userID).Scan(
 		&user.ID,
@@ -506,6 +601,8 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		&userSignatureID,
 		&serverSignatureID,
 		&user.HasReeds,
+		&inviterID,
+		&inviterUsername,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -521,6 +618,12 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	}
 	if activeFP.Valid {
 		user.ActiveKeyFingerprint = activeFP.String
+	}
+	if inviterID.Valid {
+		user.InvitedBy = &InvitedBy{
+			ID:       inviterID.String,
+			Username: inviterUsername.String,
+		}
 	}
 
 	userRow, err := signing.GetUserSignature(s.db, userSignatureID)

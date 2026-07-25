@@ -26,6 +26,11 @@ export interface ServerSignature extends Base {
 // differ, the signer has been rotated and the client should re-fetch the
 // record's signing key to learn its revocation state and follow the
 // `successor` chain to reach the active one.
+export interface InvitedBy {
+  id: string;
+  username: string;
+}
+
 export interface User extends Base {
   id: string;
   username: string;
@@ -36,6 +41,7 @@ export interface User extends Base {
   userSignature: UserSignature;
   serverSignature: ServerSignature;
   hasReeds: boolean;
+  invitedBy: InvitedBy | null;
 }
 
 export interface PublicKeyIdentity extends Base {
