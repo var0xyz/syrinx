@@ -21,7 +21,7 @@ type Server struct {
 // User is the wire shape of an identity record.
 //
 // Layout: user-authored fields live at the root; attestations nest under
-// `userSignature` and `serverSignature`. See docs/proposals/signatures/08.
+// `userSignature` and `serverSignature`.
 //
 // `ActiveKeyFingerprint` is a server-provided convenience field
 // carrying the user's currently-active key fingerprint at response
@@ -122,7 +122,7 @@ type Reed struct {
 }
 
 // ReedRemoval is the wire shape of a signed reed-removal certificate
-// (JSON `type: "reed"`). See docs/proposals/deletion/.
+// (JSON `type: "reed"`).
 type ReedRemoval struct {
 	Type            string          `json:"type"`
 	ServerID        string          `json:"serverID"`
@@ -133,7 +133,7 @@ type ReedRemoval struct {
 }
 
 // AccountRemoval is the wire shape of a signed account-removal certificate
-// (JSON `type: "account"`). See docs/proposals/deletion/.
+// (JSON `type: "account"`).
 type AccountRemoval struct {
 	Type            string          `json:"type"`
 	ServerID        string          `json:"serverID"`

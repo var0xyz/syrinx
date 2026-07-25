@@ -1,6 +1,6 @@
 // Package secret resolves and stores the server key passphrase.
 //
-// Resolution order (see docs/proposals/recovery/00_server_key_passphrase_keychain.md):
+// Resolution order:
 //  1. non-empty SERVER_KEY_PASSPHRASE (HA escape hatch; never written to keychain)
 //  2. OS keychain / secret store
 //  3. interactive TTY prompt → store in keychain

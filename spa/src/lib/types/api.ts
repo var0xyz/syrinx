@@ -15,7 +15,7 @@ export interface ServerSignature extends Base {
 
 // User is the wire shape of a signed identity record. User-authored
 // fields live at the root; attestations nest under `userSignature` and
-// `serverSignature`. See docs/proposals/signatures/08.
+// `serverSignature`.
 //
 // `activeKeyFingerprint` is a server-provided hint carrying the user's
 // currently-active key fingerprint at response time. It is **not** part

@@ -7,8 +7,6 @@
 // does not load .env itself).
 //
 // Build: go build -tags ops -o bin/ops .
-// See docs/proposals/recovery/01_key_bundle_export_ops_cli.md and
-// docs/proposals/recovery/02_key_bundle_import_ops_cli.md.
 package main
 
 import (
