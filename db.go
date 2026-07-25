@@ -200,8 +200,14 @@ func InitDB(db *sql.DB) error {
 		user_fingerprint VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+		invited_by VARCHAR(255) REFERENCES users(id)
 	);`
+
+	alterUsersInvitedBy := `
+	ALTER TABLE users
+		ADD COLUMN IF NOT EXISTS invited_by VARCHAR(255) REFERENCES users(id);
+	`
 
 	createUserIndexes := `
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_lower_users_username
@@ -487,6 +493,23 @@ func InitDB(db *sql.DB) error {
 		ON pending_follows(following_user_id);
 	`
 
+	// Invites — operational bookkeeping (token hash only; no expiry).
+	createInvitesTable := `
+	CREATE TABLE IF NOT EXISTS invites (
+		id         VARCHAR(255) PRIMARY KEY,
+		token_hash BYTEA NOT NULL UNIQUE,
+		created_by VARCHAR(255) NOT NULL REFERENCES users(id),
+		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		claimed_at TIMESTAMPTZ,
+		claimed_by VARCHAR(255) REFERENCES users(id),
+		revoked_at TIMESTAMPTZ
+	);`
+
+	createInvitesIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_invites_created_by
+		ON invites(created_by);
+	`
+
 	queries := []string{
 		// Servers
 		createServersTable,
@@ -497,6 +520,7 @@ func InitDB(db *sql.DB) error {
 		createServerSignaturesTable,
 
 		createUsersTable,
+		alterUsersInvitedBy,
 		createUserIndexes,
 
 		createPrivateKeysTable,
@@ -546,6 +570,10 @@ func InitDB(db *sql.DB) error {
 
 		createPendingFollowsTable,
 		createPendingFollowsIndexes,
+
+		// Invites
+		createInvitesTable,
+		createInvitesIndexes,
 	}
 
 	for i, query := range queries {
