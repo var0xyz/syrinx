@@ -1,4 +1,4 @@
-import * as openpgp from 'openpgp';
+import * as openpgp from 'openpgp/lightweight';
 
 export interface KeyPair {
   fingerprint: string;
@@ -11,10 +11,6 @@ export interface KeyGenerationOptions {
   email?: string;
   password: string;
 }
-
-export type VerifySignatureResult =
-  | { ok: true; mode: 'binary' | 'text' }
-  | { ok: false; error: string };
 
 /**
  * OpenPGP.js rejects signatures when `signature.created > verifyDate`.
@@ -129,6 +125,10 @@ export class CryptoService {
    * Server countersignatures use Go `DetachSign` (SigTypeBinary). Prefer binary
    * message bytes; fall back to text for engine quirks. OpenPGP.js exposes
    * `verified` as a Promise that rejects on failure — always await it.
+   *
+   * `at` is typically the server countersignature timestamp; verification
+   * uses max(now, at) + skew so lagged device clocks do not reject fresh
+   * signatures as "creation time is in the future".
    */
   async verifySignature(
     message: string,
@@ -136,29 +136,8 @@ export class CryptoService {
     publicKeyArmored: string,
     at?: Date | string
   ): Promise<boolean> {
-    return (await this.verifySignatureDetailed(message, signature, publicKeyArmored, at)).ok;
-  }
-
-  /**
-   * Like verifySignature, but keeps the OpenPGP rejection reasons so callers
-   * (signup diagnose) can surface them on mobile.
-   *
-   * `at` is typically the server countersignature timestamp; verification
-   * uses max(now, at) + skew so lagged device clocks do not reject fresh
-   * signatures as "creation time is in the future".
-   */
-  async verifySignatureDetailed(
-    message: string,
-    signature: string,
-    publicKeyArmored: string,
-    at?: Date | string
-  ): Promise<VerifySignatureResult> {
     const modes: Array<'binary' | 'text'> = ['binary', 'text'];
-    const errors: string[] = [];
     const date = verificationDate(at);
-    // Server keys may gain a later self-signature (AddIdentity / rename);
-    // allow verifying older message signatures against a reformatted key.
-    const config = { allowInsecureVerificationWithReformattedKeys: true };
     for (const mode of modes) {
       try {
         const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
@@ -174,24 +153,18 @@ export class CryptoService {
           message: messageObj,
           signature: signatureObj,
           verificationKeys: publicKey,
-          date,
-          config
+          date
         });
 
         const verified = verificationResult.signatures[0]?.verified;
-        if (!verified) {
-          errors.push(`${mode}: no signature slot`);
-          continue;
-        }
+        if (!verified) continue;
         await verified;
-        return { ok: true, mode };
+        return true;
       } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
         console.error(`Error verifying signature (${mode}):`, error);
-        errors.push(`${mode}: ${msg}`);
       }
     }
-    return { ok: false, error: errors.join(' | ') || 'verification failed' };
+    return false;
   }
 
   /**

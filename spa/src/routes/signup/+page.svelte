@@ -183,20 +183,20 @@
           ? { inviteID, inviteSecret }
           : {}),
       };
-      const signup = await authService.signup(signupPayload);
-      const { publicKey: attestedFromSignup, ...user } = signup;
+      const user = await authService.signup(signupPayload);
 
-      // Request signing needs the session user id. Prefer the attested key
-      // returned by signup (in-memory countersignature) over a refetch that
-      // can skew TIMESTAMP WITHOUT TIME ZONE on some hosts.
+      // Request signing needs the session user id; getPublicKey is
+      // authenticated. Cache the attested public key before the verified
+      // user put — verifyUser resolves armor from IndexedDB.
       currentStep = 6;
       authService.setActiveKey(keyPair.fingerprint);
       await requestSigner.initializeWorker(keyPair.fingerprint, password);
 
       currentStep = 7;
-      const attestedKey =
-        attestedFromSignup ??
-        (await apiService.getPublicKey(user.id, keyPair.fingerprint));
+      const attestedKey = await apiService.getPublicKey(
+        user.id,
+        keyPair.fingerprint,
+      );
       await publicKeyRepository.put(attestedKey);
       await authService.saveUserToStorage(user);
       if (user.invitedBy?.id) {

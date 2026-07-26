@@ -66,9 +66,7 @@ func main() {
 	SetupLogger()
 	log.Info().Msg("[OK] Logger setup successful")
 
-	// timezone=UTC so TIMESTAMP WITHOUT TIME ZONE round-trips match the
-	// UTC wall-clock embedded in countersignature headers.
-	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s&timezone=UTC",
+	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
 		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName, cfg.DBSSLMode)
 
 	log.Debug().Msg("Checking for connectivity to database...")
