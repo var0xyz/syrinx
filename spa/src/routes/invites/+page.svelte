@@ -21,8 +21,8 @@
   import { formatRelativeTime } from '$lib/utils/time';
 
   let user = null;
-  let loading = true;
   let invites: api.Invite[] = [];
+  let refreshingIds: string[] = [];
   let creating = false;
   let revokingId: string | null = null;
   let freshShareURL = '';
@@ -43,28 +43,41 @@
 
   onMount(async () => {
     user = await authService.getCurrentUser();
-    if (!user) {
-      loading = false;
-      return;
-    }
-    await refreshServerInfo();
-    await loadInvites();
-    loading = false;
+    if (!user) return;
+
+    // Show local invites immediately so the toolbar stays mounted.
+    invites = await invitesRepository.getAll();
+    void refreshServerInfo();
+    await refreshPendingStatuses();
   });
 
-  async function loadInvites() {
+  function applyInviteUpdate(updated: api.Invite) {
+    refreshingIds = refreshingIds.filter((id) => id !== updated.id);
+    const idx = invites.findIndex((invite) => invite.id === updated.id);
+    if (idx === -1) {
+      invites = [updated, ...invites];
+    } else {
+      invites[idx] = updated;
+      invites = invites;
+    }
+  }
+
+  async function refreshPendingStatuses() {
+    const pendingIds = invites
+      .filter((invite) => invite.status === 'pending')
+      .map((invite) => invite.id);
+    if (pendingIds.length === 0) return;
+
+    refreshingIds = pendingIds;
     try {
-      invites = await refreshPendingInviteStatuses();
+      invites = await refreshPendingInviteStatuses(applyInviteUpdate);
     } catch (err) {
       console.error(err);
-      try {
-        invites = await invitesRepository.getAll();
-      } catch {
-        invites = [];
-      }
       notificationStore.error(
-        err instanceof Error ? err.message : 'Failed to load invites'
+        err instanceof Error ? err.message : 'Failed to refresh invite status'
       );
+    } finally {
+      refreshingIds = [];
     }
   }
 
@@ -139,120 +152,117 @@
   }
 </script>
 
-{#if loading}
-  <div class="container">
-    <div class="card">
-      <div class="loading">
-        <h2>Loading invites...</h2>
-        <p>Please wait while we fetch your invites.</p>
-      </div>
-    </div>
-  </div>
-{:else}
-  <Auth>
-    <div class="invites-container">
-      <div class="invites-content">
-        {#if canCreate}
-          <button
-            class="floating-create-btn"
-            disabled={creating}
-            on:click={createInvite}
-            aria-label={creating ? 'Creating invite' : 'Create invite'}
-          >
-            <span class="icon">{creating ? '…' : '✉️'}</span>
-          </button>
-        {/if}
+<Auth>
+  <div class="invites-container">
+    <div class="invites-content">
+      {#if canCreate}
+        <button
+          class="floating-create-btn"
+          disabled={creating}
+          on:click={createInvite}
+          aria-label={creating ? 'Creating invite' : 'Create invite'}
+        >
+          <span class="icon">{creating ? '…' : '✉️'}</span>
+        </button>
+      {/if}
 
-        {#if !$isSignupClosed}
-          <p class="quota">{quotaSummary}</p>
-        {/if}
+      {#if !$isSignupClosed}
+        <p class="quota">{quotaSummary}</p>
+      {/if}
 
-        {#if $isSignupClosed}
-          <div class="empty-state">
-            <div class="empty-icon">🚫</div>
-            <h3>Signups are closed</h3>
-            <p>This server isn’t accepting new invites right now.</p>
-          </div>
-        {:else if invites.length === 0}
-          <div class="empty-state">
-            <div class="empty-icon">📭</div>
-            <h3>No invites yet</h3>
-            <p>
-              Create an invite to share a signup link with someone you trust.
-            </p>
-          </div>
-        {:else}
-          <ul class="invite-list">
-            {#each invites as invite (invite.id)}
-              <li class="invite-row">
-                <div class="invite-main">
+      {#if $isSignupClosed}
+        <div class="empty-state">
+          <div class="empty-icon">🚫</div>
+          <h3>Signups are closed</h3>
+          <p>This server isn’t accepting new invites right now.</p>
+        </div>
+      {:else if invites.length === 0}
+        <div class="empty-state">
+          <div class="empty-icon">📭</div>
+          <h3>No invites yet</h3>
+          <p>
+            Create an invite to share a signup link with someone you trust.
+          </p>
+        </div>
+      {:else}
+        <ul class="invite-list">
+          {#each invites as invite (invite.id)}
+            <li class="invite-row">
+              <div class="invite-main">
+                <span class="badge-row">
                   <span class="badge" data-status={invite.status}
                     >{statusLabel(invite.status)}</span
                   >
-                  <span class="meta"
-                    >Created {formatRelativeTime(invite.createdAt)}</span
-                  >
-                  {#if invite.status === 'claimed' && invite.claimedBy}
-                    <span class="meta">
-                      Claimed by
-                      <a href="/profile/{invite.claimedBy.id}"
-                        >@{invite.claimedBy.username}</a
-                      >
-                    </span>
+                  {#if refreshingIds.includes(invite.id)}
+                    <span
+                      class="status-spinner"
+                      aria-label="Refreshing invite status"
+                    ></span>
                   {/if}
-                </div>
-                <div class="invite-actions">
-                  {#if invite.status === 'pending' && shareURL(invite)}
-                    <CopyButton
-                      ariaLabel="Copy invite link"
-                      on:click={() => copyLink(shareURL(invite)!)}
-                    />
-                  {/if}
-                  {#if invite.status === 'pending'}
-                    <button
-                      class="btn danger"
-                      disabled={revokingId === invite.id}
-                      on:click={() => revokeInvite(invite.id)}
+                </span>
+                <span class="meta"
+                  >Created {formatRelativeTime(invite.createdAt)}</span
+                >
+                {#if invite.status === 'claimed' && invite.claimedBy}
+                  <span class="meta">
+                    Claimed by
+                    <a href="/profile/{invite.claimedBy.id}"
+                      >@{invite.claimedBy.username}</a
                     >
-                      {revokingId === invite.id ? 'Revoking…' : 'Revoke'}
-                    </button>
-                  {/if}
-                </div>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </div>
-
-      {#if showFreshLink}
-        <div
-          class="modal-backdrop"
-          role="presentation"
-          on:click={dismissFreshLink}
-        >
-          <div
-            class="modal"
-            role="dialog"
-            aria-labelledby="fresh-invite-title"
-            on:click|stopPropagation
-          >
-            <h2 id="fresh-invite-title">Invite link ready</h2>
-            <div class="link-row">
-              <code class="share-url">{freshShareURL}</code>
-              <CopyButton
-                ariaLabel="Copy invite link"
-                on:click={copyFreshLink}
-              />
-            </div>
-            <button class="btn primary" on:click={dismissFreshLink}>Done</button>
-          </div>
-        </div>
+                  </span>
+                {/if}
+              </div>
+              <div class="invite-actions">
+                {#if invite.status === 'pending' && shareURL(invite)}
+                  <CopyButton
+                    ariaLabel="Copy invite link"
+                    on:click={() => copyLink(shareURL(invite)!)}
+                  />
+                {/if}
+                {#if invite.status === 'pending'}
+                  <button
+                    class="btn danger"
+                    disabled={revokingId === invite.id}
+                    on:click={() => revokeInvite(invite.id)}
+                  >
+                    {revokingId === invite.id ? 'Revoking…' : 'Revoke'}
+                  </button>
+                {/if}
+              </div>
+            </li>
+          {/each}
+        </ul>
       {/if}
-
-      <BottomToolbar currentPage="invites" />
     </div>
-  </Auth>
-{/if}
+
+    {#if showFreshLink}
+      <div
+        class="modal-backdrop"
+        role="presentation"
+        on:click={dismissFreshLink}
+      >
+        <div
+          class="modal"
+          role="dialog"
+          aria-labelledby="fresh-invite-title"
+          on:click|stopPropagation
+        >
+          <h2 id="fresh-invite-title">Invite link ready</h2>
+          <div class="link-row">
+            <code class="share-url">{freshShareURL}</code>
+            <CopyButton
+              ariaLabel="Copy invite link"
+              on:click={copyFreshLink}
+            />
+          </div>
+          <button class="btn primary" on:click={dismissFreshLink}>Done</button>
+        </div>
+      </div>
+    {/if}
+
+    <BottomToolbar currentPage="invites" />
+  </div>
+</Auth>
 
 <style>
   .invites-container {
@@ -274,21 +284,6 @@
     margin: 0 0 1rem 0;
     color: var(--muted);
     font-size: 0.9rem;
-  }
-
-  .loading {
-    text-align: center;
-    padding: 2rem;
-    color: var(--muted);
-  }
-
-  .loading h2 {
-    margin: 0 0 0.5rem 0;
-    color: var(--fg);
-  }
-
-  .loading p {
-    margin: 0;
   }
 
   .floating-create-btn {
@@ -420,6 +415,28 @@
     padding: 0.15rem 0.45rem;
     border-radius: 999px;
     background: var(--input-bg);
+  }
+
+  .badge-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .status-spinner {
+    width: 0.85rem;
+    height: 0.85rem;
+    border: 2px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: invite-spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes invite-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .badge[data-status='pending'] {
