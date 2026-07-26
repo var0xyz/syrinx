@@ -116,7 +116,8 @@ export async function verify(
     const result = await cryptoService.verifySignatureDetailed(
       payload,
       sigArmor,
-      serverPub.armor
+      serverPub.armor,
+      signedAt
     );
     if (result.ok === false) {
       return {

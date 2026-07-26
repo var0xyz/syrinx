@@ -11,6 +11,8 @@ test.describe('Binary detached signature verify', () => {
     expect(src).toContain("modes: Array<'binary' | 'text'> = ['binary', 'text']");
     expect(src).toContain('binary: new TextEncoder().encode(message)');
     expect(src).toContain('await verified');
+    expect(src).toContain('verificationDate');
+    expect(src).toContain('VERIFY_CLOCK_SKEW_MS');
     expect(src).not.toContain('signatures[0]?.verified || false');
   });
 

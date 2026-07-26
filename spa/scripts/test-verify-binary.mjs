@@ -27,8 +27,26 @@ function bytesToSign(headers, content) {
   return new TextDecoder().decode(new TextEncoder().encode(parts.join('')));
 }
 
+const VERIFY_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+function verificationDate(reference) {
+  let refMs = Date.now();
+  if (reference !== undefined && reference !== null && reference !== '') {
+    const parsed =
+      typeof reference === 'number'
+        ? reference
+        : reference instanceof Date
+          ? reference.getTime()
+          : Date.parse(reference);
+    if (!Number.isNaN(parsed)) {
+      refMs = Math.max(refMs, parsed);
+    }
+  }
+  return new Date(refMs + VERIFY_CLOCK_SKEW_MS);
+}
+
 /** Same verify path as CryptoService.verifySignature after the fix. */
-async function verifySignature(message, signature, publicKeyArmored) {
+async function verifySignature(message, signature, publicKeyArmored, at) {
   try {
     const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
     const messageObj = await openpgp.createMessage({
@@ -41,6 +59,8 @@ async function verifySignature(message, signature, publicKeyArmored) {
       message: messageObj,
       signature: signatureObj,
       verificationKeys: publicKey,
+      date: verificationDate(at),
+      config: { allowInsecureVerificationWithReformattedKeys: true },
     });
     const verified = verificationResult.signatures[0]?.verified;
     if (!verified) return false;
@@ -128,6 +148,43 @@ assert(
     keySig,
     publicKey
   ))
+);
+
+// Phone clock lag: signature created 2 minutes ahead of "now".
+const ahead = new Date(Date.now() + 2 * 60 * 1000);
+const laggedPlain = 'clock-skew-payload';
+const laggedSig = (
+  await openpgp.sign({
+    message: await openpgp.createMessage({
+      binary: new TextEncoder().encode(laggedPlain),
+    }),
+    signingKeys: await openpgp.decryptKey({
+      privateKey: await openpgp.readPrivateKey({ armoredKey: privateKey }),
+      passphrase,
+    }),
+    detached: true,
+    date: ahead,
+  })
+).trim();
+let noSkewOk = false;
+try {
+  const r = await openpgp.verify({
+    message: await openpgp.createMessage({
+      binary: new TextEncoder().encode(laggedPlain),
+    }),
+    signature: await openpgp.readSignature({ armoredSignature: laggedSig }),
+    verificationKeys: await openpgp.readKey({ armoredKey: publicKey }),
+    date: new Date(),
+  });
+  await r.signatures[0].verified;
+  noSkewOk = true;
+} catch {
+  noSkewOk = false;
+}
+assert('lagged clock without skew rejects future sig', !noSkewOk);
+assert(
+  'lagged clock with skew accepts future sig',
+  await verifySignature(laggedPlain, laggedSig, publicKey, ahead.toISOString())
 );
 
 // Text-mode verify against a binary signature should not be required to
