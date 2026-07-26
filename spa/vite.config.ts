@@ -10,86 +10,18 @@ export default defineConfig({
     licensePlugin(),
     sveltekit(),
     SvelteKitPWA({
+      // Manifest only. Custom signing SW is static/sw.js (registered from pwa.ts).
+      // injectManifest cannot be used: it reads service-worker.js during SSR
+      // closeBundle, before SvelteKit has emitted that file.
       registerType: 'autoUpdate',
+      injectRegister: false,
       includeAssets: ['icons/icon.svg', 'icons/android-chrome-192x192.png', 'icons/android-chrome-512x512.png'],
-      strategies: 'injectManifest',
-      srcDir: 'static',
-      filename: 'sw.js',
+      strategies: 'generateSW',
+      filename: 'pwa-sw.js',
       workbox: {
         globPatterns: [
-          '**/*.{js,css,html,ico,png,svg,woff2}',
-          '**/.svelte-kit/generated/client/**/*.js',
-          '**/_app/**/*.{js,css}'
-        ],
-        cleanupOutdatedCaches: true,
-        skipWaiting: true,
-        clientsClaim: true,
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'google-fonts-cache',
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365 // 1 year
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
-          },
-          {
-            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'gstatic-fonts-cache',
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365 // 1 year
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
-          },
-          {
-            urlPattern: /^\/api\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24 // 1 day
-              },
-              networkTimeoutSeconds: 10,
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
-          },
-          {
-            urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'images-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24 * 30 // 30 days
-              }
-            }
-          },
-          {
-            urlPattern: /\.svelte-kit\/generated\/client\/.*\.js$/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'sveltekit-client-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 60 * 24 * 7 // 7 days
-              }
-            }
-          }
+          'client/**/*.{js,css,ico,png,svg,webp,webmanifest}',
+          'prerendered/**/*.{html,json}'
         ],
         navigateFallback: '/',
         navigateFallbackDenylist: [/^\/api\//, /^\/_app\//]
@@ -157,13 +89,22 @@ export default defineConfig({
         ]
       },
       devOptions: {
-        enabled: true,
-        type: 'module'
+        enabled: false
       }
     })
   ],
   define: {
     global: 'globalThis',
+  },
+  // openpgp/lightweight only declares a `browser` export condition.
+  resolve: {
+    conditions: ['browser', 'import', 'module', 'default']
+  },
+  ssr: {
+    resolve: {
+      conditions: ['browser', 'import', 'module', 'default'],
+      externalConditions: ['browser', 'import', 'module', 'default']
+    }
   },
   optimizeDeps: {
     include: ['openpgp/lightweight']
@@ -182,4 +123,3 @@ export default defineConfig({
     }
   }
 });
-
