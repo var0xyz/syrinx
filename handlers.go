@@ -386,7 +386,27 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", key.Fingerprint).
 		Msg("Identity record created")
 
-	writeResponse(w, http.StatusCreated, user)
+	// Return the attested public key with the in-memory countersignature
+	// (same SignedAt that was hashed). Avoids a client refetch that can
+	// diverge if TIMESTAMP WITHOUT TIME ZONE is scanned in Local time.
+	writeResponse(w, http.StatusCreated, signupResponse{
+		User: *user,
+		PublicKey: Key{
+			Fingerprint:     key.Fingerprint,
+			UserID:          user.ID,
+			Armor:           publicKey,
+			CreatedAt:       key.CreatedAt,
+			Revoked:         false,
+			ServerSignature: keySignature,
+		},
+	})
+}
+
+// signupResponse embeds the new identity record and the attested public key
+// so the client can persist both without a getPublicKey round-trip.
+type signupResponse struct {
+	User
+	PublicKey Key `json:"publicKey"`
 }
 
 func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
