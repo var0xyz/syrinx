@@ -3,7 +3,7 @@
  * This worker holds the decrypted private key in memory for signing requests
  */
 
-import * as openpgp from 'openpgp/lightweight';
+import * as openpgp from 'openpgp';
 
 let privateKey = null;
 let keyReady = false;

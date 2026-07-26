@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"log"
 	"time"
 )
@@ -71,6 +72,51 @@ type ServerSignature struct {
 	Fingerprint string    `json:"fingerprint"`
 	Armor       string    `json:"armor"`
 	SignedAt    time.Time `json:"timestamp"`
+}
+
+// MarshalJSON always emits timestamp as UTC whole-second RFC3339 with a
+// trailing Z — the same form used in countersignature headers — so clients
+// never see a local offset from TIMESTAMP WITHOUT TIME ZONE round-trips.
+func (s ServerSignature) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ServerID    string `json:"serverID"`
+		Fingerprint string `json:"fingerprint"`
+		Armor       string `json:"armor"`
+		Timestamp   string `json:"timestamp"`
+	}{
+		ServerID:    s.ServerID,
+		Fingerprint: s.Fingerprint,
+		Armor:       s.Armor,
+		Timestamp:   s.SignedAt.UTC().Truncate(time.Second).Format(time.RFC3339),
+	})
+}
+
+func (s *ServerSignature) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ServerID    string `json:"serverID"`
+		Fingerprint string `json:"fingerprint"`
+		Armor       string `json:"armor"`
+		Timestamp   string `json:"timestamp"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	s.ServerID = raw.ServerID
+	s.Fingerprint = raw.Fingerprint
+	s.Armor = raw.Armor
+	if raw.Timestamp == "" {
+		s.SignedAt = time.Time{}
+		return nil
+	}
+	ts, err := time.Parse(time.RFC3339, raw.Timestamp)
+	if err != nil {
+		ts, err = time.Parse(time.RFC3339Nano, raw.Timestamp)
+		if err != nil {
+			return err
+		}
+	}
+	s.SignedAt = ts.UTC().Truncate(time.Second)
+	return nil
 }
 
 // KeyPredecessor is the rotation handoff proof bundled on keys uploaded

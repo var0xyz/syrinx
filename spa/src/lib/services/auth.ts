@@ -15,6 +15,11 @@ interface SignupUser {
   inviteSecret?: string;
 }
 
+/** Signup JSON: identity record plus the attested public key (no refetch). */
+export type SignupResult = api.User & {
+  publicKey?: api.PublicKey;
+};
+
 export class AuthService {
   private _user: api.User | null = null;
 
@@ -134,7 +139,7 @@ export class AuthService {
   /**
    * Signup the user and store the user ID
    */
-  async signup(userData: SignupUser): Promise<api.User> {
+  async signup(userData: SignupUser): Promise<SignupResult> {
     try {
       const serverName = await this.getServerName();
       localStorage.setItem('serverName', serverName);
@@ -173,11 +178,13 @@ export class AuthService {
       throw new Error(message);
     }
 
-    const user = await response.json();
-    localStorage.setItem('userId', user.id);
+    const result = (await response.json()) as SignupResult;
+    localStorage.setItem('userId', result.id);
+    // Keep session user without the nested publicKey field.
+    const { publicKey: _attestedKey, ...user } = result;
     this._user = user;
 
-    return user;
+    return result;
   }
 
   /**

@@ -89,6 +89,20 @@ func GetUserSignature(db DBTX, id int64) (*UserSignature, error) {
 	return &row, nil
 }
 
+// asUTCWallClock reinterprets a TIMESTAMP WITHOUT TIME ZONE value as UTC.
+//
+// lib/pq scans naive timestamps in the connection's location (often Local).
+// Calling .UTC() on that shifts the instant and breaks countersignature
+// headers that were signed with the UTC wall-clock that was inserted.
+// Keeping Year–Second and forcing location UTC restores the signed string.
+func asUTCWallClock(t time.Time) time.Time {
+	return time.Date(
+		t.Year(), t.Month(), t.Day(),
+		t.Hour(), t.Minute(), t.Second(), 0,
+		time.UTC,
+	)
+}
+
 // GetServerSignature loads a server_signatures row by id.
 func GetServerSignature(db DBTX, id int64) (*ServerSignature, error) {
 	var row ServerSignature
@@ -105,7 +119,7 @@ func GetServerSignature(db DBTX, id int64) (*ServerSignature, error) {
 	if err != nil {
 		return nil, err
 	}
-	row.SignedAt = row.SignedAt.UTC().Truncate(time.Second)
+	row.SignedAt = asUTCWallClock(row.SignedAt)
 	return &row, nil
 }
 

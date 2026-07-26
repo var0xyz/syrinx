@@ -1,6 +1,6 @@
 import { dbService, type DbService } from '../services/db';
 import type * as api from '$lib/types/api';
-import { verifyPublicKey } from '$lib/verifiers';
+import { allowUnsigned, diagnosePublicKey } from '$lib/verifiers';
 
 /**
  * Local public-key cache. Records are the full wire `PublicKey` shape
@@ -14,9 +14,10 @@ export class PublicKeyRepository {
   }
 
   /**
-   * Persist a server-attested public key. Verification runs inside
-   * `dbService.put` via `verifyPublicKey`. If we already hold this
-   * fingerprint, refuse to overwrite with different armor.
+   * Persist a server-attested public key. Verification runs before the
+   * IndexedDB write so failure reasons (signature_invalid, etc.) reach
+   * the signup UI. If we already hold this fingerprint, refuse to
+   * overwrite with different armor.
    */
   async put(key: api.PublicKey): Promise<void> {
     const existing = await this.getPublicKey(key.fingerprint);
@@ -27,7 +28,16 @@ export class PublicKeyRepository {
       );
     }
 
-    await this.db.put('publicKeys', { ...key, armor: key.armor }, verifyPublicKey);
+    const diagnosis = await diagnosePublicKey(key);
+    if (diagnosis.ok === false) {
+      const detail = diagnosis.detail ? ` (${diagnosis.detail})` : '';
+      throw new Error(
+        `Refusing to store in publicKeys: verification failed: ${diagnosis.reason}${detail}`
+      );
+    }
+
+    // Already diagnosed above — skip a second verify pass in dbService.put.
+    await this.db.put('publicKeys', { ...key, armor: key.armor }, allowUnsigned);
   }
 
   async getPublicKey(fingerprint: string): Promise<api.PublicKey | null> {

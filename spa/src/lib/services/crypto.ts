@@ -1,4 +1,4 @@
-import * as openpgp from 'openpgp/lightweight';
+import * as openpgp from 'openpgp';
 
 export interface KeyPair {
   fingerprint: string;
@@ -11,6 +11,10 @@ export interface KeyGenerationOptions {
   email?: string;
   password: string;
 }
+
+export type VerifySignatureResult =
+  | { ok: true; mode: 'binary' | 'text' }
+  | { ok: false; error: string };
 
 async function getFingerprint(publicKey: string) {
   const entity = await openpgp.readKey({ armoredKey: publicKey });
@@ -96,25 +100,62 @@ export class CryptoService {
   }
 
   /**
-   * Verify a signature with a public key
+   * Verify a detached signature with a public key.
+   *
+   * Server countersignatures use Go `DetachSign` (SigTypeBinary). Prefer binary
+   * message bytes; fall back to text for engine quirks. OpenPGP.js exposes
+   * `verified` as a Promise that rejects on failure — always await it.
    */
-  async verifySignature(message: string, signature: string, publicKeyArmored: string): Promise<boolean> {
-    try {
-      const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
-      const messageObj = await openpgp.createMessage({ text: message });
-      const signatureObj = await openpgp.readSignature({ armoredSignature: signature });
+  async verifySignature(
+    message: string,
+    signature: string,
+    publicKeyArmored: string
+  ): Promise<boolean> {
+    return (await this.verifySignatureDetailed(message, signature, publicKeyArmored)).ok;
+  }
 
-      const verificationResult = await openpgp.verify({
-        message: messageObj,
-        signature: signatureObj,
-        verificationKeys: publicKey
-      });
+  /**
+   * Like verifySignature, but keeps the OpenPGP rejection reasons so callers
+   * (signup diagnose) can surface them on mobile.
+   */
+  async verifySignatureDetailed(
+    message: string,
+    signature: string,
+    publicKeyArmored: string
+  ): Promise<VerifySignatureResult> {
+    const modes: Array<'binary' | 'text'> = ['binary', 'text'];
+    const errors: string[] = [];
+    for (const mode of modes) {
+      try {
+        const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
+        const messageObj =
+          mode === 'binary'
+            ? await openpgp.createMessage({
+                binary: new TextEncoder().encode(message)
+              })
+            : await openpgp.createMessage({ text: message });
+        const signatureObj = await openpgp.readSignature({ armoredSignature: signature });
 
-      return verificationResult.signatures[0]?.verified || false;
-    } catch (error) {
-      console.error('Error verifying signature:', error);
-      return false;
+        const verificationResult = await openpgp.verify({
+          message: messageObj,
+          signature: signatureObj,
+          verificationKeys: publicKey
+        });
+
+        const verified = verificationResult.signatures[0]?.verified;
+        if (!verified) {
+          errors.push(`${mode}: no signature slot`);
+          continue;
+        }
+        await verified;
+        return { ok: true, mode };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error(`Error verifying signature (${mode}):`, error);
+        errors.push(`${mode}: ${msg}`);
+      }
     }
+    return { ok: false, error: errors.join(' | ') || 'verification failed' };
   }
 
   /**

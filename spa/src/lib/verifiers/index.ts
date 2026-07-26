@@ -24,7 +24,7 @@ import {
   buildUserIdentityPayload,
   buildUserRevocationPayload,
 } from '$lib/services/signing';
-import { signedAtHeader, verify } from '$lib/services/verify';
+import { signedAtHeader, verify, type VerifyResult } from '$lib/services/verify';
 
 export type Verifier<T = unknown> = (data: T) => Promise<boolean>;
 
@@ -64,12 +64,27 @@ async function resolvePredecessor(key: api.PublicKey): Promise<api.PublicKey | n
   }
 }
 
-/** Server attestation + armor↔fingerprint (+ optional predecessor handoff). */
-export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
+/**
+ * Diagnose why a public-key attestation would fail. Used by verify-on-put
+ * callers that need a reason string on mobile (e.g. signup).
+ */
+export async function diagnosePublicKey(key: api.PublicKey): Promise<VerifyResult> {
   if (!key?.serverSignature) {
     console.error('[verifyPublicKey] missing serverSignature block', key?.fingerprint);
-    return false;
+    return { ok: false, reason: 'missing_fields', detail: 'serverSignature' };
   }
+
+  let signedAt: string;
+  try {
+    signedAt = signedAtHeader(key.serverSignature.timestamp);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: 'invalid_timestamp',
+      detail: err instanceof Error ? err.message : String(err),
+    };
+  }
+
   const result = await verify(
     key.serverSignature,
     buildPublicKeyPayload(
@@ -78,28 +93,36 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
       key.serverSignature.serverID,
       key.serverSignature.fingerprint,
       key.armor,
-      signedAtHeader(key.serverSignature.timestamp)
+      signedAt
     )
   );
   if (result.ok === false) {
     console.error('[verifyPublicKey] server signature failed', result);
-    return false;
+    return result;
   }
   const derived = await cryptoService.fingerprintFromArmor(key.armor);
   if (derived.toLowerCase() !== key.fingerprint.toLowerCase()) {
     console.error('[verifyPublicKey] fingerprint mismatch', { labeled: key.fingerprint, derived });
-    return false;
+    return {
+      ok: false,
+      reason: 'fingerprint_mismatch',
+      detail: `labeled=${key.fingerprint} derived=${derived}`,
+    };
   }
 
   if (key.predecessor?.signature) {
     if (!key.predecessor.fingerprint) {
       console.error('[verifyPublicKey] predecessor block missing fingerprint');
-      return false;
+      return { ok: false, reason: 'predecessor_missing_fingerprint' };
     }
     const predecessor = await resolvePredecessor(key);
     if (!predecessor?.armor) {
       console.error('[verifyPublicKey] predecessor public key unavailable', key.predecessor.fingerprint);
-      return false;
+      return {
+        ok: false,
+        reason: 'predecessor_unavailable',
+        detail: key.predecessor.fingerprint,
+      };
     }
     const handoffValid = await cryptoService.verifySignature(
       key.armor,
@@ -108,11 +131,16 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
     );
     if (!handoffValid) {
       console.error('[verifyPublicKey] predecessor handoff signature failed', key.fingerprint);
-      return false;
+      return { ok: false, reason: 'predecessor_handoff_invalid' };
     }
   }
 
-  return true;
+  return { ok: true };
+}
+
+/** Server attestation + armor↔fingerprint (+ optional predecessor handoff). */
+export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
+  return (await diagnosePublicKey(key)).ok;
 }
 
 export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promise<boolean> {
