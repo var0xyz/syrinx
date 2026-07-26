@@ -16,6 +16,30 @@ export type VerifySignatureResult =
   | { ok: true; mode: 'binary' | 'text' }
   | { ok: false; error: string };
 
+/**
+ * OpenPGP.js rejects signatures when `signature.created > verifyDate`.
+ * Mobile clocks often lag the server by a few seconds (or more), so a
+ * freshly minted server countersignature looks "in the future". Allow a
+ * small skew window; optionally pin to a server-provided reference time.
+ */
+export const VERIFY_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+export function verificationDate(reference?: Date | string | number): Date {
+  let refMs = Date.now();
+  if (reference !== undefined && reference !== null && reference !== '') {
+    const parsed =
+      typeof reference === 'number'
+        ? reference
+        : reference instanceof Date
+          ? reference.getTime()
+          : Date.parse(reference);
+    if (!Number.isNaN(parsed)) {
+      refMs = Math.max(refMs, parsed);
+    }
+  }
+  return new Date(refMs + VERIFY_CLOCK_SKEW_MS);
+}
+
 async function getFingerprint(publicKey: string) {
   const entity = await openpgp.readKey({ armoredKey: publicKey });
   return String(entity.getFingerprint());
@@ -109,22 +133,32 @@ export class CryptoService {
   async verifySignature(
     message: string,
     signature: string,
-    publicKeyArmored: string
+    publicKeyArmored: string,
+    at?: Date | string
   ): Promise<boolean> {
-    return (await this.verifySignatureDetailed(message, signature, publicKeyArmored)).ok;
+    return (await this.verifySignatureDetailed(message, signature, publicKeyArmored, at)).ok;
   }
 
   /**
    * Like verifySignature, but keeps the OpenPGP rejection reasons so callers
    * (signup diagnose) can surface them on mobile.
+   *
+   * `at` is typically the server countersignature timestamp; verification
+   * uses max(now, at) + skew so lagged device clocks do not reject fresh
+   * signatures as "creation time is in the future".
    */
   async verifySignatureDetailed(
     message: string,
     signature: string,
-    publicKeyArmored: string
+    publicKeyArmored: string,
+    at?: Date | string
   ): Promise<VerifySignatureResult> {
     const modes: Array<'binary' | 'text'> = ['binary', 'text'];
     const errors: string[] = [];
+    const date = verificationDate(at);
+    // Server keys may gain a later self-signature (AddIdentity / rename);
+    // allow verifying older message signatures against a reformatted key.
+    const config = { allowInsecureVerificationWithReformattedKeys: true };
     for (const mode of modes) {
       try {
         const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
@@ -139,7 +173,9 @@ export class CryptoService {
         const verificationResult = await openpgp.verify({
           message: messageObj,
           signature: signatureObj,
-          verificationKeys: publicKey
+          verificationKeys: publicKey,
+          date,
+          config
         });
 
         const verified = verificationResult.signatures[0]?.verified;
