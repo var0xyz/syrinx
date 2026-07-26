@@ -117,7 +117,7 @@ func openDB(cfg opsConfig) (*sql.DB, error) {
 	if cfg.ServerName == "" {
 		return nil, fmt.Errorf("SERVER_NAME is required")
 	}
-	url := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s&timezone=UTC",
+	url := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
 		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName, cfg.DBSSLMode)
 	db, err := sql.Open("postgres", url)
 	if err != nil {

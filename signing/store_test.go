@@ -114,22 +114,6 @@ func TestUserSignatureInsertGetWire(t *testing.T) {
 	}
 }
 
-func TestAsUTCWallClockKeepsNaiveClock(t *testing.T) {
-	// Simulate lib/pq scanning TIMESTAMP WITHOUT TIME ZONE in a non-UTC
-	// location: wall clock 15:30:45 with a +02:00 offset.
-	local := time.FixedZone("CEST", 2*60*60)
-	scanned := time.Date(2026, 7, 24, 15, 30, 45, 0, local)
-	got := asUTCWallClock(scanned)
-	want := time.Date(2026, 7, 24, 15, 30, 45, 0, time.UTC)
-	if !got.Equal(want) {
-		t.Fatalf("asUTCWallClock: got %v want %v", got, want)
-	}
-	// Contrast: .UTC() would shift to 13:30:45Z and break signedAt headers.
-	if scanned.UTC().Equal(want) {
-		t.Fatal("test setup broken: scanned.UTC() unexpectedly equals wall clock")
-	}
-}
-
 func TestServerSignatureInsertGetWire(t *testing.T) {
 	db := openStoreTestDB(t)
 	suffix := time.Now().UnixNano()

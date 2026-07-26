@@ -96,7 +96,7 @@ export default defineConfig({
   define: {
     global: 'globalThis',
   },
-  // openpgp browser builds declare a `browser` export condition.
+  // openpgp/lightweight only declares a `browser` export condition.
   resolve: {
     conditions: ['browser', 'import', 'module', 'default']
   },
@@ -107,7 +107,7 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['openpgp']
+    include: ['openpgp/lightweight']
   },
   server: {
     proxy: {
