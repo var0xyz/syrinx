@@ -24,6 +24,9 @@ test.describe('Invites management UI', () => {
     const page = readFileSync(join(root, 'src/routes/invites/+page.svelte'), 'utf8');
     expect(page).toContain('createSignedInvite');
     expect(page).toContain('inviteShareURL');
+    expect(page).toContain('invitesRepository.getAll');
+    expect(page).toContain('refreshPendingInviteStatuses');
+    expect(page).toContain('status-spinner');
     expect(page).toContain('No invites yet');
     expect(page).toContain('floating-create-btn');
     expect(page).toContain('Signups are closed');

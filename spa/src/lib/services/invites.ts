@@ -115,35 +115,43 @@ export async function createSignedInvite(): Promise<api.Invite> {
   return invite;
 }
 
-/** Refresh status for pending local invites only; terminal states stay put. */
-export async function refreshPendingInviteStatuses(): Promise<api.Invite[]> {
+/**
+ * Refresh status for pending local invites only; claimed/revoked stay put.
+ * Invokes onInviteUpdated as each pending invite finishes so the UI can update in place.
+ */
+export async function refreshPendingInviteStatuses(
+  onInviteUpdated?: (invite: api.Invite) => void
+): Promise<api.Invite[]> {
   const local = await invitesRepository.getAll();
-  const out: api.Invite[] = [];
-  for (const invite of local) {
-    if (invite.status !== 'pending') {
-      out.push(invite);
-      continue;
-    }
-    try {
-      const status = await apiService.getInviteStatus(invite.id);
-      const next: api.Invite = {
-        ...invite,
-        status: status.status,
-        claimedAt: status.claimedAt,
-        claimedBy: status.claimedBy,
-        revokedAt: status.revokedAt,
-      };
-      if (next.status !== 'pending') {
-        delete next.secret;
+  const terminal = local.filter((invite) => invite.status !== 'pending');
+  const pending = local.filter((invite) => invite.status === 'pending');
+
+  const refreshed = await Promise.all(
+    pending.map(async (invite) => {
+      try {
+        const status = await apiService.getInviteStatus(invite.id);
+        const next: api.Invite = {
+          ...invite,
+          status: status.status,
+          claimedAt: status.claimedAt,
+          claimedBy: status.claimedBy,
+          revokedAt: status.revokedAt,
+        };
+        if (next.status !== 'pending') {
+          delete next.secret;
+        }
+        await invitesRepository.putStatus(next);
+        onInviteUpdated?.(next);
+        return next;
+      } catch (err) {
+        console.error('[refreshPendingInviteStatuses]', invite.id, err);
+        onInviteUpdated?.(invite);
+        return invite;
       }
-      await invitesRepository.putStatus(next);
-      out.push(next);
-    } catch (err) {
-      console.error('[refreshPendingInviteStatuses]', invite.id, err);
-      out.push(invite);
-    }
-  }
-  return out.sort(
+    })
+  );
+
+  return [...terminal, ...refreshed].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 }
