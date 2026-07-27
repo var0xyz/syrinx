@@ -35,10 +35,10 @@ type Server struct {
 // been rotated and the client should pull the fresh key to learn
 // revocation state and walk the successor chain to the active one).
 type User struct {
-	ID        string    `json:"id"`
-	Username  string    `json:"username"`
-	AvatarURL string    `json:"avatarURL"`
-	Bio       string    `json:"bio"`
+	ID             string    `json:"id"`
+	Username       string    `json:"username"`
+	AvatarURL      string    `json:"avatarURL"`
+	Bio            string    `json:"bio"`
 	CreatedAt      time.Time `json:"memberSince"`
 	HasReeds       bool      `json:"hasReeds"`
 	FollowersCount int       `json:"followersCount"`
@@ -398,16 +398,20 @@ func InitDB(db *sql.DB) error {
 		ON broadcast_subscriptions(user_id);
 	`
 
+	// holder_user_id is who holds the reed; author_user_id + reed_id FK to reeds.
 	createReedAllocationsTable := `
 	CREATE TABLE IF NOT EXISTS reed_allocations (
-		reed_id VARCHAR(255) NOT NULL REFERENCES reeds(id) ON DELETE CASCADE,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		reed_id VARCHAR(255) NOT NULL,
+		holder_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		author_user_id VARCHAR(255) NOT NULL,
 		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-		PRIMARY KEY (user_id, reed_id)
+		PRIMARY KEY (holder_user_id, reed_id),
+		FOREIGN KEY (author_user_id, reed_id)
+			REFERENCES reeds(user_id, id) ON DELETE CASCADE
 	);`
 
-	// We only need one index on `reed_id` here because `user_id` is covered by
+	// We only need one index on `reed_id` here because `holder_user_id` is covered by
 	// being the first field in the `PRIMARY KEY` clause.
 	createReedAllocationIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_allocations_reed_id
@@ -432,16 +436,28 @@ func InitDB(db *sql.DB) error {
 		ON pending_events(subscription_id);
 	`
 
-	createPendingReedRequestsTable := `
-	CREATE UNLOGGED TABLE IF NOT EXISTS pending_reed_requests (
-		event_id VARCHAR(255) PRIMARY KEY REFERENCES pending_events(event_id) ON DELETE CASCADE,
-		reed_id VARCHAR(255) NOT NULL
+	createPendingReedEventsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS pending_reed_events (
+		event_id VARCHAR(255) PRIMARY KEY
+			REFERENCES pending_events(event_id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL,
+
+		FOREIGN KEY (user_id, reed_id)
+			REFERENCES reeds(user_id, id) ON DELETE CASCADE
 	);`
 
-	createPendingReedRequestsIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_pending_reed_requests_reed_id
-		ON pending_reed_requests(reed_id);
+	createPendingReedEventsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_pending_reed_events_reed_id
+		ON pending_reed_events(reed_id);
 	`
+
+	createPendingAccountEventsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS pending_account_events (
+		event_id VARCHAR(255) PRIMARY KEY
+			REFERENCES pending_events(event_id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id)
+	);`
 
 	createProfileSubscriptionsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS profile_subscriptions (
@@ -554,8 +570,10 @@ func InitDB(db *sql.DB) error {
 		createPendingEventsTable,
 		createPendingEventsIndexes,
 
-		createPendingReedRequestsTable,
-		createPendingReedRequestsIndexes,
+		createPendingReedEventsTable,
+		createPendingReedEventsIndexes,
+
+		createPendingAccountEventsTable,
 
 		// Recovery
 		createUnclaimedAccountsTable,

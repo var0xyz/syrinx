@@ -1215,10 +1215,12 @@ func (s *DataService) CreateReed(reedID string, userID string, fingerprint strin
 		return nil, err
 	}
 
-	s.db.Exec(`
-		INSERT INTO reed_allocations (reed_id, user_id)
-		VALUES ($1, $2)
-	`, reedID, userID)
+	if _, err := s.db.Exec(`
+		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
+		VALUES ($1, $2, $3)
+	`, reedID, userID, userID); err != nil {
+		return nil, fmt.Errorf("allocate reed to author: %w", err)
+	}
 
 	return &reed, nil
 }

@@ -20,7 +20,11 @@ import {
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
 
-export type QueuedReed = { reed: ReedType };
+export type QueuedReed = {
+  reed: ReedType;
+  /** Server-sourced display label for ephemeral broadcast deliveries. */
+  username?: string;
+};
 
 // Receives profile_subscription and request_reed deliveries (explicitly requested content)
 export const profileReedQueue = writable<QueuedReed | null>(null);
@@ -31,8 +35,12 @@ export const newReedQueue = writable<QueuedReed | null>(null);
 // Receives broadcast_reed deliveries — ephemeral, NOT stored in IndexedDB
 export const broadcastReedQueue = writable<QueuedReed | null>(null);
 
-export function dispatchReedToQueue(reed: ReedType, eventName: string): void {
-  const queued: QueuedReed = { reed };
+export function dispatchReedToQueue(
+  reed: ReedType,
+  eventName: string,
+  username?: string
+): void {
+  const queued: QueuedReed = { reed, username };
   if (eventName === 'new_reed') {
     newReedQueue.set(queued);
   } else if (eventName === 'broadcast_reed') {

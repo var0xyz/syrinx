@@ -73,10 +73,10 @@ func SaveReed(
 	}
 
 	if _, err := tx.Exec(`
-		INSERT INTO reed_allocations (reed_id, user_id)
-		VALUES ($1, $2)
+		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
+		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING
-	`, reedID, reporterUserID); err != nil {
+	`, reedID, reporterUserID, authorID); err != nil {
 		return fmt.Errorf("insert reed allocation: %w", err)
 	}
 
