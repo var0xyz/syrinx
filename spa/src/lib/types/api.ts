@@ -41,6 +41,8 @@ export interface User extends Base {
   userSignature: UserSignature;
   serverSignature: ServerSignature;
   hasReeds: boolean;
+  followersCount: number;
+  followingCount: number;
   invitedBy: InvitedBy | null;
 }
 

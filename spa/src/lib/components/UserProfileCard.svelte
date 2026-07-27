@@ -4,6 +4,7 @@
   import CopyButton from '$lib/components/CopyButton.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import { followingRepository } from '$lib/repositories/following';
+  import { apiService } from '$lib/services/api';
 
   export let user;
   export let editable = false;
@@ -12,12 +13,30 @@
   const dispatch = createEventDispatcher();
 
   let following = false;
+  let followersCount = 0;
+  let followingCount = 0;
+
+  $: if (user) {
+    followersCount = user.followersCount ?? 0;
+    followingCount = user.followingCount ?? 0;
+  }
 
   onMount(async () => {
     if (!isOwner && user?.id) {
       following = await followingRepository.isFollowing(user.id);
     }
   });
+
+  async function refreshFollowCounts() {
+    if (!user?.id) return;
+    try {
+      const fresh = await apiService.getUser(user.id);
+      followersCount = fresh.followersCount ?? 0;
+      followingCount = fresh.followingCount ?? 0;
+    } catch (error) {
+      console.error('Failed to refresh follow counts:', error);
+    }
+  }
 
   async function toggleFollow() {
     if (following) {
@@ -27,6 +46,7 @@
       await followingRepository.follow(user.id);
       following = true;
     }
+    await refreshFollowCounts();
   }
 
   const serverName = localStorage.getItem('serverName') || '';
@@ -74,6 +94,10 @@
           <a href="/profile/{user.invitedBy.id}">@{user.invitedBy.username}</a>
         </p>
       {/if}
+      <div class="follow-stats">
+        <span class="follow-stat"><strong>{followingCount}</strong> Following</span>
+        <span class="follow-stat"><strong>{followersCount}</strong> Followers</span>
+      </div>
     </div>
   </div>
   {#if user?.bio}
@@ -181,6 +205,19 @@
 
   .invited-by a:hover {
     text-decoration: underline;
+  }
+
+  .follow-stats {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .follow-stat strong {
+    color: var(--fg);
+    font-weight: 600;
   }
 
   .user-bio {

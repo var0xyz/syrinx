@@ -595,6 +595,8 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		                 SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
 		             )
 		       ) AS has_reeds,
+		       (SELECT COUNT(*)::int FROM user_followers uf WHERE uf.user_id = u.id),
+		       (SELECT COUNT(*)::int FROM user_following ufl WHERE ufl.user_id = u.id),
 		       inv.id, inv.username
 		FROM users u
 		LEFT JOIN users inv ON inv.id = u.invited_by
@@ -609,6 +611,8 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		&userSignatureID,
 		&serverSignatureID,
 		&user.HasReeds,
+		&user.FollowersCount,
+		&user.FollowingCount,
 		&inviterID,
 		&inviterUsername,
 	)

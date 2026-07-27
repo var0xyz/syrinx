@@ -39,8 +39,10 @@ type User struct {
 	Username  string    `json:"username"`
 	AvatarURL string    `json:"avatarURL"`
 	Bio       string    `json:"bio"`
-	CreatedAt time.Time `json:"memberSince"`
-	HasReeds  bool      `json:"hasReeds"`
+	CreatedAt      time.Time `json:"memberSince"`
+	HasReeds       bool      `json:"hasReeds"`
+	FollowersCount int       `json:"followersCount"`
+	FollowingCount int       `json:"followingCount"`
 
 	// ActiveKeyFingerprint is a server-provided hint carrying the
 	// user's currently-active key fingerprint at response time. See
