@@ -71,7 +71,6 @@
       loadingReed = true;
       errorMessage = '';
       reed = await reedsService.getReed(userID, reedID);
-      console.log('Reed:', reed);
 
       if (!reed) {
         // Not in IndexedDB — try to fetch from network

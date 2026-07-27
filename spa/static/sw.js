@@ -178,7 +178,7 @@ self.addEventListener('message', async (event) => {
     return;
   }
 
-  console.log('Service Worker: Received message:', event.data.type, event.data);
+  console.log('Service Worker: Received message:', event.data.type);
 
   const { type, data } = event.data;
 
@@ -215,9 +215,6 @@ self.addEventListener('message', async (event) => {
       console.log('Service Worker: Signing text...');
       const signature = await signText(data.text);
       console.log('Service Worker: Text signed successfully');
-      console.log('Signed text:', data.text);
-      console.log('Signature:', signature);
-      console.log('--- END SIGNATURE');
       port.postMessage({ success: true, signature });
     } catch (error) {
       console.error('Service Worker: Text signing failed:', error);

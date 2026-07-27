@@ -36,7 +36,7 @@ class RequestSignerService {
           return;
         }
 
-        console.log('RequestSigner: Service worker registration found:', registration);
+        console.log('RequestSigner: Service worker registration found');
 
         // If there's an active service worker, use it directly
         if (registration.active && registration.active.state === 'activated') {
@@ -143,7 +143,6 @@ class RequestSignerService {
 
         channel.port1.onmessage = (event) => {
           clearTimeout(timeout);
-          console.log('RequestSigner: Received response from service worker:', event.data);
           if (event.data.success) {
             console.log('RequestSigner: Service worker key initialization successful');
             this.initialized = true;
