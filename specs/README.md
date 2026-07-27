@@ -55,6 +55,17 @@ See [`invites/`](invites/README.md):
 | 04 | Home CTA + invite-link signup path                 |
 | 05 | Toolbar Invites tab + management UI                |
 
+## Echoes and replies (conversations)
+
+See [`conversations/`](conversations/README.md):
+
+| #  | Title                                              |
+|----|----------------------------------------------------|
+| 00 | Design + UX model (echo count, one-level drill-down) |
+| 01 | Verify markdown on publish; normalize `replying` ref |
+| 02 | Echo/reply index tables + list/count APIs          |
+| 03 | Echo count + conversation section on reed detail     |
+
 ## Signed deletions (reeds + accounts)
 
 See [`deletion/`](deletion/README.md):
@@ -103,6 +114,9 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
   Step 00 (keychain passphrase) can land independently and unblocks 01/02.
 - **Invites feature steps** are independent of recovery; within `invites/`,
   follow that directory's depends-on column (00→05). Step 00 can land alone.
+- **Conversations feature steps** are independent of recovery; within
+  `conversations/`, follow that directory's depends-on column (00→03). Step
+  01 (publish verify) is valuable security hardening on its own.
 - **Deletion feature steps** are independent of recovery; within
   `deletion/`, follow that directory's depends-on column. After 00, account
   schema (07) may parallel the reed track; 08 needs 02+04; 09 needs 06+08.

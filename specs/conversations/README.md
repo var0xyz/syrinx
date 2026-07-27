@@ -1,0 +1,83 @@
+# Echoes and replies (conversations)
+
+This directory is the **echo count + threaded reply UI** feature proposal
+set. Numbered files below are independently reviewable implementation steps.
+Land them in order unless a step's "Depends on" says otherwise.
+
+**Blank slate — no migration, no backwards compatibility.** Recreate the DB
+when schema changes; normalize the `replying` header at the same time (see
+[01](01_publish_and_refs.md)).
+
+**Not ephemeral comments.** [Planned ephemeral comments](../../docs/planned.md)
+are a separate, future product. Replies here are **full signed reeds** with a
+`replying` header — same permanence and deletion story as any other reed.
+
+**Code organization (suggested):** conversation index helpers in a
+`syrinx/conversations` package (or colocated with reed handlers if thin).
+Main wires DDL, route mounting, and `SignReed` hooks. SPA owns the reed-detail
+conversation section and local reply cache.
+
+| #                                    | Title                                              | Depends on |
+|--------------------------------------|----------------------------------------------------|------------|
+| [00](00_design.md)                   | Design + UX model                                  | —          |
+| [01](01_publish_and_refs.md)         | Verify markdown on publish; normalize `replying` ref | 00         |
+| [02](02_index_and_api.md)            | Echo/reply index tables + list/count APIs          | 01         |
+| [03](03_spa_reed_detail.md)          | Echo count + conversation section on reed detail   | 02         |
+
+After 00, [01](01_publish_and_refs.md) can land alone (security hardening).
+[02](02_index_and_api.md) needs the publish hook from 01. SPA ([03](03_spa_reed_detail.md))
+needs the APIs from 02.
+
+---
+
+## Status
+
+**Proposed** (00–03).
+
+## Motivation
+
+Echo and reply headers already exist on signed reeds, but the product does
+not surface them:
+
+- Authors cannot see how often their reed was echoed.
+- Readers cannot browse replies without already holding every reply reed
+  locally.
+- The `replying` header stores only a reed id while `echoing` uses
+  `authorId!reedId` — inconsistent and federation-hostile.
+
+This feature adds **server-side social indexes** (metadata only — bodies stay
+on peers) and a **conversation section** on the reed detail page: direct
+replies first; drill into a reply to see *its* direct replies.
+
+## Locked decisions
+
+| Decision | Choice |
+|----------|--------|
+| Reply reference wire format | `authorId!reedId` (same as `echoing`) |
+| Index scope | Instance-local; built at countersign time |
+| Index payload | `(parent/target author, parent/target reed, child author, child reed, signed_at)` — no markdown on server |
+| Publish body | Client sends full signed markdown on `POST /reeds`; server verifies detached user sig before countersign |
+| Echo count surface | Integer on `GET /reeds/{userID}/{reedID}` (`echoCount`) |
+| Reply list surface | `GET /reeds/{userID}/{reedID}/replies` — metadata rows, oldest-first |
+| Conversation depth | **One level at a time** — list direct children only; click a reply to navigate to that reed's page |
+| Removed reeds | Excluded from counts and reply lists; parent quote already shows "unavailable" via deletion certs |
+| Realtime v1 | Reuse `new_reed` fanout; conversation section refreshes when a held/new reply arrives (no new WS type in v1) |
+
+## Actors
+
+- **Author** — publishes a reed; may echo or reply to others' reeds.
+- **Reader** — opens a reed detail page; sees echo count and direct replies;
+  navigates into reply threads by opening reply reeds.
+- **Server** — verifies user signatures on publish, maintains echo/reply
+  indexes, serves counts and reply metadata. Does **not** store reed bodies.
+
+## Cross-links
+
+- Reed social headers: [`services.go` `ExtractReedHeader`](../../services.go),
+  SPA [`ReedType`](../../spa/src/lib/types/reed.ts).
+- Reed detail UI: [`spa/src/routes/reed/[userID]/[reedID]/+page.svelte`](../../spa/src/routes/reed/[userID]/[reedID]/+page.svelte).
+- Deletion: removed reeds must drop out of indexes
+  ([`deletion/`](../deletion/README.md)).
+- Federation routing TODO in SPA layout
+  ([`+layout.svelte`](../../spa/src/routes/+layout.svelte)) — `authorId!reedId`
+  is the interim ref format until `userID@serverID/reedID` lands.
