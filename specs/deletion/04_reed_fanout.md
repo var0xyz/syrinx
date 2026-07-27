@@ -43,7 +43,7 @@ See [`realtime/`](../../../realtime/) (`catchUp` / `GetMissingOut`,
 ### Live path
 
 `DeleteReed` first insert → `BroadcastMessage{ReedRemoved, cert}` →
-`handleBroadcasts` → `CreatePendingEvent(reed_removed)` + direct
+`handleBroadcasts` → `CreatePendingReedEvent(reed_removed)` + direct
 `REED_REMOVED` send to each online recipient with a sync request id.
 
 ### Catch-up path

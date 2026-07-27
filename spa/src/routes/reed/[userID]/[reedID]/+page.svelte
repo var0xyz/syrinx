@@ -110,7 +110,7 @@
         try {
           const data = await serverConnection.requestReedContent(reedID, userID, userID);
           reed = data;
-          authorUser = await userRepository.getByUserId(userID).catch(() => null);
+          await loadAuthorProfile();
         } catch {
           reedNotFound = true;
         } finally {
@@ -154,13 +154,25 @@
         }
       }
 
-      // Fetch the reed author's profile
-      authorUser = await userRepository.getByUserId(userID).catch(() => null);
+      // Fetch the reed author's profile (local cache first, then API).
+      await loadAuthorProfile();
     } catch (error) {
       console.error('Error loading reed:', error);
       errorMessage = 'Failed to load reed';
     } finally {
       loadingReed = false;
+    }
+  }
+
+  async function loadAuthorProfile() {
+    authorUser = await userRepository.getByUserId(userID).catch(() => null);
+    if (authorUser) return;
+    try {
+      const fresh = await apiService.getUser(userID);
+      await userRepository.put(fresh);
+      authorUser = fresh;
+    } catch (error) {
+      console.error('Failed to fetch author profile:', error);
     }
   }
 

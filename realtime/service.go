@@ -128,7 +128,7 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			for _, sub := range profileSubscribers {
 				eventID := generateEventID()
 				requestID := generateEventID()
-				if err := rs.dbService.CreateProfileSubscriptionEvent(eventID, requestID, sub.ViewerUserID, NewReedEvent, message.ReedID, sub.SubscriptionID); err != nil {
+				if err := rs.dbService.CreateProfileSubscriptionEvent(eventID, requestID, sub.ViewerUserID, NewReedEvent, message.UserID, message.ReedID, sub.SubscriptionID); err != nil {
 					log.Error().
 						Err(err).
 						Str("viewerUserID", sub.ViewerUserID).
@@ -154,15 +154,15 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to get broadcast subscribers for reed removal")
 			}
-			rs.dispatchRemovalMany(followers, message.ReedID, cert)
-			rs.dispatchRemovalMany(broadcastRecipients, message.ReedID, cert)
+			rs.dispatchRemovalMany(followers, message.UserID, message.ReedID, cert)
+			rs.dispatchRemovalMany(broadcastRecipients, message.UserID, message.ReedID, cert)
 
 			profileSubscribers, err := rs.dbService.GetProfileSubscribers(message.UserID)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to get profile subscribers for reed removal")
 			}
 			for _, sub := range profileSubscribers {
-				rs.dispatchRemovalTo(sub.ViewerUserID, message.ReedID, cert)
+				rs.dispatchRemovalTo(sub.ViewerUserID, message.UserID, message.ReedID, cert)
 			}
 		}
 
@@ -196,19 +196,19 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 
 // dispatchRemovalMany enqueues reed_removed pending events and delivers certs
 // server-side (no holder relay).
-func (rs *RealtimeService) dispatchRemovalMany(recipients []string, reedID string, cert interface{}) {
+func (rs *RealtimeService) dispatchRemovalMany(recipients []string, authorUserID, reedID string, cert interface{}) {
 	for _, recipientID := range recipients {
-		rs.dispatchRemovalTo(recipientID, reedID, cert)
+		rs.dispatchRemovalTo(recipientID, authorUserID, reedID, cert)
 	}
 }
 
-func (rs *RealtimeService) dispatchRemovalTo(recipientID, reedID string, cert interface{}) {
+func (rs *RealtimeService) dispatchRemovalTo(recipientID, authorUserID, reedID string, cert interface{}) {
 	requestID, err := rs.dbService.GetSyncRequestID(recipientID)
 	if err != nil || requestID == "" {
 		return
 	}
 	eventID := generateEventID()
-	if err := rs.dbService.CreatePendingEvent(eventID, requestID, recipientID, ReedRemovedEvent, reedID); err != nil {
+	if err := rs.dbService.CreatePendingReedEvent(eventID, requestID, recipientID, ReedRemovedEvent, authorUserID, reedID); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create reed_removed pending event")
 		return
 	}
@@ -227,8 +227,7 @@ func (rs *RealtimeService) dispatchAccountRemovalTo(recipientID, removedUserID s
 		return
 	}
 	eventID := generateEventID()
-	// pending_reed_requests.reed_id stores the removed user id for account events.
-	if err := rs.dbService.CreatePendingEvent(eventID, requestID, recipientID, AccountRemovedEvent, removedUserID); err != nil {
+	if err := rs.dbService.CreatePendingAccountEvent(eventID, requestID, recipientID, removedUserID); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create account_removed pending event")
 		return
 	}
@@ -279,9 +278,9 @@ func (rs *RealtimeService) deliverReedRemoved(eventID, requestID, recipientID, r
 	}
 }
 
-
-// dispatchMany creates a pending event for each recipient and triggers relay dispatch to holderUserID.
-func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName, reedID, holderUserID string) {
+// dispatchMany creates a pending reed event for each recipient and triggers relay dispatch to holderUserID.
+// holderUserID is also the reed author for new-reed fanout.
+func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName, reedID, authorUserID string) {
 	for _, recipientID := range recipients {
 		requestID, err := rs.dbService.GetSyncRequestID(recipientID)
 		if err != nil || requestID == "" {
@@ -293,7 +292,7 @@ func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName
 			continue
 		}
 		eventID := generateEventID()
-		if err := rs.dbService.CreatePendingEvent(eventID, requestID, recipientID, eventName, reedID); err != nil {
+		if err := rs.dbService.CreatePendingReedEvent(eventID, requestID, recipientID, eventName, authorUserID, reedID); err != nil {
 			log.Error().
 				Err(err).
 				Str("recipientID", recipientID).
@@ -303,9 +302,9 @@ func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName
 		log.Debug().
 			Str("recipientID", recipientID).
 			Str("eventID", eventID).
-			Str("holderUserID", holderUserID).
+			Str("holderUserID", authorUserID).
 			Msg("Pending event created, dispatching to holder")
-		rs.dispatchNext(holderUserID)
+		rs.dispatchNext(authorUserID)
 	}
 }
 
@@ -767,7 +766,6 @@ func generateEventID() string {
 	return uuid.New().String()
 }
 
-
 func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]interface{}) {
 	data, _ := msg["data"].(map[string]interface{})
 	requestID, _ := data["request_id"].(string)
@@ -787,8 +785,14 @@ func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]inte
 		return
 	}
 
+	authorID, err := rs.dbService.GetReedAuthor(reedID)
+	if err != nil || authorID == "" {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to resolve reed author")
+		return
+	}
+
 	eventID := generateEventID()
-	if err := rs.dbService.CreatePendingEvent(eventID, requestID, client.userID, RequestReedEvent, reedID); err != nil {
+	if err := rs.dbService.CreatePendingReedEvent(eventID, requestID, client.userID, RequestReedEvent, authorID, reedID); err != nil {
 		log.Error().Err(err).Msg("Failed to create pending event")
 		return
 	}
@@ -812,7 +816,7 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]in
 		return
 	}
 
-	pe, err := rs.dbService.GetPendingReedRequest(eventID)
+	pe, err := rs.dbService.GetPendingReedEvent(eventID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event")
 		rs.dispatchNext(client.userID)
@@ -826,7 +830,13 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]in
 
 	if pe.EventName == string(BroadcastReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering broadcast reed to subscriber")
-		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewBroadcastReedMsg(pe.ReedID, data["data"])); err != nil {
+		username := ""
+		if name, err := rs.dbService.GetUsername(pe.UserID); err != nil {
+			log.Error().Err(err).Str("userID", pe.UserID).Msg("Failed to load author username for broadcast reed")
+		} else {
+			username = name
+		}
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewBroadcastReedMsg(pe.ReedID, data["data"], username)); err != nil {
 			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver broadcast reed")
 		}
 		if err := rs.dbService.DeletePendingEvent(eventID); err != nil {
@@ -863,15 +873,15 @@ func (rs *RealtimeService) handleRelayMiss(client *Client, data RelayMissData) {
 	rs.dispatchNext(client.userID)
 }
 
-// handleDataAck is called when the viewer has received and verified a reed successfully.
-// New reeds: allocate. Reed removals: clear allocation. Then drop the pending event.
+// handleDataAck is called when the viewer has received and verified a delivery successfully.
+// New reeds: allocate. Reed removals: clear allocation. Account removals: clear peer state.
 func (rs *RealtimeService) handleDataAck(client *Client, data DataAckData) {
 	if data.EventID == "" {
 		return
 	}
 	eventID := data.EventID
 
-	pe, err := rs.dbService.GetPendingReedRequest(eventID)
+	pe, err := rs.dbService.GetPendingSubject(eventID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event for data ack")
 		return
@@ -885,11 +895,10 @@ func (rs *RealtimeService) handleDataAck(client *Client, data DataAckData) {
 			log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to clear allocation on reed_removed ack")
 		}
 	} else if EventName(pe.EventName) == AccountRemovedEvent {
-		// pe.ReedID holds the removed user id for account_removed events.
-		if err := rs.dbService.ClearPeerStateForRemovedAccount(client.userID, pe.ReedID); err != nil {
-			log.Error().Err(err).Str("removedUserID", pe.ReedID).Str("viewer", client.userID).Msg("Failed to clear peer state on account_removed ack")
+		if err := rs.dbService.ClearPeerStateForRemovedAccount(client.userID, pe.UserID); err != nil {
+			log.Error().Err(err).Str("removedUserID", pe.UserID).Str("viewer", client.userID).Msg("Failed to clear peer state on account_removed ack")
 		}
-	} else if err := rs.dbService.AllocateReed(pe.ReedID, client.userID); err != nil {
+	} else if err := rs.dbService.AllocateReed(pe.ReedID, client.userID, pe.UserID); err != nil {
 		log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to allocate reed on data ack")
 	}
 
@@ -935,7 +944,7 @@ func (rs *RealtimeService) handleSubscribeProfile(client *Client, msg map[string
 	for _, reedID := range missingIDs {
 		eventID := generateEventID()
 		requestID := generateEventID()
-		if err := rs.dbService.CreateProfileSubscriptionEvent(eventID, requestID, client.userID, ProfileSubscriptionEvent, reedID, subscriptionID); err != nil {
+		if err := rs.dbService.CreateProfileSubscriptionEvent(eventID, requestID, client.userID, ProfileSubscriptionEvent, data.UserID, reedID, subscriptionID); err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to create profile subscription event")
 			continue
 		}
@@ -1022,7 +1031,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 
 	for _, reed := range unallocated {
 		eventID := generateEventID()
-		if err := rs.dbService.CreatePendingEvent(eventID, requestID, userID, NewReedEvent, reed.ReedID); err != nil {
+		if err := rs.dbService.CreatePendingReedEvent(eventID, requestID, userID, NewReedEvent, reed.AuthorID, reed.ReedID); err != nil {
 			log.Error().
 				Err(err).
 				Str("reedID", reed.ReedID).
@@ -1049,7 +1058,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 	}
 	for _, rem := range removals {
 		eventID := generateEventID()
-		if err := rs.dbService.CreatePendingEvent(eventID, requestID, userID, ReedRemovedEvent, rem.ReedID); err != nil {
+		if err := rs.dbService.CreatePendingReedEvent(eventID, requestID, userID, ReedRemovedEvent, rem.UserID, rem.ReedID); err != nil {
 			log.Error().Err(err).Str("reedID", rem.ReedID).Msg("Failed to create catch-up reed_removed event")
 			continue
 		}
@@ -1063,7 +1072,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 	}
 	for _, rem := range accountRemovals {
 		eventID := generateEventID()
-		if err := rs.dbService.CreatePendingEvent(eventID, requestID, userID, AccountRemovedEvent, rem.UserID); err != nil {
+		if err := rs.dbService.CreatePendingAccountEvent(eventID, requestID, userID, rem.UserID); err != nil {
 			log.Error().Err(err).Str("removedUserID", rem.UserID).Msg("Failed to create catch-up account_removed event")
 			continue
 		}

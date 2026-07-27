@@ -102,6 +102,17 @@ func (ds *DBService) GetUserPublicKey(userID, fingerprint string) (string, error
 	return armor, nil
 }
 
+// GetUsername returns the current username for display on ephemeral deliveries
+// (e.g. broadcast reeds). Empty string when the user row is missing.
+func (ds *DBService) GetUsername(userID string) (string, error) {
+	var username string
+	err := ds.db.QueryRow(`SELECT username FROM users WHERE id = $1`, userID).Scan(&username)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return username, err
+}
+
 // GetUserByID retrieves basic user information
 func (ds *DBService) GetUserByID(userID string) (*User, error) {
 	var user User
@@ -217,14 +228,29 @@ type PendingEvent struct {
 	EventName       string
 }
 
-// PendingReedRequest represents a pending reed request with its associated event
-type PendingReedRequest struct {
+// PendingReedEvent is a pending_events row with its pending_reed_events subject.
+type PendingReedEvent struct {
 	PendingEvent
+	UserID string // author
 	ReedID string
 }
 
-// CreatePendingEvent inserts a new pending event and its associated reed request in a transaction.
-func (ds *DBService) CreatePendingEvent(eventID, requestID, userID string, eventName EventName, reedID string) error {
+// PendingAccountEvent is a pending_events row with its pending_account_events subject.
+type PendingAccountEvent struct {
+	PendingEvent
+	UserID string // removed account
+}
+
+// PendingSubject is the ACK/lookup view: reed and/or account fields depending on event_name.
+type PendingSubject struct {
+	PendingEvent
+	UserID string // author (reed) or removed account
+	ReedID string // set for reed events only
+}
+
+// CreatePendingReedEvent inserts pending_events + pending_reed_events (FK to reeds).
+// requesterUserID is the viewer; authorUserID + reedID identify the reed subject.
+func (ds *DBService) CreatePendingReedEvent(eventID, requestID, requesterUserID string, eventName EventName, authorUserID, reedID string) error {
 	tx, err := ds.db.Begin()
 	if err != nil {
 		return err
@@ -234,15 +260,15 @@ func (ds *DBService) CreatePendingEvent(eventID, requestID, userID string, event
 	_, err = tx.Exec(`
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
 		VALUES ($1, $2, $3, $4)
-	`, eventID, requestID, userID, eventName)
+	`, eventID, requestID, requesterUserID, eventName)
 	if err != nil {
 		return err
 	}
 
 	_, err = tx.Exec(`
-		INSERT INTO pending_reed_requests (event_id, reed_id)
-		VALUES ($1, $2)
-	`, eventID, reedID)
+		INSERT INTO pending_reed_events (event_id, user_id, reed_id)
+		VALUES ($1, $2, $3)
+	`, eventID, authorUserID, reedID)
 	if err != nil {
 		return err
 	}
@@ -250,8 +276,35 @@ func (ds *DBService) CreatePendingEvent(eventID, requestID, userID string, event
 	return tx.Commit()
 }
 
-// CreateProfileSubscriptionEvent inserts a pending event tied to a profile subscription.
-func (ds *DBService) CreateProfileSubscriptionEvent(eventID, requestID, userID string, eventName EventName, reedID, subscriptionID string) error {
+// CreatePendingAccountEvent inserts pending_events + pending_account_events.
+func (ds *DBService) CreatePendingAccountEvent(eventID, requestID, requesterUserID, removedUserID string) error {
+	tx, err := ds.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
+		VALUES ($1, $2, $3, $4)
+	`, eventID, requestID, requesterUserID, AccountRemovedEvent)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO pending_account_events (event_id, user_id)
+		VALUES ($1, $2)
+	`, eventID, removedUserID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// CreateProfileSubscriptionEvent inserts a reed pending event tied to a profile subscription.
+func (ds *DBService) CreateProfileSubscriptionEvent(eventID, requestID, requesterUserID string, eventName EventName, authorUserID, reedID, subscriptionID string) error {
 	tx, err := ds.db.Begin()
 	if err != nil {
 		return err
@@ -261,15 +314,15 @@ func (ds *DBService) CreateProfileSubscriptionEvent(eventID, requestID, userID s
 	_, err = tx.Exec(`
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name, subscription_id)
 		VALUES ($1, $2, $3, $4, $5)
-	`, eventID, requestID, userID, eventName, subscriptionID)
+	`, eventID, requestID, requesterUserID, eventName, subscriptionID)
 	if err != nil {
 		return err
 	}
 
 	_, err = tx.Exec(`
-		INSERT INTO pending_reed_requests (event_id, reed_id)
-		VALUES ($1, $2)
-	`, eventID, reedID)
+		INSERT INTO pending_reed_events (event_id, user_id, reed_id)
+		VALUES ($1, $2, $3)
+	`, eventID, authorUserID, reedID)
 	if err != nil {
 		return err
 	}
@@ -277,15 +330,30 @@ func (ds *DBService) CreateProfileSubscriptionEvent(eventID, requestID, userID s
 	return tx.Commit()
 }
 
-// GetPendingReedRequest retrieves a pending event and its associated reed ID by event ID
-func (ds *DBService) GetPendingReedRequest(eventID string) (*PendingReedRequest, error) {
-	var pe PendingReedRequest
+// GetPendingSubject loads a pending event and its typed child subject by event ID.
+func (ds *DBService) GetPendingSubject(eventID string) (*PendingSubject, error) {
+	var pe PendingSubject
 	err := ds.db.QueryRow(`
-		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, prr.reed_id
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name
 		FROM pending_events pe
-		JOIN pending_reed_requests prr ON prr.event_id = pe.event_id
 		WHERE pe.event_id = $1
-	`, eventID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName, &pe.ReedID)
+	`, eventID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if EventName(pe.EventName) == AccountRemovedEvent {
+		err = ds.db.QueryRow(`
+			SELECT user_id FROM pending_account_events WHERE event_id = $1
+		`, eventID).Scan(&pe.UserID)
+	} else {
+		err = ds.db.QueryRow(`
+			SELECT user_id, reed_id FROM pending_reed_events WHERE event_id = $1
+		`, eventID).Scan(&pe.UserID, &pe.ReedID)
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -295,7 +363,25 @@ func (ds *DBService) GetPendingReedRequest(eventID string) (*PendingReedRequest,
 	return &pe, nil
 }
 
-// DeletePendingEvent deletes a pending event by event ID (cascades to pending_reed_requests)
+// GetPendingReedEvent loads a reed-subject pending event (nil if missing or account event).
+func (ds *DBService) GetPendingReedEvent(eventID string) (*PendingReedEvent, error) {
+	var pe PendingReedEvent
+	err := ds.db.QueryRow(`
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
+		FROM pending_events pe
+		JOIN pending_reed_events pre ON pre.event_id = pe.event_id
+		WHERE pe.event_id = $1
+	`, eventID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName, &pe.UserID, &pe.ReedID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &pe, nil
+}
+
+// DeletePendingEvent deletes a pending event by event ID (cascades to child subject tables).
 func (ds *DBService) DeletePendingEvent(eventID string) error {
 	_, err := ds.db.Exec(`DELETE FROM pending_events WHERE event_id = $1`, eventID)
 	return err
@@ -313,37 +399,47 @@ func (ds *DBService) DeleteProfileSubscriptionsByViewer(userID string) error {
 	return err
 }
 
-// AllocateReed records that a user now holds a reed.
-func (ds *DBService) AllocateReed(reedID, userID string) error {
+// AllocateReed records that holderUserID now holds the reed authored by authorUserID.
+func (ds *DBService) AllocateReed(reedID, holderUserID, authorUserID string) error {
 	_, err := ds.db.Exec(`
-		INSERT INTO reed_allocations (reed_id, user_id)
-		VALUES ($1, $2)
+		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
+		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING
-	`, reedID, userID)
+	`, reedID, holderUserID, authorUserID)
 	return err
 }
 
 // DeleteReedAllocation removes a single holder's allocation for a reed.
-func (ds *DBService) DeleteReedAllocation(reedID, userID string) error {
+func (ds *DBService) DeleteReedAllocation(reedID, holderUserID string) error {
 	_, err := ds.db.Exec(`
-		DELETE FROM reed_allocations WHERE reed_id = $1 AND user_id = $2
-	`, reedID, userID)
+		DELETE FROM reed_allocations WHERE reed_id = $1 AND holder_user_id = $2
+	`, reedID, holderUserID)
 	return err
 }
 
-// GetNextPendingForHolder returns the oldest undispatched pending event for reeds held by holderUserID.
-func (ds *DBService) GetNextPendingForHolder(holderUserID string) (*PendingReedRequest, error) {
-	var pe PendingReedRequest
+// GetReedAuthor returns the author user_id for a reed id, or empty if missing.
+func (ds *DBService) GetReedAuthor(reedID string) (string, error) {
+	var authorID string
+	err := ds.db.QueryRow(`SELECT user_id FROM reeds WHERE id = $1`, reedID).Scan(&authorID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return authorID, err
+}
+
+// GetNextPendingForHolder returns the oldest undispatched reed pending for reeds held by holderUserID.
+func (ds *DBService) GetNextPendingForHolder(holderUserID string) (*PendingReedEvent, error) {
+	var pe PendingReedEvent
 	err := ds.db.QueryRow(`
-		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, prr.reed_id
-		FROM pending_reed_requests prr
-		JOIN pending_events pe ON pe.event_id = prr.event_id
-		JOIN reed_allocations ra ON ra.reed_id = prr.reed_id
-		WHERE ra.user_id = $1
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
+		FROM pending_reed_events pre
+		JOIN pending_events pe ON pe.event_id = pre.event_id
+		JOIN reed_allocations ra ON ra.reed_id = pre.reed_id
+		WHERE ra.holder_user_id = $1
 		  AND pe.dispatched_at IS NULL
 		ORDER BY pe.created_at
 		LIMIT 1
-	`, holderUserID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName, &pe.ReedID)
+	`, holderUserID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName, &pe.UserID, &pe.ReedID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -381,7 +477,7 @@ func (ds *DBService) GetOnlineReedHolder(reedID string) (string, error) {
 	var userID string
 	err := ds.db.QueryRow(`
 		SELECT ou.user_id FROM online_users ou
-		JOIN reed_allocations ra ON ra.user_id = ou.user_id
+		JOIN reed_allocations ra ON ra.holder_user_id = ou.user_id
 		WHERE ra.reed_id = $1
 		LIMIT 1
 	`, reedID).Scan(&userID)
@@ -391,28 +487,29 @@ func (ds *DBService) GetOnlineReedHolder(reedID string) (string, error) {
 	return userID, err
 }
 
-// GetPendingEventsForUser returns all pending reed requests for reeds held by the given user
-func (ds *DBService) GetPendingEventsForUser(userID string) ([]PendingReedRequest, error) {
+// GetPendingEventsForUser returns all pending reed events for reeds held by the given user.
+func (ds *DBService) GetPendingEventsForUser(userID string) ([]PendingReedEvent, error) {
 	rows, err := ds.db.Query(`
-		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, prr.reed_id
-		FROM pending_reed_requests prr
-		JOIN pending_events pe ON pe.event_id = prr.event_id
-		JOIN reed_allocations ra ON ra.reed_id = prr.reed_id
-		WHERE ra.user_id = $1
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
+		FROM pending_reed_events pre
+		JOIN pending_events pe ON pe.event_id = pre.event_id
+		JOIN reed_allocations ra ON ra.reed_id = pre.reed_id
+		WHERE ra.holder_user_id = $1
 	`, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var results []PendingReedRequest
+	var results []PendingReedEvent
 	for rows.Next() {
-		var prr PendingReedRequest
+		var prr PendingReedEvent
 		if err := rows.Scan(
 			&prr.EventID,
 			&prr.RequestID,
 			&prr.RequesterUserID,
 			&prr.EventName,
+			&prr.UserID,
 			&prr.ReedID,
 		); err != nil {
 			return nil, err
@@ -422,12 +519,13 @@ func (ds *DBService) GetPendingEventsForUser(userID string) ([]PendingReedReques
 	return results, nil
 }
 
-// GetPendingRequestsForRequester returns all pending reed requests initiated by the given user.
-func (ds *DBService) GetPendingRequestsForRequester(requesterUserID string) ([]PendingReedRequest, error) {
+// GetPendingRequestsForRequester returns pending reed events initiated by the given user
+// (reed relay retry only — not account events).
+func (ds *DBService) GetPendingRequestsForRequester(requesterUserID string) ([]PendingReedEvent, error) {
 	rows, err := ds.db.Query(`
-		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, prr.reed_id
-		FROM pending_reed_requests prr
-		JOIN pending_events pe ON pe.event_id = prr.event_id
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
+		FROM pending_reed_events pre
+		JOIN pending_events pe ON pe.event_id = pre.event_id
 		WHERE pe.requester_user_id = $1
 	`, requesterUserID)
 	if err != nil {
@@ -435,14 +533,15 @@ func (ds *DBService) GetPendingRequestsForRequester(requesterUserID string) ([]P
 	}
 	defer rows.Close()
 
-	var results []PendingReedRequest
+	var results []PendingReedEvent
 	for rows.Next() {
-		var prr PendingReedRequest
+		var prr PendingReedEvent
 		if err := rows.Scan(
 			&prr.EventID,
 			&prr.RequestID,
 			&prr.RequesterUserID,
 			&prr.EventName,
+			&prr.UserID,
 			&prr.ReedID,
 		); err != nil {
 			return nil, err
@@ -464,7 +563,7 @@ func (ds *DBService) GetMissingReedIDsForViewer(authorID, viewerID string, owned
 		  AND r.id <> ALL($3)
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_allocations ra
-		      WHERE ra.reed_id = r.id AND ra.user_id = $2
+		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $2
 		  )
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
@@ -502,7 +601,7 @@ func (ds *DBService) GetMissingOut(userID string) ([]UnallocatedReed, error) {
 		WHERE uf.user_id = $1
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_allocations ra
-		      WHERE ra.reed_id = r.id AND ra.user_id = $1
+		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $1
 		  )
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
@@ -531,7 +630,7 @@ func (ds *DBService) GetUnallocatedReeds(authorID, viewerID string) ([]string, e
 		WHERE r.user_id = $1
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_allocations ra
-		      WHERE ra.reed_id = r.id AND ra.user_id = $2
+		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $2
 		  )
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
@@ -672,16 +771,17 @@ func (ds *DBService) ReedExists(reedID string) (bool, error) {
 // MissingRemoval is a reed_allocations ∩ reed_removals row for catch-up.
 type MissingRemoval struct {
 	ReedID string
+	UserID string
 	Cert   map[string]interface{}
 }
 
 // GetMissingRemovals returns removal certs for reeds this user still holds.
 func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error) {
 	rows, err := ds.db.Query(`
-		SELECT rr.reed_id
+		SELECT rr.reed_id, rr.user_id
 		FROM reed_allocations ra
 		JOIN reed_removals rr ON rr.reed_id = ra.reed_id
-		WHERE ra.user_id = $1
+		WHERE ra.holder_user_id = $1
 	`, userID)
 	if err != nil {
 		return nil, err
@@ -695,8 +795,8 @@ func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error)
 
 	var out []MissingRemoval
 	for rows.Next() {
-		var reedID string
-		if err := rows.Scan(&reedID); err != nil {
+		var reedID, authorID string
+		if err := rows.Scan(&reedID, &authorID); err != nil {
 			return nil, err
 		}
 		cert, err := deletion.GetCertByReedID(ds.db, reedID)
@@ -705,6 +805,7 @@ func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error)
 		}
 		out = append(out, MissingRemoval{
 			ReedID: reedID,
+			UserID: authorID,
 			Cert:   reedRemovalWireMap(serverID, cert),
 		})
 	}
@@ -771,8 +872,7 @@ func (ds *DBService) GetMissingAccountRemovals(viewerUserID string) ([]MissingAc
 			WHERE uf.user_id = $1 AND uf.following_user_id = ar.user_id
 		) OR EXISTS (
 			SELECT 1 FROM reed_allocations ra
-			JOIN reeds r ON r.id = ra.reed_id
-			WHERE ra.user_id = $1 AND r.user_id = ar.user_id
+			WHERE ra.holder_user_id = $1 AND ra.author_user_id = ar.user_id
 		)
 	`, viewerUserID)
 	if err != nil {
@@ -856,8 +956,7 @@ func (ds *DBService) ClearPeerStateForRemovedAccount(viewerUserID, removedUserID
 	}
 	if _, err := tx.Exec(`
 		DELETE FROM reed_allocations
-		WHERE user_id = $1
-		  AND reed_id IN (SELECT id FROM reeds WHERE user_id = $2)
+		WHERE holder_user_id = $1 AND author_user_id = $2
 	`, viewerUserID, removedUserID); err != nil {
 		return err
 	}

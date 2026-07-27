@@ -1,7 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { authService } from '$lib/services/auth';
-  import { apiService } from '$lib/services/api';
   import { serverConnection } from '$lib/services/serverConnection';
   import { broadcastReedQueue, getFollowcastReeds, initFollowcastIds, removeBroadcastReed } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
@@ -31,12 +30,13 @@
     return defaultValue;
   }
 
-  function saveBroadcastReed(reed, author, existing) {
+  function saveBroadcastReed(reed, username, existing) {
     if (existing.reeds.some(r => r.id === reed.id)) return existing;
     const updatedReeds = [reed, ...existing.reeds].slice(0, BROADCAST_LIMIT);
-    const updatedAuthors = author
-      ? { ...existing.authors, [reed.userID]: author }
-      : existing.authors;
+    const updatedAuthors =
+      username
+        ? { ...existing.authors, [reed.userID]: { username } }
+        : existing.authors;
     const updated = { reeds: updatedReeds, authors: updatedAuthors };
     sessionStorage.setItem(BROADCAST_KEY, JSON.stringify(updated));
     return updated;
@@ -45,20 +45,14 @@
   let broadcastReeds = { reeds: [], authors: {} };
 
   $: if ($broadcastReedQueue) {
-    handleBroadcastReed($broadcastReedQueue.reed);
+    handleBroadcastReed($broadcastReedQueue.reed, $broadcastReedQueue.username);
   }
 
-  async function handleBroadcastReed(reed) {
+  async function handleBroadcastReed(reed, username) {
     if (reed?.userID && (await followingRepository.isFollowing(reed.userID))) {
       return;
     }
-    let author = null;
-    try {
-      author = await apiService.getUser(reed.userID);
-    } catch (e) {
-      console.error('Failed to fetch broadcast reed author:', e);
-    }
-    broadcastReeds = saveBroadcastReed(reed, author, broadcastReeds);
+    broadcastReeds = saveBroadcastReed(reed, username, broadcastReeds);
   }
 
   let followcastReeds = { reeds: [], authors: {} };

@@ -103,7 +103,7 @@
       if (reed?.userID && (await followingRepository.isFollowing(reed.userID))) {
         return;
       }
-      dispatchReedToQueue(reed, 'broadcast_reed');
+      dispatchReedToQueue(reed, 'broadcast_reed', data.username);
     });
     serverConnection.on(ServerEvent.ReedRemoved, async (data) => {
       const eventId = data.event_id;

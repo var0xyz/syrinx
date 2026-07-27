@@ -428,7 +428,7 @@ Recovery-internal bookkeeping (not reconstructed from users):
 
 Not reconstructed (ephemeral/realtime, repopulate on reconnect):
 `online_users`, `broadcast_subscriptions`, `pending_events`,
-`pending_reed_requests`, `profile_subscriptions`.
+`pending_reed_events`, `pending_account_events`, `profile_subscriptions`.
 
 ## Recovery flow
 

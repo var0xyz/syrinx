@@ -14,7 +14,7 @@ const (
 
 // RelayRequestMsg is sent from the server to a holder to request reed content.
 type RelayRequestMsg struct {
-	Type string          `json:"type"`
+	Type string           `json:"type"`
 	Data RelayRequestData `json:"data"`
 }
 
@@ -50,10 +50,12 @@ type DataResponseMsg struct {
 }
 
 type DataResponseData struct {
-	EventID   string      `json:"event_id"`
-	RequestID string      `json:"request_id"`
-	ReedID    string      `json:"reed_id"`
+	EventID   string      `json:"event_id,omitempty"`
+	RequestID string      `json:"request_id,omitempty"`
+	ReedID    string      `json:"reed_id,omitempty"`
+	UserID    string      `json:"user_id,omitempty"`
 	Data      interface{} `json:"data"`
+	Username  string      `json:"username,omitempty"`
 }
 
 func NewDataResponseMsg(eventID, requestID, reedID string, data interface{}) DataResponseMsg {
@@ -61,8 +63,15 @@ func NewDataResponseMsg(eventID, requestID, reedID string, data interface{}) Dat
 }
 
 // NewBroadcastReedMsg builds a BROADCAST_REED delivery message (no request_id needed).
-func NewBroadcastReedMsg(reedID string, data interface{}) DataResponseMsg {
-	return DataResponseMsg{Type: "BROADCAST_REED", Data: DataResponseData{ReedID: reedID, Data: data}}
+func NewBroadcastReedMsg(reedID string, reedData interface{}, username string) DataResponseMsg {
+	return DataResponseMsg{
+		Type: "BROADCAST_REED",
+		Data: DataResponseData{
+			ReedID:   reedID,
+			Data:     reedData,
+			Username: username,
+		},
+	}
 }
 
 // NewReedRemovedMsg builds a REED_REMOVED delivery with the full signed cert as data.
@@ -79,14 +88,13 @@ func NewReedRemovedMsg(eventID, requestID, reedID string, cert interface{}) Data
 }
 
 // NewAccountRemovedMsg builds an ACCOUNT_REMOVED delivery with the full signed cert.
-// ReedID carries the removed user id (pending_reed_requests reuse).
 func NewAccountRemovedMsg(eventID, requestID, removedUserID string, cert interface{}) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "ACCOUNT_REMOVED",
 		Data: DataResponseData{
 			EventID:   eventID,
 			RequestID: requestID,
-			ReedID:    removedUserID,
+			UserID:    removedUserID,
 			Data:      cert,
 		},
 	}
