@@ -98,6 +98,14 @@
         goto('/');
         return;
       }
+
+      try {
+        const fresh = await apiService.getUser(user.id);
+        await authService.saveUserToStorage(fresh);
+        user = fresh;
+      } catch (error) {
+        console.error('Failed to refresh profile follow counts:', error);
+      }
     } catch (error) {
       console.error('Error checking authentication:', error);
       goto('/');
