@@ -54,7 +54,7 @@ export function initializePWA() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
     .then((registration) => {
-      console.log('PWA: Service Worker registered', registration);
+      console.log('PWA: Service Worker registered');
 
       // Force update on registration
       registration.update();

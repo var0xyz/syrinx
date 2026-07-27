@@ -39,8 +39,6 @@ self.onmessage = async (event) => {
         format: 'armored'
       });
 
-      console.log('Signature:', signature.trim());
-
       self.postMessage({
         type: 'SIGNED',
         id: data.id,

@@ -68,7 +68,6 @@ class ReedsService {
       );
     }
 
-    console.log('Storing unsigned reed in IndexedDB:', reed.asObject());
     await dbService.put('unsignedReeds', reed.asObject(), allowUnsigned);
 
     if (!reed.userSignature?.armor) {
@@ -83,7 +82,6 @@ class ReedsService {
       return false;
     }
 
-    console.log('Storing signed reed...', reed.asObject());
     await this.storeReed(reed.asObject());
     await dbService.delete('unsignedReeds', reed.id);
     return true;
@@ -221,8 +219,6 @@ export function removeBroadcastReed(reedId: string): void {
 }
 
 export async function initFollowcastIds(): Promise<void> {
-  console.log("initFollowcastIds");
-
   if (sessionStorage.getItem(FOLLOWCAST_KEY) !== null) return;
   const following = await dbService.getAll<{ userId: string }>('following');
   if (following.length === 0) return;
