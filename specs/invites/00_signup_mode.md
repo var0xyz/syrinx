@@ -56,7 +56,7 @@ Exact strings (case-sensitive):
 | Value | Meaning |
 |-------|---------|
 | `open` | Anyone may sign up |
-| `invite` | Invite required (enforced in 03); bootstrap exception in 03 |
+| `invite` | Invite required |
 | `closed` | No new signups |
 
 Empty / unset `SIGNUP_MODE` → `open`. Any other string → process exits with

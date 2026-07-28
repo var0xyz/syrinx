@@ -217,19 +217,13 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 
 	inviteID := strings.TrimSpace(values.Get("inviteID"))
 	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
-	n, err := h.services.db.CountUsers(r.Context())
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to count users")
-		internalServerError(w)
-		return
-	}
 	inv, err := h.services.db.LookupPendingInvite(r.Context(), inviteID, inviteSecret)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to look up invite")
 		internalServerError(w)
 		return
 	}
-	resolved, err := invites.ResolveSignup(invites.SignupMode(h.cfg.SignupMode), n, inviteID, inviteSecret, inv)
+	resolved, err := invites.ResolveSignup(invites.SignupMode(h.cfg.SignupMode), inviteID, inviteSecret, inv)
 	if err != nil {
 		if errors.Is(err, invites.ErrInviteRequired) {
 			writeResponse(w, http.StatusForbidden, "Invite required")

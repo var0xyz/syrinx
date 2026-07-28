@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -160,28 +159,12 @@ func TestSignup_OpenNoInvite(t *testing.T) {
 	}
 }
 
-func TestSignup_InviteBootstrap(t *testing.T) {
+func TestSignup_InviteRequired(t *testing.T) {
 	db := openSignupTestDB(t)
 	svc := NewDataService(db, "test")
 	svc.serverID = "srv"
 
-	user, err := svc.Signup(signupInput("u1", "alice", "", "", "", invites.ModeInvite))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if user.InvitedBy != nil {
-		t.Fatal("bootstrap should have null invitedBy")
-	}
-}
-
-func TestSignup_InviteRequiredAfterBootstrap(t *testing.T) {
-	db := openSignupTestDB(t)
-	svc := NewDataService(db, "test")
-	svc.serverID = "srv"
-	if _, err := svc.Signup(signupInput("u1", "alice", "", "", "", invites.ModeInvite)); err != nil {
-		t.Fatal(err)
-	}
-	_, err := svc.Signup(signupInput("u2", "bob", "", "", "", invites.ModeInvite))
+	_, err := svc.Signup(signupInput("u1", "alice", "", "", "", invites.ModeInvite))
 	if !errors.Is(err, invites.ErrInviteRequired) {
 		t.Fatalf("err = %v, want ErrInviteRequired", err)
 	}
@@ -296,45 +279,5 @@ func TestSignup_OpenInvalidToken(t *testing.T) {
 	_ = db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
 	if n != 0 {
 		t.Fatal("user should not be created")
-	}
-}
-
-func TestSignup_ParallelBootstrap(t *testing.T) {
-	db := openSignupTestDB(t)
-	svc := NewDataService(db, "test")
-	svc.serverID = "srv"
-
-	var wg sync.WaitGroup
-	results := make(chan error, 2)
-	for i, id := range []string{"a", "b"} {
-		wg.Add(1)
-		go func(i int, id string) {
-			defer wg.Done()
-			_, err := svc.Signup(signupInput(id, "user"+id, "", "", "", invites.ModeInvite))
-			results <- err
-		}(i, id)
-	}
-	wg.Wait()
-	close(results)
-
-	var ok, required int
-	for err := range results {
-		switch {
-		case err == nil:
-			ok++
-		case errors.Is(err, invites.ErrInviteRequired):
-			required++
-		default:
-			t.Fatalf("unexpected err: %v", err)
-		}
-	}
-	if ok != 1 || required != 1 {
-		t.Fatalf("ok=%d required=%d, want 1 and 1", ok, required)
-	}
-	var n, withoutInvite int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
-	_ = db.QueryRow(`SELECT COUNT(*) FROM users WHERE invited_by IS NULL`).Scan(&withoutInvite)
-	if n != 1 || withoutInvite != 1 {
-		t.Fatalf("users=%d withoutInvite=%d", n, withoutInvite)
 	}
 }
