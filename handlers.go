@@ -364,18 +364,14 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
 			return
 		}
-		// Discriminate between a username race (client-visible 400)
-		// and a userID collision or other duplicate (500, retryable
-		// by the client — a fresh signup will pick a new random ID).
-		// Postgres embeds the constraint name in the error string.
-		errStr := err.Error()
-		if strings.Contains(errStr, "users_username_key") ||
-			strings.Contains(errStr, "idx_lower_users_username") {
+		// Username race → 400. A userID collision (or anything else) is a
+		// 500; the client retries signup with a fresh random ID.
+		if errors.Is(err, ErrUsernameTaken) {
 			log.Info().Str("username", username).Msg("Username already exists")
 			writeResponse(w, http.StatusBadRequest, "Username already exists")
 			return
 		}
-		log.Error().Err(err).Msg("Failed to create user '" + username + "': " + errStr)
+		log.Error().Err(err).Msg("Failed to create user '" + username + "'")
 		internalServerError(w)
 		return
 	}
@@ -966,13 +962,9 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		UserSignatureB64: userSignatureB64,
 		ProfileSignature: profileSignature,
 	}); err != nil {
-		errStr := err.Error()
-		if strings.Contains(errStr, "users_username_key") ||
-			strings.Contains(errStr, "idx_lower_users_username") {
-			// Race with a concurrent rename that took our target
-			// username between the UsernameExists check above and
-			// this UPDATE. Surface it the same way the pre-check
-			// does so the client sees a consistent error.
+		// Race with a concurrent rename that took our target username
+		// between the UsernameExists check above and this UPDATE.
+		if errors.Is(err, ErrUsernameTaken) {
 			log.Info().Str("username", username).Msg("Username already taken (race)")
 			writeResponse(w, http.StatusBadRequest, "Username already taken")
 			return

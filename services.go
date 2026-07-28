@@ -24,6 +24,7 @@ import (
 	"syrinx/signing"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/uuid25/go-uuid25"
@@ -33,6 +34,7 @@ import (
 // these to 4xx responses; anything else is treated as a 500.
 var (
 	ErrUserNotFound               = errors.New("user not found")
+	ErrUsernameTaken              = errors.New("username already taken")
 	ErrKeyAlreadyExists           = errors.New("public key fingerprint already registered")
 	ErrPredecessorRequired        = errors.New("predecessor fingerprint is required")
 	ErrPredecessorNotFound        = errors.New("predecessor key not found for this user")
@@ -40,6 +42,18 @@ var (
 	ErrPredecessorAlreadyReplaced = errors.New("predecessor key already has a successor")
 	ErrActiveKeyExists            = errors.New("user already has an active key")
 )
+
+func isUsernameUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) || pqErr.Code != "23505" {
+		return false
+	}
+	switch pqErr.Constraint {
+	case "users_username_key", "idx_lower_users_username":
+		return true
+	}
+	return false
+}
 
 type Services struct {
 	db     *DataService
@@ -520,6 +534,9 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		in.UserID, in.Username, in.MemberSince, in.Fingerprint,
 		userSignatureID, serverSignatureID, invitedBy,
 	); err != nil {
+		if isUsernameUniqueViolation(err) {
+			return nil, ErrUsernameTaken
+		}
 		return nil, err
 	}
 
@@ -720,6 +737,9 @@ func (s *DataService) UpdateUser(in UpdateUserInput) error {
 		in.UserID,
 	)
 	if err != nil {
+		if isUsernameUniqueViolation(err) {
+			return ErrUsernameTaken
+		}
 		return err
 	}
 	return tx.Commit()
