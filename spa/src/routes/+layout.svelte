@@ -17,21 +17,17 @@
   import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
+  import { parseReedRef } from '$lib/utils/reedRef';
 
-  // TODO: the echoing/replying header currently encodes only "authorId!reedId", which loses
-  // the server dimension. Once we have federated reeds, this needs to become a full
-  // server/user/reed hierarchy so we can route requests to the correct origin server.
-  // A potential format: "userID@serverID/reedID"
+  // Prefetch reeds referenced by echoing/replying (userID@serverID/reedID).
   async function requestReferencedReeds(reed: any) {
     const refs = [reed.echoing, reed.replying].filter(Boolean);
     for (const ref of refs) {
-      const sep = ref.lastIndexOf('!');
-      if (sep === -1) continue;
-      const authorId = ref.substring(0, sep);
-      const reedId = ref.substring(sep + 1);
-      const existing = await reedsService.getReed(authorId, reedId);
+      const parsed = parseReedRef(ref);
+      if (!parsed) continue;
+      const existing = await reedsService.getReed(parsed.authorId, parsed.reedId);
       if (!existing) {
-        serverConnection.requestReedContent(reedId, authorId, authorId);
+        serverConnection.requestReedContent(parsed.reedId, parsed.authorId, parsed.serverId);
       }
     }
   }

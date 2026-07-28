@@ -597,3 +597,79 @@ func TestGenerateServerIDLength(t *testing.T) {
 		t.Fatalf("generateServerID() len = %d, want 8", len(id))
 	}
 }
+
+func TestParseReedRef(t *testing.T) {
+	tests := []struct {
+		in     string
+		ok     bool
+		author string
+		server string
+		reedID string
+	}{
+		{"", false, "", "", ""},
+		{"   ", false, "", "", ""},
+		{"bareReedOnly", false, "", "", ""},
+		{"author!reed", false, "", "", ""},
+		{"@server/reed", false, "", "", ""},
+		{"author@/reed", false, "", "", ""},
+		{"author@server/", false, "", "", ""},
+		{"author@server", false, "", "", ""},
+		{"author@server/reed", true, "author", "server", "reed"},
+		{"  author@server/reed  ", true, "author", "server", "reed"},
+	}
+	for _, tt := range tests {
+		ref, ok := ParseReedRef(tt.in)
+		if ok != tt.ok {
+			t.Errorf("ParseReedRef(%q) ok=%v want %v", tt.in, ok, tt.ok)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if ref.AuthorID != tt.author || ref.ServerID != tt.server || ref.ReedID != tt.reedID {
+			t.Errorf("ParseReedRef(%q) = %+v want author=%q server=%q reed=%q",
+				tt.in, ref, tt.author, tt.server, tt.reedID)
+		}
+	}
+}
+
+func TestFormatReedRef(t *testing.T) {
+	got := FormatReedRef(ReedRef{AuthorID: "a", ServerID: "s", ReedID: "r"})
+	if got != "a@s/r" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestReedContentWithinLimits(t *testing.T) {
+	if !ReedContentWithinLimits("hello") {
+		t.Fatal("short content should pass")
+	}
+	raw := make([]byte, MaxReedRawChars+1)
+	for i := range raw {
+		raw[i] = 'a'
+	}
+	if ReedContentWithinLimits(string(raw)) {
+		t.Fatal("over raw limit should fail")
+	}
+	visible := make([]byte, MaxReedVisibleChars+1)
+	for i := range visible {
+		visible[i] = 'b'
+	}
+	if ReedContentWithinLimits(string(visible)) {
+		t.Fatal("over visible limit should fail")
+	}
+}
+
+func TestCountMarkdownCharacters(t *testing.T) {
+	if got := CountMarkdownCharacters("*bold*"); got != 4 {
+		t.Fatalf("got %d want 4", got)
+	}
+}
+
+func TestReedAsMarkdown(t *testing.T) {
+	got := ReedAsMarkdown("rid", "uid", "hello", "a@s/b", "")
+	want := "---\nechoing: a@s/b\nid: rid\nuserID: uid\n---\nhello"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}

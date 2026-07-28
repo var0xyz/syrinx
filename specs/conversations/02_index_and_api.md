@@ -38,18 +38,19 @@ With publish-time ref parsing in place, the server can maintain durable
 ### Schema
 
 ```sql
--- One row per echo reed. echo_reed_id is UNIQUE: a reed echoes at most one target.
+-- One row per echo reed. echoing_reed_id is UNIQUE: a reed echoes at most one target.
+-- echoing_* = who/what is doing the echo; echoed_* = who/what is being echoed.
 CREATE TABLE IF NOT EXISTS reed_echoes (
-    target_user_id VARCHAR(255) NOT NULL,
-    target_reed_id VARCHAR(255) NOT NULL,
-    echo_user_id   VARCHAR(255) NOT NULL REFERENCES users(id),
-    echo_reed_id   VARCHAR(255) NOT NULL UNIQUE,
-    signed_at      TIMESTAMP NOT NULL,
-    PRIMARY KEY (echo_user_id, echo_reed_id)
+    echoing_user_id VARCHAR(255) NOT NULL REFERENCES users(id),
+    echoing_reed_id VARCHAR(255) NOT NULL UNIQUE,
+    echoed_user_id  VARCHAR(255) NOT NULL,
+    echoed_reed_id  VARCHAR(255) NOT NULL,
+    signed_at       TIMESTAMP NOT NULL,
+    PRIMARY KEY (echoing_user_id, echoing_reed_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_reed_echoes_target_signed
-    ON reed_echoes (target_user_id, target_reed_id, signed_at);
+CREATE INDEX IF NOT EXISTS idx_reed_echoes_echoed_signed
+    ON reed_echoes (echoed_user_id, echoed_reed_id, signed_at);
 
 -- One row per reply reed. reply_reed_id is UNIQUE: a reed replies to at most one parent.
 CREATE TABLE IF NOT EXISTS reed_replies (
@@ -77,21 +78,21 @@ Inside the `SignReed` transaction (after tip-check lock if
 
 | Parsed ref | Insert |
 |------------|--------|
-| `echoing → (Tuser, Tid)` | `reed_echoes(target=…, echo_user_id=author, echo_reed_id=newId, signed_at)` |
+| `echoing → (Tuser, Tid)` | `reed_echoes(echoing_user_id=author, echoing_reed_id=newId, echoed=T…, signed_at)` |
 | `replying → (Puser, Pid)` | `reed_replies(parent=…, reply_user_id=author, reply_reed_id=newId, signed_at)` |
 
-`ON CONFLICT DO NOTHING` on `echo_reed_id` / `reply_reed_id` for idempotent
+`ON CONFLICT DO NOTHING` on `echoing_reed_id` / `reply_reed_id` for idempotent
 retries (same reed republication must not duplicate).
 
-Store helpers in `syrinx/conversations` (or `DataService` methods).
+Store helpers in `DataService` methods.
 
 ### Visibility predicate (shared SQL fragment)
 
 A row is **visible** when:
 
-- `reply_reed_id` / `echo_reed_id` has no row in `reed_removals` for that
+- `reply_reed_id` / `echoing_reed_id` has no row in `reed_removals` for that
   `(user_id, reed_id)`.
-- `reply_user_id` / `echo_user_id` has no row in `account_removals`.
+- `reply_user_id` / `echoing_user_id` has no row in `account_removals`.
 
 Apply to counts and lists.
 
@@ -110,7 +111,7 @@ Existing JSON gains:
 ```
 
 `echoCount` = visible rows in `reed_echoes` for
-`(target_user_id, target_reed_id) = (userID, reedID)`.
+`(echoed_user_id, echoed_reed_id) = (userID, reedID)`.
 
 Auth: same as today (public metadata endpoint for existence checks).
 
@@ -166,7 +167,7 @@ OPTIONS noop alongside existing reed routes.
 1. DDL + indexes in `InitDB`.
 2. `InsertEcho` / `InsertReply` store helpers.
 3. Wire into `SignReed` transaction.
-4. `CountEchoes(targetUser, targetReed)`.
+4. `CountEchoes(echoedUser, echoedReed)`.
 5. `ListReplies(parentUser, parentReed, limit, before)`.
 6. Extend `GetReed` handler response.
 7. `ListReplies` handler + route.

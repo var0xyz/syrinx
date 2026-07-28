@@ -11,6 +11,7 @@
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { goto } from '$app/navigation';
+  import { parseReedRef } from '$lib/utils/reedRef';
 
   export let authorId;
   export let isOwner = false;
@@ -67,11 +68,11 @@
       const echoEntries = reeds
         .filter(r => r.echoing)
         .map(r => {
-          const sep = r.echoing.lastIndexOf('!');
-          const author = r.echoing.substring(0, sep);
-          const reedId = r.echoing.substring(sep + 1);
-          return { key: r.echoing, author, reedId };
-        });
+          const parsed = parseReedRef(r.echoing);
+          if (!parsed) return null;
+          return { key: r.echoing, author: parsed.authorId, reedId: parsed.reedId };
+        })
+        .filter(Boolean);
 
       const echoResults = await Promise.allSettled(
         echoEntries.map(({ author, reedId }) => reedsService.getReed(author, reedId))
@@ -111,11 +112,11 @@
       const replyEntries = reeds
         .filter(r => r.replying)
         .map(r => {
-          const sep = r.replying.lastIndexOf('!');
-          const author = r.replying.substring(0, sep);
-          const reedId = r.replying.substring(sep + 1);
-          return { key: r.replying, author, reedId };
-        });
+          const parsed = parseReedRef(r.replying);
+          if (!parsed) return null;
+          return { key: r.replying, author: parsed.authorId, reedId: parsed.reedId };
+        })
+        .filter(Boolean);
 
       const replyResults = await Promise.allSettled(
         replyEntries.map(({ author, reedId }) => reedsService.getReed(author, reedId))

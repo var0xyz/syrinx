@@ -312,16 +312,27 @@ export const apiService = {
     });
   },
 
-  async createReed(reedId: string, signature: string): Promise<SignReedResponse> {
+  async createReed(
+    reedId: string,
+    signature: string,
+    fields: { content: string; echoing?: string; replying?: string }
+  ): Promise<SignReedResponse> {
     const formData = new URLSearchParams();
     formData.append('signature', signature);
     formData.append('reedID', reedId);
+    formData.append('content', fields.content ?? '');
+    if (fields.echoing) formData.append('echoing', fields.echoing);
+    if (fields.replying) formData.append('replying', fields.replying);
 
     return request('/reeds', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()
     });
+  },
+
+  async getReedEchoCount(userId: string, reedId: string): Promise<{ echoCount: number }> {
+    return request(`/reeds/${userId}/${reedId}/echoes`, { method: 'GET' });
   },
 
   async getReed(userId: string, reedId: string): Promise<any> {

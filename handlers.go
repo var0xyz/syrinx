@@ -689,6 +689,10 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.services.db.DeleteEchoesByAuthor(userID); err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error clearing echo index for removed account")
+	}
+
 	h.broadcastChan <- realtime.BroadcastMessage{
 		Type:     realtime.AccountRemoved,
 		ServerID: serverID,
@@ -1333,7 +1337,6 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	userID := h.getUserID(r)
 
-	// Parse form data
 	err := r.ParseForm()
 	if err != nil {
 		log.Error().
@@ -1352,6 +1355,89 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	reedID := r.FormValue("reedID")
 	if reedID == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
+		return
+	}
+
+	// Content may be empty (e.g. bare echo). Echoing/replying are optional reed refs.
+	contentBody := r.FormValue("content")
+	echoing := strings.TrimSpace(r.FormValue("echoing"))
+	replying := strings.TrimSpace(r.FormValue("replying"))
+
+	if !ReedContentWithinLimits(contentBody) {
+		writeResponse(w, http.StatusBadRequest, "Reed content exceeds character limits")
+		return
+	}
+
+	localServerID := h.services.db.GetServerID()
+	var echoRef *ReedRef
+	if echoing != "" {
+		ref, ok := h.parseReedRef(echoing, localServerID)
+		if !ok {
+			writeResponse(w, http.StatusBadRequest, "Invalid echoing reference")
+			return
+		}
+		exists, err := h.services.db.ReedExists(ref.AuthorID, ref.ReedID)
+		if err != nil {
+			log.Error().Err(err).Msg("Error checking echo target")
+			internalServerError(w)
+			return
+		}
+		if !exists {
+			writeResponse(w, http.StatusBadRequest, "Target reed not found")
+			return
+		}
+		echoRef = &ref
+	}
+	if replying != "" {
+		ref, ok := h.parseReedRef(replying, localServerID)
+		if !ok {
+			writeResponse(w, http.StatusBadRequest, "Invalid replying reference")
+			return
+		}
+		exists, err := h.services.db.ReedExists(ref.AuthorID, ref.ReedID)
+		if err != nil {
+			log.Error().Err(err).Msg("Error checking reply target")
+			internalServerError(w)
+			return
+		}
+		if !exists {
+			writeResponse(w, http.StatusBadRequest, "Target reed not found")
+			return
+		}
+	}
+
+	markdown := ReedAsMarkdown(reedID, userID, contentBody, echoing, replying)
+
+	user, err := h.services.db.GetUser(userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error getting user")
+		internalServerError(w)
+		return
+	}
+	if user == nil {
+		writeResponse(w, http.StatusBadRequest, "User not found")
+		return
+	}
+
+	fingerprint := user.ActiveKeyFingerprint
+	userSigArmor, err := base64.StdEncoding.DecodeString(signature)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
+		return
+	}
+	pubKey, err := h.services.db.GetPublicKey(userID, fingerprint)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("fingerprint", fingerprint).Err(err).Msg("Error loading public key")
+		internalServerError(w)
+		return
+	}
+	if pubKey == nil || pubKey.Revoked {
+		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		return
+	}
+	if err := h.services.crypto.VerifySignature(markdown, string(userSigArmor), pubKey.Armor); err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("reed signature verification failed")
+		writeResponse(w, http.StatusBadRequest, "signature verification failed")
 		return
 	}
 
@@ -1374,7 +1460,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	reed, err := h.services.db.CreateReed(reedID, userID, reedSignature.Fingerprint, reedSignature.SignedAt)
+	reed, err := h.services.db.CreateReedWithEcho(reedID, userID, reedSignature.Fingerprint, reedSignature.SignedAt, echoRef)
 	if err != nil {
 		log.Error().
 			Str("reedID", reedID).
@@ -1392,13 +1478,28 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	writeResponse(w, http.StatusCreated, reedSignature)
 
-	// Broadcast the new reed to realtime subscribers
 	h.broadcastChan <- realtime.BroadcastMessage{
 		Type:     realtime.NewReed,
 		ServerID: h.services.db.GetServerID(),
 		UserID:   userID,
 		ReedID:   reed.ID,
 	}
+}
+
+// parseReedRef parses userID@serverID/reedID and checks reed id + local server.
+func (h *Handlers) parseReedRef(raw, localServerID string) (ReedRef, bool) {
+	ref, ok := ParseReedRef(raw)
+	if !ok {
+		return ReedRef{}, false
+	}
+	if err := validateUUID25(ref.ReedID); err != nil {
+		return ReedRef{}, false
+	}
+	// Targets on other instances are not supported yet.
+	if ref.ServerID != localServerID {
+		return ReedRef{}, false
+	}
+	return ref, true
 }
 
 func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
@@ -1534,6 +1635,10 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.services.db.DeleteEchoIndexForReed(reedID); err != nil {
+		log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing echo index for removed reed")
+	}
+
 	// Keep the reeds row for allocation catch-up (04): reed_allocations FK
 	// cascades on reed delete. Tip/list already exclude reed_removals.
 	h.broadcastChan <- realtime.BroadcastMessage{
@@ -1623,6 +1728,60 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 		Msg("Post found")
 
 	writeResponse(w, http.StatusOK, reed)
+}
+
+func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("GetReedEchoes request received")
+
+	reedID := mux.Vars(r)["reedID"]
+	userID := mux.Vars(r)["userID"]
+	if userID == "" || reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		return
+	}
+
+	accountRemoval, err := h.services.db.GetAccountRemoval(userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
+		internalServerError(w)
+		return
+	}
+	if accountRemoval != nil {
+		writeResponse(w, http.StatusGone, h.accountRemovalWire(accountRemoval))
+		return
+	}
+
+	removal, err := h.services.db.GetReedRemoval(userID, reedID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed removal")
+		internalServerError(w)
+		return
+	}
+	if removal != nil {
+		writeResponse(w, http.StatusGone, h.reedRemovalWire(removal))
+		return
+	}
+
+	reed, err := h.services.db.GetReed(userID, reedID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error getting reed")
+		internalServerError(w)
+		return
+	}
+	if reed == nil {
+		writeResponse(w, http.StatusNotFound, "Post not found")
+		return
+	}
+
+	count, err := h.services.db.CountEchoes(userID, reedID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error counting echoes")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, map[string]int{"echoCount": count})
 }
 
 func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {

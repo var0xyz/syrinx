@@ -304,6 +304,24 @@ func InitDB(db *sql.DB) error {
 		ON reeds(signed_at);
 	`
 
+	// echoing_* is the reed that does the echo
+	// echoed_* is the reed it points at.
+	createReedEchoesTable := `
+	CREATE TABLE IF NOT EXISTS reed_echoes (
+		echoing_user_id VARCHAR(255) NOT NULL REFERENCES users(id),
+		echoing_reed_id VARCHAR(255) NOT NULL UNIQUE,
+		echoed_user_id VARCHAR(255) NOT NULL,
+		echoed_reed_id VARCHAR(255) NOT NULL,
+		signed_at TIMESTAMP NOT NULL,
+
+		PRIMARY KEY (echoing_user_id, echoing_reed_id)
+	);`
+
+	createReedEchoesIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_reed_echoes_echoed_signed
+		ON reed_echoes (echoed_user_id, echoed_reed_id, signed_at);
+	`
+
 	// Signed reed-removal certificates. Source of truth for “gone”; no FK to
 	// reeds(id) so the live row may be dropped after the cert is stored.
 	// PK is (user_id, reed_id); reed_id is also UNIQUE for reed-only lookups.
@@ -544,6 +562,9 @@ func InitDB(db *sql.DB) error {
 
 		createReedsTable,
 		createReedIndexes,
+
+		createReedEchoesTable,
+		createReedEchoesIndexes,
 
 		createReedRemovalsTable,
 		createAccountRemovalsTable,

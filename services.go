@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"syrinx/crypto"
 	"syrinx/deletion"
@@ -1194,14 +1195,63 @@ func validateUUID25(uuid25Str string) error {
 }
 
 func (s *DataService) CreateReed(reedID string, userID string, fingerprint string, timestamp time.Time) (*Reed, error) {
-	// Validate that the reed ID is a valid UUID25 encoding of a UUID v7
+	return s.CreateReedWithEcho(reedID, userID, fingerprint, timestamp, nil)
+}
+
+// ReedRef is a parsed echoing/replying target: userID@serverID/reedID.
+type ReedRef struct {
+	AuthorID string
+	ServerID string
+	ReedID   string
+}
+
+// ParseReedRef parses "userID@serverID/reedID". Returns ok=false for empty or malformed input.
+func ParseReedRef(raw string) (ReedRef, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ReedRef{}, false
+	}
+	at := strings.Index(raw, "@")
+	if at <= 0 {
+		return ReedRef{}, false
+	}
+	slash := strings.Index(raw[at+1:], "/")
+	if slash <= 0 {
+		return ReedRef{}, false
+	}
+	slash += at + 1
+	if slash >= len(raw)-1 {
+		return ReedRef{}, false
+	}
+	author := strings.TrimSpace(raw[:at])
+	serverID := strings.TrimSpace(raw[at+1 : slash])
+	reedID := strings.TrimSpace(raw[slash+1:])
+	if author == "" || serverID == "" || reedID == "" {
+		return ReedRef{}, false
+	}
+	return ReedRef{AuthorID: author, ServerID: serverID, ReedID: reedID}, true
+}
+
+// FormatReedRef returns the canonical wire form userID@serverID/reedID.
+func FormatReedRef(ref ReedRef) string {
+	return ref.AuthorID + "@" + ref.ServerID + "/" + ref.ReedID
+}
+
+// CreateReedWithEcho inserts the reed metadata, author allocation, and optional echo index row.
+func (s *DataService) CreateReedWithEcho(reedID string, userID string, fingerprint string, timestamp time.Time, echo *ReedRef) (*Reed, error) {
 	err := validateUUID25(reedID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid reed ID: %w", err)
 	}
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
 	var reed Reed
-	err = s.db.QueryRow(`
+	err = tx.QueryRow(`
 		INSERT INTO reeds (id, user_id, private_key_fingerprint, signed_at)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id, user_id, private_key_fingerprint, signed_at
@@ -1215,14 +1265,71 @@ func (s *DataService) CreateReed(reedID string, userID string, fingerprint strin
 		return nil, err
 	}
 
-	if _, err := s.db.Exec(`
+	if _, err := tx.Exec(`
 		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
 		VALUES ($1, $2, $3)
 	`, reedID, userID, userID); err != nil {
 		return nil, fmt.Errorf("allocate reed to author: %w", err)
 	}
 
+	if echo != nil {
+		if _, err := tx.Exec(`
+			INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, signed_at)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (echoing_reed_id) DO NOTHING
+		`, userID, reedID, echo.AuthorID, echo.ReedID, timestamp.UTC().Truncate(time.Second)); err != nil {
+			return nil, fmt.Errorf("insert echo index: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return &reed, nil
+}
+
+// ReedExists reports whether (userID, reedID) is a live tip reed.
+func (s *DataService) ReedExists(userID, reedID string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM reeds r
+			WHERE r.user_id = $1 AND r.id = $2
+			  AND NOT EXISTS (
+			      SELECT 1 FROM reed_removals rr
+			      WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
+			  )
+			  AND NOT EXISTS (
+			      SELECT 1 FROM account_removals ar WHERE ar.user_id = r.user_id
+			  )
+		)
+	`, userID, reedID).Scan(&exists)
+	return exists, err
+}
+
+// CountEchoes returns how many echoes point at the given reed.
+func (s *DataService) CountEchoes(echoedUserID, echoedReedID string) (int, error) {
+	var n int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM reed_echoes
+		WHERE echoed_user_id = $1 AND echoed_reed_id = $2
+	`, echoedUserID, echoedReedID).Scan(&n)
+	return n, err
+}
+
+// DeleteEchoIndexForReed clears echo index rows when a reed is removed.
+func (s *DataService) DeleteEchoIndexForReed(reedID string) error {
+	if _, err := s.db.Exec(`DELETE FROM reed_echoes WHERE echoing_reed_id = $1`, reedID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM reed_echoes WHERE echoed_reed_id = $1`, reedID)
+	return err
+}
+
+// DeleteEchoesByAuthor drops echo index rows created by userID (the echoing author).
+func (s *DataService) DeleteEchoesByAuthor(userID string) error {
+	_, err := s.db.Exec(`DELETE FROM reed_echoes WHERE echoing_user_id = $1`, userID)
+	return err
 }
 
 func (s *DataService) GetReed(userID string, reedID string) (*Reed, error) {
@@ -1311,6 +1418,81 @@ func (s *LoggingService) GetLogger(ctx context.Context) *zerolog.Logger {
 // =================== //
 //   MarkdownService   //
 // =================== //
+
+// Caps mirror spa/src/lib/utils/reedContent.ts.
+const (
+	MaxReedVisibleChars = 140
+	MaxReedRawChars     = 1400
+)
+
+var (
+	reLink    = regexp.MustCompile(`\[([^\]]+)\]\([^)]+\)`)
+	reFence   = regexp.MustCompile("(?s)```[^\\n]*\\n?(.*?)\\n```")
+	reCode    = regexp.MustCompile("`([^`]+)`")
+	reStrike  = regexp.MustCompile(`~([^~]+)~`)
+	reItalic  = regexp.MustCompile(`_([^_]+)_`)
+	reBold    = regexp.MustCompile(`\*([^*]+)\*`)
+	reHashtag = regexp.MustCompile(`(^|\s)#(\S)`)
+)
+
+// CountMarkdownCharacters strips formatting syntax before counting runes
+// (aligned with the SPA visible-character budget).
+func CountMarkdownCharacters(text string) int {
+	if text == "" {
+		return 0
+	}
+	result := text
+	result = reLink.ReplaceAllString(result, "$1")
+	result = reFence.ReplaceAllString(result, "$1")
+	result = reCode.ReplaceAllString(result, "$1")
+	result = reStrike.ReplaceAllString(result, "$1")
+	result = reItalic.ReplaceAllString(result, "$1")
+	result = reBold.ReplaceAllString(result, "$1")
+	result = reHashtag.ReplaceAllString(result, "$1$2")
+	return utf8.RuneCountInString(result)
+}
+
+// ReedContentWithinLimits reports whether content is within raw and visible caps.
+// Raw uses byte length to match JavaScript string.length for BMP text.
+func ReedContentWithinLimits(body string) bool {
+	if len(body) > MaxReedRawChars {
+		return false
+	}
+	if CountMarkdownCharacters(body) > MaxReedVisibleChars {
+		return false
+	}
+	return true
+}
+
+// ReedAsMarkdown builds the canonical signed markdown envelope (must match SPA reedAsMarkdown).
+func ReedAsMarkdown(id, userID, content, echoing, replying string) string {
+	headers := map[string]string{
+		"id":     id,
+		"userID": userID,
+	}
+	if replying != "" {
+		headers["replying"] = replying
+	}
+	if echoing != "" {
+		headers["echoing"] = echoing
+	}
+	keys := make([]string, 0, len(headers))
+	for k := range headers {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	var b strings.Builder
+	b.WriteString("---\n")
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteString(": ")
+		b.WriteString(headers[k])
+		b.WriteByte('\n')
+	}
+	b.WriteString("---\n")
+	b.WriteString(content)
+	return b.String()
+}
 
 type MarkdownService struct {
 }

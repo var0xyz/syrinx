@@ -14,8 +14,8 @@ Today a reed may carry optional social headers in its signed markdown:
 
 | Header | Meaning | Current client shape |
 |--------|---------|----------------------|
-| `echoing` | Repost of another reed, with optional commentary | `authorId!reedId` |
-| `replying` | Response to another reed | `reedId` only |
+| `echoing` | Repost of another reed, with optional commentary | `userID@serverID/reedID` |
+| `replying` | Response to another reed | `userID@serverID/reedID` |
 
 The SPA already renders quotes for both ([`Quote.svelte`](../../spa/src/lib/components/Quote.svelte))
 and exposes Echo / Reply actions on the reed detail page. Nothing aggregates
@@ -80,7 +80,7 @@ section.
 1. Section title: `Conversation` with optional subtitle `N replies` when
    `N > 0`.
 2. List **direct replies** to `R` only — reeds where
-   `replying === R.authorId!R.id` (normalized format from
+   `replying === R.userID@R.serverID/R.id` (normalized format from
    [01](01_publish_and_refs.md)).
 3. Sort **oldest first** (`signed_at ASC`) so reading top-to-bottom matches
    chronological dialogue.
@@ -112,14 +112,13 @@ while relay retrieves a body not held locally.
 Both `echoing` and `replying` use:
 
 ```
-<authorId>!<reedId>
+<userID>@<serverID>/<reedID>
 ```
 
-`!` is the separator (already used by `echoing`). Parsing: split on the **last**
-`!` so future federation prefixes (`user@server!reed`) remain possible.
+Parsed by `ParseReedRef` / `parseReedRef`. On this instance, `serverID` must
+match the local server id when validating publish targets.
 
-The SPA today sets `replying` to a bare reed id — [01](01_publish_and_refs.md)
-changes producers to `authorId!reedId` and updates all resolvers.
+Producers set both fields via `formatReedRef` (never bare reed ids).
 
 ### Trust and content
 
@@ -181,9 +180,10 @@ shows direct replies to *that* reed only.
 
 ## Risks
 
-- **Publish API change** — clients must send markdown on `POST /reeds`.
-  Coordinate SPA + server deploy; old clients without markdown are rejected
-  (pre-launch acceptable).
+- **Publish API change** — clients send form fields (`content`, optional
+  `echoing` / `replying`) on `POST /reeds`; server rebuilds canonical markdown
+  for signature verification. Coordinate SPA + server deploy (pre-launch
+  acceptable).
 - **Incomplete local cache** — conversation list may show rows whose bodies
   are not yet relayed; UI must tolerate loading / missing content gracefully.
 - **`replying` format change** — existing dev reeds with bare `reedId` will

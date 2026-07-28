@@ -21,6 +21,8 @@
   import { notificationStore } from '$lib/stores/notifications';
   import { serverConnection } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
+  import { parseReedRef } from '$lib/utils/reedRef';
+  import { echoCountsRepository } from '$lib/repositories/echoCounts';
 
   let user = null;
   let authorUser = null;
@@ -34,6 +36,7 @@
   let echoedReedMissing = false;
   let repliedToReed = null;
   let repliedToReedMissing = false;
+  let echoCount = 0;
 
   // Action buttons state
   let likesCount = 0;
@@ -128,15 +131,19 @@
       echoedReed = null;
       echoedReedMissing = false;
       if (reed.echoing) {
-        const [echoAuthor, echoId] = reed.echoing.split('!');
-        try {
-          echoedReed = await reedsService.getReed(echoAuthor, echoId);
-          if (!echoedReed) {
-            const data = await apiService.getReed(echoAuthor, echoId);
-            echoedReed = data;
+        const echoRef = parseReedRef(reed.echoing);
+        if (echoRef) {
+          try {
+            echoedReed = await reedsService.getReed(echoRef.authorId, echoRef.reedId);
+            if (!echoedReed) {
+              const data = await apiService.getReed(echoRef.authorId, echoRef.reedId);
+              echoedReed = data;
+            }
+            if (!echoedReed) echoedReedMissing = true;
+          } catch {
+            echoedReedMissing = true;
           }
-          if (!echoedReed) echoedReedMissing = true;
-        } catch {
+        } else {
           echoedReedMissing = true;
         }
       }
@@ -145,13 +152,21 @@
       repliedToReed = null;
       repliedToReedMissing = false;
       if (reed.replying) {
-        try {
-          repliedToReed = await reedsService.getReed('', reed.replying);
-          if (!repliedToReed) repliedToReedMissing = true;
-        } catch {
+        const replyRef = parseReedRef(reed.replying);
+        if (replyRef) {
+          try {
+            repliedToReed = await reedsService.getReed(replyRef.authorId, replyRef.reedId);
+            if (!repliedToReed) repliedToReedMissing = true;
+          } catch {
+            repliedToReedMissing = true;
+          }
+        } else {
           repliedToReedMissing = true;
         }
       }
+
+      echoCount = await echoCountsRepository.get(reedID);
+      refreshEchoCountInBackground(userID, reedID);
 
       // Fetch the reed author's profile (local cache first, then API).
       await loadAuthorProfile();
@@ -160,6 +175,16 @@
       errorMessage = 'Failed to load reed';
     } finally {
       loadingReed = false;
+    }
+  }
+
+  async function refreshEchoCountInBackground(authorId, id) {
+    try {
+      const { echoCount: next } = await apiService.getReedEchoCount(authorId, id);
+      await echoCountsRepository.put(id, next);
+      // Intentionally do not update echoCount reactively — next open shows the fresh value.
+    } catch (error) {
+      console.warn('Background echo count refresh failed:', error);
     }
   }
 
@@ -334,7 +359,7 @@
             <div class="reed-actions-bar">
               <button class="action-btn" on:click={handleEcho} aria-label="Echo">
                 <span class="action-icon">📢</span>
-                <span class="action-label">Echo</span>
+                <span class="action-label">{echoCount > 0 ? `Echo · ${echoCount}` : 'Echo'}</span>
               </button>
               <button class="action-btn" on:click={handleReply} aria-label="Reply">
                 <span class="action-icon">↩️</span>

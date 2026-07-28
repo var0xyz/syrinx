@@ -1,8 +1,8 @@
-# Conversations 01 — Verify markdown on publish; normalize `replying` ref
+# Conversations 01 — Verify publish payload; normalize `replying` ref
 
 ## Status
 
-Proposed.
+Implemented (form fields; server rebuilds canonical markdown).
 
 ## Depends on
 
@@ -10,152 +10,119 @@ Proposed.
 
 ## Context
 
-`POST /reeds` today accepts `reedID` and `signature` (base64 detached PGP)
-but never sees the signed markdown. The server countersigns the user signature
-bytes without verifying they attest to a coherent reed payload. Clients
-already sign `reedAsMarkdown()` on publish; the body is available at submit
-time.
+`POST /reeds` must verify the author's detached signature over a coherent reed
+payload before countersigning, without persisting content. Clients already
+sign `reedAsMarkdown()` locally; the server reconstructs the same envelope from
+form fields and verifies against those bytes.
 
-Separately, `replying` is stored as a bare `reedId` while `echoing` uses
-`authorId!reedId`, breaking symmetric parsing and the layout's referenced-reed
-prefetch ([`+layout.svelte`](../../spa/src/routes/+layout.svelte)).
+Separately, `replying` uses the same `userID@serverID/reedID` form as
+`echoing` (historically it was a bare reed id).
 
 ## Scope
 
-- Extend `POST /reeds` to require the full signed markdown body.
-- Verify the detached user signature over those exact bytes before
-  countersigning.
-- Normalize `replying` to `authorId!reedId` on client and server parsers.
-- Return parsed social refs to the index step ([02](02_index_and_api.md)) via
-  an internal struct — no new public fields on the countersign response in
-  this step.
+- Accept form fields `content`, optional `echoing` / `replying` on `POST /reeds`
+  (not a client-supplied `markdown` body).
+- Rebuild canonical markdown via `ReedAsMarkdown` (must match SPA
+  `reedAsMarkdown`) and verify the detached user signature over those bytes.
+- Enforce content limits (140 visible / 1400 raw).
+- Normalize `replying` to `userID@serverID/reedID`; validate reed refs and target
+  existence (local `serverID` only for now).
+- Federation beyond local targets remains future work; the wire format already
+  carries `serverID`.
+- Pass echo refs into the index step ([02](02_index_and_api.md)).
 
 ## Non-goals
 
-- Index tables / list APIs ([02](02_index_and_api.md)).
-- SPA conversation UI ([03](03_spa_reed_detail.md)) beyond ref-format changes
-  needed to publish and resolve quotes.
-- Federation `userID@serverID/reedID` ref format (documented as future).
+- Storing or serving reed body/markdown on the server.
+- SPA conversation UI ([03](03_spa_reed_detail.md)) beyond ref-format changes.
+- Resolving targets on foreign servers (format includes `serverID`; routing later).
 
 ## Design
 
 ### `POST /reeds` request
 
-Add a required form field:
+Form fields (`application/x-www-form-urlencoded`):
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `reedID` | yes | Must match `id:` header inside markdown |
+| `reedID` | yes | Reed id (also used as `id:` header when rebuilding markdown) |
 | `signature` | yes | Base64-encoded armored **detached** PGP signature |
-| `markdown` | yes | Full signed payload: `---` headers + `---` + content |
+| `content` | yes | Body only (may be empty for bare echo); not the full envelope |
+| `echoing` | no | `userID@serverID/reedID` of the echoed reed |
+| `replying` | no | `userID@serverID/reedID` of the parent reed |
 
 Processing order in `SignReed`:
 
 1. Auth → `userID`.
-2. Decode `signature` → armored detached sig.
-3. Load author's active public key (same lookup as deletion / revocation
-   handlers).
-4. `VerifySignature(string(markdown), detachedSig, pubKey)` — reject 400 on
-   failure.
-5. `ExtractReedHeader(markdown)` via existing `MarkdownService`.
-6. Validate:
-   - `header.ID == reedID` (form)
-   - `header.UserID == userID` (auth)
-   - `ValidateReedHeader(markdown)` passes (mandatory headers present, no
-     unknown headers)
-7. Parse social refs (new helper, see below).
-8. Countersign + `CreateReed` (unchanged).
-9. Pass parsed refs to index inserter ([02](02_index_and_api.md)) in the
-   same transaction as `CreateReed` when that step lands; for this step alone,
-   parsing + validation is sufficient with a no-op hook or feature flag.
+2. Read `content` / `echoing` / `replying`; enforce character limits on
+   `content`.
+3. Parse and validate reed refs; reject bare / legacy ids; require target reed
+   exists and is unremoved (`Target reed not found`).
+4. `markdown := ReedAsMarkdown(reedID, userID, content, echoing, replying)`.
+5. Decode `signature` → armored detached sig; load author's active public key.
+6. `VerifySignature(markdown, detachedSig, pubKey)` — reject 400 on failure.
+7. Countersign + `CreateReedWithEcho` (index echo when present).
 
-### Social ref parsing
+Canonical markdown rules (SPA and Go must match):
 
-Shared Go helper (e.g. `conversations.ParseSocialRef`):
+- Frontmatter keys sorted alphabetically.
+- Separator `: ` (colon + space).
+- Headers always include `id` and `userID`; include `echoing` / `replying`
+  only when non-empty.
+
+### Reed ref parsing
 
 ```go
-// SocialRef is a parsed echoing/replying target on this instance.
-type SocialRef struct {
+type ReedRef struct {
     AuthorID string
+    ServerID string
     ReedID   string
 }
 
-// ParseSocialRef parses "authorId!reedId". Returns ok=false for empty input.
-func ParseSocialRef(raw string) (ref SocialRef, ok bool)
+func ParseReedRef(raw string) (ref ReedRef, ok bool)
+func FormatReedRef(ref ReedRef) string
 ```
 
 Rules:
 
 - Empty → absent (not an error).
-- Split on **last** `!`; both sides non-empty after trim.
-- `reedId` must pass existing `validateUUID25`.
-- Bare `reedId` without `!` → **reject publish** with 400
-  (`invalid_replying_ref` / `invalid_echoing_ref`). No legacy acceptance.
+- Form: `userID@serverID/reedID` (all parts non-empty).
+- `reedId` must pass `validateUUID25`.
+- Bare `reedId` or `authorId!reedId` → 400 (`Invalid echoing/replying reference`).
+- `serverID` must match this instance when resolving targets (foreign targets
+  → `Target reed not found` for now).
 
-Optional validation (recommended, in same transaction as insert):
-
-- Target `(authorId, reedId)` exists in `reeds` and is not removed / author
-  not account-removed.
-- Reject if target missing → 400 `unknown_target_reed`. Prevents orphan index
-  rows and spam replies to non-existent ids.
-
-A reed may have **both** `echoing` and `replying` set (echo-with-reply is
-weird but not forbidden); index both when present.
+A reed may have both `echoing` and `replying` set; index the echo when present.
 
 ### Client changes
 
-**Publish** ([`NewReedModal.svelte`](../../spa/src/lib/components/NewReedModal.svelte),
-[`reedsService.createReed`](../../spa/src/lib/repositories/reeds.ts)):
+**Publish** — send form fields, not markdown:
 
 ```ts
-// When replying:
-reed.replying = `${replyingTo.userID}!${replyingTo.id}`;
+await api.createReed(reed.id, reed.userSignature.armor, {
+  content: reed.content,
+  echoing: reed.echoing,
+  replying: reed.replying,
+});
 ```
 
-Send `markdown: reed.asMarkdown()` alongside existing fields in
-`api.createReed`.
+When replying: `reed.replying = formatReedRef(parent.userID, serverId, parent.id)`.
 
-**Resolve replying quote** ([`+page.svelte`](../../spa/src/routes/reed/[userID]/[reedID]/+page.svelte),
-[`+layout.svelte`](../../spa/src/routes/+layout.svelte)):
+Signing still uses local `reedAsMarkdown()` / `asMarkdown()`; only the wire
+format changed.
 
-- Parse `replying` with the same last-`!` split as `echoing`.
-- `getReed(authorId, reedId)` / relay `requestReedContent(reedId, authorId, …)`.
+### Tests
 
-Add a shared TS helper `parseSocialRef(raw: string): { authorId, reedId } | null`
-in `$lib/types/reed.ts` (or `$lib/utils/socialRef.ts`).
-
-### Server tests
-
-- Happy path: valid markdown + matching sig → 201.
+- `ReedAsMarkdown` matches SPA envelope for echo-only / reply / both / neither.
+- Happy path: valid fields + matching sig → 201.
 - Wrong sig → 400.
-- `id` / `userID` mismatch → 400.
-- `replying: bareId` → 400.
-- `replying: author!reed` where reed does not exist → 400.
-- `echoing` + `replying` both set → 201, both refs parsed.
-
-### Client tests
-
-- `reedAsMarkdown` roundtrip includes normalized `replying`.
-- `parseSocialRef` vectors (single `!`, multiple `!` in author id impossible
-  today but document last-split behaviour).
-
-## Work items
-
-1. Go: `ParseSocialRef` + `ValidateSocialRefs` (optional target existence).
-2. `SignReed`: accept `markdown`, verify user sig, validate headers + refs.
-3. SPA: send `markdown` on create; set `replying` to `authorId!reedId`.
-4. SPA: shared `parseSocialRef`; update quote + prefetch call sites.
-5. Tests as above.
+- Invalid / missing target refs → 400.
+- Content over limits → 400.
 
 ## Risks
 
-- **Breaking API** — any external publisher must send `markdown`. Acceptable
-  pre-launch; document in commit / release notes.
-- **Target existence check** — strict validation means you cannot reply to a
-  reed the server has not countersigned yet (e.g. race right after publish).
-  Same-instance ordering makes this rare; client can retry.
-
-## Parallelism
-
-Independent of [02](02_index_and_api.md) schema work until the publish hook
-calls the inserter — can develop parsers and client ref format in parallel.
+- **Breaking API** — publishers must send form fields; do not send `markdown`.
+- **Canonical mismatch** — if SPA and Go diverge on header order/spacing,
+  verification fails; keep `ReedAsMarkdown` / `reedAsMarkdown` in lockstep.
+- **Target existence check** — cannot reply/echo a reed the server has not
+  countersigned yet; client can retry.

@@ -62,7 +62,7 @@ See [`conversations/`](conversations/README.md):
 | #  | Title                                              |
 |----|----------------------------------------------------|
 | 00 | Design + UX model (echo count, one-level drill-down) |
-| 01 | Verify markdown on publish; normalize `replying` ref |
+| 01 | Verify publish payload (form fields); normalize `replying` ref |
 | 02 | Echo/reply index tables + list/count APIs          |
 | 03 | Echo count + conversation section on reed detail     |
 

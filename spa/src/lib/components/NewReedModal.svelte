@@ -13,6 +13,7 @@
   } from '$lib/utils/reedContent';
   import { notificationStore } from '$lib/stores/notifications';
   import { Reed } from '$lib/types/reed';
+  import { formatReedRef } from '$lib/utils/reedRef';
   import { goto } from '$app/navigation';
   import Quote from '$lib/components/Quote.svelte';
 
@@ -26,6 +27,13 @@
   export let echoOf = null;
 
   const dispatch = createEventDispatcher();
+
+  /** @param {import('$lib/types/reed').ReedType} target */
+  function refFor(target) {
+    const serverId = target.serverSignature?.serverID || localStorage.getItem('serverId') || '';
+    if (!serverId) throw new Error('Server ID not available');
+    return formatReedRef(target.userID, serverId, target.id);
+  }
 
   let content = '';
   let draftSaved = false;
@@ -128,10 +136,10 @@
       const reed = new Reed();
       reed.content = content;
       if (replyingTo) {
-        reed.replying = replyingTo.id;
+        reed.replying = refFor(replyingTo);
       }
       if (echoOf) {
-        reed.echoing = `${echoOf.userID}!${echoOf.id}`;
+        reed.echoing = refFor(echoOf);
       }
       const detachedArmor = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
       reed.setUserSignature(fingerprint, detachedArmor);
