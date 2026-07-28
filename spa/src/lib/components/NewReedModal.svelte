@@ -144,16 +144,21 @@
       }
       const detachedArmor = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
       reed.setUserSignature(fingerprint, detachedArmor);
-      const published = await reedsService.createReed(reed);
-      if (published) {
-        goto(`/reed/${user.id}/${reed.id}`);
-      } else {
-        notificationStore.info("There was an issue with the server. Your reed will be published automatically once it's resolved.", 10000);
-      }
+      const { publish } = await reedsService.createReed(reed);
+      goto(`/reed/${user.id}/${reed.id}`);
       close();
+      publish.then((ok) => {
+        if (!ok) {
+          notificationStore.info(
+            "There was an issue with the server. Your reed will be published automatically once it's resolved.",
+            10000
+          );
+        }
+      });
     } catch (error) {
       console.error('Error publishing reed:', error);
       errorMessage = error.message || 'Failed to publish reed';
+      notificationStore.error(errorMessage);
     } finally {
       isPublishing = false;
     }

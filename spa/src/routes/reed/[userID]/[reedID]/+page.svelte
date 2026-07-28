@@ -4,7 +4,7 @@
   import { authService } from '$lib/services/auth';
   import { cryptoService } from '$lib/services/crypto';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
-  import { reedsService, stripMarkdown, countMarkdownCharacters } from '$lib/repositories/reeds';
+  import { reedsService, stripMarkdown, countMarkdownCharacters, unsignedReedsProcessed } from '$lib/repositories/reeds';
   import { formatAbsoluteDateTime } from '$lib/utils/time';
   import { Reed } from '$lib/types/reed';
   import { apiService } from '$lib/services/api';
@@ -37,6 +37,8 @@
   let repliedToReed = null;
   let repliedToReedMissing = false;
   let echoCount = 0;
+  /** Drops stale async loadReed completions (overlapping reactive calls). */
+  let loadSeq = 0;
 
   // Action buttons state
   let likesCount = 0;
@@ -46,9 +48,11 @@
 
   $: userID = $page.params.userID;
   $: reedID = $page.params.reedID;
+  $: isPending = !!(reed && !reed.serverSignature);
 
   $: if (reedID && user) loadReed();
-  $: if ($isOnline) loadReed();
+  $: if ($isOnline && user) loadReed();
+  $: if ($unsignedReedsProcessed > 0 && user) loadReed(true);
 
   onMount(async () => {
     try {
@@ -68,16 +72,37 @@
     }
   });
 
-  async function loadReed() {
-    if (reed && reed.id === reedID) return;
+  async function loadReed(force = false) {
+    if (!user || !userID || !reedID) return;
+
+    // Already showing this reed (published or pending) — only forced reloads
+    // (e.g. unsignedReedsProcessed after countersign) should run again.
+    if (!force && reed && reed.id === reedID) return;
+
+    const seq = ++loadSeq;
     try {
       loadingReed = true;
       errorMessage = '';
-      reed = await reedsService.getReed(userID, reedID);
+      reedNotFound = false;
 
-      if (!reed) {
+      let found = await reedsService.getReed(userID, reedID);
+
+      // Author-only: pending local reed. Do not ask the server for existence —
+      // just show Pending… and try to countersign.
+      if (!found && user?.id === userID) {
+        const pending = await reedsService.getUnsignedReed(reedID);
+        if (pending && pending.userID === userID) {
+          found = pending;
+          void reedsService.publishUnsignedReed(pending);
+        }
+      }
+
+      if (seq !== loadSeq) return;
+
+      if (!found) {
         // Not in IndexedDB — try to fetch from network
         await serverConnection.connect();
+        if (seq !== loadSeq) return;
         if (!serverConnection.isConnected()) {
           return; // stay in loading state; $isOnline reactive will retry
         }
@@ -85,6 +110,7 @@
         // REST existence check (also applies reed-removal 410 certs)
         try {
           const result = await apiService.getReedOrRemoval(userID, reedID);
+          if (seq !== loadSeq) return;
           if (result.kind === 'not_found') {
             reedNotFound = true;
             return;
@@ -106,20 +132,26 @@
           return;
         }
 
+        if (seq !== loadSeq) return;
+
         // Reed exists on server — request content via WS relay
         loadingReed = false;
         fetchingReed = true;
         try {
           const data = await serverConnection.requestReedContent(reedID, userID, userID);
+          if (seq !== loadSeq) return;
           reed = data;
           await loadAuthorProfile();
         } catch {
+          if (seq !== loadSeq) return;
           reedNotFound = true;
         } finally {
-          fetchingReed = false;
+          if (seq === loadSeq) fetchingReed = false;
         }
         return;
       }
+
+      reed = found;
 
       // Verify that the user matches
       if (reed.userID !== userID) {
@@ -165,16 +197,18 @@
         }
       }
 
-      echoCount = await echoCountsRepository.get(reedID);
-      refreshEchoCountInBackground(userID, reedID);
+      if (reed.serverSignature) {
+        echoCount = await echoCountsRepository.get(reedID);
+        refreshEchoCountInBackground(userID, reedID);
+      }
 
       // Fetch the reed author's profile (local cache first, then API).
       await loadAuthorProfile();
     } catch (error) {
       console.error('Error loading reed:', error);
-      errorMessage = 'Failed to load reed';
+      if (seq === loadSeq) errorMessage = 'Failed to load reed';
     } finally {
-      loadingReed = false;
+      if (seq === loadSeq) loadingReed = false;
     }
   }
 
@@ -210,7 +244,11 @@
 
   async function performDelete() {
     try {
-      await removeReedAsAuthor(userID, reedID);
+      if (reed && !reed.serverSignature) {
+        await reedsService.discardUnsignedReed(reedID);
+      } else {
+        await removeReedAsAuthor(userID, reedID);
+      }
       goto('/reeds');
     } catch (error) {
       console.error('Error deleting reed:', error);
@@ -220,15 +258,17 @@
 
   // Action button handlers
   function handleEcho() {
+    if (isPending) return;
     isEchoModalOpen = true;
   }
 
   function handleReply() {
+    if (isPending) return;
     isReplyModalOpen = true;
   }
 
   async function handleShare() {
-    if (!reed) return;
+    if (!reed || isPending) return;
 
     const reedUrl = `${window.location.origin}/reed/${userID}/${reedID}`;
     const reedText = stripMarkdown(reed.content);
@@ -330,7 +370,7 @@
                 </a>
                 <div class="author-info">
                   <a href="/profile/{userID}" class="author-name">{authorUser?.username ?? userID}</a>
-                  <p class="reed-date">{formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
+                  <p class="reed-date" class:pending={isPending}>{isPending ? 'Pending…' : formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
                 </div>
               </div>
               <div class="reed-actions">
@@ -357,15 +397,15 @@
             </div>
 
             <div class="reed-actions-bar">
-              <button class="action-btn" on:click={handleEcho} aria-label="Echo">
+              <button class="action-btn" on:click={handleEcho} aria-label="Echo" disabled={isPending}>
                 <span class="action-icon">📢</span>
                 <span class="action-label">{echoCount > 0 ? `Echo · ${echoCount}` : 'Echo'}</span>
               </button>
-              <button class="action-btn" on:click={handleReply} aria-label="Reply">
+              <button class="action-btn" on:click={handleReply} aria-label="Reply" disabled={isPending}>
                 <span class="action-icon">↩️</span>
                 <span class="action-label">Reply</span>
               </button>
-              <button class="action-btn" on:click={handleShare} aria-label="Share">
+              <button class="action-btn" on:click={handleShare} aria-label="Share" disabled={isPending}>
                 <span class="action-icon">🔗</span>
                 <span class="action-label">Share</span>
               </button>
@@ -476,6 +516,11 @@
     font-size: 0.9rem;
   }
 
+  .reed-date.pending {
+    color: var(--primary);
+    font-style: italic;
+  }
+
   .reed-actions {
     display: flex;
     flex-direction: column;
@@ -533,6 +578,16 @@
   .action-btn:hover {
     background: var(--input-bg);
     border-color: var(--primary);
+  }
+
+  .action-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .action-btn:disabled:hover {
+    background: transparent;
+    border-color: transparent;
   }
 
   .action-icon {

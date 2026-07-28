@@ -20,6 +20,8 @@
   let isWriteSectionOpen = false;
   let showNewReedBanner = false;
   let reeds = [];
+  /** @type {import('$lib/types/reed').ReedType[]} */
+  let pendingReeds = [];
   let profileUser = null;
   let loadingReeds = true;
   let errorLoadingReeds = '';
@@ -63,9 +65,14 @@
       loadingReeds = true;
       errorLoadingReeds = '';
       reeds = await reedsService.getReedsByAuthor(authorId);
+      pendingReeds = isOwner
+        ? await reedsService.getUnsignedReedsByAuthor(authorId)
+        : [];
+
+      const allForQuotes = [...pendingReeds, ...reeds];
 
       // Fetch echoed reeds in parallel
-      const echoEntries = reeds
+      const echoEntries = allForQuotes
         .filter(r => r.echoing)
         .map(r => {
           const parsed = parseReedRef(r.echoing);
@@ -87,7 +94,7 @@
       echoedReeds = echoMap;
 
       // Fetch authors for empty-echo swaps
-      const emptyEchoKeys = reeds
+      const emptyEchoKeys = allForQuotes
         .filter(r => r.echoing && !(r.content || '').trim() && echoMap.has(r.echoing))
         .map(r => r.echoing);
 
@@ -109,7 +116,7 @@
       echoedReedUsers = userMap;
 
       // Fetch replied-to reeds in parallel
-      const replyEntries = reeds
+      const replyEntries = allForQuotes
         .filter(r => r.replying)
         .map(r => {
           const parsed = parseReedRef(r.replying);
@@ -137,14 +144,19 @@
     }
   }
 
-  async function deleteReed(reedId) {
+  async function deleteReed(reedId, pending = false) {
     if (!confirm('Are you sure you want to delete this reed?')) {
       return;
     }
 
     try {
-      await removeReedAsAuthor(authorId, reedId);
-      reeds = reeds.filter(reed => reed.id !== reedId);
+      if (pending) {
+        await reedsService.discardUnsignedReed(reedId);
+        pendingReeds = pendingReeds.filter((reed) => reed.id !== reedId);
+      } else {
+        await removeReedAsAuthor(authorId, reedId);
+        reeds = reeds.filter(reed => reed.id !== reedId);
+      }
     } catch (error) {
       console.error('Error deleting reed:', error);
     }
@@ -183,13 +195,65 @@
       <p>{errorLoadingReeds}</p>
       <button class="btn btn-primary" on:click={loadReeds}>Try Again</button>
     </div>
-  {:else if reeds.length === 0}
+  {:else if reeds.length === 0 && pendingReeds.length === 0}
     <div class="empty-state">
       <div class="empty-icon">🌾</div>
       <h3>No reeds yet</h3>
       <p>Your reeds will appear here when you publish them.</p>
     </div>
   {:else}
+    {#each pendingReeds as reed (reed.id)}
+      {@const isEmptyEcho = !!(reed.echoing && !(reed.content || '').trim() && echoedReeds.has(reed.echoing))}
+      {@const displayReed = isEmptyEcho ? echoedReeds.get(reed.echoing) : reed}
+      {@const displayUser = isEmptyEcho ? (echoedReedUsers.get(reed.echoing) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
+      <div class="reed-item pending" role="button" tabindex="0" on:click={() => navigateToReed(reed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(reed)}>
+        <div class="reed-header">
+          <div class="reed-info">
+            <div class="reed-avatar">
+              {#if displayUser.avatarURL}
+                <img src={displayUser.avatarURL} alt={displayUser.username} />
+              {:else}
+                <div class="reed-icon">👤</div>
+              {/if}
+            </div>
+            <div class="reed-details">
+              <h3>{displayUser.username}</h3>
+              <p class="pending-label">Pending…</p>
+            </div>
+          </div>
+          {#if isOwner}
+            <div class="reed-meta">
+              <button class="reed-menu" on:click|stopPropagation={() => deleteReed(reed.id, true)} aria-label="Delete">🗑️</button>
+            </div>
+          {/if}
+        </div>
+        {#if !isEmptyEcho && reed.replying}
+          <div class="quote-container">
+            <Quote
+              reed={repliedToReeds.get(reed.replying)}
+              type="reply"
+              missing={!repliedToReeds.has(reed.replying)}
+              linked={false}
+            />
+          </div>
+        {/if}
+        {#if (displayReed.content || "").trim()}
+          <div class={["reed-preview", !isEmptyEcho && reed.echoing && "echo", !isEmptyEcho && reed.replying && "reply"]}>
+            <MarkdownParser text={displayReed.content} preview={true} />
+          </div>
+        {/if}
+        {#if !isEmptyEcho && reed.echoing}
+          <div class="quote-container">
+            <Quote
+              reed={echoedReeds.get(reed.echoing)}
+              type="echo"
+              missing={!echoedReeds.has(reed.echoing)}
+              linked={false}
+            />
+          </div>
+        {/if}
+      </div>
+    {/each}
     {#each inverse(reeds) as reed (reed.id)}
       {@const isEmptyEcho = !!(reed.echoing && !(reed.content || '').trim() && echoedReeds.has(reed.echoing))}
       {@const displayReed = isEmptyEcho ? echoedReeds.get(reed.echoing) : reed}
@@ -424,6 +488,11 @@
     margin: 0;
     color: var(--muted);
     font-size: 0.8rem;
+  }
+
+  .reed-details .pending-label {
+    color: var(--primary);
+    font-style: italic;
   }
 
   .reed-meta {
