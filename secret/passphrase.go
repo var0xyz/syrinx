@@ -182,7 +182,6 @@ func (r *Resolver) Resolve() (Passphrase, error) {
 		if r.OutputWriter == nil {
 			r.OutputWriter = os.Stdout
 		}
-		fmt.Fprintf(r.OutputWriter, "Generated server key passphrase: %s\n", pw)
 	} else if len(pw) < MinPassphraseLen {
 		return Passphrase{}, ErrTooShort
 	}

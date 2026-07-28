@@ -26,6 +26,7 @@ and middleware.
 | 09 | Revocation realtime fanout + catch-up              | 06, 10     |
 | 10 | Revocations as a separate signed resource          | 01         |
 | 11 | Per-user system-notification store                 | —          |
+| 12 | Moderation (future — admin users, blocking)        | —          |
 
 ## Recovery feature steps
 

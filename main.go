@@ -41,7 +41,7 @@ type AppConfig struct {
 	Port          int
 	AllowedOrigin string `env:"name='ALLOWED_ORIGIN'"`
 
-	ServerKeyPassphrase string `env:"name='SERVER_KEY_PASSPHRASE'"`
+	ServerKeyPassphrase string `env:"optional,name='SERVER_KEY_PASSPHRASE'"`
 
 	RecoveryMode      bool   `env:"optional,default='false',name='RECOVERY_MODE'"`
 	SignupMode        string `env:"optional,default='invite',values='open,invite,closed',name='SIGNUP_MODE'"`
@@ -117,7 +117,7 @@ func main() {
 	}
 	switch passphrase.Source {
 	case secret.SourceEnv:
-		log.Info().Msg("[OK] Server key passphrase found in SERVER_KEY_PASSPHRASE")
+		log.Info().Msg("[OK] Server key passphrase found in $SERVER_KEY_PASSPHRASE")
 	case secret.SourceKeychain:
 		log.Info().Msg("[OK] Server key passphrase fetched from OS keychain")
 	case secret.SourcePrompt:
