@@ -287,12 +287,18 @@ func InitDB(db *sql.DB) error {
 		ON user_key_revocations(user_fingerprint);
 	`
 
+	// Tip reed metadata. private_key_fingerprint is the server key used
+	// for the countersignature. user_signature_id / server_signature_id
+	// store the attestations so SignReed retries can return the same
+	// countersignature (idempotent).
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
 		id VARCHAR(255) UNIQUE NOT NULL,
 		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		private_key_fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
 		signed_at TIMESTAMP NOT NULL,
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
 		PRIMARY KEY (user_id, id)
 	);`

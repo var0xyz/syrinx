@@ -644,7 +644,10 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
-		log.Error().Str("userID", userID).Err(err).Msg("account removal signature verification failed")
+		log.Error().
+			Str("userID", userID).
+			Err(err).
+			Msg("account removal signature verification failed")
 		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
@@ -1016,14 +1019,18 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 
 	revokedKeySignature := strings.TrimSpace(r.FormValue("revokedKeySignature"))
 	if revokedKeySignature == "" {
-		log.Error().Str("userID", userID).Msg("Argument `revokedKeySignature` not found in request")
+		log.Error().
+			Str("userID", userID).
+			Msg("Argument `revokedKeySignature` not found in request")
 		writeResponse(w, http.StatusBadRequest, "Argument `revokedKeySignature` is required")
 		return
 	}
 
 	newKeySignature := strings.TrimSpace(r.FormValue("newKeySignature"))
 	if newKeySignature == "" {
-		log.Error().Str("userID", userID).Msg("Argument `newKeySignature` not found in request")
+		log.Error().
+			Str("userID", userID).
+			Msg("Argument `newKeySignature` not found in request")
 		writeResponse(w, http.StatusBadRequest, "Argument `newKeySignature` is required")
 		return
 	}
@@ -1338,8 +1345,8 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	signature := r.FormValue("signature")
-	if signature == "" {
+	userSignature := r.FormValue("signature")
+	if userSignature == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
@@ -1411,15 +1418,15 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fingerprint := user.ActiveKeyFingerprint
-	userSigArmor, err := base64.StdEncoding.DecodeString(signature)
+	userFingerprint := user.ActiveKeyFingerprint
+	userSigArmor, err := base64.StdEncoding.DecodeString(userSignature)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(userID, fingerprint)
+	pubKey, err := h.services.db.GetPublicKey(userID, userFingerprint)
 	if err != nil {
-		log.Error().Str("userID", userID).Str("fingerprint", fingerprint).Err(err).Msg("Error loading public key")
+		log.Error().Str("userID", userID).Str("userFingerprint", userFingerprint).Err(err).Msg("Error loading public key")
 		internalServerError(w)
 		return
 	}
@@ -1428,8 +1435,23 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.services.crypto.VerifySignature(markdown, string(userSigArmor), pubKey.Armor); err != nil {
-		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("reed signature verification failed")
+		log.Error().
+			Str("userID", userID).
+			Str("reedID", reedID).
+			Err(err).
+			Msg("reed signature verification failed")
 		writeResponse(w, http.StatusBadRequest, "signature verification failed")
+		return
+	}
+
+	existing, err := h.services.db.GetReedAttestation(userID, reedID)
+	if err != nil {
+		log.Error().Str("reedID", reedID).Str("userID", userID).Err(err).Msg("Error loading reed")
+		internalServerError(w)
+		return
+	}
+	if existing != nil {
+		h.respondSignReedReplay(w, r, existing, userSignature, userID, reedID)
 		return
 	}
 
@@ -1439,25 +1461,50 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		userID,
 		reedID,
 		h.signingKey.Fingerprint,
-		signature,
+		userSignature,
 		timestamp,
 	)
-	reedSignature, err := h.countersign(reedPayload, timestamp)
+	serverSignature, err := h.countersign(reedPayload, timestamp)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
-			Str("signature", signature).
 			Str("fingerprint", h.signingKey.Fingerprint).
 			Err(err).Msg("Error signing")
 		internalServerError(w)
 		return
 	}
-	reed, err := h.services.db.CreateReedWithEcho(reedID, userID, reedSignature.Fingerprint, reedSignature.SignedAt, echoRef)
+
+	reed, err := h.services.db.CreateReedWithEcho(
+		reedID,
+		userID,
+		userFingerprint,
+		userSignature,
+		serverSignature.Fingerprint,
+		serverSignature.Armor,
+		serverSignature.SignedAt,
+		echoRef,
+	)
 	if err != nil {
+		// Concurrent SignReed for the same id: both passed the pre-insert
+		// GetReedAttestation (nil), both tried Create; the loser hits unique
+		// violation and must return the winner's stored countersignature.
+		// (Lost-response retries are already handled by the check above.)
+		if isReedUniqueViolation(err) {
+			existing, getErr := h.services.db.GetReedAttestation(userID, reedID)
+			if getErr == nil && existing != nil {
+				h.respondSignReedReplay(w, r, existing, userSignature, userID, reedID)
+				return
+			}
+			author, authorErr := h.services.db.ReedAuthorByID(reedID)
+			if authorErr == nil && author != "" && author != userID {
+				writeResponse(w, http.StatusConflict, "Reed ID already taken")
+				return
+			}
+		}
 		log.Error().
 			Str("reedID", reedID).
 			Str("userID", userID).
-			Str("fingerprint", reedSignature.Fingerprint).
+			Str("serverFingerprint", serverSignature.Fingerprint).
 			Err(err).Msg("Error creating reed")
 		internalServerError(w)
 		return
@@ -1468,7 +1515,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		Str("reedID", reed.ID).
 		Msg("Reed created successfully")
 
-	writeResponse(w, http.StatusCreated, reedSignature)
+	writeResponse(w, http.StatusCreated, serverSignature)
 
 	h.broadcastChan <- realtime.BroadcastMessage{
 		Type:     realtime.NewReed,
@@ -1476,6 +1523,31 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		UserID:   userID,
 		ReedID:   reed.ID,
 	}
+}
+
+// respondSignReedReplay returns the stored countersignature (HTTP 200) when
+// the user signature matches; otherwise 409.
+func (h *Handlers) respondSignReedReplay(
+	w http.ResponseWriter,
+	r *http.Request,
+	existing *ReedAttestation,
+	userSignatureB64, userID, reedID string,
+) {
+	log := h.services.log.GetLogger(r.Context())
+	if existing.UserSignature != userSignatureB64 {
+		writeResponse(w, http.StatusConflict, "Reed already exists with a different signature")
+		return
+	}
+	log.Info().
+		Str("reedID", reedID).
+		Str("userID", userID).
+		Msg("SignReed replay: returning stored countersignature")
+	writeResponse(w, http.StatusOK, ServerSignature{
+		ServerID:    h.services.db.GetServerID(),
+		Fingerprint: existing.ServerFingerprint,
+		Armor:       existing.ServerSignature,
+		SignedAt:    existing.ServerSignedAt,
+	})
 }
 
 // parseReedRef parses userID@serverID/reedID and checks reed id + local server.
@@ -1584,7 +1656,11 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
-		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("signature verification failed")
+		log.Error().
+			Str("userID", userID).
+			Str("reedID", reedID).
+			Err(err).
+			Msg("signature verification failed")
 		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
