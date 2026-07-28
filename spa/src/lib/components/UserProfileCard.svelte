@@ -50,6 +50,21 @@
 
   const serverName = localStorage.getItem('serverName') || '';
 
+  let avatarOpen = false;
+
+  function openAvatar() {
+    if (!user?.id) return;
+    avatarOpen = true;
+  }
+
+  function closeAvatar() {
+    avatarOpen = false;
+  }
+
+  function onWindowKeydown(event) {
+    if (event.key === 'Escape' && avatarOpen) closeAvatar();
+  }
+
   function formatDate(dateString) {
     try {
       const date = new Date(dateString);
@@ -60,11 +75,20 @@
   }
 </script>
 
+<svelte:window on:keydown={onWindowKeydown} />
+
 <div class="profile-card">
   <div class="profile-header">
     <div class="avatar-container">
       {#if user?.id}
-        <Avatar userID={user.id} username={user.username} size="80px" />
+        <button
+          type="button"
+          class="avatar-button"
+          on:click={openAvatar}
+          aria-label={user.username ? `View ${user.username}'s avatar` : 'View avatar'}
+        >
+          <Avatar userID={user.id} username={user.username} size="80px" />
+        </button>
       {/if}
     </div>
     <div class="profile-info">
@@ -104,6 +128,21 @@
   {/if}
 </div>
 
+{#if avatarOpen && user?.id}
+  <div
+    class="avatar-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-label={user.username ? `${user.username}'s avatar` : 'Avatar'}
+    on:click={closeAvatar}
+    on:keydown={(e) => e.key === 'Enter' && closeAvatar()}
+  >
+    <div class="avatar-lightbox" on:click|stopPropagation role="presentation">
+      <Avatar userID={user.id} username={user.username} size="100%" shape="square" />
+    </div>
+  </div>
+{/if}
+
 <style>
   .profile-card {
     background: var(--surface);
@@ -123,6 +162,41 @@
     flex-shrink: 0;
   }
 
+  .avatar-button {
+    display: block;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    cursor: zoom-in;
+    border-radius: 50%;
+    line-height: 0;
+  }
+
+  .avatar-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  .avatar-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(0, 0, 0, 0.72);
+    cursor: zoom-out;
+  }
+
+  .avatar-lightbox {
+    width: min(80vw, 80vh, 28rem);
+    height: min(80vw, 80vh, 28rem);
+    cursor: default;
+    filter: drop-shadow(0 8px 32px rgba(0, 0, 0, 0.45));
+  }
+
   .profile-info {
     flex: 1;
     min-width: 0;
@@ -133,6 +207,13 @@
     margin: 0;
     color: var(--fg);
     word-break: break-word;
+  }
+
+  .user-id-container {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
   }
 
   .user-info {
