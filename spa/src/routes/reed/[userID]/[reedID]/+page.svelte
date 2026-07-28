@@ -214,9 +214,9 @@
 
   async function refreshEchoCountInBackground(authorId, id) {
     try {
-      const { echoCount: next } = await apiService.getReedEchoCount(authorId, id);
+      const next = await apiService.getReedEchoCount(authorId, id);
       await echoCountsRepository.put(id, next);
-      // Intentionally do not update echoCount reactively — next open shows the fresh value.
+      if (id === reedID) echoCount = next;
     } catch (error) {
       console.warn('Background echo count refresh failed:', error);
     }
@@ -371,6 +371,12 @@
                 <div class="author-info">
                   <a href="/profile/{userID}" class="author-name">{authorUser?.username ?? userID}</a>
                   <p class="reed-date" class:pending={isPending}>{isPending ? 'Pending…' : formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
+                  {#if !isPending}
+                    <p class="reed-stats" title="Stats for nerds">
+                      <span class="reed-stat-icon echoes" aria-hidden="true"></span>
+                      {echoCount}
+                    </p>
+                  {/if}
                 </div>
               </div>
               <div class="reed-actions">
@@ -399,7 +405,7 @@
             <div class="reed-actions-bar">
               <button class="action-btn" on:click={handleEcho} aria-label="Echo" disabled={isPending}>
                 <span class="action-icon">📢</span>
-                <span class="action-label">{echoCount > 0 ? `Echo · ${echoCount}` : 'Echo'}</span>
+                <span class="action-label">Echo</span>
               </button>
               <button class="action-btn" on:click={handleReply} aria-label="Reply" disabled={isPending}>
                 <span class="action-icon">↩️</span>
@@ -519,6 +525,37 @@
   .reed-date.pending {
     color: var(--primary);
     font-style: italic;
+  }
+
+  .reed-stats {
+    display: inline-flex;
+    align-items: end;
+    gap: 0.3rem;
+    margin: 0.25rem 0 0;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    letter-spacing: 0.02em;
+    opacity: 0.8;
+  }
+
+  .reed-stat-icon {
+    display: inline-block;
+    width: 0.85rem;
+    height: 0.85rem;
+    flex-shrink: 0;
+    background-color: currentColor;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
+
+  .reed-stat-icon.echoes {
+    -webkit-mask-image: url('/icons/megaphone-16.png');
+    mask-image: url('/icons/megaphone-16.png');
   }
 
   .reed-actions {
