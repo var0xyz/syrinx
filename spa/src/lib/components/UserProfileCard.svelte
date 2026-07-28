@@ -2,6 +2,7 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
+  import Avatar from '$lib/components/Avatar.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import { followingRepository } from '$lib/repositories/following';
   import { apiService } from '$lib/services/api';
@@ -75,10 +76,8 @@
 <div class="profile-card">
   <div class="profile-header">
     <div class="avatar-container">
-      {#if user?.avatarURL}
-        <img src={user.avatarURL} alt="{user.username}'s Avatar" class="profile-avatar" />
-      {:else}
-        <div class="profile-avatar-icon">👤</div>
+      {#if user?.id}
+        <Avatar userID={user.id} username={user.username} size="80px" />
       {/if}
     </div>
     <div class="profile-info">
@@ -135,27 +134,6 @@
 
   .avatar-container {
     flex-shrink: 0;
-  }
-
-  .profile-avatar {
-    width: 80px;
-    max-width: 80px;
-    height: 80px;
-    min-height: 80px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 2px solid var(--border);
-  }
-
-  .profile-avatar-icon {
-    width: 80px;
-    height: 80px;
-    border-radius: 50%;
-    background: var(--input-bg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 2rem;
   }
 
   .profile-info {

@@ -13,7 +13,8 @@
     "test:e2e:debug": "playwright test --debug",
     "test:signing": "node scripts/test-signing.mjs",
     "test:verify-binary": "node scripts/test-verify-binary.mjs",
-    "test:reed-markdown": "node --experimental-strip-types scripts/test-reed-markdown.mjs"
+    "test:reed-markdown": "node --experimental-strip-types scripts/test-reed-markdown.mjs",
+    "test:identicon": "node --experimental-strip-types scripts/test-identicon.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

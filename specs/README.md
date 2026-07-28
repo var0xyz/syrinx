@@ -87,6 +87,16 @@ See [`publish/`](publish/README.md):
 | 01 | HTTP SignReed + WS `PUBLISH_READY` + SPA           |
 | 02 | Real `RELAY_MISS` (drop allocation + retry)        |
 
+## Client-generated default avatars
+
+See [`avatars/`](avatars/README.md):
+
+| #  | Title                                              |
+|----|----------------------------------------------------|
+| 00 | Design + identicon from user ID hash               |
+| 01 | Drop server avatar `HEAD`                          |
+| 02 | Shared SPA `Avatar` component + call sites         |
+
 ## Signed deletions (reeds + accounts)
 
 See [`deletion/`](deletion/README.md):
