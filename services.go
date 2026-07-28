@@ -55,6 +55,18 @@ func isUsernameUniqueViolation(err error) bool {
 	return false
 }
 
+func isReedUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) || pqErr.Code != "23505" {
+		return false
+	}
+	switch pqErr.Constraint {
+	case "reeds_pkey", "reeds_id_key":
+		return true
+	}
+	return false
+}
+
 type Services struct {
 	db     *DataService
 	crypto *crypto.Service
@@ -1214,10 +1226,6 @@ func validateUUID25(uuid25Str string) error {
 	return nil
 }
 
-func (s *DataService) CreateReed(reedID string, userID string, fingerprint string, timestamp time.Time) (*Reed, error) {
-	return s.CreateReedWithEcho(reedID, userID, fingerprint, timestamp, nil)
-}
-
 // ReedRef is a parsed echoing/replying target: userID@serverID/reedID.
 type ReedRef struct {
 	AuthorID string
@@ -1257,12 +1265,31 @@ func FormatReedRef(ref ReedRef) string {
 	return ref.AuthorID + "@" + ref.ServerID + "/" + ref.ReedID
 }
 
-// CreateReedWithEcho inserts the reed metadata, author allocation, and optional echo index row.
-func (s *DataService) CreateReedWithEcho(reedID string, userID string, fingerprint string, timestamp time.Time, echo *ReedRef) (*Reed, error) {
+// ReedAttestation is tip reed metadata plus stored user/server signatures.
+type ReedAttestation struct {
+	Reed
+	UserFingerprint   string
+	UserSignature     string
+	ServerFingerprint string
+	ServerSignature   string
+	ServerSignedAt    time.Time
+}
+
+// CreateReedWithEcho inserts the reed metadata, author allocation, optional
+// echo index row, and the user/server attestation rows used for SignReed replay.
+func (s *DataService) CreateReedWithEcho(
+	reedID, userID string,
+	userFingerprint, userSignatureB64 string,
+	serverFingerprint, serverSignatureB64 string,
+	timestamp time.Time,
+	echo *ReedRef,
+) (*Reed, error) {
 	err := validateUUID25(reedID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid reed ID: %w", err)
 	}
+
+	timestamp = timestamp.UTC().Truncate(time.Second)
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -1270,12 +1297,24 @@ func (s *DataService) CreateReedWithEcho(reedID string, userID string, fingerpri
 	}
 	defer tx.Rollback()
 
+	userSigID, err := signing.InsertUserSignature(tx, userFingerprint, userSignatureB64)
+	if err != nil {
+		return nil, err
+	}
+	serverSigID, err := signing.InsertServerSignature(tx, serverFingerprint, serverSignatureB64, timestamp)
+	if err != nil {
+		return nil, err
+	}
+
 	var reed Reed
 	err = tx.QueryRow(`
-		INSERT INTO reeds (id, user_id, private_key_fingerprint, signed_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO reeds (
+			id, user_id, private_key_fingerprint, signed_at,
+			user_signature_id, server_signature_id
+		)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, user_id, private_key_fingerprint, signed_at
-	`, reedID, userID, fingerprint, timestamp).Scan(
+	`, reedID, userID, serverFingerprint, timestamp, userSigID, serverSigID).Scan(
 		&reed.ID,
 		&reed.UserID,
 		&reed.Fingerprint,
@@ -1297,7 +1336,7 @@ func (s *DataService) CreateReedWithEcho(reedID string, userID string, fingerpri
 			INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, signed_at)
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (echoing_reed_id) DO NOTHING
-		`, userID, reedID, echo.AuthorID, echo.ReedID, timestamp.UTC().Truncate(time.Second)); err != nil {
+		`, userID, reedID, echo.AuthorID, echo.ReedID, timestamp); err != nil {
 			return nil, fmt.Errorf("insert echo index: %w", err)
 		}
 	}
@@ -1306,6 +1345,52 @@ func (s *DataService) CreateReedWithEcho(reedID string, userID string, fingerpri
 		return nil, err
 	}
 	return &reed, nil
+}
+
+// GetReedAttestation loads a tip reed and its stored signatures.
+func (s *DataService) GetReedAttestation(userID, reedID string) (*ReedAttestation, error) {
+	var att ReedAttestation
+	err := s.db.QueryRow(`
+		SELECT r.id, r.user_id, r.private_key_fingerprint, r.signed_at,
+			us.fingerprint, us.signature,
+			ss.fingerprint, ss.signature, ss.signed_at
+		FROM reeds r
+		JOIN user_signatures us ON us.id = r.user_signature_id
+		JOIN server_signatures ss ON ss.id = r.server_signature_id
+		WHERE r.id = $1 AND r.user_id = $2
+	`, reedID, userID).Scan(
+		&att.ID,
+		&att.UserID,
+		&att.Fingerprint,
+		&att.Timestamp,
+		&att.UserFingerprint,
+		&att.UserSignature,
+		&att.ServerFingerprint,
+		&att.ServerSignature,
+		&att.ServerSignedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	att.Timestamp = att.Timestamp.UTC().Truncate(time.Second)
+	att.ServerSignedAt = att.ServerSignedAt.UTC().Truncate(time.Second)
+	return &att, nil
+}
+
+// ReedAuthorByID returns the author user_id for a reed id, or "" if none.
+func (s *DataService) ReedAuthorByID(reedID string) (string, error) {
+	var author string
+	err := s.db.QueryRow(`SELECT user_id FROM reeds WHERE id = $1`, reedID).Scan(&author)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return author, nil
 }
 
 // ReedExists reports whether (userID, reedID) is a live tip reed.

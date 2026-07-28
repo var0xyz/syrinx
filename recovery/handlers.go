@@ -46,6 +46,9 @@ func (d Deps) ReportReed(w http.ResponseWriter, r *http.Request) {
 		req.ServerSignature.Fingerprint,
 		req.ServerSignature.Timestamp,
 		caller,
+		req.UserSignature.Fingerprint,
+		req.UserSignature.Armor,
+		req.ServerSignature.Armor,
 	)
 	switch {
 	case errors.Is(err, ErrAuthorNotFound):

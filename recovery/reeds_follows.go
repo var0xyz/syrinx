@@ -7,6 +7,8 @@ import (
 	"log"
 	"time"
 
+	"syrinx/signing"
+
 	"github.com/lib/pq"
 )
 
@@ -25,6 +27,8 @@ func SaveReed(
 	reedID, authorID, fingerprint string,
 	signedAt time.Time,
 	reporterUserID string,
+	userFingerprint, userSignatureB64 string,
+	serverSignatureB64 string,
 ) error {
 	signedAt = signedAt.UTC().Truncate(time.Second)
 
@@ -52,10 +56,21 @@ func SaveReed(
 
 	switch {
 	case err == sql.ErrNoRows:
+		userSigID, err := signing.InsertUserSignature(tx, userFingerprint, userSignatureB64)
+		if err != nil {
+			return err
+		}
+		serverSigID, err := signing.InsertServerSignature(tx, fingerprint, serverSignatureB64, signedAt)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`
-			INSERT INTO reeds (id, user_id, private_key_fingerprint, signed_at)
-			VALUES ($1, $2, $3, $4)
-		`, reedID, authorID, fingerprint, signedAt); err != nil {
+			INSERT INTO reeds (
+				id, user_id, private_key_fingerprint, signed_at,
+				user_signature_id, server_signature_id
+			)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, reedID, authorID, fingerprint, signedAt, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert reed: %w", err)
 		}
 	case err != nil:
