@@ -75,7 +75,11 @@ class ReedsService {
     }
     try {
       console.log('Getting signature from server...');
-      const response = await api.createReed(reed.id, reed.userSignature.armor);
+      const response = await api.createReed(reed.id, reed.userSignature.armor, {
+        content: reed.content,
+        echoing: reed.echoing,
+        replying: reed.replying,
+      });
       reed.applyServerResponse(response);
     } catch (error) {
       console.error('Failed to publish reed to server, queued for later:', error);
@@ -102,7 +106,11 @@ class ReedsService {
           continue;
         }
         console.log('Processing unsigned reed:', reed.id);
-        const response = await api.createReed(reed.id, reed.userSignature.armor);
+        const response = await api.createReed(reed.id, reed.userSignature.armor, {
+          content: reed.content,
+          echoing: reed.echoing,
+          replying: reed.replying,
+        });
         await this.storeReed({
           ...reed,
           serverSignature: {

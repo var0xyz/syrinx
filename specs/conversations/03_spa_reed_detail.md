@@ -127,7 +127,7 @@ Extract `ReplyRow` if it shares markup with feed cards.
 
 1. API types + `listReplies` client.
 2. `echoCount` on `getReed` response + Echo button label.
-3. `parseSocialRef` used consistently (from [01](01_publish_and_refs.md)).
+3. `parseReedRef` used consistently (from [01](01_publish_and_refs.md)).
 4. `ConversationSection.svelte` + wire into detail page.
 5. Relay + store loop for missing bodies.
 6. `new_reed` refresh hook on detail page.
@@ -142,7 +142,7 @@ Extract `ReplyRow` if it shares markup with feed cards.
 
 - Component test or Playwright: open reed with replies → rows visible →
   navigate to child.
-- Unit test: `parseSocialRef` + merge logic if implemented.
+- Unit test: `parseReedRef` + merge logic if implemented.
 
 ## Risks
 
