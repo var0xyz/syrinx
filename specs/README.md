@@ -77,6 +77,16 @@ See [`coverage/`](coverage/README.md):
 | 01 | Counters + `GET …/stats`                           |
 | 02 | Per-reed WS subscription + SPA                     |
 
+## Publish ready (fanout gate)
+
+See [`publish/`](publish/README.md):
+
+| #  | Title                                              |
+|----|----------------------------------------------------|
+| 00 | Design + publish/relay race + locked model         |
+| 01 | HTTP SignReed + WS `PUBLISH_READY` + SPA           |
+| 02 | Real `RELAY_MISS` (drop allocation + retry)        |
+
 ## Signed deletions (reeds + accounts)
 
 See [`deletion/`](deletion/README.md):
