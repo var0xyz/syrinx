@@ -436,13 +436,6 @@ type SignupInput struct {
 	InvitedBy string
 }
 
-// CountUsers returns the number of rows in users.
-func (s *DataService) CountUsers(ctx context.Context) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&n)
-	return n, err
-}
-
 // LookupPendingInvite resolves invite id + fragment secret for pre-signup
 // policy checks. Returns nil invite when unknown or id mismatch.
 func (s *DataService) LookupPendingInvite(ctx context.Context, inviteID, secret string) (*invites.Invite, error) {
@@ -464,8 +457,7 @@ func (s *DataService) LookupPendingInvite(ctx context.Context, inviteID, secret 
 // (with both signatures + the server key fingerprint stored alongside
 // them) and inserts the initial user_keys row — all in one transaction.
 // When an invite is consumed, MarkClaimed and mutual follows run in the
-// same TX under LOCK TABLE users so bootstrap races cannot mint two
-// invite-free accounts in invite mode.
+// same TX.
 //
 // Callers own userID allocation and signature verification; this
 // function just persists.
@@ -487,17 +479,6 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 
 	ctx := context.Background()
 
-	// SHARE ROW EXCLUSIVE serializes concurrent signup inserts + counts
-	// so invite-mode bootstrap cannot skip the invite twice.
-	if _, err := tx.ExecContext(ctx, `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE`); err != nil {
-		return nil, err
-	}
-
-	var userCount int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&userCount); err != nil {
-		return nil, err
-	}
-
 	var inv *invites.Invite
 	if strings.TrimSpace(in.InviteSecret) != "" {
 		inv, err = s.invites.GetByTokenHashTx(ctx, tx, invites.HashSecret(in.InviteSecret))
@@ -505,7 +486,7 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 			return nil, err
 		}
 	}
-	resolved, err := invites.ResolveSignup(in.SignupMode, userCount, in.InviteID, in.InviteSecret, inv)
+	resolved, err := invites.ResolveSignup(in.SignupMode, in.InviteID, in.InviteSecret, inv)
 	if err != nil {
 		return nil, err
 	}

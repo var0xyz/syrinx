@@ -49,7 +49,7 @@ wipe is acceptable. The durable social fact that survives is
 |----------|--------|
 | Mode env | `SIGNUP_MODE=open\|invite\|closed` (default `open`) |
 | Quota env | `MAX_INVITES_PER_USER`: `>= 1`, or `-1` / unset = infinite; else fatal. `.env.example` defaults to `3` with disable comment |
-| Bootstrap | `invite` + empty `users` → first signup needs no invite |
+| Bootstrap | First account: deploy with `open`, then switch to `invite`/`closed` |
 | Token | Opaque ≥256-bit URL-safe secret; store SHA-256 only |
 | Expiry | None |
 | Revoke | Issuer may revoke unused invites |
@@ -218,9 +218,8 @@ same `invitedBy` header value (immutable for the life of the account).
 Inside the existing signup transaction, after crypto checks:
 
 1. Gate on `SIGNUP_MODE` (`closed` → 403).
-2. Decide whether a token is required / optional / forbidden-to-skip
-   (`invite` + non-empty users → required; bootstrap → skip; `open` →
-   optional).
+2. Decide whether a token is required / optional
+   (`invite` → required; `open` → optional; `closed` → handler 403).
 3. If a token is present: hash → conditional update marking used → must
    affect exactly one row.
 4. `INSERT users` with `invited_by` set (or NULL).

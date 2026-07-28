@@ -31,13 +31,8 @@ preserved).
 - Signup page: read `invite` from the URL query; pass it through
   `authService.signup` / `apiService.signup` as form field `invite`.
 - If mode is `invite` and there is no token: show a clear message that an
-  invite link is required (do not run keygen). Exception: allow attempting
-  signup without a token when the server may still be in bootstrap — simplest
-  UX: if no token, call a lightweight path:
-  - Option implemented: **always** allow the signup form when mode is
-    `invite` even without a token; if the server returns `Invite required`,
-    show that error. That covers bootstrap without a separate “is empty?”
-    API. Document this choice.
+  invite link is required (do not run keygen). First account: operators
+  deploy with `SIGNUP_MODE=open`, then switch modes.
 - If mode is `closed`: `/signup` and `/preamble` show “Signups are closed”
   and do not offer the form (deep links fail closed).
 - If mode is `open`: form works with or without `?invite=`; when present,

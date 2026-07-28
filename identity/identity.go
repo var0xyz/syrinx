@@ -14,7 +14,7 @@
 //     serverKeyFingerprint, signedAt, invitedBy) + the userSignature
 //     itself as a header. The server's detached PGP signature over these
 //     bytes is `serverSignature`. `invitedBy` is omitted when empty
-//     (open/bootstrap signup with no invite).
+//     (open signup with no invite).
 //
 // Including `userSignature` as a header inside the server payload welds
 // the two attestations together: a compromised server cannot re-pair

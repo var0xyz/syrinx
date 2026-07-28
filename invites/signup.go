@@ -17,20 +17,21 @@ type ResolvedInvite struct {
 	InviterID string
 }
 
-// ResolveSignup applies SIGNUP_MODE invite policy given a locked user count
-// and an optional invite row looked up by HashSecret(secret) (nil if absent).
+// ResolveSignup applies SIGNUP_MODE invite policy given an optional invite
+// row looked up by HashSecret(secret) (nil if absent).
 //
 // When inviteID/secret are provided, inv must be pending and inv.ID must
 // equal inviteID.
 //
 // Policy:
-//   - invite mode with users present → id+secret required
-//   - invite mode with empty users (bootstrap) → optional
+//   - invite mode → id+secret required
 //   - open mode → optional
+//   - closed mode is rejected by the handler before this runs
 //   - if credentials are provided they must resolve to a pending invite
+//
+// First account: deploy with SIGNUP_MODE=open, then switch to invite or closed.
 func ResolveSignup(
 	mode SignupMode,
-	userCount int,
 	inviteID, secret string,
 	inv *Invite,
 ) (ResolvedInvite, error) {
@@ -38,9 +39,8 @@ func ResolveSignup(
 	sec := strings.TrimSpace(secret)
 	hasCreds := id != "" || sec != ""
 
-	requireInvite := mode == ModeInvite && userCount > 0
 	if !hasCreds {
-		if requireInvite {
+		if mode == ModeInvite {
 			return ResolvedInvite{}, ErrInviteRequired
 		}
 		return ResolvedInvite{}, nil

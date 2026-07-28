@@ -49,49 +49,39 @@ creates mutual follows on successful redeem.
 ### Policy
 
 ```
-closed          → 403 (already from 00)
-invite && n>0   → require non-empty invite; invalid → 403
-invite && n==0  → ignore invite requirement (bootstrap);
-                  if invite still provided and valid, may consume it
-                  (prefer: if provided, must be valid OR allow ignore —
-                  pick: **if provided during bootstrap, still consume if
-                  valid; if invalid, 403** — keeps behavior predictable)
-open            → invite optional; if provided must be valid and is consumed
+closed   → 403 (already from 00)
+invite   → require non-empty invite; invalid → 403
+open     → invite optional; if provided must be valid and is consumed
 ```
 
-User count `n` must be observed **inside** the signup transaction so two
-parallel bootstraps cannot both skip the invite.
+Operators create the first account with `SIGNUP_MODE=open`, then switch to
+`invite` or `closed`.
 
 ### Transaction order
 
 Extend `DataService.Signup` (or move orchestration into `invites.ConsumeAndSignup`
 called from the handler) to run in one `BEGIN … COMMIT`:
 
-1. `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE` (or equivalent that
-   serializes inserts + counts — document the chosen lock; SHARE ROW
-   EXCLUSIVE blocks concurrent schema changes and conflicts with other
-   writers enough to serialize signup inserts).
-2. `SELECT COUNT(*) FROM users`.
-3. Apply policy above; if a token is required or provided:
+1. Apply policy above; if a token is required or provided:
    - `hash = HashToken(raw)`
    - load invite by hash; if not pending → **403** `"Invalid or claimed invite"`
      (same string for claimed/revoked/unknown to match check's opacity, or
      slightly more helpful on the authenticated-to-signup path — prefer
      one stable string: `"Invalid or claimed invite"`).
    - remember `inviterID = invite.CreatedBy`, `inviteID = invite.ID`.
-4. Allocate `userID`, verify signatures, build profile payload **with**
+2. Allocate `userID`, verify signatures, build profile payload **with**
    `invitedBy: inviterID` when set (else omit header).
-5. `INSERT users (…, invited_by)`.
-6. `INSERT user_keys (…)`.
-7. If inviter set:
+3. `INSERT users (…, invited_by)`.
+4. `INSERT user_keys (…)`.
+5. If inviter set:
    - `MarkClaimed(tx, inviterID, inviteID, newUserID, now)` — must affect 1 row; else
      abort (race lost).
    - Mutual follow:
      - following: `(inviter → invitee)` and `(invitee → inviter)`
      - followers: mirror as `FollowUser` does today
      - use `ON CONFLICT DO NOTHING`.
-8. Commit.
-9. Return `GetUser` (includes joined `invitedBy`).
+6. Commit.
+7. Return `GetUser` (includes joined `invitedBy`).
 
 If any step fails, rollback — invite remains pending.
 
@@ -169,13 +159,7 @@ Avoid duplicating signature logic inside `invites/`.
 ## Test plan
 
 - [x] `closed` → still 403
-- [x] `invite`, empty DB, no token → 201; `invitedBy` null; no follows
-- [x] `invite`, empty DB, two parallel signups without token → exactly one
-      succeeds without invite **or** both serialize such that the second
-      requires an invite (assert invariant: never two users both without
-      invite when mode is `invite` and an invite never existed — i.e. at
-      most one bootstrap user)
-- [x] `invite`, one user exists, no token → 403 `Invite required`
+- [x] `invite`, empty DB, no token → 403 `Invite required`
 - [x] `invite`, valid token → 201; `invitedBy.id` = inviter; invite
       `status=claimed`; mutual follows present both ways
 - [x] Same token twice → second 403; only one user
@@ -187,3 +171,4 @@ Avoid duplicating signature logic inside `invites/`.
 - [x] `PUT /users/me` after invited signup still verifies with same
       `invitedBy` header
 - [x] Identity unit tests updated in Go + TS mirrors stay in lockstep
+- [x] First operator account: deploy `SIGNUP_MODE=open`, then switch mode
