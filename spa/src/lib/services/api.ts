@@ -331,7 +331,7 @@ export const apiService = {
     });
   },
 
-  async getReedEchoCount(userId: string, reedId: string): Promise<{ echoCount: number }> {
+  async getReedEchoCount(userId: string, reedId: string): Promise<number> {
     return request(`/reeds/${userId}/${reedId}/echoes`, { method: 'GET' });
   },
 

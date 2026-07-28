@@ -1849,7 +1849,7 @@ func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeResponse(w, http.StatusOK, map[string]int{"echoCount": count})
+	writeResponse(w, http.StatusOK, count)
 }
 
 func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
