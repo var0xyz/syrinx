@@ -16,6 +16,7 @@
   import { formatReedRef } from '$lib/utils/reedRef';
   import { goto } from '$app/navigation';
   import Quote from '$lib/components/Quote.svelte';
+  import MarkdownParser from '$lib/components/MarkdownParser.svelte';
 
   /** @type {boolean} */
   export let open = false;
@@ -207,6 +208,18 @@
           {isPublishing ? 'Publishing...' : 'Publish'}
         </button>
       </div>
+      <div class="reed-preview">
+        <div class="reed-preview-label">Preview</div>
+        <div class="reed-preview-card">
+          <div class="reed-preview-body">
+            {#if content.trim()}
+              <MarkdownParser text={content} preview={true} />
+            {:else}
+              <p class="reed-preview-empty">Your reed will appear here as you type.</p>
+            {/if}
+          </div>
+        </div>
+      </div>
     </form>
   </div>
 {/if}
@@ -319,6 +332,38 @@
 
   .character-counter.over-limit {
     color: #ff6b6b;
+  }
+
+  .reed-preview {
+    margin-top: 1.25rem;
+  }
+
+  .reed-preview-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+  }
+
+  .reed-preview-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .reed-preview-body {
+    padding: 1.25rem 1.5rem;
+    color: var(--fg);
+  }
+
+  .reed-preview-empty {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.4;
   }
 
   .revocation-warning {
