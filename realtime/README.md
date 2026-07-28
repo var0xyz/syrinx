@@ -90,57 +90,54 @@ Note: The test client currently connects without authentication for testing purp
 
 ### Publish/relay race on freshly-created reeds
 
-Reeds are currently published via `POST /api/reeds` (REST), while everything else
-in the lifecycle (allocation tracking, holder selection, content relay) happens
-over the WebSocket. This split creates a race:
+Reeds are published via `POST /api/reeds` (REST countersign), while allocation
+tracking, holder selection, and content relay happen over the WebSocket. That
+split races today:
 
 1. Author's browser sends `POST /api/reeds`.
 2. Server inserts into `reeds`, inserts into `reed_allocations` (author = first
-   holder), and broadcasts the new reed to followers and broadcast subscribers
-   — all inside the same HTTP handler.
+   holder), returns the countersignature, and (today) broadcasts the new reed
+   to followers / broadcast subscribers inside the same HTTP handler path.
 3. For each subscriber the server creates a `pending_events` row and calls
    `dispatchNext(author)`, which sends a `RELAY_REQUEST` back to the author
    over WS.
-4. That `RELAY_REQUEST` typically arrives on the author's browser **before**
-   the POST response has been parsed and the reed has been written to
-   IndexedDB. The author's handler can't find the reed locally and replies
-   `RELAY_MISS`.
+4. That `RELAY_REQUEST` typically arrives **before** the POST response has been
+   parsed and the reed has been written to IndexedDB. The author cannot find
+   the reed locally and replies `RELAY_MISS`.
 
-Previously `handleRelayMiss` reacted to this by deleting the author's
-allocation and trying to find another holder. Since the author was the only
-holder, the reed ended up with zero allocations and the subscriber's pending
-event sat forever — the reed was effectively orphaned the moment it was
-created.
+Previously `handleRelayMiss` deleted the author's allocation and tried another
+holder. With the author as sole holder, the reed could end up with zero
+allocations and a stuck pending event — orphaned at birth.
 
-#### Temporary mitigation
+#### Temporary mitigation (current code)
 
-`handleRelayMiss` now ignores misses entirely: the allocation is preserved,
-`dispatched_at` stays set, and no retry is attempted. The stuck pending event
-is recovered the next time the requester sends `SYNC_REQUEST` (on reconnect
-or refresh), which calls `redispatchPendingRequests` to reset `dispatched_at`
-and re-dispatch to the (still-allocated) author. By then the author has
-finished `storeReedInIndexedDB` and answers `RELAY_RESPONSE` correctly.
+`handleRelayMiss` ignores misses: the allocation is preserved, `dispatched_at`
+stays set, and no retry is attempted. The stuck pending event is recovered the
+next time the requester sends `SYNC_REQUEST` (reconnect / refresh), which
+redispatches to the still-allocated author. By then the author has usually
+finished `storeReed` and can `RELAY_RESPONSE`.
 
-This is correct but lossy in the sense that recovery requires the requester
-to reconnect; subscribers who stay connected can wait indefinitely.
+Correct but lossy: subscribers who stay connected can wait indefinitely.
 
-#### Planned fix: move publishing to WebSocket
+#### Planned fix: HTTP countersign + WS `PUBLISH_READY`
 
-The proper fix is to make reed publishing a WS-native flow so the server has
-explicit, ordered control over the "reed is now available" signal:
+Do **not** move countersigning onto the WebSocket. Keep `POST /reeds` for
+verify + countersign + tip + author allocation. Gate **fanout** on an explicit
+local-availability signal:
 
-1. Client sends a `PUBLISH_REED` (name TBD) message over the existing WS
-   connection with the reed payload + author signature.
-2. Server stores the reed, allocates it to the author, replies with a
-   `PUBLISH_ACK` carrying the server signature.
-3. Client receives the ACK, writes the fully-signed reed to IndexedDB, and
-   sends a `PUBLISH_READY` (or similar) message confirming local
-   availability.
-4. **Only on receipt of `PUBLISH_READY`** does the server fan the reed out
-   to followers / broadcast subscribers via the normal relay machinery.
+1. `POST /reeds` — persist tip and author allocation; return server signature;
+   **do not** fan out (`NewReed` / pending events / `RELAY_REQUEST`).
+2. Client applies the signature, writes the fully signed reed to IndexedDB, then
+   sends **`PUBLISH_READY`** `{ reed_id }` over WS.
+3. Server checks the tip exists and the caller is the author; marks the reed
+   announced (`fanout_ready`); **only then** runs normal follower / broadcast /
+   profile fanout and `dispatchNext`.
+4. READY is **idempotent**. On reconnect, the client sends READY for
+   self-authored reeds it holds locally; the server no-ops if already
+   announced.
+5. All `RELAY_REQUEST`s are handled the same way (no “just published”
+   special case). Once READY gates fanout, **`RELAY_MISS` means real
+   unavailability again**: remove that holder’s allocation and retry another
+   holder.
 
-This removes the race by construction: the server never dispatches a
-`RELAY_REQUEST` for a reed the author hasn't already confirmed they can
-serve. Once this is in place, `handleRelayMiss` can go back to actually
-trimming stale allocations (with a real retry/unavailability policy) instead
-of silently ignoring misses.
+Spec: [`specs/publish/`](../specs/publish/README.md).
