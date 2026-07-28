@@ -27,7 +27,6 @@
 
   let user: User | null = null;
   let loading: boolean = true;
-  let serverName: string = localStorage.getItem('serverName') || '';
   let storageUsed: number = 0;
   let storageTotal: number = 0;
   let storagePercentage: number = 0;
@@ -446,18 +445,6 @@
       editError = error instanceof Error ? error.message : 'Failed to update profile. Please try again.';
     } finally {
       saving = false;
-    }
-  }
-
-  async function copyUserId(): Promise<void> {
-    if (!user?.id) return;
-
-    try {
-      await navigator.clipboard.writeText(serverName ? `${user.id}@${serverName}` : user.id);
-      notificationStore.success('User ID copied to clipboard');
-    } catch (error) {
-      console.error('Failed to copy user ID:', error);
-      notificationStore.error('Failed to copy user ID');
     }
   }
 

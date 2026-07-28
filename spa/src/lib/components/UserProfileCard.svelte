@@ -1,9 +1,7 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
-  import CopyButton from '$lib/components/CopyButton.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
-  import { notificationStore } from '$lib/stores/notifications';
   import { followingRepository } from '$lib/repositories/following';
   import { apiService } from '$lib/services/api';
 
@@ -60,17 +58,6 @@
       return dateString;
     }
   }
-
-  async function copyUserId() {
-    if (!user?.id) return;
-    try {
-      await navigator.clipboard.writeText(serverName ? `${user.id}@${serverName}` : user.id);
-      notificationStore.success('User ID copied to clipboard');
-    } catch (error) {
-      console.error('Failed to copy user ID:', error);
-      notificationStore.error('Failed to copy user ID');
-    }
-  }
 </script>
 
 <div class="profile-card">
@@ -83,12 +70,12 @@
     <div class="profile-info">
       <h2>{user?.username}</h2>
       <div class="user-id-container">
-        <p class="user-id">{user?.id}{serverName ? `@${serverName}` : ''}</p>
-        <CopyButton ariaLabel="Copy user ID" on:click={copyUserId} />
+        <p class="user-info">{serverName}</p>
+        <p class="user-info">{user?.id}</p>
       </div>
-      <p class="member-since">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
+      <p class="user-info">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
       {#if user?.invitedBy}
-        <p class="invited-by">
+        <p class="user-info invited-by">
           Invited by
           <a href="/profile/{user.invitedBy.id}">@{user.invitedBy.username}</a>
         </p>
@@ -148,31 +135,11 @@
     word-break: break-word;
   }
 
-  .user-id-container {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .user-id {
+  .user-info {
     margin: 0;
     color: var(--muted);
     font-family: monospace;
     font-size: 0.8rem;
-    text-align: left;
-  }
-
-  .member-since {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.8rem;
-    text-align: left;
-  }
-
-  .invited-by {
-    margin: 0.25rem 0 0 0;
-    color: var(--muted);
-    font-size: 0.85rem;
     text-align: left;
   }
 
