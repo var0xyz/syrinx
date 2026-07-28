@@ -9,6 +9,7 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import Avatar from '$lib/components/Avatar.svelte';
 
   let user = null;
   let loading = true;
@@ -174,11 +175,11 @@
                 <div class="feed-header">
                   <div class="feed-author">
                     <div class="avatar">
-                      {#if broadcastReeds.authors[reed.userID]?.avatarURL}
-                        <img src={broadcastReeds.authors[reed.userID].avatarURL} alt="avatar" />
-                      {:else}
-                        👤
-                      {/if}
+                      <Avatar
+                        userID={reed.userID}
+                        username={broadcastReeds.authors[reed.userID]?.username ?? reed.userID}
+                        size="40px"
+                      />
                     </div>
                     <div class="author-info">
                       <span class="author-name">{broadcastReeds.authors[reed.userID]?.username ?? reed.userID}</span>
@@ -214,11 +215,11 @@
                 <div class="feed-header">
                   <div class="feed-author">
                     <div class="avatar">
-                      {#if followcastReeds.authors[reed.userID]?.avatarURL}
-                        <img src={followcastReeds.authors[reed.userID].avatarURL} alt="avatar" />
-                      {:else}
-                        👤
-                      {/if}
+                      <Avatar
+                        userID={reed.userID}
+                        username={followcastReeds.authors[reed.userID]?.username ?? reed.userID}
+                        size="40px"
+                      />
                     </div>
                     <div class="author-info">
                       <span class="author-name">{followcastReeds.authors[reed.userID]?.username ?? reed.userID}</span>
@@ -344,18 +345,10 @@
   .avatar {
     width: 40px;
     height: 40px;
-    border-radius: 50%;
-    background: var(--input-bg);
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.2rem;
-    overflow: hidden;
-  }
-  .avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
   }
 
   .author-info {

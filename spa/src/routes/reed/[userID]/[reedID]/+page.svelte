@@ -23,6 +23,7 @@
   import { isOnline } from '$lib/services/pwa';
   import { parseReedRef } from '$lib/utils/reedRef';
   import { echoCountsRepository } from '$lib/repositories/echoCounts';
+  import Avatar from '$lib/components/Avatar.svelte';
 
   let user = null;
   let authorUser = null;
@@ -362,11 +363,7 @@
             <div class="reed-meta">
               <div class="reed-author">
                 <a href="/profile/{userID}" class="author-avatar">
-                  {#if authorUser?.avatarURL}
-                    <img src={authorUser.avatarURL} alt={authorUser.username} />
-                  {:else}
-                    <div class="avatar-icon">👤</div>
-                  {/if}
+                  <Avatar userID={userID} username={authorUser?.username ?? userID} size="48px" />
                 </a>
                 <div class="author-info">
                   <a href="/profile/{userID}" class="author-name">{authorUser?.username ?? userID}</a>
@@ -489,18 +486,7 @@
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    background: var(--input-bg);
     text-decoration: none;
-  }
-
-  .author-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .avatar-icon {
-    font-size: 1.5rem;
   }
 
   .author-name {

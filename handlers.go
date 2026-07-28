@@ -828,25 +828,6 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Invalid protocol for avatar URL")
 			return
 		}
-
-		resp, err := http.Head(avatarURL)
-		if err != nil {
-			log.Error().
-				Str("avatarURL", avatarURL).
-				Err(err).Msg("Error checking avatar URL")
-			writeResponse(w, http.StatusBadRequest, "Error checking avatar URL")
-			return
-		}
-		resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusMovedPermanently {
-			log.Error().
-				Str("avatarURL", avatarURL).
-				Int("statusCode", resp.StatusCode).
-				Msg("Avatar URL returned non-200 status")
-			writeResponse(w, http.StatusBadRequest, "Avatar URL returned non-200 status")
-			return
-		}
 	}
 
 	bio := r.FormValue("bio")

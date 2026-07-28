@@ -10,6 +10,7 @@
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import Avatar from '$lib/components/Avatar.svelte';
   import { goto } from '$app/navigation';
   import { parseReedRef } from '$lib/utils/reedRef';
 
@@ -210,11 +211,7 @@
         <div class="reed-header">
           <div class="reed-info">
             <div class="reed-avatar">
-              {#if displayUser.avatarURL}
-                <img src={displayUser.avatarURL} alt={displayUser.username} />
-              {:else}
-                <div class="reed-icon">👤</div>
-              {/if}
+              <Avatar userID={displayReed.userID} username={displayUser.username} size="40px" />
             </div>
             <div class="reed-details">
               <h3>{displayUser.username}</h3>
@@ -262,11 +259,7 @@
         <div class="reed-header">
           <div class="reed-info">
             <div class="reed-avatar">
-              {#if displayUser.avatarURL}
-                <img src={displayUser.avatarURL} alt={displayUser.username} />
-              {:else}
-                <div class="reed-icon">👤</div>
-              {/if}
+              <Avatar userID={displayReed.userID} username={displayUser.username} size="40px" />
             </div>
             <div class="reed-details">
               <h3>{displayUser.username}</h3>
@@ -414,32 +407,13 @@
     gap: 0.75rem;
   }
 
-  .reed-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
-    background: var(--input-bg);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.2rem;
-  }
-
   .reed-avatar {
     width: 40px;
     height: 40px;
-    border-radius: 8px;
-    overflow: hidden;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--input-bg);
-  }
-
-  .reed-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
   }
 
   .reed-menu {

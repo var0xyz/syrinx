@@ -37,7 +37,6 @@
   let isEditing: boolean = false;
   let editForm = {
     username: '',
-    avatarURL: '',
     bio: ''
   };
   let editError: string = '';
@@ -335,7 +334,6 @@
     isEditing = true;
     editForm = {
       username: user.username || '',
-      avatarURL: user.avatarURL || '',
       bio: user.bio || ''
     };
     editError = '';
@@ -346,7 +344,6 @@
     isEditing = false;
     editForm = {
       username: '',
-      avatarURL: '',
       bio: ''
     };
     editError = '';
@@ -365,7 +362,7 @@
       // the same bytes. Server verifies against these exact strings —
       // any post-hoc trimming would break signature verification.
       const nextUsername = editForm.username.trim();
-      const nextAvatarURL = editForm.avatarURL.trim();
+      const nextAvatarURL = user.avatarURL || '';
       const nextBio = editForm.bio.trim();
 
       if (nextUsername === '') {
@@ -380,14 +377,6 @@
         editError = 'Bio cannot exceed 500 characters';
         return;
       }
-      if (nextAvatarURL !== '') {
-        try {
-          new URL(nextAvatarURL);
-        } catch {
-          editError = 'Please enter a valid URL for the avatar';
-          return;
-        }
-      }
 
       // Skip the network entirely when nothing changed. The server
       // would happily return the current record on a signature-match
@@ -396,7 +385,6 @@
       // record.
       const unchanged =
         nextUsername === user.username &&
-        nextAvatarURL === (user.avatarURL || '') &&
         nextBio === (user.bio || '');
       if (unchanged) {
         isEditing = false;
@@ -659,16 +647,6 @@
                     <UsernameChecker username={editForm.username} />
                   </div>
                 {/if}
-              </div>
-
-              <div class="form-group">
-                <label for="edit-avatar">Avatar URL</label>
-                <input
-                  id="edit-avatar"
-                  type="url"
-                  bind:value={editForm.avatarURL}
-                  placeholder="https://example.com/avatar.jpg"
-                />
               </div>
 
               <div class="form-group">
