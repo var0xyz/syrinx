@@ -65,6 +65,7 @@ See [`conversations/`](conversations/README.md):
 | 01 | Verify publish payload (form fields); normalize `replying` ref |
 | 02 | Echo/reply index tables + list/count APIs          |
 | 03 | Echo count + conversation section on reed detail     |
+| 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index) |
 
 ## Signed deletions (reeds + accounts)
 
@@ -115,7 +116,7 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
 - **Invites feature steps** are independent of recovery; within `invites/`,
   follow that directory's depends-on column (00→05). Step 00 can land alone.
 - **Conversations feature steps** are independent of recovery; within
-  `conversations/`, follow that directory's depends-on column (00→03). Step
+  `conversations/`, follow that directory's depends-on column (00→04). Step
   01 (publish verify) is valuable security hardening on its own.
 - **Deletion feature steps** are independent of recovery; within
   `deletion/`, follow that directory's depends-on column. After 00, account

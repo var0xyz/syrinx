@@ -23,16 +23,18 @@ conversation section and local reply cache.
 | [01](01_publish_and_refs.md)         | Verify publish payload; normalize `replying` ref   | 00         |
 | [02](02_index_and_api.md)            | Echo/reply index tables + list/count APIs          | 01         |
 | [03](03_spa_reed_detail.md)          | Echo count + conversation section on reed detail   | 02         |
+| [04](04_mentions.md)                 | `@` mentions → `web+syrinx` links + `reed_mentions` | 01         |
 
 After 00, [01](01_publish_and_refs.md) can land alone (security hardening).
 [02](02_index_and_api.md) needs the publish hook from 01. SPA ([03](03_spa_reed_detail.md))
-needs the APIs from 02.
+needs the APIs from 02. Mentions ([04](04_mentions.md)) only need 01 (content on
+publish); notification delivery stays in [proposal 11](../11_user_notifications.md).
 
 ---
 
 ## Status
 
-**Proposed** (00–03).
+**Proposed** (00–04).
 
 ## Motivation
 
@@ -63,6 +65,8 @@ replies first; drill into a reply to see *its* direct replies.
 | Conversation depth | **One level at a time** — list direct children only; click a reply to navigate to that reed's page |
 | Removed reeds | Excluded from counts and reply lists; parent quote already shows "unavailable" via deletion certs |
 | Realtime v1 | Reuse `new_reed` fanout; conversation section refreshes when a held/new reply arrives (no new WS type in v1) |
+| Mention href | `web+syrinx://users/<serverID>/<userID>` inside markdown `[Name](…)` — domain-free; see [04](04_mentions.md) |
+| Mention index | `reed_mentions` at countersign; cleared on reed/account removal; no notification delivery in conversations |
 
 ## Actors
 
