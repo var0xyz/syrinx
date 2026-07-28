@@ -53,13 +53,11 @@ export function dispatchReedToQueue(
 
 class ReedsService {
   /**
-   * Create a new reed
+   * Persist the signed reed locally (unsignedReeds) and return immediately.
+   * `publish` resolves true when the server countersigns, false if still pending.
+   * Throws if local storage / validation fails.
    */
-  /**
-   * Create a new reed. Returns true if published immediately, false if queued for later (server error/offline).
-   * Throws if local storage fails.
-   */
-  async createReed(reed: ReedClass): Promise<boolean> {
+  async createReed(reed: ReedClass): Promise<{ publish: Promise<boolean> }> {
     if (!reedContentWithinLimits(reed.content)) {
       throw new Error(
         reed.content.length > MAX_REED_RAW_CHARS
@@ -68,27 +66,70 @@ class ReedsService {
       );
     }
 
-    await dbService.put('unsignedReeds', reed.asObject(), allowUnsigned);
-
     if (!reed.userSignature?.armor) {
       throw new Error('Reed is missing userSignature');
     }
+
+    await dbService.put('unsignedReeds', reed.asObject(), allowUnsigned);
+    unsignedReedsProcessed.update((n) => n + 1);
+
+    return { publish: this.publishUnsignedReed(reed) };
+  }
+
+  /** In-flight countersignatures keyed by reed id (dedupes concurrent publish). */
+  private publishing = new Map<string, Promise<boolean>>();
+
+  /**
+   * Countersign a pending reed; on success move it into the published store.
+   * Concurrent calls for the same id share one request.
+   */
+  async publishUnsignedReed(reed: ReedClass | ReedType): Promise<boolean> {
+    const existing = this.publishing.get(reed.id);
+    if (existing) return existing;
+
+    const run = this.countersignReed(reed).finally(() => {
+      this.publishing.delete(reed.id);
+    });
+    this.publishing.set(reed.id, run);
+    return run;
+  }
+
+  private async countersignReed(reed: ReedClass | ReedType): Promise<boolean> {
+    const armor = reed.userSignature?.armor;
+    if (!armor) {
+      console.error('Skipping reed without userSignature:', reed.id);
+      return false;
+    }
     try {
       console.log('Getting signature from server...');
-      const response = await api.createReed(reed.id, reed.userSignature.armor, {
+      const response = await api.createReed(reed.id, armor, {
         content: reed.content,
         echoing: reed.echoing,
         replying: reed.replying,
       });
-      reed.applyServerResponse(response);
+      let published: ReedType;
+      if (reed instanceof ReedClass) {
+        reed.applyServerResponse(response);
+        published = reed.asObject();
+      } else {
+        published = {
+          ...reed,
+          serverSignature: {
+            serverID: response.serverID,
+            fingerprint: response.fingerprint,
+            armor: response.armor,
+            timestamp: response.timestamp,
+          },
+        };
+      }
+      await this.storeReed(published);
+      await dbService.delete('unsignedReeds', reed.id);
+      unsignedReedsProcessed.update((n) => n + 1);
+      return true;
     } catch (error) {
       console.error('Failed to publish reed to server, queued for later:', error);
       return false;
     }
-
-    await this.storeReed(reed.asObject());
-    await dbService.delete('unsignedReeds', reed.id);
-    return true;
   }
 
   /**
@@ -100,37 +141,14 @@ class ReedsService {
     if (unsignedReeds.length === 0) return;
 
     for (const reed of unsignedReeds) {
-      try {
-        if (!reed.userSignature?.armor) {
-          console.error('Skipping unsigned reed without userSignature:', reed.id);
-          continue;
-        }
-        console.log('Processing unsigned reed:', reed.id);
-        const response = await api.createReed(reed.id, reed.userSignature.armor, {
-          content: reed.content,
-          echoing: reed.echoing,
-          replying: reed.replying,
-        });
-        await this.storeReed({
-          ...reed,
-          serverSignature: {
-            serverID: response.serverID,
-            fingerprint: response.fingerprint,
-            armor: response.armor,
-            timestamp: response.timestamp,
-          },
-        });
-        await dbService.delete('unsignedReeds', reed.id);
-      } catch (error) {
-        console.error('Failed to process unsigned reed:', reed.id, error);
-      }
+      await this.publishUnsignedReed(reed);
     }
 
     unsignedReedsProcessed.update(n => n + 1);
   }
 
   /**
-   * Get a specific reed by ID
+   * Get a specific reed by ID (published / countersigned only).
    */
   async getReed(userId: string, reedId: string): Promise<ReedType | null> {
     try {
@@ -139,6 +157,22 @@ class ReedsService {
       console.error('Failed to get reed:', error);
       throw error;
     }
+  }
+
+  /** Local pending reed (signed by user, not yet countersigned). */
+  async getUnsignedReed(reedId: string): Promise<ReedType | null> {
+    try {
+      return (await dbService.get<ReedType>('unsignedReeds', reedId)) ?? null;
+    } catch (error) {
+      console.error('Failed to get unsigned reed:', error);
+      throw error;
+    }
+  }
+
+  /** Drop a pending reed that never reached the server. */
+  async discardUnsignedReed(reedId: string): Promise<void> {
+    await dbService.delete('unsignedReeds', reedId);
+    unsignedReedsProcessed.update((n) => n + 1);
   }
 
   /** @deprecated Prefer storeReed — verification runs inside put. */
@@ -182,7 +216,7 @@ class ReedsService {
   }
 
   /**
-   * Get reeds by author ID
+   * Get published reeds by author ID
    */
   async getReedsByAuthor(authorId: string): Promise<ReedType[]> {
     try {
@@ -190,6 +224,17 @@ class ReedsService {
       return reeds;
     } catch (error) {
       console.error('Failed to get reeds by author:', error);
+      return [];
+    }
+  }
+
+  /** Pending reeds for this author (local unsigned store only). */
+  async getUnsignedReedsByAuthor(authorId: string): Promise<ReedType[]> {
+    try {
+      const all = await dbService.getAll<ReedType>('unsignedReeds');
+      return all.filter((r) => r.userID === authorId);
+    } catch (error) {
+      console.error('Failed to get unsigned reeds:', error);
       return [];
     }
   }
