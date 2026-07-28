@@ -67,6 +67,16 @@ See [`conversations/`](conversations/README.md):
 | 03 | Echo count + conversation section on reed detail     |
 | 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index) |
 
+## Reed network coverage
+
+See [`coverage/`](coverage/README.md):
+
+| #  | Title                                              |
+|----|----------------------------------------------------|
+| 00 | Design + UX + formula                              |
+| 01 | Counters + `GET …/stats`                           |
+| 02 | Per-reed WS subscription + SPA                     |
+
 ## Signed deletions (reeds + accounts)
 
 See [`deletion/`](deletion/README.md):
