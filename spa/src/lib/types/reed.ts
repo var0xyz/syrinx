@@ -4,7 +4,7 @@
  */
 
 import type { ServerSignature, UserSignature } from '$lib/types/api';
-import { generateId } from '$lib/utils/id';
+import { generateReedId } from '$lib/utils/id';
 
 // Reed markdown frontmatter fields. Note: there is intentionally no client-side
 // `timestamp` field. The canonical publication date is the server's
@@ -51,8 +51,8 @@ export class Reed {
   private _tags: string[] = [];
 
   constructor() {
-    // User-scoped random id (same length/alphabet as user IDs); order by server timestamp.
-    this._id = generateId();
+    // Client-minted UUID v7; author lists sort by id.
+    this._id = generateReedId();
 
     // Auto-populate userID
     this._userID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';

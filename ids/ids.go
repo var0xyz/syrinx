@@ -1,16 +1,18 @@
 // Package ids generates and validates Syrinx entity identifiers.
-// Server, user, reed, and invite IDs share the same alphabet and length.
+// Server, user, and invite IDs are random 8-char strings; reed IDs are UUID v7.
 package ids
 
 import (
 	"crypto/rand"
 	"math/big"
+
+	"github.com/google/uuid"
 )
 
 // Alphabet is the character set for entity IDs.
 const Alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-// Length is the length of server, user, reed, and invite IDs.
+// Length is the length of server, user, and invite IDs.
 const Length = 8
 
 // New returns a cryptographically random ID of Length characters from Alphabet.
@@ -39,4 +41,13 @@ func Valid(id string) bool {
 		}
 	}
 	return true
+}
+
+// ValidReed reports whether id is a UUID version 7 (time-ordered reed id).
+func ValidReed(id string) bool {
+	u, err := uuid.Parse(id)
+	if err != nil {
+		return false
+	}
+	return u.Version() == 7
 }

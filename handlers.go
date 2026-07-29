@@ -1527,7 +1527,7 @@ func (h *Handlers) parseReedRef(raw, localServerID string) (ReedRef, bool) {
 	if !ok {
 		return ReedRef{}, false
 	}
-	if !ids.Valid(ref.ReedID) {
+	if !ids.ValidReed(ref.ReedID) {
 		return ReedRef{}, false
 	}
 	// Targets on other instances are not supported yet.

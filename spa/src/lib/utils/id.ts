@@ -1,4 +1,6 @@
-/** Shared alphabet/length for server, user, reed, and invite IDs (matches syrinx/ids). */
+import { v7 as uuidv7 } from 'uuid';
+
+/** Shared alphabet/length for server, user, and invite IDs (matches syrinx/ids). */
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 export const ID_LENGTH = 8;
@@ -11,4 +13,9 @@ export function generateId(length = ID_LENGTH): string {
     out[i] = ALPHABET[bytes[i]! % ALPHABET.length]!;
   }
   return out.join('');
+}
+
+/** Time-ordered reed id (UUID v7). */
+export function generateReedId(): string {
+  return uuidv7();
 }

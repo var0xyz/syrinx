@@ -220,16 +220,13 @@ class ReedsService {
   }
 
   /**
-   * Published reeds for an author, newest serverSignature.timestamp first.
+   * Published reeds for an author, newest first. IndexedDB returns ascending id;
+   * UUID v7 ids are time-ordered, so reverse is enough.
    */
   async getReedsByAuthor(authorId: string): Promise<ReedType[]> {
     try {
       const reeds = await dbService.getAllByIndex<ReedType>('reeds', 'userID', authorId);
-      return reeds.sort((a, b) => {
-        const ta = a.serverSignature?.timestamp ?? '';
-        const tb = b.serverSignature?.timestamp ?? '';
-        return ta < tb ? 1 : ta > tb ? -1 : 0;
-      });
+      return reeds.reverse();
     } catch (error) {
       console.error('Failed to get reeds by author:', error);
       return [];
