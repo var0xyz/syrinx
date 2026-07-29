@@ -17,6 +17,8 @@
   import { goto } from '$app/navigation';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import { get } from 'svelte/store';
+  import { isOnline } from '$lib/services/pwa';
 
   /** @type {boolean} */
   export let open = false;
@@ -149,10 +151,10 @@
       close();
       publish.then((ok) => {
         if (!ok) {
-          notificationStore.info(
-            "There was an issue with the server. Your reed will be published automatically once it's resolved.",
-            10000
-          );
+          const message = get(isOnline)
+            ? "There was an issue with the server. Your reed will be published automatically once it's resolved."
+            : "You're offline. We'll publish this reed as soon as you're back online.";
+          notificationStore.info(message, 10000);
         }
       });
     } catch (error) {
