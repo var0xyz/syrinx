@@ -196,7 +196,7 @@ func (rs *RealtimeService) fanoutNewReed(authorUserID, reedID string) {
 		}
 	}
 
-	rs.dispatchNext(authorUserID)
+	rs.dispatchNextIfConnected(authorUserID)
 }
 
 // dispatchRemovalMany enqueues reed_removed pending events and delivers certs
@@ -309,7 +309,7 @@ func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName
 			Str("eventID", eventID).
 			Str("holderUserID", authorUserID).
 			Msg("Pending event created, dispatching to holder")
-		rs.dispatchNext(authorUserID)
+		rs.dispatchNextIfConnected(authorUserID)
 	}
 }
 
@@ -592,6 +592,12 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 	case "PUBLISH_READY":
 		rs.handlePublishReady(client, jsonMsg)
 
+	case "SUBSCRIBE_REED":
+		rs.handleSubscribeReed(client, jsonMsg)
+
+	case "UNSUBSCRIBE_REED":
+		rs.handleUnsubscribeReed(client, jsonMsg)
+
 	default:
 		log.Warn().Str("type", msgType).Msg("Unknown JSON WebSocket message type")
 	}
@@ -761,13 +767,27 @@ func (rs *RealtimeService) dispatchNext(holderUserID string) {
 			Str("eventID", pe.EventID).
 			Str("reedID", pe.ReedID).
 			Msg("Failed to send relay request to holder")
-	} else {
-		log.Debug().
-			Str("holderUserID", holderUserID).
-			Str("eventID", pe.EventID).
-			Str("reedID", pe.ReedID).
-			Msg("Relay request sent to holder")
+		if resetErr := rs.dbService.ResetDispatchedAt(pe.EventID); resetErr != nil {
+			log.Error().Err(resetErr).Str("eventID", pe.EventID).Msg("Failed to reset dispatched_at after relay send failure")
+		}
+		return
 	}
+	log.Debug().
+		Str("holderUserID", holderUserID).
+		Str("eventID", pe.EventID).
+		Str("reedID", pe.ReedID).
+		Msg("Relay request sent to holder")
+}
+
+func (rs *RealtimeService) dispatchNextIfConnected(holderUserID string) {
+	if holderUserID == "" {
+		return
+	}
+	if !rs.connManager.HasConnection(holderUserID) {
+		log.Debug().Str("holderUserID", holderUserID).Msg("Holder has no active WebSocket; skipping relay dispatch")
+		return
+	}
+	rs.dispatchNext(holderUserID)
 }
 
 func generateEventID() string {
@@ -808,7 +828,7 @@ func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]inte
 		return
 	}
 	if holder != "" {
-		rs.dispatchNext(holder)
+		rs.dispatchNextIfConnected(holder)
 	}
 }
 
@@ -915,7 +935,7 @@ func (rs *RealtimeService) handleRelayMiss(client *Client, data RelayMissData) {
 		Str("reedID", pe.ReedID).
 		Msg("Relay miss; dropping holder allocation and retrying")
 
-	if err := rs.dbService.DeleteReedAllocation(pe.UserID, pe.ReedID, client.userID); err != nil {
+	if _, err := rs.dbService.DeleteReedAllocation(pe.UserID, pe.ReedID, client.userID); err != nil {
 		log.Error().Err(err).Str("reedID", pe.ReedID).Str("holderID", client.userID).Msg("Failed to delete allocation on relay miss")
 	}
 
@@ -927,7 +947,7 @@ func (rs *RealtimeService) handleRelayMiss(client *Client, data RelayMissData) {
 	if err != nil {
 		log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to find alternate holder on relay miss")
 	} else if holder != "" {
-		rs.dispatchNext(holder)
+		rs.dispatchNextIfConnected(holder)
 	}
 
 	rs.dispatchNext(client.userID)
@@ -951,15 +971,28 @@ func (rs *RealtimeService) handleDataAck(client *Client, data DataAckData) {
 	}
 
 	if EventName(pe.EventName) == ReedRemovedEvent {
-		if err := rs.dbService.DeleteReedAllocation(pe.UserID, pe.ReedID, client.userID); err != nil {
+		changed, err := rs.dbService.DeleteReedAllocation(pe.UserID, pe.ReedID, client.userID)
+		if err != nil {
 			log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to clear allocation on reed_removed ack")
+		} else if changed {
+			rs.notifyReedCoverage(pe.UserID, pe.ReedID)
 		}
 	} else if EventName(pe.EventName) == AccountRemovedEvent {
-		if err := rs.dbService.ClearPeerStateForRemovedAccount(client.userID, pe.UserID); err != nil {
+		targets, err := rs.dbService.ClearPeerStateForRemovedAccount(client.userID, pe.UserID)
+		if err != nil {
 			log.Error().Err(err).Str("removedUserID", pe.UserID).Str("viewer", client.userID).Msg("Failed to clear peer state on account_removed ack")
+		} else {
+			for _, t := range targets {
+				rs.notifyReedCoverage(t.AuthorUserID, t.ReedID)
+			}
 		}
-	} else if err := rs.dbService.AllocateReed(pe.ReedID, client.userID, pe.UserID); err != nil {
-		log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to allocate reed on data ack")
+	} else {
+		changed, err := rs.dbService.AllocateReed(pe.ReedID, client.userID, pe.UserID)
+		if err != nil {
+			log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to allocate reed on data ack")
+		} else if changed {
+			rs.notifyReedCoverage(pe.UserID, pe.ReedID)
+		}
 	}
 
 	if err := rs.dbService.DeletePendingEvent(eventID); err != nil {
@@ -1012,7 +1045,7 @@ func (rs *RealtimeService) handleSubscribeProfile(client *Client, msg map[string
 		if err != nil || holder == "" {
 			continue
 		}
-		rs.dispatchNext(holder)
+		rs.dispatchNextIfConnected(holder)
 	}
 }
 
@@ -1037,6 +1070,58 @@ func (rs *RealtimeService) handleUnsubscribeProfile(client *Client, msg map[stri
 
 	if err := rs.dbService.DeleteProfileSubscription(subscriptionID); err != nil {
 		log.Error().Err(err).Str("subscriptionID", subscriptionID).Msg("Failed to delete profile subscription")
+	}
+}
+
+func (rs *RealtimeService) handleSubscribeReed(client *Client, msg map[string]interface{}) {
+	authorID, _ := msg["userID"].(string)
+	reedID, _ := msg["reedID"].(string)
+	if authorID == "" || reedID == "" {
+		return
+	}
+
+	exists, err := rs.dbService.ReedExists(authorID, reedID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", authorID).Str("reedID", reedID).Msg("Failed to check reed for subscribe")
+		return
+	}
+	if !exists {
+		return
+	}
+
+	rs.connManager.SubscribeReed(client, authorID, reedID)
+	rs.notifyReedCoverage(authorID, reedID)
+}
+
+func (rs *RealtimeService) handleUnsubscribeReed(client *Client, msg map[string]interface{}) {
+	authorID, _ := msg["userID"].(string)
+	reedID, _ := msg["reedID"].(string)
+	if authorID == "" || reedID == "" {
+		return
+	}
+	rs.connManager.UnsubscribeReed(client, authorID, reedID)
+}
+
+func (rs *RealtimeService) notifyReedCoverage(authorUserID, reedID string) {
+	holders, activeUsers, percent, err := rs.dbService.GetReedCoverage(authorUserID, reedID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("userID", authorUserID).
+			Str("reedID", reedID).
+			Msg("Failed to load reed coverage for notify")
+		return
+	}
+
+	if err := rs.connManager.BroadcastReedCoverage(map[string]interface{}{
+		"type":            "REED_COVERAGE",
+		"userID":          authorUserID,
+		"reedID":          reedID,
+		"holders":         holders,
+		"activeUsers":     activeUsers,
+		"coveragePercent": percent,
+	}); err != nil {
+		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_COVERAGE")
 	}
 }
 
@@ -1070,7 +1155,7 @@ func (rs *RealtimeService) redispatchPendingRequests(requesterUserID string) {
 			continue
 		}
 		if holder != "" {
-			rs.dispatchNext(holder)
+			rs.dispatchNextIfConnected(holder)
 		}
 	}
 }
@@ -1107,7 +1192,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 			continue
 		}
 		if holder != "" {
-			rs.dispatchNext(holder)
+			rs.dispatchNextIfConnected(holder)
 		}
 	}
 

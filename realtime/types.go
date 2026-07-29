@@ -39,15 +39,18 @@ const (
 
 // Client represents a connected WebSocket client
 type Client struct {
-	conn          *websocket.Conn
-	userID        string
-	subscriptions map[SubscriptionType]bool
-	lastPing      time.Time
+	conn              *websocket.Conn
+	userID            string
+	subscriptions     map[SubscriptionType]bool
+	reedSubscriptions map[string]bool
+	lastPing          time.Time
 }
 
 // ConnectionManager manages WebSocket connections and subscriptions
 type ConnectionManager struct {
 	userConnections map[string]map[*websocket.Conn]*Client
+	// Map of authorID/reedID -> subscribed clients
+	reedSubscribers map[string]map[*Client]bool
 	mutex           sync.RWMutex
 }
 
@@ -72,10 +75,11 @@ func (bt BroadcastType) String() string {
 // NewClient creates a new client
 func NewClient(conn *websocket.Conn, userID string) *Client {
 	return &Client{
-		conn:          conn,
-		userID:        userID,
-		subscriptions: make(map[SubscriptionType]bool),
-		lastPing:      time.Now(),
+		conn:              conn,
+		userID:            userID,
+		subscriptions:     make(map[SubscriptionType]bool),
+		reedSubscriptions: make(map[string]bool),
+		lastPing:          time.Now(),
 	}
 }
 

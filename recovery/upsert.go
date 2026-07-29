@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"syrinx/coverage"
 	"syrinx/signing"
 )
 
@@ -154,7 +155,7 @@ func insertUser(tx *sql.Tx, profile Profile, activeFP string, signedAt time.Time
 	if err != nil {
 		return fmt.Errorf("insert user: %w", err)
 	}
-	return nil
+	return coverage.BumpActiveUsers(tx, 1)
 }
 
 func updateUserIfNewer(

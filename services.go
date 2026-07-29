@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"syrinx/crypto"
+	"syrinx/coverage"
 	"syrinx/deletion"
 	"syrinx/ids"
 	"syrinx/invites"
@@ -547,6 +548,10 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		if err := insertMutualFollow(tx, resolved.InviterID, in.UserID); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := coverage.BumpActiveUsers(tx, 1); err != nil {
+		return nil, err
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -1243,9 +1248,9 @@ func (s *DataService) CreateReedWithEcho(
 	err = tx.QueryRow(`
 		INSERT INTO reeds (
 			id, user_id, private_key_fingerprint, signed_at,
-			user_signature_id, server_signature_id
+			user_signature_id, server_signature_id, allocation_count
 		)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		VALUES ($1, $2, $3, $4, $5, $6, 1)
 		RETURNING id, user_id, private_key_fingerprint, signed_at
 	`, reedID, userID, serverFingerprint, timestamp, userSigID, serverSigID).Scan(
 		&reed.ID,
@@ -1351,6 +1356,45 @@ func (s *DataService) ReedExists(userID, reedID string) (bool, error) {
 		)
 	`, userID, reedID).Scan(&exists)
 	return exists, err
+}
+
+// ReedStats is the wire shape for GET /reeds/{userID}/{reedID}/stats.
+type ReedStats struct {
+	Echoes          int `json:"echoes"`
+	Holders         int `json:"holders"`
+	ActiveUsers     int `json:"activeUsers"`
+	CoveragePercent int `json:"coveragePercent"`
+}
+
+// GetReedStats returns echo count and network coverage for a published reed.
+func (s *DataService) GetReedStats(userID, reedID string) (*ReedStats, error) {
+	var holders int
+	err := s.db.QueryRow(`
+		SELECT allocation_count FROM reeds WHERE user_id = $1 AND id = $2
+	`, userID, reedID).Scan(&holders)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	echoes, err := s.CountEchoes(userID, reedID)
+	if err != nil {
+		return nil, err
+	}
+
+	activeUsers, err := coverage.ActiveUsers(s.db)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ReedStats{
+		Echoes:          echoes,
+		Holders:         holders,
+		ActiveUsers:     activeUsers,
+		CoveragePercent: coverage.Percent(holders, activeUsers),
+	}, nil
 }
 
 // CountEchoes returns how many echoes point at the given reed.

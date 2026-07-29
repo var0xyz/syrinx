@@ -1871,6 +1871,53 @@ func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, count)
 }
 
+func (h *Handlers) GetReedStats(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("GetReedStats request received")
+
+	reedID := mux.Vars(r)["reedID"]
+	userID := mux.Vars(r)["userID"]
+	if userID == "" || reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		return
+	}
+
+	accountRemoval, err := h.services.db.GetAccountRemoval(userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
+		internalServerError(w)
+		return
+	}
+	if accountRemoval != nil {
+		writeResponse(w, http.StatusGone, h.accountRemovalWire(accountRemoval))
+		return
+	}
+
+	removal, err := h.services.db.GetReedRemoval(userID, reedID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed removal")
+		internalServerError(w)
+		return
+	}
+	if removal != nil {
+		writeResponse(w, http.StatusGone, h.reedRemovalWire(removal))
+		return
+	}
+
+	stats, err := h.services.db.GetReedStats(userID, reedID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed stats")
+		internalServerError(w)
+		return
+	}
+	if stats == nil {
+		writeResponse(w, http.StatusNotFound, "Post not found")
+		return
+	}
+
+	writeResponse(w, http.StatusOK, stats)
+}
+
 func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("VerifySignature request received")
