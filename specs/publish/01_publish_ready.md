@@ -19,8 +19,7 @@ hooks suitable for READY retries.
 
 - Remove fanout from the HTTP SignReed success path (including first create
   only — replay already skips broadcast).
-- Persist an **announced / fanout-ready** bit on the tip (or equivalent) so
-  READY is idempotent and reconnect can detect “not yet announced.”
+- Persist a **`pending_fanout`** row (1:1 with the tip) so READY is idempotent.
 - WS `PUBLISH_READY` handling.
 - SPA: send READY after store; resend on reconnect for unannounced tips.
 
@@ -33,15 +32,21 @@ hooks suitable for READY retries.
 
 ### Schema
 
-Blank-slate addition on `reeds` (name TBD; pick one and use consistently):
+Blank-slate `pending_fanout` table (1:1 with tip reeds):
 
 ```sql
--- false until author PUBLISH_READY; fanout runs once when set true
-fanout_ready BOOLEAN NOT NULL DEFAULT FALSE
+CREATE UNLOGGED TABLE pending_fanout (
+    user_id VARCHAR(255) NOT NULL,
+    reed_id VARCHAR(255) NOT NULL,
+    PRIMARY KEY (user_id, reed_id),
+    FOREIGN KEY (user_id, reed_id) REFERENCES reeds(user_id, id) ON DELETE CASCADE
+);
 ```
 
+Row present → fanout not yet run. Row absent → fanout done (or never scheduled).
+
 Author allocation at create still happens in SignReed (author is first
-holder). Fanout to **others** waits for `fanout_ready`.
+holder). Fanout to **others** waits until `PUBLISH_READY` removes the row.
 
 ### HTTP `SignReed`
 
@@ -49,7 +54,8 @@ On successful create (and on idempotent replay):
 
 - Persist tip + signatures + author allocation as today.
 - **Do not** send `NewReed` on `broadcastChan`.
-- Leave `fanout_ready = false` on first insert; replay leaves flag as-is.
+- On first insert, insert `pending_fanout` in the same transaction; replay
+  leaves existing rows as-is.
 
 ### WS: `PUBLISH_READY`
 
@@ -61,45 +67,39 @@ Client → server (authenticated):
 
 Server:
 
-1. Resolve tip by `reed_id`; 404 / ignore if missing.
-2. Require `client.userID == tip.user_id` (author only).
-3. If `fanout_ready` already true → ack / no-op (idempotent).
-4. Else set `fanout_ready = true` in the same TX as any bookkeeping, then
-   run the existing `NewReed` fanout path (followers, broadcast subs,
-   profile subs, `dispatchMany` / `dispatchNext(author)`).
+1. Require `client.userID` is the tip author (`pending_fanout.user_id` /
+   `reeds.user_id`).
+2. If a `pending_fanout` row exists for `(author, reed_id)` → delete it and run
+   the existing `NewReed` fanout path (followers, broadcast subs, profile
+   subs, `dispatchMany` / `dispatchNext(author)`). Delete before fanout so
+   concurrent READY messages only run fanout once.
+3. If no row but the tip exists for this author → no-op fanout (already done).
+4. If the tip does not exist for this author → ignore (no ack).
+5. Otherwise send **`PUBLISH_READY_ACK`** `{ reed_id }` so the client can clear
+   its local pending READY.
 
-Optional server → client ack:
+Server → client ack (required for client pending-clear):
 
 ```json
 { "type": "PUBLISH_READY_ACK", "data": { "reed_id": "<reedID>" } }
 ```
 
-Useful for debugging; not required for correctness if fanout is observable
-via relay traffic.
-
 ### SPA
 
-After successful countersign + `storeReed` (and after
-`fulfillPendingRelayRequest` if any — order: **store, then READY**, so
-local serveability is true before fanout):
+After successful countersign + `storeReed` (order: **store, then READY**):
 
 ```text
 storeReed(published)
+pendingPublication.put(reed_id)
 PUBLISH_READY { reed_id }
 ```
 
-On WS connect / auth (and alongside `processUnsignedReeds` / sync):
+On `PUBLISH_READY_ACK`: delete `reed_id` from `pendingPublication`.
 
-- For each locally held tip authored by the current user that the server
-  still has `fanout_ready = false`, send `PUBLISH_READY`.
-- Discovery options (pick in implementation):
-  - Server exposes a thin list or includes `fanout_ready` on a tip GET; or
-  - Client always sends READY for recent self-authored reeds in IDB (server
-    no-ops if already ready / unknown).
+On WS connect / reconnect:
 
-Prefer: client sends READY for every self-authored reed in the local
-`reeds` store on reconnect; server no-ops when already announced or not
-author. Cheap and avoids a new list API.
+- Resend `PUBLISH_READY` only for rows still in `pendingPublication`.
+- Server acks again when fanout already ran (idempotent), so the client clears.
 
 Pending unsigned reeds: no READY (no tip / no countersign yet).
 
@@ -110,5 +110,5 @@ Pending unsigned reeds: no READY (no tip / no countersign yet).
 - Double READY → single fanout (no duplicate pending storm).
 - Reconnect after SignReed but before READY → READY → fanout.
 - Non-author READY → rejected / ignored.
-- Idempotent SignReed replay → still no fanout without READY (or with
-  `fanout_ready` already true, still no second fanout from HTTP).
+- Idempotent SignReed replay → still no fanout without READY (or with no
+  `pending_fanout` row, still no second fanout from HTTP).

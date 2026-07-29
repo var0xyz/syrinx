@@ -5,7 +5,7 @@ countersign must not fan out until the author confirms the fully signed
 reed is in local storage via a WebSocket **`PUBLISH_READY`**.
 
 **Blank slate — no migration, no backwards compatibility** where schema
-changes are needed (e.g. a `fanout_ready` / announced flag on the tip).
+changes are needed (`pending_fanout` table, 1:1 with tip reeds).
 
 | # | Title | Depends on |
 |---|-------|------------|

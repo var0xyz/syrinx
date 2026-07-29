@@ -479,6 +479,39 @@ func (ds *DBService) GetOnlineReedHolder(authorUserID, reedID string) (string, e
 	return userID, err
 }
 
+// GetOnlineReedHolderExcluding returns one online holder other than excludeUserID.
+func (ds *DBService) GetOnlineReedHolderExcluding(authorUserID, reedID, excludeUserID string) (string, error) {
+	var userID string
+	err := ds.db.QueryRow(`
+		SELECT ou.user_id FROM online_users ou
+		JOIN reed_allocations ra ON ra.holder_user_id = ou.user_id
+		WHERE ra.author_user_id = $1 AND ra.reed_id = $2 AND ou.user_id != $3
+		LIMIT 1
+	`, authorUserID, reedID, excludeUserID).Scan(&userID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return userID, err
+}
+
+// ClaimPendingFanout removes the pending_fanout row if present. Returns true when
+// this call claimed fanout (row deleted). Concurrent READY messages only claim once.
+func (ds *DBService) ClaimPendingFanout(authorUserID, reedID string) (bool, error) {
+	var id string
+	err := ds.db.QueryRow(`
+		DELETE FROM pending_fanout
+		WHERE user_id = $1 AND reed_id = $2
+		RETURNING reed_id
+	`, authorUserID, reedID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // GetPendingEventsForUser returns all pending reed events for reeds held by the given user.
 func (ds *DBService) GetPendingEventsForUser(userID string) ([]PendingReedEvent, error) {
 	rows, err := ds.db.Query(`

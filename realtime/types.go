@@ -47,12 +47,8 @@ type Client struct {
 
 // ConnectionManager manages WebSocket connections and subscriptions
 type ConnectionManager struct {
-	// Map of userID -> connections for user-specific notifications
 	userConnections map[string]map[*websocket.Conn]*Client
-	// Channels for operations
-	register   chan *Client
-	unregister chan *Client
-	mutex      sync.RWMutex
+	mutex           sync.RWMutex
 }
 
 // String returns the string representation of BroadcastType
