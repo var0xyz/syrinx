@@ -299,6 +299,7 @@ func InitDB(db *sql.DB) error {
 		signed_at TIMESTAMP NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+		allocation_count INT NOT NULL DEFAULT 0,
 
 		PRIMARY KEY (user_id, id)
 	);`
@@ -451,6 +452,17 @@ func InitDB(db *sql.DB) error {
 			REFERENCES reeds(user_id, id) ON DELETE CASCADE
 	);`
 
+	createNetworkStatsTable := `
+	CREATE TABLE IF NOT EXISTS network_stats (
+		id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+		active_users INT NOT NULL DEFAULT 0
+	);`
+
+	seedNetworkStats := `
+	INSERT INTO network_stats (id, active_users) VALUES (TRUE, 0)
+	ON CONFLICT (id) DO NOTHING;
+	`
+
 	createPendingEventsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_events (
 		event_id VARCHAR(255) PRIMARY KEY,
@@ -601,6 +613,9 @@ func InitDB(db *sql.DB) error {
 		createReedAllocationIndexes,
 
 		createPendingFanoutTable,
+
+		createNetworkStatsTable,
+		seedNetworkStats,
 
 		createProfileSubscriptionsTable,
 		createProfileSubscriptionsIndex,

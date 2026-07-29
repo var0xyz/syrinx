@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"time"
 
+	"syrinx/coverage"
 	"syrinx/deletion"
 	"syrinx/identity"
 
@@ -399,23 +400,97 @@ func (ds *DBService) DeleteProfileSubscriptionsByViewer(userID string) error {
 	return err
 }
 
+// ReedCoverageTarget identifies a reed whose holder count changed.
+type ReedCoverageTarget struct {
+	AuthorUserID string
+	ReedID       string
+}
+
 // AllocateReed records that holderUserID now holds the reed authored by authorUserID.
-func (ds *DBService) AllocateReed(reedID, holderUserID, authorUserID string) error {
-	_, err := ds.db.Exec(`
+// Returns true when a new allocation row was inserted.
+func (ds *DBService) AllocateReed(reedID, holderUserID, authorUserID string) (bool, error) {
+	tx, err := ds.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`
 		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING
 	`, reedID, holderUserID, authorUserID)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n > 0 {
+		if err := coverage.BumpAllocationCount(tx, authorUserID, reedID, 1); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 // DeleteReedAllocation removes a single holder's allocation for a reed.
-func (ds *DBService) DeleteReedAllocation(authorUserID, reedID, holderUserID string) error {
-	_, err := ds.db.Exec(`
+// Returns true when a row was deleted.
+func (ds *DBService) DeleteReedAllocation(authorUserID, reedID, holderUserID string) (bool, error) {
+	tx, err := ds.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`
 		DELETE FROM reed_allocations
 		WHERE author_user_id = $1 AND reed_id = $2 AND holder_user_id = $3
 	`, authorUserID, reedID, holderUserID)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n > 0 {
+		if err := coverage.BumpAllocationCount(tx, authorUserID, reedID, -1); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// ReedExists reports whether a tip reed row exists for the author.
+func (ds *DBService) ReedExists(authorUserID, reedID string) (bool, error) {
+	var exists bool
+	err := ds.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM reeds WHERE user_id = $1 AND id = $2)
+	`, authorUserID, reedID).Scan(&exists)
+	return exists, err
+}
+
+// GetReedCoverage returns holder count, active users, and coverage percent.
+func (ds *DBService) GetReedCoverage(authorUserID, reedID string) (holders, activeUsers, percent int, err error) {
+	err = ds.db.QueryRow(`
+		SELECT allocation_count FROM reeds WHERE user_id = $1 AND id = $2
+	`, authorUserID, reedID).Scan(&holders)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	activeUsers, err = coverage.ActiveUsers(ds.db)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return holders, activeUsers, coverage.Percent(holders, activeUsers), nil
 }
 
 // GetNextPendingForHolder returns the oldest undispatched reed pending for reeds held by holderUserID.
@@ -790,15 +865,6 @@ func (ds *DBService) GetBroadcastSubscribers(authorID string) ([]string, error) 
 	return subscribers, nil
 }
 
-// ReedExists reports whether (authorID, reedID) exists in the reeds table.
-func (ds *DBService) ReedExists(authorID, reedID string) (bool, error) {
-	var exists bool
-	err := ds.db.QueryRow(`
-		SELECT EXISTS(SELECT 1 FROM reeds WHERE user_id = $1 AND id = $2)
-	`, authorID, reedID).Scan(&exists)
-	return exists, err
-}
-
 // MissingRemoval is a reed_allocations ∩ reed_removals row for catch-up.
 type MissingRemoval struct {
 	ReedID string
@@ -964,10 +1030,11 @@ func accountRemovalWireMap(serverID string, cert *deletion.AccountCert) map[stri
 
 // ClearPeerStateForRemovedAccount drops follow edges and allocations so
 // catch-up no longer re-delivers the account cert to this viewer.
-func (ds *DBService) ClearPeerStateForRemovedAccount(viewerUserID, removedUserID string) error {
+// Returns reeds whose holder counts changed.
+func (ds *DBService) ClearPeerStateForRemovedAccount(viewerUserID, removedUserID string) ([]ReedCoverageTarget, error) {
 	tx, err := ds.db.Begin()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback()
 
@@ -983,14 +1050,49 @@ func (ds *DBService) ClearPeerStateForRemovedAccount(viewerUserID, removedUserID
 	}
 	for _, s := range stmts {
 		if _, err := tx.Exec(s.q, s.a1, s.a2); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	if _, err := tx.Exec(`
-		DELETE FROM reed_allocations
-		WHERE holder_user_id = $1 AND author_user_id = $2
-	`, viewerUserID, removedUserID); err != nil {
-		return err
+
+	rows, err := tx.Query(`
+		WITH deleted AS (
+			DELETE FROM reed_allocations
+			WHERE holder_user_id = $1 AND author_user_id = $2
+			RETURNING author_user_id, reed_id
+		),
+		counts AS (
+			SELECT author_user_id, reed_id, COUNT(*) AS cnt
+			FROM deleted
+			GROUP BY author_user_id, reed_id
+		),
+		updated AS (
+			UPDATE reeds r
+			SET allocation_count = GREATEST(0, r.allocation_count - c.cnt)
+			FROM counts c
+			WHERE r.user_id = c.author_user_id AND r.id = c.reed_id
+			RETURNING c.author_user_id, c.reed_id
+		)
+		SELECT author_user_id, reed_id FROM updated
+	`, viewerUserID, removedUserID)
+	if err != nil {
+		return nil, err
 	}
-	return tx.Commit()
+	defer rows.Close()
+
+	var targets []ReedCoverageTarget
+	for rows.Next() {
+		var t ReedCoverageTarget
+		if err := rows.Scan(&t.AuthorUserID, &t.ReedID); err != nil {
+			return nil, err
+		}
+		targets = append(targets, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return targets, nil
 }

@@ -90,7 +90,9 @@
         serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
         dispatchReedToQueue(reed, ServerEvent.DataResponse);
-        prependFollowcastId(reed.id);
+        if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
+          prependFollowcastId(reed.id);
+        }
         await requestReferencedReeds(reed);
       } catch (error) {
         console.warn('ServerConnection: invalid reed signature, rejecting:', reed.id, error);

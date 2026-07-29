@@ -18,6 +18,7 @@ export enum ServerEvent {
   ReedRemoved      = 'REED_REMOVED',
   AccountRemoved   = 'ACCOUNT_REMOVED',
   PublishReadyAck  = 'PUBLISH_READY_ACK',
+  ReedCoverage     = 'REED_COVERAGE',
 }
 
 class ServerConnection {
@@ -103,7 +104,7 @@ class ServerConnection {
             }
           }
 
-          this.emit(message.type, message.data);
+          this.emit(message.type, message.data ?? message);
         } catch {
           console.warn('ServerConnection: received non-JSON message, ignoring');
         }
@@ -255,6 +256,15 @@ class ServerConnection {
     this.send({ type: 'UNSUBSCRIBE_PROFILE', data: { user_id: userId } });
   }
 
+  async subscribeReed(authorId: string, reedId: string): Promise<void> {
+    await this.connect();
+    this.send({ type: 'SUBSCRIBE_REED', userID: authorId, reedID: reedId });
+  }
+
+  unsubscribeReed(authorId: string, reedId: string): void {
+    this.send({ type: 'UNSUBSCRIBE_REED', userID: authorId, reedID: reedId });
+  }
+
   subscribeToBroadcast(): void {
     this.send({ type: 'SUBSCRIBE_BROADCAST' });
   }
@@ -263,7 +273,7 @@ class ServerConnection {
     this.send({ type: 'UNSUBSCRIBE_BROADCAST' });
   }
 
-  private send(message: { type: string; data?: any }): void {
+  private send(message: { type: string; data?: any; userID?: string; reedID?: string }): void {
     if (!this.isConnected()) {
       console.warn('ServerConnection: cannot send, not connected');
       return;

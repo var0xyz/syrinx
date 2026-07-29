@@ -16,6 +16,7 @@ import (
 func NewConnectionManager() *ConnectionManager {
 	return &ConnectionManager{
 		userConnections: make(map[string]map[*websocket.Conn]*Client),
+		reedSubscribers: make(map[string]map[*Client]bool),
 	}
 }
 
@@ -70,6 +71,8 @@ func (cm *ConnectionManager) unregisterClient(client *Client) {
 		}
 	}
 
+	cm.clearReedSubscriptions(client)
+
 	// Close the connection
 	client.conn.Close()
 
@@ -102,6 +105,15 @@ func (cm *ConnectionManager) SendToUser(userID string, msg any) error {
 		return nil
 	}
 	return nil
+}
+
+// HasConnection reports whether any active WebSocket is registered for the user.
+func (cm *ConnectionManager) HasConnection(userID string) bool {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	userConns, exists := cm.userConnections[userID]
+	return exists && len(userConns) > 0
 }
 
 // pingClients sends ping messages to all clients
@@ -154,4 +166,77 @@ func (cm *ConnectionManager) GetConnectionCount() int {
 		total += len(userConns)
 	}
 	return total
+}
+
+func reedSubKey(authorUserID, reedID string) string {
+	return authorUserID + "/" + reedID
+}
+
+// SubscribeReed adds a reed-scoped subscription for the client.
+func (cm *ConnectionManager) SubscribeReed(client *Client, authorUserID, reedID string) {
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+
+	key := reedSubKey(authorUserID, reedID)
+	client.reedSubscriptions[key] = true
+	if cm.reedSubscribers[key] == nil {
+		cm.reedSubscribers[key] = make(map[*Client]bool)
+	}
+	cm.reedSubscribers[key][client] = true
+}
+
+// UnsubscribeReed removes a reed-scoped subscription for the client.
+func (cm *ConnectionManager) UnsubscribeReed(client *Client, authorUserID, reedID string) {
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+
+	key := reedSubKey(authorUserID, reedID)
+	delete(client.reedSubscriptions, key)
+	if subs, ok := cm.reedSubscribers[key]; ok {
+		delete(subs, client)
+		if len(subs) == 0 {
+			delete(cm.reedSubscribers, key)
+		}
+	}
+}
+
+func (cm *ConnectionManager) clearReedSubscriptions(client *Client) {
+	for key := range client.reedSubscriptions {
+		if subs, ok := cm.reedSubscribers[key]; ok {
+			delete(subs, client)
+			if len(subs) == 0 {
+				delete(cm.reedSubscribers, key)
+			}
+		}
+	}
+	client.reedSubscriptions = make(map[string]bool)
+}
+
+// BroadcastReedCoverage sends a coverage update to all subscribers of a reed.
+func (cm *ConnectionManager) BroadcastReedCoverage(payload map[string]interface{}) error {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	authorUserID, _ := payload["userID"].(string)
+	reedID, _ := payload["reedID"].(string)
+	if authorUserID == "" || reedID == "" {
+		return fmt.Errorf("reed coverage payload missing userID or reedID")
+	}
+
+	subs := cm.reedSubscribers[reedSubKey(authorUserID, reedID)]
+	if len(subs) == 0 {
+		return nil
+	}
+
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	for client := range subs {
+		if err := client.conn.WriteMessage(websocket.TextMessage, jsonBytes); err != nil {
+			log.Error().Err(err).Str("userID", client.userID).Msg("Failed to send REED_COVERAGE")
+		}
+	}
+	return nil
 }

@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { authService } from '$lib/services/auth';
   import { cryptoService } from '$lib/services/crypto';
@@ -19,7 +19,7 @@
   import { userRepository } from '$lib/repositories/user';
   import { goto } from '$app/navigation';
   import { notificationStore } from '$lib/stores/notifications';
-  import { serverConnection } from '$lib/services/serverConnection';
+  import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
   import { parseReedRef } from '$lib/utils/reedRef';
   import { echoCountsRepository } from '$lib/repositories/echoCounts';
@@ -38,8 +38,43 @@
   let repliedToReed = null;
   let repliedToReedMissing = false;
   let echoCount = 0;
+  let coveragePercent = 0;
+  let subscribedReedKey = '';
   /** Drops stale async loadReed completions (overlapping reactive calls). */
   let loadSeq = 0;
+
+  function handleReedCoverage(data) {
+    if (data?.userID === userID && data?.reedID === reedID) {
+      coveragePercent = data.coveragePercent ?? coveragePercent;
+    }
+  }
+
+  async function syncReedSubscription() {
+    const key = `${userID}/${reedID}`;
+    if (reed?.serverSignature) {
+      if (subscribedReedKey && subscribedReedKey !== key) {
+        const [authorId, id] = subscribedReedKey.split('/');
+        serverConnection.unsubscribeReed(authorId, id);
+      }
+      if (subscribedReedKey !== key) {
+        subscribedReedKey = key;
+        await serverConnection.subscribeReed(userID, reedID);
+      }
+      return;
+    }
+    if (subscribedReedKey) {
+      const [authorId, id] = subscribedReedKey.split('/');
+      serverConnection.unsubscribeReed(authorId, id);
+      subscribedReedKey = '';
+    }
+  }
+
+  async function loadReedStats(authorId, id) {
+    const stats = await apiService.getReedStats(authorId, id);
+    echoCount = stats.echoes;
+    coveragePercent = stats.coveragePercent;
+    await echoCountsRepository.put(id, stats.echoes);
+  }
 
   // Action buttons state
   let likesCount = 0;
@@ -56,6 +91,8 @@
   $: if ($unsignedReedsProcessed > 0 && user) loadReed(true);
 
   onMount(async () => {
+    serverConnection.on(ServerEvent.ReedCoverage, handleReedCoverage);
+
     try {
       user = await authService.getCurrentUser();
 
@@ -70,6 +107,15 @@
       window.location.href = '/';
     } finally {
       loading = false;
+    }
+  });
+
+  onDestroy(() => {
+    serverConnection.off(ServerEvent.ReedCoverage, handleReedCoverage);
+    if (subscribedReedKey) {
+      const [authorId, id] = subscribedReedKey.split('/');
+      serverConnection.unsubscribeReed(authorId, id);
+      subscribedReedKey = '';
     }
   });
 
@@ -143,6 +189,15 @@
           if (seq !== loadSeq) return;
           reed = data;
           await loadAuthorProfile();
+          if (reed.serverSignature) {
+            try {
+              await loadReedStats(userID, reedID);
+            } catch (error) {
+              echoCount = await echoCountsRepository.get(reedID);
+              console.warn('Failed to load reed stats:', error);
+            }
+            await syncReedSubscription();
+          }
         } catch {
           if (seq !== loadSeq) return;
           reedNotFound = true;
@@ -199,8 +254,17 @@
       }
 
       if (reed.serverSignature) {
-        echoCount = await echoCountsRepository.get(reedID);
-        refreshEchoCountInBackground(userID, reedID);
+        try {
+          await loadReedStats(userID, reedID);
+        } catch (error) {
+          echoCount = await echoCountsRepository.get(reedID);
+          console.warn('Failed to load reed stats:', error);
+        }
+        await syncReedSubscription();
+      } else {
+        echoCount = 0;
+        coveragePercent = 0;
+        await syncReedSubscription();
       }
 
       // Fetch the reed author's profile (local cache first, then API).
@@ -210,16 +274,6 @@
       if (seq === loadSeq) errorMessage = 'Failed to load reed';
     } finally {
       if (seq === loadSeq) loadingReed = false;
-    }
-  }
-
-  async function refreshEchoCountInBackground(authorId, id) {
-    try {
-      const next = await apiService.getReedEchoCount(authorId, id);
-      await echoCountsRepository.put(id, next);
-      if (id === reedID) echoCount = next;
-    } catch (error) {
-      console.warn('Background echo count refresh failed:', error);
     }
   }
 
@@ -372,6 +426,8 @@
                     <p class="reed-stats" title="Stats for nerds">
                       <span class="reed-stat-icon echoes" aria-hidden="true"></span>
                       {echoCount}
+                      <span class="reed-stat-icon coverage" aria-hidden="true"></span>
+                      {coveragePercent}%
                     </p>
                   {/if}
                 </div>
@@ -516,7 +572,7 @@
   .reed-stats {
     display: inline-flex;
     align-items: end;
-    gap: 0.3rem;
+    gap: 0.45rem;
     margin: 0.25rem 0 0;
     color: var(--muted);
     font-size: 0.7rem;
@@ -542,6 +598,12 @@
   .reed-stat-icon.echoes {
     -webkit-mask-image: url('/icons/megaphone-16.png');
     mask-image: url('/icons/megaphone-16.png');
+  }
+
+  .reed-stat-icon.coverage {
+    margin-left: 0.15rem;
+    -webkit-mask-image: url('/icons/graph-16.png');
+    mask-image: url('/icons/graph-16.png');
   }
 
   .reed-actions {

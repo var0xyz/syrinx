@@ -6,6 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"syrinx/coverage"
 	"syrinx/signing"
 )
 
@@ -67,6 +68,9 @@ func InsertAccountCert(db *sql.DB, cert AccountCert) error {
 			) VALUES ($1, $2, $3, $4, $5)
 		`, cert.UserID, cert.Note, cert.UserFingerprint, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert account removal: %w", err)
+		}
+		if err := coverage.BumpActiveUsers(tx, -1); err != nil {
+			return err
 		}
 	case err != nil:
 		return err

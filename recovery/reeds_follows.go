@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"syrinx/coverage"
 	"syrinx/signing"
 
 	"github.com/lib/pq"
@@ -87,12 +88,22 @@ func SaveReed(
 		}
 	}
 
-	if _, err := tx.Exec(`
+	res, err := tx.Exec(`
 		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING
-	`, reedID, reporterUserID, authorID); err != nil {
+	`, reedID, reporterUserID, authorID)
+	if err != nil {
 		return fmt.Errorf("insert reed allocation: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		if err := coverage.BumpAllocationCount(tx, authorID, reedID, 1); err != nil {
+			return err
+		}
 	}
 
 	return tx.Commit()
