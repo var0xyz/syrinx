@@ -50,9 +50,16 @@ export function initializePWA() {
   window.addEventListener('offline', updateOnlineStatus);
   updateOnlineStatus();
 
-  // Register service worker immediately
+  // Register service worker immediately.
+  // Built SW is an IIFE that still contains import.meta.url (from openpgp);
+  // it must be registered as a module in both dev and production.
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+    const swUrl = '/service-worker.js';
+    const swOptions: RegistrationOptions = {
+      type: 'module',
+      updateViaCache: 'none'
+    };
+    navigator.serviceWorker.register(swUrl, swOptions)
     .then((registration) => {
       console.log('PWA: Service Worker registered');
 
@@ -94,8 +101,7 @@ export function initializePWA() {
     })
     .catch((error) => {
       console.error('PWA: Service Worker registration failed:', error);
-      // Fallback: try registering without unregistering first
-      navigator.serviceWorker.register('/sw.js').catch((fallbackError) => {
+      navigator.serviceWorker.register(swUrl, swOptions).catch((fallbackError) => {
         console.error('PWA: Fallback registration also failed:', fallbackError);
       });
     });

@@ -53,14 +53,6 @@
     await loadReeds();
   });
 
-  function* inverse() {
-    let x = reeds.length - 1;
-    while (x >= 0) {
-      yield reeds[x];
-      x--;
-    }
-  }
-
   async function loadReeds() {
     try {
       loadingReeds = true;
@@ -251,7 +243,7 @@
         {/if}
       </div>
     {/each}
-    {#each inverse(reeds) as reed (reed.id)}
+    {#each reeds as reed (reed.id)}
       {@const isEmptyEcho = !!(reed.echoing && !(reed.content || '').trim() && echoedReeds.has(reed.echoing))}
       {@const displayReed = isEmptyEcho ? echoedReeds.get(reed.echoing) : reed}
       {@const displayUser = isEmptyEcho ? (echoedReedUsers.get(reed.echoing) || { username: displayReed.userID }) : (profileUser || { username: authorId })}

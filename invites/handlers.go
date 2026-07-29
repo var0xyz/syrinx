@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"syrinx/identity"
+	"syrinx/ids"
 
 	"github.com/gorilla/mux"
 )
@@ -118,7 +119,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if !ValidInviteID(req.ID) {
+	if !ids.Valid(req.ID) {
 		writeJSON(w, http.StatusBadRequest, "Invalid invite id")
 		return
 	}

@@ -4,11 +4,9 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
-	"math/big"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +17,7 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/deletion"
+	"syrinx/ids"
 	"syrinx/invites"
 	"syrinx/recovery"
 	"syrinx/signing"
@@ -27,7 +26,6 @@ import (
 	"github.com/lib/pq"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/uuid25/go-uuid25"
 )
 
 // Sentinel errors returned by DataService.AddPublicKey. The handler maps
@@ -131,27 +129,12 @@ func (s *DataService) IsOngoing(userID string) (bool, error) {
 	return exists, err
 }
 
-const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-func generateID(n int) (string, error) {
-	result := make([]byte, n)
-	alphabetLen := big.NewInt(int64(len(alphabet)))
-	for i := range result {
-		idx, err := rand.Int(rand.Reader, alphabetLen)
-		if err != nil {
-			return "", err
-		}
-		result[i] = alphabet[idx.Int64()]
-	}
-	return string(result), nil
-}
-
 func generateServerID() (string, error) {
-	return generateID(8)
+	return ids.New()
 }
 
 func generateUserID() (string, error) {
-	return generateID(12)
+	return ids.New()
 }
 
 func (s *DataService) InitServer(recoveryMode bool) error {
@@ -1177,36 +1160,6 @@ func (s *DataService) RevokeKey(in RevokeKeyInput) error {
 	return tx.Commit()
 }
 
-// validateUUID25 validates that the provided string is a valid UUID25 encoding of a UUID v7
-func validateUUID25(uuid25Str string) error {
-	// Check if it's a valid UUID25 format (25 characters)
-	if len(uuid25Str) != 25 {
-		return fmt.Errorf("UUID25 must be exactly 25 characters, got %d", len(uuid25Str))
-	}
-
-	// Parse UUID25 to get the original UUID
-	u25, err := uuid25.Parse(uuid25Str)
-	if err != nil {
-		return fmt.Errorf("invalid UUID25 format: %w", err)
-	}
-
-	// Convert to standard UUID (hyphenated format)
-	decodedUUID := u25.ToHyphenated()
-
-	// Parse the decoded UUID
-	parsedUUID, err := uuid.Parse(decodedUUID)
-	if err != nil {
-		return fmt.Errorf("invalid UUID format after decoding: %w", err)
-	}
-
-	// Check if it's version 7
-	if parsedUUID.Version() != 7 {
-		return fmt.Errorf("UUID must be version 7, got version %d", parsedUUID.Version())
-	}
-
-	return nil
-}
-
 // ReedRef is a parsed echoing/replying target: userID@serverID/reedID.
 type ReedRef struct {
 	AuthorID string
@@ -1265,9 +1218,8 @@ func (s *DataService) CreateReedWithEcho(
 	timestamp time.Time,
 	echo *ReedRef,
 ) (*Reed, error) {
-	err := validateUUID25(reedID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid reed ID: %w", err)
+	if !ids.Valid(reedID) {
+		return nil, fmt.Errorf("invalid reed ID")
 	}
 
 	timestamp = timestamp.UTC().Truncate(time.Second)
@@ -1361,17 +1313,18 @@ func (s *DataService) GetReedAttestation(userID, reedID string) (*ReedAttestatio
 	return &att, nil
 }
 
-// ReedAuthorByID returns the author user_id for a reed id, or "" if none.
-func (s *DataService) ReedAuthorByID(reedID string) (string, error) {
-	var author string
-	err := s.db.QueryRow(`SELECT user_id FROM reeds WHERE id = $1`, reedID).Scan(&author)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
+// Reed ids are scoped to (user_id, id); there is no global author lookup by reed id alone.
+
+func (s *DataService) DeleteReed(userID, reedID string) error {
+	_, err := s.db.Exec(`
+		DELETE FROM reeds
+		WHERE user_id = $1 AND id = $2
+	`, userID, reedID)
 	if err != nil {
-		return "", err
+		return err
 	}
-	return author, nil
+
+	return nil
 }
 
 // ReedExists reports whether (userID, reedID) is a live tip reed.
@@ -1404,11 +1357,15 @@ func (s *DataService) CountEchoes(echoedUserID, echoedReedID string) (int, error
 }
 
 // DeleteEchoIndexForReed clears echo index rows when a reed is removed.
-func (s *DataService) DeleteEchoIndexForReed(reedID string) error {
-	if _, err := s.db.Exec(`DELETE FROM reed_echoes WHERE echoing_reed_id = $1`, reedID); err != nil {
+func (s *DataService) DeleteEchoIndexForReed(userID, reedID string) error {
+	if _, err := s.db.Exec(`
+		DELETE FROM reed_echoes WHERE echoing_user_id = $1 AND echoing_reed_id = $2
+	`, userID, reedID); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`DELETE FROM reed_echoes WHERE echoed_reed_id = $1`, reedID)
+	_, err := s.db.Exec(`
+		DELETE FROM reed_echoes WHERE echoed_user_id = $1 AND echoed_reed_id = $2
+	`, userID, reedID)
 	return err
 }
 
@@ -1439,18 +1396,6 @@ func (s *DataService) GetReed(userID string, reedID string) (*Reed, error) {
 	}
 
 	return &reed, nil
-}
-
-func (s *DataService) DeleteReed(reedID string) error {
-	_, err := s.db.Exec(`
-		DELETE FROM reeds
-		WHERE id = $1
-	`, reedID)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // GetReedRemoval returns the stored reed-removal cert for (userID, reedID).

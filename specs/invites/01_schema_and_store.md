@@ -75,7 +75,7 @@ Generate raw token (client or tests):
 func NewToken() (raw string, hash []byte, err error)
 ```
 
-Invite ids: same alphabet/length as user IDs (`ValidInviteID` / `NewInviteID`).
+Invite ids: same alphabet/length as user IDs (`ids.Valid` / `NewInviteID`).
 
 ### Store API
 

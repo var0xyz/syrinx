@@ -10,21 +10,15 @@ export default defineConfig({
     licensePlugin(),
     sveltekit(),
     SvelteKitPWA({
-      // Manifest only. Custom signing SW is static/sw.js (registered from pwa.ts).
-      // injectManifest cannot be used: it reads service-worker.js during SSR
-      // closeBundle, before SvelteKit has emitted that file.
+      // Custom SW at src/sw.ts (PGP signing). App shell precache lands in a later change.
       registerType: 'autoUpdate',
       injectRegister: false,
       includeAssets: ['icons/icon.svg', 'icons/android-chrome-192x192.png', 'icons/android-chrome-512x512.png'],
-      strategies: 'generateSW',
-      filename: 'pwa-sw.js',
-      workbox: {
-        globPatterns: [
-          'client/**/*.{js,css,ico,png,svg,webp,webmanifest}',
-          'prerendered/**/*.{html,json}'
-        ],
-        navigateFallback: '/',
-        navigateFallbackDenylist: [/^\/api\//, /^\/_app\//]
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'service-worker.ts',
+      injectManifest: {
+        globPatterns: ['client/**/*.{js,css,ico,png,svg,webp,webmanifest,html}']
       },
       manifest: {
         name: 'Syrinx',
@@ -95,6 +89,7 @@ export default defineConfig({
   ],
   define: {
     global: 'globalThis',
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production')
   },
   // openpgp/lightweight only declares a `browser` export condition.
   resolve: {

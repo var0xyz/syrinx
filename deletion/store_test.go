@@ -81,7 +81,7 @@ func ensureTestSchema(db *sql.DB) error {
 			PRIMARY KEY (owner, fingerprint)
 		)`,
 		`CREATE TABLE reed_removals (
-			reed_id VARCHAR(255) UNIQUE NOT NULL,
+			reed_id VARCHAR(255) NOT NULL,
 			user_id VARCHAR(255) NOT NULL REFERENCES users(id),
 			user_fingerprint VARCHAR(255) NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),

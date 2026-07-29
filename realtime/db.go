@@ -410,21 +410,12 @@ func (ds *DBService) AllocateReed(reedID, holderUserID, authorUserID string) err
 }
 
 // DeleteReedAllocation removes a single holder's allocation for a reed.
-func (ds *DBService) DeleteReedAllocation(reedID, holderUserID string) error {
+func (ds *DBService) DeleteReedAllocation(authorUserID, reedID, holderUserID string) error {
 	_, err := ds.db.Exec(`
-		DELETE FROM reed_allocations WHERE reed_id = $1 AND holder_user_id = $2
-	`, reedID, holderUserID)
+		DELETE FROM reed_allocations
+		WHERE author_user_id = $1 AND reed_id = $2 AND holder_user_id = $3
+	`, authorUserID, reedID, holderUserID)
 	return err
-}
-
-// GetReedAuthor returns the author user_id for a reed id, or empty if missing.
-func (ds *DBService) GetReedAuthor(reedID string) (string, error) {
-	var authorID string
-	err := ds.db.QueryRow(`SELECT user_id FROM reeds WHERE id = $1`, reedID).Scan(&authorID)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return authorID, err
 }
 
 // GetNextPendingForHolder returns the oldest undispatched reed pending for reeds held by holderUserID.
@@ -434,7 +425,8 @@ func (ds *DBService) GetNextPendingForHolder(holderUserID string) (*PendingReedE
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
 		FROM pending_reed_events pre
 		JOIN pending_events pe ON pe.event_id = pre.event_id
-		JOIN reed_allocations ra ON ra.reed_id = pre.reed_id
+		JOIN reed_allocations ra
+		  ON ra.reed_id = pre.reed_id AND ra.author_user_id = pre.user_id
 		WHERE ra.holder_user_id = $1
 		  AND pe.dispatched_at IS NULL
 		ORDER BY pe.created_at
@@ -473,14 +465,14 @@ func (ds *DBService) ResetDispatchedAt(eventID string) error {
 
 // GetOnlineReedHolder returns the user ID of one online holder of the given reed,
 // or an empty string if no holder is currently online.
-func (ds *DBService) GetOnlineReedHolder(reedID string) (string, error) {
+func (ds *DBService) GetOnlineReedHolder(authorUserID, reedID string) (string, error) {
 	var userID string
 	err := ds.db.QueryRow(`
 		SELECT ou.user_id FROM online_users ou
 		JOIN reed_allocations ra ON ra.holder_user_id = ou.user_id
-		WHERE ra.reed_id = $1
+		WHERE ra.author_user_id = $1 AND ra.reed_id = $2
 		LIMIT 1
-	`, reedID).Scan(&userID)
+	`, authorUserID, reedID).Scan(&userID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -493,7 +485,8 @@ func (ds *DBService) GetPendingEventsForUser(userID string) ([]PendingReedEvent,
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
 		FROM pending_reed_events pre
 		JOIN pending_events pe ON pe.event_id = pre.event_id
-		JOIN reed_allocations ra ON ra.reed_id = pre.reed_id
+		JOIN reed_allocations ra
+		  ON ra.reed_id = pre.reed_id AND ra.author_user_id = pre.user_id
 		WHERE ra.holder_user_id = $1
 	`, userID)
 	if err != nil {
@@ -563,10 +556,11 @@ func (ds *DBService) GetMissingReedIDsForViewer(authorID, viewerID string, owned
 		  AND r.id <> ALL($3)
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_allocations ra
-		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $2
+		      WHERE ra.reed_id = r.id AND ra.author_user_id = r.user_id AND ra.holder_user_id = $2
 		  )
 		  AND NOT EXISTS (
-		      SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
+		      SELECT 1 FROM reed_removals rr
+		      WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
 		  )
 	`, authorID, viewerID, pq.Array(ownedIDs))
 	if err != nil {
@@ -601,10 +595,11 @@ func (ds *DBService) GetMissingOut(userID string) ([]UnallocatedReed, error) {
 		WHERE uf.user_id = $1
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_allocations ra
-		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $1
+		      WHERE ra.reed_id = r.id AND ra.author_user_id = r.user_id AND ra.holder_user_id = $1
 		  )
 		  AND NOT EXISTS (
-		      SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
+		      SELECT 1 FROM reed_removals rr
+		      WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
 		  )
 	`, userID)
 	if err != nil {
@@ -630,10 +625,11 @@ func (ds *DBService) GetUnallocatedReeds(authorID, viewerID string) ([]string, e
 		WHERE r.user_id = $1
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_allocations ra
-		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $2
+		      WHERE ra.reed_id = r.id AND ra.author_user_id = r.user_id AND ra.holder_user_id = $2
 		  )
 		  AND NOT EXISTS (
-		      SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
+		      SELECT 1 FROM reed_removals rr
+		      WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
 		  )
 	`, authorID, viewerID)
 	if err != nil {
@@ -761,10 +757,12 @@ func (ds *DBService) GetBroadcastSubscribers(authorID string) ([]string, error) 
 	return subscribers, nil
 }
 
-// ReedExists reports whether a reed with the given ID exists in the reeds table.
-func (ds *DBService) ReedExists(reedID string) (bool, error) {
+// ReedExists reports whether (authorID, reedID) exists in the reeds table.
+func (ds *DBService) ReedExists(authorID, reedID string) (bool, error) {
 	var exists bool
-	err := ds.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM reeds WHERE id = $1)`, reedID).Scan(&exists)
+	err := ds.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM reeds WHERE user_id = $1 AND id = $2)
+	`, authorID, reedID).Scan(&exists)
 	return exists, err
 }
 
@@ -780,7 +778,8 @@ func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error)
 	rows, err := ds.db.Query(`
 		SELECT rr.reed_id, rr.user_id
 		FROM reed_allocations ra
-		JOIN reed_removals rr ON rr.reed_id = ra.reed_id
+		JOIN reed_removals rr
+		  ON rr.reed_id = ra.reed_id AND rr.user_id = ra.author_user_id
 		WHERE ra.holder_user_id = $1
 	`, userID)
 	if err != nil {
@@ -799,7 +798,7 @@ func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error)
 		if err := rows.Scan(&reedID, &authorID); err != nil {
 			return nil, err
 		}
-		cert, err := deletion.GetCertByReedID(ds.db, reedID)
+		cert, err := deletion.GetCert(ds.db, authorID, reedID)
 		if err != nil || cert == nil {
 			return nil, err
 		}
@@ -813,8 +812,8 @@ func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error)
 }
 
 // GetReedRemovalWire loads a removal cert as a wire-shaped map for WS delivery.
-func (ds *DBService) GetReedRemovalWire(reedID string) (map[string]interface{}, error) {
-	cert, err := deletion.GetCertByReedID(ds.db, reedID)
+func (ds *DBService) GetReedRemovalWire(authorID, reedID string) (map[string]interface{}, error) {
+	cert, err := deletion.GetCert(ds.db, authorID, reedID)
 	if err != nil || cert == nil {
 		return nil, err
 	}

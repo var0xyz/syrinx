@@ -49,8 +49,6 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/tooxie/env v0.0.0-20250928142243-0d8d606534b8 h1:o1z20l04PqrmaG+2EGJZ6vV+xY7xJeXnsIYmlwiLMRE=
 github.com/tooxie/env v0.0.0-20250928142243-0d8d606534b8/go.mod h1:h8Vrqglvvj9W/deIEFBdREWMjcvw5hH2XolBkGtmHU0=
-github.com/uuid25/go-uuid25 v0.1.0 h1:IjxYHdFE9r+Qiq0ebapEXU3xe1FjPPfwwy7e7C0ROuc=
-github.com/uuid25/go-uuid25 v0.1.0/go.mod h1:LES/pcoEmAVakzi86Y/XtUqzBa1k/CKm0fizzVODHAY=
 github.com/zalando/go-keyring v0.2.8 h1:6sD/Ucpl7jNq10rM2pgqTs0sZ9V3qMrqfIIy5YPccHs=
 github.com/zalando/go-keyring v0.2.8/go.mod h1:tsMo+VpRq5NGyKfxoBVjCuMrG47yj8cmakZDO5QGii0=
 go.opentelemetry.io/auto/sdk v1.1.0 h1:cH53jehLUN6UFLY71z+NDOiNJqDdPRaXzTel0sJySYA=

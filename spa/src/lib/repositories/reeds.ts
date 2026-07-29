@@ -216,12 +216,16 @@ class ReedsService {
   }
 
   /**
-   * Get published reeds by author ID
+   * Published reeds for an author, newest serverSignature.timestamp first.
    */
   async getReedsByAuthor(authorId: string): Promise<ReedType[]> {
     try {
       const reeds = await dbService.getAllByIndex<ReedType>('reeds', 'userID', authorId);
-      return reeds;
+      return reeds.sort((a, b) => {
+        const ta = a.serverSignature?.timestamp ?? '';
+        const tb = b.serverSignature?.timestamp ?? '';
+        return ta < tb ? 1 : ta > tb ? -1 : 0;
+      });
     } catch (error) {
       console.error('Failed to get reeds by author:', error);
       return [];

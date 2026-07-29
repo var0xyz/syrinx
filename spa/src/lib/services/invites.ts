@@ -8,19 +8,7 @@ import { buildInviteUserPayload } from './signing';
 import { signedAtHeader } from './verify';
 import { get } from 'svelte/store';
 import { serverInfo } from './serverInfo';
-
-const INVITE_ID_ALPHABET =
-  'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-
-function newInviteID(): string {
-  const out = new Array(12);
-  const buf = new Uint8Array(12);
-  crypto.getRandomValues(buf);
-  for (let i = 0; i < 12; i++) {
-    out[i] = INVITE_ID_ALPHABET[buf[i] % INVITE_ID_ALPHABET.length];
-  }
-  return out.join('');
-}
+import { generateId } from '$lib/utils/id';
 
 function newInviteSecret(): string {
   const buf = new Uint8Array(32);
@@ -71,7 +59,7 @@ export async function createSignedInvite(): Promise<api.Invite> {
     throw new Error('Private key not found');
   }
 
-  const id = newInviteID();
+  const id = generateId();
   const secret = newInviteSecret();
   const tokenHash = await hashInviteSecret(secret);
   const createdAt = signedAtHeader(new Date());

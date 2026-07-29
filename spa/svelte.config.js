@@ -6,7 +6,10 @@ const config = {
     adapter: adapter({
       fallback: 'index.html',
       ssr: false
-    })
+    }),
+    serviceWorker: {
+      register: false
+    }
   }
 };
 

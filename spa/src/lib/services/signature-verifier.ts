@@ -5,18 +5,7 @@
  * that are added to API responses by the responseSigner middleware.
  */
 
-// Type definitions for OpenPGP.js
-declare global {
-  interface Window {
-    openpgp?: {
-      readKey: (options: { armoredKey: string }) => Promise<any>;
-      readCleartextMessage: (options: { cleartextMessage: string }) => Promise<any>;
-      readMessage: (options: { armoredMessage: string }) => Promise<any>;
-      createMessage: (options: { text: string }) => Promise<any>;
-      verify: (options: { message: any; signature?: any; verificationKeys: any }) => Promise<any>;
-    };
-  }
-}
+import * as openpgp from 'openpgp/lightweight';
 
 // Extend Response interface to include signatureValid property
 declare global {
@@ -104,35 +93,23 @@ export async function verifyResponseSignature(
     // Create the complete response string (headers + body)
     const completeResponse = canonicalHeaders + '\n\n' + responseText;
 
-    // Verify signature using OpenPGP.js (if available)
-    if (typeof window !== 'undefined' && window.openpgp) {
-      const publicKey = await window.openpgp.readKey({ armoredKey: serverPublicKey });
+    const publicKey = await openpgp.readKey({ armoredKey: serverPublicKey });
+    const signatureMessage = await openpgp.readMessage({
+      armoredMessage: signature
+    });
+    const message = await openpgp.createMessage({
+      text: completeResponse
+    });
+    const verificationResult = await openpgp.verify({
+      message,
+      signature: signatureMessage,
+      verificationKeys: publicKey
+    });
 
-      // Parse the detached signature
-      const signatureMessage = await window.openpgp.readMessage({
-        armoredMessage: signature
-      });
+    const { verified } = verificationResult.signatures[0]!;
+    await verified;
 
-      // Create a message from the complete response
-      const message = await window.openpgp.createMessage({
-        text: completeResponse
-      });
-
-      // Verify the detached signature
-      const verificationResult = await window.openpgp.verify({
-        message,
-        signature: signatureMessage,
-        verificationKeys: publicKey
-      });
-
-      const { verified } = verificationResult.signatures[0];
-      await verified; // Throws if signature is invalid
-
-      return true;
-    } else {
-      console.warn('OpenPGP.js not loaded, cannot verify signature');
-      return false;
-    }
+    return true;
   } catch (error) {
     console.error('Signature verification failed:', error);
     return false;
@@ -190,7 +167,7 @@ export async function secureApiRequest(
  * Type guard to check if OpenPGP is available
  */
 export function isOpenPGPAvailable(): boolean {
-  return typeof window !== 'undefined' && typeof window.openpgp !== 'undefined';
+  return true;
 }
 
 /**

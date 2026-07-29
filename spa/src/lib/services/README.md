@@ -104,23 +104,18 @@ Standard `RequestInit` interface.
 
 ## Requirements
 
-- **OpenPGP.js**: Must be loaded globally for signature verification
+- **OpenPGP.js**: Bundled from the `openpgp` npm package (`openpgp/lightweight`)
 - **Server public key**: Required for verification (can be fetched automatically)
 - **Newline unescaping**: Signatures are automatically processed to unescape newlines for verification
 
 ## Setup
 
-1. **Load OpenPGP.js** in your application:
-   ```html
-   <script src="https://unpkg.com/openpgp@5.10.2/dist/openpgp.min.js"></script>
-   ```
-
-2. **Import the service** in your SvelteKit components:
+1. **Import the service** in your SvelteKit components:
    ```typescript
    import { secureApiRequest } from '$lib/services/signature-verifier';
    ```
 
-3. **Use in your load functions** or components:
+2. **Use in your load functions** or components:
    ```typescript
    // In +page.ts
    export const load = async () => {

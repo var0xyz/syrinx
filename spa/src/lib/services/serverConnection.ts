@@ -173,7 +173,7 @@ class ServerConnection {
       return promise;
     }
     this.setRequest(requestId, { data: null, status: 'new' });
-    this.send({ type: 'REQUEST_REED', data: { request_id: requestId, reed_id: reedId } });
+    this.send({ type: 'REQUEST_REED', data: { request_id: requestId, reed_id: reedId, author_id: userId } });
     return promise;
   }
 

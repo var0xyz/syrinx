@@ -6,12 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
-	"math/big"
 	"strings"
 	"time"
-)
 
-const inviteIDAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	"syrinx/ids"
+)
 
 // InviteCreateSkew is how far a client-supplied createdAt may drift from
 // server now on create.
@@ -51,31 +50,9 @@ func NewSecret() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// NewInviteID returns a 12-character ID using the same alphabet as user IDs.
+// NewInviteID returns a random invite id (same alphabet/length as user IDs).
 func NewInviteID() (string, error) {
-	result := make([]byte, 12)
-	alphabetLen := big.NewInt(int64(len(inviteIDAlphabet)))
-	for i := range result {
-		idx, err := rand.Int(rand.Reader, alphabetLen)
-		if err != nil {
-			return "", err
-		}
-		result[i] = inviteIDAlphabet[idx.Int64()]
-	}
-	return string(result), nil
-}
-
-// ValidInviteID reports whether id matches the client-mint alphabet/length.
-func ValidInviteID(id string) bool {
-	if len(id) != 12 {
-		return false
-	}
-	for _, r := range id {
-		if !strings.ContainsRune(inviteIDAlphabet, r) {
-			return false
-		}
-	}
-	return true
+	return ids.New()
 }
 
 // Status derives the invite read-model status (revoked wins over claimed).
