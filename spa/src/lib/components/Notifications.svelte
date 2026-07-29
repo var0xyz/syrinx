@@ -49,7 +49,18 @@
       class:notification-warning={notification.type === 'warning'}
       class:notification-info={notification.type === 'info'}
       class:notification-success={notification.type === 'success'}
+      class:clickable={notification.type === 'info'}
       class:dismissing={dismissingArray.includes(notification.id)}
+      role={notification.type === 'info' ? 'button' : undefined}
+      tabindex={notification.type === 'info' ? 0 : undefined}
+      on:click={() => notification.type === 'info' && dismissNotification(notification.id)}
+      on:keydown={(e) => {
+        if (notification.type !== 'info') return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          dismissNotification(notification.id);
+        }
+      }}
     >
       <div class="notification-content">
         <div class="notification-message">
@@ -71,10 +82,10 @@
         <div
           class="notification-progress-bar"
           style="animation-duration: {notification.duration}ms"
-          role="button"
-          tabindex="0"
-          on:click={() => pauseNotification(notification.id)}
-          on:keydown={(e) => e.key === 'Enter' && pauseNotification(notification.id)}
+          role={notification.type === 'success' ? 'button' : undefined}
+          tabindex={notification.type === 'success' ? 0 : undefined}
+          on:click={() => notification.type === 'success' && pauseNotification(notification.id)}
+          on:keydown={(e) => notification.type === 'success' && e.key === 'Enter' && pauseNotification(notification.id)}
           on:mouseenter={() => pauseNotification(notification.id)}
           on:mouseleave={() => resumeNotification(notification.id)}
         ></div>
@@ -171,6 +182,10 @@
 
   .notification-info {
     border-left: 4px solid #3b82f6;
+  }
+
+  .notification.clickable {
+    cursor: pointer;
   }
 
   .notification-success {

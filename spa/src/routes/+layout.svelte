@@ -5,7 +5,7 @@
   import Notifications from '$lib/components/Notifications.svelte';
   import OfflineIndicator from '$lib/components/OfflineIndicator.svelte';
   import ServerUnreachableIndicator from '$lib/components/ServerUnreachableIndicator.svelte';
-  import { initializePWA, isOnline } from '$lib/services/pwa';
+  import { initializePWA, onReconnect } from '$lib/services/pwa';
   import { refreshServerInfo } from '$lib/services/serverInfo';
   import { authService } from '$lib/services/auth';
   import { enforceImportGate } from '$lib/services/restoreFlow';
@@ -35,22 +35,18 @@
   let user = null;
   $: headerLink = user ? '/reeds' : '/';
 
-  let wasOnline = false;
-  $: if ($isOnline && !wasOnline) {
-    wasOnline = true;
+  function syncAfterReconnect() {
     refreshServerInfo();
-    if (authService.isLoggedIn()) {
-      authService.getCurrentUser().then(currentUser => {
-        if (currentUser) {
-          reedsService.processUnsignedReeds();
-          followingRepository.syncPending();
-          pendingRevocationRepository.syncPending();
-          pendingRemovalRepository.syncPending();
-        }
-      });
-    }
-  } else if (!$isOnline) {
-    wasOnline = false;
+    if (!authService.isLoggedIn()) return;
+    authService.getCurrentUser().then((currentUser) => {
+      if (!currentUser) return;
+      followingRepository.syncPending();
+      pendingRevocationRepository.syncPending();
+      pendingRemovalRepository.syncPending();
+      serverConnection.connect()
+        .then(() => serverConnection.syncRequest())
+        .catch((err) => console.error('ServerConnection reconnect failed:', err));
+    });
   }
 
   afterNavigate(({ to }) => {
@@ -59,6 +55,7 @@
 
   onMount(async () => {
     initializePWA();
+    const stopReconnect = onReconnect(syncAfterReconnect);
     refreshServerInfo();
     enforceImportGate(window.location.pathname);
 
@@ -147,6 +144,10 @@
           .catch(err => console.error('ServerConnection failed:', err));
       }
     }
+
+    return () => {
+      stopReconnect();
+    };
   });
 </script>
 
