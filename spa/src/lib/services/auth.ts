@@ -11,6 +11,9 @@ interface SignupUser {
   publicKey: string;
   signature: string;
   userSignature: string;
+  userID: string;
+  userIDSignature: string;
+  userIDFingerprint: string;
   inviteID?: string;
   inviteSecret?: string;
 }
@@ -147,6 +150,9 @@ export class AuthService {
     formData.append('publicKey', userData.publicKey);
     formData.append('signature', userData.signature);
     formData.append('userSignature', userData.userSignature);
+    formData.append('userID', userData.userID);
+    formData.append('userIDSignature', userData.userIDSignature);
+    formData.append('userIDFingerprint', userData.userIDFingerprint);
     if (userData.inviteID) {
       formData.append('inviteID', userData.inviteID);
     }

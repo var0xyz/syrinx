@@ -18,6 +18,9 @@ export type SignupInput = {
   publicKey: string;
   signature: string;
   userSignature?: string;
+  userID: string;
+  userIDSignature: string;
+  userIDFingerprint: string;
   inviteID?: string;
   inviteSecret?: string;
 };
@@ -37,6 +40,7 @@ const BASE_URL = '/api';
 // verify countersignatures even when their active user key is revoked
 // (e.g. mid-rotation, right after RevokeKey).
 const UNAUTHENTICATED_ENDPOINTS = [
+  '/users/id',
   '/users/signup',
   '/users/status',
   '/check-username',
@@ -172,11 +176,20 @@ export const apiService = {
     };
   },
 
+  async getUserID(): Promise<{ userID: string; signature: string; fingerprint: string }> {
+    return request<{ userID: string; signature: string; fingerprint: string }>('/users/id', {
+      method: 'GET',
+    });
+  },
+
   async signup(input: SignupInput): Promise<api.User> {
     const formData = new URLSearchParams();
     formData.append('username', input.username);
     formData.append('publicKey', input.publicKey);
     formData.append('signature', input.signature);
+    formData.append('userID', input.userID);
+    formData.append('userIDSignature', input.userIDSignature);
+    formData.append('userIDFingerprint', input.userIDFingerprint);
     if (input.userSignature) {
       formData.append('userSignature', input.userSignature);
     }

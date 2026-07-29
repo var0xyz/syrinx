@@ -4,7 +4,7 @@ Syrinx uses **OpenPGP** (ProtonMail `go-crypto` on the server, OpenPGP.js in the
 
 ## Keys
 
-- **User keys** — Generated on the client at signup. The private key stays on the device (and in encrypted backups). Public keys are distributed so peers can verify.
+- **User keys** — Generated on the client at signup (and on rotation). The private key stays on the device (and in encrypted backups). Public keys are distributed so peers can verify. At signup the client first reserves a user id from `GET /api/users/id`, then mints keys with OpenPGP user id **name** `userID@serverID`, **comment** the server display name, and optional **email**—cosmetic fields only; protocol trust comes from signed identity payloads, not the PGP uid string.
 - **Server signing key** — Countersigns identities, keys, revocations, removals, and related records. The private key is wrapped with a passphrase resolved from the OS keychain (or an env var for HA). Operators export/import identity **bundles** for disaster recovery; the bundle password is separate from the server-key passphrase.
 - **Key rotation & revocation** — Users can rotate; revocations are signed resources so peers learn that an old key is dead. Requests signed with revoked keys are rejected.
 
@@ -57,7 +57,9 @@ API responses can be signed by middleware: the complete response (canonical head
 
 ## Two-round flows
 
-Some operations need server-minted fields (timestamps, IDs) inside a payload the **user** must sign: signup, profile update, key rotation, revocation. Those use an **init → complete** handshake with short-lived pending state so the client can sign authoritative fields without inventing them.
+Some operations need server-minted fields (timestamps, IDs) inside a payload the **user** must sign: profile update, key rotation, revocation. Those use an **init → complete** handshake with short-lived pending state so the client can sign authoritative fields without inventing them.
+
+Signup is different: **`GET /api/users/id`** reserves and signs a user id up front (ephemeral, no DB row), then **`POST /api/users/signup`** verifies that signature via `userIDFingerprint` before accepting the new account. See [Identity — Signup](/identity#signup).
 
 ## What users should remember
 

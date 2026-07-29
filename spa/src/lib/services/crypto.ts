@@ -9,6 +9,7 @@ export interface KeyPair {
 export interface KeyGenerationOptions {
   name: string;
   email?: string;
+  comment?: string;
   password: string;
 }
 
@@ -46,11 +47,12 @@ export class CryptoService {
    * Generate a new OpenPGP key pair
    */
   async generateKeyPair(options: KeyGenerationOptions): Promise<KeyPair> {
-    const { name: userId, email, password } = options;
+    const { name: userId, email, comment, password } = options;
 
     try {
-      // Create user ID - use email if provided, otherwise just username
-      const identity = email ? { name: userId, email } : { name: userId };
+      const identity = email
+        ? { name: userId, email, ...(comment ? { comment } : {}) }
+        : { name: userId, email: '', ...(comment ? { comment } : {}) };
 
       // Generate key pair
       const { privateKey, publicKey } = await openpgp.generateKey({
