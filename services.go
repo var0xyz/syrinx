@@ -1268,7 +1268,7 @@ func (s *DataService) CreateReedWithEcho(
 		if _, err := tx.Exec(`
 			INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, signed_at)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (echoing_reed_id) DO NOTHING
+			ON CONFLICT (echoing_user_id, echoing_reed_id) DO NOTHING
 		`, userID, reedID, echo.AuthorID, echo.ReedID, timestamp); err != nil {
 			return nil, fmt.Errorf("insert echo index: %w", err)
 		}

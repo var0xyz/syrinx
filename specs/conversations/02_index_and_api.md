@@ -81,7 +81,8 @@ Inside the `SignReed` transaction (after tip-check lock if
 | `echoing → (Tuser, Tid)` | `reed_echoes(echoing_user_id=author, echoing_reed_id=newId, echoed=T…, signed_at)` |
 | `replying → (Puser, Pid)` | `reed_replies(parent=…, reply_user_id=author, reply_reed_id=newId, signed_at)` |
 
-`ON CONFLICT DO NOTHING` on `echoing_reed_id` / `reply_reed_id` for idempotent
+`ON CONFLICT (echoing_user_id, echoing_reed_id)` /
+`ON CONFLICT (reply_user_id, reply_reed_id)` `DO NOTHING` for idempotent
 retries (same reed republication must not duplicate).
 
 Store helpers in `DataService` methods.

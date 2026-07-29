@@ -9,13 +9,14 @@ import { publicKeyRepository } from './publicKey';
 import { Reed as ReedClass, type ReedType } from '$lib/types/reed';
 import type { User } from '$lib/types/api';
 import { serverConnection } from '$lib/services/serverConnection';
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { allowUnsigned, verifyReed } from '$lib/verifiers';
 import {
   MAX_REED_RAW_CHARS,
   MAX_REED_VISIBLE_CHARS,
   reedContentWithinLimits,
 } from '$lib/utils/reedContent';
+import { isOnline } from '$lib/services/pwa';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
@@ -98,6 +99,9 @@ class ReedsService {
     const armor = reed.userSignature?.armor;
     if (!armor) {
       console.error('Skipping reed without userSignature:', reed.id);
+      return false;
+    }
+    if (!get(isOnline)) {
       return false;
     }
     try {
