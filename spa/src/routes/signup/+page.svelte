@@ -206,7 +206,7 @@
 
       serverConnection.connect().then(() => serverConnection.syncRequest());
 
-      goto("/welcome");
+      window.location.href = '/welcome';
     } catch (err) {
       loading = false;
       currentStep = 0;
