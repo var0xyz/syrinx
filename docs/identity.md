@@ -18,15 +18,9 @@ Operators set `SIGNUP_MODE`:
 
 `MAX_INVITES_PER_USER` caps how many invites a user may mint (`-1` / unset = infinite). `/api/server/info` exposes mode and quota so the SPA can hide Sign Up and disable minting without guessing.
 
-### Invites
 
-Authenticated users create single-use invite links (subject to quota). Redeeming an invite:
 
-- Consumes the token under invite-mode policy
-- Records a durable, countersigned **`invitedBy`** binding
-- Establishes a **mutual follow** between inviter and invitee
 
-Invites are signed resources on the client side as well—consistent with the rest of the attestation model.
 
 ## Auth day-to-day
 
