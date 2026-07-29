@@ -50,9 +50,9 @@ func SaveReed(
 	var existingAt time.Time
 	err = tx.QueryRow(`
 		SELECT user_id, private_key_fingerprint, signed_at
-		FROM reeds WHERE id = $1
+		FROM reeds WHERE user_id = $1 AND id = $2
 		FOR UPDATE
-	`, reedID).Scan(&existingAuthor, &existingFP, &existingAt)
+	`, authorID, reedID).Scan(&existingAuthor, &existingFP, &existingAt)
 
 	switch {
 	case err == sql.ErrNoRows:

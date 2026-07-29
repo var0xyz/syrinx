@@ -4,6 +4,8 @@ package main
 
 import (
 	"testing"
+
+	"syrinx/ids"
 )
 
 func TestMarkdownService_ExtractReedHeader(t *testing.T) {
@@ -562,9 +564,9 @@ Content here`
 func TestGenerateUserID(t *testing.T) {
 	const iterations = 1000
 
-	allowed := make(map[byte]bool, len(alphabet))
-	for i := 0; i < len(alphabet); i++ {
-		allowed[alphabet[i]] = true
+	allowed := make(map[byte]bool, len(ids.Alphabet))
+	for i := 0; i < len(ids.Alphabet); i++ {
+		allowed[ids.Alphabet[i]] = true
 	}
 
 	seen := make(map[string]struct{}, iterations)
@@ -573,8 +575,8 @@ func TestGenerateUserID(t *testing.T) {
 		if err != nil {
 			t.Fatalf("generateUserID() error = %v", err)
 		}
-		if len(id) != 12 {
-			t.Fatalf("generateUserID() len = %d, want 12 (id=%q)", len(id), id)
+		if len(id) != ids.Length {
+			t.Fatalf("generateUserID() len = %d, want %d (id=%q)", len(id), ids.Length, id)
 		}
 		for j := 0; j < len(id); j++ {
 			if !allowed[id[j]] {
@@ -593,8 +595,8 @@ func TestGenerateServerIDLength(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateServerID() error = %v", err)
 	}
-	if len(id) != 8 {
-		t.Fatalf("generateServerID() len = %d, want 8", len(id))
+	if len(id) != ids.Length {
+		t.Fatalf("generateServerID() len = %d, want %d", len(id), ids.Length)
 	}
 }
 

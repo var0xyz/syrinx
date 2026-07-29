@@ -30,13 +30,14 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
+  // v24: version bump (no store changes).
   // v23: echo_counts cache (reedID → server echo count).
   // v22: local signed invites (client id + countersig; status unsigned).
   // v21: reed JSON flattened — headers.id/author → id/userID (signatures 08).
   // v20: reeds index server.timestamp → serverSignature.timestamp (signatures 08).
   // v19: drop pendingAccountRemoval — account deletion is online-only (09).
   // removedAccounts remains for peer tombstones.
-  private readonly version = 23;
+  private readonly version = 24;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],

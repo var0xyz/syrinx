@@ -3,9 +3,8 @@
  * Handles reed creation, serialization, and signature management
  */
 
-import { v7 as uuidv7 } from 'uuid';
-import { Uuid25 } from 'uuid25';
 import type { ServerSignature, UserSignature } from '$lib/types/api';
+import { generateId } from '$lib/utils/id';
 
 // Reed markdown frontmatter fields. Note: there is intentionally no client-side
 // `timestamp` field. The canonical publication date is the server's
@@ -52,8 +51,8 @@ export class Reed {
   private _tags: string[] = [];
 
   constructor() {
-    // Auto-generate id using UUID v7 for time-based ordering, encoded as 25-char string
-    this._id = Uuid25.parse(uuidv7()).value;
+    // User-scoped random id (same length/alphabet as user IDs); order by server timestamp.
+    this._id = generateId();
 
     // Auto-populate userID
     this._userID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';

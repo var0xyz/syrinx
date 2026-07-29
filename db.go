@@ -293,7 +293,7 @@ func InitDB(db *sql.DB) error {
 	// countersignature (idempotent).
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
-		id VARCHAR(255) UNIQUE NOT NULL,
+		id VARCHAR(255) NOT NULL,
 		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		private_key_fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
 		signed_at TIMESTAMP NOT NULL,
@@ -315,7 +315,7 @@ func InitDB(db *sql.DB) error {
 	createReedEchoesTable := `
 	CREATE TABLE IF NOT EXISTS reed_echoes (
 		echoing_user_id VARCHAR(255) NOT NULL REFERENCES users(id),
-		echoing_reed_id VARCHAR(255) NOT NULL UNIQUE,
+		echoing_reed_id VARCHAR(255) NOT NULL,
 		echoed_user_id VARCHAR(255) NOT NULL,
 		echoed_reed_id VARCHAR(255) NOT NULL,
 		signed_at TIMESTAMP NOT NULL,
@@ -330,11 +330,11 @@ func InitDB(db *sql.DB) error {
 
 	// Signed reed-removal certificates. Source of truth for “gone”; no FK to
 	// reeds(id) so the live row may be dropped after the cert is stored.
-	// PK is (user_id, reed_id); reed_id is also UNIQUE for reed-only lookups.
-	// user_fingerprint binds the signing key; signatures via FKs.
+	// PK is (user_id, reed_id). user_fingerprint binds the signing key;
+	// signatures via FKs.
 	createReedRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS reed_removals (
-		reed_id VARCHAR(255) UNIQUE NOT NULL,
+		reed_id VARCHAR(255) NOT NULL,
 		user_id VARCHAR(255) NOT NULL REFERENCES users(id),
 		user_fingerprint VARCHAR(255) NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
@@ -430,16 +430,15 @@ func InitDB(db *sql.DB) error {
 		author_user_id VARCHAR(255) NOT NULL,
 		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-		PRIMARY KEY (holder_user_id, reed_id),
+		PRIMARY KEY (holder_user_id, author_user_id, reed_id),
 		FOREIGN KEY (author_user_id, reed_id)
 			REFERENCES reeds(user_id, id) ON DELETE CASCADE
 	);`
 
-	// We only need one index on `reed_id` here because `holder_user_id` is covered by
-	// being the first field in the `PRIMARY KEY` clause.
+	// Composite lookups by reed use author_user_id + reed_id; holder is in the PK.
 	createReedAllocationIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_reed_allocations_reed_id
-		ON reed_allocations(reed_id);
+	CREATE INDEX IF NOT EXISTS idx_reed_allocations_reed
+		ON reed_allocations(author_user_id, reed_id);
 	`
 
 	createPendingEventsTable := `

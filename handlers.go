@@ -15,6 +15,7 @@ import (
 
 	"syrinx/deletion"
 	"syrinx/identity"
+	"syrinx/ids"
 	"syrinx/invites"
 	"syrinx/realtime"
 	"syrinx/recovery"
@@ -1470,11 +1471,6 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 				h.respondSignReedReplay(w, r, existing, userSignature, userID, reedID)
 				return
 			}
-			author, authorErr := h.services.db.ReedAuthorByID(reedID)
-			if authorErr == nil && author != "" && author != userID {
-				writeResponse(w, http.StatusConflict, "Reed ID already taken")
-				return
-			}
 		}
 		log.Error().
 			Str("reedID", reedID).
@@ -1531,7 +1527,7 @@ func (h *Handlers) parseReedRef(raw, localServerID string) (ReedRef, bool) {
 	if !ok {
 		return ReedRef{}, false
 	}
-	if err := validateUUID25(ref.ReedID); err != nil {
+	if !ids.Valid(ref.ReedID) {
 		return ReedRef{}, false
 	}
 	// Targets on other instances are not supported yet.
@@ -1678,7 +1674,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.db.DeleteEchoIndexForReed(reedID); err != nil {
+	if err := h.services.db.DeleteEchoIndexForReed(userID, reedID); err != nil {
 		log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing echo index for removed reed")
 	}
 
