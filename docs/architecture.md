@@ -61,6 +61,7 @@ The SPA is not a thin view over a database. It:
 - Stores reeds and peer data it **chose** to keep (see [Content](/content))
 - Verifies user and server signatures before applying sensitive updates
 - Drives restore and recovery flows when the server must be rebuilt
+- Precaches the **app shell** (HTML/JS/CSS) in a service worker so the UI loads offline; reed bodies stay in IndexedDB; API and WebSocket still need the network
 
 ## Realtime path
 

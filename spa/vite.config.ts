@@ -10,7 +10,7 @@ export default defineConfig({
     licensePlugin(),
     sveltekit(),
     SvelteKitPWA({
-      // Custom SW at src/sw.ts (PGP signing). App shell precache lands in a later change.
+      // Custom SW: PGP signing + app-shell precache (injectManifest).
       registerType: 'autoUpdate',
       injectRegister: false,
       includeAssets: ['icons/icon.svg', 'icons/android-chrome-192x192.png', 'icons/android-chrome-512x512.png'],
@@ -18,7 +18,10 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'service-worker.ts',
       injectManifest: {
-        globPatterns: ['client/**/*.{js,css,ico,png,svg,webp,webmanifest,html}']
+        globPatterns: ['client/**/*.{js,css,ico,png,svg,webp,webmanifest,html}'],
+        // adapter-static writes index.html after Kit's client emit; add it explicitly
+        // so NavigationRoute(createHandlerBoundToURL('index.html')) works offline.
+        additionalManifestEntries: [{ url: 'index.html', revision: null }]
       },
       manifest: {
         name: 'Syrinx',

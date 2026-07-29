@@ -8,7 +8,8 @@ Dev / Build
 - Install deps: `pnpm i` or `npm i`
 - Dev: `pnpm dev` or `npm run dev`
 - Build: `pnpm build` or `npm run build`
-  - Output: `build/` (static), suitable for serving via the Go server.
+  - Output: `build/` (static). The Go API serves this directory at `/`
+    with SPA fallback to `index.html` for client routes.
 
 Type generation from Go → TypeScript
 
