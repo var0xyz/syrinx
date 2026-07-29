@@ -37,7 +37,7 @@ That is the *ish*: distribution and verification like a peer network, with a tra
 | [Architecture](/architecture) | API, realtime, SPA, and the tracker/relay role of the server |
 | [Trust model](/trust) | What we defend against, and what we don't pretend to |
 | [Cryptography](/cryptography) | Keys, canonical signing, user vs server signatures |
-| [Content distribution](/content) | Reeds, feeds, relay, local storage rules |
+| [Content distribution](/content) | Reeds, feeds, relay path, consent and abuse guardrails |
 | [Invites](/invites) | Invite links, hash-only storage, redeem flow, hijack resistance |
 | [Identity, invites & recovery](/identity) | Accounts, signup modes, rebuilding after disaster |
 | [Deletion](/deletion) | Signed removal certificates instead of silent wipes |

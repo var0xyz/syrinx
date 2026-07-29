@@ -11,6 +11,7 @@ Syrinx assumes the server is useful and usually honest—but **not** an oracle y
 | Quietly rewriting “what the server says happened” | Important records are user-signed and server-countersigned with canonical payloads |
 | Open spam registration on a community instance | Invite / closed signup modes without phone/email |
 | Stealing or hijacking **pending** invite links from server storage | Server stores **SHA-256(secret)** only; redeem needs the preimage; secret is fragment-only at share time |
+| Pushing unsolicited reed bodies onto clients | Pending-event ledger + client request correlation; clients only keep what they agreed to hold |
 
 | We do **not** claim to stop… | Why |
 |------------------------------|-----|
@@ -100,6 +101,14 @@ The server is **not** trusted to:
 
 If an instance is destroyed or taken over, a new host can import the **server identity** (key history) and enter **recovery mode**. Peers then **report back** signed identities and holdings they already verified. The empty database is not trusted; the network’s signed evidence is. See [Identity, invites & recovery](/identity).
 
-## Client-side caution
+## Content consent and relay
 
-Unsolicited broadcast content is treated carefully in local storage: the client avoids permanently poisoning IndexedDB with material the user never asked to keep. Explicit follows and opens are different from ambient flood. See [Content distribution](/content).
+Reed bodies are not served from a CDN. They move holder → server (in transit) → requester, under a **pending-event** ledger:
+
+- The server creates an event row **before** it asks anyone to relay.
+- `RELAY_RESPONSE` / `RELAY_MISS` only matter if they cite a real `event_id`. A forged response with a made-up id is ignored.
+- The client keeps the **`request_id`** it minted. Acks and data for unknown ids are dropped—the client never asked for them.
+
+**Agree** means an action: follow someone, or open a reed. Broadcast may be watched as ephemeral session data; it does not automatically enter IndexedDB. If something unsolicited still arrives, a correct client silently refuses to keep it.
+
+Signatures still gate trust: verify before store. See [Content distribution](/content) for the full path and guardrail steps.
