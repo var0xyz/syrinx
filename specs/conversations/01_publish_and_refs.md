@@ -87,7 +87,8 @@ Rules:
 
 - Empty → absent (not an error).
 - Form: `userID@serverID/reedID` (all parts non-empty).
-- `reedId` must pass `ids.Valid` (8-character `a-zA-Z0-9`, same as user/server/invite IDs).
+- `reedId` must pass `ids.ValidReed` (UUID version 7). User/server/invite IDs
+  remain 8-character random strings (`ids.Valid`).
 - Bare `reedId` or `authorId!reedId` → 400 (`Invalid echoing/replying reference`).
 - `serverID` must match this instance when resolving targets (foreign targets
   → `Target reed not found` for now).

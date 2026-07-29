@@ -1218,7 +1218,7 @@ func (s *DataService) CreateReedWithEcho(
 	timestamp time.Time,
 	echo *ReedRef,
 ) (*Reed, error) {
-	if !ids.Valid(reedID) {
+	if !ids.ValidReed(reedID) {
 		return nil, fmt.Errorf("invalid reed ID")
 	}
 

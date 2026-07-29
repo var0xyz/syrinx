@@ -1,6 +1,10 @@
 package ids
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/google/uuid"
+)
 
 func TestNewLengthAndAlphabet(t *testing.T) {
 	allowed := make(map[byte]bool, len(Alphabet))
@@ -37,5 +41,31 @@ func TestValidRejects(t *testing.T) {
 		if Valid(id) {
 			t.Fatalf("Valid(%q) = true, want false", id)
 		}
+	}
+}
+
+func TestValidReed(t *testing.T) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ValidReed(id.String()) {
+		t.Fatalf("ValidReed rejected v7 %q", id)
+	}
+
+	v4, err := uuid.NewRandom()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ValidReed(v4.String()) {
+		t.Fatalf("ValidReed accepted v4 %q", v4)
+	}
+
+	random8, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ValidReed(random8) {
+		t.Fatalf("ValidReed accepted random id %q", random8)
 	}
 }
