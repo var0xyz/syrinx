@@ -441,6 +441,16 @@ func InitDB(db *sql.DB) error {
 		ON reed_allocations(author_user_id, reed_id);
 	`
 
+	createPendingFanoutTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS pending_fanout (
+		user_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL,
+
+		PRIMARY KEY (user_id, reed_id),
+		FOREIGN KEY (user_id, reed_id)
+			REFERENCES reeds(user_id, id) ON DELETE CASCADE
+	);`
+
 	createPendingEventsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_events (
 		event_id VARCHAR(255) PRIMARY KEY,
@@ -589,6 +599,8 @@ func InitDB(db *sql.DB) error {
 
 		createReedAllocationsTable,
 		createReedAllocationIndexes,
+
+		createPendingFanoutTable,
 
 		createProfileSubscriptionsTable,
 		createProfileSubscriptionsIndex,

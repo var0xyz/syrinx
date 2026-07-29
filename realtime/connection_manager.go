@@ -16,8 +16,6 @@ import (
 func NewConnectionManager() *ConnectionManager {
 	return &ConnectionManager{
 		userConnections: make(map[string]map[*websocket.Conn]*Client),
-		register:        make(chan *Client),
-		unregister:      make(chan *Client),
 	}
 }
 
@@ -26,28 +24,19 @@ func (cm *ConnectionManager) Start() {
 	ticker := time.NewTicker(30 * time.Second) // Ping ticker
 	defer ticker.Stop()
 
-	for {
-		select {
-		case client := <-cm.register:
-			cm.registerClient(client)
-
-		case client := <-cm.unregister:
-			cm.unregisterClient(client)
-
-		case <-ticker.C:
-			cm.pingClients()
-		}
+	for range ticker.C {
+		cm.pingClients()
 	}
 }
 
-// RegisterClient registers a new client
+// RegisterClient registers a new client (synchronous so delivery can run immediately).
 func (cm *ConnectionManager) RegisterClient(client *Client) {
-	cm.register <- client
+	cm.registerClient(client)
 }
 
 // UnregisterClient unregisters a client
 func (cm *ConnectionManager) UnregisterClient(client *Client) {
-	cm.unregister <- client
+	cm.unregisterClient(client)
 }
 
 // registerClient handles client registration

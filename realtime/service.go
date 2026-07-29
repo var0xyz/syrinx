@@ -91,52 +91,7 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			Msg("Received broadcast message")
 
 		if message.Type == NewReed {
-			log.Info().
-				Str("userID", message.UserID).
-				Str("reedID", message.ReedID).
-				Msg("New reed published")
-
-			followers, err := rs.dbService.GetOnlineFollowers(message.UserID)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Msg("Failed to get online followers from database")
-			}
-
-			broadcastRecipients, err := rs.dbService.GetBroadcastSubscribers(message.UserID)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Msg("Failed to get broadcast subscribers from database")
-			}
-
-			log.Info().
-				Str("userID", message.UserID).
-				Int("followers", len(followers)).
-				Int("broadcastSubscribers", len(broadcastRecipients)).
-				Msg("Dispatching new reed to recipients")
-			rs.dispatchMany(followers, NewReedEvent, message.ReedID, message.UserID)
-			rs.dispatchMany(broadcastRecipients, BroadcastReedEvent, message.ReedID, message.UserID)
-
-			profileSubscribers, err := rs.dbService.GetProfileSubscribers(message.UserID)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Msg("Failed to get profile subscribers from database")
-			}
-
-			for _, sub := range profileSubscribers {
-				eventID := generateEventID()
-				requestID := generateEventID()
-				if err := rs.dbService.CreateProfileSubscriptionEvent(eventID, requestID, sub.ViewerUserID, NewReedEvent, message.UserID, message.ReedID, sub.SubscriptionID); err != nil {
-					log.Error().
-						Err(err).
-						Str("viewerUserID", sub.ViewerUserID).
-						Msg("Failed to create pending event for profile subscriber")
-				}
-			}
-
-			rs.dispatchNext(message.UserID)
+			rs.fanoutNewReed(message.UserID, message.ReedID)
 		}
 
 		if message.Type == ReedRemoved {
@@ -192,6 +147,56 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			}
 		}
 	}
+}
+
+// fanoutNewReed dispatches a newly published reed to followers, broadcast subs, and profile subs.
+func (rs *RealtimeService) fanoutNewReed(authorUserID, reedID string) {
+	log.Info().
+		Str("userID", authorUserID).
+		Str("reedID", reedID).
+		Msg("Fanning out new reed")
+
+	followers, err := rs.dbService.GetOnlineFollowers(authorUserID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msg("Failed to get online followers from database")
+	}
+
+	broadcastRecipients, err := rs.dbService.GetBroadcastSubscribers(authorUserID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msg("Failed to get broadcast subscribers from database")
+	}
+
+	log.Info().
+		Str("userID", authorUserID).
+		Int("followers", len(followers)).
+		Int("broadcastSubscribers", len(broadcastRecipients)).
+		Msg("Dispatching new reed to recipients")
+	rs.dispatchMany(followers, NewReedEvent, reedID, authorUserID)
+	rs.dispatchMany(broadcastRecipients, BroadcastReedEvent, reedID, authorUserID)
+
+	profileSubscribers, err := rs.dbService.GetProfileSubscribers(authorUserID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msg("Failed to get profile subscribers from database")
+	}
+
+	for _, sub := range profileSubscribers {
+		eventID := generateEventID()
+		requestID := generateEventID()
+		if err := rs.dbService.CreateProfileSubscriptionEvent(eventID, requestID, sub.ViewerUserID, NewReedEvent, authorUserID, reedID, sub.SubscriptionID); err != nil {
+			log.Error().
+				Err(err).
+				Str("viewerUserID", sub.ViewerUserID).
+				Msg("Failed to create pending event for profile subscriber")
+		}
+	}
+
+	rs.dispatchNext(authorUserID)
 }
 
 // dispatchRemovalMany enqueues reed_removed pending events and delivers certs
@@ -584,6 +589,9 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 	case "UNSUBSCRIBE_PROFILE":
 		rs.handleUnsubscribeProfile(client, jsonMsg)
 
+	case "PUBLISH_READY":
+		rs.handlePublishReady(client, jsonMsg)
+
 	default:
 		log.Warn().Str("type", msgType).Msg("Unknown JSON WebSocket message type")
 	}
@@ -804,6 +812,42 @@ func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]inte
 	}
 }
 
+// handlePublishReady runs new-reed fanout when a pending_fanout row exists.
+func (rs *RealtimeService) handlePublishReady(client *Client, jsonMsg map[string]interface{}) {
+	data, _ := jsonMsg["data"].(map[string]interface{})
+	reedID, _ := data["reed_id"].(string)
+	if reedID == "" {
+		return
+	}
+	authorUserID := client.userID
+
+	claimed, err := rs.dbService.ClaimPendingFanout(authorUserID, reedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Str("userID", authorUserID).Msg("Failed to claim pending fanout")
+		return
+	}
+	if claimed {
+		go rs.fanoutNewReed(authorUserID, reedID)
+	} else {
+		exists, err := rs.dbService.ReedExists(authorUserID, reedID)
+		if err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Str("userID", authorUserID).Msg("Failed to check reed for publish ready ack")
+			return
+		}
+		if !exists {
+			return
+		}
+	}
+
+	ack := map[string]interface{}{
+		"type": "PUBLISH_READY_ACK",
+		"data": map[string]string{"reed_id": reedID},
+	}
+	if jsonBytes, err := json.Marshal(ack); err == nil {
+		client.conn.WriteMessage(websocket.TextMessage, jsonBytes)
+	}
+}
+
 func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]interface{}) {
 	data, _ := msg["data"].(map[string]interface{})
 	eventID, _ := data["event_id"].(string)
@@ -847,24 +891,45 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]in
 	rs.dispatchNext(client.userID)
 }
 
-// handleRelayMiss is called when a holder receives a RELAY_REQUEST but reports that
-// they don't have the reed locally. For now we ignore the miss entirely: we keep the
-// allocation, leave dispatched_at set, and don't look for another holder. The event
-// stays stuck until the requester triggers a redispatch (e.g. via SYNC_REQUEST on
-// reconnect). We still advance the holder's queue so any unrelated pending events
-// for reeds they actually hold aren't starved.
-//
-// See realtime/README.md "Known Issues" for the publish/relay race this works
-// around and the planned WS-native publishing flow that will let this handler
-// go back to actually trimming stale allocations with a real retry policy.
+// handleRelayMiss drops the reporting holder's allocation and retries another online holder.
 func (rs *RealtimeService) handleRelayMiss(client *Client, data RelayMissData) {
 	if data.EventID == "" {
 		return
 	}
-	log.Debug().
+
+	pe, err := rs.dbService.GetPendingReedEvent(data.EventID)
+	if err != nil {
+		log.Error().Err(err).Str("eventID", data.EventID).Msg("Failed to get pending event for relay miss")
+		rs.dispatchNext(client.userID)
+		return
+	}
+	if pe == nil {
+		rs.dispatchNext(client.userID)
+		return
+	}
+
+	log.Info().
 		Str("eventID", data.EventID).
-		Str("userID", client.userID).
-		Msg("Received RELAY_MISS; ignoring (keeping allocation, not retrying)")
+		Str("holderID", client.userID).
+		Str("authorID", pe.UserID).
+		Str("reedID", pe.ReedID).
+		Msg("Relay miss; dropping holder allocation and retrying")
+
+	if err := rs.dbService.DeleteReedAllocation(pe.UserID, pe.ReedID, client.userID); err != nil {
+		log.Error().Err(err).Str("reedID", pe.ReedID).Str("holderID", client.userID).Msg("Failed to delete allocation on relay miss")
+	}
+
+	if err := rs.dbService.ResetDispatchedAt(data.EventID); err != nil {
+		log.Error().Err(err).Str("eventID", data.EventID).Msg("Failed to reset dispatched_at on relay miss")
+	}
+
+	holder, err := rs.dbService.GetOnlineReedHolderExcluding(pe.UserID, pe.ReedID, client.userID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to find alternate holder on relay miss")
+	} else if holder != "" {
+		rs.dispatchNext(holder)
+	}
+
 	rs.dispatchNext(client.userID)
 }
 

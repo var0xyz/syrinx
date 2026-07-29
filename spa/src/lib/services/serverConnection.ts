@@ -17,6 +17,7 @@ export enum ServerEvent {
   ReedNotFound     = 'REED_NOT_FOUND',
   ReedRemoved      = 'REED_REMOVED',
   AccountRemoved   = 'ACCOUNT_REMOVED',
+  PublishReadyAck  = 'PUBLISH_READY_ACK',
 }
 
 class ServerConnection {
@@ -204,6 +205,11 @@ class ServerConnection {
 
   sendDataInvalid(eventId: string): void {
     this.send({ type: 'DATA_INVALID', data: { event_id: eventId } });
+  }
+
+  async publishReady(reedId: string): Promise<void> {
+    await this.connect();
+    this.send({ type: 'PUBLISH_READY', data: { reed_id: reedId } });
   }
 
   // Store a relay request that couldn't be fulfilled immediately because the reed

@@ -9,6 +9,7 @@ import { publicKeyRepository } from './publicKey';
 import { Reed as ReedClass, type ReedType } from '$lib/types/reed';
 import type { User } from '$lib/types/api';
 import { serverConnection } from '$lib/services/serverConnection';
+import { pendingPublicationRepository } from './pendingPublication';
 import { get, writable } from 'svelte/store';
 import { allowUnsigned, verifyReed } from '$lib/verifiers';
 import {
@@ -127,6 +128,9 @@ class ReedsService {
         };
       }
       await this.storeReed(published);
+      await pendingPublicationRepository.put(published.id);
+      await serverConnection.connect();
+      serverConnection.publishReady(published.id);
       await dbService.delete('unsignedReeds', reed.id);
       unsignedReedsProcessed.update((n) => n + 1);
       return true;
@@ -241,6 +245,19 @@ class ReedsService {
     } catch (error) {
       console.error('Failed to get unsigned reeds:', error);
       return [];
+    }
+  }
+
+  /**
+   * Resend PUBLISH_READY for reeds still awaiting PUBLISH_READY_ACK.
+   */
+  async announcePublishedReeds(): Promise<void> {
+    const pending = await pendingPublicationRepository.getAll();
+    if (pending.length === 0) return;
+
+    await serverConnection.connect();
+    for (const { reedID } of pending) {
+      serverConnection.publishReady(reedID);
     }
   }
 }

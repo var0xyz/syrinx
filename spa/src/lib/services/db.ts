@@ -37,7 +37,7 @@ export class IndexedDbService implements DbService {
   // v20: reeds index server.timestamp → serverSignature.timestamp (signatures 08).
   // v19: drop pendingAccountRemoval — account deletion is online-only (09).
   // removedAccounts remains for peer tombstones.
-  private readonly version = 24;
+  private readonly version = 25;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -55,6 +55,7 @@ export class IndexedDbService implements DbService {
     ['pendingFollows',    'userId'     ],
     ['pendingRevocation', 'fingerprint'],
     ['pendingRemoval',    'reedID'     ],
+    ['pendingPublication', 'reedID'    ],
     ['removedReeds',      'reedID'     ],
     ['removedAccounts',   'userID'     ],
   ];

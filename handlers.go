@@ -1542,13 +1542,6 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		Msg("Reed created successfully")
 
 	writeResponse(w, http.StatusCreated, serverSignature)
-
-	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:     realtime.NewReed,
-		ServerID: h.services.db.GetServerID(),
-		UserID:   userID,
-		ReedID:   reed.ID,
-	}
 }
 
 // respondSignReedReplay returns the stored countersignature (HTTP 200) when

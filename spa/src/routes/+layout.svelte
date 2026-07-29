@@ -15,6 +15,7 @@
   import { followingRepository } from '$lib/repositories/following';
   import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
   import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
+  import { pendingPublicationRepository } from '$lib/repositories/pendingPublication';
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { parseReedRef } from '$lib/utils/reedRef';
@@ -44,7 +45,10 @@
       pendingRevocationRepository.syncPending();
       pendingRemovalRepository.syncPending();
       serverConnection.connect()
-        .then(() => serverConnection.syncRequest())
+        .then(async () => {
+          serverConnection.syncRequest();
+          await reedsService.announcePublishedReeds();
+        })
         .catch((err) => console.error('ServerConnection reconnect failed:', err));
     });
   }
@@ -61,6 +65,10 @@
 
     // Register WS handlers unconditionally so they're in place whether the
     // connection is established now (existing user) or later (post-signup).
+    serverConnection.on(ServerEvent.PublishReadyAck, ({ reed_id }) => {
+      if (!reed_id) return;
+      void pendingPublicationRepository.delete(reed_id);
+    });
     serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, reed_id }) => {
       console.log('ServerConnection: relay request received for reed:', reed_id, 'event:', event_id);
       serverConnection.storePendingRelayRequest(reed_id, event_id);
@@ -135,13 +143,17 @@
       user = await authService.getCurrentUser();
 
       if (user) {
-        reedsService.processUnsignedReeds();
+        reedsService.processUnsignedReeds().then(() =>
+          serverConnection.connect()
+            .then(async () => {
+              serverConnection.syncRequest();
+              await reedsService.announcePublishedReeds();
+            })
+            .catch(err => console.error('ServerConnection failed:', err))
+        );
         followingRepository.syncPending();
         pendingRevocationRepository.syncPending();
         pendingRemovalRepository.syncPending();
-        serverConnection.connect()
-          .then(() => serverConnection.syncRequest())
-          .catch(err => console.error('ServerConnection failed:', err));
       }
     }
 

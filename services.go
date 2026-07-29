@@ -1264,6 +1264,13 @@ func (s *DataService) CreateReedWithEcho(
 		return nil, fmt.Errorf("allocate reed to author: %w", err)
 	}
 
+	if _, err := tx.Exec(`
+		INSERT INTO pending_fanout (user_id, reed_id)
+		VALUES ($1, $2)
+	`, userID, reedID); err != nil {
+		return nil, fmt.Errorf("insert pending fanout: %w", err)
+	}
+
 	if echo != nil {
 		if _, err := tx.Exec(`
 			INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, signed_at)
