@@ -10,6 +10,7 @@ Syrinx assumes the server is useful and usually honest—but **not** an oracle y
 | Impersonating a user after stealing only server DB rows | User keys live on devices; publishing needs the author’s key |
 | Quietly rewriting “what the server says happened” | Important records are user-signed and server-countersigned with canonical payloads |
 | Open spam registration on a community instance | Invite / closed signup modes without phone/email |
+| Stealing or hijacking **pending** invite links from server storage | Server stores **SHA-256(secret)** only; redeem needs the preimage; secret is fragment-only at share time |
 
 | We do **not** claim to stop… | Why |
 |------------------------------|-----|
@@ -38,6 +39,46 @@ Day-to-day use is **not** “password against the API.”
 - Losing the key (and backups) loses the account. There is no central password reset that recreates encrypted material you no longer hold.
 
 Backup files use their own password; that is separate from day-to-day unlock.
+
+## Invites
+
+Closed communities need a gate that does not depend on email or phone verification. Invites are **opaque capabilities**: whoever holds the secret can redeem once. The design question is what an attacker with **database access** learns.
+
+### Secret on the client, hash on the server
+
+When an inviter creates an invite, the browser mints a ≥256-bit secret and sends only `tokenHash = SHA-256(secret)` to `POST /api/invites`. The raw secret never appears in that request. The inviter keeps it in IndexedDB and shares it out-of-band in a link:
+
+```
+/signup?invite={id}#{secret}
+```
+
+The fragment is not sent to the server on navigation, so normal request logs do not capture the redeem credential at click time.
+
+The server row holds `token_hash`, claim/revoke state, and who created the invite—not the secret. When a client presents a secret at redeem or preflight check time, the server hashes it and compares to that column.
+
+### Why that blocks hijack from DB theft
+
+An attacker who exfiltrates Postgres sees hashes, not invite URLs. They cannot:
+
+- Reconstruct a valid secret from `token_hash` (SHA-256 preimage resistance for full-entropy tokens).
+- Redeem a pending invite without the secret that hashes to the stored value.
+- Create an invite as another user without that user’s signing key.
+
+So “invites are stored on the server” does **not** mean “the operator can take any unused invite and use it.” Operational rows are redeem **slots**; the capability stays with whoever received the link.
+
+Remaining risks are the usual ones outside this model: the inviter leaks the link, malware on the inviter’s device reads IndexedDB, or an attacker with **write** access revokes or disrupts bookkeeping. Those are different threats from hash-only storage defeating passive DB compromise.
+
+When someone opens an invite link, the signup page may call `/api/invites/check` before key generation so bad links fail fast. Signup itself is authoritative—a failed check does not replace redeem validation, and signup still rejects invalid tokens if the check was skipped or unreachable.
+
+### Single-use redeem
+
+Signup consumes an invite in the same step as user creation. If signup fails, the invite is not burned. Two simultaneous redeems of one link race; only one wins. After claim, the row stays for audit but cannot be used again.
+
+### What is signed vs what is not
+
+Invite **create** is user-signed and server-countersigned over id, `createdAt`, and `tokenHash`—attesting that a specific member minted a specific slot. The **redeem secret** itself is not a signed envelope; possession is the gate. The durable outcome after signup is **`invitedBy`** on the countersigned identity record.
+
+See [Invites](/invites) for the full lifecycle, UI surfaces, and mode matrix.
 
 ## What the server is trusted for
 
