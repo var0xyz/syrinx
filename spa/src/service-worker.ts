@@ -3,8 +3,8 @@
  * Service worker: PGP session for request signing + API fetch intercept.
  * OpenPGP is bundled from npm (openpgp/lightweight).
  */
-import { precacheAndRoute } from 'workbox-precaching';
-import { registerRoute } from 'workbox-routing';
+import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching';
+import { registerRoute, NavigationRoute } from 'workbox-routing';
 import * as openpgp from 'openpgp/lightweight';
 
 declare let self: ServiceWorkerGlobalScope & {
@@ -13,6 +13,19 @@ declare let self: ServiceWorkerGlobalScope & {
 
 // Injected at build time by vite-plugin-pwa; empty array in Vite/SvelteKit dev.
 precacheAndRoute(self.__WB_MANIFEST ?? []);
+cleanupOutdatedCaches();
+
+// SPA navigations: serve precached index.html (API/WS stay network-only).
+// Skipped in Vite/SvelteKit dev when the precache is empty.
+try {
+  registerRoute(
+    new NavigationRoute(createHandlerBoundToURL('index.html'), {
+      denylist: [/^\/api\//, /^\/ws\//]
+    })
+  );
+} catch {
+  // createHandlerBoundToURL throws when index.html is not in the precache.
+}
 
 let privateKey: openpgp.PrivateKey | null = null;
 

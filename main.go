@@ -260,19 +260,12 @@ func main() {
 		},
 	})
 
-	// Serve static files
-	router.PathPrefix("/static/").
-		Handler(
-			http.StripPrefix("/static/", http.FileServer(http.Dir("spa/build/"))),
-		)
-
-	// WebSocket Router (must be before catch-all static file handler)
+	// WebSocket Router (must be before catch-all SPA handler)
 	ws := router.PathPrefix("/ws").Subrouter()
 	ws.HandleFunc("/", realtimeService.HandleWebSocket)
 
-	// router.PathPrefix("/pwa").Handler(http.FileServer(http.Dir("pwa/")))
-	// Catch-all static file handler (must be last)
-	router.PathPrefix("/").Handler(http.FileServer(http.Dir("pwa/")))
+	// SvelteKit static build (spa/build) with SPA fallback for client routes
+	router.PathPrefix("/").Handler(spaHandler("spa/build"))
 
 	if cfg.RecoveryMode {
 		log.Debug().Msg("Initializing recovery mode...")
