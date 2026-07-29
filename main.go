@@ -180,6 +180,9 @@ func main() {
 	api.HandleFunc("/check-username", h.CheckUsername).Methods("POST")
 	api.HandleFunc("/check-username", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/users/id", h.GenerateUserID).Methods("GET")
+	api.HandleFunc("/users/id", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/users/signup", h.Signup).Methods("POST")
 	api.HandleFunc("/users/signup", h.noop).Methods("OPTIONS")
 

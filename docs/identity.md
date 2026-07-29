@@ -18,9 +18,21 @@ Operators set `SIGNUP_MODE`:
 
 `MAX_INVITES_PER_USER` caps how many invites a user may mint (`-1` / unset = infinite). `/api/server/info` exposes mode and quota so the SPA can hide Sign Up and disable minting without guessing.
 
+### Signup
 
+New accounts reserve a **user id** from the server before key generation so the OpenPGP identity can embed `userID@serverID` from the start.
 
+1. **`GET /api/users/id`** (unauthenticated) — server mints a random user id, signs it with the current server signing key, and returns `{ userID, signature, fingerprint }`. Nothing is stored in the database; the id and signature are ephemeral until signup completes.
+2. **Key generation** — client generates an ECC key pair locally. The OpenPGP user id is cosmetic (the server does not verify it against signed identity bytes): **name** `userID@serverID`, **comment** the server display name from `/api/server/info`, optional **email** from the signup form.
+3. **`POST /api/users/signup`** — client sends the usual material (`username`, `publicKey`, self-signature, `userSignature` over the user identity payload) plus `userID`, `userIDSignature` (base64 armored), and `userIDFingerprint` (which server key signed the reserved id). Server verifies the reserved-id signature against that fingerprint’s public key, then creates the profile with that id and countersigns it.
 
+If signup fails after key generation, the client discards the reserved id, keys, and any partial session state so the user can try again.
+
+### Invites
+
+Authenticated users create single-use invite links (subject to quota). Redeeming an invite consumes the token, records a durable countersigned **`invitedBy`** binding, and establishes a **mutual follow** between inviter and invitee.
+
+The redeem secret is minted and held on the inviter’s device; the server stores only `SHA-256(secret)`. Share links put the secret in the URL fragment so it is not sent on navigation. See [Invites](/invites) for the full flow and threat model.
 
 ## Auth day-to-day
 

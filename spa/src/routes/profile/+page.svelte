@@ -218,9 +218,12 @@
         throw new Error('Passphrase not found');
       }
 
+      const serverId = localStorage.getItem('serverId') || '';
+      const serverName = localStorage.getItem('serverName') || '';
       const newKeyPair = await cryptoService.generateKeyPair({
-        name: user.username || 'User',
+        name: `${user.id}@${serverId}`,
         email: revokeEmail.trim() || undefined,
+        comment: serverName || undefined,
         password: passphrase
       });
       console.log("new key fingerprint:", newKeyPair.fingerprint);

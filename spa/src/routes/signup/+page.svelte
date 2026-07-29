@@ -132,18 +132,6 @@
     let fingerprint = "";
 
     try {
-      currentStep = 1;
-      password = generatePassword();
-      const keyPair = await cryptoService.generateKeyPair({
-        name: username,
-        email,
-        password,
-        comment: username,
-      });
-      fingerprint = keyPair.fingerprint;
-      authService.setPassphrase(password);
-
-      currentStep = 2;
       const { privateKeyRepository } = await import(
         "$lib/repositories/privateKey"
       );
@@ -152,16 +140,32 @@
       );
       const { apiService } = await import("$lib/services/api");
 
-      await privateKeyRepository.put(keyPair.fingerprint, keyPair.privateKey);
+      currentStep = 1;
+      const reserved = await apiService.getUserID();
+
+      currentStep = 2;
+      password = generatePassword();
+      const serverId = localStorage.getItem('serverId') || '';
+      const serverName = localStorage.getItem('serverName') || '';
+      const keyPair = await cryptoService.generateKeyPair({
+        name: `${reserved.userID}@${serverId}`,
+        email,
+        comment: serverName || undefined,
+        password,
+      });
+      fingerprint = keyPair.fingerprint;
+      authService.setPassphrase(password);
 
       currentStep = 3;
+      await privateKeyRepository.put(keyPair.fingerprint, keyPair.privateKey);
+
+      currentStep = 4;
       const signature = await cryptoService.signMessage(
         keyPair.publicKey,
         keyPair.privateKey,
         password,
       );
 
-      currentStep = 4;
       const identityPayload = buildNewUserIdentityPayload(
         username,
         keyPair.fingerprint,
@@ -179,6 +183,9 @@
         publicKey: keyPair.publicKey,
         signature,
         userSignature,
+        userID: reserved.userID,
+        userIDSignature: reserved.signature,
+        userIDFingerprint: reserved.fingerprint,
         ...(inviteID && inviteSecret
           ? { inviteID, inviteSecret }
           : {}),
@@ -279,7 +286,7 @@
         </div>
 
         {#if loading}
-          <ProgressBar {currentStep} totalSteps={6} />
+          <ProgressBar {currentStep} totalSteps={7} />
         {/if}
         <button disabled={loading} class="submit">
           {loading ? "Creating account..." : "Create account"}

@@ -216,6 +216,48 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID := strings.TrimSpace(values.Get("userID"))
+	if userID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		return
+	}
+	if !ids.Valid(userID) {
+		writeResponse(w, http.StatusBadRequest, "Invalid userID")
+		return
+	}
+
+	userIDSigB64 := values.Get("userIDSignature")
+	if userIDSigB64 == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `userIDSignature` is required")
+		return
+	}
+	userIDSigArmor, err := base64.StdEncoding.DecodeString(userIDSigB64)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid userIDSignature encoding")
+		return
+	}
+
+	userIDFingerprint := strings.TrimSpace(values.Get("userIDFingerprint"))
+	if userIDFingerprint == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `userIDFingerprint` is required")
+		return
+	}
+
+	serverPubKey, err := h.services.db.GetServerPublicKeyByFingerprint(userIDFingerprint)
+	if err != nil || serverPubKey == "" {
+		log.Error().
+			Str("userIDFingerprint", userIDFingerprint).
+			Err(err).
+			Msg("Failed to load server public key for userID verification")
+		internalServerError(w)
+		return
+	}
+	if err := h.services.crypto.VerifySignature(userID, string(userIDSigArmor), serverPubKey); err != nil {
+		log.Error().Err(err).Msg("userID signature verification failed")
+		writeResponse(w, http.StatusBadRequest, "userID signature verification failed")
+		return
+	}
+
 	inviteID := strings.TrimSpace(values.Get("inviteID"))
 	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
 	inv, err := h.services.db.LookupPendingInvite(r.Context(), inviteID, inviteSecret)
@@ -284,21 +326,6 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-
-	// Generate the userID up front so it can be bound into the server
-	// identity payload (userID is a header on the server-signed bytes).
-	// We do not pre-check the DB for a collision: that would open a
-	// race between the check and the INSERT. Instead we sign
-	// optimistically and let the INSERT's UNIQUE constraint reject
-	// the (astronomically unlikely) duplicate. If persistence later
-	// fails for any reason, the ID is simply discarded — no row was
-	// written.
-	userID, err := generateUserID()
-	if err != nil {
-		log.Error().Err(err).Msg("Error generating userID")
-		internalServerError(w)
-		return
-	}
 
 	profilePayload := identity.BuildNewProfilePayload(
 		userID,
@@ -378,6 +405,34 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		Msg("Identity record created")
 
 	writeResponse(w, http.StatusCreated, user)
+}
+
+// GenerateUserID returns a fresh random user ID signed by the server.
+// The client uses this before key generation so the OpenPGP identity can
+// embed userID@serverID. The ID and signature are ephemeral — nothing is
+// stored in DB.
+func (h *Handlers) GenerateUserID(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	userID, err := generateUserID()
+	if err != nil {
+		log.Error().Err(err).Msg("Error generating userID")
+		internalServerError(w)
+		return
+	}
+
+	sig, err := h.services.crypto.Sign(userID, h.signingKey.Armor)
+	if err != nil {
+		log.Error().Err(err).Msg("Error signing userID")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, map[string]string{
+		"userID":      userID,
+		"signature":   base64.StdEncoding.EncodeToString([]byte(sig)),
+		"fingerprint": h.signingKey.Fingerprint,
+	})
 }
 
 func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
