@@ -1,12 +1,60 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 
 export const isInstalled = writable(false);
 export const canInstall = writable(false);
-export const isOnline = writable(true);
+export const isOnline = writable(
+  typeof navigator !== 'undefined' ? navigator.onLine : true
+);
+
+type ReconnectListener = () => void;
+const reconnectListeners = new Set<ReconnectListener>();
+
+/** Fires when the device transitions from offline to online. */
+export function onReconnect(listener: ReconnectListener): () => void {
+  reconnectListeners.add(listener);
+  return () => reconnectListeners.delete(listener);
+}
+
+function notifyReconnect(): void {
+  for (const listener of reconnectListeners) {
+    try {
+      listener();
+    } catch (error) {
+      console.error('Reconnect listener failed:', error);
+    }
+  }
+}
+
+function applyOnlineStatus(online: boolean): void {
+  const wasOnline = get(isOnline);
+  isOnline.set(online);
+
+  const body = document.body;
+  if (body) {
+    if (online) {
+      body.setAttribute('data-sveltekit-preload-data', 'hover');
+      body.removeAttribute('data-sveltekit-reload');
+    } else {
+      body.setAttribute('data-sveltekit-preload-data', 'off');
+      body.setAttribute('data-sveltekit-reload', '');
+    }
+  }
+
+  if (online && !wasOnline) {
+    notifyReconnect();
+  }
+}
 
 let deferredPrompt: any = null;
+let pwaInitialized = false;
 
 export function initializePWA() {
+  if (pwaInitialized) {
+    applyOnlineStatus(navigator.onLine);
+    return;
+  }
+  pwaInitialized = true;
+
   // Check if app is already installed
   if (window.matchMedia('(display-mode: standalone)').matches) {
     isInstalled.set(true);
@@ -29,25 +77,16 @@ export function initializePWA() {
   });
 
   // Listen for online/offline events
-  const updateOnlineStatus = () => {
-    const online = navigator.onLine;
-    isOnline.set(online);
-
-    // Update preload behavior based on online status
-    const body = document.body;
-    if (body) {
-      if (online) {
-        body.setAttribute('data-sveltekit-preload-data', 'hover');
-        body.removeAttribute('data-sveltekit-reload');
-      } else {
-        body.setAttribute('data-sveltekit-preload-data', 'off');
-        body.setAttribute('data-sveltekit-reload', '');
-      }
-    }
-  };
+  const updateOnlineStatus = () => applyOnlineStatus(navigator.onLine);
 
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
+  // Background tabs often miss 'online'; re-check when the page becomes visible.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      updateOnlineStatus();
+    }
+  });
   updateOnlineStatus();
 
   // Register service worker immediately.

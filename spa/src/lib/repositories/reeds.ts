@@ -16,7 +16,7 @@ import {
   MAX_REED_VISIBLE_CHARS,
   reedContentWithinLimits,
 } from '$lib/utils/reedContent';
-import { isOnline } from '$lib/services/pwa';
+import { isOnline, onReconnect } from '$lib/services/pwa';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
@@ -257,6 +257,12 @@ export {
 } from '$lib/utils/reedContent';
 
 export const reedsService = new ReedsService();
+
+if (typeof window !== 'undefined') {
+  onReconnect(() => {
+    void reedsService.processUnsignedReeds();
+  });
+}
 
 const FOLLOWCAST_KEY = 'followcastIds';
 const FOLLOWCAST_LIMIT = 50;
