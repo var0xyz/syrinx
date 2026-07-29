@@ -48,6 +48,10 @@ Multi-device concurrent publishing can **fork** an author’s reed history: two 
 
 **Device binding** (single active device) is the longer-term control plane for “which device may publish,” without putting device ids into the signed public profile.
 
-## Offline-first authoring
+## Offline-first
+
+Syrinx treats the device as the source of truth for what you keep. If the server disappears, the app and your stored data should still be usable locally—you can export a backup and carry it forward. See [Philosophy — Offline-first](/philosophy#offline-first-you-own-your-data) for why that matters and what moving to another instance does *not* solve yet.
+
+### Authoring while disconnected
 
 Authors can queue work locally (pending publishes, pending removals, pending revocations) and sync when online. The local truth is signed; the server countersigns when it accepts. Retries are designed to be **idempotent** where certificates are involved—see [Deletion](/deletion).
