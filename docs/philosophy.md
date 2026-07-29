@@ -34,6 +34,18 @@ No push notifications. No algorithmic feed of things you didn’t ask for. No in
 
 Losing a device without a backup can mean losing access to your account. There is no “forgot password” that magically restores encrypted material you no longer hold. That is uncomfortable—and intentional. Control over keys and data often costs convenience. Syrinx chooses the former.
 
+## Offline-first: you own your data
+
+Syrinx is **offline-first** on purpose. The server coordinates the network; it is not where your life lives. Your keys, your reeds, the profiles you follow, and the content you chose to keep sit on **your device**—IndexedDB behind a PWA that caches its own shell so the app still loads when the network does not.
+
+If the server goes away—operator shutdown, seizure, billing failure, whatever—you should still be able to open Syrinx on the device that holds your data and read what you have. No login form that only works when someone else’s database is up. No “your account lives on our servers” hostage situation. **You own your data.**
+
+That ownership is practical, not rhetorical. You can **export an encrypted backup** of your local store and move it to another device or keep it somewhere safe. When the community stands up a server again at a new URL, you can restore from that backup and use the app locally while the network is rebuilt. See [Identity, invites & recovery](/identity) for the unified restore path.
+
+What you **cannot** do yet—at least not with one click—is treat a backup like luggage and **check it into a different Syrinx instance** as if nothing happened. Your reeds and profile carry **user signatures**; the server that witnessed them also **countersigned** them. A new server has not validated that history. Re-establishing trust across instances—who attests what, which countersignatures count, how holdings and allocations replay—is real protocol work. [Federation](/planned#federation) is part of that longer story. For now, moving a community means rebuilding server-side state through **recovery** and peer reporting, not silently repointing the client at a stranger’s tracker.
+
+Offline-first is the guarantee that a bad week for the operator is not automatically a bad week for **your** archive. The network may blink; your copy should not.
+
 ## Openness over walled gardens
 
 Syrinx runs on **the Open Web** on purpose. Native app stores are walled gardens: opaque binaries, update gates, and a culture of “just trust the vendor.” A web client is something you can open, read, and audit. You can see what leaves the device and what claims it makes about signatures and keys.

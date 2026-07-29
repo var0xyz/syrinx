@@ -32,7 +32,7 @@ That is the *ish*: distribution and verification like a peer network, with a tra
 
 | Topic | What you'll learn |
 |-------|-------------------|
-| [Philosophy](/philosophy) | Honesty about permanence, closed communities, what we refuse to fake |
+| [Philosophy](/philosophy) | Honesty about permanence, offline-first ownership, closed communities, what we refuse to fake |
 | [Planned features](/planned) | Likes, federation, ephemeral comments, messaging, discoverability |
 | [Architecture](/architecture) | API, realtime, SPA, and the tracker/relay role of the server |
 | [Trust model](/trust) | What we defend against, and what we don't pretend to |
