@@ -18,6 +18,7 @@ import {
   reedContentWithinLimits,
 } from '$lib/utils/reedContent';
 import { isOnline, onReconnect } from '$lib/services/pwa';
+import { isBlankEcho } from '$lib/utils/emptyEcho';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
@@ -130,7 +131,8 @@ class ReedsService {
       await this.storeReed(published);
       await pendingPublicationRepository.put(published.id);
       await serverConnection.connect();
-      serverConnection.publishReady(published.id);
+      const broadcast = !isBlankEcho(published);
+      await serverConnection.publishReady(published.id, { broadcast });
       await dbService.delete('unsignedReeds', reed.id);
       unsignedReedsProcessed.update((n) => n + 1);
       return true;
@@ -257,7 +259,9 @@ class ReedsService {
 
     await serverConnection.connect();
     for (const { reedID } of pending) {
-      serverConnection.publishReady(reedID);
+      const reed = await dbService.get<ReedType>('reeds', reedID);
+      const broadcast = reed ? !isBlankEcho(reed) : true;
+      await serverConnection.publishReady(reedID, { broadcast });
     }
   }
 }

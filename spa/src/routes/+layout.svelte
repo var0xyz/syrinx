@@ -19,6 +19,7 @@
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { parseReedRef } from '$lib/utils/reedRef';
+  import { isBlankEcho } from '$lib/utils/emptyEcho';
 
   // Prefetch reeds referenced by echoing/replying (userID@serverID/reedID).
   async function requestReferencedReeds(reed: any) {
@@ -102,12 +103,11 @@
       // Broadcast reeds are ephemeral: never stored in IndexedDB.
       // Followed authors belong in followcast only — ignore if we follow them.
       const reed = data.data;
+      if (isBlankEcho(reed)) return;
       if (reed?.userID && (await followingRepository.isFollowing(reed.userID))) {
         return;
       }
       dispatchReedToQueue(reed, 'broadcast_reed', data.username);
-      // Blank echoes need the original body for feed previews.
-      await requestReferencedReeds(reed);
     });
     serverConnection.on(ServerEvent.ReedRemoved, async (data) => {
       const eventId = data.event_id;

@@ -156,18 +156,32 @@ func (rs *RealtimeService) fanoutNewReed(authorUserID, reedID string) {
 		Str("reedID", reedID).
 		Msg("Fanning out new reed")
 
-	followers, err := rs.dbService.GetOnlineFollowers(authorUserID)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Msg("Failed to get online followers from database")
-	}
-
 	broadcastRecipients, err := rs.dbService.GetBroadcastSubscribers(authorUserID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Msg("Failed to get broadcast subscribers from database")
+	}
+
+	rs.fanoutNewReedCore(authorUserID, reedID, broadcastRecipients)
+}
+
+// fanoutNewReedNoBroadcast dispatches to followers and profile subs only (no broadcast stream).
+func (rs *RealtimeService) fanoutNewReedNoBroadcast(authorUserID, reedID string) {
+	log.Info().
+		Str("userID", authorUserID).
+		Str("reedID", reedID).
+		Msg("Fanning out new reed (no broadcast)")
+
+	rs.fanoutNewReedCore(authorUserID, reedID, nil)
+}
+
+func (rs *RealtimeService) fanoutNewReedCore(authorUserID, reedID string, broadcastRecipients []string) {
+	followers, err := rs.dbService.GetOnlineFollowers(authorUserID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msg("Failed to get online followers from database")
 	}
 
 	log.Info().
@@ -855,8 +869,13 @@ func (rs *RealtimeService) handlePublishReady(client *Client, jsonMsg map[string
 		log.Error().Err(err).Str("reedID", reedID).Str("userID", authorUserID).Msg("Failed to claim pending fanout")
 		return
 	}
+
 	if claimed {
-		go rs.fanoutNewReed(authorUserID, reedID)
+		if shouldBroadcast(data) {
+			go rs.fanoutNewReed(authorUserID, reedID)
+		} else {
+			go rs.fanoutNewReedNoBroadcast(authorUserID, reedID)
+		}
 	} else {
 		exists, err := rs.dbService.ReedExists(authorUserID, reedID)
 		if err != nil {
@@ -1232,4 +1251,21 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 		}
 		rs.deliverAccountRemoved(eventID, requestID, userID, rem.UserID, rem.Cert)
 	}
+}
+
+// shouldBroadcast reports whether PUBLISH_READY should fan out to the broadcast stream.
+// Absent or true means include broadcast; only explicit false opts out.
+func shouldBroadcast(data map[string]interface{}) bool {
+	if data == nil {
+		return true
+	}
+	v, ok := data["broadcast"]
+	if !ok || v == nil {
+		return true
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return true
+	}
+	return b
 }

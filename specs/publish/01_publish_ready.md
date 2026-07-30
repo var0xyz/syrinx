@@ -62,17 +62,22 @@ On successful create (and on idempotent replay):
 Client → server (authenticated):
 
 ```json
-{ "type": "PUBLISH_READY", "data": { "reed_id": "<reedID>" } }
+{ "type": "PUBLISH_READY", "data": { "reed_id": "<reedID>", "broadcast": true } }
 ```
+
+`broadcast` is optional and defaults to `true`. When `false`, fanout runs for
+followers and profile subscribers but **skips** broadcast subscribers (used for
+contentless echoes today; reserved for per-post broadcast opt-out later).
 
 Server:
 
 1. Require `client.userID` is the tip author (`pending_fanout.user_id` /
    `reeds.user_id`).
 2. If a `pending_fanout` row exists for `(author, reed_id)` → delete it and run
-   the existing `NewReed` fanout path (followers, broadcast subs, profile
-   subs, `dispatchMany` / `dispatchNext(author)`). Delete before fanout so
-   concurrent READY messages only run fanout once.
+   the existing `NewReed` fanout path (followers; broadcast subs when
+   `broadcast` is not `false`; profile subs; `dispatchMany` /
+   `dispatchNext(author)`). Delete before fanout so concurrent READY messages
+   only run fanout once.
 3. If no row but the tip exists for this author → no-op fanout (already done).
 4. If the tip does not exist for this author → ignore (no ack).
 5. Otherwise send **`PUBLISH_READY_ACK`** `{ reed_id }` so the client can clear
