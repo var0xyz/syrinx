@@ -13,6 +13,8 @@
   import Avatar from '$lib/components/Avatar.svelte';
   import { goto } from '$app/navigation';
   import { parseReedRef } from '$lib/utils/reedRef';
+  import { isBlankEcho } from '$lib/utils/emptyEcho';
+  import { serverConnection } from '$lib/services/serverConnection';
 
   export let authorId;
   export let isOwner = false;
@@ -29,22 +31,26 @@
   let echoedReeds = new Map();
   let repliedToReeds = new Map();
   let echoedReedUsers = new Map();
+  /** Echo refs we already asked the server for (avoid duplicate REQUEST_REED). */
+  let pendingEchoRequests = new Set();
+  /** profileReedQueue / newReedQueue items already handled (store value is sticky). */
+  let lastHandledProfileReedId = '';
+  let lastHandledNewReedId = '';
 
   $: if ($unsignedReedsProcessed > 0) loadReeds();
   $: if ($pendingRemovalSynced > 0) loadReeds();
-  // profileReedQueue carries explicitly requested content (profile subscription / REQUEST_REED).
-  // We reload immediately only when the user is already at the top (no scroll loss risk).
-  // Otherwise we show a banner instead, letting the user decide when to reload.
-  // newReedQueue carries catch-up and follow-broadcast reeds — we never auto-reload for those,
-  // since the user didn't ask for them and reloading would interrupt their current position.
-  $: if ($profileReedQueue?.reed.userID === authorId) {
-    if (window.scrollY === 0) {
-      loadReeds();
-    } else {
-      showNewReedBanner = true;
-    }
+
+  // Only depend on the queue store — never read reeds/pendingReeds here or
+  // loadReeds() will retrigger this block and flash the loading screen.
+  $: profileArrived = $profileReedQueue?.reed;
+  $: if (profileArrived && profileArrived.id !== lastHandledProfileReedId) {
+    lastHandledProfileReedId = profileArrived.id;
+    void onProfileReedArrived(profileArrived);
   }
-  $: if ($newReedQueue?.reed.userID === authorId) {
+
+  $: newArrived = $newReedQueue?.reed;
+  $: if (newArrived?.userID === authorId && newArrived.id !== lastHandledNewReedId) {
+    lastHandledNewReedId = newArrived.id;
     showNewReedBanner = true;
   }
 
@@ -52,6 +58,46 @@
     profileUser = await userRepository.getByUserId(authorId).catch(() => null);
     await loadReeds();
   });
+
+  async function mergeEchoOriginal(original, echoRefKey) {
+    pendingEchoRequests.delete(echoRefKey);
+    const echoMap = new Map(echoedReeds);
+    echoMap.set(echoRefKey, original);
+    echoedReeds = echoMap;
+
+    try {
+      const author = await userRepository.getByUserId(original.userID);
+      if (author) {
+        const userMap = new Map(echoedReedUsers);
+        userMap.set(echoRefKey, author);
+        echoedReedUsers = userMap;
+      }
+    } catch {
+      // username falls back to userID in the template
+    }
+  }
+
+  async function onProfileReedArrived(arrived) {
+    const all = [...pendingReeds, ...reeds];
+    const echoRef = all.find((r) => {
+      if (!isBlankEcho(r)) return false;
+      const parsed = parseReedRef(r.echoing);
+      return parsed && parsed.reedId === arrived.id && parsed.authorId === arrived.userID;
+    })?.echoing;
+
+    if (echoRef) {
+      await mergeEchoOriginal(arrived, echoRef);
+      return;
+    }
+
+    if (arrived.userID === authorId) {
+      if (window.scrollY === 0) {
+        await loadReeds();
+      } else {
+        showNewReedBanner = true;
+      }
+    }
+  }
 
   async function loadReeds() {
     try {
@@ -79,16 +125,28 @@
       );
 
       const echoMap = new Map();
-      echoEntries.forEach(({ key }, i) => {
+      echoEntries.forEach(({ key, author, reedId }, i) => {
         if (echoResults[i].status === 'fulfilled' && echoResults[i].value) {
           echoMap.set(key, echoResults[i].value);
+          pendingEchoRequests.delete(key);
+          return;
+        }
+        const parsed = parseReedRef(key);
+        if (!parsed) return;
+        // Blank echoes have nothing to preview until the original arrives.
+        if (
+          allForQuotes.some(r => r.echoing === key && isBlankEcho(r)) &&
+          !pendingEchoRequests.has(key)
+        ) {
+          pendingEchoRequests.add(key);
+          serverConnection.requestReedContent(reedId, author, parsed.serverId);
         }
       });
       echoedReeds = echoMap;
 
       // Fetch authors for empty-echo swaps
       const emptyEchoKeys = allForQuotes
-        .filter(r => r.echoing && !(r.content || '').trim() && echoMap.has(r.echoing))
+        .filter(r => isBlankEcho(r) && echoMap.has(r.echoing))
         .map(r => r.echoing);
 
       const uniqueEchoAuthors = [...new Set(emptyEchoKeys.map(key => echoMap.get(key).userID))];
@@ -170,7 +228,7 @@
 {#if showNewReedBanner}
   <div class="new-reed-banner">
     <div class="new-reed-msg">New reed available</div>
-    <button on:click={() => { showNewReedBanner = false; loadReeds(); }}>Show</button>
+    <button on:click={() => { showNewReedBanner = false; void loadReeds(); }}>Show</button>
     <button class="dismiss" on:click={() => (showNewReedBanner = false)}>✕</button>
   </div>
 {/if}
@@ -196,7 +254,8 @@
     </div>
   {:else}
     {#each pendingReeds as reed (reed.id)}
-      {@const isEmptyEcho = !!(reed.echoing && !(reed.content || '').trim() && echoedReeds.has(reed.echoing))}
+      {@const awaitingOriginal = isBlankEcho(reed) && !echoedReeds.has(reed.echoing)}
+      {@const isEmptyEcho = isBlankEcho(reed) && echoedReeds.has(reed.echoing)}
       {@const displayReed = isEmptyEcho ? echoedReeds.get(reed.echoing) : reed}
       {@const displayUser = isEmptyEcho ? (echoedReedUsers.get(reed.echoing) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
       <div class="reed-item pending" role="button" tabindex="0" on:click={() => navigateToReed(reed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(reed)}>
@@ -216,7 +275,7 @@
             </div>
           {/if}
         </div>
-        {#if !isEmptyEcho && reed.replying}
+        {#if !isEmptyEcho && !awaitingOriginal && reed.replying}
           <div class="quote-container">
             <Quote
               reed={repliedToReeds.get(reed.replying)}
@@ -226,12 +285,16 @@
             />
           </div>
         {/if}
-        {#if (displayReed.content || "").trim()}
+        {#if awaitingOriginal}
+          <div class="reed-preview echo placeholder" aria-busy="true">
+            <span class="placeholder-label">Loading echoed reed…</span>
+          </div>
+        {:else if (displayReed.content || "").trim()}
           <div class={["reed-preview", !isEmptyEcho && reed.echoing && "echo", !isEmptyEcho && reed.replying && "reply"]}>
             <MarkdownParser text={displayReed.content} preview={true} />
           </div>
         {/if}
-        {#if !isEmptyEcho && reed.echoing}
+        {#if !isEmptyEcho && !awaitingOriginal && reed.echoing}
           <div class="quote-container">
             <Quote
               reed={echoedReeds.get(reed.echoing)}
@@ -244,10 +307,11 @@
       </div>
     {/each}
     {#each reeds as reed (reed.id)}
-      {@const isEmptyEcho = !!(reed.echoing && !(reed.content || '').trim() && echoedReeds.has(reed.echoing))}
+      {@const awaitingOriginal = isBlankEcho(reed) && !echoedReeds.has(reed.echoing)}
+      {@const isEmptyEcho = isBlankEcho(reed) && echoedReeds.has(reed.echoing)}
       {@const displayReed = isEmptyEcho ? echoedReeds.get(reed.echoing) : reed}
       {@const displayUser = isEmptyEcho ? (echoedReedUsers.get(reed.echoing) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
-      <div class="reed-item" role="button" tabindex="0" on:click={() => navigateToReed(displayReed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(displayReed)}>
+      <div class="reed-item" role="button" tabindex="0" on:click={() => navigateToReed(awaitingOriginal ? reed : displayReed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(awaitingOriginal ? reed : displayReed)}>
         <div class="reed-header">
           <div class="reed-info">
             <div class="reed-avatar">
@@ -255,7 +319,7 @@
             </div>
             <div class="reed-details">
               <h3>{displayUser.username}</h3>
-              <p>{formatRelativeTime(displayReed.serverSignature.timestamp)}</p>
+              <p>{formatRelativeTime((awaitingOriginal ? reed : displayReed).serverSignature?.timestamp ?? reed.serverSignature?.timestamp)}</p>
             </div>
           </div>
           {#if isOwner}
@@ -264,7 +328,7 @@
             </div>
           {/if}
         </div>
-        {#if !isEmptyEcho && reed.replying}
+        {#if !isEmptyEcho && !awaitingOriginal && reed.replying}
           <div class="quote-container">
             <Quote
               reed={repliedToReeds.get(reed.replying)}
@@ -274,12 +338,16 @@
             />
           </div>
         {/if}
-        {#if (displayReed.content || "").trim()}
+        {#if awaitingOriginal}
+          <div class="reed-preview echo placeholder" aria-busy="true">
+            <span class="placeholder-label">Loading echoed reed…</span>
+          </div>
+        {:else if (displayReed.content || "").trim()}
           <div class={["reed-preview", !isEmptyEcho && reed.echoing && "echo", !isEmptyEcho && reed.replying && "reply"]}>
             <MarkdownParser text={displayReed.content} preview={true} />
           </div>
         {/if}
-        {#if !isEmptyEcho && reed.echoing}
+        {#if !isEmptyEcho && !awaitingOriginal && reed.echoing}
           <div class="quote-container">
             <Quote
               reed={echoedReeds.get(reed.echoing)}
@@ -480,6 +548,19 @@
 
   .reed-preview.echo {
     padding-bottom: 0;
+  }
+
+  .reed-preview.placeholder {
+    min-height: 4.5rem;
+    display: flex;
+    align-items: center;
+    padding-bottom: 1rem;
+  }
+
+  .placeholder-label {
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-style: italic;
   }
 
   .quote-container {
