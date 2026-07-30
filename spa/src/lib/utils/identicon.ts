@@ -123,7 +123,7 @@ function byteStream(digest: Uint8Array): () => number {
   };
 }
 
-const GRID = 10;
+const GRID = 11;
 
 /**
  * Build palette from root HSL + a fixed scale (interval set).

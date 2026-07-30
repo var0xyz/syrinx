@@ -106,6 +106,8 @@
         return;
       }
       dispatchReedToQueue(reed, 'broadcast_reed', data.username);
+      // Blank echoes need the original body for feed previews.
+      await requestReferencedReeds(reed);
     });
     serverConnection.on(ServerEvent.ReedRemoved, async (data) => {
       const eventId = data.event_id;
