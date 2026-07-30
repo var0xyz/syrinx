@@ -241,9 +241,15 @@ class ServerConnection {
     this.send({ type: 'DATA_INVALID', data: { event_id: eventId } });
   }
 
-  async publishReady(reedId: string): Promise<void> {
+  async publishReady(reedId: string, options?: { broadcast?: boolean }): Promise<void> {
     await this.connect();
-    this.send({ type: 'PUBLISH_READY', data: { reed_id: reedId } });
+    this.send({
+      type: 'PUBLISH_READY',
+      data: {
+        reed_id: reedId,
+        broadcast: options?.broadcast !== false,
+      },
+    });
   }
 
   // Store a relay request that couldn't be fulfilled immediately because the reed

@@ -6,15 +6,11 @@
     broadcastReedQueue,
     getFollowcastReeds,
     initFollowcastIds,
-    profileReedQueue,
     newReedQueue,
     removeBroadcastReed,
-    reedsService,
   } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
-  import { userRepository } from '$lib/repositories/user';
   import { formatRelativeTime } from '$lib/utils/time';
-  import { parseReedRef } from '$lib/utils/reedRef';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
   import { goto } from '$app/navigation';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -29,12 +25,6 @@
   const BROADCAST_KEY = 'broadcastReeds';
   const BROADCAST_LIMIT = 50;
 
-  /** @type {Map<string, any>} echoing ref → original reed */
-  let echoedReeds = new Map();
-  /** @type {Map<string, any>} echoing ref → original author user */
-  let echoedReedUsers = new Map();
-  let pendingEchoRequests = new Set();
-  let lastHandledProfileReedId = '';
   let lastHandledNewReedId = '';
 
   function loadBroadcastReeds() {
@@ -43,7 +33,9 @@
       return defaultValue;
     }
     try {
-      return JSON.parse(sessionStorage.getItem(BROADCAST_KEY));
+      const parsed = JSON.parse(sessionStorage.getItem(BROADCAST_KEY));
+      parsed.reeds = (parsed.reeds ?? []).filter((r) => !isBlankEcho(r));
+      return parsed;
     } catch {
       sessionStorage.removeItem(BROADCAST_KEY);
     }
@@ -51,6 +43,7 @@
   }
 
   function saveBroadcastReed(reed, username, existing) {
+    if (isBlankEcho(reed)) return existing;
     if (existing.reeds.some(r => r.id === reed.id)) return existing;
     const updatedReeds = [reed, ...existing.reeds].slice(0, BROADCAST_LIMIT);
     const updatedAuthors =
@@ -69,112 +62,22 @@
     handleBroadcastReed($broadcastReedQueue.reed, $broadcastReedQueue.username);
   }
 
-  $: profileArrived = $profileReedQueue?.reed;
-  $: if (profileArrived && profileArrived.id !== lastHandledProfileReedId) {
-    lastHandledProfileReedId = profileArrived.id;
-    void onProfileReedArrived(profileArrived);
-  }
-
   $: newArrived = $newReedQueue?.reed;
   $: if (newArrived && newArrived.id !== lastHandledNewReedId) {
     lastHandledNewReedId = newArrived.id;
     void loadFollowcast();
   }
 
-  async function onProfileReedArrived(arrived) {
-    const all = [...broadcastReeds.reeds, ...followcastReeds.reeds];
-    const echoRef = all.find((r) => {
-      if (!isBlankEcho(r)) return false;
-      const parsed = parseReedRef(r.echoing);
-      return parsed && parsed.reedId === arrived.id && parsed.authorId === arrived.userID;
-    })?.echoing;
-
-    if (echoRef) {
-      await mergeEchoOriginal(arrived, echoRef);
-    }
-  }
-
-  async function mergeEchoOriginal(original, echoRefKey) {
-    pendingEchoRequests.delete(echoRefKey);
-    const echoMap = new Map(echoedReeds);
-    echoMap.set(echoRefKey, original);
-    echoedReeds = echoMap;
-
-    try {
-      const author = await userRepository.getByUserId(original.userID);
-      if (author) {
-        const userMap = new Map(echoedReedUsers);
-        userMap.set(echoRefKey, author);
-        echoedReedUsers = userMap;
-      }
-    } catch {
-      // username falls back to userID in the template
-    }
-  }
-
   async function handleBroadcastReed(reed, username) {
+    if (isBlankEcho(reed)) return;
     if (reed?.userID && (await followingRepository.isFollowing(reed.userID))) {
       return;
     }
     broadcastReeds = saveBroadcastReed(reed, username, broadcastReeds);
-    await resolveBlankEchoes(broadcastReeds.reeds);
   }
 
   async function loadFollowcast() {
     followcastReeds = await getFollowcastReeds();
-    await resolveBlankEchoes(followcastReeds.reeds);
-  }
-
-  /** Load originals for blank echoes; request missing ones and omit them from the list until they arrive. */
-  async function resolveBlankEchoes(reeds) {
-    const blank = reeds.filter(isBlankEcho);
-    if (blank.length === 0) return;
-
-    const echoMap = new Map(echoedReeds);
-    const userMap = new Map(echoedReedUsers);
-
-    await Promise.all(blank.map(async (reed) => {
-      const key = reed.echoing;
-      if (echoMap.has(key)) return;
-      const parsed = parseReedRef(key);
-      if (!parsed) return;
-      const original = await reedsService.getReed(parsed.authorId, parsed.reedId);
-      if (original) {
-        pendingEchoRequests.delete(key);
-        echoMap.set(key, original);
-        try {
-          const author = await userRepository.getByUserId(original.userID);
-          if (author) userMap.set(key, author);
-        } catch {
-          // username falls back to userID in the template
-        }
-        return;
-      }
-      if (!pendingEchoRequests.has(key)) {
-        pendingEchoRequests.add(key);
-        serverConnection.requestReedContent(parsed.reedId, parsed.authorId, parsed.serverId);
-      }
-    }));
-
-    echoedReeds = echoMap;
-    echoedReedUsers = userMap;
-  }
-
-  function visibleFeedReeds(reeds) {
-    return reeds.filter((r) => !isBlankEcho(r) || echoedReeds.has(r.echoing));
-  }
-
-  function feedDisplay(reed) {
-    if (isBlankEcho(reed) && echoedReeds.has(reed.echoing)) {
-      const displayReed = echoedReeds.get(reed.echoing);
-      const displayUser = echoedReedUsers.get(reed.echoing);
-      return {
-        displayReed,
-        username: displayUser?.username ?? displayReed.userID,
-        href: `/reed/${displayReed.userID}/${displayReed.id}`,
-      };
-    }
-    return null;
   }
 
   function setActiveSection(section) {
@@ -217,7 +120,6 @@
 
     await initFollowcastIds();
     broadcastReeds = await pruneBroadcastFollowedReeds(broadcastReeds);
-    await resolveBlankEchoes(broadcastReeds.reeds);
     if (activeSection === 'followcast') loadFollowcast();
 
     await serverConnection.connect();
@@ -278,38 +180,34 @@
             <p>Community-wide reeds</p>
           </div>
 
-          {#if visibleFeedReeds(broadcastReeds.reeds).length === 0}
+          {#if broadcastReeds.reeds.length === 0}
             <div class="waiting-state">
               <div class="waiting-pulse"></div>
               <p>Listening for new reeds...</p>
             </div>
           {:else}
-            {#each visibleFeedReeds(broadcastReeds.reeds) as reed (reed.id)}
-              {@const swapped = feedDisplay(reed)}
-              {@const displayReed = swapped?.displayReed ?? reed}
-              {@const username = swapped?.username ?? (broadcastReeds.authors[reed.userID]?.username ?? reed.userID)}
-              {@const href = swapped?.href ?? `/reed/${reed.userID}/${reed.id}`}
+            {#each broadcastReeds.reeds as reed (reed.id)}
               <div class="feed-item" role="button" tabindex="0"
-                on:click={() => goto(href)}
-                on:keydown={(e) => e.key === 'Enter' && goto(href)}>
+                on:click={() => goto(`/reed/${reed.userID}/${reed.id}`)}
+                on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.userID}/${reed.id}`)}>
                 <div class="feed-header">
                   <div class="feed-author">
                     <div class="avatar">
                       <Avatar
-                        userID={displayReed.userID}
-                        username={username}
+                        userID={reed.userID}
+                        username={broadcastReeds.authors[reed.userID]?.username ?? reed.userID}
                         size="40px"
                       />
                     </div>
                     <div class="author-info">
-                      <span class="author-name">{username}</span>
-                      <span class="feed-time">{formatRelativeTime(displayReed.serverSignature.timestamp)}</span>
+                      <span class="author-name">{broadcastReeds.authors[reed.userID]?.username ?? reed.userID}</span>
+                      <span class="feed-time">{formatRelativeTime(reed.serverSignature.timestamp)}</span>
                     </div>
                   </div>
                 </div>
-                {#if (displayReed.content || '').trim()}
+                {#if (reed.content || '').trim()}
                   <div class="feed-content">
-                    <MarkdownParser text={displayReed.content} preview={true} />
+                    <MarkdownParser text={reed.content} preview={true} />
                   </div>
                 {/if}
               </div>
@@ -321,46 +219,35 @@
             <p>Reeds from people you follow</p>
           </div>
 
-          {#if visibleFeedReeds(followcastReeds.reeds).length === 0}
-            {#if followcastReeds.reeds.length > 0}
-              <div class="waiting-state">
-                <div class="waiting-pulse"></div>
-                <p>Loading echoed reeds...</p>
-              </div>
-            {:else}
-              <div class="empty-state">
-                <div class="empty-icon">👥</div>
-                <h3>No reeds from people you follow yet.</h3>
-                <p>Follow people and their reeds will appear here.</p>
-              </div>
-            {/if}
+          {#if followcastReeds.reeds.length === 0}
+            <div class="empty-state">
+              <div class="empty-icon">👥</div>
+              <h3>No reeds from people you follow yet.</h3>
+              <p>Follow people and their reeds will appear here.</p>
+            </div>
           {:else}
-            {#each visibleFeedReeds(followcastReeds.reeds) as reed (reed.id)}
-              {@const swapped = feedDisplay(reed)}
-              {@const displayReed = swapped?.displayReed ?? reed}
-              {@const username = swapped?.username ?? (followcastReeds.authors[reed.userID]?.username ?? reed.userID)}
-              {@const href = swapped?.href ?? `/reed/${reed.userID}/${reed.id}`}
+            {#each followcastReeds.reeds as reed (reed.id)}
               <div class="feed-item" role="button" tabindex="0"
-                on:click={() => goto(href)}
-                on:keydown={(e) => e.key === 'Enter' && goto(href)}>
+                on:click={() => goto(`/reed/${reed.userID}/${reed.id}`)}
+                on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.userID}/${reed.id}`)}>
                 <div class="feed-header">
                   <div class="feed-author">
                     <div class="avatar">
                       <Avatar
-                        userID={displayReed.userID}
-                        username={username}
+                        userID={reed.userID}
+                        username={followcastReeds.authors[reed.userID]?.username ?? reed.userID}
                         size="40px"
                       />
                     </div>
                     <div class="author-info">
-                      <span class="author-name">{username}</span>
-                      <span class="feed-time">{formatRelativeTime(displayReed.serverSignature.timestamp)}</span>
+                      <span class="author-name">{followcastReeds.authors[reed.userID]?.username ?? reed.userID}</span>
+                      <span class="feed-time">{formatRelativeTime(reed.serverSignature.timestamp)}</span>
                     </div>
                   </div>
                 </div>
-                {#if (displayReed.content || '').trim()}
+                {#if (reed.content || '').trim()}
                   <div class="feed-content">
-                    <MarkdownParser text={displayReed.content} preview={true} />
+                    <MarkdownParser text={reed.content} preview={true} />
                   </div>
                 {/if}
               </div>
