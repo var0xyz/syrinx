@@ -1,6 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
+  import { get } from 'svelte/store';
   import { requestSigner } from '../services/request-signer';
   import { authService } from '../services/auth';
   import {
@@ -11,7 +13,8 @@
 
   export let children;
 
-  let isChecking = true;
+  // Layout load() already resolved the user before this page rendered.
+  let isChecking = !get(page).data?.user;
 
   onMount(async () => {
     await checkAuthentication();
@@ -19,7 +22,6 @@
 
   async function checkAuthentication() {
     try {
-      // Mid-import / mid-recovery: never treat local identity as a finished session.
       if (isImportInProgress() || isImportGated()) {
         enforceImportGate(window.location.pathname);
         return;
@@ -30,7 +32,7 @@
         return;
       }
 
-      const user = await authService.getCurrentUser();
+      const user = get(page).data?.user ?? (await authService.getCurrentUser());
 
       if (!user) {
         goto('/signup');
@@ -40,15 +42,9 @@
       const passphrase = authService.getPassphrase();
       const fingerprint = authService.getActiveKeyFingerprint();
 
-      console.log('Auth check - fingerprint:', fingerprint);
-      console.log('Auth check - passphrase:', passphrase ? '[REDACTED]' : 'null');
-      console.log('Auth check - request signer initialized:', requestSigner.isInitialized());
-
       if (fingerprint && passphrase && !requestSigner.isInitialized()) {
         try {
-          console.log('Auto-initializing request signer with auth data...');
           await requestSigner.initializeWorker(fingerprint, passphrase);
-          console.log('Request signer auto-initialized successfully');
         } catch (error) {
           console.warn('Failed to auto-initialize request signer:', error);
           goto('/signup');

@@ -1,14 +1,9 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
-  import { authService } from '$lib/services/auth';
-  import { cryptoService } from '$lib/services/crypto';
-  import { privateKeyRepository } from '$lib/repositories/privateKey';
-  import { reedsService, stripMarkdown, countMarkdownCharacters, unsignedReedsProcessed } from '$lib/repositories/reeds';
+  import { reedsService, stripMarkdown, unsignedReedsProcessed } from '$lib/repositories/reeds';
   import { formatAbsoluteDateTime } from '$lib/utils/time';
-  import { Reed } from '$lib/types/reed';
   import { apiService } from '$lib/services/api';
-  import { dbService } from '$lib/services/db';
   import { removeReedAsAuthor, verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -21,31 +16,86 @@
   import { notificationStore } from '$lib/stores/notifications';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
-  import { parseReedRef } from '$lib/utils/reedRef';
   import { echoCountsRepository } from '$lib/repositories/echoCounts';
   import Avatar from '$lib/components/Avatar.svelte';
 
-  let user = null;
-  let authorUser = null;
-  let loading = true;
-  let reed = null;
-  let loadingReed = true;
-  let errorMessage = '';
+  /** @type {import('./$types').PageData} */
+  export let data;
+
+  let user = data.user;
+  let authorUser = data.authorUser;
+  let reed = data.reed;
+  let echoedReed = data.echoedReed;
+  let echoedReedMissing = data.echoedReedMissing;
+  let repliedToReed = data.repliedToReed;
+  let repliedToReedMissing = data.repliedToReedMissing;
+  let echoCount = data.echoCount;
+  let errorMessage = data.errorMessage;
+  let coveragePercent = 0;
+  let loadingReed = !data.fromCache && !data.errorMessage;
   let fetchingReed = false;
   let reedNotFound = false;
-  let echoedReed = null;
-  let echoedReedMissing = false;
-  let repliedToReed = null;
-  let repliedToReedMissing = false;
-  let echoCount = 0;
-  let coveragePercent = 0;
   let subscribedReedKey = '';
   /** Drops stale async loadReed completions (overlapping reactive calls). */
   let loadSeq = 0;
 
-  function handleReedCoverage(data) {
-    if (data?.userID === userID && data?.reedID === reedID) {
-      coveragePercent = data.coveragePercent ?? coveragePercent;
+  // Action buttons state
+  let likesCount = 0;
+  let isLiked = false;
+  let isReplyModalOpen = false;
+  let isEchoModalOpen = false;
+
+  $: userID = $page.params.userID;
+  $: reedID = $page.params.reedID;
+  $: isPending = !!(reed && !reed.serverSignature);
+
+  // Apply fresh load() results when navigating between reeds.
+  $: applyPageData(data);
+
+  function applyPageData(next) {
+    user = next.user;
+    authorUser = next.authorUser;
+    reed = next.reed;
+    echoedReed = next.echoedReed;
+    echoedReedMissing = next.echoedReedMissing;
+    repliedToReed = next.repliedToReed;
+    repliedToReedMissing = next.repliedToReedMissing;
+    echoCount = next.echoCount;
+    errorMessage = next.errorMessage;
+    reedNotFound = false;
+    fetchingReed = false;
+    coveragePercent = 0;
+    loadingReed = !next.fromCache && !next.errorMessage;
+    if (next.fromCache) {
+      void afterCacheHit(next);
+    } else if (!next.errorMessage) {
+      void loadReedFromNetwork();
+    }
+  }
+
+  async function afterCacheHit(next) {
+    if (next.reed?.userID === next.user?.id && !next.reed.serverSignature) {
+      void reedsService.publishUnsignedReed(next.reed);
+    }
+    if (next.reed?.serverSignature) {
+      try {
+        await loadReedStats(next.userID, next.reedID);
+      } catch (error) {
+        echoCount = await echoCountsRepository.get(next.reedID);
+        console.warn('Failed to load reed stats:', error);
+      }
+      await syncReedSubscription();
+    } else {
+      await syncReedSubscription();
+    }
+    if (!authorUser) {
+      await loadAuthorProfile();
+    }
+  }
+
+  function handleReedCoverage(msg) {
+    if (msg?.userID === userID && msg?.reedID === reedID) {
+      coveragePercent = msg.coveragePercent ?? coveragePercent;
     }
   }
 
@@ -76,38 +126,11 @@
     await echoCountsRepository.put(id, stats.echoes);
   }
 
-  // Action buttons state
-  let likesCount = 0;
-  let isLiked = false;
-  let isReplyModalOpen = false;
-  let isEchoModalOpen = false;
+  $: if ($isOnline && user && loadingReed && !data.fromCache) loadReedFromNetwork();
+  $: if ($unsignedReedsProcessed > 0 && user) reloadFromCache();
 
-  $: userID = $page.params.userID;
-  $: reedID = $page.params.reedID;
-  $: isPending = !!(reed && !reed.serverSignature);
-
-  $: if (reedID && user) loadReed();
-  $: if ($isOnline && user) loadReed();
-  $: if ($unsignedReedsProcessed > 0 && user) loadReed(true);
-
-  onMount(async () => {
+  onMount(() => {
     serverConnection.on(ServerEvent.ReedCoverage, handleReedCoverage);
-
-    try {
-      user = await authService.getCurrentUser();
-
-      if (!user) {
-        // Redirect to home page if no user
-        window.location.href = '/';
-        return;
-      }
-    } catch (error) {
-      console.error('Error getting user:', error);
-      // Redirect to home page on error
-      window.location.href = '/';
-    } finally {
-      loading = false;
-    }
   });
 
   onDestroy(() => {
@@ -119,12 +142,30 @@
     }
   });
 
-  async function loadReed(force = false) {
+  async function reloadFromCache() {
     if (!user || !userID || !reedID) return;
+    let found = await reedsService.getReed(userID, reedID);
+    if (!found && user.id === userID) {
+      const pending = await reedsService.getUnsignedReed(reedID);
+      if (pending?.userID === userID) found = pending;
+    }
+    if (found) {
+      reed = found;
+      loadingReed = false;
+      await afterCacheHit({
+        user,
+        userID,
+        reedID,
+        reed: found,
+        authorUser,
+        fromCache: true,
+      });
+    }
+  }
 
-    // Already showing this reed (published or pending) — only forced reloads
-    // (e.g. unsignedReedsProcessed after countersign) should run again.
-    if (!force && reed && reed.id === reedID) return;
+  async function loadReedFromNetwork() {
+    if (!user || !userID || !reedID) return;
+    if (reed && reed.id === reedID) return;
 
     const seq = ++loadSeq;
     try {
@@ -132,143 +173,59 @@
       errorMessage = '';
       reedNotFound = false;
 
-      let found = await reedsService.getReed(userID, reedID);
+      await serverConnection.connect();
+      if (seq !== loadSeq) return;
+      if (!serverConnection.isConnected()) {
+        return;
+      }
 
-      // Author-only: pending local reed. Do not ask the server for existence —
-      // just show Pending… and try to countersign.
-      if (!found && user?.id === userID) {
-        const pending = await reedsService.getUnsignedReed(reedID);
-        if (pending && pending.userID === userID) {
-          found = pending;
-          void reedsService.publishUnsignedReed(pending);
+      try {
+        const result = await apiService.getReedOrRemoval(userID, reedID);
+        if (seq !== loadSeq) return;
+        if (result.kind === 'not_found') {
+          reedNotFound = true;
+          return;
         }
+        if (result.kind === 'gone') {
+          if (result.removal.type === 'reed') {
+            await verifyAndCommitReedRemoval(result.removal);
+            reedNotFound = true;
+          } else if (result.removal.type === 'account') {
+            await verifyAndCommitAccountRemoval(result.removal);
+            reedNotFound = true;
+          } else {
+            reedNotFound = true;
+          }
+          return;
+        }
+      } catch {
+        return;
       }
 
       if (seq !== loadSeq) return;
 
-      if (!found) {
-        // Not in IndexedDB — try to fetch from network
-        await serverConnection.connect();
+      loadingReed = false;
+      fetchingReed = true;
+      try {
+        const networkReed = await serverConnection.requestReedContent(reedID, userID, userID);
         if (seq !== loadSeq) return;
-        if (!serverConnection.isConnected()) {
-          return; // stay in loading state; $isOnline reactive will retry
-        }
-
-        // REST existence check (also applies reed-removal 410 certs)
-        try {
-          const result = await apiService.getReedOrRemoval(userID, reedID);
-          if (seq !== loadSeq) return;
-          if (result.kind === 'not_found') {
-            reedNotFound = true;
-            return;
+        reed = networkReed;
+        await loadAuthorProfile();
+        if (reed.serverSignature) {
+          try {
+            await loadReedStats(userID, reedID);
+          } catch (error) {
+            echoCount = await echoCountsRepository.get(reedID);
+            console.warn('Failed to load reed stats:', error);
           }
-          if (result.kind === 'gone') {
-            if (result.removal.type === 'reed') {
-              await verifyAndCommitReedRemoval(result.removal);
-              reedNotFound = true;
-            } else if (result.removal.type === 'account') {
-              await verifyAndCommitAccountRemoval(result.removal);
-              reedNotFound = true;
-            } else {
-              reedNotFound = true;
-            }
-            return;
-          }
-        } catch (err) {
-          // on network error: stay in loading state, $isOnline reactive will retry
-          return;
+          await syncReedSubscription();
         }
-
+      } catch {
         if (seq !== loadSeq) return;
-
-        // Reed exists on server — request content via WS relay
-        loadingReed = false;
-        fetchingReed = true;
-        try {
-          const data = await serverConnection.requestReedContent(reedID, userID, userID);
-          if (seq !== loadSeq) return;
-          reed = data;
-          await loadAuthorProfile();
-          if (reed.serverSignature) {
-            try {
-              await loadReedStats(userID, reedID);
-            } catch (error) {
-              echoCount = await echoCountsRepository.get(reedID);
-              console.warn('Failed to load reed stats:', error);
-            }
-            await syncReedSubscription();
-          }
-        } catch {
-          if (seq !== loadSeq) return;
-          reedNotFound = true;
-        } finally {
-          if (seq === loadSeq) fetchingReed = false;
-        }
-        return;
+        reedNotFound = true;
+      } finally {
+        if (seq === loadSeq) fetchingReed = false;
       }
-
-      reed = found;
-
-      // Verify that the user matches
-      if (reed.userID !== userID) {
-        errorMessage = 'This reed does not belong to the specified user';
-        return;
-      }
-
-      // Load echoed reed if this is an echo
-      echoedReed = null;
-      echoedReedMissing = false;
-      if (reed.echoing) {
-        const echoRef = parseReedRef(reed.echoing);
-        if (echoRef) {
-          try {
-            echoedReed = await reedsService.getReed(echoRef.authorId, echoRef.reedId);
-            if (!echoedReed) {
-              const data = await apiService.getReed(echoRef.authorId, echoRef.reedId);
-              echoedReed = data;
-            }
-            if (!echoedReed) echoedReedMissing = true;
-          } catch {
-            echoedReedMissing = true;
-          }
-        } else {
-          echoedReedMissing = true;
-        }
-      }
-
-      // Load replied-to reed if this is a reply
-      repliedToReed = null;
-      repliedToReedMissing = false;
-      if (reed.replying) {
-        const replyRef = parseReedRef(reed.replying);
-        if (replyRef) {
-          try {
-            repliedToReed = await reedsService.getReed(replyRef.authorId, replyRef.reedId);
-            if (!repliedToReed) repliedToReedMissing = true;
-          } catch {
-            repliedToReedMissing = true;
-          }
-        } else {
-          repliedToReedMissing = true;
-        }
-      }
-
-      if (reed.serverSignature) {
-        try {
-          await loadReedStats(userID, reedID);
-        } catch (error) {
-          echoCount = await echoCountsRepository.get(reedID);
-          console.warn('Failed to load reed stats:', error);
-        }
-        await syncReedSubscription();
-      } else {
-        echoCount = 0;
-        coveragePercent = 0;
-        await syncReedSubscription();
-      }
-
-      // Fetch the reed author's profile (local cache first, then API).
-      await loadAuthorProfile();
     } catch (error) {
       console.error('Error loading reed:', error);
       if (seq === loadSeq) errorMessage = 'Failed to load reed';
@@ -367,16 +324,6 @@
 
 </script>
 
-{#if loading}
-  <div class="container">
-    <div class="card">
-      <div class="loading">
-        <h2>Loading...</h2>
-        <p>Please wait while we fetch the reed.</p>
-      </div>
-    </div>
-  </div>
-{:else}
   <Auth>
     <div class="reed-detail-container">
 
@@ -493,7 +440,6 @@
     <NewReedModal open={isReplyModalOpen} replyingTo={reed} on:close={() => { isReplyModalOpen = false; }} />
     <NewReedModal open={isEchoModalOpen} echoOf={reed} on:close={() => { isEchoModalOpen = false; }} />
   </Auth>
-{/if}
 
 <style>
   .reed-detail-container {
