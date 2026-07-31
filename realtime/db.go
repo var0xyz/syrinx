@@ -478,19 +478,20 @@ func (ds *DBService) ReedExists(authorUserID, reedID string) (bool, error) {
 	return exists, err
 }
 
-// GetReedCoverage returns holder count, active users, and coverage percent.
-func (ds *DBService) GetReedCoverage(authorUserID, reedID string) (holders, activeUsers, percent int, err error) {
+// GetReedCoveragePercent returns network coverage percent for a tip reed.
+func (ds *DBService) GetReedCoveragePercent(authorUserID, reedID string) (percent int, err error) {
+	var holders int
 	err = ds.db.QueryRow(`
 		SELECT allocation_count FROM reeds WHERE user_id = $1 AND id = $2
 	`, authorUserID, reedID).Scan(&holders)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, err
 	}
-	activeUsers, err = coverage.ActiveUsers(ds.db)
+	activeUsers, err := coverage.ActiveUsers(ds.db)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, err
 	}
-	return holders, activeUsers, coverage.Percent(holders, activeUsers), nil
+	return coverage.Percent(holders, activeUsers), nil
 }
 
 // GetNextPendingForHolder returns the oldest undispatched reed pending for reeds held by holderUserID.

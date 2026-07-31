@@ -1118,7 +1118,6 @@ func (rs *RealtimeService) handleSubscribeReed(client *Client, msg map[string]in
 	}
 
 	rs.connManager.SubscribeReed(client, authorID, reedID)
-	rs.notifyReedCoverage(authorID, reedID)
 }
 
 func (rs *RealtimeService) handleUnsubscribeReed(client *Client, msg map[string]interface{}) {
@@ -1131,7 +1130,7 @@ func (rs *RealtimeService) handleUnsubscribeReed(client *Client, msg map[string]
 }
 
 func (rs *RealtimeService) notifyReedCoverage(authorUserID, reedID string) {
-	holders, activeUsers, percent, err := rs.dbService.GetReedCoverage(authorUserID, reedID)
+	percent, err := rs.dbService.GetReedCoveragePercent(authorUserID, reedID)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -1145,8 +1144,6 @@ func (rs *RealtimeService) notifyReedCoverage(authorUserID, reedID string) {
 		"type":            "REED_COVERAGE",
 		"userID":          authorUserID,
 		"reedID":          reedID,
-		"holders":         holders,
-		"activeUsers":     activeUsers,
 		"coveragePercent": percent,
 	}); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_COVERAGE")

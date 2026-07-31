@@ -1361,8 +1361,6 @@ func (s *DataService) ReedExists(userID, reedID string) (bool, error) {
 // ReedStats is the wire shape for GET /reeds/{userID}/{reedID}/stats.
 type ReedStats struct {
 	Echoes          int `json:"echoes"`
-	Holders         int `json:"holders"`
-	ActiveUsers     int `json:"activeUsers"`
 	CoveragePercent int `json:"coveragePercent"`
 }
 
@@ -1391,8 +1389,6 @@ func (s *DataService) GetReedStats(userID, reedID string) (*ReedStats, error) {
 
 	return &ReedStats{
 		Echoes:          echoes,
-		Holders:         holders,
-		ActiveUsers:     activeUsers,
 		CoveragePercent: coverage.Percent(holders, activeUsers),
 	}, nil
 }

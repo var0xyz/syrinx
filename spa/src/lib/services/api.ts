@@ -353,8 +353,6 @@ export const apiService = {
     reedId: string
   ): Promise<{
     echoes: number;
-    holders: number;
-    activeUsers: number;
     coveragePercent: number;
   }> {
     return request(`/reeds/${userId}/${reedId}/stats`, { method: 'GET' });
