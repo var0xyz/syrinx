@@ -56,10 +56,8 @@ pending waits. Tip row stays.
 ### Client
 
 On `RELAY_REQUEST`: if reed in local `reeds` → `RELAY_RESPONSE`; else →
-`RELAY_MISS`. Do not special-case “I just published this.” Optional
-`sessionStorage` pending + `fulfillPendingRelayRequest` may remain as a
-harmless race cushion for other timing quirks but is not required for the
-publish race once READY gates fanout.
+`RELAY_MISS`. Do not special-case “I just published this.” Fanout after
+READY makes the publish race a non-issue; the client answers immediately.
 
 ### Tests / checklist
 
