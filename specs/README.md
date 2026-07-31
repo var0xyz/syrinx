@@ -97,6 +97,23 @@ See [`avatars/`](avatars/README.md):
 | 01 | Drop server avatar `HEAD`                          |
 | 02 | Shared SPA `Avatar` component + call sites         |
 
+## Account recovery (key-only restore)
+
+See [`account_recovery/`](account_recovery/README.md). Distinct from server
+`RECOVERY_MODE` ([`recovery/`](recovery/README.md)): the user reconstitutes a
+client from private keys while the server still holds the account; peers
+relay the user’s own reed bodies back.
+
+| #  | Title                                              |
+|----|----------------------------------------------------|
+| 00 | Design + tip approaches + restore fork             |
+| 01 | Key export format + profile Export key             |
+| 02 | Challenge + bootstrap API + rehydration row        |
+| 03 | Server-orchestrated own-reed relay + complete      |
+| 04 | SPA keys-only `/import` fork + session             |
+| 05 | SPA rehydration + tip `previousID` + UX            |
+| 06 | Device binding on bootstrap (takeover)             |
+
 ## Signed deletions (reeds + accounts)
 
 See [`deletion/`](deletion/README.md):
@@ -159,6 +176,12 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
   07 cancelled; 09 proposed after wire). Steps 03–06 may parallel after
   02. Deletion may keep
   inlined columns until signatures 06.
+- **Account recovery** ([`account_recovery/`](account_recovery/README.md))
+  is independent of server `RECOVERY_MODE` steps; it extends the unified
+  restore entry (backup vs keys-only fork). Within `account_recovery/`,
+  follow that directory's depends-on column (00→06). Step 01 (export) may
+  parallel 02 (API). Step 06 waits on
+  [recovery 17](recovery/17_device_binding.md).
 
 ## Shared conventions
 
