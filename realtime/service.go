@@ -381,8 +381,17 @@ func (rs *RealtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	// Handle incoming messages
 	rs.handleClientMessages(client)
 
-	// Cleanup when connection closes
-	rs.connManager.UnregisterClient(client)
+	// Cleanup when connection closes. Only tear down DB presence when this
+	// was the user's last socket — a superseded connection must not wipe
+	// online_users, broadcast subscriptions, or in-flight pending events.
+	stillOnline := rs.connManager.UnregisterClient(client)
+	if stillOnline {
+		log.Info().
+			Str("userID", userID).
+			Msg("WebSocket client replaced; keeping online state")
+		return
+	}
+
 	if err := rs.dbService.MarkUserOffline(userID); err != nil {
 		log.Error().Err(err).Msg("Failed to mark user as offline")
 	}
@@ -534,7 +543,7 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 			"data": jsonMsg["data"],
 		}
 		if jsonBytes, err := json.Marshal(response); err == nil {
-			client.conn.WriteMessage(websocket.TextMessage, jsonBytes)
+			client.writeMessage(websocket.TextMessage, jsonBytes)
 		}
 
 	case "SUBSCRIBE_USER":
@@ -613,7 +622,7 @@ func (rs *RealtimeService) handleSubscribeUserJSON(client *Client) {
 		"data": "Subscribed to user notifications",
 	}
 	if jsonBytes, err := json.Marshal(response); err == nil {
-		client.conn.WriteMessage(websocket.TextMessage, jsonBytes)
+		client.writeMessage(websocket.TextMessage, jsonBytes)
 	}
 }
 
@@ -627,7 +636,7 @@ func (rs *RealtimeService) handleSubscribeBroadcastJSON(client *Client) {
 		"data": "Subscribed to broadcast notifications",
 	}
 	if jsonBytes, err := json.Marshal(response); err == nil {
-		client.conn.WriteMessage(websocket.TextMessage, jsonBytes)
+		client.writeMessage(websocket.TextMessage, jsonBytes)
 	}
 }
 
@@ -726,7 +735,7 @@ func (rs *RealtimeService) sendProtobufMessage(client *Client, msg *pb.WSMessage
 	}
 
 	// Send as binary message
-	if err := client.conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+	if err := client.writeMessage(websocket.BinaryMessage, data); err != nil {
 		log.Error().Err(err).Msg("Failed to write protobuf message")
 		return
 	}
@@ -864,7 +873,7 @@ func (rs *RealtimeService) handlePublishReady(client *Client, jsonMsg map[string
 		"data": map[string]string{"reed_id": reedID},
 	}
 	if jsonBytes, err := json.Marshal(ack); err == nil {
-		client.conn.WriteMessage(websocket.TextMessage, jsonBytes)
+		client.writeMessage(websocket.TextMessage, jsonBytes)
 	}
 }
 
