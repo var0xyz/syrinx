@@ -71,14 +71,13 @@
     });
     serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, reed_id }) => {
       console.log('ServerConnection: relay request received for reed:', reed_id, 'event:', event_id);
+      // Keep pending if not in IndexedDB yet — storeReed fulfills after write.
+      // Do not RELAY_MISS on a race; that drops the holder allocation.
       serverConnection.storePendingRelayRequest(reed_id, event_id);
       const reed = await dbService.get('reeds', reed_id);
       if (reed) {
         console.log('ServerConnection: reed found in IndexedDB, fulfilling relay:', reed_id);
         serverConnection.fulfillPendingRelayRequest(reed_id, reed);
-      } else {
-        console.warn('ServerConnection: reed NOT found in IndexedDB, sending relay miss:', reed_id);
-        serverConnection.sendRelayMiss(event_id);
       }
     });
     serverConnection.on(ServerEvent.DataResponse, async (data) => {

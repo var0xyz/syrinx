@@ -30,6 +30,23 @@ class ServerConnection {
   async connect(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) return;
     if (this.connectingPromise) return this.connectingPromise;
+    // Another caller may have created the socket but not finished open yet.
+    if (this.ws?.readyState === WebSocket.CONNECTING) {
+      this.connectingPromise = new Promise<void>((resolve, reject) => {
+        const ws = this.ws!;
+        const onOpen = () => { cleanup(); resolve(); };
+        const onError = () => { cleanup(); reject(new Error('connection failed')); };
+        const cleanup = () => {
+          ws.removeEventListener('open', onOpen);
+          ws.removeEventListener('error', onError);
+        };
+        ws.addEventListener('open', onOpen);
+        ws.addEventListener('error', onError);
+      }).finally(() => {
+        this.connectingPromise = null;
+      });
+      return this.connectingPromise;
+    }
 
     this.connectingPromise = this.doConnect().finally(() => {
       this.connectingPromise = null;
@@ -60,6 +77,15 @@ class ServerConnection {
           console.error('ServerConnection: failed to initialize request signer:', error);
           return;
         }
+      }
+
+      // Drop any half-open / stale socket before opening a new one so the
+      // server does not accumulate zombie connections for this user.
+      if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
+        const prev = this.ws;
+        this.ws = null;
+        prev.onclose = null;
+        prev.close();
       }
 
       const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -112,8 +138,10 @@ class ServerConnection {
 
       this.ws.onclose = (event) => {
         console.log('ServerConnection: connection closed', event.code, event.reason);
-        this.ws = null;
-        sessionStorage.removeItem('syncRequestId');
+        if (this.ws === event.target) {
+          this.ws = null;
+          sessionStorage.removeItem('syncRequestId');
+        }
       };
 
       await new Promise<void>((resolve, reject) => {
@@ -132,7 +160,12 @@ class ServerConnection {
       });
     } catch (error) {
       console.error('ServerConnection: connect failed:', error);
-      this.ws = null;
+      if (this.ws) {
+        const failed = this.ws;
+        this.ws = null;
+        failed.onclose = null;
+        failed.close();
+      }
     }
   }
 

@@ -44,6 +44,7 @@ type Client struct {
 	subscriptions     map[SubscriptionType]bool
 	reedSubscriptions map[string]bool
 	lastPing          time.Time
+	writeMu           sync.Mutex
 }
 
 // ConnectionManager manages WebSocket connections and subscriptions
