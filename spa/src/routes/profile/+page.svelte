@@ -25,8 +25,10 @@
   import { pendingRevocationRepository, pendingRevocationSynced } from '$lib/repositories/pendingRevocation';
   import { revocationRepository } from '$lib/repositories/revocation';
 
-  let user: User | null = null;
-  let loading: boolean = true;
+  /** @type {import('./$types').PageData} */
+  export let data;
+
+  let user: User | null = data.user;
   let storageUsed: number = 0;
   let storageTotal: number = 0;
   let storagePercentage: number = 0;
@@ -86,27 +88,18 @@
 
 
   onMount(async () => {
-    try {
-      if (!authService.isLoggedIn()) {
-        goto('/');
-        return;
-      }
-      user = await authService.getCurrentUser();
-      if (!user) {
-        goto('/');
-        return;
-      }
-
-      try {
-        const fresh = await apiService.getUser(user.id);
-        await authService.saveUserToStorage(fresh);
-        user = fresh;
-      } catch (error) {
-        console.error('Failed to refresh profile follow counts:', error);
-      }
-    } catch (error) {
-      console.error('Error checking authentication:', error);
+    user = data.user;
+    if (!user) {
       goto('/');
+      return;
+    }
+
+    try {
+      const fresh = await apiService.getUser(user.id);
+      await authService.saveUserToStorage(fresh);
+      user = fresh;
+    } catch (error) {
+      console.error('Failed to refresh profile follow counts:', error);
     }
 
     try {
@@ -127,8 +120,6 @@
 
     const storedBackupAt = localStorage.getItem('lastBackupAt');
     if (storedBackupAt) lastBackupAt = parseInt(storedBackupAt);
-
-    loading = false;
   });
 
   async function loadKeyInfo(): Promise<void> {
@@ -605,16 +596,7 @@
   }
 </script>
 
-{#if loading}
-  <div class="container">
-    <div class="card">
-      <div class="loading">
-        <h2>Loading profile...</h2>
-        <p>Please wait while we fetch your account information.</p>
-      </div>
-    </div>
-  </div>
-{:else}
+{#if user}
   <Auth>
     <div class="profile-container">
     <!-- Main Content -->

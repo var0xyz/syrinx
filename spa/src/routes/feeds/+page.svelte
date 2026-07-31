@@ -1,11 +1,9 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { authService } from '$lib/services/auth';
   import { serverConnection } from '$lib/services/serverConnection';
   import {
     broadcastReedQueue,
     getFollowcastReeds,
-    initFollowcastIds,
     newReedQueue,
     removeBroadcastReed,
   } from '$lib/repositories/reeds';
@@ -18,29 +16,16 @@
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
 
-  let user = null;
-  let loading = true;
+  /** @type {import('./$types').PageData} */
+  export let data;
+
+  let user = data.user;
   let activeSection = 'followcast'; // 'broadcast' or 'followcast'
 
   const BROADCAST_KEY = 'broadcastReeds';
   const BROADCAST_LIMIT = 50;
 
   let lastHandledNewReedId = '';
-
-  function loadBroadcastReeds() {
-    const defaultValue = { reeds: [], authors: {} }
-    if (!sessionStorage.getItem(BROADCAST_KEY)) {
-      return defaultValue;
-    }
-    try {
-      const parsed = JSON.parse(sessionStorage.getItem(BROADCAST_KEY));
-      parsed.reeds = (parsed.reeds ?? []).filter((r) => !isBlankEcho(r));
-      return parsed;
-    } catch {
-      sessionStorage.removeItem(BROADCAST_KEY);
-    }
-    return defaultValue;
-  }
 
   function saveBroadcastReed(reed, username, existing) {
     if (isBlankEcho(reed)) return existing;
@@ -55,8 +40,12 @@
     return updated;
   }
 
-  let broadcastReeds = { reeds: [], authors: {} };
-  let followcastReeds = { reeds: [], authors: {} };
+  let broadcastReeds = data.broadcastReeds;
+  let followcastReeds = data.followcastReeds;
+
+  $: user = data.user;
+  $: broadcastReeds = data.broadcastReeds;
+  $: followcastReeds = data.followcastReeds;
 
   $: if ($broadcastReedQueue) {
     handleBroadcastReed($broadcastReedQueue.reed, $broadcastReedQueue.username);
@@ -108,20 +97,7 @@
   }
 
   onMount(async () => {
-    broadcastReeds = loadBroadcastReeds();
-
-    try {
-      user = await authService.getCurrentUser();
-    } catch (error) {
-      console.error('Error getting user:', error);
-    } finally {
-      loading = false;
-    }
-
-    await initFollowcastIds();
     broadcastReeds = await pruneBroadcastFollowedReeds(broadcastReeds);
-    if (activeSection === 'followcast') loadFollowcast();
-
     await serverConnection.connect();
     serverConnection.subscribeToBroadcast();
   });
@@ -131,16 +107,6 @@
   });
 </script>
 
-{#if loading}
-  <div class="container">
-    <div class="card">
-      <div class="loading">
-        <h2>Loading feeds...</h2>
-        <p>Please wait while we fetch your latest updates.</p>
-      </div>
-    </div>
-  </div>
-{:else}
   <Auth>
     <div class="feeds-container">
     <!-- Section Toggle -->
@@ -261,7 +227,6 @@
     <BottomToolbar currentPage="feeds" />
     </div>
   </Auth>
-{/if}
 
 <style>
   .feeds-container {

@@ -1,69 +1,63 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { beforeNavigate } from '$app/navigation';
   import { page } from '$app/stores';
-  import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
   import { serverConnection } from '$lib/services/serverConnection';
   import { userRepository } from '$lib/repositories/user';
   import { reedsService } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
-  import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import ReedsList from '$lib/components/ReedsList.svelte';
   import UserProfileCard from '$lib/components/UserProfileCard.svelte';
 
+  /** @type {import('./$types').PageData} */
+  export let data;
+
   $: userId = $page.params.userId;
 
   // 'loading' | 'tombstone' | 'notFound' | 'noContent' | 'ready'
-  let status = 'loading';
-  let isOwner = false;
-  let profileUser = null;
+  let status = data.status;
+  let isOwner = data.isOwner;
+  let profileUser = data.profileUser;
   let profileSubscriptionActive = false;
-  let tombstoneNote = '';
+  let tombstoneNote = data.tombstoneNote;
 
-  onMount(async () => {
-    const currentUser = await authService.getCurrentUser().catch(() => null);
-    isOwner = currentUser?.id === userId;
+  $: applyPageData(data);
 
-    // Tombstone check — runs first, always
-    if (await userRepository.isTombstone(userId)) {
-      const cert = await removedAccountsRepository.get(userId);
-      tombstoneNote = cert?.note ?? '';
-      status = 'tombstone';
-      return;
+  function applyPageData(next) {
+    status = next.status;
+    isOwner = next.isOwner;
+    profileUser = next.profileUser;
+    tombstoneNote = next.tombstoneNote;
+    if (next.fromCache && next.status === 'ready') {
+      void refreshUserInBackground();
+      void subscribeToProfileIfNotFollowing(next.userId);
+    } else if (!next.fromCache && next.status === 'loading') {
+      void loadFromNetwork(next.userId);
     }
+  }
 
-    const localReeds = await reedsService.getReedsByAuthor(userId);
+  async function loadFromNetwork(uid: string) {
+    const { status: httpStatus, user, removal } = await apiService.getUserWithStatus(uid);
 
-    if (localReeds.length > 0) {
-      // Case 1 — render immediately, subscribe in background to pick up any missing reeds
-      profileUser = isOwner ? currentUser : await userRepository.getByUserId(userId).catch(() => null);
-      status = 'ready';
-      refreshUserInBackground();
-      subscribeToProfileIfNotFollowing(userId);
-    } else {
-      // Case 2 — no local data, ask the server
-      const { status: httpStatus, user, removal } = await apiService.getUserWithStatus(userId);
+    if (httpStatus === 404) {
+      status = 'notFound';
+    } else if (httpStatus === 410) {
+      await handleGone(removal);
+    } else if (httpStatus === 200) {
+      await userRepository.put(user);
+      profileUser = user;
 
-      if (httpStatus === 404) {
-        status = 'notFound';
-      } else if (httpStatus === 410) {
-        await handleGone(removal);
-      } else if (httpStatus === 200) {
-        await userRepository.put(user);
-        profileUser = user;
-
-        if (user.hasReeds) {
-          await subscribeToProfileIfNotFollowing(userId);
-          status = 'ready';
-        } else {
-          status = 'noContent';
-        }
+      if (user.hasReeds) {
+        await subscribeToProfileIfNotFollowing(uid);
+        status = 'ready';
+      } else {
+        status = 'noContent';
       }
     }
-  });
+  }
 
   async function refreshUserInBackground() {
     try {
@@ -91,7 +85,6 @@
     profileSubscriptionActive = true;
   }
 
-
   function cleanupProfileSubscription() {
     if (profileSubscriptionActive) {
       serverConnection.unsubscribeProfile(userId);
@@ -115,7 +108,6 @@
       }
       tombstoneNote = removal.note ?? '';
     } else {
-      // Legacy/unknown Gone without cert — purge reeds + tombstone, keep keys.
       await reedsService.deleteReedsByAuthor(userId);
       await userRepository.writeTombstone(userId);
       tombstoneNote = '';

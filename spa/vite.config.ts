@@ -1,8 +1,18 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 import { defineConfig } from 'vite';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import devtoolsJson from 'vite-plugin-devtools-json';
 import { licensePlugin } from './vite-plugin-license.js';
+
+const spaRoot = path.dirname(fileURLToPath(import.meta.url));
+// openpgp/lightweight only lists a `browser` export; Node's resolver (used
+// when Kit loads server chunks during build) ignores that condition.
+const openpgpLightweight = path.resolve(
+  spaRoot,
+  'node_modules/openpgp/dist/lightweight/openpgp.min.mjs'
+);
 
 export default defineConfig({
   plugins: [
@@ -94,11 +104,14 @@ export default defineConfig({
     global: 'globalThis',
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production')
   },
-  // openpgp/lightweight only declares a `browser` export condition.
   resolve: {
+    alias: {
+      'openpgp/lightweight': openpgpLightweight
+    },
     conditions: ['browser', 'import', 'module', 'default']
   },
   ssr: {
+    noExternal: ['openpgp'],
     resolve: {
       conditions: ['browser', 'import', 'module', 'default'],
       externalConditions: ['browser', 'import', 'module', 'default']

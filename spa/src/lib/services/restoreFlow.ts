@@ -3,7 +3,6 @@
  * using local importRun + recoveryRun markers (see recovery proposal 10/15).
  */
 
-import { goto } from '$app/navigation';
 import { authService } from './auth';
 import { isImportComplete, isImportInProgress } from './importRun';
 import {
@@ -11,6 +10,10 @@ import {
   isRecoveryInProgress,
   resumeRecoveryRun,
 } from './recoveryRun';
+
+function navigate(path: string): void {
+  void import('$app/navigation').then(({ goto }) => goto(path));
+}
 
 /** Import finished and recovery started but not completed — SPA import-gated. */
 export function isImportGated(): boolean {
@@ -50,7 +53,7 @@ export function importGateRedirect(pathname: string): string | null {
 export function enforceImportGate(pathname: string): boolean {
   const dest = importGateRedirect(pathname);
   if (!dest) return false;
-  void goto(dest);
+  navigate(dest);
   return true;
 }
 
@@ -61,18 +64,18 @@ export function enforceImportGate(pathname: string): boolean {
  */
 export function redirectForRestoreState(): boolean {
   if (authService.isLoggedIn()) {
-    void goto('/reeds');
+    navigate('/reeds');
     return true;
   }
   if (typeof window !== 'undefined') {
     return enforceImportGate(window.location.pathname);
   }
   if (isImportInProgress()) {
-    void goto('/import');
+    navigate('/import');
     return true;
   }
   if (isImportGated()) {
-    void goto('/recovery');
+    navigate('/recovery');
     return true;
   }
   return false;
@@ -101,6 +104,6 @@ export function handleFinishRecoveryForbidden(): void {
   }
 
   if (!pathAllowedDuringRecovery(window.location.pathname)) {
-    void goto('/recovery');
+    navigate('/recovery');
   }
 }
