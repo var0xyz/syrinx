@@ -58,20 +58,19 @@ gain or lose the reed.
   "type": "REED_COVERAGE",
   "userID": "<authorID>",
   "reedID": "<reedID>",
-  "holders": 12,
-  "activeUsers": 100,
   "coveragePercent": 12
 }
 ```
 
-Same field meanings as [`GET …/stats`](01_counts_and_api.md) coverage fields
+Same `coveragePercent` meaning as [`GET …/stats`](01_counts_and_api.md)
 (no `echoes` on this event — echo count is publish-time index, not
 allocation-driven; refresh echoes via `/stats` or existing surfaces if
 needed).
 
-Optional immediate snapshot after successful subscribe (server pushes one
-`REED_COVERAGE` with current counters) so the client can confirm sync; not
-required if REST already ran.
+Do **not** push a snapshot on subscribe: the SPA already loads REST stats
+before `SUBSCRIBE_REED`. Live emits are allocate/deallocate only, so the
+client does not see an immediate stale coverage event followed by the
+updated one.
 
 ### When to emit
 
@@ -79,7 +78,7 @@ required if REST already ran.
 |---------|----------------------|
 | Allocation inserted (`AllocateReed` / author seed / recovery insert that bumps count) | Yes, to subscribers of that reed |
 | Allocation deleted (single or bulk that changes a reed’s count) | Yes |
-| `active_users` increment/decrement | **Yes, to all reed subscribers** (coverage % depends on denominator) — or omit in v1 and accept stale `%` until next holder change / reopen. **v1 choice: emit to all active reed subscriptions on `active_users` change** (instance-wide; keep payload small). If that is too chatty, defer to reopen-only for denominator changes and document the tradeoff. Prefer **emit on allocate/deallocate always**; for `active_users` changes, **reopen/REST is enough in v1** (signup/removal are rarer relative to reading a reed). Locked for v1: **allocate/deallocate only**; `activeUsers` in the payload is current at emit time; signup mid-view may leave `%` slightly stale until next holder event or revisit. |
+| `active_users` increment/decrement | **Yes, to all reed subscribers** (coverage % depends on denominator) — or omit in v1 and accept stale `%` until next holder change / reopen. **v1 choice: emit to all active reed subscriptions on `active_users` change** (instance-wide; keep payload small). If that is too chatty, defer to reopen-only for denominator changes and document the tradeoff. Prefer **emit on allocate/deallocate always**; for `active_users` changes, **reopen/REST is enough in v1** (signup/removal are rarer relative to reading a reed). Locked for v1: **allocate/deallocate only**; signup mid-view may leave `%` slightly stale until next holder event or revisit. |
 
 ### Server sketch
 
@@ -96,8 +95,7 @@ for **published** reeds (has `serverSignature`):
 
 1. `GET …/stats` → set echoes + coverage line.
 2. `SUBSCRIBE_REED` with page `userID` / `reedID`.
-3. On `REED_COVERAGE` matching this reed → update holders / percent (and
-   displayed `%`).
+3. On `REED_COVERAGE` matching this reed → update displayed `%`.
 4. `onDestroy` / navigation away → `UNSUBSCRIBE_REED`.
 5. Pending unsigned reed: no subscribe, no coverage line (unchanged).
 
@@ -115,8 +113,9 @@ page reload.
 
 ### Tests / checklist
 
-- Subscribe → allocate another user → subscriber receives higher `holders`.
-- Deallocate → lower `holders`.
+- Subscribe alone does not emit `REED_COVERAGE` (REST snapshot only).
+- Subscribe → allocate another user → subscriber receives higher `%`.
+- Deallocate → lower `%`.
 - Unsubscribe → no further events.
 - Disconnect clears sub; reconnect without subscribe → no events.
 - Detail page: stats then live update; leave page → unsubscribe.

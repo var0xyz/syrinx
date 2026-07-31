@@ -109,8 +109,6 @@ Authenticated. Path author + reed id.
 ```json
 {
   "echoes": 3,
-  "holders": 12,
-  "activeUsers": 100,
   "coveragePercent": 12
 }
 ```
@@ -118,9 +116,10 @@ Authenticated. Path author + reed id.
 | Field | Source |
 |-------|--------|
 | `echoes` | `COUNT` / existing echo index for this target (same predicate as today’s `/echoes` — non-removed echoes) |
-| `holders` | `reeds.allocation_count` |
-| `activeUsers` | `network_stats.active_users` |
-| `coveragePercent` | `floor(100 * holders / activeUsers)` or `0` if `activeUsers == 0`; clamp to `100` max |
+| `coveragePercent` | `floor(100 * allocation_count / active_users)` or `0` if `active_users == 0`; clamp to `100` max |
+
+Holder and active-user totals stay server-internal for the percent
+computation; they are not on this wire shape.
 
 ### Relationship to `/echoes`
 
@@ -132,9 +131,9 @@ Authenticated. Path author + reed id.
 
 ### Tests / checklist
 
-- Publish → `allocation_count == 1`, stats `holders: 1`.
-- Second allocate (new holder) → `holders: 2`; duplicate ACK → still `2`.
-- Deallocate → `holders` decrements; coverage WS/REST agree.
-- Signup increments `activeUsers`; account removal decrements.
+- Publish → `allocation_count == 1`, stats `%` matches `floor(100/active)`.
+- Second allocate (new holder) → `%` rises; duplicate ACK → unchanged.
+- Deallocate → `%` drops; coverage WS/REST agree.
+- Signup increments `active_users`; account removal decrements.
 - `/stats` returns echoes consistent with `/echoes` for the same reed.
 - Removed reed → no 200 stats body.

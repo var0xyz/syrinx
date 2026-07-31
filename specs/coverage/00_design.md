@@ -102,7 +102,7 @@ sequenceDiagram
 
   SPA->>API: GET /reeds/userID/reedID/stats
   API->>DB: echoes + allocation_count + active_users
-  API-->>SPA: echoes, holders, activeUsers, coveragePercent
+  API-->>SPA: echoes, coveragePercent
   SPA->>WS: SUBSCRIBE_REED
   Note over WS,DB: allocate or deallocate
   WS-->>SPA: REED_COVERAGE update
