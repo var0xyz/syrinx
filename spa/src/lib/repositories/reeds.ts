@@ -216,8 +216,6 @@ class ReedsService {
         await dbService.put('tags', { tagName: tag, reeds }, allowUnsigned);
       }
     }
-
-    serverConnection.fulfillPendingRelayRequest(reed.id, reed);
   }
 
   async deleteReedsByAuthor(authorId: string): Promise<void> {

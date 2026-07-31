@@ -252,34 +252,6 @@ class ServerConnection {
     });
   }
 
-  // Store a relay request that couldn't be fulfilled immediately because the reed
-  // wasn't in IndexedDB yet. Keyed by md5(RELAY_REQUEST:serverId/userId/reedId) so
-  // storeReedInIndexedDB can find and dispatch it after the write completes.
-  storePendingRelayRequest(reedId: string, eventId: string): void {
-    const key = this.relayPendingKey(reedId);
-    sessionStorage.setItem(key, JSON.stringify({ event_id: eventId }));
-  }
-
-  fulfillPendingRelayRequest(reedId: string, reed: any): void {
-    const key = this.relayPendingKey(reedId);
-    const raw = sessionStorage.getItem(key);
-    if (!raw) {
-      console.warn(`ServerConnection: fulfillPendingRelayRequest called for '${reedId}' but no pending relay found in sessionStorage`);
-      return;
-    }
-    const { event_id } = JSON.parse(raw);
-    console.log(`ServerConnection: sending relay response for reed '${reedId}', event '${event_id}'`);
-    this.sendRelayResponse(event_id, reed);
-    sessionStorage.removeItem(key);
-    console.log(`Reed '${reedId}' relayed`);
-  }
-
-  private relayPendingKey(reedId: string): string {
-    const serverId = localStorage.getItem('serverId') ?? '';
-    const userId = localStorage.getItem('userId') ?? '';
-    return md5(`RELAY_REQUEST:${serverId}/${userId}/${reedId}`);
-  }
-
   syncRequest(): void {
     const requestId = crypto.randomUUID();
     sessionStorage.setItem('syncRequestId', requestId);
