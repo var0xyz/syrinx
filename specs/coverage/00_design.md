@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -15,18 +15,16 @@ content (author seed on publish, recovery report, or `DATA_ACK` after
 delivery). That table drives relay and deletion catch-up; it is not
 cryptographic proof of possession.
 
-There is no product surface today for “how many users have this reed.” Reed
-detail already shows a tiny echoes count (“stats for nerds”). Coverage sits
-beside that.
-
-Reed detail does **not** subscribe to per-reed WS updates today — only local
-load / one-shot `REQUEST_REED`. Allocation writes are silent.
+Reed detail shows a tiny “stats for nerds” line: echo count and coverage.
+Those values must stay in sync while the page is open without a second
+HTTP channel for the same data.
 
 ## Scope
 
 - Define **held**, **active users**, and **coverage percent**.
 - Lock UX placement and privacy.
-- Outline REST snapshot + live subscription (details in 01 / 02).
+- Lock **WS-only** delivery: subscribe → snapshot ACK → independent live
+  updates (details in [01](01_counts.md) / [02](02_reed_subscription.md)).
 
 ## Non-goals
 
@@ -55,19 +53,15 @@ coveragePercent = floor(100 * holders / activeUsers)   // when activeUsers > 0
 coveragePercent = 0                                      // when activeUsers == 0
 ```
 
-Server computes and returns `coveragePercent` on REST and WS so clients do
-not diverge on rounding. Cap is natural: `holders` should never exceed
-`activeUsers` under correct allocate/remove accounting; if it transiently
-does, still use the formula (may show `>100` only if buggy — prefer clamping
-to `100` in the handler as a safety rail).
+Server computes and returns `coveragePercent` on WS so clients do not
+diverge on rounding. Clamp to `100` max as a safety rail if holders
+transiently exceed active users.
 
 ### Privacy / audience
 
-Any **authenticated** user who can open the reed detail page may read
-coverage for that reed (REST + subscribe). No author-only gate. Unauthenticated
-requests are rejected like other reed APIs.
-
-Coverage reveals an aggregate, not who holds the reed.
+Any **authenticated** user who can open the reed detail page may subscribe
+and receive stats for that reed. Coverage reveals an aggregate, not who
+holds the reed.
 
 ### UX
 
@@ -78,51 +72,39 @@ only; hide while pending / unsigned):
 [megaphone] N    [cloud-line-chart] P%
 ```
 
-Asset paths (SPA static):
-
 | Stat | Icon |
 |------|------|
 | Echoes | [`/icons/megaphone-16.png`](../../spa/static/icons/megaphone-16.png) |
 | Coverage | [`/icons/cloud-line-chart-16.png`](../../spa/static/icons/cloud-line-chart-16.png) |
 
-- Both icons are black PNGs — render with CSS `mask-image` + `background-color: currentColor` (same pattern as the current echoes stats line) so they pick up `--muted`.
-- Small, muted, monospace-adjacent styling (same “stats for nerds” voice).
-- `N` = echo count; `P%` = `coveragePercent`.
-- Do not put coverage on the Echo action button.
-- Pending local reeds: no stats line (no server tip yet).
+Black PNGs → CSS `mask-image` + `currentColor` / `--muted`. Small, muted
+“stats for nerds” voice. Do not put coverage on the Echo action button.
 
 ### Data path (overview)
 
 ```mermaid
 sequenceDiagram
   participant SPA as ReedDetail
-  participant API as REST
   participant WS as Realtime
   participant DB as DB
 
-  SPA->>API: GET /reeds/userID/reedID/stats
-  API->>DB: echoes + allocation_count + active_users
-  API-->>SPA: echoes, coveragePercent
   SPA->>WS: SUBSCRIBE_REED
+  WS->>DB: echoes + allocation_count + active_users
+  WS-->>SPA: REED_STATS (echoes + coveragePercent)
+  Note over WS,DB: new echo of this reed
+  WS-->>SPA: REED_ECHOES (echoes only)
   Note over WS,DB: allocate or deallocate
-  WS-->>SPA: REED_COVERAGE update
+  WS-->>SPA: REED_COVERAGE (coveragePercent only)
   SPA->>WS: UNSUBSCRIBE_REED on leave
 ```
 
-1. On open (published reed): `GET …/stats` once.
-2. Subscribe to the reed; apply live coverage updates.
-3. On leave / destroy: unsubscribe.
+1. On open (published reed): `SUBSCRIBE_REED`.
+2. Server replies immediately with both stats.
+3. Later: echo-only or coverage-only events as each value changes.
+4. On leave: unsubscribe.
 
 ### Counters (why redundant)
 
-Hot paths (every `DATA_ACK` allocate/deallocate) must not
-`COUNT(*)` all users or all holders to emit WS updates. Maintain:
-
-- Per-reed **allocation count** next to tip metadata.
-- Network **active user** count.
-
-Bump both in the **same transaction** as the underlying write (see 01).
-
-## Open questions
-
-None — product decisions locked in the [README](README.md).
+Hot paths must not `COUNT(*)` all users or holders to emit WS updates.
+Maintain per-reed `allocation_count` and network `active_users` in the
+**same TX** as the underlying write ([01](01_counts.md)).

@@ -469,11 +469,18 @@ func (ds *DBService) DeleteReedAllocation(authorUserID, reedID, holderUserID str
 	return n > 0, nil
 }
 
-// ReedExists reports whether a tip reed row exists for the author.
+// ReedExists reports whether a non-removed tip reed row exists for the author.
 func (ds *DBService) ReedExists(authorUserID, reedID string) (bool, error) {
 	var exists bool
 	err := ds.db.QueryRow(`
-		SELECT EXISTS(SELECT 1 FROM reeds WHERE user_id = $1 AND id = $2)
+		SELECT EXISTS(
+			SELECT 1 FROM reeds r
+			WHERE r.user_id = $1 AND r.id = $2
+			  AND NOT EXISTS (
+			    SELECT 1 FROM reed_removals rr
+			    WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
+			  )
+		)
 	`, authorUserID, reedID).Scan(&exists)
 	return exists, err
 }
@@ -492,6 +499,29 @@ func (ds *DBService) GetReedCoveragePercent(authorUserID, reedID string) (percen
 		return 0, err
 	}
 	return coverage.Percent(holders, activeUsers), nil
+}
+
+// CountEchoes returns how many non-removed echoes point at the given reed.
+func (ds *DBService) CountEchoes(echoedUserID, echoedReedID string) (int, error) {
+	var n int
+	err := ds.db.QueryRow(`
+		SELECT COUNT(*) FROM reed_echoes
+		WHERE echoed_user_id = $1 AND echoed_reed_id = $2
+	`, echoedUserID, echoedReedID).Scan(&n)
+	return n, err
+}
+
+// GetReedStatsSnapshot returns echoes + coverage for a subscribe ACK.
+func (ds *DBService) GetReedStatsSnapshot(authorUserID, reedID string) (echoes, coveragePercent int, err error) {
+	coveragePercent, err = ds.GetReedCoveragePercent(authorUserID, reedID)
+	if err != nil {
+		return 0, 0, err
+	}
+	echoes, err = ds.CountEchoes(authorUserID, reedID)
+	if err != nil {
+		return 0, 0, err
+	}
+	return echoes, coveragePercent, nil
 }
 
 // GetNextPendingForHolder returns the oldest undispatched reed pending for reeds held by holderUserID.

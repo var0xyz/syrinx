@@ -16,6 +16,7 @@ const (
 	ReedDeleted // legacy unused; prefer ReedRemoved
 	ReedRemoved
 	AccountRemoved
+	EchoCountChanged // UserID/ReedID = echoed target; refresh REED_ECHOES for subscribers
 )
 
 // BroadcastMessage represents a message sent from the main app to the realtime service
@@ -68,6 +69,8 @@ func (bt BroadcastType) String() string {
 		return "ReedRemoved"
 	case AccountRemoved:
 		return "AccountRemoved"
+	case EchoCountChanged:
+		return "EchoCountChanged"
 	default:
 		return "Unknown"
 	}

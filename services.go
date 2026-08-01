@@ -1216,35 +1216,36 @@ type ReedAttestation struct {
 
 // CreateReedWithEcho inserts the reed metadata, author allocation, optional
 // echo index row, and the user/server attestation rows used for SignReed replay.
+// echoIndexed is true when a new reed_echoes row was inserted.
 func (s *DataService) CreateReedWithEcho(
 	reedID, userID string,
 	userFingerprint, userSignatureB64 string,
 	serverFingerprint, serverSignatureB64 string,
 	timestamp time.Time,
 	echo *ReedRef,
-) (*Reed, error) {
+) (reed *Reed, echoIndexed bool, err error) {
 	if !ids.ValidReed(reedID) {
-		return nil, fmt.Errorf("invalid reed ID")
+		return nil, false, fmt.Errorf("invalid reed ID")
 	}
 
 	timestamp = timestamp.UTC().Truncate(time.Second)
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer tx.Rollback()
 
 	userSigID, err := signing.InsertUserSignature(tx, userFingerprint, userSignatureB64)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	serverSigID, err := signing.InsertServerSignature(tx, serverFingerprint, serverSignatureB64, timestamp)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	var reed Reed
+	var created Reed
 	err = tx.QueryRow(`
 		INSERT INTO reeds (
 			id, user_id, private_key_fingerprint, signed_at,
@@ -1253,43 +1254,46 @@ func (s *DataService) CreateReedWithEcho(
 		VALUES ($1, $2, $3, $4, $5, $6, 1)
 		RETURNING id, user_id, private_key_fingerprint, signed_at
 	`, reedID, userID, serverFingerprint, timestamp, userSigID, serverSigID).Scan(
-		&reed.ID,
-		&reed.UserID,
-		&reed.Fingerprint,
-		&reed.Timestamp,
+		&created.ID,
+		&created.UserID,
+		&created.Fingerprint,
+		&created.Timestamp,
 	)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if _, err := tx.Exec(`
 		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
 		VALUES ($1, $2, $3)
 	`, reedID, userID, userID); err != nil {
-		return nil, fmt.Errorf("allocate reed to author: %w", err)
+		return nil, false, fmt.Errorf("allocate reed to author: %w", err)
 	}
 
 	if _, err := tx.Exec(`
 		INSERT INTO pending_fanout (user_id, reed_id)
 		VALUES ($1, $2)
 	`, userID, reedID); err != nil {
-		return nil, fmt.Errorf("insert pending fanout: %w", err)
+		return nil, false, fmt.Errorf("insert pending fanout: %w", err)
 	}
 
 	if echo != nil {
-		if _, err := tx.Exec(`
+		res, err := tx.Exec(`
 			INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, signed_at)
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (echoing_user_id, echoing_reed_id) DO NOTHING
-		`, userID, reedID, echo.AuthorID, echo.ReedID, timestamp); err != nil {
-			return nil, fmt.Errorf("insert echo index: %w", err)
+		`, userID, reedID, echo.AuthorID, echo.ReedID, timestamp)
+		if err != nil {
+			return nil, false, fmt.Errorf("insert echo index: %w", err)
 		}
+		n, _ := res.RowsAffected()
+		echoIndexed = n > 0
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return &reed, nil
+	return &created, echoIndexed, nil
 }
 
 // GetReedAttestation loads a tip reed and its stored signatures.
@@ -1358,41 +1362,6 @@ func (s *DataService) ReedExists(userID, reedID string) (bool, error) {
 	return exists, err
 }
 
-// ReedStats is the wire shape for GET /reeds/{userID}/{reedID}/stats.
-type ReedStats struct {
-	Echoes          int `json:"echoes"`
-	CoveragePercent int `json:"coveragePercent"`
-}
-
-// GetReedStats returns echo count and network coverage for a published reed.
-func (s *DataService) GetReedStats(userID, reedID string) (*ReedStats, error) {
-	var holders int
-	err := s.db.QueryRow(`
-		SELECT allocation_count FROM reeds WHERE user_id = $1 AND id = $2
-	`, userID, reedID).Scan(&holders)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	echoes, err := s.CountEchoes(userID, reedID)
-	if err != nil {
-		return nil, err
-	}
-
-	activeUsers, err := coverage.ActiveUsers(s.db)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ReedStats{
-		Echoes:          echoes,
-		CoveragePercent: coverage.Percent(holders, activeUsers),
-	}, nil
-}
-
 // CountEchoes returns how many echoes point at the given reed.
 func (s *DataService) CountEchoes(echoedUserID, echoedReedID string) (int, error) {
 	var n int
@@ -1404,22 +1373,73 @@ func (s *DataService) CountEchoes(echoedUserID, echoedReedID string) (int, error
 }
 
 // DeleteEchoIndexForReed clears echo index rows when a reed is removed.
-func (s *DataService) DeleteEchoIndexForReed(userID, reedID string) error {
+// Returns distinct echoed targets whose counts may have changed (excluding
+// the removed reed itself, which no longer has live tip subscribers).
+func (s *DataService) DeleteEchoIndexForReed(userID, reedID string) ([]ReedRef, error) {
+	rows, err := s.db.Query(`
+		SELECT DISTINCT echoed_user_id, echoed_reed_id
+		FROM reed_echoes
+		WHERE echoing_user_id = $1 AND echoing_reed_id = $2
+	`, userID, reedID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var targets []ReedRef
+	for rows.Next() {
+		var t ReedRef
+		if err := rows.Scan(&t.AuthorID, &t.ReedID); err != nil {
+			return nil, err
+		}
+		targets = append(targets, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	if _, err := s.db.Exec(`
 		DELETE FROM reed_echoes WHERE echoing_user_id = $1 AND echoing_reed_id = $2
 	`, userID, reedID); err != nil {
-		return err
+		return nil, err
 	}
-	_, err := s.db.Exec(`
+	if _, err := s.db.Exec(`
 		DELETE FROM reed_echoes WHERE echoed_user_id = $1 AND echoed_reed_id = $2
-	`, userID, reedID)
-	return err
+	`, userID, reedID); err != nil {
+		return nil, err
+	}
+	return targets, nil
 }
 
 // DeleteEchoesByAuthor drops echo index rows created by userID (the echoing author).
-func (s *DataService) DeleteEchoesByAuthor(userID string) error {
-	_, err := s.db.Exec(`DELETE FROM reed_echoes WHERE echoing_user_id = $1`, userID)
-	return err
+// Returns distinct echoed targets whose counts may have changed.
+func (s *DataService) DeleteEchoesByAuthor(userID string) ([]ReedRef, error) {
+	rows, err := s.db.Query(`
+		SELECT DISTINCT echoed_user_id, echoed_reed_id
+		FROM reed_echoes
+		WHERE echoing_user_id = $1
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var targets []ReedRef
+	for rows.Next() {
+		var t ReedRef
+		if err := rows.Scan(&t.AuthorID, &t.ReedID); err != nil {
+			return nil, err
+		}
+		targets = append(targets, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if _, err := s.db.Exec(`DELETE FROM reed_echoes WHERE echoing_user_id = $1`, userID); err != nil {
+		return nil, err
+	}
+	return targets, nil
 }
 
 func (s *DataService) GetReed(userID string, reedID string) (*Reed, error) {

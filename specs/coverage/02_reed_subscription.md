@@ -2,34 +2,30 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
-[01](01_counts_and_api.md)
+[01](01_counts.md)
 
 ## Context
 
-Profile, broadcast, and follow fanout already exist. Reed detail does not
-subscribe to a reed; allocation is a silent DB write on `DATA_ACK`. Coverage
-needs a **reed-scoped** live channel so open detail pages update when holders
-gain or lose the reed.
+Reed detail needs echoes and coverage without a parallel HTTP fetch. One
+subscription carries the initial snapshot and later single-field updates.
 
 ## Scope
 
-- `SUBSCRIBE_REED` / `UNSUBSCRIBE_REED` wire messages.
-- Server subscription table or in-memory map keyed by `(authorID, reedID)`.
-- Emit coverage on allocate and deallocate (and when `active_users` changes
-  only if needed — see below).
-- SPA: subscribe on reed detail enter, unsubscribe on leave; render next to
-  echoes.
+- `SUBSCRIBE_REED` / `UNSUBSCRIBE_REED`.
+- Immediate snapshot ACK with **both** `echoes` and `coveragePercent`.
+- Live `REED_ECHOES` (echoes only) and `REED_COVERAGE` (coveragePercent only).
+- SPA: subscribe on enter, apply events, unsubscribe on leave.
 
 ## Non-goals
 
-- Delivering reed **content** over this channel (still `REQUEST_REED` /
+- Delivering reed **content** on this channel (still `REQUEST_REED` /
   existing queues).
-- Fanout of `reed_removed` / `account_removed` certs (existing paths).
-- Subscribing to all of an author’s reeds at once (use profile sub for that).
+- Fanout of removal certs (existing paths).
+- HTTP stats snapshot for this UI.
 
 ## Design
 
@@ -43,80 +39,105 @@ gain or lose the reed.
 { "type": "UNSUBSCRIBE_REED", "userID": "<authorID>", "reedID": "<reedID>" }
 ```
 
-- Requires authenticated WS (same as other subs).
-- `userID` is the **author** of the reed (path shape matches REST
-  `/reeds/{userID}/{reedID}`).
-- Unknown / removed reed: ack error or ignore subscribe (prefer explicit
-  error so the client keeps REST snapshot only).
-- Multiple tabs: allow multiple connections; each connection has its own
-  subscription set. Disconnect clears that connection’s reed subs.
+- Authenticated WS. `userID` is the **author** of the reed.
+- Unknown / removed reed: explicit error (client shows no stats line).
+- Per-connection subscription set; disconnect clears it.
+- Multiple tabs: each connection subscribes independently.
 
 ### Wire (server → client)
+
+**Snapshot** — sent **immediately** after a successful subscribe, before any
+other reed-stats event for that sub:
+
+```json
+{
+  "type": "REED_STATS",
+  "userID": "<authorID>",
+  "reedID": "<reedID>",
+  "echoes": 3,
+  "coveragePercent": 12
+}
+```
+
+| Field | Source |
+|-------|--------|
+| `echoes` | Non-removed echo count for this target (`reed_echoes`, same predicate as today’s echo index) |
+| `coveragePercent` | Helper from [01](01_counts.md) |
+
+**Echo update** — only when the echo count for this reed changes:
+
+```json
+{
+  "type": "REED_ECHOES",
+  "userID": "<authorID>",
+  "reedID": "<reedID>",
+  "echoes": 4
+}
+```
+
+No `coveragePercent` on this message.
+
+**Coverage update** — only when coverage for this reed changes due to
+allocate/deallocate:
 
 ```json
 {
   "type": "REED_COVERAGE",
   "userID": "<authorID>",
   "reedID": "<reedID>",
-  "coveragePercent": 12
+  "coveragePercent": 15
 }
 ```
 
-Same `coveragePercent` meaning as [`GET …/stats`](01_counts_and_api.md)
-(no `echoes` on this event — echo count is publish-time index, not
-allocation-driven; refresh echoes via `/stats` or existing surfaces if
-needed).
-
-Do **not** push a snapshot on subscribe: the SPA already loads REST stats
-before `SUBSCRIBE_REED`. Live emits are allocate/deallocate only, so the
-client does not see an immediate stale coverage event followed by the
-updated one.
+No `echoes` on this message.
 
 ### When to emit
 
-| Trigger | Emit `REED_COVERAGE`? |
-|---------|----------------------|
-| Allocation inserted (`AllocateReed` / author seed / recovery insert that bumps count) | Yes, to subscribers of that reed |
-| Allocation deleted (single or bulk that changes a reed’s count) | Yes |
-| `active_users` increment/decrement | **Yes, to all reed subscribers** (coverage % depends on denominator) — or omit in v1 and accept stale `%` until next holder change / reopen. **v1 choice: emit to all active reed subscriptions on `active_users` change** (instance-wide; keep payload small). If that is too chatty, defer to reopen-only for denominator changes and document the tradeoff. Prefer **emit on allocate/deallocate always**; for `active_users` changes, **reopen/REST is enough in v1** (signup/removal are rarer relative to reading a reed). Locked for v1: **allocate/deallocate only**; signup mid-view may leave `%` slightly stale until next holder event or revisit. |
+| Trigger | Emit |
+|---------|------|
+| Successful `SUBSCRIBE_REED` | `REED_STATS` once to that connection |
+| New echo indexed against this reed (echo publish) | `REED_ECHOES` to subscribers of the **echoed** reed |
+| Echo row removed (echo reed removal / cleanup that changes count) | `REED_ECHOES` |
+| Allocation inserted (count bumped) | `REED_COVERAGE` |
+| Allocation deleted (count bumped) | `REED_COVERAGE` |
+| `active_users` change | **v1:** no blast to all reed subs; `%` may stay slightly stale until next holder event or resubscribe |
 
 ### Server sketch
 
-- In-memory: `map[reedID]map[connID]*Client` (and author id for validation),
-  or a small `reed_subscriptions` table if persistence across process restarts
-  is unwanted — **in-memory is enough** (reconnect → client resubscribes).
-- After allocate/deallocate TX commits, look up subscribers for `reedID`,
-  read `allocation_count` + `active_users`, send `REED_COVERAGE`.
+- In-memory map of reed → connections (reconnect → client resubscribes).
+- On subscribe: validate tip; compute echoes + coveragePercent; send
+  `REED_STATS`; record sub.
+- After allocate/deallocate TX: read counters; send `REED_COVERAGE` to subs.
+- After echo index insert/delete for target `T`: count echoes for `T`; send
+  `REED_ECHOES` to subs of `T`.
 
 ### SPA
 
-On reed detail ([`+page.svelte`](../../spa/src/routes/reed/[userID]/[reedID]/+page.svelte)),
-for **published** reeds (has `serverSignature`):
+On reed detail for **published** reeds (`serverSignature` present):
 
-1. `GET …/stats` → set echoes + coverage line.
-2. `SUBSCRIBE_REED` with page `userID` / `reedID`.
-3. On `REED_COVERAGE` matching this reed → update displayed `%`.
-4. `onDestroy` / navigation away → `UNSUBSCRIBE_REED`.
-5. Pending unsigned reed: no subscribe, no coverage line (unchanged).
+1. `SUBSCRIBE_REED` with page author / reed id.
+2. On `REED_STATS` for this reed → set both displayed values (and optional
+   local echo-count cache).
+3. On `REED_ECHOES` → update echoes only.
+4. On `REED_COVERAGE` → update coverage `%` only.
+5. Leave / destroy → `UNSUBSCRIBE_REED`.
+6. Pending unsigned reed: no subscribe, no stats line.
 
-Reuse `serverConnection` patterns from profile/broadcast subscribe. Deduplicate
-handlers if layout already owns the socket.
+Ignore events for other reeds. Load the stats line only from `REED_STATS` /
+`REED_ECHOES` / `REED_COVERAGE`.
 
-Display (locked in [00](00_design.md)):
+Display:
 
 ```
 [megaphone-16] {echoes}   [cloud-line-chart-16] {coveragePercent}%
 ```
 
-Mask both black PNGs to `currentColor` / `--muted`. Update live without full
-page reload.
-
 ### Tests / checklist
 
-- Subscribe alone does not emit `REED_COVERAGE` (REST snapshot only).
-- Subscribe → allocate another user → subscriber receives higher `%`.
-- Deallocate → lower `%`.
+- Subscribe → exactly one `REED_STATS` with both fields; no HTTP stats call
+  required for the UI.
+- New echo of subscribed reed → `REED_ECHOES` only (no coverage field).
+- Allocate → `REED_COVERAGE` only (no echoes field).
 - Unsubscribe → no further events.
-- Disconnect clears sub; reconnect without subscribe → no events.
-- Detail page: stats then live update; leave page → unsubscribe.
-- Idempotent allocate → no spurious bump / duplicate coverage inflation.
+- Leave page → unsubscribe.
+- Idempotent allocate → no coverage inflation.

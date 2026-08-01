@@ -255,16 +255,19 @@ func (cm *ConnectionManager) clearReedSubscriptions(client *Client) {
 	client.reedSubscriptions = make(map[string]bool)
 }
 
-// BroadcastReedCoverage sends a coverage update to all subscribers of a reed.
-func (cm *ConnectionManager) BroadcastReedCoverage(payload map[string]interface{}) error {
+// SendToClient writes a JSON payload to one client.
+func (cm *ConnectionManager) SendToClient(client *Client, payload map[string]interface{}) error {
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return client.writeMessage(websocket.TextMessage, jsonBytes)
+}
+
+// SendToReedSubscribers sends a JSON payload to all subscribers of a reed.
+func (cm *ConnectionManager) SendToReedSubscribers(authorUserID, reedID string, payload map[string]interface{}) error {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
-
-	authorUserID, _ := payload["userID"].(string)
-	reedID, _ := payload["reedID"].(string)
-	if authorUserID == "" || reedID == "" {
-		return fmt.Errorf("reed coverage payload missing userID or reedID")
-	}
 
 	subs := cm.reedSubscribers[reedSubKey(authorUserID, reedID)]
 	if len(subs) == 0 {
@@ -276,10 +279,21 @@ func (cm *ConnectionManager) BroadcastReedCoverage(payload map[string]interface{
 		return err
 	}
 
+	msgType, _ := payload["type"].(string)
 	for client := range subs {
 		if err := client.writeMessage(websocket.TextMessage, jsonBytes); err != nil {
-			log.Error().Err(err).Str("userID", client.userID).Msg("Failed to send REED_COVERAGE")
+			log.Error().Err(err).Str("userID", client.userID).Str("type", msgType).Msg("Failed to send reed subscription message")
 		}
 	}
 	return nil
+}
+
+// BroadcastReedCoverage sends a coverage update to all subscribers of a reed.
+func (cm *ConnectionManager) BroadcastReedCoverage(payload map[string]interface{}) error {
+	authorUserID, _ := payload["userID"].(string)
+	reedID, _ := payload["reedID"].(string)
+	if authorUserID == "" || reedID == "" {
+		return fmt.Errorf("reed coverage payload missing userID or reedID")
+	}
+	return cm.SendToReedSubscribers(authorUserID, reedID, payload)
 }

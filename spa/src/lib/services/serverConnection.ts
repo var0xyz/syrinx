@@ -18,6 +18,8 @@ export enum ServerEvent {
   ReedRemoved      = 'REED_REMOVED',
   AccountRemoved   = 'ACCOUNT_REMOVED',
   PublishReadyAck  = 'PUBLISH_READY_ACK',
+  ReedStats        = 'REED_STATS',
+  ReedEchoes       = 'REED_ECHOES',
   ReedCoverage     = 'REED_COVERAGE',
 }
 

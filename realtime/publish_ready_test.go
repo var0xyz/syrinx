@@ -22,8 +22,8 @@ func TestPublishReadyIncludeBroadcast(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := publishReadyIncludeBroadcast(tc.data); got != tc.want {
-				t.Fatalf("publishReadyIncludeBroadcast() = %v, want %v", got, tc.want)
+			if got := shouldBroadcast(tc.data); got != tc.want {
+				t.Fatalf("shouldBroadcast() = %v, want %v", got, tc.want)
 			}
 		})
 	}

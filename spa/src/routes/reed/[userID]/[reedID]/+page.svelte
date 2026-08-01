@@ -77,19 +77,28 @@
     if (next.reed?.userID === next.user?.id && !next.reed.serverSignature) {
       void reedsService.publishUnsignedReed(next.reed);
     }
-    if (next.reed?.serverSignature) {
-      try {
-        await loadReedStats(next.userID, next.reedID);
-      } catch (error) {
-        echoCount = await echoCountsRepository.get(next.reedID);
-        console.warn('Failed to load reed stats:', error);
-      }
-      await syncReedSubscription();
-    } else {
-      await syncReedSubscription();
-    }
+    await syncReedSubscription();
     if (!authorUser) {
       await loadAuthorProfile();
+    }
+  }
+
+  function handleReedStats(msg) {
+    if (msg?.userID === userID && msg?.reedID === reedID) {
+      echoCount = msg.echoes ?? echoCount;
+      coveragePercent = msg.coveragePercent ?? coveragePercent;
+      if (typeof msg.echoes === 'number') {
+        void echoCountsRepository.put(reedID, msg.echoes);
+      }
+    }
+  }
+
+  function handleReedEchoes(msg) {
+    if (msg?.userID === userID && msg?.reedID === reedID) {
+      echoCount = msg.echoes ?? echoCount;
+      if (typeof msg.echoes === 'number') {
+        void echoCountsRepository.put(reedID, msg.echoes);
+      }
     }
   }
 
@@ -119,21 +128,18 @@
     }
   }
 
-  async function loadReedStats(authorId, id) {
-    const stats = await apiService.getReedStats(authorId, id);
-    echoCount = stats.echoes;
-    coveragePercent = stats.coveragePercent;
-    await echoCountsRepository.put(id, stats.echoes);
-  }
-
   $: if ($isOnline && user && loadingReed && !data.fromCache) loadReedFromNetwork();
   $: if ($unsignedReedsProcessed > 0 && user) reloadFromCache();
 
   onMount(() => {
+    serverConnection.on(ServerEvent.ReedStats, handleReedStats);
+    serverConnection.on(ServerEvent.ReedEchoes, handleReedEchoes);
     serverConnection.on(ServerEvent.ReedCoverage, handleReedCoverage);
   });
 
   onDestroy(() => {
+    serverConnection.off(ServerEvent.ReedStats, handleReedStats);
+    serverConnection.off(ServerEvent.ReedEchoes, handleReedEchoes);
     serverConnection.off(ServerEvent.ReedCoverage, handleReedCoverage);
     if (subscribedReedKey) {
       const [authorId, id] = subscribedReedKey.split('/');
@@ -212,12 +218,6 @@
         reed = networkReed;
         await loadAuthorProfile();
         if (reed.serverSignature) {
-          try {
-            await loadReedStats(userID, reedID);
-          } catch (error) {
-            echoCount = await echoCountsRepository.get(reedID);
-            console.warn('Failed to load reed stats:', error);
-          }
           await syncReedSubscription();
         }
       } catch {

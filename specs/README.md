@@ -74,8 +74,8 @@ See [`coverage/`](coverage/README.md):
 | #  | Title                                              |
 |----|----------------------------------------------------|
 | 00 | Design + UX + formula                              |
-| 01 | Counters + `GET …/stats`                           |
-| 02 | Per-reed WS subscription + SPA                     |
+| 01 | Denormalized counters                              |
+| 02 | WS subscribe snapshot ACK + live echoes/coverage   |
 
 ## Publish ready (fanout gate)
 

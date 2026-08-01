@@ -26,7 +26,7 @@ hooks suitable for READY retries.
 ## Non-goals
 
 - Changing SignReed request/response wire shape.
-- Coverage `/stats` or `SUBSCRIBE_REED` (separate feature).
+- Coverage stats delivery ([coverage](../coverage/README.md)).
 
 ## Design
 
