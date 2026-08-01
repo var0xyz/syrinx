@@ -98,51 +98,43 @@ export function initializePWA() {
       type: 'module',
       updateViaCache: 'none'
     };
+
+    // Reload once when a new worker takes control (update path only).
+    const hadController = !!navigator.serviceWorker.controller;
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
     navigator.serviceWorker.register(swUrl, swOptions)
     .then((registration) => {
       console.log('PWA: Service Worker registered');
 
-      // Force update on registration
-      registration.update();
-
-      // Wait for service worker to be ready
-      if (registration.installing) {
-        console.log('PWA: Service worker is installing...');
-        registration.installing.addEventListener('statechange', () => {
-          if (registration.installing?.state === 'installed') {
-            console.log('PWA: Service worker installed, waiting for activation...');
-          }
-        });
-      }
-
-      if (registration.waiting) {
-        console.log('PWA: Service worker is waiting, activating...');
+      // A worker left waiting from a previous visit — activate it.
+      if (registration.waiting && navigator.serviceWorker.controller) {
         registration.waiting.postMessage({ type: 'SKIP_WAITING' });
       }
 
-      if (registration.active) {
-        console.log('PWA: Service worker is active');
-      }
-
-      // Listen for updates
       registration.addEventListener('updatefound', () => {
         const newWorker = registration.installing;
-        if (newWorker) {
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // New content is available, show update notification
-              console.log('PWA: New content available');
-              // You can dispatch a custom event or update a store here
-            }
-          });
-        }
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            newWorker.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+
+      // Check for a new version at startup. Fails soft when offline —
+      // the existing precache keeps serving the app.
+      registration.update().catch((error) => {
+        console.log('PWA: Update check skipped:', error);
       });
     })
     .catch((error) => {
       console.error('PWA: Service Worker registration failed:', error);
-      navigator.serviceWorker.register(swUrl, swOptions).catch((fallbackError) => {
-        console.error('PWA: Fallback registration also failed:', fallbackError);
-      });
     });
   }
 }

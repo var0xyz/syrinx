@@ -31,7 +31,9 @@ export default defineConfig({
         globPatterns: ['client/**/*.{js,css,ico,png,svg,webp,webmanifest,html}'],
         // adapter-static writes index.html after Kit's client emit; add it explicitly
         // so NavigationRoute(createHandlerBoundToURL('index.html')) works offline.
-        additionalManifestEntries: [{ url: 'index.html', revision: null }]
+        // revision must change every build — null makes Workbox treat the URL as
+        // immutable, leaving a stale shell that points at deleted chunk hashes.
+        additionalManifestEntries: [{ url: 'index.html', revision: `${Date.now()}` }]
       },
       manifest: {
         name: 'Syrinx',
