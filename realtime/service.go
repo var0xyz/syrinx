@@ -94,6 +94,10 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			rs.fanoutNewReed(message.UserID, message.ReedID)
 		}
 
+		if message.Type == EchoCountChanged {
+			rs.notifyReedEchoes(message.UserID, message.ReedID)
+		}
+
 		if message.Type == ReedRemoved {
 			log.Info().
 				Str("userID", message.UserID).
@@ -1117,7 +1121,22 @@ func (rs *RealtimeService) handleSubscribeReed(client *Client, msg map[string]in
 		return
 	}
 
+	echoes, coveragePercent, err := rs.dbService.GetReedStatsSnapshot(authorID, reedID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", authorID).Str("reedID", reedID).Msg("Failed to load reed stats for subscribe")
+		return
+	}
+
 	rs.connManager.SubscribeReed(client, authorID, reedID)
+	if err := rs.connManager.SendToClient(client, map[string]interface{}{
+		"type":            "REED_STATS",
+		"userID":          authorID,
+		"reedID":          reedID,
+		"echoes":          echoes,
+		"coveragePercent": coveragePercent,
+	}); err != nil {
+		log.Error().Err(err).Str("userID", client.userID).Str("reedID", reedID).Msg("Failed to send REED_STATS")
+	}
 }
 
 func (rs *RealtimeService) handleUnsubscribeReed(client *Client, msg map[string]interface{}) {
@@ -1147,6 +1166,27 @@ func (rs *RealtimeService) notifyReedCoverage(authorUserID, reedID string) {
 		"coveragePercent": percent,
 	}); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_COVERAGE")
+	}
+}
+
+func (rs *RealtimeService) notifyReedEchoes(authorUserID, reedID string) {
+	echoes, err := rs.dbService.CountEchoes(authorUserID, reedID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("userID", authorUserID).
+			Str("reedID", reedID).
+			Msg("Failed to load reed echoes for notify")
+		return
+	}
+
+	if err := rs.connManager.SendToReedSubscribers(authorUserID, reedID, map[string]interface{}{
+		"type":   "REED_ECHOES",
+		"userID": authorUserID,
+		"reedID": reedID,
+		"echoes": echoes,
+	}); err != nil {
+		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_ECHOES")
 	}
 }
 

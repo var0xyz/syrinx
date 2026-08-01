@@ -738,8 +738,17 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.db.DeleteEchoesByAuthor(userID); err != nil {
+	affectedTargets, err := h.services.db.DeleteEchoesByAuthor(userID)
+	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error clearing echo index for removed account")
+	} else {
+		for _, t := range affectedTargets {
+			h.broadcastChan <- realtime.BroadcastMessage{
+				Type:   realtime.EchoCountChanged,
+				UserID: t.AuthorID,
+				ReedID: t.ReedID,
+			}
+		}
 	}
 
 	h.broadcastChan <- realtime.BroadcastMessage{
@@ -1505,7 +1514,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reed, err := h.services.db.CreateReedWithEcho(
+	reed, echoIndexed, err := h.services.db.CreateReedWithEcho(
 		reedID,
 		userID,
 		userFingerprint,
@@ -1534,6 +1543,14 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			Err(err).Msg("Error creating reed")
 		internalServerError(w)
 		return
+	}
+
+	if echoIndexed && echoRef != nil {
+		h.broadcastChan <- realtime.BroadcastMessage{
+			Type:   realtime.EchoCountChanged,
+			UserID: echoRef.AuthorID,
+			ReedID: echoRef.ReedID,
+		}
 	}
 
 	log.Debug().
@@ -1722,8 +1739,17 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.db.DeleteEchoIndexForReed(userID, reedID); err != nil {
+	affectedTargets, err := h.services.db.DeleteEchoIndexForReed(userID, reedID)
+	if err != nil {
 		log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing echo index for removed reed")
+	} else {
+		for _, t := range affectedTargets {
+			h.broadcastChan <- realtime.BroadcastMessage{
+				Type:   realtime.EchoCountChanged,
+				UserID: t.AuthorID,
+				ReedID: t.ReedID,
+			}
+		}
 	}
 
 	// Keep the reeds row for allocation catch-up (04): reed_allocations FK
@@ -1869,53 +1895,6 @@ func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeResponse(w, http.StatusOK, count)
-}
-
-func (h *Handlers) GetReedStats(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("GetReedStats request received")
-
-	reedID := mux.Vars(r)["reedID"]
-	userID := mux.Vars(r)["userID"]
-	if userID == "" || reedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
-		return
-	}
-
-	accountRemoval, err := h.services.db.GetAccountRemoval(userID)
-	if err != nil {
-		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
-		internalServerError(w)
-		return
-	}
-	if accountRemoval != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(accountRemoval))
-		return
-	}
-
-	removal, err := h.services.db.GetReedRemoval(userID, reedID)
-	if err != nil {
-		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed removal")
-		internalServerError(w)
-		return
-	}
-	if removal != nil {
-		writeResponse(w, http.StatusGone, h.reedRemovalWire(removal))
-		return
-	}
-
-	stats, err := h.services.db.GetReedStats(userID, reedID)
-	if err != nil {
-		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed stats")
-		internalServerError(w)
-		return
-	}
-	if stats == nil {
-		writeResponse(w, http.StatusNotFound, "Post not found")
-		return
-	}
-
-	writeResponse(w, http.StatusOK, stats)
 }
 
 func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {

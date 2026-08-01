@@ -348,16 +348,6 @@ export const apiService = {
     return request(`/reeds/${userId}/${reedId}/echoes`, { method: 'GET' });
   },
 
-  async getReedStats(
-    userId: string,
-    reedId: string
-  ): Promise<{
-    echoes: number;
-    coveragePercent: number;
-  }> {
-    return request(`/reeds/${userId}/${reedId}/stats`, { method: 'GET' });
-  },
-
   async getReed(userId: string, reedId: string): Promise<any> {
     return request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
   },
