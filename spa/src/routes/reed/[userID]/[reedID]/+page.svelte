@@ -482,7 +482,7 @@
   .author-avatar {
     width: 48px;
     height: 48px;
-    border-radius: 50%;
+    border-radius: 8px;
     overflow: hidden;
     display: flex;
     flex-shrink: 0;

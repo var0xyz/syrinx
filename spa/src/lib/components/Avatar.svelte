@@ -10,10 +10,6 @@
   /** @type {string} */
   export let size = '2.5rem';
 
-  /** Circle crop (default) or full square. */
-  /** @type {'circle' | 'square'} */
-  export let shape = 'circle';
-
   /** @type {{ size: number, background: string, cells: (string | null)[][] } | null} */
   let model = null;
   let loadedFor = '';
@@ -30,7 +26,6 @@
 {#if userID}
   <span
     class="avatar"
-    class:square={shape === 'square'}
     style="width: {size}; height: {size};"
     role="img"
     aria-label={username ? `${username}'s avatar` : 'Avatar'}
@@ -62,13 +57,9 @@
     display: inline-flex;
     flex-shrink: 0;
     overflow: hidden;
-    border-radius: 50%;
+    border-radius: 8px;
     background: var(--input-bg);
     vertical-align: middle;
-  }
-
-  .avatar.square {
-    border-radius: 8px;
   }
 
   .avatar-svg {

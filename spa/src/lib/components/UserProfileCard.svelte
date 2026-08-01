@@ -138,7 +138,7 @@
     on:keydown={(e) => e.key === 'Enter' && closeAvatar()}
   >
     <div class="avatar-lightbox" on:click|stopPropagation role="presentation">
-      <Avatar userID={user.id} username={user.username} size="100%" shape="square" />
+      <Avatar userID={user.id} username={user.username} size="100%" />
     </div>
   </div>
 {/if}
@@ -169,7 +169,7 @@
     border: none;
     background: transparent;
     cursor: zoom-in;
-    border-radius: 50%;
+    border-radius: 8px;
     line-height: 0;
   }
 
