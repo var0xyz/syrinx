@@ -29,6 +29,12 @@ try {
 
 let privateKey: openpgp.PrivateKey | null = null;
 
+// Activate immediately so a new deploy is not stuck waiting behind a tab
+// whose page JS never loaded (stale-shell white screen).
+self.addEventListener('install', (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
