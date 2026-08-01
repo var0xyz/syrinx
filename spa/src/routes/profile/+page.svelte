@@ -7,7 +7,7 @@
   import { cryptoService } from '$lib/services/crypto';
   import { buildUserIdentityPayload, buildUserRevocationPayload } from '$lib/services/signing';
   import { requestSigner } from '$lib/services/request-signer';
-  import { getStorageQuota, isOnline } from '$lib/services/pwa';
+  import { isOnline } from '$lib/services/pwa';
   import { dbService } from '$lib/services/db';
   import { localStorageService } from '$lib/services/localstorage';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -24,15 +24,16 @@
   import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { pendingRevocationRepository, pendingRevocationSynced } from '$lib/repositories/pendingRevocation';
   import { revocationRepository } from '$lib/repositories/revocation';
+  import { loadProfileKeyInfo, type ProfileKeyInfo } from './keyInfo';
 
   /** @type {import('./$types').PageData} */
   export let data;
 
-  let user: User | null = data.user;
-  let storageUsed: number = 0;
-  let storageTotal: number = 0;
-  let storagePercentage: number = 0;
-  let storageAvailable: boolean = false;
+  let user: User = data.user;
+  let storageUsed: number = data.storage?.used ?? 0;
+  let storageTotal: number = data.storage?.total ?? 0;
+  let storagePercentage: number = storageTotal > 0 ? (storageUsed / storageTotal) * 100 : 0;
+  let storageAvailable: boolean = data.storage != null;
 
   // Edit mode state
   let isEditing: boolean = false;
@@ -44,18 +45,18 @@
   let editSuccess: string = '';
   let saving: boolean = false;
 
-  // Encryption Key state
-  let keyFingerprint: string | null = null;
-  let keyIdentity: string = '';
-  let publicKeyArmor: string = '';
+  // Encryption Key state (seeded from page load)
+  let keyFingerprint: string = data.keyInfo.fingerprint;
+  let keyIdentity: string = data.keyInfo.identity;
+  let publicKeyArmor: string = data.keyInfo.armor;
   let loadingKeyInfo: boolean = false;
   let revoking: boolean = false;
   let showRevokeModal: boolean = false;
   let revokeReason: string = '';
   let revokeEmail: string = '';
-  let isPendingRevocation: boolean = false;
-  let isKeyRevoked: boolean = false;
-  let revokedInfo: { reason: string; timestamp: string; successor: string | null } | null = null;
+  let isPendingRevocation: boolean = data.keyInfo.isPendingRevocation;
+  let isKeyRevoked: boolean = data.keyInfo.isKeyRevoked;
+  let revokedInfo: ProfileKeyInfo['revokedInfo'] = data.keyInfo.revokedInfo;
 
   // Export state
   let exporting: boolean = false;
@@ -88,12 +89,6 @@
 
 
   onMount(async () => {
-    user = data.user;
-    if (!user) {
-      goto('/');
-      return;
-    }
-
     try {
       const fresh = await apiService.getUser(user.id);
       await authService.saveUserToStorage(fresh);
@@ -102,74 +97,23 @@
       console.error('Failed to refresh profile follow counts:', error);
     }
 
-    try {
-      // Fetch storage quota information
-      const storageData = await getStorageQuota();
-      if (storageData) {
-        storageUsed = storageData.used;
-        storageTotal = storageData.total;
-        storagePercentage = storageTotal > 0 ? (storageUsed / storageTotal) * 100 : 0;
-        storageAvailable = true;
-      }
-    } catch (error) {
-      console.error('Error fetching quota information:', error);
-    }
-
-    // Load encryption key information
-    await loadKeyInfo();
-
     const storedBackupAt = localStorage.getItem('lastBackupAt');
     if (storedBackupAt) lastBackupAt = parseInt(storedBackupAt);
   });
 
+  function applyKeyInfo(info: ProfileKeyInfo): void {
+    keyFingerprint = info.fingerprint;
+    keyIdentity = info.identity;
+    publicKeyArmor = info.armor;
+    isPendingRevocation = info.isPendingRevocation;
+    isKeyRevoked = info.isKeyRevoked;
+    revokedInfo = info.revokedInfo;
+  }
+
   async function loadKeyInfo(): Promise<void> {
     try {
       loadingKeyInfo = true;
-      const fingerprint = authService.getActiveKeyFingerprint();
-      if (!fingerprint || !user) {
-        return;
-      }
-
-      keyFingerprint = fingerprint;
-      let publicKey = await publicKeyRepository.getPublicKey(fingerprint);
-      // After the v15 store wipe (or a cold cache), re-fetch the
-      // server-attested key so the profile can show armor + revocation.
-      if (!publicKey?.serverSignature) {
-        try {
-          publicKey = await apiService.getPublicKey(user.id, fingerprint);
-          await publicKeyRepository.put(publicKey);
-        } catch (error) {
-          console.error('Error fetching public key from server:', error);
-        }
-      }
-      if (publicKey) {
-        publicKeyArmor = publicKey.armor;
-        keyIdentity = await cryptoService.getKeyIdentity(publicKey.armor);
-        isKeyRevoked = publicKey.revoked;
-        revokedInfo = null;
-        if (publicKey.revoked) {
-          let revocation = await revocationRepository.get(fingerprint);
-          if (!revocation) {
-            try {
-              revocation = await apiService.getKeyRevocation(user.id, fingerprint);
-              await revocationRepository.put(revocation);
-            } catch (error) {
-              console.error('Error fetching key revocation from server:', error);
-            }
-          }
-          if (revocation) {
-            revokedInfo = {
-              reason: revocation.reason,
-              timestamp: revocation.serverSignature.timestamp,
-              successor: revocation.successor,
-            };
-          }
-        }
-      }
-      console.log("key identity:", keyIdentity);
-
-      isPendingRevocation = !!(await pendingRevocationRepository.get(fingerprint));
-      if (isPendingRevocation) isKeyRevoked = true;
+      applyKeyInfo(await loadProfileKeyInfo());
     } catch (error) {
       console.error('Error loading key information:', error);
       notificationStore.error('Failed to load encryption key information');
@@ -178,8 +122,12 @@
     }
   }
 
-  // Re-load key info when a background sync completes
-  $: $pendingRevocationSynced, loadKeyInfo();
+  // Re-load key info when a background sync completes (skip initial store read)
+  let seenPendingSync = $pendingRevocationSynced;
+  $: if ($pendingRevocationSynced !== seenPendingSync) {
+    seenPendingSync = $pendingRevocationSynced;
+    void loadKeyInfo();
+  }
 
   function openRevokeModal(): void {
     showRevokeModal = true;
@@ -194,7 +142,7 @@
   }
 
   async function revokeKey(): Promise<void> {
-    if (!user || !keyFingerprint || !revokeReason.trim()) {
+    if (!revokeReason.trim()) {
       notificationStore.error('Please provide a reason for revoking the key');
       return;
     }
@@ -322,8 +270,6 @@
   }
 
   function startEditing(): void {
-    if (!user) return;
-
     isEditing = true;
     editForm = {
       username: user.username || '',
@@ -344,8 +290,6 @@
   }
 
   async function saveProfile(): Promise<void> {
-    if (!user) return;
-
     saving = true;
     editError = '';
     editSuccess = '';
@@ -443,8 +387,6 @@
   }
 
   async function copyPublicKey(): Promise<void> {
-    if (!publicKeyArmor) return;
-
     try {
       await navigator.clipboard.writeText(publicKeyArmor);
       notificationStore.success('Public key copied to clipboard');
@@ -455,8 +397,6 @@
   }
 
   async function exportData(backupPassword: string): Promise<void> {
-    if (!user) return;
-
     exporting = true;
     try {
       const timestamp = Date.now();
@@ -596,9 +536,8 @@
   }
 </script>
 
-{#if user}
-  <Auth>
-    <div class="profile-container">
+<Auth>
+  <div class="profile-container">
     <!-- Main Content -->
     <div class="profile-content">
       {#if isEditing}
@@ -614,7 +553,7 @@
                   placeholder="Enter username"
                   maxlength="50"
                 />
-                {#if editForm.username && editForm.username !== user?.username}
+                {#if editForm.username && editForm.username !== user.username}
                   <div class="help-text">
                     <UsernameChecker username={editForm.username} />
                   </div>
@@ -720,7 +659,7 @@
             <div class="key-loading">
               <p>Loading key information...</p>
             </div>
-          {:else if keyFingerprint}
+          {:else}
             <div class="encryption-key-info" class:key-revoked={isKeyRevoked}>
               {#if isKeyRevoked}
                 <div class="revoked-stamp">REVOKED</div>
@@ -744,11 +683,9 @@
                   <div class="key-armor-label">
                     <strong>Public Key</strong>
                   </div>
-                  {#if publicKeyArmor}
-                    <CopyButton ariaLabel="Copy public key" on:click={copyPublicKey} />
-                  {/if}
+                  <CopyButton ariaLabel="Copy public key" on:click={copyPublicKey} />
                 </div>
-                <div class="key-value public-key">{publicKeyArmor || 'Not available'}</div>
+                <div class="key-value public-key">{publicKeyArmor}</div>
               </div>
               <div class="key-actions">
                 {#if isPendingRevocation}
@@ -772,10 +709,6 @@
                   </button>
                 {/if}
               </div>
-            </div>
-          {:else}
-            <div class="key-unavailable">
-              <p>No encryption key found</p>
             </div>
           {/if}
         </div>
@@ -869,9 +802,8 @@
 
     <!-- Bottom Toolbar -->
     <BottomToolbar currentPage="profile" />
-    </div>
-  </Auth>
-{/if}
+  </div>
+</Auth>
 
 <style>
   .profile-container {
@@ -1167,15 +1099,13 @@
   }
 
   /* Encryption Key Styles */
-  .key-loading,
-  .key-unavailable {
+  .key-loading {
     text-align: center;
     padding: 1rem;
     color: var(--muted);
   }
 
-  .key-loading p,
-  .key-unavailable p {
+  .key-loading p {
     margin: 0;
   }
 
