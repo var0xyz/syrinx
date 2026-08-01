@@ -87,15 +87,18 @@ See [`publish/`](publish/README.md):
 | 01 | HTTP SignReed + WS `PUBLISH_READY` + SPA           |
 | 02 | Real `RELAY_MISS` (drop allocation + retry)        |
 
-## Client-generated default avatars
+## Custom avatars (hash + processed PNG)
 
 See [`avatars/`](avatars/README.md):
 
-| #  | Title                                              |
-|----|----------------------------------------------------|
-| 00 | Design + identicon from user ID hash               |
-| 01 | Drop server avatar `HEAD`                          |
-| 02 | Shared SPA `Avatar` component + call sites         |
+| #  | Title                                      |
+|----|--------------------------------------------|
+| 00 | Design + locked model                      |
+| 01 | `avatars` table + `avatarHash` in identity |
+| 02 | Authenticated process endpoint             |
+| 03 | Profile PUT: set / keep / clear            |
+| 04 | `GET /avatars/<hash>`                      |
+| 05 | SPA crop, IndexedDB, fetch/GC, Avatar      |
 
 ## Account recovery (key-only restore)
 
