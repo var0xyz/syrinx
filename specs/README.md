@@ -114,6 +114,22 @@ relay the user’s own reed bodies back.
 | 05 | SPA rehydration + tip `previousID` + UX            |
 | 06 | Device binding on bootstrap (takeover)             |
 
+## Protobuf wire (HTTP + WebSocket)
+
+See [`protobuf/`](protobuf/README.md). Blank-slate cutover of all
+client↔server bodies and WS frames to Protocol Buffers; `BytesToSign`
+unchanged.
+
+| #  | Title                             |
+|----|-----------------------------------|
+| 00 | Design + locked model             |
+| 01 | Shared resource protos + codegen  |
+| 02 | WebSocket envelope + event protos |
+| 03 | HTTP encode/decode + content type |
+| 04 | Switch every HTTP handler/client  |
+| 05 | Binary WS only; SPA + realtime    |
+| 06 | SPA consumes generated types      |
+
 ## Signed deletions (reeds + accounts)
 
 See [`deletion/`](deletion/README.md):
@@ -121,7 +137,7 @@ See [`deletion/`](deletion/README.md):
 | #  | Title                                        |
 |----|----------------------------------------------|
 | 00 | Design + trust model                         |
-| 01 | Reed-removal schema                              |
+| 01 | Reed-removal schema                          |
 | 02 | Reed-removal canonical payload + countersign |
 | 03 | Reed-removal API (idempotent)                |
 | 04 | Reed-removal realtime fanout + sync catch-up |
@@ -182,6 +198,11 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
   follow that directory's depends-on column (00→06). Step 01 (export) may
   parallel 02 (API). Step 06 waits on
   [recovery 17](recovery/17_device_binding.md).
+- **Protobuf wire** ([`protobuf/`](protobuf/README.md)) is independent of
+  recovery/invites feature work but should land as a coordinated server+SPA
+  cutover; within `protobuf/`, follow that directory's depends-on column
+  (00→06). Steps 01–02 (schema) may proceed before flipping traffic;
+  04 and 05 are the hard cutovers.
 
 ## Shared conventions
 
