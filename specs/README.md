@@ -100,6 +100,18 @@ See [`avatars/`](avatars/README.md):
 | 04 | `GET /avatars/<hash>`                      |
 | 05 | SPA crop, IndexedDB, fetch/GC, Avatar      |
 
+## Pipes (live hashtags)
+
+See [`pipes/`](pipes/README.md). Ephemeral server-side tag listening;
+local reeds with that tag remain on device.
+
+| #  | Title                                     |
+|----|-------------------------------------------|
+| 00 | Design + naming (**pipe**) + locked model |
+| 01 | Tag index at SignReed (`reed_tags`)       |
+| 02 | WS subscribe + READY fanout               |
+| 03 | SPA links + `/pipe/[tag]` page            |
+
 ## Account recovery (key-only restore)
 
 See [`account_recovery/`](account_recovery/README.md). Distinct from server
@@ -206,6 +218,10 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
   cutover; within `protobuf/`, follow that directory's depends-on column
   (00→06). Steps 01–02 (schema) may proceed before flipping traffic;
   04 and 05 are the hard cutovers.
+- **Pipes** ([`pipes/`](pipes/README.md)) need publish READY fanout and the
+  SignReed content path (for tag extract); within `pipes/`, follow 00→03.
+  Mentions tag-index pattern ([conversations 04](conversations/04_mentions.md))
+  is the closest cousin.
 
 ## Shared conventions
 
