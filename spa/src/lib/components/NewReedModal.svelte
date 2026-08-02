@@ -147,7 +147,9 @@
       const detachedArmor = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
       reed.setUserSignature(fingerprint, detachedArmor);
       const { publish } = await reedsService.createReed(reed);
-      goto(`/reed/${user.id}/${reed.id}`);
+      // Keep the modal up until the detail route is ready so the feed
+      // (which already lists this reed as pending) never flashes through.
+      await goto(`/reed/${user.id}/${reed.id}`);
       close();
       publish.then((ok) => {
         if (!ok) {
