@@ -31,6 +31,26 @@
 
   const dispatch = createEventDispatcher();
 
+  // Pin targets on the moment the modal opens (not for as long as it stays
+  // open) so same-route navigation (echo/reply from detail) can't retarget
+  // Quote at the newly created reed while we're still navigating to it —
+  // `replyingTo`/`echoOf` are bound to the parent's `reed`, which is
+  // reassigned by `applyPageData` as soon as the destination route's data
+  // arrives, while this modal is still open and mid-close.
+  let pinnedReply = null;
+  let pinnedEcho = null;
+  let wasOpen = false;
+  $: {
+    if (open && !wasOpen) {
+      pinnedReply = replyingTo;
+      pinnedEcho = echoOf;
+    } else if (!open) {
+      pinnedReply = null;
+      pinnedEcho = null;
+    }
+    wasOpen = open;
+  }
+
   /** @param {import('$lib/types/reed').ReedType} target */
   function refFor(target) {
     const serverId = target.serverSignature?.serverID || localStorage.getItem('serverId') || '';
@@ -53,9 +73,9 @@
     hasPendingRevocation = !!(await pendingRevocationRepository.get(fingerprint));
   }
 
-  $: title = replyingTo ? 'Reply Reed' : echoOf ? 'Echo Reed' : 'New Reed';
-  $: placeholder = replyingTo ? "Write your reply" : echoOf ? "Comment on it (Optional)" : "What's on your mind?";
-  $: contentRequired = !echoOf;
+  $: title = pinnedReply ? 'Reply Reed' : pinnedEcho ? 'Echo Reed' : 'New Reed';
+  $: placeholder = pinnedReply ? "Write your reply" : pinnedEcho ? "Comment on it (Optional)" : "What's on your mind?";
+  $: contentRequired = !pinnedEcho;
 
   $: characterCount = countMarkdownCharacters(content);
   $: characterLimit = MAX_REED_VISIBLE_CHARS;
@@ -66,14 +86,14 @@
   $: isOverLimit = isOverVisibleLimit || isOverRawLimit;
 
   // Load draft when opened as a new reed only
-  $: if (open && !replyingTo && !echoOf) {
+  $: if (open && !pinnedReply && !pinnedEcho) {
     content = localStorage.getItem('reedDraft') || '';
   }
 
   function handleContentChange() {
     if (saveDraftTimeout) clearTimeout(saveDraftTimeout);
     saveDraftTimeout = setTimeout(() => {
-      if (!replyingTo) localStorage.setItem('reedDraft', content);
+      if (!pinnedReply) localStorage.setItem('reedDraft', content);
       draftSaved = true;
       setTimeout(() => { draftSaved = false; }, 2000);
     }, 1500);
@@ -138,18 +158,22 @@
 
       const reed = new Reed();
       reed.content = content;
-      if (replyingTo) {
-        reed.replying = refFor(replyingTo);
+      if (pinnedReply) {
+        reed.replying = refFor(pinnedReply);
       }
-      if (echoOf) {
-        reed.echoing = refFor(echoOf);
+      if (pinnedEcho) {
+        reed.echoing = refFor(pinnedEcho);
       }
       const detachedArmor = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
       reed.setUserSignature(fingerprint, detachedArmor);
       const { publish } = await reedsService.createReed(reed);
-      // Keep the modal up until the detail route is ready so the feed
-      // (which already lists this reed as pending) never flashes through.
-      await goto(`/reed/${user.id}/${reed.id}`);
+      const href = `/reed/${user.id}/${reed.id}`;
+      // Keep the modal open (covering the feed/detail page underneath) until
+      // the new route is ready — on a slow connection, loading the detail
+      // route's JS chunk can take a few seconds, and closing first flashes
+      // the page behind the modal for that whole time. Pinned targets above
+      // keep this safe even when echo/reply is on the reed detail route.
+      await goto(href);
       close();
       publish.then((ok) => {
         if (!ok) {
@@ -177,10 +201,10 @@
       <button class="close-btn" on:click={close} aria-label="Close">✕</button>
     </div>
 
-    {#if replyingTo}
-      <Quote reed={replyingTo} type="reply" maxLines={4} />
-    {:else if echoOf}
-      <Quote reed={echoOf} type="echo" maxLines={4} />
+    {#if pinnedReply}
+      <Quote reed={pinnedReply} type="reply" maxLines={4} />
+    {:else if pinnedEcho}
+      <Quote reed={pinnedEcho} type="echo" maxLines={4} />
     {/if}
 
     <form on:submit|preventDefault={publish}>

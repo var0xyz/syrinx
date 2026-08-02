@@ -65,7 +65,7 @@
     {#if loading}
       <div class="quote-meta">{icon} Loading...</div>
     {:else}
-      <div class="quote-meta">{icon} {label}{username} · {formatRelativeTime(reed.serverSignature.timestamp)}</div>
+      <div class="quote-meta">{icon} {label}{username}{#if reed.serverSignature?.timestamp} · {formatRelativeTime(reed.serverSignature.timestamp)}{/if}</div>
       <MarkdownParser text={reed.content} preview={true} className="quote-content" />
     {/if}
   </div>

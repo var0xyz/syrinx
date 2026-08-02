@@ -48,6 +48,9 @@
   $: userID = $page.params.userID;
   $: reedID = $page.params.reedID;
   $: isPending = !!(reed && !reed.serverSignature);
+  // Params can update before `data` on same-route navigations; never show a
+  // reed that doesn't match the URL (e.g. parent body under the new author).
+  $: reedMatchesRoute = !!(reed && reed.id === reedID && reed.userID === userID);
 
   // Apply fresh load() results when navigating between reeds.
   $: applyPageData(data);
@@ -124,18 +127,22 @@
 
   async function reloadFromCache() {
     if (!user || !userID || !reedID) return;
-    let found = await reedsService.getReed(userID, reedID);
-    if (!found && user.id === userID) {
-      const pending = await reedsService.getUnsignedReed(reedID);
-      if (pending?.userID === userID) found = pending;
+    const requestedUserID = userID;
+    const requestedReedID = reedID;
+    let found = await reedsService.getReed(requestedUserID, requestedReedID);
+    if (!found && user.id === requestedUserID) {
+      const pending = await reedsService.getUnsignedReed(requestedReedID);
+      if (pending?.userID === requestedUserID) found = pending;
     }
+    // Drop stale completions after navigating to another reed.
+    if (requestedUserID !== userID || requestedReedID !== reedID) return;
     if (found) {
       reed = found;
       loadingReed = false;
       await afterCacheHit({
         user,
-        userID,
-        reedID,
+        userID: requestedUserID,
+        reedID: requestedReedID,
         reed: found,
         authorUser,
         fromCache: true,
@@ -146,6 +153,10 @@
   async function loadReedFromNetwork() {
     if (!user || !userID || !reedID) return;
     if (reed && reed.id === reedID) return;
+    if (!$isOnline) {
+      loadingReed = false;
+      return;
+    }
 
     const seq = ++loadSeq;
     try {
@@ -206,8 +217,9 @@
   }
 
   async function loadAuthorProfile() {
-    authorUser = await userRepository.getByUserId(userID).catch(() => null);
-    if (authorUser) return;
+    // Prefer local cache — never block the detail view on a network profile fetch.
+    authorUser = await userRepository.get(userID).catch(() => null);
+    if (authorUser || !$isOnline) return;
     try {
       const fresh = await apiService.getUser(userID);
       await userRepository.put(fresh);
@@ -323,7 +335,7 @@
             <h3>You're offline</h3>
             <p>This reed isn't cached locally. We'll load it when you're back online.</p>
           </div>
-        {:else if loadingReed}
+        {:else if loadingReed || !reedMatchesRoute}
           <div class="loading">
             <h2>Loading reed...</h2>
             <p>Please wait while we fetch the reed details.</p>
@@ -339,11 +351,11 @@
           <div class="reed-detail">
             <div class="reed-meta">
               <div class="reed-author">
-                <a href="/profile/{userID}" class="author-avatar">
-                  <Avatar userID={userID} username={authorUser?.username ?? userID} size="48px" />
+                <a href="/profile/{reed.userID}" class="author-avatar">
+                  <Avatar userID={reed.userID} username={authorUser?.username ?? reed.userID} size="48px" />
                 </a>
                 <div class="author-info">
-                  <a href="/profile/{userID}" class="author-name">{authorUser?.username ?? userID}</a>
+                  <a href="/profile/{reed.userID}" class="author-name">{authorUser?.username ?? reed.userID}</a>
                   <p class="reed-date" class:pending={isPending}>{isPending ? 'Pending…' : formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
                   {#if !isPending}
                     <p class="reed-stats" title="Stats for nerds">
@@ -355,11 +367,13 @@
                   {/if}
                 </div>
               </div>
-              <div class="reed-actions">
-                <button class="reed-menu" on:click={deleteReed}>
-                  <span class="menu-dots">🗑️</span>
-                </button>
-              </div>
+              {#if user?.id === reed.userID}
+                <div class="reed-actions">
+                  <button class="reed-menu" on:click={deleteReed} aria-label="Delete">
+                    <span class="menu-dots">🗑️</span>
+                  </button>
+                </div>
+              {/if}
             </div>
 
             <div class="reed-body">
