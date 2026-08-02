@@ -2,6 +2,9 @@
  * Request Signing Service
  * Communicates with service worker to sign requests
  * Does NOT store decrypted key in memory (only in service worker)
+ *
+ * After OS discards the SW heap, re-INIT_KEY from localStorage
+ * (fingerprint + passphrase) on resume or before sign when the SW reports no key.
  */
 
 import { privateKeyRepository } from '../repositories/privateKey';
@@ -9,6 +12,8 @@ import { authService } from './auth';
 
 class RequestSignerService {
   private initialized = false;
+  private resumeHookInstalled = false;
+  private reinitInFlight: Promise<void> | null = null;
 
   /**
    * Wait for service worker to be ready
@@ -93,6 +98,89 @@ class RequestSignerService {
     });
   }
 
+  private async getServiceWorker(): Promise<ServiceWorker> {
+    await this.waitForServiceWorker();
+    const registration = await navigator.serviceWorker.getRegistration();
+    const serviceWorker = navigator.serviceWorker.controller || registration?.active || registration?.waiting;
+    if (!serviceWorker) {
+      throw new Error('No service worker available');
+    }
+    return serviceWorker;
+  }
+
+  private postToWorker<T>(type: string, data?: unknown): Promise<T> {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const serviceWorker = await this.getServiceWorker();
+        const channel = new MessageChannel();
+        const timeout = setTimeout(() => {
+          reject(new Error(`Service worker ${type} timeout`));
+        }, 30000);
+
+        channel.port1.onmessage = (event) => {
+          clearTimeout(timeout);
+          if (event.data?.success) {
+            resolve(event.data as T);
+          } else {
+            reject(new Error(event.data?.error || `Service worker ${type} failed`));
+          }
+        };
+
+        serviceWorker.postMessage({ type, data }, [channel.port2]);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  private installResumeHook(): void {
+    if (this.resumeHookInstalled || typeof document === 'undefined') return;
+    this.resumeHookInstalled = true;
+
+    const rehydrate = () => {
+      if (document.visibilityState !== 'visible') return;
+      void this.ensureWorkerKey().catch((error) => {
+        console.warn('RequestSigner: failed to rehydrate key on resume:', error);
+      });
+    };
+
+    document.addEventListener('visibilitychange', rehydrate);
+    window.addEventListener('pageshow', rehydrate);
+    window.addEventListener('focus', rehydrate);
+  }
+
+  /**
+   * Re-INIT_KEY from localStorage when the SW no longer has a decrypted key.
+   */
+  async ensureWorkerKey(): Promise<void> {
+    if (this.reinitInFlight) {
+      return this.reinitInFlight;
+    }
+
+    this.reinitInFlight = (async () => {
+      try {
+        const status = await this.postToWorker<{ success: boolean; hasKey?: boolean }>('HAS_KEY');
+        if (status.hasKey) {
+          this.initialized = true;
+          return;
+        }
+
+        const fingerprint = authService.getActiveKeyFingerprint();
+        const passphrase = authService.getPassphrase();
+        if (!fingerprint || !passphrase) {
+          this.initialized = false;
+          throw new Error('Private key not initialized');
+        }
+
+        this.initialized = false;
+        await this.initializeWorker(fingerprint, passphrase);
+      } finally {
+        this.reinitInFlight = null;
+      }
+    })();
+
+    return this.reinitInFlight;
+  }
 
   /**
    * Initialize the service worker with a decrypted private key
@@ -113,74 +201,33 @@ class RequestSignerService {
       try {
         console.log(`RequestSigner: Starting service worker initialization (attempt ${attempt}/${maxRetries})...`);
 
-        // Wait for service worker to be ready
         await this.waitForServiceWorker();
         console.log('RequestSigner: Service worker is ready');
 
-      // Get the private key from IndexedDB
-      const keyData = await privateKeyRepository.getPrivateKey(fingerprint);
-      if (!keyData) {
-        throw new Error('Private key not found');
-      }
-      console.log('RequestSigner: Private key retrieved from IndexedDB');
+        const keyData = await privateKeyRepository.getPrivateKey(fingerprint);
+        if (!keyData) {
+          throw new Error('Private key not found');
+        }
+        console.log('RequestSigner: Private key retrieved from IndexedDB');
 
-      // Get user ID for headers
-      const user = await authService.getCurrentUser();
-      if (!user) {
-        throw new Error('User not found');
-      }
-      console.log('RequestSigner: User data retrieved');
+        const user = await authService.getCurrentUser();
+        if (!user) {
+          throw new Error('User not found');
+        }
+        console.log('RequestSigner: User data retrieved');
 
-      // Create a message channel for communication
-      const channel = new MessageChannel();
+        console.log('RequestSigner: Sending INIT_KEY message to service worker');
+        await this.postToWorker('INIT_KEY', {
+          armoredKey: keyData.armor,
+          passphrase,
+          userId: user.id,
+          fingerprint,
+        });
 
-      // Set up promise to wait for response
-      const initPromise = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          console.error('RequestSigner: Service worker initialization timeout after 30 seconds');
-          reject(new Error('Service worker key initialization timeout'));
-        }, 30000); // 30 second timeout for key initialization
-
-        channel.port1.onmessage = (event) => {
-          clearTimeout(timeout);
-          if (event.data.success) {
-            console.log('RequestSigner: Service worker key initialization successful');
-            this.initialized = true;
-            resolve();
-          } else {
-            console.error('RequestSigner: Service worker initialization failed:', event.data.error);
-            reject(new Error(event.data.error || 'Failed to initialize worker'));
-          }
-        };
-      });
-
-      console.log('RequestSigner: Sending INIT_KEY message to service worker');
-      // Send initialization message to service worker
-      const registration = await navigator.serviceWorker.getRegistration();
-      const serviceWorker = navigator.serviceWorker.controller || registration?.active || registration?.waiting;
-
-      if (!serviceWorker) {
-        throw new Error('No service worker available');
-      }
-
-      console.log('RequestSigner: Using service worker:', serviceWorker.state);
-
-      serviceWorker.postMessage(
-        {
-          type: 'INIT_KEY',
-          data: {
-            armoredKey: keyData.armor,
-            passphrase: passphrase,
-            userId: user.id,
-            fingerprint: fingerprint
-          }
-        },
-        [channel.port2]
-      );
-
-        await initPromise;
+        this.initialized = true;
+        this.installResumeHook();
         console.log('RequestSigner: Service worker initialization complete');
-        return; // Success, exit the retry loop
+        return;
       } catch (error) {
         lastError = error as Error;
         console.error(`RequestSigner: Attempt ${attempt} failed:`, error);
@@ -192,7 +239,6 @@ class RequestSignerService {
       }
     }
 
-    // If we get here, all retries failed
     console.error('RequestSigner: All initialization attempts failed');
     throw lastError || new Error('Failed to initialize request signer after all retries');
   }
@@ -209,7 +255,6 @@ class RequestSignerService {
    */
   async clearSession(): Promise<void> {
     try {
-      // Wait for service worker to be ready
       await this.waitForServiceWorker();
 
       const channel = new MessageChannel();
@@ -229,7 +274,8 @@ class RequestSignerService {
       const serviceWorker = navigator.serviceWorker.controller || registration?.active || registration?.waiting;
 
       if (!serviceWorker) {
-        throw new Error('No service worker available');
+        this.initialized = false;
+        return;
       }
 
       serviceWorker.postMessage(
@@ -239,6 +285,7 @@ class RequestSignerService {
 
       await clearPromise;
     } catch (error) {
+      this.initialized = false;
       console.error('Failed to clear request signer session:', error);
       throw error;
     }
@@ -250,15 +297,21 @@ class RequestSignerService {
    * This is the core signing primitive
    */
   async sign(text: string): Promise<string> {
-    if (!this.initialized) {
-      throw new Error('Request signer not initialized');
+    await this.ensureWorkerKey();
+
+    try {
+      const signature = await this.getSignatureFromWorker(text);
+      return this.encodeBase64Signature(signature);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('Private key not initialized')) {
+        throw error;
+      }
+      this.initialized = false;
+      await this.ensureWorkerKey();
+      const signature = await this.getSignatureFromWorker(text);
+      return this.encodeBase64Signature(signature);
     }
-
-    // Get signature from service worker
-    const signature = await this.getSignatureFromWorker(text);
-
-    // Return the base64-encoded signature
-    return this.encodeBase64Signature(signature);
   }
 
   /**
@@ -266,9 +319,7 @@ class RequestSignerService {
    * Communicates with service worker to get the signature
    */
   async signRequest(url: string, options: RequestInit = {}): Promise<RequestInit> {
-    if (!this.initialized) {
-      throw new Error('Request signer not initialized');
-    }
+    await this.ensureWorkerKey();
 
     // Get user info
     const user = await authService.getCurrentUser();
@@ -360,43 +411,8 @@ class RequestSignerService {
    * Get signature from service worker
    */
   private async getSignatureFromWorker(text: string): Promise<string> {
-    try {
-      // Wait for service worker to be ready
-      await this.waitForServiceWorker();
-
-      const channel = new MessageChannel();
-
-      const signPromise = new Promise<string>((resolve, reject) => {
-        channel.port1.onmessage = (event) => {
-          if (event.data.success) {
-            resolve(event.data.signature);
-          } else {
-            reject(new Error(event.data.error || 'Failed to sign text'));
-          }
-        };
-      });
-
-      // Send sign text message to service worker
-      const registration = await navigator.serviceWorker.getRegistration();
-      const serviceWorker = navigator.serviceWorker.controller || registration?.active || registration?.waiting;
-
-      if (!serviceWorker) {
-        throw new Error('No service worker available');
-      }
-
-      serviceWorker.postMessage(
-        {
-          type: 'SIGN_TEXT',
-          data: { text }
-        },
-        [channel.port2]
-      );
-
-      return await signPromise;
-    } catch (error) {
-      console.error('Failed to sign text:', error);
-      throw error;
-    }
+    const result = await this.postToWorker<{ success: boolean; signature: string }>('SIGN_TEXT', { text });
+    return result.signature;
   }
 }
 
