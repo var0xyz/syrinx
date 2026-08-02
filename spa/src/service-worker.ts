@@ -2,6 +2,9 @@
 /**
  * Service worker: PGP session for request signing + API fetch intercept.
  * OpenPGP is bundled from npm (openpgp/lightweight).
+ *
+ * Decrypted key is cached in memory. The page re-sends INIT_KEY after
+ * focus/visibility when the OS has discarded the SW heap.
  */
 import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching';
 import { registerRoute, NavigationRoute } from 'workbox-routing';
@@ -53,14 +56,20 @@ async function initKey(armoredKey: string, passphrase: string): Promise<void> {
   });
 }
 
-async function signText(text: string): Promise<string> {
-  if (!privateKey) {
-    throw new Error('Private key not initialized');
+/** Return cached decrypted key, or throw if the page has not (re)initialized. */
+async function ensureDecryptedKey(): Promise<openpgp.PrivateKey> {
+  if (privateKey) {
+    return privateKey;
   }
+  throw new Error('Private key not initialized');
+}
+
+async function signText(text: string): Promise<string> {
+  const key = await ensureDecryptedKey();
   const message = await openpgp.createMessage({ text });
   const signature = await openpgp.sign({
     message,
-    signingKeys: privateKey,
+    signingKeys: key,
     detached: true,
     format: 'armored'
   });
@@ -136,6 +145,8 @@ self.addEventListener('message', async (event) => {
   } else if (type === 'CLEAR_KEY') {
     privateKey = null;
     port.postMessage({ success: true });
+  } else if (type === 'HAS_KEY') {
+    port.postMessage({ success: true, hasKey: !!privateKey });
   } else if (type === 'SIGN_TEXT') {
     try {
       const signature = await signText(data.text);
