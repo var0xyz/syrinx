@@ -108,14 +108,14 @@ class RequestSignerService {
     return serviceWorker;
   }
 
-  private postToWorker<T>(type: string, data?: unknown): Promise<T> {
+  private postToWorker<T>(type: string, data?: unknown, timeoutMs = 30000): Promise<T> {
     return new Promise(async (resolve, reject) => {
       try {
         const serviceWorker = await this.getServiceWorker();
         const channel = new MessageChannel();
         const timeout = setTimeout(() => {
           reject(new Error(`Service worker ${type} timeout`));
-        }, 30000);
+        }, timeoutMs);
 
         channel.port1.onmessage = (event) => {
           clearTimeout(timeout);
@@ -159,7 +159,7 @@ class RequestSignerService {
 
     this.reinitInFlight = (async () => {
       try {
-        const status = await this.postToWorker<{ success: boolean; hasKey?: boolean }>('HAS_KEY');
+        const status = await this.postToWorker<{ success: boolean; hasKey?: boolean }>('HAS_KEY', undefined, 3000);
         if (status.hasKey) {
           this.initialized = true;
           return;
