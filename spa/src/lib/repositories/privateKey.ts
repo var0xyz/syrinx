@@ -33,6 +33,12 @@ export class PrivateKeyRepository {
     return await this.db.get<PrivateKey>('privateKeys', fingerprint);
   }
 
+  /** When this key was minted (put into IndexedDB) — `__meta__.created`, in ms. */
+  async getMintedAt(fingerprint: string): Promise<number | null> {
+    const meta = await this.db.getMeta('privateKeys', fingerprint);
+    return meta?.created ?? null;
+  }
+
   async hasPrivateKey(fingerprint: string): Promise<boolean> {
     const keyData = await this.getPrivateKey(fingerprint);
     return !!keyData;
