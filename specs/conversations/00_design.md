@@ -51,6 +51,9 @@ extract headers at publish time.
 - **Reply** — a new reed whose `replying` header points at a target.
 - **Direct reply** — a reply whose `replying` ref resolves to the reed
   currently being viewed (not a reply-to-a-reply of an ancestor).
+- **Thread** — the full chain of replies-of-replies rooted at one reed,
+  identified by that root's ref (`threadId`); see
+  [05](05_thread_reply_counts.md).
 
 ### Echo count
 
@@ -69,6 +72,16 @@ Count is server-authoritative (indexed at publish). Display examples:
 Tapping Echo still opens the compose modal (unchanged). The count is
 informational, not a separate list in v1. (A future step may add an echo
 list drawer; not required for this proposal set.)
+
+### Reply count
+
+Alongside the echo count, the reed detail page also shows a **total reply
+count** for the thread the reed belongs to — replies to replies count
+toward this number too, unlike the echo count above. Every reed in a
+thread (root or nested reply) shows the same total; see
+[05](05_thread_reply_counts.md) for the `threadId` header, the
+`reed_threads` counter, and the live-update wiring that makes this
+possible without a recursive query per view.
 
 ### Conversation section
 
@@ -144,13 +157,18 @@ acceptable; no GC in v1.
 
 ### Realtime (v1)
 
-No new WebSocket event type. When `new_reed` arrives and the open reed detail
-page is the parent, re-check the reply list (debounced) or append if the
-incoming reed's `replying` ref matches. Echo count bumps when a new held echo
-references the open reed.
+The **direct reply list** has no new WebSocket event type. When `new_reed`
+arrives and the open reed detail page is the parent, re-check the reply list
+(debounced) or append if the incoming reed's `replying` ref matches.
 
-A dedicated `new_reply` event (parent ref in payload) is a future
-optimization if list polling proves noisy.
+The **thread reply count** ([05](05_thread_reply_counts.md)) is the
+exception: it gets a dedicated live path, `REED_STATS`/`REED_REPLIES`,
+mirroring the existing echo-count WS pattern — a reply anywhere in a thread
+pushes an updated total to every currently-subscribed viewer of that thread,
+not just the reed being replied to.
+
+A dedicated `new_reply` event (parent ref in payload) for the direct list is
+a future optimization if list polling proves noisy.
 
 ## UX sketch
 
