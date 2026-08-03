@@ -180,6 +180,21 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
 | 08 | Nested `userSignature` / `serverSignature` wire |
 | 09 | Verify every signed resource before store |
 
+## Observability (request + DB query tracing)
+
+See [`observability/`](observability/README.md). Closes the gap between the
+existing (unused) OTEL SDK scaffolding in `observability.go` and an actual
+per-request trace with nested DB query spans, landing in the same
+OpenObserve stack that already receives logs and host metrics.
+
+| #  | Title                                                        |
+|----|---------------------------------------------------------------|
+| 00 | Design + architecture + locked decisions                    |
+| 01 | OTLP trace receiver on the app-host collector (`rpi` repo)   |
+| 02 | Wire `SetupObservability` + HTTP request spans               |
+| 03 | DB query spans via `otelsql`                                 |
+| 04 | Thread `context.Context` so DB spans nest under the request |
+
 ## Parallelism
 
 - **Remaining open (prerequisites):** 09 (revocation fanout), 11.
@@ -222,6 +237,12 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
   SignReed content path (for tag extract); within `pipes/`, follow 00→03.
   Mentions tag-index pattern ([conversations 04](conversations/04_mentions.md))
   is the closest cousin.
+- **Observability** ([`observability/`](observability/README.md)) is
+  independent of every other track above — pure infra/plumbing, no schema or
+  wire changes. Step 01 lives in the `rpi` ops repo and can land any time;
+  02→03 can be developed against a local OTLP endpoint before 01 reaches the
+  Pi; 04 is the large one and is designed to land incrementally (package by
+  package) rather than as a single change.
 
 ## Shared conventions
 
