@@ -20,6 +20,7 @@ export interface DbService {
   init(): Promise<void>;
   put<T extends api.Base>(storeName: string, data: T, verifier: Verifier<T>): Promise<void>;
   get<T extends api.Base>(storeName: string, key: string): Promise<T | null>;
+  getMeta(storeName: string, key: string): Promise<DbMetadata | null>;
   delete(storeName: string, key: string): Promise<void>;
   getAll<T extends api.Base>(storeName: string): Promise<T[]>;
   getAllSortedByIndex<T>(storeName: string, indexName: string): Promise<T[]>;
@@ -162,6 +163,24 @@ export class IndexedDbService implements DbService {
         }
         const { __meta__, ...data } = result;
         resolve(data as unknown as T);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /** Read `__meta__` (created/bytes) for a record without unwrapping the payload. */
+  async getMeta(storeName: string, key: string): Promise<DbMetadata | null> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([storeName], 'readonly');
+      const store = transaction.objectStore(storeName);
+      const request = store.get(key);
+
+      request.onsuccess = () => {
+        const result = request.result as DbWrapper<unknown> | null;
+        resolve(result?.__meta__ ?? null);
       };
       request.onerror = () => reject(request.error);
     });

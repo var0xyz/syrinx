@@ -10,6 +10,7 @@
   import { isOnline } from '$lib/services/pwa';
   import { dbService } from '$lib/services/db';
   import { localStorageService } from '$lib/services/localstorage';
+  import { compressBackupPayload, encryptAndSaveBackup, buildKeyBackupPayload } from '$lib/services/backupRestore';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import ExportDataModal from '$lib/components/ExportDataModal.svelte';
@@ -63,6 +64,15 @@
   let showExportWarningModal: boolean = false;
   let lastBackupAt: number | null = null;
 
+  // Key backup state
+  let backingUpKeys: boolean = false;
+  let showBackupKeysModal: boolean = false;
+  let lastKeyBackupAt: number | null = null;
+  let activeKeyMintedAt: number | null = null;
+  // Never backed up, or backed up before the currently active key was minted
+  // (e.g. after a revoke) — the existing backup no longer covers this key.
+  $: keyBackupStale = !lastKeyBackupAt || (activeKeyMintedAt != null && lastKeyBackupAt < activeKeyMintedAt);
+
   // Helper function to format bytes into human-readable format
   function formatBytes(bytes: number): string {
     console.log(`bytes: ${bytes}`);
@@ -99,7 +109,16 @@
 
     const storedBackupAt = localStorage.getItem('lastBackupAt');
     if (storedBackupAt) lastBackupAt = parseInt(storedBackupAt);
+
+    const storedKeyBackupAt = localStorage.getItem('lastKeyBackupAt');
+    if (storedKeyBackupAt) lastKeyBackupAt = parseInt(storedKeyBackupAt);
+
+    await refreshActiveKeyMintedAt();
   });
+
+  async function refreshActiveKeyMintedAt(): Promise<void> {
+    activeKeyMintedAt = await privateKeyRepository.getMintedAt(keyFingerprint);
+  }
 
   function applyKeyInfo(info: ProfileKeyInfo): void {
     keyFingerprint = info.fingerprint;
@@ -108,6 +127,7 @@
     isPendingRevocation = info.isPendingRevocation;
     isKeyRevoked = info.isKeyRevoked;
     revokedInfo = info.revokedInfo;
+    void refreshActiveKeyMintedAt();
   }
 
   async function loadKeyInfo(): Promise<void> {
@@ -436,92 +456,12 @@
         }
       };
 
-      // Convert to JSON and compress using Compression Streams API
-      const jsonString = JSON.stringify(exportData);
-
-      // Create a ReadableStream from the JSON string
-      const jsonBlob = new Blob([jsonString], { type: 'application/json' });
-      const jsonStream = jsonBlob.stream();
-
-      // Pipe through gzip compression
-      const compressionStream = new CompressionStream('gzip');
-      const compressedStream = jsonStream.pipeThrough(compressionStream);
-
-      // Collect compressed chunks into a Uint8Array
-      const chunks: Uint8Array[] = [];
-      const reader = compressedStream.getReader();
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) {
-            chunks.push(value);
-          }
-        }
-      } finally {
-        reader.releaseLock();
-      }
-
-      // Combine all chunks into a single Uint8Array
-      const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-      const compressedData = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const chunk of chunks) {
-        compressedData.set(chunk, offset);
-        offset += chunk.length;
-      }
-
-      // Encrypt the compressed data with the user-provided password
-      const encryptedData = await cryptoService.encryptBackup(compressedData, backupPassword);
-
+      const compressedData = await compressBackupPayload(exportData);
       const filename = `syrinx-${user.id}-${timestamp}.sxb.gz.gpg`;
-
-      let exported = false;
-
-      // Use File System Access API if available, otherwise fallback to download
-      if ('showSaveFilePicker' in window) {
-        try {
-          const fileHandle = await (window as any).showSaveFilePicker({
-            suggestedName: filename,
-            types: [{
-              description: 'Syrinx Encrypted Backup',
-              accept: {
-                'application/octet-stream': ['.sxb.gz.gpg']
-              }
-            }]
-          });
-
-          const writable = await fileHandle.createWritable();
-          const blob = new Blob([encryptedData], { type: 'application/octet-stream' });
-          await writable.write(blob);
-          await writable.close();
-
-          exported = true;
-          notificationStore.success('Data exported successfully');
-        } catch (error: any) {
-          // User cancelled or error occurred
-          if (error.name !== 'AbortError') {
-            throw error;
-          }
-          // If user cancelled, don't show error
-        }
-      } else {
-        // Fallback: create download link
-        const blob = new Blob([encryptedData], { type: 'application/octet-stream' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        exported = true;
-        notificationStore.success('Data exported successfully');
-      }
+      const exported = await encryptAndSaveBackup(compressedData, backupPassword, filename);
 
       if (exported) {
+        notificationStore.success('Data exported successfully');
         localStorage.setItem('lastBackupAt', timestamp.toString());
         lastBackupAt = timestamp;
       }
@@ -532,6 +472,29 @@
       );
     } finally {
       exporting = false;
+    }
+  }
+
+  async function backupKeys(password: string): Promise<void> {
+    backingUpKeys = true;
+    try {
+      const payload = await buildKeyBackupPayload();
+      const compressedData = await compressBackupPayload(payload);
+      const filename = `syrinx-${user.id}-keys-${payload.timestamp}.sxb.gz.gpg`;
+      const saved = await encryptAndSaveBackup(compressedData, password, filename);
+
+      if (saved) {
+        notificationStore.success('Keys backed up successfully');
+        localStorage.setItem('lastKeyBackupAt', String(payload.timestamp));
+        lastKeyBackupAt = payload.timestamp;
+      }
+    } catch (error) {
+      console.error('Error backing up keys:', error);
+      notificationStore.error(
+        error instanceof Error ? error.message : 'Failed to back up keys'
+      );
+    } finally {
+      backingUpKeys = false;
     }
   }
 </script>
@@ -687,6 +650,24 @@
                 </div>
                 <div class="key-value public-key">{publicKeyArmor}</div>
               </div>
+              <div class="key-backup">
+                {#if keyBackupStale}
+                  <span class="key-backup-warning">
+                    ⚠️ {lastKeyBackupAt
+                      ? 'Your key backup is outdated — back up again to protect your current key.'
+                      : 'Your keys have never been backed up.'}
+                  </span>
+                {:else}
+                  <span class="last-backup">Last key backup {formatRelativeTime(lastKeyBackupAt)}</span>
+                {/if}
+                <button
+                  class="action-btn primary"
+                  on:click={() => showBackupKeysModal = true}
+                  disabled={backingUpKeys || isKeyRevoked || isPendingRevocation}
+                >
+                  {backingUpKeys ? 'Backing up...' : 'Backup Keys'}
+                </button>
+              </div>
               <div class="key-actions">
                 {#if isPendingRevocation}
                   {#if !$isOnline}
@@ -798,6 +779,12 @@
       open={showExportWarningModal}
       on:confirm={(e) => { showExportWarningModal = false; exportData(e.detail); }}
       on:cancel={() => showExportWarningModal = false}
+    />
+
+    <ExportDataModal
+      open={showBackupKeysModal}
+      on:confirm={(e) => { showBackupKeysModal = false; backupKeys(e.detail); }}
+      on:cancel={() => showBackupKeysModal = false}
     />
 
     <!-- Bottom Toolbar -->
@@ -1112,7 +1099,7 @@
   .encryption-key-info {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
   }
 
   .key-field {
@@ -1161,8 +1148,18 @@
     line-height: 1.4;
   }
 
-  .key-actions {
+  .key-backup {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
     margin-top: 0.5rem;
+  }
+
+  .key-backup-warning {
+    font-size: 0.85rem;
+    color: var(--error);
+    font-weight: 600;
   }
 
   .key-pending-banner {

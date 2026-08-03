@@ -1,6 +1,9 @@
 import type * as api from '$lib/types/api';
 import { cryptoService } from './crypto';
 import { dbService } from './db';
+import { apiService } from './api';
+import { authService } from './auth';
+import { localStorageService } from './localstorage';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
 import { revocationRepository } from '$lib/repositories/revocation';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
@@ -31,6 +34,132 @@ const BACKUP_FILENAME_RE = /^syrinx-.+\.sxb\.gz\.gpg$/i;
 
 export function isBackupFilename(name: string): boolean {
   return BACKUP_FILENAME_RE.test(name);
+}
+
+async function compressGzip(data: Uint8Array): Promise<Uint8Array> {
+  const stream = new CompressionStream('gzip');
+  const writer = stream.writable.getWriter();
+  writer.write(data as BufferSource);
+  writer.close();
+
+  const chunks: Uint8Array[] = [];
+  const reader = stream.readable.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const total = chunks.reduce((sum, c) => sum + c.length, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+/** Gzip-compress a backup payload's JSON serialization. */
+export async function compressBackupPayload(payload: BackupPayload): Promise<Uint8Array> {
+  return compressGzip(new TextEncoder().encode(JSON.stringify(payload)));
+}
+
+/**
+ * Encrypt and save a compressed backup payload to disk, prompting for a
+ * file location via File System Access API where available. Returns false
+ * if the user cancelled the save dialog.
+ */
+export async function encryptAndSaveBackup(
+  compressed: Uint8Array,
+  password: string,
+  filename: string
+): Promise<boolean> {
+  const encryptedData = await cryptoService.encryptBackup(compressed, password);
+
+  if ('showSaveFilePicker' in window) {
+    try {
+      const fileHandle = await (window as any).showSaveFilePicker({
+        suggestedName: filename,
+        types: [{
+          description: 'Syrinx Encrypted Backup',
+          accept: { 'application/octet-stream': ['.sxb.gz.gpg'] }
+        }]
+      });
+      const writable = await fileHandle.createWritable();
+      await writable.write(new Blob([encryptedData], { type: 'application/octet-stream' }));
+      await writable.close();
+      return true;
+    } catch (error: any) {
+      if (error.name === 'AbortError') return false;
+      throw error;
+    }
+  }
+
+  const blob = new Blob([encryptedData], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return true;
+}
+
+/**
+ * Minimal identity-only backup: active key material + own countersigned
+ * profile — everything `assertBackupIdentity`/`extractProfile` need to
+ * restore a session via /import. Reeds/follows/etc. re-sync from the server
+ * afterward, so they're deliberately left out of this smaller file.
+ */
+export async function buildKeyBackupPayload(): Promise<BackupPayload> {
+  const userId = localStorage.getItem('userId');
+  const fingerprint = authService.getActiveKeyFingerprint();
+  if (!userId || !fingerprint) {
+    throw new Error('No active identity to back up.');
+  }
+
+  const allLocalStorage = localStorageService.getAll();
+  const IDENTITY_KEYS = ['userId', 'keyFingerprint', 'keyPassphrase', 'serverId', 'serverName'];
+  const localStorageSubset: Record<string, string> = {};
+  for (const key of IDENTITY_KEYS) {
+    if (allLocalStorage[key] !== undefined) localStorageSubset[key] = allLocalStorage[key];
+  }
+
+  const privateKey = await privateKeyRepository.getPrivateKey(fingerprint);
+  if (!privateKey) {
+    throw new Error('Active private key not found locally.');
+  }
+
+  let publicKey = await publicKeyRepository.getPublicKey(fingerprint);
+  if (!publicKey) {
+    publicKey = await apiService.getPublicKey(userId, fingerprint);
+  }
+
+  const profile = await userRepository.get(userId);
+  if (!profile) {
+    throw new Error('Local profile not found — cannot build key backup.');
+  }
+
+  return {
+    timestamp: Date.now(),
+    origin: window.location.origin,
+    localStorage: localStorageSubset,
+    indexedDB: {
+      name: 'Syrinx',
+      tables: [
+        { name: 'privateKeys', items: [privateKey] },
+        { name: 'publicKeys', items: [publicKey] },
+        { name: 'users', items: [profile] },
+      ],
+    },
+  };
 }
 
 async function decompressGzip(data: Uint8Array): Promise<Uint8Array> {
