@@ -16,7 +16,7 @@
     modalOpen = true;
   }
 
-  $: doc = parseReedMarkdown(text ?? '');
+  $: doc = parseReedMarkdown(preview ? (text ?? '').trim() : (text ?? ''));
 </script>
 
 <div class="markdown-content {className}" role="presentation">
