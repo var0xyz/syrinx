@@ -18,6 +18,7 @@
   import { isOnline } from '$lib/services/pwa';
   import { echoCountsRepository } from '$lib/repositories/echoCounts';
   import Avatar from '$lib/components/Avatar.svelte';
+  import ReedStatsSubscription from '$lib/components/ReedStatsSubscription.svelte';
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -35,7 +36,6 @@
   let loadingReed = !data.fromCache && !data.errorMessage;
   let fetchingReed = false;
   let reedNotFound = false;
-  let subscribedReedKey = '';
   /** Drops stale async loadReed completions (overlapping reactive calls). */
   let loadSeq = 0;
 
@@ -77,7 +77,6 @@
     if (next.reed?.userID === next.user?.id && !next.reed.serverSignature) {
       void reedsService.publishUnsignedReed(next.reed);
     }
-    await syncReedSubscription();
     if (!authorUser) {
       await loadAuthorProfile();
     }
@@ -108,26 +107,6 @@
     }
   }
 
-  async function syncReedSubscription() {
-    const key = `${userID}/${reedID}`;
-    if (reed?.serverSignature) {
-      if (subscribedReedKey && subscribedReedKey !== key) {
-        const [authorId, id] = subscribedReedKey.split('/');
-        serverConnection.unsubscribeReed(authorId, id);
-      }
-      if (subscribedReedKey !== key) {
-        subscribedReedKey = key;
-        await serverConnection.subscribeReed(userID, reedID);
-      }
-      return;
-    }
-    if (subscribedReedKey) {
-      const [authorId, id] = subscribedReedKey.split('/');
-      serverConnection.unsubscribeReed(authorId, id);
-      subscribedReedKey = '';
-    }
-  }
-
   $: if ($isOnline && user && loadingReed && !data.fromCache) loadReedFromNetwork();
   $: if ($unsignedReedsProcessed > 0 && user) reloadFromCache();
 
@@ -141,11 +120,6 @@
     serverConnection.off(ServerEvent.ReedStats, handleReedStats);
     serverConnection.off(ServerEvent.ReedEchoes, handleReedEchoes);
     serverConnection.off(ServerEvent.ReedCoverage, handleReedCoverage);
-    if (subscribedReedKey) {
-      const [authorId, id] = subscribedReedKey.split('/');
-      serverConnection.unsubscribeReed(authorId, id);
-      subscribedReedKey = '';
-    }
   });
 
   async function reloadFromCache() {
@@ -217,9 +191,6 @@
         if (seq !== loadSeq) return;
         reed = networkReed;
         await loadAuthorProfile();
-        if (reed.serverSignature) {
-          await syncReedSubscription();
-        }
       } catch {
         if (seq !== loadSeq) return;
         reedNotFound = true;
@@ -326,6 +297,11 @@
 
   <Auth>
     <div class="reed-detail-container">
+      {#key `${userID}/${reedID}`}
+        {#if reedMatchesRoute && reed?.serverSignature}
+          <ReedStatsSubscription authorId={reed.userID} reedId={reed.id} />
+        {/if}
+      {/key}
 
       <!-- Content -->
       <div class="reed-content">
