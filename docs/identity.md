@@ -30,7 +30,7 @@ If signup fails after key generation, the client discards the reserved id, keys,
 
 ### Invites
 
-Authenticated users create single-use invite links (subject to quota). Redeeming an invite consumes the token, records a durable countersigned **`invitedBy`** binding, and establishes a **mutual follow** between inviter and invitee.
+Authenticated users create single-use invite links (subject to quota). Redeeming an invite consumes the token and records a durable countersigned **`invitedBy`** binding on the new account.
 
 The redeem secret is minted and held on the inviter’s device; the server stores only `SHA-256(secret)`. Share links put the secret in the URL fragment so it is not sent on navigation. See [Invites](/invites) for the full flow and threat model.
 

@@ -440,8 +440,7 @@ func (s *DataService) LookupPendingInvite(ctx context.Context, inviteID, secret 
 // Signup materialises a fresh identity record: it writes the users row
 // (with both signatures + the server key fingerprint stored alongside
 // them) and inserts the initial user_keys row — all in one transaction.
-// When an invite is consumed, MarkClaimed and mutual follows run in the
-// same TX.
+// When an invite is consumed, MarkClaimed runs in the same TX.
 //
 // Callers own userID allocation and signature verification; this
 // function just persists.
@@ -545,9 +544,6 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		if !ok {
 			return nil, invites.ErrInvalidInvite
 		}
-		if err := insertMutualFollow(tx, resolved.InviterID, in.UserID); err != nil {
-			return nil, err
-		}
 	}
 
 	if err := coverage.BumpActiveUsers(tx, 1); err != nil {
@@ -559,22 +555,6 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	}
 
 	return s.GetUser(in.UserID)
-}
-
-func insertMutualFollow(tx *sql.Tx, inviterID, inviteeID string) error {
-	if _, err := tx.Exec(`
-		INSERT INTO user_following (user_id, following_user_id) VALUES
-			($1, $2), ($2, $1)
-		ON CONFLICT DO NOTHING
-	`, inviterID, inviteeID); err != nil {
-		return err
-	}
-	_, err := tx.Exec(`
-		INSERT INTO user_followers (user_id, follower_user_id) VALUES
-			($2, $1), ($1, $2)
-		ON CONFLICT DO NOTHING
-	`, inviterID, inviteeID)
-	return err
 }
 
 func (s *DataService) GetUser(userID string) (*User, error) {

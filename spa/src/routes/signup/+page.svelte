@@ -206,10 +206,6 @@
       );
       await publicKeyRepository.put(attestedKey);
       await authService.saveUserToStorage(user);
-      if (user.invitedBy?.id) {
-        const { followingRepository } = await import("$lib/repositories/following");
-        await followingRepository.recordLocalFollow(user.invitedBy.id);
-      }
 
       serverConnection.connect().then(() => serverConnection.syncRequest());
 

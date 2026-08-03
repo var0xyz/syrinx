@@ -208,21 +208,13 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 	}
 
 	var n int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM user_following WHERE user_id='inviter' AND following_user_id='invitee'`).Scan(&n)
-	if n != 1 {
-		t.Fatal("missing inviter→invitee following")
+	_ = db.QueryRow(`SELECT COUNT(*) FROM user_following`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("follow edges = %d, want 0", n)
 	}
-	_ = db.QueryRow(`SELECT COUNT(*) FROM user_following WHERE user_id='invitee' AND following_user_id='inviter'`).Scan(&n)
-	if n != 1 {
-		t.Fatal("missing invitee→inviter following")
-	}
-	_ = db.QueryRow(`SELECT COUNT(*) FROM user_followers WHERE user_id='invitee' AND follower_user_id='inviter'`).Scan(&n)
-	if n != 1 {
-		t.Fatal("missing inviter as follower of invitee")
-	}
-	_ = db.QueryRow(`SELECT COUNT(*) FROM user_followers WHERE user_id='inviter' AND follower_user_id='invitee'`).Scan(&n)
-	if n != 1 {
-		t.Fatal("missing invitee as follower of inviter")
+	_ = db.QueryRow(`SELECT COUNT(*) FROM user_followers`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("follower edges = %d, want 0", n)
 	}
 
 	_, err = svc.Signup(signupInput("other", "carol", "inviter", id, raw, invites.ModeInvite))
@@ -261,9 +253,9 @@ func TestSignup_OpenValidToken(t *testing.T) {
 		t.Fatalf("invitedBy = %+v", user.InvitedBy)
 	}
 	var n int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM user_following WHERE user_id='inviter' AND following_user_id='invitee'`).Scan(&n)
-	if n != 1 {
-		t.Fatal("expected mutual follow edge")
+	_ = db.QueryRow(`SELECT COUNT(*) FROM user_following`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("follow edges = %d, want 0", n)
 	}
 }
 
