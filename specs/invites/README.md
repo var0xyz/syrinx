@@ -18,7 +18,7 @@ the invites consume helper. Shared identity payload builders stay in
 | [00](00_signup_mode.md)              | `SIGNUP_MODE` + `MAX_INVITES_PER_USER`, info gate  | —          |
 | [01](01_schema_and_store.md)         | `invites` table, `users.invited_by`, store         | 00         |
 | [02](02_lifecycle_api.md)            | Create / status / revoke / check APIs + quota | 01         |
-| [03](03_signup_consume.md)           | Consume at signup, identity, mutual follow         | 02         |
+| [03](03_signup_consume.md)           | Consume at signup, identity, `invitedBy`           | 02         |
 | [04](04_spa_signup_gating.md)        | Home CTA + invite-link signup path                 | 00, 03     |
 | [05](05_spa_invite_management.md)    | Toolbar Invites + local signed invites             | 02, 03     |
 
@@ -34,8 +34,7 @@ Operators need to control who can join a Syrinx instance: open registration,
 invite-gated registration, or no new signups at all. When invites are in
 play, every authenticated user can mint shareable single-use links, subject
 to an optional per-user cap. Redeeming an invite records a durable,
-**server-countersigned** `invitedBy` binding on the new user and establishes
-a mutual follow between inviter and invitee.
+**server-countersigned** `invitedBy` binding on the new user.
 
 Invites are **signed resources** on the client (user attestation + server
 countersignature over id + `createdAt`). The server `invites` table remains
@@ -54,7 +53,6 @@ wipe is acceptable. The durable social fact that survives is
 | Expiry | None |
 | Revoke | Issuer may revoke unused invites |
 | Attribution | `invites.claimed_by` + `users.invited_by`; both visible in UI |
-| Mutual follow | Yes, both edges, same TX as signup redeem |
 | `invitedBy` signed | Server identity header only (like `userID`) |
 | Invite attestation | User signs id + `createdAt` + `tokenHash`; server countersigns; status unsigned |
 | Invite PK | `(created_by, id)` — client-minted ids scoped to issuer |
@@ -112,7 +110,7 @@ Parse rules (fatal at boot on violation):
 
 | Mode | Home “Sign Up” | `POST /users/signup` | `POST /check-username` | `POST /api/invites` | Bootstrap (0 users) |
 |------|----------------|----------------------|------------------------|---------------------|---------------------|
-| `open` | Visible | Allowed; invite **optional** (if present → must be valid, consume, set `invited_by`, mutual follow) | Allowed | Allowed (quota) | N/A |
+| `open` | Visible | Allowed; invite **optional** (if present → must be valid, consume, set `invited_by`) | Allowed | Allowed (quota) | N/A |
 | `invite` | Hidden | Valid unused invite required | Allowed | Allowed (quota) | Allowed without invite |
 | `closed` | Hidden | 403 | 403 | 403 on **create** (status/revoke still ok) | No |
 
@@ -224,9 +222,7 @@ Inside the existing signup transaction, after crypto checks:
    affect exactly one row.
 4. `INSERT users` with `invited_by` set (or NULL).
 5. Countersign profile payload including `invitedBy` when set.
-6. If redeemed: insert mutual follow edges (both directions), mirroring
-   `FollowUser`.
-7. Commit.
+6. Commit.
 
 Failed signup never burns an invite. Two concurrent redeems of one token
 cannot both succeed.

@@ -51,7 +51,7 @@ See [`invites/`](invites/README.md):
 | 00 | `SIGNUP_MODE` + `MAX_INVITES_PER_USER`, info gate  |
 | 01 | `invites` table, `users.invited_by`, store         |
 | 02 | Create / list / revoke / check APIs + quota        |
-| 03 | Consume at signup, identity, mutual follow         |
+| 03 | Consume at signup, identity, `invitedBy`           |
 | 04 | Home CTA + invite-link signup path                 |
 | 05 | Toolbar Invites tab + management UI                |
 

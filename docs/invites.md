@@ -10,7 +10,7 @@ Operators set `SIGNUP_MODE`:
 
 | Mode     | Sign up without a link | Redeem an invite |
 |----------|------------------------|------------------|
-| `open`   | Yes                    | Optional; sets `invitedBy` and mutual follow when present |
+| `open`   | Yes                    | Optional; sets `invitedBy` when present |
 | `invite` | No (home CTA hidden)   | Required |
 | `closed` | No                     | No new signups |
 
@@ -72,7 +72,6 @@ The signup request includes `inviteID` (query) and `inviteSecret` (fragment), pl
 3. Inserts the new user with `invited_by` set to the inviter.
 4. Countersigns the profile, including an `invitedBy` header.
 5. Marks the invite claimed.
-6. Inserts **mutual follow** edges (inviter ↔ invitee).
 
 All of the above succeeds or fails together — if signup fails, the invite stays pending. Two concurrent redeems of the same link race; only one can claim it.
 

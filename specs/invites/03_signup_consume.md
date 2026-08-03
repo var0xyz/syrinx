@@ -1,10 +1,9 @@
-# Invites 03 — Signup consume, `invitedBy` identity, mutual follow
+# Invites 03 — Signup consume, `invitedBy` identity
 
 ## Status
 
 Implemented (signup invite policy + consume in TX; `invitedBy` on
-identity payload / User wire; mutual follow on redeem; profile update
-preserves `invitedBy`).
+identity payload / User wire; profile update preserves `invitedBy`).
 
 ## Depends on
 
@@ -14,8 +13,7 @@ preserves `invitedBy`).
 
 Invites can be created and listed, but `POST /api/users/signup` still ignores
 them. This step enforces `SIGNUP_MODE=invite`, optionally honors invites in
-`open`, persists `users.invited_by`, extends the server identity payload, and
-creates mutual follows on successful redeem.
+`open`, persists `users.invited_by`, and extends the server identity payload.
 
 ## Scope
 
@@ -29,7 +27,6 @@ creates mutual follows on successful redeem.
   header.
 - Persist `invited_by`; expose on `User` JSON as
   `invitedBy: { id, username } | null`.
-- On redeem: mutual follow (both directions) in the same TX.
 - Profile update path must preserve `invitedBy` when re-countersigning
   (immutable).
 
@@ -38,7 +35,7 @@ creates mutual follows on successful redeem.
 - SPA gating / toolbar (04–05).
 - Putting `invitedBy` on the **user** identity payload.
 - Signing the invite row itself.
-- Changing follow APIs beyond inserting edges during signup.
+- Changing follow APIs.
 
 ## Design
 
@@ -48,26 +45,12 @@ creates mutual follows on successful redeem.
 
 ### Policy
 
-```
-closed   → 403 (already from 00)
-invite   → require non-empty invite; invalid → 403
-open     → invite optional; if provided must be valid and is consumed
-```
+See [README mode matrix](README.md).
 
-Operators create the first account with `SIGNUP_MODE=open`, then switch to
-`invite` or `closed`.
+### Signup TX (consume path)
 
-### Transaction order
-
-Extend `DataService.Signup` (or move orchestration into `invites.ConsumeAndSignup`
-called from the handler) to run in one `BEGIN … COMMIT`:
-
-1. Apply policy above; if a token is required or provided:
-   - `hash = HashToken(raw)`
-   - load invite by hash; if not pending → **403** `"Invalid or claimed invite"`
-     (same string for claimed/revoked/unknown to match check's opacity, or
-     slightly more helpful on the authenticated-to-signup path — prefer
-     one stable string: `"Invalid or claimed invite"`).
+1. Resolve invite (hash secret, load row, check pending + id match). Map
+   failures to one stable string: `"Invalid or claimed invite"`).
    - remember `inviterID = invite.CreatedBy`, `inviteID = invite.ID`.
 2. Allocate `userID`, verify signatures, build profile payload **with**
    `invitedBy: inviterID` when set (else omit header).
@@ -76,10 +59,6 @@ called from the handler) to run in one `BEGIN … COMMIT`:
 5. If inviter set:
    - `MarkClaimed(tx, inviterID, inviteID, newUserID, now)` — must affect 1 row; else
      abort (race lost).
-   - Mutual follow:
-     - following: `(inviter → invitee)` and `(invitee → inviter)`
-     - followers: mirror as `FollowUser` does today
-     - use `ON CONFLICT DO NOTHING`.
 6. Commit.
 7. Return `GetUser` (includes joined `invitedBy`).
 
@@ -121,25 +100,6 @@ InvitedBy *InvitedBy `json:"invitedBy"` // null if none
 
 Clients displaying a profile show “Invited by @username” when non-null.
 
-### Mutual follow details
-
-Same two-table write as [`FollowUser`](../../../services.go):
-
-```sql
-INSERT INTO user_following (user_id, following_user_id) VALUES
-  ($inviter, $invitee), ($invitee, $inviter)
-ON CONFLICT DO NOTHING;
-
-INSERT INTO user_followers (user_id, follower_user_id) VALUES
-  ($invitee, $inviter), ($inviter, $invitee)
-ON CONFLICT DO NOTHING;
-```
-
-No realtime follow notification required for v1 unless an existing broadcast
-already fires on follow — do not invent a new event type here.
-
-Either party may unfollow later through the normal unfollow API.
-
 ### Error status codes
 
 | Case | Status | Message |
@@ -161,11 +121,11 @@ Avoid duplicating signature logic inside `invites/`.
 - [x] `closed` → still 403
 - [x] `invite`, empty DB, no token → 403 `Invite required`
 - [x] `invite`, valid token → 201; `invitedBy.id` = inviter; invite
-      `status=claimed`; mutual follows present both ways
+      `status=claimed`
 - [x] Same token twice → second 403; only one user
 - [x] Revoked / claimed token → 403
 - [x] `open`, no token → 201; `invitedBy` null
-- [x] `open`, valid token → 201; `invitedBy` set; mutual follows
+- [x] `open`, valid token → 201; `invitedBy` set
 - [x] `open`, invalid token → 403 (does not create user)
 - [x] Profile payload bytes include `invitedBy:` when set; omit when null
 - [x] `PUT /users/me` after invited signup still verifies with same
