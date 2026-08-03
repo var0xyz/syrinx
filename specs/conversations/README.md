@@ -24,17 +24,20 @@ conversation section and local reply cache.
 | [02](02_index_and_api.md)            | Echo/reply index tables + list/count APIs          | 01         |
 | [03](03_spa_reed_detail.md)          | Echo count + conversation section on reed detail   | 02         |
 | [04](04_mentions.md)                 | `@` mentions → `web+syrinx` links + `reed_mentions` | 01         |
+| [05](05_thread_reply_counts.md)      | Recursive thread reply counts (`threadId`, live WS stat) | 02   |
 
 After 00, [01](01_publish_and_refs.md) can land alone (security hardening).
 [02](02_index_and_api.md) needs the publish hook from 01. SPA ([03](03_spa_reed_detail.md))
 needs the APIs from 02. Mentions ([04](04_mentions.md)) only need 01 (content on
 publish); notification delivery stays in [proposal 11](../11_user_notifications.md).
+Thread reply counts ([05](05_thread_reply_counts.md)) only need the
+`reed_replies` schema from 02; independent of 03/04.
 
 ---
 
 ## Status
 
-**Proposed** (00–04).
+**Proposed** (00–05).
 
 ## Motivation
 
@@ -56,7 +59,7 @@ replies first; drill into a reply to see *its* direct replies.
 
 | Decision | Choice |
 |----------|--------|
-| Reply / echo reference wire format | `userID@serverID/reedID` (same for both) |
+| Reply / echo reference wire format | `userID@serverID/reedID` (same for both), reused for `threadId` |
 | Index scope | Instance-local; built at countersign time |
 | Index payload | `(parent/target author, parent/target reed, child author, child reed, signed_at)` — no markdown on server |
 | Publish body | Client sends form fields (`content`, optional `echoing`/`replying`); server rebuilds canonical markdown and verifies detached user sig before countersign |
@@ -64,9 +67,10 @@ replies first; drill into a reply to see *its* direct replies.
 | Reply list surface | `GET /reeds/{userID}/{reedID}/replies` — metadata rows, oldest-first |
 | Conversation depth | **One level at a time** — list direct children only; click a reply to navigate to that reed's page |
 | Removed reeds | Excluded from counts and reply lists; parent quote already shows "unavailable" via deletion certs |
-| Realtime v1 | Reuse `new_reed` fanout; conversation section refreshes when a held/new reply arrives (no new WS type in v1) |
+| Realtime v1 | Direct reply list reuses `new_reed` fanout (no new WS type); the thread reply count gets a dedicated `REED_STATS`/`REED_REPLIES` live path — see [05](05_thread_reply_counts.md) |
 | Mention href | `web+syrinx://users/<serverID>/<userID>` inside markdown `[Name](…)` — domain-free; see [04](04_mentions.md) |
 | Mention index | `reed_mentions` at countersign; cleared on reed/account removal; no notification delivery in conversations |
+| Thread reply count | Per-thread total (same number on every reed in the thread), denormalized in `reed_threads`, keyed by the root's ref (`threadId`) — not a per-node subtree count; see [05](05_thread_reply_counts.md) |
 
 ## Actors
 

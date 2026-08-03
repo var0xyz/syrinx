@@ -53,9 +53,13 @@ CREATE INDEX IF NOT EXISTS idx_reed_echoes_echoed_signed
     ON reed_echoes (echoed_user_id, echoed_reed_id, signed_at);
 
 -- One row per reply reed. reply_reed_id is UNIQUE: a reed replies to at most one parent.
+-- thread_* identifies the root of the whole chain this reply belongs to — see
+-- [05](05_thread_reply_counts.md) for how it's resolved and what it's used for.
 CREATE TABLE IF NOT EXISTS reed_replies (
     parent_user_id VARCHAR(255) NOT NULL,
     parent_reed_id VARCHAR(255) NOT NULL,
+    thread_user_id VARCHAR(255) NOT NULL,
+    thread_reed_id VARCHAR(255) NOT NULL,
     reply_user_id  VARCHAR(255) NOT NULL REFERENCES users(id),
     reply_reed_id  VARCHAR(255) NOT NULL UNIQUE,
     signed_at      TIMESTAMP NOT NULL,
@@ -64,10 +68,17 @@ CREATE TABLE IF NOT EXISTS reed_replies (
 
 CREATE INDEX IF NOT EXISTS idx_reed_replies_parent_signed
     ON reed_replies (parent_user_id, parent_reed_id, signed_at);
+
+CREATE INDEX IF NOT EXISTS idx_reed_replies_thread
+    ON reed_replies (thread_user_id, thread_reed_id, signed_at);
 ```
 
 No FK to `reeds` — parents may be hard-deleted after removal while index rows
-remain; queries filter via `reed_removals` / `account_removals`.
+remain; queries filter via `reed_removals` / `account_removals`. Rows are
+**never deleted** when the reply itself is removed (needed to render the
+reply as a tombstone in the conversation list); see
+[05](05_thread_reply_counts.md) for what removal actually mutates
+(`reed_threads.reply_count`, not this table).
 
 Register DDL in `InitDB` ([`db.go`](../../db.go)).
 
@@ -79,7 +90,7 @@ Inside the `SignReed` transaction (after tip-check lock if
 | Parsed ref | Insert |
 |------------|--------|
 | `echoing → (Tuser, Tid)` | `reed_echoes(echoing_user_id=author, echoing_reed_id=newId, echoed=T…, signed_at)` |
-| `replying → (Puser, Pid)` | `reed_replies(parent=…, reply_user_id=author, reply_reed_id=newId, signed_at)` |
+| `replying → (Puser, Pid)` | `reed_replies(parent=…, thread=…, reply_user_id=author, reply_reed_id=newId, signed_at)` — `thread_user_id/thread_reed_id` resolved per [05](05_thread_reply_counts.md), not simply copied from the parent ref |
 
 `ON CONFLICT (echoing_user_id, echoing_reed_id)` /
 `ON CONFLICT (reply_user_id, reply_reed_id)` `DO NOTHING` for idempotent
