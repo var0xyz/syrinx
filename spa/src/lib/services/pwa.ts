@@ -100,11 +100,19 @@ export function initializePWA() {
     };
 
     // Reload once when a new worker takes control (update path only).
+    // Guarded with sessionStorage, not just an in-memory flag: each reload is a
+    // full page load with a fresh JS context, so an in-memory flag alone can't
+    // stop a bad update cycle (e.g. flip-flopping SW bytes behind a proxy) from
+    // reloading forever. sessionStorage survives the reload and caps it at one.
     const hadController = !!navigator.serviceWorker.controller;
-    let refreshing = false;
+    const RELOADED_KEY = 'syrinx:sw-reloaded';
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!hadController || refreshing) return;
-      refreshing = true;
+      if (!hadController) return;
+      if (sessionStorage.getItem(RELOADED_KEY)) {
+        console.warn('PWA: Service Worker controller changed again; skipping reload to avoid a loop.');
+        return;
+      }
+      sessionStorage.setItem(RELOADED_KEY, '1');
       window.location.reload();
     });
 
