@@ -5,7 +5,7 @@
   import { apiService } from '$lib/services/api';
   import { serverConnection } from '$lib/services/serverConnection';
   import { userRepository } from '$lib/repositories/user';
-  import { reedsService } from '$lib/repositories/reeds';
+  import { reedsService, profileReedQueue } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -25,6 +25,21 @@
   let tombstoneNote = data.tombstoneNote;
 
   $: applyPageData(data);
+
+  // Promote out of noContent the moment the subscribed profile's first reed
+  // arrives — ReedsList (which normally handles profileReedQueue) isn't
+  // mounted while status is noContent, so nothing else would flip this.
+  let lastHandledProfileReedId = '';
+  $: profileArrived = $profileReedQueue?.reed;
+  $: if (
+    profileArrived &&
+    profileArrived.userID === userId &&
+    profileArrived.id !== lastHandledProfileReedId &&
+    status === 'noContent'
+  ) {
+    lastHandledProfileReedId = profileArrived.id;
+    status = 'ready';
+  }
 
   function applyPageData(next) {
     status = next.status;
@@ -50,12 +65,12 @@
       await userRepository.put(user);
       profileUser = user;
 
-      if (user.hasReeds) {
-        await subscribeToProfileIfNotFollowing(uid);
-        status = 'ready';
-      } else {
-        status = 'noContent';
-      }
+      // Subscribe regardless of hasReeds: with zero reeds today, this is the
+      // only way to hear about the author's first reed live while we're
+      // sitting on this page (ReedsList — which handles profileReedQueue —
+      // isn't even mounted in the noContent state below).
+      await subscribeToProfileIfNotFollowing(uid);
+      status = user.hasReeds ? 'ready' : 'noContent';
     }
   }
 
