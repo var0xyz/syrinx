@@ -46,47 +46,47 @@ See [`recovery/`](recovery/README.md):
 
 See [`invites/`](invites/README.md):
 
-| #  | Title                                              |
-|----|----------------------------------------------------|
-| 00 | `SIGNUP_MODE` + `MAX_INVITES_PER_USER`, info gate  |
-| 01 | `invites` table, `users.invited_by`, store         |
-| 02 | Create / list / revoke / check APIs + quota        |
-| 03 | Consume at signup, identity, `invitedBy`           |
-| 04 | Home CTA + invite-link signup path                 |
-| 05 | Toolbar Invites tab + management UI                |
+| #  | Title                                             |
+|----|---------------------------------------------------|
+| 00 | `SIGNUP_MODE` + `MAX_INVITES_PER_USER`, info gate |
+| 01 | `invites` table, `users.invited_by`, store        |
+| 02 | Create / list / revoke / check APIs + quota       |
+| 03 | Consume at signup, identity, `invitedBy`          |
+| 04 | Home CTA + invite-link signup path                |
+| 05 | Toolbar Invites tab + management UI               |
 
 ## Echoes and replies (conversations)
 
 See [`conversations/`](conversations/README.md):
 
-| #  | Title                                              |
-|----|----------------------------------------------------|
-| 00 | Design + UX model (echo count, one-level drill-down) |
-| 01 | Verify publish payload (form fields); normalize `replying` ref |
-| 02 | Echo/reply index tables + list/count APIs          |
-| 03 | Echo count + conversation section on reed detail     |
-| 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index) |
+| #  | Title                                                                                    |
+|----|------------------------------------------------------------------------------------------|
+| 00 | Design + UX model (echo count, one-level drill-down)                                     |
+| 01 | Verify publish payload (form fields); normalize `replying` ref                           |
+| 02 | Echo/reply index tables + list/count APIs                                                |
+| 03 | Echo count + conversation section on reed detail                                         |
+| 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index)                              |
 | 05 | Recursive reply counts: thread total (`threadId`, live WS stat) + per-reed subtree count |
 
 ## Reed network coverage
 
 See [`coverage/`](coverage/README.md):
 
-| #  | Title                                              |
-|----|----------------------------------------------------|
-| 00 | Design + UX + formula                              |
-| 01 | Denormalized counters                              |
-| 02 | WS subscribe snapshot ACK + live echoes/coverage   |
+| #  | Title                                            |
+|----|--------------------------------------------------|
+| 00 | Design + UX + formula                            |
+| 01 | Denormalized counters                            |
+| 02 | WS subscribe snapshot ACK + live echoes/coverage |
 
 ## Publish ready (fanout gate)
 
 See [`publish/`](publish/README.md):
 
-| #  | Title                                              |
-|----|----------------------------------------------------|
-| 00 | Design + publish/relay race + locked model         |
-| 01 | HTTP SignReed + WS `PUBLISH_READY` + SPA           |
-| 02 | Real `RELAY_MISS` (drop allocation + retry)        |
+| #  | Title                                       |
+|----|---------------------------------------------|
+| 00 | Design + publish/relay race + locked model  |
+| 01 | HTTP SignReed + WS `PUBLISH_READY` + SPA    |
+| 02 | Real `RELAY_MISS` (drop allocation + retry) |
 
 ## Custom avatars (hash + processed PNG)
 
@@ -120,15 +120,15 @@ See [`account_recovery/`](account_recovery/README.md). Distinct from server
 client from private keys while the server still holds the account; peers
 relay the user’s own reed bodies back.
 
-| #  | Title                                              |
-|----|----------------------------------------------------|
-| 00 | Design + tip approaches + restore fork             |
-| 01 | Key export format + profile Export key             |
-| 02 | Challenge + bootstrap API + rehydration row        |
-| 03 | Server-orchestrated own-reed relay + complete      |
-| 04 | SPA keys-only `/import` fork + session             |
-| 05 | SPA rehydration + tip `previousID` + UX            |
-| 06 | Device binding on bootstrap (takeover)             |
+| #  | Title                                         |
+|----|-----------------------------------------------|
+| 00 | Design + tip approaches + restore fork        |
+| 01 | Key export format + profile Export key        |
+| 02 | Challenge + bootstrap API + rehydration row   |
+| 03 | Server-orchestrated own-reed relay + complete |
+| 04 | SPA keys-only `/import` fork + session        |
+| 05 | SPA rehydration + tip `previousID` + UX       |
+| 06 | Device binding on bootstrap (takeover)        |
 
 ## Protobuf wire (HTTP + WebSocket)
 
@@ -168,18 +168,18 @@ See [`deletion/`](deletion/README.md):
 See [`signatures/`](signatures/README.md). **Blank slate — no migration,
 no dual-write, no backwards compatibility** (hard cutover; recreate DB).
 
-| #  | Title                                              |
-|----|----------------------------------------------------|
-| 00 | Design + table shapes                              |
-| 01 | DDL for `user_signatures` + `server_signatures`    |
-| 02 | Store helpers                                      |
-| 03 | Switch `users` to signature FKs                    |
-| 04 | Switch `user_keys` to server signature FK          |
-| 05 | Switch `user_key_revocations` to signature FKs     |
-| 06 | Switch `reed_removals` (and account later)         |
+| #  | Title                                                   |
+|----|---------------------------------------------------------|
+| 00 | Design + table shapes                                   |
+| 01 | DDL for `user_signatures` + `server_signatures`         |
+| 02 | Store helpers                                           |
+| 03 | Switch `users` to signature FKs                         |
+| 04 | Switch `user_keys` to server signature FK               |
+| 05 | Switch `user_key_revocations` to signature FKs          |
+| 06 | Switch `reed_removals` (and account later)              |
 | 07 | Drop legacy columns *(cancelled — absorbed into 03–06)* |
-| 08 | Nested `userSignature` / `serverSignature` wire |
-| 09 | Verify every signed resource before store |
+| 08 | Nested `userSignature` / `serverSignature` wire         |
+| 09 | Verify every signed resource before store               |
 
 ## Observability (request + DB query tracing)
 
@@ -188,12 +188,12 @@ existing (unused) OTEL SDK scaffolding in `observability.go` and an actual
 per-request trace with nested DB query spans, landing in the same
 OpenObserve stack that already receives logs and host metrics.
 
-| #  | Title                                                        |
-|----|---------------------------------------------------------------|
+| #  | Title                                                       |
+|----|-------------------------------------------------------------|
 | 00 | Design + architecture + locked decisions                    |
-| 01 | OTLP trace receiver on the app-host collector (`rpi` repo)   |
-| 02 | Wire `SetupObservability` + HTTP request spans               |
-| 03 | DB query spans via `otelsql`                                 |
+| 01 | OTLP trace receiver on the app-host collector (`rpi` repo)  |
+| 02 | Wire `SetupObservability` + HTTP request spans              |
+| 03 | DB query spans via `otelsql`                                |
 | 04 | Thread `context.Context` so DB spans nest under the request |
 
 ## Parallelism
