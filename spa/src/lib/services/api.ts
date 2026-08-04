@@ -441,12 +441,26 @@ export const apiService = {
     return request<api.PublicKey>(`/users/${userID}/keys/${fingerprint}`, { method: 'GET' });
   },
 
-  /** Fetch a historical server signing public key by fingerprint. */
+  /** Fetch a historical server signing public key by fingerprint (cached in publicKeys). */
   async getServerPublicKey(fingerprint: string): Promise<{ fingerprint: string; armor: string }> {
-    return request<{ fingerprint: string; armor: string }>(
-      `/server/keys/${fingerprint}`,
+    const fp = fingerprint.trim();
+    const { dbService } = await import('./db');
+    const cached = await dbService.get<{ fingerprint: string; armor: string }>('publicKeys', fp);
+    if (cached?.armor) {
+      return { fingerprint: cached.fingerprint, armor: cached.armor };
+    }
+
+    const key = await request<{ fingerprint: string; armor: string }>(
+      `/server/keys/${fp}`,
       { method: 'GET' }
     );
+    try {
+      const { allowUnsigned } = await import('$lib/verifiers');
+      await dbService.put('publicKeys', key, allowUnsigned);
+    } catch (error) {
+      console.error('Failed to cache server public key:', error);
+    }
+    return key;
   },
 
   async addPublicKey(

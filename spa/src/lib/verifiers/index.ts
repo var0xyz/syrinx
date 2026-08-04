@@ -42,11 +42,25 @@ async function resolvePublicKeyArmor(
   try {
     const key = await apiService.getPublicKey(userID, fingerprint);
     if (!key?.armor) return null;
-    if (!(await verifyPublicKey(key))) {
-      console.error('[resolvePublicKeyArmor] fetched key failed attestation', fingerprint);
-      return null;
-    }
+    await dbService.put('publicKeys', key, verifyPublicKey);
     return key.armor;
+  } catch {
+    return null;
+  }
+}
+
+/** Cached public key, fetching + attesting + storing only on miss. */
+async function resolvePublicKey(
+  userID: string,
+  fingerprint: string
+): Promise<api.PublicKey | null> {
+  const cached = await dbService.get<api.PublicKey>('publicKeys', fingerprint);
+  if (cached) return cached;
+  try {
+    const key = await apiService.getPublicKey(userID, fingerprint);
+    if (!key) return null;
+    await dbService.put('publicKeys', key, verifyPublicKey);
+    return key;
   } catch {
     return null;
   }
@@ -58,7 +72,14 @@ async function resolvePredecessor(key: api.PublicKey): Promise<api.PublicKey | n
   const cached = await dbService.get<api.PublicKey>('publicKeys', predFp);
   if (cached) return cached;
   try {
-    return await apiService.getPublicKey(key.userID, predFp);
+    const pred = await apiService.getPublicKey(key.userID, predFp);
+    if (!pred) return null;
+    try {
+      await dbService.put('publicKeys', pred, verifyPublicKey);
+    } catch {
+      // Still hand the fetched key to the current attestation pass.
+    }
+    return pred;
   } catch {
     return null;
   }
@@ -234,7 +255,11 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     return false;
   }
 
-  const publicKeyData = await apiService.getPublicKey(reed.userID, reed.userSignature.fingerprint);
+  const publicKeyData = await resolvePublicKey(reed.userID, reed.userSignature.fingerprint);
+  if (!publicKeyData) {
+    console.error('[verifyReed] author public key unavailable', reed.id);
+    return false;
+  }
   if (!(await verifyPublicKey(publicKeyData))) {
     console.error('[verifyReed] author public key attestation failed', reed.id);
     return false;

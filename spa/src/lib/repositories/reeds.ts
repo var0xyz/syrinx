@@ -200,13 +200,16 @@ class ReedsService {
    * `dbService.put` via `verifyReed`.
    */
   async storeReed(reed: ReedType): Promise<void> {
-    // Ensure author key is cached (verifyReed fetches; put attests).
+    // Ensure author key is cached (verifyReed needs armor; put attests).
     if (reed.userSignature?.fingerprint && reed.userID) {
-      try {
-        const key = await api.getPublicKey(reed.userID, reed.userSignature.fingerprint);
-        await publicKeyRepository.put(key);
-      } catch (error) {
-        console.error('Failed to cache author public key before reed store:', error);
+      const fp = reed.userSignature.fingerprint;
+      if (!(await publicKeyRepository.hasPublicKey(fp))) {
+        try {
+          const key = await api.getPublicKey(reed.userID, fp);
+          await publicKeyRepository.put(key);
+        } catch (error) {
+          console.error('Failed to cache author public key before reed store:', error);
+        }
       }
     }
 
