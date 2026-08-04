@@ -601,21 +601,23 @@ func (ds *DBService) GetOnlineReedHolderExcluding(authorUserID, reedID, excludeU
 }
 
 // ClaimPendingFanout removes the pending_fanout row if present. Returns true when
-// this call claimed fanout (row deleted). Concurrent READY messages only claim once.
-func (ds *DBService) ClaimPendingFanout(authorUserID, reedID string) (bool, error) {
+// this call claimed fanout (row deleted), plus any pipe tags stashed at SignReed.
+// Concurrent READY messages only claim once.
+func (ds *DBService) ClaimPendingFanout(authorUserID, reedID string) (claimed bool, tags []string, err error) {
 	var id string
-	err := ds.db.QueryRow(`
+	var tagArray pq.StringArray
+	err = ds.db.QueryRow(`
 		DELETE FROM pending_fanout
 		WHERE user_id = $1 AND reed_id = $2
-		RETURNING reed_id
-	`, authorUserID, reedID).Scan(&id)
+		RETURNING reed_id, tags
+	`, authorUserID, reedID).Scan(&id, &tagArray)
 	if err == sql.ErrNoRows {
-		return false, nil
+		return false, nil, nil
 	}
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
-	return true, nil
+	return true, []string(tagArray), nil
 }
 
 // GetPendingEventsForUser returns all pending reed events for reeds held by the given user.

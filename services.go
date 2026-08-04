@@ -1196,6 +1196,7 @@ type ReedAttestation struct {
 
 // CreateReedWithEcho inserts the reed metadata, author allocation, optional
 // echo index row, and the user/server attestation rows used for SignReed replay.
+// tags are normalized hashtag names stashed on pending_fanout for pipe READY fanout.
 // echoIndexed is true when a new reed_echoes row was inserted.
 func (s *DataService) CreateReedWithEcho(
 	ctx context.Context,
@@ -1204,6 +1205,7 @@ func (s *DataService) CreateReedWithEcho(
 	serverFingerprint, serverSignatureB64 string,
 	timestamp time.Time,
 	echo *ReedRef,
+	tags []string,
 ) (reed *Reed, echoIndexed bool, err error) {
 	if !ids.ValidReed(reedID) {
 		return nil, false, fmt.Errorf("invalid reed ID")
@@ -1255,10 +1257,13 @@ func (s *DataService) CreateReedWithEcho(
 		return nil, false, fmt.Errorf("allocate reed to author: %w", err)
 	}
 
+	if tags == nil {
+		tags = []string{}
+	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO pending_fanout (user_id, reed_id)
-		VALUES ($1, $2)
-	`, userID, reedID); err != nil {
+		INSERT INTO pending_fanout (user_id, reed_id, tags)
+		VALUES ($1, $2, $3)
+	`, userID, reedID, pq.Array(tags)); err != nil {
 		return nil, false, fmt.Errorf("insert pending fanout: %w", err)
 	}
 
@@ -1575,6 +1580,35 @@ func ReedAsMarkdown(id, userID, content, echoing, replying string) string {
 	b.WriteString("---\n")
 	b.WriteString(content)
 	return b.String()
+}
+
+// hashtagExtract matches SPA Reed.extractTags: (^|\s)#\S+
+var hashtagExtract = regexp.MustCompile(`(^|\s)#\S+`)
+
+// ExtractTags returns normalized unique hashtags from content (no leading #,
+// lowercase, first-appearance order). Mirrors spa/src/lib/types/reed.ts extractTags.
+func ExtractTags(content string) []string {
+	matches := hashtagExtract.FindAllString(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(matches))
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		tag := strings.ToLower(strings.TrimSpace(m)[1:]) // drop leading #
+		if tag == "" {
+			continue
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		out = append(out, tag)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 type MarkdownService struct {

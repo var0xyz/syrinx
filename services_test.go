@@ -675,3 +675,34 @@ func TestReedAsMarkdown(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
+
+func TestExtractTags(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []string
+	}{
+		{"empty", "", nil},
+		{"none", "hello world", nil},
+		{"single", "hello #Climate now", []string{"climate"}},
+		{"multi", "#one and #Two plus #one", []string{"one", "two"}},
+		{"start", "#lead rest", []string{"lead"}},
+		{"midword", "foo#notag bar", nil},
+		{"bare hash", "# alone", nil},
+		{"newline", "line1\n#tag2", []string{"tag2"}},
+		{"punct", "see #foo,bar end", []string{"foo,bar"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractTags(tt.content)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("got %v want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}

@@ -442,10 +442,13 @@ func InitDB(db *sql.DB) error {
 		ON reed_allocations(author_user_id, reed_id);
 	`
 
+	// tags are normalized hashtag names extracted at SignReed for pipe
+	// fanout at PUBLISH_READY (pipes 01). Empty until claim deletes the row.
 	createPendingFanoutTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_fanout (
 		user_id VARCHAR(255) NOT NULL,
 		reed_id VARCHAR(255) NOT NULL,
+		tags    TEXT[] NOT NULL DEFAULT '{}',
 
 		PRIMARY KEY (user_id, reed_id),
 		FOREIGN KEY (user_id, reed_id)
