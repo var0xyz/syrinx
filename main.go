@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	l "log"
 	"net"
@@ -17,6 +16,7 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/invites"
+	"syrinx/observability"
 	"syrinx/realtime"
 	"syrinx/recovery"
 	"syrinx/secret"
@@ -46,6 +46,12 @@ type AppConfig struct {
 	RecoveryMode      bool   `env:"optional,default='false',name='RECOVERY_MODE'"`
 	SignupMode        string `env:"optional,default='invite',values='open,invite,closed',name='SIGNUP_MODE'"`
 	MaxInvitesPerUser int    `env:"optional,default='-1',name='MAX_INVITES_PER_USER'"`
+
+	// Empty (default) means no local OTLP collector — observability stays
+	// disabled with zero setup cost. See specs/observability/ for the
+	// collector-side wiring.
+	OTELCollectorHost string `env:"optional,default='',name='OTEL_COLLECTOR_HOST'"`
+	OTELCollectorPort string `env:"optional,default='4317',name='OTEL_COLLECTOR_PORT'"`
 }
 
 func main() {
@@ -66,11 +72,19 @@ func main() {
 	SetupLogger()
 	log.Info().Msg("[OK] Logger setup successful")
 
+	obs, err := observability.Setup(cfg.OTELCollectorHost, cfg.OTELCollectorPort)
+	if err != nil {
+		log.Warn().Err(err).Msg("[WARN] Observability disabled")
+	} else if cfg.OTELCollectorHost != "" {
+		log.Info().Msg("[OK] Observability enabled")
+	}
+	defer obs.Shutdown()
+
 	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
 		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.DBName, cfg.DBSSLMode)
 
 	log.Debug().Msg("Checking for connectivity to database...")
-	db, err := sql.Open("postgres", dbURL)
+	db, err := obs.OpenDB("postgres", dbURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to connect to database")
 	}
@@ -79,6 +93,12 @@ func main() {
 		log.Fatal().Err(err).Msg("[ERR] Failed to ping database")
 	}
 	log.Info().Msg("[OK] Database connection successful")
+
+	unregisterDBStats, err := obs.RegisterDBStats(db)
+	if err != nil {
+		log.Warn().Err(err).Msg("[WARN] Failed to register DB pool metrics")
+	}
+	defer unregisterDBStats()
 
 	log.Debug().Msg("Initializing database tables...")
 	if err := InitDB(db); err != nil {
@@ -161,6 +181,7 @@ func main() {
 
 	log.Debug().Msg("Setting up router...")
 	router := mux.NewRouter()
+	router.Use(obs.Middleware(cfg.ServerName))
 
 	// API Router
 	api := router.PathPrefix("/api").Subrouter()

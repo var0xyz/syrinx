@@ -1515,6 +1515,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reed, echoIndexed, err := h.services.db.CreateReedWithEcho(
+		r.Context(),
 		reedID,
 		userID,
 		userFingerprint,
@@ -1648,7 +1649,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reed, err := h.services.db.GetReed(userID, reedID)
+	reed, err := h.services.db.GetReed(r.Context(), userID, reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error getting reed")
 		internalServerError(w)
@@ -1821,7 +1822,7 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reed, err := h.services.db.GetReed(userID, reedID)
+	reed, err := h.services.db.GetReed(r.Context(), userID, reedID)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1876,7 +1877,7 @@ func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reed, err := h.services.db.GetReed(userID, reedID)
+	reed, err := h.services.db.GetReed(r.Context(), userID, reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error getting reed")
 		internalServerError(w)
@@ -1944,7 +1945,7 @@ func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the reed from database to get the user fingerprint
-	reed, err := h.services.db.GetReed(userID, reedID)
+	reed, err := h.services.db.GetReed(r.Context(), userID, reedID)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).

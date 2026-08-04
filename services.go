@@ -1198,6 +1198,7 @@ type ReedAttestation struct {
 // echo index row, and the user/server attestation rows used for SignReed replay.
 // echoIndexed is true when a new reed_echoes row was inserted.
 func (s *DataService) CreateReedWithEcho(
+	ctx context.Context,
 	reedID, userID string,
 	userFingerprint, userSignatureB64 string,
 	serverFingerprint, serverSignatureB64 string,
@@ -1210,12 +1211,16 @@ func (s *DataService) CreateReedWithEcho(
 
 	timestamp = timestamp.UTC().Truncate(time.Second)
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, false, err
 	}
 	defer tx.Rollback()
 
+	// signing.InsertUserSignature/InsertServerSignature still use non-context
+	// queries internally, so these two inserts land as root spans rather than
+	// nested under ctx's request span — a known gap, not a bug (see
+	// specs/observability/04_context_threading.md).
 	userSigID, err := signing.InsertUserSignature(tx, userFingerprint, userSignatureB64)
 	if err != nil {
 		return nil, false, err
@@ -1226,7 +1231,7 @@ func (s *DataService) CreateReedWithEcho(
 	}
 
 	var created Reed
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO reeds (
 			id, user_id, private_key_fingerprint, signed_at,
 			user_signature_id, server_signature_id, allocation_count
@@ -1243,14 +1248,14 @@ func (s *DataService) CreateReedWithEcho(
 		return nil, false, err
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
 		VALUES ($1, $2, $3)
 	`, reedID, userID, userID); err != nil {
 		return nil, false, fmt.Errorf("allocate reed to author: %w", err)
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO pending_fanout (user_id, reed_id)
 		VALUES ($1, $2)
 	`, userID, reedID); err != nil {
@@ -1258,7 +1263,7 @@ func (s *DataService) CreateReedWithEcho(
 	}
 
 	if echo != nil {
-		res, err := tx.Exec(`
+		res, err := tx.ExecContext(ctx, `
 			INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, signed_at)
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (echoing_user_id, echoing_reed_id) DO NOTHING
@@ -1422,9 +1427,9 @@ func (s *DataService) DeleteEchoesByAuthor(userID string) ([]ReedRef, error) {
 	return targets, nil
 }
 
-func (s *DataService) GetReed(userID string, reedID string) (*Reed, error) {
+func (s *DataService) GetReed(ctx context.Context, userID string, reedID string) (*Reed, error) {
 	var reed Reed
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 	SELECT id, user_id, private_key_fingerprint, signed_at
 		FROM reeds
 		WHERE id = $1 AND user_id = $2
