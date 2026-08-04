@@ -11,107 +11,138 @@ broken into reviewable steps under
 belongs in the **`syrinx/recovery`** package; main only wires boot, routes,
 and middleware.
 
+## Status at a glance
+
+Each table below has a **Status** column per step. Values:
+
+- **Implemented** — landed in server and/or SPA.
+- **In progress** — some steps landed, others still open (see per-step column).
+- **Proposed** — specified, not yet implemented.
+- **Cancelled** — dropped or absorbed into another step.
+
+**What's left to build** (everything not fully Implemented):
+
+| Track            | Status      | Remaining                                            |
+|------------------|-------------|------------------------------------------------------|
+| Prerequisites    | In progress | 09 (revocation fanout), 11 (notifications, deferred) |
+| Recovery feature | In progress | 16 (reed tip check), 17 (device binding)             |
+| Conversations    | Proposed    | 00–05                                                |
+| Publish ready    | Proposed    | 00–02                                                |
+| Avatars          | Proposed    | 00–05                                                |
+| Pipes            | Proposed    | 00–03                                                |
+| Account recovery | Proposed    | 00–06                                                |
+| Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
+| Observability    | Proposed    | 00–04                                                |
+
+**Already done:** Invites, Coverage, Deletion, Signature storage, and the
+prerequisites other than 09/11.
+
 ## Prerequisite proposals
 
-| #  | Title                                              | Depends on |
-|----|----------------------------------------------------|------------|
-| 01 | Fix reed countersignature signer/verifier mismatch | —          |
-| 02 | Random, server-scoped user IDs                     | —          |
-| 03 | reed `server` block (bind reedID/authorID/fp)      | 01         |
-| 04 | Signed identity records at signup / rotation       | 01; and 02 should land first to avoid re-signing |
-| 05 | Signed profile updates                             | 01, 04     |
-| 06 | Signed key revocations                             | 01; wire/storage shape finalized in 10 |
-| 07 | Server-signed client keys on distribution          | 01         |
-| 08 | Client signature validation (keys / revokes / deletions; author reed sig) | 01, 03, 07, 09 |
-| 09 | Revocation realtime fanout + catch-up              | 06, 10     |
-| 10 | Revocations as a separate signed resource          | 01         |
-| 11 | Per-user system-notification store                 | —          |
+| #  | Title                                              | Depends on     | Status      |
+|----|----------------------------------------------------|----------------|-------------|
+| 01 | Fix reed countersignature signer/verifier mismatch | —              | Implemented |
+| 02 | Random, server-scoped user IDs                     | —              | Implemented |
+| 03 | reed `server` block (bind reedID/authorID/fp)      | 01             | Implemented |
+| 04 | Signed identity records at signup / rotation       | 01; 02         | Implemented |
+| 05 | Signed profile updates                             | 01, 04         | Implemented |
+| 06 | Signed key revocations                             | 01             | Implemented |
+| 07 | Server-signed client keys on distribution          | 01             | Implemented |
+| 08 | Client signature validation                        | 01, 03, 07, 09 | Implemented |
+| 09 | Revocation realtime fanout + catch-up              | 06, 10         | Proposed    |
+| 10 | Revocations as a separate signed resource          | 01             | Implemented |
+| 11 | Per-user system-notification store                 | —              | Deferred    |
 
 ## Recovery feature steps
 
 See [`recovery/`](recovery/README.md):
 
-| #  | Title                                                 |
-|----|-------------------------------------------------------|
-| 00 | Server key passphrase (keychain + optional HA env)    |
-| 01 | Key bundle export (`ops` CLI)                         |
-| 02 | Key bundle import (`ops` CLI)                         |
-| 03 | `RECOVERY_MODE` boot, bookkeeping, import gate, flags |
-| 04 | Own identity claim                                    |
-| 05 | Peer identity report-back                             |
-| 06 | Reeds, follows, complete                              |
-| 07 | SPA recover client                                    |
+| #  | Title                                                 | Status      |
+|----|-------------------------------------------------------|-------------|
+| 00 | Server key passphrase (keychain + optional HA env)    | Implemented |
+| 01 | Key bundle export (`ops` CLI)                         | Implemented |
+| 02 | Key bundle import (`ops` CLI)                         | Implemented |
+| 03 | `RECOVERY_MODE` boot, bookkeeping, import gate, flags | Implemented |
+| 04 | Own identity claim                                    | Implemented |
+| 05 | Peer identity report-back                             | Implemented |
+| 06 | Reeds, follows, complete                              | Implemented |
+| 07 | SPA recover client                                    | Implemented |
+
+**Track status: In progress.** The server recovery API and SPA restore flow
+(sub-directory steps 00–15, backup-first unified restore) are implemented; the
+reed tip check ([recovery 16](recovery/16_reed_tip_check.md)) and device
+binding ([recovery 17](recovery/17_device_binding.md)) remain **Proposed**.
 
 ## Invites / signup modes
 
 See [`invites/`](invites/README.md):
 
-| #  | Title                                             |
-|----|---------------------------------------------------|
-| 00 | `SIGNUP_MODE` + `MAX_INVITES_PER_USER`, info gate |
-| 01 | `invites` table, `users.invited_by`, store        |
-| 02 | Create / list / revoke / check APIs + quota       |
-| 03 | Consume at signup, identity, `invitedBy`          |
-| 04 | Home CTA + invite-link signup path                |
-| 05 | Toolbar Invites tab + management UI               |
+| #  | Title                                             | Status      |
+|----|---------------------------------------------------|-------------|
+| 00 | `SIGNUP_MODE` + `MAX_INVITES_PER_USER`, info gate | Implemented |
+| 01 | `invites` table, `users.invited_by`, store        | Implemented |
+| 02 | Create / list / revoke / check APIs + quota       | Implemented |
+| 03 | Consume at signup, identity, `invitedBy`          | Implemented |
+| 04 | Home CTA + invite-link signup path                | Implemented |
+| 05 | Toolbar Invites tab + management UI               | Implemented |
 
 ## Echoes and replies (conversations)
 
 See [`conversations/`](conversations/README.md):
 
-| #  | Title                                                                                    |
-|----|------------------------------------------------------------------------------------------|
-| 00 | Design + UX model (echo count, one-level drill-down)                                     |
-| 01 | Verify publish payload (form fields); normalize `replying` ref                           |
-| 02 | Echo/reply index tables + list/count APIs                                                |
-| 03 | Echo count + conversation section on reed detail                                         |
-| 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index)                              |
-| 05 | Recursive reply counts: thread total (`threadId`, live WS stat) + per-reed subtree count |
+| #  | Title                                                          | Status   |
+|----|----------------------------------------------------------------|----------|
+| 00 | Design + UX model (echo count, one-level drill-down)           | Proposed |
+| 01 | Verify publish payload (form fields); normalize `replying` ref | Proposed |
+| 02 | Echo/reply index tables + list/count APIs                      | Proposed |
+| 03 | Echo count + conversation section on reed detail               | Proposed |
+| 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index)    | Proposed |
+| 05 | Recursive reply counts: thread total + per-reed subtree count  | Proposed |
 
 ## Reed network coverage
 
 See [`coverage/`](coverage/README.md):
 
-| #  | Title                                            |
-|----|--------------------------------------------------|
-| 00 | Design + UX + formula                            |
-| 01 | Denormalized counters                            |
-| 02 | WS subscribe snapshot ACK + live echoes/coverage |
+| #  | Title                                            | Status      |
+|----|--------------------------------------------------|-------------|
+| 00 | Design + UX + formula                            | Implemented |
+| 01 | Denormalized counters                            | Implemented |
+| 02 | WS subscribe snapshot ACK + live echoes/coverage | Implemented |
 
 ## Publish ready (fanout gate)
 
 See [`publish/`](publish/README.md):
 
-| #  | Title                                       |
-|----|---------------------------------------------|
-| 00 | Design + publish/relay race + locked model  |
-| 01 | HTTP SignReed + WS `PUBLISH_READY` + SPA    |
-| 02 | Real `RELAY_MISS` (drop allocation + retry) |
+| #  | Title                                       | Status   |
+|----|---------------------------------------------|----------|
+| 00 | Design + publish/relay race + locked model  | Proposed |
+| 01 | HTTP SignReed + WS `PUBLISH_READY` + SPA    | Proposed |
+| 02 | Real `RELAY_MISS` (drop allocation + retry) | Proposed |
 
 ## Custom avatars (hash + processed PNG)
 
 See [`avatars/`](avatars/README.md):
 
-| #  | Title                                      |
-|----|--------------------------------------------|
-| 00 | Design + locked model                      |
-| 01 | `avatars` table + `avatarHash` in identity |
-| 02 | Authenticated process endpoint             |
-| 03 | Profile PUT: set / keep / clear            |
-| 04 | `GET /avatars/<hash>`                      |
-| 05 | SPA crop, IndexedDB, fetch/GC, Avatar      |
+| #  | Title                                      | Status   |
+|----|--------------------------------------------|----------|
+| 00 | Design + locked model                      | Proposed |
+| 01 | `avatars` table + `avatarHash` in identity | Proposed |
+| 02 | Authenticated process endpoint             | Proposed |
+| 03 | Profile PUT: set / keep / clear            | Proposed |
+| 04 | `GET /avatars/<hash>`                      | Proposed |
+| 05 | SPA crop, IndexedDB, fetch/GC, Avatar      | Proposed |
 
 ## Pipes (live hashtags)
 
 See [`pipes/`](pipes/README.md). Ephemeral server-side tag listening;
 local reeds with that tag remain on device.
 
-| #  | Title                                     |
-|----|-------------------------------------------|
-| 00 | Design + naming (**pipe**) + locked model |
-| 01 | Tag index at SignReed (`reed_tags`)       |
-| 02 | WS subscribe + READY fanout               |
-| 03 | SPA links + `/pipe/[tag]` page            |
+| #  | Title                                     | Status   |
+|----|-------------------------------------------|----------|
+| 00 | Design + naming (**pipe**) + locked model | Proposed |
+| 01 | Tag index at SignReed (`reed_tags`)       | Proposed |
+| 02 | WS subscribe + READY fanout               | Proposed |
+| 03 | SPA links + `/pipe/[tag]` page            | Proposed |
 
 ## Account recovery (key-only restore)
 
@@ -120,15 +151,15 @@ See [`account_recovery/`](account_recovery/README.md). Distinct from server
 client from private keys while the server still holds the account; peers
 relay the user’s own reed bodies back.
 
-| #  | Title                                         |
-|----|-----------------------------------------------|
-| 00 | Design + tip approaches + restore fork        |
-| 01 | Key export format + profile Export key        |
-| 02 | Challenge + bootstrap API + rehydration row   |
-| 03 | Server-orchestrated own-reed relay + complete |
-| 04 | SPA keys-only `/import` fork + session        |
-| 05 | SPA rehydration + tip `previousID` + UX       |
-| 06 | Device binding on bootstrap (takeover)        |
+| #  | Title                                         | Status   |
+|----|-----------------------------------------------|----------|
+| 00 | Design + tip approaches + restore fork        | Proposed |
+| 01 | Key export format + profile Export key        | Proposed |
+| 02 | Challenge + bootstrap API + rehydration row   | Proposed |
+| 03 | Server-orchestrated own-reed relay + complete | Proposed |
+| 04 | SPA keys-only `/import` fork + session        | Proposed |
+| 05 | SPA rehydration + tip `previousID` + UX       | Proposed |
+| 06 | Device binding on bootstrap (takeover)        | Proposed |
 
 ## Protobuf wire (HTTP + WebSocket)
 
@@ -136,50 +167,55 @@ See [`protobuf/`](protobuf/README.md). Blank-slate cutover of all
 client↔server bodies and WS frames to Protocol Buffers; `BytesToSign`
 unchanged.
 
-| #  | Title                             |
-|----|-----------------------------------|
-| 00 | Design + locked model             |
-| 01 | Shared resource protos + codegen  |
-| 02 | WebSocket envelope + event protos |
-| 03 | HTTP encode/decode + content type |
-| 04 | Switch every HTTP handler/client  |
-| 05 | Binary WS only; SPA + realtime    |
-| 06 | SPA consumes generated types      |
+| #  | Title                             | Status      |
+|----|-----------------------------------|-------------|
+| 00 | Design + locked model             | Proposed    |
+| 01 | Shared resource protos + codegen  | Proposed    |
+| 02 | WebSocket envelope + event protos | Implemented |
+| 03 | HTTP encode/decode + content type | Proposed    |
+| 04 | Switch every HTTP handler/client  | Proposed    |
+| 05 | Binary WS only; SPA + realtime    | Implemented |
+| 06 | SPA consumes generated types      | Proposed    |
+
+**Track status: In progress.** The WebSocket side is done
+(`proto/websocket.proto` + generated `websocket.pb.go`; realtime uses binary
+protobuf frames). The shared resource protos and the HTTP codec/endpoint
+cutover (01, 03, 04, 06) are still **Proposed**.
 
 ## Signed deletions (reeds + accounts)
 
 See [`deletion/`](deletion/README.md):
 
-| #  | Title                                        |
-|----|----------------------------------------------|
-| 00 | Design + trust model                         |
-| 01 | Reed-removal schema                          |
-| 02 | Reed-removal canonical payload + countersign |
-| 03 | Reed-removal API (idempotent)                |
-| 04 | Reed-removal realtime fanout + sync catch-up |
-| 05 | SPA author queue (`pendingRemoval`)          |
-| 06 | SPA holders: verify cert → drop reed         |
-| 07 | Account-removal schema + store               |
-| 08 | Account-removal API, 410 bodies, fanout      |
-| 09 | SPA account removal (author + peers)         |
+| #  | Title                                        | Status      |
+|----|----------------------------------------------|-------------|
+| 00 | Design + trust model                         | Implemented |
+| 01 | Reed-removal schema                          | Implemented |
+| 02 | Reed-removal canonical payload + countersign | Implemented |
+| 03 | Reed-removal API (idempotent)                | Implemented |
+| 04 | Reed-removal realtime fanout + sync catch-up | Implemented |
+| 05 | SPA author queue (`pendingRemoval`)          | Implemented |
+| 06 | SPA holders: verify cert → drop reed         | Implemented |
+| 07 | Account-removal schema + store               | Implemented |
+| 08 | Account-removal API, 410 bodies, fanout      | Implemented |
+| 09 | SPA account removal (author + peers)         | Implemented |
 
 ## Signature storage (`user_signatures` / `server_signatures`)
 
 See [`signatures/`](signatures/README.md). **Blank slate — no migration,
 no dual-write, no backwards compatibility** (hard cutover; recreate DB).
 
-| #  | Title                                                   |
-|----|---------------------------------------------------------|
-| 00 | Design + table shapes                                   |
-| 01 | DDL for `user_signatures` + `server_signatures`         |
-| 02 | Store helpers                                           |
-| 03 | Switch `users` to signature FKs                         |
-| 04 | Switch `user_keys` to server signature FK               |
-| 05 | Switch `user_key_revocations` to signature FKs          |
-| 06 | Switch `reed_removals` (and account later)              |
-| 07 | Drop legacy columns *(cancelled — absorbed into 03–06)* |
-| 08 | Nested `userSignature` / `serverSignature` wire         |
-| 09 | Verify every signed resource before store               |
+| #  | Title                                                   | Status      |
+|----|---------------------------------------------------------|-------------|
+| 00 | Design + table shapes                                   | Implemented |
+| 01 | DDL for `user_signatures` + `server_signatures`         | Implemented |
+| 02 | Store helpers                                           | Implemented |
+| 03 | Switch `users` to signature FKs                         | Implemented |
+| 04 | Switch `user_keys` to server signature FK               | Implemented |
+| 05 | Switch `user_key_revocations` to signature FKs          | Implemented |
+| 06 | Switch `reed_removals` (and account later)              | Implemented |
+| 07 | Drop legacy columns *(cancelled — absorbed into 03–06)* | Cancelled   |
+| 08 | Nested `userSignature` / `serverSignature` wire         | Implemented |
+| 09 | Verify every signed resource before store               | Implemented |
 
 ## Observability (request + DB query tracing)
 
@@ -188,13 +224,13 @@ existing (unused) OTEL SDK scaffolding in `observability.go` and an actual
 per-request trace with nested DB query spans, landing in the same
 OpenObserve stack that already receives logs and host metrics.
 
-| #  | Title                                                       |
-|----|-------------------------------------------------------------|
-| 00 | Design + architecture + locked decisions                    |
-| 01 | OTLP trace receiver on the app-host collector (`rpi` repo)  |
-| 02 | Wire `SetupObservability` + HTTP request spans              |
-| 03 | DB query spans via `otelsql`                                |
-| 04 | Thread `context.Context` so DB spans nest under the request |
+| #  | Title                                                       | Status   |
+|----|-------------------------------------------------------------|----------|
+| 00 | Design + architecture + locked decisions                    | Proposed |
+| 01 | OTLP trace receiver on the app-host collector (`rpi` repo)  | Proposed |
+| 02 | Wire `SetupObservability` + HTTP request spans              | Proposed |
+| 03 | DB query spans via `otelsql`                                | Proposed |
+| 04 | Thread `context.Context` so DB spans nest under the request | Proposed |
 
 ## Parallelism
 
