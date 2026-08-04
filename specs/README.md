@@ -66,7 +66,7 @@ See [`conversations/`](conversations/README.md):
 | 02 | Echo/reply index tables + list/count APIs          |
 | 03 | Echo count + conversation section on reed detail     |
 | 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index) |
-| 05 | Recursive thread reply counts (`threadId`, live WS stat) |
+| 05 | Recursive reply counts: thread total (`threadId`, live WS stat) + per-reed subtree count |
 
 ## Reed network coverage
 
