@@ -235,16 +235,19 @@ verify for a given signature.
 **Fix:** pin binary mode; remove the text fallback.
 
 ### M9 — Unsigned server counts/hints consumed for trust decisions
-**Where:** `spa/src/lib/verifiers/index.ts:194-206` (`verifyUser` covers only
+**Where:** `GET /users/{userID}/info` (`UserInfo`: `followersCount`,
+`followingCount`, `hasReeds`, `activeKeyFingerprint`, `profileTimestamp`) and
+SPA `usersInfo` IndexedDB (`spa/src/lib/repositories/userInfo.ts`). The signed
+profile is `GET /users/{userID}/profile` only (`verifyUser` covers
 username/fingerprint/avatarURL/invitedBy.id/bio/memberSince).
-`followersCount`, `followingCount`, `hasReeds`, and `activeKeyFingerprint`
-(`spa/src/lib/types/api.ts:40-46`) are unsigned yet drive UI/logic —
-`hasReeds` gates content display (`profile/[userId]/+page.svelte:73`),
+`hasReeds` gates content display (`profile/[userId]/+page.svelte`),
 `activeKeyFingerprint` steers key-rotation/removal resolution
-(`verifiers/index.ts:433-459`). A malicious server can suppress content or steer
-which key is treated as authoritative.
+(`verifiers/index.ts`, recovery nest assembly). A malicious server can suppress
+content or steer which key is treated as authoritative.
 **Fix:** treat these strictly as untrusted hints; never let
 `activeKeyFingerprint` alone select a signing key without an attested chain.
+Clients invalidate cached profiles when `profileTimestamp` is newer than the
+stored `serverSignature.timestamp`.
 
 ---
 

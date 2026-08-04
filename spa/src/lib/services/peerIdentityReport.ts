@@ -29,13 +29,15 @@ export async function reportPeerIdentity(
   }
 
   await dbService.init();
-  const [users, publicKeys, revocations] = await Promise.all([
+  const [users, usersInfo, publicKeys, revocations] = await Promise.all([
     dbService.getAll<api.User>('users'),
+    dbService.getAll<api.UserInfo>('usersInfo'),
     dbService.getAll<api.PublicKey>('publicKeys'),
     dbService.getAll<api.KeyRevocation>('revocations'),
   ]);
 
   const usersById = new Map(users.map((u) => [u.id, u]));
+  const infoByUserId = new Map(usersInfo.map((i) => [i.id, i]));
   const keysByFp = new Map(
     publicKeys.map((k) => [k.fingerprint.toLowerCase(), k])
   );
@@ -50,6 +52,10 @@ export async function reportPeerIdentity(
 
   const nest = buildKeyNest(peerUserId, {
     getUser: (id) => usersById.get(id),
+    getActiveKeyFingerprint: (id) =>
+      infoByUserId.get(id)?.activeKeyFingerprint ||
+      (usersById.get(id) as api.User & { activeKeyFingerprint?: string } | undefined)
+        ?.activeKeyFingerprint,
     getPublicKey: (fp) => keysByFp.get(fp.toLowerCase()),
     getRevocation: (fp) => revocationsByFp.get(fp.toLowerCase()) ?? null,
   });

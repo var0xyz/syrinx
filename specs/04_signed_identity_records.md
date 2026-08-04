@@ -31,7 +31,7 @@ visitors to trust the server for every field the server serves.
 - Persist both signatures on the `users` row so profile fetches don't have
   to recompute anything on read.
 - Return the full identity record (including both signatures) from
-  `POST /users/signup` and `GET /users/{userID}`.
+  `POST /users/signup` and `GET /users/{userID}/profile`.
 
 ## Non-goals
 
@@ -188,7 +188,7 @@ Until then, the previous record remains valid.
 
 ### Profile response shape
 
-Profile reads (`GET /users/{userID}`) and the `POST /users/signup`
+Profile reads (`GET /users/{userID}/profile`) and the `POST /users/signup`
 response return the full identity record so any visitor can independently
 verify it. The shape is flat — all user-owned fields at the root — with a
 single nested `server` key grouping the countersignature fields to avoid
@@ -303,7 +303,7 @@ existing records.
 ## Testing
 
 - Unit + integration for the signup flow.
-- Round-trip: signup → `GET /users/{userID}` → rebuild both envelopes
+- Round-trip: signup → `GET /users/{userID}/profile` → rebuild both envelopes
   from the JSON → verify both signatures against the stored keys.
 
 ## Risks

@@ -239,7 +239,8 @@ recovery, realtime, or SPA key handling. Highlights a future agent must respect:
 - SPA persists the key passphrase in `localStorage`, logs private-key material,
   and treats `localStorage.userId` alone as "logged in" — RISKS.md C2/C3/H4.
 - Some server-provided fields are consumed unsigned (counts, `hasReeds`,
-  `activeKeyFingerprint`) — treat as untrusted hints — RISKS.md M9.
+  `activeKeyFingerprint` on `/users/{id}/info`) — treat as untrusted hints —
+  RISKS.md M9.
 
 **When you change security-relevant code:** update `RISKS.md` if you fix or
 introduce a finding, and add/adjust the parity tests (`signing/roundtrip_test.go`,

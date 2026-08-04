@@ -5,6 +5,7 @@
   import { apiService } from '$lib/services/api';
   import { serverConnection } from '$lib/services/serverConnection';
   import { userRepository } from '$lib/repositories/user';
+  import { userInfoRepository } from '$lib/repositories/userInfo';
   import { reedsService, profileReedQueue } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
@@ -12,6 +13,8 @@
   import ReedsList from '$lib/components/ReedsList.svelte';
   import UserProfileCard from '$lib/components/UserProfileCard.svelte';
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
+  import { mergeUserView, profileNeedsRefresh } from '$lib/utils/userView';
+  import type * as api from '$lib/types/api';
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -25,6 +28,8 @@
   let profileUser = data.profileUser;
   let profileSubscriptionActive = false;
   let tombstoneNote = data.tombstoneNote;
+  /** Ignore stale /info responses that started before a newer refresh. */
+  let infoFetchSeq = 0;
 
   /** @type {number | null} */
   let scrollRestoreY = null;
@@ -60,46 +65,75 @@
     isFollowing = next.isFollowing;
     profileUser = next.profileUser;
     tombstoneNote = next.tombstoneNote;
-    if (next.fromCache && next.status === 'ready') {
-      void refreshUserInBackground();
+    if (next.fromCache && (next.status === 'ready' || next.status === 'noContent')) {
+      void refreshFromNetwork(next.userId);
       void subscribeToProfileIfNotFollowing(next.userId);
     } else if (!next.fromCache && next.status === 'loading') {
-      void loadFromNetwork(next.userId);
+      void refreshFromNetwork(next.userId);
     }
   }
 
-  async function loadFromNetwork(uid: string) {
-    const { status: httpStatus, user, removal } = await apiService.getUserWithStatus(uid);
+  async function refreshFromNetwork(uid: string) {
+    const seq = ++infoFetchSeq;
+    const { status: httpStatus, info, removal } = await apiService.getUserInfoWithStatus(uid);
+    if (seq !== infoFetchSeq) return;
 
     if (httpStatus === 404) {
       status = 'notFound';
-    } else if (httpStatus === 410) {
-      await handleGone(removal);
-    } else if (httpStatus === 200) {
-      await userRepository.put(user);
-      profileUser = user;
-
-      // Subscribe regardless of hasReeds: with zero reeds today, this is the
-      // only way to hear about the author's first reed live while we're
-      // sitting on this page (ReedsList — which handles profileReedQueue —
-      // isn't even mounted in the noContent state below).
-      await subscribeToProfileIfNotFollowing(uid);
-      status = user.hasReeds ? 'ready' : 'noContent';
+      return;
     }
+    if (httpStatus === 410) {
+      await handleGone(removal);
+      return;
+    }
+    if (httpStatus !== 200 || !info) {
+      return;
+    }
+
+    await userInfoRepository.put(info);
+    if (seq !== infoFetchSeq) return;
+
+    let profile: api.User | null = isOwner
+      ? data.currentUser
+      : await userRepository.get(uid).catch(() => null);
+
+    if (profileNeedsRefresh(profile, info)) {
+      const {
+        status: profileStatus,
+        user,
+        removal: profileRemoval,
+      } = await apiService.getUserProfileWithStatus(uid);
+      if (seq !== infoFetchSeq) return;
+      if (profileStatus === 410) {
+        await handleGone(profileRemoval);
+        return;
+      }
+      if (profileStatus === 404) {
+        status = 'notFound';
+        return;
+      }
+      if (profileStatus === 200 && user) {
+        await userRepository.put(user);
+        profile = user;
+      }
+    }
+
+    if (seq !== infoFetchSeq) return;
+    profileUser = mergeUserView(profile, info);
+    await subscribeToProfileIfNotFollowing(uid);
+    status = info.hasReeds ? 'ready' : 'noContent';
   }
 
-  async function refreshUserInBackground() {
-    try {
-      const { status: httpStatus, user, removal } = await apiService.getUserWithStatus(userId);
-
-      if (httpStatus === 200) {
-        await userRepository.put(user);
-        profileUser = user;
-      } else if (httpStatus === 410) {
-        await handleGone(removal);
-      }
-    } catch (error) {
-      console.error('Background user refresh failed:', error);
+  function onFollowingChange(e) {
+    // Drop any in-flight profile /info fetch that started before this follow.
+    infoFetchSeq += 1;
+    isFollowing = e.detail.following;
+    if (profileUser) {
+      profileUser = {
+        ...profileUser,
+        followersCount: e.detail.followersCount ?? profileUser.followersCount,
+        followingCount: e.detail.followingCount ?? profileUser.followingCount,
+      };
     }
   }
 
@@ -155,7 +189,7 @@
             user={profileUser}
             {isOwner}
             {isFollowing}
-            on:followingChange={(e) => (isFollowing = e.detail.following)}
+            on:followingChange={onFollowingChange}
           />
         </div>
       {/if}
@@ -190,7 +224,7 @@
             user={profileUser}
             {isOwner}
             {isFollowing}
-            on:followingChange={(e) => (isFollowing = e.detail.following)}
+            on:followingChange={onFollowingChange}
           />
         </div>
       {/if}
@@ -207,7 +241,7 @@
             user={profileUser}
             {isOwner}
             {isFollowing}
-            on:followingChange={(e) => (isFollowing = e.detail.following)}
+            on:followingChange={onFollowingChange}
           />
         </div>
       {/if}

@@ -13,19 +13,11 @@ export interface ServerSignature extends Base {
   timestamp: string;
 }
 
-// User is the wire shape of a signed identity record. User-authored
-// fields live at the root; attestations nest under `userSignature` and
-// `serverSignature`.
+// User is the wire shape of a signed identity record
+// (GET /users/{id}/profile). User-authored fields live at the root;
+// attestations nest under `userSignature` and `serverSignature`.
 //
-// `activeKeyFingerprint` is a server-provided hint carrying the user's
-// currently-active key fingerprint at response time. It is **not** part
-// of the signed payload: the identity record is frozen at signing time,
-// while the active key can change (rotation) without a new identity
-// record. Clients compare `userSignature.fingerprint` (the record's
-// signer) with `activeKeyFingerprint` (server's current view) — if they
-// differ, the signer has been rotated and the client should re-fetch the
-// record's signing key to learn its revocation state and follow the
-// `successor` chain to reach the active one.
+// Mutable / unsigned hints live on UserInfo (GET /users/{id}/info).
 export interface InvitedBy {
   id: string;
   username: string;
@@ -37,13 +29,20 @@ export interface User extends Base {
   memberSince: string;
   avatarURL: string;
   bio: string;
-  activeKeyFingerprint: string;
   userSignature: UserSignature;
   serverSignature: ServerSignature;
+  invitedBy: InvitedBy | null;
+}
+
+/** Unsigned hints + profile cache invalidation (GET /users/{id}/info). */
+export interface UserInfo extends Base {
+  id: string;
   hasReeds: boolean;
   followersCount: number;
   followingCount: number;
-  invitedBy: InvitedBy | null;
+  activeKeyFingerprint: string;
+  /** Same instant as the user's profile serverSignature.timestamp. */
+  profileTimestamp: string;
 }
 
 export interface PublicKeyIdentity extends Base {

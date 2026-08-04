@@ -221,7 +221,7 @@
     authorUser = await userRepository.get(userID).catch(() => null);
     if (authorUser || !$isOnline) return;
     try {
-      const fresh = await apiService.getUser(userID);
+      const fresh = await apiService.getUserProfile(userID);
       await userRepository.put(fresh);
       authorUser = fresh;
     } catch (error) {

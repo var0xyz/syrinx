@@ -1,8 +1,10 @@
 import { redirect } from '@sveltejs/kit';
 import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
+import { userInfoRepository } from '$lib/repositories/userInfo';
 import { followingRepository } from '$lib/repositories/following';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
+import { mergeUserView } from '$lib/utils/userView';
 
 /** @type {import('./$types').PageLoad} */
 export async function load({ params, parent }) {
@@ -29,17 +31,21 @@ export async function load({ params, parent }) {
     };
   }
 
+  const cachedProfile = isOwner
+    ? currentUser
+    : await userRepository.get(userId).catch(() => null);
+  const cachedInfo = await userInfoRepository.get(userId).catch(() => null);
+  const profileUser = mergeUserView(cachedProfile, cachedInfo);
+
   const localReeds = await reedsService.getReedsByAuthor(userId);
-  if (localReeds.length > 0) {
-    const profileUser = isOwner
-      ? currentUser
-      : await userRepository.get(userId).catch(() => null);
+  if (localReeds.length > 0 || profileUser) {
+    const hasReeds = localReeds.length > 0 || cachedInfo?.hasReeds === true;
     return {
       currentUser,
       userId,
       isOwner,
       isFollowing,
-      status: 'ready',
+      status: hasReeds ? 'ready' : profileUser ? 'noContent' : 'loading',
       profileUser,
       tombstoneNote: '',
       fromCache: true,

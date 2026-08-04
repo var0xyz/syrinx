@@ -29,13 +29,15 @@ export async function claimOwnIdentity(): Promise<api.User> {
   }
 
   await dbService.init();
-  const [users, publicKeys, revocations] = await Promise.all([
+  const [users, usersInfo, publicKeys, revocations] = await Promise.all([
     dbService.getAll<api.User>('users'),
+    dbService.getAll<api.UserInfo>('usersInfo'),
     dbService.getAll<api.PublicKey>('publicKeys'),
     dbService.getAll<api.KeyRevocation>('revocations'),
   ]);
 
   const usersById = new Map(users.map((u) => [u.id, u]));
+  const infoByUserId = new Map(usersInfo.map((i) => [i.id, i]));
   const keysByFp = new Map(
     publicKeys.map((k) => [k.fingerprint.toLowerCase(), k])
   );
@@ -47,10 +49,10 @@ export async function claimOwnIdentity(): Promise<api.User> {
   if (!profile) {
     throw new Error('Missing restored profile for claim.');
   }
-  if (
-    !profile.activeKeyFingerprint ||
-    fingerprint.toLowerCase() !== profile.activeKeyFingerprint.toLowerCase()
-  ) {
+  const infoFp =
+    infoByUserId.get(userId)?.activeKeyFingerprint ||
+    (profile as api.User & { activeKeyFingerprint?: string }).activeKeyFingerprint;
+  if (!infoFp || fingerprint.toLowerCase() !== infoFp.toLowerCase()) {
     throw new Error(
       'Active key fingerprint does not match the restored profile.'
     );
@@ -58,6 +60,10 @@ export async function claimOwnIdentity(): Promise<api.User> {
 
   const nest = buildKeyNest(userId, {
     getUser: (id) => usersById.get(id),
+    getActiveKeyFingerprint: (id) =>
+      infoByUserId.get(id)?.activeKeyFingerprint ||
+      (usersById.get(id) as api.User & { activeKeyFingerprint?: string } | undefined)
+        ?.activeKeyFingerprint,
     getPublicKey: (fp) => keysByFp.get(fp.toLowerCase()),
     getRevocation: (fp) => revocationsByFp.get(fp.toLowerCase()) ?? null,
   });

@@ -51,6 +51,7 @@ export type RecoveryProgressSummary = {
 export type EnumerateInput = {
   selfUserId: string;
   users: api.User[];
+  usersInfo: api.UserInfo[];
   publicKeys: api.PublicKey[];
   reeds: ReedType[];
   following: { userId: string }[];
@@ -141,9 +142,17 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
   for (const user of input.users) {
     byUser.set(user.id, user);
   }
+  const byInfo = new Map<string, api.UserInfo>();
+  for (const info of input.usersInfo) {
+    byInfo.set(info.id, info);
+  }
 
   const lookups = {
     getUser: (id: string) => byUser.get(id),
+    getActiveKeyFingerprint: (id: string) =>
+      byInfo.get(id)?.activeKeyFingerprint ||
+      (byUser.get(id) as api.User & { activeKeyFingerprint?: string } | undefined)
+        ?.activeKeyFingerprint,
     getPublicKey: (fp: string) => byFp.get(fp.toLowerCase()) ?? byFp.get(fp),
   };
 
@@ -307,8 +316,9 @@ export async function ensureRecoveryProgress(): Promise<RecoveryProgressLedger> 
   const selfUserId =
     typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';
 
-  const [users, publicKeys, reeds, following] = await Promise.all([
+  const [users, usersInfo, publicKeys, reeds, following] = await Promise.all([
     dbService.getAll<api.User>('users'),
+    dbService.getAll<api.UserInfo>('usersInfo'),
     dbService.getAll<api.PublicKey>('publicKeys'),
     dbService.getAll<ReedType>('reeds'),
     dbService.getAll<FollowRecord>('following'),
@@ -317,6 +327,7 @@ export async function ensureRecoveryProgress(): Promise<RecoveryProgressLedger> 
   const desired = enumerateRecoveryWork({
     selfUserId,
     users,
+    usersInfo,
     publicKeys,
     reeds,
     following,

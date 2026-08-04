@@ -1,5 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { getStorageQuota } from '$lib/services/pwa';
+import { userInfoRepository } from '$lib/repositories/userInfo';
+import { mergeUserView } from '$lib/utils/userView';
 import { loadProfileKeyInfo } from './keyInfo';
 
 /** @type {import('./$types').PageLoad} */
@@ -9,10 +11,15 @@ export async function load({ parent }) {
     throw redirect(307, '/');
   }
 
-  const [storage, keyInfo] = await Promise.all([
+  const [storage, keyInfo, cachedInfo] = await Promise.all([
     getStorageQuota(),
     loadProfileKeyInfo(),
+    userInfoRepository.get(user.id).catch(() => null),
   ]);
 
-  return { user, storage, keyInfo };
+  return {
+    user: mergeUserView(user, cachedInfo) ?? user,
+    storage,
+    keyInfo,
+  };
 }

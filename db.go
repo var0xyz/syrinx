@@ -18,39 +18,35 @@ type Server struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
-// User is the wire shape of an identity record.
+// User is the wire shape of a signed identity record (GET /users/{id}/profile).
 //
 // Layout: user-authored fields live at the root; attestations nest under
 // `userSignature` and `serverSignature`.
 //
-// `ActiveKeyFingerprint` is a server-provided convenience field
-// carrying the user's currently-active key fingerprint at response
-// time. It is deliberately **outside** both signature blocks: the
-// identity record is a frozen artifact from the moment it was minted,
-// whereas the "current" key can change without a new identity record (a
-// rotation may occur between profile updates). Clients use
-// `ActiveKeyFingerprint` as a hint to decide whether to re-fetch the
-// record's signing key (if
-// `UserSignature.Fingerprint != ActiveKeyFingerprint`, the signer has
-// been rotated and the client should pull the fresh key to learn
-// revocation state and walk the successor chain to the active one).
+// Mutable / unsigned hints (hasReeds, follow counts, activeKeyFingerprint)
+// live on UserInfo (GET /users/{id}/info), not here.
 type User struct {
-	ID             string    `json:"id"`
-	Username       string    `json:"username"`
-	AvatarURL      string    `json:"avatarURL"`
-	Bio            string    `json:"bio"`
-	CreatedAt      time.Time `json:"memberSince"`
-	HasReeds       bool      `json:"hasReeds"`
-	FollowersCount int       `json:"followersCount"`
-	FollowingCount int       `json:"followingCount"`
+	ID              string          `json:"id"`
+	Username        string          `json:"username"`
+	AvatarURL       string          `json:"avatarURL"`
+	Bio             string          `json:"bio"`
+	CreatedAt       time.Time       `json:"memberSince"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
+	InvitedBy       *InvitedBy      `json:"invitedBy"`
+}
 
-	// ActiveKeyFingerprint is a server-provided hint carrying the
-	// user's currently-active key fingerprint at response time. See
-	// the struct-level doc comment for the trust-tier caveat.
-	ActiveKeyFingerprint string          `json:"activeKeyFingerprint"`
-	UserSignature        UserSignature   `json:"userSignature"`
-	ServerSignature      ServerSignature `json:"serverSignature"`
-	InvitedBy            *InvitedBy      `json:"invitedBy"`
+// UserInfo is the unsigned, frequently changing view of a user
+// (GET /users/{id}/info). ProfileTimestamp matches the user's current
+// profile serverSignature.timestamp so clients can invalidate a cached
+// signed profile.
+type UserInfo struct {
+	ID                   string    `json:"id"`
+	HasReeds             bool      `json:"hasReeds"`
+	FollowersCount       int       `json:"followersCount"`
+	FollowingCount       int       `json:"followingCount"`
+	ActiveKeyFingerprint string    `json:"activeKeyFingerprint"`
+	ProfileTimestamp     time.Time `json:"profileTimestamp"`
 }
 
 // InvitedBy is the durable inviter binding nested on User wire when set.
