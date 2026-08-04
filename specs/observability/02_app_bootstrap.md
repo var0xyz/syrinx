@@ -74,6 +74,21 @@ router.Use(otelmux.Middleware(cfg.ServerName))
 Place it on the root `router`, before subrouters are attached — `otelmux`
 docs confirm it traces across subrouters and reports the full matched path.
 
+### 2.4 Host identity on the emitted resource
+
+The OTEL resource in `observability.Setup` must carry a per-host identity, not
+just `service.name`. Without it, the app process on every host reports an
+identical resource and OpenObserve collapses them into one series (the same
+failure the `hostmetrics` streams already hit when two machines both report
+`host.name="telemetry"`). `Setup` builds the resource with
+`resource.WithHost()` (auto-detects `host.name`) and `resource.WithFromEnv()`
+(honours `OTEL_RESOURCE_ATTRIBUTES` / `OTEL_SERVICE_NAME`), so an operator can
+pin a distinct name/id per machine via env — documented in `.env.example`.
+Fixing the analogous label on the *`hostmetrics`* streams is a separate change
+in the `rpi` ops repo (`otel-agent.sh` `resourcedetection`/`resource`), out of
+scope here. **Done** (the `Setup` resource wiring; the rest of 02 is still
+proposed).
+
 ## Non-goals
 
 - DB spans — [03](03_db_instrumentation.md).
