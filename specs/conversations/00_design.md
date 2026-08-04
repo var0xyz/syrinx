@@ -54,6 +54,10 @@ extract headers at publish time.
 - **Thread** — the full chain of replies-of-replies rooted at one reed,
   identified by that root's ref (`threadId`); see
   [05](05_thread_reply_counts.md).
+  - **Thread total** — count of every reply in a thread; the same number
+    regardless of which reed in the thread you're viewing.
+  - **Subtree count** — count of every reply descending from a *specific*
+    reed; different per reed, and always ≤ the thread total.
 
 ### Echo count
 
@@ -73,28 +77,39 @@ Tapping Echo still opens the compose modal (unchanged). The count is
 informational, not a separate list in v1. (A future step may add an echo
 list drawer; not required for this proposal set.)
 
-### Reply count
+### Reply count — two numbers, two places
 
-Alongside the echo count, the reed detail page also shows a **total reply
-count** for the thread the reed belongs to — replies to replies count
-toward this number too, unlike the echo count above. Every reed in a
-thread (root or nested reply) shows the same total; see
-[05](05_thread_reply_counts.md) for the `threadId` header, the
-`reed_threads` counter, and the live-update wiring that makes this
-possible without a recursive query per view.
+Unlike the echo count, replies get **two** separate numbers, because "how
+big is this conversation" and "how many replies come from this reed" are
+different questions:
+
+- **Thread total** — shown in the stats line next to echo count / coverage.
+  Same number on every reed in the thread (root or nested reply), because
+  it describes the whole conversation, not the specific reed being viewed.
+- **Subtree count** — shown as `Replies (N)` in the section below the reed
+  body (see "Conversation section" below). Specific to the reed being
+  viewed: how many replies (including replies-to-replies) descend from
+  *this* reed, not the whole thread.
+
+Both count replies-to-replies transitively — that's what makes them
+"recursive" — but they answer different scopes, and neither is derived from
+the other. See [05](05_thread_reply_counts.md) for the `threadId` header,
+the `reed_threads` / `reed_reply_counts` counters, and the live-update
+wiring.
 
 ### Conversation section
 
-Below the action bar on the reed detail page, add a **Conversation**
-section.
+Below the action bar on the reed detail page, add a **Replies** section.
 
 **Initial view (on reed R):**
 
-1. Section title: `Conversation` with optional subtitle `N replies` when
-   `N > 0`.
+1. Section title: `Replies (N)` where `N` is `R`'s **subtree count** (all
+   descendants, not just direct children — see [05](05_thread_reply_counts.md)).
+   Hide the whole section when `N` is 0 (or absent).
 2. List **direct replies** to `R` only — reeds where
    `replying === R.userID@R.serverID/R.id` (normalized format from
-   [01](01_publish_and_refs.md)).
+   [01](01_publish_and_refs.md)). The list body is unaffected by the
+   subtree-count change above: still direct children only.
 3. Sort **oldest first** (`signed_at ASC`) so reading top-to-bottom matches
    chronological dialogue.
 4. Each row is a compact preview card: author avatar + username, relative
@@ -106,9 +121,12 @@ section.
 The user opened `Q` from the conversation list. The page shows:
 
 1. The existing **replying-to quote** at the top of the body (already
-   implemented) — context for what `Q` is answering.
-2. A **Conversation** section listing direct replies to `Q` (same rules as
-   above).
+   implemented) — context for what `Q` is answering. If the parent has been
+   removed, this renders as a tombstone rather than a live quote — but see
+   [05](05_thread_reply_counts.md) for what happens if the reader navigates
+   *into* that removed parent instead of just seeing its quote.
+2. A **Replies** section listing direct replies to `Q` (same rules as
+   above), titled with `Q`'s own subtree count.
 
 There is no infinite inline nesting. Depth is explored by **navigation** —
 each reed page is responsible for its own children. This matches "only direct
@@ -147,9 +165,9 @@ Producers set both fields via `formatReedRef` (never bare reed ids).
 
 | Event | Behaviour |
 |-------|-----------|
-| Target reed removed | Quote shows "Original reed unavailable"; conversation may still list replies that pointed at it |
-| Reply reed removed | Row omitted from conversation list and echo count |
-| Reply author account removed | Row omitted (account tombstone); existing 410 handling applies if user navigates directly |
+| Target reed removed | Quote shows "Original reed unavailable"; conversation may still list replies that pointed at it. Navigating *into* the removed reed's own permalink is a separate, currently-unresolved case — see [05](05_thread_reply_counts.md#viewing-a-removed-reed-and-its-replies-spa-gap) |
+| Reply reed removed | Row omitted from conversation list and echo count; its own `Replies` section (if it had live descendants) is still reachable by navigating into it directly, pending [05](05_thread_reply_counts.md)'s open question on removed-reed rendering |
+| Reply author account removed | Row omitted (account tombstone); existing 410 handling applies if user navigates directly (same open question as above) |
 
 Index rows for removed reeds are **not** deleted — queries filter them out via
 `NOT EXISTS` on `reed_removals` / `account_removals`. Orphan index rows are
@@ -161,11 +179,13 @@ The **direct reply list** has no new WebSocket event type. When `new_reed`
 arrives and the open reed detail page is the parent, re-check the reply list
 (debounced) or append if the incoming reed's `replying` ref matches.
 
-The **thread reply count** ([05](05_thread_reply_counts.md)) is the
-exception: it gets a dedicated live path, `REED_STATS`/`REED_REPLIES`,
-mirroring the existing echo-count WS pattern — a reply anywhere in a thread
-pushes an updated total to every currently-subscribed viewer of that thread,
-not just the reed being replied to.
+The **thread total** ([05](05_thread_reply_counts.md)) is the exception: it
+gets a dedicated live path, `REED_STATS`/`REED_REPLIES`, mirroring the
+existing echo-count WS pattern — a reply anywhere in a thread pushes an
+updated total to every currently-subscribed viewer of that thread, not just
+the reed being replied to. Whether the **subtree count** (`Replies (N)`)
+also needs a live path, or a snapshot on load/resubscribe is enough for v1,
+is an open question in [05](05_thread_reply_counts.md).
 
 A dedicated `new_reply` event (parent ref in payload) for the direct list is
 a future optimization if list polling proves noisy.
@@ -181,7 +201,7 @@ a future optimization if list polling proves noisy.
 ├─────────────────────────────────────┤
 │ 📢 Echo · 2    ↩ Reply    🔗 Share  │
 ├─────────────────────────────────────┤
-│ Conversation · 2 replies            │
+│ Replies (2)                         │
 │ ┌─────────────────────────────────┐ │
 │ │ @bob · 1h ago                   │ │
 │ │ Sounds good, let's do it.       │ │
@@ -193,8 +213,9 @@ a future optimization if list polling proves noisy.
 └─────────────────────────────────────┘
 ```
 
-Tap Carol's row → navigate to Carol's reply reed → its Conversation section
-shows direct replies to *that* reed only.
+Tap Carol's row → navigate to Carol's reply reed → its Replies section
+shows direct replies to *that* reed only, titled with *its own* subtree
+count (not the thread total from the sketch above).
 
 ## Risks
 
