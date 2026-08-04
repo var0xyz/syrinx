@@ -29,7 +29,7 @@ Each table below has a **Status** column per step. Values:
 | Conversations    | Proposed    | 00–05                                                |
 | Publish ready    | Proposed    | 00–02                                                |
 | Avatars          | Proposed    | 00–05                                                |
-| Pipes            | In progress | 00, 02–03                                            |
+| Pipes            | Implemented | —                                                    |
 | Account recovery | Proposed    | 00–06                                                |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Observability    | Proposed    | 00–04                                                |
@@ -139,10 +139,10 @@ local reeds with that tag remain on device.
 
 | #  | Title                                     | Status   |
 |----|-------------------------------------------|----------|
-| 00 | Design + naming (**pipe**) + locked model | Proposed |
+| 00 | Design + naming (**pipe**) + locked model | Implemented |
 | 01 | Extract tags; stash on `pending_fanout` until READY | Implemented |
-| 02 | WS subscribe + READY fanout               | Proposed |
-| 03 | SPA links + `/pipe/[tag]` page            | Proposed |
+| 02 | WS subscribe + READY fanout               | Implemented |
+| 03 | SPA links + `/pipe/[tag]` page            | Implemented |
 
 ## Account recovery (key-only restore)
 
@@ -270,10 +270,7 @@ OpenObserve stack that already receives logs and host metrics.
   cutover; within `protobuf/`, follow that directory's depends-on column
   (00→06). Steps 01–02 (schema) may proceed before flipping traffic;
   04 and 05 are the hard cutovers.
-- **Pipes** ([`pipes/`](pipes/README.md)) need publish READY fanout and the
-  SignReed content path (for tag extract); within `pipes/`, follow 00→03.
-  Mentions tag-index pattern ([conversations 04](conversations/04_mentions.md))
-  is the closest cousin.
+- **Pipes** ([`pipes/`](pipes/README.md)) — Implemented (00–03).
 - **Observability** ([`observability/`](observability/README.md)) is
   independent of every other track above — pure infra/plumbing, no schema or
   wire changes. Step 01 lives in the `rpi` ops repo and can land any time;

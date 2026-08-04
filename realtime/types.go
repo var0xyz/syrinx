@@ -11,8 +11,7 @@ import (
 type BroadcastType int
 
 const (
-	NewReed BroadcastType = iota
-	UserUpdate
+	UserUpdate BroadcastType = iota
 	ReedDeleted // legacy unused; prefer ReedRemoved
 	ReedRemoved
 	AccountRemoved
@@ -44,6 +43,7 @@ type Client struct {
 	userID            string
 	subscriptions     map[SubscriptionType]bool
 	reedSubscriptions map[string]bool
+	pipeSubscriptions map[string]bool // normalized tag → subscribed
 	lastPing          time.Time
 	writeMu           sync.Mutex
 }
@@ -53,14 +53,14 @@ type ConnectionManager struct {
 	userConnections map[string]map[*websocket.Conn]*Client
 	// Map of authorID/reedID -> subscribed clients
 	reedSubscribers map[string]map[*Client]bool
+	// Map of normalized tag -> subscribed clients
+	pipeSubscribers map[string]map[*Client]bool
 	mutex           sync.RWMutex
 }
 
 // String returns the string representation of BroadcastType
 func (bt BroadcastType) String() string {
 	switch bt {
-	case NewReed:
-		return "NewReed"
 	case UserUpdate:
 		return "UserUpdate"
 	case ReedDeleted:
@@ -83,6 +83,7 @@ func NewClient(conn *websocket.Conn, userID string) *Client {
 		userID:            userID,
 		subscriptions:     make(map[SubscriptionType]bool),
 		reedSubscriptions: make(map[string]bool),
+		pipeSubscriptions: make(map[string]bool),
 		lastPing:          time.Now(),
 	}
 }

@@ -5,7 +5,7 @@
 
   export let text: string = '';
   export let className: string = '';
-  /** When true, links/mentions/channels are inert (label only). */
+  /** When true, links/mentions/pipes are inert (label only). */
   export let preview: boolean = false;
 
   let pendingUrl = '';

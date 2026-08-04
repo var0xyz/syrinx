@@ -852,7 +852,7 @@ func (ds *DBService) GetProfileSubscribers(authorID string) ([]ProfileSubscriber
 // GetBroadcastSubscribers returns up to 100 broadcast subscribers for the given author,
 // throttled to one delivery per second per subscriber.
 // Followers of the author are excluded — they receive the reed via the follow
-// path (new_reed → followcast), not as ephemeral broadcast.
+// path (follow_reed → followcast), not as ephemeral broadcast.
 // Subscribers are selected in order of oldest last_delivery (NULLS FIRST) and their
 // last_delivery timestamp is updated atomically.
 //

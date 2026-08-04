@@ -58,10 +58,10 @@ After the author countersigns and signals `PUBLISH_READY`:
 
 1. The server creates **`pending_events`** rows for online followers who have already sent `SYNC_REQUEST` (they are ready to receive).
 2. Those events use the follower’s current sync `request_id`.
-3. The same relay path runs: `RELAY_REQUEST` → holder → `RELAY_RESPONSE` → `DATA_RESPONSE` to the follower.
+3. The same relay path runs: `RELAY_REQUEST` → holder → `RELAY_RESPONSE` → `FOLLOW_REED` to the follower.
 4. The follower verifies and stores. Following was the agreement to keep that author’s reeds.
 
-Catch-up on reconnect uses the same machinery: `SYNC_REQUEST` asks the server to enqueue missing followed reeds (and relevant removals) as pending events.
+Catch-up on reconnect uses the same machinery: `SYNC_REQUEST` asks the server to enqueue missing followed reeds (and relevant removals) as pending events, delivered as `FOLLOW_REED`.
 
 ### Broadcast (ambient)
 
@@ -90,7 +90,7 @@ The client keeps its own copy of the ids it initiated:
 1. On `REQUEST_REED`, it stores the **`request_id`** before (or as) it sends.
 2. On `REQUEST_ACK`, if the `request_id` is unknown locally, the ack is **discarded**—the client did not start that request.
 3. On `DATA_RESPONSE`, the client correlates by `request_id`. If it has no matching outstanding request, it does not treat the payload as a completed fetch it asked for.
-4. Follow-path deliveries are gated the same way in spirit: the client sent `SYNC_REQUEST` (and follows the author). That readiness is the agreement to receive catch-up and fanout for people you chose.
+4. Follow-path deliveries arrive as `FOLLOW_REED` (gated by follow + `SYNC_REQUEST`). Pipe deliveries arrive as `PIPE_REED`. Ambient broadcast uses `BROADCAST_REED` (session-only).
 
 If an attacker somehow bypasses the server ledger and pushes unsolicited bodies toward clients, a well-behaved client still **silently drops** anything it never asked for. Possession is not “whatever arrived on the socket.”
 

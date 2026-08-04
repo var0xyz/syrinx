@@ -67,7 +67,7 @@ replies first; drill into a reply to see *its* direct replies.
 | Reply list surface | `GET /reeds/{userID}/{reedID}/replies` — metadata rows, oldest-first |
 | Conversation depth | **One level at a time** — list direct children only; click a reply to navigate to that reed's page |
 | Removed reeds | Excluded from counts and reply lists; parent quote already shows "unavailable" via deletion certs. Navigating into a removed reed's own permalink is an open question — see [05](05_thread_reply_counts.md) |
-| Realtime v1 | Direct reply list reuses `new_reed` fanout (no new WS type); the thread total gets a dedicated `REED_STATS`/`REED_REPLIES` live path — see [05](05_thread_reply_counts.md) |
+| Realtime v1 | Direct reply list reuses `FOLLOW_REED` fanout (no new WS type); the thread total gets a dedicated `REED_STATS`/`REED_REPLIES` live path — see [05](05_thread_reply_counts.md) |
 | Mention href | `web+syrinx://users/<serverID>/<userID>` inside markdown `[Name](…)` — domain-free; see [04](04_mentions.md) |
 | Mention index | `reed_mentions` at countersign; cleared on reed/account removal; no notification delivery in conversations |
 | Reply counts | Two independent numbers: **thread total** (same number on every reed in the thread, denormalized in `reed_threads`, keyed by `threadId`, shown in the stats line) and **subtree count** (per-reed, denormalized in `reed_reply_counts`, shown as `Replies (N)` under the reed body); see [05](05_thread_reply_counts.md) |

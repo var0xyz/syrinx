@@ -64,15 +64,11 @@ h := NewHandlers(services, cfg, broadcastChan)
 To broadcast messages from the HTTP API:
 
 ```go
-// Broadcast new reed
+// Notify realtime of an echo-count change (example)
 h.broadcastChan <- realtime.BroadcastMessage{
-    Type:   realtime.NewReed,
-    UserID: userID,
-    ReedID: reedID,
-    Data: map[string]interface{}{
-        "username": username,
-        "content":  content,
-    },
+    Type:   realtime.EchoCountChanged,
+    UserID: echoedAuthorID,
+    ReedID: echoedReedID,
 }
 ```
 

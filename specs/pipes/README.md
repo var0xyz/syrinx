@@ -5,16 +5,14 @@ The server does not keep a hashtag timeline; opening a pipe lists only
 reeds **already on the device** that match the tag, and while the pipe is
 open the client receives **new** matching reeds as they publish.
 
-SPA markdown already turns `#tag` into `web+syrinx://channel/…` (provisional).
-This feature renames that surface to **pipes** and implements subscribe /
-fanout / local list.
+SPA markdown turns `#tag` into `web+syrinx://pipe/…`.
 
 | # | Title | Depends on | Status |
 |---|-------|------------|--------|
-| [00](00_design.md) | Design + naming + locked model | — | Proposed |
+| [00](00_design.md) | Design + naming + locked model | — | Implemented |
 | [01](01_extract_stash.md) | Extract tags at SignReed; stash on `pending_fanout` until READY | 00 | Implemented |
-| [02](02_subscribe_fanout.md) | WS subscribe + READY fanout to listeners | 01 | Proposed |
-| [03](03_spa.md) | Links, `/pipe/[tag]` page, local list + live | 02 | Proposed |
+| [02](02_subscribe_fanout.md) | WS subscribe + READY fanout to listeners | 01 | Implemented |
+| [03](03_spa.md) | Links, `/pipe/[tag]` page, local list + live | 02 | Implemented |
 
 ## Locked decisions
 
@@ -31,4 +29,4 @@ fanout / local list.
 
 ## Status
 
-**In progress** (01 Implemented; 00, 02–03 Proposed).
+**Implemented**.

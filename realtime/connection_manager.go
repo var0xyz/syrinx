@@ -3,6 +3,7 @@ package realtime
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -17,6 +18,7 @@ func NewConnectionManager() *ConnectionManager {
 	return &ConnectionManager{
 		userConnections: make(map[string]map[*websocket.Conn]*Client),
 		reedSubscribers: make(map[string]map[*Client]bool),
+		pipeSubscribers: make(map[string]map[*Client]bool),
 	}
 }
 
@@ -56,6 +58,7 @@ func (cm *ConnectionManager) registerClient(client *Client) {
 			}
 			delete(existing, conn)
 			cm.clearReedSubscriptions(old)
+			cm.clearPipeSubscriptions(old)
 			stale = append(stale, old)
 		}
 	}
@@ -90,6 +93,7 @@ func (cm *ConnectionManager) unregisterClient(client *Client) bool {
 	}
 
 	cm.clearReedSubscriptions(client)
+	cm.clearPipeSubscriptions(client)
 	client.conn.Close()
 
 	remaining := cm.userConnections[client.userID]
@@ -253,6 +257,116 @@ func (cm *ConnectionManager) clearReedSubscriptions(client *Client) {
 		}
 	}
 	client.reedSubscriptions = make(map[string]bool)
+}
+
+// NormalizePipeTag lowercases and strips a leading # (SPA / SignReed parity).
+func NormalizePipeTag(tag string) string {
+	tag = strings.TrimSpace(tag)
+	tag = strings.TrimPrefix(tag, "#")
+	return strings.ToLower(strings.TrimSpace(tag))
+}
+
+// SubscribePipe adds a pipe (hashtag) subscription for the client.
+func (cm *ConnectionManager) SubscribePipe(client *Client, tag string) {
+	tag = NormalizePipeTag(tag)
+	if tag == "" || client == nil {
+		return
+	}
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+
+	client.pipeSubscriptions[tag] = true
+	if cm.pipeSubscribers[tag] == nil {
+		cm.pipeSubscribers[tag] = make(map[*Client]bool)
+	}
+	cm.pipeSubscribers[tag][client] = true
+}
+
+// UnsubscribePipe removes a pipe subscription for the client.
+func (cm *ConnectionManager) UnsubscribePipe(client *Client, tag string) {
+	tag = NormalizePipeTag(tag)
+	if tag == "" || client == nil {
+		return
+	}
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+
+	delete(client.pipeSubscriptions, tag)
+	if subs, ok := cm.pipeSubscribers[tag]; ok {
+		delete(subs, client)
+		if len(subs) == 0 {
+			delete(cm.pipeSubscribers, tag)
+		}
+	}
+}
+
+func (cm *ConnectionManager) clearPipeSubscriptions(client *Client) {
+	for tag := range client.pipeSubscriptions {
+		if subs, ok := cm.pipeSubscribers[tag]; ok {
+			delete(subs, client)
+			if len(subs) == 0 {
+				delete(cm.pipeSubscribers, tag)
+			}
+		}
+	}
+	client.pipeSubscriptions = make(map[string]bool)
+}
+
+// FilterTagsWithListeners returns tags from the input that currently have ≥1
+// pipe subscriber (order preserved, duplicates dropped).
+func (cm *ConnectionManager) FilterTagsWithListeners(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	out := make([]string, 0, len(tags))
+	seen := make(map[string]struct{}, len(tags))
+	for _, raw := range tags {
+		tag := NormalizePipeTag(raw)
+		if tag == "" {
+			continue
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		if len(cm.pipeSubscribers[tag]) > 0 {
+			out = append(out, tag)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// PipeListenerUserIDs returns unique user IDs currently subscribed to any of
+// the given tags, excluding excludeUserID (typically the author).
+func (cm *ConnectionManager) PipeListenerUserIDs(tags []string, excludeUserID string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	seen := make(map[string]struct{})
+	var out []string
+	for _, raw := range tags {
+		tag := NormalizePipeTag(raw)
+		for client := range cm.pipeSubscribers[tag] {
+			if client == nil || client.userID == "" || client.userID == excludeUserID {
+				continue
+			}
+			if _, ok := seen[client.userID]; ok {
+				continue
+			}
+			seen[client.userID] = struct{}{}
+			out = append(out, client.userID)
+		}
+	}
+	return out
 }
 
 // SendToClient writes a JSON payload to one client.

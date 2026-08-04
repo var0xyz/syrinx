@@ -177,6 +177,7 @@ func main() {
 
 	log.Debug().Msg("Initializing handlers...")
 	h := NewHandlers(services, cfg, broadcastChan, *signingKey)
+	h.SetPipeTagFilter(realtimeService.FilterSubscribedPipeTags)
 	log.Info().Msg("[OK] Handlers initialized successfully")
 
 	log.Debug().Msg("Setting up router...")

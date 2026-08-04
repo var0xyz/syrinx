@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import {
-  formatChannelHref,
+  formatPipeHref,
   internalPath,
   parseReedMarkdown,
 } from '../src/lib/utils/reedMarkdown.ts';
@@ -120,22 +120,22 @@ assert.deepEqual(parseReedMarkdown(null ?? ''), { blocks: [] });
 assert.equal(internalPath('web+syrinx://users/a/b'), '/profile/b');
 assert.equal(internalPath('https://x'), null);
 
-// hashtag → link to channel href
+// hashtag → link to pipe href
 {
   const nodes = firstInlines('hello #world more');
   assert.equal(nodes[0].type, 'text');
   assert.equal(nodes[0].value, 'hello ');
   assert.equal(nodes[1].type, 'link');
-  assert.equal(nodes[1].href, formatChannelHref('world'));
+  assert.equal(nodes[1].href, formatPipeHref('world'));
   assert.equal(nodes[1].children[0].value, '#world');
-  assert.equal(internalPath(nodes[1].href), '/channel/world');
+  assert.equal(internalPath(nodes[1].href), '/pipe/world');
 }
 
 // hashtag at start
 {
   const nodes = firstInlines('#alone');
   assert.equal(nodes[0].type, 'link');
-  assert.equal(nodes[0].href, formatChannelHref('alone'));
+  assert.equal(nodes[0].href, formatPipeHref('alone'));
 }
 
 // soft break
@@ -247,18 +247,18 @@ for (const { name, markdown, href } of attacks) {
 
   // #[hashtag](url) → hashtag whose name is the rest of the \S+ run
   const b = onlyLink('#[hashtag](https://var0.xyz)');
-  assert.equal(b.href, formatChannelHref('[hashtag](https://var0.xyz)'));
+  assert.equal(b.href, formatPipeHref('[hashtag](https://var0.xyz)'));
   assert.equal(b.children[0].value, '#[hashtag](https://var0.xyz)');
   assert.equal(
     internalPath(b.href),
-    `/channel/${encodeURIComponent('[hashtag](https://var0.xyz)')}`
+    `/pipe/${encodeURIComponent('[hashtag](https://var0.xyz)')}`
   );
 
-  // #hashtag → normal channel link
+  // #hashtag → normal pipe link
   const c = onlyLink('#hashtag');
-  assert.equal(c.href, formatChannelHref('hashtag'));
+  assert.equal(c.href, formatPipeHref('hashtag'));
   assert.equal(c.children[0].value, '#hashtag');
-  assert.equal(internalPath(c.href), '/channel/hashtag');
+  assert.equal(internalPath(c.href), '/pipe/hashtag');
 }
 
 console.log('reedMarkdown: all checks passed');

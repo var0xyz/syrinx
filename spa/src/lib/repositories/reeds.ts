@@ -32,11 +32,14 @@ export type QueuedReed = {
 // Receives profile_subscription and request_reed deliveries (explicitly requested content)
 export const profileReedQueue = writable<QueuedReed | null>(null);
 
-// Receives new_reed deliveries (catch-up via SYNC_REQUEST and follow broadcasts)
-export const newReedQueue = writable<QueuedReed | null>(null);
+// Receives FOLLOW_REED deliveries (followcast fanout + catch-up)
+export const followReedQueue = writable<QueuedReed | null>(null);
 
 // Receives broadcast_reed deliveries — ephemeral, NOT stored in IndexedDB
 export const broadcastReedQueue = writable<QueuedReed | null>(null);
+
+// Receives PIPE_REED deliveries (pipe subscription push; stored like follow reeds)
+export const pipeReedQueue = writable<QueuedReed | null>(null);
 
 export function dispatchReedToQueue(
   reed: ReedType,
@@ -44,10 +47,12 @@ export function dispatchReedToQueue(
   username?: string
 ): void {
   const queued: QueuedReed = { reed, username };
-  if (eventName === 'new_reed') {
-    newReedQueue.set(queued);
+  if (eventName === 'follow_reed') {
+    followReedQueue.set(queued);
   } else if (eventName === 'broadcast_reed') {
     broadcastReedQueue.set(queued);
+  } else if (eventName === 'pipe_reed') {
+    pipeReedQueue.set(queued);
   } else {
     profileReedQueue.set(queued);
   }
@@ -245,6 +250,43 @@ class ReedsService {
     } catch (error) {
       console.error('Failed to get unsigned reeds:', error);
       return [];
+    }
+  }
+
+  /**
+   * Local reeds indexed under a normalized tag (newest server signature first).
+   */
+  async getReedsByTag(tag: string): Promise<{ reeds: ReedType[]; authors: Record<string, User> }> {
+    const normalized = tag.trim().replace(/^#/, '').toLowerCase();
+    if (!normalized) {
+      return { reeds: [], authors: {} };
+    }
+    try {
+      const entry = await dbService.get<{ tagName: string; reeds: string[] }>('tags', normalized);
+      const ids = entry?.reeds ?? [];
+      const reeds: ReedType[] = [];
+      for (const id of ids) {
+        const reed = await dbService.get<ReedType>('reeds', id);
+        if (reed?.tags?.includes(normalized)) {
+          reeds.push(reed);
+        }
+      }
+      reeds.sort((a, b) => {
+        const ta = a.serverSignature?.timestamp ?? '';
+        const tb = b.serverSignature?.timestamp ?? '';
+        return tb.localeCompare(ta);
+      });
+      const authors: Record<string, User> = {};
+      for (const reed of reeds) {
+        if (!authors[reed.userID]) {
+          const user = await dbService.get<User>('users', reed.userID);
+          if (user) authors[reed.userID] = user;
+        }
+      }
+      return { reeds, authors };
+    } catch (error) {
+      console.error('Failed to get reeds by tag:', error);
+      return { reeds: [], authors: {} };
     }
   }
 

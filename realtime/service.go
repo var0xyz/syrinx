@@ -90,10 +90,6 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			Str("reedID", message.ReedID).
 			Msg("Received broadcast message")
 
-		if message.Type == NewReed {
-			rs.fanoutNewReed(message.UserID, message.ReedID)
-		}
-
 		if message.Type == EchoCountChanged {
 			rs.notifyReedEchoes(message.UserID, message.ReedID)
 		}
@@ -153,11 +149,13 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 	}
 }
 
-// fanoutNewReed dispatches a newly published reed to followers, broadcast subs, and profile subs.
-func (rs *RealtimeService) fanoutNewReed(authorUserID, reedID string) {
+// fanoutNewReed dispatches a newly published reed to followers, broadcast subs,
+// profile subs, and pipe listeners for the claimed tags.
+func (rs *RealtimeService) fanoutNewReed(authorUserID, reedID string, tags []string) {
 	log.Info().
 		Str("userID", authorUserID).
 		Str("reedID", reedID).
+		Int("tags", len(tags)).
 		Msg("Fanning out new reed")
 
 	broadcastRecipients, err := rs.dbService.GetBroadcastSubscribers(authorUserID)
@@ -167,20 +165,22 @@ func (rs *RealtimeService) fanoutNewReed(authorUserID, reedID string) {
 			Msg("Failed to get broadcast subscribers from database")
 	}
 
-	rs.fanoutNewReedCore(authorUserID, reedID, broadcastRecipients)
+	rs.fanoutNewReedCore(authorUserID, reedID, broadcastRecipients, tags)
 }
 
-// fanoutNewReedNoBroadcast dispatches to followers and profile subs only (no broadcast stream).
-func (rs *RealtimeService) fanoutNewReedNoBroadcast(authorUserID, reedID string) {
+// fanoutNewReedNoBroadcast dispatches to followers, profile subs, and pipe
+// listeners only (no broadcast stream).
+func (rs *RealtimeService) fanoutNewReedNoBroadcast(authorUserID, reedID string, tags []string) {
 	log.Info().
 		Str("userID", authorUserID).
 		Str("reedID", reedID).
+		Int("tags", len(tags)).
 		Msg("Fanning out new reed (no broadcast)")
 
-	rs.fanoutNewReedCore(authorUserID, reedID, nil)
+	rs.fanoutNewReedCore(authorUserID, reedID, nil, tags)
 }
 
-func (rs *RealtimeService) fanoutNewReedCore(authorUserID, reedID string, broadcastRecipients []string) {
+func (rs *RealtimeService) fanoutNewReedCore(authorUserID, reedID string, broadcastRecipients, tags []string) {
 	followers, err := rs.dbService.GetOnlineFollowers(authorUserID)
 	if err != nil {
 		log.Error().
@@ -188,13 +188,23 @@ func (rs *RealtimeService) fanoutNewReedCore(authorUserID, reedID string, broadc
 			Msg("Failed to get online followers from database")
 	}
 
+	pipeListeners := rs.connManager.PipeListenerUserIDs(tags, authorUserID)
+	// Pipe listeners always get PIPE_REED (push). Followers who are not on the
+	// pipe get FOLLOW_REED. Overlap prefers PIPE_REED (one event).
+	followersOnly := subtractUserIDs(followers, pipeListeners)
+
+	durable := unionUserIDs(followersOnly, pipeListeners)
+	broadcastOnly := subtractUserIDs(broadcastRecipients, durable)
+
 	log.Info().
 		Str("userID", authorUserID).
-		Int("followers", len(followers)).
-		Int("broadcastSubscribers", len(broadcastRecipients)).
+		Int("followersOnly", len(followersOnly)).
+		Int("pipeListeners", len(pipeListeners)).
+		Int("broadcastSubscribers", len(broadcastOnly)).
 		Msg("Dispatching new reed to recipients")
-	rs.dispatchMany(followers, NewReedEvent, reedID, authorUserID)
-	rs.dispatchMany(broadcastRecipients, BroadcastReedEvent, reedID, authorUserID)
+	rs.dispatchMany(followersOnly, FollowReedEvent, reedID, authorUserID)
+	rs.dispatchMany(pipeListeners, PipeReedEvent, reedID, authorUserID)
+	rs.dispatchMany(broadcastOnly, BroadcastReedEvent, reedID, authorUserID)
 
 	profileSubscribers, err := rs.dbService.GetProfileSubscribers(authorUserID)
 	if err != nil {
@@ -206,7 +216,7 @@ func (rs *RealtimeService) fanoutNewReedCore(authorUserID, reedID string, broadc
 	for _, sub := range profileSubscribers {
 		eventID := generateEventID()
 		requestID := generateEventID()
-		if err := rs.dbService.CreateProfileSubscriptionEvent(eventID, requestID, sub.ViewerUserID, NewReedEvent, authorUserID, reedID, sub.SubscriptionID); err != nil {
+		if err := rs.dbService.CreateProfileSubscriptionEvent(eventID, requestID, sub.ViewerUserID, ProfileSubscriptionEvent, authorUserID, reedID, sub.SubscriptionID); err != nil {
 			log.Error().
 				Err(err).
 				Str("viewerUserID", sub.ViewerUserID).
@@ -215,6 +225,50 @@ func (rs *RealtimeService) fanoutNewReedCore(authorUserID, reedID string, broadc
 	}
 
 	rs.dispatchNextIfConnected(authorUserID)
+}
+
+func unionUserIDs(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, id := range a {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	for _, id := range b {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func subtractUserIDs(from, remove []string) []string {
+	if len(from) == 0 {
+		return nil
+	}
+	drop := make(map[string]struct{}, len(remove))
+	for _, id := range remove {
+		drop[id] = struct{}{}
+	}
+	out := make([]string, 0, len(from))
+	for _, id := range from {
+		if _, ok := drop[id]; ok {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
 }
 
 // dispatchRemovalMany enqueues reed_removed pending events and delivers certs
@@ -302,7 +356,7 @@ func (rs *RealtimeService) deliverReedRemoved(eventID, requestID, recipientID, a
 }
 
 // dispatchMany creates a pending reed event for each recipient and triggers relay dispatch to holderUserID.
-// holderUserID is also the reed author for new-reed fanout.
+// holderUserID is also the reed author for published-reed fanout.
 func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName, reedID, authorUserID string) {
 	for _, recipientID := range recipients {
 		requestID, err := rs.dbService.GetSyncRequestID(recipientID)
@@ -625,6 +679,12 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 	case "UNSUBSCRIBE_REED":
 		rs.handleUnsubscribeReed(client, jsonMsg)
 
+	case "SUBSCRIBE_PIPE":
+		rs.handleSubscribePipe(client, jsonMsg)
+
+	case "UNSUBSCRIBE_PIPE":
+		rs.handleUnsubscribePipe(client, jsonMsg)
+
 	default:
 		log.Warn().Str("type", msgType).Msg("Unknown JSON WebSocket message type")
 	}
@@ -873,13 +933,12 @@ func (rs *RealtimeService) handlePublishReady(client *Client, jsonMsg map[string
 		log.Error().Err(err).Str("reedID", reedID).Str("userID", authorUserID).Msg("Failed to claim pending fanout")
 		return
 	}
-	_ = tags // pipe fanout uses claimed tags in pipes 02
 
 	if claimed {
 		if shouldBroadcast(data) {
-			go rs.fanoutNewReed(authorUserID, reedID)
+			go rs.fanoutNewReed(authorUserID, reedID, tags)
 		} else {
-			go rs.fanoutNewReedNoBroadcast(authorUserID, reedID)
+			go rs.fanoutNewReedNoBroadcast(authorUserID, reedID, tags)
 		}
 	} else {
 		exists, err := rs.dbService.ReedExists(authorUserID, reedID)
@@ -934,6 +993,18 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]in
 		if err := rs.dbService.DeletePendingEvent(eventID); err != nil {
 			log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event")
 		}
+	} else if pe.EventName == string(PipeReedEvent) {
+		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering pipe reed to subscriber")
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewPipeReedMsg(pe.EventID, pe.RequestID, pe.ReedID, data["data"])); err != nil {
+			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver pipe reed")
+		}
+		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
+	} else if pe.EventName == string(FollowReedEvent) {
+		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering follow reed to subscriber")
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewFollowReedMsg(pe.EventID, pe.RequestID, pe.ReedID, data["data"])); err != nil {
+			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver follow reed")
+		}
+		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else {
 		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, data["data"])); err != nil {
 			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver data response")
@@ -1149,6 +1220,34 @@ func (rs *RealtimeService) handleUnsubscribeReed(client *Client, msg map[string]
 	rs.connManager.UnsubscribeReed(client, authorID, reedID)
 }
 
+func (rs *RealtimeService) handleSubscribePipe(client *Client, jsonMsg map[string]interface{}) {
+	data, _ := jsonMsg["data"].(map[string]interface{})
+	tag, _ := data["tag"].(string)
+	tag = NormalizePipeTag(tag)
+	if tag == "" {
+		return
+	}
+	rs.connManager.SubscribePipe(client, tag)
+	log.Debug().Str("userID", client.userID).Str("tag", tag).Msg("Client subscribed to pipe")
+}
+
+func (rs *RealtimeService) handleUnsubscribePipe(client *Client, jsonMsg map[string]interface{}) {
+	data, _ := jsonMsg["data"].(map[string]interface{})
+	tag, _ := data["tag"].(string)
+	tag = NormalizePipeTag(tag)
+	if tag == "" {
+		return
+	}
+	rs.connManager.UnsubscribePipe(client, tag)
+	log.Debug().Str("userID", client.userID).Str("tag", tag).Msg("Client unsubscribed from pipe")
+}
+
+// FilterSubscribedPipeTags returns extracted tags that currently have ≥1 listener.
+// Used by SignReed to stash only relevant tags on pending_fanout.
+func (rs *RealtimeService) FilterSubscribedPipeTags(tags []string) []string {
+	return rs.connManager.FilterTagsWithListeners(tags)
+}
+
 func (rs *RealtimeService) notifyReedCoverage(authorUserID, reedID string) {
 	percent, err := rs.dbService.GetReedCoveragePercent(authorUserID, reedID)
 	if err != nil {
@@ -1242,7 +1341,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 
 	for _, reed := range unallocated {
 		eventID := generateEventID()
-		if err := rs.dbService.CreatePendingReedEvent(eventID, requestID, userID, NewReedEvent, reed.AuthorID, reed.ReedID); err != nil {
+		if err := rs.dbService.CreatePendingReedEvent(eventID, requestID, userID, FollowReedEvent, reed.AuthorID, reed.ReedID); err != nil {
 			log.Error().
 				Err(err).
 				Str("reedID", reed.ReedID).

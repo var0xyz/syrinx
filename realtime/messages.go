@@ -6,8 +6,9 @@ type EventName string
 const (
 	RequestReedEvent         EventName = "request_reed"
 	ProfileSubscriptionEvent EventName = "profile_subscription"
-	NewReedEvent             EventName = "new_reed"
+	FollowReedEvent          EventName = "follow_reed"
 	BroadcastReedEvent       EventName = "broadcast_reed"
+	PipeReedEvent            EventName = "pipe_reed"
 	ReedRemovedEvent         EventName = "reed_removed"
 	AccountRemovedEvent      EventName = "account_removed"
 )
@@ -70,6 +71,33 @@ func NewBroadcastReedMsg(reedID string, reedData interface{}, username string) D
 			ReedID:   reedID,
 			Data:     reedData,
 			Username: username,
+		},
+	}
+}
+
+// NewPipeReedMsg builds a PIPE_REED delivery (pipe subscription push).
+// Carries event_id so the viewer can DATA_ACK after verify+store (same as DATA_RESPONSE).
+func NewPipeReedMsg(eventID, requestID, reedID string, data interface{}) DataResponseMsg {
+	return DataResponseMsg{
+		Type: "PIPE_REED",
+		Data: DataResponseData{
+			EventID:   eventID,
+			RequestID: requestID,
+			ReedID:    reedID,
+			Data:      data,
+		},
+	}
+}
+
+// NewFollowReedMsg builds a FOLLOW_REED delivery (followcast / follow catch-up push).
+func NewFollowReedMsg(eventID, requestID, reedID string, data interface{}) DataResponseMsg {
+	return DataResponseMsg{
+		Type: "FOLLOW_REED",
+		Data: DataResponseData{
+			EventID:   eventID,
+			RequestID: requestID,
+			ReedID:    reedID,
+			Data:      data,
 		},
 	}
 }
