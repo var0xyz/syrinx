@@ -1,7 +1,8 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import path from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import devtoolsJson from 'vite-plugin-devtools-json';
 import { licensePlugin } from './vite-plugin-license.js';
@@ -14,11 +15,33 @@ const openpgpLightweight = path.resolve(
   'node_modules/openpgp/dist/lightweight/openpgp.min.mjs'
 );
 
+/**
+ * adapter-static SPA builds leave prerendered/ empty when Workbox runs.
+ * @vite-pwa/sveltekit always appends a prerendered HTML glob unless another
+ * prerendered/ pattern is present — either way Workbox warns on zero matches.
+ * Drop a tiny placeholder before injectManifest so the glob is satisfied, then
+ * strip it from the precache manifest.
+ */
+function pwaPrerenderedPlaceholder(): Plugin {
+  const keepDir = path.join(spaRoot, '.svelte-kit/output/prerendered');
+  // Must not be dotfile — workbox/glob ignores dotfiles by default.
+  const keepFile = path.join(keepDir, 'pwa-keep.html');
+  return {
+    name: 'syrinx-pwa-prerendered-placeholder',
+    apply: 'build',
+    buildStart() {
+      mkdirSync(keepDir, { recursive: true });
+      writeFileSync(keepFile, '<!-- pwa glob placeholder -->\n');
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     devtoolsJson(),
     licensePlugin(),
     sveltekit(),
+    pwaPrerenderedPlaceholder(),
     SvelteKitPWA({
       // Custom SW: PGP signing + app-shell precache (injectManifest).
       registerType: 'autoUpdate',
@@ -28,12 +51,21 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'service-worker.ts',
       injectManifest: {
-        globPatterns: ['client/**/*.{js,css,ico,png,svg,webp,webmanifest,html}'],
+        globPatterns: [
+          'client/**/*.{js,css,ico,png,svg,webp,webmanifest,html}',
+          'prerendered/**/*.html',
+        ],
         // adapter-static writes index.html after Kit's client emit; add it explicitly
         // so NavigationRoute(createHandlerBoundToURL('index.html')) works offline.
         // revision must change every build — null makes Workbox treat the URL as
         // immutable, leaving a stale shell that points at deleted chunk hashes.
-        additionalManifestEntries: [{ url: 'index.html', revision: `${Date.now()}` }]
+        additionalManifestEntries: [{ url: 'index.html', revision: `${Date.now()}` }],
+        manifestTransforms: [
+          async (entries) => ({
+            manifest: entries.filter((e) => e.url !== 'prerendered/pwa-keep.html'),
+            warnings: [],
+          }),
+        ],
       },
       manifest: {
         name: 'Syrinx',

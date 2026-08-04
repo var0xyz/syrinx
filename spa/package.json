@@ -24,6 +24,7 @@
     "@typescript-eslint/eslint-plugin": "8.8.1",
     "@typescript-eslint/parser": "8.8.1",
     "@vite-pwa/sveltekit": "^0.5.0",
+    "baseline-browser-mapping": "^2.11.12",
     "eslint": "9.13.0",
     "eslint-plugin-svelte": "^2.46.0",
     "svelte": "^5.0.0",
@@ -35,6 +36,9 @@
     "workbox-core": "^7.4.1",
     "workbox-precaching": "^7.4.1",
     "workbox-routing": "^7.4.1"
+  },
+  "overrides": {
+    "baseline-browser-mapping": "$baseline-browser-mapping"
   },
   "dependencies": {
     "openpgp": "^6.3.1",

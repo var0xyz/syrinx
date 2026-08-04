@@ -146,46 +146,83 @@
     <div class="quote-meta">{icon} Loading...</div>
   </div>
 {:else if displayReed}
-  <div
-    class="quote"
-    class:quote--linked={linked}
-    class:quote--clamped={maxLines > 0}
-    style="--border-color: {borderColor}; --max-lines: {maxLines}"
-    on:click={handleClick}
-    role={linked ? 'link' : 'presentation'}
-    tabindex={linked ? 0 : undefined}
-    on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
-  >
-    <div class="quote-meta">{icon} {label}{username}{#if displayReed.serverSignature?.timestamp} · {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
+  {#if linked}
+    <div
+      class="quote quote--linked"
+      class:quote--clamped={maxLines > 0}
+      style="--border-color: {borderColor}; --max-lines: {maxLines}"
+      role="link"
+      tabindex="0"
+      on:click={handleClick}
+      on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
+    >
+      <div class="quote-meta">{icon} {label}{username}{#if displayReed.serverSignature?.timestamp} · {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
 
-    {#if nestedReply || nestedReplyMissing}
-      <div class="quote-nest">
-        <svelte:self
-          reed={nestedReply}
-          type="reply"
-          missing={nestedReplyMissing}
-          linked={linked}
-          depth={depth + 1}
-        />
-      </div>
-    {/if}
+      {#if nestedReply || nestedReplyMissing}
+        <div class="quote-nest">
+          <svelte:self
+            reed={nestedReply}
+            type="reply"
+            missing={nestedReplyMissing}
+            linked={linked}
+            depth={depth + 1}
+          />
+        </div>
+      {/if}
 
-    {#if (displayReed.content || '').trim()}
-      <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
-    {/if}
+      {#if (displayReed.content || '').trim()}
+        <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
+      {/if}
 
-    {#if nestedEcho || nestedEchoMissing}
-      <div class="quote-nest">
-        <svelte:self
-          reed={nestedEcho}
-          type="echo"
-          missing={nestedEchoMissing}
-          linked={linked}
-          depth={depth + 1}
-        />
-      </div>
-    {/if}
-  </div>
+      {#if nestedEcho || nestedEchoMissing}
+        <div class="quote-nest">
+          <svelte:self
+            reed={nestedEcho}
+            type="echo"
+            missing={nestedEchoMissing}
+            linked={linked}
+            depth={depth + 1}
+          />
+        </div>
+      {/if}
+    </div>
+  {:else}
+    <div
+      class="quote"
+      class:quote--clamped={maxLines > 0}
+      style="--border-color: {borderColor}; --max-lines: {maxLines}"
+    >
+      <div class="quote-meta">{icon} {label}{username}{#if displayReed.serverSignature?.timestamp} · {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
+
+      {#if nestedReply || nestedReplyMissing}
+        <div class="quote-nest">
+          <svelte:self
+            reed={nestedReply}
+            type="reply"
+            missing={nestedReplyMissing}
+            linked={false}
+            depth={depth + 1}
+          />
+        </div>
+      {/if}
+
+      {#if (displayReed.content || '').trim()}
+        <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
+      {/if}
+
+      {#if nestedEcho || nestedEchoMissing}
+        <div class="quote-nest">
+          <svelte:self
+            reed={nestedEcho}
+            type="echo"
+            missing={nestedEchoMissing}
+            linked={false}
+            depth={depth + 1}
+          />
+        </div>
+      {/if}
+    </div>
+  {/if}
 {/if}
 
 <style>

@@ -133,11 +133,12 @@
     class="avatar-overlay"
     role="dialog"
     aria-modal="true"
+    tabindex="-1"
     aria-label={user.username ? `${user.username}'s avatar` : 'Avatar'}
-    on:click={closeAvatar}
-    on:keydown={(e) => e.key === 'Enter' && closeAvatar()}
+    on:click={(e) => e.target === e.currentTarget && closeAvatar()}
+    on:keydown={(e) => (e.key === 'Enter' || e.key === 'Escape') && closeAvatar()}
   >
-    <div class="avatar-lightbox" on:click|stopPropagation role="presentation">
+    <div class="avatar-lightbox">
       <Avatar userID={user.id} username={user.username} size="100%" />
     </div>
   </div>

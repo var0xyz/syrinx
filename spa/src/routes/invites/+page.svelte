@@ -238,15 +238,14 @@
     {#if showFreshLink}
       <div
         class="modal-backdrop"
-        role="presentation"
-        on:click={dismissFreshLink}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fresh-invite-title"
+        tabindex="-1"
+        on:click={(e) => e.target === e.currentTarget && dismissFreshLink()}
+        on:keydown={(e) => e.key === 'Escape' && dismissFreshLink()}
       >
-        <div
-          class="modal"
-          role="dialog"
-          aria-labelledby="fresh-invite-title"
-          on:click|stopPropagation
-        >
+        <div class="modal">
           <h2 id="fresh-invite-title">Invite link ready</h2>
           <div class="link-row">
             <code class="share-url">{freshShareURL}</code>
@@ -337,16 +336,6 @@
 
   .empty-state p {
     margin: 0;
-    line-height: 1.4;
-  }
-
-  .notice {
-    background: var(--input-bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    color: var(--fg);
-    margin: 0 0 1rem 0;
     line-height: 1.4;
   }
 
