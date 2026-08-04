@@ -31,17 +31,19 @@ rehydration UX.
 | [04](04_spa_keys_only_restore.md) | SPA keys-only `/import` fork + session | 01, 02 |
 | [05](05_spa_rehydration_publish.md) | SPA rehydration + tip `previousID` + UX | 03, 04 |
 | [06](06_device_takeover.md) | Device binding on bootstrap (takeover) | 02, [recovery 17](../recovery/17_device_binding.md) |
+| [07](07_root_user_bootstrap.md) | Root user `id=1` mint + ops key export | 01, 04 |
 
 After 00, **01** (export) may land in parallel with **02** (API). **04**
 needs both. **05** needs relay (03) and the SPA session (04). **06** waits
 on device binding; until then bootstrap skips bind but the takeover warning
-copy may still ship in 04.
+copy may still ship in 04. **07** (root bootstrap) needs the `.sxk.gpg`
+format (01) and keys-only import (04); minting on the server can precede 04.
 
 ---
 
 ## Status
 
-**Proposed** (00 design locked on Approach B tip id; 01–06 implementation
+**Proposed** (00 design locked on Approach B tip id; 01–07 implementation
 steps below).
 
 ## Locked decisions (from 00)
@@ -56,3 +58,4 @@ steps below).
 | Tip-check | Keep ([recovery 16](../recovery/16_reed_tip_check.md)); do not abolish |
 | Device | Import / account recovery **supersedes** older devices (06) |
 | Bookkeeping | Dedicated row; **not** `ongoing_recoveries` / not `RECOVERY_MODE` |
+| Root bootstrap | Reserved user `id = "1"` minted empty at first boot; ops exports `.sxk.gpg`; admin recovers via keys-only import (07) — no open signup required |
