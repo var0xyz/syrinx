@@ -12,7 +12,6 @@
   import { localStorageService } from '$lib/services/localstorage';
   import { compressBackupPayload, encryptAndSaveBackup, buildKeyBackupPayload } from '$lib/services/backupRestore';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
-  import CopyButton from '$lib/components/CopyButton.svelte';
   import ExportDataModal from '$lib/components/ExportDataModal.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import UsernameChecker from '$lib/components/UsernameChecker.svelte';
@@ -50,7 +49,6 @@
   // Encryption Key state (seeded from page load)
   let keyFingerprint: string = data.keyInfo.fingerprint;
   let keyIdentity: string = data.keyInfo.identity;
-  let publicKeyArmor: string = data.keyInfo.armor;
   let loadingKeyInfo: boolean = false;
   let revoking: boolean = false;
   let showRevokeModal: boolean = false;
@@ -128,7 +126,6 @@
   function applyKeyInfo(info: ProfileKeyInfo): void {
     keyFingerprint = info.fingerprint;
     keyIdentity = info.identity;
-    publicKeyArmor = info.armor;
     isPendingRevocation = info.isPendingRevocation;
     isKeyRevoked = info.isKeyRevoked;
     revokedInfo = info.revokedInfo;
@@ -409,16 +406,6 @@
     }
   }
 
-  async function copyPublicKey(): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(publicKeyArmor);
-      notificationStore.success('Public key copied to clipboard');
-    } catch (error) {
-      console.error('Failed to copy public key:', error);
-      notificationStore.error('Failed to copy public key');
-    }
-  }
-
   async function exportData(backupPassword: string): Promise<void> {
     exporting = true;
     try {
@@ -643,15 +630,6 @@
               <div class="key-field">
                 <strong>Identity</strong>
                 <div class="key-value">{keyIdentity || 'Unknown'}</div>
-              </div>
-              <div class="key-field">
-                <div class="key-armor-container">
-                  <div class="key-armor-label">
-                    <strong>Public Key</strong>
-                  </div>
-                  <CopyButton ariaLabel="Copy public key" on:click={copyPublicKey} />
-                </div>
-                <div class="key-value public-key">{publicKeyArmor}</div>
               </div>
               <div class="key-backup">
                 {#if keyBackupStale}
@@ -1097,16 +1075,6 @@
     font-weight: 600;
   }
 
-  .key-armor-container {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .key-armor-label {
-    flex-shrink: 0;
-  }
-
   .key-value {
     color: var(--fg);
     font-size: 0.9rem;
@@ -1123,12 +1091,6 @@
   .key-value.fingerprint {
     font-size: 0.85rem;
     letter-spacing: 0.5px;
-  }
-
-  .key-value.public-key {
-    max-height: 200px;
-    font-size: 0.75rem;
-    line-height: 1.4;
   }
 
   .key-backup {
