@@ -251,6 +251,15 @@
     }
   }
 
+  /** Prefer history.back so list pages can restore scroll via snapshots. */
+  function goBack() {
+    if (typeof history !== 'undefined' && history.length > 1) {
+      history.back();
+      return;
+    }
+    goto('/reeds');
+  }
+
   // Action button handlers
   function handleEcho() {
     if (isPending) return;
@@ -327,7 +336,7 @@
             <div class="error-icon">🪹</div>
             <h3>Reed not found</h3>
             <p>This reed doesn't exist or has been deleted.</p>
-            <button class="btn btn-primary" on:click={() => goto('/reeds')}>Go Back</button>
+            <button class="btn btn-primary" on:click={goBack}>Go Back</button>
           </div>
         {:else if !$isOnline && loadingReed}
           <div class="error-state">
@@ -345,7 +354,7 @@
             <div class="error-icon">⚠️</div>
             <h3>Error</h3>
             <p>{errorMessage}</p>
-            <button class="btn btn-primary" on:click={() => goto('/reeds')}>Go Back</button>
+            <button class="btn btn-primary" on:click={goBack}>Go Back</button>
           </div>
         {:else if reed}
           <div class="reed-detail">

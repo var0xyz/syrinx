@@ -15,10 +15,13 @@
   import { parseReedRef } from '$lib/utils/reedRef';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
   import { serverConnection } from '$lib/services/serverConnection';
+  import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';
 
   export let authorId;
   export let isOwner = false;
   export let showWriteButton = false;
+  /** Window scrollY to restore after the first load (SvelteKit page snapshot). */
+  export let scrollRestoreY = /** @type {number | null} */ (null);
 
   let isWriteSectionOpen = false;
   let showNewReedBanner = false;
@@ -36,6 +39,7 @@
   /** profileReedQueue / followReedQueue items already handled (store value is sticky). */
   let lastHandledProfileReedId = '';
   let lastHandledFollowReedId = '';
+  let appliedScrollRestore = false;
 
   $: if ($unsignedReedsProcessed > 0) loadReeds();
   $: if ($pendingRemovalSynced > 0) loadReeds();
@@ -192,6 +196,10 @@
       errorLoadingReeds = 'Failed to load reeds';
     } finally {
       loadingReeds = false;
+      if (!appliedScrollRestore && typeof scrollRestoreY === 'number') {
+        appliedScrollRestore = true;
+        await restoreWindowScroll(scrollRestoreY);
+      }
     }
   }
 

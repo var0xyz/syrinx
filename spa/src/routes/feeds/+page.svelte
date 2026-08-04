@@ -16,11 +16,23 @@
   import Auth from '$lib/components/Auth.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
+  import { captureWindowScroll, restoreWindowScroll } from '$lib/utils/scrollSnapshot';
 
   /** @type {import('./$types').PageData} */
   export let data;
 
   let user = data.user;
+
+  /** @type {number | null} */
+  let pendingScrollY = null;
+
+  /** @type {import('./$types').Snapshot<number>} */
+  export const snapshot = {
+    capture: () => captureWindowScroll(),
+    restore: (y) => {
+      pendingScrollY = y;
+    },
+  };
 
   /** @param {string} hash */
   function sectionFromHash(hash) {
@@ -126,6 +138,11 @@
     broadcastReeds = await pruneBroadcastFollowedReeds(broadcastReeds);
     await serverConnection.connect();
     serverConnection.subscribeToBroadcast();
+    if (pendingScrollY != null) {
+      const y = pendingScrollY;
+      pendingScrollY = null;
+      await restoreWindowScroll(y);
+    }
   });
 
   onDestroy(() => {
