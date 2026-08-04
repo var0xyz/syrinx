@@ -33,6 +33,7 @@ Each table below has a **Status** column per step. Values:
 | Account recovery | Proposed    | 00–06                                                |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Observability    | Proposed    | 00–04                                                |
+| Load testing     | Proposed    | 00–03                                                |
 
 **Already done:** Invites, Coverage, Deletion, Signature storage, and the
 prerequisites other than 09/11.
@@ -232,6 +233,20 @@ OpenObserve stack that already receives logs and host metrics.
 | 03 | DB query spans via `otelsql`                                | Proposed |
 | 04 | Thread `context.Context` so DB spans nest under the request | Proposed |
 
+## Load testing (real browsers, script-driven)
+
+See [`loadtest/`](loadtest/README.md). Drives the real SPA in many isolated
+Playwright browser contexts (script-driven via real service/repository
+calls, not click simulation) pointed at a target server through Vite's
+existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
+
+| #  | Title                                                              | Status   |
+|----|---------------------------------------------------------------------|----------|
+| 00 | Design + `API_HOST` proxy trick + locked model                      | Proposed |
+| 01 | Extract `performSignup` / `performPublish` into reusable services   | Proposed |
+| 02 | Playwright driver: virtual users, scenario mix, config               | Proposed |
+| 03 | Publish → delivery fanout-latency correlation                        | Proposed |
+
 ## Parallelism
 
 - **Remaining open (prerequisites):** 09 (revocation fanout), 11.
@@ -277,6 +292,12 @@ OpenObserve stack that already receives logs and host metrics.
   02→03 can be developed against a local OTLP endpoint before 01 reaches the
   Pi; 04 is the large one and is designed to land incrementally (package by
   package) rather than as a single change.
+- **Load testing** ([`loadtest/`](loadtest/README.md)) is independent of
+  every other track — pure test tooling, no server/SPA wire changes beyond
+  the small [01](loadtest/01_shared_flow_helpers.md) extraction. Within
+  `loadtest/`, follow the depends-on column (00→03); 01 (extracting
+  `performSignup`/`performPublish`) can land and be verified against the
+  existing e2e suite independently of 02/03.
 
 ## Shared conventions
 
