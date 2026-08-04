@@ -43,55 +43,67 @@
 
 <div class="notifications-container">
   {#each notifications as notification (notification.id)}
-    <div
-      class="notification"
-      class:notification-error={notification.type === 'error'}
-      class:notification-warning={notification.type === 'warning'}
-      class:notification-info={notification.type === 'info'}
-      class:notification-success={notification.type === 'success'}
-      class:clickable={notification.type === 'info'}
-      class:dismissing={dismissingArray.includes(notification.id)}
-      role={notification.type === 'info' ? 'button' : undefined}
-      tabindex={notification.type === 'info' ? 0 : undefined}
-      on:click={() => notification.type === 'info' && dismissNotification(notification.id)}
-      on:keydown={(e) => {
-        if (notification.type !== 'info') return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          dismissNotification(notification.id);
-        }
-      }}
-    >
-      <div class="notification-content">
-        <div class="notification-message">
-          {notification.message}
+    {#if notification.type === 'info'}
+      <button
+        type="button"
+        class="notification notification-info clickable"
+        class:dismissing={dismissingArray.includes(notification.id)}
+        on:click={() => dismissNotification(notification.id)}
+      >
+        <div class="notification-content">
+          <div class="notification-message">
+            {notification.message}
+          </div>
         </div>
-        {#if notification.type === 'error' || notification.type === 'warning'}
+        <div class="notification-progress">
+          <div
+            class="notification-progress-bar"
+            style="animation-duration: {notification.duration}ms"
+          ></div>
+        </div>
+      </button>
+    {:else}
+      <div
+        class="notification"
+        class:notification-error={notification.type === 'error'}
+        class:notification-warning={notification.type === 'warning'}
+        class:notification-success={notification.type === 'success'}
+        class:dismissing={dismissingArray.includes(notification.id)}
+        role="status"
+      >
+        <div class="notification-content">
+          <div class="notification-message">
+            {notification.message}
+          </div>
+          {#if notification.type === 'error' || notification.type === 'warning'}
+            <button
+              type="button"
+              class="notification-dismiss"
+              on:click={() => dismissNotification(notification.id)}
+              aria-label="Dismiss notification"
+            >
+              ✕
+            </button>
+          {/if}
+        </div>
+
+        {#if notification.type === 'success'}
           <button
-            class="notification-dismiss"
-            on:click={() => dismissNotification(notification.id)}
-            aria-label="Dismiss notification"
+            type="button"
+            class="notification-progress"
+            aria-label="Pause notification timer"
+            on:click={() => pauseNotification(notification.id)}
+            on:mouseenter={() => pauseNotification(notification.id)}
+            on:mouseleave={() => resumeNotification(notification.id)}
           >
-            ✕
+            <div
+              class="notification-progress-bar"
+              style="animation-duration: {notification.duration}ms"
+            ></div>
           </button>
         {/if}
       </div>
-
-      {#if notification.type === 'info' || notification.type === 'success'}
-        <div class="notification-progress">
-        <div
-          class="notification-progress-bar"
-          style="animation-duration: {notification.duration}ms"
-          role={notification.type === 'success' ? 'button' : undefined}
-          tabindex={notification.type === 'success' ? 0 : undefined}
-          on:click={() => notification.type === 'success' && pauseNotification(notification.id)}
-          on:keydown={(e) => notification.type === 'success' && e.key === 'Enter' && pauseNotification(notification.id)}
-          on:mouseenter={() => pauseNotification(notification.id)}
-          on:mouseleave={() => resumeNotification(notification.id)}
-        ></div>
-        </div>
-      {/if}
-    </div>
+    {/if}
   {/each}
 </div>
 
@@ -118,6 +130,19 @@
     transform: translateX(100%);
     animation: slideIn 0.3s ease-out forwards;
     max-width: 100%;
+    touch-action: pan-x;
+  }
+
+  button.notification {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    padding: 0;
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
   }
 
   .notification.dismissing {
@@ -157,7 +182,12 @@
   }
 
   .notification-progress {
+    display: block;
+    width: 100%;
     height: 3px;
+    padding: 0;
+    margin: 0;
+    border: none;
     background: var(--border);
     position: relative;
     cursor: pointer;
@@ -237,11 +267,6 @@
     to {
       transform: scaleX(0);
     }
-  }
-
-  /* Swipe to dismiss */
-  .notification {
-    touch-action: pan-x;
   }
 
   @media (max-width: 640px) {

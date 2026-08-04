@@ -475,22 +475,6 @@
     font-size: 0.9rem;
   }
 
-
-  .loading {
-    text-align: center;
-    padding: 2rem;
-    color: var(--muted);
-  }
-
-  .loading h2 {
-    margin: 0 0 0.5rem 0;
-    color: var(--fg);
-  }
-
-  .loading p {
-    margin: 0;
-  }
-
   /* Responsive Design */
   @media (max-width: 768px) {
     .feeds-content {

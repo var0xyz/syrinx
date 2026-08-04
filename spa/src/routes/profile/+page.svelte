@@ -702,14 +702,10 @@
             aria-modal="true"
             aria-labelledby="revoke-modal-title"
             tabindex="-1"
-            on:click={closeRevokeModal}
+            on:click={(e) => e.target === e.currentTarget && closeRevokeModal()}
             on:keydown={(e) => e.key === 'Escape' && closeRevokeModal()}
           >
-            <div
-              class="modal-content"
-              role="document"
-              on:click={(e) => e.stopPropagation()}
-            >
+            <div class="modal-content">
               <h3 id="revoke-modal-title">Revoke Encryption Key</h3>
               <p class="modal-warning">
                 Note: A new pair will be automatically generated and the public key uploaded to the server.
@@ -1067,22 +1063,6 @@
   .action-btn:hover {
     opacity: 0.9;
     transform: translateY(-1px);
-  }
-
-
-  .loading {
-    text-align: center;
-    padding: 2rem;
-    color: var(--muted);
-  }
-
-  .loading h2 {
-    margin: 0 0 0.5rem 0;
-    color: var(--fg);
-  }
-
-  .loading p {
-    margin: 0;
   }
 
   /* Encryption Key Styles */
