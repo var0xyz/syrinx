@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
+import { followingRepository } from '$lib/repositories/following';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
 
 /** @type {import('./$types').PageLoad} */
@@ -12,6 +13,7 @@ export async function load({ params, parent }) {
 
   const userId = params.userId;
   const isOwner = currentUser.id === userId;
+  const isFollowing = !isOwner && (await followingRepository.isFollowing(userId));
 
   if (await userRepository.isTombstone(userId)) {
     const cert = await removedAccountsRepository.get(userId);
@@ -19,6 +21,7 @@ export async function load({ params, parent }) {
       currentUser,
       userId,
       isOwner,
+      isFollowing,
       status: 'tombstone',
       profileUser: null,
       tombstoneNote: cert?.note ?? '',
@@ -35,6 +38,7 @@ export async function load({ params, parent }) {
       currentUser,
       userId,
       isOwner,
+      isFollowing,
       status: 'ready',
       profileUser,
       tombstoneNote: '',
@@ -46,6 +50,7 @@ export async function load({ params, parent }) {
     currentUser,
     userId,
     isOwner,
+    isFollowing,
     status: 'loading',
     profileUser: null,
     tombstoneNote: '',
