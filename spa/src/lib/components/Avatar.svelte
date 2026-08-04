@@ -35,15 +35,14 @@
         class="avatar-svg"
         viewBox="0 0 {model.size} {model.size}"
         xmlns="http://www.w3.org/2000/svg"
-        shape-rendering="geometricPrecision"
+        shape-rendering="crispEdges"
         aria-hidden="true"
       >
         <rect width={model.size} height={model.size} fill={model.background} />
         {#each model.cells as row, r}
           {#each row as fill, c}
             {#if fill}
-              <!-- Slight overlap avoids subpixel gaps when the grid is scaled. -->
-              <rect x={c} y={r} width="1.02" height="1.02" {fill} />
+              <rect x={c} y={r} width="1" height="1" {fill} />
             {/if}
           {/each}
         {/each}
