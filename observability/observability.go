@@ -49,7 +49,16 @@ func Setup(host, port string) (*Manager, error) {
 
 	grpcEndpoint := fmt.Sprintf("%s:%s", host, port)
 
+	// Host identity comes from the SDK detectors, not hardcoded here: WithHost
+	// adds host.name, WithFromEnv honours OTEL_RESOURCE_ATTRIBUTES /
+	// OTEL_SERVICE_NAME so an operator can pin a distinct name/id per machine
+	// (see specs/observability). Without this, every app process on every host
+	// would report an identical resource and collide into one series in
+	// OpenObserve. The explicit ServiceName/Version below still win over any
+	// env-provided service.name because they are merged last.
 	res, err := resource.New(context.Background(),
+		resource.WithFromEnv(),
+		resource.WithHost(),
 		resource.WithAttributes(
 			semconv.ServiceName("syrinx-api"),
 			semconv.ServiceVersion("1.0.0"),
