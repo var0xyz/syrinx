@@ -31,6 +31,7 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
+  // v25: version bump (no store changes).
   // v24: version bump (no store changes).
   // v23: echo_counts cache (reedID → server echo count).
   // v22: local signed invites (client id + countersig; status unsigned).
