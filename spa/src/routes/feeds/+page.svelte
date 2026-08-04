@@ -1,5 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { serverConnection } from '$lib/services/serverConnection';
   import {
     broadcastReedQueue,
@@ -10,7 +12,6 @@
   import { followingRepository } from '$lib/repositories/following';
   import { formatRelativeTime } from '$lib/utils/time';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
-  import { goto } from '$app/navigation';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -20,7 +21,15 @@
   export let data;
 
   let user = data.user;
-  let activeSection = 'followcast'; // 'broadcast' or 'followcast'
+
+  /** @param {string} hash */
+  function sectionFromHash(hash) {
+    const h = (hash || '').replace(/^#/, '').toLowerCase();
+    return h === 'broadcast' ? 'broadcast' : 'followcast';
+  }
+
+  /** @type {'broadcast' | 'followcast'} */
+  let activeSection = sectionFromHash(typeof window !== 'undefined' ? window.location.hash : '');
 
   const BROADCAST_KEY = 'broadcastReeds';
   const BROADCAST_LIMIT = 50;
@@ -47,6 +56,15 @@
   $: broadcastReeds = data.broadcastReeds;
   $: followcastReeds = data.followcastReeds;
 
+  // Keep tab in sync with /feeds#followcast | /feeds#broadcast (back/forward too).
+  $: {
+    const fromHash = sectionFromHash($page.url.hash);
+    if (fromHash !== activeSection) {
+      activeSection = fromHash;
+      if (fromHash === 'followcast') void loadFollowcast();
+    }
+  }
+
   $: if ($broadcastReedQueue) {
     handleBroadcastReed($broadcastReedQueue.reed, $broadcastReedQueue.username);
   }
@@ -70,8 +88,12 @@
   }
 
   function setActiveSection(section) {
-    activeSection = section;
-    if (section === 'followcast') loadFollowcast();
+    const hash = section === 'broadcast' ? '#broadcast' : '#followcast';
+    if (sectionFromHash($page.url.hash) !== section) {
+      void goto(`/feeds${hash}`, { replaceState: true, noScroll: true, keepFocus: true });
+    } else if (section === 'followcast') {
+      void loadFollowcast();
+    }
   }
 
   // Drop session-broadcast reeds that already arrived via followcast.
@@ -97,6 +119,10 @@
   }
 
   onMount(async () => {
+    // Normalize bare /feeds → /feeds#followcast so the tab is always in the URL.
+    if (!$page.url.hash) {
+      void goto('/feeds#followcast', { replaceState: true, noScroll: true, keepFocus: true });
+    }
     broadcastReeds = await pruneBroadcastFollowedReeds(broadcastReeds);
     await serverConnection.connect();
     serverConnection.subscribeToBroadcast();
