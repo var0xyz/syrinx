@@ -868,11 +868,12 @@ func (rs *RealtimeService) handlePublishReady(client *Client, jsonMsg map[string
 	}
 	authorUserID := client.userID
 
-	claimed, err := rs.dbService.ClaimPendingFanout(authorUserID, reedID)
+	claimed, tags, err := rs.dbService.ClaimPendingFanout(authorUserID, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Str("userID", authorUserID).Msg("Failed to claim pending fanout")
 		return
 	}
+	_ = tags // pipe fanout uses claimed tags in pipes 02
 
 	if claimed {
 		if shouldBroadcast(data) {

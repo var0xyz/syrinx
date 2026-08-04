@@ -29,7 +29,7 @@ Each table below has a **Status** column per step. Values:
 | Conversations    | Proposed    | 00–05                                                |
 | Publish ready    | Proposed    | 00–02                                                |
 | Avatars          | Proposed    | 00–05                                                |
-| Pipes            | Proposed    | 00–03                                                |
+| Pipes            | In progress | 00, 02–03                                            |
 | Account recovery | Proposed    | 00–06                                                |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Observability    | Proposed    | 00–04                                                |
@@ -140,7 +140,7 @@ local reeds with that tag remain on device.
 | #  | Title                                     | Status   |
 |----|-------------------------------------------|----------|
 | 00 | Design + naming (**pipe**) + locked model | Proposed |
-| 01 | Tag index at SignReed (`reed_tags`)       | Proposed |
+| 01 | Extract tags; stash on `pending_fanout` until READY | Implemented |
 | 02 | WS subscribe + READY fanout               | Proposed |
 | 03 | SPA links + `/pipe/[tag]` page            | Proposed |
 

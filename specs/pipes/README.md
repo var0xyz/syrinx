@@ -9,12 +9,12 @@ SPA markdown already turns `#tag` into `web+syrinx://channel/…` (provisional).
 This feature renames that surface to **pipes** and implements subscribe /
 fanout / local list.
 
-| # | Title | Depends on |
-|---|-------|------------|
-| [00](00_design.md) | Design + naming + locked model | — |
-| [01](01_tag_index.md) | Extract tags at SignReed; `reed_tags` tip index | 00 |
-| [02](02_subscribe_fanout.md) | WS subscribe + READY fanout to listeners | 01 |
-| [03](03_spa.md) | Links, `/pipe/[tag]` page, local list + live | 02 |
+| # | Title | Depends on | Status |
+|---|-------|------------|--------|
+| [00](00_design.md) | Design + naming + locked model | — | Proposed |
+| [01](01_extract_stash.md) | Extract tags at SignReed; stash on `pending_fanout` until READY | 00 | Implemented |
+| [02](02_subscribe_fanout.md) | WS subscribe + READY fanout to listeners | 01 | Proposed |
+| [03](03_spa.md) | Links, `/pipe/[tag]` page, local list + live | 02 | Proposed |
 
 ## Locked decisions
 
@@ -23,10 +23,12 @@ fanout / local list.
 | Product name | **Pipe** (see [00](00_design.md) naming) |
 | URI | `web+syrinx://pipe/<tag>` → `/pipe/<tag>` |
 | Server history | None — no catch-up of past tagged reeds |
+| Tag persistence | Unlogged `pending_fanout.tags` only until READY claim; no durable tip index |
 | Local list | IndexedDB reeds whose content tags include this tag |
 | Live consent | Opening / subscribing to a pipe is agreement to **keep** delivered matching reeds (verify → IndexedDB), unlike broadcast session-only |
 | Tag normalize | Lowercase; strip `#`; unique per reed (same as SPA `extractTags`) |
+| Stash filter | Only tags with ≥1 pipe subscriber **at SignReed** are stored |
 
 ## Status
 
-**Proposed**.
+**In progress** (01 Implemented; 00, 02–03 Proposed).

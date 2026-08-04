@@ -13,28 +13,34 @@ Proposed.
 Hashtags in reed markdown already become links
 ([`reedMarkdown.ts`](../../spa/src/lib/utils/reedMarkdown.ts) →
 `web+syrinx://channel/…`), but there is no destination page and no live
-subscription. Mentions
-([conversations 04](../conversations/04_mentions.md)) show the pattern:
-parse at `SignReed`, keep a tip index, discard the body.
+subscription.
 
 Users want: click `#tag` → a live view of that tag. The network does not
 owe them the full history of that tag—only what is blowing through **now**,
 plus whatever matching reeds they already hold.
 
+Mentions ([conversations 04](../conversations/04_mentions.md)) may keep a
+durable tip index for offline delivery; **pipes do not**. A pipe is a
+livestream: the server only bridges SignReed → `PUBLISH_READY` with tag
+names, then forgets them.
+
 ## Scope
 
 - Name and URI scheme for the feature.
 - Lock ephemeral-server / durable-local semantics.
-- Outline tag index, WS subscribe, fanout on `PUBLISH_READY`, and SPA page.
+- Outline tag extract + unlogged stash, WS subscribe, fanout on
+  `PUBLISH_READY`, and SPA page.
 
 ## Non-goals
 
 - Server-side hashtag search or paginated history API.
+- Durable tip index of tags (`reed_tags` or equivalent).
 - Persistent “follow this tag” across sessions without an open pipe
   (v1 = subscribe while the pipe page is mounted; reconnect while still
   on the page may resubscribe).
 - Autocomplete of tags in the composer (may come later).
 - Federation of pipe subscriptions across instances.
+- Catch-up for clients who subscribe after SignReed but before READY.
 
 ## Naming
 
@@ -68,7 +74,8 @@ into the **syrinx** (panpipes).
 ### Ephemeral server, sticky local
 
 ```text
-Server:  no tag timeline; only tip metadata + who is listening now
+Server:  no tag timeline; unlogged tag names only until READY;
+         who is listening now (connection-local)
 Client:  lists reeds already in IndexedDB that carry the tag;
          while subscribed, new matching reeds are verified and stored
 ```
@@ -92,26 +99,40 @@ sequenceDiagram
 
   Listener->>WS: SUBSCRIBE_PIPE tag=climate
   Author->>HTTP: POST /reeds (content has #climate)
-  HTTP->>HTTP: verify, tip + reed_tags rows, pending fanout
+  HTTP->>HTTP: verify, extract tags, stash subscribed tags on pending_fanout
   HTTP-->>Author: ServerSignature
   Author->>WS: PUBLISH_READY
-  WS->>WS: fanout followers + pipe listeners for tags
+  WS->>WS: claim pending_fanout, fanout followers + pipe listeners for tags
   WS->>Listener: delivery (relay path as for other new reeds)
   Listener->>Listener: verify, storeReed, show on /pipe/climate
 ```
 
-### Tag extraction
+### Tag extraction and stash
 
 At `SignReed`, parse tags from `content` with the same rules as the SPA
-(`(^|\s)#\S+` → trim `#` → lowercase → unique). Persist tip rows in
-`reed_tags` so `PUBLISH_READY` can fan out without the body. Drop rows on
-reed/account removal (same cleanup family as `reed_mentions`).
+(`(^|\s)#\S+` → trim `#` → lowercase → unique). Discard the body as today.
+
+Intersect extracted tags with tags that currently have ≥1 pipe subscriber.
+If that set is non-empty, store those **tag names** (not subscriber IDs)
+on the unlogged `pending_fanout` row for this tip (`tags TEXT[]`), together
+with the existing READY gate. Empty / no listeners → leave `tags` empty
+(or omit pipe work).
+
+No durable tip index. No cleanup on reed/account removal beyond the normal
+`pending_fanout` cascade / READY claim delete.
+
+Someone who `SUBSCRIBE_PIPE`s after SignReed but before READY does **not**
+get that reed on the pipe (v1). At READY, resolve **current** listeners
+for the stored tag names (an unsubscribe in the gap simply receives nothing).
 
 ### Live delivery
 
-Reuse the existing new-reed relay machinery (pending event → holder →
-`DATA_RESPONSE` / ack). Pipe listeners are an additional recipient set
-beside followers / broadcast / profile subs—not a second content path.
+Fanout runs only on `PUBLISH_READY` (same race as follows: holders must be
+able to serve relay). Reuse the existing new-reed relay machinery (pending
+event → holder → `DATA_RESPONSE` / ack). Pipe listeners are an additional
+recipient set beside followers / broadcast / profile subs—not a second
+content path. Prefer a union of recipient sets so a listener who is also a
+follower gets one pending event, not two.
 
 Author’s own reed is already local; listeners who do not hold it yet go
 through relay.

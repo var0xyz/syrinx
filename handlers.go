@@ -1524,6 +1524,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		serverSignature.Armor,
 		serverSignature.SignedAt,
 		echoRef,
+		ExtractTags(contentBody),
 	)
 	if err != nil {
 		// Concurrent SignReed for the same id: both passed the pre-insert
