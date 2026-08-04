@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -23,9 +23,9 @@ names for the tip are already on the claimed `pending_fanout` row
 - Connection-local set of tags per client; drop on disconnect.
 - In-memory reverse index: tag → current listeners (for SignReed intersect
   and READY fanout).
-- On `PUBLISH_READY`, for each tag returned from the claim, enqueue
-  new-reed delivery to current listeners of that tag (in addition to
-  existing follower / broadcast / profile paths).
+- On `PUBLISH_READY`, pipe listeners receive **`PIPE_REED`**; followers who
+  are not on the pipe receive **`FOLLOW_REED`**. Overlap prefers one
+  `PIPE_REED` (SPA also updates followcast when the viewer follows the author).
 - No sync catch-up of historical tagged reeds for pipes.
 
 ## Non-goals
@@ -42,9 +42,8 @@ names for the tip are already on the claimed `pending_fanout` row
 3. SignReed intersect uses that map when writing `pending_fanout.tags`.
 4. READY: use claimed `tags`; resolve current listeners; union into fanout;
    row already deleted by claim.
-5. Tests: subscribe → publish tagged reed → READY → listener gets relay
-   path; unsubscribe → no delivery; disconnect clears subs; subscribe after
-   SignReed but before READY → no pipe delivery for that reed.
+5. Tests: subscribe bookkeeping; filter tags with listeners; union/subtract
+   recipient sets; disconnect clears via `clearPipeSubscriptions`.
 
 ## Acceptance
 
@@ -52,3 +51,4 @@ names for the tip are already on the claimed `pending_fanout` row
   at READY.
 - Offline / unsubscribed publishes do not queue for later pipe catch-up.
 - No durable tag tip rows remain after READY.
+- Listener who is also a follower gets one `PIPE_REED` (SPA also updates followcast).

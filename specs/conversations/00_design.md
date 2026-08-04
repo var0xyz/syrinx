@@ -175,7 +175,7 @@ acceptable; no GC in v1.
 
 ### Realtime (v1)
 
-The **direct reply list** has no new WebSocket event type. When `new_reed`
+The **direct reply list** has no new WebSocket event type. When `FOLLOW_REED`
 arrives and the open reed detail page is the parent, re-check the reply list
 (debounced) or append if the incoming reed's `replying` ref matches.
 

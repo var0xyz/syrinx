@@ -20,7 +20,7 @@ must surface them without changing the peer-to-peer body distribution model.
 - Conversation section: load direct replies, render preview cards, navigate on
   tap.
 - Relay-fetch reply bodies not held locally.
-- Refresh on `new_reed` when the open page is the parent.
+- Refresh on `FOLLOW_REED` when the open page is the parent.
 - Local index helper (optional but recommended) for offline reply previews.
 
 ## Non-goals
@@ -92,7 +92,7 @@ Optional enhancement (non-blocking): breadcrumb `← Back to @alice's reed` usin
 
 Subscribe while detail page mounted:
 
-- On `new_reed` queue / `ServerEvent`, if incoming reed's `replying` parses to
+- On `followReedQueue` / `FOLLOW_REED`, if incoming reed's `replying` parses to
   current `(parentUserID, parentReedID)`, prepend to list (after verify +
   store).
 - If incoming `echoing` matches current reed, increment local `echoCount`.
@@ -130,7 +130,7 @@ Extract `ReplyRow` if it shares markup with feed cards.
 3. `parseReedRef` used consistently (from [01](01_publish_and_refs.md)).
 4. `ConversationSection.svelte` + wire into detail page.
 5. Relay + store loop for missing bodies.
-6. `new_reed` refresh hook on detail page.
+6. `FOLLOW_REED` refresh hook on detail page.
 7. (Optional) IndexedDB `replying` index + offline merge.
 8. Manual test plan:
    - Post reply → appears in parent conversation.

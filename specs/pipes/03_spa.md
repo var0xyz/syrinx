@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -10,17 +10,19 @@ Proposed.
 
 ## Context
 
-Markdown already emits provisional `web+syrinx://channel/…` links. The pipe
-page must list local matches and subscribe for live updates.
+Markdown emits `web+syrinx://pipe/…` links. The pipe page lists local
+matches and subscribes for live updates.
 
 ## Scope
 
-- Switch `formatChannelHref` / `internalPath` to `pipe` (update any tests).
+- `formatPipeHref` / `internalPath` → `pipe` (hard rename from provisional
+  `channel`; no redirect).
 - Route `/pipe/[tag]`: decode tag; normalize for queries; show `#tag`.
 - Load: query IndexedDB for reeds whose tags include this tag; sort by
   server signature time descending.
-- `onMount`: `SUBSCRIBE_PIPE`; `onDestroy`: `UNSUBSCRIBE_PIPE`.
-- On live reed for this tag: verify, store, prepend if matching.
+- While mounted (and on tag change): `SUBSCRIBE_PIPE` / on destroy
+  `UNSUBSCRIBE_PIPE`.
+- On live reed for this tag: verify (layout store path), prepend if matching.
 - Empty state when no local reeds yet; still listen while open.
 
 ## Non-goals
@@ -30,16 +32,13 @@ page must list local matches and subscribe for live updates.
 
 ## Work
 
-1. Rename URI helpers; keep a short redirect from `/channel/[tag]` →
-   `/pipe/[tag]` only if any bookmarks exist—prefer hard rename with no
-   redirect if the provisional path never shipped to users (lock in impl).
+1. Rename URI helpers (`formatPipeHref`).
 2. Pipe page UI consistent with feeds/list density.
-3. Tag match must use the same normalization as publish.
-4. Tests: link click navigates; local reed with tag appears; subscribe
-   called on enter.
+3. Tag match uses the same normalization as publish (`normalizePipeTag`).
+4. `getReedsByTag` + `subscribePipe` / `unsubscribePipe` on the SPA.
 
 ## Acceptance
 
 - `#tag` in a reed opens `/pipe/<tag>`.
 - Re-opening the pipe shows previously received local reeds.
-- Leaving the page unsubscribes.
+- Leaving the page (or switching tags) unsubscribes the previous pipe.

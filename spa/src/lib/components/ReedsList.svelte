@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { reedsService, unsignedReedsProcessed, profileReedQueue, newReedQueue } from '$lib/repositories/reeds';
+  import { reedsService, unsignedReedsProcessed, profileReedQueue, followReedQueue } from '$lib/repositories/reeds';
   import { formatRelativeTime } from '$lib/utils/time';
   import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
@@ -33,9 +33,9 @@
   let echoedReedUsers = new Map();
   /** Echo refs we already asked the server for (avoid duplicate REQUEST_REED). */
   let pendingEchoRequests = new Set();
-  /** profileReedQueue / newReedQueue items already handled (store value is sticky). */
+  /** profileReedQueue / followReedQueue items already handled (store value is sticky). */
   let lastHandledProfileReedId = '';
-  let lastHandledNewReedId = '';
+  let lastHandledFollowReedId = '';
 
   $: if ($unsignedReedsProcessed > 0) loadReeds();
   $: if ($pendingRemovalSynced > 0) loadReeds();
@@ -48,9 +48,9 @@
     void onProfileReedArrived(profileArrived);
   }
 
-  $: newArrived = $newReedQueue?.reed;
-  $: if (newArrived?.userID === authorId && newArrived.id !== lastHandledNewReedId) {
-    lastHandledNewReedId = newArrived.id;
+  $: followArrived = $followReedQueue?.reed;
+  $: if (followArrived?.userID === authorId && followArrived.id !== lastHandledFollowReedId) {
+    lastHandledFollowReedId = followArrived.id;
     showNewReedBanner = true;
   }
 

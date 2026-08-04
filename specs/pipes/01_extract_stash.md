@@ -18,10 +18,9 @@ keeping a durable tip index or the body.
 
 - Shared tag-extract helper (Go) mirroring SPA `extractTags` / markdown
   hashtag scan used for links.
-- At successful SignReed: extract tags and store them on the unlogged
-  `pending_fanout` row. Create-time intersect with pipe subscribers lands
-  with [02](02_subscribe_fanout.md) (until then all extracted tags are
-  stashed).
+- At successful SignReed: extract tags; intersect with tags that currently
+  have ≥1 pipe subscriber via `FilterSubscribedPipeTags`; store those names
+  on the unlogged `pending_fanout` row.
 - No durable `reed_tags` table; no cleanup on reed/account removal.
 
 ## Non-goals
@@ -48,20 +47,20 @@ CREATE UNLOGGED TABLE pending_fanout (
 );
 ```
 
-- `tags` holds normalized names (today: all extracted; after 02: only those
-  with listeners **at SignReed**). Empty means no pipe work at READY.
+- `tags` holds normalized names that had listeners **at SignReed**. Empty
+  means no pipe work at READY.
 - `ClaimPendingFanout` returns and clears the row (including `tags`).
 
 ## Work
 
 1. DDL + `InitDB` (`tags` on `pending_fanout`; blank-slate recreate).
 2. `ExtractTags` (SPA parity) + unit tests.
-3. SignReed: extract → write `tags` in the create TX (subscriber intersect in 02).
+3. SignReed: extract → intersect subscribers → write `tags` in the create TX.
 4. Claim returns `tags` for 02; no removal-path deletes.
 
 ## Acceptance
 
-- After SignReed, `pending_fanout.tags` lists normalized extracted tags for
-  that reed (subscriber filter deferred to 02).
+- After SignReed, when any extracted tag has a pipe listener, `pending_fanout.tags`
+  lists those normalized names for that reed.
 - After READY claim (or tip cascade), no tag residue remains.
 - No reed body stored for tags.

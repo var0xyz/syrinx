@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -128,11 +128,11 @@ for the stored tag names (an unsubscribe in the gap simply receives nothing).
 ### Live delivery
 
 Fanout runs only on `PUBLISH_READY` (same race as follows: holders must be
-able to serve relay). Reuse the existing new-reed relay machinery (pending
-event → holder → `DATA_RESPONSE` / ack). Pipe listeners are an additional
-recipient set beside followers / broadcast / profile subs—not a second
-content path. Prefer a union of recipient sets so a listener who is also a
-follower gets one pending event, not two.
+able to serve relay). Reuse the existing holder-relay machinery (pending
+event → holder → `FOLLOW_REED` / `PIPE_REED` / `DATA_RESPONSE` + ack). Pipe
+listeners are an additional recipient set beside followers / broadcast /
+profile subs—not a second content path. Prefer a union of recipient sets so
+a listener who is also a follower gets one pending event, not two.
 
 Author’s own reed is already local; listeners who do not hold it yet go
 through relay.

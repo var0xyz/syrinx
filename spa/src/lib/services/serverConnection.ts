@@ -14,6 +14,8 @@ export enum ServerEvent {
   RequestAck       = 'REQUEST_ACK',
   DataResponse     = 'DATA_RESPONSE',
   BroadcastReed    = 'BROADCAST_REED',
+  PipeReed         = 'PIPE_REED',
+  FollowReed       = 'FOLLOW_REED',
   ReedNotFound     = 'REED_NOT_FOUND',
   ReedRemoved      = 'REED_REMOVED',
   AccountRemoved   = 'ACCOUNT_REMOVED',
@@ -284,6 +286,19 @@ class ServerConnection {
 
   unsubscribeFromBroadcast(): void {
     this.send({ type: 'UNSUBSCRIBE_BROADCAST' });
+  }
+
+  async subscribePipe(tag: string): Promise<void> {
+    const normalized = tag.trim().replace(/^#/, '').toLowerCase();
+    if (!normalized) return;
+    await this.connect();
+    this.send({ type: 'SUBSCRIBE_PIPE', data: { tag: normalized } });
+  }
+
+  unsubscribePipe(tag: string): void {
+    const normalized = tag.trim().replace(/^#/, '').toLowerCase();
+    if (!normalized) return;
+    this.send({ type: 'UNSUBSCRIBE_PIPE', data: { tag: normalized } });
   }
 
   private send(message: { type: string; data?: any; userID?: string; reedID?: string }): void {

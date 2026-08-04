@@ -48,6 +48,9 @@ type Handlers struct {
 	cfg           AppConfig
 	broadcastChan chan<- realtime.BroadcastMessage
 	signingKey    Key
+	// filterPipeTags keeps only tags with current pipe listeners (SignReed stash).
+	// Nil means stash all extracted tags (tests / no realtime).
+	filterPipeTags func([]string) []string
 }
 
 type ServerInfo struct {
@@ -69,6 +72,12 @@ func NewHandlers(services *Services, cfg AppConfig, broadcastChan chan<- realtim
 		broadcastChan: broadcastChan,
 		signingKey:    signingKey,
 	}
+}
+
+// SetPipeTagFilter installs the SignReed hook that intersects extracted tags
+// with live pipe subscriptions.
+func (h *Handlers) SetPipeTagFilter(filter func([]string) []string) {
+	h.filterPipeTags = filter
 }
 
 func writeResponse(w http.ResponseWriter, statusCode int, message any) {
@@ -1514,6 +1523,10 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tags := ExtractTags(contentBody)
+	if h.filterPipeTags != nil {
+		tags = h.filterPipeTags(tags)
+	}
 	reed, echoIndexed, err := h.services.db.CreateReedWithEcho(
 		r.Context(),
 		reedID,
@@ -1524,7 +1537,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		serverSignature.Armor,
 		serverSignature.SignedAt,
 		echoRef,
-		ExtractTags(contentBody),
+		tags,
 	)
 	if err != nil {
 		// Concurrent SignReed for the same id: both passed the pre-insert

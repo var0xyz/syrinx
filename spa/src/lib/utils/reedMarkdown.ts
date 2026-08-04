@@ -28,8 +28,8 @@ export type Block =
 
 export type Doc = { blocks: Block[] };
 
-export function formatChannelHref(tag: string): string {
-  return `web+syrinx://channel/${tag}`;
+export function formatPipeHref(tag: string): string {
+  return `web+syrinx://pipe/${tag}`;
 }
 
 const ALLOWED_LINK_SCHEMES = new Set(['http', 'https', 'mailto', 'web+syrinx']);
@@ -63,9 +63,9 @@ export function internalPath(href: string): string | null {
   if (user?.[1] && user[2]) {
     return `/profile/${user[2]}`;
   }
-  const channel = /^web\+syrinx:\/\/channel\/(.+)$/i.exec(raw);
-  if (channel?.[1]) {
-    return `/channel/${encodeURIComponent(channel[1])}`;
+  const pipe = /^web\+syrinx:\/\/pipe\/(.+)$/i.exec(raw);
+  if (pipe?.[1]) {
+    return `/pipe/${encodeURIComponent(pipe[1])}`;
   }
   return null;
 }
@@ -226,7 +226,7 @@ function parseInlines(s: string): Inline[] {
         flush(i);
         out.push({
           type: 'link',
-          href: formatChannelHref(tag.tag),
+          href: formatPipeHref(tag.tag),
           children: [{ type: 'text', value: `#${tag.tag}` }],
         });
         i = tag.end;

@@ -89,6 +89,7 @@
         await reedsService.storeReed(reed);
         serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
+        // Explicit REQUEST_REED or profile_subscription relay reply.
         dispatchReedToQueue(reed, ServerEvent.DataResponse);
         if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
           prependFollowcastId(reed.id);
@@ -97,6 +98,42 @@
       } catch (error) {
         console.warn('ServerConnection: invalid reed signature, rejecting:', reed.id, error);
         serverConnection.sendDataInvalid(eventId);
+      }
+    });
+    serverConnection.on(ServerEvent.FollowReed, async (data) => {
+      const reed = data.data;
+      const eventId = data.event_id;
+
+      try {
+        await reedsService.storeReed(reed);
+        if (eventId) serverConnection.sendDataAck(eventId);
+        removeBroadcastReed(reed.id);
+        prependFollowcastId(reed.id);
+        dispatchReedToQueue(reed, 'follow_reed');
+        await requestReferencedReeds(reed);
+      } catch (error) {
+        console.warn('ServerConnection: invalid follow reed signature, rejecting:', reed?.id, error);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+      }
+    });
+    serverConnection.on(ServerEvent.PipeReed, async (data) => {
+      const reed = data.data;
+      const eventId = data.event_id;
+
+      try {
+        await reedsService.storeReed(reed);
+        if (eventId) serverConnection.sendDataAck(eventId);
+        removeBroadcastReed(reed.id);
+        dispatchReedToQueue(reed, 'pipe_reed');
+        // Also following the author: keep followcast in sync without a second relay.
+        if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
+          prependFollowcastId(reed.id);
+          dispatchReedToQueue(reed, 'follow_reed');
+        }
+        await requestReferencedReeds(reed);
+      } catch (error) {
+        console.warn('ServerConnection: invalid pipe reed signature, rejecting:', reed?.id, error);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
       }
     });
     serverConnection.on(ServerEvent.BroadcastReed, async (data) => {

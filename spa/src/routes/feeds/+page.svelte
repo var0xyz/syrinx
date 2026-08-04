@@ -4,7 +4,7 @@
   import {
     broadcastReedQueue,
     getFollowcastReeds,
-    newReedQueue,
+    followReedQueue,
     removeBroadcastReed,
   } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
@@ -25,7 +25,7 @@
   const BROADCAST_KEY = 'broadcastReeds';
   const BROADCAST_LIMIT = 50;
 
-  let lastHandledNewReedId = '';
+  let lastHandledFollowReedId = '';
 
   function saveBroadcastReed(reed, username, existing) {
     if (isBlankEcho(reed)) return existing;
@@ -51,9 +51,9 @@
     handleBroadcastReed($broadcastReedQueue.reed, $broadcastReedQueue.username);
   }
 
-  $: newArrived = $newReedQueue?.reed;
-  $: if (newArrived && newArrived.id !== lastHandledNewReedId) {
-    lastHandledNewReedId = newArrived.id;
+  $: followArrived = $followReedQueue?.reed;
+  $: if (followArrived && followArrived.id !== lastHandledFollowReedId) {
+    lastHandledFollowReedId = followArrived.id;
     void loadFollowcast();
   }
 
