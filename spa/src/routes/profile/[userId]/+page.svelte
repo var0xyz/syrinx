@@ -11,6 +11,7 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import ReedsList from '$lib/components/ReedsList.svelte';
   import UserProfileCard from '$lib/components/UserProfileCard.svelte';
+  import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -23,6 +24,17 @@
   let profileUser = data.profileUser;
   let profileSubscriptionActive = false;
   let tombstoneNote = data.tombstoneNote;
+
+  /** @type {number | null} */
+  let scrollRestoreY = null;
+
+  /** @type {import('./$types').Snapshot<number>} */
+  export const snapshot = {
+    capture: () => captureWindowScroll(),
+    restore: (y) => {
+      scrollRestoreY = y;
+    },
+  };
 
   $: applyPageData(data);
 
@@ -182,7 +194,7 @@
           <UserProfileCard user={profileUser} {isOwner} />
         </div>
       {/if}
-      <ReedsList authorId={userId} {isOwner} showWriteButton={false} />
+      <ReedsList authorId={userId} {isOwner} showWriteButton={false} {scrollRestoreY} />
     {/if}
   </div>
 

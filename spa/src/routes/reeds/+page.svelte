@@ -2,17 +2,29 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import ReedsList from '$lib/components/ReedsList.svelte';
+  import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
 
   /** @type {import('./$types').PageData} */
   export let data;
 
   $: user = data.user;
+
+  /** @type {number | null} */
+  let scrollRestoreY = null;
+
+  /** @type {import('./$types').Snapshot<number>} */
+  export const snapshot = {
+    capture: () => captureWindowScroll(),
+    restore: (y) => {
+      scrollRestoreY = y;
+    },
+  };
 </script>
 
 <Auth>
   <div class="reeds-container">
     <div class="reeds-content">
-      <ReedsList authorId={user.id} isOwner={true} showWriteButton={true} />
+      <ReedsList authorId={user.id} isOwner={true} showWriteButton={true} {scrollRestoreY} />
     </div>
     <BottomToolbar currentPage="reeds" />
   </div>
