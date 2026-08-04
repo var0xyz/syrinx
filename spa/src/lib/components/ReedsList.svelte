@@ -13,7 +13,7 @@
   import Avatar from '$lib/components/Avatar.svelte';
   import { goto } from '$app/navigation';
   import { parseReedRef } from '$lib/utils/reedRef';
-  import { isBlankEcho } from '$lib/utils/emptyEcho';
+  import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
   import { serverConnection } from '$lib/services/serverConnection';
   import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';
 
@@ -67,13 +67,39 @@
     pendingEchoRequests.delete(echoRefKey);
     const echoMap = new Map(echoedReeds);
     echoMap.set(echoRefKey, original);
+
+    // Continue blank-echo chain if the arrived original is itself blank.
+    let walk = original;
+    for (let i = 0; i < 8 && isBlankEcho(walk) && walk.echoing; i++) {
+      if (echoMap.has(walk.echoing)) {
+        walk = echoMap.get(walk.echoing);
+        continue;
+      }
+      const parsed = parseReedRef(walk.echoing);
+      if (!parsed) break;
+      const nested = await reedsService.getReed(parsed.authorId, parsed.reedId);
+      if (nested) {
+        echoMap.set(walk.echoing, nested);
+        walk = nested;
+        continue;
+      }
+      if (!pendingEchoRequests.has(walk.echoing)) {
+        pendingEchoRequests.add(walk.echoing);
+        serverConnection.requestReedContent(parsed.reedId, parsed.authorId, parsed.serverId);
+      }
+      break;
+    }
     echoedReeds = echoMap;
 
     try {
-      const author = await userRepository.getByUserId(original.userID);
+      const unwrapped = resolveBlankEchoFromMap(
+        /** @type {any} */ ({ id: '_', content: '', echoing: echoRefKey }),
+        echoMap
+      );
+      const author = await userRepository.getByUserId(unwrapped.userID);
       if (author) {
         const userMap = new Map(echoedReedUsers);
-        userMap.set(echoRefKey, author);
+        userMap.set(unwrapped.userID, author);
         echoedReedUsers = userMap;
       }
     } catch {
@@ -114,69 +140,82 @@
 
       const allForQuotes = [...pendingReeds, ...reeds];
 
-      // Fetch echoed reeds in parallel
-      const echoEntries = allForQuotes
-        .filter(r => r.echoing)
-        .map(r => {
-          const parsed = parseReedRef(r.echoing);
-          if (!parsed) return null;
-          return { key: r.echoing, author: parsed.authorId, reedId: parsed.reedId };
-        })
-        .filter(Boolean);
-
-      const echoResults = await Promise.allSettled(
-        echoEntries.map(({ author, reedId }) => reedsService.getReed(author, reedId))
-      );
-
+      // Fetch echoed reeds; walk blank-echo chains so unwrap can reach content.
       const echoMap = new Map();
-      echoEntries.forEach(({ key, author, reedId }, i) => {
-        if (echoResults[i].status === 'fulfilled' && echoResults[i].value) {
-          echoMap.set(key, echoResults[i].value);
-          pendingEchoRequests.delete(key);
-          return;
-        }
+      const seenEchoKeys = new Set();
+      /** @type {{ key: string, author: string, reedId: string }[]} */
+      let echoFrontier = [];
+
+      function enqueueEchoKey(key) {
+        if (!key || seenEchoKeys.has(key)) return;
         const parsed = parseReedRef(key);
         if (!parsed) return;
-        // Blank echoes have nothing to preview until the original arrives.
-        if (
-          allForQuotes.some(r => r.echoing === key && isBlankEcho(r)) &&
-          !pendingEchoRequests.has(key)
-        ) {
-          pendingEchoRequests.add(key);
-          serverConnection.requestReedContent(reedId, author, parsed.serverId);
-        }
-      });
+        seenEchoKeys.add(key);
+        echoFrontier.push({ key, author: parsed.authorId, reedId: parsed.reedId });
+      }
+
+      for (const r of allForQuotes) {
+        if (r.echoing) enqueueEchoKey(r.echoing);
+      }
+
+      for (let depth = 0; depth < 8 && echoFrontier.length > 0; depth++) {
+        const batch = echoFrontier;
+        echoFrontier = [];
+        const echoResults = await Promise.allSettled(
+          batch.map(({ author, reedId }) => reedsService.getReed(author, reedId))
+        );
+        batch.forEach(({ key, author, reedId }, i) => {
+          if (echoResults[i].status === 'fulfilled' && echoResults[i].value) {
+            const original = echoResults[i].value;
+            echoMap.set(key, original);
+            pendingEchoRequests.delete(key);
+            if (isBlankEcho(original) && original.echoing) {
+              enqueueEchoKey(original.echoing);
+            }
+            return;
+          }
+          const parsed = parseReedRef(key);
+          if (!parsed) return;
+          if (
+            allForQuotes.some((r) => r.echoing === key && isBlankEcho(r)) &&
+            !pendingEchoRequests.has(key)
+          ) {
+            pendingEchoRequests.add(key);
+            serverConnection.requestReedContent(reedId, author, parsed.serverId);
+          }
+        });
+      }
       echoedReeds = echoMap;
 
-      // Fetch authors for empty-echo swaps
-      const emptyEchoKeys = allForQuotes
-        .filter(r => isBlankEcho(r) && echoMap.has(r.echoing))
-        .map(r => r.echoing);
-
-      const uniqueEchoAuthors = [...new Set(emptyEchoKeys.map(key => echoMap.get(key).userID))];
+      // Authors for blank-echo identity swap (final unwrapped reed).
+      const displayAuthors = new Set();
+      for (const r of allForQuotes) {
+        if (!isBlankEcho(r)) continue;
+        const display = resolveBlankEchoFromMap(r, echoMap);
+        if (display.id !== r.id) displayAuthors.add(display.userID);
+      }
       const echoAuthorResults = await Promise.allSettled(
-        uniqueEchoAuthors.map(author => userRepository.getByUserId(author))
+        [...displayAuthors].map((author) => userRepository.getByUserId(author))
       );
-      const echoAuthorMap = new Map();
-      uniqueEchoAuthors.forEach((author, i) => {
-        if (echoAuthorResults[i].status === 'fulfilled' && echoAuthorResults[i].value) {
-          echoAuthorMap.set(author, echoAuthorResults[i].value);
-        }
-      });
       const userMap = new Map();
-      emptyEchoKeys.forEach(key => {
-        const original = echoMap.get(key);
-        if (original) userMap.set(key, echoAuthorMap.get(original.userID));
+      [...displayAuthors].forEach((author, i) => {
+        if (echoAuthorResults[i].status === 'fulfilled' && echoAuthorResults[i].value) {
+          userMap.set(author, echoAuthorResults[i].value);
+        }
       });
       echoedReedUsers = userMap;
 
-      // Fetch replied-to reeds in parallel
-      const replyEntries = allForQuotes
-        .filter(r => r.replying)
-        .map(r => {
-          const parsed = parseReedRef(r.replying);
+      // Prefetch replied-to reeds for list items and blank-unwrapped targets.
+      const replyKeys = new Set();
+      for (const r of allForQuotes) {
+        const display = resolveBlankEchoFromMap(r, echoMap);
+        if (display.replying) replyKeys.add(display.replying);
+      }
+      const replyEntries = [...replyKeys]
+        .map((key) => {
+          const parsed = parseReedRef(key);
           if (!parsed) return null;
-          return { key: r.replying, author: parsed.authorId, reedId: parsed.reedId };
+          return { key, author: parsed.authorId, reedId: parsed.reedId };
         })
         .filter(Boolean);
 
@@ -262,10 +301,13 @@
     </div>
   {:else}
     {#each pendingReeds as reed (reed.id)}
-      {@const awaitingOriginal = isBlankEcho(reed) && !echoedReeds.has(reed.echoing)}
-      {@const isEmptyEcho = isBlankEcho(reed) && echoedReeds.has(reed.echoing)}
-      {@const displayReed = isEmptyEcho ? echoedReeds.get(reed.echoing) : reed}
-      {@const displayUser = isEmptyEcho ? (echoedReedUsers.get(reed.echoing) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
+      {@const displayReed = resolveBlankEchoFromMap(reed, echoedReeds)}
+      {@const isUnwrapped = isBlankEcho(reed) && displayReed.id !== reed.id}
+      {@const awaitingOriginal =
+        isBlankEcho(reed) &&
+        isBlankEcho(displayReed) &&
+        !(displayReed.echoing && echoedReeds.has(displayReed.echoing))}
+      {@const displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
       <div class="reed-item pending" role="button" tabindex="0" on:click={() => navigateToReed(reed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(reed)}>
         <div class="reed-header">
           <div class="reed-info">
@@ -283,12 +325,13 @@
             </div>
           {/if}
         </div>
-        {#if !isEmptyEcho && !awaitingOriginal && reed.replying}
+        {#if !awaitingOriginal && displayReed.replying}
           <div class="quote-container">
             <Quote
-              reed={repliedToReeds.get(reed.replying)}
+              reed={repliedToReeds.get(displayReed.replying)}
+              reedRef={displayReed.replying}
               type="reply"
-              missing={!repliedToReeds.has(reed.replying)}
+              missing={false}
               linked={false}
             />
           </div>
@@ -298,16 +341,17 @@
             <span class="placeholder-label">Loading echoed reed…</span>
           </div>
         {:else if (displayReed.content || "").trim()}
-          <div class={["reed-preview", !isEmptyEcho && reed.echoing && "echo", !isEmptyEcho && reed.replying && "reply"]}>
+          <div class={["reed-preview", !isUnwrapped && reed.echoing && "echo", !isUnwrapped && reed.replying && "reply"]}>
             <MarkdownParser text={displayReed.content} preview={true} />
           </div>
         {/if}
-        {#if !isEmptyEcho && !awaitingOriginal && reed.echoing}
+        {#if !awaitingOriginal && displayReed.echoing}
           <div class="quote-container">
             <Quote
-              reed={echoedReeds.get(reed.echoing)}
+              reed={echoedReeds.get(displayReed.echoing)}
+              reedRef={displayReed.echoing}
               type="echo"
-              missing={!echoedReeds.has(reed.echoing)}
+              missing={false}
               linked={false}
             />
           </div>
@@ -315,10 +359,13 @@
       </div>
     {/each}
     {#each reeds as reed (reed.id)}
-      {@const awaitingOriginal = isBlankEcho(reed) && !echoedReeds.has(reed.echoing)}
-      {@const isEmptyEcho = isBlankEcho(reed) && echoedReeds.has(reed.echoing)}
-      {@const displayReed = isEmptyEcho ? echoedReeds.get(reed.echoing) : reed}
-      {@const displayUser = isEmptyEcho ? (echoedReedUsers.get(reed.echoing) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
+      {@const displayReed = resolveBlankEchoFromMap(reed, echoedReeds)}
+      {@const isUnwrapped = isBlankEcho(reed) && displayReed.id !== reed.id}
+      {@const awaitingOriginal =
+        isBlankEcho(reed) &&
+        isBlankEcho(displayReed) &&
+        !(displayReed.echoing && echoedReeds.has(displayReed.echoing))}
+      {@const displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
       <div class="reed-item" role="button" tabindex="0" on:click={() => navigateToReed(awaitingOriginal ? reed : displayReed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(awaitingOriginal ? reed : displayReed)}>
         <div class="reed-header">
           <div class="reed-info">
@@ -336,12 +383,13 @@
             </div>
           {/if}
         </div>
-        {#if !isEmptyEcho && !awaitingOriginal && reed.replying}
+        {#if !awaitingOriginal && displayReed.replying}
           <div class="quote-container">
             <Quote
-              reed={repliedToReeds.get(reed.replying)}
+              reed={repliedToReeds.get(displayReed.replying)}
+              reedRef={displayReed.replying}
               type="reply"
-              missing={!repliedToReeds.has(reed.replying)}
+              missing={false}
               linked={false}
             />
           </div>
@@ -351,16 +399,17 @@
             <span class="placeholder-label">Loading echoed reed…</span>
           </div>
         {:else if (displayReed.content || "").trim()}
-          <div class={["reed-preview", !isEmptyEcho && reed.echoing && "echo", !isEmptyEcho && reed.replying && "reply"]}>
+          <div class={["reed-preview", !isUnwrapped && reed.echoing && "echo", !isUnwrapped && reed.replying && "reply"]}>
             <MarkdownParser text={displayReed.content} preview={true} />
           </div>
         {/if}
-        {#if !isEmptyEcho && !awaitingOriginal && reed.echoing}
+        {#if !awaitingOriginal && displayReed.echoing}
           <div class="quote-container">
             <Quote
-              reed={echoedReeds.get(reed.echoing)}
+              reed={echoedReeds.get(displayReed.echoing)}
+              reedRef={displayReed.echoing}
               type="echo"
-              missing={!echoedReeds.has(reed.echoing)}
+              missing={false}
               linked={false}
             />
           </div>

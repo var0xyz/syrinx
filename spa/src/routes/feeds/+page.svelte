@@ -16,6 +16,7 @@
   import Auth from '$lib/components/Auth.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
+  import Quote from '$lib/components/Quote.svelte';
   import { captureWindowScroll, restoreWindowScroll } from '$lib/utils/scrollSnapshot';
 
   /** @type {import('./$types').PageData} */
@@ -214,9 +215,19 @@
                     </div>
                   </div>
                 </div>
+                {#if reed.replying}
+                  <div class="feed-quote">
+                    <Quote reedRef={reed.replying} type="reply" linked={false} />
+                  </div>
+                {/if}
                 {#if (reed.content || '').trim()}
                   <div class="feed-content">
                     <MarkdownParser text={reed.content} preview={true} />
+                  </div>
+                {/if}
+                {#if reed.echoing}
+                  <div class="feed-quote">
+                    <Quote reedRef={reed.echoing} type="echo" linked={false} />
                   </div>
                 {/if}
               </div>
@@ -254,9 +265,19 @@
                     </div>
                   </div>
                 </div>
+                {#if reed.replying}
+                  <div class="feed-quote">
+                    <Quote reedRef={reed.replying} type="reply" linked={false} />
+                  </div>
+                {/if}
                 {#if (reed.content || '').trim()}
                   <div class="feed-content">
                     <MarkdownParser text={reed.content} preview={true} />
+                  </div>
+                {/if}
+                {#if reed.echoing}
+                  <div class="feed-quote">
+                    <Quote reedRef={reed.echoing} type="echo" linked={false} />
                   </div>
                 {/if}
               </div>
@@ -395,6 +416,14 @@
 
   .feed-content {
     padding: 1rem;
+  }
+
+  .feed-quote {
+    padding: 0 1rem 0.75rem;
+  }
+
+  .feed-quote:first-of-type {
+    padding-top: 0.75rem;
   }
 
   .waiting-state {
