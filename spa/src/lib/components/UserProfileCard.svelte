@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
   import { followingRepository } from '$lib/repositories/following';
@@ -8,10 +8,12 @@
   export let user;
   export let editable = false;
   export let isOwner = false;
+  /** Resolved before first paint by the profile page load — avoids Follow→Unfollow flash. */
+  export let isFollowing = false;
 
   const dispatch = createEventDispatcher();
 
-  let following = false;
+  let following = isFollowing;
   let followersCount = 0;
   let followingCount = 0;
 
@@ -20,11 +22,13 @@
     followingCount = user.followingCount ?? 0;
   }
 
-  onMount(async () => {
-    if (!isOwner && user?.id) {
-      following = await followingRepository.isFollowing(user.id);
-    }
-  });
+  // Re-sync when the profile identity or server-known follow state changes
+  // (e.g. client-side nav). Do not depend on `following` itself or a local
+  // Follow/Unfollow would be overwritten by the still-stale prop.
+  $: followSyncKey = `${user?.id ?? ''}:${isFollowing}`;
+  $: if (followSyncKey) {
+    following = isFollowing;
+  }
 
   async function refreshFollowCounts() {
     if (!user?.id) return;
@@ -45,6 +49,7 @@
       await followingRepository.follow(user.id);
       following = true;
     }
+    dispatch('followingChange', { following });
     await refreshFollowCounts();
   }
 

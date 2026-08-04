@@ -21,6 +21,7 @@
   // 'loading' | 'tombstone' | 'notFound' | 'noContent' | 'ready'
   let status = data.status;
   let isOwner = data.isOwner;
+  let isFollowing = data.isFollowing;
   let profileUser = data.profileUser;
   let profileSubscriptionActive = false;
   let tombstoneNote = data.tombstoneNote;
@@ -56,6 +57,7 @@
   function applyPageData(next) {
     status = next.status;
     isOwner = next.isOwner;
+    isFollowing = next.isFollowing;
     profileUser = next.profileUser;
     tombstoneNote = next.tombstoneNote;
     if (next.fromCache && next.status === 'ready') {
@@ -149,7 +151,12 @@
     {#if status === 'loading'}
       {#if profileUser}
         <div class="user-profile-card-container">
-          <UserProfileCard user={profileUser} {isOwner} />
+          <UserProfileCard
+            user={profileUser}
+            {isOwner}
+            {isFollowing}
+            on:followingChange={(e) => (isFollowing = e.detail.following)}
+          />
         </div>
       {/if}
       <div class="state-message">
@@ -179,7 +186,12 @@
     {:else if status === 'noContent'}
       {#if profileUser}
         <div class="user-profile-card-container">
-          <UserProfileCard user={profileUser} {isOwner} />
+          <UserProfileCard
+            user={profileUser}
+            {isOwner}
+            {isFollowing}
+            on:followingChange={(e) => (isFollowing = e.detail.following)}
+          />
         </div>
       {/if}
       <div class="state-message">
@@ -191,7 +203,12 @@
     {:else if status === 'ready'}
       {#if profileUser}
         <div class="user-profile-card-container">
-          <UserProfileCard user={profileUser} {isOwner} />
+          <UserProfileCard
+            user={profileUser}
+            {isOwner}
+            {isFollowing}
+            on:followingChange={(e) => (isFollowing = e.detail.following)}
+          />
         </div>
       {/if}
       <ReedsList authorId={userId} {isOwner} showWriteButton={false} {scrollRestoreY} />
