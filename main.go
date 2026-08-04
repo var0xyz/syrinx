@@ -215,8 +215,11 @@ func main() {
 	api.HandleFunc("/users/me", h.DeleteMe).Methods("DELETE")
 	api.HandleFunc("/users/me", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/users/{userID}", h.GetUser).Methods("GET")
-	api.HandleFunc("/users/{userID}", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/users/{userID}/profile", h.GetUserProfile).Methods("GET")
+	api.HandleFunc("/users/{userID}/profile", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/users/{userID}/info", h.GetUserInfo).Methods("GET")
+	api.HandleFunc("/users/{userID}/info", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/users/{userID}/follow", h.FollowUser).Methods("POST")
 	api.HandleFunc("/users/{userID}/follow", h.UnfollowUser).Methods("DELETE")
@@ -313,6 +316,12 @@ func main() {
 		})
 		log.Info().Msg("[OK] Recovery mode initialized successfully")
 	}
+
+	// Unmatched /api/* must not fall through to the SPA catch-all (which
+	// would return index.html and look like a successful page load).
+	api.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeResponse(w, http.StatusNotFound, "Not found")
+	})
 
 	log.Info().Msg("[OK] Router configured successfully")
 

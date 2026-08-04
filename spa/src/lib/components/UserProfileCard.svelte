@@ -3,6 +3,7 @@
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
   import { followingRepository } from '$lib/repositories/following';
+  import { userInfoRepository } from '$lib/repositories/userInfo';
   import { apiService } from '$lib/services/api';
 
   export let user;
@@ -17,25 +18,54 @@
   let followersCount = 0;
   let followingCount = 0;
 
-  $: if (user) {
-    followersCount = user.followersCount ?? 0;
-    followingCount = user.followingCount ?? 0;
+  // Keep local counts aligned with the parent merge. Stale /info overwrites are
+  // prevented on the profile page (fetch seq invalidated on follow).
+  $: userCountsKey = `${user?.id ?? ''}:${user?.followersCount ?? ''}:${user?.followingCount ?? ''}`;
+  $: if (userCountsKey) {
+    followersCount = user?.followersCount ?? 0;
+    followingCount = user?.followingCount ?? 0;
   }
 
-  // Re-sync when the profile identity or server-known follow state changes
-  // (e.g. client-side nav). Do not depend on `following` itself or a local
-  // Follow/Unfollow would be overwritten by the still-stale prop.
+  // Re-sync follow button when the profile identity or server-known follow
+  // state changes (e.g. client-side nav). Do not depend on `following`
+  // itself or a local Follow/Unfollow would be overwritten by a stale prop.
   $: followSyncKey = `${user?.id ?? ''}:${isFollowing}`;
   $: if (followSyncKey) {
     following = isFollowing;
   }
 
+  function emitFollowState() {
+    dispatch('followingChange', {
+      following,
+      followersCount,
+      followingCount,
+    });
+  }
+
+  /** Keep the viewer's own cached followingCount in step with local follows. */
+  async function bumpOwnFollowingCount(delta) {
+    const myId = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+    if (!myId || myId === user?.id) return;
+    try {
+      const mine = await userInfoRepository.get(myId);
+      if (!mine) return;
+      await userInfoRepository.put({
+        ...mine,
+        followingCount: Math.max(0, (mine.followingCount ?? 0) + delta),
+      });
+    } catch (error) {
+      console.error('Failed to bump own followingCount cache:', error);
+    }
+  }
+
   async function refreshFollowCounts() {
     if (!user?.id) return;
     try {
-      const fresh = await apiService.getUser(user.id);
+      const fresh = await apiService.getUserInfo(user.id);
+      await userInfoRepository.put(fresh);
       followersCount = fresh.followersCount ?? 0;
       followingCount = fresh.followingCount ?? 0;
+      emitFollowState();
     } catch (error) {
       console.error('Failed to refresh follow counts:', error);
     }
@@ -43,17 +73,27 @@
 
   async function toggleFollow() {
     if (following) {
-      await followingRepository.unfollow(user.id);
       following = false;
+      followersCount = Math.max(0, followersCount - 1);
+      emitFollowState();
+      await bumpOwnFollowingCount(-1);
+      await followingRepository.unfollow(user.id);
     } else {
-      await followingRepository.follow(user.id);
       following = true;
+      followersCount = followersCount + 1;
+      emitFollowState();
+      await bumpOwnFollowingCount(1);
+      await followingRepository.follow(user.id);
     }
-    dispatch('followingChange', { following });
     await refreshFollowCounts();
   }
 
   const serverName = localStorage.getItem('serverName') || '';
+  $: serverId = user?.serverSignature?.serverID || localStorage.getItem('serverId') || '';
+  $: serverLabel =
+    serverId && serverName
+      ? `${serverName} (${serverId})`
+      : serverId || serverName;
 
   let avatarOpen = false;
 
@@ -99,7 +139,9 @@
     <div class="profile-info">
       <h2>{user?.username}</h2>
       <div class="user-id-container">
-        <p class="user-info">{serverName}</p>
+        {#if serverLabel}
+          <p class="user-info">{serverLabel}</p>
+        {/if}
         <p class="user-info">{user?.id}</p>
       </div>
       <p class="user-info">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
@@ -220,6 +262,8 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 0.15rem;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .user-info {
@@ -228,6 +272,9 @@
     font-family: monospace;
     font-size: 0.8rem;
     text-align: left;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .invited-by a {

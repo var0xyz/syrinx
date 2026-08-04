@@ -31,6 +31,8 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
+  // v27: usersInfo keyPath userId → id (match /profile wire).
+  // v26: usersInfo cache (unsigned hints + profileTimestamp).
   // v25: version bump (no store changes).
   // v24: version bump (no store changes).
   // v23: echo_counts cache (reedID → server echo count).
@@ -39,7 +41,7 @@ export class IndexedDbService implements DbService {
   // v20: reeds index server.timestamp → serverSignature.timestamp (signatures 08).
   // v19: drop pendingAccountRemoval — account deletion is online-only (09).
   // removedAccounts remains for peer tombstones.
-  private readonly version = 25;
+  private readonly version = 27;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -48,6 +50,7 @@ export class IndexedDbService implements DbService {
     ['reeds',       'id', 'userID', 'serverSignature.timestamp'],
     ['tags',        'tagName'    ],
     ['users',       'id'         ],
+    ['usersInfo',   'id'         ],
     ['invites',     'id'         ],
     ['echo_counts', 'reedID'     ],
 
@@ -86,6 +89,10 @@ export class IndexedDbService implements DbService {
               db.deleteObjectStore(name);
             }
           }
+        }
+        // usersInfo keyPath userId → id
+        if (oldVersion > 0 && oldVersion < 27 && db.objectStoreNames.contains('usersInfo')) {
+          db.deleteObjectStore('usersInfo');
         }
 
         this.storeNames.forEach(([storeName, keyPath, ...indexes]) => {

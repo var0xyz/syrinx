@@ -560,9 +560,9 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, recovery.UserStatusCompleteResponse)
 }
 
-func (h *Handlers) GetUser(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("GetUser request received")
+	log.Info().Msg("GetUserProfile request received")
 
 	userID := mux.Vars(r)["userID"]
 	if userID == "" {
@@ -581,11 +581,11 @@ func (h *Handlers) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.services.db.GetUser(userID)
+	user, err := h.services.db.GetUserProfile(userID)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
-			Err(err).Msg("Error getting user")
+			Err(err).Msg("Error getting user profile")
 		internalServerError(w)
 		return
 	}
@@ -595,6 +595,43 @@ func (h *Handlers) GetUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeResponse(w, http.StatusOK, user)
+}
+
+func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("GetUserInfo request received")
+
+	userID := mux.Vars(r)["userID"]
+	if userID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		return
+	}
+
+	removal, err := h.services.db.GetAccountRemoval(userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
+		internalServerError(w)
+		return
+	}
+	if removal != nil {
+		writeResponse(w, http.StatusGone, h.accountRemovalWire(removal))
+		return
+	}
+
+	info, err := h.services.db.GetUserInfo(userID)
+	if err != nil {
+		log.Error().
+			Str("userID", userID).
+			Err(err).Msg("Error getting user info")
+		internalServerError(w)
+		return
+	}
+	if info == nil {
+		writeResponse(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	writeResponse(w, http.StatusOK, info)
 }
 
 func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
@@ -674,7 +711,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.services.db.GetUser(userID)
+	user, err := h.services.db.GetUserProfile(userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error getting user")
 		internalServerError(w)
@@ -685,7 +722,12 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fingerprint := user.ActiveKeyFingerprint
+	fingerprint, err := h.services.db.GetActiveKeyFingerprint(userID)
+	if err != nil || fingerprint == "" {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")
+		internalServerError(w)
+		return
+	}
 	userPayload := identity.BuildAccountRemovalUserPayload(serverID, userID, note)
 	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
 	if err != nil {
@@ -826,7 +868,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// re-derive to avoid trusting caller-supplied fingerprints), and
 	// for createdAt (pinned across every record produced by this
 	// user — signup sets it, updates carry it forward).
-	currentUser, err := h.services.db.GetUser(userID)
+	currentUser, err := h.services.db.GetUserProfile(userID)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -918,13 +960,13 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// using the fingerprint we trust (from the row) rather than one
 	// supplied by the caller. Then verify.
 	//
-	// We use ActiveKeyFingerprint here — the client signs with whatever
-	// key is currently active. Today ActiveKeyFingerprint and
-	// SignatureFingerprint collapse to the same DB column (see
-	// GetUser); if/when they diverge (rotation minting its own identity
-	// record), the active key is still the right one to rebuild the
-	// user-signed payload against.
-	fingerprint := currentUser.ActiveKeyFingerprint
+	// The client signs with the currently-active key (users.user_fingerprint).
+	fingerprint, err := h.services.db.GetActiveKeyFingerprint(userID)
+	if err != nil || fingerprint == "" {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")
+		internalServerError(w)
+		return
+	}
 	userPayload := identity.BuildUserIdentityPayload(username, fingerprint, avatarURL, bio)
 
 	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
@@ -1028,7 +1070,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.services.db.GetUser(userID)
+	updated, err := h.services.db.GetUserProfile(userID)
 	if err != nil || updated == nil {
 		log.Error().
 			Str("userID", userID).
@@ -1456,7 +1498,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	markdown := ReedAsMarkdown(reedID, userID, contentBody, echoing, replying)
 
-	user, err := h.services.db.GetUser(userID)
+	user, err := h.services.db.GetUserProfile(userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error getting user")
 		internalServerError(w)
@@ -1467,7 +1509,12 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userFingerprint := user.ActiveKeyFingerprint
+	userFingerprint, err := h.services.db.GetActiveKeyFingerprint(userID)
+	if err != nil || userFingerprint == "" {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")
+		internalServerError(w)
+		return
+	}
 	userSigArmor, err := base64.StdEncoding.DecodeString(userSignature)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
@@ -1678,7 +1725,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.services.db.GetUser(userID)
+	user, err := h.services.db.GetUserProfile(userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error getting user")
 		internalServerError(w)
@@ -1689,7 +1736,12 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fingerprint := user.ActiveKeyFingerprint
+	fingerprint, err := h.services.db.GetActiveKeyFingerprint(userID)
+	if err != nil || fingerprint == "" {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")
+		internalServerError(w)
+		return
+	}
 	userPayload := identity.BuildReedRemovalUserPayload(serverID, userID, reedID)
 	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
 	if err != nil {

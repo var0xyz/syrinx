@@ -35,17 +35,18 @@ export class UserRepository {
     );
   }
 
-  async getByUserId(userId: string): Promise<api.User> {
-    let user: api.User = await this.get(userId);
+  /** Cached signed profile, or fetch+verify+store from GET /users/{id}/profile. */
+  async getByUserId(userId: string): Promise<api.User | null> {
+    let user: api.User | null = await this.get(userId);
 
     if (user) {
       return user;
     }
 
     try {
-      user = await apiService.getUser(userId);
+      user = await apiService.getUserProfile(userId);
     } catch (error) {
-      console.error('Error fetching user from server:', error);
+      console.error('Error fetching user profile from server:', error);
       return null;
     }
 

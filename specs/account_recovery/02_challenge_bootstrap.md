@@ -122,7 +122,7 @@ rehydration row and returns a fresh payload.
 
 Rules:
 
-- `profile` — same shape as `GET /users/{id}` (countersigned).
+- `profile` — same shape as `GET /users/{id}/profile` (countersigned).
 - `following` — all `user_following` targets for this user. If the list
   can be large, either return all in one shot for v1 or add
   `followingCursor` / pages of ≤100; document the choice in the handler.

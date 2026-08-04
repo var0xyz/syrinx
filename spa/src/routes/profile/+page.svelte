@@ -20,17 +20,18 @@
   import UserProfileCard from '$lib/components/UserProfileCard.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import { formatRelativeTime } from '$lib/utils/time';
-  import type { User } from '$lib/types/api';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
+  import { userInfoRepository } from '$lib/repositories/userInfo';
   import { pendingRevocationRepository, pendingRevocationSynced } from '$lib/repositories/pendingRevocation';
   import { revocationRepository } from '$lib/repositories/revocation';
   import { loadProfileKeyInfo, type ProfileKeyInfo } from './keyInfo';
+  import { mergeUserView, type UserView } from '$lib/utils/userView';
 
   /** @type {import('./$types').PageData} */
   export let data;
 
-  let user: User = data.user;
+  let user: UserView = data.user;
   let storageUsed: number = data.storage?.used ?? 0;
   let storageTotal: number = data.storage?.total ?? 0;
   let storagePercentage: number = storageTotal > 0 ? (storageUsed / storageTotal) * 100 : 0;
@@ -100,11 +101,15 @@
 
   onMount(async () => {
     try {
-      const fresh = await apiService.getUser(user.id);
-      await authService.saveUserToStorage(fresh);
-      user = fresh;
+      const [freshProfile, freshInfo] = await Promise.all([
+        apiService.getUserProfile(user.id),
+        apiService.getUserInfo(user.id),
+      ]);
+      await authService.saveUserToStorage(freshProfile);
+      await userInfoRepository.put(freshInfo);
+      user = mergeUserView(freshProfile, freshInfo)!;
     } catch (error) {
-      console.error('Failed to refresh profile follow counts:', error);
+      console.error('Failed to refresh profile:', error);
     }
 
     const storedBackupAt = localStorage.getItem('lastBackupAt');
@@ -354,13 +359,10 @@
       // signature travels as base64(armored PGP) to survive
       // form-encoding.
       //
-      // Sign with the currently-active key. Once rotation issues its
-      // own identity record, activeKeyFingerprint and
-      // userSignature.fingerprint can differ; new signatures must always
-      // use the active one.
-      const fingerprint = user.activeKeyFingerprint;
+      // Sign with the currently-active key (local session), not an unsigned hint.
+      const fingerprint = authService.getActiveKeyFingerprint();
       const passphrase = authService.getPassphrase();
-      if (!passphrase) {
+      if (!fingerprint || !passphrase) {
         editError = 'Session expired. Please sign in again.';
         return;
       }
@@ -390,7 +392,8 @@
       });
 
       await authService.saveUserToStorage(updatedUser);
-      user = updatedUser;
+      const cachedInfo = await userInfoRepository.get(updatedUser.id);
+      user = mergeUserView(updatedUser, cachedInfo)!;
       editSuccess = 'Profile updated successfully!';
 
       setTimeout(() => {

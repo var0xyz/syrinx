@@ -554,28 +554,19 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		return nil, err
 	}
 
-	return s.GetUser(in.UserID)
+	return s.GetUserProfile(in.UserID)
 }
 
-func (s *DataService) GetUser(userID string) (*User, error) {
+// GetUserProfile returns the signed identity record (no unsigned hints).
+func (s *DataService) GetUserProfile(userID string) (*User, error) {
 	var user User
-	var avatarURL, bio, activeFP sql.NullString
+	var avatarURL, bio sql.NullString
 	var userSignatureID, serverSignatureID int64
 	var inviterID, inviterUsername sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at,
-		       u.user_fingerprint,
 		       u.user_signature_id, u.server_signature_id,
-		       EXISTS (
-		           SELECT 1 FROM reeds r
-		           WHERE r.user_id = u.id
-		             AND NOT EXISTS (
-		                 SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
-		             )
-		       ) AS has_reeds,
-		       (SELECT COUNT(*)::int FROM user_followers uf WHERE uf.user_id = u.id),
-		       (SELECT COUNT(*)::int FROM user_following ufl WHERE ufl.user_id = u.id),
 		       inv.id, inv.username
 		FROM users u
 		LEFT JOIN users inv ON inv.id = u.invited_by
@@ -586,12 +577,8 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 		&avatarURL,
 		&bio,
 		&user.CreatedAt,
-		&activeFP,
 		&userSignatureID,
 		&serverSignatureID,
-		&user.HasReeds,
-		&user.FollowersCount,
-		&user.FollowingCount,
 		&inviterID,
 		&inviterUsername,
 	)
@@ -606,9 +593,6 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	}
 	if bio.Valid {
 		user.Bio = bio.String
-	}
-	if activeFP.Valid {
-		user.ActiveKeyFingerprint = activeFP.String
 	}
 	if inviterID.Valid {
 		user.InvitedBy = &InvitedBy{
@@ -640,6 +624,65 @@ func (s *DataService) GetUser(userID string) (*User, error) {
 	}
 
 	return &user, nil
+}
+
+// GetUserInfo returns unsigned, mutable hints for a user plus the
+// profile countersignature timestamp for cache invalidation.
+func (s *DataService) GetUserInfo(userID string) (*UserInfo, error) {
+	var info UserInfo
+	var activeFP sql.NullString
+
+	err := s.db.QueryRow(`
+		SELECT u.id,
+		       u.user_fingerprint,
+		       ss.signed_at,
+		       EXISTS (
+		           SELECT 1 FROM reeds r
+		           WHERE r.user_id = u.id
+		             AND NOT EXISTS (
+		                 SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
+		             )
+		       ) AS has_reeds,
+		       (SELECT COUNT(*)::int FROM user_followers uf WHERE uf.user_id = u.id),
+		       (SELECT COUNT(*)::int FROM user_following ufl WHERE ufl.user_id = u.id)
+		FROM users u
+		JOIN server_signatures ss ON ss.id = u.server_signature_id
+		WHERE u.id = $1
+	`, userID).Scan(
+		&info.ID,
+		&activeFP,
+		&info.ProfileTimestamp,
+		&info.HasReeds,
+		&info.FollowersCount,
+		&info.FollowingCount,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if activeFP.Valid {
+		info.ActiveKeyFingerprint = activeFP.String
+	}
+	return &info, nil
+}
+
+// GetActiveKeyFingerprint returns users.user_fingerprint for internal
+// signing checks (update/delete/reed paths).
+func (s *DataService) GetActiveKeyFingerprint(userID string) (string, error) {
+	var fp sql.NullString
+	err := s.db.QueryRow(`SELECT user_fingerprint FROM users WHERE id = $1`, userID).Scan(&fp)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	if !fp.Valid {
+		return "", nil
+	}
+	return fp.String, nil
 }
 
 // UpdateUserInput carries everything needed to persist a fresh signed

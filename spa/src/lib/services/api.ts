@@ -251,19 +251,22 @@ export const apiService = {
   async whoami() {
     return request<{ id: string; username: string }>('/users/me', { method: 'GET' });
   },
-  async getUser(userId: string): Promise<api.User> {
-    return request<api.User>(`/users/${userId}`, {
-      method: 'GET'
-    });
+
+  async getUserProfile(userId: string): Promise<api.User> {
+    return request<api.User>(`/users/${userId}/profile`, { method: 'GET' });
   },
 
-  async getUserWithStatus(userId: string): Promise<{
+  async getUserInfo(userId: string): Promise<api.UserInfo> {
+    return request<api.UserInfo>(`/users/${userId}/info`, { method: 'GET' });
+  },
+
+  async getUserProfileWithStatus(userId: string): Promise<{
     status: number;
     user?: api.User;
     removal?: api.AccountRemoval;
   }> {
     try {
-      const user = await request<api.User>(`/users/${userId}`, { method: 'GET' });
+      const user = await request<api.User>(`/users/${userId}/profile`, { method: 'GET' });
       return { status: 200, user };
     } catch (error: any) {
       if (error?.status === 410 && error.body?.type === 'account') {
@@ -276,6 +279,27 @@ export const apiService = {
       return { status: match ? parseInt(match[1]) : 0 };
     }
   },
+
+  async getUserInfoWithStatus(userId: string): Promise<{
+    status: number;
+    info?: api.UserInfo;
+    removal?: api.AccountRemoval;
+  }> {
+    try {
+      const info = await request<api.UserInfo>(`/users/${userId}/info`, { method: 'GET' });
+      return { status: 200, info };
+    } catch (error: any) {
+      if (error?.status === 410 && error.body?.type === 'account') {
+        return { status: 410, removal: error.body as api.AccountRemoval };
+      }
+      if (error?.status) {
+        return { status: error.status };
+      }
+      const match = error?.message?.match(/HTTP (\d+)/);
+      return { status: match ? parseInt(match[1]) : 0 };
+    }
+  },
+
   // updateUser mints a fresh signed identity record for the caller.
   // Every accepted request is a *full* replacement of the signed
   // user-authored fields — partial patches are no longer supported.
