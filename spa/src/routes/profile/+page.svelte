@@ -739,12 +739,12 @@
           <h3>🚪 Account Actions</h3>
           <div class="action-buttons">
             <div class="export-group">
+              {#if lastBackupAt}
+                <span class="last-backup">Last full backup {formatRelativeTime(lastBackupAt)}</span>
+              {/if}
               <button class="action-btn primary" on:click={() => showExportWarningModal = true} disabled={exporting}>
                 {exporting ? 'Exporting...' : 'Export Data'}
               </button>
-              {#if lastBackupAt}
-                <span class="last-backup">Last backup {formatRelativeTime(lastBackupAt)}</span>
-              {/if}
             </div>
             <button class="action-btn danger" on:click={() => goto('/delete/confirm')}>Delete Account</button>
           </div>

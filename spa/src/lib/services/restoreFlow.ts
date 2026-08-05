@@ -96,6 +96,7 @@ export function isDeviceMismatchError(message: string): boolean {
  */
 export function handleDeviceMismatch(): void {
   if (typeof window === 'undefined') return;
+  console.warn("Device mismatch, logging user out")
   localStorage.removeItem('userId');
   void authService.clearSession();
 }
