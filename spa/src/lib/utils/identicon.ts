@@ -1,5 +1,5 @@
 /**
- * Deterministic multi-color geometric identicon from SHA-256(userID).
+ * Deterministic multi-color geometric identicon from SHA-256(userID@serverID).
  *
  * Colors: root hue from the hash + fixed “scale” intervals (like scale degrees).
  * Shape: hash also picks motif, density, and how many scale degrees are active,
@@ -377,8 +377,13 @@ export function identiconFromDigest(digest: Uint8Array): IdenticonModel {
   return { size, background, cells };
 }
 
-export async function identiconForUserId(userID: string): Promise<IdenticonModel> {
-  return identiconFromDigest(await sha256Utf8(userID));
+/** Canonical identicon input: scoped to one server instance. */
+export function identiconIdentity(userID: string, serverID: string): string {
+  return `${userID}@${serverID}`;
+}
+
+export async function identiconForUser(userID: string, serverID: string): Promise<IdenticonModel> {
+  return identiconFromDigest(await sha256Utf8(identiconIdentity(userID, serverID)));
 }
 
 /** Stable string for tests. */

@@ -1,8 +1,11 @@
 <script>
-  import { identiconForUserId } from '$lib/utils/identicon';
+  import { identiconForUser } from '$lib/utils/identicon';
 
   /** @type {string} */
   export let userID = '';
+
+  /** @type {string} */
+  export let serverID = '';
 
   /** @type {string} */
   export let username = '';
@@ -14,16 +17,22 @@
   let model = null;
   let loadedFor = '';
 
-  $: if (userID && userID !== loadedFor) {
-    loadedFor = userID;
+  $: effectiveServerID =
+    serverID ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('serverId') : '') ||
+    '';
+  $: identityKey = userID && effectiveServerID ? `${userID}@${effectiveServerID}` : '';
+
+  $: if (identityKey && identityKey !== loadedFor) {
+    loadedFor = identityKey;
     model = null;
-    identiconForUserId(userID).then((m) => {
-      if (loadedFor === userID) model = m;
+    identiconForUser(userID, effectiveServerID).then((m) => {
+      if (loadedFor === identityKey) model = m;
     });
   }
 </script>
 
-{#if userID}
+{#if userID && effectiveServerID}
   <span
     class="avatar"
     style="width: {size}; height: {size};"
