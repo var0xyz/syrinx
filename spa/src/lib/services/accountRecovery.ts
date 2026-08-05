@@ -21,6 +21,26 @@ import {
   writeIdentityKeysBackup,
 } from './backupRestore';
 
+export function mapAccountRecoveryBootstrapError(err: unknown): Error {
+  const status = (err as { status?: number })?.status;
+  if (status === 404) {
+    return new Error(
+      'This account is not recognized on this server. You need a full backup to restore. ' +
+        'If your community is rebuilding, import a backup while the server is in recovery mode.'
+    );
+  }
+  if (status === 401) {
+    return new Error(
+      'Cannot recover with this key. Rotate from a device that still works, ' +
+        'or restore a backup taken while the key was active.'
+    );
+  }
+  if (err instanceof Error) {
+    return err;
+  }
+  return new Error('Account recovery failed. Please try again.');
+}
+
 function assertServerMatch(backup: BackupPayload): void {
   const backupServerId = backup.localStorage?.['serverId'];
   if (!backupServerId) {
@@ -29,6 +49,32 @@ function assertServerMatch(backup: BackupPayload): void {
   const current = get(serverInfo)?.id || localStorage.getItem('serverId');
   if (current && backupServerId !== current) {
     throw new Error('This identity backup belongs to a different server.');
+  }
+}
+
+async function fetchBootstrap(
+  userId: string,
+  fingerprint: string,
+  privateKeyArmor: string,
+  passphrase: string
+): Promise<api.AccountRecoveryBootstrapResponse> {
+  const { challenge } = await apiService.getAccountRecoveryChallenge();
+  const sigArmor = await cryptoService.signMessage(
+    String(challenge),
+    privateKeyArmor,
+    passphrase
+  );
+  const signature = btoa(sigArmor);
+
+  try {
+    return await apiService.bootstrapAccountRecovery({
+      challenge,
+      userID: userId,
+      fingerprint,
+      signature,
+    });
+  } catch (err) {
+    throw mapAccountRecoveryBootstrapError(err);
   }
 }
 
@@ -55,20 +101,7 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
     throw new Error('Invalid identity backup: missing private key armor.');
   }
 
-  const { challenge } = await apiService.getAccountRecoveryChallenge();
-  const sigArmor = await cryptoService.signMessage(
-    String(challenge),
-    privateKeyEntry.armor,
-    passphrase
-  );
-  const signature = btoa(sigArmor);
-
-  const bootstrap = await apiService.accountRecoveryBootstrap({
-    challenge,
-    userID: userId,
-    fingerprint,
-    signature,
-  });
+  const bootstrap = await fetchBootstrap(userId, fingerprint, privateKeyEntry.armor, passphrase);
 
   await writeIdentityKeysBackup(backup);
 

@@ -19,6 +19,7 @@ import {
 } from '$lib/utils/reedContent';
 import { isOnline, onReconnect } from '$lib/services/pwa';
 import { isBlankEcho } from '$lib/utils/emptyEcho';
+import { clearPublishTipOverride, previousIDForPublish } from '../services/publishTip';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
@@ -113,10 +114,12 @@ class ReedsService {
     }
     try {
       console.log('Getting signature from server...');
+      const previousID = await previousIDForPublish();
       const response = await api.createReed(reed.id, armor, {
         content: reed.content,
         echoing: reed.echoing,
         replying: reed.replying,
+        ...(previousID ? { previousID } : {}),
       });
       let published: ReedType;
       if (reed instanceof ReedClass) {
@@ -134,6 +137,7 @@ class ReedsService {
         };
       }
       await this.storeReed(published);
+      clearPublishTipOverride();
       await pendingPublicationRepository.put(published.id);
       await serverConnection.connect();
       const broadcast = !isBlankEcho(published);

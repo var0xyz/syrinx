@@ -22,6 +22,7 @@ export enum ServerEvent {
   PipeReed         = 'PIPE_REED',
   FollowReed       = 'FOLLOW_REED',
   ReedNotFound     = 'REED_NOT_FOUND',
+  ReedNotHeld      = 'REED_NOT_HELD',
   ReedRemoved      = 'REED_REMOVED',
   AccountRemoved   = 'ACCOUNT_REMOVED',
   PublishReadyAck  = 'PUBLISH_READY_ACK',
@@ -136,13 +137,13 @@ class ServerConnection {
               pending.resolve(message.data.data);
               this.pendingRequests.delete(requestId);
             }
-          } else if (message.type === ServerEvent.ReedNotFound) {
+          } else if (message.type === ServerEvent.ReedNotFound || message.type === ServerEvent.ReedNotHeld) {
             const requestId = message.data.request_id;
             this.dispatchedReedRequests.delete(requestId);
             void reedRequestsRepository.delete(requestId);
             const pending = this.pendingRequests.get(requestId);
             if (pending) {
-              pending.reject(new Error('reed_not_found'));
+              pending.reject(new Error(message.type === ServerEvent.ReedNotHeld ? 'reed_not_held' : 'reed_not_found'));
               this.pendingRequests.delete(requestId);
             }
           }

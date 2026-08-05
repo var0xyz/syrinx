@@ -4,15 +4,14 @@
   import { get } from 'svelte/store';
   import { apiService } from '$lib/services/api';
   import { authService } from '$lib/services/auth';
-  import { ensureDeviceId } from '$lib/services/deviceId';
   import { requestSigner } from '$lib/services/request-signer';
   import {
     assertBackupIdentity,
     decryptBackupFile,
     extractProfile,
-    isBackupFilename,
     isFullBackupFilename,
     isIdentityBackupFilename,
+    isIdentityBackupPayload,
     writeBackup,
   } from '$lib/services/backupRestore';
   import { restoreFromIdentityBackup } from '$lib/services/accountRecovery';
@@ -32,6 +31,9 @@
   import { redirectForRestoreState } from '$lib/services/restoreFlow';
   import { isRecoveryMode, serverInfoLoading } from '$lib/services/serverInfo';
 
+  type ImportMode = 'backup' | 'identity';
+
+  let mode: ImportMode = 'backup';
   let files: FileList | null = null;
   let password = '';
   let restoring = false;
@@ -40,7 +42,16 @@
 
   $: file = files?.[0] ?? null;
   $: canRestore = file !== null && password.length > 0;
-  $: resumeImport = isImportInProgress();
+  $: resumeImport = mode === 'backup' && isImportInProgress();
+  $: fileAccept = mode === 'backup' ? '.sxb.gpg' : '.sxi.gpg';
+  $: fileLabel = mode === 'backup' ? 'Backup file' : 'Identity file';
+  $: passwordLabel = mode === 'backup' ? 'Backup password' : 'Export password';
+  $: submitLabel = mode === 'backup'
+    ? (restoring ? 'Importing...' : 'Import backup')
+    : (restoring ? 'Restoring...' : 'Restore with keys');
+
+  const DEVICE_TAKEOVER_CONFIRM =
+    'Continuing will log out any other devices that are signed in with this account. Continue?';
 
   onMount(() => {
     if (redirectForRestoreState()) return;
@@ -49,12 +60,64 @@
     }
   });
 
-  async function handleRestore() {
+  function switchMode(next: ImportMode) {
+    if (mode === next) return;
+    mode = next;
+    files = null;
+    password = '';
+    error = '';
+  }
+
+  function validateFileForMode(name: string): void {
+    if (mode === 'backup') {
+      if (!isFullBackupFilename(name)) {
+        if (isIdentityBackupFilename(name)) {
+          throw new Error(
+            'That is an identity export. Switch to “I only have my keys” to restore it.'
+          );
+        }
+        throw new Error('Please select a full backup file (syrinx-….sxb.gpg).');
+      }
+      return;
+    }
+    if (!isIdentityBackupFilename(name)) {
+      if (isFullBackupFilename(name)) {
+        throw new Error(
+          'That is a full backup. Switch to “Full backup” to restore it.'
+        );
+      }
+      throw new Error('Please select an identity export (syrinx-….sxi.gpg).');
+    }
+  }
+
+  async function handleIdentityRestore() {
     if (!file) return;
 
-    const confirmed = confirm(
-      'Importing this backup will log out any other devices that are signed in with this account. Continue?'
-    );
+    const confirmed = confirm(DEVICE_TAKEOVER_CONFIRM);
+    if (!confirmed) return;
+
+    restoring = true;
+    error = '';
+
+    try {
+      validateFileForMode(file.name);
+      const backup = await decryptBackupFile(file, password);
+      if (!isIdentityBackupPayload(backup)) {
+        throw new Error('Invalid identity export: profile must not be included.');
+      }
+      await restoreFromIdentityBackup(backup);
+      goto('/reeds');
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Restore failed. Please try again.';
+    } finally {
+      restoring = false;
+    }
+  }
+
+  async function handleBackupRestore() {
+    if (!file) return;
+
+    const confirmed = confirm(DEVICE_TAKEOVER_CONFIRM);
     if (!confirmed) return;
 
     restoring = true;
@@ -63,25 +126,8 @@
     startImportRun();
 
     try {
-      if (!isBackupFilename(file.name)) {
-        throw new Error(
-          'Please select a Syrinx backup file (syrinx-….sxb.gpg or syrinx-….sxi.gpg).'
-        );
-      }
-
+      validateFileForMode(file.name);
       const backup = await decryptBackupFile(file, password);
-      const identityImport = isIdentityBackupFilename(file.name);
-
-      if (identityImport) {
-        await restoreFromIdentityBackup(backup);
-        completeImportRun();
-        importSucceeded = true;
-        return;
-      }
-
-      if (!isFullBackupFilename(file.name)) {
-        throw new Error('Please select a Syrinx backup file (syrinx-….sxb.gpg or syrinx-….sxi.gpg).');
-      }
 
       assertBackupIdentity(backup);
       const profile = extractProfile(backup);
@@ -147,6 +193,14 @@
       restoring = false;
     }
   }
+
+  async function handleRestore() {
+    if (mode === 'identity') {
+      await handleIdentityRestore();
+    } else {
+      await handleBackupRestore();
+    }
+  }
 </script>
 
 <div class="container">
@@ -162,12 +216,43 @@
         </div>
       </div>
     {:else}
-      <h2>Import backup</h2>
-      <p class="subtitle">
-        Restore your account from an encrypted Syrinx backup
-        (<code>syrinx-….sxb.gpg</code> full export or <code>syrinx-….sxi.gpg</code> identity).
-        You will need the backup password.
-      </p>
+      <h2>Restore account</h2>
+
+      <div class="mode-tabs" role="tablist" aria-label="Restore mode">
+        <button
+          type="button"
+          role="tab"
+          class="mode-tab"
+          class:active={mode === 'backup'}
+          aria-selected={mode === 'backup'}
+          on:click={() => switchMode('backup')}
+        >
+          Full backup
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="mode-tab"
+          class:active={mode === 'identity'}
+          aria-selected={mode === 'identity'}
+          on:click={() => switchMode('identity')}
+        >
+          I only have my keys
+        </button>
+      </div>
+
+      {#if mode === 'backup'}
+        <p class="subtitle">
+          Restore from an encrypted full export
+          (<code>syrinx-….sxb.gpg</code>). You will need the backup password.
+        </p>
+      {:else}
+        <p class="subtitle">
+          Restore from an identity export created with Backup Keys
+          (<code>syrinx-….sxi.gpg</code>). Your profile and reeds will be
+          fetched from the server and network.
+        </p>
+      {/if}
 
       {#if resumeImport}
         <div class="info-box" role="status">
@@ -176,17 +261,17 @@
       {/if}
 
       <div class="field">
-        <label for="backup-file">Backup file</label>
+        <label for="backup-file">{fileLabel}</label>
         <input
           id="backup-file"
           type="file"
-          accept=".sxb.gpg,.sxi.gpg"
+          accept={fileAccept}
           bind:files
         />
       </div>
 
       <div class="field">
-        <label for="import-password">Backup password</label>
+        <label for="import-password">{passwordLabel}</label>
         <input
           id="import-password"
           type="password"
@@ -207,7 +292,7 @@
           on:click={handleRestore}
           disabled={!canRestore || restoring}
         >
-          {restoring ? 'Importing...' : 'Import'}
+          {submitLabel}
         </button>
       </div>
     {/if}
@@ -238,6 +323,33 @@
     margin: 0;
     color: var(--fg);
     font-size: 1.4rem;
+  }
+
+  .mode-tabs {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    background: var(--input-bg);
+    border-radius: 8px;
+  }
+
+  .mode-tab {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .mode-tab.active {
+    background: var(--surface);
+    color: var(--fg);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   }
 
   .subtitle {
