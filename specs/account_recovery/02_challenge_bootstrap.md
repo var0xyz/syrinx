@@ -31,7 +31,8 @@ without peers: profile, following ids, tip id, own-reed catalog. This is
 - **Profile is server-authoritative** — never taken from the identity export
   file. For root ([07](07_root_user_bootstrap.md)), bootstrap **creates** the
   countersigned profile on first successful proof if none exists yet.
-- Device bind hook point (no-op until [06](06_device_takeover.md)).
+- Device bind on bootstrap ([06](06_device_takeover.md)): revoke-all + bind
+  `X-Syrinx-Device-Id`, kick other WS sessions.
 
 ## Non-goals
 
@@ -77,11 +78,9 @@ Server steps:
    else **401** / 400.
 4. Load public key armor; verify `signature` over the challenge string →
    else 401.
-5. Optional: device revoke-all + bind ([06](06_device_takeover.md)) in the
-   same TX when binding exists.
+5. Device revoke-all + bind ([06](06_device_takeover.md)) via `X-Syrinx-Device-Id`;
+   kick other WS sessions for this user.
 6. Build and return **200** bootstrap JSON.
-
-Idempotent: repeat bootstrap with a valid challenge returns a fresh payload.
 
 ### Bootstrap response
 

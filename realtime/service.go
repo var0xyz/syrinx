@@ -940,12 +940,12 @@ func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]inte
 
 	// dropRequesterAllocation removes a stale holder row when the requester asks for
 	// a reed the server thought they held — they clearly do not have the body locally.
-	_, err := rs.dbService.DeleteReedAllocation(authorID, reedID, requesterID)
+	_, err = rs.dbService.DeleteReedAllocation(authorID, reedID, client.userID)
 	if err != nil {
 		log.Error().Err(err).
 			Str("authorID", authorID).
 			Str("reedID", reedID).
-			Str("requesterID", requesterID).
+			Str("requesterID", client.userID).
 			Msg("Failed to drop requester holder allocation")
 		return
 	}
