@@ -41,8 +41,7 @@ copy may still ship in 04. **07** (root bootstrap) uses the same identity
 
 ## Status
 
-**In progress** (00 design locked on Approach B tip id; **01–06 implemented**;
-07 below).
+**Implemented** (00 design locked on Approach B tip id; **01–07 implemented**).
 
 ## Locked decisions (from 00)
 
@@ -57,4 +56,4 @@ copy may still ship in 04. **07** (root bootstrap) uses the same identity
 | Device | Import / account recovery **supersedes** older devices (06) |
 | Bookkeeping | Client `reedRequests` IndexedDB store; **not** `ongoing_recoveries` / not `RECOVERY_MODE` |
 | Unheld reeds | Bootstrap returns all ids; server **`REED_NOT_HELD`** on fetch when no holder ([publish 02](../publish/02_relay_miss.md)) |
-| Root bootstrap | Empty DB → public key + keys-only `.sxi.gpg`; profile on first bootstrap ([07](07_root_user_bootstrap.md)) |
+| Root bootstrap | `ROOT_KEY_EXPORT_PASSPHRASE` → mint profile + `.sxi.gpg`; import via `/import` ([07](07_root_user_bootstrap.md)) |

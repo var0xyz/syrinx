@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -12,26 +12,28 @@ Proposed.
 ## Context
 
 Closed / invite-only communities need a first operator account without opening
-signup. On a **fresh empty database**, the server generates the reserved root
-key pair, writes a **keys-only** `.sxi.gpg`, and **never persists the private
-key**. The operator imports that file; **bootstrap creates the profile** on the
-server ([02](02_challenge_bootstrap.md)) — no countersigned profile at mint.
+signup. When `ROOT_KEY_EXPORT_PASSPHRASE` is set, the server mints the reserved
+root identity once: keys, countersigned profile, and public key on the server;
+writes a keys-only `.sxi.gpg`; never persists the private key; exits. The
+operator imports that file via `/import` like any other keys-only restore.
 
 ## Scope
 
-- One-shot root bootstrap on empty DB (not `RECOVERY_MODE`): generate keys
-  for `id = "1"`, register **public key only** on server, write keys-only
-  `.sxi.gpg`, discard private material, **exit**.
+- One-shot root mint when `ROOT_KEY_EXPORT_PASSPHRASE` is set (not
+  `RECOVERY_MODE`): generate keys for `id = "1"`, countersign and persist
+  profile + `user_keys`, write keys-only `.sxi.gpg`, discard private material,
+  **exit**.
 - Export matches [01](01_key_export.md) (keys only — no profile in file).
-- Reserve `id = "1"` forever; signup / `GenerateUserID` reject it.
-- SPA: root affordance when `user.id === "1"`.
+- Reserve `id = "1"` forever; signup rejects it (`GenerateUserID` never returns
+  `"1"`).
+- SPA: italic username on profile when `user.id === "1"`.
 
 ## Non-goals
 
-- Countersigned profile at mint time.
 - Reeds, follows, invites at mint.
 - Staged private key or separate ops export command.
 - Multi-root or transfer of `id = "1"`.
+- TTY prompt when passphrase unset (env var required).
 
 ## Design
 
@@ -39,93 +41,72 @@ server ([02](02_challenge_bootstrap.md)) — no countersigned profile at mint.
 
 | Field | Value |
 |-------|--------|
-| `users.id` | `"1"` (reserved; row created at **first bootstrap**, not at mint) |
-| Default username | `root` (set when profile is created on bootstrap) |
-| At mint | Public key registered; **no profile row** |
+| `users.id` | `"1"` (reserved) |
+| Default username | `root` (at mint) |
+| At mint | Countersigned profile + public key on server; private key only in `.sxi.gpg` |
 
-`GenerateUserID` and signup reject `userID == "1"`.
+Signup rejects `userID == "1"`.
 
-### Startup decision table
+### Startup (`root.go`)
 
-After `InitDB` and server identity are ready, **before** HTTP:
+After `InitDB`, server identity, and signing key — **before** HTTP:
 
-| `RECOVERY_MODE` | Users | `ROOT_KEY_EXPORT_PASSPHRASE` | Outcome |
-|-----------------|-------|------------------------------|---------|
-| on | any | any | Skip root bootstrap |
-| off | ≥ 1 | set | **Panic** — remove env var |
-| off | 0 | unset, no TTY | **Panic** — empty DB needs passphrase |
-| off | 0 | unset, TTY | Prompt → bootstrap → exit |
-| off | 0 | set | Bootstrap → exit |
-| off | ≥ 1 | unset | Normal server start |
+| `RECOVERY_MODE` | `ROOT_KEY_EXPORT_PASSPHRASE` | Root `"1"` exists | Outcome |
+|-----------------|------------------------------|-------------------|---------|
+| on | any | any | Skip mint; normal start |
+| off | unset | any | Normal start |
+| off | set | yes | **Fatal** — remove env var |
+| off | set | no | Mint → write `.sxi.gpg` → **exit 0** |
 
-Empty DB without passphrase is fatal.
+### One-shot mint
 
-### One-shot bootstrap (empty DB)
-
-1. Resolve file passphrase (`ROOT_KEY_EXPORT_PASSPHRASE` or prompt).
+1. `ROOT_KEY_EXPORT_PASSPHRASE` encrypts the export file; same string unlocks
+   the armored private key in the file.
 2. Generate OpenPGP key pair (`1@<serverID>`).
-3. Same string for private-key unlock passphrase when armoring (automation).
-4. Persist **public key attestation only** for owner `"1"` — register active
-   key on server so bootstrap can verify possession later. **Do not** insert
-   a countersigned `users` profile row at mint.
-5. Build keys-only `BackupPayload` ([01](01_key_export.md)): `privateKeys`,
-   `publicKeys`, identity `localStorage` subset (`userId`, `keyFingerprint`,
-   `keyPassphrase`, `serverId`, `serverName`).
-6. Gzip + encrypt → `syrinx-1-<timestamp>.sxi.gpg` in cwd, or under
-   `ROOT_KEY_EXPORT_PATH` when set (directory only; filename is fixed).
-7. Discard private key from memory; never persist it.
-8. Log path; remind operator to remove env var and restart.
-9. **Exit 0** — no HTTP on this boot.
+3. Sign identity payload (username `root`); countersign profile and public key;
+   persist via normal signup path (`SignupInput`, open mode, no invite).
+4. Build keys-only `BackupPayload` ([01](01_key_export.md)): `privateKeys`,
+   `publicKeys`, identity `localStorage` subset.
+5. Gzip + encrypt (SPA-compatible binary OpenPGP) →
+   `syrinx-1-<timestamp>.sxi.gpg` in cwd, or under `ROOT_KEY_EXPORT_PATH`
+   (directory only; filename fixed).
+6. Discard private key from memory; never persist on server.
+7. Log path; remind operator to unset env var and restart.
 
-**Implementation note:** `user_keys.owner` references `users(id)`. Mint may
-use a minimal stub row, defer FK until bootstrap, or extend schema — pick one
-in implementation; the **invariant** is no countersigned profile until
-bootstrap.
+### Operator loop
 
-### First bootstrap creates profile
-
-When the operator imports `.sxi.gpg` and `POST /account-recovery/bootstrap`
-succeeds ([02](02_challenge_bootstrap.md)):
-
-- Server verifies active key for `userID = "1"`.
-- Server **creates** countersigned profile (default username `root`, empty
-  bio/avatar) if none exists yet.
-- Returns bootstrap payload (profile, following, tip id, reed catalog).
-
-Subsequent bootstraps for user `1` return the existing profile.
+1. Set `ROOT_KEY_EXPORT_PASSPHRASE`; start server once → `.sxi.gpg` on disk →
+   exit.
+2. Unset env var; restart → normal HTTP (root account already on server).
+3. SPA `/import` → **I only have my keys** → `.sxi.gpg` → account recovery
+   bootstrap + session ([04](04_spa_keys_only_restore.md)).
+4. Operator updates profile / invites under closed or invite signup mode.
 
 ### Environment variables
 
 | Variable | Meaning |
 |----------|---------|
-| `ROOT_KEY_EXPORT_PASSPHRASE` | Encrypts `.sxi.gpg`; **unset after mint**; panic if set when users exist |
+| `ROOT_KEY_EXPORT_PASSPHRASE` | Triggers one-shot mint; encrypts `.sxi.gpg`; unset after mint |
 | `ROOT_KEY_EXPORT_PATH` | Optional output **directory** (filename is always `syrinx-1-<timestamp>.sxi.gpg`) |
-
-### Admin recover loop
-
-1. Empty DB + passphrase → one-shot mint → `.sxi.gpg` on disk → exit.
-2. Remove env var; restart → server has root **public key** registered, no
-   profile yet (or stub only).
-3. SPA `/import` with `.sxi.gpg` → challenge → bootstrap → profile created
-   on server + session installed ([04](04_spa_keys_only_restore.md)).
-4. Operator updates profile / invites under closed or invite signup mode.
 
 ### Trust / security notes
 
 - Root private key never persists on server.
-- Profile trust is always from server bootstrap, never from the export file.
-- Losing `.sxi.gpg` loses control of `id = "1"` — no second mint.
+- Losing `.sxi.gpg` loses control of `id = "1"` — no second mint while root
+  row exists.
 
 ## Test plan
 
-- [ ] Empty DB + passphrase → `.sxi.gpg` on disk; public key registered; no
-      countersigned profile; no private key persisted; exit 0
-- [ ] First bootstrap → profile created for `id = "1"`
-- [ ] Second start with env still set + user/key present → panic
-- [ ] `RECOVERY_MODE` skips root bootstrap
-- [ ] Signup never accepts `"1"`
+- [x] Passphrase set + no root → `.sxi.gpg` on disk; profile + key on server;
+      no private key persisted; exit 0 (`root.go`)
+- [x] `/import` keys-only → normal account-recovery bootstrap for existing
+      root profile
+- [x] Env still set + root exists → fatal error
+- [x] `RECOVERY_MODE` skips mint
+- [x] Signup rejects `"1"`
+- [x] Italic username when `user.id === "1"` (`UserProfileCard.svelte`)
 
 ## Done when
 
 - Operators can bootstrap a closed server, import keys-only `.sxi.gpg`, and
-  receive profile + session from bootstrap without ever opening signup.
+  use the app without opening signup.

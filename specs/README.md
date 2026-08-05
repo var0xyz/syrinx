@@ -30,7 +30,7 @@ Each table below has a **Status** column per step. Values:
 | Publish ready    | Proposed    | 00–02                                                |
 | Avatars          | Proposed    | 00–05                                                |
 | Pipes            | Implemented | —                                                    |
-| Account recovery | In progress | 01–06 implemented; 07 proposed                 |
+| Account recovery | Implemented | 01–07 implemented                                    |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Observability    | Proposed    | 00–04                                                |
 | Load testing     | Proposed    | 00–03                                                |
@@ -138,10 +138,10 @@ See [`avatars/`](avatars/README.md):
 See [`pipes/`](pipes/README.md). Ephemeral server-side tag listening;
 local reeds with that tag remain on device.
 
-| #  | Title                                     | Status   |
-|----|-------------------------------------------|----------|
+| #  | Title                                     | Status      |
+|----|-------------------------------------------|-------------|
 | 00 | Design + naming (**pipe**) + locked model | Implemented |
-| 01 | Extract tags; stash on `pending_fanout` until READY | Implemented |
+| 01 | Extract tags                              | Implemented |
 | 02 | WS subscribe + READY fanout               | Implemented |
 | 03 | SPA links + `/pipe/[tag]` page            | Implemented |
 
@@ -152,16 +152,16 @@ See [`account_recovery/`](account_recovery/README.md). Distinct from server
 client from private keys while the server still holds the account; peers
 relay the user’s own reed bodies back.
 
-| #  | Title                                         | Status   |
-|----|-----------------------------------------------|----------|
-| 00 | Design + tip approaches + restore fork        | Proposed |
-| 01 | Identity export `.sxi.gpg` (Backup Keys)     | Implemented |
+| #  | Title                                         | Status      |
+|----|-----------------------------------------------|-------------|
+| 00 | Design + tip approaches + restore fork        | Implemented |
+| 01 | Identity export `.sxi.gpg` (Backup Keys)      | Implemented |
 | 02 | Challenge + bootstrap API                     | Implemented |
 | 03 | Client `reedRequests` + paced `REQUEST_REED`  | Implemented |
 | 04 | SPA keys-only `/import` fork + session        | Implemented |
 | 05 | SPA rehydration + tip `previousID` + UX       | Implemented |
 | 06 | Device binding on bootstrap (takeover)        | Implemented |
-| 07 | Root user `id=1` mint + ops key export        | Proposed |
+| 07 | Root user `id=1` mint + `.sxi.gpg` export     | Implemented |
 
 ## Protobuf wire (HTTP + WebSocket)
 
@@ -241,12 +241,12 @@ Playwright browser contexts (script-driven via real service/repository
 calls, not click simulation) pointed at a target server through Vite's
 existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 
-| #  | Title                                                              | Status   |
-|----|---------------------------------------------------------------------|----------|
-| 00 | Design + `API_HOST` proxy trick + locked model                      | Proposed |
-| 01 | Extract `performSignup` / `performPublish` into reusable services   | Proposed |
-| 02 | Playwright driver: virtual users, scenario mix, config               | Proposed |
-| 03 | Publish → delivery fanout-latency correlation                        | Proposed |
+| #  | Title                                                             | Status   |
+|----|-------------------------------------------------------------------|----------|
+| 00 | Design + `API_HOST` proxy trick + locked model                    | Proposed |
+| 01 | Extract `performSignup` / `performPublish` into reusable services | Proposed |
+| 02 | Playwright driver: virtual users, scenario mix, config            | Proposed |
+| 03 | Publish → delivery fanout-latency correlation                     | Proposed |
 
 ## Parallelism
 
