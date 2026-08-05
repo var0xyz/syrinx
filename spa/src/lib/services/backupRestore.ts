@@ -150,10 +150,9 @@ export async function encryptAndSaveBackup(
 }
 
 /**
- * Minimal identity-only backup: active key material + own countersigned
- * profile — everything `assertBackupIdentity`/`extractProfile` need to
- * restore a session via /import. Reeds/follows/etc. re-sync from the server
- * afterward, so they're deliberately left out of this smaller file.
+ * Keys-only identity backup: active private + public key and session
+ * localStorage markers. Profile comes from server bootstrap on import
+ * ([accountRecovery.ts](../account_recovery/ — slice 04)).
  */
 export async function buildKeyBackupPayload(): Promise<BackupPayload> {
   const userId = localStorage.getItem('userId');
@@ -179,11 +178,6 @@ export async function buildKeyBackupPayload(): Promise<BackupPayload> {
     publicKey = await apiService.getPublicKey(userId, fingerprint);
   }
 
-  const profile = await userRepository.get(userId);
-  if (!profile) {
-    throw new Error('Local profile not found — cannot build key backup.');
-  }
-
   return {
     timestamp: Date.now(),
     origin: window.location.origin,
@@ -193,7 +187,6 @@ export async function buildKeyBackupPayload(): Promise<BackupPayload> {
       tables: [
         { name: 'privateKeys', items: [privateKey] },
         { name: 'publicKeys', items: [publicKey] },
-        { name: 'users', items: [profile] },
       ],
     },
   };
@@ -281,6 +274,77 @@ export function extractProfile(backup: BackupPayload): api.User {
   }
 
   return profile;
+}
+
+/**
+ * Validate keys-only identity backup (`.sxi.gpg`). Profile must not be present.
+ */
+export function assertIdentityBackupKeys(backup: BackupPayload): void {
+  const ls = backup.localStorage ?? {};
+  const userId = ls['userId'];
+  const keyFingerprint = ls['keyFingerprint'];
+  const keyPassphrase = ls['keyPassphrase'];
+  const serverId = ls['serverId'];
+
+  const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
+  const privateKeyEntry = (privateKeysTable?.items ?? []).find(
+    (k) => k && typeof k === 'object' && (k as { fingerprint?: string }).fingerprint === keyFingerprint
+  ) as { armor?: string } | undefined;
+
+  const publicKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'publicKeys');
+  const publicKeyEntry = (publicKeysTable?.items ?? []).find(
+    (k) => k && typeof k === 'object' && (k as { fingerprint?: string }).fingerprint === keyFingerprint
+  );
+
+  const usersTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'users');
+  if ((usersTable?.items ?? []).length > 0) {
+    throw new Error('Invalid identity backup: profile must not be included.');
+  }
+
+  if (!userId || !keyFingerprint || !keyPassphrase || !serverId || !privateKeyEntry?.armor) {
+    throw new Error('Invalid identity backup: missing required key material.');
+  }
+  if (!publicKeyEntry) {
+    throw new Error('Invalid identity backup: missing active public key.');
+  }
+}
+
+/** True when payload has keys but no embedded profile (identity export). */
+export function isIdentityBackupPayload(backup: BackupPayload): boolean {
+  const usersTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'users');
+  return (usersTable?.items ?? []).length === 0;
+}
+
+/**
+ * Write keys + session markers from an identity backup. Does not write profile.
+ */
+export async function writeIdentityKeysBackup(backup: BackupPayload): Promise<void> {
+  assertIdentityBackupKeys(backup);
+
+  const preservedDeviceId =
+    typeof localStorage !== 'undefined' ? localStorage.getItem('deviceId') : null;
+
+  const ls = backup.localStorage ?? {};
+  for (const [key, value] of Object.entries(ls)) {
+    if (key === 'deviceId') continue;
+    localStorage.setItem(key, value);
+  }
+
+  if (preservedDeviceId) {
+    localStorage.setItem('deviceId', preservedDeviceId);
+  } else {
+    ensureDeviceId();
+  }
+
+  await dbService.init();
+
+  const tables = backup.indexedDB?.tables ?? [];
+  for (const tableName of ['publicKeys', 'privateKeys'] as const) {
+    const table = tables.find((t) => t.name === tableName);
+    for (const item of table?.items ?? []) {
+      await restoreItem(tableName, item);
+    }
+  }
 }
 
 /**

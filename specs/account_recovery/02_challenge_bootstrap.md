@@ -28,7 +28,10 @@ without peers: profile, following ids, tip id, own-reed catalog. This is
   | `POST` | `/api/account-recovery/bootstrap` | challenge + active-key sig |
 
 - Bootstrap verifies active key, upserts rehydration row, returns payload
-  (profile, following page(s) or full list, tip id, reed catalog).
+  (profile, following, tip id, reed catalog).
+- **Profile is server-authoritative** — never taken from the identity export
+  file. For root ([07](07_root_user_bootstrap.md)), bootstrap **creates** the
+  countersigned profile on first successful proof if none exists yet.
 - Device bind hook point (no-op until [06](06_device_takeover.md)).
 
 ## Non-goals

@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented.
+Implemented (keys-only payload; profile from bootstrap on import).
 
 ## Depends on
 
@@ -10,32 +10,30 @@ Implemented.
 
 ## Context
 
-Account recovery consumes a **small identity backup**, not a dedicated
-keys-only JSON format. The SPA already exports this from profile **Backup
-Keys** using the same encrypted backup pipeline as full export, with a
-smaller payload (`buildKeyBackupPayload` in `backupRestore.ts`).
+Account recovery consumes a **keys-only** identity export from profile
+**Backup Keys**: same encrypted backup pipeline as full export, minimal
+payload. The file must **not** include a countersigned profile — there is
+no guarantee the export snapshot is current. The server returns the
+authoritative profile on bootstrap ([02](02_challenge_bootstrap.md)).
 
 ## Scope
 
-- **Identity backup** file extension **`.sxi.gpg`** (identity), distinct
-  from full **`.sxb.gpg`** (backup) and operator server bundle
-  **`.sxi.gpg`** (ops `export-identity` — different plaintext shape;
-  distinguished after decrypt).
-- Filename: `syrinx-<userID>-<timestamp>.sxi.gpg` (no `-keys-` segment).
-- Payload: existing `BackupPayload` — active private key, public key, own
-  countersigned profile, and identity `localStorage` subset (same as
-  `buildKeyBackupPayload` today).
-- Crypto: JSON → gzip → OpenPGP symmetric encrypt (same as full backup).
+- **Identity backup** extension **`.sxi.gpg`**, distinct from full
+  **`.sxb.gpg`** and operator server bundle **`.sxi.gpg`** (ops
+  `export-identity` — different plaintext; distinguished after decrypt).
+- Filename: `syrinx-<userID>-<timestamp>.sxi.gpg`.
+- Payload: `BackupPayload` **keys only** — see below. **No `users` table.**
+- Crypto: JSON → gzip → OpenPGP symmetric encrypt.
 - Profile UI: existing **Backup Keys** control (unchanged placement).
-- Save-as / download behavior that tolerates browsers mangling uncommon
-  multi-dot extensions (see below).
+- Save-as behavior per browser quirks (single `.gpg` suffix; normalize on
+  import).
 
 ## Non-goals
 
-- A separate `.sxk` / keys-only JSON artifact.
+- Profile, following, reeds, or other server-held state in the file.
 - `/import` account-recovery fork ([04](04_spa_keys_only_restore.md)).
 - Server endpoints ([02](02_challenge_bootstrap.md)–[03](03_rehydration_relay.md)).
-- Changing full **Export Data** naming (now also `.sxb.gpg`; gzip remains internal).
+- Changing full **Export Data** (`.sxb.gpg` — still includes full local snapshot).
 
 ## Design
 
@@ -46,50 +44,48 @@ smaller payload (`buildKeyBackupPayload` in `backupRestore.ts`).
 | Full backup | `.sxb.gpg` | `syrinx-<userID>-<timestamp>.sxb.gpg` |
 | Identity backup | `.sxi.gpg` | `syrinx-<userID>-<timestamp>.sxi.gpg` |
 
-Both use a **single** trailing extension; gzip is applied before encryption
-internally.
-
-### Browser save quirks
-
-Some engines append spurious suffixes (`.com`, `.download`) when the declared
-extension is not in their allowlist. Mitigations:
-
-- Register **`application/octet-stream`** with accept **`['.gpg', '.sxi.gpg']`**
-  (and `['.gpg', '.sxb.gpg']` for full export where applicable).
-- On **import**, normalize the chosen filename before validation (strip
-  trailing `.com` / `.download`).
+Gzip is internal; extension is a single `.gpg` suffix.
 
 ### Payload (after decrypt + gzip decompress)
 
-Same `BackupPayload` as full backup, minimal tables:
+Minimal `BackupPayload`:
 
 - `localStorage`: `userId`, `keyFingerprint`, `keyPassphrase`, `serverId`,
-  `serverName`
-- `indexedDB.tables`: `privateKeys`, `publicKeys`, `users` (own profile only)
+  `serverName` (session markers needed before authenticated fetch).
+- `indexedDB.tables`:
+  - `privateKeys` — active private key only
+  - `publicKeys` — matching active public key only
+- **Must not** include `users`, `reeds`, `following`, or other tables.
+
+Rationale: profile, following, and tip metadata are **server-authoritative**
+at bootstrap time. A stale profile in the file would be wrong after renames,
+key rotation, or edits on another device.
 
 ### Profile UI
 
-Existing **Backup Keys** button → passphrase modal →
-`buildKeyBackupPayload()` → encrypt → save as `.sxi.gpg`.
-Disabled when key is revoked or pending revocation.
+**Backup Keys** → passphrase modal → build keys-only payload → encrypt →
+`.sxi.gpg`. Disabled when key revoked or pending revocation.
 
-Copy should stress this file carries **account identity + keys**; prefer
-**Export Data** for a full backup when possible.
+Copy: this file is **account control** (keys); prefer **Export Data** for a
+full local snapshot including profile and content.
 
 ### Helpers
 
-Implemented in `spa/src/lib/services/backupRestore.ts`:
+`spa/src/lib/services/backupRestore.ts`:
 
-- `buildKeyBackupPayload()` — identity payload
-- `isIdentityBackupFilename()` / `normalizeExportFilename()` — import sniffing
-- `encryptAndSaveBackup(..., kind)` — save picker extensions per kind
-- `decryptBackupFile()` — shared decrypt path for full and identity files
+- `buildKeyBackupPayload()` — keys-only payload (no profile)
+- `assertIdentityBackupKeys()` — validates keys + localStorage; does **not**
+  require profile in file
+- `isIdentityBackupFilename()` / `normalizeExportFilename()`
+- `encryptAndSaveBackup(..., kind)` / `decryptBackupFile()`
+
+Full backup helpers (`extractProfile`, `assertBackupIdentity`) remain for
+`.sxb.gpg` only.
 
 ## Test plan
 
 - [x] Backup Keys produces `syrinx-<userID>-<timestamp>.sxi.gpg`
-- [x] Wrong file passphrase → decrypt fails; nothing written
-- [x] Decrypted payload has identity tables + localStorage subset
-- [x] Full backup export uses `syrinx-<userID>-<timestamp>.sxb.gpg`
-- [x] Import accepts normalized identity filename (including browser `.com` suffix)
-- [x] Revoked / pending-revocation key → Backup Keys disabled
+- [x] Decrypted identity payload has `privateKeys` + `publicKeys` only (no `users`)
+- [x] Wrong file passphrase → decrypt fails
+- [x] Full backup (`.sxb.gpg`) unchanged
+- [x] Revoked / pending-revocation → Backup Keys disabled

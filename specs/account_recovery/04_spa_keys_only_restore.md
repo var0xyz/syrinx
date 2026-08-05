@@ -19,8 +19,8 @@ session, then hand off to background rehydration ([05](05_spa_rehydration_publis
 
 - Extend `/import` UI: toggle or secondary path **“I only have my keys”**
   vs backup file (do not ask the user to name “account recovery”).
-- Accept `.sxi.gpg` identity backup ([01](01_key_export.md)) — same
-  `BackupPayload` decrypt path as full backup, smaller payload.
+- Accept `.sxi.gpg` identity backup ([01](01_key_export.md)) — keys-only
+  `BackupPayload`; same decrypt path, **no profile in file**.
 - Validate `serverID` matches this instance; fingerprint is active-looking
   locally.
 - `GET /api/account-recovery/challenge` → sign →
@@ -57,21 +57,13 @@ future confirm-on-import from recovery 17).
 ### Client sequence
 
 ```text
-decrypt .sxi.gpg (or detect identity payload after decrypt)
-→ assertBackupIdentity / extractProfile
-→ GET challenge
-→ sign challenge with active key
-→ POST bootstrap
+decrypt .sxi.gpg
+→ assertIdentityBackupKeys (userId, fingerprint, key armor — no profile)
+→ GET challenge → sign → POST bootstrap
 → on 200:
      put privateKeys / localStorage session
-     put profile (verify-before-store)
-     recordLocalFollow for each following id
-     persist tipReedID as account-recovery publish tip
-     start accountRecoveryRun + rehydration ledger from reeds[]
-     POST rehydrate (03) / open WS
-     enter normal app shell (isLoggedIn true enough to browse;
-       compose uses tip id — 05)
-→ on 404/401/400: write nothing durable
+     put profile from bootstrap response (verify-before-store)
+     recordLocalFollow …
 ```
 
 ### Local markers

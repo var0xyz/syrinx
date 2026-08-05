@@ -51,11 +51,11 @@ copy may still ship in 04. **07** (root bootstrap) uses the same identity
 | Topic | Decision |
 |-------|----------|
 | Entry | Same “Already a user” / `/import`; fork on backup vs keys |
-| Key | **Active** private key via identity backup (`.sxi.gpg`, Backup Keys) |
+| Key | Keys-only `.sxi.gpg`; **no profile in file** — profile from bootstrap ([02](02_challenge_bootstrap.md)) |
 | Graph | **Following** only (no followers to client) |
 | Content | Own reed bodies via existing relay; no peer profiles |
 | Publish tip | Approach **B**: bootstrap sends tip **id**; body not required |
 | Tip-check | Keep ([recovery 16](../recovery/16_reed_tip_check.md)); do not abolish |
 | Device | Import / account recovery **supersedes** older devices (06) |
 | Bookkeeping | Dedicated row; **not** `ongoing_recoveries` / not `RECOVERY_MODE` |
-| Root bootstrap | Empty DB requires passphrase; one-shot mint `id = "1"`, write `.sxi.gpg`, exit; admin imports via `/import` (07) — no open signup required |
+| Root bootstrap | Empty DB → public key + keys-only `.sxi.gpg`; profile on first bootstrap ([07](07_root_user_bootstrap.md)) |
