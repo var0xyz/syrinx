@@ -52,6 +52,10 @@ type AppConfig struct {
 	// collector-side wiring.
 	OTELCollectorHost string `env:"optional,default='',name='OTEL_COLLECTOR_HOST'"`
 	OTELCollectorPort string `env:"optional,default='4317',name='OTEL_COLLECTOR_PORT'"`
+
+	// One-shot root operator export on empty DB (see specs/account_recovery/07).
+	RootKeyExportPassphrase string `env:"optional,default='',name='ROOT_KEY_EXPORT_PASSPHRASE'"`
+	RootKeyExportPath       string `env:"optional,default='',name='ROOT_KEY_EXPORT_PATH'"` // output directory only
 }
 
 func main() {
@@ -158,6 +162,12 @@ func main() {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server signing key")
 	}
 	log.Info().Str("fingerprint", signingKey.Fingerprint).Msg("[OK] Server signing key ready")
+
+	if exit, err := maybeExportRootKey(cfg, dataService, cryptoService, signingKey); err != nil {
+		log.Fatal().Err(err).Msg("[ERR] Root key export failed")
+	} else if exit {
+		os.Exit(0)
+	}
 
 	if msg, err := recovery.StaleIdentityBackupMessage(db); err != nil {
 		log.Warn().Err(err).Msg("[WARN] Could not check identity backup freshness")
