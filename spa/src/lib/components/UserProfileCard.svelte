@@ -132,7 +132,12 @@
           on:click={openAvatar}
           aria-label={user.username ? `View ${user.username}'s avatar` : 'View avatar'}
         >
-          <Avatar userID={user.id} username={user.username} size="80px" />
+          <Avatar
+            userID={user.id}
+            serverID={user.serverSignature?.serverID ?? ''}
+            username={user.username}
+            size="80px"
+          />
         </button>
       {/if}
     </div>
@@ -186,7 +191,12 @@
     on:keydown={(e) => (e.key === 'Enter' || e.key === 'Escape') && closeAvatar()}
   >
     <div class="avatar-lightbox">
-      <Avatar userID={user.id} username={user.username} size="100%" />
+      <Avatar
+        userID={user.id}
+        serverID={user.serverSignature?.serverID ?? ''}
+        username={user.username}
+        size="100%"
+      />
     </div>
   </div>
 {/if}
