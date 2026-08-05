@@ -113,6 +113,23 @@ revocations for local store** in bootstrap if that avoids a chicken-egg
 before request signing; otherwise document “after local private key
 write, fetch `/users/{id}/keys/...`”.
 
+### Open question — reeds with no holders
+
+**Question:** The server knows some catalogued reeds have **no peer holders**
+(the body is likely lost on the network). Should bootstrap still return
+those ids? The client would send futile `REQUEST_REED`s.
+
+**Resolution (locked):** **Yes — return every non-removed reed id**, including
+the tip when only metadata remains. Bootstrap tells the client *what existed*
+on this server, not *who still has bytes*. Filtering unreheld reeds at
+bootstrap would hide gaps the user may still care about (tip id for publish,
+history holes).
+
+The client seeds `reedRequests` for all ids and uses the normal relay path.
+When a fetch cannot succeed, the server responds terminally — see
+**`REED_NOT_HELD`** in [publish 02](../publish/02_relay_miss.md) (applies to
+**all** explicit fetches, not only account recovery).
+
 ### Errors
 
 | Case | HTTP |
@@ -131,3 +148,4 @@ write, fetch `/users/{id}/keys/...`”.
 - [ ] Stale challenge → 400
 - [ ] Genesis user → `tipReedID` null
 - [ ] Removed reeds excluded from `reedIDs` / tip
+- [ ] Unheld reeds still present in `reedIDs` (no bootstrap-side filter)

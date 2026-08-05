@@ -54,9 +54,11 @@ Replaces per-request `sessionStorage` tracking for all explicit fetches.
 3. Drainer sends one `REQUEST_REED` per second for pending rows.
 4. Holder side unchanged: `GetNextPendingForHolder` → `RELAY_REQUEST`.
 5. `DATA_RESPONSE` → verify → store → delete `reedRequests` row → `DATA_ACK`.
+6. **`REED_NOT_HELD`** or **`REED_NOT_FOUND`** → delete `reedRequests` row;
+   do not retry until the user explicitly re-requests ([publish 02](../publish/02_relay_miss.md)).
 
-Reeds with no peer holders may never relay; the client keeps the
-`reedRequests` row until terminal miss or manual dismiss (05).
+Bootstrap returns **all** non-removed `reedIDs`, including reeds with no
+peer holders; the server fails fast on fetch when the body is unheld.
 
 ### Interaction with tip publish
 
@@ -68,5 +70,6 @@ compose only on having `tipReedID` from bootstrap (or genesis).
 - [ ] Bootstrap seeds `reedRequests`; drainer ≤1/sec
 - [ ] Successful relay deletes row; reed in IndexedDB
 - [ ] Reconnect re-sends remaining rows only
-- [ ] Empty holder set still enqueued; terminal miss clears row when applicable
+- [ ] `REED_NOT_HELD` deletes `reedRequests` row; no endless retry
+- [ ] Unheld reed ids still seeded from bootstrap
 - [ ] Normal open-reed fetch uses same store

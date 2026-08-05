@@ -54,4 +54,5 @@ copy may still ship in 04. **07** (root bootstrap) uses the same identity
 | Tip-check | Keep ([recovery 16](../recovery/16_reed_tip_check.md)); do not abolish |
 | Device | Import / account recovery **supersedes** older devices (06) |
 | Bookkeeping | Client `reedRequests` IndexedDB store; **not** `ongoing_recoveries` / not `RECOVERY_MODE` |
+| Unheld reeds | Bootstrap returns all ids; server **`REED_NOT_HELD`** on fetch when no holder ([publish 02](../publish/02_relay_miss.md)) |
 | Root bootstrap | Empty DB → public key + keys-only `.sxi.gpg`; profile on first bootstrap ([07](07_root_user_bootstrap.md)) |
