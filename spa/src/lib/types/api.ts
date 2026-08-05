@@ -103,14 +103,6 @@ export interface RecoveryKeyNode extends Base {
   predecessor: RecoveryKeyNode | null;
 };
 
-export type AccountRecoveryBootstrapReed = {
-  reedID: string;
-  signedAt: string;
-  userSignature: UserSignature;
-  serverSignature: ServerSignature;
-  holderUserIDs: string[];
-};
-
 export type AccountRecoveryChallenge = {
   challenge: number;
 };
@@ -126,7 +118,7 @@ export type AccountRecoveryBootstrapResponse = {
   profile: User;
   following: string[];
   tipReedID: string | null;
-  reeds: AccountRecoveryBootstrapReed[];
+  reedIDs: string[];
 };
 
 export type IdentityClaimChallenge = {

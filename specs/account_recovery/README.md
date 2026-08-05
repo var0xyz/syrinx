@@ -14,20 +14,16 @@ It is **not** server DB reconstruction (`RECOVERY_MODE` under
 | **Import** | Full encrypted backup (`.sxb.gpg`) or identity (`.sxi.gpg`) |
 | **Account recovery** | Keys only; server still has the account; peers relay content *to* the user |
 
-**Code organization:** server-side account-recovery logic lives in
-`syrinx/accountrecovery` (challenge, bootstrap, rehydration bookkeeping).
-Do **not** overload `syrinx/recovery` or `ongoing_recoveries`. Main wires
-DDL in `InitDB`, registers routes always (not behind `RECOVERY_MODE`), and
-hooks realtime rehydration into the existing relay path. SPA owns export,
-keys-only `/import` fork, session install, tip-id publish, and background
-rehydration UX.
+**Code organization:** account-recovery HTTP handlers live in `handlers.go`;
+SQL in `DataService` (`services.go`). Rehydration is client-driven via
+IndexedDB `reedRequests` + normal `REQUEST_REED`.
 
 | # | Title | Depends on |
 |---|-------|------------|
 | [00](00_design.md) | Design + tip approaches + restore fork | — |
 | [01](01_key_export.md) | Identity export `.sxi.gpg` (Backup Keys) | 00 |
-| [02](02_challenge_bootstrap.md) | Challenge + bootstrap API + rehydration row | 00 |
-| [03](03_rehydration_relay.md) | Server-orchestrated own-reed relay + complete | 02 |
+| [02](02_challenge_bootstrap.md) | Challenge + bootstrap API | 00 |
+| [03](03_rehydration_relay.md) | Client `reedRequests` + paced `REQUEST_REED` | 02 |
 | [04](04_spa_keys_only_restore.md) | SPA keys-only `/import` fork + session | 01, 02 |
 | [05](05_spa_rehydration_publish.md) | SPA rehydration + tip `previousID` + UX | 03, 04 |
 | [06](06_device_takeover.md) | Device binding on bootstrap (takeover) | 02, [recovery 17](../recovery/17_device_binding.md) |
@@ -43,8 +39,8 @@ copy may still ship in 04. **07** (root bootstrap) uses the same identity
 
 ## Status
 
-**Proposed** (00 design locked on Approach B tip id; **01 implemented**;
-02–07 below).
+**Proposed** (00 design locked on Approach B tip id; **01–03 implemented**;
+04–07 below).
 
 ## Locked decisions (from 00)
 
@@ -57,5 +53,5 @@ copy may still ship in 04. **07** (root bootstrap) uses the same identity
 | Publish tip | Approach **B**: bootstrap sends tip **id**; body not required |
 | Tip-check | Keep ([recovery 16](../recovery/16_reed_tip_check.md)); do not abolish |
 | Device | Import / account recovery **supersedes** older devices (06) |
-| Bookkeeping | Dedicated row; **not** `ongoing_recoveries` / not `RECOVERY_MODE` |
+| Bookkeeping | Client `reedRequests` IndexedDB store; **not** `ongoing_recoveries` / not `RECOVERY_MODE` |
 | Root bootstrap | Empty DB → public key + keys-only `.sxi.gpg`; profile on first bootstrap ([07](07_root_user_bootstrap.md)) |

@@ -2145,3 +2145,119 @@ func (h *Handlers) kickUserDevices(userID string) {
 		h.kickUserWS(userID)
 	}
 }
+
+// ==================== //
+//   Account recovery   //
+// ==================== //
+
+type accountRecoveryChallengeResponse struct {
+	Challenge int64 `json:"challenge"`
+}
+
+type accountRecoveryBootstrapRequest struct {
+	Challenge   int64  `json:"challenge"`
+	UserID      string `json:"userID"`
+	Fingerprint string `json:"fingerprint"`
+	Signature   string `json:"signature"`
+}
+
+type accountRecoveryBootstrapResponse struct {
+	Profile   User     `json:"profile"`
+	Following []string `json:"following"`
+	TipReedID *string  `json:"tipReedID"`
+	ReedIDs   []string `json:"reedIDs"`
+}
+
+func (h *Handlers) AccountRecoveryChallenge(w http.ResponseWriter, r *http.Request) {
+	writeResponse(w, http.StatusOK, accountRecoveryChallengeResponse{
+		Challenge: time.Now().UTC().Unix(),
+	})
+}
+
+func (h *Handlers) AccountRecoveryBootstrap(w http.ResponseWriter, r *http.Request) {
+	var req accountRecoveryBootstrapRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if req.UserID == "" || req.Fingerprint == "" || req.Signature == "" {
+		writeResponse(w, http.StatusBadRequest, "Missing required fields")
+		return
+	}
+
+	now := time.Now()
+	if err := recovery.ValidateChallengeAge(req.Challenge, now, 60*time.Second); err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	removed, err := h.services.db.HasAccountRemoval(req.UserID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if removed {
+		writeResponse(w, http.StatusGone, "Account removed")
+		return
+	}
+
+	profile, err := h.services.db.GetUserProfile(req.UserID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if profile == nil {
+		writeResponse(w, http.StatusNotFound, "Account not found")
+		return
+	}
+
+	activeFP, err := h.services.db.GetActiveKeyFingerprint(req.UserID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if activeFP == "" || activeFP != req.Fingerprint {
+		writeResponse(w, http.StatusUnauthorized, "Key is not the active key for this account")
+		return
+	}
+
+	key, err := h.services.db.GetPublicKey(req.UserID, req.Fingerprint)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if key == nil || key.Revoked {
+		writeResponse(w, http.StatusUnauthorized, "Unknown or revoked key")
+		return
+	}
+
+	if err := recovery.VerifyChallengeSignature(req.Challenge, req.Signature, key.Armor, h.services.crypto); err != nil {
+		writeResponse(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	following, err := h.services.db.ListUserFollowing(req.UserID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if following == nil {
+		following = []string{}
+	}
+
+	tipReedID, reedIDs, err := h.services.db.ListUserReeds(req.UserID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if reedIDs == nil {
+		reedIDs = []string{}
+	}
+
+	writeResponse(w, http.StatusOK, accountRecoveryBootstrapResponse{
+		Profile:   *profile,
+		Following: following,
+		TipReedID: tipReedID,
+		ReedIDs:   reedIDs,
+	})
+}

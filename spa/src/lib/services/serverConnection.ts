@@ -1,13 +1,17 @@
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
 import { ensureDeviceId } from './deviceId';
-
-declare const md5: (str: string) => string;
+import {
+  computeReedRequestId,
+  reedRequestsRepository,
+  type ReedRequestRecord,
+} from '$lib/repositories/reedRequests';
+import { reedsService } from '$lib/repositories/reeds';
+import { startReedRequestDrainer } from './reedRequestDrainer';
 
 export type ServerEventHandler = (data: any) => void;
 
 type PendingRequest = { resolve: (data: any) => void; reject: (err: any) => void };
-type RequestRecord = { data: any; status: 'new' | 'waiting' };
 
 export enum ServerEvent {
   ReedNotification = 'reed_notification',
@@ -31,6 +35,8 @@ class ServerConnection {
   private connectingPromise: Promise<void> | null = null;
   private eventHandlers: Map<string, ServerEventHandler[]> = new Map();
   private pendingRequests: Map<string, PendingRequest> = new Map();
+  private pendingReedPromises: Map<string, Promise<any>> = new Map();
+  private dispatchedReedRequests = new Set<string>();
 
   async connect(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) return;
@@ -114,25 +120,30 @@ class ServerConnection {
           console.log('ServerConnection: message received:', message.type);
 
           if (message.type === ServerEvent.RequestAck) {
-            const record = this.getRequest(message.data.request_id);
-            if (!record) {
-              console.warn(`ServerConnection: ${ServerEvent.RequestAck} for unknown request, discarding:`, message.data.request_id);
-              return;
-            }
-            this.setRequest(message.data.request_id, { data: message.data, status: 'waiting' });
+            void reedRequestsRepository.get(message.data.request_id).then((record) => {
+              if (!record) {
+                console.warn(
+                  `ServerConnection: ${ServerEvent.RequestAck} for unknown request, discarding:`,
+                  message.data.request_id
+                );
+              }
+            });
           } else if (message.type === 'DATA_RESPONSE') {
-            const pending = this.pendingRequests.get(message.data.request_id);
+            const requestId = message.data.request_id;
+            this.dispatchedReedRequests.delete(requestId);
+            const pending = this.pendingRequests.get(requestId);
             if (pending) {
               pending.resolve(message.data.data);
-              this.pendingRequests.delete(message.data.request_id);
-              this.deleteRequest(message.data.request_id);
+              this.pendingRequests.delete(requestId);
             }
           } else if (message.type === ServerEvent.ReedNotFound) {
-            const pending = this.pendingRequests.get(message.data.request_id);
+            const requestId = message.data.request_id;
+            this.dispatchedReedRequests.delete(requestId);
+            void reedRequestsRepository.delete(requestId);
+            const pending = this.pendingRequests.get(requestId);
             if (pending) {
               pending.reject(new Error('reed_not_found'));
-              this.pendingRequests.delete(message.data.request_id);
-              this.deleteRequest(message.data.request_id);
+              this.pendingRequests.delete(requestId);
             }
           }
 
@@ -146,6 +157,7 @@ class ServerConnection {
         console.log('ServerConnection: connection closed', event.code, event.reason);
         if (this.ws === event.target) {
           this.ws = null;
+          this.dispatchedReedRequests.clear();
           sessionStorage.removeItem('syncRequestId');
         }
       };
@@ -180,11 +192,33 @@ class ServerConnection {
       this.ws.close();
       this.ws = null;
     }
+    this.dispatchedReedRequests.clear();
     console.log('ServerConnection: disconnected');
   }
 
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  isReedRequestDispatched(requestId: string): boolean {
+    return this.dispatchedReedRequests.has(requestId);
+  }
+
+  clearDispatchedReedRequests(): void {
+    this.dispatchedReedRequests.clear();
+  }
+
+  dispatchReedRequest(record: ReedRequestRecord): void {
+    if (this.dispatchedReedRequests.has(record.requestId)) return;
+    this.dispatchedReedRequests.add(record.requestId);
+    this.send({
+      type: 'REQUEST_REED',
+      data: {
+        request_id: record.requestId,
+        reed_id: record.reedId,
+        author_id: record.authorId,
+      },
+    });
   }
 
   on(event: ServerEvent, handler: ServerEventHandler): void {
@@ -204,31 +238,26 @@ class ServerConnection {
     }
   }
 
-  requestReedContent(reedId: string, userId: string, serverId: string): Promise<any> {
-    const requestId = md5(`REQUEST_REED:${serverId}/${userId}/${reedId}`);
-    const promise = new Promise<any>((resolve, reject) => {
-      this.pendingRequests.set(requestId, { resolve, reject });
-    });
-    if (this.getRequest(requestId)) {
-      console.warn('ServerConnection: duplicate request detected, skipping send:', requestId);
-      return promise;
+  async requestReedContent(reedId: string, authorId: string, serverId: string): Promise<any> {
+    const requestId = computeReedRequestId(serverId, authorId, reedId);
+    const held = await reedsService.getReed(authorId, reedId);
+    if (held) return held;
+
+    await reedRequestsRepository.enqueue({ requestId, serverId, authorId, reedId });
+
+    let promise = this.pendingReedPromises.get(requestId);
+    if (!promise) {
+      promise = new Promise<any>((resolve, reject) => {
+        this.pendingRequests.set(requestId, { resolve, reject });
+      }).finally(() => {
+        this.pendingReedPromises.delete(requestId);
+        this.pendingRequests.delete(requestId);
+      });
+      this.pendingReedPromises.set(requestId, promise);
     }
-    this.setRequest(requestId, { data: null, status: 'new' });
-    this.send({ type: 'REQUEST_REED', data: { request_id: requestId, reed_id: reedId, author_id: userId } });
+
+    startReedRequestDrainer();
     return promise;
-  }
-
-  private setRequest(requestId: string, record: RequestRecord): void {
-    sessionStorage.setItem(`req:${requestId}`, JSON.stringify(record));
-  }
-
-  private getRequest(requestId: string): RequestRecord | null {
-    const raw = sessionStorage.getItem(`req:${requestId}`);
-    return raw ? JSON.parse(raw) : null;
-  }
-
-  private deleteRequest(requestId: string): void {
-    sessionStorage.removeItem(`req:${requestId}`);
   }
 
   sendRelayResponse(eventId: string, data: any): void {
@@ -262,6 +291,7 @@ class ServerConnection {
     const requestId = crypto.randomUUID();
     sessionStorage.setItem('syncRequestId', requestId);
     this.send({ type: 'SYNC_REQUEST', data: { request_id: requestId } });
+    startReedRequestDrainer();
   }
 
   async subscribeProfile(userId: string): Promise<void> {

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -17,9 +17,7 @@ without peers: profile, following ids, tip id, own-reed catalog. This is
 
 ## Scope
 
-- Package `syrinx/accountrecovery` with handlers, wire types, store
-  helpers.
-- DDL: `account_rehydrations` (bookkeeping; blank slate in `InitDB`).
+- Main package: handlers in `handlers.go`, SQL in `services.go` (`DataService`).
 - Routes registered **always** (not only when `RECOVERY_MODE` is on):
 
   | Method | Path | Auth |
@@ -27,8 +25,9 @@ without peers: profile, following ids, tip id, own-reed catalog. This is
   | `GET` | `/api/account-recovery/challenge` | none |
   | `POST` | `/api/account-recovery/bootstrap` | challenge + active-key sig |
 
-- Bootstrap verifies active key, upserts rehydration row, returns payload
-  (profile, following, tip id, reed catalog).
+- Bootstrap verifies active key, returns payload (profile, following, tip
+  id, reed catalog). Client enqueues own-reed fetches via normal
+  `REQUEST_REED` ([03](03_rehydration_relay.md)).
 - **Profile is server-authoritative** — never taken from the identity export
   file. For root ([07](07_root_user_bootstrap.md)), bootstrap **creates** the
   countersigned profile on first successful proof if none exists yet.
@@ -42,24 +41,6 @@ without peers: profile, following ids, tip id, own-reed catalog. This is
 - Server recovery claim / `ongoing_recoveries`.
 
 ## Design
-
-### Schema — `account_rehydrations`
-
-```sql
-CREATE TABLE IF NOT EXISTS account_rehydrations (
-	user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-	started_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	completed_at TIMESTAMPTZ
-);
-```
-
-- Row present with `completed_at IS NULL` ⇒ rehydration in progress.
-- Bootstrap inserts / refreshes `started_at`, clears `completed_at`
-  (`ON CONFLICT` upsert).
-- Complete ([03](03_rehydration_relay.md)) sets `completed_at`.
-- **Not** an API gate like `ongoing_recoveries`: the user may use the app
-  after bootstrap; this row drives server-side relay orchestration and
-  client progress only.
 
 ### `GET /api/account-recovery/challenge`
 
@@ -98,11 +79,9 @@ Server steps:
    else 401.
 5. Optional: device revoke-all + bind ([06](06_device_takeover.md)) in the
    same TX when binding exists.
-6. Upsert `account_rehydrations` (started, not completed).
-7. Build and return **200** bootstrap JSON.
+6. Build and return **200** bootstrap JSON.
 
-Idempotent: repeat bootstrap with a valid challenge refreshes the
-rehydration row and returns a fresh payload.
+Idempotent: repeat bootstrap with a valid challenge returns a fresh payload.
 
 ### Bootstrap response
 
@@ -111,15 +90,7 @@ rehydration row and returns a fresh payload.
   "profile": { "...User wire..." },
   "following": ["userId1", "userId2"],
   "tipReedID": "<id or null>",
-  "reeds": [
-    {
-      "reedID": "...",
-      "signedAt": "2026-07-31T12:00:00Z",
-      "userSignature": { "...nested..." },
-      "serverSignature": { "...nested..." },
-      "holderUserIDs": ["...", "..."]
-    }
-  ]
+  "reedIDs": ["...", "..."]
 }
 ```
 
@@ -132,10 +103,8 @@ Rules:
   Prefer **single full list** until real scale demands paging.
 - `tipReedID` — current tip id (newest non-removed by `signed_at`, `id`),
   or `null` for genesis (Approach B).
-- `reeds` — own tip rows excluding removal tombs; include signature blocks
-  needed so the client can verify relayed bodies later; `holderUserIDs`
-  = current allocations **excluding** the recovering user (self is not a
-  body source). Empty `holderUserIDs` is allowed (tip may be unrestorable).
+- `reedIDs` — own non-removed reed ids, tip first. Bodies and per-reed
+  signatures come from peer relay; the client verifies after fetch.
 
 Public key material: either embed active (+ chain) public keys in the
 response **or** require the client to `GET` existing key endpoints after
@@ -160,6 +129,5 @@ write, fetch `/users/{id}/keys/...`”.
 - [ ] Revoked fingerprint → reject
 - [ ] Unknown userID → 404
 - [ ] Stale challenge → 400
-- [ ] Upserts `account_rehydrations` with `completed_at` null
 - [ ] Genesis user → `tipReedID` null
-- [ ] Removed reeds excluded from `reeds` / tip
+- [ ] Removed reeds excluded from `reedIDs` / tip

@@ -10,7 +10,11 @@ import { authService } from './auth';
 import { cryptoService } from './crypto';
 import { requestSigner } from './request-signer';
 import { followingRepository } from '$lib/repositories/following';
+import { reedRequestsRepository } from '$lib/repositories/reedRequests';
+import { reedsService } from '$lib/repositories/reeds';
 import { serverInfo, refreshServerInfo } from './serverInfo';
+import { serverConnection } from './serverConnection';
+import { startReedRequestDrainer, clearReedRequestDispatched } from './reedRequestDrainer';
 import {
   assertIdentityBackupKeys,
   type BackupPayload,
@@ -83,4 +87,20 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
 
   await requestSigner.initializeWorker(fingerprint, passphrase);
   await apiService.bindDevice();
+
+  const serverId = get(serverInfo)?.id ?? localStorage.getItem('serverId') ?? '';
+  if (serverId) {
+    const skip = new Set<string>();
+    for (const reedId of bootstrap.reedIDs) {
+      if (await reedsService.getReed(userId, reedId)) {
+        skip.add(reedId);
+      }
+    }
+    await reedRequestsRepository.seedReedIDs(serverId, userId, bootstrap.reedIDs, skip);
+  }
+
+  await serverConnection.connect();
+  clearReedRequestDispatched();
+  serverConnection.syncRequest();
+  startReedRequestDrainer();
 }
