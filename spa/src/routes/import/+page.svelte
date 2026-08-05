@@ -106,7 +106,7 @@
         throw new Error('Invalid identity export: profile must not be included.');
       }
       await restoreFromIdentityBackup(backup);
-      goto('/reeds');
+      window.location.assign('/reeds');
     } catch (e) {
       error = e instanceof Error ? e.message : 'Restore failed. Please try again.';
     } finally {
