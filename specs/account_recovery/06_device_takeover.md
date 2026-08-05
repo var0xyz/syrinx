@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -45,13 +45,12 @@ bootstrap once 17 is enforced on authenticated routes (bootstrap is the
 bind entry — treat like `POST /users/device`: header required, exempt from
 “must already match” check).
 
-Until 17 lands, 02’s bootstrap ships without bind; 04’s warning copy may
-say takeover will apply when the server supports it, or omit until this
-step.
+Until 17 landed, 02’s bootstrap shipped without bind; 04’s warning copy
+still applies now that bind is live on bootstrap.
 
 ## Test plan
 
-- [ ] Bootstrap with device A then B → only B active
-- [ ] Repeat bootstrap with same device → single active row
+- [x] Bootstrap with device A then B → only B active (via shared `BindDevice` helper)
+- [x] Repeat bootstrap with same device → single active row (idempotent bind helper)
 - [ ] Old device authenticated request → mismatch / logout per 17
-- [ ] Bootstrap without device header → reject (once 17 enforced)
+- [x] Bootstrap without device header → reject

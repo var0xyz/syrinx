@@ -30,7 +30,7 @@ Each table below has a **Status** column per step. Values:
 | Publish ready    | Proposed    | 00–02                                                |
 | Avatars          | Proposed    | 00–05                                                |
 | Pipes            | Implemented | —                                                    |
-| Account recovery | In progress | 01–05 implemented; 06–07 proposed                 |
+| Account recovery | In progress | 01–06 implemented; 07 proposed                 |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Observability    | Proposed    | 00–04                                                |
 | Load testing     | Proposed    | 00–03                                                |
@@ -160,7 +160,7 @@ relay the user’s own reed bodies back.
 | 03 | Client `reedRequests` + paced `REQUEST_REED`  | Implemented |
 | 04 | SPA keys-only `/import` fork + session        | Implemented |
 | 05 | SPA rehydration + tip `previousID` + UX       | Implemented |
-| 06 | Device binding on bootstrap (takeover)        | Proposed |
+| 06 | Device binding on bootstrap (takeover)        | Implemented |
 | 07 | Root user `id=1` mint + ops key export        | Proposed |
 
 ## Protobuf wire (HTTP + WebSocket)

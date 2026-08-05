@@ -39,6 +39,23 @@ func TestBootstrapAccountRecovery_staleChallenge(t *testing.T) {
 		Signature:   "c2ln",
 	})
 	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/account-recovery/bootstrap", bytes.NewReader(body))
+	req.Header.Set("X-Syrinx-Device-Id", "550e8400-e29b-41d4-a716-446655440000")
+	h.BootstrapAccountRecovery(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestBootstrapAccountRecovery_missingDeviceHeader(t *testing.T) {
+	h := &Handlers{services: &Services{}}
+	body, _ := json.Marshal(bootstrapAccountRecoveryRequest{
+		Challenge:   time.Now().Unix(),
+		UserID:      "u1",
+		Fingerprint: "AAA",
+		Signature:   "c2ln",
+	})
+	rr := httptest.NewRecorder()
 	h.BootstrapAccountRecovery(rr, httptest.NewRequest(http.MethodPost, "/api/account-recovery/bootstrap", bytes.NewReader(body)))
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())

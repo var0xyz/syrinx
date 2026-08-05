@@ -2191,6 +2191,12 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	deviceID, err := identity.ParseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
+		return
+	}
+
 	removed, err := h.services.db.HasAccountRemoval(req.UserID)
 	if err != nil {
 		internalServerError(w)
@@ -2235,6 +2241,12 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		writeResponse(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+
+	if err := h.services.db.BindDevice(req.UserID, deviceID, now.UTC()); err != nil {
+		internalServerError(w)
+		return
+	}
+	h.kickUserDevices(req.UserID)
 
 	following, err := h.services.db.ListUserFollowing(req.UserID)
 	if err != nil {

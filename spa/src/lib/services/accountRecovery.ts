@@ -119,7 +119,6 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
   }
 
   await requestSigner.initializeWorker(fingerprint, passphrase);
-  await apiService.bindDevice();
 
   const serverId = get(serverInfo)?.id ?? localStorage.getItem('serverId') ?? '';
   if (serverId) {
