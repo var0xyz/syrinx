@@ -11,8 +11,11 @@
     decryptBackupFile,
     extractProfile,
     isBackupFilename,
+    isFullBackupFilename,
+    isIdentityBackupFilename,
     writeBackup,
   } from '$lib/services/backupRestore';
+  import { restoreFromIdentityBackup } from '$lib/services/accountRecovery';
   import {
     completeImportRun,
     isImportComplete,
@@ -67,6 +70,19 @@
       }
 
       const backup = await decryptBackupFile(file, password);
+      const identityImport = isIdentityBackupFilename(file.name);
+
+      if (identityImport) {
+        await restoreFromIdentityBackup(backup);
+        completeImportRun();
+        importSucceeded = true;
+        return;
+      }
+
+      if (!isFullBackupFilename(file.name)) {
+        throw new Error('Please select a Syrinx backup file (syrinx-….sxb.gpg or syrinx-….sxi.gpg).');
+      }
+
       assertBackupIdentity(backup);
       const profile = extractProfile(backup);
 

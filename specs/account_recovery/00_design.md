@@ -68,15 +68,14 @@ file).
 
 ### Identity backup (companion)
 
-Profile **Backup Keys** exports a small identity backup (`.sxi.gpg`) — same
-encrypted backup pipeline as full export, minimal payload: active key,
-countersigned profile, identity localStorage subset
-([01](01_key_export.md)).
+Profile **Backup Keys** exports keys-only `.sxi.gpg` — active private + public
+key and identity `localStorage` subset. **No profile in the file**; bootstrap
+returns the authoritative countersigned profile ([02](02_challenge_bootstrap.md)).
 
 - Protect the file with a passphrase chosen at export time.
 - Filename: `syrinx-<userID>-<timestamp>.sxi.gpg`.
-- Copy should stress this file carries account identity + keys; prefer a
-  full `.sxb.gpg` backup when possible.
+- Copy should stress this file is **keys / account control**; profile comes
+  from the server on recovery. Prefer full `.sxb.gpg` for a complete snapshot.
 
 ### Entry and fork
 
@@ -471,8 +470,7 @@ the project explicitly drops or defers
 
 ## Resolved
 
-1. **Identity backup** (Backup Keys → `.sxi.gpg`) for account recovery
-   ([01](01_key_export.md)); same encrypted backup payload, smaller subset.
+1. **Identity backup** → [01](01_key_export.md) (`.sxi.gpg`, keys only; profile from bootstrap).
 2. **Following only** — no followers list to the client.
 3. **Tip-check stays** — publish still names `previousID`
    ([recovery 16](../recovery/16_reed_tip_check.md)). Abolishing the tip

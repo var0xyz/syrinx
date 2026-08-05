@@ -51,6 +51,8 @@ const UNAUTHENTICATED_ENDPOINTS = [
   '/server/info',
   '/server/keys',
   '/recovery/identity/claim',
+  '/account-recovery/challenge',
+  '/account-recovery/bootstrap',
   '/invites/check',
 ];
 
@@ -528,6 +530,24 @@ export const apiService = {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()
+    });
+  },
+
+  /** Unauthenticated: GET account-recovery challenge (unix seconds). */
+  async getAccountRecoveryChallenge(): Promise<api.AccountRecoveryChallenge> {
+    return request<api.AccountRecoveryChallenge>('/account-recovery/challenge', {
+      method: 'GET',
+    });
+  },
+
+  /** Unauthenticated: prove active key possession; returns bootstrap payload. */
+  async accountRecoveryBootstrap(
+    body: api.AccountRecoveryBootstrapRequest
+  ): Promise<api.AccountRecoveryBootstrapResponse> {
+    return request<api.AccountRecoveryBootstrapResponse>('/account-recovery/bootstrap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
   },
 
