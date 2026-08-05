@@ -14,6 +14,8 @@ It is **not** server DB reconstruction (`RECOVERY_MODE` under
 | **Import** | Full encrypted backup (`.sxb.gpg`) or identity (`.sxi.gpg`) |
 | **Account recovery** | Keys only; server still has the account; peers relay content *to* the user |
 
+Human-facing overview: [Identity, invites & recovery — Restore paths](/identity#restore-paths-at-a-glance) in [`docs/identity.md`](../../docs/identity.md).
+
 **Code organization:** account-recovery HTTP handlers live in `handlers.go`;
 SQL in `DataService` (`services.go`). Rehydration is client-driven via
 IndexedDB `reedRequests` + normal `REQUEST_REED`.

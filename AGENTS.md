@@ -161,7 +161,7 @@ DDL, routes, and middleware.
 
 ## Conventions & invariants
 
-**Two recovery concepts — do not conflate:**
+**Two recovery concepts — do not conflate** (user-facing overview in [`docs/identity.md`](docs/identity.md) → [Restore paths at a glance](docs/identity.md#restore-paths-at-a-glance)):
 
 - **Server recovery** (`recovery/`, `RECOVERY_MODE`): operator rebuilt a wiped
   DB; clients report signed evidence *to* the server. Bookkeeping in
