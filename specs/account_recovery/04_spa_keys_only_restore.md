@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -67,21 +67,16 @@ decrypt .sxi.gpg
      recordLocalFollow …
 ```
 
-### Local markers
-
-| Marker | Meaning |
-|--------|---------|
-| `accountRecoveryRun` started | Keys-only restore / rehydration in progress |
-| `accountRecoveryRun` completed | User finished or dismissed rehydration (05) |
+### Session
 
 Do **not** conflate with `importRun` / `recoveryRun` (server recovery).
-Backup import leaves those as today. Keys-only sets `accountRecoveryRun`
-only.
+Backup import leaves those as today. Keys-only restore does **not** use
+`importRun`.
 
-`isLoggedIn`: treat keys-only like a finished import once bootstrap
-succeeded and private key is present — mid-rehydration is **not** a
-block on the app shell (unlike server-recovery import gate). Compose
-requires tip id (or genesis) per 05.
+`isLoggedIn`: true once bootstrap succeeded and private key is present —
+mid-rehydration is **not** a block on the app shell (unlike server-recovery
+import gate). Reeds rehydrate in the background via IndexedDB `reedRequests`.
+Compose uses server tip id (or genesis) per [05](05_spa_rehydration_publish.md).
 
 ### Tip id storage
 
@@ -98,9 +93,9 @@ new reed; then clear and use normal “newest local countersigned reed.”
 
 ## Test plan
 
-- [ ] Keys mode decrypt + bootstrap 200 → session + following + tip id
-- [ ] Wrong serverID in file → abort before challenge
-- [ ] 404 bootstrap → no local writes
-- [ ] Backup mode unchanged
-- [ ] Resume with accountRecoveryRun + keys present → app, not empty import
-- [ ] Device-takeover warning shown before bootstrap
+- [x] Keys mode decrypt + bootstrap 200 → session + following + tip id
+- [x] Wrong serverID in file → abort before challenge
+- [x] 404 bootstrap → no local writes
+- [x] Backup mode unchanged
+- [x] Resume with keys present + pending `reedRequests` → app, drainer continues
+- [x] Device-takeover warning shown before bootstrap

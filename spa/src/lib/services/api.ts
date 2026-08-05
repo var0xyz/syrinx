@@ -377,7 +377,12 @@ export const apiService = {
   async createReed(
     reedId: string,
     signature: string,
-    fields: { content: string; echoing?: string; replying?: string }
+    fields: {
+      content: string;
+      echoing?: string;
+      replying?: string;
+      previousID?: string;
+    }
   ): Promise<SignReedResponse> {
     const formData = new URLSearchParams();
     formData.append('signature', signature);
@@ -385,6 +390,7 @@ export const apiService = {
     formData.append('content', fields.content ?? '');
     if (fields.echoing) formData.append('echoing', fields.echoing);
     if (fields.replying) formData.append('replying', fields.replying);
+    if (fields.previousID) formData.append('previousID', fields.previousID);
 
     return request('/reeds', {
       method: 'POST',

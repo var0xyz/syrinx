@@ -39,8 +39,8 @@ copy may still ship in 04. **07** (root bootstrap) uses the same identity
 
 ## Status
 
-**Proposed** (00 design locked on Approach B tip id; **01–03 implemented**;
-04–07 below).
+**In progress** (00 design locked on Approach B tip id; **01–05 implemented**;
+06–07 below).
 
 ## Locked decisions (from 00)
 
