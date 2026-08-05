@@ -54,8 +54,8 @@ Client-owned (like server-recovery progress, simpler):
 }
 ```
 
-Initialize from bootstrap. `exhausted` when bootstrap had no holders or
-the client observed terminal miss / server skip. Do not block UI on
+Initialize from bootstrap. `exhausted` when the client received
+**`REED_NOT_HELD`** (or `REED_NOT_FOUND`) for that reed. Do not block UI on
 pending.
 
 ### Publish tip (Approach B)

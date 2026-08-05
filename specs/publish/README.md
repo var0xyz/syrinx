@@ -31,6 +31,7 @@ Related: current behaviour and temporary mitigation in
 | READY when | After client `storeReed` (and again on reconnect / catch-up for tips not yet announced) |
 | Relay | All `RELAY_REQUEST`s treated equally — no “just published” special case |
 | `RELAY_MISS` | Real unavailability: **remove** that holder’s allocation and retry another holder |
+| Unheld body | **`REED_NOT_HELD`** when metadata exists but no holder can serve (see [02](02_relay_miss.md)) |
 
 ## Motivation
 
