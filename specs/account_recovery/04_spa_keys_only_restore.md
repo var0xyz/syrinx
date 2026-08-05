@@ -26,14 +26,15 @@ session, then hand off to background rehydration ([05](05_spa_rehydration_publis
 - `GET /api/account-recovery/challenge` → sign →
   `POST /api/account-recovery/bootstrap`.
 - On success: write private key, passphrase, `userId`, fingerprint,
-  profile, following rows, **server tip id** for publish; start
-  `accountRecoveryRun` marker; do **not** write a fake full backup.
+  profile, following rows, **server tip id** for publish; seed
+  `reedRequests` from bootstrap catalog and start paced drainer ([03](03_rehydration_relay.md));
+  do **not** write a fake full backup.
 - Warn that continuing **logs out other devices** (copy now; bind in
   [06](06_device_takeover.md)).
 - On 404 unknown account: write nothing; tell user they need a full
   backup / server recovery.
-- Resume: if `accountRecoveryRun` mid-flight with identity present,
-  continue to app + rehydration rather than forcing re-upload.
+- Resume: if `reedRequests` rows remain with identity present, drainer
+  continues on reconnect rather than forcing re-upload.
 
 ## Non-goals
 

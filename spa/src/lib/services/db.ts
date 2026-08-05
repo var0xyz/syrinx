@@ -31,6 +31,7 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
+  // v28: reedRequests — durable outbound REQUEST_REED ledger.
   // v27: usersInfo keyPath userId → id (match /profile wire).
   // v26: usersInfo cache (unsigned hints + profileTimestamp).
   // v25: version bump (no store changes).
@@ -41,7 +42,7 @@ export class IndexedDbService implements DbService {
   // v20: reeds index server.timestamp → serverSignature.timestamp (signatures 08).
   // v19: drop pendingAccountRemoval — account deletion is online-only (09).
   // removedAccounts remains for peer tombstones.
-  private readonly version = 27;
+  private readonly version = 28;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -55,14 +56,15 @@ export class IndexedDbService implements DbService {
     ['echo_counts', 'reedID'     ],
 
     // Offline-first
-    ['unfollow',          'userId'     ],
-    ['unsignedReeds',     'id' ],
-    ['pendingFollows',    'userId'     ],
-    ['pendingRevocation', 'fingerprint'],
-    ['pendingRemoval',    'reedID'     ],
-    ['pendingPublication', 'reedID'    ],
-    ['removedReeds',      'reedID'     ],
-    ['removedAccounts',   'userID'     ],
+    ['unfollow',           'userId'     ],
+    ['unsignedReeds',      'id'         ],
+    ['pendingFollows',     'userId'     ],
+    ['pendingRevocation',  'fingerprint'],
+    ['pendingRemoval',     'reedID'     ],
+    ['pendingPublication', 'reedID'     ],
+    ['reedRequests',       'requestId'  ],
+    ['removedReeds',       'reedID'     ],
+    ['removedAccounts',    'userID'     ],
   ];
 
   async init(): Promise<void> {

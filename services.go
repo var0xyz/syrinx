@@ -1531,6 +1531,69 @@ func (s *DataService) HasAccountRemoval(userID string) (bool, error) {
 	return deletion.HasAccountRemoval(s.db, userID)
 }
 
+// ==================== //
+//   Account recovery   //
+// ==================== //
+
+// ListUserFollowing returns user ids this user follows.
+func (s *DataService) ListUserFollowing(userID string) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT following_user_id
+		FROM user_following
+		WHERE user_id = $1
+		ORDER BY following_user_id
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list following: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// ListUserReeds returns non-removed reed ids for userID, tip first.
+func (s *DataService) ListUserReeds(userID string) (tipReedID *string, reedIDs []string, err error) {
+	rows, err := s.db.Query(`
+		SELECT r.id
+		FROM reeds r
+		WHERE r.user_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals rr
+		      WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
+		  )
+		ORDER BY r.signed_at DESC, r.id DESC
+	`, userID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list own reeds: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, nil, err
+		}
+		reedIDs = append(reedIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	if len(reedIDs) == 0 {
+		return nil, nil, nil
+	}
+	first := reedIDs[0]
+	tipReedID = &first
+	return tipReedID, reedIDs, nil
+}
+
 // ================== //
 //   LoggingService   //
 // ================== //

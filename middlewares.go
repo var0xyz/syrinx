@@ -287,6 +287,8 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				prefix + "/keys",
 				prefix + "/server/info",
 				prefix + "/recovery/identity/claim",
+				prefix + "/account-recovery/challenge",
+				prefix + "/account-recovery/bootstrap",
 				prefix + "/invites/check",
 			}
 			// Server signing public keys are public verification material —

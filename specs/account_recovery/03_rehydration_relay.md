@@ -1,8 +1,8 @@
-# Account recovery 03 — Rehydration relay + complete
+# Account recovery 03 — Rehydration via client reed requests
 
 ## Status
 
-Proposed.
+Implemented (client-driven; no server orchestration).
 
 ## Depends on
 
@@ -11,93 +11,52 @@ Proposed.
 ## Context
 
 After bootstrap the client has tip **id** and can publish (Approach B).
-Own reed **bodies** still live on peers. The server already tracks
-allocations and relays via `pending_events` / `RELAY_REQUEST`. This step
-makes the server **push** the recovering user’s own reeds to them,
-tip first, without a new content plane.
+Own reed **bodies** still live on peers. Rehydration uses the **existing**
+`REQUEST_REED` → `pending_events` → `RELAY_REQUEST` path — no second
+content plane and no server-side rehydration table.
 
 ## Scope
 
-- When a user with an open `account_rehydrations` row connects (WS ready
-  / `SYNC_REQUEST` or explicit start), enqueue relay of each catalogued
-  own reed toward that user, **tip first**.
-- Prefer online holders from `holderUserIDs`; never treat the recovering
-  user as the sole source for their own missing body.
-- Reuse existing relay / miss / retry behavior
-  ([publish 02](../publish/02_relay_miss.md) when real).
-- Authenticated **`POST /api/account-recovery/complete`** — sets
-  `completed_at` (idempotent); stops proactive rehydration enqueue for
-  that user.
-- Optional: authenticated **`GET /api/account-recovery/status`** —
-  `{ startedAt, completedAt, reedIDs: [...] }` if the SPA needs a
-  server-side checklist; otherwise the client may own progress entirely
-  from the bootstrap catalog (prefer **client-owned progress** for v1 and
-  skip this GET unless needed).
+- After bootstrap, client seeds IndexedDB `reedRequests` from
+  `bootstrap.reedIDs` (tip first; skip already held locally).
+- Paced drainer sends `REQUEST_REED` over WS at **≤1 per second**.
+- On verify + `storeReed`, delete the `reedRequests` row; server deletes
+  its `pending_events` row on `DATA_ACK` as usual.
+- Reconnect: drainer re-sends remaining `reedRequests` rows (server
+  in-flight events were cleared on disconnect).
 
 ## Non-goals
 
+- Server `StartRehydration`, `account_rehydrations`, or
+  `POST /account-recovery/complete`.
 - Restoring other users’ reeds or peer profiles.
 - Blocking normal API use while rehydrating.
 - Changing tip-check / SignReed.
-- SPA UI ([05](05_spa_rehydration_publish.md)).
 
 ## Design
 
-### Trigger
+### Client `reedRequests` store (IndexedDB v28)
 
-After bootstrap, the client opens a normal authenticated WebSocket.
-Server path (pick one, document in code):
+| Field | Purpose |
+|-------|---------|
+| `requestId` | keyPath — `md5("REQUEST_REED:{serverId}/{authorId}/{reedId}")` |
+| `serverId` | Server scope |
+| `authorId` | Reed author |
+| `reedId` | Reed id |
+| `requestedAt` | FIFO ordering (tip-first seed uses incrementing timestamps) |
 
-1. **On WS auth success** (or first `SYNC_REQUEST`): if
-   `account_rehydrations` is open for this user, call
-   `StartRehydration(userID)` once per connection (idempotent).
-2. And/or authenticated **`POST /api/account-recovery/rehydrate`** that
-   the SPA calls after writing the session — same helper.
+Replaces per-request `sessionStorage` tracking for all explicit fetches.
 
-Prefer **explicit SPA POST** after session install so relay does not race
-IndexedDB key write; WS connect alone is a resume path if the POST was
-lost.
+### Flow
 
-### `StartRehydration(userID)`
+1. Import/bootstrap → seed `reedRequests` from catalog.
+2. WS connect + `SYNC_REQUEST` → start drainer.
+3. Drainer sends one `REQUEST_REED` per second for pending rows.
+4. Holder side unchanged: `GetNextPendingForHolder` → `RELAY_REQUEST`.
+5. `DATA_RESPONSE` → verify → store → delete `reedRequests` row → `DATA_ACK`.
 
-1. Load open rehydration row; if completed or missing → no-op.
-2. Load own non-removed reed tips ordered with **current tip first**, then
-   `signed_at DESC`.
-3. For each reed, if the recovering user is **not** yet able to serve it
-   (no need to check local — server does not know bodies), ensure a
-   pending delivery toward `userID` using the same machinery as an
-   ordinary fetch/catch-up for that reed, choosing holders from
-   allocations where `holder_user_id != userID` and the holder is online
-   when possible.
-4. Do not create allocations for random users; only ask existing holders
-   to relay.
-5. Quiet: no `NewReed` fanout; this is recovery of the author’s own
-   content to themselves.
-
-If a reed has **zero** non-self holders, skip enqueue (client already
-knows from bootstrap `holderUserIDs: []`).
-
-### Delivery path
-
-Identical to normal relay once a pending event exists: holder gets
-`RELAY_REQUEST` → `RELAY_RESPONSE` / `RELAY_MISS` → recovering client gets
-data → verifies → `DATA_ACK`. Author allocation may already exist from
-create; ACK remains the possession signal.
-
-### Complete
-
-`POST /api/account-recovery/complete` (signature-auth):
-
-```text
-UPDATE account_rehydrations
-SET completed_at = COALESCE(completed_at, now())
-WHERE user_id = $1
-```
-
-Idempotent 204/200. Client may call when the local catalog is done or the
-user dismisses remaining gaps ([05](05_spa_rehydration_publish.md)).
-After complete, `StartRehydration` is a no-op; ordinary per-reed fetch
-still works if the user opens a missing reed later.
+Reeds with no peer holders may never relay; the client keeps the
+`reedRequests` row until terminal miss or manual dismiss (05).
 
 ### Interaction with tip publish
 
@@ -106,9 +65,8 @@ compose only on having `tipReedID` from bootstrap (or genesis).
 
 ## Test plan
 
-- [ ] Bootstrap + rehydrate POST enqueues tip before older reeds
-- [ ] Reed with only self allocation → no holder relay attempted
-- [ ] Online holder receives RELAY_REQUEST for recovering author
-- [ ] Complete sets completed_at; second complete ok
-- [ ] After complete, StartRehydration no-ops
-- [ ] RECOVERY_MODE / ongoing_recoveries untouched
+- [ ] Bootstrap seeds `reedRequests`; drainer ≤1/sec
+- [ ] Successful relay deletes row; reed in IndexedDB
+- [ ] Reconnect re-sends remaining rows only
+- [ ] Empty holder set still enqueued; terminal miss clears row when applicable
+- [ ] Normal open-reed fetch uses same store

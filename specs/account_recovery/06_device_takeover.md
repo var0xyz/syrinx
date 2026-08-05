@@ -40,8 +40,7 @@ Reuse 17’s bind helper:
 1. `UPDATE user_devices SET revoked_at = now() WHERE user_id = ? AND revoked_at IS NULL`
 2. `INSERT` active row for presented device id
 
-Call from bootstrap after key verification, before or with
-`account_rehydrations` upsert. Missing / malformed device header → reject
+Call from bootstrap after key verification. Missing / malformed device header → reject
 bootstrap once 17 is enforced on authenticated routes (bootstrap is the
 bind entry — treat like `POST /users/device`: header required, exempt from
 “must already match” check).

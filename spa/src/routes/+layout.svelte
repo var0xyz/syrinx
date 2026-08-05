@@ -13,7 +13,9 @@
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { dbService } from '$lib/services/db';
   import { reedsService, dispatchReedToQueue, initFollowcastIds, prependFollowcastId, removeBroadcastReed } from '$lib/repositories/reeds';
+  import { reedRequestsRepository } from '$lib/repositories/reedRequests';
   import { followingRepository } from '$lib/repositories/following';
+  import { clearReedRequestDispatched, startReedRequestDrainer } from '$lib/services/reedRequestDrainer';
   import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
   import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
   import { pendingPublicationRepository } from '$lib/repositories/pendingPublication';
@@ -48,7 +50,9 @@
       pendingRemovalRepository.syncPending();
       serverConnection.connect()
         .then(async () => {
+          clearReedRequestDispatched();
           serverConnection.syncRequest();
+          startReedRequestDrainer();
           await reedsService.announcePublishedReeds();
         })
         .catch((err) => console.error('ServerConnection reconnect failed:', err));
@@ -96,9 +100,11 @@
     serverConnection.on(ServerEvent.DataResponse, async (data) => {
       const reed = data.data;
       const eventId = data.event_id;
+      const requestId = data.request_id as string | undefined;
 
       try {
         await reedsService.storeReed(reed);
+        if (requestId) await reedRequestsRepository.delete(requestId);
         serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
         // Explicit REQUEST_REED or profile_subscription relay reply.
@@ -109,6 +115,7 @@
         await requestReferencedReeds(reed);
       } catch (error) {
         console.warn('ServerConnection: invalid reed signature, rejecting:', reed.id, error);
+        if (requestId) await reedRequestsRepository.delete(requestId);
         serverConnection.sendDataInvalid(eventId);
       }
     });
@@ -198,7 +205,9 @@
         reedsService.processUnsignedReeds().then(() =>
           serverConnection.connect()
             .then(async () => {
+              clearReedRequestDispatched();
               serverConnection.syncRequest();
+              startReedRequestDrainer();
               await reedsService.announcePublishedReeds();
             })
             .catch(err => console.error('ServerConnection failed:', err))
