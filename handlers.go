@@ -51,6 +51,7 @@ type Handlers struct {
 	// filterPipeTags keeps only tags with current pipe listeners (SignReed stash).
 	// Nil means stash all extracted tags (tests / no realtime).
 	filterPipeTags func([]string) []string
+	kickUserWS     func(userID string)
 }
 
 type ServerInfo struct {
@@ -78,6 +79,10 @@ func NewHandlers(services *Services, cfg AppConfig, broadcastChan chan<- realtim
 // with live pipe subscriptions.
 func (h *Handlers) SetPipeTagFilter(filter func([]string) []string) {
 	h.filterPipeTags = filter
+}
+
+func (h *Handlers) SetKickUserWS(kick func(userID string)) {
+	h.kickUserWS = kick
 }
 
 func writeResponse(w http.ResponseWriter, statusCode int, message any) {
@@ -204,6 +209,12 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(username) > 32 {
 		writeResponse(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
+		return
+	}
+
+	deviceID, err := identity.ParseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
 		return
 	}
 
@@ -385,6 +396,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		InviteID:           inviteID,
 		InviteSecret:       inviteSecret,
 		InvitedBy:          resolved.InviterID,
+		DeviceID:           deviceID,
 	})
 	if err != nil {
 		if errors.Is(err, invites.ErrInviteRequired) {
@@ -2097,4 +2109,39 @@ func (h *Handlers) VerifySignature(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeResponse(w, http.StatusOK, "Signature verification successful")
+}
+
+// =================== //
+//   Device handlers   //
+// =================== //
+
+// BindDevice handles POST /api/users/device — revoke-all + bind this origin's device.
+func (h *Handlers) BindDevice(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(userIDKey).(string)
+	if !ok || userID == "" {
+		writeDeviceError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	deviceID, err := identity.ParseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
+	if err != nil {
+		writeDeviceError(w, http.StatusBadRequest, "Invalid device id.")
+		return
+	}
+
+	now := time.Now().UTC()
+	if err := h.services.db.BindDevice(userID, deviceID, now); err != nil {
+		internalServerError(w)
+		return
+	}
+
+	h.kickUserDevices(userID)
+
+	writeResponse(w, http.StatusOK, deviceID)
+}
+
+func (h *Handlers) kickUserDevices(userID string) {
+	if h.kickUserWS != nil {
+		h.kickUserWS(userID)
+	}
 }

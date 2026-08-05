@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"syrinx/identity"
 )
 
 const challengeMaxAge = 60 * time.Second
@@ -60,7 +62,13 @@ func (d Deps) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := SaveOwnIdentity(d.DB, req.Profile, keys); err != nil {
+	deviceID, err := identity.ParseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
+		return
+	}
+
+	if _, err := SaveOwnIdentity(d.DB, req.Profile, keys, deviceID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}

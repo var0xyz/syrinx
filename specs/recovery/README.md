@@ -40,8 +40,8 @@ Prerequisite normal-operation work is under
 ## Status
 
 **Spec updated** for backup-first restore ([09](09_user_status.md)–[15](15_spa_import_gate_mirror.md))
-the history-fork tip check ([16](16_reed_tip_check.md)), and deferred
-device binding ([17](17_device_binding.md)). Implementation proceeds via the
+and the history-fork tip check ([16](16_reed_tip_check.md)). Device binding
+([17](17_device_binding.md)) is implemented. Implementation proceeds via the
 numbered steps (skip superseded [08](08_spa_recovery_landing.md); each step
 depends only on earlier numbers).
 Normal-operation prerequisites (proposals 01–10 under `specs/`) are

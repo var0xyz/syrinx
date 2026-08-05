@@ -1,8 +1,11 @@
 import type * as api from '$lib/types/api';
+import { deviceIdHeader } from './deviceId';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
 import {
+  handleDeviceMismatch,
   handleFinishRecoveryForbidden,
+  isDeviceMismatchError,
   isFinishRecoveryForbiddenMessage,
 } from './restoreFlow';
 
@@ -79,6 +82,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
   }
 
+  const withDeviceHeaders = (init?: RequestInit): RequestInit => {
+    const headers = new Headers(init?.headers);
+    for (const [key, value] of Object.entries(deviceIdHeader())) {
+      headers.set(key, value);
+    }
+    return { ...init, headers };
+  };
+
+  signedInit = withDeviceHeaders(signedInit);
+
   const res = await fetch(`${BASE_URL}${path}`, signedInit);
 
   if (!res.ok) {
@@ -89,15 +102,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
           : res.status === 403
             ? 'Forbidden'
             : res.statusText || 'Bad Request';
+      let errorCode: string | undefined;
       try {
         const raw = await res.text();
         if (raw.trim()) {
           try {
             const errorData = JSON.parse(raw);
-            message =
-              typeof errorData === 'string' && errorData
-                ? errorData
-                : raw.trim();
+            if (typeof errorData === 'string' && errorData) {
+              message = errorData;
+            } else if (typeof errorData === 'object' && errorData !== null) {
+              if (typeof errorData.error === 'string') {
+                errorCode = errorData.error;
+                message = errorData.error;
+              } else {
+                message = raw.trim();
+              }
+            } else {
+              message = raw.trim();
+            }
           } catch {
             message = raw.trim();
           }
@@ -106,11 +128,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         // Empty / unreadable body — keep default.
       }
 
-      if (
-        res.status === 403 &&
-        isFinishRecoveryForbiddenMessage(message)
-      ) {
-        handleFinishRecoveryForbidden();
+      if (res.status === 403) {
+        if (isFinishRecoveryForbiddenMessage(message)) {
+          handleFinishRecoveryForbidden();
+        } else if (isDeviceMismatchError(message)) {
+          handleDeviceMismatch();
+        }
       }
 
       throw new Error(message);
@@ -556,6 +579,13 @@ export const apiService = {
   /** Authenticated: clear ongoing_recoveries for the caller. */
   async completeRecovery(): Promise<void> {
     await request<void>('/recovery/complete', {
+      method: 'POST',
+    });
+  },
+
+  /** Authenticated: bind this origin as the sole active device. */
+  async bindDevice(): Promise<string> {
+    return request<string>('/users/device', {
       method: 'POST',
     });
   },

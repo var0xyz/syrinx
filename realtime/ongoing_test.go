@@ -1,44 +1,97 @@
 package realtime
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-func TestRejectOngoingImport(t *testing.T) {
+func TestRejectConnection(t *testing.T) {
+	rr := httptest.NewRecorder()
+	rejectConnection(rr, "Finish recovery import first.")
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("content-type = %q", ct)
+	}
+	var body errorMessage
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error != "Finish recovery import first." {
+		t.Fatalf("error = %q", body.Error)
+	}
+}
+
+func TestDeviceMismatch(t *testing.T) {
 	t.Run("nil check allows", func(t *testing.T) {
 		rs := &RealtimeService{}
-		rr := httptest.NewRecorder()
-		if rs.rejectOngoingImport(rr, "u1") {
+		if rs.deviceMismatch("u1", "dev") {
 			t.Fatal("expected allow")
-		}
-		if rr.Code != 200 && rr.Code != 0 {
-			// httptest defaults to 200 only after Write; Code is 200 by default in some versions
 		}
 	})
 
-	t.Run("ongoing rejects 403", func(t *testing.T) {
+	t.Run("check failure rejects", func(t *testing.T) {
+		rs := &RealtimeService{}
+		rs.SetDeviceCheck(func(userID, deviceID string) error {
+			return errors.New("mismatch")
+		})
+		if !rs.deviceMismatch("u1", "dev") {
+			t.Fatal("expected mismatch")
+		}
+	})
+
+	t.Run("check success allows", func(t *testing.T) {
+		rs := &RealtimeService{}
+		rs.SetDeviceCheck(func(userID, deviceID string) error {
+			return nil
+		})
+		if rs.deviceMismatch("u1", "dev") {
+			t.Fatal("expected allow")
+		}
+	})
+}
+
+func TestOngoingImport(t *testing.T) {
+	t.Run("nil check allows", func(t *testing.T) {
+		rs := &RealtimeService{}
+		ongoing, err := rs.ongoingImport("u1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ongoing {
+			t.Fatal("expected allow")
+		}
+	})
+
+	t.Run("ongoing", func(t *testing.T) {
 		rs := &RealtimeService{}
 		rs.SetOngoingCheck(func(userID string) (bool, error) {
 			return true, nil
 		})
-		rr := httptest.NewRecorder()
-		if !rs.rejectOngoingImport(rr, "u1") {
-			t.Fatal("expected reject")
+		ongoing, err := rs.ongoingImport("u1")
+		if err != nil {
+			t.Fatal(err)
 		}
-		if rr.Code != http.StatusForbidden {
-			t.Fatalf("status = %d, want 403", rr.Code)
+		if !ongoing {
+			t.Fatal("expected ongoing")
 		}
 	})
 
-	t.Run("not ongoing allows", func(t *testing.T) {
+	t.Run("not ongoing", func(t *testing.T) {
 		rs := &RealtimeService{}
 		rs.SetOngoingCheck(func(userID string) (bool, error) {
 			return false, nil
 		})
-		rr := httptest.NewRecorder()
-		if rs.rejectOngoingImport(rr, "u1") {
+		ongoing, err := rs.ongoingImport("u1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ongoing {
 			t.Fatal("expected allow")
 		}
 	})

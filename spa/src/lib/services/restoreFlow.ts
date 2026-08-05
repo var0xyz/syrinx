@@ -87,6 +87,19 @@ export function isFinishRecoveryForbiddenMessage(message: string): boolean {
   return FINISH_RECOVERY_RE.test(message);
 }
 
+export function isDeviceMismatchError(message: string): boolean {
+  return /device mismatch/i.test(message);
+}
+
+/**
+ * Device binding rejected this browser — clear session identity only (not IndexedDB).
+ */
+export function handleDeviceMismatch(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('userId');
+  void authService.clearSession();
+}
+
 /**
  * Optional API 403 fallback: server still has ongoing_recoveries. Ensure a
  * local recovery run and send the user to the recovery UI.

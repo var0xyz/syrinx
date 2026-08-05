@@ -3,6 +3,7 @@ import { cryptoService } from './crypto';
 import { dbService } from './db';
 import { apiService } from './api';
 import { authService } from './auth';
+import { ensureDeviceId } from './deviceId';
 import { localStorageService } from './localstorage';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
 import { revocationRepository } from '$lib/repositories/revocation';
@@ -309,9 +310,19 @@ async function restoreItem(storeName: string, item: unknown): Promise<void> {
  * Signed stores go through repository puts (real verifiers).
  */
 export async function writeBackup(backup: BackupPayload): Promise<void> {
+  const preservedDeviceId =
+    typeof localStorage !== 'undefined' ? localStorage.getItem('deviceId') : null;
+
   const ls = backup.localStorage ?? {};
   for (const [key, value] of Object.entries(ls)) {
+    if (key === 'deviceId') continue;
     localStorage.setItem(key, value);
+  }
+
+  if (preservedDeviceId) {
+    localStorage.setItem('deviceId', preservedDeviceId);
+  } else {
+    ensureDeviceId();
   }
 
   await dbService.init();

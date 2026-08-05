@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"syrinx/coverage"
+	"syrinx/identity"
 	"syrinx/signing"
 )
 
@@ -18,7 +19,7 @@ type SaveIdentityResult struct {
 
 // SaveOwnIdentity upserts a verified own-claim identity + nest. Clears
 // unclaimed_accounts and records the user in ongoing_recoveries.
-func SaveOwnIdentity(db *sql.DB, profile Profile, flat []FlatKey) (*SaveIdentityResult, error) {
+func SaveOwnIdentity(db *sql.DB, profile Profile, flat []FlatKey, deviceID string) (*SaveIdentityResult, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return nil, err
@@ -40,6 +41,11 @@ func SaveOwnIdentity(db *sql.DB, profile Profile, flat []FlatKey) (*SaveIdentity
 	}
 	if err := drainPendingFollows(tx, profile.ID); err != nil {
 		return nil, err
+	}
+	if deviceID != "" {
+		if err := bindClaimDeviceTx(tx, profile.ID, deviceID, profile.ServerSignature.Timestamp.UTC()); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -412,4 +418,25 @@ func drainPendingFollows(tx *sql.Tx, targetUserID string) error {
 		return fmt.Errorf("delete pending follows: %w", err)
 	}
 	return nil
+}
+
+// bindClaimDeviceTx binds the claiming device in the own-identity claim transaction.
+func bindClaimDeviceTx(tx *sql.Tx, userID, deviceID string, now time.Time) error {
+	deviceID, err := identity.ParseDeviceID(deviceID)
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE user_devices SET revoked_at = $2
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID, now); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO user_devices (user_id, device_id, linked_at, revoked_at)
+		VALUES ($1, $2, $3, NULL)
+	`, userID, deviceID, now)
+	return err
 }

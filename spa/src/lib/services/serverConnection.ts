@@ -1,5 +1,6 @@
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
+import { ensureDeviceId } from './deviceId';
 
 declare const md5: (str: string) => string;
 
@@ -102,6 +103,7 @@ class ServerConnection {
       url.searchParams.set('fingerprint', fingerprint);
       url.searchParams.set('timestamp', timestamp);
       url.searchParams.set('signature', signature);
+      url.searchParams.set('deviceId', ensureDeviceId());
 
       console.log('ServerConnection: connecting...');
       this.ws = new WebSocket(url.toString());

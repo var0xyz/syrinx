@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -240,7 +240,7 @@ import rebind.
 7. **Rebind endpoint exempt** from device-match middleware (chicken-egg).
 8. **Distinct client-visible error** for device mismatch vs import-gate
    “finish recovery” (structured body preferred, e.g.
-   `{ "error": "device_mismatch" }` vs `{ "error": "finish_recovery" }`).
+   `{ "error": "Device mismatch: this session is not bound to the active device." }` vs `{ "error": "Finish recovery import first." }`).
    Client: mismatch → clear `userId`; finish-recovery → `/recovery` without
    clearing session identity mid-recovery.
 9. **WS** carries device id and is kicked on rebind.

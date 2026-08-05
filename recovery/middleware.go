@@ -5,6 +5,10 @@ import (
 	"strings"
 )
 
+type errorMessage struct {
+	Error string `json:"error"`
+}
+
 // AllowedDuringImport reports whether path may be used while the caller is in
 // ongoing_recoveries. path is the request URL path (e.g. /api/server/info).
 func AllowedDuringImport(path string) bool {
@@ -56,7 +60,7 @@ func middleware(userIDKey any, isOngoing func(userID string) (bool, error)) func
 				return
 			}
 			if ongoing {
-				http.Error(w, "Forbidden: finish recovery import first", http.StatusForbidden)
+				writeJSON(w, http.StatusForbidden, errorMessage{Error: "Finish recovery import first."})
 				return
 			}
 

@@ -4,6 +4,8 @@
   import { get } from 'svelte/store';
   import { apiService } from '$lib/services/api';
   import { authService } from '$lib/services/auth';
+  import { ensureDeviceId } from '$lib/services/deviceId';
+  import { requestSigner } from '$lib/services/request-signer';
   import {
     assertBackupIdentity,
     decryptBackupFile,
@@ -46,6 +48,12 @@
 
   async function handleRestore() {
     if (!file) return;
+
+    const confirmed = confirm(
+      'Importing this backup will log out any other devices that are signed in with this account. Continue?'
+    );
+    if (!confirmed) return;
+
     restoring = true;
     error = '';
     importSucceeded = false;
@@ -76,6 +84,13 @@
           clearRecoveryRun();
         }
         await writeBackup(backup);
+        const fingerprint = authService.getActiveKeyFingerprint();
+        const passphrase = authService.getPassphrase();
+        if (!fingerprint || !passphrase) {
+          throw new Error('Restored backup is missing key material for device binding.');
+        }
+        await requestSigner.initializeWorker(fingerprint, passphrase);
+        await apiService.bindDevice();
         clearRecoveryRun();
         completeImportRun();
         importSucceeded = true;

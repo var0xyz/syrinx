@@ -9,6 +9,7 @@
 
 import { privateKeyRepository } from '../repositories/privateKey';
 import { authService } from './auth';
+import { deviceIdHeader } from './deviceId';
 
 class RequestSignerService {
   private initialized = false;
@@ -365,6 +366,9 @@ class RequestSignerService {
     signedHeaders.set('X-Syrinx-Signature-Scope', 'body');
     signedHeaders.set('X-Syrinx-Timestamp', timestamp);
     signedHeaders.set('X-Syrinx-Signature', signature);
+    for (const [key, value] of Object.entries(deviceIdHeader())) {
+      signedHeaders.set(key, value);
+    }
 
     return {
       ...options,

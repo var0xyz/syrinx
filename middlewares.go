@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"syrinx/crypto"
+	"syrinx/identity"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -528,15 +530,16 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 			"hx-select",
 			"hx-swap",
 			"hx-target",
+			"hx-trigger",
 			"hx-trigger-name",
 			"hx-trigger-value",
-			"hx-trigger",
 			"X-Requested-With",
-			"X-Syrinx-User-Id",
+			"X-Syrinx-Device-Id",
 			"X-Syrinx-Fingerprint",
 			"X-Syrinx-Signature",
 			"X-Syrinx-Signature-Scope",
 			"X-Syrinx-Timestamp",
+			"X-Syrinx-User-Id",
 		}
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -549,6 +552,53 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 			// Handle preflight requests
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// ===================== //
+//   Device middleware   //
+// ===================== //
+
+type deviceErrorBody struct {
+	Error string `json:"error"`
+}
+
+func writeDeviceError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(deviceErrorBody{Error: message})
+}
+
+func (h *Handlers) deviceMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodOptions {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if r.URL.Path == "/api/users/device" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			userID, ok := r.Context().Value(userIDKey).(string)
+			if !ok || userID == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if err := h.services.db.CheckActiveDevice(userID, r.Header.Get("X-Syrinx-Device-Id")); err != nil {
+				if err == errDeviceMismatch || err == identity.ErrMissingDevice {
+					writeDeviceError(w, http.StatusForbidden, "Device mismatch: this session is not bound to the active device.")
+					return
+				}
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 				return
 			}
 

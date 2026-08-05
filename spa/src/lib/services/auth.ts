@@ -1,4 +1,5 @@
 import { get } from 'svelte/store';
+import { deviceIdHeader } from './deviceId';
 import type * as api from '$lib/types/api';
 import { requestSigner } from './request-signer';
 import { isImportInProgress } from './importRun';
@@ -162,7 +163,10 @@ export class AuthService {
 
     const response = await fetch('/api/users/signup', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...deviceIdHeader(),
+      },
       body: formData.toString()
     });
 
