@@ -300,7 +300,7 @@ func main() {
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")
-	api.HandleFunc("/account-recovery/bootstrap", h.AccountRecoveryBootstrap).Methods("POST")
+	api.HandleFunc("/account-recovery/bootstrap", h.BootstrapAccountRecovery).Methods("POST")
 	api.HandleFunc("/account-recovery/bootstrap", h.noop).Methods("OPTIONS")
 
 	// WebSocket Router (must be before catch-all SPA handler)

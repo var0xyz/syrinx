@@ -2154,14 +2154,14 @@ type accountRecoveryChallengeResponse struct {
 	Challenge int64 `json:"challenge"`
 }
 
-type accountRecoveryBootstrapRequest struct {
+type bootstrapAccountRecoveryRequest struct {
 	Challenge   int64  `json:"challenge"`
 	UserID      string `json:"userID"`
 	Fingerprint string `json:"fingerprint"`
 	Signature   string `json:"signature"`
 }
 
-type accountRecoveryBootstrapResponse struct {
+type bootstrapAccountRecoveryResponse struct {
 	Profile   User     `json:"profile"`
 	Following []string `json:"following"`
 	TipReedID *string  `json:"tipReedID"`
@@ -2174,8 +2174,8 @@ func (h *Handlers) AccountRecoveryChallenge(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func (h *Handlers) AccountRecoveryBootstrap(w http.ResponseWriter, r *http.Request) {
-	var req accountRecoveryBootstrapRequest
+func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Request) {
+	var req bootstrapAccountRecoveryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
@@ -2254,7 +2254,7 @@ func (h *Handlers) AccountRecoveryBootstrap(w http.ResponseWriter, r *http.Reque
 		reedIDs = []string{}
 	}
 
-	writeResponse(w, http.StatusOK, accountRecoveryBootstrapResponse{
+	writeResponse(w, http.StatusOK, bootstrapAccountRecoveryResponse{
 		Profile:   *profile,
 		Following: following,
 		TipReedID: tipReedID,
