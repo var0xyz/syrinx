@@ -15,6 +15,16 @@ import (
 	pb "syrinx/proto"
 )
 
+type errorMessage struct {
+	Error string `json:"error"`
+}
+
+func rejectConnection(w http.ResponseWriter, reason string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_ = json.NewEncoder(w).Encode(errorMessage{Error: reason})
+}
+
 // RealtimeService represents the main realtime service
 type RealtimeService struct {
 	connManager   *ConnectionManager
@@ -23,6 +33,7 @@ type RealtimeService struct {
 	crypto        *crypto.Service
 	allowedOrigin string
 	ongoingCheck  func(userID string) (bool, error)
+	deviceCheck   func(userID, deviceID string) error
 }
 
 // NewService creates a new realtime service
@@ -47,24 +58,28 @@ func (rs *RealtimeService) SetOngoingCheck(check func(userID string) (bool, erro
 	rs.ongoingCheck = check
 }
 
-// rejectOngoingImport writes an error response and returns true when the user
-// must finish recovery import before opening a WebSocket.
-func (rs *RealtimeService) rejectOngoingImport(w http.ResponseWriter, userID string) bool {
-	if rs.ongoingCheck == nil {
+// SetDeviceCheck installs the active-device check used after WebSocket auth succeeds.
+func (rs *RealtimeService) SetDeviceCheck(check func(userID, deviceID string) error) {
+	rs.deviceCheck = check
+}
+
+// DisconnectUser closes all WebSocket connections for a user (device rebind kick).
+func (rs *RealtimeService) DisconnectUser(userID string) {
+	rs.connManager.DisconnectUser(userID)
+}
+
+func (rs *RealtimeService) deviceMismatch(userID, deviceID string) bool {
+	if rs.deviceCheck == nil {
 		return false
 	}
-	ongoing, err := rs.ongoingCheck(userID)
-	if err != nil {
-		log.Error().Err(err).Str("userID", userID).Msg("Import gate check failed")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return true
+	return rs.deviceCheck(userID, deviceID) != nil
+}
+
+func (rs *RealtimeService) ongoingImport(userID string) (bool, error) {
+	if rs.ongoingCheck == nil {
+		return false, nil
 	}
-	if ongoing {
-		log.Info().Str("userID", userID).Msg("WebSocket rejected: ongoing recovery import")
-		http.Error(w, "Forbidden: finish recovery import first", http.StatusForbidden)
-		return true
-	}
-	return false
+	return rs.ongoingCheck(userID)
 }
 
 // Start starts the realtime service
@@ -406,7 +421,21 @@ func (rs *RealtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		Str("userID", userID).
 		Msg("WebSocket authentication successful")
 
-	if rs.rejectOngoingImport(w, userID) {
+	deviceID := r.URL.Query().Get("deviceId")
+	if rs.deviceMismatch(userID, deviceID) {
+		rejectConnection(w, "Device mismatch: this session is not bound to the active device.")
+		return
+	}
+
+	ongoing, err := rs.ongoingImport(userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Import gate check failed")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if ongoing {
+		log.Info().Str("userID", userID).Msg("WebSocket rejected: ongoing recovery import")
+		rejectConnection(w, "Finish recovery import first.")
 		return
 	}
 

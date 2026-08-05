@@ -566,6 +566,22 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (created_by, id)
 	);`
 
+	// Device binding — append-only history; exactly one active row per user.
+	createUserDevicesTable := `
+	CREATE TABLE IF NOT EXISTS user_devices (
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		device_id TEXT NOT NULL,
+		linked_at TIMESTAMPTZ NOT NULL,
+		revoked_at TIMESTAMPTZ NULL,
+
+		PRIMARY KEY (user_id, device_id, linked_at)
+	);`
+
+	createUserDevicesIndexes := `
+	CREATE UNIQUE INDEX IF NOT EXISTS user_devices_one_active_per_user
+		ON user_devices (user_id) WHERE revoked_at IS NULL;
+	`
+
 	queries := []string{
 		// Servers
 		createServersTable,
@@ -637,6 +653,10 @@ func InitDB(db *sql.DB) error {
 
 		// Invites
 		createInvitesTable,
+
+		// Device binding
+		createUserDevicesTable,
+		createUserDevicesIndexes,
 	}
 
 	for i, query := range queries {

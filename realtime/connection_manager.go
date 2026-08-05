@@ -106,6 +106,34 @@ func (cm *ConnectionManager) unregisterClient(client *Client) bool {
 	return stillOnline
 }
 
+// DisconnectUser closes every active WebSocket for userID (e.g. after device rebind).
+func (cm *ConnectionManager) DisconnectUser(userID string) {
+	cm.mutex.Lock()
+	userConns, exists := cm.userConnections[userID]
+	if !exists || len(userConns) == 0 {
+		cm.mutex.Unlock()
+		return
+	}
+	clients := make([]*Client, 0, len(userConns))
+	for conn, client := range userConns {
+		delete(userConns, conn)
+		cm.clearReedSubscriptions(client)
+		cm.clearPipeSubscriptions(client)
+		clients = append(clients, client)
+	}
+	delete(cm.userConnections, userID)
+	cm.mutex.Unlock()
+
+	for _, client := range clients {
+		client.conn.Close()
+	}
+
+	log.Info().
+		Str("userID", userID).
+		Int("disconnected", len(clients)).
+		Msg("Disconnected user WebSocket clients")
+}
+
 // SendToUser sends a JSON-encoded message to every active connection for the user.
 // Delivering to all avoids losing messages when a superseded socket is still
 // briefly registered; clients that already closed a socket simply drop the write.

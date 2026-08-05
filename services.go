@@ -15,9 +15,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"syrinx/crypto"
 	"syrinx/coverage"
+	"syrinx/crypto"
 	"syrinx/deletion"
+	"syrinx/identity"
 	"syrinx/ids"
 	"syrinx/invites"
 	"syrinx/recovery"
@@ -418,6 +419,7 @@ type SignupInput struct {
 	// InvitedBy is the inviter userID bound into ProfileSignature (empty if none).
 	// Must match the invite resolved inside the signup transaction.
 	InvitedBy string
+	DeviceID  string
 }
 
 // LookupPendingInvite resolves invite id + fragment secret for pre-signup
@@ -548,6 +550,12 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 
 	if err := coverage.BumpActiveUsers(tx, 1); err != nil {
 		return nil, err
+	}
+
+	if in.DeviceID != "" {
+		if err := s.BindDeviceTx(tx, in.UserID, in.DeviceID, in.MemberSince); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -1786,4 +1794,78 @@ func (s *MarkdownService) ParseMarkdown(reed string) string {
 	reed = regexp.MustCompile(`\[(.*?)\]\(.*?\)`).ReplaceAllString(reed, "$1")
 
 	return reed
+}
+
+// ================= //
+//   DeviceService   //
+// ================= //
+
+var (
+	errDeviceMismatch = errors.New("device mismatch")
+)
+
+func (s *DataService) GetActiveDeviceID(userID string) (string, error) {
+	var deviceID string
+	err := s.db.QueryRow(`
+		SELECT device_id FROM user_devices
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID).Scan(&deviceID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return deviceID, nil
+}
+
+func (s *DataService) BindDeviceTx(tx *sql.Tx, userID, deviceID string, now time.Time) error {
+	deviceID, err := identity.ParseDeviceID(deviceID)
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE user_devices SET revoked_at = $2
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID, now); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`
+		INSERT INTO user_devices (user_id, device_id, linked_at, revoked_at)
+		VALUES ($1, $2, $3, NULL)
+	`, userID, deviceID, now); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *DataService) BindDevice(userID, deviceID string, now time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := s.BindDeviceTx(tx, userID, deviceID, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *DataService) CheckActiveDevice(userID, presented string) error {
+	presented, err := identity.ParseDeviceID(presented)
+	if err != nil {
+		return err
+	}
+	active, err := s.GetActiveDeviceID(userID)
+	if err != nil {
+		return err
+	}
+	if active == "" || active != presented {
+		return errDeviceMismatch
+	}
+	return nil
 }

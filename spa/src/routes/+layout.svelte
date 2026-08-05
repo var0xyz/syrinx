@@ -8,6 +8,7 @@
   import { initializePWA, onReconnect } from '$lib/services/pwa';
   import { refreshServerInfo } from '$lib/services/serverInfo';
   import { authService } from '$lib/services/auth';
+  import { ensureDeviceId } from '$lib/services/deviceId';
   import { enforceImportGate } from '$lib/services/restoreFlow';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { dbService } from '$lib/services/db';
@@ -56,6 +57,17 @@
 
   afterNavigate(({ to }) => {
     if (to) enforceImportGate(to.url.pathname);
+  });
+
+  onMount(() => {
+    ensureDeviceId();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (event) => {
+        if (event.key === 'userId' && event.newValue === null && event.oldValue) {
+          void authService.clearSession();
+        }
+      });
+    }
   });
 
   onMount(async () => {

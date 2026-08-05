@@ -178,6 +178,8 @@ func main() {
 	log.Debug().Msg("Initializing handlers...")
 	h := NewHandlers(services, cfg, broadcastChan, *signingKey)
 	h.SetPipeTagFilter(realtimeService.FilterSubscribedPipeTags)
+	h.SetKickUserWS(realtimeService.DisconnectUser)
+	realtimeService.SetDeviceCheck(dataService.CheckActiveDevice)
 	log.Info().Msg("[OK] Handlers initialized successfully")
 
 	log.Debug().Msg("Setting up router...")
@@ -191,6 +193,11 @@ func main() {
 	api.Use(loggingMiddleware)
 	api.Use(h.CORSMiddleware(cfg.AllowedOrigin))
 	api.Use(h.signatureAuthMiddleware("/api"))
+	if cfg.RecoveryMode {
+		realtimeService.SetOngoingCheck(dataService.IsOngoing)
+		api.Use(recovery.Middleware(userIDKey, dataService.IsOngoing))
+	}
+	api.Use(h.deviceMiddleware())
 	api.Use(h.responseSignerMiddleware(signingKey.Armor))
 
 	api.HandleFunc("/server/info", h.GetServerInfo).Methods("GET")
@@ -214,6 +221,9 @@ func main() {
 	api.HandleFunc("/users/me", h.UpdateUser).Methods("PUT")
 	api.HandleFunc("/users/me", h.DeleteMe).Methods("DELETE")
 	api.HandleFunc("/users/me", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/users/device", h.BindDevice).Methods("POST")
+	api.HandleFunc("/users/device", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/users/{userID}/profile", h.GetUserProfile).Methods("GET")
 	api.HandleFunc("/users/{userID}/profile", h.noop).Methods("OPTIONS")
@@ -305,8 +315,6 @@ func main() {
 				log.Warn().Msg(fmt.Sprintf("[OK] %d unclaimed accounts", unclaimedCount))
 			}
 		}
-		realtimeService.SetOngoingCheck(dataService.IsOngoing)
-		api.Use(recovery.Middleware(userIDKey, dataService.IsOngoing))
 		recovery.RegisterRoutes(api, recovery.Deps{
 			DB:        db,
 			Crypto:    cryptoService,
