@@ -241,6 +241,10 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
+	if userID == rootUserID {
+		writeResponse(w, http.StatusBadRequest, "userID is reserved")
+		return
+	}
 	if !ids.Valid(userID) {
 		writeResponse(w, http.StatusBadRequest, "Invalid userID")
 		return

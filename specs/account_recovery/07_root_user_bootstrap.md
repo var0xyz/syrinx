@@ -71,8 +71,8 @@ Empty DB without passphrase is fatal.
 5. Build keys-only `BackupPayload` ([01](01_key_export.md)): `privateKeys`,
    `publicKeys`, identity `localStorage` subset (`userId`, `keyFingerprint`,
    `keyPassphrase`, `serverId`, `serverName`).
-6. Gzip + encrypt → `syrinx-1-<timestamp>.sxi.gpg`
-   (`ROOT_KEY_EXPORT_PATH` optional).
+6. Gzip + encrypt → `syrinx-1-<timestamp>.sxi.gpg` in cwd, or under
+   `ROOT_KEY_EXPORT_PATH` when set (directory only; filename is fixed).
 7. Discard private key from memory; never persist it.
 8. Log path; remind operator to remove env var and restart.
 9. **Exit 0** — no HTTP on this boot.
@@ -99,7 +99,7 @@ Subsequent bootstraps for user `1` return the existing profile.
 | Variable | Meaning |
 |----------|---------|
 | `ROOT_KEY_EXPORT_PASSPHRASE` | Encrypts `.sxi.gpg`; **unset after mint**; panic if set when users exist |
-| `ROOT_KEY_EXPORT_PATH` | Optional output path |
+| `ROOT_KEY_EXPORT_PATH` | Optional output **directory** (filename is always `syrinx-1-<timestamp>.sxi.gpg`) |
 
 ### Admin recover loop
 

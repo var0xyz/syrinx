@@ -238,6 +238,28 @@ func (s *Service) Sign(message, privateKey string) (string, error) {
 	return armoredBuf.String(), nil
 }
 
+// EncryptBackup symmetrically encrypts plaintext for SPA identity/full backup
+// files (binary OpenPGP message, compatible with openpgp.js encryptBackup).
+func (s *Service) EncryptBackup(plaintext []byte, password string) ([]byte, error) {
+	if password == "" {
+		return nil, fmt.Errorf("backup password must not be empty")
+	}
+	var out bytes.Buffer
+	config := &packet.Config{}
+	w, err := openpgp.SymmetricallyEncrypt(&out, []byte(password), nil, config)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt backup: %w", err)
+	}
+	if _, err := w.Write(plaintext); err != nil {
+		_ = w.Close()
+		return nil, fmt.Errorf("encrypt backup: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("encrypt backup: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
 // VerifySignature verifies a detached signature
 func (s *Service) VerifySignature(message, signature, publicKey string) error {
 	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
