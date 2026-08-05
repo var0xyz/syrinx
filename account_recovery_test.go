@@ -29,17 +29,17 @@ func TestAccountRecoveryChallenge(t *testing.T) {
 	}
 }
 
-func TestAccountRecoveryBootstrap_staleChallenge(t *testing.T) {
+func TestBootstrapAccountRecovery_staleChallenge(t *testing.T) {
 	h := &Handlers{services: &Services{}}
 	fixed := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
-	body, _ := json.Marshal(accountRecoveryBootstrapRequest{
+	body, _ := json.Marshal(bootstrapAccountRecoveryRequest{
 		Challenge:   fixed.Unix() - 120,
 		UserID:      "u1",
 		Fingerprint: "AAA",
 		Signature:   "c2ln",
 	})
 	rr := httptest.NewRecorder()
-	h.AccountRecoveryBootstrap(rr, httptest.NewRequest(http.MethodPost, "/api/account-recovery/bootstrap", bytes.NewReader(body)))
+	h.BootstrapAccountRecovery(rr, httptest.NewRequest(http.MethodPost, "/api/account-recovery/bootstrap", bytes.NewReader(body)))
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}

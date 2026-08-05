@@ -541,7 +541,7 @@ export const apiService = {
   },
 
   /** Unauthenticated: prove active key possession; returns bootstrap payload. */
-  async accountRecoveryBootstrap(
+  async bootstrapAccountRecovery(
     body: api.AccountRecoveryBootstrapRequest
   ): Promise<api.AccountRecoveryBootstrapResponse> {
     return request<api.AccountRecoveryBootstrapResponse>('/account-recovery/bootstrap', {
