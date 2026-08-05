@@ -31,11 +31,45 @@ export type BackupPayload = {
   };
 };
 
-const BACKUP_FILENAME_RE = /^syrinx-.+\.sxb\.gz\.gpg$/i;
+const FULL_BACKUP_FILENAME_RE = /^syrinx-.+\.sxb\.gpg$/i;
+const IDENTITY_BACKUP_FILENAME_RE = /^syrinx-.+\.sxi\.gpg$/i;
 
-export function isBackupFilename(name: string): boolean {
-  return BACKUP_FILENAME_RE.test(name);
+/** Strip spurious suffixes some browsers append to unrecognized extensions. */
+export function normalizeExportFilename(name: string): string {
+  let normalized = name.trim();
+  while (/\.(com|download)$/i.test(normalized)) {
+    normalized = normalized.replace(/\.(com|download)$/i, '');
+  }
+  return normalized;
 }
+
+export function isFullBackupFilename(name: string): boolean {
+  return FULL_BACKUP_FILENAME_RE.test(normalizeExportFilename(name));
+}
+
+export function isIdentityBackupFilename(name: string): boolean {
+  return IDENTITY_BACKUP_FILENAME_RE.test(normalizeExportFilename(name));
+}
+
+/** Full (`.sxb.gpg`) or identity (`.sxi.gpg`) Syrinx export. */
+export function isBackupFilename(name: string): boolean {
+  const n = normalizeExportFilename(name);
+  return isFullBackupFilename(n) || isIdentityBackupFilename(n);
+}
+
+export type BackupSaveKind = 'full' | 'identity';
+
+const SAVE_FILE_TYPES: Record<BackupSaveKind, { description: string; extensions: string[] }> = {
+  full: {
+    description: 'Syrinx full backup',
+    // Include `.gpg` — browsers recognize it; avoids spurious `.com` suffixes.
+    extensions: ['.gpg', '.sxb.gpg'],
+  },
+  identity: {
+    description: 'Syrinx identity backup',
+    extensions: ['.gpg', '.sxi.gpg'],
+  },
+};
 
 async function compressGzip(data: Uint8Array): Promise<Uint8Array> {
   const stream = new CompressionStream('gzip');
@@ -78,18 +112,20 @@ export async function compressBackupPayload(payload: BackupPayload): Promise<Uin
 export async function encryptAndSaveBackup(
   compressed: Uint8Array,
   password: string,
-  filename: string
+  filename: string,
+  kind: BackupSaveKind = 'full'
 ): Promise<boolean> {
   const encryptedData = await cryptoService.encryptBackup(compressed, password);
+  const fileType = SAVE_FILE_TYPES[kind];
 
   if ('showSaveFilePicker' in window) {
     try {
       const fileHandle = await (window as any).showSaveFilePicker({
         suggestedName: filename,
         types: [{
-          description: 'Syrinx Encrypted Backup',
-          accept: { 'application/octet-stream': ['.sxb.gz.gpg'] }
-        }]
+          description: fileType.description,
+          accept: { 'application/octet-stream': fileType.extensions },
+        }],
       });
       const writable = await fileHandle.createWritable();
       await writable.write(new Blob([encryptedData], { type: 'application/octet-stream' }));

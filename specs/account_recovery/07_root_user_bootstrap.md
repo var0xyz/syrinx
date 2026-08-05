@@ -6,9 +6,8 @@ Proposed.
 
 ## Depends on
 
-[01](01_key_export.md) (`.sxk.gpg` shape), [04](04_spa_keys_only_restore.md)
-(keys-only `/import` consumes the exported artifact). Server minting can
-land before 04; operators cannot finish the loop until 04 exists.
+[01](01_key_export.md) (`.sxi.gpg` identity backup shape), [04](04_spa_keys_only_restore.md)
+(keys-only `/import` fork). Server bootstrap can land before 04.
 
 ## Context
 
@@ -18,22 +17,22 @@ then locking the door — which invites race windows and never yields a
 stable, recognizable “this is the root account” identity.
 
 Account recovery already teaches the SPA to install a session from **keys
-only** while the server already holds the profile. If the server **mints**
-one reserved account at bootstrap and operators **download** that key
-pair (ops CLI), the admin can “recover” into an empty root user without
-opening signup for everyone.
+only** while the server already holds the profile. On a **fresh empty
+database**, the server must mint one reserved root account, write a
+**`.sxi.gpg`** identity backup to disk, and **never persist the root private
+key**. The admin imports that file via keys-only `/import` without opening
+signup for everyone.
 
 ## Scope
 
-- On first healthy boot (no `users` row yet, not `RECOVERY_MODE`),
-  automatically create a **root** user with **`id = "1"`**, a server-generated
-  OpenPGP key pair, and a fully countersigned identity record (same trust
-  path as signup).
-- Hold the root **private** key only long enough for operators to export it;
-  expose export via **`ops`** (same binary family as identity bundle export).
-- Export artifact **must** be a valid **`.sxk.gpg`** (version 1 plaintext from
-  [01](01_key_export.md)) so `/import` keys-only ([04](04_spa_keys_only_restore.md))
-  works unchanged.
+- On first healthy boot (`SELECT COUNT(*) FROM users = 0`, not
+  `RECOVERY_MODE`), **require** a file-export passphrase and run a
+  **one-shot root bootstrap**: mint `id = "1"`, countersign profile + key
+  (same trust path as signup), write identity `.sxi.gpg`, discard private
+  material, **exit** (do not serve HTTP on that boot).
+- Export artifact **must** match [01](01_key_export.md) — same encrypted
+  `BackupPayload` shape the SPA produces from Backup Keys (identity subset,
+  gzip + OpenPGP). Filename `syrinx-1-<timestamp>.sxi.gpg`.
 - Reserve `id = "1"` forever: `GenerateUserID` / signup must never mint or
   accept it for a normal account.
 - SPA: treat `user.id === "1"` as **root** in the UI (stable badge / chrome —
@@ -47,6 +46,8 @@ opening signup for everyone.
 - Auto-installing root into a browser; export + import stay operator-driven.
 - Changing random user-id generation for everyone else (`ids.New()` stays).
 - Filling root with reeds, follows, or invites at mint time (empty account).
+- A separate `ops export-root-key` command or staged private key on the
+  server (bootstrap is startup-only, one shot).
 
 ## Design
 
@@ -64,71 +65,80 @@ opening signup for everyone.
 can squat the reserved id. Document `"1"` as reserved in `ids` / signup
 validation.
 
-### Boot mint (server)
+### Startup decision table
 
-When `InitDB` / identity boot completes successfully and **all** of:
+After `InitDB` and server identity are ready, **before** binding HTTP:
 
-- `RECOVERY_MODE` is off,
-- `SELECT COUNT(*) FROM users` is `0`,
-- no root private material already staged,
+| `RECOVERY_MODE` | Users | `ROOT_KEY_EXPORT_PASSPHRASE` | Outcome |
+|-----------------|-------|------------------------------|---------|
+| on | any | any | Skip root bootstrap; normal recovery boot |
+| off | ≥ 1 | set | **Panic** — remove env var; root already exists |
+| off | 0 | unset, no TTY | **Panic** — empty DB requires bootstrap passphrase |
+| off | 0 | unset, TTY | Prompt for file passphrase (confirm); bootstrap → exit |
+| off | 0 | set | Bootstrap with env passphrase → exit |
+| off | ≥ 1 | unset | Normal server start |
 
-then mint root in one transaction:
+**Empty database without a passphrase is a fatal configuration error.** A
+Syrinx instance cannot run with zero users; root creation is mandatory and
+explicit.
 
-1. Generate an OpenPGP key pair whose identity embeds `1@<serverID>` (same
+### One-shot bootstrap (empty DB, passphrase available)
+
+When `RECOVERY_MODE` is off and the user table is empty:
+
+1. Resolve the **file passphrase** from `ROOT_KEY_EXPORT_PASSPHRASE` or an
+   interactive prompt (confirm; reject empty).
+2. Generate an OpenPGP key pair whose identity embeds `1@<serverID>` (same
    convention as client signup).
-2. Choose an unlock passphrase for the private key (cryptographically
-   random, high entropy — **not** the server key passphrase). Persist it
-   only alongside the staged private armor for ops export (see below).
-3. Insert `user_keys` + countersignature (same attestation as
-   `AddPublicKey` / signup).
-4. Insert `users` row `id = '1'` with signed profile (user signature over
-   identity payload + server countersignature), `user_fingerprint` = new
-   key, `memberSince` = countersign timestamp.
-5. Stage private armor + unlock passphrase for ops (table or keychain —
-   pick one in implementation; must not be world-readable on disk).
+3. Use the **same string** as the private-key unlock passphrase when
+   armoring the key (automation-friendly; import may still ask for file +
+   unlock separately — operator enters the same value twice).
+4. In one transaction:
+   - Insert `user_keys` + server countersignature (same attestation as
+     signup / `AddPublicKey`).
+   - Insert `users` row `id = '1'` with user-signed profile + server
+     countersignature, `user_fingerprint` = new key, `memberSince` =
+     countersign timestamp.
+5. Build the same identity `BackupPayload` the SPA uses
+   (`buildKeyBackupPayload` equivalent: keys, profile, identity localStorage).
+6. Gzip + symmetric encrypt with the file passphrase.
+7. Write `syrinx-1-<timestamp>.sxi.gpg` to `ROOT_KEY_EXPORT_PATH` if set,
+   else a sensible default under the process working directory (document for
+   Docker: mount a writable volume).
+8. Discard root private key and unlock secret from memory. **Do not** write
+   private material to the database, filesystem, or keychain.
+9. Log where the file was written and that the operator must secure it,
+   **remove `ROOT_KEY_EXPORT_PASSPHRASE` from the environment**, and
+   restart the server before serving traffic.
+10. **Exit 0** — this boot does not start the HTTP server.
 
-If users already exist, **do nothing** (no second root, no overwrite).
+Second bootstrap attempt on an empty DB after a failed partial write is out
+of scope for v1 (operator recreates the DB). Once `id = "1"` exists, bootstrap
+does not run again.
 
-Log a clear **operator warning** until root private material has been
-exported at least once (e.g. `root_key_exported_at` set).
+### Environment variables
 
-### Ops: export root key
+| Variable | Required | Meaning |
+|----------|----------|---------|
+| `ROOT_KEY_EXPORT_PASSPHRASE` | For non-interactive first boot | Encrypts the `.sxi.gpg` file. **Must be unset after bootstrap succeeds.** If still set when user `"1"` exists → panic. |
+| `ROOT_KEY_EXPORT_PATH` | No | Output file path; default `syrinx-1-<timestamp>.sxi.gpg` in cwd |
 
-Add to `ops` (`//go:build ops`), e.g.:
-
-```text
-ops export-root-key [outfile]
-```
-
-Behavior:
-
-- Load staged root private armor + unlock passphrase + fingerprint /
-  `serverID`.
-- Build plaintext JSON matching [01](01_key_export.md) (`version`,
-  `exportedAt`, `userID: "1"`, `serverID`, `fingerprint`,
-  `privateKeyArmor`).
-- Prompt for a **file passphrase** (confirm; reject empty; same weakness
-  warning style as identity-bundle export).
-- Write `syrinx-1-<timestamp>.sxk.gpg` (or `[outfile]`).
-- On success: set `root_key_exported_at`, then **wipe staged private armor
-  and unlock passphrase** from the server (public key + profile remain).
-- Second export without staged material → hard error: “root key already
-  exported / not available; restore from the operator’s `.sxk.gpg` only”.
-
-Makefile target e.g. `make export-root-key`. Document in ops help and
-[`docs/operators.md`](../../docs/operators.md): prefer
-`SIGNUP_MODE=closed|invite` from day one; bootstrap root via export +
-keys-only import instead of briefly opening signup.
+Do not reuse `SERVER_KEY_PASSPHRASE`. Document in `.env.example` (commented)
+and [`docs/operators.md`](../../docs/operators.md).
 
 ### Admin recover loop
 
-1. Fresh server boots → root `id = 1` exists (empty).
-2. Operator: `ops export-root-key` → secure the `.sxk.gpg` offline.
-3. Operator opens SPA → “Already a user” → keys-only `/import` with that
-   file ([04](04_spa_keys_only_restore.md)).
-4. Challenge / bootstrap / session install as for any account recovery.
-5. Profile is empty aside from default `root` username; operator updates
-   profile / invites others under invite mode.
+1. Operator prepares empty DB + env (or interactive shell), starts server
+   once → bootstrap writes `.sxi.gpg` and exits.
+2. Operator secures the file offline, **removes** `ROOT_KEY_EXPORT_PASSPHRASE`,
+   restarts server → normal HTTP, root `id = 1` exists (empty profile aside
+   from default `root` username).
+3. Operator opens SPA → “Already a user” → `/import` with that
+   file ([04](04_spa_keys_only_restore.md) when fork exists; today the
+   standard import path accepts `.sxi.gpg`).
+4. Challenge / bootstrap / session install as for any account recovery
+   (profile fetched from server, not from the file).
+5. Operator updates profile / issues invites under `SIGNUP_MODE=invite|closed`.
 
 No signup open required.
 
@@ -147,23 +157,26 @@ signed profile; the badge is UX only.
 
 ### Trust / security notes
 
-- Root private key **exists on the server only until first successful
-  export**. Treat pre-export hosts as holding bootstrap escrow; rotate
-  host access accordingly.
-- Losing the `.sxk.gpg` (or its file passphrase) without a later full
+- Root private key **never persists** on the server — only the public key,
+  countersigned profile, and operator-held `.sxi.gpg`.
+- Losing the `.sxi.gpg` (or its file passphrase) without a later full
   backup loses admin control of `id = 1` the same way any user loses an
   account without keys — there is no second mint.
-- Server signing key ≠ root user key. Export-root never dumps server
-  identity material (that remains `export-identity`).
+- Leaving `ROOT_KEY_EXPORT_PASSPHRASE` set after bootstrap is a
+  misconfiguration; the server refuses to start (panic) until it is removed.
+- Server signing key ≠ root user key. Bootstrap never dumps server identity
+  material (that remains `ops export-identity`).
 
 ## Test plan
 
-- [ ] Empty DB boot creates exactly one user `id = 1` with attested key +
-      profile; second boot does not duplicate.
-- [ ] `RECOVERY_MODE` boot does **not** mint root.
+- [ ] Empty DB + no passphrase + no TTY → panic; no HTTP listener.
+- [ ] Empty DB + env passphrase → user `id = 1` + attested profile; `.sxi.gpg`
+      on disk; no private key in DB; process exits 0.
+- [ ] Second start with user `1` present + env still set → panic.
+- [ ] Second start with user `1` present + env unset → normal server.
+- [ ] `RECOVERY_MODE` boot does **not** run root bootstrap.
 - [ ] `GenerateUserID` / signup never returns or accepts `"1"`.
-- [ ] `ops export-root-key` produces decryptable `.sxk.gpg` matching 01;
-      wipes staged private material; second export fails closed.
+- [ ] Written `.sxi.gpg` decrypts to identity backup payload matching 01.
 - [ ] Keys-only import of that file against the same `serverID` installs
       session as user `1` (04).
 - [ ] SPA shows root affordance iff `id === "1"`.
@@ -171,6 +184,7 @@ signed profile; the badge is UX only.
 
 ## Done when
 
-- Operators can stand up a closed server, export root once, and recover
-  into `id = 1` via existing account-recovery import — without opening
-  signup — and the UI can reliably mark that account as root by id.
+- Operators can stand up a closed server on an empty DB (passphrase via env
+  or prompt), receive a one-time `.sxi.gpg`, restart without the env var,
+  and recover into `id = 1` via keys-only import — without opening signup
+  — and the UI can reliably mark that account as root by id.

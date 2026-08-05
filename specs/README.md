@@ -30,7 +30,7 @@ Each table below has a **Status** column per step. Values:
 | Publish ready    | Proposed    | 00–02                                                |
 | Avatars          | Proposed    | 00–05                                                |
 | Pipes            | Implemented | —                                                    |
-| Account recovery | Proposed    | 00–07                                                |
+| Account recovery | In progress | 01 (identity `.sxi.gpg`); 00, 02–07 proposed       |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Observability    | Proposed    | 00–04                                                |
 | Load testing     | Proposed    | 00–03                                                |
@@ -155,7 +155,7 @@ relay the user’s own reed bodies back.
 | #  | Title                                         | Status   |
 |----|-----------------------------------------------|----------|
 | 00 | Design + tip approaches + restore fork        | Proposed |
-| 01 | Key export format + profile Export key        | Proposed |
+| 01 | Identity export `.sxi.gpg` (Backup Keys)     | Implemented |
 | 02 | Challenge + bootstrap API + rehydration row   | Proposed |
 | 03 | Server-orchestrated own-reed relay + complete | Proposed |
 | 04 | SPA keys-only `/import` fork + session        | Proposed |

@@ -61,7 +61,9 @@
 
     try {
       if (!isBackupFilename(file.name)) {
-        throw new Error('Please select a Syrinx backup file (syrinx-….sxb.gz.gpg).');
+        throw new Error(
+          'Please select a Syrinx backup file (syrinx-….sxb.gpg or syrinx-….sxi.gpg).'
+        );
       }
 
       const backup = await decryptBackupFile(file, password);
@@ -146,8 +148,9 @@
     {:else}
       <h2>Import backup</h2>
       <p class="subtitle">
-        Restore your account from an encrypted <code>syrinx-….sxb.gz.gpg</code> backup
-        created on your previous Syrinx app. You will need the backup password.
+        Restore your account from an encrypted Syrinx backup
+        (<code>syrinx-….sxb.gpg</code> full export or <code>syrinx-….sxi.gpg</code> identity).
+        You will need the backup password.
       </p>
 
       {#if resumeImport}
@@ -161,7 +164,7 @@
         <input
           id="backup-file"
           type="file"
-          accept=".sxb.gz.gpg"
+          accept=".sxb.gpg,.sxi.gpg"
           bind:files
         />
       </div>

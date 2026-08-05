@@ -10,17 +10,17 @@ Proposed.
 
 ## Context
 
-`/import` today is backup-only. Account recovery adds a **keys-only**
-branch on the same route: decrypt `.sxk.gpg` (or paste armor), prove
-possession via bootstrap, install a minimal session, then hand off to
-background rehydration ([05](05_spa_rehydration_publish.md)).
+`/import` today accepts full backups. Account recovery adds an **identity**
+branch on the same route: decrypt `.sxi.gpg` (or fork after decrypt on the
+existing file picker), prove possession via bootstrap, install a minimal
+session, then hand off to background rehydration ([05](05_spa_rehydration_publish.md)).
 
 ## Scope
 
 - Extend `/import` UI: toggle or secondary path **“I only have my keys”**
   vs backup file (do not ask the user to name “account recovery”).
-- Accept `.sxk.gpg` (and optional raw armor + unlock passphrase fallback).
-- File passphrase → decrypt export; key unlock passphrase → unlock armor.
+- Accept `.sxi.gpg` identity backup ([01](01_key_export.md)) — same
+  `BackupPayload` decrypt path as full backup, smaller payload.
 - Validate `serverID` matches this instance; fingerprint is active-looking
   locally.
 - `GET /api/account-recovery/challenge` → sign →
@@ -47,10 +47,9 @@ background rehydration ([05](05_spa_rehydration_publish.md)).
 
 Same page as import. Two modes (tabs or expandable section):
 
-1. **Backup** — existing `.sxb.gz.gpg` flow.
-2. **Keys** — file input `accept` including `.sxk.gpg`, file passphrase,
-   key unlock passphrase (may be one field if we detect they match after
-   unlock attempt — keep two fields for honesty in v1).
+1. **Backup** — existing `.sxb.gpg` flow.
+2. **Identity** — `.sxi.gpg` from Backup Keys; file passphrase → decrypt →
+   account-recovery bootstrap ([02](02_challenge_bootstrap.md)).
 
 Device-takeover confirmation before calling bootstrap (mirror import’s
 future confirm-on-import from recovery 17).
@@ -58,9 +57,8 @@ future confirm-on-import from recovery 17).
 ### Client sequence
 
 ```text
-decrypt .sxk.gpg
-→ assert payload (version, userID, serverID, fingerprint, armor)
-→ unlock private key with key passphrase (fail → error, no writes)
+decrypt .sxi.gpg (or detect identity payload after decrypt)
+→ assertBackupIdentity / extractProfile
 → GET challenge
 → sign challenge with active key
 → POST bootstrap

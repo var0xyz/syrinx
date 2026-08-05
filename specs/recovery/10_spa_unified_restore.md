@@ -41,7 +41,7 @@ The user must not be asked to choose “import” vs “recover”.
 ### Import flow (`/import`)
 
 1. Persist **`importRun`** marker (`started` + timestamp) when import begins.
-2. Select backup file; verify expected extension / naming (e.g. `syrinx-….sxb.gz.gpg`).
+2. Select backup file; verify expected extension / naming (e.g. `syrinx-….sxb.gpg`).
 3. Ask for the backup passphrase; decrypt **in memory** (do not write storage yet).
 4. Extract the countersigned profile (and key material needed later) from the
    backup payload.

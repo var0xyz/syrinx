@@ -31,8 +31,8 @@ file).
 
 ## Scope
 
-- Profile **Export key** control (below Revoke) that produces the key
-  artifact account recovery consumes.
+- Profile **Backup Keys** control that produces the `.sxi.gpg` identity
+  backup account recovery consumes ([01](01_key_export.md)).
 - Extend the “Already a user” / `/import` surface so the user may submit
   either a full backup **or** that key material.
 - Keys-only path: prove possession of the **active** key → install a
@@ -66,24 +66,17 @@ file).
 
 ## Design
 
-### Export key (companion)
+### Identity backup (companion)
 
-On the profile encryption-key section, directly **below** the Revoke Key
-button, add **Export key**.
+Profile **Backup Keys** exports a small identity backup (`.sxi.gpg`) — same
+encrypted backup pipeline as full export, minimal payload: active key,
+countersigned profile, identity localStorage subset
+([01](01_key_export.md)).
 
-- Exports only the **active** private key material needed for account
-  recovery (not a full `.sxb` backup).
-- Protect the file with a passphrase the user chooses at export time
-  (may equal the key unlock passphrase; do not assume they are the same).
-- Suggested artifact: small encrypted file with a distinct extension
-  (e.g. `syrinx-<userID>-<timestamp>.sxk.gpg`) whose plaintext carries at
-  least armored private key, fingerprint, and `userID` / `serverID` so
-  the import form can validate before the challenge.
-- Copy should stress this file **is** account control — store it offline;
-  prefer a full backup when possible.
-
-The keys-only restore form accepts this export (and may also accept raw
-armor + unlock passphrase as a fallback).
+- Protect the file with a passphrase chosen at export time.
+- Filename: `syrinx-<userID>-<timestamp>.sxi.gpg`.
+- Copy should stress this file carries account identity + keys; prefer a
+  full `.sxb.gpg` backup when possible.
 
 ### Entry and fork
 
@@ -93,8 +86,8 @@ The form accepts **one** of:
 
 1. **Full backup** — existing path: decrypt → `POST /api/users/status` →
    write backup → normal session or server-recovery handoff.
-2. **Keys only** — key export file (or armor) + passphrase. No backup
-   file. This is account recovery.
+2. **Identity only** — `.sxi.gpg` from Backup Keys + passphrase. Account
+   recovery path ([04](04_spa_keys_only_restore.md)).
 
 Presence of a backup file vs key material selects the branch. Warn that
 continuing **logs the user out of other devices** (same posture as backup
@@ -115,8 +108,8 @@ flowchart TD
 
 ### What the user brings
 
-- The **active** private key (via Export key artifact or armor).
-- Passphrase to decrypt / unlock it.
+- The **identity backup** (`.sxi.gpg`) or full backup file.
+- Passphrase to decrypt it.
 
 Parse key → fingerprint + `userID` (OpenPGP uid `userID@serverID`) →
 confirm `serverID` matches this instance.
@@ -469,8 +462,8 @@ the project explicitly drops or defers
 
 ### Threat notes (short)
 
-- Active private key possession **is** account control; Export key and
-  keys-only restore make that explicit.
+- Active private key possession **is** account control; identity backup
+  (Backup Keys / `.sxi.gpg`) and account recovery make that explicit.
 - Challenge short-lived and server-bound; only the active on-record key
   verifies.
 - Rehydration targets only the authenticated user id.
@@ -478,8 +471,8 @@ the project explicitly drops or defers
 
 ## Resolved
 
-1. **Export key** under Revoke; dedicated small encrypted key artifact for
-   keys-only restore.
+1. **Identity backup** (Backup Keys → `.sxi.gpg`) for account recovery
+   ([01](01_key_export.md)); same encrypted backup payload, smaller subset.
 2. **Following only** — no followers list to the client.
 3. **Tip-check stays** — publish still names `previousID`
    ([recovery 16](../recovery/16_reed_tip_check.md)). Abolishing the tip
@@ -504,7 +497,7 @@ the project explicitly drops or defers
 
 None blocking implementation steps. Resolved in steps:
 
-1. **Key export shape** → [01](01_key_export.md) (`.sxk.gpg`, versioned JSON).
+1. **Identity export** → [01](01_key_export.md) (`.sxi.gpg`, existing backup payload).
 2. **Missing tip body UX** → [05](05_spa_rehydration_publish.md) (quiet
    banner; no modal wall; keep previousID).
 3. **Challenge routes** → [02](02_challenge_bootstrap.md)

@@ -447,7 +447,7 @@
       };
 
       const compressedData = await compressBackupPayload(exportData);
-      const filename = `syrinx-${user.id}-${timestamp}.sxb.gz.gpg`;
+      const filename = `syrinx-${user.id}-${timestamp}.sxb.gpg`;
       const exported = await encryptAndSaveBackup(compressedData, backupPassword, filename);
 
       if (exported) {
@@ -470,8 +470,8 @@
     try {
       const payload = await buildKeyBackupPayload();
       const compressedData = await compressBackupPayload(payload);
-      const filename = `syrinx-${user.id}-keys-${payload.timestamp}.sxb.gz.gpg`;
-      const saved = await encryptAndSaveBackup(compressedData, password, filename);
+      const filename = `syrinx-${user.id}-${payload.timestamp}.sxi.gpg`;
+      const saved = await encryptAndSaveBackup(compressedData, password, filename, 'identity');
 
       if (saved) {
         notificationStore.success('Keys backed up successfully');
