@@ -938,6 +938,18 @@ func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]inte
 
 	rs.connManager.SendToUser(client.userID, NewRequestAckMsg(requestID, eventID, reedID))
 
+	// dropRequesterAllocation removes a stale holder row when the requester asks for
+	// a reed the server thought they held — they clearly do not have the body locally.
+	_, err := rs.dbService.DeleteReedAllocation(authorID, reedID, requesterID)
+	if err != nil {
+		log.Error().Err(err).
+			Str("authorID", authorID).
+			Str("reedID", reedID).
+			Str("requesterID", requesterID).
+			Msg("Failed to drop requester holder allocation")
+		return
+	}
+
 	holder, err := rs.dbService.GetOnlineReedHolder(authorID, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Str("authorID", authorID).Msg("Failed to get online holder for reed")
