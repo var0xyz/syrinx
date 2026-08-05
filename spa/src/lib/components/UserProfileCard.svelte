@@ -137,7 +137,7 @@
       {/if}
     </div>
     <div class="profile-info">
-      <h2>{user?.username}</h2>
+      <h2 class:root-username={user?.id === '1'}>{user?.username}</h2>
       <div class="user-id-container">
         {#if serverLabel}
           <p class="user-info">{serverLabel}</p>
@@ -255,6 +255,10 @@
     margin: 0;
     color: var(--fg);
     word-break: break-word;
+  }
+
+  .profile-info h2.root-username {
+    font-style: italic;
   }
 
   .user-id-container {
