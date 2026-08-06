@@ -22,40 +22,25 @@
   /** @type {boolean} */
   export let linked = false;
 
-  /** Nesting depth — caps recursive quotes. */
-  export let depth = 0;
-
   /** Optional preview line clamp (composer). */
   export let maxLines = 0;
-
-  const MAX_DEPTH = 6;
 
   let username = '';
   let loading = true;
   /** @type {import('$lib/types/reed').ReedType | null} */
   let displayReed = null;
-  /** @type {import('$lib/types/reed').ReedType | null} */
-  let nestedReply = null;
-  let nestedReplyMissing = false;
-  /** @type {import('$lib/types/reed').ReedType | null} */
-  let nestedEcho = null;
-  let nestedEchoMissing = false;
   let loadFailed = false;
 
   $: icon = type === 'echo' ? '📢' : '💬';
   $: label = type === 'reply' ? 'Replying to ' : '';
   $: borderColor = type === 'echo' ? 'var(--primary)' : '#7c3aed';
   $: reedId = reed?.id ?? '';
-  $: void load(reedId, reedRef, missing, depth);
+  $: void load(reedId, reedRef, missing);
 
-  async function load(_id, ref, isMissing, nestDepth) {
+  async function load(_id, ref, isMissing) {
     loading = true;
     loadFailed = false;
     displayReed = null;
-    nestedReply = null;
-    nestedReplyMissing = false;
-    nestedEcho = null;
-    nestedEchoMissing = false;
     username = '';
 
     if (isMissing) {
@@ -85,6 +70,7 @@
         return;
       }
 
+      // One quote level: unwrap blank-echo chains only (stop at first reed with content).
       const resolved = await resolveBlankEchoChain(source, (authorId, reedId) =>
         reedsService.getReed(authorId, reedId)
       );
@@ -95,27 +81,6 @@
         username = user?.username || resolved.userID;
       } catch {
         username = resolved.userID;
-      }
-
-      if (nestDepth < MAX_DEPTH) {
-        if (resolved.replying) {
-          const parsed = parseReedRef(resolved.replying);
-          if (parsed) {
-            nestedReply = await reedsService.getReed(parsed.authorId, parsed.reedId);
-            nestedReplyMissing = !nestedReply;
-          } else {
-            nestedReplyMissing = true;
-          }
-        }
-        if (resolved.echoing) {
-          const parsed = parseReedRef(resolved.echoing);
-          if (parsed) {
-            nestedEcho = await reedsService.getReed(parsed.authorId, parsed.reedId);
-            nestedEchoMissing = !nestedEcho;
-          } else {
-            nestedEchoMissing = true;
-          }
-        }
       }
     } catch (error) {
       console.error('Error loading quote:', error);
@@ -158,32 +123,8 @@
     >
       <div class="quote-meta">{icon} {label}{username}{#if displayReed.serverSignature?.timestamp} · {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
 
-      {#if nestedReply || nestedReplyMissing}
-        <div class="quote-nest">
-          <svelte:self
-            reed={nestedReply}
-            type="reply"
-            missing={nestedReplyMissing}
-            linked={linked}
-            depth={depth + 1}
-          />
-        </div>
-      {/if}
-
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
-      {/if}
-
-      {#if nestedEcho || nestedEchoMissing}
-        <div class="quote-nest">
-          <svelte:self
-            reed={nestedEcho}
-            type="echo"
-            missing={nestedEchoMissing}
-            linked={linked}
-            depth={depth + 1}
-          />
-        </div>
       {/if}
     </div>
   {:else}
@@ -194,32 +135,8 @@
     >
       <div class="quote-meta">{icon} {label}{username}{#if displayReed.serverSignature?.timestamp} · {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
 
-      {#if nestedReply || nestedReplyMissing}
-        <div class="quote-nest">
-          <svelte:self
-            reed={nestedReply}
-            type="reply"
-            missing={nestedReplyMissing}
-            linked={false}
-            depth={depth + 1}
-          />
-        </div>
-      {/if}
-
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
-      {/if}
-
-      {#if nestedEcho || nestedEchoMissing}
-        <div class="quote-nest">
-          <svelte:self
-            reed={nestedEcho}
-            type="echo"
-            missing={nestedEchoMissing}
-            linked={false}
-            depth={depth + 1}
-          />
-        </div>
       {/if}
     </div>
   {/if}
@@ -254,10 +171,6 @@
     font-size: 0.75rem;
     color: var(--muted);
     margin-bottom: 0.25rem;
-  }
-
-  .quote-nest {
-    margin: 0.4rem 0;
   }
 
   :global(.quote-content) {
