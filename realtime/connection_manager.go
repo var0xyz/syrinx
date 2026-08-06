@@ -226,6 +226,9 @@ func (cm *ConnectionManager) sendProtobufMessage(client *Client, msg *pb.WSMessa
 }
 
 func (c *Client) writeMessage(messageType int, data []byte) error {
+	if c.wsRecordOutbound != nil {
+		c.wsRecordOutbound(messageType, data)
+	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	return c.conn.WriteMessage(messageType, data)

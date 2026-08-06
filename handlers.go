@@ -14,10 +14,12 @@ import (
 	"strings"
 	"time"
 
+	"syrinx/coverage"
 	"syrinx/deletion"
 	"syrinx/identity"
 	"syrinx/ids"
 	"syrinx/invites"
+	"syrinx/observability/metrics"
 	"syrinx/realtime"
 	"syrinx/recovery"
 
@@ -48,6 +50,7 @@ type Handlers struct {
 	cfg           AppConfig
 	broadcastChan chan<- realtime.BroadcastMessage
 	signingKey    Key
+	metrics       metrics.Recorder
 	// filterPipeTags keeps only tags with current pipe listeners (SignReed stash).
 	// Nil means stash all extracted tags (tests / no realtime).
 	filterPipeTags func([]string) []string
@@ -72,7 +75,17 @@ func NewHandlers(services *Services, cfg AppConfig, broadcastChan chan<- realtim
 		cfg:           cfg,
 		broadcastChan: broadcastChan,
 		signingKey:    signingKey,
+		metrics:       metrics.Noop{},
 	}
+}
+
+// SetMetrics installs the business-metrics recorder (no-op when observability is off).
+func (h *Handlers) SetMetrics(rec metrics.Recorder) {
+	if rec == nil {
+		h.metrics = metrics.Noop{}
+		return
+	}
+	h.metrics = rec
 }
 
 // SetPipeTagFilter installs the SignReed hook that intersects extracted tags
@@ -428,6 +441,8 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		Str("username", username).
 		Str("fingerprint", key.Fingerprint).
 		Msg("Identity record created")
+
+	h.metrics.UserCreated(r.Context(), h.cfg.SignupMode)
 
 	writeResponse(w, http.StatusCreated, user)
 }
@@ -804,6 +819,9 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
+
+	noteHas := strings.TrimSpace(note) != ""
+	h.metrics.UserDeleted(r.Context(), userID, noteHas)
 
 	affectedTargets, err := h.services.db.DeleteEchoesByAuthor(userID)
 	if err != nil {
@@ -1419,6 +1437,8 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", fingerprint).
 		Msg("Key revoked successfully")
 
+	h.metrics.KeyRevoked(r.Context(), userID)
+
 	writeResponse(w, http.StatusOK, key)
 }
 
@@ -1483,6 +1503,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	replying := strings.TrimSpace(r.FormValue("replying"))
 
 	if !ReedContentWithinLimits(contentBody) {
+		h.metrics.ReedRejectedLength(r.Context(), len(contentBody), CountMarkdownCharacters(contentBody))
 		writeResponse(w, http.StatusBadRequest, "Reed content exceeds character limits")
 		return
 	}
@@ -1663,6 +1684,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if echoIndexed && echoRef != nil {
+		h.metrics.EchoTargeted(r.Context(), echoRef.AuthorID, echoRef.ReedID)
 		h.broadcastChan <- realtime.BroadcastMessage{
 			Type:   realtime.EchoCountChanged,
 			UserID: echoRef.AuthorID,
@@ -1683,6 +1705,25 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	}
+
+	reedKind := metrics.ReedKindPlain
+	switch {
+	case echoRef != nil:
+		reedKind = metrics.ReedKindEcho
+	case replyRef != nil:
+		reedKind = metrics.ReedKindReply
+	}
+	h.metrics.ReedPublished(r.Context(), metrics.ReedPublishedAttrs{
+		Kind:         reedKind,
+		AuthorID:     userID,
+		ReedID:       reed.ID,
+		TagCount:     len(tags),
+		RawChars:     len(contentBody),
+		VisibleChars: CountMarkdownCharacters(contentBody),
+	})
+	if activeUsers, err := coverage.ActiveUsers(h.services.db.db); err == nil {
+		h.metrics.ReedCoverage(r.Context(), userID, reed.ID, 1, coverage.Percent(1, activeUsers))
 	}
 
 	log.Debug().
@@ -1875,6 +1916,8 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
+
+	h.metrics.ReedDeleted(r.Context(), userID, reedID)
 
 	affectedTargets, err := h.services.db.DeleteEchoIndexForReed(userID, reedID)
 	if err != nil {

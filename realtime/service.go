@@ -1,11 +1,13 @@
 package realtime
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
 
 	"syrinx/crypto"
+	"syrinx/observability/metrics"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -32,6 +34,7 @@ type RealtimeService struct {
 	authService   *AuthService
 	crypto        *crypto.Service
 	allowedOrigin string
+	metrics       metrics.Recorder
 	ongoingCheck  func(userID string) (bool, error)
 	deviceCheck   func(userID, deviceID string) error
 }
@@ -49,7 +52,17 @@ func NewService(db *sql.DB, crypto *crypto.Service, allowedOrigin string) *Realt
 		authService:   authService,
 		crypto:        crypto,
 		allowedOrigin: allowedOrigin,
+		metrics:       metrics.Noop{},
 	}
+}
+
+// SetMetrics installs the business-metrics recorder.
+func (rs *RealtimeService) SetMetrics(rec metrics.Recorder) {
+	if rec == nil {
+		rs.metrics = metrics.Noop{}
+		return
+	}
+	rs.metrics = rec
 }
 
 // SetOngoingCheck installs an optional import-gate check used after WebSocket
@@ -466,6 +479,9 @@ func (rs *RealtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 
 	// Create client and register
 	client := NewClient(conn, userID)
+	client.wsRecordOutbound = func(messageType int, data []byte) {
+		rs.metrics.WSMessage(context.Background(), metrics.DirectionOut, metrics.WSMessageType(messageType, data))
+	}
 	rs.connManager.RegisterClient(client)
 
 	// Mark user as online
@@ -577,6 +593,8 @@ func (rs *RealtimeService) handleClientMessages(client *Client) {
 		}
 
 		// Handle both binary (protobuf) and text (JSON) messages
+		rs.metrics.WSMessage(context.Background(), metrics.DirectionIn, metrics.WSMessageType(messageType, data))
+
 		switch messageType {
 		case websocket.BinaryMessage:
 			rs.handleProtobufMessage(client, data)
@@ -1321,7 +1339,7 @@ func (rs *RealtimeService) FilterSubscribedPipeTags(tags []string) []string {
 }
 
 func (rs *RealtimeService) notifyReedCoverage(authorUserID, reedID string) {
-	percent, err := rs.dbService.GetReedCoveragePercent(authorUserID, reedID)
+	holders, percent, err := rs.dbService.GetReedCoverage(authorUserID, reedID)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -1330,6 +1348,8 @@ func (rs *RealtimeService) notifyReedCoverage(authorUserID, reedID string) {
 			Msg("Failed to load reed coverage for notify")
 		return
 	}
+
+	rs.metrics.ReedCoverage(context.Background(), authorUserID, reedID, holders, percent)
 
 	if err := rs.connManager.BroadcastReedCoverage(map[string]interface{}{
 		"type":            "REED_COVERAGE",

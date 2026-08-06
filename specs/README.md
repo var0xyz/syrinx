@@ -32,7 +32,7 @@ Each table below has a **Status** column per step. Values:
 | Pipes            | Implemented | —                                                    |
 | Account recovery | Implemented | 01–07 implemented                                    |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
-| Observability    | Proposed    | 00–04                                                |
+| Observability    | In progress | 02–03 partial; 05 implemented                        |
 | Load testing     | Proposed    | 00–03                                                |
 | Roles            | Proposed    | 00–02                                                |
 | Federation       | Proposed    | 00–05 (depends on roles)                             |
@@ -246,20 +246,22 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
 | 08 | Nested `userSignature` / `serverSignature` wire         | Implemented |
 | 09 | Verify every signed resource before store               | Implemented |
 
-## Observability (request + DB query tracing)
+## Observability (request + DB query tracing + business metrics)
 
 See [`observability/`](observability/README.md). Closes the gap between the
-existing (unused) OTEL SDK scaffolding in `observability.go` and an actual
-per-request trace with nested DB query spans, landing in the same
-OpenObserve stack that already receives logs and host metrics.
+OTEL SDK wiring in `observability/` and an actual per-request trace with
+nested DB query spans, plus anonymized domain metrics (signups, publishes,
+WS traffic, per-reed coverage), landing in the same OpenObserve stack that
+already receives logs and host metrics.
 
-| #  | Title                                                       | Status   |
-|----|-------------------------------------------------------------|----------|
-| 00 | Design + architecture + locked decisions                    | Proposed |
-| 01 | OTLP trace receiver on the app-host collector (`rpi` repo)  | Proposed |
-| 02 | Wire `SetupObservability` + HTTP request spans              | Proposed |
-| 03 | DB query spans via `otelsql`                                | Proposed |
-| 04 | Thread `context.Context` so DB spans nest under the request | Proposed |
+| #  | Title                                                       | Status        |
+|----|-------------------------------------------------------------|---------------|
+| 00 | Design + architecture + locked decisions                    | Proposed      |
+| 01 | OTLP trace receiver on the app-host collector (`rpi` repo)  | Proposed      |
+| 02 | Wire `SetupObservability` + HTTP request spans              | In progress   |
+| 03 | DB query spans via `otelsql`                                | In progress   |
+| 04 | Thread `context.Context` so DB spans nest under the request | Proposed      |
+| 05 | Custom business metrics (signups, reeds, deletions, WS, coverage)      | Implemented   |
 
 ## Load testing (real browsers, script-driven)
 
@@ -327,7 +329,8 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
   wire changes. Step 01 lives in the `rpi` ops repo and can land any time;
   02→03 can be developed against a local OTLP endpoint before 01 reaches the
   Pi; 04 is the large one and is designed to land incrementally (package by
-  package) rather than as a single change.
+  package) rather than as a single change; 05 (business metrics) depends only
+  on 02's live `MeterProvider` and can land in parallel with 03/04.
 - **Load testing** ([`loadtest/`](loadtest/README.md)) is independent of
   every other track — pure test tooling, no server/SPA wire changes beyond
   the small [01](loadtest/01_shared_flow_helpers.md) extraction. Within

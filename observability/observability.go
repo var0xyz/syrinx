@@ -25,6 +25,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+
+	"syrinx/observability/metrics"
 )
 
 // Manager is either backed by a live OTEL SDK (host was configured at Setup)
@@ -146,6 +148,15 @@ func (m *Manager) Middleware(serverName string) mux.MiddlewareFunc {
 		return func(next http.Handler) http.Handler { return next }
 	}
 	return otelmux.Middleware(serverName)
+}
+
+// Metrics returns a business-metrics recorder backed by OTEL when enabled, or a
+// no-op otherwise.
+func (m *Manager) Metrics() metrics.Recorder {
+	if m == nil || !m.enabled {
+		return metrics.Noop{}
+	}
+	return metrics.New(otel.Meter("syrinx/business"))
 }
 
 // Shutdown flushes and closes the tracer/meter providers. No-op when

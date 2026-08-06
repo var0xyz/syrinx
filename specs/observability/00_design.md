@@ -35,6 +35,11 @@ the DB layer is never instrumented.
 - Spans carry aggregate/structural data only (route template, SQL statement
   shape, durations, status codes) — never user IDs, query argument values,
   or request bodies.
+- **Custom business metrics** ([05](05_custom_metrics.md)): anonymized counters
+  and histograms for signups, account/reed deletions, publishes
+  (plain/echo/reply), echo targeting, key revocations, WebSocket traffic,
+  per-reed holder/coverage snapshots, reed length, and tag counts. User IDs
+  and reed IDs are allowed on metrics; usernames and tag text are not.
 
 ## Non-goals
 
@@ -110,6 +115,8 @@ that merely overlap in time.
 
 ## Privacy rule
 
+### Traces (02–04)
+
 Spans and their attributes must never contain:
 
 - Query argument values (usernames, bios, keys, tokens, etc.) — only the SQL
@@ -122,3 +129,11 @@ Spans and their attributes must never contain:
 If a future need arises to correlate spans back to a specific user's support
 ticket, prefer a short-lived, explicitly-opted-in debug header over
 always-on user tagging.
+
+### Custom metrics (05)
+
+Metrics follow a different, operator-facing rule set — see
+[05 — Privacy rules](05_custom_metrics.md#55-privacy-rules-extends-00). In
+short: **no usernames, tag text, or content**; server-scoped user IDs and
+reed IDs are explicitly allowed so operators can inspect per-reed reach and
+publish shape without PII.
