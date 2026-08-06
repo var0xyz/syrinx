@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -817,6 +818,10 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := h.services.db.DecrementThreadReplyCountsByAuthor(userID); err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error decrementing thread reply counts for removed account")
+	}
+
 	h.broadcastChan <- realtime.BroadcastMessage{
 		Type:     realtime.AccountRemoved,
 		ServerID: serverID,
@@ -1517,7 +1522,20 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	markdown := ReedAsMarkdown(reedID, userID, contentBody, echoing, replying)
+	threadID := ""
+	var thread Thread
+	if replyRef != nil {
+		var err error
+		thread, err = h.services.db.ResolveThreadForParent(*replyRef)
+		if err != nil {
+			log.Error().Err(err).Msg("Error resolving thread")
+			internalServerError(w)
+			return
+		}
+		threadID = thread.ID
+	}
+
+	markdown := ReedAsMarkdown(reedID, userID, contentBody, echoing, replying, threadID)
 
 	user, err := h.services.db.GetUserProfile(userID)
 	if err != nil {
@@ -1612,7 +1630,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	case echoRef != nil:
 		reed, echoIndexed, err = h.services.db.CreateReedWithEcho(r.Context(), createParams, *echoRef)
 	case replyRef != nil:
-		reed, err = h.services.db.CreateReed(r.Context(), createParams)
+		reed, err = h.services.db.CreateReedWithReply(r.Context(), createParams, thread.ID, thread.Root, *replyRef)
 	default:
 		reed, err = h.services.db.CreateReed(r.Context(), createParams)
 	}
@@ -1849,6 +1867,10 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := h.services.db.DecrementThreadReplyCountForReed(userID, reedID); err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error decrementing thread reply count for removed reed")
+	}
+
 	// Keep the reeds row for allocation catch-up (04): reed_allocations FK
 	// cascades on reed delete. Tip/list already exclude reed_removals.
 	h.broadcastChan <- realtime.BroadcastMessage{
@@ -1960,6 +1982,67 @@ func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeResponse(w, http.StatusOK, count)
+}
+
+func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("GetReedReplies request received")
+
+	reedID := mux.Vars(r)["reedID"]
+	userID := mux.Vars(r)["userID"]
+	if userID == "" || reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		return
+	}
+
+	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed")
+		internalServerError(w)
+		return
+	}
+	if result.AccountRemoval != nil {
+		writeResponse(w, http.StatusGone, h.accountRemovalWire(result.AccountRemoval))
+		return
+	}
+	if result.ReedRemoval != nil {
+		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
+		return
+	}
+	if result.Reed == nil {
+		writeResponse(w, http.StatusNotFound, "Post not found")
+		return
+	}
+
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			return
+		}
+		limit = n
+	}
+
+	var before *time.Time
+	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			return
+		}
+		t = t.UTC().Truncate(time.Second)
+		before = &t
+	}
+
+	list, err := h.services.db.ListReplies(userID, reedID, limit, before)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error listing replies")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, list)
 }
 
 // =================== //

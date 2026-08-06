@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed.
+Implemented — **`reed_echoes`** DDL, insert on publish, `CountEchoes`, and
+`GET /reeds/{userID}/{reedID}/echoes`; **`reed_threads`** + **`reed_replies`**,
+reply insert on publish (`InsertReply`), `threadId` header resolution, and
+`GET /reeds/{userID}/{reedID}/replies`. `echoCount` on `GET …/reeds` (spec
+shape) remains open.
 
 ## Depends on
 
@@ -18,7 +22,7 @@ With publish-time ref parsing in place, the server can maintain durable
 
 ## Scope
 
-- DDL for `reed_echoes` and `reed_replies`.
+- DDL for `reed_echoes`, `reed_threads`, and `reed_replies`.
 - Insert rows in the same transaction as `CreateReed` when social refs are
   present.
 - Extend `GET /reeds/{userID}/{reedID}` with `echoCount`.
@@ -39,7 +43,6 @@ With publish-time ref parsing in place, the server can maintain durable
 
 ```sql
 -- One row per echo reed. echoing_reed_id is UNIQUE: a reed echoes at most one target.
--- echoing_* = who/what is doing the echo; echoed_* = who/what is being echoed.
 CREATE TABLE IF NOT EXISTS reed_echoes (
     echoing_user_id VARCHAR(255) NOT NULL REFERENCES users(id),
     echoing_reed_id VARCHAR(255) NOT NULL UNIQUE,
@@ -52,91 +55,87 @@ CREATE TABLE IF NOT EXISTS reed_echoes (
 CREATE INDEX IF NOT EXISTS idx_reed_echoes_echoed_signed
     ON reed_echoes (echoed_user_id, echoed_reed_id, signed_at);
 
--- One row per reply reed. reply_reed_id is UNIQUE: a reed replies to at most one parent.
--- thread_* identifies the root of the whole chain this reply belongs to — see
--- [05](05_thread_reply_counts.md) for how it's resolved and what it's used for.
-CREATE TABLE IF NOT EXISTS reed_replies (
-    parent_user_id VARCHAR(255) NOT NULL,
-    parent_reed_id VARCHAR(255) NOT NULL,
-    thread_user_id VARCHAR(255) NOT NULL,
-    thread_reed_id VARCHAR(255) NOT NULL,
-    reply_user_id  VARCHAR(255) NOT NULL REFERENCES users(id),
-    reply_reed_id  VARCHAR(255) NOT NULL UNIQUE,
-    signed_at      TIMESTAMP NOT NULL,
-    PRIMARY KEY (reply_user_id, reply_reed_id)
+-- One row per conversation thread. Created on the first reply to a root reed.
+-- id is the root reed ref (user@server/reed), same wire form as threadId header.
+CREATE TABLE IF NOT EXISTS reed_threads (
+    id             VARCHAR(255) PRIMARY KEY,
+    root_user_id   VARCHAR(255) NOT NULL,
+    root_reed_id   VARCHAR(255) NOT NULL,
+    reply_count    INT NOT NULL DEFAULT 1,
+    FOREIGN KEY (root_user_id, root_reed_id) REFERENCES reeds(user_id, id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_reed_replies_parent_signed
-    ON reed_replies (parent_user_id, parent_reed_id, signed_at);
+-- One row per reply reed.
+CREATE TABLE IF NOT EXISTS reed_replies (
+    thread_id        VARCHAR(255) NOT NULL REFERENCES reed_threads(id),
+    user_id          VARCHAR(255) NOT NULL,
+    reed_id          VARCHAR(255) NOT NULL UNIQUE,
+    parent_user_id   VARCHAR(255) NOT NULL,
+    parent_reed_id   VARCHAR(255) NOT NULL,
+    timestamp        TIMESTAMP NOT NULL,
+    PRIMARY KEY (user_id, reed_id),
+    FOREIGN KEY (user_id, reed_id) REFERENCES reeds(user_id, id),
+    FOREIGN KEY (parent_user_id, parent_reed_id) REFERENCES reeds(user_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reed_replies_parent_timestamp
+    ON reed_replies (parent_user_id, parent_reed_id, timestamp);
 
 CREATE INDEX IF NOT EXISTS idx_reed_replies_thread
-    ON reed_replies (thread_user_id, thread_reed_id, signed_at);
+    ON reed_replies (thread_id, timestamp);
 ```
 
 No FK to `reeds` — parents may be hard-deleted after removal while index rows
-remain; queries filter via `reed_removals` / `account_removals`. Rows are
+remain; queries filter via `reed_removals` / `account_removals`. Reply rows are
 **never deleted** when the reply itself is removed (needed to render the
-reply as a tombstone in the conversation list); see
-[05](05_thread_reply_counts.md) for what removal actually mutates
-(`reed_threads.reply_count`, not this table).
+reply as a tombstone in the conversation list).
 
-Register DDL in `InitDB` ([`db.go`](../../db.go)).
+### Thread resolution at publish
+
+Reply to parent `P`:
+
+1. If `P` has a `reed_replies` row → inherit `thread_id` from it; load
+   `root_user_id`/`root_reed_id` from `reed_threads`.
+2. Otherwise `P` is the root → canonical `threadId` = ref to `P` (thread row
+   is created on first reply).
+
+The signed `threadId` header must match the server-computed value (signature
+verification). Wrong `threadId` (wrong root, reed not in thread, mid-node
+instead of root ref) → 400. Missing `threadId` when `replying` is set → 400.
+
+All reeds in a thread share the same `thread_id`; listing `reed_replies` by
+`thread_id` yields every reply reed in the conversation for validation.
 
 ### Insert on publish
 
-Inside the `SignReed` transaction (after tip-check lock if
-[recovery 16](../recovery/16_reed_tip_check.md) has landed):
+Inside `SignReed` (after reed creation):
 
 | Parsed ref | Insert |
 |------------|--------|
-| `echoing → (Tuser, Tid)` | `reed_echoes(echoing_user_id=author, echoing_reed_id=newId, echoed=T…, signed_at)` |
-| `replying → (Puser, Pid)` | `reed_replies(parent=…, thread=…, reply_user_id=author, reply_reed_id=newId, signed_at)` — `thread_user_id/thread_reed_id` resolved per [05](05_thread_reply_counts.md), not simply copied from the parent ref |
+| `echoing → (Tuser, Tid)` | `reed_echoes(...)` |
+| `replying → (Puser, Pid)` | `reed_replies(...)` + upsert `reed_threads` (`reply_count` bump gated on new reply row) |
 
-`ON CONFLICT (echoing_user_id, echoing_reed_id)` /
-`ON CONFLICT (reply_user_id, reply_reed_id)` `DO NOTHING` for idempotent
-retries (same reed republication must not duplicate).
-
-Store helpers in `DataService` methods.
+`ON CONFLICT (user_id, reed_id) DO NOTHING` on replies for idempotent retries.
 
 ### Visibility predicate (shared SQL fragment)
 
 A row is **visible** when:
 
-- `reply_reed_id` / `echoing_reed_id` has no row in `reed_removals` for that
-  `(user_id, reed_id)`.
-- `reply_user_id` / `echoing_user_id` has no row in `account_removals`.
+- `reed_id` has no row in `reed_removals` for that `(user_id, reed_id)`.
+- `user_id` has no row in `account_removals`.
 
 Apply to counts and lists.
 
-### `GET /reeds/{userID}/{reedID}` (extend)
-
-Existing JSON gains:
-
-```json
-{
-  "id": "...",
-  "userID": "...",
-  "fingerprint": "...",
-  "timestamp": "...",
-  "echoCount": 3
-}
-```
-
-`echoCount` = visible rows in `reed_echoes` for
-`(echoed_user_id, echoed_reed_id) = (userID, reedID)`.
-
-Auth: same as today (public metadata endpoint for existence checks).
-
 ### `GET /reeds/{userID}/{reedID}/replies`
 
-List **direct replies** to the parent reed.
+List **direct replies** to the parent reed (one level only).
 
 Query params:
 
 | Param | Default | Description |
 |-------|---------|-------------|
 | `limit` | 50 | Max 100 |
-| `before` | — | Cursor: ISO8601 `signed_at` of oldest item already shown (exclusive) |
+| `before` | — | Cursor: ISO8601 `timestamp` of oldest item already shown (exclusive) |
 
 Response `200`:
 
@@ -145,61 +144,32 @@ Response `200`:
   "replies": [
     {
       "userID": "replyAuthorId",
-      "reedID": "replyReedId",
-      "signedAt": "2026-07-27T12:00:00Z",
-      "username": "bob"
+      "reedID": "replyReedId"
     }
   ],
   "hasMore": false
 }
 ```
 
-- Order: `signed_at ASC`, `reply_reed_id ASC` tie-break.
-- `username` from `users` table when available; omit if unknown.
-- Parent removed → still 200 with replies (children are independent reeds).
-- Parent not found (never existed) → 404.
-- Parent removed and caller uses existence check → existing 410 from
-  `GetReed` path; replies endpoint returns 410 when parent has removal cert
-  (consistent with `GetReed`).
-
-Auth: public (metadata only). Bodies require relay + signature auth as today.
-
-### Routes
-
-In [`main.go`](../../main.go):
-
-```
-GET /reeds/{userID}/{reedID}/replies
-```
-
-OPTIONS noop alongside existing reed routes.
+- Order: `timestamp ASC`, `reed_id ASC` tie-break.
+- Parent removed → still 200 with replies.
+- Parent not found → 404.
+- Parent removed → 410 (consistent with `GetReed`).
 
 ## Work items
 
 1. DDL + indexes in `InitDB`.
-2. `InsertEcho` / `InsertReply` store helpers.
-3. Wire into `SignReed` transaction.
-4. `CountEchoes(echoedUser, echoedReed)`.
-5. `ListReplies(parentUser, parentReed, limit, before)`.
-6. Extend `GetReed` handler response.
-7. `ListReplies` handler + route.
-8. Tests:
-   - Publish echo → count increments.
-   - Publish reply → appears in list.
-   - Remove echo/reply reed → excluded from count/list.
-   - Account-remove reply author → excluded.
-   - Pagination `before` cursor.
-   - Idempotent republish does not double-count.
+2. `InsertReply` store helper (reply row + thread upsert).
+3. Wire into `SignReed`.
+4. `ListReplies(parentUser, parentReed, limit, before)`.
+5. `ListReplies` handler + route.
+6. Tests + SPA `threadId` on publish.
 
 ## Risks
 
-- **Hot threads** — very large reply lists need pagination; default 50 is
-  enough for v1 UI with "Load more" in SPA.
-- **Username denormalization** — `username` in list is convenience; may be
-  stale after profile update. Acceptable for preview cards; detail page
-  fetches fresh profile.
+- **Hot threads** — pagination default 50; drill-down navigation for nested replies.
+- **Username denormalization** — convenience field; may be stale after profile update.
 
 ## Parallelism
 
-[03](03_spa_reed_detail.md) can mock API responses while this step is in
-flight.
+[03](03_spa_reed_detail.md) can consume the replies API for the conversation section.

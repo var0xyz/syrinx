@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (design locked; reflected in 01+).
 
 ## Depends on
 

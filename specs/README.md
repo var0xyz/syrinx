@@ -26,7 +26,7 @@ Each table below has a **Status** column per step. Values:
 |------------------|-------------|------------------------------------------------------|
 | Prerequisites    | In progress | 09 (revocation fanout), 11 (notifications, deferred) |
 | Recovery feature | In progress | 16 (reed tip check), 17 (device binding)             |
-| Conversations    | Proposed    | 00–05                                                |
+| Conversations    | In progress | 02 (replies), 03–05                                |
 | Publish ready    | Implemented | —                                                    |
 | Avatars          | Proposed    | 00–05                                                |
 | Pipes            | Implemented | —                                                    |
@@ -93,14 +93,14 @@ See [`invites/`](invites/README.md):
 
 See [`conversations/`](conversations/README.md):
 
-| #  | Title                                                          | Status   |
-|----|----------------------------------------------------------------|----------|
-| 00 | Design + UX model (echo count, one-level drill-down)           | Proposed |
-| 01 | Verify publish payload (form fields); normalize `replying` ref | Proposed |
-| 02 | Echo/reply index tables + list/count APIs                      | Proposed |
-| 03 | Echo count + conversation section on reed detail               | Proposed |
-| 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index)    | Proposed |
-| 05 | Recursive reply counts: thread total + per-reed subtree count  | Proposed |
+| #  | Title                                                          | Status      |
+|----|----------------------------------------------------------------|-------------|
+| 00 | Design + UX model (echo count, one-level drill-down)           | Implemented |
+| 01 | Verify publish payload (form fields); normalize `replying` ref | Implemented |
+| 02 | Echo/reply index tables + list/count APIs                      | In progress |
+| 03 | Echo count + conversation section on reed detail               | Proposed    |
+| 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index)    | Proposed    |
+| 05 | Recursive reply counts: thread total + per-reed subtree count  | Proposed    |
 
 ## Reed network coverage
 
@@ -289,8 +289,9 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 - **Invites feature steps** are independent of recovery; within `invites/`,
   follow that directory's depends-on column (00→05). Step 00 can land alone.
 - **Conversations feature steps** are independent of recovery; within
-  `conversations/`, follow that directory's depends-on column (00→05). Step
-  01 (publish verify) is valuable security hardening on its own.
+  `conversations/`, follow that directory's depends-on column (00→05). Steps
+  00–01 are implemented; 02 is in progress (echo index only). Finish 02
+  (`reed_replies`, `/replies`) before 03/05.
 - **Deletion feature steps** are independent of recovery; within
   `deletion/`, follow that directory's depends-on column. After 00, account
   schema (07) may parallel the reed track; 08 needs 02+04; 09 needs 06+08.

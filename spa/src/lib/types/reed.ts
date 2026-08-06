@@ -14,6 +14,7 @@ export interface ReedType {
   userID: string;
   replying?: string;
   echoing?: string;
+  threadId?: string;
   userSignature?: UserSignature;
   serverSignature?: ServerSignature;
   content: string;
@@ -21,13 +22,14 @@ export interface ReedType {
 }
 
 /** Reconstruct the signed markdown payload from a reed object. */
-export function reedAsMarkdown(reed: Pick<ReedType, 'id' | 'userID' | 'replying' | 'echoing' | 'content'>): string {
+export function reedAsMarkdown(reed: Pick<ReedType, 'id' | 'userID' | 'replying' | 'echoing' | 'threadId' | 'content'>): string {
   const headers: Record<string, string> = {
     id: reed.id,
     userID: reed.userID,
   };
   if (reed.replying) headers.replying = reed.replying;
   if (reed.echoing) headers.echoing = reed.echoing;
+  if (reed.threadId) headers.threadId = reed.threadId;
 
   return (
     "---\n" +
@@ -45,6 +47,7 @@ export class Reed {
   private _userID: string;
   private _replying: string | undefined = undefined;
   private _echoing: string | undefined = undefined;
+  private _threadId: string | undefined = undefined;
   private _userSignature: UserSignature | undefined = undefined;
   private _serverSignature: ServerSignature | undefined = undefined;
   private _content: string = '';
@@ -128,6 +131,14 @@ export class Reed {
     this._echoing = value;
   }
 
+  get threadId(): string | undefined {
+    return this._threadId;
+  }
+
+  set threadId(value: string | undefined) {
+    this._threadId = value;
+  }
+
   set content(value: string) {
     this._content = value;
     this._tags = this.extractTags(value);
@@ -166,6 +177,7 @@ export class Reed {
       userID: this._userID,
       replying: this._replying,
       echoing: this._echoing,
+      threadId: this._threadId,
       userSignature: this._userSignature ? { ...this._userSignature } : undefined,
       serverSignature: this._serverSignature ? { ...this._serverSignature } : undefined,
       content: this.content,

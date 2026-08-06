@@ -669,11 +669,20 @@ func TestCountMarkdownCharacters(t *testing.T) {
 }
 
 func TestReedAsMarkdown(t *testing.T) {
-	got := ReedAsMarkdown("rid", "uid", "hello", "a@s/b", "")
-	want := "---\nechoing: a@s/b\nid: rid\nuserID: uid\n---\nhello"
-	if got != want {
-		t.Fatalf("got %q want %q", got, want)
-	}
+	t.Run("echo only", func(t *testing.T) {
+		got := ReedAsMarkdown("rid", "uid", "hello", "a@s/b", "", "")
+		want := "---\nechoing: a@s/b\nid: rid\nuserID: uid\n---\nhello"
+		if got != want {
+			t.Fatalf("got %q want %q", got, want)
+		}
+	})
+	t.Run("reply with threadId", func(t *testing.T) {
+		got := ReedAsMarkdown("rid", "uid", "hello", "", "p@s/pr", "root@s/rt")
+		want := "---\nid: rid\nreplying: p@s/pr\nthreadId: root@s/rt\nuserID: uid\n---\nhello"
+		if got != want {
+			t.Fatalf("got %q want %q", got, want)
+		}
+	})
 }
 
 func TestExtractTags(t *testing.T) {

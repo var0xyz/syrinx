@@ -23,3 +23,12 @@ export function parseReedRef(raw: string | null | undefined): ReedRef | null {
 export function formatReedRef(authorId: string, serverId: string, reedId: string): string {
   return `${authorId}@${serverId}/${reedId}`;
 }
+
+/** Thread id for a reply: inherit parent's threadId or parent ref when parent is the root. */
+export function resolveThreadId(
+  parent: { userID: string; id: string; threadId?: string },
+  serverId: string,
+): string {
+  if (parent.threadId) return parent.threadId;
+  return formatReedRef(parent.userID, serverId, parent.id);
+}
