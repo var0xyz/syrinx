@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -12,17 +12,17 @@ Proposed.
 
 Reed tip metadata and the author countersignature are created over **HTTP**
 (`POST /reeds` / `SignReed`). Content relay, allocations, and follower
-fanout run over the **WebSocket**. That split races:
+fanout run over the **WebSocket**. That split raced:
 
 1. Author `POST /reeds`.
-2. Server inserts tip + author allocation, returns the countersignature,
-   then (today) broadcasts `NewReed` and `dispatchNext(author)`.
-3. Author receives `RELAY_REQUEST` **before** parsing the POST body and
+2. Server inserted tip + author allocation, returned the countersignature,
+   then (before this track) broadcast `NewReed` and `dispatchNext(author)`.
+3. Author received `RELAY_REQUEST` **before** parsing the POST body and
    writing the fully signed reed to IndexedDB.
-4. Author replies `RELAY_MISS`.
+4. Author replied `RELAY_MISS`.
 
-Temporary mitigation: ignore `RELAY_MISS` (keep allocation, no retry).
-Recovery depends on requester `SYNC_REQUEST`. See
+Temporary mitigation (removed in 02): ignore `RELAY_MISS` (keep allocation,
+no retry). Recovery depended on requester `SYNC_REQUEST`. See
 [`realtime/README.md`](../../realtime/README.md).
 
 ## Scope

@@ -20,7 +20,7 @@ Related: current behaviour and temporary mitigation in
 
 ## Status
 
-**Proposed** (00–02).
+**Implemented** (00–02).
 
 ## Locked decisions
 
@@ -35,9 +35,9 @@ Related: current behaviour and temporary mitigation in
 
 ## Motivation
 
-Today the server fans out on SignReed and immediately `RELAY_REQUEST`s the
-author before IndexedDB has the countersigned reed. The author sends
-`RELAY_MISS`; the server ignores misses so the author’s allocation is not
-orphaned, but pending deliveries can stick until the requester
-`SYNC_REQUEST`s. Gating fanout on READY removes the race by construction
-and lets miss handling mean what it says again.
+Previously the server fanned out on SignReed and immediately
+`RELAY_REQUEST`ed the author before IndexedDB had the countersigned reed.
+The author sent `RELAY_MISS`; the server temporarily ignored misses so the
+author’s allocation was not orphaned, but pending deliveries could stick until
+the requester `SYNC_REQUEST`ed. Gating fanout on READY removes the race by
+construction and lets miss handling mean what it says again.

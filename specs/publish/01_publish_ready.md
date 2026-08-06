@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -10,8 +10,8 @@ Proposed.
 
 ## Context
 
-`SignReed` today ends with `writeResponse` then
-`broadcastChan <- NewReed`. That must move to READY. The SPA already
+`SignReed` previously ended with `writeResponse` then
+`broadcastChan <- NewReed`. That moved to READY. The SPA already
 `storeReed`s after countersign and has reconnect / `processUnsignedReeds`
 hooks suitable for READY retries.
 

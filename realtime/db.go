@@ -569,6 +569,34 @@ func (ds *DBService) ResetDispatchedAt(eventID string) error {
 	return err
 }
 
+// GetOnlineHolders reports whether a reed has any holders and returns one online holder
+// for relay dispatch when available. Callers must delete stale holder rows (e.g. the
+// requester) before calling when appropriate.
+func (ds *DBService) GetOnlineHolders(authorUserID, reedID string) (hasHolders bool, holder string, err error) {
+	var onlineHolder sql.NullString
+	err = ds.db.QueryRow(`
+		SELECT
+			EXISTS (
+				SELECT 1 FROM reed_allocations
+				WHERE author_user_id = $1 AND reed_id = $2
+			),
+			(
+				SELECT ou.user_id
+				FROM reed_allocations ra
+				JOIN online_users ou ON ou.user_id = ra.holder_user_id
+				WHERE ra.author_user_id = $1 AND ra.reed_id = $2
+				LIMIT 1
+			)
+	`, authorUserID, reedID).Scan(&hasHolders, &onlineHolder)
+	if err != nil {
+		return false, "", err
+	}
+	if onlineHolder.Valid {
+		holder = onlineHolder.String
+	}
+	return hasHolders, holder, nil
+}
+
 // GetOnlineReedHolder returns the user ID of one online holder of the given reed,
 // or an empty string if no holder is currently online.
 func (ds *DBService) GetOnlineReedHolder(authorUserID, reedID string) (string, error) {
@@ -579,21 +607,6 @@ func (ds *DBService) GetOnlineReedHolder(authorUserID, reedID string) (string, e
 		WHERE ra.author_user_id = $1 AND ra.reed_id = $2
 		LIMIT 1
 	`, authorUserID, reedID).Scan(&userID)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return userID, err
-}
-
-// GetOnlineReedHolderExcluding returns one online holder other than excludeUserID.
-func (ds *DBService) GetOnlineReedHolderExcluding(authorUserID, reedID, excludeUserID string) (string, error) {
-	var userID string
-	err := ds.db.QueryRow(`
-		SELECT ou.user_id FROM online_users ou
-		JOIN reed_allocations ra ON ra.holder_user_id = ou.user_id
-		WHERE ra.author_user_id = $1 AND ra.reed_id = $2 AND ou.user_id != $3
-		LIMIT 1
-	`, authorUserID, reedID, excludeUserID).Scan(&userID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
