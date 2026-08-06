@@ -3,17 +3,17 @@
 ## Status
 
 Implemented (`signing.BytesToSign` / SPA `bytesToSign`; SignReed and
-VerifySignature share one canonical form).
+client-side `verifyReed` share one canonical form). The HTTP
+`/reeds/{userID}/{reedID}/verify` endpoint was removed — parity is enforced
+by Go roundtrip tests and SPA `verifyReed` (verify-before-store).
 
 ## The bug
 
 When you publish a reed, the server produces a **countersignature** — a PGP
-signature the server makes over some string. When someone later hits
-`/reeds/{userID}/{reedID}/verify` to check that countersignature, the server
-tries to verify it against a **different** string. Because PGP signatures are
-bound to the exact bytes that were signed, verification always fails. The
-server's own countersignature does not verify against the server's own
-signing key.
+signature the server makes over some string. Clients verify that
+countersignature locally (`spa/src/lib/verifiers` `verifyReed`) by rebuilding
+the same canonical payload. (An HTTP `/verify` endpoint existed briefly during
+development; it was removed once local verification shipped.)
 
 ### The concrete disagreement
 
@@ -34,11 +34,11 @@ payload := fmt.Sprintf("algorithm: PGP+base64\nid: %s\ntimestamp: %s\n---\n%s",
 serverSignature, err := h.services.crypto.Sign(payload, h.signingKey.Armor)
 ```
 
-`VerifySignature` in `handlers.go` verifies the same server signature against
+The verify HTTP handler (removed) verified the same server signature against
 just the bare `userSignature` string, with no headers wrapping it:
 
 ```go
-// handlers.go, VerifySignature
+// handlers.go, VerifySignature (removed)
 err = h.services.crypto.VerifySignature(userSignature, serverSignature, h.signingKey.Armor)
 ```
 
@@ -46,9 +46,9 @@ Two different strings → verification always fails.
 
 ### Why the bug went unnoticed
 
-The `/verify` endpoint is not on any critical path today. The SPA does not
-verify countersignatures locally, so no client is exercising the broken code
-path in production.
+The `/verify` endpoint was not on any critical path. The SPA now verifies
+countersignatures locally before IndexedDB write, so no client needs a server
+round-trip for verification.
 
 ### Why it becomes critical for recovery
 
@@ -61,8 +61,8 @@ ever verify, and recovery fails.
 
 - Introduce the shared **`BytesToSign`** envelope helper (see
   [`README.md — Shared conventions`](./README.md)) on both server and client.
-- Route both `SignReed` and `VerifySignature` through `BytesToSign` so signer
-  and verifier cannot drift again.
+- Route `SignReed` through `BytesToSign`; clients verify via the same helper
+  (`verifyReed` / Go roundtrip tests) so signer and verifier cannot drift again.
 - Pin the base64 layering (who base64s what, exactly once, at which layer).
 - Add tests that sign → verify roundtrip and that a payload with a stray byte
   fails.
@@ -118,13 +118,13 @@ formatted `time.RFC3339`. `<userSignatureBase64>` is the base64 **standard**
 encoding of the raw detached PGP signature bytes — exactly the string the
 client submits in the `signature` form field.
 
-### `VerifySignature` change
+### Client verification
 
 Rebuild the header map from the stored reed row (`serverID`,
 `reed.signed_at`, `userSignature`), call `BytesToSign`, verify the
 `serverSignature` against those bytes. Do **not** trust any client-supplied
 algorithm/timestamp for the canonical form — read them from the stored reed
-/ server config.
+/ server config. Implemented in SPA `verifyReed` and Go `signing/roundtrip_test.go`.
 
 ### Base64 layering
 
@@ -134,8 +134,7 @@ algorithm/timestamp for the canonical form — read them from the stored reed
 - The envelope embeds the **base64** `userSignature` string, not the raw
   bytes. No nested base64.
 
-Document this in a short comment in both `SignReed` and `VerifySignature`
-pointing at `BytesToSign`.
+Document this in a short comment in `SignReed` pointing at `BytesToSign`.
 
 ## Work items
 
@@ -146,8 +145,8 @@ pointing at `BytesToSign`.
    `spa/src/lib/services/signing.ts` (or similar). Same comment.
 3. Change `SignReed` to build the header map and call `BytesToSign` instead
    of the hand-composed `fmt.Sprintf` payload.
-4. Change `VerifySignature` to reconstruct the same header map from the
-   stored reed and call `BytesToSign`.
+4. Client-side verification reconstructs the same header map from the stored
+   reed and calls `BytesToSign` (SPA `verifyReed`; no HTTP `/verify` endpoint).
 5. Roundtrip test: sign a random `userSignature`, verify it, assert success.
 6. Negative tests: mutate one byte of the envelope → verify fails; use
    `time.Now()` without truncation → verify fails; swap `serverID` → verify
@@ -158,9 +157,8 @@ pointing at `BytesToSign`.
 
 ## Testing
 
-- Unit tests around the helper and both handlers.
-- Manual smoke: sign a reed via the SPA against a dev server, hit the verify
-  endpoint, expect success. Today this fails.
+- Unit tests around the helper and SignReed.
+- Manual smoke: sign a reed via the SPA, confirm local `verifyReed` succeeds.
 
 ## Risks
 

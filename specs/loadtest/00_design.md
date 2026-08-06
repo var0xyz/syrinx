@@ -84,20 +84,14 @@ interaction model (below) works by having Playwright's `page.evaluate` run
 `await import('/src/lib/services/...')` inside the page — [spa/tests/signup-and-publish.spec.ts](../../spa/tests/signup-and-publish.spec.ts)
 already does this today:
 
-```88:110:spa/tests/signup-and-publish.spec.ts
+```88:100:spa/tests/signup-and-publish.spec.ts
     const verifyResult = await page.evaluate(async () => {
-      // Pull the stored reed straight out of IndexedDB — asObject() shape.
       const reed: any = await new Promise((resolve, reject) => {
         ...
       });
-      const { apiService } = await import('/src/lib/services/api.ts');
-      await apiService.verifyReed(
-        reed.userID,
-        reed.id,
-        reed.userSignature.armor,
-        reed.serverSignature.armor,
-      );
-      return { ok: true, fingerprint: reed.serverSignature.fingerprint };
+      const { verifyReed } = await import('/src/lib/verifiers/index.ts');
+      const ok = await verifyReed(reed);
+      return { ok, fingerprint: reed.serverSignature?.fingerprint };
     });
 ```
 

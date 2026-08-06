@@ -79,14 +79,9 @@ Testing special characters: @#$%^&*()_+-=[]{}|;:,.<>?`;
     await expect(page.locator('.reed-item')).toContainText('🎉');
     await expect(page.locator('.reed-item')).toContainText('💡');
 
-    // Cross-check the server can verify the stored (userSignature,
-    // serverSignature) pair against the canonical payload. The verify
-    // endpoint reconstructs headers from stored reed fields
-    // (reedID/authorID/fingerprint/timestamp) and re-runs the PGP
-    // verification; a positive result on a freshly-published reed is the
-    // end-to-end proof that signer and verifier are in lockstep.
+    // Cross-check countersignature verification locally (verify-before-store
+    // path). Proves signer/verifier parity without a server round-trip.
     const verifyResult = await page.evaluate(async () => {
-      // Pull the stored reed straight out of IndexedDB — asObject() shape.
       const reed: any = await new Promise((resolve, reject) => {
         const req = indexedDB.open('Syrinx');
         req.onerror = () => reject(req.error);
@@ -99,14 +94,9 @@ Testing special characters: @#$%^&*()_+-=[]{}|;:,.<>?`;
           all.onerror = () => reject(all.error);
         };
       });
-      const { apiService } = await import('/src/lib/services/api.ts');
-      await apiService.verifyReed(
-        reed.userID,
-        reed.id,
-        reed.userSignature.armor,
-        reed.serverSignature.armor,
-      );
-      return { ok: true, fingerprint: reed.serverSignature.fingerprint };
+      const { verifyReed } = await import('/src/lib/verifiers/index.ts');
+      const ok = await verifyReed(reed);
+      return { ok, fingerprint: reed.serverSignature?.fingerprint };
     });
     expect(verifyResult.ok).toBe(true);
     // Sanity: the fingerprint must be populated in the persisted server

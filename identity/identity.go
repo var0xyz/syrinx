@@ -142,9 +142,10 @@ func BuildProfilePayload(
 }
 
 // ReedCountersignHeaders builds the header map that the server signs when
-// countersigning a reed. Both SignReed and VerifySignature construct this
-// identical map and feed it to signing.BytesToSign; that single source of
-// truth is what keeps the two sides in lockstep.
+// countersigning a reed. SignReed and client-side verifyReed (SPA) /
+// recovery verifyReedCountersig construct this identical map and feed it to
+// signing.BytesToSign; that single source of truth is what keeps the two
+// sides in lockstep.
 //
 // The header set binds `serverID`, `timestamp`, `reedID`, `authorID`, and
 // the server signing-key `fingerprint`. Binding reedID/authorID kills the
