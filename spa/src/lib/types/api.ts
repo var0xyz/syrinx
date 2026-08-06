@@ -171,6 +171,17 @@ export interface AccountRemoval extends Base {
   serverSignature: ServerSignature;
 }
 
+/** One direct reply in GET /reeds/{userID}/{reedID}/replies. */
+export interface ReplyMeta extends Base {
+  userID: string;
+  reedID: string;
+}
+
+export interface ReplyListResponse extends Base {
+  replies: ReplyMeta[];
+  hasMore: boolean;
+}
+
 /** Local + create-response shape for a signed invite (status is unsigned). */
 export interface Invite extends Base {
   id: string;

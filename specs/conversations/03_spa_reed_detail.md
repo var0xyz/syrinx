@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -10,21 +10,24 @@ Proposed.
 
 ## Context
 
-APIs expose `echoCount` and reply metadata. The reed detail page
+APIs expose echo count and reply metadata. The reed detail page
 ([`+page.svelte`](../../spa/src/routes/reed/[userID]/[reedID]/+page.svelte))
 must surface them without changing the peer-to-peer body distribution model.
 
 ## Scope
 
-- Fetch and display `echoCount` on the Echo action.
+- Display echo count in the **stats line** (existing pattern).
 - Conversation section: load direct replies, render preview cards, navigate on
   tap.
 - Relay-fetch reply bodies not held locally.
 - Refresh on `FOLLOW_REED` when the open page is the parent.
-- Local index helper (optional but recommended) for offline reply previews.
+- Local **`reed_replies`** + **`reed_threads`** IndexedDB stores for offline
+  reply metadata.
 
 ## Non-goals
 
+- Echo count on the Echo action button (stats line only).
+- `echoCount` embedded on `GET /reeds`.
 - Echo list UI (count only).
 - Inline nested thread tree.
 - New notification types.
@@ -34,9 +37,6 @@ must surface them without changing the peer-to-peer body distribution model.
 
 ### API client
 
-Extend [`apiService.getReed`](../../spa/src/lib/services/api.ts) return type
-with `echoCount?: number`.
-
 Add:
 
 ```ts
@@ -44,114 +44,90 @@ listReplies(userID: string, reedID: string, opts?: { limit?: number; before?: st
   → { replies: ReplyMeta[]; hasMore: boolean }
 ```
 
-`ReplyMeta`: `{ userID, reedID, signedAt, username? }`.
+`ReplyMeta`: `{ userID, reedID }`.
+
+Echo count: [`getReedEchoCount`](../../spa/src/lib/services/api.ts) →
+`GET /reeds/{userID}/{reedID}/echoes`; cached in `echo_counts`; displayed in
+stats line via [`echoCountsRepository`](../../spa/src/lib/repositories/echoCounts.ts)
++ WS `REED_STATS` / `REED_ECHOES`.
+
+Direct reply count: `getReedReplyCount` → `GET …/replies/count`; cached in
+`reply_counts`; displayed in stats line with `reply-16.png` icon.
 
 ### Echo count
 
-On reed load (same request as existence check or after local cache hit):
+- Stats line shows echo count (unchanged).
+- Echo action button label stays plain **`Echo`**.
 
-- If reed loaded from IndexedDB only, still hit `GET /reeds/{userID}/{reedID}`
-  for fresh `echoCount` when online (metadata is cheap).
-- Echo button label: `Echo` or `Echo · {n}` when `n > 0`.
+### Local IndexedDB stores
+
+Snake_case store names (match `echo_counts`, `unsigned_reeds`).
+
+**`reed_threads`** — thread root lookup:
+
+| Field | Notes |
+|-------|-------|
+| `id` (keyPath) | `threadId` wire ref |
+| `userID` | Root author |
+| `reedID` | Root reed id |
+
+**`reed_replies`** — one row per reply reed:
+
+| Field | Notes |
+|-------|-------|
+| `reedID` (keyPath) | This reply's id |
+| `userID` | Reply author |
+| `parent` | `{ userID, reedID }` direct parent |
+| `parentUserID`, `parentReedID`, `parentKey` | Denormalized for index |
+| `threadId` | Thread wire ref |
+
+Index `parentKey` = `` `${parentUserID}/${parentReedID}` `` for direct-children
+queries.
 
 ### Conversation section
 
-New component `ConversationSection.svelte` (or inline in page):
+New component `ConversationSection.svelte`:
 
-**Props:** `parentUserID`, `parentReedID`
+**Props:** `parentUserID`, `parentReedID`, `threadId?`
 
 **Load:**
 
-1. `listReplies(parentUserID, parentReedID)`.
-2. For each `ReplyMeta`, try `reedsService.getReed(author, id)`.
-3. Missing → `serverConnection.requestReedContent(id, author, viewerId)`;
-   on delivery, `storeReed` and update row.
+1. `reedRepliesRepository.listByParent(...)` for instant offline paint.
+2. When online, `listReplies(...)` → upsert `reed_replies` rows + `reed_threads`.
+3. For **each** reply, `serverConnection.requestReedContent` (REQUEST_REED relay);
+   update the row when content arrives.
 
 **Render:**
 
-- Header: `Conversation` + `· {count} replies` when count > 0.
-- Rows: reuse feed/quote styling — avatar, `@username`, relative time,
-  `MarkdownParser` preview (`preview={true}`).
-- Row tap → `goto(/reed/${reply.userID}/${reply.reedID})`.
-- `hasMore` → "Load more" button passing `before` cursor.
+- Header: `Conversation` + `· {count} replies` (section only rendered when count > 0).
+- Rows: avatar, username, relative time, `MarkdownParser` preview.
+- Row tap → child reed page.
+- `hasMore` → load-more with `before` cursor.
 
-**Empty:** muted `No replies yet`.
-
-**Errors:** banner + retry; do not block main reed render.
-
-### Drill-down behaviour
-
-No special route state. Navigating to a reply reed is a normal detail page
-load; that reed's `ConversationSection` lists *its* children. The
-replying-to quote at the top supplies upstream context.
-
-Optional enhancement (non-blocking): breadcrumb `← Back to @alice's reed` using
-`replying` ref — skip for v1 unless trivial.
+**Empty:** hide the conversation section entirely.
 
 ### Realtime refresh
 
-Subscribe while detail page mounted:
+On `followReedQueue` / `FOLLOW_REED`, if incoming reed's `replying` matches
+current parent → upsert `reed_replies` + `reed_threads`, refresh section.
 
-- On `followReedQueue` / `FOLLOW_REED`, if incoming reed's `replying` parses to
-  current `(parentUserID, parentReedID)`, prepend to list (after verify +
-  store).
-- If incoming `echoing` matches current reed, increment local `echoCount`.
-
-Debounce burst traffic (e.g. 300ms) if multiple replies arrive at once.
-
-### Local reply index (recommended)
-
-Add IndexedDB index on `reeds` store: `replying` field (multi-entry).
-
-Helper `getLocalDirectReplies(parentAuthorId, parentReedId)`:
-
-- Scan `replying === `${parentAuthorId}!${parentReedId}``.
-- Use for instant paint offline; merge with server list when online (server
-  wins ordering; union by `reedID`).
-
-Not required for MVP if relay-only path is acceptable offline-empty.
-
-### Component structure
-
-```
-reed detail page
-├── reed meta + body (existing)
-├── action bar (echo count on Echo btn)
-└── ConversationSection
-    └── ReplyRow × N
-```
-
-Extract `ReplyRow` if it shares markup with feed cards.
+If incoming `echoing` matches current reed → bump stats echo count (existing).
 
 ## Work items
 
 1. API types + `listReplies` client.
-2. `echoCount` on `getReed` response + Echo button label.
-3. `parseReedRef` used consistently (from [01](01_publish_and_refs.md)).
-4. `ConversationSection.svelte` + wire into detail page.
-5. Relay + store loop for missing bodies.
-6. `FOLLOW_REED` refresh hook on detail page.
-7. (Optional) IndexedDB `replying` index + offline merge.
-8. Manual test plan:
-   - Post reply → appears in parent conversation.
-   - Tap reply → child conversation visible.
-   - Echo count updates after echo publish.
-   - Removed reply disappears from list on refresh.
+2. `reed_threads` + `reed_replies` stores + repositories.
+3. `ConversationSection.svelte` + wire into detail page.
+4. Relay + store loop for missing bodies.
+5. `FOLLOW_REED` refresh hook on detail page.
+6. Playwright: reply → parent conversation → drill-down.
 
 ## Testing
 
-- Component test or Playwright: open reed with replies → rows visible →
-  navigate to child.
-- Unit test: `parseReedRef` + merge logic if implemented.
+- Playwright: open reed with replies → rows visible → navigate to child.
 
 ## Risks
 
 - **Double fetch** — list metadata then per-reed relay; acceptable for small
-  threads; batch relay is a future optimization.
-- **Stale offline list** — without server refresh, conversation may lag;
-  `$isOnline` reactive retry matches existing reed page pattern.
-
-## Parallelism
-
-UI can be built against mocked `listReplies` before [02](02_index_and_api.md)
-merges.
+  threads.
+- **Stale offline list** — `$isOnline` reactive retry on conversation section.

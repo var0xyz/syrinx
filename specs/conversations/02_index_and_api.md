@@ -5,8 +5,8 @@
 Implemented — **`reed_echoes`** DDL, insert on publish, `CountEchoes`, and
 `GET /reeds/{userID}/{reedID}/echoes`; **`reed_threads`** + **`reed_replies`**,
 reply insert on publish (`InsertReply`), `threadId` header resolution, and
-`GET /reeds/{userID}/{reedID}/replies`. `echoCount` on `GET …/reeds` (spec
-shape) remains open.
+`GET /reeds/{userID}/{reedID}/replies`. Echo count is served by the dedicated
+`/echoes` endpoint (not embedded on `GET /reeds`).
 
 ## Depends on
 
@@ -25,8 +25,9 @@ With publish-time ref parsing in place, the server can maintain durable
 - DDL for `reed_echoes`, `reed_threads`, and `reed_replies`.
 - Insert rows in the same transaction as `CreateReed` when social refs are
   present.
-- Extend `GET /reeds/{userID}/{reedID}` with `echoCount`.
-- New `GET /reeds/{userID}/{reedID}/replies` endpoint.
+- Extend `GET /reeds/{userID}/{reedID}/replies` endpoint (reply list).
+- Echo count via `GET /reeds/{userID}/{reedID}/echoes` (integer body).
+- Direct reply count via `GET /reeds/{userID}/{reedID}/replies/count` (integer body).
 - Filter out removed reeds and account-removed authors in all queries.
 
 ## Non-goals

@@ -1984,6 +1984,46 @@ func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, count)
 }
 
+func (h *Handlers) GetReedReplyCount(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("GetReedReplyCount request received")
+
+	reedID := mux.Vars(r)["reedID"]
+	userID := mux.Vars(r)["userID"]
+	if userID == "" || reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		return
+	}
+
+	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed")
+		internalServerError(w)
+		return
+	}
+	if result.AccountRemoval != nil {
+		writeResponse(w, http.StatusGone, h.accountRemovalWire(result.AccountRemoval))
+		return
+	}
+	if result.ReedRemoval != nil {
+		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
+		return
+	}
+	if result.Reed == nil {
+		writeResponse(w, http.StatusNotFound, "Post not found")
+		return
+	}
+
+	count, err := h.services.db.CountDirectReplies(userID, reedID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error counting replies")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, count)
+}
+
 func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("GetReedReplies request received")

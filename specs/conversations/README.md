@@ -42,12 +42,12 @@ Thread reply counts ([05](05_thread_reply_counts.md)) only need the
 | 00 | Design + UX model                                  | Implemented   |
 | 01 | Verify publish payload; normalize `replying` ref   | Implemented   |
 | 02 | Echo/reply index tables + list/count APIs          | Implemented   |
-| 03 | Echo count + conversation section on reed detail   | Proposed      |
+| 03 | Echo count + conversation section on reed detail   | Implemented   |
 | 04 | `@` mentions → links + `reed_mentions`             | Proposed      |
 | 05 | Thread reply counts (thread total + subtree)       | Proposed      |
 
-**Track status: In progress** — publish verify (01), echo/reply index + APIs (02);
-`echoCount` on `GET /reeds` and conversation UI (03) not yet shipped.
+**Track status: In progress** — conversation UI + local reply caches (03) landed;
+thread reply counts (05) and mentions (04) remain open.
 
 ## Motivation
 
@@ -73,7 +73,7 @@ replies first; drill into a reply to see *its* direct replies.
 | Index scope | Instance-local; built at countersign time |
 | Index payload | `(parent, reply ids, timestamp)` — timestamp for list order only; no markdown on server |
 | Publish body | Client sends form fields (`content`, optional `echoing`/`replying`); server rebuilds canonical markdown and verifies detached user sig before countersign |
-| Echo count surface | Integer on `GET /reeds/{userID}/{reedID}` (`echoCount`) |
+| Echo count surface | `GET /reeds/{userID}/{reedID}/echoes` + stats line on reed detail (not on Echo button, not on `GET /reeds`) |
 | Reply list surface | `GET /reeds/{userID}/{reedID}/replies` — metadata rows, oldest-first |
 | Conversation depth | **One level at a time** — list direct children only; click a reply to navigate to that reed's page |
 | Removed reeds | Excluded from counts and reply lists; parent quote already shows "unavailable" via deletion certs. Navigating into a removed reed's own permalink is an open question — see [05](05_thread_reply_counts.md) |

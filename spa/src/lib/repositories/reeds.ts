@@ -6,6 +6,7 @@
 import { apiService as api } from '../services/api';
 import { dbService } from '../services/db';
 import { publicKeyRepository } from './publicKey';
+import { userRepository } from './user';
 import { Reed as ReedClass, type ReedType } from '$lib/types/reed';
 import type { User } from '$lib/types/api';
 import { serverConnection } from '$lib/services/serverConnection';
@@ -218,6 +219,19 @@ class ReedsService {
     }
 
     await dbService.put('reeds', reed, verifyReed);
+
+    if (reed.userID) {
+      try {
+        await userRepository.getByUserId(reed.userID);
+      } catch (error) {
+        console.error('Failed to cache author profile after reed store:', error);
+      }
+    }
+
+    if (reed.replying && reed.threadId) {
+      const { reedRepliesRepository } = await import('$lib/repositories/reedReplies');
+      await reedRepliesRepository.upsertFromReed(reed);
+    }
 
     if (reed.tags?.length > 0) {
       for (const tag of reed.tags) {

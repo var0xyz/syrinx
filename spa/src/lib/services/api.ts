@@ -403,6 +403,23 @@ export const apiService = {
     return request(`/reeds/${userId}/${reedId}/echoes`, { method: 'GET' });
   },
 
+  async getReedReplyCount(userId: string, reedId: string): Promise<number> {
+    return request(`/reeds/${userId}/${reedId}/replies/count`, { method: 'GET' });
+  },
+
+  async listReplies(
+    userId: string,
+    reedId: string,
+    opts?: { limit?: number; before?: string },
+  ): Promise<api.ReplyListResponse> {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.before) params.set('before', opts.before);
+    const qs = params.toString();
+    const path = `/reeds/${userId}/${reedId}/replies${qs ? `?${qs}` : ''}`;
+    return request<api.ReplyListResponse>(path, { method: 'GET' });
+  },
+
   async getReed(userId: string, reedId: string): Promise<any> {
     return request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
   },

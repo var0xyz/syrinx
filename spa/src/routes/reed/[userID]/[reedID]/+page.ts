@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
 import { echoCountsRepository } from '$lib/repositories/echoCounts';
+import { replyCountsRepository } from '$lib/repositories/replyCounts';
 import { parseReedRef } from '$lib/utils/reedRef';
 
 /** @type {import('./$types').PageLoad} */
@@ -34,6 +35,7 @@ export async function load({ params, parent }) {
       repliedToReed: null,
       repliedToReedMissing: false,
       echoCount: 0,
+      replyCount: 0,
       errorMessage: 'This reed does not belong to the specified user',
       fromCache: false,
     };
@@ -45,10 +47,12 @@ export async function load({ params, parent }) {
   let repliedToReed = null;
   let repliedToReedMissing = false;
   let echoCount = 0;
+  let replyCount = 0;
 
   if (reed) {
     authorUser = await userRepository.get(userID).catch(() => null);
     echoCount = await echoCountsRepository.get(reedID);
+    replyCount = await replyCountsRepository.get(reedID);
 
     if (reed.echoing) {
       const echoRef = parseReedRef(reed.echoing);
@@ -82,6 +86,7 @@ export async function load({ params, parent }) {
     repliedToReed,
     repliedToReedMissing,
     echoCount,
+    replyCount,
     errorMessage: '',
     fromCache: !!reed,
   };

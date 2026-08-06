@@ -17,8 +17,12 @@
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
   import { echoCountsRepository } from '$lib/repositories/echoCounts';
+  import { replyCountsRepository } from '$lib/repositories/replyCounts';
   import Avatar from '$lib/components/Avatar.svelte';
   import ReedStatsSubscription from '$lib/components/ReedStatsSubscription.svelte';
+  import ConversationSection from '$lib/components/ConversationSection.svelte';
+  import { followReedQueue } from '$lib/repositories/reeds';
+  import { parseReedRef, resolveThreadId } from '$lib/utils/reedRef';
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -31,6 +35,7 @@
   let repliedToReed = data.repliedToReed;
   let repliedToReedMissing = data.repliedToReedMissing;
   let echoCount = data.echoCount;
+  let replyCount = data.replyCount;
   let errorMessage = data.errorMessage;
   let coveragePercent = 0;
   let loadingReed = !data.fromCache && !data.errorMessage;
@@ -44,6 +49,20 @@
   let isLiked = false;
   let isReplyModalOpen = false;
   let isEchoModalOpen = false;
+  let conversationRefresh = 0;
+  /** @type {import('$lib/components/ConversationSection.svelte').default | null} */
+  let conversationSection = null;
+  let lastHandledFollowReedId = '';
+
+  $: parentThreadId = reed && reedMatchesRoute
+    ? (reed.threadId || resolveThreadId(reed, reed.serverSignature?.serverID || localStorage.getItem('serverId') || ''))
+    : '';
+
+  $: followArrived = $followReedQueue?.reed;
+  $: if (followArrived && followArrived.id !== lastHandledFollowReedId && reedMatchesRoute) {
+    lastHandledFollowReedId = followArrived.id;
+    void onFollowReedArrived(followArrived);
+  }
 
   $: userID = $page.params.userID;
   $: reedID = $page.params.reedID;
@@ -64,10 +83,12 @@
     repliedToReed = next.repliedToReed;
     repliedToReedMissing = next.repliedToReedMissing;
     echoCount = next.echoCount;
+    replyCount = next.replyCount;
     errorMessage = next.errorMessage;
     reedNotFound = false;
     fetchingReed = false;
     coveragePercent = 0;
+    lastHandledFollowReedId = '';
     loadingReed = !next.fromCache && !next.errorMessage;
     if (next.fromCache) {
       void afterCacheHit(next);
@@ -82,6 +103,18 @@
     }
     if (!authorUser) {
       await loadAuthorProfile();
+    }
+    void refreshReplyCount();
+  }
+
+  async function refreshReplyCount() {
+    if (!$isOnline || !userID || !reedID) return;
+    try {
+      const count = await apiService.getReedReplyCount(userID, reedID);
+      replyCount = count;
+      await replyCountsRepository.put(reedID, count);
+    } catch (err) {
+      console.warn('Failed to refresh reply count:', err);
     }
   }
 
@@ -108,6 +141,14 @@
     if (msg?.userID === userID && msg?.reedID === reedID) {
       coveragePercent = msg.coveragePercent ?? coveragePercent;
     }
+  }
+
+  async function onFollowReedArrived(incoming) {
+    const parentRef = parseReedRef(incoming.replying);
+    if (!parentRef || parentRef.authorId !== userID || parentRef.reedId !== reedID) return;
+    replyCount += 1;
+    void replyCountsRepository.put(reedID, replyCount);
+    await conversationSection?.onReplyArrived(incoming);
   }
 
   $: if ($isOnline && user && loadingReed && !data.fromCache) loadReedFromNetwork();
@@ -202,6 +243,7 @@
         if (seq !== loadSeq) return;
         reed = networkReed;
         await loadAuthorProfile();
+        void refreshReplyCount();
       } catch {
         if (seq !== loadSeq) return;
         reedNotFound = true;
@@ -370,6 +412,8 @@
                     <p class="reed-stats" title="Stats for nerds">
                       <span class="reed-stat-icon echoes" aria-hidden="true"></span>
                       {echoCount}
+                      <span class="reed-stat-icon replies" aria-hidden="true"></span>
+                      {replyCount}
                       <span class="reed-stat-icon coverage" aria-hidden="true"></span>
                       {coveragePercent}%
                     </p>
@@ -428,6 +472,18 @@
               </button>
               -->
             </div>
+
+            {#if !isPending}
+              <div class="conversation-wrap">
+                <ConversationSection
+                  bind:this={conversationSection}
+                  parentUserID={userID}
+                  parentReedID={reedID}
+                  threadId={parentThreadId}
+                  refreshToken={conversationRefresh}
+                />
+              </div>
+            {/if}
           </div>
         {/if}
       </div>
@@ -545,6 +601,12 @@
     mask-image: url('/icons/megaphone-16.png');
   }
 
+  .reed-stat-icon.replies {
+    margin-left: 0.15rem;
+    -webkit-mask-image: url('/icons/reply-16.png');
+    mask-image: url('/icons/reply-16.png');
+  }
+
   .reed-stat-icon.coverage {
     margin-left: 0.15rem;
     -webkit-mask-image: url('/icons/graph-16.png');
@@ -591,6 +653,10 @@
     padding: 1rem 1.5rem;
     border-top: 1px solid var(--border);
     background: var(--surface);
+  }
+
+  .conversation-wrap {
+    padding: 0 1.5rem 1.5rem;
   }
 
   .action-btn {
