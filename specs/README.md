@@ -34,6 +34,8 @@ Each table below has a **Status** column per step. Values:
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Observability    | Proposed    | 00–04                                                |
 | Load testing     | Proposed    | 00–03                                                |
+| Roles            | Proposed    | 00–02                                                |
+| Federation       | Proposed    | 00–05 (depends on roles)                             |
 
 **Already done:** Invites, Coverage, Deletion, Signature storage, Publish
 ready, and the prerequisites other than 09/11.
@@ -119,6 +121,31 @@ See [`publish/`](publish/README.md):
 | 00 | Design + publish/relay race + locked model  | Implemented |
 | 01 | HTTP SignReed + WS `PUBLISH_READY` + SPA    | Implemented |
 | 02 | Real `RELAY_MISS` (drop allocation + retry) | Implemented |
+
+## Roles (root, admin, user)
+
+See [`roles/`](roles/README.md). Local role tiers in code; first capability:
+admins may invite other admins. Prerequisite for federation operator actions.
+
+| #  | Title                                      | Status   |
+|----|--------------------------------------------|----------|
+| 00 | Design + locked model                      | Proposed |
+| 01 | `users.role` column + code helpers         | Proposed |
+| 02 | Admin-only admin invites (create + signup) | Proposed |
+
+## Federation (explicit peering)
+
+See [`federation/`](federation/README.md). Encrypted admin invite, server
+`connect` callback, second-admin approval, then **`federation_established`**.
+
+| #  | Title                                              | Status   |
+|----|----------------------------------------------------|----------|
+| 00 | Design + handshake model                           | Proposed |
+| 01 | Invitation create + `federation_invitation` + UI   | Proposed |
+| 02 | Connect handshake + `federation_attempt`           | Proposed |
+| 03 | Second-admin approval + `federation_established`   | Proposed |
+| 04 | Runtime verify + foreign ref display               | Proposed |
+| 05 | Revoke peering + 401 incoming peer traffic         | Proposed |
 
 ## Custom avatars (hash + processed PNG)
 
@@ -287,6 +314,13 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
   (00→06). Steps 01–02 (schema) may proceed before flipping traffic;
   04 and 05 are the hard cutovers.
 - **Pipes** ([`pipes/`](pipes/README.md)) — Implemented (00–03).
+- **Roles** ([`roles/`](roles/README.md)) — independent of federation
+  implementation but federation admin actions assume roles 01; within
+  `roles/`, follow 00→02. Step 01 (column + helpers) unblocks 02 (admin
+  invites); 02 extends [`invites`](invites/README.md) create + signup.
+- **Federation** ([`federation/`](federation/README.md)) — depends on
+  [roles 01](roles/01_role_store.md); within `federation/`, follow 00→04.
+  Handshake (01–02) before approval (03) before runtime verify (04); revoke (05).
 - **Observability** ([`observability/`](observability/README.md)) is
   independent of every other track above — pure infra/plumbing, no schema or
   wire changes. Step 01 lives in the `rpi` ops repo and can land any time;
