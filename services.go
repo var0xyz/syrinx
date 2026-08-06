@@ -1245,42 +1245,40 @@ type ReedAttestation struct {
 	ServerSignedAt    time.Time
 }
 
-// CreateReedWithEcho inserts the reed metadata, author allocation, optional
-// echo index row, and the user/server attestation rows used for SignReed replay.
-// tags are normalized hashtag names stashed on pending_fanout for pipe READY fanout.
-// echoIndexed is true when a new reed_echoes row was inserted.
-func (s *DataService) CreateReedWithEcho(
+// createReedParams is the shared insert payload for SignReed persistence.
+type createReedParams struct {
+	ReedID              string
+	UserID              string
+	UserFingerprint     string
+	UserSignatureB64    string
+	ServerFingerprint   string
+	ServerSignatureB64  string
+	Timestamp           time.Time
+	Tags                []string
+}
+
+func (s *DataService) insertReedCoreTx(
 	ctx context.Context,
-	reedID, userID string,
-	userFingerprint, userSignatureB64 string,
-	serverFingerprint, serverSignatureB64 string,
-	timestamp time.Time,
-	echo *ReedRef,
-	tags []string,
-) (reed *Reed, echoIndexed bool, err error) {
-	if !ids.ValidReed(reedID) {
-		return nil, false, fmt.Errorf("invalid reed ID")
+	tx *sql.Tx,
+	p createReedParams,
+) (Reed, error) {
+	if !ids.ValidReed(p.ReedID) {
+		return Reed{}, fmt.Errorf("invalid reed ID")
 	}
 
-	timestamp = timestamp.UTC().Truncate(time.Second)
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, false, err
-	}
-	defer tx.Rollback()
+	ts := p.Timestamp.UTC().Truncate(time.Second)
 
 	// signing.InsertUserSignature/InsertServerSignature still use non-context
 	// queries internally, so these two inserts land as root spans rather than
 	// nested under ctx's request span — a known gap, not a bug (see
 	// specs/observability/04_context_threading.md).
-	userSigID, err := signing.InsertUserSignature(tx, userFingerprint, userSignatureB64)
+	userSigID, err := signing.InsertUserSignature(tx, p.UserFingerprint, p.UserSignatureB64)
 	if err != nil {
-		return nil, false, err
+		return Reed{}, err
 	}
-	serverSigID, err := signing.InsertServerSignature(tx, serverFingerprint, serverSignatureB64, timestamp)
+	serverSigID, err := signing.InsertServerSignature(tx, p.ServerFingerprint, p.ServerSignatureB64, ts)
 	if err != nil {
-		return nil, false, err
+		return Reed{}, err
 	}
 
 	var created Reed
@@ -1291,45 +1289,90 @@ func (s *DataService) CreateReedWithEcho(
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, 1)
 		RETURNING id, user_id, private_key_fingerprint, signed_at
-	`, reedID, userID, serverFingerprint, timestamp, userSigID, serverSigID).Scan(
+	`, p.ReedID, p.UserID, p.ServerFingerprint, ts, userSigID, serverSigID).Scan(
 		&created.ID,
 		&created.UserID,
 		&created.Fingerprint,
 		&created.Timestamp,
 	)
 	if err != nil {
-		return nil, false, err
+		return Reed{}, err
 	}
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
 		VALUES ($1, $2, $3)
-	`, reedID, userID, userID); err != nil {
-		return nil, false, fmt.Errorf("allocate reed to author: %w", err)
+	`, p.ReedID, p.UserID, p.UserID); err != nil {
+		return Reed{}, fmt.Errorf("allocate reed to author: %w", err)
 	}
 
+	tags := p.Tags
 	if tags == nil {
 		tags = []string{}
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO pending_fanout (user_id, reed_id, tags)
 		VALUES ($1, $2, $3)
-	`, userID, reedID, pq.Array(tags)); err != nil {
-		return nil, false, fmt.Errorf("insert pending fanout: %w", err)
+	`, p.UserID, p.ReedID, pq.Array(tags)); err != nil {
+		return Reed{}, fmt.Errorf("insert pending fanout: %w", err)
 	}
 
-	if echo != nil {
-		res, err := tx.ExecContext(ctx, `
-			INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, signed_at)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (echoing_user_id, echoing_reed_id) DO NOTHING
-		`, userID, reedID, echo.AuthorID, echo.ReedID, timestamp)
-		if err != nil {
-			return nil, false, fmt.Errorf("insert echo index: %w", err)
-		}
-		n, _ := res.RowsAffected()
-		echoIndexed = n > 0
+	return created, nil
+}
+
+// CreateReed inserts reed metadata, author allocation, pending fanout stash,
+// and attestation rows used for SignReed replay.
+func (s *DataService) CreateReed(ctx context.Context, p createReedParams) (*Reed, error) {
+	p.Timestamp = p.Timestamp.UTC().Truncate(time.Second)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
 	}
+	defer tx.Rollback()
+
+	created, err := s.insertReedCoreTx(ctx, tx, p)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &created, nil
+}
+
+// CreateReedWithEcho inserts a reed and indexes it as an echo of echoTarget.
+// echoIndexed is true when a new reed_echoes row was inserted.
+func (s *DataService) CreateReedWithEcho(
+	ctx context.Context,
+	p createReedParams,
+	echoTarget ReedRef,
+) (reed *Reed, echoIndexed bool, err error) {
+	p.Timestamp = p.Timestamp.UTC().Truncate(time.Second)
+	ts := p.Timestamp
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback()
+
+	created, err := s.insertReedCoreTx(ctx, tx, p)
+	if err != nil {
+		return nil, false, err
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, signed_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (echoing_user_id, echoing_reed_id) DO NOTHING
+	`, p.UserID, p.ReedID, echoTarget.AuthorID, echoTarget.ReedID, ts)
+	if err != nil {
+		return nil, false, fmt.Errorf("insert echo index: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	echoIndexed = n > 0
 
 	if err := tx.Commit(); err != nil {
 		return nil, false, err

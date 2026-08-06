@@ -1475,6 +1475,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	localServerID := h.services.db.GetServerID()
 	var echoRef *ReedRef
+	var replyRef *ReedRef
 	if echoing != "" {
 		ref, ok := h.parseReedRef(echoing, localServerID)
 		if !ok {
@@ -1509,6 +1510,11 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Target reed not found")
 			return
 		}
+		replyRef = &ref
+	}
+	if echoRef != nil && replyRef != nil {
+		writeResponse(w, http.StatusBadRequest, "A reed cannot both echo and reply")
+		return
 	}
 
 	markdown := ReedAsMarkdown(reedID, userID, contentBody, echoing, replying)
@@ -1589,18 +1595,27 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	if h.filterPipeTags != nil {
 		tags = h.filterPipeTags(tags)
 	}
-	reed, echoIndexed, err := h.services.db.CreateReedWithEcho(
-		r.Context(),
-		reedID,
-		userID,
-		userFingerprint,
-		userSignature,
-		serverSignature.Fingerprint,
-		serverSignature.Armor,
-		serverSignature.SignedAt,
-		echoRef,
-		tags,
-	)
+	createParams := createReedParams{
+		ReedID:             reedID,
+		UserID:             userID,
+		UserFingerprint:    userFingerprint,
+		UserSignatureB64:   userSignature,
+		ServerFingerprint:  serverSignature.Fingerprint,
+		ServerSignatureB64: serverSignature.Armor,
+		Timestamp:          serverSignature.SignedAt,
+		Tags:               tags,
+	}
+
+	var reed *Reed
+	var echoIndexed bool
+	switch {
+	case echoRef != nil:
+		reed, echoIndexed, err = h.services.db.CreateReedWithEcho(r.Context(), createParams, *echoRef)
+	case replyRef != nil:
+		reed, err = h.services.db.CreateReed(r.Context(), createParams)
+	default:
+		reed, err = h.services.db.CreateReed(r.Context(), createParams)
+	}
 	if err != nil {
 		// Concurrent SignReed for the same id: both passed the pre-insert
 		// GetReedAttestation (nil), both tried Create; the loser hits unique
