@@ -485,20 +485,25 @@ func (ds *DBService) ReedExists(authorUserID, reedID string) (bool, error) {
 	return exists, err
 }
 
-// GetReedCoveragePercent returns network coverage percent for a tip reed.
-func (ds *DBService) GetReedCoveragePercent(authorUserID, reedID string) (percent int, err error) {
-	var holders int
+// GetReedCoverage returns holder count and network coverage percent for a tip reed.
+func (ds *DBService) GetReedCoverage(authorUserID, reedID string) (holders, percent int, err error) {
 	err = ds.db.QueryRow(`
 		SELECT allocation_count FROM reeds WHERE user_id = $1 AND id = $2
 	`, authorUserID, reedID).Scan(&holders)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	activeUsers, err := coverage.ActiveUsers(ds.db)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return coverage.Percent(holders, activeUsers), nil
+	return holders, coverage.Percent(holders, activeUsers), nil
+}
+
+// GetReedCoveragePercent returns network coverage percent for a tip reed.
+func (ds *DBService) GetReedCoveragePercent(authorUserID, reedID string) (percent int, err error) {
+	_, percent, err = ds.GetReedCoverage(authorUserID, reedID)
+	return percent, err
 }
 
 // CountEchoes returns how many non-removed echoes point at the given reed.

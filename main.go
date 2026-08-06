@@ -178,6 +178,7 @@ func main() {
 
 	log.Debug().Msg("Initializing realtime service...")
 	realtimeService := realtime.NewService(db, cryptoService, cfg.AllowedOrigin)
+	realtimeService.SetMetrics(obs.Metrics())
 
 	// Create broadcast channel
 	broadcastChan := make(chan realtime.BroadcastMessage, 100)
@@ -187,6 +188,7 @@ func main() {
 
 	log.Debug().Msg("Initializing handlers...")
 	h := NewHandlers(services, cfg, broadcastChan, *signingKey)
+	h.SetMetrics(obs.Metrics())
 	h.SetPipeTagFilter(realtimeService.FilterSubscribedPipeTags)
 	h.SetKickUserWS(realtimeService.DisconnectUser)
 	realtimeService.SetDeviceCheck(dataService.CheckActiveDevice)

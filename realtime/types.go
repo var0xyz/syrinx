@@ -47,6 +47,7 @@ type Client struct {
 	pipeSubscriptions map[string]bool // normalized tag → subscribed
 	lastPing          time.Time
 	writeMu           sync.Mutex
+	wsRecordOutbound  func(messageType int, data []byte)
 }
 
 // ConnectionManager manages WebSocket connections and subscriptions
