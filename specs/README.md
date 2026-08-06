@@ -26,7 +26,7 @@ Each table below has a **Status** column per step. Values:
 |------------------|-------------|------------------------------------------------------|
 | Prerequisites    | In progress | 09 (revocation fanout), 11 (notifications, deferred) |
 | Recovery feature | In progress | 16 (reed tip check), 17 (device binding)             |
-| Conversations    | In progress | 02 (replies), 03–05                                |
+| Conversations    | In progress | 04–05                                                |
 | Publish ready    | Implemented | —                                                    |
 | Avatars          | Proposed    | 00–05                                                |
 | Pipes            | Implemented | —                                                    |
@@ -97,8 +97,8 @@ See [`conversations/`](conversations/README.md):
 |----|----------------------------------------------------------------|-------------|
 | 00 | Design + UX model (echo count, one-level drill-down)           | Implemented |
 | 01 | Verify publish payload (form fields); normalize `replying` ref | Implemented |
-| 02 | Echo/reply index tables + list/count APIs                      | In progress |
-| 03 | Echo count + conversation section on reed detail               | Proposed    |
+| 02 | Echo/reply index tables + list/count APIs                      | Implemented |
+| 03 | Conversation section + local reply caches on reed detail       | Implemented |
 | 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index)    | Proposed    |
 | 05 | Recursive reply counts: thread total + per-reed subtree count  | Proposed    |
 

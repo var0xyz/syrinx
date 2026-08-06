@@ -25,12 +25,15 @@ export interface DbService {
   getAll<T extends api.Base>(storeName: string): Promise<T[]>;
   getAllSortedByIndex<T>(storeName: string, indexName: string): Promise<T[]>;
   getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean): Promise<T[]>;
+  getAllByIndex<T>(storeName: string, indexName: string, key: string): Promise<T[]>;
   clear(storeName: string): Promise<void>;
 }
 
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
+  // v30: reply_counts cache (reedID → direct reply count).
+  // v29: reed_threads + reed_replies conversation caches.
   // v28: reedRequests — durable outbound REQUEST_REED ledger.
   // v27: usersInfo keyPath userId → id (match /profile wire).
   // v26: usersInfo cache (unsigned hints + profileTimestamp).
@@ -42,7 +45,7 @@ export class IndexedDbService implements DbService {
   // v20: reeds index server.timestamp → serverSignature.timestamp (signatures 08).
   // v19: drop pendingAccountRemoval — account deletion is online-only (09).
   // removedAccounts remains for peer tombstones.
-  private readonly version = 28;
+  private readonly version = 30;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -54,6 +57,9 @@ export class IndexedDbService implements DbService {
     ['usersInfo',   'id'         ],
     ['invites',     'id'         ],
     ['echo_counts', 'reedID'     ],
+    ['reply_counts', 'reedID'    ],
+    ['reed_threads', 'id'        ],
+    ['reed_replies', 'reedID', 'userID', 'parentUserID', 'parentReedID', 'parentKey', 'threadId'],
 
     // Offline-first
     ['unfollow',           'userId'     ],

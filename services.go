@@ -1682,6 +1682,23 @@ func (s *DataService) CountEchoes(echoedUserID, echoedReedID string) (int, error
 	return n, err
 }
 
+// CountDirectReplies returns visible direct replies to parentUser/parentReed.
+func (s *DataService) CountDirectReplies(parentUserID, parentReedID string) (int, error) {
+	var n int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM reed_replies rr2
+		WHERE rr2.parent_user_id = $1 AND rr2.parent_reed_id = $2
+		AND NOT EXISTS (
+			SELECT 1 FROM reed_removals rr
+			WHERE rr.user_id = rr2.user_id AND rr.reed_id = rr2.reed_id
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM account_removals ar WHERE ar.user_id = rr2.user_id
+		)
+	`, parentUserID, parentReedID).Scan(&n)
+	return n, err
+}
+
 // DeleteEchoIndexForReed clears echo index rows when a reed is removed.
 // Returns distinct echoed targets whose counts may have changed (excluding
 // the removed reed itself, which no longer has live tip subscribers).
