@@ -930,18 +930,9 @@ func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]inte
 		return
 	}
 
-	eventID := generateEventID()
-	if err := rs.dbService.CreatePendingReedEvent(eventID, requestID, client.userID, RequestReedEvent, authorID, reedID); err != nil {
-		log.Error().Err(err).Msg("Failed to create pending event")
-		return
-	}
-
-	rs.connManager.SendToUser(client.userID, NewRequestAckMsg(requestID, eventID, reedID))
-
 	// dropRequesterAllocation removes a stale holder row when the requester asks for
 	// a reed the server thought they held — they clearly do not have the body locally.
-	_, err = rs.dbService.DeleteReedAllocation(authorID, reedID, client.userID)
-	if err != nil {
+	if _, err = rs.dbService.DeleteReedAllocation(authorID, reedID, client.userID); err != nil {
 		log.Error().Err(err).
 			Str("authorID", authorID).
 			Str("reedID", reedID).
@@ -950,11 +941,29 @@ func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]inte
 		return
 	}
 
-	holder, err := rs.dbService.GetOnlineReedHolder(authorID, reedID)
+	hasHolders, holder, err := rs.dbService.GetOnlineHolders(authorID, reedID)
 	if err != nil {
-		log.Error().Err(err).Str("reedID", reedID).Str("authorID", authorID).Msg("Failed to get online holder for reed")
+		log.Error().Err(err).Str("reedID", reedID).Str("authorID", authorID).Msg("Failed to check reed holders")
 		return
 	}
+	if !hasHolders {
+		log.Debug().
+			Str("reedID", reedID).
+			Str("authorID", authorID).
+			Str("requesterID", client.userID).
+			Msg("Requested reed is unheld, notifying requester")
+		rs.connManager.SendToUser(client.userID, NewReedNotHeldMsg(requestID, authorID, reedID))
+		return
+	}
+
+	eventID := generateEventID()
+	if err := rs.dbService.CreatePendingReedEvent(eventID, requestID, client.userID, RequestReedEvent, authorID, reedID); err != nil {
+		log.Error().Err(err).Msg("Failed to create pending event")
+		return
+	}
+
+	rs.connManager.SendToUser(client.userID, NewRequestAckMsg(requestID, eventID, reedID))
+
 	if holder != "" {
 		rs.dispatchNextIfConnected(holder)
 	}
@@ -1088,14 +1097,31 @@ func (rs *RealtimeService) handleRelayMiss(client *Client, data RelayMissData) {
 		log.Error().Err(err).Str("eventID", data.EventID).Msg("Failed to reset dispatched_at on relay miss")
 	}
 
-	holder, err := rs.dbService.GetOnlineReedHolderExcluding(pe.UserID, pe.ReedID, client.userID)
+	hasHolders, holder, err := rs.dbService.GetOnlineHolders(pe.UserID, pe.ReedID)
 	if err != nil {
-		log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to find alternate holder on relay miss")
+		log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to check reed holders on relay miss")
+	} else if !hasHolders {
+		rs.failReedNotHeld(pe)
 	} else if holder != "" {
 		rs.dispatchNextIfConnected(holder)
 	}
 
 	rs.dispatchNext(client.userID)
+}
+
+func (rs *RealtimeService) failReedNotHeld(pe *PendingReedEvent) {
+	log.Info().
+		Str("eventID", pe.EventID).
+		Str("requesterID", pe.RequesterUserID).
+		Str("authorID", pe.UserID).
+		Str("reedID", pe.ReedID).
+		Msg("No reed holders remain; notifying requester")
+	if err := rs.connManager.SendToUser(pe.RequesterUserID, NewReedNotHeldMsg(pe.RequestID, pe.UserID, pe.ReedID)); err != nil {
+		log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to send reed not held")
+	}
+	if err := rs.dbService.DeletePendingEvent(pe.EventID); err != nil {
+		log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to delete pending event on reed not held")
+	}
 }
 
 // handleDataAck is called when the viewer has received and verified a delivery successfully.

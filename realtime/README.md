@@ -102,5 +102,8 @@ split races:
    resends only unacked READY rows.
 5. **`RELAY_MISS`** drops the reporting holder's allocation, resets dispatch,
    and retries another online holder.
+6. When no holder can serve (metadata exists but `reed_allocations` is empty
+   for non-requesters), the server sends terminal **`REED_NOT_HELD`** on
+   `REQUEST_REED` or after miss exhaustion.
 
 Spec: [`specs/publish/`](../specs/publish/README.md).

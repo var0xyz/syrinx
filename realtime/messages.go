@@ -170,5 +170,34 @@ type ReedNotFoundData struct {
 }
 
 func NewReedNotFoundMsg(requestID, reedID string) ReedNotFoundMsg {
-	return ReedNotFoundMsg{Type: "REED_NOT_FOUND", Data: ReedNotFoundData{RequestID: requestID, ReedID: reedID}}
+	return ReedNotFoundMsg{
+		Type: "REED_NOT_FOUND",
+		Data: ReedNotFoundData{
+			RequestID: requestID,
+			ReedID:    reedID,
+		},
+	}
+}
+
+// ReedNotHeldMsg is sent when reed metadata exists but no peer holds the body.
+type ReedNotHeldMsg struct {
+	Type string          `json:"type"`
+	Data ReedNotHeldData `json:"data"`
+}
+
+type ReedNotHeldData struct {
+	RequestID string `json:"request_id"`
+	ReedID    string `json:"reed_id"`
+	AuthorID  string `json:"author_id"`
+}
+
+func NewReedNotHeldMsg(requestID, authorID, reedID string) ReedNotHeldMsg {
+	return ReedNotHeldMsg{
+		Type: "REED_NOT_HELD",
+		Data: ReedNotHeldData{
+			RequestID: requestID,
+			ReedID:    reedID,
+			AuthorID:  authorID,
+		},
+	}
 }

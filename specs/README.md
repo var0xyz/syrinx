@@ -27,7 +27,7 @@ Each table below has a **Status** column per step. Values:
 | Prerequisites    | In progress | 09 (revocation fanout), 11 (notifications, deferred) |
 | Recovery feature | In progress | 16 (reed tip check), 17 (device binding)             |
 | Conversations    | Proposed    | 00–05                                                |
-| Publish ready    | Proposed    | 00–02                                                |
+| Publish ready    | Implemented | —                                                    |
 | Avatars          | Proposed    | 00–05                                                |
 | Pipes            | Implemented | —                                                    |
 | Account recovery | Implemented | 01–07 implemented                                    |
@@ -35,8 +35,8 @@ Each table below has a **Status** column per step. Values:
 | Observability    | Proposed    | 00–04                                                |
 | Load testing     | Proposed    | 00–03                                                |
 
-**Already done:** Invites, Coverage, Deletion, Signature storage, and the
-prerequisites other than 09/11.
+**Already done:** Invites, Coverage, Deletion, Signature storage, Publish
+ready, and the prerequisites other than 09/11.
 
 ## Prerequisite proposals
 
@@ -116,9 +116,9 @@ See [`publish/`](publish/README.md):
 
 | #  | Title                                       | Status   |
 |----|---------------------------------------------|----------|
-| 00 | Design + publish/relay race + locked model  | Proposed |
-| 01 | HTTP SignReed + WS `PUBLISH_READY` + SPA    | Proposed |
-| 02 | Real `RELAY_MISS` (drop allocation + retry) | Proposed |
+| 00 | Design + publish/relay race + locked model  | Implemented |
+| 01 | HTTP SignReed + WS `PUBLISH_READY` + SPA    | Implemented |
+| 02 | Real `RELAY_MISS` (drop allocation + retry) | Implemented |
 
 ## Custom avatars (hash + processed PNG)
 
