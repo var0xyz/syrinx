@@ -1247,14 +1247,209 @@ type ReedAttestation struct {
 
 // createReedParams is the shared insert payload for SignReed persistence.
 type createReedParams struct {
-	ReedID              string
-	UserID              string
-	UserFingerprint     string
-	UserSignatureB64    string
-	ServerFingerprint   string
-	ServerSignatureB64  string
-	Timestamp           time.Time
-	Tags                []string
+	ReedID             string
+	UserID             string
+	UserFingerprint    string
+	UserSignatureB64   string
+	ServerFingerprint  string
+	ServerSignatureB64 string
+	Timestamp          time.Time
+	Tags               []string
+}
+
+// Thread is the resolved thread for a reply parent.
+type Thread struct {
+	ID   string
+	Root ReedRef
+}
+
+// ResolveThreadForParent returns the canonical thread for a reply to parent P.
+// When P is the thread root (no reed_replies row for P), thread_id = ref(P).
+// Otherwise thread_id is inherited from P's reply row and root comes from reed_threads.
+func (s *DataService) ResolveThreadForParent(parent ReedRef) (Thread, error) {
+	var threadID string
+	err := s.db.QueryRow(`
+		SELECT thread_id FROM reed_replies
+		WHERE user_id = $1 AND reed_id = $2
+	`, parent.AuthorID, parent.ReedID).Scan(&threadID)
+	if err == sql.ErrNoRows {
+		return Thread{
+			ID:   FormatReedRef(parent),
+			Root: parent,
+		}, nil
+	}
+	if err != nil {
+		return Thread{}, err
+	}
+
+	var rootUserID, rootReedID string
+	err = s.db.QueryRow(`
+		SELECT root_user_id, root_reed_id FROM reed_threads
+		WHERE id = $1
+	`, threadID).Scan(&rootUserID, &rootReedID)
+	if err == sql.ErrNoRows {
+		return Thread{}, fmt.Errorf("thread %q missing for reply parent", threadID)
+	}
+	if err != nil {
+		return Thread{}, err
+	}
+	return Thread{
+		ID: threadID,
+		Root: ReedRef{
+			AuthorID: rootUserID,
+			ServerID: parent.ServerID,
+			ReedID:   rootReedID,
+		},
+	}, nil
+}
+
+// InsertReply records a direct reply and creates or bumps the thread row.
+func (s *DataService) InsertReply(
+	ctx context.Context,
+	threadID string,
+	root ReedRef,
+	parent ReedRef,
+	replyUserID, replyReedID string,
+	ts time.Time,
+) (replyIndexed bool, err error) {
+	ts = ts.UTC().Truncate(time.Second)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	if err = s.insertReplyTx(ctx, tx, threadID, root, parent, replyUserID, replyReedID, ts); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *DataService) insertReplyTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	threadID string,
+	root, parent ReedRef,
+	replyUserID, replyReedID string,
+	ts time.Time,
+) error {
+	err := tx.QueryRowContext(ctx, `
+		INSERT INTO reed_threads (id, root_user_id, root_reed_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO NOTHING
+		RETURNING id
+	`, threadID, root.AuthorID, root.ReedID).Scan(&threadID)
+	threadExists := err == sql.ErrNoRows
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("create thread: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO reed_replies (
+			thread_id, user_id, reed_id,
+			parent_user_id, parent_reed_id,
+			timestamp
+		)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, threadID, replyUserID, replyReedID,
+		parent.AuthorID, parent.ReedID,
+		ts)
+	if err != nil {
+		return fmt.Errorf("insert reply index: %w", err)
+	}
+
+	if threadExists {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE reed_threads
+			SET reply_count = reply_count + 1
+			WHERE id = $1
+		`, threadID); err != nil {
+			return fmt.Errorf("bump thread reply_count: %w", err)
+		}
+	}
+	return nil
+}
+
+// ReplyListItem is one direct reply in a paginated list response.
+type ReplyListItem struct {
+	UserID string `json:"userID"`
+	ReedID string `json:"reedID"`
+}
+
+// ReplyListResponse is the body of GET /reeds/{userID}/{reedID}/replies.
+type ReplyListResponse struct {
+	Replies []ReplyListItem `json:"replies"`
+	HasMore bool            `json:"hasMore"`
+}
+
+// ListReplies returns visible direct replies to parentUser/parentReed, oldest first.
+func (s *DataService) ListReplies(parentUserID, parentReedID string, limit int, before *time.Time) (*ReplyListResponse, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	args := []any{parentUserID, parentReedID}
+	query := `
+		SELECT user_id, reed_id, timestamp
+		FROM reed_replies rr2
+		WHERE rr2.parent_user_id = $1 AND rr2.parent_reed_id = $2
+		AND NOT EXISTS (
+			SELECT 1 FROM reed_removals rr
+			WHERE rr.user_id = rr2.user_id AND rr.reed_id = rr2.reed_id
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM account_removals ar WHERE ar.user_id = rr2.user_id
+		)
+	`
+	if before != nil {
+		args = append(args, before.UTC().Truncate(time.Second))
+		query += fmt.Sprintf(`
+			AND (rr2.timestamp, rr2.reed_id) > ($%d, '')
+		`, len(args))
+	}
+	args = append(args, limit+1)
+	query += fmt.Sprintf(`
+		ORDER BY rr2.timestamp ASC, rr2.reed_id ASC
+		LIMIT $%d
+	`, len(args))
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []ReplyListItem
+	for rows.Next() {
+		var userID, reedID string
+		var _ts time.Time
+		if err := rows.Scan(&userID, &reedID, &_ts); err != nil {
+			return nil, err
+		}
+		items = append(items, ReplyListItem{
+			UserID: userID,
+			ReedID: reedID,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	if items == nil {
+		items = []ReplyListItem{}
+	}
+	return &ReplyListResponse{Replies: items, HasMore: hasMore}, nil
 }
 
 func (s *DataService) insertReedCoreTx(
@@ -1378,6 +1573,37 @@ func (s *DataService) CreateReedWithEcho(
 		return nil, false, err
 	}
 	return &created, echoIndexed, nil
+}
+
+// CreateReedWithReply inserts a reed and indexes it as a direct reply to parent.
+func (s *DataService) CreateReedWithReply(
+	ctx context.Context,
+	p createReedParams,
+	threadID string,
+	root, parent ReedRef,
+) (reed *Reed, err error) {
+	p.Timestamp = p.Timestamp.UTC().Truncate(time.Second)
+	ts := p.Timestamp
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	created, err := s.insertReedCoreTx(ctx, tx, p)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.insertReplyTx(ctx, tx, threadID, root, parent, p.UserID, p.ReedID, ts); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &created, nil
 }
 
 // GetReedAttestation loads a tip reed and its stored signatures.
@@ -1524,6 +1750,37 @@ func (s *DataService) DeleteEchoesByAuthor(userID string) ([]ReedRef, error) {
 		return nil, err
 	}
 	return targets, nil
+}
+
+// DecrementThreadReplyCountForReed lowers reed_threads.reply_count by one when
+// the removed reed was indexed as a reply. The reed_replies row is kept.
+func (s *DataService) DecrementThreadReplyCountForReed(userID, reedID string) error {
+	_, err := s.db.Exec(`
+		UPDATE reed_threads
+		SET reply_count = GREATEST(reply_count - 1, 0)
+		WHERE id = (
+			SELECT thread_id FROM reed_replies
+			WHERE user_id = $1 AND reed_id = $2
+		)
+	`, userID, reedID)
+	return err
+}
+
+// DecrementThreadReplyCountsByAuthor lowers reply_count once per reply indexed
+// for userID. reed_replies rows are kept.
+func (s *DataService) DecrementThreadReplyCountsByAuthor(userID string) error {
+	_, err := s.db.Exec(`
+		UPDATE reed_threads thread
+		SET reply_count = GREATEST(thread.reply_count - user_replies.count, 0)
+		FROM (
+			SELECT thread_id, COUNT(*)::int AS count
+			FROM reed_replies
+			WHERE user_id = $1
+			GROUP BY thread_id
+		) user_replies
+		WHERE thread.id = user_replies.thread_id
+	`, userID)
+	return err
 }
 
 // ReedOrRemovalResult is returned by GetReedOrRemovalCert. Account removal wins
@@ -1751,7 +2008,7 @@ func ReedContentWithinLimits(body string) bool {
 }
 
 // ReedAsMarkdown builds the canonical signed markdown envelope (must match SPA reedAsMarkdown).
-func ReedAsMarkdown(id, userID, content, echoing, replying string) string {
+func ReedAsMarkdown(id, userID, content, echoing, replying, threadId string) string {
 	headers := map[string]string{
 		"id":     id,
 		"userID": userID,
@@ -1761,6 +2018,9 @@ func ReedAsMarkdown(id, userID, content, echoing, replying string) string {
 	}
 	if echoing != "" {
 		headers["echoing"] = echoing
+	}
+	if threadId != "" {
+		headers["threadId"] = threadId
 	}
 	keys := make([]string, 0, len(headers))
 	for k := range headers {
@@ -1823,6 +2083,7 @@ type ReedHeader struct {
 	// Social
 	Replying string
 	Echoing  string
+	ThreadID string
 }
 
 func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
@@ -1831,7 +2092,8 @@ func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
 	var id,
 		userID,
 		replying,
-		echoing string
+		echoing,
+		threadID string
 	for _, line := range lines {
 		if inHeader {
 			if line == "---" {
@@ -1849,6 +2111,9 @@ func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
 			if strings.HasPrefix(line, "echoing:") {
 				echoing, _ = strings.CutPrefix(line, "echoing:")
 			}
+			if strings.HasPrefix(line, "threadId:") {
+				threadID, _ = strings.CutPrefix(line, "threadId:")
+			}
 		}
 
 		if line == "---" && !inHeader {
@@ -1861,6 +2126,7 @@ func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
 		UserID:   strings.TrimSpace(userID),
 		Replying: strings.TrimSpace(replying),
 		Echoing:  strings.TrimSpace(echoing),
+		ThreadID: strings.TrimSpace(threadID),
 	}
 
 	return header
@@ -1875,6 +2141,7 @@ func (s *MarkdownService) ValidateReedHeader(reed string) error {
 	optionalHeaders := []string{
 		"replying",
 		"echoing",
+		"threadId",
 	}
 
 	lines := strings.Split(reed, "\n")

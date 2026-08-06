@@ -34,35 +34,31 @@ test.describe('Signup and Reed Publishing Flow', () => {
     // Wait for the page to load and verify we're on the reeds page
     await expect(page.locator('.reeds-container')).toBeVisible();
 
-    // Click the floating write button to open the write section
+    // Click the floating write button to open the write modal
     await page.click('.floating-write-btn');
 
-    // Wait for the write section to appear
-    await expect(page.locator('.write-section')).toBeVisible();
+    // Wait for the write modal to appear
+    await expect(page.locator('.write-modal')).toBeVisible();
+    await expect(page.locator('.write-modal h2')).toHaveText('New Reed');
 
-    // Fill in the reed content with emojis, newlines, and hashtags
+    // Fill in the reed content with emojis, newlines, and hashtags (within 140 visible chars)
     const reedContent = `Hello world! 🌟
 
-This is a test reed with:
-- Multiple lines
-- Emojis 🎉 💡
-- And #hashtags #testing
+#hashtags #testing 🎉 💡`;
 
-Testing special characters: @#$%^&*()_+-=[]{}|;:,.<>?`;
-
-    await page.fill('#content', reedContent);
+    await page.locator('.write-modal textarea').fill(reedContent);
 
     // Verify the content was entered correctly
-    await expect(page.locator('#content')).toHaveValue(reedContent);
+    await expect(page.locator('.write-modal textarea')).toHaveValue(reedContent);
 
     // Click the Publish button
-    await page.click('button[type="submit"]');
+    await page.locator('.write-modal button[type="submit"]').click();
 
     // Wait for the reed to be published (button should show "Publishing..." then disappear)
-    await expect(page.locator('button[type="submit"]')).toHaveText('Publishing...');
+    await expect(page.locator('.write-modal button[type="submit"]')).toHaveText('Publishing...');
 
-    // Wait for the write section to close (indicates successful publish)
-    await expect(page.locator('.write-section')).not.toBeVisible();
+    // Wait for the write modal to close (indicates successful publish)
+    await expect(page.locator('.write-modal')).not.toBeVisible();
 
     // Verify the reed appears in the list
     await expect(page.locator('.reed-item')).toContainText(reedContent.split('\n')[0]); // First line of content

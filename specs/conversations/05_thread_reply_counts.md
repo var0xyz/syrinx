@@ -98,9 +98,10 @@ threadId: <userID>@<serverID>/<reedID>
 - Resolved **server-side** at publish time with a single lookup, not a walk:
   - Reed replies to parent `P`.
   - If `P` has a `reed_replies` row (i.e. `P` is itself a reply), the new
-    reed's `threadId` = `P`'s own `thread_user_id`/`thread_reed_id`
-    (inherit — "if the thread id exists already, we replace it").
-  - Otherwise `P` is the root: the new reed's `threadId` = ref to `P`.
+    reed's `threadId` = `P`'s own `thread_id` from its `reed_replies` row
+    (inherit — load root from `reed_threads`).
+  - Otherwise `P` is the root: the new reed's `threadId` = ref to `P` (first
+    reply creates the `reed_threads` row).
 - Producers still set the header via `formatReedRef` (never a bare id), and
   it's rebuilt server-side the same way `echoing`/`replying` are rebuilt in
   `ReedAsMarkdown` for signature verification ([01](01_publish_and_refs.md)).
@@ -109,50 +110,34 @@ threadId: <userID>@<serverID>/<reedID>
 
 ### `reed_threads` schema (thread total)
 
-```sql
-CREATE TABLE IF NOT EXISTS reed_threads (
-    thread_user_id VARCHAR(255) NOT NULL,
-    thread_reed_id VARCHAR(255) NOT NULL,
-    reply_count    INT NOT NULL DEFAULT 0,
-    PRIMARY KEY (thread_user_id, thread_reed_id)
-);
-```
-
-No FK to `reeds` — the root may be removed while its thread lives on;
-`reply_count` is the sum of live, non-tombstoned replies sharing that
-thread, regardless of how deep they are.
-
-Register DDL in `InitDB` ([`db.go`](../../db.go)), alongside the amended
-`reed_replies` table from [02](02_index_and_api.md#schema) (which now also
-carries `thread_user_id`/`thread_reed_id` per row).
+Implemented in [02](02_index_and_api.md) — one row per thread, keyed by
+`id` (the root reed ref). `reply_count` defaults to 1 on create and is
+incremented on subsequent replies; decremented on removal (this step).
 
 **Same-TX bump on publish** — inside the `SignReed` transaction, after
-resolving `threadId` and inserting the `reed_replies` row (as in
-[02](02_index_and_api.md#insert-on-publish)):
+inserting the `reed_replies` row ([02](02_index_and_api.md#insert-on-publish)):
 
 ```sql
-INSERT INTO reed_threads (thread_user_id, thread_reed_id, reply_count)
-VALUES ($1, $2, 1)
-ON CONFLICT (thread_user_id, thread_reed_id)
+INSERT INTO reed_threads (id, root_user_id, root_reed_id, reply_count)
+VALUES ($1, $2, $3, 1)
+ON CONFLICT (id)
 DO UPDATE SET reply_count = reed_threads.reply_count + 1;
 ```
 
-Idempotent republish (same reed, same signature retried) must not
-double-count — gate the bump on the `reed_replies` insert actually affecting
-a row (`ON CONFLICT (reply_user_id, reply_reed_id) DO NOTHING`, mirroring
-the echo insert's `echoIndexed` flag), same as `CreateReedWithEcho` does for
-echoes today ([`services.go`](../../services.go)).
+On first reply to a root reed, insert `reed_threads` with `reply_count = 1`
+(default). On subsequent replies to the same thread, increment `reply_count`
+after the new `reed_replies` row lands (gated on insert success).
 
 **Removal — decrement by exactly one:** when a reed is removed
 ([`Handlers.DeleteReed`](../../handlers.go), which today calls
 `DeleteEchoIndexForReed` for echoes):
 
-1. Look up `reed_replies` by `(reply_user_id, reply_reed_id)` = the removed
+1. Look up `reed_replies` by `(user_id, reed_id)` = the removed
    reed. If no row exists, the removed reed wasn't a reply — nothing to do
    here (this also covers removing a thread root: a root has no
    `reed_replies` row for itself, so the thread total is untouched).
 2. If a row exists, decrement `reed_threads.reply_count` by 1 for that row's
-   `(thread_user_id, thread_reed_id)`, floored at 0, in the same
+   `thread_id` (FK to `reed_threads.id`), floored at 0, in the same
    transaction as the `reed_removals` insert.
 3. The `reed_replies` row itself is **not deleted** — needed to render the
    reply as a tombstone and to keep resolving `threadId`/ancestor chains for
@@ -162,7 +147,7 @@ echoes today ([`services.go`](../../services.go)).
 Account removal cascades the same decrement across every reply that account
 authored, mirroring `DeleteEchoesByAuthor`'s enumerate-then-clean shape
 ([`services.go:1394-1423`](../../services.go)): for each `reed_replies` row
-where `reply_user_id` = the removed account, decrement its thread's counter
+where `user_id` = the removed account, decrement its thread's counter
 by 1 (same "don't delete the row, just decrement" rule as above).
 
 ### `reed_reply_counts` schema (per-node subtree count)
@@ -264,12 +249,9 @@ live-update story is an open question below.
 
 - `SUBSCRIBE_REED {userID, reedID}` — before building the snapshot, resolve
   the *viewed* reed to its thread root: look up `reed_replies` by
-  `(reply_user_id, reply_reed_id) = (userID, reedID)`; if found, use its
-  `thread_user_id`/`thread_reed_id`, else the viewed reed is itself the
-  root. `GetReedStatsSnapshot` reads `reed_threads.reply_count` for that
-  resolved root (a single indexed row lookup — cheaper than echoes' live
-  `COUNT(*)`) and `REED_STATS` gains a `replies` field alongside `echoes`
-  and `coveragePercent`.
+  `(user_id, reed_id)`; if found, use its `thread_id` to read
+  `reed_threads.reply_count` for that thread id — `REED_STATS` gains a
+  `replies` field alongside `echoes` and `coveragePercent`.
 - Reed-subscriber registration for the thread-total stat is keyed by the
   **resolved thread root**, not the literal viewed reed — otherwise a
   client viewing a non-root reed in a thread would never receive live
@@ -311,8 +293,8 @@ Two independent surfaces:
 
 ## Work items
 
-1. DDL: `reed_threads`, `reed_reply_counts`; amend `reed_replies` per
-   [02](02_index_and_api.md#schema) (already covers `thread_user_id`/`thread_reed_id`).
+1. DDL: `reed_reply_counts`; `reed_threads`/`reed_replies` per
+   [02](02_index_and_api.md#schema).
 2. `threadId` header: parse/validate/rebuild in `ReedAsMarkdown` alongside
    `echoing`/`replying`; resolve via single parent lookup at publish time.
 3. Bump `reed_threads` (O(1)) and walk-and-bump `reed_reply_counts` (O(depth))

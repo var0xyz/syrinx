@@ -267,6 +267,9 @@ func main() {
 	api.HandleFunc("/reeds/{userID}/{reedID}/echoes", h.GetReedEchoes).Methods("GET")
 	api.HandleFunc("/reeds/{userID}/{reedID}/echoes", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/reeds/{userID}/{reedID}/replies", h.GetReedReplies).Methods("GET")
+	api.HandleFunc("/reeds/{userID}/{reedID}/replies", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}).Methods("GET")

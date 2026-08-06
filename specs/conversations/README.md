@@ -37,7 +37,17 @@ Thread reply counts ([05](05_thread_reply_counts.md)) only need the
 
 ## Status
 
-**Proposed** (00–05).
+| #  | Title                                              | Status        |
+|----|----------------------------------------------------|---------------|
+| 00 | Design + UX model                                  | Implemented   |
+| 01 | Verify publish payload; normalize `replying` ref   | Implemented   |
+| 02 | Echo/reply index tables + list/count APIs          | Implemented   |
+| 03 | Echo count + conversation section on reed detail   | Proposed      |
+| 04 | `@` mentions → links + `reed_mentions`             | Proposed      |
+| 05 | Thread reply counts (thread total + subtree)       | Proposed      |
+
+**Track status: In progress** — publish verify (01), echo/reply index + APIs (02);
+`echoCount` on `GET /reeds` and conversation UI (03) not yet shipped.
 
 ## Motivation
 
@@ -61,7 +71,7 @@ replies first; drill into a reply to see *its* direct replies.
 |----------|--------|
 | Reply / echo reference wire format | `userID@serverID/reedID` (same for both), reused for `threadId` |
 | Index scope | Instance-local; built at countersign time |
-| Index payload | `(parent/target author, parent/target reed, child author, child reed, signed_at)` — no markdown on server |
+| Index payload | `(parent, reply ids, timestamp)` — timestamp for list order only; no markdown on server |
 | Publish body | Client sends form fields (`content`, optional `echoing`/`replying`); server rebuilds canonical markdown and verifies detached user sig before countersign |
 | Echo count surface | Integer on `GET /reeds/{userID}/{reedID}` (`echoCount`) |
 | Reply list surface | `GET /reeds/{userID}/{reedID}/replies` — metadata rows, oldest-first |
