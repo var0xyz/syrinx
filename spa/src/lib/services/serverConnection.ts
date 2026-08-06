@@ -28,6 +28,7 @@ export enum ServerEvent {
   PublishReadyAck  = 'PUBLISH_READY_ACK',
   ReedStats        = 'REED_STATS',
   ReedEchoes       = 'REED_ECHOES',
+  ReedReplies      = 'REED_REPLIES',
   ReedCoverage     = 'REED_COVERAGE',
 }
 

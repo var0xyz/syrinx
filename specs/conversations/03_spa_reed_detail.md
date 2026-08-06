@@ -51,8 +51,8 @@ Echo count: [`getReedEchoCount`](../../spa/src/lib/services/api.ts) →
 stats line via [`echoCountsRepository`](../../spa/src/lib/repositories/echoCounts.ts)
 + WS `REED_STATS` / `REED_ECHOES`.
 
-Direct reply count: `getReedReplyCount` → `GET …/replies/count`; cached in
-`reply_counts`; displayed in stats line with `reply-16.png` icon.
+Reply count (subtree): `REED_STATS.replies` + `REED_REPLIES`; cached in `reply_counts`;
+shown in stats line (`reply-16.png`) and as `Replies (N)` on the conversation section.
 
 ### Echo count
 

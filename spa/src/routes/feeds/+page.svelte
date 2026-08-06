@@ -267,7 +267,7 @@
                 </div>
                 {#if reed.replying}
                   <div class="feed-quote">
-                    <Quote reedRef={reed.replying} type="reply" linked={false} />
+                    <Quote reedRef={reed.replying} type="reply" linked={true} />
                   </div>
                 {/if}
                 {#if (reed.content || '').trim()}
@@ -277,7 +277,7 @@
                 {/if}
                 {#if reed.echoing}
                   <div class="feed-quote">
-                    <Quote reedRef={reed.echoing} type="echo" linked={false} />
+                    <Quote reedRef={reed.echoing} type="echo" linked={true} />
                   </div>
                 {/if}
               </div>

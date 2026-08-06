@@ -44,7 +44,7 @@ Thread reply counts ([05](05_thread_reply_counts.md)) only need the
 | 02 | Echo/reply index tables + list/count APIs          | Implemented   |
 | 03 | Echo count + conversation section on reed detail   | Implemented   |
 | 04 | `@` mentions → links + `reed_mentions`             | Proposed      |
-| 05 | Thread reply counts (thread total + subtree)       | Proposed      |
+| 05 | Thread reply counts (thread total + subtree)       | Implemented   |
 
 **Track status: In progress** — conversation UI + local reply caches (03) landed;
 thread reply counts (05) and mentions (04) remain open.
@@ -80,7 +80,7 @@ replies first; drill into a reply to see *its* direct replies.
 | Realtime v1 | Direct reply list reuses `FOLLOW_REED` fanout (no new WS type); the thread total gets a dedicated `REED_STATS`/`REED_REPLIES` live path — see [05](05_thread_reply_counts.md) |
 | Mention href | `web+syrinx://users/<serverID>/<userID>` inside markdown `[Name](…)` — domain-free; see [04](04_mentions.md) |
 | Mention index | `reed_mentions` at countersign; cleared on reed/account removal; no notification delivery in conversations |
-| Reply counts | Two independent numbers: **thread total** (same number on every reed in the thread, denormalized in `reed_threads`, keyed by `threadId`, shown in the stats line) and **subtree count** (per-reed, denormalized in `reed_reply_counts`, shown as `Replies (N)` under the reed body); see [05](05_thread_reply_counts.md) |
+| Reply counts | One number per viewed reed: **subtree count** (descendants via `reed_replies` graph), delivered as `replies` on `REED_STATS`/`REED_REPLIES`; shown in stats line and `Replies (N)`. Thread-wide total only when viewing the root (same query — no separate field). |
 
 ## Actors
 

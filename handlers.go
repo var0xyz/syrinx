@@ -818,8 +818,17 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.services.db.DecrementThreadReplyCountsByAuthor(userID); err != nil {
-		log.Error().Str("userID", userID).Err(err).Msg("Error decrementing thread reply counts for removed account")
+	threadTargets, err := h.services.db.ReplyCountNotifyTargetsForAuthor(userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error resolving reply count targets for removed account")
+	} else {
+		for _, t := range threadTargets {
+			h.broadcastChan <- realtime.BroadcastMessage{
+				Type:   realtime.ReplyCountChanged,
+				UserID: t.AuthorID,
+				ReedID: t.ReedID,
+			}
+		}
 	}
 
 	h.broadcastChan <- realtime.BroadcastMessage{
@@ -1523,16 +1532,14 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	threadID := ""
-	var thread Thread
 	if replyRef != nil {
 		var err error
-		thread, err = h.services.db.ResolveThreadForParent(*replyRef)
+		threadID, err = h.services.db.ResolveThreadIDForParent(*replyRef)
 		if err != nil {
 			log.Error().Err(err).Msg("Error resolving thread")
 			internalServerError(w)
 			return
 		}
-		threadID = thread.ID
 	}
 
 	markdown := ReedAsMarkdown(reedID, userID, contentBody, echoing, replying, threadID)
@@ -1630,7 +1637,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	case echoRef != nil:
 		reed, echoIndexed, err = h.services.db.CreateReedWithEcho(r.Context(), createParams, *echoRef)
 	case replyRef != nil:
-		reed, err = h.services.db.CreateReedWithReply(r.Context(), createParams, thread.ID, thread.Root, *replyRef)
+		reed, err = h.services.db.CreateReedWithReply(r.Context(), createParams, threadID, *replyRef)
 	default:
 		reed, err = h.services.db.CreateReed(r.Context(), createParams)
 	}
@@ -1660,6 +1667,21 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			Type:   realtime.EchoCountChanged,
 			UserID: echoRef.AuthorID,
 			ReedID: echoRef.ReedID,
+		}
+	}
+
+	if replyRef != nil {
+		targets, err := h.services.db.ReplyCountNotifyTargets(replyRef.AuthorID, replyRef.ReedID)
+		if err != nil {
+			log.Error().Err(err).Msg("Error resolving reply count notify targets")
+		} else {
+			for _, t := range targets {
+				h.broadcastChan <- realtime.BroadcastMessage{
+					Type:   realtime.ReplyCountChanged,
+					UserID: t.AuthorID,
+					ReedID: t.ReedID,
+				}
+			}
 		}
 	}
 
@@ -1867,8 +1889,17 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.services.db.DecrementThreadReplyCountForReed(userID, reedID); err != nil {
-		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error decrementing thread reply count for removed reed")
+	replyTargets, err := h.services.db.ReplyCountNotifyTargetsForRemovedReply(userID, reedID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error resolving reply count targets for removed reed")
+	} else {
+		for _, t := range replyTargets {
+			h.broadcastChan <- realtime.BroadcastMessage{
+				Type:   realtime.ReplyCountChanged,
+				UserID: t.AuthorID,
+				ReedID: t.ReedID,
+			}
+		}
 	}
 
 	// Keep the reeds row for allocation catch-up (04): reed_allocations FK
@@ -1984,46 +2015,6 @@ func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, count)
 }
 
-func (h *Handlers) GetReedReplyCount(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("GetReedReplyCount request received")
-
-	reedID := mux.Vars(r)["reedID"]
-	userID := mux.Vars(r)["userID"]
-	if userID == "" || reedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
-		return
-	}
-
-	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
-	if err != nil {
-		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed")
-		internalServerError(w)
-		return
-	}
-	if result.AccountRemoval != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(result.AccountRemoval))
-		return
-	}
-	if result.ReedRemoval != nil {
-		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
-		return
-	}
-	if result.Reed == nil {
-		writeResponse(w, http.StatusNotFound, "Post not found")
-		return
-	}
-
-	count, err := h.services.db.CountDirectReplies(userID, reedID)
-	if err != nil {
-		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error counting replies")
-		internalServerError(w)
-		return
-	}
-
-	writeResponse(w, http.StatusOK, count)
-}
-
 func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("GetReedReplies request received")
@@ -2041,15 +2032,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	if result.AccountRemoval != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(result.AccountRemoval))
-		return
-	}
-	if result.ReedRemoval != nil {
-		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
-		return
-	}
-	if result.Reed == nil {
+	if result.Reed == nil && result.ReedRemoval == nil && result.AccountRemoval == nil {
 		writeResponse(w, http.StatusNotFound, "Post not found")
 		return
 	}

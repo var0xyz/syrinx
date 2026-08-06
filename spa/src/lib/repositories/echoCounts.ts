@@ -12,11 +12,11 @@ export type EchoCountRow = {
 
 export const echoCountsRepository = {
   async get(reedID: string): Promise<number> {
-    const row = await dbService.get<EchoCountRow>('echo_counts', reedID);
+    const row = await dbService.get<EchoCountRow>('echoCounts', reedID);
     return row?.count ?? 0;
   },
 
   async put(reedID: string, count: number): Promise<void> {
-    await dbService.put('echo_counts', { reedID, count }, allowUnsigned);
+    await dbService.put('echoCounts', { reedID, count }, allowUnsigned);
   },
 };

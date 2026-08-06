@@ -511,17 +511,54 @@ func (ds *DBService) CountEchoes(echoedUserID, echoedReedID string) (int, error)
 	return n, err
 }
 
-// GetReedStatsSnapshot returns echoes + coverage for a subscribe ACK.
-func (ds *DBService) GetReedStatsSnapshot(authorUserID, reedID string) (echoes, coveragePercent int, err error) {
+// GetReedStatsSnapshot returns echoes, coverage, and subtree reply count for subscribe ACK.
+func (ds *DBService) GetReedStatsSnapshot(authorUserID, reedID string) (echoes, coveragePercent, replies int, err error) {
 	coveragePercent, err = ds.GetReedCoveragePercent(authorUserID, reedID)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	echoes, err = ds.CountEchoes(authorUserID, reedID)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
-	return echoes, coveragePercent, nil
+	replies, err = ds.GetSubtreeReplyCount(authorUserID, reedID)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return echoes, coveragePercent, replies, nil
+}
+
+// GetSubtreeReplyCount returns live descendant reply count beneath userID/reedID.
+func (ds *DBService) GetSubtreeReplyCount(userID, reedID string) (int, error) {
+	var count int
+	err := ds.db.QueryRow(`
+		WITH RECURSIVE descendants AS (
+			SELECT rr.user_id, rr.reed_id
+			FROM reed_replies rr
+			WHERE rr.parent_user_id = $1 AND rr.parent_reed_id = $2
+			AND NOT EXISTS (
+				SELECT 1 FROM reed_removals rm
+				WHERE rm.user_id = rr.user_id AND rm.reed_id = rr.reed_id
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM account_removals ar WHERE ar.user_id = rr.user_id
+			)
+			UNION ALL
+			SELECT rr.user_id, rr.reed_id
+			FROM reed_replies rr
+			INNER JOIN descendants d
+				ON rr.parent_user_id = d.user_id AND rr.parent_reed_id = d.reed_id
+			WHERE NOT EXISTS (
+				SELECT 1 FROM reed_removals rm
+				WHERE rm.user_id = rr.user_id AND rm.reed_id = rr.reed_id
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM account_removals ar WHERE ar.user_id = rr.user_id
+			)
+		)
+		SELECT COUNT(*) FROM descendants
+	`, userID, reedID).Scan(&count)
+	return count, err
 }
 
 // GetNextPendingForHolder returns the oldest undispatched reed pending for reeds held by holderUserID.

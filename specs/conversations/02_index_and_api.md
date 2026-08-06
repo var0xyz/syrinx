@@ -27,7 +27,7 @@ With publish-time ref parsing in place, the server can maintain durable
   present.
 - Extend `GET /reeds/{userID}/{reedID}/replies` endpoint (reply list).
 - Echo count via `GET /reeds/{userID}/{reedID}/echoes` (integer body).
-- Direct reply count via `GET /reeds/{userID}/{reedID}/replies/count` (integer body).
+- Subtree reply count via `REED_STATS.replies` / `REED_REPLIES` (WS only; same pattern as coverage).
 - Filter out removed reeds and account-removed authors in all queries.
 
 ## Non-goals
@@ -62,7 +62,6 @@ CREATE TABLE IF NOT EXISTS reed_threads (
     id             VARCHAR(255) PRIMARY KEY,
     root_user_id   VARCHAR(255) NOT NULL,
     root_reed_id   VARCHAR(255) NOT NULL,
-    reply_count    INT NOT NULL DEFAULT 1,
     FOREIGN KEY (root_user_id, root_reed_id) REFERENCES reeds(user_id, id)
 );
 
@@ -114,7 +113,7 @@ Inside `SignReed` (after reed creation):
 | Parsed ref | Insert |
 |------------|--------|
 | `echoing → (Tuser, Tid)` | `reed_echoes(...)` |
-| `replying → (Puser, Pid)` | `reed_replies(...)` + upsert `reed_threads` (`reply_count` bump gated on new reply row) |
+| `replying → (Puser, Pid)` | `reed_replies(...)` + upsert `reed_threads` (thread identity only) |
 
 `ON CONFLICT (user_id, reed_id) DO NOTHING` on replies for idempotent retries.
 

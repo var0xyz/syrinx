@@ -41,6 +41,10 @@
   let loadingReed = !data.fromCache && !data.errorMessage;
   let fetchingReed = false;
   let reedNotFound = false;
+  /** When set, show tombstone stub instead of full reed body. */
+  let removedReedCert = null;
+  /** When set, author deleted their account — tombstone + replies still shown. */
+  let removedAccountCert = null;
   /** Drops stale async loadReed completions (overlapping reactive calls). */
   let loadSeq = 0;
 
@@ -59,7 +63,7 @@
     : '';
 
   $: followArrived = $followReedQueue?.reed;
-  $: if (followArrived && followArrived.id !== lastHandledFollowReedId && reedMatchesRoute) {
+  $: if (followArrived && followArrived.id !== lastHandledFollowReedId && (reedMatchesRoute || removedReedCert || removedAccountCert)) {
     lastHandledFollowReedId = followArrived.id;
     void onFollowReedArrived(followArrived);
   }
@@ -86,6 +90,8 @@
     replyCount = next.replyCount;
     errorMessage = next.errorMessage;
     reedNotFound = false;
+    removedReedCert = next.removedReedCert ?? null;
+    removedAccountCert = next.removedAccountCert ?? null;
     fetchingReed = false;
     coveragePercent = 0;
     lastHandledFollowReedId = '';
@@ -104,18 +110,6 @@
     if (!authorUser) {
       await loadAuthorProfile();
     }
-    void refreshReplyCount();
-  }
-
-  async function refreshReplyCount() {
-    if (!$isOnline || !userID || !reedID) return;
-    try {
-      const count = await apiService.getReedReplyCount(userID, reedID);
-      replyCount = count;
-      await replyCountsRepository.put(reedID, count);
-    } catch (err) {
-      console.warn('Failed to refresh reply count:', err);
-    }
   }
 
   function handleReedStats(msg) {
@@ -124,6 +118,10 @@
       coveragePercent = msg.coveragePercent ?? coveragePercent;
       if (typeof msg.echoes === 'number') {
         void echoCountsRepository.put(reedID, msg.echoes);
+      }
+      if (typeof msg.replies === 'number') {
+        replyCount = msg.replies;
+        void replyCountsRepository.put(reedID, msg.replies);
       }
     }
   }
@@ -137,6 +135,15 @@
     }
   }
 
+  function handleReedReplies(msg) {
+    if (msg?.userID === userID && msg?.reedID === reedID) {
+      replyCount = msg.replies ?? replyCount;
+      if (typeof msg.replies === 'number') {
+        void replyCountsRepository.put(reedID, msg.replies);
+      }
+    }
+  }
+
   function handleReedCoverage(msg) {
     if (msg?.userID === userID && msg?.reedID === reedID) {
       coveragePercent = msg.coveragePercent ?? coveragePercent;
@@ -145,10 +152,11 @@
 
   async function onFollowReedArrived(incoming) {
     const parentRef = parseReedRef(incoming.replying);
-    if (!parentRef || parentRef.authorId !== userID || parentRef.reedId !== reedID) return;
-    replyCount += 1;
-    void replyCountsRepository.put(reedID, replyCount);
-    await conversationSection?.onReplyArrived(incoming);
+    if (parentRef?.authorId === userID && parentRef?.reedId === reedID) {
+      replyCount += 1;
+      void replyCountsRepository.put(reedID, replyCount);
+      await conversationSection?.onReplyArrived(incoming);
+    }
   }
 
   $: if ($isOnline && user && loadingReed && !data.fromCache) loadReedFromNetwork();
@@ -157,12 +165,14 @@
   onMount(() => {
     serverConnection.on(ServerEvent.ReedStats, handleReedStats);
     serverConnection.on(ServerEvent.ReedEchoes, handleReedEchoes);
+    serverConnection.on(ServerEvent.ReedReplies, handleReedReplies);
     serverConnection.on(ServerEvent.ReedCoverage, handleReedCoverage);
   });
 
   onDestroy(() => {
     serverConnection.off(ServerEvent.ReedStats, handleReedStats);
     serverConnection.off(ServerEvent.ReedEchoes, handleReedEchoes);
+    serverConnection.off(ServerEvent.ReedReplies, handleReedReplies);
     serverConnection.off(ServerEvent.ReedCoverage, handleReedCoverage);
   });
 
@@ -221,16 +231,23 @@
         if (result.kind === 'gone') {
           if (result.removal.type === 'reed') {
             await verifyAndCommitReedRemoval(result.removal);
-            reedNotFound = true;
+            removedReedCert = result.removal;
+            loadingReed = false;
+            await loadAuthorProfile();
           } else if (result.removal.type === 'account') {
             await verifyAndCommitAccountRemoval(result.removal);
-            reedNotFound = true;
+            removedAccountCert = result.removal;
+            removedReedCert = null;
+            loadingReed = false;
+            await loadAuthorProfile();
           } else {
             reedNotFound = true;
           }
           return;
         }
       } catch {
+        if (seq !== loadSeq) return;
+        reedNotFound = true;
         return;
       }
 
@@ -243,7 +260,6 @@
         if (seq !== loadSeq) return;
         reed = networkReed;
         await loadAuthorProfile();
-        void refreshReplyCount();
       } catch {
         if (seq !== loadSeq) return;
         reedNotFound = true;
@@ -361,8 +377,8 @@
   <Auth>
     <div class="reed-detail-container">
       {#key `${userID}/${reedID}`}
-        {#if reedMatchesRoute && reed?.serverSignature}
-          <ReedStatsSubscription authorId={reed.userID} reedId={reed.id} />
+        {#if (reedMatchesRoute && reed?.serverSignature) || removedReedCert || removedAccountCert}
+          <ReedStatsSubscription authorId={userID} reedId={reedID} />
         {/if}
       {/key}
 
@@ -386,6 +402,47 @@
             <h3>You're offline</h3>
             <p>This reed isn't cached locally. We'll load it when you're back online.</p>
           </div>
+        {:else if removedReedCert || removedAccountCert}
+          <div class="reed-detail removed-reed">
+            <div class="reed-meta">
+              <div class="reed-author">
+                <a href="/profile/{userID}" class="author-avatar">
+                  <Avatar userID={userID} username={authorUser?.username ?? userID} size="48px" />
+                </a>
+                <div class="author-info">
+                  <a href="/profile/{userID}" class="author-name">{authorUser?.username ?? userID}</a>
+                  <p class="reed-stats" title="Stats for nerds">
+                    <span class="reed-stat-icon echoes" aria-hidden="true"></span>
+                    {echoCount}
+                    <span class="reed-stat-icon replies" aria-hidden="true"></span>
+                    {replyCount}
+                    <span class="reed-stat-icon coverage" aria-hidden="true"></span>
+                    {coveragePercent}%
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div class="reed-body tombstone">
+              <p class="tombstone-text">
+                {#if removedReedCert?.serverSignature?.timestamp}
+                  On {formatAbsoluteDateTime(removedReedCert.serverSignature.timestamp)} the author removed this reed.
+                {:else if removedReedCert}
+                  The author removed this reed.
+                {:else if removedAccountCert?.serverSignature?.timestamp}
+                  On {formatAbsoluteDateTime(removedAccountCert.serverSignature.timestamp)} the author deleted their account.
+                {:else}
+                  The author deleted their account.
+                {/if}
+              </p>
+            </div>
+          </div>
+          <ConversationSection
+            bind:this={conversationSection}
+            parentUserID={userID}
+            parentReedID={reedID}
+            threadId={parentThreadId}
+            refreshToken={conversationRefresh}
+          />
         {:else if loadingReed || !reedMatchesRoute}
           <div class="loading">
             <h2>Loading reed...</h2>
@@ -432,7 +489,7 @@
             <div class="reed-body">
               {#if reed.replying}
                 <div class="quote-container">
-                  <Quote reed={repliedToReed} missing={repliedToReedMissing} type="reply" linked={true} />
+                  <Quote reed={repliedToReed} reedRef={reed.replying} missing={repliedToReedMissing} type="reply" linked={true} />
                 </div>
               {/if}
               {#if reed.content}
@@ -440,7 +497,7 @@
               {/if}
               {#if reed.echoing}
                 <div class="quote-container">
-                  <Quote reed={echoedReed} missing={echoedReedMissing} type="echo" linked={true} />
+                  <Quote reed={echoedReed} reedRef={reed.echoing} missing={echoedReedMissing} type="echo" linked={true} />
                 </div>
               {/if}
             </div>
@@ -472,19 +529,16 @@
               </button>
               -->
             </div>
-
-            {#if !isPending}
-              <div class="conversation-wrap">
-                <ConversationSection
-                  bind:this={conversationSection}
-                  parentUserID={userID}
-                  parentReedID={reedID}
-                  threadId={parentThreadId}
-                  refreshToken={conversationRefresh}
-                />
-              </div>
-            {/if}
           </div>
+          {#if !isPending}
+            <ConversationSection
+              bind:this={conversationSection}
+              parentUserID={userID}
+              parentReedID={reedID}
+              threadId={parentThreadId}
+              refreshToken={conversationRefresh}
+            />
+          {/if}
         {/if}
       </div>
 
@@ -511,6 +565,11 @@
     margin: 0 auto;
     width: 100%;
     padding: 1rem;
+  }
+
+  .reed-detail.removed-reed .tombstone {
+    padding: 1rem;
+    color: var(--muted);
   }
 
   .reed-detail {
@@ -653,10 +712,6 @@
     padding: 1rem 1.5rem;
     border-top: 1px solid var(--border);
     background: var(--surface);
-  }
-
-  .conversation-wrap {
-    padding: 0 1.5rem 1.5rem;
   }
 
   .action-btn {

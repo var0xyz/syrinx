@@ -326,20 +326,9 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// id is the root reed ref (user@server/reed); one row per thread (created on first reply).
-	createReedThreadsTable := `
-	CREATE TABLE IF NOT EXISTS reed_threads (
-		id VARCHAR(255) PRIMARY KEY,
-		root_user_id VARCHAR(255) NOT NULL,
-		root_reed_id VARCHAR(255) NOT NULL,
-		reply_count INT NOT NULL DEFAULT 1,
-
-		FOREIGN KEY (root_user_id, root_reed_id) REFERENCES reeds(user_id, id)
-	);`
-
-	// Direct reply index: one row per reply reed, keyed by (user_id, reed_id).
 	createReedRepliesTable := `
 	CREATE TABLE IF NOT EXISTS reed_replies (
-		thread_id VARCHAR(255) NOT NULL REFERENCES reed_threads(id),
+		thread_id VARCHAR(255) NOT NULL,
 		user_id VARCHAR(255) NOT NULL,
 		reed_id VARCHAR(255) NOT NULL UNIQUE,
 		parent_user_id VARCHAR(255) NOT NULL,
@@ -642,7 +631,6 @@ func InitDB(db *sql.DB) error {
 		createReedEchoesTable,
 		createReedEchoesIndexes,
 
-		createReedThreadsTable,
 		createReedRepliesTable,
 		createReedRepliesIndexes,
 

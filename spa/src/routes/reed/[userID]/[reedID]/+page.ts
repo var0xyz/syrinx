@@ -3,6 +3,8 @@ import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
 import { echoCountsRepository } from '$lib/repositories/echoCounts';
 import { replyCountsRepository } from '$lib/repositories/replyCounts';
+import { removedReedsRepository } from '$lib/repositories/removedReeds';
+import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
 import { parseReedRef } from '$lib/utils/reedRef';
 
 /** @type {import('./$types').PageLoad} */
@@ -48,6 +50,20 @@ export async function load({ params, parent }) {
   let repliedToReedMissing = false;
   let echoCount = 0;
   let replyCount = 0;
+  let removedReedCert = null;
+  let removedAccountCert = null;
+
+  if (!reed) {
+    removedAccountCert = await removedAccountsRepository.get(userID);
+    if (!removedAccountCert) {
+      removedReedCert = await removedReedsRepository.get(reedID);
+    }
+    if (removedReedCert || removedAccountCert) {
+      authorUser = await userRepository.get(userID).catch(() => null);
+      echoCount = await echoCountsRepository.get(reedID);
+      replyCount = await replyCountsRepository.get(reedID);
+    }
+  }
 
   if (reed) {
     authorUser = await userRepository.get(userID).catch(() => null);
@@ -58,7 +74,7 @@ export async function load({ params, parent }) {
       const echoRef = parseReedRef(reed.echoing);
       if (echoRef) {
         echoedReed = await reedsService.getReed(echoRef.authorId, echoRef.reedId);
-        echoedReedMissing = !echoedReed;
+        echoedReedMissing = false;
       } else {
         echoedReedMissing = true;
       }
@@ -68,7 +84,7 @@ export async function load({ params, parent }) {
       const replyRef = parseReedRef(reed.replying);
       if (replyRef) {
         repliedToReed = await reedsService.getReed(replyRef.authorId, replyRef.reedId);
-        repliedToReedMissing = !repliedToReed;
+        repliedToReedMissing = false;
       } else {
         repliedToReedMissing = true;
       }
@@ -87,7 +103,9 @@ export async function load({ params, parent }) {
     repliedToReedMissing,
     echoCount,
     replyCount,
+    removedReedCert,
+    removedAccountCert,
     errorMessage: '',
-    fromCache: !!reed,
+    fromCache: !!(reed || removedReedCert || removedAccountCert),
   };
 }
