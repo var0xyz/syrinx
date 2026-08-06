@@ -1483,6 +1483,15 @@ func (s *DataService) DeleteEchoesByAuthor(userID string) ([]ReedRef, error) {
 	return targets, nil
 }
 
+// ReedOrRemovalResult is returned by GetReedOrRemovalCert. Account removal wins
+// over reed removal; a tombstone is returned without loading the reed row.
+// All fields nil means the reed row does not exist.
+type ReedOrRemovalResult struct {
+	Reed           *Reed
+	AccountRemoval *deletion.AccountCert
+	ReedRemoval    *deletion.Cert
+}
+
 func (s *DataService) GetReed(ctx context.Context, userID string, reedID string) (*Reed, error) {
 	var reed Reed
 	err := s.db.QueryRowContext(ctx, `
@@ -1504,6 +1513,38 @@ func (s *DataService) GetReed(ctx context.Context, userID string, reedID string)
 	}
 
 	return &reed, nil
+}
+
+// GetReedOrRemovalCert loads tip reed metadata when neither the account nor the
+// reed has a removal cert. Tombstones are returned in the result instead of
+// the reed row.
+func (s *DataService) GetReedOrRemovalCert(ctx context.Context, userID, reedID string) (ReedOrRemovalResult, error) {
+	var out ReedOrRemovalResult
+
+	accountRemoval, err := s.GetAccountRemoval(userID)
+	if err != nil {
+		return out, err
+	}
+	if accountRemoval != nil {
+		out.AccountRemoval = accountRemoval
+		return out, nil
+	}
+
+	removal, err := s.GetReedRemoval(userID, reedID)
+	if err != nil {
+		return out, err
+	}
+	if removal != nil {
+		out.ReedRemoval = removal
+		return out, nil
+	}
+
+	reed, err := s.GetReed(ctx, userID, reedID)
+	if err != nil {
+		return out, err
+	}
+	out.Reed = reed
+	return out, nil
 }
 
 // GetReedRemoval returns the stored reed-removal cert for (userID, reedID).

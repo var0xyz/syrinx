@@ -1880,39 +1880,21 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Account-removal check first (deletion 08): tombstone wins over reed cert.
-	accountRemoval, err := h.services.db.GetAccountRemoval(userID)
+	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
 	if err != nil {
-		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed")
 		internalServerError(w)
 		return
 	}
-	if accountRemoval != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(accountRemoval))
+	if result.AccountRemoval != nil {
+		writeResponse(w, http.StatusGone, h.accountRemovalWire(result.AccountRemoval))
 		return
 	}
-
-	removal, err := h.services.db.GetReedRemoval(userID, reedID)
-	if err != nil {
-		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed removal")
-		internalServerError(w)
+	if result.ReedRemoval != nil {
+		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
 		return
 	}
-	if removal != nil {
-		writeResponse(w, http.StatusGone, h.reedRemovalWire(removal))
-		return
-	}
-
-	reed, err := h.services.db.GetReed(r.Context(), userID, reedID)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("reedID", reedID).
-			Err(err).Msg("Error getting post")
-		internalServerError(w)
-		return
-	}
-	if reed == nil {
+	if result.Reed == nil {
 		writeResponse(w, http.StatusNotFound, "Post not found")
 		return
 	}
@@ -1922,7 +1904,7 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 		Str("reedID", reedID).
 		Msg("Post found")
 
-	writeResponse(w, http.StatusOK, reed)
+	writeResponse(w, http.StatusOK, result.Reed)
 }
 
 func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
@@ -1936,35 +1918,21 @@ func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountRemoval, err := h.services.db.GetAccountRemoval(userID)
+	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
 	if err != nil {
-		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed")
 		internalServerError(w)
 		return
 	}
-	if accountRemoval != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(accountRemoval))
+	if result.AccountRemoval != nil {
+		writeResponse(w, http.StatusGone, h.accountRemovalWire(result.AccountRemoval))
 		return
 	}
-
-	removal, err := h.services.db.GetReedRemoval(userID, reedID)
-	if err != nil {
-		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed removal")
-		internalServerError(w)
+	if result.ReedRemoval != nil {
+		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
 		return
 	}
-	if removal != nil {
-		writeResponse(w, http.StatusGone, h.reedRemovalWire(removal))
-		return
-	}
-
-	reed, err := h.services.db.GetReed(r.Context(), userID, reedID)
-	if err != nil {
-		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error getting reed")
-		internalServerError(w)
-		return
-	}
-	if reed == nil {
+	if result.Reed == nil {
 		writeResponse(w, http.StatusNotFound, "Post not found")
 		return
 	}
