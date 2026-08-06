@@ -28,6 +28,8 @@
   let profileUser = data.profileUser;
   let profileSubscriptionActive = false;
   let tombstoneNote = data.tombstoneNote;
+  /** Account removal cert is local — never re-fetch profile from server. */
+  let accountRemoved = data.accountRemoved ?? data.status === 'tombstone';
   /** Ignore stale /info responses that started before a newer refresh. */
   let infoFetchSeq = 0;
 
@@ -65,6 +67,10 @@
     isFollowing = next.isFollowing;
     profileUser = next.profileUser;
     tombstoneNote = next.tombstoneNote;
+    accountRemoved = next.accountRemoved ?? next.status === 'tombstone';
+    if (accountRemoved || next.status === 'tombstone') {
+      return;
+    }
     if (next.fromCache && (next.status === 'ready' || next.status === 'noContent')) {
       void refreshFromNetwork(next.userId);
       void subscribeToProfileIfNotFollowing(next.userId);
@@ -74,6 +80,7 @@
   }
 
   async function refreshFromNetwork(uid: string) {
+    if (accountRemoved || status === 'tombstone') return;
     const seq = ++infoFetchSeq;
     const { status: httpStatus, info, removal } = await apiService.getUserInfoWithStatus(uid);
     if (seq !== infoFetchSeq) return;
@@ -170,6 +177,7 @@
         return;
       }
       tombstoneNote = removal.note ?? '';
+      accountRemoved = true;
     } else {
       await reedsService.deleteReedsByAuthor(userId);
       await userRepository.writeTombstone(userId);

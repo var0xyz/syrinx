@@ -109,6 +109,10 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			rs.notifyReedEchoes(message.UserID, message.ReedID)
 		}
 
+		if message.Type == ReplyCountChanged {
+			rs.notifyReedReplies(message.UserID, message.ReedID)
+		}
+
 		if message.Type == ReedRemoved {
 			log.Info().
 				Str("userID", message.UserID).
@@ -1260,7 +1264,7 @@ func (rs *RealtimeService) handleSubscribeReed(client *Client, msg map[string]in
 		return
 	}
 
-	echoes, coveragePercent, err := rs.dbService.GetReedStatsSnapshot(authorID, reedID)
+	echoes, coveragePercent, replies, err := rs.dbService.GetReedStatsSnapshot(authorID, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", authorID).Str("reedID", reedID).Msg("Failed to load reed stats for subscribe")
 		return
@@ -1273,6 +1277,7 @@ func (rs *RealtimeService) handleSubscribeReed(client *Client, msg map[string]in
 		"reedID":          reedID,
 		"echoes":          echoes,
 		"coveragePercent": coveragePercent,
+		"replies":         replies,
 	}); err != nil {
 		log.Error().Err(err).Str("userID", client.userID).Str("reedID", reedID).Msg("Failed to send REED_STATS")
 	}
@@ -1354,6 +1359,27 @@ func (rs *RealtimeService) notifyReedEchoes(authorUserID, reedID string) {
 		"echoes": echoes,
 	}); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_ECHOES")
+	}
+}
+
+func (rs *RealtimeService) notifyReedReplies(authorUserID, reedID string) {
+	replies, err := rs.dbService.GetSubtreeReplyCount(authorUserID, reedID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("userID", authorUserID).
+			Str("reedID", reedID).
+			Msg("Failed to load subtree replies for notify")
+		return
+	}
+
+	if err := rs.connManager.SendToReedSubscribers(authorUserID, reedID, map[string]interface{}{
+		"type":    "REED_REPLIES",
+		"userID":  authorUserID,
+		"reedID":  reedID,
+		"replies": replies,
+	}); err != nil {
+		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_REPLIES")
 	}
 }
 

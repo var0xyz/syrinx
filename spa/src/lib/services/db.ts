@@ -32,20 +32,7 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  // v30: reply_counts cache (reedID → direct reply count).
-  // v29: reed_threads + reed_replies conversation caches.
-  // v28: reedRequests — durable outbound REQUEST_REED ledger.
-  // v27: usersInfo keyPath userId → id (match /profile wire).
-  // v26: usersInfo cache (unsigned hints + profileTimestamp).
-  // v25: version bump (no store changes).
-  // v24: version bump (no store changes).
-  // v23: echo_counts cache (reedID → server echo count).
-  // v22: local signed invites (client id + countersig; status unsigned).
-  // v21: reed JSON flattened — headers.id/author → id/userID (signatures 08).
-  // v20: reeds index server.timestamp → serverSignature.timestamp (signatures 08).
-  // v19: drop pendingAccountRemoval — account deletion is online-only (09).
-  // removedAccounts remains for peer tombstones.
-  private readonly version = 30;
+  private readonly version = 4;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -56,10 +43,9 @@ export class IndexedDbService implements DbService {
     ['users',       'id'         ],
     ['usersInfo',   'id'         ],
     ['invites',     'id'         ],
-    ['echo_counts', 'reedID'     ],
-    ['reply_counts', 'reedID'    ],
-    ['reed_threads', 'id'        ],
-    ['reed_replies', 'reedID', 'userID', 'parentUserID', 'parentReedID', 'parentKey', 'threadId'],
+    ['echoCounts',  'reedID'     ],
+    ['replyCounts', 'reedID'     ],
+    ['reedReplies', 'reedID', 'parentKey'],
 
     // Offline-first
     ['unfollow',           'userId'     ],
@@ -87,44 +73,15 @@ export class IndexedDbService implements DbService {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
-        const tx = (event.target as IDBOpenDBRequest).transaction!;
-        const oldVersion = event.oldVersion;
 
-        // KeyPath change headers.id → id: drop reed stores so forEach recreates them.
-        if (oldVersion > 0 && oldVersion < 21) {
-          for (const name of ['reeds', 'unsignedReeds'] as const) {
-            if (db.objectStoreNames.contains(name)) {
-              db.deleteObjectStore(name);
-            }
-          }
-        }
-        // usersInfo keyPath userId → id
-        if (oldVersion > 0 && oldVersion < 27 && db.objectStoreNames.contains('usersInfo')) {
-          db.deleteObjectStore('usersInfo');
+        for (const name of Array.from(db.objectStoreNames)) {
+          db.deleteObjectStore(name);
         }
 
-        this.storeNames.forEach(([storeName, keyPath, ...indexes]) => {
-          const store = db.objectStoreNames.contains(storeName)
-            ? tx.objectStore(storeName)
-            : db.createObjectStore(storeName, { keyPath });
-
+        for (const [storeName, keyPath, ...indexes] of this.storeNames) {
+          const store = db.createObjectStore(storeName, { keyPath });
           for (const indexName of indexes) {
-            if (!store.indexNames.contains(indexName)) {
-              store.createIndex(indexName, indexName, { unique: false });
-            }
-          }
-        });
-
-        if (oldVersion > 0 && oldVersion < 16 && db.objectStoreNames.contains('publicKeys')) {
-          tx.objectStore('publicKeys').clear();
-        }
-        if (oldVersion > 0 && oldVersion < 19 && db.objectStoreNames.contains('pendingAccountRemoval')) {
-          db.deleteObjectStore('pendingAccountRemoval');
-        }
-        if (oldVersion > 0 && oldVersion < 20 && db.objectStoreNames.contains('reeds')) {
-          const reedsStore = tx.objectStore('reeds');
-          if (reedsStore.indexNames.contains('server.timestamp')) {
-            reedsStore.deleteIndex('server.timestamp');
+            store.createIndex(indexName, indexName, { unique: false });
           }
         }
       };

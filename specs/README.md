@@ -100,7 +100,7 @@ See [`conversations/`](conversations/README.md):
 | 02 | Echo/reply index tables + list/count APIs                      | Implemented |
 | 03 | Conversation section + local reply caches on reed detail       | Implemented |
 | 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index)    | Proposed    |
-| 05 | Recursive reply counts: thread total + per-reed subtree count  | Proposed    |
+| 05 | Recursive reply counts: thread total + per-reed subtree count  | Implemented |
 
 ## Reed network coverage
 

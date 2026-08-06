@@ -403,10 +403,6 @@ export const apiService = {
     return request(`/reeds/${userId}/${reedId}/echoes`, { method: 'GET' });
   },
 
-  async getReedReplyCount(userId: string, reedId: string): Promise<number> {
-    return request(`/reeds/${userId}/${reedId}/replies/count`, { method: 'GET' });
-  },
-
   async listReplies(
     userId: string,
     reedId: string,

@@ -94,7 +94,7 @@ different questions:
 Both count replies-to-replies transitively — that's what makes them
 "recursive" — but they answer different scopes, and neither is derived from
 the other. See [05](05_thread_reply_counts.md) for the `threadId` header,
-the `reed_threads` / `reed_reply_counts` counters, and the live-update
+the `reed_threads` identity row, graph queries over `reed_replies`, and the live-update
 wiring.
 
 ### Conversation section

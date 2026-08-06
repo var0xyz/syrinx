@@ -228,10 +228,7 @@
 
 {#if visible}
 <section class="conversation-section" aria-label="Conversation">
-  <h2 class="conversation-header">
-    Conversation
-    <span class="conversation-count">· {rows.length}{hasMore ? '+' : ''} replies</span>
-  </h2>
+  <h2 class="conversation-header">Conversation</h2>
 
   <ul class="reply-list">
     {#each rows as row (row.reedID)}
@@ -269,21 +266,14 @@
 
 <style>
   .conversation-section {
-    margin-top: 1rem;
     padding-top: 1rem;
-    border-top: 1px solid var(--border);
   }
 
   .conversation-header {
     font-size: 1rem;
     font-weight: 600;
-    margin: 0 0 0.75rem;
+    margin: 0 0.75rem 0.75rem;
     color: var(--fg);
-  }
-
-  .conversation-count {
-    font-weight: 400;
-    color: var(--muted);
   }
 
   .reply-list {

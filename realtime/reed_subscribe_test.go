@@ -28,3 +28,9 @@ func TestEchoCountChangedString(t *testing.T) {
 		t.Fatalf("String() = %q, want EchoCountChanged", got)
 	}
 }
+
+func TestReplyCountChangedString(t *testing.T) {
+	if got := ReplyCountChanged.String(); got != "ReplyCountChanged" {
+		t.Fatalf("String() = %q, want ReplyCountChanged", got)
+	}
+}

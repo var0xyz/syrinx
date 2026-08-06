@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -28,20 +28,16 @@ covers both, plus what happens when browsing into a reed that's since been
 removed but still has live replies underneath it.
 
 Echoes are cheap to total live: an echo points at exactly one target, so
-`COUNT(*)` on `reed_echoes` for that target is the whole answer, and a new
-echo only ever changes one target's count. Replies don't have that property
-— a reply three levels deep is also, transitively, a reply to the root and
-to every reed in between. This step avoids a recursive query on every read
-by maintaining two separate denormalized counters, described below.
+`COUNT(*)` on `reed_echoes` for that target is the whole answer. Replies
+don't have that property — a reply three levels deep is also, transitively,
+a reply to the root and to every reed in between. Counts are computed from
+the existing `reed_replies` graph at read time (no separate counter tables).
 
 ## Scope
 
-- New `threadId` signed-markdown header, alongside `echoing`/`replying`.
-- `reed_threads` counter table — one row per thread, the **total** count,
-  same-TX bump on publish / decrement on removal.
-- `reed_reply_counts` counter table — one row per reed that has at least one
-  descendant, the **subtree** count for that specific reed, maintained by
-  walking the ancestor chain on publish/removal.
+- `threadId` signed-markdown header (from [01](01_publish_and_refs.md)), alongside `echoing`/`replying`.
+- **Thread total** — `COUNT(*)` on live `reed_replies` rows sharing a `thread_id`.
+- **Subtree count** — recursive query following `parent_user_id`/`parent_reed_id` from the viewed reed.
 - Extend the WS reed-stats pattern ([`specs/coverage/02_reed_subscription.md`](../coverage/02_reed_subscription.md))
   with a `replies` field on `REED_STATS` (thread total only) and a new
   `REED_REPLIES` live-delta message, mirroring `REED_ECHOES`.
@@ -73,8 +69,8 @@ by maintaining two separate denormalized counters, described below.
 | Answers | "How big is this whole conversation?" | "How many replies stem from *this* reed?" |
 | Same value across a thread? | Yes — every reed in the thread shows the same number | No — distinct per reed; a leaf reply shows a different (smaller, often 0) number than its parent |
 | Displayed | Stats line, next to echo count / coverage (nerds corner) | `Replies (N)` section header, under the reed body (main content) |
-| Table | `reed_threads`, keyed by thread root | `reed_reply_counts`, keyed by the reed itself |
-| Maintenance cost | O(1) per write (single row bump/decrement) | O(depth) per write (walk + bump/decrement every ancestor) |
+| Source | `COUNT(*)` on `reed_replies` for the thread (excluding removed) | Recursive CTE on `reed_replies` parent links from the viewed reed |
+| Read cost | O(replies in thread) | O(descendants beneath reed) |
 
 Earlier drafts of this step tried to serve both needs from the single
 thread-total number (either showing it everywhere, or a combined `subtree /
@@ -108,101 +104,51 @@ threadId: <userID>@<serverID>/<reedID>
 - Used **only** for the thread total below — the subtree count doesn't need
   it (it walks `reed_replies.parent_*` directly).
 
+### Count queries (read-time, from `reed_replies`)
+
+**Thread total** — count every live reply in the thread:
+
+```sql
+SELECT COUNT(*) FROM reed_replies rr
+WHERE rr.thread_id = $threadId
+  AND NOT EXISTS (SELECT 1 FROM reed_removals …)
+  AND NOT EXISTS (SELECT 1 FROM account_removals …)
+```
+
+**Subtree count** — recursive descendants from the viewed reed:
+
+```sql
+WITH RECURSIVE descendants AS (
+  SELECT user_id, reed_id FROM reed_replies rr
+  WHERE parent_user_id = $1 AND parent_reed_id = $2
+  AND … live filters …
+  UNION ALL
+  SELECT rr.user_id, rr.reed_id FROM reed_replies rr
+  JOIN descendants d ON rr.parent_user_id = d.user_id AND rr.parent_reed_id = d.reed_id
+  WHERE … live filters …
+)
+SELECT COUNT(*) FROM descendants
+```
+
+Removed reeds are excluded from counts but **not** from the parent-link
+walk — a removed intermediate reed does not sever the chain (same rule as
+[02](02_index_and_api.md)).
+
+### `reed_threads` schema (thread identity only)
+
+Implemented in [02](02_index_and_api.md) — one row per thread, keyed by
+`id` (the root reed ref). Holds `root_user_id`/`root_reed_id` for resolving
+`threadId`; reply totals come from the graph, not a counter column.
+
+<!--
+Legacy design (denormalized counters) — dropped in favour of graph queries:
+
 ### `reed_threads` schema (thread total)
 
 Implemented in [02](02_index_and_api.md) — one row per thread, keyed by
 `id` (the root reed ref). `reply_count` defaults to 1 on create and is
 incremented on subsequent replies; decremented on removal (this step).
-
-**Same-TX bump on publish** — inside the `SignReed` transaction, after
-inserting the `reed_replies` row ([02](02_index_and_api.md#insert-on-publish)):
-
-```sql
-INSERT INTO reed_threads (id, root_user_id, root_reed_id, reply_count)
-VALUES ($1, $2, $3, 1)
-ON CONFLICT (id)
-DO UPDATE SET reply_count = reed_threads.reply_count + 1;
-```
-
-On first reply to a root reed, insert `reed_threads` with `reply_count = 1`
-(default). On subsequent replies to the same thread, increment `reply_count`
-after the new `reed_replies` row lands (gated on insert success).
-
-**Removal — decrement by exactly one:** when a reed is removed
-([`Handlers.DeleteReed`](../../handlers.go), which today calls
-`DeleteEchoIndexForReed` for echoes):
-
-1. Look up `reed_replies` by `(user_id, reed_id)` = the removed
-   reed. If no row exists, the removed reed wasn't a reply — nothing to do
-   here (this also covers removing a thread root: a root has no
-   `reed_replies` row for itself, so the thread total is untouched).
-2. If a row exists, decrement `reed_threads.reply_count` by 1 for that row's
-   `thread_id` (FK to `reed_threads.id`), floored at 0, in the same
-   transaction as the `reed_removals` insert.
-3. The `reed_replies` row itself is **not deleted** — needed to render the
-   reply as a tombstone and to keep resolving `threadId`/ancestor chains for
-   later replies. Removing a reed does **not** cascade to rows that point at
-   it: its own descendants keep counting toward the thread total.
-
-Account removal cascades the same decrement across every reply that account
-authored, mirroring `DeleteEchoesByAuthor`'s enumerate-then-clean shape
-([`services.go:1394-1423`](../../services.go)): for each `reed_replies` row
-where `user_id` = the removed account, decrement its thread's counter
-by 1 (same "don't delete the row, just decrement" rule as above).
-
-### `reed_reply_counts` schema (per-node subtree count)
-
-```sql
-CREATE TABLE IF NOT EXISTS reed_reply_counts (
-    user_id       VARCHAR(255) NOT NULL,
-    reed_id       VARCHAR(255) NOT NULL,
-    subtree_count INT NOT NULL DEFAULT 0,
-    PRIMARY KEY (user_id, reed_id)
-);
-```
-
-One row per reed that has at least one live descendant (direct or nested).
-No FK to `reeds` — a reed can be removed and keep a nonzero `subtree_count`
-(its still-live descendants). `subtree_count` for reed `X` = count of every
-live, non-removed reply reachable by following `reed_replies.parent_* → X`
-transitively, **excluding** removed reeds from the count but **not** from
-the walk (a removed intermediate reed doesn't sever the chain — see
-"Removal" below).
-
-**Ancestor-chain bump on publish:** after inserting the new reply's
-`reed_replies` row (parent `P`), walk `P`'s own ancestor chain by following
-`parent_user_id`/`parent_reed_id` one hop at a time (each hop is itself a
-`reed_replies` row) until reaching a reed with no parent row (the thread
-root). For **every** reed visited on that walk (`P`, `P`'s parent,
-grandparent, … up to and including the root), upsert-and-increment:
-
-```sql
-INSERT INTO reed_reply_counts (user_id, reed_id, subtree_count)
-VALUES ($1, $2, 1)
-ON CONFLICT (user_id, reed_id)
-DO UPDATE SET subtree_count = reed_reply_counts.subtree_count + 1;
-```
-
-This is the direct cost of true per-node counts: **O(depth)** writes per
-publish instead of the thread total's O(1) — see "Open questions" for
-whether/how to bound this.
-
-**Ancestor-chain decrement on removal:** when a reed `R` is removed, walk
-`R`'s own ancestor chain the same way (starting from `R`'s parent, **not**
-including `R` itself — `R`'s own `subtree_count` row, if any, describes
-*its* descendants and is untouched by `R`'s own removal) and decrement each
-visited ancestor's `subtree_count` by 1, floored at 0, in the same
-transaction as the `reed_removals` insert. This mirrors the thread-total
-decrement rule, just applied to every ancestor instead of only the root:
-removing `R` costs each ancestor exactly one unit (for `R` itself); `R`'s
-own descendants are unaffected and keep counting for those same ancestors,
-since they were bumped independently when *they* were created.
-
-Account removal cascades the same ancestor-chain decrement across every
-reply that account authored — for a heavy poster with many deep replies
-across many threads, this means one ancestor-chain walk+decrement per
-authored reply, not just one operation total (see "Open questions" on
-whether this should be synchronous).
+-->
 
 ### Removed reeds don't sever the chain
 

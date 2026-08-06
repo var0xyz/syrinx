@@ -17,8 +17,8 @@ export async function load({ params, parent }) {
   const isOwner = currentUser.id === userId;
   const isFollowing = !isOwner && (await followingRepository.isFollowing(userId));
 
-  if (await userRepository.isTombstone(userId)) {
-    const cert = await removedAccountsRepository.get(userId);
+  const removedCert = await removedAccountsRepository.get(userId);
+  if (removedCert) {
     return {
       currentUser,
       userId,
@@ -26,8 +26,23 @@ export async function load({ params, parent }) {
       isFollowing,
       status: 'tombstone',
       profileUser: null,
-      tombstoneNote: cert?.note ?? '',
+      tombstoneNote: removedCert.note ?? '',
       fromCache: true,
+      accountRemoved: true,
+    };
+  }
+
+  if (await userRepository.isTombstone(userId)) {
+    return {
+      currentUser,
+      userId,
+      isOwner,
+      isFollowing,
+      status: 'tombstone',
+      profileUser: null,
+      tombstoneNote: '',
+      fromCache: true,
+      accountRemoved: true,
     };
   }
 
@@ -49,6 +64,7 @@ export async function load({ params, parent }) {
       profileUser,
       tombstoneNote: '',
       fromCache: true,
+      accountRemoved: false,
     };
   }
 
@@ -61,5 +77,6 @@ export async function load({ params, parent }) {
     profileUser: null,
     tombstoneNote: '',
     fromCache: false,
+    accountRemoved: false,
   };
 }

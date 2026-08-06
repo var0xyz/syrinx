@@ -1257,57 +1257,28 @@ type createReedParams struct {
 	Tags               []string
 }
 
-// Thread is the resolved thread for a reply parent.
-type Thread struct {
-	ID   string
-	Root ReedRef
-}
-
-// ResolveThreadForParent returns the canonical thread for a reply to parent P.
-// When P is the thread root (no reed_replies row for P), thread_id = ref(P).
-// Otherwise thread_id is inherited from P's reply row and root comes from reed_threads.
-func (s *DataService) ResolveThreadForParent(parent ReedRef) (Thread, error) {
+// ResolveThreadIDForParent returns the canonical thread id for a reply to parent P.
+// When P is the thread root (no reed_replies row for P), thread id = ref(P).
+// Otherwise thread id is inherited from P's reply row.
+func (s *DataService) ResolveThreadIDForParent(parent ReedRef) (string, error) {
 	var threadID string
 	err := s.db.QueryRow(`
 		SELECT thread_id FROM reed_replies
 		WHERE user_id = $1 AND reed_id = $2
 	`, parent.AuthorID, parent.ReedID).Scan(&threadID)
 	if err == sql.ErrNoRows {
-		return Thread{
-			ID:   FormatReedRef(parent),
-			Root: parent,
-		}, nil
+		return FormatReedRef(parent), nil
 	}
 	if err != nil {
-		return Thread{}, err
+		return "", err
 	}
-
-	var rootUserID, rootReedID string
-	err = s.db.QueryRow(`
-		SELECT root_user_id, root_reed_id FROM reed_threads
-		WHERE id = $1
-	`, threadID).Scan(&rootUserID, &rootReedID)
-	if err == sql.ErrNoRows {
-		return Thread{}, fmt.Errorf("thread %q missing for reply parent", threadID)
-	}
-	if err != nil {
-		return Thread{}, err
-	}
-	return Thread{
-		ID: threadID,
-		Root: ReedRef{
-			AuthorID: rootUserID,
-			ServerID: parent.ServerID,
-			ReedID:   rootReedID,
-		},
-	}, nil
+	return threadID, nil
 }
 
-// InsertReply records a direct reply and creates or bumps the thread row.
+// InsertReply records a direct reply in reed_replies.
 func (s *DataService) InsertReply(
 	ctx context.Context,
 	threadID string,
-	root ReedRef,
 	parent ReedRef,
 	replyUserID, replyReedID string,
 	ts time.Time,
@@ -1320,7 +1291,7 @@ func (s *DataService) InsertReply(
 	}
 	defer tx.Rollback()
 
-	if err = s.insertReplyTx(ctx, tx, threadID, root, parent, replyUserID, replyReedID, ts); err != nil {
+	if err = s.insertReplyTx(ctx, tx, threadID, parent, replyUserID, replyReedID, ts); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1333,22 +1304,11 @@ func (s *DataService) insertReplyTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	threadID string,
-	root, parent ReedRef,
+	parent ReedRef,
 	replyUserID, replyReedID string,
 	ts time.Time,
 ) error {
-	err := tx.QueryRowContext(ctx, `
-		INSERT INTO reed_threads (id, root_user_id, root_reed_id)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (id) DO NOTHING
-		RETURNING id
-	`, threadID, root.AuthorID, root.ReedID).Scan(&threadID)
-	threadExists := err == sql.ErrNoRows
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("create thread: %w", err)
-	}
-
-	_, err = tx.ExecContext(ctx, `
+	_, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_replies (
 			thread_id, user_id, reed_id,
 			parent_user_id, parent_reed_id,
@@ -1360,16 +1320,6 @@ func (s *DataService) insertReplyTx(
 		ts)
 	if err != nil {
 		return fmt.Errorf("insert reply index: %w", err)
-	}
-
-	if threadExists {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE reed_threads
-			SET reply_count = reply_count + 1
-			WHERE id = $1
-		`, threadID); err != nil {
-			return fmt.Errorf("bump thread reply_count: %w", err)
-		}
 	}
 	return nil
 }
@@ -1580,7 +1530,7 @@ func (s *DataService) CreateReedWithReply(
 	ctx context.Context,
 	p createReedParams,
 	threadID string,
-	root, parent ReedRef,
+	parent ReedRef,
 ) (reed *Reed, err error) {
 	p.Timestamp = p.Timestamp.UTC().Truncate(time.Second)
 	ts := p.Timestamp
@@ -1596,7 +1546,7 @@ func (s *DataService) CreateReedWithReply(
 		return nil, err
 	}
 
-	if err = s.insertReplyTx(ctx, tx, threadID, root, parent, p.UserID, p.ReedID, ts); err != nil {
+	if err = s.insertReplyTx(ctx, tx, threadID, parent, p.UserID, p.ReedID, ts); err != nil {
 		return nil, err
 	}
 
@@ -1682,23 +1632,6 @@ func (s *DataService) CountEchoes(echoedUserID, echoedReedID string) (int, error
 	return n, err
 }
 
-// CountDirectReplies returns visible direct replies to parentUser/parentReed.
-func (s *DataService) CountDirectReplies(parentUserID, parentReedID string) (int, error) {
-	var n int
-	err := s.db.QueryRow(`
-		SELECT COUNT(*) FROM reed_replies rr2
-		WHERE rr2.parent_user_id = $1 AND rr2.parent_reed_id = $2
-		AND NOT EXISTS (
-			SELECT 1 FROM reed_removals rr
-			WHERE rr.user_id = rr2.user_id AND rr.reed_id = rr2.reed_id
-		)
-		AND NOT EXISTS (
-			SELECT 1 FROM account_removals ar WHERE ar.user_id = rr2.user_id
-		)
-	`, parentUserID, parentReedID).Scan(&n)
-	return n, err
-}
-
 // DeleteEchoIndexForReed clears echo index rows when a reed is removed.
 // Returns distinct echoed targets whose counts may have changed (excluding
 // the removed reed itself, which no longer has live tip subscribers).
@@ -1769,35 +1702,115 @@ func (s *DataService) DeleteEchoesByAuthor(userID string) ([]ReedRef, error) {
 	return targets, nil
 }
 
-// DecrementThreadReplyCountForReed lowers reed_threads.reply_count by one when
-// the removed reed was indexed as a reply. The reed_replies row is kept.
-func (s *DataService) DecrementThreadReplyCountForReed(userID, reedID string) error {
-	_, err := s.db.Exec(`
-		UPDATE reed_threads
-		SET reply_count = GREATEST(reply_count - 1, 0)
-		WHERE id = (
-			SELECT thread_id FROM reed_replies
+// ReplyCountNotifyTargets returns every ancestor of parent (inclusive) whose
+// subtree reply count changes when a direct reply to parent is added or removed.
+func (s *DataService) ReplyCountNotifyTargets(parentUserID, parentReedID string) ([]ReedRef, error) {
+	var targets []ReedRef
+	userID, reedID := parentUserID, parentReedID
+	for {
+		targets = append(targets, ReedRef{AuthorID: userID, ReedID: reedID})
+		var nextUserID, nextReedID string
+		err := s.db.QueryRow(`
+			SELECT parent_user_id, parent_reed_id
+			FROM reed_replies
 			WHERE user_id = $1 AND reed_id = $2
-		)
-	`, userID, reedID)
-	return err
+		`, userID, reedID).Scan(&nextUserID, &nextReedID)
+		if err == sql.ErrNoRows {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		userID, reedID = nextUserID, nextReedID
+	}
+	return targets, nil
 }
 
-// DecrementThreadReplyCountsByAuthor lowers reply_count once per reply indexed
-// for userID. reed_replies rows are kept.
-func (s *DataService) DecrementThreadReplyCountsByAuthor(userID string) error {
-	_, err := s.db.Exec(`
-		UPDATE reed_threads thread
-		SET reply_count = GREATEST(thread.reply_count - user_replies.count, 0)
-		FROM (
-			SELECT thread_id, COUNT(*)::int AS count
-			FROM reed_replies
-			WHERE user_id = $1
-			GROUP BY thread_id
-		) user_replies
-		WHERE thread.id = user_replies.thread_id
+// ReplyCountNotifyTargetsForRemovedReply returns ancestors whose subtree count
+// drops when replyUserID/replyReedID is removed. nil when not indexed as a reply.
+func (s *DataService) ReplyCountNotifyTargetsForRemovedReply(replyUserID, replyReedID string) ([]ReedRef, error) {
+	var parentUserID, parentReedID string
+	err := s.db.QueryRow(`
+		SELECT parent_user_id, parent_reed_id
+		FROM reed_replies
+		WHERE user_id = $1 AND reed_id = $2
+	`, replyUserID, replyReedID).Scan(&parentUserID, &parentReedID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.ReplyCountNotifyTargets(parentUserID, parentReedID)
+}
+
+// ReplyCountNotifyTargetsForAuthor returns distinct ancestors whose subtree
+// counts may change when all of userID's indexed replies are treated as removed.
+func (s *DataService) ReplyCountNotifyTargetsForAuthor(userID string) ([]ReedRef, error) {
+	rows, err := s.db.Query(`
+		SELECT parent_user_id, parent_reed_id
+		FROM reed_replies
+		WHERE user_id = $1
 	`, userID)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	seen := make(map[string]struct{})
+	var targets []ReedRef
+	for rows.Next() {
+		var parentUserID, parentReedID string
+		if err := rows.Scan(&parentUserID, &parentReedID); err != nil {
+			return nil, err
+		}
+		ancestors, err := s.ReplyCountNotifyTargets(parentUserID, parentReedID)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range ancestors {
+			key := t.AuthorID + "/" + t.ReedID
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			targets = append(targets, t)
+		}
+	}
+	return targets, rows.Err()
+}
+
+// GetSubtreeReplyCount returns live descendant reply count beneath userID/reedID.
+func (s *DataService) GetSubtreeReplyCount(userID, reedID string) (int, error) {
+	var count int
+	err := s.db.QueryRow(`
+		WITH RECURSIVE descendants AS (
+			SELECT rr.user_id, rr.reed_id
+			FROM reed_replies rr
+			WHERE rr.parent_user_id = $1 AND rr.parent_reed_id = $2
+			AND NOT EXISTS (
+				SELECT 1 FROM reed_removals rm
+				WHERE rm.user_id = rr.user_id AND rm.reed_id = rr.reed_id
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM account_removals ar WHERE ar.user_id = rr.user_id
+			)
+			UNION ALL
+			SELECT rr.user_id, rr.reed_id
+			FROM reed_replies rr
+			INNER JOIN descendants d
+				ON rr.parent_user_id = d.user_id AND rr.parent_reed_id = d.reed_id
+			WHERE NOT EXISTS (
+				SELECT 1 FROM reed_removals rm
+				WHERE rm.user_id = rr.user_id AND rm.reed_id = rr.reed_id
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM account_removals ar WHERE ar.user_id = rr.user_id
+			)
+		)
+		SELECT COUNT(*) FROM descendants
+	`, userID, reedID).Scan(&count)
+	return count, err
 }
 
 // ReedOrRemovalResult is returned by GetReedOrRemovalCert. Account removal wins
