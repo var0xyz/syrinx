@@ -166,13 +166,17 @@ Client persists `fingerprint` in its IndexedDB reed record. During recovery
 Phase 2 it will submit `{reedID, authorID, userSignature, serverSignature,
 serverFingerprint}`; today it only needs to store it.
 
-### `VerifySignature` (`/reeds/{userID}/{reedID}/verify`)
+### ~~`VerifySignature` (`/reeds/{userID}/{reedID}/verify`)~~ — removed
 
-- Look up the reed → get `signed_at`, `user_id`, `private_key_fingerprint`.
-- Reconstruct the canonical payload from the stored values.
-- Select the server public key by `private_key_fingerprint` (already a FK).
-- Verify.
-- Require `mux.Vars["userID"] == reed.UserID` (belt-and-braces).
+This HTTP endpoint was removed. Verification is client-side only:
+
+- SPA `verifyReed` rebuilds the canonical payload and selects the server key by
+  `fingerprint` before IndexedDB write.
+- Recovery uses inline `verifyReedCountersig` in `recovery/handlers.go`.
+- Go `signing/roundtrip_test.go` pins signer/verifier parity.
+
+The original design (lookup reed → reconstruct payload → verify by fingerprint)
+is unchanged; only the HTTP surface was dropped.
 
 ### Selecting the right server key
 
@@ -199,8 +203,8 @@ fingerprint.
    and persist it alongside the existing server-block fields. If we later
    implement local verification of countersignatures, the SPA will call
    `bytesToSign` with the same header set — but that is out of scope here.
-4. Update `VerifySignature` to reconstruct the payload from stored reed
-   fields and select the server key by fingerprint.
+4. Client verification reconstructs the payload from stored reed fields and
+   selects the server key by fingerprint (SPA `verifyReed`; no HTTP endpoint).
 5. Add `GetPublicKeyByFingerprint` (or equivalent) on `DataService`.
 6. SPA: remove the `timestamp` field from the reed `Headers` type and from
    the `Reed` constructor. Update every display site (feed cards, reed
@@ -215,8 +219,8 @@ fingerprint.
 
 ## Testing
 
-- Existing signup+publish e2e test extended to also hit the verify endpoint
-  and expect success.
+- Existing signup+publish e2e test extended to run local `verifyReed` on the
+  IndexedDB reed and expect success.
 - Explicit negative tests as above.
 
 ## Risks
