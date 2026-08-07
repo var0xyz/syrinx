@@ -239,7 +239,7 @@ verify for a given signature.
 `followingCount`, `hasReeds`, `activeKeyFingerprint`, `profileTimestamp`) and
 SPA `usersInfo` IndexedDB (`spa/src/lib/repositories/userInfo.ts`). The signed
 profile is `GET /users/{userID}/profile` only (`verifyUser` covers
-username/fingerprint/avatarURL/invitedBy.id/bio/memberSince).
+username/fingerprint/invitedBy.id/bio/memberSince).
 `hasReeds` gates content display (`profile/[userId]/+page.svelte`),
 `activeKeyFingerprint` steers key-rotation/removal resolution
 (`verifiers/index.ts`, recovery nest assembly). A malicious server can suppress

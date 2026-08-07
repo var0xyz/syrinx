@@ -149,12 +149,12 @@ func insertUser(ctx context.Context, tx *sql.Tx, profile Profile, activeFP strin
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO users (
-			id, username, created_at, user_fingerprint, avatar_url, bio,
+			id, username, created_at, user_fingerprint, bio,
 			user_signature_id, server_signature_id, invited_by
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`,
 		profile.ID, username, profile.MemberSince.UTC().Truncate(time.Second),
-		activeFP, nullIfEmpty(profile.AvatarURL), nullIfEmpty(profile.Bio),
+		activeFP, nullIfEmpty(profile.Bio),
 		userSignatureID, serverSignatureID, nullIfEmpty(profileInvitedByID(profile)),
 	)
 	if err != nil {
@@ -195,14 +195,13 @@ func updateUserIfNewer(
 	_, err = tx.ExecContext(ctx, `
 		UPDATE users SET
 			username = $1,
-			avatar_url = $2,
-			bio = $3,
-			user_fingerprint = $4,
-			user_signature_id = $5,
-			server_signature_id = $6
-		WHERE id = $7
+			bio = $2,
+			user_fingerprint = $3,
+			user_signature_id = $4,
+			server_signature_id = $5
+		WHERE id = $6
 	`,
-		username, nullIfEmpty(profile.AvatarURL), nullIfEmpty(profile.Bio),
+		username, nullIfEmpty(profile.Bio),
 		activeFP, userSignatureID, serverSignatureID, profile.ID,
 	)
 	if err != nil {

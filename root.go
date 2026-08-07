@@ -115,7 +115,7 @@ func exportRootIdentity(
 		return "", fmt.Errorf("validate root public key: %w", err)
 	}
 
-	userPayload := identity.BuildUserIdentityPayload(rootUsername, keyMeta.Fingerprint, "", "")
+	userPayload := identity.BuildUserIdentityPayload(rootUsername, keyMeta.Fingerprint, "")
 	userSigArmor, err := cryptoSvc.Sign(string(userPayload), kp.PrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("sign root identity: %w", err)

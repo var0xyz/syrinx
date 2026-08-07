@@ -191,7 +191,7 @@ func (h *Handlers) GetServerPublicKey(w http.ResponseWriter, r *http.Request) {
 //  1. Client sends {username, publicKey, signature, userSignature}.
 //     - `signature` is the user's self-signature over `publicKey`.
 //     - `userSignature` is a fresh base64-armored PGP detached signature
-//     over `identity.BuildUserIdentityPayload(username, fingerprint, "", "")`.
+//     over `identity.BuildUserIdentityPayload(username, fingerprint, "")`.
 //  2. Server verifies both signatures, mints createdAt / signedAt,
 //     assembles and countersigns the server identity payload, and
 //     persists both signatures on the users row alongside the
@@ -344,10 +344,9 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Reconstruct the exact bytes the client claims to have signed. At
-	// signup avatarURL and bio are both empty — a user cannot set them
-	// before their account exists. If we ever let signup carry an
-	// initial bio/avatar, they'd flow in here.
-	userPayload := identity.BuildUserIdentityPayload(username, key.Fingerprint, "", "")
+	// signup bio is empty — a user cannot set it before their account
+	// exists.
+	userPayload := identity.BuildUserIdentityPayload(username, key.Fingerprint, "")
 
 	// userSignature travels as base64(armored PGP). Decode once and hand
 	// the armor to VerifySignature.
@@ -886,21 +885,21 @@ func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval
 
 // UpdateUser mints a fresh signed identity record for an authenticated
 // user editing their own profile. Full-replacement semantics: the
-// request MUST carry the complete post-edit tuple (username, avatarURL,
-// bio) plus `userSignature`, a base64(armored PGP) detached signature
-// over `identity.BuildUserIdentityPayload(username, fingerprint, avatarURL,
-// bio)` where `fingerprint` is the caller's active user key.
+// request MUST carry the complete post-edit tuple (username, bio) plus
+// `userSignature`, a base64(armored PGP) detached signature over
+// `identity.BuildUserIdentityPayload(username, fingerprint, bio)` where
+// `fingerprint` is the caller's active user key.
 //
 // The client is expected to skip the network call entirely when nothing
 // changed. As a defence against clients that don't (or against probes),
 // the server treats byte-equality between the submitted `userSignature`
 // and the row's stored user attestation as the authoritative "did
 // anything change?" test. A valid detached signature deterministically
-// binds a specific (username, fingerprint, avatarURL, bio) tuple under a
-// specific key, so equal signature bytes ⇒ equal signed bytes ⇒ equal
-// fields. In that case the server short-circuits: no re-verify, no new
-// signedAt, no new server signature, no realtime broadcast, just return
-// the current record.
+// binds a specific (username, fingerprint, bio) tuple under a specific
+// key, so equal signature bytes ⇒ equal signed bytes ⇒ equal fields. In
+// that case the server short-circuits: no re-verify, no new signedAt, no
+// new server signature, no realtime broadcast, just return the current
+// record.
 //
 // On a real change: validate the submitted fields, verify
 // `userSignature` against the caller's active public key, mint a fresh
@@ -977,25 +976,6 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	avatarURL := r.FormValue("avatarURL")
-	if avatarURL != "" {
-		if _, err := url.ParseRequestURI(avatarURL); err != nil {
-			log.Error().
-				Str("avatarURL", avatarURL).
-				Err(err).Msg("Error parsing avatar URL")
-			writeResponse(w, http.StatusBadRequest, "Invalid avatar URL")
-			return
-		}
-
-		if !strings.HasPrefix(avatarURL, "http://") && !strings.HasPrefix(avatarURL, "https://") {
-			log.Error().
-				Str("avatarURL", avatarURL).
-				Msg("Unsupported protocol for avatar URL")
-			writeResponse(w, http.StatusBadRequest, "Invalid protocol for avatar URL")
-			return
-		}
-	}
-
 	bio := r.FormValue("bio")
 	if len(bio) > 500 {
 		log.Error().
@@ -1017,7 +997,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	userPayload := identity.BuildUserIdentityPayload(username, fingerprint, avatarURL, bio)
+	userPayload := identity.BuildUserIdentityPayload(username, fingerprint, bio)
 
 	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
 	if err != nil {
@@ -1081,7 +1061,6 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		userID,
 		username,
 		fingerprint,
-		avatarURL,
 		h.services.db.GetServerID(),
 		h.signingKey.Fingerprint,
 		userSignatureB64,
@@ -1100,7 +1079,6 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if err := h.services.db.UpdateUser(r.Context(), UpdateUserInput{
 		UserID:           userID,
 		Username:         username,
-		AvatarURL:        avatarURL,
 		Bio:              bio,
 		Fingerprint:      fingerprint,
 		UserSignatureB64: userSignatureB64,
@@ -1133,9 +1111,8 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Type:   realtime.UserUpdate,
 		UserID: userID,
 		UserUpdate: &realtime.UserUpdateBroadcast{
-			Username:  updated.Username,
-			AvatarURL: updated.AvatarURL,
-			Bio:       updated.Bio,
+			Username: updated.Username,
+			Bio:      updated.Bio,
 		},
 	}
 

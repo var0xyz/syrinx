@@ -196,7 +196,6 @@ export async function verifyUser(user: api.User): Promise<boolean> {
   const userPayload = buildUserIdentityPayload(
     user.username,
     user.userSignature.fingerprint,
-    user.avatarURL ?? '',
     user.bio ?? ''
   );
   let userSigArmor: string;
@@ -216,7 +215,6 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     user.id,
     user.username,
     user.userSignature.fingerprint,
-    user.avatarURL ?? '',
     user.serverSignature.serverID,
     user.serverSignature.fingerprint,
     user.userSignature.armor,

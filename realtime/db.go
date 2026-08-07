@@ -117,17 +117,15 @@ func (ds *DBService) GetUsername(ctx context.Context, userID string) (string, er
 // GetUserByID retrieves basic user information
 func (ds *DBService) GetUserByID(ctx context.Context, userID string) (*User, error) {
 	var user User
-	var avatarURL sql.NullString
 	var bio sql.NullString
 
 	err := ds.db.QueryRowContext(ctx, `
-		SELECT id, username, avatar_url, bio, created_at
+		SELECT id, username, bio, created_at
 		FROM users
 		WHERE id = $1
 	`, userID).Scan(
 		&user.ID,
 		&user.Username,
-		&avatarURL,
 		&bio,
 		&user.CreatedAt,
 	)
@@ -139,9 +137,6 @@ func (ds *DBService) GetUserByID(ctx context.Context, userID string) (*User, err
 		return nil, err
 	}
 
-	if avatarURL.Valid {
-		user.AvatarURL = avatarURL.String
-	}
 	if bio.Valid {
 		user.Bio = bio.String
 	}
@@ -153,7 +148,6 @@ func (ds *DBService) GetUserByID(ctx context.Context, userID string) (*User, err
 type User struct {
 	ID        string    `json:"id"`
 	Username  string    `json:"username"`
-	AvatarURL string    `json:"avatarURL"`
 	Bio       string    `json:"bio"`
 	CreatedAt time.Time `json:"memberSince"`
 }

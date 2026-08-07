@@ -44,29 +44,16 @@
   {
     "name": "identity_user_payload_shape",
     "headers": {
-      "avatarURL": "https://example.com/a.png",
       "fingerprint": "ABCDEF",
       "type": "identity-user",
       "username": "alice"
     },
     "content": "hello from alice",
-    "expected": "---\navatarURL: https://example.com/a.png\nfingerprint: ABCDEF\ntype: identity-user\nusername: alice\n---\nhello from alice"
-  },
-  {
-    "name": "identity_user_payload_shape_empty_avatar_omitted",
-    "headers": {
-      "avatarURL": "",
-      "fingerprint": "ABCDEF",
-      "type": "identity-user",
-      "username": "alice"
-    },
-    "content": "",
-    "expected": "---\nfingerprint: ABCDEF\ntype: identity-user\nusername: alice\n---\n"
+    "expected": "---\nfingerprint: ABCDEF\ntype: identity-user\nusername: alice\n---\nhello from alice"
   },
   {
     "name": "identity_server_payload_shape",
     "headers": {
-      "avatarURL": "https://example.com/a.png",
       "fingerprint": "ABCDEF",
       "memberSince": "2026-01-01T00:00:00Z",
       "serverID": "Server01",
@@ -78,6 +65,6 @@
       "username": "alice"
     },
     "content": "hello from alice",
-    "expected": "---\navatarURL: https://example.com/a.png\nfingerprint: ABCDEF\nmemberSince: 2026-01-01T00:00:00Z\nserverID: Server01\nserverKeyFingerprint: 0011FF\nsignedAt: 2026-07-14T12:00:00Z\ntype: identity-server\nuserID: abc123\nuserSignature: dXNlcnNpZ0Jhc2U2NA==\nusername: alice\n---\nhello from alice"
+    "expected": "---\nfingerprint: ABCDEF\nmemberSince: 2026-01-01T00:00:00Z\nserverID: Server01\nserverKeyFingerprint: 0011FF\nsignedAt: 2026-07-14T12:00:00Z\ntype: identity-server\nuserID: abc123\nuserSignature: dXNlcnNpZ0Jhc2U2NA==\nusername: alice\n---\nhello from alice"
   }
 ]

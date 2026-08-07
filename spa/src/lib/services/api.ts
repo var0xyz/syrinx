@@ -328,22 +328,20 @@ export const apiService = {
   // updateUser mints a fresh signed identity record for the caller.
   // Every accepted request is a *full* replacement of the signed
   // user-authored fields — partial patches are no longer supported.
-  // Callers must pass the complete post-edit tuple
-  // (username, avatarURL, bio) plus a base64(armored PGP) detached
-  // signature over `buildUserIdentityPayload(username, fingerprint,
-  // avatarURL, bio)`. The server uses byte-equality between the
-  // submitted userSignature and the row's stored user_signature as a
-  // no-op fast path, so a caller that resubmits the current identity
-  // record's signature will get a 200 back with no state change.
+  // Callers must pass the complete post-edit tuple (username, bio) plus
+  // a base64(armored PGP) detached signature over
+  // `buildUserIdentityPayload(username, fingerprint, bio)`. The server
+  // uses byte-equality between the submitted userSignature and the row's
+  // stored user_signature as a no-op fast path, so a caller that
+  // resubmits the current identity record's signature will get a 200 back
+  // with no state change.
   async updateUser(userData: {
     username: string;
-    avatarURL: string;
     bio: string;
     userSignature: string;
   }): Promise<api.User> {
     const formData = new URLSearchParams();
     formData.append('username', userData.username);
-    formData.append('avatarURL', userData.avatarURL);
     formData.append('bio', userData.bio);
     formData.append('userSignature', userData.userSignature);
 

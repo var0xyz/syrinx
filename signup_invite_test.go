@@ -71,7 +71,6 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY,
 			username VARCHAR(255) UNIQUE NOT NULL,
-			avatar_url VARCHAR(255),
 			bio TEXT,
 			user_fingerprint VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

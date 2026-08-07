@@ -564,12 +564,12 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 // GetUserProfile returns the signed identity record (no unsigned hints).
 func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User, error) {
 	var user User
-	var avatarURL, bio sql.NullString
+	var bio sql.NullString
 	var userSignatureID, serverSignatureID int64
 	var inviterID, inviterUsername sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at,
+		SELECT u.id, u.username, u.bio, u.created_at,
 		       u.user_signature_id, u.server_signature_id,
 		       inv.id, inv.username
 		FROM users u
@@ -578,7 +578,6 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 	`, userID).Scan(
 		&user.ID,
 		&user.Username,
-		&avatarURL,
 		&bio,
 		&user.CreatedAt,
 		&userSignatureID,
@@ -591,9 +590,6 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 			return nil, nil
 		}
 		return nil, err
-	}
-	if avatarURL.Valid {
-		user.AvatarURL = avatarURL.String
 	}
 	if bio.Valid {
 		user.Bio = bio.String
@@ -696,7 +692,6 @@ func (s *DataService) GetActiveKeyFingerprint(ctx context.Context, userID string
 type UpdateUserInput struct {
 	UserID           string
 	Username         string
-	AvatarURL        string
 	Bio              string
 	Fingerprint      string
 	UserSignatureB64 string
@@ -704,7 +699,7 @@ type UpdateUserInput struct {
 }
 
 // UpdateUser writes a fresh signed identity record for an existing user.
-// It updates username/avatar_url/bio alongside new signature rows and
+// It updates username/bio alongside new signature rows and
 // FKs in one transaction so a mid-write crash can never split the
 // signature from the fields it covers.
 //
@@ -733,13 +728,12 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 	_, err = tx.ExecContext(ctx, `
 		UPDATE users
 		SET username = $1,
-		    avatar_url = $2,
-		    bio = $3,
-		    user_signature_id = $4,
-		    server_signature_id = $5
-		WHERE id = $6
+		    bio = $2,
+		    user_signature_id = $3,
+		    server_signature_id = $4
+		WHERE id = $5
 	`,
-		in.Username, in.AvatarURL, in.Bio,
+		in.Username, in.Bio,
 		userSignatureID, serverSignatureID,
 		in.UserID,
 	)

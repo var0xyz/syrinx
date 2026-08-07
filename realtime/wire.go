@@ -84,9 +84,8 @@ func NewAccountRemovalWire(serverID string, cert *deletion.AccountCert) AccountR
 
 // UserUpdateBroadcast is profile metadata pushed on user updates (reserved).
 type UserUpdateBroadcast struct {
-	Username  string `json:"username"`
-	AvatarURL string `json:"avatarURL"`
-	Bio       string `json:"bio"`
+	Username string `json:"username"`
+	Bio      string `json:"bio"`
 }
 
 // InboundJSONMsg is the common envelope for client JSON WebSocket frames.
