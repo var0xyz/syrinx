@@ -1,12 +1,13 @@
 package recovery
 
 import (
+	"context"
 	"database/sql"
 )
 
 // InsertUnclaimed records a peer-seeded account awaiting owner claim.
-func InsertUnclaimed(db *sql.DB, userID string) error {
-	_, err := db.Exec(`
+func InsertUnclaimed(ctx context.Context, db *sql.DB, userID string) error {
+	_, err := db.ExecContext(ctx, `
 		INSERT INTO unclaimed_accounts (user_id)
 		VALUES ($1)
 		ON CONFLICT DO NOTHING
@@ -15,14 +16,14 @@ func InsertUnclaimed(db *sql.DB, userID string) error {
 }
 
 // DeleteUnclaimed removes a user from the unclaimed gauge (e.g. after own claim).
-func DeleteUnclaimed(db *sql.DB, userID string) error {
-	_, err := db.Exec(`DELETE FROM unclaimed_accounts WHERE user_id = $1`, userID)
+func DeleteUnclaimed(ctx context.Context, db *sql.DB, userID string) error {
+	_, err := db.ExecContext(ctx, `DELETE FROM unclaimed_accounts WHERE user_id = $1`, userID)
 	return err
 }
 
 // InsertOngoing marks a claimant as mid-import (import gate).
-func InsertOngoing(db *sql.DB, userID string) error {
-	_, err := db.Exec(`
+func InsertOngoing(ctx context.Context, db *sql.DB, userID string) error {
+	_, err := db.ExecContext(ctx, `
 		INSERT INTO ongoing_recoveries (user_id)
 		VALUES ($1)
 		ON CONFLICT DO NOTHING
@@ -31,14 +32,14 @@ func InsertOngoing(db *sql.DB, userID string) error {
 }
 
 // DeleteOngoing clears the import gate for a user (e.g. after /complete).
-func DeleteOngoing(db *sql.DB, userID string) error {
-	_, err := db.Exec(`DELETE FROM ongoing_recoveries WHERE user_id = $1`, userID)
+func DeleteOngoing(ctx context.Context, db *sql.DB, userID string) error {
+	_, err := db.ExecContext(ctx, `DELETE FROM ongoing_recoveries WHERE user_id = $1`, userID)
 	return err
 }
 
 // CountUnclaimed returns how many peer-seeded accounts still await claim.
-func CountUnclaimed(db *sql.DB) (int, error) {
+func CountUnclaimed(ctx context.Context, db *sql.DB) (int, error) {
 	var n int
-	err := db.QueryRow(`SELECT COUNT(*) FROM unclaimed_accounts`).Scan(&n)
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM unclaimed_accounts`).Scan(&n)
 	return n, err
 }

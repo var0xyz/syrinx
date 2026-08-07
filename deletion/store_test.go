@@ -1,6 +1,7 @@
 package deletion
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -179,14 +180,14 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 		ServerFingerprint: "server-fp",
 		ServerSignedAt:    time.Now().UTC(),
 	}
-	if err := InsertCert(db, cert); err != nil {
+	if err := InsertCert(context.Background(), db, cert); err != nil {
 		t.Fatalf("first insert: %v", err)
 	}
-	if err := InsertCert(db, cert); err != nil {
+	if err := InsertCert(context.Background(), db, cert); err != nil {
 		t.Fatalf("identical replay: %v", err)
 	}
 
-	got, err := GetCert(db, userID, reedID)
+	got, err := GetCert(context.Background(), db, userID, reedID)
 	if err != nil || got == nil {
 		t.Fatalf("get: got=%v err=%v", got, err)
 	}
@@ -196,7 +197,7 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 
 	conflict := cert
 	conflict.UserSignature = "other"
-	if err := InsertCert(db, conflict); err != ErrConflict {
+	if err := InsertCert(context.Background(), db, conflict); err != ErrConflict {
 		t.Fatalf("want ErrConflict, got %v", err)
 	}
 }
@@ -227,34 +228,34 @@ func TestInsertAccountCert_IdempotentConflictAndNote(t *testing.T) {
 		ServerFingerprint: "server-fp",
 		ServerSignedAt:    time.Now().UTC(),
 	}
-	if err := InsertAccountCert(db, cert); err != nil {
+	if err := InsertAccountCert(context.Background(), db, cert); err != nil {
 		t.Fatalf("first insert: %v", err)
 	}
-	if err := InsertAccountCert(db, cert); err != nil {
+	if err := InsertAccountCert(context.Background(), db, cert); err != nil {
 		t.Fatalf("identical replay: %v", err)
 	}
 
-	got, err := GetAccountCert(db, userID)
+	got, err := GetAccountCert(context.Background(), db, userID)
 	if err != nil || got == nil {
 		t.Fatalf("get: got=%v err=%v", got, err)
 	}
 	if got.Note != "goodbye" {
 		t.Fatalf("note=%q", got.Note)
 	}
-	ok, err := HasAccountRemoval(db, userID)
+	ok, err := HasAccountRemoval(context.Background(), db, userID)
 	if err != nil || !ok {
 		t.Fatalf("has: ok=%v err=%v", ok, err)
 	}
 
 	conflict := cert
 	conflict.UserSignature = "other"
-	if err := InsertAccountCert(db, conflict); err != ErrConflict {
+	if err := InsertAccountCert(context.Background(), db, conflict); err != ErrConflict {
 		t.Fatalf("want ErrConflict, got %v", err)
 	}
 
 	long := cert
 	long.Note = string(make([]rune, MaxAccountNoteLen+1))
-	if err := InsertAccountCert(db, long); err == nil {
+	if err := InsertAccountCert(context.Background(), db, long); err == nil {
 		t.Fatal("expected note length rejection")
 	}
 }

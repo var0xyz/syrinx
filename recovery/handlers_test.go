@@ -29,7 +29,7 @@ func TestVerifyReedCountersig_OK(t *testing.T) {
 	}
 	payload := identity.BuildReedPayload(serverID, "author1", "reed1", "SKEY", "dXNlclNpZw==", ts)
 	v := &fakeVerifier{}
-	err := verifyReedCountersig(req, serverID, func(fp string) (string, error) {
+	err := verifyReedCountersig(context.Background(), req, serverID, func(ctx context.Context, fp string) (string, error) {
 		if fp == "SKEY" {
 			return "server-pub", nil
 		}
@@ -52,7 +52,7 @@ func TestVerifyReedCountersig_BadSig(t *testing.T) {
 	}
 	payload := string(identity.BuildReedPayload(serverID, "author1", "reed1", "SKEY", "dXNlclNpZw==", ts))
 	v := &fakeVerifier{failSig: map[string]bool{payload: true}}
-	err := verifyReedCountersig(req, serverID, func(string) (string, error) {
+	err := verifyReedCountersig(context.Background(), req, serverID, func(ctx context.Context, _ string) (string, error) {
 		return "server-pub", nil
 	}, v)
 	if err == nil {
@@ -66,7 +66,7 @@ func TestVerifyReedCountersig_ServerIDMismatch(t *testing.T) {
 		ReedID: "reed1", AuthorID: "author1", UserSignature: testReedUserSig(),
 		ServerSignature: testServerSig("other", ts),
 	}
-	err := verifyReedCountersig(req, "srv1", func(string) (string, error) { return "pub", nil }, &fakeVerifier{})
+	err := verifyReedCountersig(context.Background(), req, "srv1", func(ctx context.Context, _ string) (string, error) { return "pub", nil }, &fakeVerifier{})
 	if err == nil {
 		t.Fatal("expected server id mismatch")
 	}
@@ -94,7 +94,7 @@ func TestReportReed_BadCountersig(t *testing.T) {
 		ServerID:  serverID,
 		UserIDKey: testUserIDKey,
 		Crypto:    &fakeVerifier{failSig: map[string]bool{payload: true}},
-		Lookup:    func(string) (string, error) { return "pub", nil },
+		Lookup:    func(ctx context.Context, _ string) (string, error) { return "pub", nil },
 	}
 	httpReq := httptest.NewRequest(http.MethodPost, "/api/recovery/reeds", bytes.NewReader(body))
 	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), testUserIDKey, "caller1"))

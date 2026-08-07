@@ -1,6 +1,7 @@
 package signing
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -72,7 +73,7 @@ func TestUserSignatureInsertGetWire(t *testing.T) {
 	suffix := time.Now().UnixNano()
 	fp := fmt.Sprintf("usig-store-%d", suffix)
 
-	id, err := InsertUserSignature(db, fp, "user-sig-b64")
+	id, err := InsertUserSignature(context.Background(), db, fp, "user-sig-b64")
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -80,7 +81,7 @@ func TestUserSignatureInsertGetWire(t *testing.T) {
 		_, _ = db.Exec(`DELETE FROM user_signatures WHERE id = $1`, id)
 	})
 
-	row, err := GetUserSignature(db, id)
+	row, err := GetUserSignature(context.Background(), db, id)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -121,7 +122,7 @@ func TestServerSignatureInsertGetWire(t *testing.T) {
 	// Sub-second noise must be truncated on write.
 	signedAt := time.Date(2026, 7, 24, 15, 30, 45, 123456789, time.UTC)
 
-	id, err := InsertServerSignature(db, fp, "server-sig-b64", signedAt)
+	id, err := InsertServerSignature(context.Background(), db, fp, "server-sig-b64", signedAt)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -129,7 +130,7 @@ func TestServerSignatureInsertGetWire(t *testing.T) {
 		_, _ = db.Exec(`DELETE FROM server_signatures WHERE id = $1`, id)
 	})
 
-	row, err := GetServerSignature(db, id)
+	row, err := GetServerSignature(context.Background(), db, id)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}

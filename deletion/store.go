@@ -1,6 +1,7 @@
 package deletion
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -27,31 +28,31 @@ type Cert struct {
 
 // InsertCert stores a reed-removal cert once. Same signatures → no-op;
 // different signatures for the same (userID, reedID) → ErrConflict.
-func InsertCert(db *sql.DB, cert Cert) error {
+func InsertCert(ctx context.Context, db *sql.DB, cert Cert) error {
 	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	existing, err := loadReedCertTx(tx, cert.UserID, cert.ReedID, true)
+	existing, err := loadReedCertTx(ctx, tx, cert.UserID, cert.ReedID, true)
 	switch {
 	case err == sql.ErrNoRows:
 		userSigID, err := signing.InsertUserSignature(
-			tx, cert.UserFingerprint, cert.UserSignature,
+			ctx, tx, cert.UserFingerprint, cert.UserSignature,
 		)
 		if err != nil {
 			return err
 		}
 		serverSigID, err := signing.InsertServerSignature(
-			tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
+			ctx, tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
 		)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reed_removals (
 				reed_id, user_id, user_fingerprint,
 				user_signature_id, server_signature_id
@@ -75,8 +76,8 @@ func InsertCert(db *sql.DB, cert Cert) error {
 }
 
 // GetCert returns the stored cert for (userID, reedID), or nil if none.
-func GetCert(db *sql.DB, userID, reedID string) (*Cert, error) {
-	cert, err := loadReedCertTx(db, userID, reedID, false)
+func GetCert(ctx context.Context, db *sql.DB, userID, reedID string) (*Cert, error) {
+	cert, err := loadReedCertTx(ctx, db, userID, reedID, false)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -87,10 +88,10 @@ func GetCert(db *sql.DB, userID, reedID string) (*Cert, error) {
 }
 
 type reedQuerier interface {
-	QueryRow(query string, args ...any) *sql.Row
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-func loadReedCertTx(q reedQuerier, userID, reedID string, forUpdate bool) (*Cert, error) {
+func loadReedCertTx(ctx context.Context, q reedQuerier, userID, reedID string, forUpdate bool) (*Cert, error) {
 	query := `
 		SELECT user_fingerprint, user_signature_id, server_signature_id
 		FROM reed_removals
@@ -100,24 +101,24 @@ func loadReedCertTx(q reedQuerier, userID, reedID string, forUpdate bool) (*Cert
 	}
 	var userFP string
 	var userSigID, serverSigID int64
-	err := q.QueryRow(query, userID, reedID).Scan(&userFP, &userSigID, &serverSigID)
+	err := q.QueryRowContext(ctx, query, userID, reedID).Scan(&userFP, &userSigID, &serverSigID)
 	if err != nil {
 		return nil, err
 	}
-	return assembleReedCert(q, reedID, userID, userFP, userSigID, serverSigID)
+	return assembleReedCert(ctx, q, reedID, userID, userFP, userSigID, serverSigID)
 }
 
-func assembleReedCert(q reedQuerier, reedID, userID, userFP string, userSigID, serverSigID int64) (*Cert, error) {
+func assembleReedCert(ctx context.Context, q reedQuerier, reedID, userID, userFP string, userSigID, serverSigID int64) (*Cert, error) {
 	// signing helpers need DBTX; *sql.DB and *sql.Tx both work.
 	dbtx, ok := q.(signing.DBTX)
 	if !ok {
 		return nil, fmt.Errorf("reed removal load: querier is not signing.DBTX")
 	}
-	userRow, err := signing.GetUserSignature(dbtx, userSigID)
+	userRow, err := signing.GetUserSignature(ctx, dbtx, userSigID)
 	if err != nil {
 		return nil, err
 	}
-	serverRow, err := signing.GetServerSignature(dbtx, serverSigID)
+	serverRow, err := signing.GetServerSignature(ctx, dbtx, serverSigID)
 	if err != nil {
 		return nil, err
 	}

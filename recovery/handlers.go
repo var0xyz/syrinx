@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,13 +35,12 @@ func (d Deps) ReportReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := verifyReedCountersig(req, d.ServerID, d.Lookup, d.Crypto); err != nil {
+	if err := verifyReedCountersig(r.Context(), req, d.ServerID, d.Lookup, d.Crypto); err != nil {
 		writeJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	err := SaveReed(
-		d.DB,
+	err := SaveReed(r.Context(), d.DB,
 		req.ReedID,
 		req.AuthorID,
 		req.ServerSignature.Fingerprint,
@@ -86,7 +86,7 @@ func (d Deps) ReportFollowing(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := SaveFollowing(d.DB, caller, req.UserIDs); err != nil {
+	if err := SaveFollowing(r.Context(), d.DB, caller, req.UserIDs); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
@@ -101,18 +101,18 @@ func (d Deps) CompleteImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := DeleteOngoing(d.DB, caller); err != nil {
+	if err := DeleteOngoing(r.Context(), d.DB, caller); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func verifyReedCountersig(req ReedRequest, serverID string, lookup ServerKeyLookup, v Verifier) error {
+func verifyReedCountersig(ctx context.Context, req ReedRequest, serverID string, lookup ServerKeyLookup, v Verifier) error {
 	if req.ServerSignature.ServerID != "" && req.ServerSignature.ServerID != serverID {
 		return fmt.Errorf("server id mismatch")
 	}
-	serverPub, err := lookup(req.ServerSignature.Fingerprint)
+	serverPub, err := lookup(ctx, req.ServerSignature.Fingerprint)
 	if err != nil {
 		return err
 	}

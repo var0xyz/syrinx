@@ -99,9 +99,9 @@ func (s *DataService) GetServerID() string {
 
 // UserServerSignedAt returns the identity countersignature time for userID.
 // Returns sql.ErrNoRows when the user does not exist.
-func (s *DataService) UserServerSignedAt(userID string) (time.Time, error) {
+func (s *DataService) UserServerSignedAt(ctx context.Context, userID string) (time.Time, error) {
 	var ts time.Time
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT ss.signed_at
 		FROM users u
 		JOIN server_signatures ss ON ss.id = u.server_signature_id
@@ -114,18 +114,18 @@ func (s *DataService) UserServerSignedAt(userID string) (time.Time, error) {
 }
 
 // IsUnclaimed reports whether userID is still in the peer-seeded gauge.
-func (s *DataService) IsUnclaimed(userID string) (bool, error) {
+func (s *DataService) IsUnclaimed(ctx context.Context, userID string) (bool, error) {
 	var exists bool
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(SELECT 1 FROM unclaimed_accounts WHERE user_id = $1)
 	`, userID).Scan(&exists)
 	return exists, err
 }
 
 // IsOngoing reports whether userID is mid-recovery import.
-func (s *DataService) IsOngoing(userID string) (bool, error) {
+func (s *DataService) IsOngoing(ctx context.Context, userID string) (bool, error) {
 	var exists bool
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(SELECT 1 FROM ongoing_recoveries WHERE user_id = $1)
 	`, userID).Scan(&exists)
 	return exists, err
@@ -139,10 +139,10 @@ func generateUserID() (string, error) {
 	return ids.New()
 }
 
-func (s *DataService) InitServer(recoveryMode bool) error {
+func (s *DataService) InitServer(ctx context.Context, recoveryMode bool) error {
 	var id, name string
 
-	err := s.db.QueryRow(`SELECT id, name FROM servers WHERE self = TRUE`).Scan(&id, &name)
+	err := s.db.QueryRowContext(ctx, `SELECT id, name FROM servers WHERE self = TRUE`).Scan(&id, &name)
 	if err == sql.ErrNoRows {
 		if recoveryMode {
 			return recovery.ErrNoIdentityFound
@@ -151,7 +151,7 @@ func (s *DataService) InitServer(recoveryMode bool) error {
 		if err != nil {
 			return err
 		}
-		_, err = s.db.Exec(`INSERT INTO servers (id, name, self) VALUES ($1, $2, TRUE)`, id, s.serverName)
+		_, err = s.db.ExecContext(ctx, `INSERT INTO servers (id, name, self) VALUES ($1, $2, TRUE)`, id, s.serverName)
 		if err != nil {
 			return err
 		}
@@ -163,7 +163,7 @@ func (s *DataService) InitServer(recoveryMode bool) error {
 	}
 	s.serverID = id
 	if name != s.serverName {
-		_, err = s.db.Exec(`UPDATE servers SET name = $1 WHERE self = TRUE`, s.serverName)
+		_, err = s.db.ExecContext(ctx, `UPDATE servers SET name = $1 WHERE self = TRUE`, s.serverName)
 		return err
 	}
 
@@ -173,7 +173,7 @@ func (s *DataService) InitServer(recoveryMode bool) error {
 // ProcessRevocations scans the {cwd}/revocations directory for .rvk files.
 // Each file revokes the named key. InitServerKey will create a new one if needed.
 // Called at startup before InitServerKey.
-func (s *DataService) ProcessRevocations() error {
+func (s *DataService) ProcessRevocations(ctx context.Context) error {
 	revocationsDir := filepath.Join(".", "revocations")
 
 	entries, err := os.ReadDir(revocationsDir)
@@ -206,7 +206,7 @@ func (s *DataService) ProcessRevocations() error {
 
 		// Verify the key exists
 		var exists bool
-		err = s.db.QueryRow(
+		err = s.db.QueryRowContext(ctx, 
 			`SELECT EXISTS(SELECT 1 FROM private_keys WHERE fingerprint = $1)`,
 			fingerprint,
 		).Scan(&exists)
@@ -219,7 +219,7 @@ func (s *DataService) ProcessRevocations() error {
 				Msg("Revocation file references unknown key fingerprint")
 		}
 
-		if err := s.RevokeServerPrivateKey(fingerprint, reason); err != nil {
+		if err := s.RevokeServerPrivateKey(ctx, fingerprint, reason); err != nil {
 			return fmt.Errorf("failed to revoke key: %w", err)
 		}
 
@@ -239,12 +239,12 @@ func (s *DataService) ProcessRevocations() error {
 // InitServerKey ensures an active (non-revoked) server signing key exists.
 // If the current signing key is revoked or missing, a new one is created.
 // Returns the decrypted Key (armor + fingerprint) for use by the signing middleware.
-func (s *DataService) InitServerKey(cryptoSvc *crypto.Service, passphrase string) (*Key, error) {
+func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Service, passphrase string) (*Key, error) {
 	var fingerprint string
 	var encryptedArmor string
 	var createdAt time.Time
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT pk.fingerprint, pk.armor, pk.created_at
 		FROM servers sv
 		JOIN private_keys pk ON pk.fingerprint = sv.signing_key
@@ -267,11 +267,11 @@ func (s *DataService) InitServerKey(cryptoSvc *crypto.Service, passphrase string
 			return nil, fmt.Errorf("failed to encrypt server private key: %w", err)
 		}
 
-		if err := s.SaveServerKeyPair(keyPair.Fingerprint, encryptedPrivate, keyPair.PublicKey); err != nil {
+		if err := s.SaveServerKeyPair(ctx, keyPair.Fingerprint, encryptedPrivate, keyPair.PublicKey); err != nil {
 			return nil, fmt.Errorf("failed to save server key pair: %w", err)
 		}
 
-		if err := s.SetServerSigningKey(keyPair.Fingerprint); err != nil {
+		if err := s.SetServerSigningKey(ctx, keyPair.Fingerprint); err != nil {
 			return nil, fmt.Errorf("failed to set signing key: %w", err)
 		}
 
@@ -298,7 +298,7 @@ func (s *DataService) InitServerKey(cryptoSvc *crypto.Service, passphrase string
 		if err != nil {
 			return nil, fmt.Errorf("failed to re-encrypt server signing key after identity update: %w", err)
 		}
-		if _, err = s.db.Exec(
+		if _, err = s.db.ExecContext(ctx, 
 			`UPDATE private_keys SET armor = $1 WHERE fingerprint = $2`,
 			newEncrypted, fingerprint,
 		); err != nil {
@@ -318,14 +318,14 @@ func (s *DataService) InitServerKey(cryptoSvc *crypto.Service, passphrase string
 	return &Key{Fingerprint: fingerprint, Armor: decryptedArmor, CreatedAt: createdAt}, nil
 }
 
-func (s *DataService) SaveServerKeyPair(fingerprint, privateArmor, publicArmor string) error {
-	tx, err := s.db.Begin()
+func (s *DataService) SaveServerKeyPair(ctx context.Context, fingerprint, privateArmor, publicArmor string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(
+	_, err = tx.ExecContext(ctx, 
 		`INSERT INTO private_keys (fingerprint, armor) VALUES ($1, $2)`,
 		fingerprint, privateArmor,
 	)
@@ -333,7 +333,7 @@ func (s *DataService) SaveServerKeyPair(fingerprint, privateArmor, publicArmor s
 		return err
 	}
 
-	_, err = tx.Exec(
+	_, err = tx.ExecContext(ctx, 
 		`INSERT INTO public_keys (fingerprint, armor) VALUES ($1, $2)`,
 		fingerprint, publicArmor,
 	)
@@ -344,14 +344,14 @@ func (s *DataService) SaveServerKeyPair(fingerprint, privateArmor, publicArmor s
 	return tx.Commit()
 }
 
-func (s *DataService) SetServerSigningKey(fingerprint string) error {
-	_, err := s.db.Exec(`UPDATE servers SET signing_key = $1 WHERE self = TRUE`, fingerprint)
+func (s *DataService) SetServerSigningKey(ctx context.Context, fingerprint string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE servers SET signing_key = $1 WHERE self = TRUE`, fingerprint)
 	return err
 }
 
-func (s *DataService) GetServerSigningKeyArmor() (string, error) {
+func (s *DataService) GetServerSigningKeyArmor(ctx context.Context) (string, error) {
 	var armor string
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT pk.armor
 		FROM private_keys pk
 		JOIN servers s ON s.signing_key = pk.fingerprint
@@ -373,9 +373,9 @@ func (s *DataService) GetServerSigningKeyArmor() (string, error) {
 // input. This is required because the reed server block binds the
 // fingerprint into the countersigned payload, and by any future recovery
 // import path that must verify against a restored historical key.
-func (s *DataService) GetServerPublicKeyByFingerprint(fingerprint string) (string, error) {
+func (s *DataService) GetServerPublicKeyByFingerprint(ctx context.Context, fingerprint string) (string, error) {
 	var armor string
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx, 
 		`SELECT armor FROM public_keys WHERE fingerprint = $1`,
 		fingerprint,
 	).Scan(&armor)
@@ -388,8 +388,8 @@ func (s *DataService) GetServerPublicKeyByFingerprint(fingerprint string) (strin
 	return armor, nil
 }
 
-func (s *DataService) RevokeServerPrivateKey(fingerprint, reason string) error {
-	_, err := s.db.Exec(`
+func (s *DataService) RevokeServerPrivateKey(ctx context.Context, fingerprint, reason string) error {
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE private_keys
 		SET revoked_at = NOW(), revoke_reason = $2
 		WHERE fingerprint = $1
@@ -455,14 +455,12 @@ func (s *DataService) LookupPendingInvite(ctx context.Context, inviteID, secret 
 // existence — that would only widen the window between the check and
 // the INSERT during which a duplicate could sneak in from another
 // concurrent signup.
-func (s *DataService) Signup(in SignupInput) (*User, error) {
-	tx, err := s.db.Begin()
+func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-
-	ctx := context.Background()
 
 	var inv *invites.Invite
 	if strings.TrimSpace(in.InviteSecret) != "" {
@@ -480,12 +478,11 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		return nil, invites.ErrInvalidInvite
 	}
 
-	userSignatureID, err := signing.InsertUserSignature(tx, in.Fingerprint, in.UserSignatureB64)
+	userSignatureID, err := signing.InsertUserSignature(ctx, tx, in.Fingerprint, in.UserSignatureB64)
 	if err != nil {
 		return nil, err
 	}
-	serverSignatureID, err := signing.InsertServerSignature(
-		tx,
+	serverSignatureID, err := signing.InsertServerSignature(ctx, tx,
 		in.ProfileSignature.Fingerprint,
 		in.ProfileSignature.Armor,
 		in.ProfileSignature.SignedAt,
@@ -503,7 +500,7 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 	// signed by the server. Using the DB's DEFAULT would create a
 	// race between what was signed and what is persisted, and would
 	// silently truncate to whatever precision Postgres chooses.
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO users (
 			id, username, created_at, user_fingerprint,
 			user_signature_id, server_signature_id, invited_by
@@ -518,8 +515,7 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		return nil, err
 	}
 
-	keyServerSigID, err := signing.InsertServerSignature(
-		tx,
+	keyServerSigID, err := signing.InsertServerSignature(ctx, tx,
 		in.PublicKeySignature.Fingerprint,
 		in.PublicKeySignature.Armor,
 		in.PublicKeySignature.SignedAt,
@@ -528,7 +524,7 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		return nil, err
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO user_keys (
 			fingerprint, owner, armor, created_at, expires_at,
 			server_signature_id
@@ -548,12 +544,12 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		}
 	}
 
-	if err := coverage.BumpActiveUsers(tx, 1); err != nil {
+	if err := coverage.BumpActiveUsers(ctx, tx, 1); err != nil {
 		return nil, err
 	}
 
 	if in.DeviceID != "" {
-		if err := s.BindDeviceTx(tx, in.UserID, in.DeviceID, in.MemberSince); err != nil {
+		if err := s.BindDeviceTx(ctx, tx, in.UserID, in.DeviceID, in.MemberSince); err != nil {
 			return nil, err
 		}
 	}
@@ -562,17 +558,17 @@ func (s *DataService) Signup(in SignupInput) (*User, error) {
 		return nil, err
 	}
 
-	return s.GetUserProfile(in.UserID)
+	return s.GetUserProfile(ctx, in.UserID)
 }
 
 // GetUserProfile returns the signed identity record (no unsigned hints).
-func (s *DataService) GetUserProfile(userID string) (*User, error) {
+func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User, error) {
 	var user User
 	var avatarURL, bio sql.NullString
 	var userSignatureID, serverSignatureID int64
 	var inviterID, inviterUsername sql.NullString
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT u.id, u.username, u.avatar_url, u.bio, u.created_at,
 		       u.user_signature_id, u.server_signature_id,
 		       inv.id, inv.username
@@ -609,7 +605,7 @@ func (s *DataService) GetUserProfile(userID string) (*User, error) {
 		}
 	}
 
-	userRow, err := signing.GetUserSignature(s.db, userSignatureID)
+	userRow, err := signing.GetUserSignature(ctx, s.db, userSignatureID)
 	if err != nil {
 		return nil, err
 	}
@@ -619,7 +615,7 @@ func (s *DataService) GetUserProfile(userID string) (*User, error) {
 		Armor:       uw.Armor,
 	}
 
-	serverRow, err := signing.GetServerSignature(s.db, serverSignatureID)
+	serverRow, err := signing.GetServerSignature(ctx, s.db, serverSignatureID)
 	if err != nil {
 		return nil, err
 	}
@@ -636,11 +632,11 @@ func (s *DataService) GetUserProfile(userID string) (*User, error) {
 
 // GetUserInfo returns unsigned, mutable hints for a user plus the
 // profile countersignature timestamp for cache invalidation.
-func (s *DataService) GetUserInfo(userID string) (*UserInfo, error) {
+func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo, error) {
 	var info UserInfo
 	var activeFP sql.NullString
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT u.id,
 		       u.user_fingerprint,
 		       ss.signed_at,
@@ -678,9 +674,9 @@ func (s *DataService) GetUserInfo(userID string) (*UserInfo, error) {
 
 // GetActiveKeyFingerprint returns users.user_fingerprint for internal
 // signing checks (update/delete/reed paths).
-func (s *DataService) GetActiveKeyFingerprint(userID string) (string, error) {
+func (s *DataService) GetActiveKeyFingerprint(ctx context.Context, userID string) (string, error) {
 	var fp sql.NullString
-	err := s.db.QueryRow(`SELECT user_fingerprint FROM users WHERE id = $1`, userID).Scan(&fp)
+	err := s.db.QueryRowContext(ctx, `SELECT user_fingerprint FROM users WHERE id = $1`, userID).Scan(&fp)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", nil
@@ -714,19 +710,18 @@ type UpdateUserInput struct {
 //
 // The caller owns signature verification and countersigning — this
 // function just persists.
-func (s *DataService) UpdateUser(in UpdateUserInput) error {
-	tx, err := s.db.Begin()
+func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	userSignatureID, err := signing.InsertUserSignature(tx, in.Fingerprint, in.UserSignatureB64)
+	userSignatureID, err := signing.InsertUserSignature(ctx, tx, in.Fingerprint, in.UserSignatureB64)
 	if err != nil {
 		return err
 	}
-	serverSignatureID, err := signing.InsertServerSignature(
-		tx,
+	serverSignatureID, err := signing.InsertServerSignature(ctx, tx,
 		in.ProfileSignature.Fingerprint,
 		in.ProfileSignature.Armor,
 		in.ProfileSignature.SignedAt,
@@ -735,7 +730,7 @@ func (s *DataService) UpdateUser(in UpdateUserInput) error {
 		return err
 	}
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		UPDATE users
 		SET username = $1,
 		    avatar_url = $2,
@@ -757,10 +752,10 @@ func (s *DataService) UpdateUser(in UpdateUserInput) error {
 	return tx.Commit()
 }
 
-func (s *DataService) UsernameExists(username string) (bool, error) {
+func (s *DataService) UsernameExists(ctx context.Context, username string) (bool, error) {
 	var exists bool
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM users WHERE LOWER(username) = LOWER($1)
 		)
@@ -772,15 +767,15 @@ func (s *DataService) UsernameExists(username string) (bool, error) {
 	return exists, nil
 }
 
-func (s *DataService) DeleteUser(userID string) error {
+func (s *DataService) DeleteUser(ctx context.Context, userID string) error {
 	// Start transaction
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec("DELETE FROM users WHERE id = $1", userID)
+	_, err = tx.ExecContext(ctx, "DELETE FROM users WHERE id = $1", userID)
 	if err != nil {
 		return err
 	}
@@ -788,14 +783,14 @@ func (s *DataService) DeleteUser(userID string) error {
 	return tx.Commit()
 }
 
-func (s *DataService) FollowUser(followerID, userID string) error {
-	tx, err := s.db.Begin()
+func (s *DataService) FollowUser(ctx context.Context, followerID, userID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO user_following (user_id, following_user_id)
 		VALUES ($1, $2)
 		ON CONFLICT DO NOTHING
@@ -804,7 +799,7 @@ func (s *DataService) FollowUser(followerID, userID string) error {
 		return err
 	}
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO user_followers (user_id, follower_user_id)
 		VALUES ($1, $2)
 		ON CONFLICT DO NOTHING
@@ -816,14 +811,14 @@ func (s *DataService) FollowUser(followerID, userID string) error {
 	return tx.Commit()
 }
 
-func (s *DataService) UnfollowUser(followerID, userID string) error {
-	tx, err := s.db.Begin()
+func (s *DataService) UnfollowUser(ctx context.Context, followerID, userID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		DELETE FROM user_following
 		WHERE user_id = $1 AND following_user_id = $2
 	`, followerID, userID)
@@ -831,7 +826,7 @@ func (s *DataService) UnfollowUser(followerID, userID string) error {
 		return err
 	}
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		DELETE FROM user_followers
 		WHERE user_id = $1 AND follower_user_id = $2
 	`, userID, followerID)
@@ -842,8 +837,8 @@ func (s *DataService) UnfollowUser(followerID, userID string) error {
 	return tx.Commit()
 }
 
-func (s *DataService) SetDefaultIdentity(userID string, identityID uuid.UUID) error {
-	_, err := s.db.Exec(`
+func (s *DataService) SetDefaultIdentity(ctx context.Context, userID string, identityID uuid.UUID) error {
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE profiles
 		SET default_identity_id = $1
 		WHERE user_id = $2
@@ -855,13 +850,13 @@ func (s *DataService) SetDefaultIdentity(userID string, identityID uuid.UUID) er
 	return nil
 }
 
-func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, error) {
+func (s *DataService) GetPublicKey(ctx context.Context, userID string, fingerprint string) (*Key, error) {
 	var key Key
 	var revoked bool
 	var serverSignatureID int64
 	var predSig, predFP sql.NullString
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT uk.fingerprint, uk.owner, uk.armor, uk.created_at,
 		       uk.server_signature_id,
 		       uk.predecessor_signature, uk.predecessor_fingerprint,
@@ -883,7 +878,7 @@ func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, err
 		}
 		return nil, err
 	}
-	serverRow, err := signing.GetServerSignature(s.db, serverSignatureID)
+	serverRow, err := signing.GetServerSignature(ctx, s.db, serverSignatureID)
 	if err != nil {
 		return nil, err
 	}
@@ -905,17 +900,17 @@ func (s *DataService) GetPublicKey(userID string, fingerprint string) (*Key, err
 	return &key, nil
 }
 
-func (s *DataService) IsPublicKeyRevoked(key *Key) (bool, error) {
+func (s *DataService) IsPublicKeyRevoked(ctx context.Context, key *Key) (bool, error) {
 	return key.Revoked, nil
 }
 
-func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocation, error) {
+func (s *DataService) GetKeyRevocation(ctx context.Context, userID, fingerprint string) (*KeyRevocation, error) {
 	var rev KeyRevocation
 	var successor sql.NullString
 	var reason sql.NullString
 	var userSigID, serverSigID int64
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT rv.user_fingerprint, rv.owner, rv.reason, rv.successor,
 		       rv.user_signature_id, rv.server_signature_id
 		FROM user_key_revocations rv
@@ -936,7 +931,7 @@ func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocati
 		rev.Successor = &s
 	}
 
-	userRow, err := signing.GetUserSignature(s.db, userSigID)
+	userRow, err := signing.GetUserSignature(ctx, s.db, userSigID)
 	if err != nil {
 		return nil, err
 	}
@@ -946,7 +941,7 @@ func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocati
 		Armor:       uw.Armor,
 	}
 
-	serverRow, err := signing.GetServerSignature(s.db, serverSigID)
+	serverRow, err := signing.GetServerSignature(ctx, s.db, serverSigID)
 	if err != nil {
 		return nil, err
 	}
@@ -960,10 +955,10 @@ func (s *DataService) GetKeyRevocation(userID, fingerprint string) (*KeyRevocati
 	return &rev, nil
 }
 
-func (s *DataService) PublicKeyExists(fingerprint string, userID string) (bool, error) {
+func (s *DataService) PublicKeyExists(ctx context.Context, fingerprint string, userID string) (bool, error) {
 	var exists bool
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM user_keys
 			WHERE owner = $1 AND fingerprint = $2
@@ -1001,7 +996,7 @@ type AddPublicKeyInput struct {
 
 // On success it inserts the key, points users.user_fingerprint at it, and
 // writes the successor pointer on the predecessor's revocation row.
-func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
+func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*Key, error) {
 	if in.PredecessorFingerprint == "" {
 		return nil, ErrPredecessorRequired
 	}
@@ -1012,7 +1007,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 	armor := in.Armor
 	predecessor := in.PredecessorFingerprint
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1020,7 +1015,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 
 	// Lock the user row so concurrent rotations for the same owner
 	// serialize. Also confirms the owner exists.
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx, `
 		SELECT 1 FROM users WHERE id = $1 FOR UPDATE
 	`, userID).Scan(new(int))
 	if err == sql.ErrNoRows {
@@ -1032,7 +1027,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 
 	// Global uniqueness: fingerprints identify key material, so two
 	// users must never register the same one.
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx, `
 		SELECT 1 FROM user_keys WHERE fingerprint = $1
 	`, fingerprint).Scan(new(int))
 	if err == nil {
@@ -1045,7 +1040,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 	// Lock the predecessor key row. Rotation is only allowed against a
 	// key this owner already holds; revocation is confirmed via the
 	// revocations table next.
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx, `
 		SELECT 1
 		FROM user_keys
 		WHERE owner = $1 AND fingerprint = $2
@@ -1062,7 +1057,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 	// the same revoked key would fork the successor chain. A missing
 	// revocations row means the key was never revoked.
 	var successor sql.NullString
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx, `
 		SELECT successor
 		FROM user_key_revocations
 		WHERE user_fingerprint = $1 AND owner = $2
@@ -1082,7 +1077,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 	// active key is still present for this user. Active = no row in
 	// user_key_revocations.
 	var hasActive bool
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM user_keys uk
 			WHERE uk.owner = $1
@@ -1099,8 +1094,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 		return nil, ErrActiveKeyExists
 	}
 
-	serverSignatureID, err := signing.InsertServerSignature(
-		tx,
+	serverSignatureID, err := signing.InsertServerSignature(ctx, tx,
 		in.Server.Fingerprint,
 		in.Server.Armor,
 		in.Server.SignedAt,
@@ -1110,7 +1104,7 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 	}
 
 	var key Key
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO user_keys (
 			fingerprint, owner, armor, created_at, expires_at,
 			server_signature_id,
@@ -1135,12 +1129,12 @@ func (s *DataService) AddPublicKey(in AddPublicKeyInput) (*Key, error) {
 		}
 	}
 
-	_, err = tx.Exec(`UPDATE users SET user_fingerprint = $1 WHERE id = $2`, fingerprint, userID)
+	_, err = tx.ExecContext(ctx, `UPDATE users SET user_fingerprint = $1 WHERE id = $2`, fingerprint, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		UPDATE user_key_revocations
 		SET successor = $1
 		WHERE user_fingerprint = $2 AND owner = $3
@@ -1161,19 +1155,18 @@ type RevokeKeyInput struct {
 	Server           ServerSignature
 }
 
-func (s *DataService) RevokeKey(in RevokeKeyInput) error {
-	tx, err := s.db.Begin()
+func (s *DataService) RevokeKey(ctx context.Context, in RevokeKeyInput) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	userSigID, err := signing.InsertUserSignature(tx, in.Fingerprint, in.UserSignatureB64)
+	userSigID, err := signing.InsertUserSignature(ctx, tx, in.Fingerprint, in.UserSignatureB64)
 	if err != nil {
 		return err
 	}
-	serverSigID, err := signing.InsertServerSignature(
-		tx,
+	serverSigID, err := signing.InsertServerSignature(ctx, tx,
 		in.Server.Fingerprint,
 		in.Server.Armor,
 		in.Server.SignedAt,
@@ -1183,7 +1176,7 @@ func (s *DataService) RevokeKey(in RevokeKeyInput) error {
 	}
 
 	// A key is revoked iff a row exists in user_key_revocations.
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO user_key_revocations (
 			user_fingerprint, owner, reason,
 			user_signature_id, server_signature_id
@@ -1260,9 +1253,9 @@ type createReedParams struct {
 // ResolveThreadIDForParent returns the canonical thread id for a reply to parent P.
 // When P is the thread root (no reed_replies row for P), thread id = ref(P).
 // Otherwise thread id is inherited from P's reply row.
-func (s *DataService) ResolveThreadIDForParent(parent ReedRef) (string, error) {
+func (s *DataService) ResolveThreadIDForParent(ctx context.Context, parent ReedRef) (string, error) {
 	var threadID string
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT thread_id FROM reed_replies
 		WHERE user_id = $1 AND reed_id = $2
 	`, parent.AuthorID, parent.ReedID).Scan(&threadID)
@@ -1337,7 +1330,7 @@ type ReplyListResponse struct {
 }
 
 // ListReplies returns visible direct replies to parentUser/parentReed, oldest first.
-func (s *DataService) ListReplies(parentUserID, parentReedID string, limit int, before *time.Time) (*ReplyListResponse, error) {
+func (s *DataService) ListReplies(ctx context.Context, parentUserID, parentReedID string, limit int, before *time.Time) (*ReplyListResponse, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -1370,7 +1363,7 @@ func (s *DataService) ListReplies(parentUserID, parentReedID string, limit int, 
 		LIMIT $%d
 	`, len(args))
 
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1417,11 +1410,11 @@ func (s *DataService) insertReedCoreTx(
 	// queries internally, so these two inserts land as root spans rather than
 	// nested under ctx's request span — a known gap, not a bug (see
 	// specs/observability/04_context_threading.md).
-	userSigID, err := signing.InsertUserSignature(tx, p.UserFingerprint, p.UserSignatureB64)
+	userSigID, err := signing.InsertUserSignature(ctx, tx, p.UserFingerprint, p.UserSignatureB64)
 	if err != nil {
 		return Reed{}, err
 	}
-	serverSigID, err := signing.InsertServerSignature(tx, p.ServerFingerprint, p.ServerSignatureB64, ts)
+	serverSigID, err := signing.InsertServerSignature(ctx, tx, p.ServerFingerprint, p.ServerSignatureB64, ts)
 	if err != nil {
 		return Reed{}, err
 	}
@@ -1557,9 +1550,9 @@ func (s *DataService) CreateReedWithReply(
 }
 
 // GetReedAttestation loads a tip reed and its stored signatures.
-func (s *DataService) GetReedAttestation(userID, reedID string) (*ReedAttestation, error) {
+func (s *DataService) GetReedAttestation(ctx context.Context, userID, reedID string) (*ReedAttestation, error) {
 	var att ReedAttestation
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT r.id, r.user_id, r.private_key_fingerprint, r.signed_at,
 			us.fingerprint, us.signature,
 			ss.fingerprint, ss.signature, ss.signed_at
@@ -1591,8 +1584,8 @@ func (s *DataService) GetReedAttestation(userID, reedID string) (*ReedAttestatio
 
 // Reed ids are scoped to (user_id, id); there is no global author lookup by reed id alone.
 
-func (s *DataService) DeleteReed(userID, reedID string) error {
-	_, err := s.db.Exec(`
+func (s *DataService) DeleteReed(ctx context.Context, userID, reedID string) error {
+	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM reeds
 		WHERE user_id = $1 AND id = $2
 	`, userID, reedID)
@@ -1604,9 +1597,9 @@ func (s *DataService) DeleteReed(userID, reedID string) error {
 }
 
 // ReedExists reports whether (userID, reedID) is a live tip reed.
-func (s *DataService) ReedExists(userID, reedID string) (bool, error) {
+func (s *DataService) ReedExists(ctx context.Context, userID, reedID string) (bool, error) {
 	var exists bool
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM reeds r
 			WHERE r.user_id = $1 AND r.id = $2
@@ -1623,9 +1616,9 @@ func (s *DataService) ReedExists(userID, reedID string) (bool, error) {
 }
 
 // CountEchoes returns how many echoes point at the given reed.
-func (s *DataService) CountEchoes(echoedUserID, echoedReedID string) (int, error) {
+func (s *DataService) CountEchoes(ctx context.Context, echoedUserID, echoedReedID string) (int, error) {
 	var n int
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM reed_echoes
 		WHERE echoed_user_id = $1 AND echoed_reed_id = $2
 	`, echoedUserID, echoedReedID).Scan(&n)
@@ -1635,8 +1628,8 @@ func (s *DataService) CountEchoes(echoedUserID, echoedReedID string) (int, error
 // DeleteEchoIndexForReed clears echo index rows when a reed is removed.
 // Returns distinct echoed targets whose counts may have changed (excluding
 // the removed reed itself, which no longer has live tip subscribers).
-func (s *DataService) DeleteEchoIndexForReed(userID, reedID string) ([]ReedRef, error) {
-	rows, err := s.db.Query(`
+func (s *DataService) DeleteEchoIndexForReed(ctx context.Context, userID, reedID string) ([]ReedRef, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT echoed_user_id, echoed_reed_id
 		FROM reed_echoes
 		WHERE echoing_user_id = $1 AND echoing_reed_id = $2
@@ -1658,12 +1651,12 @@ func (s *DataService) DeleteEchoIndexForReed(userID, reedID string) ([]ReedRef, 
 		return nil, err
 	}
 
-	if _, err := s.db.Exec(`
+	if _, err := s.db.ExecContext(ctx, `
 		DELETE FROM reed_echoes WHERE echoing_user_id = $1 AND echoing_reed_id = $2
 	`, userID, reedID); err != nil {
 		return nil, err
 	}
-	if _, err := s.db.Exec(`
+	if _, err := s.db.ExecContext(ctx, `
 		DELETE FROM reed_echoes WHERE echoed_user_id = $1 AND echoed_reed_id = $2
 	`, userID, reedID); err != nil {
 		return nil, err
@@ -1673,8 +1666,8 @@ func (s *DataService) DeleteEchoIndexForReed(userID, reedID string) ([]ReedRef, 
 
 // DeleteEchoesByAuthor drops echo index rows created by userID (the echoing author).
 // Returns distinct echoed targets whose counts may have changed.
-func (s *DataService) DeleteEchoesByAuthor(userID string) ([]ReedRef, error) {
-	rows, err := s.db.Query(`
+func (s *DataService) DeleteEchoesByAuthor(ctx context.Context, userID string) ([]ReedRef, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT echoed_user_id, echoed_reed_id
 		FROM reed_echoes
 		WHERE echoing_user_id = $1
@@ -1696,7 +1689,7 @@ func (s *DataService) DeleteEchoesByAuthor(userID string) ([]ReedRef, error) {
 		return nil, err
 	}
 
-	if _, err := s.db.Exec(`DELETE FROM reed_echoes WHERE echoing_user_id = $1`, userID); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM reed_echoes WHERE echoing_user_id = $1`, userID); err != nil {
 		return nil, err
 	}
 	return targets, nil
@@ -1704,13 +1697,13 @@ func (s *DataService) DeleteEchoesByAuthor(userID string) ([]ReedRef, error) {
 
 // ReplyCountNotifyTargets returns every ancestor of parent (inclusive) whose
 // subtree reply count changes when a direct reply to parent is added or removed.
-func (s *DataService) ReplyCountNotifyTargets(parentUserID, parentReedID string) ([]ReedRef, error) {
+func (s *DataService) ReplyCountNotifyTargets(ctx context.Context, parentUserID, parentReedID string) ([]ReedRef, error) {
 	var targets []ReedRef
 	userID, reedID := parentUserID, parentReedID
 	for {
 		targets = append(targets, ReedRef{AuthorID: userID, ReedID: reedID})
 		var nextUserID, nextReedID string
-		err := s.db.QueryRow(`
+		err := s.db.QueryRowContext(ctx, `
 			SELECT parent_user_id, parent_reed_id
 			FROM reed_replies
 			WHERE user_id = $1 AND reed_id = $2
@@ -1728,9 +1721,9 @@ func (s *DataService) ReplyCountNotifyTargets(parentUserID, parentReedID string)
 
 // ReplyCountNotifyTargetsForRemovedReply returns ancestors whose subtree count
 // drops when replyUserID/replyReedID is removed. nil when not indexed as a reply.
-func (s *DataService) ReplyCountNotifyTargetsForRemovedReply(replyUserID, replyReedID string) ([]ReedRef, error) {
+func (s *DataService) ReplyCountNotifyTargetsForRemovedReply(ctx context.Context, replyUserID, replyReedID string) ([]ReedRef, error) {
 	var parentUserID, parentReedID string
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT parent_user_id, parent_reed_id
 		FROM reed_replies
 		WHERE user_id = $1 AND reed_id = $2
@@ -1741,13 +1734,13 @@ func (s *DataService) ReplyCountNotifyTargetsForRemovedReply(replyUserID, replyR
 	if err != nil {
 		return nil, err
 	}
-	return s.ReplyCountNotifyTargets(parentUserID, parentReedID)
+	return s.ReplyCountNotifyTargets(ctx, parentUserID, parentReedID)
 }
 
 // ReplyCountNotifyTargetsForAuthor returns distinct ancestors whose subtree
 // counts may change when all of userID's indexed replies are treated as removed.
-func (s *DataService) ReplyCountNotifyTargetsForAuthor(userID string) ([]ReedRef, error) {
-	rows, err := s.db.Query(`
+func (s *DataService) ReplyCountNotifyTargetsForAuthor(ctx context.Context, userID string) ([]ReedRef, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT parent_user_id, parent_reed_id
 		FROM reed_replies
 		WHERE user_id = $1
@@ -1764,7 +1757,7 @@ func (s *DataService) ReplyCountNotifyTargetsForAuthor(userID string) ([]ReedRef
 		if err := rows.Scan(&parentUserID, &parentReedID); err != nil {
 			return nil, err
 		}
-		ancestors, err := s.ReplyCountNotifyTargets(parentUserID, parentReedID)
+		ancestors, err := s.ReplyCountNotifyTargets(ctx, parentUserID, parentReedID)
 		if err != nil {
 			return nil, err
 		}
@@ -1781,9 +1774,9 @@ func (s *DataService) ReplyCountNotifyTargetsForAuthor(userID string) ([]ReedRef
 }
 
 // GetSubtreeReplyCount returns live descendant reply count beneath userID/reedID.
-func (s *DataService) GetSubtreeReplyCount(userID, reedID string) (int, error) {
+func (s *DataService) GetSubtreeReplyCount(ctx context.Context, userID, reedID string) (int, error) {
 	var count int
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		WITH RECURSIVE descendants AS (
 			SELECT rr.user_id, rr.reed_id
 			FROM reed_replies rr
@@ -1851,7 +1844,7 @@ func (s *DataService) GetReed(ctx context.Context, userID string, reedID string)
 func (s *DataService) GetReedOrRemovalCert(ctx context.Context, userID, reedID string) (ReedOrRemovalResult, error) {
 	var out ReedOrRemovalResult
 
-	accountRemoval, err := s.GetAccountRemoval(userID)
+	accountRemoval, err := s.GetAccountRemoval(ctx, userID)
 	if err != nil {
 		return out, err
 	}
@@ -1860,7 +1853,7 @@ func (s *DataService) GetReedOrRemovalCert(ctx context.Context, userID, reedID s
 		return out, nil
 	}
 
-	removal, err := s.GetReedRemoval(userID, reedID)
+	removal, err := s.GetReedRemoval(ctx, userID, reedID)
 	if err != nil {
 		return out, err
 	}
@@ -1878,28 +1871,28 @@ func (s *DataService) GetReedOrRemovalCert(ctx context.Context, userID, reedID s
 }
 
 // GetReedRemoval returns the stored reed-removal cert for (userID, reedID).
-func (s *DataService) GetReedRemoval(userID, reedID string) (*deletion.Cert, error) {
-	return deletion.GetCert(s.db, userID, reedID)
+func (s *DataService) GetReedRemoval(ctx context.Context, userID, reedID string) (*deletion.Cert, error) {
+	return deletion.GetCert(ctx, s.db, userID, reedID)
 }
 
 // InsertReedRemoval persists a reed-removal cert (idempotent / conflict).
-func (s *DataService) InsertReedRemoval(cert deletion.Cert) error {
-	return deletion.InsertCert(s.db, cert)
+func (s *DataService) InsertReedRemoval(ctx context.Context, cert deletion.Cert) error {
+	return deletion.InsertCert(ctx, s.db, cert)
 }
 
 // GetAccountRemoval returns the stored account-removal cert for userID.
-func (s *DataService) GetAccountRemoval(userID string) (*deletion.AccountCert, error) {
-	return deletion.GetAccountCert(s.db, userID)
+func (s *DataService) GetAccountRemoval(ctx context.Context, userID string) (*deletion.AccountCert, error) {
+	return deletion.GetAccountCert(ctx, s.db, userID)
 }
 
 // InsertAccountRemoval persists an account-removal cert (idempotent / conflict).
-func (s *DataService) InsertAccountRemoval(cert deletion.AccountCert) error {
-	return deletion.InsertAccountCert(s.db, cert)
+func (s *DataService) InsertAccountRemoval(ctx context.Context, cert deletion.AccountCert) error {
+	return deletion.InsertAccountCert(ctx, s.db, cert)
 }
 
 // HasAccountRemoval reports whether userID has an account-removal row.
-func (s *DataService) HasAccountRemoval(userID string) (bool, error) {
-	return deletion.HasAccountRemoval(s.db, userID)
+func (s *DataService) HasAccountRemoval(ctx context.Context, userID string) (bool, error) {
+	return deletion.HasAccountRemoval(ctx, s.db, userID)
 }
 
 // ==================== //
@@ -1907,8 +1900,8 @@ func (s *DataService) HasAccountRemoval(userID string) (bool, error) {
 // ==================== //
 
 // ListUserFollowing returns user ids this user follows.
-func (s *DataService) ListUserFollowing(userID string) ([]string, error) {
-	rows, err := s.db.Query(`
+func (s *DataService) ListUserFollowing(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT following_user_id
 		FROM user_following
 		WHERE user_id = $1
@@ -1931,8 +1924,8 @@ func (s *DataService) ListUserFollowing(userID string) ([]string, error) {
 }
 
 // ListUserReeds returns non-removed reed ids for userID, tip first.
-func (s *DataService) ListUserReeds(userID string) (tipReedID *string, reedIDs []string, err error) {
-	rows, err := s.db.Query(`
+func (s *DataService) ListUserReeds(ctx context.Context, userID string) (tipReedID *string, reedIDs []string, err error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.id
 		FROM reeds r
 		WHERE r.user_id = $1
@@ -2248,9 +2241,9 @@ var (
 	errDeviceMismatch = errors.New("device mismatch")
 )
 
-func (s *DataService) GetActiveDeviceID(userID string) (string, error) {
+func (s *DataService) GetActiveDeviceID(ctx context.Context, userID string) (string, error) {
 	var deviceID string
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT device_id FROM user_devices
 		WHERE user_id = $1 AND revoked_at IS NULL
 	`, userID).Scan(&deviceID)
@@ -2263,20 +2256,20 @@ func (s *DataService) GetActiveDeviceID(userID string) (string, error) {
 	return deviceID, nil
 }
 
-func (s *DataService) BindDeviceTx(tx *sql.Tx, userID, deviceID string, now time.Time) error {
+func (s *DataService) BindDeviceTx(ctx context.Context, tx *sql.Tx, userID, deviceID string, now time.Time) error {
 	deviceID, err := identity.ParseDeviceID(deviceID)
 	if err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE user_devices SET revoked_at = $2
 		WHERE user_id = $1 AND revoked_at IS NULL
 	`, userID, now); err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO user_devices (user_id, device_id, linked_at, revoked_at)
 		VALUES ($1, $2, $3, NULL)
 	`, userID, deviceID, now); err != nil {
@@ -2286,25 +2279,25 @@ func (s *DataService) BindDeviceTx(tx *sql.Tx, userID, deviceID string, now time
 	return nil
 }
 
-func (s *DataService) BindDevice(userID, deviceID string, now time.Time) error {
-	tx, err := s.db.Begin()
+func (s *DataService) BindDevice(ctx context.Context, userID, deviceID string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if err := s.BindDeviceTx(tx, userID, deviceID, now); err != nil {
+	if err := s.BindDeviceTx(ctx, tx, userID, deviceID, now); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func (s *DataService) CheckActiveDevice(userID, presented string) error {
+func (s *DataService) CheckActiveDevice(ctx context.Context, userID, presented string) error {
 	presented, err := identity.ParseDeviceID(presented)
 	if err != nil {
 		return err
 	}
-	active, err := s.GetActiveDeviceID(userID)
+	active, err := s.GetActiveDeviceID(ctx, userID)
 	if err != nil {
 		return err
 	}

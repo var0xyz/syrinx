@@ -130,7 +130,7 @@ func main() {
 	log.Info().Msg("[OK] Services initialized successfully")
 
 	log.Debug().Msg("Initializing server identity...")
-	if err := dataService.InitServer(cfg.RecoveryMode); err != nil {
+	if err := dataService.InitServer(context.Background(), cfg.RecoveryMode); err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server identity")
 	}
 
@@ -151,13 +151,13 @@ func main() {
 	}
 
 	log.Debug().Msg("Processing key revocations...")
-	if err := dataService.ProcessRevocations(); err != nil {
+	if err := dataService.ProcessRevocations(context.Background()); err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to process key revocations")
 	}
 	log.Info().Msg("[OK] Key revocations processed")
 
 	log.Debug().Msg("Initializing server signing key...")
-	signingKey, err := dataService.InitServerKey(cryptoService, passphrase.Value)
+	signingKey, err := dataService.InitServerKey(context.Background(), cryptoService, passphrase.Value)
 	if err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server signing key")
 	}
@@ -169,7 +169,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	if msg, err := recovery.StaleIdentityBackupMessage(db); err != nil {
+	if msg, err := recovery.StaleIdentityBackupMessage(context.Background(), db); err != nil {
 		log.Warn().Err(err).Msg("[WARN] Could not check identity backup freshness")
 	} else if msg != "" {
 		log.Warn().Msg("[WARN] " + msg)
@@ -191,7 +191,7 @@ func main() {
 	h.SetMetrics(obs.Metrics())
 	h.SetPipeTagFilter(realtimeService.FilterSubscribedPipeTags)
 	h.SetKickUserWS(realtimeService.DisconnectUser)
-	realtimeService.SetDeviceCheck(dataService.CheckActiveDevice)
+	realtimeService.SetDeviceCheck(func(userID, deviceID string) error { return dataService.CheckActiveDevice(context.Background(), userID, deviceID) })
 	log.Info().Msg("[OK] Handlers initialized successfully")
 
 	log.Debug().Msg("Setting up router...")
@@ -206,8 +206,8 @@ func main() {
 	api.Use(h.CORSMiddleware(cfg.AllowedOrigin))
 	api.Use(h.signatureAuthMiddleware("/api"))
 	if cfg.RecoveryMode {
-		realtimeService.SetOngoingCheck(dataService.IsOngoing)
-		api.Use(recovery.Middleware(userIDKey, dataService.IsOngoing))
+		realtimeService.SetOngoingCheck(func(userID string) (bool, error) { return dataService.IsOngoing(context.Background(), userID) })
+		api.Use(recovery.Middleware(userIDKey, func(ctx context.Context, userID string) (bool, error) { return dataService.IsOngoing(ctx, userID) }))
 	}
 	api.Use(h.deviceMiddleware())
 	api.Use(h.responseSignerMiddleware(signingKey.Armor))
@@ -284,7 +284,7 @@ func main() {
 		ServerID:             dataService.GetServerID(),
 		ServerKeyFingerprint: signingKey.Fingerprint,
 		GetPublicKeyArmor: func(ctx context.Context, userID, fingerprint string) (string, error) {
-			key, err := dataService.GetPublicKey(userID, fingerprint)
+			key, err := dataService.GetPublicKey(ctx, userID, fingerprint)
 			if err != nil {
 				return "", err
 			}
@@ -324,7 +324,7 @@ func main() {
 
 	if cfg.RecoveryMode {
 		log.Debug().Msg("Initializing recovery mode...")
-		unclaimedCount, err := recovery.CountUnclaimed(db)
+		unclaimedCount, err := recovery.CountUnclaimed(context.Background(), db)
 		if err != nil {
 			log.Warn().Err(err).Msg("[WARN] Could not count unclaimed accounts")
 		} else {

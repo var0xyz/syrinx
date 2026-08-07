@@ -157,7 +157,7 @@ func TestReplyCountsFromGraph(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	threadTotal, err := ds.GetSubtreeReplyCount("alice", "root")
+	threadTotal, err := ds.GetSubtreeReplyCount(context.Background(), "alice", "root")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,9 +165,9 @@ func TestReplyCountsFromGraph(t *testing.T) {
 		t.Fatalf("root subtree (= thread total) = %d want 2", threadTotal)
 	}
 
-	rootSub, _ := ds.GetSubtreeReplyCount("alice", "root")
-	midSub, _ := ds.GetSubtreeReplyCount("alice", "mid")
-	leafSub, _ := ds.GetSubtreeReplyCount("alice", "leaf")
+	rootSub, _ := ds.GetSubtreeReplyCount(context.Background(), "alice", "root")
+	midSub, _ := ds.GetSubtreeReplyCount(context.Background(), "alice", "mid")
+	leafSub, _ := ds.GetSubtreeReplyCount(context.Background(), "alice", "leaf")
 	if rootSub != 2 || midSub != 1 || leafSub != 0 {
 		t.Fatalf("subtree counts root=%d mid=%d leaf=%d want 2/1/0", rootSub, midSub, leafSub)
 	}

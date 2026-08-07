@@ -10,6 +10,7 @@
 package main
 
 import (
+	"context"
 	"bufio"
 	"database/sql"
 	"errors"
@@ -139,7 +140,7 @@ func runExportIdentity(outfile string) error {
 	defer db.Close()
 
 	exportedAt := time.Now().UTC().Truncate(time.Second)
-	bundle, err := recovery.ExportFromDB(db, exportedAt)
+	bundle, err := recovery.ExportFromDB(context.Background(), db, exportedAt)
 	if err != nil {
 		return err
 	}
@@ -165,7 +166,7 @@ func runExportIdentity(outfile string) error {
 		return fmt.Errorf("write %s: %w", outfile, err)
 	}
 
-	if err := recovery.SetIdentityBackupAt(db, bundle.ExportedAt); err != nil {
+	if err := recovery.SetIdentityBackupAt(context.Background(), db, bundle.ExportedAt); err != nil {
 		return fmt.Errorf("wrote %s but failed to update identity_backup_at: %w", outfile, err)
 	}
 
@@ -220,7 +221,7 @@ func runImportIdentity(infile string) error {
 		return err
 	}
 
-	result, err := recovery.ImportIntoDB(db, bundle)
+	result, err := recovery.ImportIntoDB(context.Background(), db, bundle)
 	if err != nil {
 		return err
 	}
@@ -263,7 +264,7 @@ func runRotatePassphrase() error {
 	}
 
 	cryptoSvc := crypto.NewService()
-	if err := recovery.RotateServerKeyPassphrase(db, cryptoSvc, current.Value, newPass); err != nil {
+	if err := recovery.RotateServerKeyPassphrase(context.Background(), db, cryptoSvc, current.Value, newPass); err != nil {
 		return err
 	}
 

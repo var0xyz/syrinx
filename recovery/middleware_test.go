@@ -35,7 +35,7 @@ func TestMiddleware(t *testing.T) {
 	key := ctxKey{}
 
 	ongoing := map[string]bool{"user-ongoing": true}
-	mw := middleware(key, func(userID string) (bool, error) {
+	mw := middleware(key, func(ctx context.Context, userID string) (bool, error) {
 		return ongoing[userID], nil
 	})
 

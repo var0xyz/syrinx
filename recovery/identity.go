@@ -51,7 +51,7 @@ func (d Deps) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	active, keys, err := FlattenKeysNest(req.Profile, req.Key, d.ServerID, d.Lookup, d.Crypto)
+	active, keys, err := FlattenKeysNest(r.Context(), req.Profile, req.Key, d.ServerID, d.Lookup, d.Crypto)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, err.Error())
 		return
@@ -68,7 +68,7 @@ func (d Deps) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := SaveOwnIdentity(d.DB, req.Profile, keys, deviceID); err != nil {
+	if _, err := SaveOwnIdentity(r.Context(), d.DB, req.Profile, keys, deviceID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
@@ -96,13 +96,13 @@ func (d Deps) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	active, keys, err := FlattenKeysNest(req.Profile, req.Key, d.ServerID, d.Lookup, d.Crypto)
+	active, keys, err := FlattenKeysNest(r.Context(), req.Profile, req.Key, d.ServerID, d.Lookup, d.Crypto)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	if _, err := SavePeerIdentity(d.DB, req.Profile, keys); err != nil {
+	if _, err := SavePeerIdentity(r.Context(), d.DB, req.Profile, keys); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}

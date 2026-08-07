@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -56,18 +57,18 @@ func IdentityMatches(b *Bundle, self ExistingSelf, keys []ExistingKey) bool {
 
 // ImportIntoDB restores identity from bundle into db. Caller must have run InitDB.
 // On mismatch with an existing self identity, returns an error and writes nothing.
-func ImportIntoDB(db *sql.DB, b *Bundle) (ImportResult, error) {
+func ImportIntoDB(ctx context.Context, db *sql.DB, b *Bundle) (ImportResult, error) {
 	if err := ValidateShape(b); err != nil {
 		return 0, err
 	}
 
 	var self ExistingSelf
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx, `
 		SELECT id, name, COALESCE(signing_key, '') FROM servers WHERE self = TRUE
 	`).Scan(&self.ID, &self.Name, &self.SigningKey)
 
 	if err == nil {
-		keys, kerr := loadExistingPrivateKeys(db)
+		keys, kerr := loadExistingPrivateKeys(ctx, db)
 		if kerr != nil {
 			return 0, kerr
 		}
@@ -83,7 +84,7 @@ func ImportIntoDB(db *sql.DB, b *Bundle) (ImportResult, error) {
 		return 0, fmt.Errorf("load self server: %w", err)
 	}
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -98,13 +99,13 @@ func ImportIntoDB(db *sql.DB, b *Bundle) (ImportResult, error) {
 		if k.RevokeReason != nil {
 			reason = *k.RevokeReason
 		}
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO private_keys (fingerprint, armor, created_at, revoked_at, revoke_reason)
 			VALUES ($1, $2, $3, $4, $5)
 		`, k.Fingerprint, k.PrivateKeyArmor, k.CreatedAt.UTC(), revokedAt, reason); err != nil {
 			return 0, fmt.Errorf("insert private_keys %s: %w", k.Fingerprint, err)
 		}
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO public_keys (fingerprint, armor, created_at)
 			VALUES ($1, $2, $3)
 		`, k.Fingerprint, k.PublicKeyArmor, k.CreatedAt.UTC()); err != nil {
@@ -113,7 +114,7 @@ func ImportIntoDB(db *sql.DB, b *Bundle) (ImportResult, error) {
 	}
 
 	backupAt := b.ExportedAt.UTC().Truncate(time.Second)
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO servers (id, name, self, signing_key, identity_backup_at)
 		VALUES ($1, $2, TRUE, $3, $4)
 	`, b.ServerID, b.ServerName, b.SigningKeyFingerprint, backupAt); err != nil {
@@ -126,8 +127,8 @@ func ImportIntoDB(db *sql.DB, b *Bundle) (ImportResult, error) {
 	return ImportApplied, nil
 }
 
-func loadExistingPrivateKeys(db *sql.DB) ([]ExistingKey, error) {
-	rows, err := db.Query(`SELECT fingerprint, armor FROM private_keys`)
+func loadExistingPrivateKeys(ctx context.Context, db *sql.DB) ([]ExistingKey, error) {
+	rows, err := db.QueryContext(ctx, `SELECT fingerprint, armor FROM private_keys`)
 	if err != nil {
 		return nil, err
 	}

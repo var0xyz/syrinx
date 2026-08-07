@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -79,13 +80,13 @@ func TestFlattenKeysNest_BrokenPredecessor(t *testing.T) {
 		},
 	}
 	v := &fakeVerifier{failChallenge: map[string]bool{"bad-pred-sig": true}}
-	lookup := func(fp string) (string, error) {
+	lookup := func(ctx context.Context, fp string) (string, error) {
 		if fp == "SKEY" {
 			return "server-pub", nil
 		}
 		return "", nil
 	}
-	_, _, err := FlattenKeysNest(profile, root, serverID, lookup, v)
+	_, _, err := FlattenKeysNest(context.Background(), profile, root, serverID, lookup, v)
 	if err == nil {
 		t.Fatal("expected broken predecessor error")
 	}
@@ -100,7 +101,7 @@ func TestFlattenKeysNest_ServerIDMismatch(t *testing.T) {
 		ServerSignature: testServerSig("other", ts),
 	}
 	root := KeyNode{KeyWire: KeyWire{Fingerprint: "AAA", Armor: "a", ServerSignature: testServerSig("", ts)}}
-	_, _, err := FlattenKeysNest(profile, root, "srv1", func(string) (string, error) { return "pub", nil }, &fakeVerifier{})
+	_, _, err := FlattenKeysNest(context.Background(), profile, root, "srv1", func(ctx context.Context, _ string) (string, error) { return "pub", nil }, &fakeVerifier{})
 	if err == nil {
 		t.Fatal("expected server id mismatch")
 	}

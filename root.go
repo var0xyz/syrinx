@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -59,7 +60,7 @@ func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *crypto.Servic
 		return false, nil
 	}
 
-	root, err := db.GetUserProfile(rootUserID)
+	root, err := db.GetUserProfile(context.Background(), rootUserID)
 	if err != nil {
 		return false, err
 	}
@@ -151,7 +152,7 @@ func exportRootIdentity(
 		return "", err
 	}
 
-	if _, err := db.Signup(SignupInput{
+	if _, err := db.Signup(context.Background(), SignupInput{
 		UserID:             rootUserID,
 		Username:           rootUsername,
 		PublicKeyArmor:     kp.PublicKey,
@@ -167,7 +168,7 @@ func exportRootIdentity(
 		return "", fmt.Errorf("persist root identity: %w", err)
 	}
 
-	wireKey, err := db.GetPublicKey(rootUserID, keyMeta.Fingerprint)
+	wireKey, err := db.GetPublicKey(context.Background(), rootUserID, keyMeta.Fingerprint)
 	if err != nil || wireKey == nil {
 		return "", fmt.Errorf("load root public key after signup: %w", err)
 	}

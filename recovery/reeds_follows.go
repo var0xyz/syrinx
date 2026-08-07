@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -23,7 +24,7 @@ var ErrAuthorNotFound = errors.New("reed author not found")
 // SaveReed inserts reed metadata if missing; rejects conflicting metadata;
 // always upserts an allocation for reporterUserID. Caller must have verified
 // the countersignature.
-func SaveReed(
+func SaveReed(ctx context.Context, 
 	db *sql.DB,
 	reedID, authorID, fingerprint string,
 	signedAt time.Time,
@@ -33,14 +34,14 @@ func SaveReed(
 ) error {
 	signedAt = signedAt.UTC().Truncate(time.Second)
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
 	var exists bool
-	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`, authorID).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`, authorID).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -49,7 +50,7 @@ func SaveReed(
 
 	var existingAuthor, existingFP string
 	var existingAt time.Time
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx, `
 		SELECT user_id, private_key_fingerprint, signed_at
 		FROM reeds WHERE user_id = $1 AND id = $2
 		FOR UPDATE
@@ -57,15 +58,15 @@ func SaveReed(
 
 	switch {
 	case err == sql.ErrNoRows:
-		userSigID, err := signing.InsertUserSignature(tx, userFingerprint, userSignatureB64)
+		userSigID, err := signing.InsertUserSignature(ctx, tx, userFingerprint, userSignatureB64)
 		if err != nil {
 			return err
 		}
-		serverSigID, err := signing.InsertServerSignature(tx, fingerprint, serverSignatureB64, signedAt)
+		serverSigID, err := signing.InsertServerSignature(ctx, tx, fingerprint, serverSignatureB64, signedAt)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reeds (
 				id, user_id, private_key_fingerprint, signed_at,
 				user_signature_id, server_signature_id
@@ -88,7 +89,7 @@ func SaveReed(
 		}
 	}
 
-	res, err := tx.Exec(`
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING
@@ -101,7 +102,7 @@ func SaveReed(
 		return err
 	}
 	if n > 0 {
-		if err := coverage.BumpAllocationCount(tx, authorID, reedID, 1); err != nil {
+		if err := coverage.BumpAllocationCount(ctx, tx, authorID, reedID, 1); err != nil {
 			return err
 		}
 	}
@@ -112,19 +113,19 @@ func SaveReed(
 // SaveFollowing writes follow edges for followerUserID. Existing targets go
 // into user_following / user_followers; missing targets go into pending_follows.
 // Caller must reject self-follows before calling.
-func SaveFollowing(db *sql.DB, followerUserID string, targetIDs []string) error {
+func SaveFollowing(ctx context.Context, db *sql.DB, followerUserID string, targetIDs []string) error {
 	if len(targetIDs) == 0 {
 		return nil
 	}
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
 	existing := make(map[string]bool, len(targetIDs))
-	rows, err := tx.Query(`
+	rows, err := tx.QueryContext(ctx, `
 		SELECT id FROM users WHERE id = ANY($1)
 	`, pq.Array(targetIDs))
 	if err != nil {
@@ -147,14 +148,14 @@ func SaveFollowing(db *sql.DB, followerUserID string, targetIDs []string) error 
 			continue
 		}
 		if existing[targetID] {
-			if _, err := tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO user_following (user_id, following_user_id)
 				VALUES ($1, $2)
 				ON CONFLICT DO NOTHING
 			`, followerUserID, targetID); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO user_followers (user_id, follower_user_id)
 				VALUES ($1, $2)
 				ON CONFLICT DO NOTHING
@@ -163,7 +164,7 @@ func SaveFollowing(db *sql.DB, followerUserID string, targetIDs []string) error 
 			}
 			continue
 		}
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO pending_follows (follower_user_id, following_user_id)
 			VALUES ($1, $2)
 			ON CONFLICT DO NOTHING
