@@ -104,7 +104,9 @@ if h.cfg.SignupMode == invites.ModeClosed {
 }
 ```
 
-Mode `invite` is a no-op in this step (fall through to today's open behavior).
+Mode `invite`: `Signup` and `CheckUsername` require the same valid
+`inviteID` + `inviteSecret` pair as signup consume (see step 03). Both must
+include `inviteCreatorID` (`uid` in the share link).
 
 ### Package stub
 

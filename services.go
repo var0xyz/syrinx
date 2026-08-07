@@ -413,30 +413,21 @@ type SignupInput struct {
 	MemberSince        time.Time
 	ProfileSignature   ServerSignature
 	PublicKeySignature ServerSignature
-	SignupMode         invites.SignupMode
-	InviteID           string
-	InviteSecret       string
-	// InvitedBy is the inviter userID bound into ProfileSignature (empty if none).
-	// Must match the invite resolved inside the signup transaction.
-	InvitedBy string
-	DeviceID  string
+	// Invite is the pending invite row to consume (nil when signing up without one).
+	Invite   *invites.Invite
+	DeviceID string
 }
 
-// LookupPendingInvite resolves invite id + fragment secret for pre-signup
-// policy checks. Returns nil invite when unknown or id mismatch.
-func (s *DataService) LookupPendingInvite(ctx context.Context, inviteID, secret string) (*invites.Invite, error) {
+// GetPendingInvite resolves invite composite key + fragment secret for
+// pre-signup policy checks. Returns nil invite when unknown or hash mismatch.
+func (s *DataService) GetPendingInvite(ctx context.Context, creatorID, inviteID, secret string) (*invites.Invite, error) {
+	creatorID = strings.TrimSpace(creatorID)
+	inviteID = strings.TrimSpace(inviteID)
 	secret = strings.TrimSpace(secret)
-	if secret == "" {
+	if creatorID == "" || inviteID == "" || secret == "" {
 		return nil, nil
 	}
-	inv, err := s.invites.GetByTokenHash(ctx, invites.HashSecret(secret))
-	if err != nil || inv == nil {
-		return inv, err
-	}
-	if strings.TrimSpace(inviteID) != "" && inv.ID != inviteID {
-		return nil, nil
-	}
-	return inv, nil
+	return s.invites.GetPendingInvite(ctx, creatorID, inviteID, invites.HashSecret(secret))
 }
 
 // Signup materialises a fresh identity record: it writes the users row
@@ -462,19 +453,7 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	}
 	defer tx.Rollback()
 
-	var inv *invites.Invite
-	if strings.TrimSpace(in.InviteSecret) != "" {
-		inv, err = s.invites.GetByTokenHashTx(ctx, tx, invites.HashSecret(in.InviteSecret))
-		if err != nil {
-			return nil, err
-		}
-	}
-	resolved, err := invites.ResolveSignup(in.SignupMode, in.InviteID, in.InviteSecret, inv)
-	if err != nil {
-		return nil, err
-	}
-	if resolved.InviterID != in.InvitedBy {
-		// Signed invitedBy diverged from TX resolution (lost race).
+	if in.Invite != nil && in.Invite.Status() != "pending" {
 		return nil, invites.ErrInvalidInvite
 	}
 
@@ -492,16 +471,15 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	}
 
 	var invitedBy any
-	if resolved.InviterID != "" {
-		invitedBy = resolved.InviterID
+	if in.Invite != nil {
+		invitedBy = in.Invite.CreatedBy
 	}
 
 	inviteGrantedRole := ""
-	hasInvite := inv != nil && resolved.InviteID != ""
-	if hasInvite {
-		inviteGrantedRole = inv.GrantedRole
+	if in.Invite != nil {
+		inviteGrantedRole = in.Invite.GrantedRole
 	}
-	signupRole := roles.SignupRole(in.UserID, inviteGrantedRole, hasInvite)
+	signupRole := roles.SignupRole(in.UserID, inviteGrantedRole, in.Invite != nil)
 
 	// created_at is set explicitly to memberSince — the value that was
 	// signed by the server. Using the DB's DEFAULT would create a
@@ -541,8 +519,8 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 		return nil, err
 	}
 
-	if resolved.InviteID != "" {
-		ok, err := s.invites.MarkClaimed(ctx, tx, resolved.InviterID, resolved.InviteID, in.UserID, in.MemberSince)
+	if in.Invite != nil {
+		ok, err := s.invites.MarkClaimed(ctx, tx, in.Invite.CreatedBy, in.Invite.ID, in.UserID, in.MemberSince)
 		if err != nil {
 			return nil, err
 		}

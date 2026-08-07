@@ -16,7 +16,6 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/identity"
-	"syrinx/invites"
 	"syrinx/roles"
 
 	"github.com/rs/zerolog/log"
@@ -184,7 +183,6 @@ func exportRootIdentity(
 		MemberSince:        now,
 		ProfileSignature:   profileSig,
 		PublicKeySignature: keySig,
-		SignupMode:         invites.ModeOpen,
 	}); err != nil {
 		return "", fmt.Errorf("persist root identity: %w", err)
 	}

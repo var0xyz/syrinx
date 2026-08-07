@@ -111,7 +111,7 @@ Parse rules (fatal at boot on violation):
 | Mode | Home “Sign Up” | `POST /users/signup` | `POST /check-username` | `POST /api/invites` | Bootstrap (0 users) |
 |------|----------------|----------------------|------------------------|---------------------|---------------------|
 | `open` | Visible | Allowed; invite **optional** (if present → must be valid, consume, set `invited_by`) | Allowed | Allowed (quota) | N/A |
-| `invite` | Hidden | Valid unused invite required | Allowed | Allowed (quota) | Allowed without invite |
+| `invite` | Hidden | Valid unused invite required | Valid unused invite required | Allowed (quota) | Allowed without invite |
 | `closed` | Hidden | 403 | 403 | 403 on **create** (status/revoke still ok) | No |
 
 Import / backup restore is **not** signup and remains allowed in all modes.
@@ -136,7 +136,7 @@ invites
 - **Secret**: client-minted ≥256-bit fragment secret. Create sends only
   `tokenHash = SHA-256(secret)` (hex); the secret never hits the create API.
   Redeem/check send the raw secret; the server hashes and compares.
-- **Share URL**: `{origin}/signup?invite={id}#{secret}` — fragment is not
+- **Share URL**: `{origin}/signup?iid={id}&uid={created_by}#{secret}` — fragment is not
   sent on navigation, so the secret does not appear in server access logs.
 - **Signed create**: user signs `invite-user` over `serverID`, `userID`,
   `inviteID`, `tokenHash`, `createdAt`; server countersigns `invite-server`.
@@ -151,7 +151,7 @@ invites
 | `POST` | `/api/invites` | Signed | Create; body `{ id, tokenHash, createdAt, userSignature }` → nested sigs |
 | `GET` | `/api/invites/{id}` | Signed | Status for caller’s invite (unsigned bookkeeping) |
 | `DELETE` | `/api/invites/{id}` | Signed | Revoke unused invite owned by caller |
-| `GET` | `/api/invites/check?id=&secret=` | None | `{ valid: bool }` — server hashes `secret` |
+| `GET` | `/api/invites/check?uid=&iid=&secret=` | None | `{ valid: bool }` — PK + hash lookup |
 
 No list endpoint — the SPA keeps invites in IndexedDB and refreshes
 **pending** rows via status-by-id on page load.
@@ -231,7 +231,7 @@ cannot both succeed.
 
 - **Landing**: “Sign Up” only if `signupMode === "open"`. Import backup
   always available.
-- **Invite link**: `/signup?invite=TOKEN` works for `invite` and (optionally)
+- **Invite link**: `/signup?iid=TOKEN&uid=CREATOR` works for `invite` and (optionally)
   `open`. Preamble may be skipped or carried through with the query param
   preserved — see step 04.
 - **Toolbar**: Invites tab always present. Create disabled with explanation

@@ -32,7 +32,7 @@ sequenceDiagram
   Server-->>Browser: Countersignature; store hash only
   Browser->>Browser: Keep secret in IndexedDB
   Inviter->>Invitee: Share link (id in query, secret in fragment)
-  Invitee->>Browser: Open /signup?invite=id#secret
+  Invitee->>Browser: Open /signup?iid=id&uid=creator#secret
   Browser->>Server: GET /api/invites/check
   Invitee->>Browser: Complete PGP signup
   Browser->>Server: POST /api/users/signup (inviteID + inviteSecret)
@@ -49,7 +49,7 @@ sequenceDiagram
 
 ### Share
 
-1. The inviter copies a link: `{origin}/signup?invite={id}#{secret}`.
+1. The inviter copies a link: `{origin}/signup?iid={id}&uid={creatorId}#{secret}`.
 2. The **id** is in the query string; the **secret** is in the fragment (`#…`).
 3. Browsers do not send fragments on navigation, so the secret does not appear in normal HTTP access logs.
 
@@ -57,7 +57,7 @@ sequenceDiagram
 
 When the signup page loads with both `?invite=` and `#secret` present:
 
-1. The client calls `GET /api/invites/check?id=&secret=`.
+1. The client calls `GET /api/invites/check?uid=&iid=&secret=`.
 2. The server hashes the secret, loads the row, and returns `{ valid: true }` only if the invite is **pending** and the id matches.
 3. Claimed and revoked invites return `valid: false` with no further detail.
 
@@ -65,9 +65,9 @@ This is a **preflight** so the UI can reject a bad link before key generation. *
 
 ### Redeem (signup)
 
-The signup request includes `inviteID` (query) and `inviteSecret` (fragment), plus the usual identity fields. The server then:
+The signup request includes `inviteID`, `inviteCreatorID` (from query), and `inviteSecret` (fragment), plus the usual identity fields. The server then:
 
-1. Hashes the secret and loads the invite by `token_hash`.
+1. Hashes the secret and loads the invite by composite primary key `(created_by, id)` plus `token_hash`.
 2. Rejects if the row is missing, not pending, or the id does not match.
 3. Inserts the new user with `invited_by` set to the inviter.
 4. Countersigns the profile, including an `invitedBy` header.
@@ -133,7 +133,7 @@ Invite redeem tokens are not canonical signed envelopes like reeds or removal ce
 ## In the UI
 
 - Home **Sign Up** — visible only when `signupMode` is `open`.
-- Invite link — `/signup?invite={id}#{secret}`.
+- Invite link — `/signup?iid={id}&uid={creatorId}#{secret}`.
 - Toolbar **Invites** — always visible; create disabled when mode is `closed` or quota is exhausted.
 - Profile **Invited by** — shown when `invitedBy` is set (signed binding is the inviter’s user id; username is joined at read time).
 

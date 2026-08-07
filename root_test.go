@@ -6,7 +6,6 @@ import (
 	"context"
 	"testing"
 
-	"syrinx/invites"
 	"syrinx/roles"
 )
 
@@ -32,7 +31,7 @@ func TestRequireRootUser_PresentRootOK(t *testing.T) {
 	db := openSignupTestDB(t)
 	svc := NewDataService(db, "test")
 	svc.serverID = "srv"
-	if _, err := svc.Signup(context.Background(), signupInput(roles.RootUserID, "root", "", "", "", invites.ModeOpen)); err != nil {
+	if _, err := svc.Signup(context.Background(), signupInput(roles.RootUserID, "root", nil)); err != nil {
 		t.Fatal(err)
 	}
 	cfg := AppConfig{RecoveryMode: false}

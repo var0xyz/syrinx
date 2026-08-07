@@ -18,7 +18,7 @@ type ResolvedInvite struct {
 }
 
 // ResolveSignup applies SIGNUP_MODE invite policy given an optional invite
-// row looked up by HashSecret(secret) (nil if absent).
+// row looked up by composite PK + HashSecret(secret) (nil if absent).
 //
 // When inviteID/secret are provided, inv must be pending and inv.ID must
 // equal inviteID.
@@ -32,12 +32,13 @@ type ResolvedInvite struct {
 // First account: deploy with SIGNUP_MODE=open, then switch to invite or closed.
 func ResolveSignup(
 	mode SignupMode,
-	inviteID, secret string,
+	inviteID, creatorID, secret string,
 	inv *Invite,
 ) (ResolvedInvite, error) {
 	id := strings.TrimSpace(inviteID)
+	by := strings.TrimSpace(creatorID)
 	sec := strings.TrimSpace(secret)
-	hasCreds := id != "" || sec != ""
+	hasCreds := id != "" || by != "" || sec != ""
 
 	if !hasCreds {
 		if mode == ModeInvite {
@@ -45,10 +46,10 @@ func ResolveSignup(
 		}
 		return ResolvedInvite{}, nil
 	}
-	if id == "" || sec == "" {
+	if id == "" || by == "" || sec == "" {
 		return ResolvedInvite{}, ErrInvalidInvite
 	}
-	if inv == nil || inv.Status() != "pending" || inv.ID != id {
+	if inv == nil || inv.Status() != "pending" || inv.ID != id || inv.CreatedBy != by {
 		return ResolvedInvite{}, ErrInvalidInvite
 	}
 	return ResolvedInvite{

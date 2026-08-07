@@ -186,21 +186,6 @@ func (h *Handlers) GetServerPublicKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Signup produces a fresh signed identity record for a brand-new user.
-// One-round flow:
-//
-//  1. Client sends {username, publicKey, signature, userSignature}.
-//     - `signature` is the user's self-signature over `publicKey`.
-//     - `userSignature` is a fresh base64-armored PGP detached signature
-//     over `identity.BuildUserIdentityPayload(username, fingerprint, "")`.
-//  2. Server verifies both signatures, mints createdAt / signedAt,
-//     assembles and countersigns the server identity payload, and
-//     persists both signatures on the users row alongside the
-//     user_keys insert.
-//
-// The client can compute `userSignature` locally without any pre-flight
-// roundtrip — the user payload contains no server-authored fields, so
-// there is nothing to fetch first.
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("Signup request received")
@@ -282,6 +267,36 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	inviteID := strings.TrimSpace(values.Get("inviteID"))
+	inviteCreatorID := strings.TrimSpace(values.Get("inviteCreatorID"))
+	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
+	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteCreatorID, inviteID, inviteSecret)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to look up invite")
+		internalServerError(w)
+		return
+	}
+	resolved, err := invites.ResolveSignup(
+		invites.SignupMode(h.cfg.SignupMode),
+		inviteID,
+		inviteCreatorID,
+		inviteSecret,
+		invite,
+	)
+	if err != nil {
+		if errors.Is(err, invites.ErrInviteRequired) {
+			writeResponse(w, http.StatusForbidden, "Invite required")
+			return
+		}
+		if errors.Is(err, invites.ErrInvalidInvite) {
+			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
+			return
+		}
+		log.Error().Err(err).Msg("Invite policy error")
+		internalServerError(w)
+		return
+	}
+
 	serverPubKey, err := h.services.db.GetServerPublicKeyByFingerprint(r.Context(), userIDFingerprint)
 	if err != nil || serverPubKey == "" {
 		log.Error().
@@ -294,29 +309,6 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	if err := h.services.crypto.VerifySignature(userID, string(userIDSigArmor), serverPubKey); err != nil {
 		log.Error().Err(err).Msg("userID signature verification failed")
 		writeResponse(w, http.StatusBadRequest, "userID signature verification failed")
-		return
-	}
-
-	inviteID := strings.TrimSpace(values.Get("inviteID"))
-	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
-	inv, err := h.services.db.LookupPendingInvite(r.Context(), inviteID, inviteSecret)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to look up invite")
-		internalServerError(w)
-		return
-	}
-	resolved, err := invites.ResolveSignup(invites.SignupMode(h.cfg.SignupMode), inviteID, inviteSecret, inv)
-	if err != nil {
-		if errors.Is(err, invites.ErrInviteRequired) {
-			writeResponse(w, http.StatusForbidden, "Invite required")
-			return
-		}
-		if errors.Is(err, invites.ErrInvalidInvite) {
-			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
-			return
-		}
-		log.Error().Err(err).Msg("Invite policy error")
-		internalServerError(w)
 		return
 	}
 
@@ -366,9 +358,9 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Truncate(time.Second)
 
 	inviteGrantedRole := ""
-	hasInvite := inv != nil && resolved.InviteID != ""
+	hasInvite := invite != nil && resolved.InviteID != ""
 	if hasInvite {
-		inviteGrantedRole = inv.GrantedRole
+		inviteGrantedRole = invite.GrantedRole
 	}
 	signupRole := roles.SignupRole(userID, inviteGrantedRole, hasInvite)
 
@@ -418,17 +410,10 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		MemberSince:        now,
 		ProfileSignature:   profileSignature,
 		PublicKeySignature: keySignature,
-		SignupMode:         invites.SignupMode(h.cfg.SignupMode),
-		InviteID:           inviteID,
-		InviteSecret:       inviteSecret,
-		InvitedBy:          resolved.InviterID,
+		Invite:             invite,
 		DeviceID:           deviceID,
 	})
 	if err != nil {
-		if errors.Is(err, invites.ErrInviteRequired) {
-			writeResponse(w, http.StatusForbidden, "Invite required")
-			return
-		}
 		if errors.Is(err, invites.ErrInvalidInvite) {
 			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
 			return
@@ -508,6 +493,35 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 
 	if len(username) > 32 {
 		writeResponse(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
+		return
+	}
+
+	inviteID := strings.TrimSpace(values.Get("inviteID"))
+	inviteCreatorID := strings.TrimSpace(values.Get("inviteCreatorID"))
+	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
+	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteCreatorID, inviteID, inviteSecret)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to look up invite")
+		internalServerError(w)
+		return
+	}
+	if _, err := invites.ResolveSignup(
+		invites.SignupMode(h.cfg.SignupMode),
+		inviteID,
+		inviteCreatorID,
+		inviteSecret,
+		invite,
+	); err != nil {
+		if errors.Is(err, invites.ErrInviteRequired) {
+			writeResponse(w, http.StatusForbidden, "Invite required")
+			return
+		}
+		if errors.Is(err, invites.ErrInvalidInvite) {
+			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
+			return
+		}
+		log.Error().Err(err).Msg("Invite policy error")
+		internalServerError(w)
 		return
 	}
 

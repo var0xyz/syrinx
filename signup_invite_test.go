@@ -122,7 +122,7 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 	return nil
 }
 
-func signupInput(userID, username, invitedBy, inviteID, secret string, mode invites.SignupMode) SignupInput {
+func signupInput(userID, username string, inv *invites.Invite) SignupInput {
 	now := time.Now().UTC().Truncate(time.Second)
 	return SignupInput{
 		UserID:           userID,
@@ -142,10 +142,7 @@ func signupInput(userID, username, invitedBy, inviteID, secret string, mode invi
 			Armor:       "ksig-" + userID,
 			SignedAt:    now,
 		},
-		SignupMode:   mode,
-		InviteID:     inviteID,
-		InviteSecret: secret,
-		InvitedBy:    invitedBy,
+		Invite: inv,
 	}
 }
 
@@ -163,7 +160,7 @@ func TestSignup_OpenNoInvite(t *testing.T) {
 	svc := NewDataService(db, "test")
 	svc.serverID = "srv"
 
-	user, err := svc.Signup(context.Background(), signupInput("u1", "alice", "", "", "", invites.ModeOpen))
+	user, err := svc.Signup(context.Background(), signupInput("u1", "alice", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,24 +172,13 @@ func TestSignup_OpenNoInvite(t *testing.T) {
 	}
 }
 
-func TestSignup_InviteRequired(t *testing.T) {
-	db := openSignupTestDB(t)
-	svc := NewDataService(db, "test")
-	svc.serverID = "srv"
-
-	_, err := svc.Signup(context.Background(), signupInput("u1", "alice", "", "", "", invites.ModeInvite))
-	if !errors.Is(err, invites.ErrInviteRequired) {
-		t.Fatalf("err = %v, want ErrInviteRequired", err)
-	}
-}
-
 func TestSignup_ConsumeInvite(t *testing.T) {
 	db := openSignupTestDB(t)
 	svc := NewDataService(db, "test")
 	svc.serverID = "srv"
 	ctx := context.Background()
 
-	if _, err := svc.Signup(context.Background(), signupInput("inviter", "alice", "", "", "", invites.ModeOpen)); err != nil {
+	if _, err := svc.Signup(context.Background(), signupInput("inviter", "alice", nil)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -209,8 +195,12 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 	if err := store.Insert(ctx, id, "inviter", hash, time.Now().UTC(), roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
+	invRow, err := store.GetByTokenHash(ctx, hash)
+	if err != nil || invRow == nil {
+		t.Fatalf("load invite: err=%v inv=%v", err, invRow)
+	}
 
-	user, err := svc.Signup(context.Background(), signupInput("invitee", "bob", "inviter", id, raw, invites.ModeInvite))
+	user, err := svc.Signup(context.Background(), signupInput("invitee", "bob", invRow))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +226,7 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 		t.Fatalf("follower edges = %d, want 0", n)
 	}
 
-	_, err = svc.Signup(context.Background(), signupInput("other", "carol", "inviter", id, raw, invites.ModeInvite))
+	_, err = svc.Signup(context.Background(), signupInput("other", "carol", invRow))
 	if !errors.Is(err, invites.ErrInvalidInvite) {
 		t.Fatalf("reuse = %v, want ErrInvalidInvite", err)
 	}
@@ -248,7 +238,7 @@ func TestSignup_OpenValidToken(t *testing.T) {
 	svc.serverID = "srv"
 	ctx := context.Background()
 
-	if _, err := svc.Signup(context.Background(), signupInput("inviter", "alice", "", "", "", invites.ModeOpen)); err != nil {
+	if _, err := svc.Signup(context.Background(), signupInput("inviter", "alice", nil)); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := invites.NewSecret()
@@ -260,11 +250,16 @@ func TestSignup_OpenValidToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := (&invites.Store{DB: db}).Insert(ctx, id, "inviter", hash, time.Now().UTC(), roles.RoleUser); err != nil {
+	store := &invites.Store{DB: db}
+	if err := store.Insert(ctx, id, "inviter", hash, time.Now().UTC(), roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
+	invRow, err := store.GetByTokenHash(ctx, hash)
+	if err != nil || invRow == nil {
+		t.Fatalf("load invite: err=%v inv=%v", err, invRow)
+	}
 
-	user, err := svc.Signup(context.Background(), signupInput("invitee", "bob", "inviter", id, raw, invites.ModeOpen))
+	user, err := svc.Signup(context.Background(), signupInput("invitee", "bob", invRow))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +277,11 @@ func TestSignup_OpenInvalidToken(t *testing.T) {
 	db := openSignupTestDB(t)
 	svc := NewDataService(db, "test")
 	svc.serverID = "srv"
-	_, err := svc.Signup(context.Background(), signupInput("u1", "alice", "nobody", "abcdefghijkl", "bad-secret", invites.ModeOpen))
+	_, err := svc.Signup(context.Background(), signupInput("u1", "alice", &invites.Invite{
+		ID:          "abcdefghijkl",
+		CreatedBy:   "nobody",
+		GrantedRole: roles.RoleUser,
+	}))
 	if !errors.Is(err, invites.ErrInvalidInvite) {
 		t.Fatalf("err = %v", err)
 	}
@@ -298,7 +297,7 @@ func TestSignup_RootMintRole(t *testing.T) {
 	svc := NewDataService(db, "test")
 	svc.serverID = "srv"
 
-	user, err := svc.Signup(context.Background(), signupInput(roles.RootUserID, "root", "", "", "", invites.ModeOpen))
+	user, err := svc.Signup(context.Background(), signupInput(roles.RootUserID, "root", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +319,7 @@ func TestSignup_AdminInviteGrantsAdminRole(t *testing.T) {
 	svc.serverID = "srv"
 	ctx := context.Background()
 
-	if _, err := svc.Signup(context.Background(), signupInput("inviter", "alice", "", "", "", invites.ModeOpen)); err != nil {
+	if _, err := svc.Signup(context.Background(), signupInput("inviter", "alice", nil)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE users SET role = $1 WHERE id = $2`, roles.RoleAdmin, "inviter"); err != nil {
@@ -340,8 +339,12 @@ func TestSignup_AdminInviteGrantsAdminRole(t *testing.T) {
 	if err := store.Insert(ctx, id, "inviter", hash, time.Now().UTC(), roles.RoleAdmin); err != nil {
 		t.Fatal(err)
 	}
+	invRow, err := store.GetByTokenHash(ctx, hash)
+	if err != nil || invRow == nil {
+		t.Fatalf("load invite: err=%v inv=%v", err, invRow)
+	}
 
-	user, err := svc.Signup(context.Background(), signupInput("invitee", "bob", "inviter", id, raw, invites.ModeInvite))
+	user, err := svc.Signup(context.Background(), signupInput("invitee", "bob", invRow))
 	if err != nil {
 		t.Fatal(err)
 	}

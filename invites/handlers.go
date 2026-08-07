@@ -328,20 +328,21 @@ type checkResponse struct {
 	Valid bool `json:"valid"`
 }
 
-// Check handles GET /api/invites/check?id=&secret=.
-// Client sends the fragment secret; server hashes and looks up.
+// Check handles GET /api/invites/check?uid=&iid=&secret=.
+// Client sends the fragment secret; server looks up by composite PK + hash.
 func (d Deps) Check(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	creatorID := strings.TrimSpace(r.URL.Query().Get("uid"))
+	id := strings.TrimSpace(r.URL.Query().Get("iid"))
 	secret := strings.TrimSpace(r.URL.Query().Get("secret"))
-	if id == "" || secret == "" {
-		writeJSON(w, http.StatusBadRequest, "Arguments `id` and `secret` are required")
+	if creatorID == "" || id == "" || secret == "" {
+		writeJSON(w, http.StatusBadRequest, "Arguments `uid`, `iid`, and `secret` are required")
 		return
 	}
-	inv, err := d.Store.GetByTokenHash(r.Context(), HashSecret(secret))
+	inv, err := d.Store.GetPendingInvite(r.Context(), creatorID, id, HashSecret(secret))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
-	valid := inv != nil && inv.ID == id && inv.Status() == "pending"
+	valid := inv != nil
 	writeJSON(w, http.StatusOK, checkResponse{Valid: valid})
 }

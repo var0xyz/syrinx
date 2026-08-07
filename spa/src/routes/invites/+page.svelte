@@ -112,8 +112,8 @@
     creating = true;
     try {
       const created = await createSignedInvite(grantAdmin);
-      if (created.secret) {
-        freshShareURL = inviteShareURL(created.id, created.secret);
+      if (created.secret && user?.id) {
+        freshShareURL = inviteShareURL(created.id, created.secret, user.id);
         showFreshLink = true;
       }
       invites = await invitesRepository.getAll();
@@ -148,8 +148,8 @@
   }
 
   function shareURL(invite: api.Invite): string | null {
-    if (!invite.secret) return null;
-    return inviteShareURL(invite.id, invite.secret);
+    if (!invite.secret || !user?.id) return null;
+    return inviteShareURL(invite.id, invite.secret, user.id);
   }
 
   async function copyLink(url: string) {

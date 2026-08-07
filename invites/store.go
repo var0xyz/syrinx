@@ -139,6 +139,33 @@ func getByTokenHash(ctx context.Context, q tokenHashQuerier, hash []byte) (*Invi
 	return &inv, nil
 }
 
+func (s *Store) GetPendingInvite(ctx context.Context, creatorID, id string, hash []byte) (*Invite, error) {
+	return getPendingInvite(ctx, s.DB, creatorID, id, hash)
+}
+
+func (s *Store) GetPendingInviteTx(ctx context.Context, tx *sql.Tx, creatorID, id string, hash []byte) (*Invite, error) {
+	return getPendingInvite(ctx, tx, creatorID, id, hash)
+}
+
+func getPendingInvite(ctx context.Context, q tokenHashQuerier, creatorID, id string, hash []byte) (*Invite, error) {
+	row := q.QueryRowContext(ctx, `
+		SELECT id, created_by, created_at, granted_role, claimed_at, claimed_by, revoked_at
+		FROM invites
+		WHERE created_by = $1 AND id = $2 AND token_hash = $3
+	`, creatorID, id, hash)
+	inv, err := scanInvite(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if inv.Status() != "pending" {
+		return nil, nil
+	}
+	return &inv, nil
+}
+
 // MarkClaimed claims an unused, unrevoked invite inside tx.
 // createdBy + inviteID form the composite primary key.
 // Returns whether a row was updated.
