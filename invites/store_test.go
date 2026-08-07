@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,30 +17,73 @@ import (
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := fmt.Sprintf(
+	return newTestDatabase(t, ensureInviteSchema)
+}
+
+func testDSN(dbName string) string {
+	return fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		envOr("DB_HOST", "localhost"),
 		envOr("DB_PORT", "5432"),
 		envOr("DB_USER", "syrinx"),
 		envOr("DB_PASSWORD", "syrinx"),
-		envOr("DB_NAME", "syrinx_test"),
+		dbName,
 		envOr("DB_SSLMODE", "disable"),
 	)
-	db, err := sql.Open("postgres", dsn)
+}
+
+// newTestDatabase creates a fresh, uniquely-named database for the
+// duration of one test and drops it on cleanup, so this package's tests
+// never race a shared syrinx_test database against other packages' (or
+// their own) concurrently-run tests.
+func newTestDatabase(t *testing.T, ensureSchema func(*sql.DB) error) *sql.DB {
+	t.Helper()
+
+	admin, err := sql.Open("postgres", testDSN(envOr("DB_MAINTENANCE_NAME", "postgres")))
 	if err != nil {
-		t.Skipf("open db: %v", err)
+		t.Skipf("open admin db: %v", err)
+	}
+	defer admin.Close()
+	if err := admin.Ping(); err != nil {
+		t.Skipf("ping admin db: %v", err)
+	}
+
+	n := atomic.AddInt64(&testDBCounter, 1)
+	dbName := fmt.Sprintf("syrinx_test_%d_%d", time.Now().UnixNano(), n)
+
+	if _, err := admin.Exec(fmt.Sprintf(`CREATE DATABASE %s`, dbName)); err != nil {
+		t.Fatalf("create test db %s: %v", dbName, err)
+	}
+	t.Cleanup(func() {
+		cleanupAdmin, err := sql.Open("postgres", testDSN(envOr("DB_MAINTENANCE_NAME", "postgres")))
+		if err != nil {
+			return
+		}
+		defer cleanupAdmin.Close()
+		_, _ = cleanupAdmin.Exec(fmt.Sprintf(
+			`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`,
+			dbName,
+		))
+		_, _ = cleanupAdmin.Exec(fmt.Sprintf(`DROP DATABASE IF EXISTS %s`, dbName))
+	})
+
+	db, err := sql.Open("postgres", testDSN(dbName))
+	if err != nil {
+		t.Fatalf("open test db %s: %v", dbName, err)
 	}
 	if err := db.Ping(); err != nil {
 		db.Close()
-		t.Skipf("ping db: %v", err)
-	}
-	if err := ensureInviteSchema(db); err != nil {
-		db.Close()
-		t.Fatalf("schema: %v", err)
+		t.Fatalf("ping test db %s: %v", dbName, err)
 	}
 	t.Cleanup(func() { db.Close() })
+
+	if err := ensureSchema(db); err != nil {
+		t.Fatalf("schema for %s: %v", dbName, err)
+	}
 	return db
 }
+
+var testDBCounter int64
 
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {

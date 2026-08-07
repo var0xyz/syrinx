@@ -5,8 +5,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -15,36 +13,7 @@ import (
 
 func openReplyCountTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		replyEnvOr("DB_HOST", "localhost"),
-		replyEnvOr("DB_PORT", "5432"),
-		replyEnvOr("DB_USER", "syrinx"),
-		replyEnvOr("DB_PASSWORD", "syrinx"),
-		replyEnvOr("DB_NAME", "syrinx_test"),
-		replyEnvOr("DB_SSLMODE", "disable"),
-	)
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Skipf("open db: %v", err)
-	}
-	if err := db.Ping(); err != nil {
-		db.Close()
-		t.Skipf("ping db: %v", err)
-	}
-	if err := ensureReplyCountSchema(db); err != nil {
-		db.Close()
-		t.Fatalf("schema: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
-func replyEnvOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+	return newTestDatabase(t, ensureReplyCountSchema)
 }
 
 func ensureReplyCountSchema(db *sql.DB) error {
@@ -80,6 +49,16 @@ func ensureReplyCountSchema(db *sql.DB) error {
 			parent_reed_id VARCHAR(255) NOT NULL,
 			timestamp TIMESTAMP NOT NULL,
 			PRIMARY KEY (user_id, reed_id)
+		)`,
+		`DROP TABLE IF EXISTS reed_removals CASCADE`,
+		`CREATE TABLE reed_removals (
+			reed_id VARCHAR(255) NOT NULL,
+			user_id VARCHAR(255) NOT NULL REFERENCES users(id),
+			PRIMARY KEY (user_id, reed_id)
+		)`,
+		`DROP TABLE IF EXISTS account_removals CASCADE`,
+		`CREATE TABLE account_removals (
+			user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id)
 		)`,
 	}
 	for _, stmt := range stmts {
