@@ -51,6 +51,11 @@ Recovery messaging and signup gating are independent: signup follows
 `signupMode` only (07). During recovery the homepage may show both “Sign Up”
 (open mode) and “Recover your account” when not logged in.
 
+> **Stale even for its own time:** this independence claim was reversed —
+> `recoveryMode` now overrides `signupMode` and hides “Sign Up” outright (see
+> the current [07](07_spa_server_info.md)). Noted here only so history isn't
+> misread as still-accurate; do not implement against this doc regardless.
+
 Logged-in users visiting `/` continue to redirect to `/reeds` as today.
 
 ## Test plan

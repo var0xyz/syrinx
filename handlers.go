@@ -190,6 +190,11 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("Signup request received")
 
+	if h.cfg.RecoveryMode {
+		writeResponse(w, http.StatusForbidden, "Signups are closed while this server is in recovery mode")
+		return
+	}
+
 	if invites.SignupMode(h.cfg.SignupMode) == invites.ModeClosed {
 		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
 		return
@@ -472,6 +477,11 @@ func (h *Handlers) GenerateUserID(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("CheckUsername request received")
+
+	if h.cfg.RecoveryMode {
+		writeResponse(w, http.StatusForbidden, "Signups are closed while this server is in recovery mode")
+		return
+	}
 
 	if invites.SignupMode(h.cfg.SignupMode) == invites.ModeClosed {
 		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")

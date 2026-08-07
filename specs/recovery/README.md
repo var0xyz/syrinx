@@ -447,8 +447,14 @@ not registered (no attack surface).
 
 **Normal use stays enabled during recovery** for anyone who has finished
 claim/import (or never entered `ongoing_recoveries`). Live writes carry the
-newest server timestamps and win newest-wins over restored records. Signups
-stay enabled; username collisions use the same newest-`server_signed_at` rule.
+newest server timestamps and win newest-wins over restored records.
+
+**Signups are disabled while `RECOVERY_MODE` is on**, regardless of
+`SIGNUP_MODE` — `POST /users/signup` and `POST /api/check-username` both
+return **403**. The users table is sparse or empty until peers report back,
+so a live signup could grab a not-yet-reclaimed username (sniping); blocking
+signup entirely during the recovery window closes that hole. See
+[invites/README](../invites/README.md#mode-matrix).
 
 ### Nested key chain (claim and peer identity)
 
@@ -684,8 +690,10 @@ mode-off until the operator drops it.
 > there is no cooperative claim path.
 
 > **Username collisions.** Resolved by newest `server_signed_at`; loser renamed
-> with a permanent suffix. A live signup during recovery can keep a name against
-> a later claim with an older `server_signed_at`.
+> with a permanent suffix. Collisions here are between claim/peer-report
+> submissions only — live signup cannot contend for a name during recovery
+> because signup is blocked outright while `RECOVERY_MODE` is on (see
+> "Recovery flow" above).
 
 ## Threat model & accepted limitations
 

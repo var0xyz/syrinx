@@ -25,9 +25,9 @@ Copy from [`.env.example`](https://github.com/var0xyz/syrinx/blob/main/.env.exam
 | `DB_*` | Postgres connection |
 | `PORT` / `ALLOWED_ORIGIN` | Listen address and SPA origin |
 | `SERVER_KEY_PASSPHRASE` | Optional; if unset, interactive boot uses OS keychain (auto-generate or prompt) |
-| `SIGNUP_MODE` | `open` \| `invite` \| `closed` |
+| `SIGNUP_MODE` | `open` \| `invite` \| `closed`; ignored while `RECOVERY_MODE=true` (signups always blocked then) |
 | `MAX_INVITES_PER_USER` | Cap (`-1` / unset = infinite) |
-| `RECOVERY_MODE` | `true` only during community rebuild after identity import |
+| `RECOVERY_MODE` | `true` only during community rebuild after identity import; overrides `SIGNUP_MODE` to block all signups |
 
 Prefer the **OS keychain** for the server-key passphrase on single-host deploys. Use the env var when multiple replicas must unwrap the same key without a shared keychain.
 

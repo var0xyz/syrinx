@@ -4,6 +4,7 @@
   import { authService } from '$lib/services/auth';
   import { requestPersistentStorage } from '$lib/services/pwa';
   import {
+    isRecoveryMode,
     isSignupClosed,
     isSignupOpen,
     serverInfoLoading,
@@ -41,7 +42,7 @@
     gateReady = true;
 
     // Invite links go to /signup?iid=&uid=…; preamble is only for the open home CTA.
-    if (get(isSignupClosed) || !get(isSignupOpen)) {
+    if (get(isRecoveryMode) || get(isSignupClosed) || !get(isSignupOpen)) {
       return;
     }
 
@@ -77,6 +78,13 @@
   <div class="card">
     {#if !gateReady || $serverInfoLoading}
       <p class="gate-message">Checking signup availability…</p>
+    {:else if $isRecoveryMode}
+      <h1>Signups closed</h1>
+      <p class="gate-message">
+        This server is rebuilding and is not accepting new signups. Restore
+        from an encrypted backup instead.
+      </p>
+      <a href="/" class="btn btn-primary">Back to home</a>
     {:else if $isSignupClosed}
       <h1>Signups closed</h1>
       <p class="gate-message">This server is not accepting new signups.</p>
