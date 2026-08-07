@@ -7,7 +7,7 @@ func TestPipeSubscriptionBookkeeping(t *testing.T) {
 	client := NewClient(nil, "viewer")
 
 	cm.SubscribePipe(client, "#Climate")
-	if !client.pipeSubscriptions["climate"] {
+	if _, ok := client.pipeSubscriptions["climate"]; !ok {
 		t.Fatal("expected normalized client pipe subscription")
 	}
 	if len(cm.pipeSubscribers["climate"]) != 1 {
@@ -27,7 +27,7 @@ func TestPipeSubscriptionBookkeeping(t *testing.T) {
 	}
 
 	cm.UnsubscribePipe(client, "climate")
-	if client.pipeSubscriptions["climate"] {
+	if _, ok := client.pipeSubscriptions["climate"]; ok {
 		t.Fatal("expected client pipe subscription cleared")
 	}
 	if _, ok := cm.pipeSubscribers["climate"]; ok {

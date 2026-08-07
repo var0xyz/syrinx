@@ -132,7 +132,7 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 				Str("reedID", message.ReedID).
 				Msg("Reed removed; fanout cert")
 
-			cert := message.Data["cert"]
+			cert := message.ReedRemoval
 			followers, err := rs.dbService.GetOnlineFollowers(context.Background(), message.UserID)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to get online followers for reed removal")
@@ -158,7 +158,7 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 				Str("userID", message.UserID).
 				Msg("Account removed; fanout cert")
 
-			cert := message.Data["cert"]
+			cert := message.AccountRemoval
 			followers, err := rs.dbService.GetOnlineFollowers(context.Background(), message.UserID)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to get online followers for account removal")
@@ -305,13 +305,13 @@ func subtractUserIDs(from, remove []string) []string {
 
 // dispatchRemovalMany enqueues reed_removed pending events and delivers certs
 // server-side (no holder relay).
-func (rs *RealtimeService) dispatchRemovalMany(recipients []string, authorUserID, reedID string, cert interface{}) {
+func (rs *RealtimeService) dispatchRemovalMany(recipients []string, authorUserID, reedID string, cert *ReedRemovalWire) {
 	for _, recipientID := range recipients {
 		rs.dispatchRemovalTo(recipientID, authorUserID, reedID, cert)
 	}
 }
 
-func (rs *RealtimeService) dispatchRemovalTo(recipientID, authorUserID, reedID string, cert interface{}) {
+func (rs *RealtimeService) dispatchRemovalTo(recipientID, authorUserID, reedID string, cert *ReedRemovalWire) {
 	requestID, err := rs.dbService.GetSyncRequestID(context.Background(), recipientID)
 	if err != nil || requestID == "" {
 		return
@@ -324,13 +324,13 @@ func (rs *RealtimeService) dispatchRemovalTo(recipientID, authorUserID, reedID s
 	rs.deliverReedRemoved(eventID, requestID, recipientID, authorUserID, reedID, cert)
 }
 
-func (rs *RealtimeService) dispatchAccountRemovalMany(recipients []string, removedUserID string, cert interface{}) {
+func (rs *RealtimeService) dispatchAccountRemovalMany(recipients []string, removedUserID string, cert *AccountRemovalWire) {
 	for _, recipientID := range recipients {
 		rs.dispatchAccountRemovalTo(recipientID, removedUserID, cert)
 	}
 }
 
-func (rs *RealtimeService) dispatchAccountRemovalTo(recipientID, removedUserID string, cert interface{}) {
+func (rs *RealtimeService) dispatchAccountRemovalTo(recipientID, removedUserID string, cert *AccountRemovalWire) {
 	requestID, err := rs.dbService.GetSyncRequestID(context.Background(), recipientID)
 	if err != nil || requestID == "" {
 		return
@@ -343,11 +343,14 @@ func (rs *RealtimeService) dispatchAccountRemovalTo(recipientID, removedUserID s
 	rs.deliverAccountRemoved(eventID, requestID, recipientID, removedUserID, cert)
 }
 
-func (rs *RealtimeService) deliverAccountRemoved(eventID, requestID, recipientID, removedUserID string, cert interface{}) {
-	if cert == nil {
+func (rs *RealtimeService) deliverAccountRemoved(eventID, requestID, recipientID, removedUserID string, cert *AccountRemovalWire) {
+	wire := AccountRemovalWire{}
+	if cert != nil {
+		wire = *cert
+	} else {
 		var err error
-		cert, err = rs.dbService.GetAccountRemovalWire(context.Background(), removedUserID)
-		if err != nil || cert == nil {
+		wire, err = rs.dbService.GetAccountRemovalWire(context.Background(), removedUserID)
+		if err != nil || wire.UserID == "" {
 			log.Error().Err(err).Str("userID", removedUserID).Msg("Failed to load account removal cert for delivery")
 			return
 		}
@@ -360,16 +363,19 @@ func (rs *RealtimeService) deliverAccountRemoved(eventID, requestID, recipientID
 	if !ok {
 		return
 	}
-	if err := rs.connManager.SendToUser(recipientID, NewAccountRemovedMsg(eventID, requestID, removedUserID, cert)); err != nil {
+	if err := rs.connManager.SendToUser(recipientID, NewAccountRemovedMsg(eventID, requestID, removedUserID, wire)); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Str("userID", removedUserID).Msg("Failed to send ACCOUNT_REMOVED")
 	}
 }
 
-func (rs *RealtimeService) deliverReedRemoved(eventID, requestID, recipientID, authorID, reedID string, cert interface{}) {
-	if cert == nil {
+func (rs *RealtimeService) deliverReedRemoved(eventID, requestID, recipientID, authorID, reedID string, cert *ReedRemovalWire) {
+	wire := ReedRemovalWire{}
+	if cert != nil {
+		wire = *cert
+	} else {
 		var err error
-		cert, err = rs.dbService.GetReedRemovalWire(context.Background(), authorID, reedID)
-		if err != nil || cert == nil {
+		wire, err = rs.dbService.GetReedRemovalWire(context.Background(), authorID, reedID)
+		if err != nil || wire.UserID == "" {
 			log.Error().Err(err).Str("reedID", reedID).Str("authorID", authorID).Msg("Failed to load reed removal cert for delivery")
 			return
 		}
@@ -382,7 +388,7 @@ func (rs *RealtimeService) deliverReedRemoved(eventID, requestID, recipientID, a
 	if !ok {
 		return
 	}
-	if err := rs.connManager.SendToUser(recipientID, NewReedRemovedMsg(eventID, requestID, reedID, cert)); err != nil {
+	if err := rs.connManager.SendToUser(recipientID, NewReedRemovedMsg(eventID, requestID, reedID, wire)); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Str("reedID", reedID).Msg("Failed to send REED_REMOVED")
 	}
 }
@@ -643,28 +649,21 @@ func (rs *RealtimeService) handleProtobufMessage(client *Client, data []byte) {
 func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 	log.Debug().Str("data", string(data)).Msg("Received JSON WebSocket message")
 
-	// Parse JSON message
-	var jsonMsg map[string]interface{}
+	var jsonMsg InboundJSONMsg
 	if err := json.Unmarshal(data, &jsonMsg); err != nil {
 		log.Error().Err(err).Str("data", string(data)).Msg("Failed to unmarshal JSON message")
 		return
 	}
 
-	// Extract message type
-	msgType, ok := jsonMsg["type"].(string)
-	if !ok {
+	if jsonMsg.Type == "" {
 		log.Warn().Str("data", string(data)).Msg("JSON message missing type field")
 		return
 	}
 
 	// Handle different message types
-	switch msgType {
+	switch jsonMsg.Type {
 	case "ping":
-		// Send pong response
-		response := map[string]interface{}{
-			"type": "pong",
-			"data": jsonMsg["data"],
-		}
+		response := PongMsg{Type: "pong", Data: jsonMsg.Data}
 		if jsonBytes, err := json.Marshal(response); err == nil {
 			client.writeMessage(websocket.TextMessage, jsonBytes)
 		}
@@ -682,47 +681,43 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 		rs.handleUnsubscribeBroadcastJSON(client)
 
 	case "SYNC_REQUEST":
-		dataBytes, _ := json.Marshal(jsonMsg["data"])
 		var syncData SyncRequestData
-		if err := json.Unmarshal(dataBytes, &syncData); err == nil {
+		if err := json.Unmarshal(jsonMsg.Data, &syncData); err == nil {
 			rs.handleSyncRequest(client, syncData)
 		}
 
 	case "REQUEST_REED":
-		rs.handleRequestReed(client, jsonMsg)
+		rs.handleRequestReed(client, jsonMsg.Data)
 
 	case "RELAY_RESPONSE":
-		rs.handleRelayResponse(client, jsonMsg)
+		rs.handleRelayResponse(client, jsonMsg.Data)
 
 	case "RELAY_MISS":
-		dataBytes, _ := json.Marshal(jsonMsg["data"])
 		var d RelayMissData
-		if err := json.Unmarshal(dataBytes, &d); err == nil {
+		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
 			rs.handleRelayMiss(client, d)
 		}
 
 	case "DATA_ACK":
-		dataBytes, _ := json.Marshal(jsonMsg["data"])
 		var d DataAckData
-		if err := json.Unmarshal(dataBytes, &d); err == nil {
+		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
 			rs.handleDataAck(client, d)
 		}
 
 	case "DATA_INVALID":
-		dataBytes, _ := json.Marshal(jsonMsg["data"])
 		var d DataInvalidData
-		if err := json.Unmarshal(dataBytes, &d); err == nil {
+		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
 			rs.handleDataInvalid(client, d)
 		}
 
 	case "SUBSCRIBE_PROFILE":
-		rs.handleSubscribeProfile(client, jsonMsg)
+		rs.handleSubscribeProfile(client, jsonMsg.Data)
 
 	case "UNSUBSCRIBE_PROFILE":
-		rs.handleUnsubscribeProfile(client, jsonMsg)
+		rs.handleUnsubscribeProfile(client, jsonMsg.Data)
 
 	case "PUBLISH_READY":
-		rs.handlePublishReady(client, jsonMsg)
+		rs.handlePublishReady(client, jsonMsg.Data)
 
 	case "SUBSCRIBE_REED":
 		rs.handleSubscribeReed(client, jsonMsg)
@@ -731,13 +726,13 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 		rs.handleUnsubscribeReed(client, jsonMsg)
 
 	case "SUBSCRIBE_PIPE":
-		rs.handleSubscribePipe(client, jsonMsg)
+		rs.handleSubscribePipe(client, jsonMsg.Data)
 
 	case "UNSUBSCRIBE_PIPE":
-		rs.handleUnsubscribePipe(client, jsonMsg)
+		rs.handleUnsubscribePipe(client, jsonMsg.Data)
 
 	default:
-		log.Warn().Str("type", msgType).Msg("Unknown JSON WebSocket message type")
+		log.Warn().Str("type", jsonMsg.Type).Msg("Unknown JSON WebSocket message type")
 	}
 }
 
@@ -745,11 +740,7 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 func (rs *RealtimeService) handleSubscribeUserJSON(client *Client) {
 	rs.handleSubscribeUser(client, nil)
 
-	// Send JSON response
-	response := map[string]interface{}{
-		"type": "subscribed",
-		"data": "Subscribed to user notifications",
-	}
+	response := SubscribedMsg{Type: "subscribed", Data: "Subscribed to user notifications"}
 	if jsonBytes, err := json.Marshal(response); err == nil {
 		client.writeMessage(websocket.TextMessage, jsonBytes)
 	}
@@ -759,11 +750,7 @@ func (rs *RealtimeService) handleSubscribeUserJSON(client *Client) {
 func (rs *RealtimeService) handleSubscribeBroadcastJSON(client *Client) {
 	rs.handleSubscribeBroadcast(client, nil)
 
-	// Send JSON response
-	response := map[string]interface{}{
-		"type": "subscribed",
-		"data": "Subscribed to broadcast notifications",
-	}
+	response := SubscribedMsg{Type: "subscribed", Data: "Subscribed to broadcast notifications"}
 	if jsonBytes, err := json.Marshal(response); err == nil {
 		client.writeMessage(websocket.TextMessage, jsonBytes)
 	}
@@ -932,14 +919,15 @@ func generateEventID() string {
 	return uuid.New().String()
 }
 
-func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]interface{}) {
-	data, _ := msg["data"].(map[string]interface{})
-	requestID, _ := data["request_id"].(string)
-	reedID, _ := data["reed_id"].(string)
-	authorID, _ := data["author_id"].(string)
-	if requestID == "" || reedID == "" || authorID == "" {
+func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessage) {
+	var req RequestReedData
+	if err := json.Unmarshal(data, &req); err != nil {
 		return
 	}
+	if req.RequestID == "" || req.ReedID == "" || req.AuthorID == "" {
+		return
+	}
+	requestID, reedID, authorID := req.RequestID, req.ReedID, req.AuthorID
 
 	exists, err := rs.dbService.ReedExists(context.Background(), authorID, reedID)
 	if err != nil {
@@ -992,9 +980,12 @@ func (rs *RealtimeService) handleRequestReed(client *Client, msg map[string]inte
 }
 
 // handlePublishReady runs new-reed fanout when a pending_fanout row exists.
-func (rs *RealtimeService) handlePublishReady(client *Client, jsonMsg map[string]interface{}) {
-	data, _ := jsonMsg["data"].(map[string]interface{})
-	reedID, _ := data["reed_id"].(string)
+func (rs *RealtimeService) handlePublishReady(client *Client, data json.RawMessage) {
+	var ready PublishReadyData
+	if err := json.Unmarshal(data, &ready); err != nil {
+		return
+	}
+	reedID := ready.ReedID
 	if reedID == "" {
 		return
 	}
@@ -1007,7 +998,7 @@ func (rs *RealtimeService) handlePublishReady(client *Client, jsonMsg map[string
 	}
 
 	if claimed {
-		if shouldBroadcast(data) {
+		if shouldBroadcast(ready) {
 			go rs.fanoutNewReed(authorUserID, reedID, tags)
 		} else {
 			go rs.fanoutNewReedNoBroadcast(authorUserID, reedID, tags)
@@ -1023,18 +1014,21 @@ func (rs *RealtimeService) handlePublishReady(client *Client, jsonMsg map[string
 		}
 	}
 
-	ack := map[string]interface{}{
-		"type": "PUBLISH_READY_ACK",
-		"data": map[string]string{"reed_id": reedID},
+	ack := PublishReadyAckMsg{
+		Type: "PUBLISH_READY_ACK",
+		Data: PublishReadyAckData{ReedID: reedID},
 	}
 	if jsonBytes, err := json.Marshal(ack); err == nil {
 		client.writeMessage(websocket.TextMessage, jsonBytes)
 	}
 }
 
-func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]interface{}) {
-	data, _ := msg["data"].(map[string]interface{})
-	eventID, _ := data["event_id"].(string)
+func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMessage) {
+	var relay RelayResponseData
+	if err := json.Unmarshal(data, &relay); err != nil {
+		return
+	}
+	eventID := relay.EventID
 	if eventID == "" {
 		return
 	}
@@ -1059,7 +1053,7 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]in
 		} else {
 			username = name
 		}
-		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewBroadcastReedMsg(pe.ReedID, data["data"], username)); err != nil {
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewBroadcastReedMsg(pe.ReedID, relay.Data, username)); err != nil {
 			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver broadcast reed")
 		}
 		if err := rs.dbService.DeletePendingEvent(context.Background(), eventID); err != nil {
@@ -1067,18 +1061,18 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, msg map[string]in
 		}
 	} else if pe.EventName == string(PipeReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering pipe reed to subscriber")
-		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewPipeReedMsg(pe.EventID, pe.RequestID, pe.ReedID, data["data"])); err != nil {
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewPipeReedMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Data)); err != nil {
 			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver pipe reed")
 		}
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else if pe.EventName == string(FollowReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering follow reed to subscriber")
-		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewFollowReedMsg(pe.EventID, pe.RequestID, pe.ReedID, data["data"])); err != nil {
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewFollowReedMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Data)); err != nil {
 			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver follow reed")
 		}
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else {
-		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, data["data"])); err != nil {
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Data)); err != nil {
 			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver data response")
 		}
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
@@ -1205,23 +1199,19 @@ func (rs *RealtimeService) handleDataInvalid(client *Client, data DataInvalidDat
 	}
 }
 
-func (rs *RealtimeService) handleSubscribeProfile(client *Client, msg map[string]interface{}) {
-	dataBytes, err := json.Marshal(msg["data"])
-	if err != nil {
-		return
-	}
-	var data SubscribeProfileData
-	if err := json.Unmarshal(dataBytes, &data); err != nil || data.UserID == "" {
+func (rs *RealtimeService) handleSubscribeProfile(client *Client, data json.RawMessage) {
+	var profile SubscribeProfileData
+	if err := json.Unmarshal(data, &profile); err != nil || profile.UserID == "" {
 		return
 	}
 
 	subscriptionID := generateEventID()
-	if err := rs.dbService.CreateProfileSubscription(context.Background(), subscriptionID, client.userID, data.UserID); err != nil {
+	if err := rs.dbService.CreateProfileSubscription(context.Background(), subscriptionID, client.userID, profile.UserID); err != nil {
 		log.Error().Err(err).Msg("Failed to create profile subscription")
 		return
 	}
 
-	missingIDs, err := rs.dbService.GetUnallocatedReeds(context.Background(), data.UserID, client.userID)
+	missingIDs, err := rs.dbService.GetUnallocatedReeds(context.Background(), profile.UserID, client.userID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get unallocated reeds for viewer")
 		return
@@ -1230,11 +1220,11 @@ func (rs *RealtimeService) handleSubscribeProfile(client *Client, msg map[string
 	for _, reedID := range missingIDs {
 		eventID := generateEventID()
 		requestID := generateEventID()
-		if err := rs.dbService.CreateProfileSubscriptionEvent(context.Background(), eventID, requestID, client.userID, ProfileSubscriptionEvent, data.UserID, reedID, subscriptionID); err != nil {
+		if err := rs.dbService.CreateProfileSubscriptionEvent(context.Background(), eventID, requestID, client.userID, ProfileSubscriptionEvent, profile.UserID, reedID, subscriptionID); err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to create profile subscription event")
 			continue
 		}
-		holder, err := rs.dbService.GetOnlineReedHolder(context.Background(), data.UserID, reedID)
+		holder, err := rs.dbService.GetOnlineReedHolder(context.Background(), profile.UserID, reedID)
 		if err != nil || holder == "" {
 			continue
 		}
@@ -1242,17 +1232,13 @@ func (rs *RealtimeService) handleSubscribeProfile(client *Client, msg map[string
 	}
 }
 
-func (rs *RealtimeService) handleUnsubscribeProfile(client *Client, msg map[string]interface{}) {
-	dataBytes, err := json.Marshal(msg["data"])
-	if err != nil {
-		return
-	}
-	var data UnsubscribeProfileData
-	if err := json.Unmarshal(dataBytes, &data); err != nil || data.UserID == "" {
+func (rs *RealtimeService) handleUnsubscribeProfile(client *Client, data json.RawMessage) {
+	var profile UnsubscribeProfileData
+	if err := json.Unmarshal(data, &profile); err != nil || profile.UserID == "" {
 		return
 	}
 
-	subscriptionID, err := rs.dbService.GetProfileSubscription(context.Background(), client.userID, data.UserID)
+	subscriptionID, err := rs.dbService.GetProfileSubscription(context.Background(), client.userID, profile.UserID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get profile subscription")
 		return
@@ -1266,9 +1252,8 @@ func (rs *RealtimeService) handleUnsubscribeProfile(client *Client, msg map[stri
 	}
 }
 
-func (rs *RealtimeService) handleSubscribeReed(client *Client, msg map[string]interface{}) {
-	authorID, _ := msg["userID"].(string)
-	reedID, _ := msg["reedID"].(string)
+func (rs *RealtimeService) handleSubscribeReed(client *Client, msg InboundJSONMsg) {
+	authorID, reedID := msg.UserID, msg.ReedID
 	if authorID == "" || reedID == "" {
 		return
 	}
@@ -1289,31 +1274,33 @@ func (rs *RealtimeService) handleSubscribeReed(client *Client, msg map[string]in
 	}
 
 	rs.connManager.SubscribeReed(client, authorID, reedID)
-	if err := rs.connManager.SendToClient(client, map[string]interface{}{
-		"type":            "REED_STATS",
-		"userID":          authorID,
-		"reedID":          reedID,
-		"echoes":          echoes,
-		"coveragePercent": coveragePercent,
-		"replies":         replies,
-	}); err != nil {
+	stats := ReedStatsMsg{
+		Type:            "REED_STATS",
+		UserID:          authorID,
+		ReedID:          reedID,
+		Echoes:          echoes,
+		CoveragePercent: coveragePercent,
+		Replies:         replies,
+	}
+	if err := rs.connManager.SendToClient(client, stats); err != nil {
 		log.Error().Err(err).Str("userID", client.userID).Str("reedID", reedID).Msg("Failed to send REED_STATS")
 	}
 }
 
-func (rs *RealtimeService) handleUnsubscribeReed(client *Client, msg map[string]interface{}) {
-	authorID, _ := msg["userID"].(string)
-	reedID, _ := msg["reedID"].(string)
+func (rs *RealtimeService) handleUnsubscribeReed(client *Client, msg InboundJSONMsg) {
+	authorID, reedID := msg.UserID, msg.ReedID
 	if authorID == "" || reedID == "" {
 		return
 	}
 	rs.connManager.UnsubscribeReed(client, authorID, reedID)
 }
 
-func (rs *RealtimeService) handleSubscribePipe(client *Client, jsonMsg map[string]interface{}) {
-	data, _ := jsonMsg["data"].(map[string]interface{})
-	tag, _ := data["tag"].(string)
-	tag = NormalizePipeTag(tag)
+func (rs *RealtimeService) handleSubscribePipe(client *Client, data json.RawMessage) {
+	var pipe SubscribePipeData
+	if err := json.Unmarshal(data, &pipe); err != nil {
+		return
+	}
+	tag := NormalizePipeTag(pipe.Tag)
 	if tag == "" {
 		return
 	}
@@ -1321,10 +1308,12 @@ func (rs *RealtimeService) handleSubscribePipe(client *Client, jsonMsg map[strin
 	log.Debug().Str("userID", client.userID).Str("tag", tag).Msg("Client subscribed to pipe")
 }
 
-func (rs *RealtimeService) handleUnsubscribePipe(client *Client, jsonMsg map[string]interface{}) {
-	data, _ := jsonMsg["data"].(map[string]interface{})
-	tag, _ := data["tag"].(string)
-	tag = NormalizePipeTag(tag)
+func (rs *RealtimeService) handleUnsubscribePipe(client *Client, data json.RawMessage) {
+	var pipe SubscribePipeData
+	if err := json.Unmarshal(data, &pipe); err != nil {
+		return
+	}
+	tag := NormalizePipeTag(pipe.Tag)
 	if tag == "" {
 		return
 	}
@@ -1351,11 +1340,11 @@ func (rs *RealtimeService) notifyReedCoverage(authorUserID, reedID string) {
 
 	rs.metrics.ReedCoverage(context.Background(), authorUserID, reedID, holders, percent)
 
-	if err := rs.connManager.BroadcastReedCoverage(map[string]interface{}{
-		"type":            "REED_COVERAGE",
-		"userID":          authorUserID,
-		"reedID":          reedID,
-		"coveragePercent": percent,
+	if err := rs.connManager.BroadcastReedCoverage(ReedCoverageMsg{
+		Type:            "REED_COVERAGE",
+		UserID:          authorUserID,
+		ReedID:          reedID,
+		CoveragePercent: percent,
 	}); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_COVERAGE")
 	}
@@ -1372,11 +1361,11 @@ func (rs *RealtimeService) notifyReedEchoes(authorUserID, reedID string) {
 		return
 	}
 
-	if err := rs.connManager.SendToReedSubscribers(authorUserID, reedID, map[string]interface{}{
-		"type":   "REED_ECHOES",
-		"userID": authorUserID,
-		"reedID": reedID,
-		"echoes": echoes,
+	if err := rs.connManager.SendToReedSubscribers(authorUserID, reedID, ReedEchoesMsg{
+		Type:   "REED_ECHOES",
+		UserID: authorUserID,
+		ReedID: reedID,
+		Echoes: echoes,
 	}); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_ECHOES")
 	}
@@ -1393,11 +1382,11 @@ func (rs *RealtimeService) notifyReedReplies(authorUserID, reedID string) {
 		return
 	}
 
-	if err := rs.connManager.SendToReedSubscribers(authorUserID, reedID, map[string]interface{}{
-		"type":    "REED_REPLIES",
-		"userID":  authorUserID,
-		"reedID":  reedID,
-		"replies": replies,
+	if err := rs.connManager.SendToReedSubscribers(authorUserID, reedID, ReedRepliesMsg{
+		Type:    "REED_REPLIES",
+		UserID:  authorUserID,
+		ReedID:  reedID,
+		Replies: replies,
 	}); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_REPLIES")
 	}
@@ -1485,7 +1474,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 			log.Error().Err(err).Str("reedID", rem.ReedID).Msg("Failed to create catch-up reed_removed event")
 			continue
 		}
-		rs.deliverReedRemoved(eventID, requestID, userID, rem.UserID, rem.ReedID, rem.Cert)
+		rs.deliverReedRemoved(eventID, requestID, userID, rem.UserID, rem.ReedID, &rem.Cert)
 	}
 
 	accountRemovals, err := rs.dbService.GetMissingAccountRemovals(context.Background(), userID)
@@ -1499,23 +1488,19 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 			log.Error().Err(err).Str("removedUserID", rem.UserID).Msg("Failed to create catch-up account_removed event")
 			continue
 		}
-		rs.deliverAccountRemoved(eventID, requestID, userID, rem.UserID, rem.Cert)
+		rs.deliverAccountRemoved(eventID, requestID, userID, rem.UserID, &rem.Cert)
 	}
 }
 
 // shouldBroadcast reports whether PUBLISH_READY should fan out to the broadcast stream.
 // Absent or true means include broadcast; only explicit false opts out.
-func shouldBroadcast(data map[string]interface{}) bool {
-	if data == nil {
+func shouldBroadcast(data PublishReadyData) bool {
+	if len(data.Broadcast) == 0 || string(data.Broadcast) == "null" {
 		return true
 	}
-	v, ok := data["broadcast"]
-	if !ok || v == nil {
+	var include bool
+	if err := json.Unmarshal(data.Broadcast, &include); err != nil {
 		return true
 	}
-	b, ok := v.(bool)
-	if !ok {
-		return true
-	}
-	return b
+	return include
 }
