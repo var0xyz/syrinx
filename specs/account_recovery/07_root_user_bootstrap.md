@@ -53,8 +53,9 @@ After `InitDB`, server identity, and signing key — **before** HTTP:
 
 | `RECOVERY_MODE` | `ROOT_KEY_EXPORT_PASSPHRASE` | Root `"1"` exists | Outcome |
 |-----------------|------------------------------|-------------------|---------|
-| on | any | any | Skip mint; normal start |
-| off | unset | any | Normal start |
+| on | any | any | Skip mint; normal start (root may be absent until recovery) |
+| off | unset | no | **Fatal** — set `ROOT_KEY_EXPORT_PASSPHRASE` and restart once to mint |
+| off | unset | yes | Normal start |
 | off | set | yes | **Fatal** — remove env var |
 | off | set | no | Mint → write `.sxi.gpg` → **exit 0** |
 
