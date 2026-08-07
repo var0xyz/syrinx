@@ -29,7 +29,8 @@
   let freshShareURL = '';
   let showFreshLink = false;
   let isAdmin = false;
-  let inviteAsAdmin = false;
+  let showRoleModal = false;
+  let selectedGrantRole: 'user' | 'admin' = 'user';
 
   $: maxInvites = $serverInfo?.maxInvitesPerUser ?? -1;
   $: usedInvites = invites.length;
@@ -91,11 +92,32 @@
     }
   }
 
-  async function createInvite() {
+  function onCreateClick() {
+    if (!canCreate || creating) return;
+    if (isAdmin) {
+      selectedGrantRole = 'user';
+      showRoleModal = true;
+      return;
+    }
+    void createInvite(false);
+  }
+
+  function dismissRoleModal() {
+    showRoleModal = false;
+    selectedGrantRole = 'user';
+  }
+
+  function confirmRoleAndCreate() {
+    const grantAdmin = selectedGrantRole === 'admin';
+    dismissRoleModal();
+    void createInvite(grantAdmin);
+  }
+
+  async function createInvite(grantAdmin: boolean) {
     if (!canCreate || creating) return;
     creating = true;
     try {
-      const created = await createSignedInvite(inviteAsAdmin);
+      const created = await createSignedInvite(grantAdmin);
       if (created.secret) {
         freshShareURL = inviteShareURL(created.id, created.secret);
         showFreshLink = true;
@@ -169,7 +191,7 @@
         <button
           class="floating-create-btn"
           disabled={creating}
-          on:click={createInvite}
+          on:click={onCreateClick}
           aria-label={creating ? 'Creating invite' : 'Create invite'}
         >
           <span class="icon">{creating ? '…' : '✉️'}</span>
@@ -178,13 +200,6 @@
 
       {#if !$isSignupClosed}
         <p class="quota">{quotaSummary}</p>
-      {/if}
-
-      {#if isAdmin && canCreate && !$isSignupClosed}
-        <label class="admin-invite-toggle">
-          <input type="checkbox" bind:checked={inviteAsAdmin} />
-          Invite as admin
-        </label>
       {/if}
 
       {#if $isSignupClosed}
@@ -255,6 +270,68 @@
       {/if}
     </div>
 
+    {#if showRoleModal}
+      <div
+        class="modal-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invite-role-title"
+        tabindex="-1"
+        on:click={(e) => e.target === e.currentTarget && dismissRoleModal()}
+        on:keydown={(e) => e.key === 'Escape' && dismissRoleModal()}
+      >
+        <div class="modal role-modal">
+          <h2 id="invite-role-title">New invite</h2>
+          <p class="role-modal-lead">Choose what role the person gets when they sign up.</p>
+
+          <div class="role-options" role="radiogroup" aria-labelledby="invite-role-title">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={selectedGrantRole === 'user'}
+              class="role-option"
+              class:selected={selectedGrantRole === 'user'}
+              on:click={() => (selectedGrantRole = 'user')}
+            >
+              <span class="role-indicator" aria-hidden="true"></span>
+              <span class="role-option-body">
+                <span class="role-option-title">User</span>
+                <span class="role-option-desc">Standard member — can post and invite other users.</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={selectedGrantRole === 'admin'}
+              class="role-option role-option-admin"
+              class:selected={selectedGrantRole === 'admin'}
+              on:click={() => (selectedGrantRole = 'admin')}
+            >
+              <span class="role-indicator" aria-hidden="true"></span>
+              <span class="role-option-body">
+                <span class="role-option-title">Admin</span>
+                <span class="role-option-desc">Can invite admins and perform operator actions on this server.</span>
+              </span>
+            </button>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn secondary" on:click={dismissRoleModal}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn primary"
+              disabled={creating}
+              on:click={confirmRoleAndCreate}
+            >
+              {creating ? 'Creating…' : 'Create invite'}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     {#if showFreshLink}
       <div
         class="modal-backdrop"
@@ -303,21 +380,6 @@
     margin: 0 0 1rem 0;
     color: var(--muted);
     font-size: 0.9rem;
-  }
-
-  .admin-invite-toggle {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0 0 1rem 0;
-    font-size: 0.9rem;
-    color: var(--fg);
-    cursor: pointer;
-  }
-
-  .admin-invite-toggle input {
-    width: 1rem;
-    height: 1rem;
   }
 
   .floating-create-btn {
@@ -390,6 +452,12 @@
   .btn.primary {
     background: var(--primary);
     color: var(--button-text);
+  }
+
+  .btn.secondary {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
   }
 
   .btn.danger {
@@ -513,6 +581,117 @@
   .modal h2 {
     margin: 0 0 0.75rem 0;
     font-size: 1.2rem;
+  }
+
+  .role-modal-lead {
+    margin: 0 0 1rem 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+
+  .role-options {
+    border: none;
+    margin: 0 0 1.25rem 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .role-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    background: var(--input-bg);
+    color: var(--fg);
+    font: inherit;
+    font-weight: normal;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+
+  .role-option:hover {
+    background: var(--surface);
+  }
+
+  .role-option:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  .role-indicator {
+    width: 1.125rem;
+    height: 1.125rem;
+    margin-top: 0.15rem;
+    flex-shrink: 0;
+    border: 2px solid var(--muted);
+    border-radius: 50%;
+    position: relative;
+    box-sizing: border-box;
+  }
+
+  .role-option.selected .role-indicator {
+    border-color: var(--primary);
+  }
+
+  .role-option.selected .role-indicator::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    background: var(--primary);
+  }
+
+  .role-option.selected {
+    border-color: var(--primary);
+    background: var(--surface);
+  }
+
+  .role-option-admin.selected {
+    border-color: #8e44ad;
+  }
+
+  .role-option-admin.selected .role-indicator {
+    border-color: #8e44ad;
+  }
+
+  .role-option-admin.selected .role-indicator::after {
+    background: #8e44ad;
+  }
+
+  .role-option-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+
+  .role-option-title {
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .role-option-desc {
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.35;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .modal-actions .btn {
+    width: auto;
+    min-width: 5.5rem;
   }
 
   .link-row {

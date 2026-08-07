@@ -430,9 +430,10 @@ func TestReedRemovalTamperFails(t *testing.T) {
 
 func TestInviteUserPayloadCanonicalShape(t *testing.T) {
 	createdAt := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
-	got := BuildInviteUserPayload("Server01", "abc123", "inviteId0001", "deadbeef", "", createdAt)
+	got := BuildInviteUserPayload("Server01", "abc123", "inviteId0001", "deadbeef", "user", createdAt)
 	want := "---\n" +
 		"createdAt: 2026-07-25T12:00:00Z\n" +
+		"grantedRole: user\n" +
 		"inviteID: inviteId0001\n" +
 		"serverID: Server01\n" +
 		"tokenHash: deadbeef\n" +

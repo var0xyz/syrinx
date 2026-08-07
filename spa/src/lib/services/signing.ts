@@ -326,7 +326,7 @@ export function buildInviteUserPayload(
   inviteID: string,
   tokenHash: string,
   createdAt: string,
-  grantedRole: string = ''
+  grantedRole: string = 'user'
 ): string {
   return stringToSign(
     {
