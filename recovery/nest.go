@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"strconv"
@@ -17,7 +18,7 @@ type Verifier interface {
 
 // ServerKeyLookup returns the armored public half of a historical server
 // signing key, or "" if unknown.
-type ServerKeyLookup func(fingerprint string) (armor string, err error)
+type ServerKeyLookup func(ctx context.Context, fingerprint string) (armor string, err error)
 
 // FlattenKeysNest walks the nest outermost→oldest, verifying each key
 // (and its predecessor link / optional revocation) as soon as it is
@@ -25,6 +26,7 @@ type ServerKeyLookup func(fingerprint string) (armor string, err error)
 // oldest→newest for FK-safe insert. serverID must match
 // profile.serverSignature.serverID. Any failure aborts with no partial write.
 func FlattenKeysNest(
+	ctx context.Context,
 	profile Profile,
 	root KeyNode,
 	serverID string,
@@ -69,11 +71,11 @@ func FlattenKeysNest(
 			newestFirst[len(newestFirst)-1].PredecessorSignature = n.Signature
 		}
 
-		if err := verifyKeyCountersig(n.KeyWire, profile.ID, serverID, lookup, v); err != nil {
+		if err := verifyKeyCountersig(ctx, n.KeyWire, profile.ID, serverID, lookup, v); err != nil {
 			return FlatKey{}, nil, fmt.Errorf("key %s: %w", n.Fingerprint, err)
 		}
 		if n.Revocation != nil {
-			if err := verifyRevocation(n.Revocation, n.KeyWire, profile.ID, serverID, lookup, v); err != nil {
+			if err := verifyRevocation(ctx, n.Revocation, n.KeyWire, profile.ID, serverID, lookup, v); err != nil {
 				return FlatKey{}, nil, fmt.Errorf("revocation for %s: %w", n.Fingerprint, err)
 			}
 		}
@@ -107,7 +109,7 @@ func FlattenKeysNest(
 		return FlatKey{}, nil, fmt.Errorf("profile user signature: %w", err)
 	}
 
-	if err := VerifyProfileServerCountersig(profile, serverID, lookup, v); err != nil {
+	if err := VerifyProfileServerCountersig(ctx, profile, serverID, lookup, v); err != nil {
 		return FlatKey{}, nil, err
 	}
 
@@ -129,14 +131,14 @@ func profileInvitedByID(profile Profile) string {
 // VerifyProfileServerCountersig checks profile.serverSignature.serverID
 // against serverID and verifies the server countersignature. It does not
 // verify the user signature or key nest (those are claim/peer concerns).
-func VerifyProfileServerCountersig(profile Profile, serverID string, lookup ServerKeyLookup, v Verifier) error {
+func VerifyProfileServerCountersig(ctx context.Context, profile Profile, serverID string, lookup ServerKeyLookup, v Verifier) error {
 	if profile.ServerSignature.ServerID != serverID {
 		return fmt.Errorf("profile server id mismatch")
 	}
 	if profile.ServerSignature.Fingerprint == "" || profile.ServerSignature.Armor == "" || profile.ServerSignature.Timestamp.IsZero() {
 		return fmt.Errorf("missing server countersignature")
 	}
-	serverPub, err := lookup(profile.ServerSignature.Fingerprint)
+	serverPub, err := lookup(ctx, profile.ServerSignature.Fingerprint)
 	if err != nil {
 		return err
 	}
@@ -166,14 +168,14 @@ func VerifyProfileServerCountersig(profile Profile, serverID string, lookup Serv
 	return nil
 }
 
-func verifyKeyCountersig(key KeyWire, userID, serverID string, lookup ServerKeyLookup, v Verifier) error {
+func verifyKeyCountersig(ctx context.Context, key KeyWire, userID, serverID string, lookup ServerKeyLookup, v Verifier) error {
 	if key.ServerSignature.ServerID != "" && key.ServerSignature.ServerID != serverID {
 		return fmt.Errorf("server id mismatch")
 	}
 	if key.ServerSignature.Fingerprint == "" || key.ServerSignature.Armor == "" {
 		return fmt.Errorf("missing server countersignature")
 	}
-	serverPub, err := lookup(key.ServerSignature.Fingerprint)
+	serverPub, err := lookup(ctx, key.ServerSignature.Fingerprint)
 	if err != nil {
 		return err
 	}
@@ -195,7 +197,7 @@ func verifyKeyCountersig(key KeyWire, userID, serverID string, lookup ServerKeyL
 	return v.VerifySignature(string(payload), sigArmor, serverPub)
 }
 
-func verifyRevocation(rev *Revocation, key KeyWire, userID, serverID string, lookup ServerKeyLookup, v Verifier) error {
+func verifyRevocation(ctx context.Context, rev *Revocation, key KeyWire, userID, serverID string, lookup ServerKeyLookup, v Verifier) error {
 	if rev.Fingerprint != key.Fingerprint {
 		return fmt.Errorf("fingerprint mismatch")
 	}
@@ -213,7 +215,7 @@ func verifyRevocation(rev *Revocation, key KeyWire, userID, serverID string, loo
 	if err := v.VerifySignature(string(userPayload), userSigArmor, key.Armor); err != nil {
 		return fmt.Errorf("user signature: %w", err)
 	}
-	serverPub, err := lookup(rev.ServerSignature.Fingerprint)
+	serverPub, err := lookup(ctx, rev.ServerSignature.Fingerprint)
 	if err != nil {
 		return err
 	}

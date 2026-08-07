@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -10,12 +11,12 @@ import (
 // RotateServerKeyPassphrase re-wraps every private_keys.armor under newPassphrase.
 // Private key material is decrypted with oldPassphrase then re-encrypted; fingerprints
 // and public keys are unchanged.
-func RotateServerKeyPassphrase(db *sql.DB, cryptoSvc *crypto.Service, oldPassphrase, newPassphrase string) error {
+func RotateServerKeyPassphrase(ctx context.Context, db *sql.DB, cryptoSvc *crypto.Service, oldPassphrase, newPassphrase string) error {
 	if len(newPassphrase) < 16 {
 		return fmt.Errorf("new passphrase must be at least 16 characters")
 	}
 
-	rows, err := db.Query(`SELECT fingerprint, armor FROM private_keys`)
+	rows, err := db.QueryContext(ctx, `SELECT fingerprint, armor FROM private_keys`)
 	if err != nil {
 		return fmt.Errorf("list private keys: %w", err)
 	}
@@ -53,14 +54,14 @@ func RotateServerKeyPassphrase(db *sql.DB, cryptoSvc *crypto.Service, oldPassphr
 		rewrapped = append(rewrapped, item{fp: it.fp, armor: enc})
 	}
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
 	for _, it := range rewrapped {
-		if _, err := tx.Exec(`UPDATE private_keys SET armor = $1 WHERE fingerprint = $2`, it.armor, it.fp); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE private_keys SET armor = $1 WHERE fingerprint = $2`, it.armor, it.fp); err != nil {
 			return fmt.Errorf("update %s: %w", it.fp, err)
 		}
 	}

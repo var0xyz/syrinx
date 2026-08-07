@@ -1,6 +1,7 @@
 package deletion
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -34,34 +35,34 @@ func ValidateAccountNote(note string) error {
 
 // InsertAccountCert stores an account-removal cert once. Same signatures →
 // no-op; different signatures for the same userID → ErrConflict.
-func InsertAccountCert(db *sql.DB, cert AccountCert) error {
+func InsertAccountCert(ctx context.Context, db *sql.DB, cert AccountCert) error {
 	if err := ValidateAccountNote(cert.Note); err != nil {
 		return err
 	}
 	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	existing, err := loadAccountCertTx(tx, cert.UserID, true)
+	existing, err := loadAccountCertTx(ctx, tx, cert.UserID, true)
 	switch {
 	case err == sql.ErrNoRows:
 		userSigID, err := signing.InsertUserSignature(
-			tx, cert.UserFingerprint, cert.UserSignature,
+			ctx, tx, cert.UserFingerprint, cert.UserSignature,
 		)
 		if err != nil {
 			return err
 		}
 		serverSigID, err := signing.InsertServerSignature(
-			tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
+			ctx, tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
 		)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO account_removals (
 				user_id, note, user_fingerprint,
 				user_signature_id, server_signature_id
@@ -69,7 +70,7 @@ func InsertAccountCert(db *sql.DB, cert AccountCert) error {
 		`, cert.UserID, cert.Note, cert.UserFingerprint, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert account removal: %w", err)
 		}
-		if err := coverage.BumpActiveUsers(tx, -1); err != nil {
+		if err := coverage.BumpActiveUsers(ctx, tx, -1); err != nil {
 			return err
 		}
 	case err != nil:
@@ -89,8 +90,8 @@ func InsertAccountCert(db *sql.DB, cert AccountCert) error {
 }
 
 // GetAccountCert returns the stored account-removal cert, or nil if none.
-func GetAccountCert(db *sql.DB, userID string) (*AccountCert, error) {
-	cert, err := loadAccountCertTx(db, userID, false)
+func GetAccountCert(ctx context.Context, db *sql.DB, userID string) (*AccountCert, error) {
+	cert, err := loadAccountCertTx(ctx, db, userID, false)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -101,9 +102,9 @@ func GetAccountCert(db *sql.DB, userID string) (*AccountCert, error) {
 }
 
 // HasAccountRemoval reports whether userID has an account-removal cert.
-func HasAccountRemoval(db *sql.DB, userID string) (bool, error) {
+func HasAccountRemoval(ctx context.Context, db *sql.DB, userID string) (bool, error) {
 	var one int
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx, `
 		SELECT 1 FROM account_removals WHERE user_id = $1
 	`, userID).Scan(&one)
 	if err == sql.ErrNoRows {
@@ -115,7 +116,7 @@ func HasAccountRemoval(db *sql.DB, userID string) (bool, error) {
 	return true, nil
 }
 
-func loadAccountCertTx(q reedQuerier, userID string, forUpdate bool) (*AccountCert, error) {
+func loadAccountCertTx(ctx context.Context, q reedQuerier, userID string, forUpdate bool) (*AccountCert, error) {
 	query := `
 		SELECT note, user_fingerprint, user_signature_id, server_signature_id
 		FROM account_removals
@@ -125,7 +126,7 @@ func loadAccountCertTx(q reedQuerier, userID string, forUpdate bool) (*AccountCe
 	}
 	var note, userFP string
 	var userSigID, serverSigID int64
-	err := q.QueryRow(query, userID).Scan(&note, &userFP, &userSigID, &serverSigID)
+	err := q.QueryRowContext(ctx, query, userID).Scan(&note, &userFP, &userSigID, &serverSigID)
 	if err != nil {
 		return nil, err
 	}
@@ -133,11 +134,11 @@ func loadAccountCertTx(q reedQuerier, userID string, forUpdate bool) (*AccountCe
 	if !ok {
 		return nil, fmt.Errorf("account removal load: querier is not signing.DBTX")
 	}
-	userRow, err := signing.GetUserSignature(dbtx, userSigID)
+	userRow, err := signing.GetUserSignature(ctx, dbtx, userSigID)
 	if err != nil {
 		return nil, err
 	}
-	serverRow, err := signing.GetServerSignature(dbtx, serverSigID)
+	serverRow, err := signing.GetServerSignature(ctx, dbtx, serverSigID)
 	if err != nil {
 		return nil, err
 	}

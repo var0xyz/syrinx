@@ -351,7 +351,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			}
 
 			// Get public key for the user and fingerprint
-			publicKey, err := h.services.db.GetPublicKey(userID, fingerprintHeader)
+			publicKey, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprintHeader)
 			if err != nil {
 				log.Error().
 					Str("userID", userID).
@@ -400,7 +400,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 
 			// Account-removed users may only replay DELETE /users/me (idempotent
 			// cert fetch). All other authenticated actions are forbidden.
-			removed, remErr := h.services.db.HasAccountRemoval(userID)
+			removed, remErr := h.services.db.HasAccountRemoval(r.Context(), userID)
 			if remErr != nil {
 				log.Error().Str("userID", userID).Err(remErr).Msg("Error checking account removal")
 				internalServerError(w)
@@ -595,7 +595,7 @@ func (h *Handlers) deviceMiddleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			if err := h.services.db.CheckActiveDevice(userID, r.Header.Get("X-Syrinx-Device-Id")); err != nil {
+			if err := h.services.db.CheckActiveDevice(r.Context(), userID, r.Header.Get("X-Syrinx-Device-Id")); err != nil {
 				if err == errDeviceMismatch || err == identity.ErrMissingDevice {
 					writeDeviceError(w, http.StatusForbidden, "Device mismatch: this session is not bound to the active device.")
 					return

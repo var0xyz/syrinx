@@ -4,14 +4,12 @@ Today the server ships structured logs (zerolog → journald → OTLP →
 OpenObserve) and, as of the telemetry host's `hostmetrics` rollout, host-level
 CPU/memory/disk/network stats. **Traces** and **domain metrics** are partially
 wired: `observability.Setup` runs from `main.go` when `OTEL_COLLECTOR_HOST` is
-set (HTTP spans via `otelmux`, DB pool metrics via `otelsql`), but DB query
-spans still lack request-parent nesting until context threading lands, and
-**custom business metrics** (signups, publishes, WS traffic, per-reed
-coverage) are not implemented yet.
+set (HTTP spans via `otelmux`, DB pool metrics via `otelsql`), and DB query
+spans nest under the request span via context-aware SQL methods ([04](04_context_threading.md)).
+**Custom business metrics** are implemented in `observability/metrics`.
 
-The app host's OTLP shipper
-([`otel-agent.sh`](https://github.com/) in the `rpi` ops repo) needs an `otlp`
-receiver for local span/metric ingress ([01](01_agent_otlp_receiver.md)).
+The app host's `otelcol-agent` receives Syrinx OTLP on `127.0.0.1:4317/:4318`
+and forwards to the telemetry Pi ([01](01_agent_otlp_receiver.md)).
 
 | # | Title | Depends on | Where |
 |---|-------|------------|-------|
@@ -43,8 +41,8 @@ receiver for local span/metric ingress ([01](01_agent_otlp_receiver.md)).
 | Step | Status |
 |------|--------|
 | 00 | Proposed |
-| 01 | Proposed (`rpi` repo) |
-| 02 | **In progress** — `observability.Setup`, `otelmux`, `otelsql` pool metrics wired in `main.go`; spec text still references old function names |
-| 03 | **In progress** — `obs.OpenDB` uses `otelsql`; query spans are root spans until 04 |
-| 04 | Proposed |
+| 01 | Implemented (`rpi`: local OTLP ingress on `127.0.0.1:4317/:4318`) |
+| 02 | **Implemented** — `observability.Setup`, `otelmux`, env-gated in `main.go` |
+| 03 | **Implemented** — `obs.OpenDB` via `otelsql` + pool metrics |
+| 04 | **Implemented** — `context.Context` threaded through all DB packages; HTTP handlers pass `r.Context()` |
 | 05 | **Implemented** — business metrics in `observability/metrics` |

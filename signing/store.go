@@ -1,6 +1,7 @@
 package signing
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -8,8 +9,8 @@ import (
 
 // DBTX is the subset of *sql.DB / *sql.Tx needed by signature store helpers.
 type DBTX interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	QueryRow(query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // UserSignature is one row in user_signatures.
@@ -42,9 +43,9 @@ type WireServerSignature struct {
 }
 
 // InsertUserSignature inserts a user attestation row and returns its id.
-func InsertUserSignature(db DBTX, fingerprint, signature string) (int64, error) {
+func InsertUserSignature(ctx context.Context, db DBTX, fingerprint, signature string) (int64, error) {
 	var id int64
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx, `
 		INSERT INTO user_signatures (fingerprint, signature)
 		VALUES ($1, $2)
 		RETURNING id
@@ -57,10 +58,10 @@ func InsertUserSignature(db DBTX, fingerprint, signature string) (int64, error) 
 
 // InsertServerSignature inserts a server countersignature row and returns
 // its id. signedAt is stored UTC truncated to seconds.
-func InsertServerSignature(db DBTX, fingerprint, signature string, signedAt time.Time) (int64, error) {
+func InsertServerSignature(ctx context.Context, db DBTX, fingerprint, signature string, signedAt time.Time) (int64, error) {
 	signedAt = signedAt.UTC().Truncate(time.Second)
 	var id int64
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx, `
 		INSERT INTO server_signatures (fingerprint, signature, signed_at)
 		VALUES ($1, $2, $3)
 		RETURNING id
@@ -72,9 +73,9 @@ func InsertServerSignature(db DBTX, fingerprint, signature string, signedAt time
 }
 
 // GetUserSignature loads a user_signatures row by id.
-func GetUserSignature(db DBTX, id int64) (*UserSignature, error) {
+func GetUserSignature(ctx context.Context, db DBTX, id int64) (*UserSignature, error) {
 	var row UserSignature
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx, `
 		SELECT id, fingerprint, signature
 		FROM user_signatures
 		WHERE id = $1
@@ -90,9 +91,9 @@ func GetUserSignature(db DBTX, id int64) (*UserSignature, error) {
 }
 
 // GetServerSignature loads a server_signatures row by id.
-func GetServerSignature(db DBTX, id int64) (*ServerSignature, error) {
+func GetServerSignature(ctx context.Context, db DBTX, id int64) (*ServerSignature, error) {
 	var row ServerSignature
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx, `
 		SELECT id, fingerprint, signature, signed_at
 		FROM server_signatures
 		WHERE id = $1

@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
@@ -55,7 +56,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 
 	// Get public key for the user and fingerprint, along with its
 	// revocation state.
-	publicKey, revoked, err := as.getPublicKey(userID, fingerprint)
+	publicKey, revoked, err := as.getPublicKey(r.Context(), userID, fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -89,7 +90,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	}
 
 	var removed bool
-	if err := as.db.QueryRow(`
+	if err := as.db.QueryRowContext(r.Context(), `
 		SELECT EXISTS(SELECT 1 FROM account_removals WHERE user_id = $1)
 	`, userID).Scan(&removed); err != nil {
 		return "", fmt.Errorf("error checking account removal: %w", err)
@@ -132,10 +133,10 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 // getPublicKey retrieves a public key from the database along with its
 // revocation state. A key is revoked iff a matching row exists in
 // user_key_revocations.
-func (as *AuthService) getPublicKey(userID, fingerprint string) (string, bool, error) {
+func (as *AuthService) getPublicKey(ctx context.Context, userID, fingerprint string) (string, bool, error) {
 	var armor string
 	var revoked bool
-	err := as.db.QueryRow(`
+	err := as.db.QueryRowContext(ctx, `
 		SELECT uk.armor,
 		       EXISTS(
 			SELECT 1 FROM user_key_revocations rv

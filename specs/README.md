@@ -32,7 +32,7 @@ Each table below has a **Status** column per step. Values:
 | Pipes            | Implemented | —                                                    |
 | Account recovery | Implemented | 01–07 implemented                                    |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
-| Observability    | In progress | 02–03 partial; 05 implemented                        |
+| Observability    | In progress | 01, 04, 05 done; 02–03 implemented (spec docs stale)   |
 | Load testing     | Proposed    | 00–03                                                |
 | Roles            | Proposed    | 00–02                                                |
 | Federation       | Proposed    | 00–05 (depends on roles)                             |
@@ -257,10 +257,10 @@ already receives logs and host metrics.
 | #  | Title                                                       | Status        |
 |----|-------------------------------------------------------------|---------------|
 | 00 | Design + architecture + locked decisions                    | Proposed      |
-| 01 | OTLP trace receiver on the app-host collector (`rpi` repo)  | Proposed      |
-| 02 | Wire `SetupObservability` + HTTP request spans              | In progress   |
-| 03 | DB query spans via `otelsql`                                | In progress   |
-| 04 | Thread `context.Context` so DB spans nest under the request | Proposed      |
+| 01 | OTLP trace receiver on the app-host collector (`rpi` repo)  | Implemented   |
+| 02 | Wire `SetupObservability` + HTTP request spans              | Implemented   |
+| 03 | DB query spans via `otelsql`                                | Implemented   |
+| 04 | Thread `context.Context` so DB spans nest under the request | Implemented   |
 | 05 | Custom business metrics (signups, reeds, deletions, WS, coverage)      | Implemented   |
 
 ## Load testing (real browsers, script-driven)
@@ -326,11 +326,9 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
   Handshake (01–02) before approval (03) before runtime verify (04); revoke (05).
 - **Observability** ([`observability/`](observability/README.md)) is
   independent of every other track above — pure infra/plumbing, no schema or
-  wire changes. Step 01 lives in the `rpi` ops repo and can land any time;
-  02→03 can be developed against a local OTLP endpoint before 01 reaches the
-  Pi; 04 is the large one and is designed to land incrementally (package by
-  package) rather than as a single change; 05 (business metrics) depends only
-  on 02's live `MeterProvider` and can land in parallel with 03/04.
+  wire changes. Step 01 lives in the `rpi` ops repo; 02–05 are implemented in
+  syrinx (02/03 spec markdown still references old names — code is current).
+  Remaining optional follow-ups: trace sampling policy, alerting, `contextcheck` lint.
 - **Load testing** ([`loadtest/`](loadtest/README.md)) is independent of
   every other track — pure test tooling, no server/SPA wire changes beyond
   the small [01](loadtest/01_shared_flow_helpers.md) extraction. Within

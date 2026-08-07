@@ -101,7 +101,7 @@ func TestBindDeviceTx_SameDeviceTwice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.BindDeviceTx(tx, "u1", device, now); err != nil {
+	if err := svc.BindDeviceTx(context.Background(), tx, "u1", device, now); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -112,14 +112,14 @@ func TestBindDeviceTx_SameDeviceTwice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.BindDeviceTx(tx2, "u1", device, now.Add(time.Minute)); err != nil {
+	if err := svc.BindDeviceTx(context.Background(), tx2, "u1", device, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx2.Commit(); err != nil {
 		t.Fatal(err)
 	}
 
-	active, err := svc.GetActiveDeviceID("u1")
+	active, err := svc.GetActiveDeviceID(context.Background(), "u1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,14 +136,14 @@ func TestBindDevice_BindRevokesPrevious(t *testing.T) {
 	d1 := "550e8400-e29b-41d4-a716-446655440000"
 	d2 := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 
-	if err := svc.BindDevice("u1", d1, now); err != nil {
+	if err := svc.BindDevice(context.Background(), "u1", d1, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.BindDevice("u1", d2, now.Add(time.Minute)); err != nil {
+	if err := svc.BindDevice(context.Background(), "u1", d2, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 
-	active, err := svc.GetActiveDeviceID("u1")
+	active, err := svc.GetActiveDeviceID(context.Background(), "u1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,17 +158,17 @@ func TestCheckActiveDevice(t *testing.T) {
 	svc := deviceTestSvc(db)
 	now := time.Now().UTC()
 	d1 := "550e8400-e29b-41d4-a716-446655440000"
-	if err := svc.BindDevice("u1", d1, now); err != nil {
+	if err := svc.BindDevice(context.Background(), "u1", d1, now); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := svc.CheckActiveDevice("u1", d1); err != nil {
+	if err := svc.CheckActiveDevice(context.Background(), "u1", d1); err != nil {
 		t.Fatalf("match: %v", err)
 	}
-	if err := svc.CheckActiveDevice("u1", "6ba7b810-9dad-11d1-80b4-00c04fd430c8"); err != errDeviceMismatch {
+	if err := svc.CheckActiveDevice(context.Background(), "u1", "6ba7b810-9dad-11d1-80b4-00c04fd430c8"); err != errDeviceMismatch {
 		t.Fatalf("mismatch: %v", err)
 	}
-	if err := svc.CheckActiveDevice("u1", ""); err != identity.ErrMissingDevice {
+	if err := svc.CheckActiveDevice(context.Background(), "u1", ""); err != identity.ErrMissingDevice {
 		t.Fatalf("missing: %v", err)
 	}
 }
@@ -187,12 +187,12 @@ func TestBindDevice_ConcurrentBind(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		err := svc.BindDevice("u1", d1, now)
+		err := svc.BindDevice(context.Background(), "u1", d1, now)
 		errs <- err
 	}()
 	go func() {
 		defer wg.Done()
-		err := svc.BindDevice("u1", d2, now)
+		err := svc.BindDevice(context.Background(), "u1", d2, now)
 		errs <- err
 	}()
 	wg.Wait()
@@ -222,7 +222,7 @@ func TestDeviceMiddleware(t *testing.T) {
 	now := time.Now().UTC()
 	d1 := "550e8400-e29b-41d4-a716-446655440000"
 	d2 := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-	if err := svc.BindDevice("u1", d1, now); err != nil {
+	if err := svc.BindDevice(context.Background(), "u1", d1, now); err != nil {
 		t.Fatal(err)
 	}
 
@@ -291,7 +291,7 @@ func TestBindDeviceHandler(t *testing.T) {
 	now := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	d1 := "550e8400-e29b-41d4-a716-446655440000"
 	d2 := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-	if err := svc.BindDevice("u1", d1, now); err != nil {
+	if err := svc.BindDevice(context.Background(), "u1", d1, now); err != nil {
 		t.Fatal(err)
 	}
 
@@ -320,7 +320,7 @@ func TestBindDeviceHandler(t *testing.T) {
 	if !kicked {
 		t.Fatal("expected kick")
 	}
-	active, err := svc.GetActiveDeviceID("u1")
+	active, err := svc.GetActiveDeviceID(context.Background(), "u1")
 	if err != nil {
 		t.Fatal(err)
 	}

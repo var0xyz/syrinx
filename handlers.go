@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -167,7 +168,7 @@ func (h *Handlers) GetServerPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	armor, err := h.services.db.GetServerPublicKeyByFingerprint(fingerprint)
+	armor, err := h.services.db.GetServerPublicKeyByFingerprint(r.Context(), fingerprint)
 	if err != nil {
 		log.Error().Str("fingerprint", fingerprint).Err(err).Msg("Error loading server public key")
 		internalServerError(w)
@@ -280,7 +281,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	serverPubKey, err := h.services.db.GetServerPublicKeyByFingerprint(userIDFingerprint)
+	serverPubKey, err := h.services.db.GetServerPublicKeyByFingerprint(r.Context(), userIDFingerprint)
 	if err != nil || serverPubKey == "" {
 		log.Error().
 			Str("userIDFingerprint", userIDFingerprint).
@@ -318,7 +319,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	exists, err := h.services.db.UsernameExists(username)
+	exists, err := h.services.db.UsernameExists(r.Context(), username)
 	if err != nil {
 		log.Error().
 			Str("username", username).
@@ -398,7 +399,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.services.db.Signup(SignupInput{
+	user, err := h.services.db.Signup(r.Context(), SignupInput{
 		UserID:             userID,
 		Username:           username,
 		PublicKeyArmor:     publicKey,
@@ -502,7 +503,7 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	exists, err := h.services.db.UsernameExists(username)
+	exists, err := h.services.db.UsernameExists(r.Context(), username)
 	if err != nil {
 		log.Error().
 			Str("username", username).
@@ -536,9 +537,12 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 	// Profile must carry this server's countersignature (wrong serverID or
 	// bad/missing sig → 400).
 	if err := recovery.VerifyProfileServerCountersig(
+		r.Context(),
 		profile,
 		h.services.db.GetServerID(),
-		h.services.db.GetServerPublicKeyByFingerprint,
+		func(ctx context.Context, fp string) (string, error) {
+			return h.services.db.GetServerPublicKeyByFingerprint(ctx, fp)
+		},
 		h.services.crypto,
 	); err != nil {
 		writeResponse(w, http.StatusBadRequest, err.Error())
@@ -547,7 +551,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 
 	// Peer-seeded only (in unclaimed_accounts) → unknown. Implies a users
 	// row exists; no need to read users yet.
-	unclaimed, err := h.services.db.IsUnclaimed(profile.ID)
+	unclaimed, err := h.services.db.IsUnclaimed(r.Context(), profile.ID)
 	if err != nil {
 		internalServerError(w)
 		return
@@ -558,7 +562,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// No users row → unknown.
-	signedAt, err := h.services.db.UserServerSignedAt(profile.ID)
+	signedAt, err := h.services.db.UserServerSignedAt(r.Context(), profile.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeResponse(w, http.StatusNotFound, recovery.UserStatusUnknownResponse)
@@ -577,7 +581,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Claimed and mid-import → ongoing.
-	ongoing, err := h.services.db.IsOngoing(profile.ID)
+	ongoing, err := h.services.db.IsOngoing(r.Context(), profile.ID)
 	if err != nil {
 		internalServerError(w)
 		return
@@ -601,7 +605,7 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	removal, err := h.services.db.GetAccountRemoval(userID)
+	removal, err := h.services.db.GetAccountRemoval(r.Context(), userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
 		internalServerError(w)
@@ -612,7 +616,7 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.services.db.GetUserProfile(userID)
+	user, err := h.services.db.GetUserProfile(r.Context(), userID)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -638,7 +642,7 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	removal, err := h.services.db.GetAccountRemoval(userID)
+	removal, err := h.services.db.GetAccountRemoval(r.Context(), userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
 		internalServerError(w)
@@ -649,7 +653,7 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := h.services.db.GetUserInfo(userID)
+	info, err := h.services.db.GetUserInfo(r.Context(), userID)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -675,7 +679,7 @@ func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.db.FollowUser(followerID, userID); err != nil {
+	if err := h.services.db.FollowUser(r.Context(), followerID, userID); err != nil {
 		log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error following user")
 		internalServerError(w)
 		return
@@ -689,7 +693,7 @@ func (h *Handlers) UnfollowUser(w http.ResponseWriter, r *http.Request) {
 	followerID := h.getUserID(r)
 	userID := mux.Vars(r)["userID"]
 
-	if err := h.services.db.UnfollowUser(followerID, userID); err != nil {
+	if err := h.services.db.UnfollowUser(r.Context(), followerID, userID); err != nil {
 		log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error unfollowing user")
 		internalServerError(w)
 		return
@@ -727,7 +731,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 
 	serverID := h.services.db.GetServerID()
 
-	existing, err := h.services.db.GetAccountRemoval(userID)
+	existing, err := h.services.db.GetAccountRemoval(r.Context(), userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
 		internalServerError(w)
@@ -742,7 +746,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.services.db.GetUserProfile(userID)
+	user, err := h.services.db.GetUserProfile(r.Context(), userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error getting user")
 		internalServerError(w)
@@ -753,7 +757,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fingerprint, err := h.services.db.GetActiveKeyFingerprint(userID)
+	fingerprint, err := h.services.db.GetActiveKeyFingerprint(r.Context(), userID)
 	if err != nil || fingerprint == "" {
 		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")
 		internalServerError(w)
@@ -765,7 +769,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(userID, fingerprint)
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("fingerprint", fingerprint).Err(err).Msg("Error loading public key")
 		internalServerError(w)
@@ -805,9 +809,9 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		ServerFingerprint: serverSignature.Fingerprint,
 		ServerSignedAt:    serverSignature.SignedAt,
 	}
-	if err := h.services.db.InsertAccountRemoval(cert); err != nil {
+	if err := h.services.db.InsertAccountRemoval(r.Context(), cert); err != nil {
 		if errors.Is(err, deletion.ErrConflict) {
-			existing, getErr := h.services.db.GetAccountRemoval(userID)
+			existing, getErr := h.services.db.GetAccountRemoval(r.Context(), userID)
 			if getErr == nil && existing != nil && existing.UserSignature == userSignatureB64 && existing.Note == note {
 				writeResponse(w, http.StatusOK, h.accountRemovalWire(existing))
 				return
@@ -823,7 +827,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	noteHas := strings.TrimSpace(note) != ""
 	h.metrics.UserDeleted(r.Context(), userID, noteHas)
 
-	affectedTargets, err := h.services.db.DeleteEchoesByAuthor(userID)
+	affectedTargets, err := h.services.db.DeleteEchoesByAuthor(r.Context(), userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error clearing echo index for removed account")
 	} else {
@@ -836,7 +840,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	threadTargets, err := h.services.db.ReplyCountNotifyTargetsForAuthor(userID)
+	threadTargets, err := h.services.db.ReplyCountNotifyTargetsForAuthor(r.Context(), userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error resolving reply count targets for removed account")
 	} else {
@@ -915,7 +919,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// re-derive to avoid trusting caller-supplied fingerprints), and
 	// for createdAt (pinned across every record produced by this
 	// user — signup sets it, updates carry it forward).
-	currentUser, err := h.services.db.GetUserProfile(userID)
+	currentUser, err := h.services.db.GetUserProfile(r.Context(), userID)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -955,7 +959,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if currentUser.Username != username {
-		exists, err := h.services.db.UsernameExists(username)
+		exists, err := h.services.db.UsernameExists(r.Context(), username)
 		if err != nil {
 			log.Error().
 				Str("userID", userID).
@@ -1008,7 +1012,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// supplied by the caller. Then verify.
 	//
 	// The client signs with the currently-active key (users.user_fingerprint).
-	fingerprint, err := h.services.db.GetActiveKeyFingerprint(userID)
+	fingerprint, err := h.services.db.GetActiveKeyFingerprint(r.Context(), userID)
 	if err != nil || fingerprint == "" {
 		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")
 		internalServerError(w)
@@ -1022,7 +1026,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(userID, fingerprint)
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1094,7 +1098,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.db.UpdateUser(UpdateUserInput{
+	if err := h.services.db.UpdateUser(r.Context(), UpdateUserInput{
 		UserID:           userID,
 		Username:         username,
 		AvatarURL:        avatarURL,
@@ -1117,7 +1121,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.services.db.GetUserProfile(userID)
+	updated, err := h.services.db.GetUserProfile(r.Context(), userID)
 	if err != nil || updated == nil {
 		log.Error().
 			Str("userID", userID).
@@ -1191,7 +1195,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	// rotation proof below. DB integrity of the rotation itself (revoked,
 	// no successor yet, no other active key, …) is enforced inside
 	// DataService.AddPublicKey.
-	revokedKey, err := h.services.db.GetPublicKey(userID, revokedKeyFingerprint)
+	revokedKey, err := h.services.db.GetPublicKey(r.Context(), userID, revokedKeyFingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1255,7 +1259,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	publicKey, err := h.services.db.AddPublicKey(AddPublicKeyInput{
+	publicKey, err := h.services.db.AddPublicKey(r.Context(), AddPublicKeyInput{
 		Fingerprint: newKey.Fingerprint,
 		UserID:      userID,
 		CreatedAt:   newKey.CreatedAt,
@@ -1313,7 +1317,7 @@ func (h *Handlers) GetPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := h.services.db.GetPublicKey(userID, fingerprint)
+	key, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1355,7 +1359,7 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pubKey, err := h.services.db.GetPublicKey(userID, fingerprint)
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1406,7 +1410,7 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.services.db.RevokeKey(RevokeKeyInput{
+	err = h.services.db.RevokeKey(r.Context(), RevokeKeyInput{
 		Fingerprint:      fingerprint,
 		UserID:           userID,
 		Reason:           reason,
@@ -1422,7 +1426,7 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := h.services.db.GetPublicKey(userID, fingerprint)
+	key, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1453,7 +1457,7 @@ func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	revocation, err := h.services.db.GetKeyRevocation(userID, fingerprint)
+	revocation, err := h.services.db.GetKeyRevocation(r.Context(), userID, fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1517,7 +1521,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Invalid echoing reference")
 			return
 		}
-		exists, err := h.services.db.ReedExists(ref.AuthorID, ref.ReedID)
+		exists, err := h.services.db.ReedExists(r.Context(), ref.AuthorID, ref.ReedID)
 		if err != nil {
 			log.Error().Err(err).Msg("Error checking echo target")
 			internalServerError(w)
@@ -1535,7 +1539,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Invalid replying reference")
 			return
 		}
-		exists, err := h.services.db.ReedExists(ref.AuthorID, ref.ReedID)
+		exists, err := h.services.db.ReedExists(r.Context(), ref.AuthorID, ref.ReedID)
 		if err != nil {
 			log.Error().Err(err).Msg("Error checking reply target")
 			internalServerError(w)
@@ -1555,7 +1559,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	threadID := ""
 	if replyRef != nil {
 		var err error
-		threadID, err = h.services.db.ResolveThreadIDForParent(*replyRef)
+		threadID, err = h.services.db.ResolveThreadIDForParent(r.Context(), *replyRef)
 		if err != nil {
 			log.Error().Err(err).Msg("Error resolving thread")
 			internalServerError(w)
@@ -1565,7 +1569,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	markdown := ReedAsMarkdown(reedID, userID, contentBody, echoing, replying, threadID)
 
-	user, err := h.services.db.GetUserProfile(userID)
+	user, err := h.services.db.GetUserProfile(r.Context(), userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error getting user")
 		internalServerError(w)
@@ -1576,7 +1580,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userFingerprint, err := h.services.db.GetActiveKeyFingerprint(userID)
+	userFingerprint, err := h.services.db.GetActiveKeyFingerprint(r.Context(), userID)
 	if err != nil || userFingerprint == "" {
 		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")
 		internalServerError(w)
@@ -1587,7 +1591,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(userID, userFingerprint)
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), userID, userFingerprint)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("userFingerprint", userFingerprint).Err(err).Msg("Error loading public key")
 		internalServerError(w)
@@ -1607,7 +1611,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing, err := h.services.db.GetReedAttestation(userID, reedID)
+	existing, err := h.services.db.GetReedAttestation(r.Context(), userID, reedID)
 	if err != nil {
 		log.Error().Str("reedID", reedID).Str("userID", userID).Err(err).Msg("Error loading reed")
 		internalServerError(w)
@@ -1668,7 +1672,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		// violation and must return the winner's stored countersignature.
 		// (Lost-response retries are already handled by the check above.)
 		if isReedUniqueViolation(err) {
-			existing, getErr := h.services.db.GetReedAttestation(userID, reedID)
+			existing, getErr := h.services.db.GetReedAttestation(r.Context(), userID, reedID)
 			if getErr == nil && existing != nil {
 				h.respondSignReedReplay(w, r, existing, userSignature, userID, reedID)
 				return
@@ -1693,7 +1697,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if replyRef != nil {
-		targets, err := h.services.db.ReplyCountNotifyTargets(replyRef.AuthorID, replyRef.ReedID)
+		targets, err := h.services.db.ReplyCountNotifyTargets(r.Context(), replyRef.AuthorID, replyRef.ReedID)
 		if err != nil {
 			log.Error().Err(err).Msg("Error resolving reply count notify targets")
 		} else {
@@ -1722,7 +1726,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		RawChars:     len(contentBody),
 		VisibleChars: CountMarkdownCharacters(contentBody),
 	})
-	if activeUsers, err := coverage.ActiveUsers(h.services.db.db); err == nil {
+	if activeUsers, err := coverage.ActiveUsers(r.Context(), h.services.db.db); err == nil {
 		h.metrics.ReedCoverage(r.Context(), userID, reed.ID, 1, coverage.Percent(1, activeUsers))
 	}
 
@@ -1806,7 +1810,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 	serverID := h.services.db.GetServerID()
 
-	existing, err := h.services.db.GetReedRemoval(userID, reedID)
+	existing, err := h.services.db.GetReedRemoval(r.Context(), userID, reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed removal")
 		internalServerError(w)
@@ -1836,7 +1840,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.services.db.GetUserProfile(userID)
+	user, err := h.services.db.GetUserProfile(r.Context(), userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error getting user")
 		internalServerError(w)
@@ -1847,7 +1851,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fingerprint, err := h.services.db.GetActiveKeyFingerprint(userID)
+	fingerprint, err := h.services.db.GetActiveKeyFingerprint(r.Context(), userID)
 	if err != nil || fingerprint == "" {
 		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")
 		internalServerError(w)
@@ -1859,7 +1863,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(userID, fingerprint)
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("fingerprint", fingerprint).Err(err).Msg("Error loading public key")
 		internalServerError(w)
@@ -1900,11 +1904,11 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		ServerFingerprint: serverSignature.Fingerprint,
 		ServerSignedAt:    serverSignature.SignedAt,
 	}
-	if err := h.services.db.InsertReedRemoval(cert); err != nil {
+	if err := h.services.db.InsertReedRemoval(r.Context(), cert); err != nil {
 		if errors.Is(err, deletion.ErrConflict) {
 			// Concurrent first accept: return the stored cert if the user
 			// signature matches; otherwise a true conflicting attestation.
-			existing, getErr := h.services.db.GetReedRemoval(userID, reedID)
+			existing, getErr := h.services.db.GetReedRemoval(r.Context(), userID, reedID)
 			if getErr == nil && existing != nil && existing.UserSignature == userSignatureB64 {
 				writeResponse(w, http.StatusOK, h.reedRemovalWire(existing))
 				return
@@ -1919,7 +1923,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 	h.metrics.ReedDeleted(r.Context(), userID, reedID)
 
-	affectedTargets, err := h.services.db.DeleteEchoIndexForReed(userID, reedID)
+	affectedTargets, err := h.services.db.DeleteEchoIndexForReed(r.Context(), userID, reedID)
 	if err != nil {
 		log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing echo index for removed reed")
 	} else {
@@ -1932,7 +1936,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	replyTargets, err := h.services.db.ReplyCountNotifyTargetsForRemovedReply(userID, reedID)
+	replyTargets, err := h.services.db.ReplyCountNotifyTargetsForRemovedReply(r.Context(), userID, reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error resolving reply count targets for removed reed")
 	} else {
@@ -2048,7 +2052,7 @@ func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	count, err := h.services.db.CountEchoes(userID, reedID)
+	count, err := h.services.db.CountEchoes(r.Context(), userID, reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error counting echoes")
 		internalServerError(w)
@@ -2101,7 +2105,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 		before = &t
 	}
 
-	list, err := h.services.db.ListReplies(userID, reedID, limit, before)
+	list, err := h.services.db.ListReplies(r.Context(), userID, reedID, limit, before)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error listing replies")
 		internalServerError(w)
@@ -2130,7 +2134,7 @@ func (h *Handlers) BindDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
-	if err := h.services.db.BindDevice(userID, deviceID, now); err != nil {
+	if err := h.services.db.BindDevice(r.Context(), userID, deviceID, now); err != nil {
 		internalServerError(w)
 		return
 	}
@@ -2197,7 +2201,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	removed, err := h.services.db.HasAccountRemoval(req.UserID)
+	removed, err := h.services.db.HasAccountRemoval(r.Context(), req.UserID)
 	if err != nil {
 		internalServerError(w)
 		return
@@ -2207,7 +2211,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	profile, err := h.services.db.GetUserProfile(req.UserID)
+	profile, err := h.services.db.GetUserProfile(r.Context(), req.UserID)
 	if err != nil {
 		internalServerError(w)
 		return
@@ -2217,7 +2221,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	activeFP, err := h.services.db.GetActiveKeyFingerprint(req.UserID)
+	activeFP, err := h.services.db.GetActiveKeyFingerprint(r.Context(), req.UserID)
 	if err != nil {
 		internalServerError(w)
 		return
@@ -2227,7 +2231,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	key, err := h.services.db.GetPublicKey(req.UserID, req.Fingerprint)
+	key, err := h.services.db.GetPublicKey(r.Context(), req.UserID, req.Fingerprint)
 	if err != nil {
 		internalServerError(w)
 		return
@@ -2242,13 +2246,13 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := h.services.db.BindDevice(req.UserID, deviceID, now.UTC()); err != nil {
+	if err := h.services.db.BindDevice(r.Context(), req.UserID, deviceID, now.UTC()); err != nil {
 		internalServerError(w)
 		return
 	}
 	h.kickUserDevices(req.UserID)
 
-	following, err := h.services.db.ListUserFollowing(req.UserID)
+	following, err := h.services.db.ListUserFollowing(r.Context(), req.UserID)
 	if err != nil {
 		internalServerError(w)
 		return
@@ -2257,7 +2261,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		following = []string{}
 	}
 
-	tipReedID, reedIDs, err := h.services.db.ListUserReeds(req.UserID)
+	tipReedID, reedIDs, err := h.services.db.ListUserReeds(r.Context(), req.UserID)
 	if err != nil {
 		internalServerError(w)
 		return

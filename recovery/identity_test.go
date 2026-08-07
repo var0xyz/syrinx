@@ -38,7 +38,7 @@ func TestClaimIdentity_StaleChallenge(t *testing.T) {
 		Now:      func() time.Time { return fixed },
 		ServerID: "srv1",
 		Crypto:   &fakeVerifier{},
-		Lookup:   func(string) (string, error) { return "pub", nil },
+		Lookup:   func(ctx context.Context, _ string) (string, error) { return "pub", nil },
 	}
 	body, _ := json.Marshal(ClaimRequest{Challenge: fixed.Unix() - 120})
 	rr := httptest.NewRecorder()
@@ -87,7 +87,7 @@ func TestClaimIdentity_BadChallengeSignature(t *testing.T) {
 		Crypto: &fakeVerifier{
 			failSig: map[string]bool{challengeMsg: true},
 		},
-		Lookup: func(fp string) (string, error) {
+		Lookup: func(ctx context.Context, fp string) (string, error) {
 			if fp == "SKEY" {
 				return "server-pub", nil
 			}
@@ -157,7 +157,7 @@ func TestReportPeerIdentity_BrokenNest(t *testing.T) {
 		UserIDKey: testUserIDKey,
 		ServerID:  serverID,
 		Crypto:    &fakeVerifier{failChallenge: map[string]bool{"bad-pred-sig": true}},
-		Lookup: func(fp string) (string, error) {
+		Lookup: func(ctx context.Context, fp string) (string, error) {
 			if fp == "SKEY" {
 				return "server-pub", nil
 			}

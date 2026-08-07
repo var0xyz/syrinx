@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"context"
 	"net/http"
 	"strings"
 )
@@ -31,11 +32,11 @@ func AllowedDuringImport(path string) bool {
 // signature-auth uses for the authenticated user id. isOngoing reports whether
 // that user is mid-import. Authenticated users mid-import get 403 on
 // non-allowlisted paths. OPTIONS always passes.
-func Middleware(userIDKey any, isOngoing func(userID string) (bool, error)) func(http.Handler) http.Handler {
+func Middleware(userIDKey any, isOngoing func(context.Context, string) (bool, error)) func(http.Handler) http.Handler {
 	return middleware(userIDKey, isOngoing)
 }
 
-func middleware(userIDKey any, isOngoing func(userID string) (bool, error)) func(http.Handler) http.Handler {
+func middleware(userIDKey any, isOngoing func(context.Context, string) (bool, error)) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodOptions {
@@ -54,7 +55,7 @@ func middleware(userIDKey any, isOngoing func(userID string) (bool, error)) func
 				return
 			}
 
-			ongoing, err := isOngoing(userID)
+			ongoing, err := isOngoing(r.Context(), userID)
 			if err != nil {
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 				return

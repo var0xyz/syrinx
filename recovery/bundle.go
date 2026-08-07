@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -40,11 +41,11 @@ func DefaultExportFilename(serverID string, exportedAt time.Time) string {
 
 // ExportFromDB builds a Bundle from the self server row and full key history.
 // exportedAt should be UTC truncated to seconds; it becomes Bundle.ExportedAt.
-func ExportFromDB(db *sql.DB, exportedAt time.Time) (*Bundle, error) {
+func ExportFromDB(ctx context.Context, db *sql.DB, exportedAt time.Time) (*Bundle, error) {
 	exportedAt = exportedAt.UTC().Truncate(time.Second)
 
 	var serverID, serverName, signingFP string
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx, `
 		SELECT id, name, signing_key FROM servers WHERE self = TRUE
 	`).Scan(&serverID, &serverName, &signingFP)
 	if err == sql.ErrNoRows {
@@ -60,7 +61,7 @@ func ExportFromDB(db *sql.DB, exportedAt time.Time) (*Bundle, error) {
 		return nil, fmt.Errorf("self server has no name")
 	}
 
-	rows, err := db.Query(`
+	rows, err := db.QueryContext(ctx, `
 		SELECT pk.fingerprint, pk.armor, pub.armor, pk.created_at, pk.revoked_at, pk.revoke_reason
 		FROM private_keys pk
 		JOIN public_keys pub ON pub.fingerprint = pk.fingerprint
@@ -196,9 +197,9 @@ func ParseBundleJSON(data []byte) (*Bundle, error) {
 }
 
 // SetIdentityBackupAt records a successful export time on the self server row.
-func SetIdentityBackupAt(db *sql.DB, at time.Time) error {
+func SetIdentityBackupAt(ctx context.Context, db *sql.DB, at time.Time) error {
 	at = at.UTC().Truncate(time.Second)
-	res, err := db.Exec(`UPDATE servers SET identity_backup_at = $1 WHERE self = TRUE`, at)
+	res, err := db.ExecContext(ctx, `UPDATE servers SET identity_backup_at = $1 WHERE self = TRUE`, at)
 	if err != nil {
 		return err
 	}
@@ -215,12 +216,12 @@ func SetIdentityBackupAt(db *sql.DB, at time.Time) error {
 // StaleIdentityBackupMessage returns a non-empty warning when the self
 // identity has never been backed up, or the backup is older than the newest
 // private key. Empty string means no warning.
-func StaleIdentityBackupMessage(db *sql.DB) (string, error) {
+func StaleIdentityBackupMessage(ctx context.Context, db *sql.DB) (string, error) {
 	var serverID string
 	var backupAt sql.NullTime
 	var newestKey sql.NullTime
 
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx, `
 		SELECT s.id, s.identity_backup_at,
 			(SELECT MAX(created_at) FROM private_keys)
 		FROM servers s

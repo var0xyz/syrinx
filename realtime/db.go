@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"context"
 	"database/sql"
 	"time"
 
@@ -23,8 +24,8 @@ func NewDBService(db *sql.DB) *DBService {
 }
 
 // MarkUserOnline marks a user as online in the database
-func (ds *DBService) MarkUserOnline(userID string) error {
-	_, err := ds.db.Exec(`
+func (ds *DBService) MarkUserOnline(ctx context.Context, userID string) error {
+	_, err := ds.db.ExecContext(ctx, `
 		INSERT INTO online_users (user_id)
 		VALUES ($1)
 		ON CONFLICT (user_id) DO UPDATE
@@ -47,25 +48,25 @@ func (ds *DBService) MarkUserOnline(userID string) error {
 }
 
 // SetSyncRequestID stores the client-provided sync request ID for a user.
-func (ds *DBService) SetSyncRequestID(userID, requestID string) error {
-	_, err := ds.db.Exec(`
+func (ds *DBService) SetSyncRequestID(ctx context.Context, userID, requestID string) error {
+	_, err := ds.db.ExecContext(ctx, `
 		UPDATE online_users SET sync_request_id = $1 WHERE user_id = $2
 	`, requestID, userID)
 	return err
 }
 
 // GetSyncRequestID returns the stored sync request ID for a user, or "" if not set.
-func (ds *DBService) GetSyncRequestID(userID string) (string, error) {
+func (ds *DBService) GetSyncRequestID(ctx context.Context, userID string) (string, error) {
 	var id string
-	err := ds.db.QueryRow(`
+	err := ds.db.QueryRowContext(ctx, `
 		SELECT COALESCE(sync_request_id, '') FROM online_users WHERE user_id = $1
 	`, userID).Scan(&id)
 	return id, err
 }
 
 // MarkUserOffline marks a user as offline in the database
-func (ds *DBService) MarkUserOffline(userID string) error {
-	_, err := ds.db.Exec(`
+func (ds *DBService) MarkUserOffline(ctx context.Context, userID string) error {
+	_, err := ds.db.ExecContext(ctx, `
 		DELETE FROM online_users WHERE user_id = $1
 	`, userID)
 
@@ -85,9 +86,9 @@ func (ds *DBService) MarkUserOffline(userID string) error {
 }
 
 // GetUserPublicKey retrieves a user's public key by fingerprint
-func (ds *DBService) GetUserPublicKey(userID, fingerprint string) (string, error) {
+func (ds *DBService) GetUserPublicKey(ctx context.Context, userID, fingerprint string) (string, error) {
 	var armor string
-	err := ds.db.QueryRow(`
+	err := ds.db.QueryRowContext(ctx, `
 		SELECT armor
 		FROM user_keys
 		WHERE owner = $1 AND fingerprint = $2
@@ -105,9 +106,9 @@ func (ds *DBService) GetUserPublicKey(userID, fingerprint string) (string, error
 
 // GetUsername returns the current username for display on ephemeral deliveries
 // (e.g. broadcast reeds). Empty string when the user row is missing.
-func (ds *DBService) GetUsername(userID string) (string, error) {
+func (ds *DBService) GetUsername(ctx context.Context, userID string) (string, error) {
 	var username string
-	err := ds.db.QueryRow(`SELECT username FROM users WHERE id = $1`, userID).Scan(&username)
+	err := ds.db.QueryRowContext(ctx, `SELECT username FROM users WHERE id = $1`, userID).Scan(&username)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -115,12 +116,12 @@ func (ds *DBService) GetUsername(userID string) (string, error) {
 }
 
 // GetUserByID retrieves basic user information
-func (ds *DBService) GetUserByID(userID string) (*User, error) {
+func (ds *DBService) GetUserByID(ctx context.Context, userID string) (*User, error) {
 	var user User
 	var avatarURL sql.NullString
 	var bio sql.NullString
 
-	err := ds.db.QueryRow(`
+	err := ds.db.QueryRowContext(ctx, `
 		SELECT id, username, avatar_url, bio, created_at
 		FROM users
 		WHERE id = $1
@@ -159,8 +160,8 @@ type User struct {
 }
 
 // SubscribeToBroadcast adds a user to the broadcast subscriptions table
-func (ds *DBService) SubscribeToBroadcast(userID string) error {
-	_, err := ds.db.Exec(`
+func (ds *DBService) SubscribeToBroadcast(ctx context.Context, userID string) error {
+	_, err := ds.db.ExecContext(ctx, `
 		INSERT INTO broadcast_subscriptions (user_id)
 		VALUES ($1)
 		ON CONFLICT (user_id) DO UPDATE
@@ -179,8 +180,8 @@ func (ds *DBService) SubscribeToBroadcast(userID string) error {
 }
 
 // UnsubscribeFromBroadcast removes a user from the broadcast subscriptions table
-func (ds *DBService) UnsubscribeFromBroadcast(userID string) error {
-	_, err := ds.db.Exec(`
+func (ds *DBService) UnsubscribeFromBroadcast(ctx context.Context, userID string) error {
+	_, err := ds.db.ExecContext(ctx, `
 		DELETE FROM broadcast_subscriptions WHERE user_id = $1
 	`, userID)
 
@@ -197,8 +198,8 @@ func (ds *DBService) UnsubscribeFromBroadcast(userID string) error {
 
 
 // GetOnlineFollowers returns the IDs of online users who follow the given author
-func (ds *DBService) GetOnlineFollowers(authorID string) ([]string, error) {
-	rows, err := ds.db.Query(`
+func (ds *DBService) GetOnlineFollowers(ctx context.Context, authorID string) ([]string, error) {
+	rows, err := ds.db.QueryContext(ctx, `
 		SELECT ou.user_id
 		FROM online_users ou
 		JOIN user_followers uf ON ou.user_id = uf.follower_user_id
@@ -251,14 +252,14 @@ type PendingSubject struct {
 
 // CreatePendingReedEvent inserts pending_events + pending_reed_events (FK to reeds).
 // requesterUserID is the viewer; authorUserID + reedID identify the reed subject.
-func (ds *DBService) CreatePendingReedEvent(eventID, requestID, requesterUserID string, eventName EventName, authorUserID, reedID string) error {
-	tx, err := ds.db.Begin()
+func (ds *DBService) CreatePendingReedEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName EventName, authorUserID, reedID string) error {
+	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
 		VALUES ($1, $2, $3, $4)
 	`, eventID, requestID, requesterUserID, eventName)
@@ -266,7 +267,7 @@ func (ds *DBService) CreatePendingReedEvent(eventID, requestID, requesterUserID 
 		return err
 	}
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_reed_events (event_id, user_id, reed_id)
 		VALUES ($1, $2, $3)
 	`, eventID, authorUserID, reedID)
@@ -278,14 +279,14 @@ func (ds *DBService) CreatePendingReedEvent(eventID, requestID, requesterUserID 
 }
 
 // CreatePendingAccountEvent inserts pending_events + pending_account_events.
-func (ds *DBService) CreatePendingAccountEvent(eventID, requestID, requesterUserID, removedUserID string) error {
-	tx, err := ds.db.Begin()
+func (ds *DBService) CreatePendingAccountEvent(ctx context.Context, eventID, requestID, requesterUserID, removedUserID string) error {
+	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
 		VALUES ($1, $2, $3, $4)
 	`, eventID, requestID, requesterUserID, AccountRemovedEvent)
@@ -293,7 +294,7 @@ func (ds *DBService) CreatePendingAccountEvent(eventID, requestID, requesterUser
 		return err
 	}
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_account_events (event_id, user_id)
 		VALUES ($1, $2)
 	`, eventID, removedUserID)
@@ -305,14 +306,14 @@ func (ds *DBService) CreatePendingAccountEvent(eventID, requestID, requesterUser
 }
 
 // CreateProfileSubscriptionEvent inserts a reed pending event tied to a profile subscription.
-func (ds *DBService) CreateProfileSubscriptionEvent(eventID, requestID, requesterUserID string, eventName EventName, authorUserID, reedID, subscriptionID string) error {
-	tx, err := ds.db.Begin()
+func (ds *DBService) CreateProfileSubscriptionEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName EventName, authorUserID, reedID, subscriptionID string) error {
+	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name, subscription_id)
 		VALUES ($1, $2, $3, $4, $5)
 	`, eventID, requestID, requesterUserID, eventName, subscriptionID)
@@ -320,7 +321,7 @@ func (ds *DBService) CreateProfileSubscriptionEvent(eventID, requestID, requeste
 		return err
 	}
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_reed_events (event_id, user_id, reed_id)
 		VALUES ($1, $2, $3)
 	`, eventID, authorUserID, reedID)
@@ -332,9 +333,9 @@ func (ds *DBService) CreateProfileSubscriptionEvent(eventID, requestID, requeste
 }
 
 // GetPendingSubject loads a pending event and its typed child subject by event ID.
-func (ds *DBService) GetPendingSubject(eventID string) (*PendingSubject, error) {
+func (ds *DBService) GetPendingSubject(ctx context.Context, eventID string) (*PendingSubject, error) {
 	var pe PendingSubject
-	err := ds.db.QueryRow(`
+	err := ds.db.QueryRowContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name
 		FROM pending_events pe
 		WHERE pe.event_id = $1
@@ -347,11 +348,11 @@ func (ds *DBService) GetPendingSubject(eventID string) (*PendingSubject, error) 
 	}
 
 	if EventName(pe.EventName) == AccountRemovedEvent {
-		err = ds.db.QueryRow(`
+		err = ds.db.QueryRowContext(ctx, `
 			SELECT user_id FROM pending_account_events WHERE event_id = $1
 		`, eventID).Scan(&pe.UserID)
 	} else {
-		err = ds.db.QueryRow(`
+		err = ds.db.QueryRowContext(ctx, `
 			SELECT user_id, reed_id FROM pending_reed_events WHERE event_id = $1
 		`, eventID).Scan(&pe.UserID, &pe.ReedID)
 	}
@@ -365,9 +366,9 @@ func (ds *DBService) GetPendingSubject(eventID string) (*PendingSubject, error) 
 }
 
 // GetPendingReedEvent loads a reed-subject pending event (nil if missing or account event).
-func (ds *DBService) GetPendingReedEvent(eventID string) (*PendingReedEvent, error) {
+func (ds *DBService) GetPendingReedEvent(ctx context.Context, eventID string) (*PendingReedEvent, error) {
 	var pe PendingReedEvent
-	err := ds.db.QueryRow(`
+	err := ds.db.QueryRowContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
 		FROM pending_events pe
 		JOIN pending_reed_events pre ON pre.event_id = pe.event_id
@@ -383,20 +384,20 @@ func (ds *DBService) GetPendingReedEvent(eventID string) (*PendingReedEvent, err
 }
 
 // DeletePendingEvent deletes a pending event by event ID (cascades to child subject tables).
-func (ds *DBService) DeletePendingEvent(eventID string) error {
-	_, err := ds.db.Exec(`DELETE FROM pending_events WHERE event_id = $1`, eventID)
+func (ds *DBService) DeletePendingEvent(ctx context.Context, eventID string) error {
+	_, err := ds.db.ExecContext(ctx, `DELETE FROM pending_events WHERE event_id = $1`, eventID)
 	return err
 }
 
 // DeletePendingEventsByUser deletes all pending events for a given requester user ID
-func (ds *DBService) DeletePendingEventsByUser(userID string) error {
-	_, err := ds.db.Exec(`DELETE FROM pending_events WHERE requester_user_id = $1`, userID)
+func (ds *DBService) DeletePendingEventsByUser(ctx context.Context, userID string) error {
+	_, err := ds.db.ExecContext(ctx, `DELETE FROM pending_events WHERE requester_user_id = $1`, userID)
 	return err
 }
 
 // DeleteProfileSubscriptionsByViewer deletes all profile subscriptions for a given viewer.
-func (ds *DBService) DeleteProfileSubscriptionsByViewer(userID string) error {
-	_, err := ds.db.Exec(`DELETE FROM profile_subscriptions WHERE viewer_user_id = $1`, userID)
+func (ds *DBService) DeleteProfileSubscriptionsByViewer(ctx context.Context, userID string) error {
+	_, err := ds.db.ExecContext(ctx, `DELETE FROM profile_subscriptions WHERE viewer_user_id = $1`, userID)
 	return err
 }
 
@@ -408,14 +409,14 @@ type ReedCoverageTarget struct {
 
 // AllocateReed records that holderUserID now holds the reed authored by authorUserID.
 // Returns true when a new allocation row was inserted.
-func (ds *DBService) AllocateReed(reedID, holderUserID, authorUserID string) (bool, error) {
-	tx, err := ds.db.Begin()
+func (ds *DBService) AllocateReed(ctx context.Context, reedID, holderUserID, authorUserID string) (bool, error) {
+	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(`
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING
@@ -428,7 +429,7 @@ func (ds *DBService) AllocateReed(reedID, holderUserID, authorUserID string) (bo
 		return false, err
 	}
 	if n > 0 {
-		if err := coverage.BumpAllocationCount(tx, authorUserID, reedID, 1); err != nil {
+		if err := coverage.BumpAllocationCount(ctx, tx, authorUserID, reedID, 1); err != nil {
 			return false, err
 		}
 	}
@@ -440,14 +441,14 @@ func (ds *DBService) AllocateReed(reedID, holderUserID, authorUserID string) (bo
 
 // DeleteReedAllocation removes a single holder's allocation for a reed.
 // Returns true when a row was deleted.
-func (ds *DBService) DeleteReedAllocation(authorUserID, reedID, holderUserID string) (bool, error) {
-	tx, err := ds.db.Begin()
+func (ds *DBService) DeleteReedAllocation(ctx context.Context, authorUserID, reedID, holderUserID string) (bool, error) {
+	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(`
+	res, err := tx.ExecContext(ctx, `
 		DELETE FROM reed_allocations
 		WHERE author_user_id = $1 AND reed_id = $2 AND holder_user_id = $3
 	`, authorUserID, reedID, holderUserID)
@@ -459,7 +460,7 @@ func (ds *DBService) DeleteReedAllocation(authorUserID, reedID, holderUserID str
 		return false, err
 	}
 	if n > 0 {
-		if err := coverage.BumpAllocationCount(tx, authorUserID, reedID, -1); err != nil {
+		if err := coverage.BumpAllocationCount(ctx, tx, authorUserID, reedID, -1); err != nil {
 			return false, err
 		}
 	}
@@ -470,9 +471,9 @@ func (ds *DBService) DeleteReedAllocation(authorUserID, reedID, holderUserID str
 }
 
 // ReedExists reports whether a non-removed tip reed row exists for the author.
-func (ds *DBService) ReedExists(authorUserID, reedID string) (bool, error) {
+func (ds *DBService) ReedExists(ctx context.Context, authorUserID, reedID string) (bool, error) {
 	var exists bool
-	err := ds.db.QueryRow(`
+	err := ds.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM reeds r
 			WHERE r.user_id = $1 AND r.id = $2
@@ -486,14 +487,14 @@ func (ds *DBService) ReedExists(authorUserID, reedID string) (bool, error) {
 }
 
 // GetReedCoverage returns holder count and network coverage percent for a tip reed.
-func (ds *DBService) GetReedCoverage(authorUserID, reedID string) (holders, percent int, err error) {
-	err = ds.db.QueryRow(`
+func (ds *DBService) GetReedCoverage(ctx context.Context, authorUserID, reedID string) (holders, percent int, err error) {
+	err = ds.db.QueryRowContext(ctx, `
 		SELECT allocation_count FROM reeds WHERE user_id = $1 AND id = $2
 	`, authorUserID, reedID).Scan(&holders)
 	if err != nil {
 		return 0, 0, err
 	}
-	activeUsers, err := coverage.ActiveUsers(ds.db)
+	activeUsers, err := coverage.ActiveUsers(ctx, ds.db)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -501,15 +502,15 @@ func (ds *DBService) GetReedCoverage(authorUserID, reedID string) (holders, perc
 }
 
 // GetReedCoveragePercent returns network coverage percent for a tip reed.
-func (ds *DBService) GetReedCoveragePercent(authorUserID, reedID string) (percent int, err error) {
-	_, percent, err = ds.GetReedCoverage(authorUserID, reedID)
+func (ds *DBService) GetReedCoveragePercent(ctx context.Context, authorUserID, reedID string) (percent int, err error) {
+	_, percent, err = ds.GetReedCoverage(ctx, authorUserID, reedID)
 	return percent, err
 }
 
 // CountEchoes returns how many non-removed echoes point at the given reed.
-func (ds *DBService) CountEchoes(echoedUserID, echoedReedID string) (int, error) {
+func (ds *DBService) CountEchoes(ctx context.Context, echoedUserID, echoedReedID string) (int, error) {
 	var n int
-	err := ds.db.QueryRow(`
+	err := ds.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM reed_echoes
 		WHERE echoed_user_id = $1 AND echoed_reed_id = $2
 	`, echoedUserID, echoedReedID).Scan(&n)
@@ -517,16 +518,16 @@ func (ds *DBService) CountEchoes(echoedUserID, echoedReedID string) (int, error)
 }
 
 // GetReedStatsSnapshot returns echoes, coverage, and subtree reply count for subscribe ACK.
-func (ds *DBService) GetReedStatsSnapshot(authorUserID, reedID string) (echoes, coveragePercent, replies int, err error) {
-	coveragePercent, err = ds.GetReedCoveragePercent(authorUserID, reedID)
+func (ds *DBService) GetReedStatsSnapshot(ctx context.Context, authorUserID, reedID string) (echoes, coveragePercent, replies int, err error) {
+	coveragePercent, err = ds.GetReedCoveragePercent(ctx, authorUserID, reedID)
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	echoes, err = ds.CountEchoes(authorUserID, reedID)
+	echoes, err = ds.CountEchoes(ctx, authorUserID, reedID)
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	replies, err = ds.GetSubtreeReplyCount(authorUserID, reedID)
+	replies, err = ds.GetSubtreeReplyCount(ctx, authorUserID, reedID)
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -534,9 +535,9 @@ func (ds *DBService) GetReedStatsSnapshot(authorUserID, reedID string) (echoes, 
 }
 
 // GetSubtreeReplyCount returns live descendant reply count beneath userID/reedID.
-func (ds *DBService) GetSubtreeReplyCount(userID, reedID string) (int, error) {
+func (ds *DBService) GetSubtreeReplyCount(ctx context.Context, userID, reedID string) (int, error) {
 	var count int
-	err := ds.db.QueryRow(`
+	err := ds.db.QueryRowContext(ctx, `
 		WITH RECURSIVE descendants AS (
 			SELECT rr.user_id, rr.reed_id
 			FROM reed_replies rr
@@ -567,9 +568,9 @@ func (ds *DBService) GetSubtreeReplyCount(userID, reedID string) (int, error) {
 }
 
 // GetNextPendingForHolder returns the oldest undispatched reed pending for reeds held by holderUserID.
-func (ds *DBService) GetNextPendingForHolder(holderUserID string) (*PendingReedEvent, error) {
+func (ds *DBService) GetNextPendingForHolder(ctx context.Context, holderUserID string) (*PendingReedEvent, error) {
 	var pe PendingReedEvent
-	err := ds.db.QueryRow(`
+	err := ds.db.QueryRowContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
 		FROM pending_reed_events pre
 		JOIN pending_events pe ON pe.event_id = pre.event_id
@@ -591,8 +592,8 @@ func (ds *DBService) GetNextPendingForHolder(holderUserID string) (*PendingReedE
 
 // MarkEventDispatched marks an event as dispatched. Returns true if the update claimed the row
 // (i.e. it was still undispatched), false if another replica already claimed it.
-func (ds *DBService) MarkEventDispatched(eventID string) (bool, error) {
-	result, err := ds.db.Exec(`
+func (ds *DBService) MarkEventDispatched(ctx context.Context, eventID string) (bool, error) {
+	result, err := ds.db.ExecContext(ctx, `
 		UPDATE pending_events SET dispatched_at = NOW()
 		WHERE event_id = $1 AND dispatched_at IS NULL
 	`, eventID)
@@ -604,8 +605,8 @@ func (ds *DBService) MarkEventDispatched(eventID string) (bool, error) {
 }
 
 // ResetDispatchedAt clears dispatched_at for an event, making it eligible for dispatch again.
-func (ds *DBService) ResetDispatchedAt(eventID string) error {
-	_, err := ds.db.Exec(`
+func (ds *DBService) ResetDispatchedAt(ctx context.Context, eventID string) error {
+	_, err := ds.db.ExecContext(ctx, `
 		UPDATE pending_events SET dispatched_at = NULL WHERE event_id = $1
 	`, eventID)
 	return err
@@ -614,9 +615,9 @@ func (ds *DBService) ResetDispatchedAt(eventID string) error {
 // GetOnlineHolders reports whether a reed has any holders and returns one online holder
 // for relay dispatch when available. Callers must delete stale holder rows (e.g. the
 // requester) before calling when appropriate.
-func (ds *DBService) GetOnlineHolders(authorUserID, reedID string) (hasHolders bool, holder string, err error) {
+func (ds *DBService) GetOnlineHolders(ctx context.Context, authorUserID, reedID string) (hasHolders bool, holder string, err error) {
 	var onlineHolder sql.NullString
-	err = ds.db.QueryRow(`
+	err = ds.db.QueryRowContext(ctx, `
 		SELECT
 			EXISTS (
 				SELECT 1 FROM reed_allocations
@@ -641,9 +642,9 @@ func (ds *DBService) GetOnlineHolders(authorUserID, reedID string) (hasHolders b
 
 // GetOnlineReedHolder returns the user ID of one online holder of the given reed,
 // or an empty string if no holder is currently online.
-func (ds *DBService) GetOnlineReedHolder(authorUserID, reedID string) (string, error) {
+func (ds *DBService) GetOnlineReedHolder(ctx context.Context, authorUserID, reedID string) (string, error) {
 	var userID string
-	err := ds.db.QueryRow(`
+	err := ds.db.QueryRowContext(ctx, `
 		SELECT ou.user_id FROM online_users ou
 		JOIN reed_allocations ra ON ra.holder_user_id = ou.user_id
 		WHERE ra.author_user_id = $1 AND ra.reed_id = $2
@@ -658,10 +659,10 @@ func (ds *DBService) GetOnlineReedHolder(authorUserID, reedID string) (string, e
 // ClaimPendingFanout removes the pending_fanout row if present. Returns true when
 // this call claimed fanout (row deleted), plus any pipe tags stashed at SignReed.
 // Concurrent READY messages only claim once.
-func (ds *DBService) ClaimPendingFanout(authorUserID, reedID string) (claimed bool, tags []string, err error) {
+func (ds *DBService) ClaimPendingFanout(ctx context.Context, authorUserID, reedID string) (claimed bool, tags []string, err error) {
 	var id string
 	var tagArray pq.StringArray
-	err = ds.db.QueryRow(`
+	err = ds.db.QueryRowContext(ctx, `
 		DELETE FROM pending_fanout
 		WHERE user_id = $1 AND reed_id = $2
 		RETURNING reed_id, tags
@@ -676,8 +677,8 @@ func (ds *DBService) ClaimPendingFanout(authorUserID, reedID string) (claimed bo
 }
 
 // GetPendingEventsForUser returns all pending reed events for reeds held by the given user.
-func (ds *DBService) GetPendingEventsForUser(userID string) ([]PendingReedEvent, error) {
-	rows, err := ds.db.Query(`
+func (ds *DBService) GetPendingEventsForUser(ctx context.Context, userID string) ([]PendingReedEvent, error) {
+	rows, err := ds.db.QueryContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
 		FROM pending_reed_events pre
 		JOIN pending_events pe ON pe.event_id = pre.event_id
@@ -710,8 +711,8 @@ func (ds *DBService) GetPendingEventsForUser(userID string) ([]PendingReedEvent,
 
 // GetPendingRequestsForRequester returns pending reed events initiated by the given user
 // (reed relay retry only — not account events).
-func (ds *DBService) GetPendingRequestsForRequester(requesterUserID string) ([]PendingReedEvent, error) {
-	rows, err := ds.db.Query(`
+func (ds *DBService) GetPendingRequestsForRequester(ctx context.Context, requesterUserID string) ([]PendingReedEvent, error) {
+	rows, err := ds.db.QueryContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
 		FROM pending_reed_events pre
 		JOIN pending_events pe ON pe.event_id = pre.event_id
@@ -742,11 +743,11 @@ func (ds *DBService) GetPendingRequestsForRequester(requesterUserID string) ([]P
 
 // GetMissingReedIDsForViewer returns IDs of reeds by authorID that viewerID does not yet have,
 // excluding any IDs the viewer already holds locally (ownedIDs) or via reed_allocations.
-func (ds *DBService) GetMissingReedIDsForViewer(authorID, viewerID string, ownedIDs []string) ([]string, error) {
+func (ds *DBService) GetMissingReedIDsForViewer(ctx context.Context, authorID, viewerID string, ownedIDs []string) ([]string, error) {
 	if ownedIDs == nil {
 		ownedIDs = []string{}
 	}
-	rows, err := ds.db.Query(`
+	rows, err := ds.db.QueryContext(ctx, `
 		SELECT r.id FROM reeds r
 		WHERE r.user_id = $1
 		  AND r.id <> ALL($3)
@@ -783,8 +784,8 @@ type UnallocatedReed struct {
 
 // GetMissingOut returns all reeds from authors that userID follows
 // which are not yet present in reed_allocations for that user.
-func (ds *DBService) GetMissingOut(userID string) ([]UnallocatedReed, error) {
-	rows, err := ds.db.Query(`
+func (ds *DBService) GetMissingOut(ctx context.Context, userID string) ([]UnallocatedReed, error) {
+	rows, err := ds.db.QueryContext(ctx, `
 		SELECT r.id, r.user_id
 		FROM reeds r
 		JOIN user_following uf ON uf.following_user_id = r.user_id
@@ -815,8 +816,8 @@ func (ds *DBService) GetMissingOut(userID string) ([]UnallocatedReed, error) {
 }
 
 // GetUnallocatedReeds returns IDs of reeds by authorID that viewerID does not have in reed_allocations.
-func (ds *DBService) GetUnallocatedReeds(authorID, viewerID string) ([]string, error) {
-	rows, err := ds.db.Query(`
+func (ds *DBService) GetUnallocatedReeds(ctx context.Context, authorID, viewerID string) ([]string, error) {
+	rows, err := ds.db.QueryContext(ctx, `
 		SELECT r.id FROM reeds r
 		WHERE r.user_id = $1
 		  AND NOT EXISTS (
@@ -845,8 +846,8 @@ func (ds *DBService) GetUnallocatedReeds(authorID, viewerID string) ([]string, e
 }
 
 // CreateProfileSubscription records an active profile feed subscription for a viewer.
-func (ds *DBService) CreateProfileSubscription(subscriptionID, viewerUserID, authorUserID string) error {
-	_, err := ds.db.Exec(`
+func (ds *DBService) CreateProfileSubscription(ctx context.Context, subscriptionID, viewerUserID, authorUserID string) error {
+	_, err := ds.db.ExecContext(ctx, `
 		INSERT INTO profile_subscriptions (subscription_id, viewer_user_id, author_user_id)
 		VALUES ($1, $2, $3)
 	`, subscriptionID, viewerUserID, authorUserID)
@@ -855,9 +856,9 @@ func (ds *DBService) CreateProfileSubscription(subscriptionID, viewerUserID, aut
 
 // GetProfileSubscription returns the subscription ID for an active (viewer, author) pair.
 // Returns an empty string when no subscription exists.
-func (ds *DBService) GetProfileSubscription(viewerUserID, authorUserID string) (string, error) {
+func (ds *DBService) GetProfileSubscription(ctx context.Context, viewerUserID, authorUserID string) (string, error) {
 	var id string
-	err := ds.db.QueryRow(`
+	err := ds.db.QueryRowContext(ctx, `
 		SELECT subscription_id FROM profile_subscriptions
 		WHERE viewer_user_id = $1 AND author_user_id = $2
 	`, viewerUserID, authorUserID).Scan(&id)
@@ -868,8 +869,8 @@ func (ds *DBService) GetProfileSubscription(viewerUserID, authorUserID string) (
 }
 
 // DeleteProfileSubscription deletes a subscription by ID, cascading to its pending_events.
-func (ds *DBService) DeleteProfileSubscription(subscriptionID string) error {
-	_, err := ds.db.Exec(`
+func (ds *DBService) DeleteProfileSubscription(ctx context.Context, subscriptionID string) error {
+	_, err := ds.db.ExecContext(ctx, `
 		DELETE FROM profile_subscriptions WHERE subscription_id = $1
 	`, subscriptionID)
 	return err
@@ -882,8 +883,8 @@ type ProfileSubscriber struct {
 }
 
 // GetProfileSubscribers returns all active profile subscriptions for the given author.
-func (ds *DBService) GetProfileSubscribers(authorID string) ([]ProfileSubscriber, error) {
-	rows, err := ds.db.Query(`
+func (ds *DBService) GetProfileSubscribers(ctx context.Context, authorID string) ([]ProfileSubscriber, error) {
+	rows, err := ds.db.QueryContext(ctx, `
 		SELECT subscription_id, viewer_user_id
 		FROM profile_subscriptions
 		WHERE author_user_id = $1
@@ -915,8 +916,8 @@ func (ds *DBService) GetProfileSubscribers(authorID string) ([]ProfileSubscriber
 // the same batch before either writes last_delivery, causing up to 100 users to receive a
 // duplicate. At our current replica count this is acceptable — duplicates are harmless (the
 // client deduplicates by reed ID) and the race window is tiny.
-func (ds *DBService) GetBroadcastSubscribers(authorID string) ([]string, error) {
-	rows, err := ds.db.Query(`
+func (ds *DBService) GetBroadcastSubscribers(ctx context.Context, authorID string) ([]string, error) {
+	rows, err := ds.db.QueryContext(ctx, `
 		WITH eligible AS (
 			SELECT bs.user_id
 			FROM broadcast_subscriptions bs
@@ -961,8 +962,8 @@ type MissingRemoval struct {
 }
 
 // GetMissingRemovals returns removal certs for reeds this user still holds.
-func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error) {
-	rows, err := ds.db.Query(`
+func (ds *DBService) GetMissingRemovals(ctx context.Context, userID string) ([]MissingRemoval, error) {
+	rows, err := ds.db.QueryContext(ctx, `
 		SELECT rr.reed_id, rr.user_id
 		FROM reed_allocations ra
 		JOIN reed_removals rr
@@ -974,7 +975,7 @@ func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error)
 	}
 	defer rows.Close()
 
-	serverID, err := ds.serverID()
+	serverID, err := ds.serverID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -985,7 +986,7 @@ func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error)
 		if err := rows.Scan(&reedID, &authorID); err != nil {
 			return nil, err
 		}
-		cert, err := deletion.GetCert(ds.db, authorID, reedID)
+		cert, err := deletion.GetCert(ctx, ds.db, authorID, reedID)
 		if err != nil || cert == nil {
 			return nil, err
 		}
@@ -999,21 +1000,21 @@ func (ds *DBService) GetMissingRemovals(userID string) ([]MissingRemoval, error)
 }
 
 // GetReedRemovalWire loads a removal cert as a wire-shaped map for WS delivery.
-func (ds *DBService) GetReedRemovalWire(authorID, reedID string) (map[string]interface{}, error) {
-	cert, err := deletion.GetCert(ds.db, authorID, reedID)
+func (ds *DBService) GetReedRemovalWire(ctx context.Context, authorID, reedID string) (map[string]interface{}, error) {
+	cert, err := deletion.GetCert(ctx, ds.db, authorID, reedID)
 	if err != nil || cert == nil {
 		return nil, err
 	}
-	serverID, err := ds.serverID()
+	serverID, err := ds.serverID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return reedRemovalWireMap(serverID, cert), nil
 }
 
-func (ds *DBService) serverID() (string, error) {
+func (ds *DBService) serverID(ctx context.Context, ) (string, error) {
 	var id string
-	err := ds.db.QueryRow(`SELECT id FROM servers WHERE self = TRUE`).Scan(&id)
+	err := ds.db.QueryRowContext(ctx, `SELECT id FROM servers WHERE self = TRUE`).Scan(&id)
 	return id, err
 }
 
@@ -1045,12 +1046,12 @@ type MissingAccountRemoval struct {
 
 // GetMissingAccountRemovals returns account_removals that still apply to viewer
 // (follow ∪ allocations for that author's reeds).
-func (ds *DBService) GetMissingAccountRemovals(viewerUserID string) ([]MissingAccountRemoval, error) {
-	serverID, err := ds.serverID()
+func (ds *DBService) GetMissingAccountRemovals(ctx context.Context, viewerUserID string) ([]MissingAccountRemoval, error) {
+	serverID, err := ds.serverID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := ds.db.Query(`
+	rows, err := ds.db.QueryContext(ctx, `
 		SELECT ar.user_id
 		FROM account_removals ar
 		WHERE EXISTS (
@@ -1072,7 +1073,7 @@ func (ds *DBService) GetMissingAccountRemovals(viewerUserID string) ([]MissingAc
 		if err := rows.Scan(&removedUserID); err != nil {
 			return nil, err
 		}
-		cert, err := deletion.GetAccountCert(ds.db, removedUserID)
+		cert, err := deletion.GetAccountCert(ctx, ds.db, removedUserID)
 		if err != nil || cert == nil {
 			return nil, err
 		}
@@ -1085,12 +1086,12 @@ func (ds *DBService) GetMissingAccountRemovals(viewerUserID string) ([]MissingAc
 }
 
 // GetAccountRemovalWire loads an account-removal cert as a wire-shaped map.
-func (ds *DBService) GetAccountRemovalWire(userID string) (map[string]interface{}, error) {
-	cert, err := deletion.GetAccountCert(ds.db, userID)
+func (ds *DBService) GetAccountRemovalWire(ctx context.Context, userID string) (map[string]interface{}, error) {
+	cert, err := deletion.GetAccountCert(ctx, ds.db, userID)
 	if err != nil || cert == nil {
 		return nil, err
 	}
-	serverID, err := ds.serverID()
+	serverID, err := ds.serverID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1119,8 +1120,8 @@ func accountRemovalWireMap(serverID string, cert *deletion.AccountCert) map[stri
 // ClearPeerStateForRemovedAccount drops follow edges and allocations so
 // catch-up no longer re-delivers the account cert to this viewer.
 // Returns reeds whose holder counts changed.
-func (ds *DBService) ClearPeerStateForRemovedAccount(viewerUserID, removedUserID string) ([]ReedCoverageTarget, error) {
-	tx, err := ds.db.Begin()
+func (ds *DBService) ClearPeerStateForRemovedAccount(ctx context.Context, viewerUserID, removedUserID string) ([]ReedCoverageTarget, error) {
+	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1137,12 +1138,12 @@ func (ds *DBService) ClearPeerStateForRemovedAccount(viewerUserID, removedUserID
 		{`DELETE FROM user_followers WHERE user_id = $1 AND follower_user_id = $2`, viewerUserID, removedUserID},
 	}
 	for _, s := range stmts {
-		if _, err := tx.Exec(s.q, s.a1, s.a2); err != nil {
+		if _, err := tx.ExecContext(ctx, s.q, s.a1, s.a2); err != nil {
 			return nil, err
 		}
 	}
 
-	rows, err := tx.Query(`
+	rows, err := tx.QueryContext(ctx, `
 		WITH deleted AS (
 			DELETE FROM reed_allocations
 			WHERE holder_user_id = $1 AND author_user_id = $2
