@@ -443,7 +443,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", key.Fingerprint).
 		Msg("Identity record created")
 
-	h.metrics.UserCreated(r.Context(), h.cfg.SignupMode)
+	h.metrics.UserCreated(r.Context(), h.cfg.SignupMode, user.ID)
 
 	writeResponse(w, http.StatusCreated, user)
 }

@@ -30,7 +30,7 @@ small typed recorder:
 
 ```go
 type Recorder interface {
-    UserCreated(ctx context.Context, signupMode string)
+    UserCreated(ctx context.Context, signupMode, userID string)
     UserDeleted(ctx context.Context, userID string, noteHas bool)
     ReedPublished(ctx context.Context, p ReedPublishedAttrs)
     ReedDeleted(ctx context.Context, authorID, reedID string)
@@ -56,18 +56,18 @@ stream as host metrics today.
 
 | Instrument | OTEL type | When recorded | Attributes |
 |---|---|---|---|
-| `syrinx.users.created` | Counter | Successful `Signup` / import-signup commit | `signup.mode` (`open` \| `invite` \| `closed`) |
-| `syrinx.users.deleted` | Counter | Successful account removal (`DeleteMe`, new cert) | `user.id`, `note.has` (bool — whether a non-empty goodbye note was supplied; never the note text) |
-| `syrinx.reeds.published` | Counter | Successful `SignReed` (new reed, not replay) | `reed.kind` (`plain` \| `echo` \| `reply`), `tags.has` (bool), `tags.count` (int 0–4+, see bucketing), `author.id`, `reed.id` |
-| `syrinx.reeds.deleted` | Counter | Successful reed removal (`DeleteReed`, new cert) | `author.id`, `reed.id` |
-| `syrinx.echoes.targeted` | Counter | Echo indexed on a target reed (`CreateReedWithEcho`) | `target.author.id`, `target.reed.id` — the **echoed** reed, not the echoing one |
+| `syrinx.users.created` | Counter | Successful `Signup` / import-signup commit | `signup.mode` (`open` \| `invite` \| `closed`), `user.id_hash` |
+| `syrinx.users.deleted` | Counter | Successful account removal (`DeleteMe`, new cert) | `user.id_hash`, `note.has` (bool — whether a non-empty goodbye note was supplied; never the note text) |
+| `syrinx.reeds.published` | Counter | Successful `SignReed` (new reed, not replay) | `reed.kind` (`plain` \| `echo` \| `reply`), `tags.has` (bool), `tags.count` (int 0–4+, see bucketing), `author.id_hash`, `reed.id` |
+| `syrinx.reeds.deleted` | Counter | Successful reed removal (`DeleteReed`, new cert) | `author.id_hash`, `reed.id` |
+| `syrinx.echoes.targeted` | Counter | Echo indexed on a target reed (`CreateReedWithEcho`) | `target.author.id_hash`, `target.reed.id` — the **echoed** reed, not the echoing one |
 | `syrinx.reeds.rejected.length` | Counter | `SignReed` rejected for length limits | `raw.exceeds_max`, `visible.exceeds_max` (bool) |
-| `syrinx.reed.content.raw_chars` | Histogram | Successful publish | `reed.kind`, `author.id`, `reed.id` — value = `len(body)` (JS string length) |
+| `syrinx.reed.content.raw_chars` | Histogram | Successful publish | `reed.kind`, `author.id_hash`, `reed.id` — value = `len(body)` (JS string length) |
 | `syrinx.reed.content.visible_chars` | Histogram | Successful publish | same — value = `CountMarkdownCharacters(body)` |
-| `syrinx.keys.revoked` | Counter | Successful key rotation (`AddPublicKey` after predecessor verified revoked) | `user.id` |
-| `syrinx.users.backup` | Counter | SPA reports a successful local export via `POST /users/me/backup` | `user.id_hash` (SHA-256 hex of `user.id`), `backup.kind` (`identity` \| `full`) |
-| `syrinx.reed.holders` | Histogram | Whenever holder count changes for a reed | `author.id`, `reed.id` — value = `allocation_count` |
-| `syrinx.reed.coverage_percent` | Histogram | Same hook as holders | `author.id`, `reed.id` — value = `coveragePercent` (0–100) |
+| `syrinx.keys.revoked` | Counter | Successful key rotation (`AddPublicKey` after predecessor verified revoked) | `user.id_hash` |
+| `syrinx.users.backup` | Counter | SPA reports a successful local export via `POST /users/me/backup` | `user.id_hash`, `backup.kind` (`identity` \| `full`) |
+| `syrinx.reed.holders` | Histogram | Whenever holder count changes for a reed | `author.id_hash`, `reed.id` — value = `allocation_count` |
+| `syrinx.reed.coverage_percent` | Histogram | Same hook as holders | `author.id_hash`, `reed.id` — value = `coveragePercent` (0–100) |
 | `syrinx.ws.messages` | Counter | Every WS frame handled (see 5.4) | `ws.direction` (`in` \| `out`), `ws.message.type` (normalized type name) |
 
 **Echoes and replies** use two complementary counters:
@@ -80,7 +80,7 @@ stream as host metrics today.
 
 Dashboards that only care about echo volume can filter `reed.kind=echo` on
 publish; dashboards about target reach use `syrinx.echoes.targeted` grouped by
-`target.author.id` / `target.reed.id`.
+`target.author.id_hash` / `target.reed.id`.
 
 **Tag bucketing on publish:** store exact `tags.count` when ≤ 3; use `4` as
 “4 or more” on the attribute to cap cardinality from pathological tag spam.
@@ -99,15 +99,15 @@ Constants today: `MaxReedRawChars = 1400`, `MaxReedVisibleChars = 140`
 
 | Event | Call site | Notes |
 |---|---|---|
-| User created | `DataService.Signup` after commit (or `Handlers.Signup` after success) | Include resolved `signup.mode`; do **not** record failed/duplicate attempts |
-| User deleted | `Handlers.DeleteMe` after `InsertAccountRemoval` succeeds (not replay) | `user.id` + `note.has` (`note != ""` after trim); no note text |
-| Reed published | `Handlers.SignReed` after successful create (not replay path) | Pass `kind`, tag slice length, `userID`, `reedID`, body lengths |
-| Reed deleted | `Handlers.DeleteReed` after `InsertReedRemoval` succeeds (not replay) | `author.id`, `reed.id` |
-| Echo targeted | `Handlers.SignReed` when `echoIndexed && echoRef != nil` | Target = `echoRef.AuthorID`, `echoRef.ReedID` |
+| User created | `Handlers.Signup` after success | `signup.mode`, `user.id_hash` |
+| User deleted | `Handlers.DeleteMe` after `InsertAccountRemoval` succeeds (not replay) | `user.id_hash` + `note.has` (`note != ""` after trim); no note text |
+| Reed published | `Handlers.SignReed` after successful create (not replay path) | Pass `kind`, tag slice length, `userID`, `reedID`, body lengths — emitted as `author.id_hash` |
+| Reed deleted | `Handlers.DeleteReed` after `InsertReedRemoval` succeeds (not replay) | `author.id_hash`, `reed.id` |
+| Echo targeted | `Handlers.SignReed` when `echoIndexed && echoRef != nil` | Target = `target.author.id_hash`, `target.reed.id` |
 | Reed rejected (length) | `Handlers.SignReed` before 400 on limit check | Raw + visible counts only |
-| Key revoked | `Handlers.AddPublicKey` after successful rotation | `user.id` only — predecessor must already be revoked |
+| Key revoked | `Handlers.AddPublicKey` after successful rotation | `user.id_hash` — predecessor must already be revoked |
 | User backup | `Handlers.RecordBackup` after authenticated POST | `user.id_hash`, `backup.kind`; no DB — client queues in IndexedDB `pendingBackups` and retries on startup |
-| Reed holders + coverage | `RealtimeService.notifyReedCoverage` | Read `allocation_count` + percent already computed for WS; record both histograms |
+| Reed holders + coverage | `RealtimeService.notifyReedCoverage` | Read `allocation_count` + percent already computed for WS; record both histograms with `author.id_hash` |
 | Initial coverage at publish | Same hook after author allocation on publish | Ensures every reed gets at least one coverage sample |
 | WS inbound | Start of `handleJSONMessage` / `handleProtobufMessage` | Normalize `msgType` / `pb.MessageType_*` to the same string enum |
 | WS outbound | `Client.writeMessage` (single choke point) | Parse JSON `type` field or protobuf message type from payload when cheap; else `ws.message.type=binary_unknown` / `json_unknown` |
@@ -139,15 +139,18 @@ bodies for metrics.
 
 Allowed on metric attributes:
 
-- Server-scoped **user IDs** and **reed IDs** (opaque identifiers, not
-  usernames), except where **`user.id_hash`** is used instead (backup
-  telemetry — SHA-256 hex digest of the user id).
+- **`user.id_hash` / `author.id_hash` / `target.author.id_hash`** — SHA-256
+  hex digest of the server-scoped user id (`metrics.UserIDHash`). Raw user ids
+  never appear on metrics.
+- **Reed IDs** (`reed.id`, `target.reed.id`) — opaque identifiers, not
+  usernames.
 - Structural enums (`reed.kind`, `signup.mode`, `ws.message.type`, booleans,
   small integers).
 - Content **lengths** and **tag counts**, never tag text or body text.
 
 Forbidden:
 
+- Raw **user ids** on any metric attribute.
 - Usernames, bios, display names.
 - Account-removal **note** text (goodbye messages).
 - Hashtag / pipe tag strings.
@@ -156,7 +159,7 @@ Forbidden:
   message type.
 - IP addresses or device ids.
 
-Per-reed series (`author.id` + `reed.id`) are intentional — the operator
+Per-reed series (`author.id_hash` + `reed.id`) are intentional — the operator
 asked for per-reed coverage and length/tag shape. They are not usernames.
 
 ### 5.6 OpenObserve usage (operator notes)
@@ -169,7 +172,7 @@ Example questions this unlocks:
 - Publish mix: `sum(syrinx_reeds_published)` by `reed_kind`.
 - Echo rate (sent): filter `reed_kind = echo` on publish.
 - Echo rate (received by originals): `sum(syrinx_echoes_targeted)` by
-  `target_author_id` / `target_reed_id`.
+  `target_author_id_hash` / `target_reed_id`.
 - Reply rate: filter `reed_kind = reply`.
 - Deletion rate: `sum(syrinx_reeds_deleted)`, `sum(syrinx_users_deleted)`.
 - Key rotations completed: `sum(syrinx_keys_revoked)` over time.
@@ -177,7 +180,7 @@ Example questions this unlocks:
   `user_id_hash` to see repeat exporters without raw user ids.
 - WS health: `sum(syrinx_ws_messages)` by `ws_direction`, `ws_message_type`.
 - Reed reach: `syrinx_reed_holders` / `syrinx_reed_coverage_percent` for a
-  given `reed_id` + `author_id`.
+  given `reed_id` + `author_id_hash`.
 - Length abuse: `syrinx_reeds_rejected_length` > 0, or
   `syrinx_reed_content_raw_chars` p99 near 1400.
 

@@ -26,7 +26,7 @@ func TestJSONWSMessageType(t *testing.T) {
 
 func TestNoopRecorder(t *testing.T) {
 	var rec Noop
-	rec.UserCreated(nil, "open")
+	rec.UserCreated(nil, "open", "user-test")
 	rec.ReedPublished(nil, ReedPublishedAttrs{Kind: ReedKindEcho})
 	rec.WSMessage(nil, DirectionIn, "PING")
 }
