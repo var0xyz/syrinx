@@ -5,10 +5,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -26,36 +24,7 @@ func federationWithUID(r *http.Request, uid string) *http.Request {
 
 func openFederationTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		federationEnvOr("DB_HOST", "localhost"),
-		federationEnvOr("DB_PORT", "5432"),
-		federationEnvOr("DB_USER", "syrinx"),
-		federationEnvOr("DB_PASSWORD", "syrinx"),
-		federationEnvOr("DB_NAME", "syrinx_test"),
-		federationEnvOr("DB_SSLMODE", "disable"),
-	)
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Skipf("open db: %v", err)
-	}
-	if err := db.Ping(); err != nil {
-		db.Close()
-		t.Skipf("ping db: %v", err)
-	}
-	if err := ensureFederationTestSchema(db); err != nil {
-		db.Close()
-		t.Fatalf("schema: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
-func federationEnvOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+	return newTestDatabase(t, ensureFederationTestSchema)
 }
 
 func ensureFederationTestSchema(db *sql.DB) error {

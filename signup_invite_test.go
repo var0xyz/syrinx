@@ -6,8 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -19,40 +17,19 @@ import (
 
 func openSignupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		envOr("DB_HOST", "localhost"),
-		envOr("DB_PORT", "5432"),
-		envOr("DB_USER", "syrinx"),
-		envOr("DB_PASSWORD", "syrinx"),
-		envOr("DB_NAME", "syrinx_test"),
-		envOr("DB_SSLMODE", "disable"),
-	)
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Skipf("open db: %v", err)
-	}
-	if err := db.Ping(); err != nil {
-		db.Close()
-		t.Skipf("ping db: %v", err)
-	}
-	if err := ensureSignupInviteSchema(db); err != nil {
-		db.Close()
-		t.Fatalf("schema: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+	return newTestDatabase(t, ensureSignupInviteSchema)
 }
 
 func ensureSignupInviteSchema(db *sql.DB) error {
 	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS servers (
+			id VARCHAR(16) UNIQUE,
+			name VARCHAR(255) PRIMARY KEY,
+			self BOOLEAN NOT NULL DEFAULT FALSE,
+			signing_key VARCHAR(255),
+			identity_backup_at TIMESTAMP,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS user_signatures (
 			id SERIAL PRIMARY KEY,
 			fingerprint VARCHAR(255) NOT NULL,
@@ -113,6 +90,12 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (user_id, follower_user_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS network_stats (
+			id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+			active_users INT NOT NULL DEFAULT 0
+		)`,
+		`INSERT INTO network_stats (id, active_users) VALUES (TRUE, 0)
+			ON CONFLICT (id) DO NOTHING`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -275,18 +258,33 @@ func TestSignup_OpenValidToken(t *testing.T) {
 
 func TestSignup_OpenInvalidToken(t *testing.T) {
 	db := openSignupTestDB(t)
+	ctx := context.Background()
 	svc := NewDataService(db, "test")
 	svc.serverID = "srv"
-	_, err := svc.Signup(context.Background(), signupInput("u1", "alice", &invites.Invite{
+
+	// The invite's created_by FK requires a real user row — a signup
+	// carrying an already-claimed invite reaches Signup only via
+	// GetPendingInvite, which always resolves a real DB row. Reproduce
+	// that shape here (real creator, already-claimed invite) rather than
+	// a creator that was never inserted, which trips the FK constraint
+	// before Signup's own pending-status check ever runs.
+	if _, err := svc.Signup(ctx, signupInput("inviter", "carol", nil)); err != nil {
+		t.Fatal(err)
+	}
+	claimedAt := time.Now().UTC()
+	claimedBy := "someone-else"
+	_, err := svc.Signup(ctx, signupInput("u1", "alice", &invites.Invite{
 		ID:          "abcdefghijkl",
-		CreatedBy:   "nobody",
+		CreatedBy:   "inviter",
 		GrantedRole: roles.RoleUser,
+		ClaimedAt:   &claimedAt,
+		ClaimedBy:   &claimedBy,
 	}))
 	if !errors.Is(err, invites.ErrInvalidInvite) {
 		t.Fatalf("err = %v", err)
 	}
 	var n int
-	_ = db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = 'u1'`).Scan(&n)
 	if n != 0 {
 		t.Fatal("user should not be created")
 	}
