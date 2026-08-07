@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Reference — design locked; steps 01–05 implemented.
 
 ## Depends on
 
@@ -36,18 +36,18 @@ the DB layer is never instrumented.
   shape, durations, status codes) — never user IDs, query argument values,
   or request bodies.
 - **Custom business metrics** ([05](05_custom_metrics.md)): anonymized counters
-  and histograms for signups, account/reed deletions, publishes
-  (plain/echo/reply), echo targeting, key revocations, WebSocket traffic,
-  per-reed holder/coverage snapshots, reed length, and tag counts. User IDs
-  and reed IDs are allowed on metrics; usernames and tag text are not.
+  and histograms for signups/imports, account/reed deletions, publishes
+  (plain/echo/reply), echo targeting, key revocations, backups, WebSocket
+  traffic, per-reed holder/coverage snapshots, reed length, and tag counts.
+  User ids appear only as **`*.id_hash`** (SHA-256 hex); reed IDs are allowed
+  as-is; usernames and tag text are not.
 
 ## Non-goals
 
-- Long-term trace retention/sampling policy tuning — start with
-  `AlwaysSample()` (already the default in `NewObservabilityManager`) and
-  revisit if trace volume becomes a storage concern.
-- Alerting on latency (p99, etc.) — a natural follow-up once traces/metrics
-  exist, but a separate spec.
+- **Alerting** on latency or error rates — not planned; dashboards only.
+- Long-term trace retention/sampling policy tuning — **`AlwaysSample()`**
+  today (see [README — Trace sampling](README.md#locked-decisions)); revisit
+  only if trace volume becomes a storage concern.
 - Tracing across process/service boundaries beyond this one Go binary (there
   is only one backend service today).
 
@@ -134,6 +134,5 @@ always-on user tagging.
 
 Metrics follow a different, operator-facing rule set — see
 [05 — Privacy rules](05_custom_metrics.md#55-privacy-rules-extends-00). In
-short: **no usernames, tag text, or content**; server-scoped user IDs and
-reed IDs are explicitly allowed so operators can inspect per-reed reach and
-publish shape without PII.
+short: **no usernames, tag text, or content**; **hashed user ids** on all
+user-scoped series; reed IDs allowed for per-reed reach and publish shape.

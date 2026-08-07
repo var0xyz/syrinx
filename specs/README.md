@@ -32,7 +32,7 @@ Each table below has a **Status** column per step. Values:
 | Pipes            | Implemented | —                                                    |
 | Account recovery | Implemented | 01–07 implemented                                    |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
-| Observability    | In progress | 01, 04, 05 done; 02–03 implemented (spec docs stale)   |
+| Observability    | Implemented | Steps 01–05; see [`observability/README.md`](observability/README.md) |
 | Load testing     | Proposed    | 00–03                                                |
 | Roles            | Proposed    | 00–02                                                |
 | Federation       | Proposed    | 00–05 (depends on roles)                             |
@@ -256,9 +256,9 @@ already receives logs and host metrics.
 
 | #  | Title                                                       | Status        |
 |----|-------------------------------------------------------------|---------------|
-| 00 | Design + architecture + locked decisions                    | Proposed      |
+| 00 | Design + architecture + locked decisions                    | Reference     |
 | 01 | OTLP trace receiver on the app-host collector (`rpi` repo)  | Implemented   |
-| 02 | Wire `SetupObservability` + HTTP request spans              | Implemented   |
+| 02 | Wire observability bootstrap + HTTP request spans           | Implemented   |
 | 03 | DB query spans via `otelsql`                                | Implemented   |
 | 04 | Thread `context.Context` so DB spans nest under the request | Implemented   |
 | 05 | Custom business metrics (signups, reeds, deletions, WS, coverage)      | Implemented   |

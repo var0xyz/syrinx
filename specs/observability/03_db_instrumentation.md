@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (`obs.OpenDB` via `otelsql`, `RegisterDBStats`).
 
 ## Depends on
 

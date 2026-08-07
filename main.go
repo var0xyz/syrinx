@@ -340,6 +340,7 @@ func main() {
 			ServerID:  dataService.GetServerID(),
 			Lookup:    dataService.GetServerPublicKeyByFingerprint,
 			UserIDKey: userIDKey,
+			Metrics:   obs.Metrics(),
 		})
 		log.Info().Msg("[OK] Recovery mode initialized successfully")
 	}

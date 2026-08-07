@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (`observability.Setup`, `obs.Middleware`, `main.go`).
 
 ## Depends on
 

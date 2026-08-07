@@ -31,16 +31,19 @@ and forwards to the telemetry Pi ([01](01_agent_otlp_receiver.md)).
 | Query text | Statement text captured; **query arguments are never captured** (no user data in spans) |
 | Correlation | DB spans must be children of the HTTP request span in the same trace (single-trace "waterfall" per request), not disconnected root spans |
 | Business metrics | Counters + histograms on the OTLP metrics pipeline; `syrinx.*` instrument prefix — see [05](05_custom_metrics.md) |
-| Metrics privacy | No usernames, tag text, or content; user IDs and reed IDs allowed; echoes/replies distinguished by `reed.kind` on publish counter |
+| Metrics privacy | No usernames, tag text, or content; **hashed user IDs** (`user.id_hash`, `author.id_hash`) and reed IDs on metrics; never raw user ids |
+| Signup modes on `syrinx.users.created` | `open` \| `invite` \| `closed` (normal signup) or `import` (server-recovery claim / peer seed) |
+| Key revocation metric | `syrinx.keys.revoked` on successful **`RevokeKey`** persist |
 | Echo targeting | `syrinx.echoes.targeted` on the echoed reed (indexed), separate from `syrinx.reeds.published{kind=echo}` on the echoing reed |
 | Deletions | `syrinx.reeds.deleted` and `syrinx.users.deleted` on first successful cert persist (not replay); account removal carries `note.has` (bool), never note text |
 | Per-reed coverage | Record `allocation_count` + `coveragePercent` whenever coverage is recomputed (same hook as WS `REED_COVERAGE`) |
+| Trace sampling | **`AlwaysSample()`** — export a trace for every request. Revisit only if span volume becomes a storage concern; no alerting planned. |
 
 ## Status
 
 | Step | Status |
 |------|--------|
-| 00 | Proposed |
+| 00 | Reference (design locked; implementation complete) |
 | 01 | Implemented (`rpi`: local OTLP ingress on `127.0.0.1:4317/:4318`) |
 | 02 | **Implemented** — `observability.Setup`, `otelmux`, env-gated in `main.go` |
 | 03 | **Implemented** — `obs.OpenDB` via `otelsql` + pool metrics |
