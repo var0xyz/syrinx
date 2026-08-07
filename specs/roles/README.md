@@ -26,7 +26,13 @@ federation builds on roles + `serverID`
 
 ## Status
 
-**Proposed** (00–02).
+**In progress** — 01 implemented; 02 proposed.
+
+| Step | Status |
+|------|--------|
+| 00 | Proposed (design locked) |
+| 01 | **Implemented** |
+| 02 | Proposed |
 
 ## Locked decisions
 

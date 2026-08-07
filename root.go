@@ -17,12 +17,12 @@ import (
 	"syrinx/crypto"
 	"syrinx/identity"
 	"syrinx/invites"
+	"syrinx/roles"
 
 	"github.com/rs/zerolog/log"
 )
 
 const (
-	rootUserID   = "1"
 	rootUsername = "root"
 )
 
@@ -60,12 +60,12 @@ func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *crypto.Servic
 		return false, nil
 	}
 
-	root, err := db.GetUserProfile(context.Background(), rootUserID)
+	root, err := db.GetUserProfile(context.Background(), roles.RootUserID)
 	if err != nil {
 		return false, err
 	}
 	if root != nil {
-		return false, fmt.Errorf("ROOT_KEY_EXPORT_PASSPHRASE is set but root user %q already exists — remove the env var and restart", rootUserID)
+		return false, fmt.Errorf("ROOT_KEY_EXPORT_PASSPHRASE is set but root user %q already exists — remove the env var and restart", roles.RootUserID)
 	}
 
 	outPath, err := exportRootIdentity(db, cryptoSvc, signingKey, passphrase, cfg.RootKeyExportPath, cfg.ServerName)
@@ -93,7 +93,7 @@ func exportRootIdentity(
 	}
 
 	keyPassphrase := exportPassphrase
-	openPGPName := rootUserID + "@" + serverID
+	openPGPName := roles.RootUserID + "@" + serverID
 
 	kp, err := cryptoSvc.CreateKeyPair(openPGPName, "", serverName)
 	if err != nil {
@@ -125,7 +125,7 @@ func exportRootIdentity(
 	now := time.Now().UTC().Truncate(time.Second)
 
 	profilePayload := identity.BuildNewProfilePayload(
-		rootUserID,
+		roles.RootUserID,
 		rootUsername,
 		keyMeta.Fingerprint,
 		serverID,
@@ -141,7 +141,7 @@ func exportRootIdentity(
 
 	keyPayload := identity.BuildPublicKeyPayload(
 		serverID,
-		rootUserID,
+		roles.RootUserID,
 		keyMeta.Fingerprint,
 		signingKey.Fingerprint,
 		kp.PublicKey,
@@ -153,7 +153,7 @@ func exportRootIdentity(
 	}
 
 	if _, err := db.Signup(context.Background(), SignupInput{
-		UserID:             rootUserID,
+		UserID:             roles.RootUserID,
 		Username:           rootUsername,
 		PublicKeyArmor:     kp.PublicKey,
 		Fingerprint:        keyMeta.Fingerprint,
@@ -168,7 +168,7 @@ func exportRootIdentity(
 		return "", fmt.Errorf("persist root identity: %w", err)
 	}
 
-	wireKey, err := db.GetPublicKey(context.Background(), rootUserID, keyMeta.Fingerprint)
+	wireKey, err := db.GetPublicKey(context.Background(), roles.RootUserID, keyMeta.Fingerprint)
 	if err != nil || wireKey == nil {
 		return "", fmt.Errorf("load root public key after signup: %w", err)
 	}
@@ -178,7 +178,7 @@ func exportRootIdentity(
 		Timestamp: ts,
 		Origin:    "",
 		LocalStorage: map[string]string{
-			"userId":         rootUserID,
+			"userId":         roles.RootUserID,
 			"keyFingerprint": keyMeta.Fingerprint,
 			"keyPassphrase":  keyPassphrase,
 			"serverId":       serverID,
@@ -224,7 +224,7 @@ func exportRootIdentity(
 		return "", err
 	}
 
-	filename := fmt.Sprintf("syrinx-%s-%d.sxi.gpg", rootUserID, ts)
+	filename := fmt.Sprintf("syrinx-%s-%d.sxi.gpg", roles.RootUserID, ts)
 	outPath := filename
 	if dir := strings.TrimSpace(outDir); dir != "" {
 		outPath = filepath.Join(dir, filename)

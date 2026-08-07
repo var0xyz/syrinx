@@ -28,13 +28,13 @@ Each table below has a **Status** column per step. Values:
 | Recovery feature | In progress | 16 (reed tip check), 17 (device binding)             |
 | Conversations    | In progress | 04–05                                                |
 | Publish ready    | Implemented | —                                                    |
-| Avatars          | Proposed    | 00–05                                                |
+| Avatars          | Deferred    | 00–05                                                |
 | Pipes            | Implemented | —                                                    |
 | Account recovery | Implemented | 01–07 implemented                                    |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Observability    | Implemented | Steps 01–05; see [`observability/README.md`](observability/README.md) |
 | Load testing     | Proposed    | 00–03                                                |
-| Roles            | Proposed    | 00–02                                                |
+| Roles            | In progress | 01 implemented; 02 proposed                          |
 | Federation       | Proposed    | 00–05 (depends on roles)                             |
 
 **Already done:** Invites, Coverage, Deletion, Signature storage, Publish
@@ -130,7 +130,7 @@ admins may invite other admins. Prerequisite for federation operator actions.
 | #  | Title                                      | Status   |
 |----|--------------------------------------------|----------|
 | 00 | Design + locked model                      | Proposed |
-| 01 | `users.role` column + code helpers         | Proposed |
+| 01 | `users.role` column + code helpers         | Implemented |
 | 02 | Admin-only admin invites (create + signup) | Proposed |
 
 ## Federation (explicit peering)

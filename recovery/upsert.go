@@ -9,6 +9,7 @@ import (
 
 	"syrinx/coverage"
 	"syrinx/identity"
+	"syrinx/roles"
 	"syrinx/signing"
 )
 
@@ -149,11 +150,11 @@ func insertUser(ctx context.Context, tx *sql.Tx, profile Profile, activeFP strin
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO users (
-			id, username, created_at, user_fingerprint, bio,
+			id, username, role, created_at, user_fingerprint, bio,
 			user_signature_id, server_signature_id, invited_by
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`,
-		profile.ID, username, profile.MemberSince.UTC().Truncate(time.Second),
+		profile.ID, username, roles.RoleForSignup(profile.ID), profile.MemberSince.UTC().Truncate(time.Second),
 		activeFP, nullIfEmpty(profile.Bio),
 		userSignatureID, serverSignatureID, nullIfEmpty(profileInvitedByID(profile)),
 	)
