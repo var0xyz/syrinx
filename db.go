@@ -41,6 +41,7 @@ type User struct {
 // signed profile.
 type UserInfo struct {
 	ID                   string    `json:"id"`
+	Role                 string    `json:"role"`
 	HasReeds             bool      `json:"hasReeds"`
 	FollowersCount       int       `json:"followersCount"`
 	FollowingCount       int       `json:"followingCount"`
@@ -585,6 +586,8 @@ func InitDB(db *sql.DB) error {
 		claimed_at TIMESTAMPTZ,
 		claimed_by VARCHAR(255) REFERENCES users(id),
 		revoked_at TIMESTAMPTZ,
+		granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
+			CHECK (granted_role IN ('admin', 'user')),
 
 		PRIMARY KEY (created_by, id)
 	);`

@@ -301,6 +301,7 @@ func main() {
 			}
 			return key.Armor, nil
 		},
+		GetUserRole: dataService.GetUserRole,
 		VerifySignature: func(payload, sigArmor, pubKeyArmor string) error {
 			return cryptoService.VerifySignature(payload, sigArmor, pubKeyArmor)
 		},

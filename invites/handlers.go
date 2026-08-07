@@ -12,6 +12,7 @@ import (
 
 	"syrinx/identity"
 	"syrinx/ids"
+	"syrinx/roles"
 
 	"github.com/gorilla/mux"
 )
@@ -40,6 +41,7 @@ type Deps struct {
 	ServerID             string
 	ServerKeyFingerprint string
 	GetPublicKeyArmor    func(ctx context.Context, userID, fingerprint string) (string, error)
+	GetUserRole          func(ctx context.Context, userID string) (string, error)
 	VerifySignature      func(payload, sigArmor, pubKeyArmor string) error
 	Countersign          func(payload []byte, ts time.Time) (ServerSignatureWire, error)
 }
@@ -81,6 +83,7 @@ type createRequest struct {
 	ID            string            `json:"id"`
 	TokenHash     string            `json:"tokenHash"`
 	CreatedAt     time.Time         `json:"createdAt"`
+	GrantedRole   string            `json:"grantedRole"`
 	UserSignature UserSignatureWire `json:"userSignature"`
 }
 
@@ -88,6 +91,7 @@ type createResponse struct {
 	ID              string              `json:"id"`
 	TokenHash       string              `json:"tokenHash"`
 	CreatedAt       time.Time           `json:"createdAt"`
+	GrantedRole     string              `json:"grantedRole"`
 	UserSignature   UserSignatureWire   `json:"userSignature"`
 	ServerSignature ServerSignatureWire `json:"serverSignature"`
 }
@@ -104,7 +108,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, "Signups are closed on this server")
 		return
 	}
-	if d.GetPublicKeyArmor == nil || d.VerifySignature == nil || d.Countersign == nil {
+	if d.GetPublicKeyArmor == nil || d.VerifySignature == nil || d.Countersign == nil || d.GetUserRole == nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
@@ -149,6 +153,26 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	grantedRole := strings.TrimSpace(req.GrantedRole)
+	if grantedRole == "" {
+		grantedRole = roles.RoleUser
+	}
+	if grantedRole != roles.RoleUser && grantedRole != roles.RoleAdmin {
+		writeJSON(w, http.StatusBadRequest, "Invalid grantedRole")
+		return
+	}
+	if grantedRole == roles.RoleAdmin {
+		callerRole, err := d.GetUserRole(r.Context(), caller)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+		if !roles.CanGrantAdmin(callerRole) {
+			writeJSON(w, http.StatusForbidden, "Cannot grant admin role")
+			return
+		}
+	}
+
 	if d.Max != MaxInvitesUnlimited {
 		n, err := d.Store.CountByCreator(r.Context(), caller)
 		if err != nil {
@@ -162,7 +186,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userPayload := identity.BuildInviteUserPayload(
-		d.ServerID, caller, req.ID, tokenHashHex, createdAt,
+		d.ServerID, caller, req.ID, tokenHashHex, grantedRole, createdAt,
 	)
 	userSigArmor, err := base64.StdEncoding.DecodeString(req.UserSignature.Armor)
 	if err != nil {
@@ -183,7 +207,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := d.Store.Insert(r.Context(), req.ID, caller, tokenHash, createdAt); err != nil {
+	if err := d.Store.Insert(r.Context(), req.ID, caller, tokenHash, createdAt, grantedRole); err != nil {
 		if errors.Is(err, ErrInviteExists) {
 			writeJSON(w, http.StatusConflict, "Invite already exists")
 			return
@@ -213,6 +237,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		ID:              req.ID,
 		TokenHash:       tokenHashHex,
 		CreatedAt:       createdAt,
+		GrantedRole:     grantedRole,
 		UserSignature:   req.UserSignature,
 		ServerSignature: serverSig,
 	})

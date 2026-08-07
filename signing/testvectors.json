@@ -66,5 +66,19 @@
     },
     "content": "hello from alice",
     "expected": "---\nfingerprint: ABCDEF\nmemberSince: 2026-01-01T00:00:00Z\nserverID: Server01\nserverKeyFingerprint: 0011FF\nsignedAt: 2026-07-14T12:00:00Z\ntype: identity-server\nuserID: abc123\nuserSignature: dXNlcnNpZ0Jhc2U2NA==\nusername: alice\n---\nhello from alice"
+  },
+  {
+    "name": "invite_user_payload_granted_role_admin",
+    "headers": {
+      "createdAt": "2026-07-25T12:00:00Z",
+      "grantedRole": "admin",
+      "inviteID": "inviteId0001",
+      "serverID": "Server01",
+      "tokenHash": "deadbeef",
+      "type": "invite-user",
+      "userID": "abc123"
+    },
+    "content": "",
+    "expected": "---\ncreatedAt: 2026-07-25T12:00:00Z\ngrantedRole: admin\ninviteID: inviteId0001\nserverID: Server01\ntokenHash: deadbeef\ntype: invite-user\nuserID: abc123\n---\n"
   }
 ]

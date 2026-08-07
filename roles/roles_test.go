@@ -38,6 +38,33 @@ func TestRoleForSignup(t *testing.T) {
 	}
 }
 
+func TestRoleFromInviteGrant(t *testing.T) {
+	if got := RoleFromInviteGrant(RoleAdmin); got != RoleAdmin {
+		t.Fatalf("admin grant = %q", got)
+	}
+	if got := RoleFromInviteGrant(RoleUser); got != RoleUser {
+		t.Fatalf("user grant = %q", got)
+	}
+	if got := RoleFromInviteGrant("root"); got != RoleUser {
+		t.Fatalf("root grant must map to user, got %q", got)
+	}
+}
+
+func TestSignupRole(t *testing.T) {
+	if got := SignupRole(RootUserID, RoleAdmin, true); got != RoleRoot {
+		t.Fatalf("root signup = %q", got)
+	}
+	if got := SignupRole("u2", RoleAdmin, true); got != RoleAdmin {
+		t.Fatalf("admin invite = %q", got)
+	}
+	if got := SignupRole("u2", RoleUser, true); got != RoleUser {
+		t.Fatalf("user invite = %q", got)
+	}
+	if got := SignupRole("u2", RoleAdmin, false); got != RoleUser {
+		t.Fatalf("open signup = %q", got)
+	}
+}
+
 func TestRequireAdmin(t *testing.T) {
 	if err := RequireAdmin(RoleAdmin); err != nil {
 		t.Fatalf("admin: %v", err)

@@ -430,7 +430,7 @@ func TestReedRemovalTamperFails(t *testing.T) {
 
 func TestInviteUserPayloadCanonicalShape(t *testing.T) {
 	createdAt := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
-	got := BuildInviteUserPayload("Server01", "abc123", "inviteId0001", "deadbeef", createdAt)
+	got := BuildInviteUserPayload("Server01", "abc123", "inviteId0001", "deadbeef", "", createdAt)
 	want := "---\n" +
 		"createdAt: 2026-07-25T12:00:00Z\n" +
 		"inviteID: inviteId0001\n" +
@@ -441,6 +441,23 @@ func TestInviteUserPayloadCanonicalShape(t *testing.T) {
 		"---\n"
 	if string(got) != want {
 		t.Errorf("invite-user payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}
+
+func TestInviteUserPayloadGrantedRoleAdmin(t *testing.T) {
+	createdAt := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	got := BuildInviteUserPayload("Server01", "abc123", "inviteId0001", "deadbeef", "admin", createdAt)
+	want := "---\n" +
+		"createdAt: 2026-07-25T12:00:00Z\n" +
+		"grantedRole: admin\n" +
+		"inviteID: inviteId0001\n" +
+		"serverID: Server01\n" +
+		"tokenHash: deadbeef\n" +
+		"type: invite-user\n" +
+		"userID: abc123\n" +
+		"---\n"
+	if string(got) != want {
+		t.Errorf("invite-user admin payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
 

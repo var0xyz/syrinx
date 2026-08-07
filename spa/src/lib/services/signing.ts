@@ -325,7 +325,8 @@ export function buildInviteUserPayload(
   userID: string,
   inviteID: string,
   tokenHash: string,
-  createdAt: string
+  createdAt: string,
+  grantedRole: string = ''
 ): string {
   return stringToSign(
     {
@@ -334,6 +335,7 @@ export function buildInviteUserPayload(
       userID,
       inviteID,
       tokenHash,
+      grantedRole,
       createdAt
     },
     ''

@@ -8,6 +8,7 @@
     refreshPendingInviteStatuses,
     revokeLocalInvite,
   } from '$lib/services/invites';
+  import { apiService } from '$lib/services/api';
   import { invitesRepository } from '$lib/repositories/invites';
   import {
     isSignupClosed,
@@ -27,6 +28,8 @@
   let revokingId: string | null = null;
   let freshShareURL = '';
   let showFreshLink = false;
+  let isAdmin = false;
+  let inviteAsAdmin = false;
 
   $: maxInvites = $serverInfo?.maxInvitesPerUser ?? -1;
   $: usedInvites = invites.length;
@@ -44,6 +47,13 @@
   onMount(async () => {
     user = await authService.getCurrentUser();
     if (!user) return;
+
+    try {
+      const info = await apiService.getUserInfo(user.id);
+      isAdmin = info.role === 'admin' || info.role === 'root';
+    } catch (err) {
+      console.error('[invites] failed to load role hint', err);
+    }
 
     // Show local invites immediately so the toolbar stays mounted.
     invites = await invitesRepository.getAll();
@@ -85,7 +95,7 @@
     if (!canCreate || creating) return;
     creating = true;
     try {
-      const created = await createSignedInvite();
+      const created = await createSignedInvite(inviteAsAdmin);
       if (created.secret) {
         freshShareURL = inviteShareURL(created.id, created.secret);
         showFreshLink = true;
@@ -170,6 +180,13 @@
         <p class="quota">{quotaSummary}</p>
       {/if}
 
+      {#if isAdmin && canCreate && !$isSignupClosed}
+        <label class="admin-invite-toggle">
+          <input type="checkbox" bind:checked={inviteAsAdmin} />
+          Invite as admin
+        </label>
+      {/if}
+
       {#if $isSignupClosed}
         <div class="empty-state">
           <div class="empty-icon">🚫</div>
@@ -193,6 +210,9 @@
                   <span class="badge" data-status={invite.status}
                     >{statusLabel(invite.status)}</span
                   >
+                  {#if invite.grantedRole === 'admin'}
+                    <span class="badge admin-badge">Admin</span>
+                  {/if}
                   {#if refreshingIds.includes(invite.id)}
                     <span
                       class="status-spinner"
@@ -283,6 +303,21 @@
     margin: 0 0 1rem 0;
     color: var(--muted);
     font-size: 0.9rem;
+  }
+
+  .admin-invite-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 1rem 0;
+    font-size: 0.9rem;
+    color: var(--fg);
+    cursor: pointer;
+  }
+
+  .admin-invite-toggle input {
+    width: 1rem;
+    height: 1rem;
   }
 
   .floating-create-btn {
@@ -438,6 +473,11 @@
 
   .badge[data-status='revoked'] {
     color: var(--muted);
+  }
+
+  .admin-badge {
+    color: #8e44ad;
+    background: rgba(142, 68, 173, 0.12);
   }
 
   .meta {
