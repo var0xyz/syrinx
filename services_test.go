@@ -5,7 +5,7 @@ package main
 import (
 	"testing"
 
-	"syrinx/ids"
+	"syrinx/crypto"
 )
 
 func TestMarkdownService_ExtractReedHeader(t *testing.T) {
@@ -564,9 +564,9 @@ Content here`
 func TestGenerateUserID(t *testing.T) {
 	const iterations = 1000
 
-	allowed := make(map[byte]bool, len(ids.Alphabet))
-	for i := 0; i < len(ids.Alphabet); i++ {
-		allowed[ids.Alphabet[i]] = true
+	allowed := make(map[byte]bool, len(crypto.Alphabet))
+	for i := 0; i < len(crypto.Alphabet); i++ {
+		allowed[crypto.Alphabet[i]] = true
 	}
 
 	seen := make(map[string]struct{}, iterations)
@@ -575,8 +575,8 @@ func TestGenerateUserID(t *testing.T) {
 		if err != nil {
 			t.Fatalf("generateUserID() error = %v", err)
 		}
-		if len(id) != ids.Length {
-			t.Fatalf("generateUserID() len = %d, want %d (id=%q)", len(id), ids.Length, id)
+		if len(id) != crypto.Length {
+			t.Fatalf("generateUserID() len = %d, want %d (id=%q)", len(id), crypto.Length, id)
 		}
 		for j := 0; j < len(id); j++ {
 			if !allowed[id[j]] {
@@ -595,8 +595,8 @@ func TestGenerateServerIDLength(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateServerID() error = %v", err)
 	}
-	if len(id) != ids.Length {
-		t.Fatalf("generateServerID() len = %d, want %d", len(id), ids.Length)
+	if len(id) != crypto.Length {
+		t.Fatalf("generateServerID() len = %d, want %d", len(id), crypto.Length)
 	}
 }
 

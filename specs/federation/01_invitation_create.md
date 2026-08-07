@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -10,14 +10,14 @@ Proposed.
 
 ## Context
 
-No federation tables or admin Network UI exist today.
+No federation tables or admin Mesh UI exist today.
 
 ## Scope
 
 - DDL: **`federation_invitation`**
 - Canonical signed bytes for initiator invite payload
 - Encrypt connection payload to remote server public key
-- Admin API + SPA: **Create invite** (Network tab)
+- Admin API + SPA: **Create invite** (Mesh tab)
 - Revoke invites in **`new`**
 - **All admins** list all invites
 
@@ -32,7 +32,8 @@ No federation tables or admin Network UI exist today.
 
 ```sql
 CREATE TABLE federation_invitation (
-    invite_id VARCHAR(255) PRIMARY KEY,
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
     secret_hash BYTEA NOT NULL,
     remote_fingerprint VARCHAR(255) NOT NULL,  -- B's key used for encryption
     created_by VARCHAR(255) NOT NULL REFERENCES users(id),
@@ -40,7 +41,10 @@ CREATE TABLE federation_invitation (
         CHECK (status IN ('new', 'accepted', 'approved', 'revoked')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     accepted_at TIMESTAMP,
-    approved_at TIMESTAMP
+    approved_at TIMESTAMP,
+    reviewed_by VARCHAR(255) REFERENCES users(id),
+    reviewed_at TIMESTAMP,
+    connection_ciphertext TEXT
 );
 ```
 
@@ -49,17 +53,20 @@ CREATE TABLE federation_invitation (
 | **`new`** | Created; awaiting responder `connect` callback |
 | **`accepted`** | Handshake received; **`federation_attempt`** pending approval |
 | **`approved`** | Admin approved the link; **`federation_established`** row exists |
-| **`revoked`** | Cancelled while still **`new`** |
+| **`revoked`** | Cancelled while still **`new`**; **`reviewed_by`** / **`reviewed_at`** set |
 
-Plaintext connection JSON is **not** stored — only shown once at create.
-`secret_hash` = SHA-256 or bcrypt of handshake secret (lock one in impl).
+Armored **connection string** (PGP ciphertext to remote public key) is stored in
+**`connection_ciphertext`** while status is **`new`**, so admins can retrieve it
+from the list. Cleared when the invite is **accepted** (connect handshake) or
+**revoked**.
+`secret_hash` = SHA-256 of handshake secret.
 
 Rows are **never deleted** — audit retention.
 
 ### Initiator signature
 
-Server A signs canonical bytes (new helper in `signing/` or `federation/` —
-**not** `BytesToSign` user envelope):
+Server A signs canonical bytes (`identity.BuildFederationInvitationPayload` —
+**not** user `BytesToSign`):
 
 ```
 inviteId: …
@@ -75,9 +82,14 @@ separate federation helper — do **not** mix into user `BytesToSign`).
 Field **`signature`** in JSON = base64 detached PGP over those bytes with
 **server signing key**.
 
+Plaintext JSON also includes **`publicKeyArmor`** — armored initiator server
+signing public key — so the responder can verify `signature` after decrypt
+without a separate OOB key exchange at accept.
+
 ### Encryption
 
-Input: plaintext JSON + remote server **OpenPGP public key** (paste armor).
+Input: plaintext JSON + remote server **OpenPGP public key** (paste armor at
+create time only).
 
 Output: **connection string** — armored ciphertext (PGP message to public key).
 
@@ -89,34 +101,41 @@ Only Server B can decrypt (private key on B).
 |--------|------|------|---------|
 | `POST` | `/api/federation/invitations` | Admin | Create invite |
 | `GET` | `/api/federation/invitations` | Admin | List **all** invites (any admin) |
-| `POST` | `/api/federation/invitations/{inviteId}/revoke` | Admin | Revoke if **`new`** |
+| `POST` | `/api/federation/invitations/{id}/revoke` | Admin | Revoke if **`new`** |
 
 **POST body:**
 
 ```json
 {
+  "name": "Acme staging",
   "remotePublicKeyArmor": "-----BEGIN PGP PUBLIC KEY BLOCK-----…"
 }
 ```
 
-**201:** `{ "inviteId", "connectionString", "status": "new" }` — show
-`connectionString` once; not retrievable later.
+**`name`** — required admin label to identify the remote party (not included in
+the encrypted connection payload).
 
-**GET list:** every row with `inviteId`, `status`, `createdBy`, `createdAt`,
-timestamps — visible to **any** admin/root (not filtered to caller).
+**201:** `{ "inviteId", "connectionString", "status": "new" }`.
 
-### SPA — Admin → Network → Invites
+**GET list:** every row with `inviteId`, `name`, `status`, `createdBy`, `createdAt`,
+timestamps — visible to **any** admin/root (not filtered to caller). Rows in
+**`new`** with stored ciphertext also include **`connectionString`**. When an
+admin revokes or approves, **`reviewedBy`**, **`reviewedByUsername`**, and
+**`reviewedAt`** identify who acted and when.
 
-- **Create:** textarea for remote server public key → generate connection string
-- **List:** all invites for the instance (creator username shown; all admins
-  see the same list)
-- **Revoke** on rows in **`new`** only
+### SPA — Admin → Mesh → Invites
+
+- **Create:** name + textarea for remote server public key → generate connection string
+- **List:** card per invite (like signup Invites); **name** as title; status badge;
+  copy + revoke on pending rows; **Revoked by** / **Approved by** when reviewed
 
 Only visible to **`admin`/`root`**.
 
 ### Tests
 
-- Create → row `status=new`, `created_by` set
+- Create → row `status=new`, `created_by` set, ciphertext stored
+- List → `connectionString` on **`new`** rows; omitted after accept/revoke
+- Accept (step 02) → ciphertext cleared
 - Any admin can list all invites; user role → 403
 - Revoke → `status=revoked`; connect rejects
 - Non-admin → 403

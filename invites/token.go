@@ -2,14 +2,13 @@ package invites
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
 
-	"syrinx/ids"
+	"syrinx/crypto"
 )
 
 // InviteCreateSkew is how far a client-supplied createdAt may drift from
@@ -20,8 +19,7 @@ const InviteCreateSkew = 5 * time.Minute
 // server stores it. Redeem sends the raw secret; the server hashes and
 // compares. The secret itself never appears on create.
 func HashSecret(secret string) []byte {
-	sum := sha256.Sum256([]byte(secret))
-	return sum[:]
+	return crypto.Hash(secret)
 }
 
 // EncodeHashHex encodes a 32-byte digest as lowercase hex (wire / signed header).
@@ -35,8 +33,8 @@ func DecodeHashHex(s string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(b) != sha256.Size {
-		return nil, fmt.Errorf("hash must be %d bytes", sha256.Size)
+	if len(b) != crypto.HashSize {
+		return nil, fmt.Errorf("hash must be %d bytes", crypto.HashSize)
 	}
 	return b, nil
 }
@@ -52,7 +50,7 @@ func NewSecret() (string, error) {
 
 // NewInviteID returns a random invite id (same alphabet/length as user IDs).
 func NewInviteID() (string, error) {
-	return ids.New()
+	return crypto.NewID()
 }
 
 // Status derives the invite read-model status (revoked wins over claimed).

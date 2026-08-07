@@ -142,7 +142,7 @@ See [`federation/`](federation/README.md). Encrypted admin invite, server
 | #  | Title                                              | Status   |
 |----|----------------------------------------------------|----------|
 | 00 | Design + handshake model                           | Proposed |
-| 01 | Invitation create + `federation_invitation` + UI   | Proposed |
+| 01 | Invitation create + `federation_invitation` + UI   | Implemented |
 | 02 | Connect handshake + `federation_attempt`           | Proposed |
 | 03 | Second-admin approval + `federation_established`   | Proposed |
 | 04 | Runtime verify + foreign ref display               | Proposed |

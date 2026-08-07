@@ -154,7 +154,8 @@ func runExportIdentity(outfile string) error {
 	if err != nil {
 		return err
 	}
-	armored, err := recovery.EncryptSymmetric(raw, password)
+	cryptoSvc := crypto.NewService()
+	armored, err := cryptoSvc.EncryptSymmetric(raw, password)
 	if err != nil {
 		return err
 	}
@@ -196,7 +197,8 @@ func runImportIdentity(infile string) error {
 	if err != nil {
 		return err
 	}
-	plain, err := recovery.DecryptSymmetric(string(armored), password)
+	cryptoSvc := crypto.NewService()
+	plain, err := cryptoSvc.DecryptSymmetric(string(armored), password)
 	if err != nil {
 		return fmt.Errorf("decrypt bundle: %w", err)
 	}
@@ -216,7 +218,6 @@ func runImportIdentity(infile string) error {
 		return fmt.Errorf("resolve server key passphrase: %w", err)
 	}
 
-	cryptoSvc := crypto.NewService()
 	if err := recovery.ValidateDecrypt(bundle, cryptoSvc, passphrase.Value); err != nil {
 		return err
 	}

@@ -319,6 +319,12 @@ func main() {
 		},
 	})
 
+	api.HandleFunc("/federation/invitations", h.CreateFederationInvitation).Methods("POST")
+	api.HandleFunc("/federation/invitations", h.ListFederationInvitations).Methods("GET")
+	api.HandleFunc("/federation/invitations", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/invitations/{id}/revoke", h.RevokeFederationInvitation).Methods("POST")
+	api.HandleFunc("/federation/invitations/{id}/revoke", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/account-recovery/bootstrap", h.BootstrapAccountRecovery).Methods("POST")

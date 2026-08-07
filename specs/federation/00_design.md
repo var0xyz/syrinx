@@ -23,7 +23,7 @@ payloads, a server callback, and **second-admin approval** before
 - End-to-end operator + server flow between **Server A** (initiator) and
   **Server B** (responder).
 - Three bookkeeping tables per instance.
-- Admin **Network** UI subsection (first admin UI in federation track).
+- Admin **Mesh** UI subsection (first admin UI in federation track).
 
 ## Non-goals
 
@@ -46,16 +46,16 @@ payloads, a server callback, and **second-admin approval** before
 
 ### Phase 0 — Exchange public keys (OOB)
 
-Before any in-app action, **Admin A** and **Admin B** exchange each instance’s
-**server signing public key** (OpenPGP armor / fingerprint) through an
-**independent channel** (Signal, in-person, etc.).
+Before creating an invite, **Admin A** needs **Server B’s** server signing
+public key (OpenPGP armor) through an **independent channel** (Signal,
+in-person, etc.).
 
-This is **not** the connection string — only the trust anchor needed to
-encrypt or verify later steps.
+**Server A’s** public key is **not** exchanged OOB — it travels inside the
+encrypted connection string (`publicKeyArmor` in the decrypted payload).
 
 ### Phase 1 — Admin A creates invite (Server A)
 
-**UI:** Admin tab → **Network** → **New connection** → **Create invite**.
+**UI:** Admin tab → **Mesh** → **New connection** → **Create invite**.
 
 1. Prompt for **remote server public key** (B’s key from phase 0).
 2. Server A generates:
@@ -71,10 +71,14 @@ encrypt or verify later steps.
   "serverId": "...",
   "baseUrl": "https://a.example",
   "fingerprint": "...",
+  "publicKeyArmor": "-----BEGIN PGP PUBLIC KEY BLOCK-----…",
   "signature": "...",
   "secret": "..."
 }
 ```
+
+`publicKeyArmor` is the initiator server signing public key so the responder
+can verify `signature` after decrypt — no separate OOB key paste at accept.
 
 4. **Encrypt** JSON to B’s public key → **connection string** (armored/binary
    as locked in 01).
@@ -85,16 +89,16 @@ encrypt or verify later steps.
 
 ### Phase 2 — Admin B accepts invite (Server B)
 
-**UI:** Admin tab → **Network** → **New connection** → **Accept connection
+**UI:** Admin tab → **Mesh** → **New connection** → **Accept connection
 string**.
 
-1. Admin B pastes **connection string** + **initiator public key** (A’s key
-   from phase 0 — used to verify `signature` inside payload).
+1. Admin B pastes **connection string** only.
 2. Server B decrypts with **local server private key** (HSM/keychain — same
    material as server signing key or dedicated federation decrypt key — lock in
    01).
-3. Parse fields; **verify A’s `signature`** over invite bytes with A’s public
-   key.
+3. Parse fields; read **`publicKeyArmor`** from payload; **verify A’s
+   `signature`** over invite bytes with that public key (must match
+   `fingerprint`).
 4. Server B builds **response block** with B’s `serverId`, `baseUrl`,
    `fingerprint`, **`signature`** (B signs canonical response bytes binding
    `inviteId`, B’s identity, and A’s `inviteId`).
@@ -134,7 +138,7 @@ by **secret hash** + **signatures**):
 
 ### Phase 4 — Second-admin approval (both servers)
 
-**UI:** Admin tab → **Network** → **Pending connections**.
+**UI:** Admin tab → **Mesh** → **Pending connections**.
 
 Each server holds a **`federation_attempt`** awaiting approval.
 

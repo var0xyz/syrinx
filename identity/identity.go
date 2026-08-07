@@ -546,3 +546,16 @@ func BuildNewProfilePayload(
 		timestamp, // signedAt
 	)
 }
+
+// BuildFederationInvitationPayload returns the canonical bytes the
+// initiator server signs for a federation invitation (distinct from user
+// identity payloads — do not reuse identity-user/identity-server types).
+func BuildFederationInvitationPayload(inviteID, serverID, baseURL, fingerprint, secret string) []byte {
+	return signing.BytesToSign(map[string]string{
+		"baseUrl":     baseURL,
+		"fingerprint": fingerprint,
+		"inviteId":    inviteID,
+		"secret":      secret,
+		"serverId":    serverID,
+	}, "")
+}

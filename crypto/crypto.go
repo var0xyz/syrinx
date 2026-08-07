@@ -4,6 +4,7 @@ import (
 	"bytes"
 	gocrypto "crypto"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -15,6 +16,15 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 )
+
+// HashSize is the SHA-256 digest length in bytes.
+const HashSize = sha256.Size
+
+// Hash returns the SHA-256 digest of data.
+func Hash(data string) []byte {
+	sum := sha256.Sum256([]byte(data))
+	return sum[:]
+}
 
 // Service implements the Crypto interface
 type Service struct{}
@@ -238,26 +248,136 @@ func (s *Service) Sign(message, privateKey string) (string, error) {
 	return armoredBuf.String(), nil
 }
 
-// EncryptBackup symmetrically encrypts plaintext for SPA identity/full backup
-// files (binary OpenPGP message, compatible with openpgp.js encryptBackup).
-func (s *Service) EncryptBackup(plaintext []byte, password string) ([]byte, error) {
-	if password == "" {
-		return nil, fmt.Errorf("backup password must not be empty")
-	}
-	var out bytes.Buffer
-	config := &packet.Config{}
-	w, err := openpgp.SymmetricallyEncrypt(&out, []byte(password), nil, config)
+// Encrypt encrypts plaintext to an OpenPGP public key (armored PGP message).
+func (s *Service) Encrypt(plaintext []byte, publicKeyArmor string) (string, error) {
+	entity, err := s.ExtractEntity(publicKeyArmor)
 	if err != nil {
-		return nil, fmt.Errorf("encrypt backup: %w", err)
+		return "", err
 	}
-	if _, err := w.Write(plaintext); err != nil {
-		_ = w.Close()
-		return nil, fmt.Errorf("encrypt backup: %w", err)
+
+	var out bytes.Buffer
+	armorWriter, err := armor.Encode(&out, "PGP MESSAGE", nil)
+	if err != nil {
+		return "", fmt.Errorf("armor encode: %w", err)
 	}
-	if err := w.Close(); err != nil {
-		return nil, fmt.Errorf("encrypt backup: %w", err)
+	encrypted, err := openpgp.Encrypt(armorWriter, openpgp.EntityList{entity}, nil, nil, nil)
+	if err != nil {
+		_ = armorWriter.Close()
+		return "", fmt.Errorf("encrypt: %w", err)
 	}
-	return out.Bytes(), nil
+	if _, err := encrypted.Write(plaintext); err != nil {
+		_ = encrypted.Close()
+		_ = armorWriter.Close()
+		return "", fmt.Errorf("encrypt write: %w", err)
+	}
+	if err := encrypted.Close(); err != nil {
+		_ = armorWriter.Close()
+		return "", fmt.Errorf("encrypt close: %w", err)
+	}
+	if err := armorWriter.Close(); err != nil {
+		return "", fmt.Errorf("armor close: %w", err)
+	}
+	return out.String(), nil
+}
+
+// Decrypt decrypts an armored PGP message with the matching private key.
+func (s *Service) Decrypt(ciphertextArmor, privateKeyArmor string) ([]byte, error) {
+	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(privateKeyArmor))
+	if err != nil {
+		return nil, fmt.Errorf("read private key: %w", err)
+	}
+	if len(entities) == 0 {
+		return nil, fmt.Errorf("no private key")
+	}
+
+	block, err := armor.Decode(strings.NewReader(ciphertextArmor))
+	if err != nil {
+		return nil, fmt.Errorf("decode armor: %w", err)
+	}
+
+	md, err := openpgp.ReadMessage(block.Body, openpgp.EntityList{entities[0]}, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("read message: %w", err)
+	}
+
+	plaintext, err := io.ReadAll(md.UnverifiedBody)
+	if err != nil {
+		return nil, fmt.Errorf("read plaintext: %w", err)
+	}
+	return plaintext, nil
+}
+
+// ExtractFingerprintFromArmor returns the primary key fingerprint (hex) from armor.
+func (s *Service) ExtractFingerprintFromArmor(publicKeyArmor string) (string, error) {
+	entity, err := s.ExtractEntity(publicKeyArmor)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(entity.PrimaryKey.Fingerprint), nil
+}
+
+// EncryptSymmetric returns an ASCII-armored OpenPGP message encrypting
+// plaintext with password (gpg -c style). The password is never stored.
+func (s *Service) EncryptSymmetric(plaintext []byte, password string) (string, error) {
+	if password == "" {
+		return "", fmt.Errorf("bundle password must not be empty")
+	}
+
+	var out bytes.Buffer
+	armorWriter, err := armor.Encode(&out, "PGP MESSAGE", nil)
+	if err != nil {
+		return "", fmt.Errorf("armor encode: %w", err)
+	}
+
+	// Non-nil config required: SymmetricallyEncrypt dereferences AEAD() when
+	// deciding cipher suite; a nil *Config panics.
+	config := &packet.Config{}
+	plaintextWriter, err := openpgp.SymmetricallyEncrypt(armorWriter, []byte(password), nil, config)
+	if err != nil {
+		return "", fmt.Errorf("symmetric encrypt: %w", err)
+	}
+	if _, err := plaintextWriter.Write(plaintext); err != nil {
+		_ = plaintextWriter.Close()
+		return "", fmt.Errorf("write plaintext: %w", err)
+	}
+	if err := plaintextWriter.Close(); err != nil {
+		return "", fmt.Errorf("close plaintext: %w", err)
+	}
+	if err := armorWriter.Close(); err != nil {
+		return "", fmt.Errorf("close armor: %w", err)
+	}
+	return out.String(), nil
+}
+
+// DecryptSymmetric decrypts an ASCII-armored OpenPGP message produced by
+// EncryptSymmetric. Wrong passwords fail closed without returning plaintext.
+func (s *Service) DecryptSymmetric(armoredCiphertext, password string) ([]byte, error) {
+	if password == "" {
+		return nil, fmt.Errorf("bundle password must not be empty")
+	}
+
+	block, err := armor.Decode(bytes.NewReader([]byte(armoredCiphertext)))
+	if err != nil {
+		return nil, fmt.Errorf("armor decode: %w", err)
+	}
+
+	tried := false
+	md, err := openpgp.ReadMessage(block.Body, nil, func(_ []openpgp.Key, _ bool) ([]byte, error) {
+		if tried {
+			return nil, fmt.Errorf("wrong password")
+		}
+		tried = true
+		return []byte(password), nil
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt failed")
+	}
+
+	plain, err := io.ReadAll(md.UnverifiedBody)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt failed")
+	}
+	return plain, nil
 }
 
 // VerifySignature verifies a detached signature
