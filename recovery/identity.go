@@ -76,6 +76,10 @@ func (d Deps) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
+	if res.Rejected {
+		writeJSON(w, http.StatusConflict, "Username is already held by a more recently signed identity on this server")
+		return
+	}
 	if res.Created {
 		d.recordUserImported(r.Context(), req.Profile.ID)
 	}
@@ -109,10 +113,16 @@ func (d Deps) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if res, err := SavePeerIdentity(r.Context(), d.DB, req.Profile, keys); err != nil {
+	res, err := SavePeerIdentity(r.Context(), d.DB, req.Profile, keys)
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
-	} else if res.Created {
+	}
+	if res.Rejected {
+		writeJSON(w, http.StatusConflict, "Username is already held by a more recently signed identity on this server")
+		return
+	}
+	if res.Created {
 		d.recordUserImported(r.Context(), req.Profile.ID)
 	}
 

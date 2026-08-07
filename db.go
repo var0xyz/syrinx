@@ -201,7 +201,7 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-		invited_by VARCHAR(255) REFERENCES users(id)
+		invited_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL
 	);`
 
 	createUserIndexes := `
@@ -312,7 +312,7 @@ func InitDB(db *sql.DB) error {
 	// echoed_* is the reed it points at.
 	createReedEchoesTable := `
 	CREATE TABLE IF NOT EXISTS reed_echoes (
-		echoing_user_id VARCHAR(255) NOT NULL REFERENCES users(id),
+		echoing_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		echoing_reed_id VARCHAR(255) NOT NULL,
 		echoed_user_id VARCHAR(255) NOT NULL,
 		echoed_reed_id VARCHAR(255) NOT NULL,
@@ -356,7 +356,7 @@ func InitDB(db *sql.DB) error {
 	createReedRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS reed_removals (
 		reed_id VARCHAR(255) NOT NULL,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id),
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		user_fingerprint VARCHAR(255) NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
@@ -372,7 +372,7 @@ func InitDB(db *sql.DB) error {
 	// removals). note ≤140 enforced by CHECK + API.
 	createAccountRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS account_removals (
-		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id),
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 		note VARCHAR(140) NOT NULL DEFAULT '',
 		user_fingerprint VARCHAR(255) NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
@@ -524,7 +524,7 @@ func InitDB(db *sql.DB) error {
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_account_events (
 		event_id VARCHAR(255) PRIMARY KEY
 			REFERENCES pending_events(event_id) ON DELETE CASCADE,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id)
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE
 	);`
 
 	createProfileSubscriptionsTable := `
@@ -579,12 +579,12 @@ func InitDB(db *sql.DB) error {
 	// clients mint ids; scoping to the issuer prevents cross-user collisions.
 	createInvitesTable := `
 	CREATE TABLE IF NOT EXISTS invites (
-		created_by VARCHAR(255) NOT NULL REFERENCES users(id),
+		created_by VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		id VARCHAR(255) NOT NULL,
 		token_hash BYTEA NOT NULL UNIQUE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		claimed_at TIMESTAMPTZ,
-		claimed_by VARCHAR(255) REFERENCES users(id),
+		claimed_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL,
 		revoked_at TIMESTAMPTZ,
 		granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
 			CHECK (granted_role IN ('admin', 'user')),
@@ -600,11 +600,11 @@ func InitDB(db *sql.DB) error {
 		remote_fingerprint VARCHAR(255) NOT NULL,
 		status VARCHAR(16) NOT NULL DEFAULT 'new'
 			CHECK (status IN ('new', 'accepted', 'approved', 'revoked')),
-		created_by VARCHAR(255) NOT NULL REFERENCES users(id),
+		created_by VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		accepted_at TIMESTAMPTZ,
 		approved_at TIMESTAMPTZ,
-		reviewed_by VARCHAR(255) REFERENCES users(id),
+		reviewed_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL,
 		reviewed_at TIMESTAMPTZ,
 		connection_ciphertext TEXT
 	);`

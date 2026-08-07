@@ -24,13 +24,6 @@ func TestValidateChallengeAge(t *testing.T) {
 	}
 }
 
-func TestCollisionRename(t *testing.T) {
-	got := CollisionRename("alice", "a1b2c3d4e5f6", 4)
-	if got != "alice#a1b2" {
-		t.Fatalf("got %q", got)
-	}
-}
-
 type fakeVerifier struct {
 	failSig       map[string]bool
 	failChallenge map[string]bool
