@@ -615,4 +615,13 @@ export const apiService = {
       method: 'POST',
     });
   },
+
+  /** Authenticated: report a successful local keys-only or full export. */
+  async recordBackup(kind: 'identity' | 'full'): Promise<void> {
+    await request('/users/me/backup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind }),
+    });
+  },
 };

@@ -18,6 +18,7 @@ type OTEL struct {
 	echoesTargeted      metric.Int64Counter
 	reedsRejectedLength metric.Int64Counter
 	keysRevoked         metric.Int64Counter
+	usersBackup         metric.Int64Counter
 	wsMessages          metric.Int64Counter
 	rawChars            metric.Int64Histogram
 	visibleChars        metric.Int64Histogram
@@ -55,6 +56,10 @@ func New(m metric.Meter) *OTEL {
 		panic(err)
 	}
 	r.keysRevoked, err = m.Int64Counter("syrinx.keys.revoked")
+	if err != nil {
+		panic(err)
+	}
+	r.usersBackup, err = m.Int64Counter("syrinx.users.backup")
 	if err != nil {
 		panic(err)
 	}
@@ -136,6 +141,13 @@ func (r *OTEL) ReedRejectedLength(ctx context.Context, rawChars, visibleChars in
 func (r *OTEL) KeyRevoked(ctx context.Context, userID string) {
 	r.keysRevoked.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("user.id", userID),
+	))
+}
+
+func (r *OTEL) UserBackup(ctx context.Context, userID string, kind BackupKind) {
+	r.usersBackup.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("user.id_hash", UserIDHash(userID)),
+		attribute.String("backup.kind", string(kind)),
 	))
 }
 

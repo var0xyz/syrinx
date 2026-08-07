@@ -232,7 +232,9 @@ func main() {
 
 	api.HandleFunc("/users/me", h.UpdateUser).Methods("PUT")
 	api.HandleFunc("/users/me", h.DeleteMe).Methods("DELETE")
+	api.HandleFunc("/users/me/backup", h.RecordBackup).Methods("POST")
 	api.HandleFunc("/users/me", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/users/me/backup", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/users/device", h.BindDevice).Methods("POST")
 	api.HandleFunc("/users/device", h.noop).Methods("OPTIONS")

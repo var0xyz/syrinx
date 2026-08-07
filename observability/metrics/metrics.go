@@ -12,6 +12,14 @@ const (
 	DirectionOut Direction = "out"
 )
 
+// BackupKind classifies a user-initiated export recorded via POST /users/me/backup.
+type BackupKind string
+
+const (
+	BackupKindIdentity BackupKind = "identity" // keys-only .sxi.gpg
+	BackupKindFull     BackupKind = "full"     // full .sxb.gpg
+)
+
 // ReedKind classifies a published reed.
 type ReedKind string
 
@@ -40,6 +48,7 @@ type Recorder interface {
 	EchoTargeted(ctx context.Context, targetAuthorID, targetReedID string)
 	ReedRejectedLength(ctx context.Context, rawChars, visibleChars int)
 	KeyRevoked(ctx context.Context, userID string)
+	UserBackup(ctx context.Context, userID string, kind BackupKind)
 	ReedCoverage(ctx context.Context, authorID, reedID string, holders, coveragePercent int)
 	WSMessage(ctx context.Context, direction Direction, msgType string)
 }
@@ -54,6 +63,7 @@ func (Noop) ReedDeleted(context.Context, string, string)                      {}
 func (Noop) EchoTargeted(context.Context, string, string)                     {}
 func (Noop) ReedRejectedLength(context.Context, int, int)                     {}
 func (Noop) KeyRevoked(context.Context, string)                               {}
+func (Noop) UserBackup(context.Context, string, BackupKind)                   {}
 func (Noop) ReedCoverage(context.Context, string, string, int, int)           {}
 func (Noop) WSMessage(context.Context, Direction, string)                     {}
 

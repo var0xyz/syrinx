@@ -64,7 +64,8 @@ stream as host metrics today.
 | `syrinx.reeds.rejected.length` | Counter | `SignReed` rejected for length limits | `raw.exceeds_max`, `visible.exceeds_max` (bool) |
 | `syrinx.reed.content.raw_chars` | Histogram | Successful publish | `reed.kind`, `author.id`, `reed.id` — value = `len(body)` (JS string length) |
 | `syrinx.reed.content.visible_chars` | Histogram | Successful publish | same — value = `CountMarkdownCharacters(body)` |
-| `syrinx.keys.revoked` | Counter | Successful `RevokeKey` persist | `user.id` |
+| `syrinx.keys.revoked` | Counter | Successful key rotation (`AddPublicKey` after predecessor verified revoked) | `user.id` |
+| `syrinx.users.backup` | Counter | SPA reports a successful local export via `POST /users/me/backup` | `user.id_hash` (SHA-256 hex of `user.id`), `backup.kind` (`identity` \| `full`) |
 | `syrinx.reed.holders` | Histogram | Whenever holder count changes for a reed | `author.id`, `reed.id` — value = `allocation_count` |
 | `syrinx.reed.coverage_percent` | Histogram | Same hook as holders | `author.id`, `reed.id` — value = `coveragePercent` (0–100) |
 | `syrinx.ws.messages` | Counter | Every WS frame handled (see 5.4) | `ws.direction` (`in` \| `out`), `ws.message.type` (normalized type name) |
@@ -104,7 +105,8 @@ Constants today: `MaxReedRawChars = 1400`, `MaxReedVisibleChars = 140`
 | Reed deleted | `Handlers.DeleteReed` after `InsertReedRemoval` succeeds (not replay) | `author.id`, `reed.id` |
 | Echo targeted | `Handlers.SignReed` when `echoIndexed && echoRef != nil` | Target = `echoRef.AuthorID`, `echoRef.ReedID` |
 | Reed rejected (length) | `Handlers.SignReed` before 400 on limit check | Raw + visible counts only |
-| Key revoked | `DataService.RevokeKey` after commit | `user.id` only — no fingerprint |
+| Key revoked | `Handlers.AddPublicKey` after successful rotation | `user.id` only — predecessor must already be revoked |
+| User backup | `Handlers.RecordBackup` after authenticated POST | `user.id_hash`, `backup.kind`; no DB — client queues in IndexedDB `pendingBackups` and retries on startup |
 | Reed holders + coverage | `RealtimeService.notifyReedCoverage` | Read `allocation_count` + percent already computed for WS; record both histograms |
 | Initial coverage at publish | Same hook after author allocation on publish | Ensures every reed gets at least one coverage sample |
 | WS inbound | Start of `handleJSONMessage` / `handleProtobufMessage` | Normalize `msgType` / `pb.MessageType_*` to the same string enum |
@@ -138,7 +140,8 @@ bodies for metrics.
 Allowed on metric attributes:
 
 - Server-scoped **user IDs** and **reed IDs** (opaque identifiers, not
-  usernames).
+  usernames), except where **`user.id_hash`** is used instead (backup
+  telemetry — SHA-256 hex digest of the user id).
 - Structural enums (`reed.kind`, `signup.mode`, `ws.message.type`, booleans,
   small integers).
 - Content **lengths** and **tag counts**, never tag text or body text.
@@ -169,7 +172,9 @@ Example questions this unlocks:
   `target_author_id` / `target_reed_id`.
 - Reply rate: filter `reed_kind = reply`.
 - Deletion rate: `sum(syrinx_reeds_deleted)`, `sum(syrinx_users_deleted)`.
-- Key rotations vs revocations: `sum(syrinx_keys_revoked)` over time.
+- Key rotations completed: `sum(syrinx_keys_revoked)` over time.
+- Backup adoption: `sum(syrinx_users_backup)` by `backup_kind`; group by
+  `user_id_hash` to see repeat exporters without raw user ids.
 - WS health: `sum(syrinx_ws_messages)` by `ws_direction`, `ws_message_type`.
 - Reed reach: `syrinx_reed_holders` / `syrinx_reed_coverage_percent` for a
   given `reed_id` + `author_id`.
@@ -209,7 +214,7 @@ Querying the bare instrument name returns no data.
 6. Delete reed → `syrinx.reeds.deleted`; replay with same signature → no
    second increment.
 7. Delete account → `syrinx.users.deleted`; replay → no second increment.
-8. Revoke key → `syrinx.keys.revoked`.
+8. Rotate key → `syrinx.keys.revoked`; export backup → `syrinx.users.backup` with `user.id_hash`.
 9. Connect WS client; send `REQUEST_REED` → inbound counter; observe outbound
    counters for server responses.
 10. `DATA_ACK` from a second user → holder histogram increases for that reed.
