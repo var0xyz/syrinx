@@ -70,7 +70,7 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
     id,
     tokenHash,
     createdAt,
-    grantedRole === 'admin' ? 'admin' : ''
+    grantedRole
   );
   const sigArmor = await cryptoService.signMessage(
     userPayload,
@@ -86,7 +86,7 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
     id,
     tokenHash,
     createdAt,
-    grantedRole: grantAdmin ? 'admin' : undefined,
+    grantedRole,
     userSignature,
   });
 

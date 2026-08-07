@@ -446,9 +446,8 @@ func inviteUserHeaders(serverID, userID, inviteID, tokenHash, grantedRole string
 }
 
 // BuildInviteUserPayload returns the bytes the issuer signs over invite id,
-// createdAt, tokenHash (SHA-256 of the fragment secret), and optional
-// grantedRole (admin | user; omitted when user). The secret itself is never
-// signed or sent on create.
+// createdAt, tokenHash (SHA-256 of the fragment secret), and grantedRole
+// (user | admin). The secret itself is never signed or sent on create.
 func BuildInviteUserPayload(serverID, userID, inviteID, tokenHash, grantedRole string, createdAt time.Time) []byte {
 	return signing.BytesToSign(
 		inviteUserHeaders(serverID, userID, inviteID, tokenHash, grantedRole, createdAt),

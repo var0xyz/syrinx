@@ -96,8 +96,9 @@ On invite create screen ([`invites/05`](../invites/05_spa_invite_management.md))
 
 - If current user is admin (server returns role on `/users/{id}/info` or
   session hint — **unsigned hint OK** for UI gating only; server enforces):
-  show **“Invite as admin”** checkbox.
-- Include `grantedRole` in create body and client-signed payload when checked.
+  **Create invite** opens a modal to choose User vs Admin (defaults to User).
+- Include `grantedRole` in create body and client-signed payload when Admin
+  is selected.
 
 Server remains authoritative; tampering without admin role → 403.
 
