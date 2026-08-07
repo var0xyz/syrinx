@@ -67,6 +67,15 @@ func main() {
 		l.Panicf("[ERR] invalid MAX_INVITES_PER_USER %d: must be >= 1, or -1 for unlimited", cfg.MaxInvitesPerUser)
 	}
 
+	// RECOVERY_MODE always wins: Signup and CheckUsername refuse all
+	// requests while it's on, regardless of SIGNUP_MODE, to stop username
+	// sniping against not-yet-reclaimed identities. A non-closed SIGNUP_MODE
+	// is therefore inert here — warn so the operator doesn't mistake it for
+	// "signups are open" and gets surprised once recovery ends.
+	if cfg.RecoveryMode && invites.SignupMode(cfg.SignupMode) != invites.ModeClosed {
+		l.Printf("[WARN] RECOVERY_MODE is on with SIGNUP_MODE=%q: signups are blocked entirely until recovery mode is turned off, regardless of SIGNUP_MODE", cfg.SignupMode)
+	}
+
 	// ServerName cannot be empty. There's no max though, but please be
 	// reasonable. Consider something short and unique.
 	if len(cfg.ServerName) == 0 {

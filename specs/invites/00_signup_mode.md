@@ -95,9 +95,15 @@ type ServerInfo struct {
 
 Early in `Handlers.Signup` and `Handlers.CheckUsername`, before form parsing
 heavy work is fine either before or after parse — prefer **before** crypto /
-DB work:
+DB work. `RecoveryMode` is checked first and unconditionally, ahead of the
+`SignupMode` gate — see `specs/recovery/README.md` for why (username sniping
+against not-yet-reclaimed identities):
 
 ```go
+if h.cfg.RecoveryMode {
+	writeResponse(w, http.StatusForbidden, "Signups are closed while this server is in recovery mode")
+	return
+}
 if h.cfg.SignupMode == invites.ModeClosed {
 	writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
 	return

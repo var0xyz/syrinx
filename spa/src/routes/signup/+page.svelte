@@ -11,6 +11,7 @@
   import { requestSigner } from "$lib/services/request-signer";
   import { serverConnection } from "$lib/services/serverConnection";
   import {
+    isRecoveryMode,
     isSignupClosed,
     serverInfoLoading,
     signupMode,
@@ -69,7 +70,7 @@
     await waitForInfo();
     gateReady = true;
 
-    if (get(isSignupClosed)) {
+    if (get(isRecoveryMode) || get(isSignupClosed)) {
       return;
     }
 
@@ -107,6 +108,9 @@
 
   function friendlySignupError(raw) {
     const msg = typeof raw === "string" ? raw : "";
+    if (msg.includes("recovery mode")) {
+      return "This server is rebuilding and is not accepting new signups.";
+    }
     if (msg.includes("Signups are closed")) {
       return "This server is not accepting new signups.";
     }
@@ -253,6 +257,12 @@
 
     {#if !gateReady || $serverInfoLoading || inviteChecking}
       <p class="gate-message">Checking signup availability…</p>
+    {:else if $isRecoveryMode}
+      <p class="gate-message">
+        This server is rebuilding and is not accepting new signups. Restore
+        from an encrypted backup instead.
+      </p>
+      <a href="/" class="back-link">Back to home</a>
     {:else if $isSignupClosed}
       <p class="gate-message">
         This server is not accepting new signups.

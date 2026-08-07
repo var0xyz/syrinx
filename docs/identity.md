@@ -16,7 +16,9 @@ Operators set `SIGNUP_MODE`:
 | `invite` | Valid invite required                 |
 | `closed` | Signup and username checks return 403 |
 
-`MAX_INVITES_PER_USER` caps how many invites a user may mint (`-1` / unset = infinite). `/api/server/info` exposes mode and quota so the SPA can hide Sign Up and disable minting without guessing.
+`SIGNUP_MODE` is overridden whenever **`RECOVERY_MODE`** is on: signup and username checks always return 403, no matter the mode, and the SPA hides the Sign Up CTA and refuses to render the signup form (even via a direct invite link). This closes a username-sniping window — while the server is rebuilding its users table, a live signup could otherwise grab a name a returning peer hasn't reclaimed yet. Booting with `RECOVERY_MODE` on and a non-`closed` `SIGNUP_MODE` logs a startup warning since the mode is inert until recovery ends.
+
+`MAX_INVITES_PER_USER` caps how many invites a user may mint (`-1` / unset = infinite). `/api/server/info` exposes mode, recovery state, and quota so the SPA can hide Sign Up and disable minting without guessing.
 
 ### Signup
 

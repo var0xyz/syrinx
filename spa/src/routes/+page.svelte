@@ -77,7 +77,7 @@
 
     <div class="action-buttons">
       <a href="/import" class="btn btn-primary">Already a user</a>
-      {#if !$serverInfoLoading && $isSignupOpen}
+      {#if !$serverInfoLoading && $isSignupOpen && !$isRecoveryMode}
         <a href="/preamble" class="btn btn-secondary">Sign Up</a>
       {/if}
     </div>

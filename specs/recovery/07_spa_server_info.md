@@ -24,10 +24,13 @@ compromised Syrinx server looks “online” until writes pile up in pending sto
   caches the result (`id`, `name`, `recoveryMode`, `signupMode`, …), and exposes
   it to the UI (writable store / subscribe).
 - Persist `serverId` in `localStorage` when info is fetched (same as today).
-- Landing page: show “Sign Up” **only** when `signupMode === "open"`. Hide the
-  button while info is loading (no flicker). `recoveryMode` does **not** affect
-  signup visibility — operators who want closed signup during recovery set
-  `SIGNUP_MODE=closed` themselves.
+- Landing page: show “Sign Up” **only** when `signupMode === "open"` **and**
+  `recoveryMode === false`. Hide the button while info is loading (no
+  flicker). `recoveryMode` overrides `signupMode`: while the server is
+  recovering, the users table may be sparse pending peers reporting back, so
+  a live signup could snipe a not-yet-reclaimed username — signup is blocked
+  outright, regardless of `SIGNUP_MODE`. See
+  [invites/README mode matrix](../invites/README.md#mode-matrix).
 - Server-unreachable banner: when `navigator.onLine` is true but
   `GET /api/server/info` fails (network error, non-2xx, timeout), show a persistent
   notice distinct from the offline banner (e.g. “Cannot reach this server”).
@@ -55,9 +58,10 @@ Do not block the unified restore CTA (“Already a user” / backup restore —
 
 ## Test plan
 
-- [ ] `signupMode: "open"` → Sign Up visible after info loads
+- [ ] `signupMode: "open"`, `recoveryMode: false` → Sign Up visible after info loads
 - [ ] `signupMode: "closed"` → Sign Up hidden; no flash while loading
-- [ ] `recoveryMode: true` with `signupMode: "open"` → Sign Up still visible
+- [ ] `recoveryMode: true` with `signupMode: "open"` → Sign Up hidden; `/preamble`
+      and `/signup` refuse to render the form, even via a direct invite link
 - [ ] Device online, server down → unreachable banner shown
 - [ ] Device offline → existing offline banner only (not both claiming “server”)
 - [ ] Info fetch succeeds again → unreachable banner clears

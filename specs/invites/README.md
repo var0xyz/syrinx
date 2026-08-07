@@ -114,7 +114,18 @@ Parse rules (fatal at boot on violation):
 | `invite` | Hidden | Valid unused invite required | Valid unused invite required | Allowed (quota) | Allowed without invite |
 | `closed` | Hidden | 403 | 403 | 403 on **create** (status/revoke still ok) | No |
 
-Import / backup restore is **not** signup and remains allowed in all modes.
+This matrix applies only when `RECOVERY_MODE=false`. **`RECOVERY_MODE=true`
+overrides every row of the `SIGNUP_MODE` column**: Home “Sign Up” is hidden,
+`POST /users/signup` and `POST /check-username` always 403 (`"Signups are
+closed while this server is in recovery mode"`), no matter what `SIGNUP_MODE`
+is set to. This prevents username sniping against identities that peers
+haven't yet reclaimed. Booting with `RECOVERY_MODE=true` and a non-`closed`
+`SIGNUP_MODE` logs a `[WARN]` at startup since the mode setting is inert
+until recovery ends. `POST /api/invites` (create/status/revoke) is unaffected
+by recovery mode. See [recovery/README](../recovery/README.md#recovery-flow).
+
+Import / backup restore is **not** signup and remains allowed in all modes,
+including during recovery.
 
 ## Invite model
 

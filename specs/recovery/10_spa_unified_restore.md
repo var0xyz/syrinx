@@ -34,7 +34,8 @@ The user must not be asked to choose “import” vs “recover”.
   import flow at `/import` — available whether or not `recoveryMode` is on.
 - When `recoveryMode` is on, keep a short informational banner that this server
   is rebuilding; do not imply data is already on this device.
-- Signup visibility still follows `signupMode` only ([07](07_spa_server_info.md)).
+- Signup visibility follows `signupMode`, gated by `recoveryMode` ([07](07_spa_server_info.md)):
+  hidden outright whenever `recoveryMode` is on, regardless of `signupMode`.
 - On load, resume an interrupted restore: mid-import → `/import`; import done
   but recovery pending → `/recovery`.
 

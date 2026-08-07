@@ -20,6 +20,11 @@ import (
 
 func newInviteModeHandlers(t *testing.T, db *sql.DB) *Handlers {
 	t.Helper()
+	return newSignupGateHandlers(t, db, AppConfig{ServerName: "test", SignupMode: "invite"})
+}
+
+func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
+	t.Helper()
 	dataService := NewDataService(db, "test")
 	if err := dataService.InitServer(context.Background(), false); err != nil {
 		t.Fatal(err)
@@ -35,9 +40,12 @@ func newInviteModeHandlers(t *testing.T, db *sql.DB) *Handlers {
 		log:    NewLoggingService(),
 		md:     NewMarkdownService(),
 	}
+	if cfg.ServerName == "" {
+		cfg.ServerName = "test"
+	}
 	return NewHandlers(
 		services,
-		AppConfig{ServerName: "test", SignupMode: "invite"},
+		cfg,
 		make(chan realtime.BroadcastMessage, 1),
 		Key{Fingerprint: serverKP.Fingerprint, Armor: serverKP.PrivateKey},
 	)
@@ -49,6 +57,15 @@ func postCheckUsername(t *testing.T, h *Handlers, form url.Values) *httptest.Res
 	req := httptest.NewRequest(http.MethodPost, "/api/check-username", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.CheckUsername(rr, req)
+	return rr
+}
+
+func postSignup(t *testing.T, h *Handlers, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/signup", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.Signup(rr, req)
 	return rr
 }
 
@@ -105,5 +122,37 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 	})
 	if rrOk.Code != http.StatusOK {
 		t.Fatalf("valid invite: status=%d body=%s", rrOk.Code, rrOk.Body.String())
+	}
+}
+
+// TestCheckUsername_RecoveryModeBlocksEvenWhenOpen guards against username
+// sniping: while RECOVERY_MODE is on, the users table may be sparse or
+// empty pending peers reporting their evidence back, so nobody may claim a
+// username at all — regardless of how permissive SIGNUP_MODE is.
+func TestCheckUsername_RecoveryModeBlocksEvenWhenOpen(t *testing.T) {
+	db := openSignupTestDB(t)
+	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test", SignupMode: "open", RecoveryMode: true})
+
+	rr := postCheckUsername(t, h, url.Values{"username": {"bob"}})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("recovery mode: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "recovery mode") {
+		t.Fatalf("body=%q", rr.Body.String())
+	}
+}
+
+// TestSignup_RecoveryModeBlocksEvenWhenOpen mirrors the CheckUsername case
+// for the actual signup endpoint.
+func TestSignup_RecoveryModeBlocksEvenWhenOpen(t *testing.T) {
+	db := openSignupTestDB(t)
+	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test", SignupMode: "open", RecoveryMode: true})
+
+	rr := postSignup(t, h, url.Values{"username": {"bob"}})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("recovery mode: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "recovery mode") {
+		t.Fatalf("body=%q", rr.Body.String())
 	}
 }

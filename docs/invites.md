@@ -14,6 +14,8 @@ Operators set `SIGNUP_MODE`:
 | `invite` | No (home CTA hidden)   | Required |
 | `closed` | No                     | No new signups |
 
+This table assumes the server is not in `RECOVERY_MODE`. **`RECOVERY_MODE` overrides every row above**: no new signups and no invite redemption at signup time, regardless of `SIGNUP_MODE`, until recovery ends — see [Identity, invites & recovery](/identity).
+
 `MAX_INVITES_PER_USER` limits how many invites each user may create over the lifetime of their account (used and revoked invites count toward the cap). `/api/server/info` exposes the mode and quota so the client can show the right buttons without guessing.
 
 The **first account** on a fresh instance is created while the server is in `open` mode; the operator then switches to `invite` or `closed`.
@@ -132,7 +134,7 @@ Invite redeem tokens are not canonical signed envelopes like reeds or removal ce
 
 ## In the UI
 
-- Home **Sign Up** — visible only when `signupMode` is `open`.
+- Home **Sign Up** — visible only when `signupMode` is `open` **and** the server is not in `RECOVERY_MODE`.
 - Invite link — `/signup?iid={id}&uid={creatorId}#{secret}`.
 - Toolbar **Invites** — always visible; create disabled when mode is `closed` or quota is exhausted.
 - Profile **Invited by** — shown when `invitedBy` is set (signed binding is the inviter’s user id; username is joined at read time).
