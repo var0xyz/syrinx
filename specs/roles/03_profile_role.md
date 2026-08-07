@@ -29,7 +29,7 @@ not verify who assigned a tier; recovery rebuilt every account as `user`
 
 - Promote/demote after signup (role is immutable; re-bind on profile update
   from the existing row).
-- Removing `role` from `/users/{id}/info` (kept as a lightweight cache hint).
+- Removing `role` from `/users/{id}/info` — role is profile-only.
 
 ## Design
 
@@ -47,8 +47,9 @@ profile countersignature. Open signup → `user`; root mint → `root`.
 
 ### Wire
 
-`User.role` on profile responses. Verifiers rebuild the server payload with
-`user.role` when checking `serverSignature`.
+`User.role` on profile responses only (`GET /users/{id}/profile`). Verifiers
+rebuild the server payload with `user.role` when checking `serverSignature`.
+`/users/{id}/info` does not include role.
 
 ### Recovery
 

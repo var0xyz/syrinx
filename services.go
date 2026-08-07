@@ -643,7 +643,6 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT u.id,
-		       u.role,
 		       u.user_fingerprint,
 		       ss.signed_at,
 		       EXISTS (
@@ -660,7 +659,6 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 		WHERE u.id = $1
 	`, userID).Scan(
 		&info.ID,
-		&info.Role,
 		&activeFP,
 		&info.ProfileTimestamp,
 		&info.HasReeds,

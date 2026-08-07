@@ -42,7 +42,6 @@ type User struct {
 // signed profile.
 type UserInfo struct {
 	ID                   string    `json:"id"`
-	Role                 string    `json:"role"`
 	HasReeds             bool      `json:"hasReeds"`
 	FollowersCount       int       `json:"followersCount"`
 	FollowingCount       int       `json:"followingCount"`

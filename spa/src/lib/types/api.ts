@@ -42,8 +42,6 @@ export interface UserInfo extends Base {
   followersCount: number;
   followingCount: number;
   activeKeyFingerprint: string;
-  /** Cached role hint (same value as signed profile.role). */
-  role: 'root' | 'admin' | 'user';
   /** Same instant as the user's profile serverSignature.timestamp. */
   profileTimestamp: string;
 }
