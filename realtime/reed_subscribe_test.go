@@ -7,18 +7,19 @@ func TestReedSubscriptionBookkeeping(t *testing.T) {
 	client := NewClient(nil, "viewer")
 
 	cm.SubscribeReed(client, "author", "reed1")
-	if !client.reedSubscriptions["author/reed1"] {
+	key := makeReedKey("author", "reed1")
+	if _, ok := client.reedSubscriptions[key]; !ok {
 		t.Fatal("expected client reed subscription")
 	}
-	if len(cm.reedSubscribers["author/reed1"]) != 1 {
+	if len(cm.reedSubscribers[key]) != 1 {
 		t.Fatal("expected one reed subscriber")
 	}
 
 	cm.UnsubscribeReed(client, "author", "reed1")
-	if client.reedSubscriptions["author/reed1"] {
+	if _, ok := client.reedSubscriptions[key]; ok {
 		t.Fatal("expected client reed subscription cleared")
 	}
-	if _, ok := cm.reedSubscribers["author/reed1"]; ok {
+	if _, ok := cm.reedSubscribers[key]; ok {
 		t.Fatal("expected reed subscriber map entry removed")
 	}
 }

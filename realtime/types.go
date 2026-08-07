@@ -19,13 +19,33 @@ const (
 	ReplyCountChanged // UserID/ReedID = ancestor reed; refresh REED_REPLIES subtree count for subscribers
 )
 
-// BroadcastMessage represents a message sent from the main app to the realtime service
+// BroadcastMessage represents a message sent from the main app to the realtime service.
+// Only the payload field matching Type is set.
 type BroadcastMessage struct {
 	Type     BroadcastType
 	ServerID string
 	UserID   string
 	ReedID   string
-	Data     map[string]interface{}
+
+	ReedRemoval    *ReedRemovalWire
+	AccountRemoval *AccountRemovalWire
+	UserUpdate     *UserUpdateBroadcast
+}
+
+// ReedKey identifies a reed-scoped subscription.
+type ReedKey struct {
+	AuthorUserID string
+	ReedID       string
+}
+
+func makeReedKey(authorUserID, reedID string) ReedKey {
+	return ReedKey{AuthorUserID: authorUserID, ReedID: reedID}
+}
+
+// clientSubscriptionFlags tracks protobuf/legacy JSON subscription toggles.
+type clientSubscriptionFlags struct {
+	user      bool
+	broadcast bool
 }
 
 // SubscriptionType represents the type of subscription
@@ -42,9 +62,9 @@ const (
 type Client struct {
 	conn              *websocket.Conn
 	userID            string
-	subscriptions     map[SubscriptionType]bool
-	reedSubscriptions map[string]bool
-	pipeSubscriptions map[string]bool // normalized tag → subscribed
+	subscriptions     clientSubscriptionFlags
+	reedSubscriptions map[ReedKey]struct{}
+	pipeSubscriptions map[string]struct{} // normalized tag → subscribed
 	lastPing          time.Time
 	writeMu           sync.Mutex
 	wsRecordOutbound  func(messageType int, data []byte)
@@ -53,10 +73,8 @@ type Client struct {
 // ConnectionManager manages WebSocket connections and subscriptions
 type ConnectionManager struct {
 	userConnections map[string]map[*websocket.Conn]*Client
-	// Map of authorID/reedID -> subscribed clients
-	reedSubscribers map[string]map[*Client]bool
-	// Map of normalized tag -> subscribed clients
-	pipeSubscribers map[string]map[*Client]bool
+	reedSubscribers map[ReedKey]map[*Client]struct{}
+	pipeSubscribers map[string]map[*Client]struct{}
 	mutex           sync.RWMutex
 }
 
@@ -85,24 +103,40 @@ func NewClient(conn *websocket.Conn, userID string) *Client {
 	return &Client{
 		conn:              conn,
 		userID:            userID,
-		subscriptions:     make(map[SubscriptionType]bool),
-		reedSubscriptions: make(map[string]bool),
-		pipeSubscriptions: make(map[string]bool),
+		reedSubscriptions: make(map[ReedKey]struct{}),
+		pipeSubscriptions: make(map[string]struct{}),
 		lastPing:          time.Now(),
 	}
 }
 
 // IsSubscribed checks if a client is subscribed to a specific type
 func (c *Client) IsSubscribed(subType SubscriptionType) bool {
-	return c.subscriptions[subType]
+	switch subType {
+	case SubscribeUser:
+		return c.subscriptions.user
+	case SubscribeBroadcast:
+		return c.subscriptions.broadcast
+	default:
+		return false
+	}
 }
 
 // Subscribe adds a subscription for the client
 func (c *Client) Subscribe(subType SubscriptionType) {
-	c.subscriptions[subType] = true
+	switch subType {
+	case SubscribeUser:
+		c.subscriptions.user = true
+	case SubscribeBroadcast:
+		c.subscriptions.broadcast = true
+	}
 }
 
 // Unsubscribe removes a subscription for the client
 func (c *Client) Unsubscribe(subType SubscriptionType) {
-	c.subscriptions[subType] = false
+	switch subType {
+	case SubscribeUser:
+		c.subscriptions.user = false
+	case SubscribeBroadcast:
+		c.subscriptions.broadcast = false
+	}
 }

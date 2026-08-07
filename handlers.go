@@ -853,13 +853,12 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	wire := realtime.NewAccountRemovalWire(serverID, &cert)
 	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:     realtime.AccountRemoved,
-		ServerID: serverID,
-		UserID:   userID,
-		Data: map[string]interface{}{
-			"cert": h.accountRemovalWire(&cert),
-		},
+		Type:           realtime.AccountRemoved,
+		ServerID:       serverID,
+		UserID:         userID,
+		AccountRemoval: &wire,
 	}
 
 	log.Info().Str("userID", userID).Msg("Account removal accepted")
@@ -1133,10 +1132,10 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	h.broadcastChan <- realtime.BroadcastMessage{
 		Type:   realtime.UserUpdate,
 		UserID: userID,
-		Data: map[string]interface{}{
-			"username":  updated.Username,
-			"avatarURL": updated.AvatarURL,
-			"bio":       updated.Bio,
+		UserUpdate: &realtime.UserUpdateBroadcast{
+			Username:  updated.Username,
+			AvatarURL: updated.AvatarURL,
+			Bio:       updated.Bio,
 		},
 	}
 
@@ -1951,14 +1950,13 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 	// Keep the reeds row for allocation catch-up (04): reed_allocations FK
 	// cascades on reed delete. Tip/list already exclude reed_removals.
+	wire := realtime.NewReedRemovalWire(serverID, &cert)
 	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:     realtime.ReedRemoved,
-		ServerID: serverID,
-		UserID:   userID,
-		ReedID:   reedID,
-		Data: map[string]interface{}{
-			"cert": h.reedRemovalWire(&cert),
-		},
+		Type:        realtime.ReedRemoved,
+		ServerID:    serverID,
+		UserID:      userID,
+		ReedID:      reedID,
+		ReedRemoval: &wire,
 	}
 
 	log.Info().Str("userID", userID).Str("reedID", reedID).Msg("Reed removal accepted")

@@ -7,7 +7,6 @@ import (
 
 	"syrinx/coverage"
 	"syrinx/deletion"
-	"syrinx/identity"
 
 	"github.com/lib/pq"
 	"github.com/rs/zerolog/log"
@@ -958,7 +957,7 @@ func (ds *DBService) GetBroadcastSubscribers(ctx context.Context, authorID strin
 type MissingRemoval struct {
 	ReedID string
 	UserID string
-	Cert   map[string]interface{}
+	Cert   ReedRemovalWire
 }
 
 // GetMissingRemovals returns removal certs for reeds this user still holds.
@@ -993,23 +992,23 @@ func (ds *DBService) GetMissingRemovals(ctx context.Context, userID string) ([]M
 		out = append(out, MissingRemoval{
 			ReedID: reedID,
 			UserID: authorID,
-			Cert:   reedRemovalWireMap(serverID, cert),
+			Cert:   NewReedRemovalWire(serverID, cert),
 		})
 	}
 	return out, rows.Err()
 }
 
-// GetReedRemovalWire loads a removal cert as a wire-shaped map for WS delivery.
-func (ds *DBService) GetReedRemovalWire(ctx context.Context, authorID, reedID string) (map[string]interface{}, error) {
+// GetReedRemovalWire loads a removal cert for WS delivery.
+func (ds *DBService) GetReedRemovalWire(ctx context.Context, authorID, reedID string) (ReedRemovalWire, error) {
 	cert, err := deletion.GetCert(ctx, ds.db, authorID, reedID)
 	if err != nil || cert == nil {
-		return nil, err
+		return ReedRemovalWire{}, err
 	}
 	serverID, err := ds.serverID(ctx)
 	if err != nil {
-		return nil, err
+		return ReedRemovalWire{}, err
 	}
-	return reedRemovalWireMap(serverID, cert), nil
+	return NewReedRemovalWire(serverID, cert), nil
 }
 
 func (ds *DBService) serverID(ctx context.Context, ) (string, error) {
@@ -1018,30 +1017,11 @@ func (ds *DBService) serverID(ctx context.Context, ) (string, error) {
 	return id, err
 }
 
-func reedRemovalWireMap(serverID string, cert *deletion.Cert) map[string]interface{} {
-	return map[string]interface{}{
-		"type":     identity.TypeReed,
-		"serverID": serverID,
-		"userID":   cert.UserID,
-		"reedID":   cert.ReedID,
-		"userSignature": map[string]interface{}{
-			"fingerprint": cert.UserFingerprint,
-			"armor":       cert.UserSignature,
-		},
-		"serverSignature": map[string]interface{}{
-			"serverID":    serverID,
-			"fingerprint": cert.ServerFingerprint,
-			"armor":       cert.ServerSignature,
-			"timestamp":   cert.ServerSignedAt.UTC(),
-		},
-	}
-}
-
 // MissingAccountRemoval is a catch-up row: viewer still follows or holds
 // allocations for a removed author's reeds.
 type MissingAccountRemoval struct {
 	UserID string
-	Cert   map[string]interface{}
+	Cert   AccountRemovalWire
 }
 
 // GetMissingAccountRemovals returns account_removals that still apply to viewer
@@ -1079,42 +1059,23 @@ func (ds *DBService) GetMissingAccountRemovals(ctx context.Context, viewerUserID
 		}
 		out = append(out, MissingAccountRemoval{
 			UserID: removedUserID,
-			Cert:   accountRemovalWireMap(serverID, cert),
+			Cert:   NewAccountRemovalWire(serverID, cert),
 		})
 	}
 	return out, rows.Err()
 }
 
-// GetAccountRemovalWire loads an account-removal cert as a wire-shaped map.
-func (ds *DBService) GetAccountRemovalWire(ctx context.Context, userID string) (map[string]interface{}, error) {
+// GetAccountRemovalWire loads an account-removal cert for WS delivery.
+func (ds *DBService) GetAccountRemovalWire(ctx context.Context, userID string) (AccountRemovalWire, error) {
 	cert, err := deletion.GetAccountCert(ctx, ds.db, userID)
 	if err != nil || cert == nil {
-		return nil, err
+		return AccountRemovalWire{}, err
 	}
 	serverID, err := ds.serverID(ctx)
 	if err != nil {
-		return nil, err
+		return AccountRemovalWire{}, err
 	}
-	return accountRemovalWireMap(serverID, cert), nil
-}
-
-func accountRemovalWireMap(serverID string, cert *deletion.AccountCert) map[string]interface{} {
-	return map[string]interface{}{
-		"type":     identity.TypeAccount,
-		"serverID": serverID,
-		"userID":   cert.UserID,
-		"note":     cert.Note,
-		"userSignature": map[string]interface{}{
-			"fingerprint": cert.UserFingerprint,
-			"armor":       cert.UserSignature,
-		},
-		"serverSignature": map[string]interface{}{
-			"serverID":    serverID,
-			"fingerprint": cert.ServerFingerprint,
-			"armor":       cert.ServerSignature,
-			"timestamp":   cert.ServerSignedAt.UTC(),
-		},
-	}
+	return NewAccountRemovalWire(serverID, cert), nil
 }
 
 // ClearPeerStateForRemovedAccount drops follow edges and allocations so

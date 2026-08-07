@@ -1,5 +1,7 @@
 package realtime
 
+import "encoding/json"
+
 // EventName identifies the reason a pending relay event was created.
 type EventName string
 
@@ -51,20 +53,20 @@ type DataResponseMsg struct {
 }
 
 type DataResponseData struct {
-	EventID   string      `json:"event_id,omitempty"`
-	RequestID string      `json:"request_id,omitempty"`
-	ReedID    string      `json:"reed_id,omitempty"`
-	UserID    string      `json:"user_id,omitempty"`
-	Data      interface{} `json:"data"`
-	Username  string      `json:"username,omitempty"`
+	EventID   string          `json:"event_id,omitempty"`
+	RequestID string          `json:"request_id,omitempty"`
+	ReedID    string          `json:"reed_id,omitempty"`
+	UserID    string          `json:"user_id,omitempty"`
+	Data      json.RawMessage `json:"data"`
+	Username  string          `json:"username,omitempty"`
 }
 
-func NewDataResponseMsg(eventID, requestID, reedID string, data interface{}) DataResponseMsg {
+func NewDataResponseMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
 	return DataResponseMsg{Type: "DATA_RESPONSE", Data: DataResponseData{EventID: eventID, RequestID: requestID, ReedID: reedID, Data: data}}
 }
 
 // NewBroadcastReedMsg builds a BROADCAST_REED delivery message (no request_id needed).
-func NewBroadcastReedMsg(reedID string, reedData interface{}, username string) DataResponseMsg {
+func NewBroadcastReedMsg(reedID string, reedData json.RawMessage, username string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "BROADCAST_REED",
 		Data: DataResponseData{
@@ -77,7 +79,7 @@ func NewBroadcastReedMsg(reedID string, reedData interface{}, username string) D
 
 // NewPipeReedMsg builds a PIPE_REED delivery (pipe subscription push).
 // Carries event_id so the viewer can DATA_ACK after verify+store (same as DATA_RESPONSE).
-func NewPipeReedMsg(eventID, requestID, reedID string, data interface{}) DataResponseMsg {
+func NewPipeReedMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "PIPE_REED",
 		Data: DataResponseData{
@@ -90,7 +92,7 @@ func NewPipeReedMsg(eventID, requestID, reedID string, data interface{}) DataRes
 }
 
 // NewFollowReedMsg builds a FOLLOW_REED delivery (followcast / follow catch-up push).
-func NewFollowReedMsg(eventID, requestID, reedID string, data interface{}) DataResponseMsg {
+func NewFollowReedMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "FOLLOW_REED",
 		Data: DataResponseData{
@@ -103,27 +105,29 @@ func NewFollowReedMsg(eventID, requestID, reedID string, data interface{}) DataR
 }
 
 // NewReedRemovedMsg builds a REED_REMOVED delivery with the full signed cert as data.
-func NewReedRemovedMsg(eventID, requestID, reedID string, cert interface{}) DataResponseMsg {
+func NewReedRemovedMsg(eventID, requestID, reedID string, cert ReedRemovalWire) DataResponseMsg {
+	raw, _ := json.Marshal(cert)
 	return DataResponseMsg{
 		Type: "REED_REMOVED",
 		Data: DataResponseData{
 			EventID:   eventID,
 			RequestID: requestID,
 			ReedID:    reedID,
-			Data:      cert,
+			Data:      raw,
 		},
 	}
 }
 
 // NewAccountRemovedMsg builds an ACCOUNT_REMOVED delivery with the full signed cert.
-func NewAccountRemovedMsg(eventID, requestID, removedUserID string, cert interface{}) DataResponseMsg {
+func NewAccountRemovedMsg(eventID, requestID, removedUserID string, cert AccountRemovalWire) DataResponseMsg {
+	raw, _ := json.Marshal(cert)
 	return DataResponseMsg{
 		Type: "ACCOUNT_REMOVED",
 		Data: DataResponseData{
 			EventID:   eventID,
 			RequestID: requestID,
 			UserID:    removedUserID,
-			Data:      cert,
+			Data:      raw,
 		},
 	}
 }
