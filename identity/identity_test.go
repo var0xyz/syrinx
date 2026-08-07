@@ -529,3 +529,23 @@ func TestInviteServerPayloadCanonicalShape(t *testing.T) {
 		t.Errorf("invite-server payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
+
+func TestFederationInvitationPayloadCanonicalShape(t *testing.T) {
+	got := string(BuildFederationInvitationPayload(
+		"invite01",
+		"srvA",
+		"https://a.example",
+		"FPAAAA",
+		"handshake-secret",
+	))
+	want := "---\n" +
+		"baseUrl: https://a.example\n" +
+		"fingerprint: FPAAAA\n" +
+		"inviteId: invite01\n" +
+		"secret: handshake-secret\n" +
+		"serverId: srvA\n" +
+		"---\n"
+	if got != want {
+		t.Fatalf("payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}

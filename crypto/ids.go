@@ -1,9 +1,7 @@
-// Package ids generates and validates Syrinx entity identifiers.
-// Server, user, and invite IDs are random 8-char strings; reed IDs are UUID v7.
-package ids
+package crypto
 
 import (
-	"crypto/rand"
+	gocrypto "crypto/rand"
 	"math/big"
 
 	"github.com/google/uuid"
@@ -15,12 +13,12 @@ const Alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
 // Length is the length of server, user, and invite IDs.
 const Length = 8
 
-// New returns a cryptographically random ID of Length characters from Alphabet.
-func New() (string, error) {
+// NewID returns a cryptographically random ID of Length characters from Alphabet.
+func NewID() (string, error) {
 	result := make([]byte, Length)
 	alphabetLen := big.NewInt(int64(len(Alphabet)))
 	for i := range result {
-		idx, err := rand.Int(rand.Reader, alphabetLen)
+		idx, err := gocrypto.Int(gocrypto.Reader, alphabetLen)
 		if err != nil {
 			return "", err
 		}
@@ -29,8 +27,8 @@ func New() (string, error) {
 	return string(result), nil
 }
 
-// Valid reports whether id has the correct length and alphabet.
-func Valid(id string) bool {
+// IsValidID reports whether id has the correct length and alphabet.
+func IsValidID(id string) bool {
 	if len(id) != Length {
 		return false
 	}
@@ -43,8 +41,8 @@ func Valid(id string) bool {
 	return true
 }
 
-// ValidReed reports whether id is a UUID version 7 (time-ordered reed id).
-func ValidReed(id string) bool {
+// IsValidUUIDv7 reports whether id is a UUID version 7 (time-ordered reed id).
+func IsValidUUIDv7(id string) bool {
 	u, err := uuid.Parse(id)
 	if err != nil {
 		return false

@@ -183,16 +183,27 @@ export class CryptoService {
   }
 
   /**
-   * Decrypt binary data encrypted with encryptBackup
+   * Decrypt binary or armored data encrypted with OpenPGP symmetric encryption.
    */
   async decryptBackup(data: Uint8Array, password: string): Promise<Uint8Array> {
-    const message = await openpgp.readMessage({ binaryMessage: data });
-    const { data: decrypted } = await openpgp.decrypt({
-      message,
-      passwords: [password],
-      format: 'binary'
-    });
-    return decrypted as Uint8Array;
+    try {
+      const message = await openpgp.readMessage({ binaryMessage: data });
+      const { data: decrypted } = await openpgp.decrypt({
+        message,
+        passwords: [password],
+        format: 'binary'
+      });
+      return decrypted as Uint8Array;
+    } catch {
+      const armored = new TextDecoder().decode(data);
+      const message = await openpgp.readMessage({ armoredMessage: armored });
+      const { data: decrypted } = await openpgp.decrypt({
+        message,
+        passwords: [password],
+        format: 'binary'
+      });
+      return decrypted as Uint8Array;
+    }
   }
 
   /**

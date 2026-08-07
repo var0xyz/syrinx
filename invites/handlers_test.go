@@ -3,7 +3,6 @@ package invites
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -12,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"syrinx/crypto"
 	"syrinx/roles"
 
 	"github.com/gorilla/mux"
@@ -120,7 +120,7 @@ func TestCreate_Open(t *testing.T) {
 	if body.ID == "" || body.TokenHash == "" || body.ServerSignature.Armor == "" {
 		t.Fatalf("empty fields: %+v", body)
 	}
-	if len(body.TokenHash) != sha256.Size*2 {
+	if len(body.TokenHash) != crypto.HashSize*2 {
 		t.Fatalf("tokenHash len = %d", len(body.TokenHash))
 	}
 

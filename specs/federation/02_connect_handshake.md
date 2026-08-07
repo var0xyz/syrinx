@@ -74,7 +74,8 @@ Side effects on **A**:
 
 1. Insert **`federation_attempt`** (`invite_id` FK, `responded_by` from body,
    `status = pending_approval`)
-2. Invitation → **`status = accepted`**, set `accepted_at`
+2. Invitation → **`status = accepted`**, set `accepted_at`, clear
+   **`connection_ciphertext`**
 
 ### Responder API (Server B)
 
@@ -86,16 +87,15 @@ Side effects on **A**:
 
 ```json
 {
-  "connectionString": "-----BEGIN PGP MESSAGE-----…",
-  "initiatorPublicKeyArmor": "-----BEGIN PGP PUBLIC KEY BLOCK-----…"
+  "connectionString": "-----BEGIN PGP MESSAGE-----…"
 }
 ```
 
 Server B:
 
 1. Decrypt `connectionString`
-2. Verify initiator `signature` with pasted public key (must match payload
-   `fingerprint` — reject mismatch)
+2. Read **`publicKeyArmor`** from decrypted payload; verify initiator
+   `signature` with that key (must match payload `fingerprint`)
 3. POST connect to `{baseUrl}/api/federation/connect/{inviteId}` (include
    `respondedByUserId` = caller admin id)
 4. On success, insert local **`federation_attempt`** (`invite_id` from payload,
@@ -131,10 +131,9 @@ remote paste admin (from connect body). Creator is
 
 At most one **`pending_approval`** attempt per `invite_id` on A.
 
-### SPA — Admin → Network → Accept
+### SPA — Admin → Mesh → Accept
 
-- Fields: connection string, initiator public key
-- Submit → pending attempt appears in **Pending** list
+- Field: connection string
 
 ### Middleware
 

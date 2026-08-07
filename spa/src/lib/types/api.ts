@@ -200,3 +200,25 @@ export interface Invite extends Base {
   userSignature: UserSignature;
   serverSignature: ServerSignature;
 }
+
+export interface FederationInvitation {
+  inviteId: string;
+  name: string;
+  status: 'new' | 'accepted' | 'approved' | 'revoked';
+  createdBy: string;
+  createdByUsername: string;
+  remoteFingerprint: string;
+  createdAt: string;
+  acceptedAt?: string | null;
+  approvedAt?: string | null;
+  reviewedBy?: string | null;
+  reviewedByUsername?: string | null;
+  reviewedAt?: string | null;
+  connectionString?: string;
+}
+
+export interface FederationInvitationCreateResponse {
+  inviteId: string;
+  connectionString: string;
+  status: 'new';
+}

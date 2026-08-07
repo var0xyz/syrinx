@@ -26,7 +26,13 @@ conversations foreign refs [`conversations/01`](../conversations/01_publish_and_
 
 ## Status
 
-**Proposed** (00–05).
+**Proposed** (00–05). Step **01** implemented.
+
+| Step  | Status          |
+|-------|-----------------|
+| 00    | Proposed        |
+| 01    | **Implemented** |
+| 02–05 | Proposed        |
 
 ## Locked decisions
 
@@ -40,7 +46,7 @@ conversations foreign refs [`conversations/01`](../conversations/01_publish_and_
 | Durable peers | **`federation_established`** links to **`federation_attempt`** → **`federation_invitation`**; rows retained for audit |
 | Invite lifecycle | Status **`new`** → **`accepted`** → **`approved`** (never deleted; invite **`revoked`** separate from peering revoke) |
 | Visibility | **All admins** see **all** invites on the instance (not creator-only) |
-| Admin UI | **Admin → Network** (create invite, paste connection string, approve pending) |
+| Admin UI | **Admin → Mesh** (create invite, paste connection string, approve pending) |
 | Revoke peering | **`federation_established.revoked`**; revoker returns **401** to incoming peer traffic; **no auto-action on remote** |
 | Non-goals (v1) | Cross-instance reed relay, federated follow, open federation, automated reciprocal revoke |
 

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"syrinx/crypto"
 	"syrinx/identity"
-	"syrinx/ids"
 	"syrinx/roles"
 
 	"github.com/gorilla/mux"
@@ -123,7 +123,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if !ids.Valid(req.ID) {
+	if !crypto.IsValidID(req.ID) {
 		writeJSON(w, http.StatusBadRequest, "Invalid invite id")
 		return
 	}

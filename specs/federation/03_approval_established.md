@@ -18,7 +18,7 @@ approves. Audit chain: **established → attempt → invitation**.
 
 - DDL: **`federation_established`** with **`attempt_id`** FK
 - Admin API: list pending attempts, accept, reject
-- SPA: Admin → Network → Pending connections
+- SPA: Admin → Mesh → Pending connections
 - Status transitions on invitation + attempt (rows retained)
 
 ## Non-goals
@@ -90,7 +90,7 @@ Ideal: ≥2 admins per instance so creator/paster ≠ approver.
    **locked: invitation returns to `new`**, `accepted_at` cleared, so a fresh
    connect can run. Prior attempt row stays `rejected` for audit.
 
-### SPA — Admin → Network
+### SPA — Admin → Mesh
 
 - **Invites:** all invitations + status (`new` / `accepted` / `approved` /
   `revoked`) — all admins see full list

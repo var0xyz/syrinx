@@ -19,7 +19,6 @@ import (
 	"syrinx/crypto"
 	"syrinx/deletion"
 	"syrinx/identity"
-	"syrinx/ids"
 	"syrinx/invites"
 	"syrinx/recovery"
 	"syrinx/roles"
@@ -133,11 +132,11 @@ func (s *DataService) IsOngoing(ctx context.Context, userID string) (bool, error
 }
 
 func generateServerID() (string, error) {
-	return ids.New()
+	return crypto.NewID()
 }
 
 func generateUserID() (string, error) {
-	return ids.New()
+	return crypto.NewID()
 }
 
 func (s *DataService) InitServer(ctx context.Context, recoveryMode bool) error {
@@ -207,7 +206,7 @@ func (s *DataService) ProcessRevocations(ctx context.Context) error {
 
 		// Verify the key exists
 		var exists bool
-		err = s.db.QueryRowContext(ctx, 
+		err = s.db.QueryRowContext(ctx,
 			`SELECT EXISTS(SELECT 1 FROM private_keys WHERE fingerprint = $1)`,
 			fingerprint,
 		).Scan(&exists)
@@ -299,7 +298,7 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 		if err != nil {
 			return nil, fmt.Errorf("failed to re-encrypt server signing key after identity update: %w", err)
 		}
-		if _, err = s.db.ExecContext(ctx, 
+		if _, err = s.db.ExecContext(ctx,
 			`UPDATE private_keys SET armor = $1 WHERE fingerprint = $2`,
 			newEncrypted, fingerprint,
 		); err != nil {
@@ -326,7 +325,7 @@ func (s *DataService) SaveServerKeyPair(ctx context.Context, fingerprint, privat
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx, 
+	_, err = tx.ExecContext(ctx,
 		`INSERT INTO private_keys (fingerprint, armor) VALUES ($1, $2)`,
 		fingerprint, privateArmor,
 	)
@@ -334,7 +333,7 @@ func (s *DataService) SaveServerKeyPair(ctx context.Context, fingerprint, privat
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, 
+	_, err = tx.ExecContext(ctx,
 		`INSERT INTO public_keys (fingerprint, armor) VALUES ($1, $2)`,
 		fingerprint, publicArmor,
 	)
@@ -376,7 +375,7 @@ func (s *DataService) GetServerSigningKeyArmor(ctx context.Context) (string, err
 // import path that must verify against a restored historical key.
 func (s *DataService) GetServerPublicKeyByFingerprint(ctx context.Context, fingerprint string) (string, error) {
 	var armor string
-	err := s.db.QueryRowContext(ctx, 
+	err := s.db.QueryRowContext(ctx,
 		`SELECT armor FROM public_keys WHERE fingerprint = $1`,
 		fingerprint,
 	).Scan(&armor)
@@ -1416,7 +1415,7 @@ func (s *DataService) insertReedCoreTx(
 	tx *sql.Tx,
 	p createReedParams,
 ) (Reed, error) {
-	if !ids.ValidReed(p.ReedID) {
+	if !crypto.IsValidUUIDv7(p.ReedID) {
 		return Reed{}, fmt.Errorf("invalid reed ID")
 	}
 
@@ -2319,6 +2318,210 @@ func (s *DataService) CheckActiveDevice(ctx context.Context, userID, presented s
 	}
 	if active == "" || active != presented {
 		return errDeviceMismatch
+	}
+	return nil
+}
+
+// ===================== //
+//   FederationService   //
+// ===================== //
+
+const (
+	federationStatusNew      = "new"
+	federationStatusAccepted = "accepted"
+	federationStatusApproved = "approved"
+	federationStatusRevoked  = "revoked"
+)
+
+var (
+	errFederationInvitationNotFound     = errors.New("federation invitation not found")
+	errFederationInvitationNotRevocable = errors.New("federation invitation cannot be revoked")
+	errFederationInvitationExists       = errors.New("federation invitation already exists")
+)
+
+type federationInvitation struct {
+	ID                string
+	Name              string
+	SecretHash        []byte
+	RemoteFingerprint string
+	CreatedBy         string
+	Status            string
+	CreatedAt         time.Time
+	AcceptedAt        *time.Time
+	ApprovedAt        *time.Time
+}
+
+type federationInvitationListRow struct {
+	ID                   string
+	Name                 string
+	Status               string
+	CreatedBy            string
+	CreatedByUsername    string
+	RemoteFingerprint    string
+	CreatedAt            time.Time
+	AcceptedAt           *time.Time
+	ApprovedAt           *time.Time
+	ReviewedBy           string
+	ReviewedByUsername   string
+	ReviewedAt           *time.Time
+	ConnectionCiphertext string
+}
+
+func (s *DataService) InsertFederationInvitation(
+	ctx context.Context,
+	id, name, createdBy, remoteFingerprint string,
+	secretHash []byte,
+	connectionCiphertext string,
+	createdAt time.Time,
+) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO federation_invitation (
+			id, name, secret_hash, remote_fingerprint, created_by, status, created_at,
+			connection_ciphertext
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, id, name, secretHash, remoteFingerprint, createdBy, federationStatusNew, createdAt.UTC(), connectionCiphertext)
+	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			return errFederationInvitationExists
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *DataService) GetFederationInvitation(ctx context.Context, id string) (*federationInvitation, error) {
+	var inv federationInvitation
+	var acceptedAt, approvedAt sql.NullTime
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, name, secret_hash, remote_fingerprint, created_by, status,
+		       created_at, accepted_at, approved_at
+		FROM federation_invitation
+		WHERE id = $1
+	`, id).Scan(
+		&inv.ID,
+		&inv.Name,
+		&inv.SecretHash,
+		&inv.RemoteFingerprint,
+		&inv.CreatedBy,
+		&inv.Status,
+		&inv.CreatedAt,
+		&acceptedAt,
+		&approvedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if acceptedAt.Valid {
+		t := acceptedAt.Time.UTC()
+		inv.AcceptedAt = &t
+	}
+	if approvedAt.Valid {
+		t := approvedAt.Time.UTC()
+		inv.ApprovedAt = &t
+	}
+	return &inv, nil
+}
+
+func (s *DataService) ListFederationInvitations(ctx context.Context) ([]federationInvitationListRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT fi.id, fi.name, fi.status, fi.created_by, creator.username,
+		       fi.remote_fingerprint, fi.created_at, fi.accepted_at, fi.approved_at,
+		       COALESCE(fi.reviewed_by, ''), COALESCE(reviewer.username, ''), fi.reviewed_at,
+		       COALESCE(fi.connection_ciphertext, '')
+		FROM federation_invitation fi
+		JOIN users creator ON creator.id = fi.created_by
+		LEFT JOIN users reviewer ON reviewer.id = fi.reviewed_by
+		ORDER BY fi.created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []federationInvitationListRow
+	for rows.Next() {
+		var row federationInvitationListRow
+		var acceptedAt, approvedAt, reviewedAt sql.NullTime
+		if err := rows.Scan(
+			&row.ID,
+			&row.Name,
+			&row.Status,
+			&row.CreatedBy,
+			&row.CreatedByUsername,
+			&row.RemoteFingerprint,
+			&row.CreatedAt,
+			&acceptedAt,
+			&approvedAt,
+			&row.ReviewedBy,
+			&row.ReviewedByUsername,
+			&reviewedAt,
+			&row.ConnectionCiphertext,
+		); err != nil {
+			return nil, err
+		}
+		if acceptedAt.Valid {
+			t := acceptedAt.Time.UTC()
+			row.AcceptedAt = &t
+		}
+		if approvedAt.Valid {
+			t := approvedAt.Time.UTC()
+			row.ApprovedAt = &t
+		}
+		if reviewedAt.Valid {
+			t := reviewedAt.Time.UTC()
+			row.ReviewedAt = &t
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (s *DataService) RevokeFederationInvitation(ctx context.Context, id, reviewedBy string, reviewedAt time.Time) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE federation_invitation
+		SET status = $2, connection_ciphertext = NULL,
+		    reviewed_by = $4, reviewed_at = $5
+		WHERE id = $1 AND status = $3
+	`, id, federationStatusRevoked, federationStatusNew, reviewedBy, reviewedAt.UTC())
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		inv, err := s.GetFederationInvitation(ctx, id)
+		if err != nil {
+			return err
+		}
+		if inv == nil {
+			return errFederationInvitationNotFound
+		}
+		return errFederationInvitationNotRevocable
+	}
+	return nil
+}
+
+func (s *DataService) AcceptFederationInvitation(ctx context.Context, id string, acceptedAt time.Time) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE federation_invitation
+		SET status = $2, accepted_at = $3, connection_ciphertext = NULL
+		WHERE id = $1 AND status = $4
+	`, id, federationStatusAccepted, acceptedAt.UTC(), federationStatusNew)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return errFederationInvitationNotFound
 	}
 	return nil
 }

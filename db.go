@@ -592,6 +592,23 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (created_by, id)
 	);`
 
+	createFederationInvitationTable := `
+	CREATE TABLE IF NOT EXISTS federation_invitation (
+		id VARCHAR(255) PRIMARY KEY,
+		name VARCHAR(255) NOT NULL,
+		secret_hash BYTEA NOT NULL,
+		remote_fingerprint VARCHAR(255) NOT NULL,
+		status VARCHAR(16) NOT NULL DEFAULT 'new'
+			CHECK (status IN ('new', 'accepted', 'approved', 'revoked')),
+		created_by VARCHAR(255) NOT NULL REFERENCES users(id),
+		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		accepted_at TIMESTAMPTZ,
+		approved_at TIMESTAMPTZ,
+		reviewed_by VARCHAR(255) REFERENCES users(id),
+		reviewed_at TIMESTAMPTZ,
+		connection_ciphertext TEXT
+	);`
+
 	// Device binding — append-only history; exactly one active row per user.
 	createUserDevicesTable := `
 	CREATE TABLE IF NOT EXISTS user_devices (
@@ -609,10 +626,8 @@ func InitDB(db *sql.DB) error {
 	`
 
 	queries := []string{
-		// Servers
 		createServersTable,
 
-		// Shared attestation tables (before entity FKs land)
 		createUserSignaturesTable,
 		createServerSignaturesTable,
 
@@ -640,12 +655,17 @@ func InitDB(db *sql.DB) error {
 		createReedRemovalsTable,
 		createAccountRemovalsTable,
 
+		createUserDevicesTable,
+		createUserDevicesIndexes,
+
 		// Social
 		createUserFollowersTable,
 		createUserFollowerIndexes,
 
 		createUserFollowingTable,
 		createUserFollowingIndexes,
+
+		createInvitesTable,
 
 		// Realtime
 		createOnlineUsersTable,
@@ -680,14 +700,8 @@ func InitDB(db *sql.DB) error {
 		createPendingFollowsTable,
 		createPendingFollowsIndexes,
 
-		// Invites
-		createInvitesTable,
-
-		// Device binding
-		createUserDevicesTable,
-		createUserDevicesIndexes,
-
-		`UPDATE users SET role = 'root' WHERE id = '1';`,
+		// Federation
+		createFederationInvitationTable,
 	}
 
 	for i, query := range queries {

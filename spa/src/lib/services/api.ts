@@ -275,6 +275,27 @@ export const apiService = {
     await request(`/invites/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
+  async listFederationInvitations(): Promise<api.FederationInvitation[]> {
+    return request<api.FederationInvitation[]>('/federation/invitations', { method: 'GET' });
+  },
+
+  async createFederationInvitation(
+    name: string,
+    remotePublicKeyArmor: string,
+  ): Promise<api.FederationInvitationCreateResponse> {
+    return request<api.FederationInvitationCreateResponse>('/federation/invitations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, remotePublicKeyArmor }),
+    });
+  },
+
+  async revokeFederationInvitation(inviteId: string): Promise<{ inviteId: string; status: 'revoked' }> {
+    return request(`/federation/invitations/${encodeURIComponent(inviteId)}/revoke`, {
+      method: 'POST',
+    });
+  },
+
   async whoami() {
     return request<{ id: string; username: string }>('/users/me', { method: 'GET' });
   },

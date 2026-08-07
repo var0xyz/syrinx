@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"syrinx/coverage"
+	"syrinx/crypto"
 	"syrinx/deletion"
 	"syrinx/identity"
-	"syrinx/ids"
 	"syrinx/invites"
 	"syrinx/observability/metrics"
 	"syrinx/realtime"
@@ -260,7 +260,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "userID is reserved")
 		return
 	}
-	if !ids.Valid(userID) {
+	if !crypto.IsValidID(userID) {
 		writeResponse(w, http.StatusBadRequest, "Invalid userID")
 		return
 	}
@@ -1755,7 +1755,7 @@ func (h *Handlers) parseReedRef(raw, localServerID string) (ReedRef, bool) {
 	if !ok {
 		return ReedRef{}, false
 	}
-	if !ids.ValidReed(ref.ReedID) {
+	if !crypto.IsValidUUIDv7(ref.ReedID) {
 		return ReedRef{}, false
 	}
 	// Targets on other instances are not supported yet.
@@ -2236,12 +2236,12 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	activeFP, err := h.services.db.GetActiveKeyFingerprint(r.Context(), req.UserID)
+	activeFingerprint, err := h.services.db.GetActiveKeyFingerprint(r.Context(), req.UserID)
 	if err != nil {
 		internalServerError(w)
 		return
 	}
-	if activeFP == "" || activeFP != req.Fingerprint {
+	if activeFingerprint == "" || activeFingerprint != req.Fingerprint {
 		writeResponse(w, http.StatusUnauthorized, "Key is not the active key for this account")
 		return
 	}
@@ -2291,4 +2291,237 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		TipReedID: tipReedID,
 		ReedIDs:   reedIDs,
 	})
+}
+
+// ============== //
+//   Federation   //
+// ============== //
+
+func (h *Handlers) isAdmin(ctx context.Context, userID string) (bool, error) {
+	role, err := h.services.db.GetUserRole(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return roles.RequireAdmin(role) == nil, nil
+}
+
+func (h *Handlers) federationSignServer(message []byte) (string, error) {
+	sigArmor, err := h.services.crypto.Sign(string(message), h.signingKey.Armor)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString([]byte(sigArmor)), nil
+}
+
+func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	var req federationCreateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	remoteArmor := strings.TrimSpace(req.RemotePublicKeyArmor)
+	if remoteArmor == "" {
+		writeResponse(w, http.StatusBadRequest, "remotePublicKeyArmor is required")
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		writeResponse(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if len(name) > 255 {
+		writeResponse(w, http.StatusBadRequest, "name is too long")
+		return
+	}
+
+	remoteFingerprint, err := h.services.crypto.ExtractFingerprintFromArmor(remoteArmor)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid remote public key")
+		return
+	}
+
+	inviteID, err := crypto.NewID()
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	secret, err := invites.NewSecret()
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	baseURL := federationBaseURL(r)
+	signBytes := identity.BuildFederationInvitationPayload(
+		inviteID,
+		h.services.db.GetServerID(),
+		baseURL,
+		h.signingKey.Fingerprint,
+		secret,
+	)
+	sigB64, err := h.federationSignServer(signBytes)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	serverPubArmor, err := h.services.db.GetServerPublicKeyByFingerprint(r.Context(), h.signingKey.Fingerprint)
+	if err != nil || serverPubArmor == "" {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	payload := federationConnectionPayload{
+		InviteID:       inviteID,
+		ServerID:       h.services.db.GetServerID(),
+		BaseURL:        baseURL,
+		Fingerprint:    h.signingKey.Fingerprint,
+		PublicKeyArmor: serverPubArmor,
+		Signature:      sigB64,
+		Secret:         secret,
+	}
+	plaintext, err := json.Marshal(payload)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	connectionString, err := h.services.crypto.Encrypt(plaintext, remoteArmor)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Failed to encrypt connection payload")
+		return
+	}
+
+	secretHash := crypto.Hash(secret)
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := h.services.db.InsertFederationInvitation(r.Context(), inviteID, name, caller, remoteFingerprint, secretHash, connectionString, now); err != nil {
+		if errors.Is(err, errFederationInvitationExists) {
+			writeResponse(w, http.StatusConflict, "Invitation already exists")
+			return
+		}
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	writeResponse(w, http.StatusCreated, federationCreateResponse{
+		InviteID:         inviteID,
+		ConnectionString: connectionString,
+		Status:           federationStatusNew,
+	})
+}
+
+func (h *Handlers) ListFederationInvitations(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	rows, err := h.services.db.ListFederationInvitations(r.Context())
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	out := make([]federationListItemWire, 0, len(rows))
+	for _, row := range rows {
+		item := federationListItemWire{
+			InviteID:          row.ID,
+			Name:              row.Name,
+			Status:            row.Status,
+			CreatedBy:         row.CreatedBy,
+			CreatedByUsername: row.CreatedByUsername,
+			RemoteFingerprint: row.RemoteFingerprint,
+			CreatedAt:         row.CreatedAt.UTC().Format(time.RFC3339),
+		}
+		if row.AcceptedAt != nil {
+			s := row.AcceptedAt.UTC().Format(time.RFC3339)
+			item.AcceptedAt = &s
+		}
+		if row.ApprovedAt != nil {
+			s := row.ApprovedAt.UTC().Format(time.RFC3339)
+			item.ApprovedAt = &s
+		}
+		if row.ReviewedBy != "" {
+			rb := row.ReviewedBy
+			item.ReviewedBy = &rb
+			ru := row.ReviewedByUsername
+			item.ReviewedByUsername = &ru
+		}
+		if row.ReviewedAt != nil {
+			s := row.ReviewedAt.UTC().Format(time.RFC3339)
+			item.ReviewedAt = &s
+		}
+		if row.Status == federationStatusNew && row.ConnectionCiphertext != "" {
+			cs := row.ConnectionCiphertext
+			item.ConnectionString = &cs
+		}
+		out = append(out, item)
+	}
+	writeResponse(w, http.StatusOK, out)
+}
+
+func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	id := strings.TrimSpace(mux.Vars(r)["id"])
+	if id == "" {
+		writeResponse(w, http.StatusBadRequest, "id is required")
+		return
+	}
+
+	err = h.services.db.RevokeFederationInvitation(r.Context(), id, caller, time.Now().UTC().Truncate(time.Second))
+	switch {
+	case errors.Is(err, errFederationInvitationNotFound):
+		writeResponse(w, http.StatusNotFound, "Invitation not found")
+	case errors.Is(err, errFederationInvitationNotRevocable):
+		writeResponse(w, http.StatusBadRequest, "Invitation cannot be revoked")
+	case err != nil:
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("id", id).Msg("federation invitation revoke failed")
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+	default:
+		writeResponse(w, http.StatusOK, map[string]string{"inviteId": id, "status": federationStatusRevoked})
+	}
 }

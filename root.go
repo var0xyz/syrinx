@@ -240,7 +240,7 @@ func exportRootIdentity(
 		return "", err
 	}
 
-	encrypted, err := cryptoSvc.EncryptBackup(gz.Bytes(), exportPassphrase)
+	encrypted, err := cryptoSvc.EncryptSymmetric(gz.Bytes(), exportPassphrase)
 	if err != nil {
 		return "", err
 	}
@@ -250,7 +250,7 @@ func exportRootIdentity(
 	if dir := strings.TrimSpace(outDir); dir != "" {
 		outPath = filepath.Join(dir, filename)
 	}
-	if err := os.WriteFile(outPath, encrypted, 0o600); err != nil {
+	if err := os.WriteFile(outPath, []byte(encrypted), 0o600); err != nil {
 		return "", fmt.Errorf("write %s: %w", outPath, err)
 	}
 

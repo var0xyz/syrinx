@@ -84,7 +84,7 @@ HTTP):
 
 Display: foreign refs for revoked peer → same as unpeered (“not connected”).
 
-### SPA — Admin → Network → Established
+### SPA — Admin → Mesh → Established
 
 - **Revoke** button on active (`revoked = false`) rows
 - Revoked rows shown separately or greyed with `revoked_at` / `revoked_by`

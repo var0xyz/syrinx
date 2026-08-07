@@ -1,51 +1,11 @@
 package recovery
 
 import (
-	"strings"
 	"testing"
 	"time"
 
 	"syrinx/crypto"
 )
-
-func TestEncryptDecryptSymmetric_RoundTrip(t *testing.T) {
-	plain := []byte(`{"version":1,"hello":"world"}`)
-	armored, err := EncryptSymmetric(plain, "bundle-password-xx")
-	if err != nil {
-		t.Fatalf("EncryptSymmetric: %v", err)
-	}
-	if strings.Contains(armored, `"hello"`) {
-		t.Fatal("ciphertext contains plaintext JSON")
-	}
-	if !strings.Contains(armored, "BEGIN PGP MESSAGE") {
-		t.Fatalf("expected armored message, got %q", armored[:min(60, len(armored))])
-	}
-
-	got, err := DecryptSymmetric(armored, "bundle-password-xx")
-	if err != nil {
-		t.Fatalf("DecryptSymmetric: %v", err)
-	}
-	if string(got) != string(plain) {
-		t.Fatalf("got %q, want %q", got, plain)
-	}
-}
-
-func TestDecryptSymmetric_WrongPassword(t *testing.T) {
-	armored, err := EncryptSymmetric([]byte("secret-payload"), "correct-password!!")
-	if err != nil {
-		t.Fatalf("EncryptSymmetric: %v", err)
-	}
-	got, err := DecryptSymmetric(armored, "wrong-password!!!!!!")
-	if err == nil {
-		t.Fatalf("expected error, got plaintext %q", got)
-	}
-	if strings.Contains(err.Error(), "secret-payload") {
-		t.Fatalf("error leaked plaintext: %v", err)
-	}
-	if got != nil {
-		t.Fatalf("partial plaintext returned: %q", got)
-	}
-}
 
 func TestDefaultExportFilename(t *testing.T) {
 	at := time.Date(2026, 7, 17, 15, 4, 5, 0, time.UTC)
@@ -96,11 +56,11 @@ func TestValidateShape_AndDecrypt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalBundleJSON: %v", err)
 	}
-	armored, err := EncryptSymmetric(raw, "bundle-pw-16chars!")
+	armored, err := svc.EncryptSymmetric(raw, "bundle-pw-16chars!")
 	if err != nil {
 		t.Fatalf("EncryptSymmetric: %v", err)
 	}
-	plain, err := DecryptSymmetric(armored, "bundle-pw-16chars!")
+	plain, err := svc.DecryptSymmetric(armored, "bundle-pw-16chars!")
 	if err != nil {
 		t.Fatalf("DecryptSymmetric: %v", err)
 	}

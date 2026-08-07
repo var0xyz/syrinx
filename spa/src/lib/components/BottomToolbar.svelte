@@ -1,5 +1,10 @@
 <script>
+  import { page } from '$app/stores';
+
   export let currentPage = 'reeds';
+
+  $: showMesh =
+    $page.data?.user?.role === 'admin' || $page.data?.user?.role === 'root';
 </script>
 
 <nav class="bottom-toolbar">
@@ -15,6 +20,12 @@
     <span class="icon">✉️</span>
     <span class="label">Invites</span>
   </a>
+  {#if showMesh}
+    <a href="/mesh" class="toolbar-btn" class:active={currentPage === 'mesh'}>
+      <span class="icon">🌐</span>
+      <span class="label">Mesh</span>
+    </a>
+  {/if}
   <a href="/profile" class="toolbar-btn" class:active={currentPage === 'profile'}>
     <span class="icon">👤</span>
     <span class="label">Profile</span>
