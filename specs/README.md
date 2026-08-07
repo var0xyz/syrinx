@@ -24,18 +24,18 @@ Each table below has a **Status** column per step. Values:
 
 | Track            | Status      | Remaining                                            |
 |------------------|-------------|------------------------------------------------------|
+| Load testing     | Proposed    | 00–03                                                |
+| Federation       | Proposed    | 00–05 (depends on roles)                             |
 | Prerequisites    | In progress | 09 (revocation fanout), 11 (notifications, deferred) |
 | Recovery feature | In progress | 16 (reed tip check), 17 (device binding)             |
 | Conversations    | In progress | 04–05                                                |
+| Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Publish ready    | Implemented | —                                                    |
-| Avatars          | Deferred    | 00–05                                                |
 | Pipes            | Implemented | —                                                    |
 | Account recovery | Implemented | 01–07 implemented                                    |
-| Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
-| Observability    | Implemented | Steps 01–05; see [`observability/README.md`](observability/README.md) |
-| Load testing     | Proposed    | 00–03                                                |
+| Observability    | Implemented | Steps 01–05                                          |
 | Roles            | Implemented | 00–02                                                |
-| Federation       | Proposed    | 00–05 (depends on roles)                             |
+| Avatars          | Deferred    | 00–05                                                |
 
 **Already done:** Invites, Coverage, Deletion, Signature storage, Publish
 ready, and the prerequisites other than 09/11.
