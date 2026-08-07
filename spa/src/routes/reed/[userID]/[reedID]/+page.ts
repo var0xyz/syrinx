@@ -1,8 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
-import { echoCountsRepository } from '$lib/repositories/echoCounts';
-import { replyCountsRepository } from '$lib/repositories/replyCounts';
 import { removedReedsRepository } from '$lib/repositories/removedReeds';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
 import { parseReedRef } from '$lib/utils/reedRef';
@@ -36,8 +34,6 @@ export async function load({ params, parent }) {
       echoedReedMissing: false,
       repliedToReed: null,
       repliedToReedMissing: false,
-      echoCount: 0,
-      replyCount: 0,
       errorMessage: 'This reed does not belong to the specified user',
       fromCache: false,
     };
@@ -48,8 +44,6 @@ export async function load({ params, parent }) {
   let echoedReedMissing = false;
   let repliedToReed = null;
   let repliedToReedMissing = false;
-  let echoCount = 0;
-  let replyCount = 0;
   let removedReedCert = null;
   let removedAccountCert = null;
 
@@ -60,15 +54,11 @@ export async function load({ params, parent }) {
     }
     if (removedReedCert || removedAccountCert) {
       authorUser = await userRepository.get(userID).catch(() => null);
-      echoCount = await echoCountsRepository.get(reedID);
-      replyCount = await replyCountsRepository.get(reedID);
     }
   }
 
   if (reed) {
     authorUser = await userRepository.get(userID).catch(() => null);
-    echoCount = await echoCountsRepository.get(reedID);
-    replyCount = await replyCountsRepository.get(reedID);
 
     if (reed.echoing) {
       const echoRef = parseReedRef(reed.echoing);
@@ -101,8 +91,6 @@ export async function load({ params, parent }) {
     echoedReedMissing,
     repliedToReed,
     repliedToReedMissing,
-    echoCount,
-    replyCount,
     removedReedCert,
     removedAccountCert,
     errorMessage: '',
