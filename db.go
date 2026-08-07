@@ -193,6 +193,8 @@ func InitDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS users (
 		id VARCHAR(255) PRIMARY KEY,
 		username VARCHAR(255) UNIQUE NOT NULL,
+		role VARCHAR(16) NOT NULL DEFAULT 'user'
+			CHECK (role IN ('root', 'admin', 'user')),
 		bio TEXT,
 		user_fingerprint VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -681,6 +683,8 @@ func InitDB(db *sql.DB) error {
 		// Device binding
 		createUserDevicesTable,
 		createUserDevicesIndexes,
+
+		`UPDATE users SET role = 'root' WHERE id = '1';`,
 	}
 
 	for i, query := range queries {

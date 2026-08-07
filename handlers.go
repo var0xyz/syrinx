@@ -23,6 +23,7 @@ import (
 	"syrinx/observability/metrics"
 	"syrinx/realtime"
 	"syrinx/recovery"
+	"syrinx/roles"
 
 	"github.com/gorilla/mux"
 )
@@ -255,7 +256,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
-	if userID == rootUserID {
+	if userID == roles.RootUserID {
 		writeResponse(w, http.StatusBadRequest, "userID is reserved")
 		return
 	}

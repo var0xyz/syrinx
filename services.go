@@ -22,6 +22,7 @@ import (
 	"syrinx/ids"
 	"syrinx/invites"
 	"syrinx/recovery"
+	"syrinx/roles"
 	"syrinx/signing"
 
 	"github.com/google/uuid"
@@ -502,11 +503,11 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	// silently truncate to whatever precision Postgres chooses.
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO users (
-			id, username, created_at, user_fingerprint,
+			id, username, role, created_at, user_fingerprint,
 			user_signature_id, server_signature_id, invited_by
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`,
-		in.UserID, in.Username, in.MemberSince, in.Fingerprint,
+		in.UserID, in.Username, roles.RoleForSignup(in.UserID), in.MemberSince, in.Fingerprint,
 		userSignatureID, serverSignatureID, invitedBy,
 	); err != nil {
 		if isUsernameUniqueViolation(err) {
@@ -683,6 +684,19 @@ func (s *DataService) GetActiveKeyFingerprint(ctx context.Context, userID string
 		return "", nil
 	}
 	return fp.String, nil
+}
+
+// GetUserRole returns users.role for authorization checks.
+func (s *DataService) GetUserRole(ctx context.Context, userID string) (string, error) {
+	var role string
+	err := s.db.QueryRowContext(ctx, `SELECT role FROM users WHERE id = $1`, userID).Scan(&role)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return role, nil
 }
 
 // UpdateUserInput carries everything needed to persist a fresh signed

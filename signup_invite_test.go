@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"syrinx/invites"
+	"syrinx/roles"
 
 	_ "github.com/lib/pq"
 )
@@ -71,6 +72,8 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY,
 			username VARCHAR(255) UNIQUE NOT NULL,
+			role VARCHAR(16) NOT NULL DEFAULT 'user'
+				CHECK (role IN ('root', 'admin', 'user')),
 			bio TEXT,
 			user_fingerprint VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -144,6 +147,15 @@ func signupInput(userID, username, invitedBy, inviteID, secret string, mode invi
 	}
 }
 
+func queryUserRole(t *testing.T, db *sql.DB, userID string) string {
+	t.Helper()
+	var role string
+	if err := db.QueryRow(`SELECT role FROM users WHERE id = $1`, userID).Scan(&role); err != nil {
+		t.Fatalf("query role for %q: %v", userID, err)
+	}
+	return role
+}
+
 func TestSignup_OpenNoInvite(t *testing.T) {
 	db := openSignupTestDB(t)
 	svc := NewDataService(db, "test")
@@ -155,6 +167,9 @@ func TestSignup_OpenNoInvite(t *testing.T) {
 	}
 	if user.InvitedBy != nil {
 		t.Fatalf("invitedBy = %+v, want nil", user.InvitedBy)
+	}
+	if role := queryUserRole(t, db, "u1"); role != roles.RoleUser {
+		t.Fatalf("role = %q want %q", role, roles.RoleUser)
 	}
 }
 
@@ -199,6 +214,9 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 	}
 	if user.InvitedBy == nil || user.InvitedBy.ID != "inviter" || user.InvitedBy.Username != "alice" {
 		t.Fatalf("invitedBy = %+v", user.InvitedBy)
+	}
+	if role := queryUserRole(t, db, "invitee"); role != roles.RoleUser {
+		t.Fatalf("invitee role = %q want %q", role, roles.RoleUser)
 	}
 
 	inv, err := store.GetByTokenHash(ctx, hash)
@@ -270,5 +288,26 @@ func TestSignup_OpenInvalidToken(t *testing.T) {
 	_ = db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
 	if n != 0 {
 		t.Fatal("user should not be created")
+	}
+}
+
+func TestSignup_RootMintRole(t *testing.T) {
+	db := openSignupTestDB(t)
+	svc := NewDataService(db, "test")
+	svc.serverID = "srv"
+
+	user, err := svc.Signup(context.Background(), signupInput(roles.RootUserID, "root", "", "", "", invites.ModeOpen))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.ID != roles.RootUserID {
+		t.Fatalf("id = %q want %q", user.ID, roles.RootUserID)
+	}
+	if role := queryUserRole(t, db, roles.RootUserID); role != roles.RoleRoot {
+		t.Fatalf("role = %q want %q", role, roles.RoleRoot)
+	}
+	got, err := svc.GetUserRole(context.Background(), roles.RootUserID)
+	if err != nil || got != roles.RoleRoot {
+		t.Fatalf("GetUserRole = %q err=%v want %q", got, err, roles.RoleRoot)
 	}
 }

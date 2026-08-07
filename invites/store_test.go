@@ -64,6 +64,8 @@ func ensureInviteSchema(db *sql.DB) error {
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY,
 			username VARCHAR(255) UNIQUE NOT NULL,
+			role VARCHAR(16) NOT NULL DEFAULT 'user'
+				CHECK (role IN ('root', 'admin', 'user')),
 			bio TEXT,
 			user_fingerprint VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
