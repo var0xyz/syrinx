@@ -100,31 +100,56 @@ export function initializePWA() {
     };
 
     // Reload once when a new worker takes control (update path only).
-    // Guarded with sessionStorage, not just an in-memory flag: each reload is a
-    // full page load with a fresh JS context, so an in-memory flag alone can't
-    // stop a bad update cycle (e.g. flip-flopping SW bytes behind a proxy) from
-    // reloading forever. sessionStorage survives the reload and caps it at one.
+    // Guard with localStorage + a time window: sessionStorage alone is not
+    // always available (some PWA / private modes), and flip-flopping SW bytes
+    // during a rolling deploy can fire controllerchange repeatedly.
     const hadController = !!navigator.serviceWorker.controller;
-    const RELOADED_KEY = 'syrinx:sw-reloaded';
+    const RELOAD_COUNT_KEY = 'syrinx:sw-reload-count';
+    const RELOAD_TIME_KEY = 'syrinx:sw-reload-time';
+    const RELOAD_WINDOW_MS = 60_000;
+    const MAX_RELOADS_PER_WINDOW = 2;
+
+    let controllerChangeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function mayReloadForSWUpdate(): boolean {
+      try {
+        const now = Date.now();
+        const last = Number(localStorage.getItem(RELOAD_TIME_KEY) || '0');
+        let count = Number(localStorage.getItem(RELOAD_COUNT_KEY) || '0');
+        if (!last || now - last > RELOAD_WINDOW_MS) {
+          count = 0;
+        }
+        if (count >= MAX_RELOADS_PER_WINDOW) {
+          console.warn(
+            'PWA: Service Worker updated again within reload window; skipping reload to avoid a loop.'
+          );
+          return false;
+        }
+        localStorage.setItem(RELOAD_COUNT_KEY, String(count + 1));
+        localStorage.setItem(RELOAD_TIME_KEY, String(now));
+        return true;
+      } catch {
+        // Storage blocked — prefer a working stale shell over an infinite reload.
+        return false;
+      }
+    }
+
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (!hadController) return;
-      if (sessionStorage.getItem(RELOADED_KEY)) {
-        console.warn('PWA: Service Worker controller changed again; skipping reload to avoid a loop.');
-        return;
-      }
-      sessionStorage.setItem(RELOADED_KEY, '1');
-      window.location.reload();
+      if (controllerChangeTimer) return;
+      controllerChangeTimer = setTimeout(() => {
+        controllerChangeTimer = null;
+        if (!mayReloadForSWUpdate()) return;
+        window.location.reload();
+      }, 100);
     });
 
     navigator.serviceWorker.register(swUrl, swOptions)
     .then((registration) => {
       console.log('PWA: Service Worker registered');
 
-      // A worker left waiting from a previous visit — activate it.
-      if (registration.waiting && navigator.serviceWorker.controller) {
-        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-      }
-
+      // install handler in service-worker.ts already calls skipWaiting(); only
+      // nudge a worker that was left waiting from a previous visit.
       registration.addEventListener('updatefound', () => {
         const newWorker = registration.installing;
         if (!newWorker) return;
@@ -134,6 +159,10 @@ export function initializePWA() {
           }
         });
       });
+
+      if (registration.waiting && navigator.serviceWorker.controller) {
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
 
       // Check for a new version at startup. Fails soft when offline —
       // the existing precache keeps serving the app.

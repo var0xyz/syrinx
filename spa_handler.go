@@ -15,6 +15,11 @@ func spaHandler(root string) http.Handler {
 	fileServer := http.FileServer(http.Dir(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		urlPath := path.Clean("/" + r.URL.Path)
+		// Never cache the service worker script — stale or flip-flopping bytes
+		// behind a proxy during deploy cause endless update/reload cycles.
+		if urlPath == "/service-worker.js" {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		}
 		if urlPath != "/" {
 			rel := strings.TrimPrefix(urlPath, "/")
 			if fi, err := os.Stat(path.Join(root, rel)); err == nil && !fi.IsDir() {

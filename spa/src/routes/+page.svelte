@@ -11,7 +11,7 @@
   let isPWAInstalled = false;
 
   onMount(async () => {
-    if (redirectForRestoreState()) {
+    if (await redirectForRestoreState()) {
       return;
     }
 

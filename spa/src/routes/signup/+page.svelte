@@ -33,8 +33,11 @@
 
   onMount(async () => {
     if (authService.isLoggedIn()) {
-      goto("/reeds");
-      return;
+      const user = await authService.getCurrentUser();
+      if (user) {
+        goto("/reeds");
+        return;
+      }
     }
 
     // Fragment is not always on $page.url in SSR; read from location.

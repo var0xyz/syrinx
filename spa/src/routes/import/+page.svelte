@@ -53,8 +53,8 @@
   const DEVICE_TAKEOVER_CONFIRM =
     'Continuing will log out any other devices that are signed in with this account. Continue?';
 
-  onMount(() => {
-    if (redirectForRestoreState()) return;
+  onMount(async () => {
+    if (await redirectForRestoreState()) return;
     if (isImportComplete() && !isRecoveryInProgress()) {
       importSucceeded = true;
     }
