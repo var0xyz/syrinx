@@ -17,8 +17,11 @@
 
   onMount(async () => {
     if (authService.isLoggedIn()) {
-      goto('/reeds');
-      return;
+      const user = await authService.getCurrentUser();
+      if (user) {
+        goto('/reeds');
+        return;
+      }
     }
 
     const waitForInfo = () =>

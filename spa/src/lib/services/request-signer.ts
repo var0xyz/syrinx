@@ -51,13 +51,7 @@ class RequestSignerService {
           return;
         }
 
-        // If there's a waiting service worker, try to activate it
-        if (registration.waiting) {
-          console.log('RequestSigner: Activating waiting service worker');
-          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-        }
-
-        // Wait for controller with timeout
+        // Wait for controller with timeout (pwa.ts activates waiting workers).
         const timeout = setTimeout(() => {
           console.error('RequestSigner: Service worker timeout');
           reject(new Error('Service worker initialization timeout'));

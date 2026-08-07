@@ -61,23 +61,36 @@ export function enforceImportGate(pathname: string): boolean {
  * Send the user to the correct restore step, if any. Returns true when redirected.
  * Prefer this on entry surfaces (home, import). Layout uses enforceImportGate
  * for ongoing navigation.
+ *
+ * Requires a resolvable user record before sending to /reeds — userId alone in
+ * localStorage (or a broken/stale SW shell) must not ping-pong / ↔ /reeds.
  */
-export function redirectForRestoreState(): boolean {
-  if (authService.isLoggedIn()) {
-    navigate('/reeds');
-    return true;
-  }
+export async function redirectForRestoreState(): Promise<boolean> {
   if (typeof window !== 'undefined') {
-    return enforceImportGate(window.location.pathname);
-  }
-  if (isImportInProgress()) {
+    if (enforceImportGate(window.location.pathname)) {
+      return true;
+    }
+  } else if (isImportInProgress()) {
     navigate('/import');
     return true;
-  }
-  if (isImportGated()) {
+  } else if (isImportGated()) {
     navigate('/recovery');
     return true;
   }
+
+  if (!authService.isLoggedIn()) {
+    return false;
+  }
+
+  const user = await authService.getCurrentUser();
+  if (user) {
+    navigate('/reeds');
+    return true;
+  }
+
+  console.warn(
+    'restoreFlow: local session markers present but no user in IndexedDB; staying put'
+  );
   return false;
 }
 

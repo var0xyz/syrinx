@@ -58,10 +58,13 @@
     }
   }
 
-  onMount(() => {
+  onMount(async () => {
     if (authService.isLoggedIn()) {
-      goto('/reeds');
-      return;
+      const user = await authService.getCurrentUser();
+      if (user) {
+        goto('/reeds');
+        return;
+      }
     }
     if (!isImportComplete()) {
       goto('/import');
