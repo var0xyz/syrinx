@@ -305,9 +305,13 @@ class ServerConnection {
     this.send({ type: 'UNSUBSCRIBE_PROFILE', data: { user_id: userId } });
   }
 
-  async subscribeReed(authorId: string, reedId: string): Promise<void> {
+  async subscribeReed(authorId: string, reedId: string): Promise<boolean> {
     await this.connect();
+    if (!this.isConnected()) {
+      return false;
+    }
     this.send({ type: 'SUBSCRIBE_REED', userID: authorId, reedID: reedId });
+    return true;
   }
 
   unsubscribeReed(authorId: string, reedId: string): void {

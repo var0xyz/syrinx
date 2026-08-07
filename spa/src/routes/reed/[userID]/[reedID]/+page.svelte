@@ -16,8 +16,6 @@
   import { notificationStore } from '$lib/stores/notifications';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
-  import { echoCountsRepository } from '$lib/repositories/echoCounts';
-  import { replyCountsRepository } from '$lib/repositories/replyCounts';
   import Avatar from '$lib/components/Avatar.svelte';
   import ReedStatsSubscription from '$lib/components/ReedStatsSubscription.svelte';
   import ConversationSection from '$lib/components/ConversationSection.svelte';
@@ -34,10 +32,14 @@
   let echoedReedMissing = data.echoedReedMissing;
   let repliedToReed = data.repliedToReed;
   let repliedToReedMissing = data.repliedToReedMissing;
-  let echoCount = data.echoCount;
-  let replyCount = data.replyCount;
   let errorMessage = data.errorMessage;
+  let echoCount = 0;
+  let replyCount = 0;
   let coveragePercent = 0;
+  /** @type {'loading' | 'loaded' | 'failed'} */
+  let statsStatus = 'loading';
+  let statsTimeoutId = 0;
+  const STATS_TIMEOUT_MS = 10_000;
   let loadingReed = !data.fromCache && !data.errorMessage;
   let fetchingReed = false;
   let reedNotFound = false;
@@ -86,14 +88,12 @@
     echoedReedMissing = next.echoedReedMissing;
     repliedToReed = next.repliedToReed;
     repliedToReedMissing = next.repliedToReedMissing;
-    echoCount = next.echoCount;
-    replyCount = next.replyCount;
     errorMessage = next.errorMessage;
     reedNotFound = false;
     removedReedCert = next.removedReedCert ?? null;
     removedAccountCert = next.removedAccountCert ?? null;
     fetchingReed = false;
-    coveragePercent = 0;
+    resetStatsState();
     lastHandledFollowReedId = '';
     loadingReed = !next.fromCache && !next.errorMessage;
     if (next.fromCache) {
@@ -112,34 +112,62 @@
     }
   }
 
+  function clearStatsTimeout() {
+    if (statsTimeoutId) {
+      clearTimeout(statsTimeoutId);
+      statsTimeoutId = 0;
+    }
+  }
+
+  function resetStatsState() {
+    echoCount = 0;
+    replyCount = 0;
+    coveragePercent = 0;
+    statsStatus = 'loading';
+    clearStatsTimeout();
+  }
+
+  function armStatsTimeout() {
+    clearStatsTimeout();
+    statsTimeoutId = window.setTimeout(() => {
+      statsTimeoutId = 0;
+      if (statsStatus === 'loading') statsStatus = 'failed';
+    }, STATS_TIMEOUT_MS);
+  }
+
+  function onStatsSubscribeOk() {
+    if (statsStatus === 'loading') armStatsTimeout();
+  }
+
+  function onStatsSubscribeFailed() {
+    clearStatsTimeout();
+    if (statsStatus === 'loading') statsStatus = 'failed';
+  }
+
   function handleReedStats(msg) {
     if (msg?.userID === userID && msg?.reedID === reedID) {
+      clearStatsTimeout();
+      statsStatus = 'loaded';
       echoCount = msg.echoes ?? echoCount;
       coveragePercent = msg.coveragePercent ?? coveragePercent;
-      if (typeof msg.echoes === 'number') {
-        void echoCountsRepository.put(reedID, msg.echoes);
-      }
       if (typeof msg.replies === 'number') {
         replyCount = msg.replies;
-        void replyCountsRepository.put(reedID, msg.replies);
       }
     }
   }
 
   function handleReedEchoes(msg) {
     if (msg?.userID === userID && msg?.reedID === reedID) {
-      echoCount = msg.echoes ?? echoCount;
       if (typeof msg.echoes === 'number') {
-        void echoCountsRepository.put(reedID, msg.echoes);
+        echoCount = msg.echoes;
       }
     }
   }
 
   function handleReedReplies(msg) {
     if (msg?.userID === userID && msg?.reedID === reedID) {
-      replyCount = msg.replies ?? replyCount;
       if (typeof msg.replies === 'number') {
-        void replyCountsRepository.put(reedID, msg.replies);
+        replyCount = msg.replies;
       }
     }
   }
@@ -153,8 +181,7 @@
   async function onFollowReedArrived(incoming) {
     const parentRef = parseReedRef(incoming.replying);
     if (parentRef?.authorId === userID && parentRef?.reedId === reedID) {
-      replyCount += 1;
-      void replyCountsRepository.put(reedID, replyCount);
+      if (statsStatus === 'loaded') replyCount += 1;
       await conversationSection?.onReplyArrived(incoming);
     }
   }
@@ -170,6 +197,7 @@
   });
 
   onDestroy(() => {
+    clearStatsTimeout();
     serverConnection.off(ServerEvent.ReedStats, handleReedStats);
     serverConnection.off(ServerEvent.ReedEchoes, handleReedEchoes);
     serverConnection.off(ServerEvent.ReedReplies, handleReedReplies);
@@ -378,7 +406,12 @@
     <div class="reed-detail-container">
       {#key `${userID}/${reedID}`}
         {#if (reedMatchesRoute && reed?.serverSignature) || removedReedCert || removedAccountCert}
-          <ReedStatsSubscription authorId={userID} reedId={reedID} />
+          <ReedStatsSubscription
+            authorId={userID}
+            reedId={reedID}
+            onSubscribeOk={onStatsSubscribeOk}
+            onSubscribeFailed={onStatsSubscribeFailed}
+          />
         {/if}
       {/key}
 
@@ -412,12 +445,18 @@
                 <div class="author-info">
                   <a href="/profile/{userID}" class="author-name">{authorUser?.username ?? userID}</a>
                   <p class="reed-stats" title="Stats for nerds">
-                    <span class="reed-stat-icon echoes" aria-hidden="true"></span>
-                    {echoCount}
-                    <span class="reed-stat-icon replies" aria-hidden="true"></span>
-                    {replyCount}
-                    <span class="reed-stat-icon coverage" aria-hidden="true"></span>
-                    {coveragePercent}%
+                    {#if statsStatus === 'loading'}
+                      Loading stats...
+                    {:else if statsStatus === 'failed'}
+                      Failed to load stats
+                    {:else}
+                      <span class="reed-stat-icon echoes" aria-hidden="true"></span>
+                      {echoCount}
+                      <span class="reed-stat-icon replies" aria-hidden="true"></span>
+                      {replyCount}
+                      <span class="reed-stat-icon coverage" aria-hidden="true"></span>
+                      {coveragePercent}%
+                    {/if}
                   </p>
                 </div>
               </div>
@@ -467,12 +506,18 @@
                   <p class="reed-date" class:pending={isPending}>{isPending ? 'Pending…' : formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
                   {#if !isPending}
                     <p class="reed-stats" title="Stats for nerds">
-                      <span class="reed-stat-icon echoes" aria-hidden="true"></span>
-                      {echoCount}
-                      <span class="reed-stat-icon replies" aria-hidden="true"></span>
-                      {replyCount}
-                      <span class="reed-stat-icon coverage" aria-hidden="true"></span>
-                      {coveragePercent}%
+                      {#if statsStatus === 'loading'}
+                        Loading stats...
+                      {:else if statsStatus === 'failed'}
+                        Failed to load stats
+                      {:else}
+                        <span class="reed-stat-icon echoes" aria-hidden="true"></span>
+                        {echoCount}
+                        <span class="reed-stat-icon replies" aria-hidden="true"></span>
+                        {replyCount}
+                        <span class="reed-stat-icon coverage" aria-hidden="true"></span>
+                        {coveragePercent}%
+                      {/if}
                     </p>
                   {/if}
                 </div>

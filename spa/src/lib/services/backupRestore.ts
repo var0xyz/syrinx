@@ -392,6 +392,9 @@ async function restoreItem(storeName: string, item: unknown): Promise<void> {
     case 'removedAccounts':
       await removedAccountsRepository.put(item as api.AccountRemoval);
       return;
+    case 'echoCounts':
+    case 'replyCounts':
+      return;
     case 'privateKeys': {
       const key = item as PrivateKey;
       await privateKeyRepository.put(key.fingerprint, key.armor);

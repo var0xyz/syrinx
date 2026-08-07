@@ -32,7 +32,7 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  private readonly version = 4;
+  private readonly version = 5;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -43,8 +43,6 @@ export class IndexedDbService implements DbService {
     ['users',       'id'         ],
     ['usersInfo',   'id'         ],
     ['invites',     'id'         ],
-    ['echoCounts',  'reedID'     ],
-    ['replyCounts', 'reedID'     ],
     ['reedReplies', 'reedID', 'parentKey'],
 
     // Offline-first
