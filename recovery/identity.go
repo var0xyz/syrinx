@@ -1,12 +1,14 @@
 package recovery
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
 	"time"
 
 	"syrinx/identity"
+	"syrinx/observability/metrics"
 )
 
 const challengeMaxAge = 60 * time.Second
@@ -18,6 +20,7 @@ type Deps struct {
 	ServerID  string
 	Lookup    ServerKeyLookup
 	UserIDKey any              // context key for authenticated caller (peer endpoints)
+	Metrics   metrics.Recorder // optional; noop when nil
 	Now       func() time.Time // optional; defaults to time.Now
 }
 
@@ -68,9 +71,13 @@ func (d Deps) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := SaveOwnIdentity(r.Context(), d.DB, req.Profile, keys, deviceID); err != nil {
+	res, err := SaveOwnIdentity(r.Context(), d.DB, req.Profile, keys, deviceID)
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
+	}
+	if res.Created {
+		d.recordUserImported(r.Context(), req.Profile.ID)
 	}
 
 	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
@@ -102,9 +109,11 @@ func (d Deps) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := SavePeerIdentity(r.Context(), d.DB, req.Profile, keys); err != nil {
+	if res, err := SavePeerIdentity(r.Context(), d.DB, req.Profile, keys); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
+	} else if res.Created {
+		d.recordUserImported(r.Context(), req.Profile.ID)
 	}
 
 	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
@@ -119,4 +128,11 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func noop(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
+}
+
+func (d Deps) recordUserImported(ctx context.Context, userID string) {
+	if d.Metrics == nil {
+		return
+	}
+	d.Metrics.UserCreated(ctx, metrics.SignupModeImport, userID)
 }

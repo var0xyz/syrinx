@@ -82,6 +82,8 @@ func Setup(host, port string) (*Manager, error) {
 	}
 
 	tracerProvider := sdktrace.NewTracerProvider(
+		// AlwaysSample: closed-community traffic is low enough that full
+		// request waterfalls are worth the storage cost. See specs/observability/.
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithBatcher(traceExporter),
 		sdktrace.WithResource(res),

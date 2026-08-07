@@ -56,7 +56,7 @@ stream as host metrics today.
 
 | Instrument | OTEL type | When recorded | Attributes |
 |---|---|---|---|
-| `syrinx.users.created` | Counter | Successful `Signup` / import-signup commit | `signup.mode` (`open` \| `invite` \| `closed`), `user.id_hash` |
+| `syrinx.users.created` | Counter | Successful signup or recovery import (new `users` row) | `signup.mode` (`open` \| `invite` \| `closed` \| `import`), `user.id_hash` |
 | `syrinx.users.deleted` | Counter | Successful account removal (`DeleteMe`, new cert) | `user.id_hash`, `note.has` (bool — whether a non-empty goodbye note was supplied; never the note text) |
 | `syrinx.reeds.published` | Counter | Successful `SignReed` (new reed, not replay) | `reed.kind` (`plain` \| `echo` \| `reply`), `tags.has` (bool), `tags.count` (int 0–4+, see bucketing), `author.id_hash`, `reed.id` |
 | `syrinx.reeds.deleted` | Counter | Successful reed removal (`DeleteReed`, new cert) | `author.id_hash`, `reed.id` |
@@ -64,7 +64,7 @@ stream as host metrics today.
 | `syrinx.reeds.rejected.length` | Counter | `SignReed` rejected for length limits | `raw.exceeds_max`, `visible.exceeds_max` (bool) |
 | `syrinx.reed.content.raw_chars` | Histogram | Successful publish | `reed.kind`, `author.id_hash`, `reed.id` — value = `len(body)` (JS string length) |
 | `syrinx.reed.content.visible_chars` | Histogram | Successful publish | same — value = `CountMarkdownCharacters(body)` |
-| `syrinx.keys.revoked` | Counter | Successful key rotation (`AddPublicKey` after predecessor verified revoked) | `user.id_hash` |
+| `syrinx.keys.revoked` | Counter | Successful `RevokeKey` persist | `user.id_hash` |
 | `syrinx.users.backup` | Counter | SPA reports a successful local export via `POST /users/me/backup` | `user.id_hash`, `backup.kind` (`identity` \| `full`) |
 | `syrinx.reed.holders` | Histogram | Whenever holder count changes for a reed | `author.id_hash`, `reed.id` — value = `allocation_count` |
 | `syrinx.reed.coverage_percent` | Histogram | Same hook as holders | `author.id_hash`, `reed.id` — value = `coveragePercent` (0–100) |
@@ -99,21 +99,22 @@ Constants today: `MaxReedRawChars = 1400`, `MaxReedVisibleChars = 140`
 
 | Event | Call site | Notes |
 |---|---|---|
-| User created | `Handlers.Signup` after success | `signup.mode`, `user.id_hash` |
+| User created (signup) | `Handlers.Signup` after success | `signup.mode` from server config, `user.id_hash` |
+| User created (import) | `recovery.ClaimIdentity` / `recovery.ReportPeerIdentity` when `SaveIdentityResult.Created` | `signup.mode=import`, `user.id_hash` |
 | User deleted | `Handlers.DeleteMe` after `InsertAccountRemoval` succeeds (not replay) | `user.id_hash` + `note.has` (`note != ""` after trim); no note text |
 | Reed published | `Handlers.SignReed` after successful create (not replay path) | Pass `kind`, tag slice length, `userID`, `reedID`, body lengths — emitted as `author.id_hash` |
 | Reed deleted | `Handlers.DeleteReed` after `InsertReedRemoval` succeeds (not replay) | `author.id_hash`, `reed.id` |
 | Echo targeted | `Handlers.SignReed` when `echoIndexed && echoRef != nil` | Target = `target.author.id_hash`, `target.reed.id` |
 | Reed rejected (length) | `Handlers.SignReed` before 400 on limit check | Raw + visible counts only |
-| Key revoked | `Handlers.AddPublicKey` after successful rotation | `user.id_hash` — predecessor must already be revoked |
+| Key revoked | `Handlers.RevokeKey` after successful persist | `user.id_hash` only — no fingerprint |
 | User backup | `Handlers.RecordBackup` after authenticated POST | `user.id_hash`, `backup.kind`; no DB — client queues in IndexedDB `pendingBackups` and retries on startup |
 | Reed holders + coverage | `RealtimeService.notifyReedCoverage` | Read `allocation_count` + percent already computed for WS; record both histograms with `author.id_hash` |
 | Initial coverage at publish | Same hook after author allocation on publish | Ensures every reed gets at least one coverage sample |
 | WS inbound | Start of `handleJSONMessage` / `handleProtobufMessage` | Normalize `msgType` / `pb.MessageType_*` to the same string enum |
 | WS outbound | `Client.writeMessage` (single choke point) | Parse JSON `type` field or protobuf message type from payload when cheap; else `ws.message.type=binary_unknown` / `json_unknown` |
 
-Recovery-mode signup/import paths that create users should call `UserCreated`
-with the active `signup.mode`.
+Recovery-mode import paths call `UserCreated` with `signup.mode=import` when a
+new `users` row is inserted (own claim or peer seed).
 
 ### 5.4 WebSocket type normalization
 
@@ -175,7 +176,7 @@ Example questions this unlocks:
   `target_author_id_hash` / `target_reed_id`.
 - Reply rate: filter `reed_kind = reply`.
 - Deletion rate: `sum(syrinx_reeds_deleted)`, `sum(syrinx_users_deleted)`.
-- Key rotations completed: `sum(syrinx_keys_revoked)` over time.
+- Key revocations: `sum(syrinx_keys_revoked)` over time.
 - Backup adoption: `sum(syrinx_users_backup)` by `backup_kind`; group by
   `user_id_hash` to see repeat exporters without raw user ids.
 - WS health: `sum(syrinx_ws_messages)` by `ws_direction`, `ws_message_type`.
@@ -200,7 +201,7 @@ Querying the bare instrument name returns no data.
 - Client-side (SPA) metrics — server-side only in v1.
 - Per-holder identity (who holds a reed) — aggregate holder count only.
 - Cross-instance federation metrics.
-- Alerting rules — follow-up once dashboards exist.
+- Alerting rules — **not planned**; dashboards only.
 - Replacing structured logs; metrics complement zerolog, not replace it.
 - Tag-name / pipe-name popularity analytics (count only).
 
@@ -217,17 +218,12 @@ Querying the bare instrument name returns no data.
 6. Delete reed → `syrinx.reeds.deleted`; replay with same signature → no
    second increment.
 7. Delete account → `syrinx.users.deleted`; replay → no second increment.
-8. Rotate key → `syrinx.keys.revoked`; export backup → `syrinx.users.backup` with `user.id_hash`.
-9. Connect WS client; send `REQUEST_REED` → inbound counter; observe outbound
+8. Revoke key → `syrinx.keys.revoked`; export backup → `syrinx.users.backup` with `user.id_hash`.
+9. Recovery claim / peer seed (new user) → `syrinx.users.created{signup_mode=import}`.
+10. Connect WS client; send `REQUEST_REED` → inbound counter; observe outbound
    counters for server responses.
-10. `DATA_ACK` from a second user → holder histogram increases for that reed.
-11. Attempt over-limit reed → `syrinx.reeds.rejected.length` +1, no publish
+11. `DATA_ACK` from a second user → holder histogram increases for that reed.
+12. Attempt over-limit reed → `syrinx.reeds.rejected.length` +1, no publish
     counter.
-12. Confirm exported series contain no username/tag-text/note fields
-    (spot-check attribute keys in OpenObserve).
-
-## Open points
-
-- Whether import-signup (`Handlers.ImportSignup`) should use
-  `signup.mode=closed` or a dedicated `import` label — lean toward `closed`
-  unless operators need them split.
+13. Confirm exported series contain no username/tag-text/note fields or raw
+    user ids (spot-check attribute keys in OpenObserve).

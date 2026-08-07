@@ -20,6 +20,9 @@ const (
 	BackupKindFull     BackupKind = "full"     // full .sxb.gpg
 )
 
+// SignupModeImport labels users created during server-recovery import (claim or peer seed).
+const SignupModeImport = "import"
+
 // ReedKind classifies a published reed.
 type ReedKind string
 
