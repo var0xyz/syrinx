@@ -79,6 +79,26 @@ func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *crypto.Servic
 	return true, nil
 }
 
+// requireRootUser refuses normal startup when the reserved root row is missing.
+// RECOVERY_MODE may run with an empty users table until clients report evidence;
+// the one-shot mint path (maybeExportRootKey) runs before this check.
+func requireRootUser(cfg AppConfig, db *DataService) error {
+	if cfg.RecoveryMode {
+		return nil
+	}
+	root, err := db.GetUserProfile(context.Background(), roles.RootUserID)
+	if err != nil {
+		return err
+	}
+	if root != nil {
+		return nil
+	}
+	return fmt.Errorf(
+		"no root user (id %q): set ROOT_KEY_EXPORT_PASSPHRASE, start once to mint root and write syrinx-1-….sxi.gpg, import that file via /import, then unset the env var and restart",
+		roles.RootUserID,
+	)
+}
+
 func exportRootIdentity(
 	db *DataService,
 	cryptoSvc *crypto.Service,
