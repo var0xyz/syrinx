@@ -427,7 +427,8 @@ export async function verifyInvite(invite: api.Invite): Promise<boolean> {
     userID,
     invite.id,
     invite.tokenHash,
-    createdAt
+    createdAt,
+    invite.grantedRole === 'admin' ? 'admin' : ''
   );
   const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, armor);
   if (!userValid) {

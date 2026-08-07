@@ -34,7 +34,7 @@ Each table below has a **Status** column per step. Values:
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Observability    | Implemented | Steps 01–05; see [`observability/README.md`](observability/README.md) |
 | Load testing     | Proposed    | 00–03                                                |
-| Roles            | In progress | 01 implemented; 02 proposed                          |
+| Roles            | Implemented | 00–02                                                |
 | Federation       | Proposed    | 00–05 (depends on roles)                             |
 
 **Already done:** Invites, Coverage, Deletion, Signature storage, Publish
@@ -131,7 +131,7 @@ admins may invite other admins. Prerequisite for federation operator actions.
 |----|--------------------------------------------|----------|
 | 00 | Design + locked model                      | Proposed |
 | 01 | `users.role` column + code helpers         | Implemented |
-| 02 | Admin-only admin invites (create + signup) | Proposed |
+| 02 | Admin-only admin invites (create + signup) | Implemented |
 
 ## Federation (explicit peering)
 

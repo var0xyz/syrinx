@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"syrinx/roles"
+
 	_ "github.com/lib/pq"
 )
 
@@ -81,6 +83,8 @@ func ensureInviteSchema(db *sql.DB) error {
 			claimed_at TIMESTAMPTZ,
 			claimed_by VARCHAR(255) REFERENCES users(id),
 			revoked_at TIMESTAMPTZ,
+			granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
+				CHECK (granted_role IN ('admin', 'user')),
 			PRIMARY KEY (created_by, id)
 		)`,
 	}
@@ -92,7 +96,7 @@ func ensureInviteSchema(db *sql.DB) error {
 	return nil
 }
 
-func seedUser(t *testing.T, db *sql.DB, userID, username string) {
+func seedUserWithRole(t *testing.T, db *sql.DB, userID, username, role string) {
 	t.Helper()
 	var userSigID, serverSigID int64
 	err := db.QueryRow(`
@@ -110,12 +114,16 @@ func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 		t.Fatalf("server sig: %v", err)
 	}
 	_, err = db.Exec(`
-		INSERT INTO users (id, username, user_signature_id, server_signature_id)
-		VALUES ($1, $2, $3, $4)
-	`, userID, username, userSigID, serverSigID)
+		INSERT INTO users (id, username, role, user_signature_id, server_signature_id)
+		VALUES ($1, $2, $3, $4, $5)
+	`, userID, username, role, userSigID, serverSigID)
 	if err != nil {
 		t.Fatalf("user: %v", err)
 	}
+}
+
+func seedUser(t *testing.T, db *sql.DB, userID, username string) {
+	seedUserWithRole(t, db, userID, username, roles.RoleUser)
 }
 
 func TestHashSecret(t *testing.T) {
@@ -164,7 +172,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.Insert(ctx, id, "creator1", hash, now); err != nil {
+	if err := store.Insert(ctx, id, "creator1", hash, now, roles.RoleUser); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 
@@ -237,7 +245,7 @@ func TestRevokeDistinguishesClaimed(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.Insert(ctx, id, "creator2", hash, now); err != nil {
+	if err := store.Insert(ctx, id, "creator2", hash, now, roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 
@@ -282,7 +290,7 @@ func TestRevokeAndCountIncludesRevoked(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.Insert(ctx, id, "creator3", hash, now); err != nil {
+	if err := store.Insert(ctx, id, "creator3", hash, now, roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Revoke(ctx, id, "creator3", now.Add(time.Minute)); err != nil {

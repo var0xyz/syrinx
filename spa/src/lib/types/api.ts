@@ -40,6 +40,8 @@ export interface UserInfo extends Base {
   followersCount: number;
   followingCount: number;
   activeKeyFingerprint: string;
+  /** Server-local role hint (unsigned). */
+  role: 'root' | 'admin' | 'user';
   /** Same instant as the user's profile serverSignature.timestamp. */
   profileTimestamp: string;
 }
@@ -186,6 +188,8 @@ export interface Invite extends Base {
   id: string;
   /** SHA-256(secret) hex — signed and stored on the server. */
   tokenHash: string;
+  /** Role granted to the redeemer (user | admin). Omitted on wire when user. */
+  grantedRole?: 'user' | 'admin';
   /** Fragment secret; local-only while pending. Never sent on create. */
   secret?: string;
   createdAt: string;

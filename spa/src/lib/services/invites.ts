@@ -36,7 +36,7 @@ export function inviteShareURL(id: string, secret: string, origin = window.locat
  * Mint id+secret locally, sign id+createdAt+tokenHash, countersign on server.
  * Secret never leaves the browser on create.
  */
-export async function createSignedInvite(): Promise<api.Invite> {
+export async function createSignedInvite(grantAdmin = false): Promise<api.Invite> {
   const user = await authService.getCurrentUser();
   if (!user?.id) {
     throw new Error('Not signed in');
@@ -63,12 +63,14 @@ export async function createSignedInvite(): Promise<api.Invite> {
   const secret = newInviteSecret();
   const tokenHash = await hashInviteSecret(secret);
   const createdAt = signedAtHeader(new Date());
+  const grantedRole = grantAdmin ? 'admin' : 'user';
   const userPayload = buildInviteUserPayload(
     serverID,
     user.id,
     id,
     tokenHash,
-    createdAt
+    createdAt,
+    grantedRole === 'admin' ? 'admin' : ''
   );
   const sigArmor = await cryptoService.signMessage(
     userPayload,
@@ -84,12 +86,14 @@ export async function createSignedInvite(): Promise<api.Invite> {
     id,
     tokenHash,
     createdAt,
+    grantedRole: grantAdmin ? 'admin' : undefined,
     userSignature,
   });
 
   const invite: api.Invite = {
     id: created.id,
     tokenHash: created.tokenHash,
+    grantedRole: created.grantedRole,
     secret,
     createdAt: created.createdAt,
     status: 'pending',

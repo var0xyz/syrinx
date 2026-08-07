@@ -497,6 +497,13 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 		invitedBy = resolved.InviterID
 	}
 
+	inviteGrantedRole := ""
+	hasInvite := inv != nil && resolved.InviteID != ""
+	if hasInvite {
+		inviteGrantedRole = inv.GrantedRole
+	}
+	signupRole := roles.SignupRole(in.UserID, inviteGrantedRole, hasInvite)
+
 	// created_at is set explicitly to memberSince — the value that was
 	// signed by the server. Using the DB's DEFAULT would create a
 	// race between what was signed and what is persisted, and would
@@ -507,7 +514,7 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 			user_signature_id, server_signature_id, invited_by
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`,
-		in.UserID, in.Username, roles.RoleForSignup(in.UserID), in.MemberSince, in.Fingerprint,
+		in.UserID, in.Username, signupRole, in.MemberSince, in.Fingerprint,
 		userSignatureID, serverSignatureID, invitedBy,
 	); err != nil {
 		if isUsernameUniqueViolation(err) {
@@ -635,6 +642,7 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT u.id,
+		       u.role,
 		       u.user_fingerprint,
 		       ss.signed_at,
 		       EXISTS (
@@ -651,6 +659,7 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 		WHERE u.id = $1
 	`, userID).Scan(
 		&info.ID,
+		&info.Role,
 		&activeFP,
 		&info.ProfileTimestamp,
 		&info.HasReeds,

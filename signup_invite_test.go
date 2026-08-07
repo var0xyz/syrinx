@@ -97,6 +97,8 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			claimed_at TIMESTAMPTZ,
 			claimed_by VARCHAR(255) REFERENCES users(id),
 			revoked_at TIMESTAMPTZ,
+			granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
+				CHECK (granted_role IN ('admin', 'user')),
 			PRIMARY KEY (created_by, id)
 		)`,
 		`CREATE TABLE user_following (
@@ -204,7 +206,7 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &invites.Store{DB: db}
-	if err := store.Insert(ctx, id, "inviter", hash, time.Now().UTC()); err != nil {
+	if err := store.Insert(ctx, id, "inviter", hash, time.Now().UTC(), roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 
@@ -258,7 +260,7 @@ func TestSignup_OpenValidToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := (&invites.Store{DB: db}).Insert(ctx, id, "inviter", hash, time.Now().UTC()); err != nil {
+	if err := (&invites.Store{DB: db}).Insert(ctx, id, "inviter", hash, time.Now().UTC(), roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 
@@ -309,5 +311,44 @@ func TestSignup_RootMintRole(t *testing.T) {
 	got, err := svc.GetUserRole(context.Background(), roles.RootUserID)
 	if err != nil || got != roles.RoleRoot {
 		t.Fatalf("GetUserRole = %q err=%v want %q", got, err, roles.RoleRoot)
+	}
+}
+
+func TestSignup_AdminInviteGrantsAdminRole(t *testing.T) {
+	db := openSignupTestDB(t)
+	svc := NewDataService(db, "test")
+	svc.serverID = "srv"
+	ctx := context.Background()
+
+	if _, err := svc.Signup(context.Background(), signupInput("inviter", "alice", "", "", "", invites.ModeOpen)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE users SET role = $1 WHERE id = $2`, roles.RoleAdmin, "inviter"); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := invites.NewSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := invites.HashSecret(raw)
+	id, err := invites.NewInviteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &invites.Store{DB: db}
+	if err := store.Insert(ctx, id, "inviter", hash, time.Now().UTC(), roles.RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+
+	user, err := svc.Signup(context.Background(), signupInput("invitee", "bob", "inviter", id, raw, invites.ModeInvite))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.ID != "invitee" {
+		t.Fatalf("id = %q", user.ID)
+	}
+	if role := queryUserRole(t, db, "invitee"); role != roles.RoleAdmin {
+		t.Fatalf("invitee role = %q want %q", role, roles.RoleAdmin)
 	}
 }

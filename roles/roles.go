@@ -32,11 +32,31 @@ func CanGrantAdmin(role string) bool {
 	return IsAdmin(role)
 }
 
-// RoleForSignup returns the role persisted for a brand-new account.
-// Admin-granting invites (roles 02) override this at redeem time.
+// RoleForSignup returns the role persisted for a brand-new account with no
+// invite redeem (open signup or root mint).
 func RoleForSignup(userID string) string {
 	if userID == RootUserID {
 		return RoleRoot
+	}
+	return RoleUser
+}
+
+// RoleFromInviteGrant maps invite.granted_role to users.role. Never root.
+func RoleFromInviteGrant(grantedRole string) string {
+	if grantedRole == RoleAdmin {
+		return RoleAdmin
+	}
+	return RoleUser
+}
+
+// SignupRole returns users.role for a signup insert. When hasInvite is true,
+// inviteGrantedRole from the invites row is applied (never root).
+func SignupRole(userID, inviteGrantedRole string, hasInvite bool) string {
+	if userID == RootUserID {
+		return RoleRoot
+	}
+	if hasInvite {
+		return RoleFromInviteGrant(inviteGrantedRole)
 	}
 	return RoleUser
 }

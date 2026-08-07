@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"syrinx/roles"
 
 	"github.com/gorilla/mux"
 )
@@ -37,6 +40,14 @@ func testDeps(t *testing.T, mode SignupMode, max MaxInvitesPerUser) Deps {
 		GetPublicKeyArmor: func(ctx context.Context, userID, fingerprint string) (string, error) {
 			return "pub-armor", nil
 		},
+		GetUserRole: func(ctx context.Context, userID string) (string, error) {
+			var role string
+			err := db.QueryRowContext(ctx, `SELECT role FROM users WHERE id = $1`, userID).Scan(&role)
+			if err == sql.ErrNoRows {
+				return "", nil
+			}
+			return role, err
+		},
 		VerifySignature: func(payload, sigArmor, pubKeyArmor string) error {
 			return nil
 		},
@@ -51,7 +62,7 @@ func testDeps(t *testing.T, mode SignupMode, max MaxInvitesPerUser) Deps {
 	}
 }
 
-func createBody(t *testing.T, id, tokenHashHex string, createdAt time.Time) *bytes.Buffer {
+func createBody(t *testing.T, id, tokenHashHex string, createdAt time.Time, grantedRole string) *bytes.Buffer {
 	t.Helper()
 	var err error
 	if tokenHashHex == "" {
@@ -68,9 +79,10 @@ func createBody(t *testing.T, id, tokenHashHex string, createdAt time.Time) *byt
 		}
 	}
 	b, err := json.Marshal(createRequest{
-		ID:        id,
-		TokenHash: tokenHashHex,
-		CreatedAt: createdAt,
+		ID:          id,
+		TokenHash:   tokenHashHex,
+		CreatedAt:   createdAt,
+		GrantedRole: grantedRole,
 		UserSignature: UserSignatureWire{
 			Fingerprint: "user-fp",
 			Armor:       base64.StdEncoding.EncodeToString([]byte("user-sig")),
@@ -97,7 +109,7 @@ func TestCreate_Open(t *testing.T) {
 	seedUser(t, deps.Store.DB, "u1", "alice")
 	fixed := deps.Now()
 
-	rr := postCreate(deps, "u1", createBody(t, "", "", fixed))
+	rr := postCreate(deps, "u1", createBody(t, "", "", fixed, ""))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -112,7 +124,7 @@ func TestCreate_Open(t *testing.T) {
 		t.Fatalf("tokenHash len = %d", len(body.TokenHash))
 	}
 
-	rr2 := postCreate(deps, "u1", createBody(t, "", "", fixed))
+	rr2 := postCreate(deps, "u1", createBody(t, "", "", fixed, ""))
 	if rr2.Code != http.StatusCreated {
 		t.Fatalf("second create status = %d", rr2.Code)
 	}
@@ -127,19 +139,19 @@ func TestCreate_Quota(t *testing.T) {
 	seedUser(t, deps.Store.DB, "u1", "alice")
 	fixed := deps.Now()
 
-	rr := postCreate(deps, "u1", createBody(t, "", "", fixed))
+	rr := postCreate(deps, "u1", createBody(t, "", "", fixed, ""))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("first create = %d", rr.Code)
 	}
 
-	rr2 := postCreate(deps, "u1", createBody(t, "", "", fixed))
+	rr2 := postCreate(deps, "u1", createBody(t, "", "", fixed, ""))
 	if rr2.Code != http.StatusForbidden {
 		t.Fatalf("quota create = %d want 403", rr2.Code)
 	}
 
 	depsUnlimited := deps
 	depsUnlimited.Max = MaxInvitesUnlimited
-	rr3 := postCreate(depsUnlimited, "u1", createBody(t, "", "", fixed))
+	rr3 := postCreate(depsUnlimited, "u1", createBody(t, "", "", fixed, ""))
 	if rr3.Code != http.StatusCreated {
 		t.Fatalf("unlimited create = %d", rr3.Code)
 	}
@@ -150,7 +162,7 @@ func TestCreate_Closed(t *testing.T) {
 	seedUser(t, deps.Store.DB, "u1", "alice")
 	fixed := deps.Now()
 
-	rr := postCreate(deps, "u1", createBody(t, "", "", fixed))
+	rr := postCreate(deps, "u1", createBody(t, "", "", fixed, ""))
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("create closed = %d want 403", rr.Code)
 	}
@@ -163,7 +175,7 @@ func TestCreate_Closed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := deps.Store.Insert(context.Background(), id, "u1", HashSecret(secret), fixed); err != nil {
+	if err := deps.Store.Insert(context.Background(), id, "u1", HashSecret(secret), fixed, roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 	rrStatus := httptest.NewRecorder()
@@ -175,7 +187,7 @@ func TestCreate_Closed(t *testing.T) {
 
 func TestCreate_Unauthenticated(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
-	rr := postCreate(deps, "", createBody(t, "", "", deps.Now()))
+	rr := postCreate(deps, "", createBody(t, "", "", deps.Now(), ""))
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d want 401", rr.Code)
 	}
@@ -190,11 +202,11 @@ func TestCreate_DuplicateID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rr := postCreate(deps, "u1", createBody(t, id, "", fixed))
+	rr := postCreate(deps, "u1", createBody(t, id, "", fixed, ""))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("first = %d", rr.Code)
 	}
-	rr2 := postCreate(deps, "u1", createBody(t, id, "", fixed))
+	rr2 := postCreate(deps, "u1", createBody(t, id, "", fixed, ""))
 	if rr2.Code != http.StatusConflict {
 		t.Fatalf("dup = %d want 409 body=%s", rr2.Code, rr2.Body.String())
 	}
@@ -214,7 +226,7 @@ func TestStatus_ClaimedBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := deps.Store.Insert(context.Background(), id, "creator", HashSecret(secret), now); err != nil {
+	if err := deps.Store.Insert(context.Background(), id, "creator", HashSecret(secret), now, roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := deps.Store.DB.Begin()
@@ -259,7 +271,7 @@ func TestRevokeAndCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rrCreate := postCreate(deps, "u1", createBody(t, id, hashHex, fixed))
+	rrCreate := postCreate(deps, "u1", createBody(t, id, hashHex, fixed, ""))
 	if rrCreate.Code != http.StatusCreated {
 		t.Fatalf("create = %d", rrCreate.Code)
 	}
@@ -306,7 +318,7 @@ func TestCheck_Variants(t *testing.T) {
 	secret, _ := NewSecret()
 	id, _ := NewInviteID()
 	hashHex := EncodeHashHex(HashSecret(secret))
-	rrCreate := postCreate(deps, "u1", createBody(t, id, hashHex, fixed))
+	rrCreate := postCreate(deps, "u1", createBody(t, id, hashHex, fixed, ""))
 	if rrCreate.Code != http.StatusCreated {
 		t.Fatalf("create = %d", rrCreate.Code)
 	}
@@ -321,6 +333,36 @@ func TestCheck_Variants(t *testing.T) {
 	deps.Check(rrWrongID, httptest.NewRequest(http.MethodGet, "/api/invites/check?id=zzzzzzzzzzzz&secret="+secret, nil))
 	if !bytes.Contains(rrWrongID.Body.Bytes(), []byte(`"valid":false`)) {
 		t.Fatalf("wrong id: %s", rrWrongID.Body.String())
+	}
+}
+
+func TestCreate_UserCannotGrantAdmin(t *testing.T) {
+	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
+	seedUser(t, deps.Store.DB, "u1", "alice")
+
+	rr := postCreate(deps, "u1", createBody(t, "", "", deps.Now(), roles.RoleAdmin))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("Cannot grant admin role")) {
+		t.Fatalf("body = %s", rr.Body.String())
+	}
+}
+
+func TestCreate_AdminCanGrantAdmin(t *testing.T) {
+	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
+	seedUserWithRole(t, deps.Store.DB, "admin1", "admin", roles.RoleAdmin)
+
+	rr := postCreate(deps, "admin1", createBody(t, "", "", deps.Now(), roles.RoleAdmin))
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var body createResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.GrantedRole != roles.RoleAdmin {
+		t.Fatalf("grantedRole = %q want admin", body.GrantedRole)
 	}
 }
 

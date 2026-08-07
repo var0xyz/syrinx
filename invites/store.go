@@ -11,12 +11,13 @@ import (
 
 // Invite is the durable invite row (never includes the raw token).
 type Invite struct {
-	ID        string
-	CreatedBy string
-	CreatedAt time.Time
-	ClaimedAt *time.Time
-	ClaimedBy *string
-	RevokedAt *time.Time
+	ID          string
+	CreatedBy   string
+	CreatedAt   time.Time
+	GrantedRole string
+	ClaimedAt   *time.Time
+	ClaimedBy   *string
+	RevokedAt   *time.Time
 }
 
 // Store persists invites. MarkClaimed accepts an existing *sql.Tx for signup.
@@ -37,11 +38,15 @@ func (s *Store) Insert(
 	id, creatorID string,
 	tokenHash []byte,
 	createdAt time.Time,
+	grantedRole string,
 ) error {
+	if grantedRole == "" {
+		grantedRole = "user"
+	}
 	_, err := s.DB.ExecContext(ctx, `
-		INSERT INTO invites (created_by, id, token_hash, created_at)
-		VALUES ($1, $2, $3, $4)
-	`, creatorID, id, tokenHash, createdAt.UTC())
+		INSERT INTO invites (created_by, id, token_hash, created_at, granted_role)
+		VALUES ($1, $2, $3, $4, $5)
+	`, creatorID, id, tokenHash, createdAt.UTC(), grantedRole)
 	if isUniqueViolation(err) {
 		return ErrInviteExists
 	}
@@ -50,7 +55,7 @@ func (s *Store) Insert(
 
 func (s *Store) GetByCreatorAndID(ctx context.Context, creatorID, id string) (*Invite, error) {
 	row := s.DB.QueryRowContext(ctx, `
-		SELECT id, created_by, created_at, claimed_at, claimed_by, revoked_at
+		SELECT id, created_by, created_at, granted_role, claimed_at, claimed_by, revoked_at
 		FROM invites
 		WHERE created_by = $1 AND id = $2
 	`, creatorID, id)
@@ -70,7 +75,7 @@ func (s *Store) GetStatusByCreatorAndID(
 	creatorID, id string,
 ) (*Invite, string, error) {
 	row := s.DB.QueryRowContext(ctx, `
-		SELECT i.id, i.created_by, i.created_at, i.claimed_at, i.claimed_by, i.revoked_at,
+		SELECT i.id, i.created_by, i.created_at, i.granted_role, i.claimed_at, i.claimed_by, i.revoked_at,
 		       COALESCE(u.username, '')
 		FROM invites i
 		LEFT JOIN users u ON u.id = i.claimed_by
@@ -82,7 +87,7 @@ func (s *Store) GetStatusByCreatorAndID(
 	var claimedBy sql.NullString
 	var username string
 	err := row.Scan(
-		&inv.ID, &inv.CreatedBy, &inv.CreatedAt,
+		&inv.ID, &inv.CreatedBy, &inv.CreatedAt, &inv.GrantedRole,
 		&claimedAt, &claimedBy, &revokedAt, &username,
 	)
 	if err == sql.ErrNoRows {
@@ -120,7 +125,7 @@ type tokenHashQuerier interface {
 
 func getByTokenHash(ctx context.Context, q tokenHashQuerier, hash []byte) (*Invite, error) {
 	row := q.QueryRowContext(ctx, `
-		SELECT id, created_by, created_at, claimed_at, claimed_by, revoked_at
+		SELECT id, created_by, created_at, granted_role, claimed_at, claimed_by, revoked_at
 		FROM invites
 		WHERE token_hash = $1
 	`, hash)
@@ -221,6 +226,7 @@ func scanInvite(row scannable) (Invite, error) {
 		&inv.ID,
 		&inv.CreatedBy,
 		&inv.CreatedAt,
+		&inv.GrantedRole,
 		&claimedAt,
 		&claimedBy,
 		&revokedAt,

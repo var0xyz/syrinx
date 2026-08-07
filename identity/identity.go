@@ -433,23 +433,25 @@ const (
 	TypeInviteServer = "invite-server"
 )
 
-func inviteUserHeaders(serverID, userID, inviteID, tokenHash string, createdAt time.Time) map[string]string {
+func inviteUserHeaders(serverID, userID, inviteID, tokenHash, grantedRole string, createdAt time.Time) map[string]string {
 	return map[string]string{
-		"type":      TypeInviteUser,
-		"serverID":  serverID,
-		"userID":    userID,
-		"inviteID":  inviteID,
-		"tokenHash": tokenHash,
-		"createdAt": createdAt.UTC().Format(recordTimeFormat),
+		"type":        TypeInviteUser,
+		"serverID":    serverID,
+		"userID":      userID,
+		"inviteID":    inviteID,
+		"tokenHash":   tokenHash,
+		"grantedRole": grantedRole,
+		"createdAt":   createdAt.UTC().Format(recordTimeFormat),
 	}
 }
 
 // BuildInviteUserPayload returns the bytes the issuer signs over invite id,
-// createdAt, and tokenHash (SHA-256 of the fragment secret). The secret
-// itself is never signed or sent on create.
-func BuildInviteUserPayload(serverID, userID, inviteID, tokenHash string, createdAt time.Time) []byte {
+// createdAt, tokenHash (SHA-256 of the fragment secret), and optional
+// grantedRole (admin | user; omitted when user). The secret itself is never
+// signed or sent on create.
+func BuildInviteUserPayload(serverID, userID, inviteID, tokenHash, grantedRole string, createdAt time.Time) []byte {
 	return signing.BytesToSign(
-		inviteUserHeaders(serverID, userID, inviteID, tokenHash, createdAt),
+		inviteUserHeaders(serverID, userID, inviteID, tokenHash, grantedRole, createdAt),
 		"",
 	)
 }

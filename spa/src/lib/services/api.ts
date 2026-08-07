@@ -243,11 +243,13 @@ export const apiService = {
     id: string;
     tokenHash: string;
     createdAt: string;
+    grantedRole?: 'user' | 'admin';
     userSignature: api.UserSignature;
   }): Promise<{
     id: string;
     tokenHash: string;
     createdAt: string;
+    grantedRole: 'user' | 'admin';
     userSignature: api.UserSignature;
     serverSignature: api.ServerSignature;
   }> {
