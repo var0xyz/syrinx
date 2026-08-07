@@ -27,9 +27,15 @@ export async function hashInviteSecret(secret: string): Promise<string> {
     .join('');
 }
 
-/** Share URL: id in query, secret in fragment (never sent on navigation). */
-export function inviteShareURL(id: string, secret: string, origin = window.location.origin): string {
-  return `${origin}/signup?invite=${encodeURIComponent(id)}#${secret}`;
+/** Share URL: invite id + creator id in query, secret in fragment (never sent on navigation). */
+export function inviteShareURL(
+  id: string,
+  secret: string,
+  creatorId: string,
+  origin = window.location.origin,
+): string {
+  const q = new URLSearchParams({ iid: id, uid: creatorId });
+  return `${origin}/signup?${q}#${secret}`;
 }
 
 /**

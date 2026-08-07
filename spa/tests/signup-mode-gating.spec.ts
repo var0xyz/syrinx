@@ -41,6 +41,15 @@ test.describe('Signup mode gating', () => {
     await expect(page.locator('form')).toHaveCount(0);
   });
 
+  test('invite mode blocks /signup without an invite link', async ({ page }) => {
+    await mockServerInfo(page, 'invite');
+    await page.goto('/signup');
+    await expect(
+      page.locator('text=You need a valid invite link to join this server.')
+    ).toBeVisible();
+    await expect(page.locator('form')).toHaveCount(0);
+  });
+
   test('invite query is preserved for signup payload wiring', async ({ page }) => {
     await mockServerInfo(page, 'invite');
     await page.route('**/api/invites/check**', async (route) => {
@@ -50,7 +59,7 @@ test.describe('Signup mode gating', () => {
         body: JSON.stringify({ valid: true }),
       });
     });
-    await page.goto('/signup?invite=abcdefghijkl#test-secret-abc');
+    await page.goto('/signup?iid=abcdefghijkl&uid=inviter1#test-secret-abc');
     await expect(page.locator('text=Signing up with an invite link.')).toBeVisible();
     await expect(page.locator('#username')).toBeVisible();
   });

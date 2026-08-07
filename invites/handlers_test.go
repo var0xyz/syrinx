@@ -277,7 +277,7 @@ func TestRevokeAndCheck(t *testing.T) {
 	}
 
 	rrCheck := httptest.NewRecorder()
-	deps.Check(rrCheck, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
+	deps.Check(rrCheck, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid="+id+"&secret="+secret, nil))
 	if rrCheck.Code != http.StatusOK || !bytes.Contains(rrCheck.Body.Bytes(), []byte(`"valid":true`)) {
 		t.Fatalf("check pending: %d %s", rrCheck.Code, rrCheck.Body.String())
 	}
@@ -292,7 +292,7 @@ func TestRevokeAndCheck(t *testing.T) {
 	}
 
 	rrCheck2 := httptest.NewRecorder()
-	deps.Check(rrCheck2, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
+	deps.Check(rrCheck2, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid="+id+"&secret="+secret, nil))
 	if rrCheck2.Code != http.StatusOK || !bytes.Contains(rrCheck2.Body.Bytes(), []byte(`"valid":false`)) {
 		t.Fatalf("check revoked: %d %s", rrCheck2.Code, rrCheck2.Body.String())
 	}
@@ -310,7 +310,7 @@ func TestCheck_Variants(t *testing.T) {
 	}
 
 	rrUnknown := httptest.NewRecorder()
-	deps.Check(rrUnknown, httptest.NewRequest(http.MethodGet, "/api/invites/check?id=abcdefghijkl&secret=nope", nil))
+	deps.Check(rrUnknown, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid=abcdefghijkl&secret=nope", nil))
 	if rrUnknown.Code != http.StatusOK || !bytes.Contains(rrUnknown.Body.Bytes(), []byte(`"valid":false`)) {
 		t.Fatalf("unknown: %s", rrUnknown.Body.String())
 	}
@@ -323,14 +323,14 @@ func TestCheck_Variants(t *testing.T) {
 		t.Fatalf("create = %d", rrCreate.Code)
 	}
 	rrOk := httptest.NewRecorder()
-	deps.Check(rrOk, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
+	deps.Check(rrOk, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid="+id+"&secret="+secret, nil))
 	if rrOk.Code != http.StatusOK || !bytes.Contains(rrOk.Body.Bytes(), []byte(`"valid":true`)) {
 		t.Fatalf("pending check: %s", rrOk.Body.String())
 	}
 
 	// Wrong id for valid secret → invalid
 	rrWrongID := httptest.NewRecorder()
-	deps.Check(rrWrongID, httptest.NewRequest(http.MethodGet, "/api/invites/check?id=zzzzzzzzzzzz&secret="+secret, nil))
+	deps.Check(rrWrongID, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid=zzzzzzzzzzzz&secret="+secret, nil))
 	if !bytes.Contains(rrWrongID.Body.Bytes(), []byte(`"valid":false`)) {
 		t.Fatalf("wrong id: %s", rrWrongID.Body.String())
 	}
@@ -373,7 +373,7 @@ func TestRegisterRoutes_CheckAllowlistedPath(t *testing.T) {
 	RegisterRoutes(api, deps)
 
 	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/invites/check?id=x&secret=y", nil))
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid=x&secret=y", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("check route = %d", rr.Code)
 	}

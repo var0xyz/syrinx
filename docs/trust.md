@@ -50,7 +50,7 @@ Closed communities need a gate that does not depend on email or phone verificati
 When an inviter creates an invite, the browser mints a ≥256-bit secret and sends only `tokenHash = SHA-256(secret)` to `POST /api/invites`. The raw secret never appears in that request. The inviter keeps it in IndexedDB and shares it out-of-band in a link:
 
 ```
-/signup?invite={id}#{secret}
+/signup?iid={id}&uid={creatorId}#{secret}
 ```
 
 The fragment is not sent to the server on navigation, so normal request logs do not capture the redeem credential at click time.

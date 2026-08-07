@@ -1,7 +1,10 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { apiService } from '$lib/services/api';
 
   export let username = '';
+  /** Opaque form fields forwarded to POST /check-username (e.g. invite credentials). */
+  export let extraFormFields = {};
 
   let status = 'idle'; // 'idle', 'checking', 'available', 'taken', 'error'
   let message = '';
@@ -14,56 +17,46 @@
     message = '';
   }
 
-  function debouncedUsernameCheck(username) {
-    // Clear existing timeout
+  function debouncedUsernameCheck(username, fields) {
     if (checkTimeout !== null) {
       clearTimeout(checkTimeout);
     }
 
-    // Cancel previous request if still pending
     if (currentCheck) {
       currentCheck.abort();
     }
 
-    // Set new timeout
     checkTimeout = setTimeout(() => {
-      checkUsernameAvailability(username);
+      checkUsernameAvailability(username, fields);
     }, 200);
   }
 
-  async function checkUsernameAvailability(username) {
+  async function checkUsernameAvailability(username, fields) {
     if (username.length === 0) {
       resetStatus();
       return;
     }
 
-    // Create new abort controller for this request
     currentCheck = new AbortController();
     status = 'checking';
     message = 'Checking availability...';
 
     try {
-      const formData = new URLSearchParams();
-      formData.append('username', username);
+      const result = await apiService.checkUsernameAvailability(
+        username,
+        fields,
+        currentCheck.signal,
+      );
 
-      const response = await fetch('/api/check-username', {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        credentials: 'include',
-        signal: currentCheck.signal
-      });
-
-      if (response.ok) {
+      if (result.available) {
         status = 'available';
         message = 'Username is available';
-      } else {
-        const errorData = await response.json();
+      } else if (result.taken) {
         status = 'taken';
-        message = 'Username is taken';
+        message = result.message;
+      } else {
+        status = 'error';
+        message = result.message;
       }
     } catch (error) {
       if (error instanceof Error && error.name !== 'AbortError') {
@@ -76,17 +69,15 @@
     }
   }
 
-  // Watch for username changes manually
   function handleUsernameChange() {
     if (username !== previousUsername) {
       previousUsername = username;
 
       if (username && username.length > 0) {
-        // Reset error state when username changes
         if (status === 'error') {
           resetStatus();
         }
-        debouncedUsernameCheck(username);
+        debouncedUsernameCheck(username, extraFormFields);
       } else {
         if (checkTimeout !== null) {
           clearTimeout(checkTimeout);
@@ -100,7 +91,6 @@
     }
   }
 
-  // Use a simple interval to check for changes instead of reactive statements
   let intervalId;
 
   onMount(() => {

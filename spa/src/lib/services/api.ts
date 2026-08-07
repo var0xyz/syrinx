@@ -25,6 +25,7 @@ export type SignupInput = {
   userIDSignature: string;
   userIDFingerprint: string;
   inviteID?: string;
+  inviteCreatorID?: string;
   inviteSecret?: string;
 };
 
@@ -37,6 +38,45 @@ export type UserStatusProbeResult = {
 };
 
 const BASE_URL = '/api';
+
+async function readApiErrorMessage(res: Response): Promise<string> {
+  let message =
+    res.status === 401
+      ? 'Authentication failed. Please check your credentials.'
+      : res.status === 403
+        ? 'Forbidden'
+        : res.status === 409
+          ? 'Username is taken'
+          : res.statusText || `HTTP ${res.status}`;
+  try {
+    const raw = await res.text();
+    if (!raw.trim()) {
+      return message;
+    }
+    try {
+      const errorData = JSON.parse(raw);
+      if (typeof errorData === 'string' && errorData) {
+        return errorData;
+      }
+      if (typeof errorData === 'object' && errorData !== null) {
+        if (typeof errorData.error === 'string') {
+          return errorData.error;
+        }
+        return raw.trim();
+      }
+      return raw.trim();
+    } catch {
+      return raw.trim();
+    }
+  } catch {
+    return message;
+  }
+}
+
+export type UsernameAvailabilityResult =
+  | { available: true }
+  | { available: false; taken: true; message: string }
+  | { available: false; taken: false; message: string; status: number };
 
 // Unauthenticated endpoints that don't need signing.
 // `/server/keys` is public verification material — required so clients can
@@ -98,37 +138,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     if (res.status === 400 || res.status === 401 || res.status === 403) {
-      let message =
-        res.status === 401
-          ? 'Authentication failed. Please check your credentials.'
-          : res.status === 403
-            ? 'Forbidden'
-            : res.statusText || 'Bad Request';
-      let errorCode: string | undefined;
-      try {
-        const raw = await res.text();
-        if (raw.trim()) {
-          try {
-            const errorData = JSON.parse(raw);
-            if (typeof errorData === 'string' && errorData) {
-              message = errorData;
-            } else if (typeof errorData === 'object' && errorData !== null) {
-              if (typeof errorData.error === 'string') {
-                errorCode = errorData.error;
-                message = errorData.error;
-              } else {
-                message = raw.trim();
-              }
-            } else {
-              message = raw.trim();
-            }
-          } catch {
-            message = raw.trim();
-          }
-        }
-      } catch {
-        // Empty / unreadable body — keep default.
-      }
+      const message = await readApiErrorMessage(res);
 
       if (res.status === 403) {
         if (isFinishRecoveryForbiddenMessage(message)) {
@@ -207,6 +217,44 @@ export const apiService = {
     });
   },
 
+  async checkUsernameAvailability(
+    username: string,
+    extraFormFields: Record<string, string> = {},
+    signal?: AbortSignal,
+  ): Promise<UsernameAvailabilityResult> {
+    const formData = new URLSearchParams({ username });
+    for (const [key, value] of Object.entries(extraFormFields)) {
+      if (value) {
+        formData.append(key, value);
+      }
+    }
+
+    const headers = new Headers({
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    });
+    for (const [key, value] of Object.entries(deviceIdHeader())) {
+      headers.set(key, value);
+    }
+
+    const res = await fetch(`${BASE_URL}/check-username`, {
+      method: 'POST',
+      body: formData,
+      headers,
+      signal,
+    });
+
+    if (res.ok) {
+      return { available: true };
+    }
+
+    const message = await readApiErrorMessage(res);
+    if (res.status === 409) {
+      return { available: false, taken: true, message };
+    }
+    return { available: false, taken: false, message, status: res.status };
+  },
+
   async signup(input: SignupInput): Promise<api.User> {
     const formData = new URLSearchParams();
     formData.append('username', input.username);
@@ -221,6 +269,9 @@ export const apiService = {
     if (input.inviteID) {
       formData.append('inviteID', input.inviteID);
     }
+    if (input.inviteCreatorID) {
+      formData.append('inviteCreatorID', input.inviteCreatorID);
+    }
     if (input.inviteSecret) {
       formData.append('inviteSecret', input.inviteSecret);
     }
@@ -232,8 +283,8 @@ export const apiService = {
     });
   },
 
-  async checkInvite(id: string, secret: string): Promise<{ valid: boolean }> {
-    const q = new URLSearchParams({ id, secret });
+  async checkInvite(creatorId: string, id: string, secret: string): Promise<{ valid: boolean }> {
+    const q = new URLSearchParams({ uid: creatorId, iid: id, secret });
     return request<{ valid: boolean }>(`/invites/check?${q}`, {
       method: 'GET'
     });

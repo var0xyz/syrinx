@@ -40,7 +40,7 @@
     await waitForInfo();
     gateReady = true;
 
-    // Invite links go to /signup?invite=…; preamble is only for the open home CTA.
+    // Invite links go to /signup?iid=&uid=…; preamble is only for the open home CTA.
     if (get(isSignupClosed) || !get(isSignupOpen)) {
       return;
     }

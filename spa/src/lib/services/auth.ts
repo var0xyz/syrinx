@@ -16,6 +16,7 @@ interface SignupUser {
   userIDSignature: string;
   userIDFingerprint: string;
   inviteID?: string;
+  inviteCreatorID?: string;
   inviteSecret?: string;
 }
 
@@ -156,6 +157,9 @@ export class AuthService {
     formData.append('userIDFingerprint', userData.userIDFingerprint);
     if (userData.inviteID) {
       formData.append('inviteID', userData.inviteID);
+    }
+    if (userData.inviteCreatorID) {
+      formData.append('inviteCreatorID', userData.inviteCreatorID);
     }
     if (userData.inviteSecret) {
       formData.append('inviteSecret', userData.inviteSecret);
