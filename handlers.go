@@ -2117,6 +2117,36 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 //   Device handlers   //
 // =================== //
 
+// RecordBackup handles POST /api/users/me/backup — SPA reports a successful
+// local keys-only (.sxi.gpg) or full (.sxb.gpg) export. No DB state; emits
+// an anonymized metric only.
+func (h *Handlers) RecordBackup(w http.ResponseWriter, r *http.Request) {
+	userID := h.getUserID(r)
+	if userID == "" {
+		writeResponse(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	kind := metrics.BackupKind(strings.TrimSpace(strings.ToLower(req.Kind)))
+	switch kind {
+	case metrics.BackupKindIdentity, metrics.BackupKindFull:
+	default:
+		writeResponse(w, http.StatusBadRequest, "kind must be identity or full")
+		return
+	}
+
+	h.metrics.UserBackup(r.Context(), userID, kind)
+	writeResponse(w, http.StatusOK, "")
+}
+
 // BindDevice handles POST /api/users/device — revoke-all + bind this origin's device.
 func (h *Handlers) BindDevice(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(userIDKey).(string)

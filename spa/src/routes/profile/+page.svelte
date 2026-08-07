@@ -11,6 +11,7 @@
   import { dbService } from '$lib/services/db';
   import { localStorageService } from '$lib/services/localstorage';
   import { compressBackupPayload, encryptAndSaveBackup, buildKeyBackupPayload } from '$lib/services/backupRestore';
+  import { recordBackupEvent } from '$lib/services/backupMetrics';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import ExportDataModal from '$lib/components/ExportDataModal.svelte';
   import Auth from '$lib/components/Auth.svelte';
@@ -454,6 +455,7 @@
         notificationStore.success('Data exported successfully');
         localStorage.setItem('lastBackupAt', timestamp.toString());
         lastBackupAt = timestamp;
+        void recordBackupEvent('full');
       }
     } catch (error) {
       console.error('Error exporting data:', error);
@@ -477,6 +479,7 @@
         notificationStore.success('Keys backed up successfully');
         localStorage.setItem('lastKeyBackupAt', String(payload.timestamp));
         lastKeyBackupAt = payload.timestamp;
+        void recordBackupEvent('identity');
       }
     } catch (error) {
       console.error('Error backing up keys:', error);

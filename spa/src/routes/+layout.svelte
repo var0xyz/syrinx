@@ -19,6 +19,7 @@
   import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
   import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
   import { pendingPublicationRepository } from '$lib/repositories/pendingPublication';
+  import { syncPendingBackupEvents } from '$lib/services/backupMetrics';
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { parseReedRef } from '$lib/utils/reedRef';
@@ -48,6 +49,7 @@
       followingRepository.syncPending();
       pendingRevocationRepository.syncPending();
       pendingRemovalRepository.syncPending();
+      syncPendingBackupEvents();
       serverConnection.connect()
         .then(async () => {
           clearReedRequestDispatched();
@@ -215,6 +217,7 @@
         followingRepository.syncPending();
         pendingRevocationRepository.syncPending();
         pendingRemovalRepository.syncPending();
+        syncPendingBackupEvents();
       }
     }
 
