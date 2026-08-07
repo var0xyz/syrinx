@@ -31,17 +31,17 @@ const (
 
 // ReedPublishedAttrs carries structural publish metadata (no content or tag text).
 type ReedPublishedAttrs struct {
-	Kind        ReedKind
-	AuthorID    string
-	ReedID      string
-	TagCount    int
-	RawChars    int
+	Kind         ReedKind
+	AuthorID     string
+	ReedID       string
+	TagCount     int
+	RawChars     int
 	VisibleChars int
 }
 
 // Recorder emits domain metrics. Implementations must be safe for concurrent use.
 type Recorder interface {
-	UserCreated(ctx context.Context, signupMode string)
+	UserCreated(ctx context.Context, signupMode, userID string)
 	UserDeleted(ctx context.Context, userID string, noteHas bool)
 	ReedPublished(ctx context.Context, p ReedPublishedAttrs)
 	ReedDeleted(ctx context.Context, authorID, reedID string)
@@ -56,16 +56,16 @@ type Recorder interface {
 // Noop is an inert Recorder.
 type Noop struct{}
 
-func (Noop) UserCreated(context.Context, string)                              {}
-func (Noop) UserDeleted(context.Context, string, bool)                        {}
-func (Noop) ReedPublished(context.Context, ReedPublishedAttrs)                {}
-func (Noop) ReedDeleted(context.Context, string, string)                      {}
-func (Noop) EchoTargeted(context.Context, string, string)                     {}
-func (Noop) ReedRejectedLength(context.Context, int, int)                     {}
-func (Noop) KeyRevoked(context.Context, string)                               {}
-func (Noop) UserBackup(context.Context, string, BackupKind)                   {}
-func (Noop) ReedCoverage(context.Context, string, string, int, int)           {}
-func (Noop) WSMessage(context.Context, Direction, string)                     {}
+func (Noop) UserCreated(context.Context, string, string)            {}
+func (Noop) UserDeleted(context.Context, string, bool)              {}
+func (Noop) ReedPublished(context.Context, ReedPublishedAttrs)      {}
+func (Noop) ReedDeleted(context.Context, string, string)            {}
+func (Noop) EchoTargeted(context.Context, string, string)           {}
+func (Noop) ReedRejectedLength(context.Context, int, int)           {}
+func (Noop) KeyRevoked(context.Context, string)                     {}
+func (Noop) UserBackup(context.Context, string, BackupKind)         {}
+func (Noop) ReedCoverage(context.Context, string, string, int, int) {}
+func (Noop) WSMessage(context.Context, Direction, string)           {}
 
 // TagCountAttr buckets tag counts for metric attributes (exact 0–3, then 4+).
 func TagCountAttr(n int) int {

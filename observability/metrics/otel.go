@@ -86,31 +86,33 @@ func New(m metric.Meter) *OTEL {
 	return r
 }
 
-func (r *OTEL) UserCreated(ctx context.Context, signupMode string) {
+func (r *OTEL) UserCreated(ctx context.Context, signupMode, userID string) {
 	r.usersCreated.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("signup.mode", signupMode),
+		attribute.String("user.id_hash", UserIDHash(userID)),
 	))
 }
 
 func (r *OTEL) UserDeleted(ctx context.Context, userID string, noteHas bool) {
 	r.usersDeleted.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("user.id", userID),
+		attribute.String("user.id_hash", UserIDHash(userID)),
 		attribute.Bool("note.has", noteHas),
 	))
 }
 
 func (r *OTEL) ReedPublished(ctx context.Context, p ReedPublishedAttrs) {
 	tagCount := TagCountAttr(p.TagCount)
+	authorHash := UserIDHash(p.AuthorID)
 	r.reedsPublished.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("reed.kind", string(p.Kind)),
 		attribute.Bool("tags.has", tagCount > 0),
 		attribute.Int("tags.count", tagCount),
-		attribute.String("author.id", p.AuthorID),
+		attribute.String("author.id_hash", authorHash),
 		attribute.String("reed.id", p.ReedID),
 	))
 	reedAttrs := metric.WithAttributes(
 		attribute.String("reed.kind", string(p.Kind)),
-		attribute.String("author.id", p.AuthorID),
+		attribute.String("author.id_hash", authorHash),
 		attribute.String("reed.id", p.ReedID),
 	)
 	r.rawChars.Record(ctx, int64(p.RawChars), reedAttrs)
@@ -119,14 +121,14 @@ func (r *OTEL) ReedPublished(ctx context.Context, p ReedPublishedAttrs) {
 
 func (r *OTEL) ReedDeleted(ctx context.Context, authorID, reedID string) {
 	r.reedsDeleted.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("author.id", authorID),
+		attribute.String("author.id_hash", UserIDHash(authorID)),
 		attribute.String("reed.id", reedID),
 	))
 }
 
 func (r *OTEL) EchoTargeted(ctx context.Context, targetAuthorID, targetReedID string) {
 	r.echoesTargeted.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("target.author.id", targetAuthorID),
+		attribute.String("target.author.id_hash", UserIDHash(targetAuthorID)),
 		attribute.String("target.reed.id", targetReedID),
 	))
 }
@@ -140,7 +142,7 @@ func (r *OTEL) ReedRejectedLength(ctx context.Context, rawChars, visibleChars in
 
 func (r *OTEL) KeyRevoked(ctx context.Context, userID string) {
 	r.keysRevoked.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("user.id", userID),
+		attribute.String("user.id_hash", UserIDHash(userID)),
 	))
 }
 
@@ -153,7 +155,7 @@ func (r *OTEL) UserBackup(ctx context.Context, userID string, kind BackupKind) {
 
 func (r *OTEL) ReedCoverage(ctx context.Context, authorID, reedID string, holders, coveragePercent int) {
 	attrs := metric.WithAttributes(
-		attribute.String("author.id", authorID),
+		attribute.String("author.id_hash", UserIDHash(authorID)),
 		attribute.String("reed.id", reedID),
 	)
 	r.holders.Record(ctx, int64(holders), attrs)
