@@ -28,7 +28,6 @@ type Server struct {
 type User struct {
 	ID              string          `json:"id"`
 	Username        string          `json:"username"`
-	AvatarURL       string          `json:"avatarURL"`
 	Bio             string          `json:"bio"`
 	CreatedAt       time.Time       `json:"memberSince"`
 	UserSignature   UserSignature   `json:"userSignature"`
@@ -194,7 +193,6 @@ func InitDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS users (
 		id VARCHAR(255) PRIMARY KEY,
 		username VARCHAR(255) UNIQUE NOT NULL,
-		avatar_url VARCHAR(255),
 		bio TEXT,
 		user_fingerprint VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

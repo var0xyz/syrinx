@@ -60,7 +60,7 @@ func TestVerifyProfileServerCountersig_BadSignature(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	profile := testStatusProfile("srv1", ts)
 	payload := string(identity.BuildProfilePayload(
-		profile.ID, profile.Username, profile.UserSignature.Fingerprint, profile.AvatarURL,
+		profile.ID, profile.Username, profile.UserSignature.Fingerprint,
 		"srv1", profile.ServerSignature.Fingerprint, profile.UserSignature.Armor, "",
 		profile.Bio,
 		profile.MemberSince, profile.ServerSignature.Timestamp,

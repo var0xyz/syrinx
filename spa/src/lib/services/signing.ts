@@ -96,22 +96,19 @@ export function stringToSign(headers: Record<string, string>, content: string): 
  *   - type:        "identity-user"
  *   - username:    the account username
  *   - fingerprint: the key producing this signature (self-describing)
- *   - avatarURL:   omitted from signed bytes when empty
  *
  * Content: `bio` (verbatim, unescaped, may span multiple lines or be empty).
  */
 export function buildUserIdentityPayload(
   username: string,
   fingerprint: string,
-  avatarURL: string,
   bio: string
 ): string {
   return stringToSign(
     {
       type: 'identity-user',
       username,
-      fingerprint,
-      avatarURL
+      fingerprint
     },
     bio
   );
@@ -125,7 +122,6 @@ export function buildNewUserIdentityPayload(
     username,
     fingerprint,
     "",
-    "",
   );
 }
 
@@ -134,7 +130,6 @@ export function buildProfilePayload(
   userID: string,
   username: string,
   fingerprint: string,
-  avatarURL: string,
   serverID: string,
   serverKeyFingerprint: string,
   userSignatureB64: string,
@@ -149,7 +144,6 @@ export function buildProfilePayload(
       userID,
       username,
       fingerprint,
-      avatarURL,
       memberSince,
       serverID,
       serverKeyFingerprint,

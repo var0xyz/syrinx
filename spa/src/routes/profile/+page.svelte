@@ -322,7 +322,6 @@
       // the same bytes. Server verifies against these exact strings —
       // any post-hoc trimming would break signature verification.
       const nextUsername = editForm.username.trim();
-      const nextAvatarURL = user.avatarURL || '';
       const nextBio = editForm.bio.trim();
 
       if (nextUsername === '') {
@@ -372,7 +371,6 @@
       const payload = buildUserIdentityPayload(
         nextUsername,
         fingerprint,
-        nextAvatarURL,
         nextBio,
       );
       const sigArmor = await cryptoService.signMessage(
@@ -384,7 +382,6 @@
 
       const updatedUser = await apiService.updateUser({
         username: nextUsername,
-        avatarURL: nextAvatarURL,
         bio: nextBio,
         userSignature,
       });

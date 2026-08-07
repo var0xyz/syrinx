@@ -27,7 +27,6 @@ export interface User extends Base {
   id: string;
   username: string;
   memberSince: string;
-  avatarURL: string;
   bio: string;
   userSignature: UserSignature;
   serverSignature: ServerSignature;

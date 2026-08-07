@@ -98,7 +98,6 @@ func FlattenKeysNest(
 	userPayload := identity.BuildUserIdentityPayload(
 		profile.Username,
 		profile.UserSignature.Fingerprint,
-		profile.AvatarURL,
 		profile.Bio,
 	)
 	userSigArmor, err := decodeB64Armor(profile.UserSignature.Armor)
@@ -149,7 +148,6 @@ func VerifyProfileServerCountersig(ctx context.Context, profile Profile, serverI
 		profile.ID,
 		profile.Username,
 		profile.UserSignature.Fingerprint,
-		profile.AvatarURL,
 		serverID,
 		profile.ServerSignature.Fingerprint,
 		profile.UserSignature.Armor,

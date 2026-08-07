@@ -6,7 +6,7 @@
 // not identical:
 //
 //   - The USER payload covers only user-authored fields (username,
-//     fingerprint, avatarURL, and bio as the envelope content). The user's
+//     fingerprint, and bio as the envelope content). The user's
 //     detached PGP signature over these bytes is `userSignature`.
 //
 //   - The SERVER payload covers a superset: user-authored fields + all
@@ -45,26 +45,22 @@ import (
 const recordTimeFormat = time.RFC3339
 
 // userIdentityHeaders returns the header map covered by userSignature.
-// `avatarURL` is omitted from the signed bytes when empty, matching the
-// envelope's "absent == empty" convention (see signing.BytesToSign).
-func userIdentityHeaders(username, fingerprint, avatarURL string) map[string]string {
+func userIdentityHeaders(username, fingerprint string) map[string]string {
 	return map[string]string{
 		"type":        "identity-user",
 		"username":    username,
 		"fingerprint": fingerprint,
-		"avatarURL":   avatarURL,
 	}
 }
 
 // BuildUserIdentityPayload returns the exact bytes the user signs.
 // `bio` may be empty; it is placed in the envelope's content section and
 // is not escaped.
-func BuildUserIdentityPayload(username, fingerprint, avatarURL, bio string) []byte {
+func BuildUserIdentityPayload(username, fingerprint, bio string) []byte {
 	return signing.BytesToSign(
 		userIdentityHeaders(
 			username,
 			fingerprint,
-			avatarURL,
 		),
 		bio,
 	)
@@ -83,7 +79,6 @@ func profileHeaders(
 	userID,
 	username,
 	fingerprint,
-	avatarURL,
 	serverID,
 	serverKeyFingerprint,
 	userSignatureB64,
@@ -96,7 +91,6 @@ func profileHeaders(
 		"userID":               userID,
 		"username":             username,
 		"fingerprint":          fingerprint,
-		"avatarURL":            avatarURL,
 		"memberSince":          memberSince.UTC().Format(recordTimeFormat),
 		"serverID":             serverID,
 		"serverKeyFingerprint": serverKeyFingerprint,
@@ -115,7 +109,6 @@ func BuildProfilePayload(
 	userID,
 	username,
 	fingerprint,
-	avatarURL,
 	serverID,
 	serverKeyFingerprint,
 	userSignatureB64,
@@ -129,7 +122,6 @@ func BuildProfilePayload(
 			userID,
 			username,
 			fingerprint,
-			avatarURL,
 			serverID,
 			serverKeyFingerprint,
 			userSignatureB64,
@@ -514,12 +506,11 @@ func BuildInviteServerPayload(
 }
 
 // BuildNewProfilePayload is a convenience wrapper around
-// BuildProfilePayload for the initial signup record: avatarURL
-// and bio are always empty (users can't set them before their account
-// exists), and memberSince == signedAt == the moment the record is
-// minted. Later records produced by profile-update flows keep
-// memberSince pinned and only advance signedAt, so they must call
-// BuildProfilePayload directly.
+// BuildProfilePayload for the initial signup record: bio is always empty
+// (users can't set it before their account exists), and memberSince ==
+// signedAt == the moment the record is minted. Later records produced by
+// profile-update flows keep memberSince pinned and only advance signedAt,
+// so they must call BuildProfilePayload directly.
 //
 // `timestamp` must already be truncated to whole seconds so that what
 // is signed matches what Postgres stores after any timestamp
@@ -538,7 +529,6 @@ func BuildNewProfilePayload(
 		userID,
 		username,
 		fingerprint,
-		"", // avatarURL
 		serverID,
 		serverKeyFingerprint,
 		userSignatureB64,

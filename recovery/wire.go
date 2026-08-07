@@ -22,7 +22,6 @@ type Profile struct {
 	ID                   string          `json:"id"`
 	Username             string          `json:"username"`
 	MemberSince          time.Time       `json:"memberSince"`
-	AvatarURL            string          `json:"avatarURL"`
 	Bio                  string          `json:"bio"`
 	ActiveKeyFingerprint string          `json:"activeKeyFingerprint"`
 	UserSignature        UserSignature   `json:"userSignature"`
