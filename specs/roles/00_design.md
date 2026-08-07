@@ -68,9 +68,11 @@ with an admin-granting invite (or root mint) creates **`admin`**.
 ### Where roles live
 
 - **Durable:** `users.role` column (`root` \| `admin` \| `user`).
-- **Not signed in identity yet** — role is server-local policy, like
-  `invited_by` visibility. Federation may later expose “is this user admin on
-  home instance?” for peering UI; out of scope here.
+- **Signed:** `role` header on the profile server countersignature
+  ([03](03_profile_role.md)) — users never sign role; peers verify via
+  `serverSignature`.
+- **Hint:** `/users/{id}/info` still exposes role for lightweight UI gating
+  (same value as the signed profile).
 - **Helpers:** e.g. `IsAdmin(userID)`, `RequireAdmin(ctx)` in a small
   `roles` package or `invites`/`services` guard — implementation in 01.
 

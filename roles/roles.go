@@ -1,9 +1,13 @@
 // Package roles defines local instance role tiers (root, admin, user) and
-// helpers for authorization checks. Roles are server-local policy — not
-// part of the signed identity wire format.
+// helpers for authorization checks. Role is bound on the profile server
+// countersignature (identity-server payload); users never sign role.
 package roles
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 const (
 	// RootUserID is the reserved users.id for the operator root account.
@@ -16,6 +20,10 @@ const (
 
 // ErrAdminRequired is returned when an action requires admin or root.
 var ErrAdminRequired = errors.New("admin required")
+
+// ErrInvalidRole is returned when a role value is unknown or inconsistent
+// with the user id.
+var ErrInvalidRole = errors.New("invalid role")
 
 // IsAdmin reports whether role is root or admin.
 func IsAdmin(role string) bool {
@@ -65,6 +73,27 @@ func SignupRole(userID, inviteGrantedRole string, hasInvite bool) string {
 func RequireAdmin(role string) error {
 	if !IsAdmin(role) {
 		return ErrAdminRequired
+	}
+	return nil
+}
+
+// ValidateProfileRole checks role is a known tier and consistent with userID
+// (root only on the reserved id). Used when verifying or persisting profiles.
+func ValidateProfileRole(userID, role string) error {
+	role = strings.TrimSpace(role)
+	switch role {
+	case RoleRoot, RoleAdmin, RoleUser:
+	default:
+		return fmt.Errorf("%w: %q", ErrInvalidRole, role)
+	}
+	if userID == RootUserID {
+		if role != RoleRoot {
+			return fmt.Errorf("%w: root user must have role root", ErrInvalidRole)
+		}
+		return nil
+	}
+	if role == RoleRoot {
+		return fmt.Errorf("%w: only user id %q may have role root", ErrInvalidRole, RootUserID)
 	}
 	return nil
 }

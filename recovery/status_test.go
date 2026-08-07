@@ -28,6 +28,7 @@ func testStatusProfile(serverID string, ts time.Time) Profile {
 	return Profile{
 		ID:              "user1",
 		Username:        "alice",
+		Role:            "user",
 		MemberSince:     ts,
 		UserSignature:   testUserSig("AAA"),
 		ServerSignature: testServerSig(serverID, ts),
@@ -62,7 +63,7 @@ func TestVerifyProfileServerCountersig_BadSignature(t *testing.T) {
 	payload := string(identity.BuildProfilePayload(
 		profile.ID, profile.Username, profile.UserSignature.Fingerprint,
 		"srv1", profile.ServerSignature.Fingerprint, profile.UserSignature.Armor, "",
-		profile.Bio,
+		profile.Role, profile.Bio,
 		profile.MemberSince, profile.ServerSignature.Timestamp,
 	))
 	err := VerifyProfileServerCountersig(context.Background(), profile, "srv1",

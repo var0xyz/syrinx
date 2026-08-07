@@ -16,6 +16,7 @@ when schema changes.
 | [00](00_design.md) | Design + locked model | — |
 | [01](01_role_store.md) | `users.role` column + code helpers | 00 |
 | [02](02_admin_invites.md) | Admin-only admin invites at create + signup | 01; [invites 02](../invites/02_lifecycle_api.md) |
+| [03](03_profile_role.md) | Role bound on profile countersignature | 02 |
 
 Related: root mint at startup
 [`account_recovery/07`](../account_recovery/07_root_user_bootstrap.md);
@@ -26,13 +27,14 @@ federation builds on roles + `serverID`
 
 ## Status
 
-**Implemented** (00–02).
+**Implemented** (00–03).
 
 | Step | Status |
 |------|--------|
 | 00 | Proposed (design locked) |
 | 01 | **Implemented** |
 | 02 | **Implemented** |
+| 03 | **Implemented** |
 
 ## Locked decisions
 
@@ -43,6 +45,7 @@ federation builds on roles + `serverID`
 | Default role | New signups (open mode or normal invite) → **`user`** |
 | Admin invite | Only **`admin`** or **`root`** may set `grantedRole: admin` on invite create; signup applies role from invite |
 | Enforcement | Code checks only — no admin UI in this track |
+| Profile wire | **`role`** on server countersignature (`identity-server`); verifiable + recoverable ([03](03_profile_role.md)) |
 | Non-goals (now) | Kick/ban, role UI, demote/promote after signup, federation trust |
 
 ## Motivation

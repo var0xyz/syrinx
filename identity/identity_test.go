@@ -79,12 +79,14 @@ func TestServerPayloadCanonicalShape(t *testing.T) {
 		"Server01", "0011FF",
 		"dXNlcnNpZw==",
 		"",
+		"user",
 		"bio text",
 		memberSince, signedAt,
 	)
 	want := "---\n" +
 		"fingerprint: ABCDEF\n" +
 		"memberSince: 2026-01-01T00:00:00Z\n" +
+		"role: user\n" +
 		"serverID: Server01\n" +
 		"serverKeyFingerprint: 0011FF\n" +
 		"signedAt: 2026-07-14T12:00:00Z\n" +
@@ -107,6 +109,7 @@ func TestServerPayloadInvitedBy(t *testing.T) {
 		"Server01", "0011FF",
 		"dXNlcnNpZw==",
 		"inviter99",
+		"user",
 		"",
 		memberSince, signedAt,
 	))
@@ -118,6 +121,7 @@ func TestServerPayloadInvitedBy(t *testing.T) {
 		"Server01", "0011FF",
 		"dXNlcnNpZw==",
 		"",
+		"user",
 		"",
 		memberSince, signedAt,
 	))
@@ -151,6 +155,7 @@ func TestIdentityRoundTrip(t *testing.T) {
 		"srv_xyz", serverKP.Fingerprint,
 		userSigB64,
 		"",
+		"user",
 		"",
 		memberSince, signedAt,
 	)
@@ -167,6 +172,7 @@ func TestIdentityRoundTrip(t *testing.T) {
 		"srv_xyz", serverKP.Fingerprint,
 		userSigB64,
 		"",
+		"user",
 		"",
 		memberSince, signedAt,
 	)
@@ -198,6 +204,7 @@ func TestServerPayloadBindsUserSignature(t *testing.T) {
 		"srv_xyz", serverKP.Fingerprint,
 		sigAlice,
 		"",
+		"user",
 		"",
 		ts, ts,
 	)
@@ -209,11 +216,48 @@ func TestServerPayloadBindsUserSignature(t *testing.T) {
 		"srv_xyz", serverKP.Fingerprint,
 		sigBob,
 		"",
+		"user",
 		"",
 		ts, ts,
 	)
 	if err := verifyB64(t, cryptoSvc, serverKP.PublicKey, serverSig, tamperedPayload); err == nil {
 		t.Fatal("swapping userSignature must break serverSignature verification, but it verified")
+	}
+}
+
+// TestTamperedRoleBreaksServerSignature confirms the server signature
+// covers `role`. A server that rewrites role in the profile response
+// must produce a verification failure at the profile viewer.
+func TestTamperedRoleBreaksServerSignature(t *testing.T) {
+	userKP, cryptoSvc := newTestKeyPair(t, "alice")
+	serverKP, _ := newTestKeyPair(t, "server")
+
+	userPayload := BuildUserIdentityPayload("alice", userKP.Fingerprint, "")
+	userSigB64 := signB64(t, cryptoSvc, userKP.PrivateKey, userPayload)
+
+	ts := time.Now().UTC().Truncate(time.Second)
+	serverPayload := BuildProfilePayload(
+		"user_abc", "alice", userKP.Fingerprint,
+		"srv_xyz", serverKP.Fingerprint,
+		userSigB64,
+		"",
+		"user",
+		"",
+		ts, ts,
+	)
+	serverSig := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
+
+	tampered := BuildProfilePayload(
+		"user_abc", "alice", userKP.Fingerprint,
+		"srv_xyz", serverKP.Fingerprint,
+		userSigB64,
+		"",
+		"admin",
+		"",
+		ts, ts,
+	)
+	if err := verifyB64(t, cryptoSvc, serverKP.PublicKey, serverSig, tampered); err == nil {
+		t.Fatal("rewriting role must break serverSignature, but it verified")
 	}
 }
 

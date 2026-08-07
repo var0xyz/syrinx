@@ -9,7 +9,7 @@ export function mergeUserView(
 ): UserView | null {
   if (!profile) return null;
   if (!info) return { ...profile };
-  const { id: _id, profileTimestamp: _ts, ...hints } = info;
+  const { id: _id, profileTimestamp: _ts, role: _role, ...hints } = info;
   return { ...profile, ...hints };
 }
 

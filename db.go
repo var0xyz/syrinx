@@ -28,6 +28,7 @@ type Server struct {
 type User struct {
 	ID              string          `json:"id"`
 	Username        string          `json:"username"`
+	Role            string          `json:"role"`
 	Bio             string          `json:"bio"`
 	CreatedAt       time.Time       `json:"memberSince"`
 	UserSignature   UserSignature   `json:"userSignature"`

@@ -365,6 +365,13 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 
+	inviteGrantedRole := ""
+	hasInvite := inv != nil && resolved.InviteID != ""
+	if hasInvite {
+		inviteGrantedRole = inv.GrantedRole
+	}
+	signupRole := roles.SignupRole(userID, inviteGrantedRole, hasInvite)
+
 	profilePayload := identity.BuildNewProfilePayload(
 		userID,
 		username,
@@ -373,6 +380,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		h.signingKey.Fingerprint,
 		userSignatureB64,
 		resolved.InviterID,
+		signupRole,
 		now,
 	)
 	// Server signature over the user's brand new profile
@@ -1066,6 +1074,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		h.signingKey.Fingerprint,
 		userSignatureB64,
 		invitedByID,
+		currentUser.Role,
 		bio,
 		currentUser.CreatedAt,
 		signedAt,

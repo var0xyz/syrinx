@@ -73,3 +73,21 @@ func TestRequireAdmin(t *testing.T) {
 		t.Fatalf("user: got %v want ErrAdminRequired", err)
 	}
 }
+
+func TestValidateProfileRole(t *testing.T) {
+	if err := ValidateProfileRole("u2", RoleAdmin); err != nil {
+		t.Fatalf("admin: %v", err)
+	}
+	if err := ValidateProfileRole(RootUserID, RoleRoot); err != nil {
+		t.Fatalf("root: %v", err)
+	}
+	if err := ValidateProfileRole("u2", RoleRoot); err == nil {
+		t.Fatal("non-root id with root role must fail")
+	}
+	if err := ValidateProfileRole(RootUserID, RoleAdmin); err == nil {
+		t.Fatal("root id without root role must fail")
+	}
+	if err := ValidateProfileRole("u2", "superuser"); err == nil {
+		t.Fatal("unknown role must fail")
+	}
+}

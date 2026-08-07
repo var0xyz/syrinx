@@ -56,6 +56,7 @@ func TestFlattenKeysNest_BrokenPredecessor(t *testing.T) {
 	profile := Profile{
 		ID:              "user1",
 		Username:        "alice",
+		Role:            "user",
 		MemberSince:     ts,
 		UserSignature:   testUserSig("BBB"),
 		ServerSignature: testServerSig(serverID, ts),
@@ -97,6 +98,7 @@ func TestFlattenKeysNest_ServerIDMismatch(t *testing.T) {
 	profile := Profile{
 		ID:              "user1",
 		Username:        "alice",
+		Role:            "user",
 		UserSignature:   testUserSig("AAA"),
 		ServerSignature: testServerSig("other", ts),
 	}

@@ -152,6 +152,7 @@ func exportRootIdentity(
 		signingKey.Fingerprint,
 		userSigB64,
 		"",
+		roles.RoleRoot,
 		now,
 	)
 	profileSig, err := rootCountersign(cryptoSvc, db, signingKey, profilePayload, now)

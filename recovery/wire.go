@@ -21,6 +21,7 @@ type ServerSignature struct {
 type Profile struct {
 	ID                   string          `json:"id"`
 	Username             string          `json:"username"`
+	Role                 string          `json:"role"`
 	MemberSince          time.Time       `json:"memberSince"`
 	Bio                  string          `json:"bio"`
 	ActiveKeyFingerprint string          `json:"activeKeyFingerprint"`

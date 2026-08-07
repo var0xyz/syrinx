@@ -70,6 +70,7 @@ func TestClaimIdentity_BadChallengeSignature(t *testing.T) {
 	profile := Profile{
 		ID:              "user1",
 		Username:        "alice",
+		Role:            "user",
 		MemberSince:     ts,
 		UserSignature:   testUserSig("AAA"),
 		ServerSignature: testServerSig(serverID, ts),
@@ -136,6 +137,7 @@ func TestReportPeerIdentity_BrokenNest(t *testing.T) {
 	profile := Profile{
 		ID:              "peer1",
 		Username:        "bob",
+		Role:            "user",
 		MemberSince:     ts,
 		UserSignature:   testUserSig("BBB"),
 		ServerSignature: testServerSig(serverID, ts),

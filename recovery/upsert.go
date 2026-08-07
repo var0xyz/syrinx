@@ -134,6 +134,9 @@ func insertUser(ctx context.Context, tx *sql.Tx, profile Profile, activeFP strin
 	if err != nil {
 		return err
 	}
+	if err := roles.ValidateProfileRole(profile.ID, profile.Role); err != nil {
+		return err
+	}
 	fingerprint := profile.UserSignature.Fingerprint
 	if fingerprint == "" {
 		fingerprint = activeFP
@@ -154,7 +157,7 @@ func insertUser(ctx context.Context, tx *sql.Tx, profile Profile, activeFP strin
 			user_signature_id, server_signature_id, invited_by
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`,
-		profile.ID, username, roles.RoleForSignup(profile.ID), profile.MemberSince.UTC().Truncate(time.Second),
+		profile.ID, username, profile.Role, profile.MemberSince.UTC().Truncate(time.Second),
 		activeFP, nullIfEmpty(profile.Bio),
 		userSignatureID, serverSignatureID, nullIfEmpty(profileInvitedByID(profile)),
 	)
@@ -197,13 +200,14 @@ func updateUserIfNewer(
 		UPDATE users SET
 			username = $1,
 			bio = $2,
-			user_fingerprint = $3,
-			user_signature_id = $4,
-			server_signature_id = $5
-		WHERE id = $6
+			role = $3,
+			user_fingerprint = $4,
+			user_signature_id = $5,
+			server_signature_id = $6
+		WHERE id = $7
 	`,
 		username, nullIfEmpty(profile.Bio),
-		activeFP, userSignatureID, serverSignatureID, profile.ID,
+		profile.Role, activeFP, userSignatureID, serverSignatureID, profile.ID,
 	)
 	if err != nil {
 		return false, fmt.Errorf("update user: %w", err)

@@ -82,7 +82,8 @@ func profileHeaders(
 	serverID,
 	serverKeyFingerprint,
 	userSignatureB64,
-	invitedBy string,
+	invitedBy,
+	role string,
 	memberSince,
 	signedAt time.Time,
 ) map[string]string {
@@ -92,6 +93,7 @@ func profileHeaders(
 		"username":             username,
 		"fingerprint":          fingerprint,
 		"memberSince":          memberSince.UTC().Format(recordTimeFormat),
+		"role":                 role,
 		"serverID":             serverID,
 		"serverKeyFingerprint": serverKeyFingerprint,
 		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
@@ -104,7 +106,8 @@ func profileHeaders(
 // `bio` is the same string that appeared in the user payload's content
 // section — the two payloads share the same content, they only differ
 // in headers. `invitedBy` is the inviter's userID when set; empty omits
-// the header (BytesToSign drops empty values).
+// the header (BytesToSign drops empty values). `role` is always present
+// (root | admin | user) — server-local policy bound by the countersignature.
 func BuildProfilePayload(
 	userID,
 	username,
@@ -113,6 +116,7 @@ func BuildProfilePayload(
 	serverKeyFingerprint,
 	userSignatureB64,
 	invitedBy,
+	role,
 	bio string,
 	memberSince,
 	signedAt time.Time,
@@ -126,6 +130,7 @@ func BuildProfilePayload(
 			serverKeyFingerprint,
 			userSignatureB64,
 			invitedBy,
+			role,
 			memberSince,
 			signedAt,
 		),
@@ -523,7 +528,8 @@ func BuildNewProfilePayload(
 	serverID,
 	serverKeyFingerprint,
 	userSignatureB64,
-	invitedBy string,
+	invitedBy,
+	role string,
 	timestamp time.Time,
 ) []byte {
 	return BuildProfilePayload(
@@ -534,6 +540,7 @@ func BuildNewProfilePayload(
 		serverKeyFingerprint,
 		userSignatureB64,
 		invitedBy,
+		role,
 		"",        // bio
 		timestamp, // memberSince
 		timestamp, // signedAt
