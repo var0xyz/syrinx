@@ -186,6 +186,10 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     console.error('[verifyUser] missing signatures', user?.id);
     return false;
   }
+  if (user.role !== 'root' && user.role !== 'admin' && user.role !== 'user') {
+    console.error('[verifyUser] missing or invalid role', user?.id, user?.role);
+    return false;
+  }
 
   const armor = await resolvePublicKeyArmor(user.id, user.userSignature.fingerprint);
   if (!armor) {
@@ -219,6 +223,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     user.serverSignature.fingerprint,
     user.userSignature.armor,
     user.invitedBy?.id ?? '',
+    user.role,
     user.bio ?? '',
     signedAtHeader(user.memberSince),
     signedAtHeader(user.serverSignature.timestamp)

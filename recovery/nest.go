@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"syrinx/identity"
+	"syrinx/roles"
 )
 
 // Verifier checks detached PGP signatures (armored). Implemented by crypto.Service.
@@ -35,6 +36,9 @@ func FlattenKeysNest(
 ) (active FlatKey, flat []FlatKey, err error) {
 	if profile.ID == "" || profile.Username == "" {
 		return FlatKey{}, nil, fmt.Errorf("profile id and username are required")
+	}
+	if err := roles.ValidateProfileRole(profile.ID, profile.Role); err != nil {
+		return FlatKey{}, nil, err
 	}
 	if profile.ServerSignature.ServerID != serverID {
 		return FlatKey{}, nil, fmt.Errorf("profile server id mismatch")
@@ -152,6 +156,7 @@ func VerifyProfileServerCountersig(ctx context.Context, profile Profile, serverI
 		profile.ServerSignature.Fingerprint,
 		profile.UserSignature.Armor,
 		profileInvitedByID(profile),
+		profile.Role,
 		profile.Bio,
 		profile.MemberSince.UTC().Truncate(time.Second),
 		profile.ServerSignature.Timestamp.UTC().Truncate(time.Second),

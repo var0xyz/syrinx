@@ -132,6 +132,7 @@ admins may invite other admins. Prerequisite for federation operator actions.
 | 00 | Design + locked model                      | Proposed |
 | 01 | `users.role` column + code helpers         | Implemented |
 | 02 | Admin-only admin invites (create + signup) | Implemented |
+| 03 | Role on profile countersignature           | Implemented |
 
 ## Federation (explicit peering)
 
@@ -319,7 +320,7 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 - **Pipes** ([`pipes/`](pipes/README.md)) — Implemented (00–03).
 - **Roles** ([`roles/`](roles/README.md)) — independent of federation
   implementation but federation admin actions assume roles 01; within
-  `roles/`, follow 00→02. Step 01 (column + helpers) unblocks 02 (admin
+  `roles/`, follow 00→03. Step 01 (column + helpers) unblocks 02 (admin
   invites); 02 extends [`invites`](invites/README.md) create + signup.
 - **Federation** ([`federation/`](federation/README.md)) — depends on
   [roles 01](roles/01_role_store.md); within `federation/`, follow 00→04.

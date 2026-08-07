@@ -577,7 +577,7 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 	var inviterID, inviterUsername sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.bio, u.created_at,
+		SELECT u.id, u.username, u.role, u.bio, u.created_at,
 		       u.user_signature_id, u.server_signature_id,
 		       inv.id, inv.username
 		FROM users u
@@ -586,6 +586,7 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 	`, userID).Scan(
 		&user.ID,
 		&user.Username,
+		&user.Role,
 		&bio,
 		&user.CreatedAt,
 		&userSignatureID,
