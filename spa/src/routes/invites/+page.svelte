@@ -8,7 +8,6 @@
     refreshPendingInviteStatuses,
     revokeLocalInvite,
   } from '$lib/services/invites';
-  import { apiService } from '$lib/services/api';
   import { invitesRepository } from '$lib/repositories/invites';
   import {
     isSignupClosed,
@@ -49,12 +48,7 @@
     user = await authService.getCurrentUser();
     if (!user) return;
 
-    try {
-      const info = await apiService.getUserInfo(user.id);
-      isAdmin = info.role === 'admin' || info.role === 'root';
-    } catch (err) {
-      console.error('[invites] failed to load role hint', err);
-    }
+    isAdmin = user.role === 'admin' || user.role === 'root';
 
     // Show local invites immediately so the toolbar stays mounted.
     invites = await invitesRepository.getAll();

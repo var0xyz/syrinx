@@ -94,8 +94,8 @@ Open mode unchanged (`user`).
 
 On invite create screen ([`invites/05`](../invites/05_spa_invite_management.md)):
 
-- If current user is admin (server returns role on `/users/{id}/info` or
-  session hint — **unsigned hint OK** for UI gating only; server enforces):
+- If current user is admin (signed `role` on cached profile — server
+  enforces on invite create):
   **Create invite** opens a modal to choose User vs Admin (defaults to User).
 - Include `grantedRole` in create body and client-signed payload when Admin
   is selected.
