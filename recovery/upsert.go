@@ -3,6 +3,7 @@ package recovery
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -17,7 +18,15 @@ import (
 type SaveIdentityResult struct {
 	Created bool
 	Updated bool // profile columns written (create or newer-wins)
+	// Rejected is true when profile.Username collided with an existing
+	// holder whose server_signed_at was newer or equal — the incoming
+	// submission was discarded, nothing was written.
+	Rejected bool
 }
+
+// errUsernameCollisionLoss signals that the incoming profile lost a
+// username collision and must not be persisted.
+var errUsernameCollisionLoss = fmt.Errorf("incoming profile lost username collision")
 
 // SaveOwnIdentity upserts a verified own-claim identity + nest. Clears
 // unclaimed_accounts and records the user in ongoing_recoveries.
@@ -31,6 +40,12 @@ func SaveOwnIdentity(ctx context.Context, db *sql.DB, profile Profile, flat []Fl
 	res, err := upsertIdentity(ctx, tx, profile, flat)
 	if err != nil {
 		return nil, err
+	}
+	if res.Rejected {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return res, nil
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM unclaimed_accounts WHERE user_id = $1`, profile.ID); err != nil {
 		return nil, err
@@ -68,6 +83,12 @@ func SavePeerIdentity(ctx context.Context, db *sql.DB, profile Profile, flat []F
 	res, err := upsertIdentity(ctx, tx, profile, flat)
 	if err != nil {
 		return nil, err
+	}
+	if res.Rejected {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return res, nil
 	}
 	if res.Created {
 		if _, err := tx.ExecContext(ctx, `
@@ -108,6 +129,9 @@ func upsertIdentity(ctx context.Context, tx *sql.Tx, profile Profile, flat []Fla
 	switch {
 	case err == sql.ErrNoRows:
 		if err := insertUser(ctx, tx, profile, activeFP, incomingSignedAt); err != nil {
+			if errors.Is(err, errUsernameCollisionLoss) {
+				return &SaveIdentityResult{Rejected: true}, nil
+			}
 			return nil, err
 		}
 		created = true
@@ -117,6 +141,9 @@ func upsertIdentity(ctx context.Context, tx *sql.Tx, profile Profile, flat []Fla
 	default:
 		wrote, err := updateUserIfNewer(ctx, tx, profile, activeFP, existingSignedAt, incomingSignedAt)
 		if err != nil {
+			if errors.Is(err, errUsernameCollisionLoss) {
+				return &SaveIdentityResult{Rejected: true}, nil
+			}
 			return nil, err
 		}
 		updated = wrote
@@ -292,6 +319,14 @@ func insertKeys(ctx context.Context, tx *sql.Tx, userID string, flat []FlatKey) 
 	return nil
 }
 
+// claimUsername resolves a username collision by deleting whichever side
+// has the older (or equal) server_signed_at. If the incoming profile loses,
+// the existing holder is left untouched and errUsernameCollisionLoss is
+// returned — callers must abort the whole upsert without writing anything.
+// If the incoming profile wins (or there is no collision), the holder row
+// (if any) is hard-deleted — ON DELETE CASCADE removes its keys,
+// signatures, and recovery/social bookkeeping — and username is returned
+// unchanged for the caller to store.
 func claimUsername(ctx context.Context, tx *sql.Tx, userID, username string, signedAt time.Time) (string, error) {
 	var holderID string
 	var holderSignedAt time.Time
@@ -311,76 +346,21 @@ func claimUsername(ctx context.Context, tx *sql.Tx, userID, username string, sig
 
 	holderWins := !signedAt.After(holderSignedAt)
 	if holderWins {
-		// Incoming loses: store under renamed form.
-		return uniqueRenamedUsername(ctx, tx, username, userID)
+		return "", errUsernameCollisionLoss
 	}
 
-	// Incoming wins: rename the holder.
-	newName, err := uniqueRenamedUsername(ctx, tx, username, holderID)
-	if err != nil {
+	// Incoming wins: the holder is a different, older, provably-signed
+	// identity — not a duplicate of the incoming one. Deleting it is
+	// destructive by design (see specs/recovery/README.md#recovery-flow):
+	// a renamed-in-place row would carry a username that no longer matches
+	// what its owner signed, permanently breaking verification instead.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, holderID); err != nil {
+		return "", fmt.Errorf("delete username collision loser %s: %w", holderID, err)
+	}
+	if err := coverage.BumpActiveUsers(ctx, tx, -1); err != nil {
 		return "", err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE users SET username = $1 WHERE id = $2`, newName, holderID); err != nil {
-		return "", fmt.Errorf("rename collision loser: %w", err)
-	}
 	return username, nil
-}
-
-// CollisionRename builds the permanent suffix form username#idPrefix.
-func CollisionRename(username, userID string, idLen int) string {
-	if idLen < 1 {
-		idLen = 4
-	}
-	if idLen > len(userID) {
-		idLen = len(userID)
-	}
-	prefix := userID[:idLen]
-	base := username
-	const maxUsername = 255
-	suffix := "#" + prefix
-	if len(base)+len(suffix) > maxUsername {
-		base = base[:maxUsername-len(suffix)]
-	}
-	return base + suffix
-}
-
-func uniqueRenamedUsername(ctx context.Context, tx *sql.Tx, username, loserID string) (string, error) {
-	for n := 4; n <= len(loserID); n++ {
-		candidate := CollisionRename(username, loserID, n)
-		var exists bool
-		err := tx.QueryRowContext(ctx, `
-			SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(username) = LOWER($1))
-		`, candidate).Scan(&exists)
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			return candidate, nil
-		}
-	}
-	// Extremely unlikely: append a disambiguator.
-	for i := 0; i < 1000; i++ {
-		candidate := fmt.Sprintf("%s#%s-%d", trimForSuffix(username, len(loserID)+8), loserID, i)
-		var exists bool
-		err := tx.QueryRowContext(ctx, `
-			SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(username) = LOWER($1))
-		`, candidate).Scan(&exists)
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("could not allocate unique renamed username for %s", loserID)
-}
-
-func trimForSuffix(username string, suffixLen int) string {
-	const maxUsername = 255
-	if len(username)+suffixLen <= maxUsername {
-		return username
-	}
-	return username[:maxUsername-suffixLen]
 }
 
 func nullIfEmpty(s string) interface{} {
