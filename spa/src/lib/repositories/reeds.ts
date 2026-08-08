@@ -146,8 +146,21 @@ class ReedsService {
       await dbService.delete('unsignedReeds', reed.id);
       unsignedReedsProcessed.update((n) => n + 1);
       return true;
-    } catch (error) {
-      console.error('Failed to publish reed to server, queued for later:', error);
+    } catch (error: any) {
+      const isReedFork =
+        error?.status === 409 && typeof error?.body === 'string' && error.body.includes('current tip');
+      if (isReedFork) {
+        // Another session (dual-device/dual-tab) published past this
+        // client's believed tip. previousIDForPublish() always recomputes
+        // live from local reed state (no caching) — it will pick up the
+        // winning publish once it syncs locally, so the existing
+        // requeue-and-retry-on-reconnect path self-heals. Logged distinctly
+        // so a stuck retry loop is diagnosable instead of reading as a
+        // generic network failure.
+        console.warn('Reed publish rejected as a history fork; will retry once local tip catches up:', reed.id);
+      } else {
+        console.error('Failed to publish reed to server, queued for later:', error);
+      }
       return false;
     }
   }
