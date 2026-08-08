@@ -26,7 +26,7 @@ conversations foreign refs [`conversations/01`](../conversations/01_publish_and_
 
 ## Status
 
-**Proposed** (00–05). Step **01** implemented.
+**In progress.** Step **01** implemented; 00, 02–05 remain Proposed.
 
 | Step  | Status          |
 |-------|-----------------|

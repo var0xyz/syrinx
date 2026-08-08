@@ -25,20 +25,21 @@ Each table below has a **Status** column per step. Values:
 | Track            | Status      | Remaining                                            |
 |------------------|-------------|------------------------------------------------------|
 | Load testing     | Proposed    | 00–03                                                |
-| Federation       | Proposed    | 00–05 (depends on roles)                             |
+| Federation       | In progress | 00, 02–05 (depends on roles)                         |
 | Prerequisites    | In progress | 09 (revocation fanout), 11 (notifications, deferred) |
-| Recovery feature | In progress | 16 (reed tip check), 17 (device binding)             |
-| Conversations    | In progress | 04–05                                                |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Publish ready    | Implemented | —                                                    |
 | Pipes            | Implemented | —                                                    |
+| Conversations    | Implemented | —                                                    |
+| Recovery feature | Implemented | 00–17 implemented                                    |
 | Account recovery | Implemented | 01–07 implemented                                    |
 | Observability    | Implemented | Steps 01–05                                          |
 | Roles            | Implemented | 00–02                                                |
 | Avatars          | Deferred    | 00–05                                                |
 
 **Already done:** Invites, Coverage, Deletion, Signature storage, Publish
-ready, and the prerequisites other than 09/11.
+ready, Conversations, Recovery feature, and the prerequisites other than
+09/11.
 
 ## Prerequisite proposals
 
@@ -71,10 +72,10 @@ See [`recovery/`](recovery/README.md):
 | 06 | Reeds, follows, complete                              | Implemented |
 | 07 | SPA recover client                                    | Implemented |
 
-**Track status: In progress.** The server recovery API and SPA restore flow
-(sub-directory steps 00–15, backup-first unified restore) are implemented; the
-reed tip check ([recovery 16](recovery/16_reed_tip_check.md)) and device
-binding ([recovery 17](recovery/17_device_binding.md)) remain **Proposed**.
+**Track status: Implemented.** All sub-directory steps (00–17) have landed,
+including backup-first unified restore (00–15), device binding
+([recovery 17](recovery/17_device_binding.md)), and the reed tip check
+history-fork safeguard ([recovery 16](recovery/16_reed_tip_check.md)).
 
 ## Invites / signup modes
 
@@ -99,7 +100,7 @@ See [`conversations/`](conversations/README.md):
 | 01 | Verify publish payload (form fields); normalize `replying` ref | Implemented |
 | 02 | Echo/reply index tables + list/count APIs                      | Implemented |
 | 03 | Conversation section + local reply caches on reed detail       | Implemented |
-| 04 | Mentions (`@` → `web+syrinx` links + `reed_mentions` index)    | Proposed    |
+| 04 | Mentions (`@` → `~userID@serverID` + `reed_mentions` index)    | Implemented |
 | 05 | Recursive reply counts: thread total + per-reed subtree count  | Implemented |
 
 ## Reed network coverage
@@ -291,10 +292,8 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
   Step 00 (keychain passphrase) can land independently and unblocks 01/02.
 - **Invites feature steps** are independent of recovery; within `invites/`,
   follow that directory's depends-on column (00→05). Step 00 can land alone.
-- **Conversations feature steps** are independent of recovery; within
-  `conversations/`, follow that directory's depends-on column (00→05). Steps
-  00–01 are implemented; 02 is in progress (echo index only). Finish 02
-  (`reed_replies`, `/replies`) before 03/05.
+- **Conversations** ([`conversations/`](conversations/README.md)) —
+  Implemented (00–05).
 - **Deletion feature steps** are independent of recovery; within
   `deletion/`, follow that directory's depends-on column. After 00, account
   schema (07) may parallel the reed track; 08 needs 02+04; 09 needs 06+08.
