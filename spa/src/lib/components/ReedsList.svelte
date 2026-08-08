@@ -10,7 +10,7 @@
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
-  import Avatar from '$lib/components/Avatar.svelte';
+  import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import { goto } from '$app/navigation';
   import { parseReedRef } from '$lib/utils/reedRef';
   import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
@@ -310,15 +310,13 @@
       {@const displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
       <div class="reed-item pending" role="button" tabindex="0" on:click={() => navigateToReed(reed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(reed)}>
         <div class="reed-header">
-          <div class="reed-info">
-            <div class="reed-avatar">
-              <Avatar userID={displayReed.userID} username={displayUser.username} size="40px" />
-            </div>
-            <div class="reed-details">
-              <h3>{displayUser.username}</h3>
-              <p class="pending-label">Pending…</p>
-            </div>
-          </div>
+          <ReedAuthorHeader
+            userID={displayReed.userID}
+            username={displayUser.username}
+            nameTag="h3"
+            subtext="Pending…"
+            subtextClass="pending"
+          />
           {#if isOwner}
             <div class="reed-meta">
               <button class="reed-menu" on:click|stopPropagation={() => deleteReed(reed.id, true)} aria-label="Delete">🗑️</button>
@@ -368,15 +366,12 @@
       {@const displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
       <div class="reed-item" role="button" tabindex="0" on:click={() => navigateToReed(awaitingOriginal ? reed : displayReed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(awaitingOriginal ? reed : displayReed)}>
         <div class="reed-header">
-          <div class="reed-info">
-            <div class="reed-avatar">
-              <Avatar userID={displayReed.userID} username={displayUser.username} size="40px" />
-            </div>
-            <div class="reed-details">
-              <h3>{displayUser.username}</h3>
-              <p>{formatRelativeTime((awaitingOriginal ? reed : displayReed).serverSignature?.timestamp ?? reed.serverSignature?.timestamp)}</p>
-            </div>
-          </div>
+          <ReedAuthorHeader
+            userID={displayReed.userID}
+            username={displayUser.username}
+            nameTag="h3"
+            subtext={formatRelativeTime((awaitingOriginal ? reed : displayReed).serverSignature?.timestamp ?? reed.serverSignature?.timestamp)}
+          />
           {#if isOwner}
             <div class="reed-meta">
               <button class="reed-menu" on:click|stopPropagation={() => deleteReed(reed.id)} aria-label="Delete">🗑️</button>
@@ -516,22 +511,7 @@
     align-items: center;
     padding: 1rem;
     border-bottom: 1px solid var(--border);
-  }
-
-  .reed-info {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
     min-width: 0;
-  }
-
-  .reed-avatar {
-    width: 40px;
-    height: 40px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }
 
   .reed-menu {
@@ -567,29 +547,6 @@
   .error-state p {
     margin: 0 0 1rem 0;
     font-size: 0.9rem;
-  }
-
-  .reed-details {
-    min-width: 0;
-  }
-
-  .reed-details h3 {
-    margin: 0 0 0.25rem 0;
-    color: var(--fg);
-    font-size: 1rem;
-    font-weight: 600;
-    word-break: break-word;
-  }
-
-  .reed-details p {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.8rem;
-  }
-
-  .reed-details .pending-label {
-    color: var(--primary);
-    font-style: italic;
   }
 
   .reed-meta {
