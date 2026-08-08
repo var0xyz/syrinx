@@ -675,11 +675,6 @@
     font-size: 0.9rem;
   }
 
-  .reed-date.pending {
-    color: var(--primary);
-    font-style: italic;
-  }
-
   .reed-stats {
     display: inline-flex;
     align-items: end;
