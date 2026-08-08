@@ -217,7 +217,7 @@
       on:click={(e) => e.target === e.currentTarget && dismissCreateModal()}
       on:keydown={(e) => e.key === 'Escape' && dismissCreateModal()}
     >
-      <div class="modal" on:click|stopPropagation on:keydown={() => {}}>
+      <div class="modal">
         <h2 id="create-invite-title">New connection</h2>
         <p class="modal-lead">
           Label this invite so you can tell who it is for, then paste the remote server&apos;s OpenPGP public key (exchanged out of band).
@@ -266,7 +266,7 @@
       on:click={(e) => e.target === e.currentTarget && dismissConnectionModal()}
       on:keydown={(e) => e.key === 'Escape' && dismissConnectionModal()}
     >
-      <div class="modal" role="dialog" aria-labelledby="connection-title" on:click|stopPropagation on:keydown={() => {}}>
+      <div class="modal">
         <h2 id="connection-title">Connection string</h2>
         <p class="modal-lead">Share this with the remote admin. You can copy it again from the invite list while it is still pending.</p>
         <div class="connection-field">
