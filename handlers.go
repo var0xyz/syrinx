@@ -1629,7 +1629,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !valid {
-			writeResponse(w, http.StatusBadRequest, "unknown_mentioned_user")
+			writeResponse(w, http.StatusBadRequest, "Mentioned user not found")
 			return
 		}
 		localMentions = append(localMentions, m)
@@ -2202,7 +2202,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) RecordBackup(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 	if userID == "" {
-		writeResponse(w, http.StatusUnauthorized, "unauthorized")
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
