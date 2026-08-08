@@ -310,15 +310,18 @@
 
   .reply-meta {
     display: flex;
-    gap: 0.5rem;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.5rem;
     align-items: baseline;
     margin-bottom: 0.25rem;
+    min-width: 0;
   }
 
   .reply-author {
     font-weight: 600;
     font-size: 0.9rem;
     color: var(--fg);
+    word-break: break-word;
   }
 
   .reply-time {
