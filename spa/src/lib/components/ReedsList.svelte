@@ -522,6 +522,7 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    min-width: 0;
   }
 
   .reed-avatar {
@@ -568,11 +569,16 @@
     font-size: 0.9rem;
   }
 
+  .reed-details {
+    min-width: 0;
+  }
+
   .reed-details h3 {
     margin: 0 0 0.25rem 0;
     color: var(--fg);
     font-size: 1rem;
     font-weight: 600;
+    word-break: break-word;
   }
 
   .reed-details p {

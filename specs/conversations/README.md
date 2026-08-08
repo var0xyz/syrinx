@@ -43,11 +43,10 @@ Thread reply counts ([05](05_thread_reply_counts.md)) only need the
 | 01 | Verify publish payload; normalize `replying` ref   | Implemented   |
 | 02 | Echo/reply index tables + list/count APIs          | Implemented   |
 | 03 | Echo count + conversation section on reed detail   | Implemented   |
-| 04 | `@` mentions → links + `reed_mentions`             | Proposed      |
+| 04 | `@` mentions → links + `reed_mentions`             | Implemented   |
 | 05 | Thread reply counts (thread total + subtree)       | Implemented   |
 
-**Track status: In progress** — conversation UI + local reply caches (03) landed;
-thread reply counts (05) and mentions (04) remain open.
+**Track status: Implemented.** All six steps have landed.
 
 ## Motivation
 

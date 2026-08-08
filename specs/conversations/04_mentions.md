@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -44,6 +44,16 @@ Authors want to address other users inside reed content. Mentions must:
 - Autocomplete for reeds, hashtags, or arbitrary URLs.
 
 ## Design
+
+> **Superseded:** the `web+syrinx://users/...` scheme below was the
+> original mention design and is still used for hashtag/pipe links
+> (`web+syrinx://pipe/...`, see `formatPipeHref` in `reedMarkdown.ts`), but
+> mentions themselves moved to the `~userID@serverID` wire form — see "Wire
+> form (superseded from the original markdown-link sketch)" further down.
+> The reasoning here (why a custom scheme, why `web+syrinx`) still applies
+> to pipe links; kept for that history and because it's still the
+> in-app-navigation mechanism `MentionLink` reuses for the resolved
+> `/profile/<userID>` link once a mention is resolved.
 
 ### URI scheme (standards-aligned)
 
@@ -94,53 +104,79 @@ One scheme, one parser.
 4. Subsequent edits treat it as ordinary markdown; do not re-resolve unless
    the user deletes and re-@s.
 
+### Wire form (superseded from the original markdown-link sketch)
+
+Mentions are **not** markdown links. The composer inserts
+`~<userID>@<serverID>` directly into content — no username, no link syntax,
+so it's immune to spaces in usernames (Syrinx usernames may contain
+spaces, which is what forced this away from the original
+`[label](web+syrinx://users/...)` design). `userID`/`serverID` are
+alphanumeric-only, **not fixed-length** (e.g. the root user's id is `"1"`;
+foreign servers may mint IDs of any length) — parsed as a greedy
+alphanumeric run, same idea as a `#hashtag`'s `\S+` run. See
+`reedMarkdown.ts` `readMention()` / Go `mentions.go` `ExtractMentions`.
+
+Rendering resolves `userID -> username` live (client-side lookup / fetch)
+and links to `/profile/<userID>`; the raw ids never reach the UI except as
+a last-resort fallback when resolution fails entirely (see Client render).
+
 ### Server: extract + index at publish
 
 During `SignReed`, after content-limit checks and before/within the create
 transaction (same pattern as echoes):
 
-1. Scan `content` for markdown links whose URL matches
-   `web+syrinx://users/<serverID>/<userID>` (strict parse; reject junk).
+1. Scan `content` for the `~userID@serverID` mention form (see above).
 2. Deduplicate by `(mentioned_server_id, mentioned_user_id)` per reed.
-3. For each mention whose `serverID` equals this instance: require the user
-   exists and is not account-removed; else 400 `unknown_mentioned_user`.
-4. Foreign `serverID`: accept into the index for forward-compat, or reject
-   with `foreign_mention_unsupported` in v1 — **lock: accept into index,
-   skip existence check** (symmetric with eventually federated reed refs).
-5. Insert rows; never store `content`.
+3. **Only local mentions are indexed.** For each mention whose `serverID`
+   equals this instance: `MentionTargetValid(userID, serverID)` requires the
+   user exists, is not account-removed, **and** `serverID` is a known row in
+   `servers` (self or a federated peer) — else 400 `unknown_mentioned_user`.
+   Mentions of a foreign `serverID` are silently **not stored** — `content`
+   still carries the token either way, but no `reed_mentions` row is
+   written for them.
+   **Revised lock:** this reverses the original "accept into index, skip
+   existence check" call — `mentioned_user_id` is now a hard FK to
+   `users(id)`, which only foreign-mention exclusion makes possible. When
+   cross-server mention notification is built, foreign mentions will need
+   their own handling (a different table, or a relaxed constraint) rather
+   than reusing this row shape as-is.
+4. Insert rows; never store `content`.
 
-Malformed mention-shaped URLs that are not exact form → treat as ordinary
-links (no index row), **or** reject publish — **lock: ignore for index;
-still allowed as opaque link text** so we do not brick clients mid-draft.
-Only well-formed `web+syrinx://users/...` links become mentions.
-
-Self-mentions: allow in content; **do not** insert a notification later for
-self (index may still store the row for symmetry, or skip — **lock: skip
-index row when mentioned_user_id == author**).
+Self-mentions: allowed in content; **do not** insert an index row for self
+(skip when `mentioned_user_id == author`) — no notification target either.
 
 ### Schema
 
 ```sql
--- One row per (reed, mentioned user). mentioning_* = reed that contains the @.
+-- One row per (reed, mentioned LOCAL user). mentioning_* = reed that
+-- contains the mention. mentioned_user_id is a hard FK because only local
+-- mentions are ever stored (see above) — mentioned_server_id is therefore
+-- always this server's own id today; kept for when cross-server mention
+-- notification lands and may need a different shape.
 CREATE TABLE reed_mentions (
-    mentioning_user_id  VARCHAR(255) NOT NULL REFERENCES users(id),
+    mentioning_user_id  VARCHAR(255) NOT NULL,
     mentioning_reed_id  VARCHAR(255) NOT NULL,
-    mentioned_user_id   VARCHAR(255) NOT NULL,
+    mentioned_user_id   VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     mentioned_server_id VARCHAR(255) NOT NULL,
-    signed_at           TIMESTAMP NOT NULL,
-    PRIMARY KEY (mentioning_reed_id, mentioned_server_id, mentioned_user_id)
+    PRIMARY KEY (mentioning_reed_id, mentioned_server_id, mentioned_user_id),
+    FOREIGN KEY (mentioning_user_id, mentioning_reed_id)
+        REFERENCES reeds(user_id, id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_reed_mentions_mentioned
-    ON reed_mentions (mentioned_server_id, mentioned_user_id, signed_at DESC);
+    ON reed_mentions (mentioned_server_id, mentioned_user_id);
 
 CREATE INDEX idx_reed_mentions_reed
     ON reed_mentions (mentioning_reed_id);
 ```
 
-No FK to `reeds(id)` required if other indexes follow the same soft pattern as
-`reed_echoes`; cleanup is explicit on deletion (below). Prefer consistency
-with whatever `reed_echoes` does.
+Unlike `reed_echoes`'s soft-reference pattern, `reed_mentions` has a real FK
+to `reeds(user_id, id)` — deleting a reed (hard delete, not the soft
+`reed_removals` cert path) cascades automatically. In practice `DeleteReed`
+never hard-deletes the `reeds` row (kept for allocation catch-up), so the
+explicit `DeleteMentionsForReed` cleanup call below still does the real
+work; the FK is a backstop, not the primary cleanup path. No `signed_at`
+column — nothing currently orders by mention recency.
 
 ### Deletion
 
@@ -170,11 +206,24 @@ Same transaction / call sites as echo-index cleanup.
 
 ### Client render
 
-In `MarkdownParser` (and any other markdown surface):
+`MarkdownInline` renders a `mention` AST node (produced by `readMention`) via
+a dedicated `MentionLink` component:
 
-- If `href` parses as a Syrinx user mention → render as an in-app user link
-  (distinct style optional); click → `/profile/<userID>` for local server,
-  or a “foreign user” placeholder later.
+- Local mention (`serverID` matches this instance): resolve
+  `userID -> username` via the verified `userRepository` cache/fetch
+  (`GET /users/{id}/profile`, same trust path as any other profile lookup);
+  render `@username` linking to `/profile/<userID>`, no confirm modal
+  (in-app navigation).
+- Foreign mention, or a local lookup that fails/returns nothing: render the
+  **literal wire token** `~userID@serverID` as plain text — not a styled
+  placeholder, not the raw username-less guess. This is a deliberate
+  **revision** from the original "muted inert span" idea: if we can't
+  resolve who it is, show exactly what was signed rather than a synthetic
+  UI element implying we know something we don't.
+- Composer preview may seed an unsigned display hint (the username from the
+  `GET /users/search` result just picked) so the picked name shows
+  immediately instead of the raw id while the real verified fetch is in
+  flight — never persisted, never a substitute for that fetch.
 - All other `http(s)` links keep the existing external-link confirm modal.
 
 ### Hook to notifications (future)

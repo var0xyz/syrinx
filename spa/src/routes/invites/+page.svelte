@@ -545,11 +545,13 @@
   .meta {
     font-size: 0.85rem;
     color: var(--muted);
+    overflow-wrap: break-word;
   }
 
   .meta a {
     color: var(--primary);
     text-decoration: none;
+    word-break: break-word;
   }
 
   .modal-backdrop {

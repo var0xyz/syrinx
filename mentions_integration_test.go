@@ -1,0 +1,334 @@
+//go:build !ops
+
+package main
+
+import (
+	"context"
+	"database/sql"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+func ensureMentionsSchema(db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS servers (id VARCHAR(255) PRIMARY KEY, self BOOLEAN NOT NULL DEFAULT FALSE)`,
+		`INSERT INTO servers (id, self) VALUES ('testserver', TRUE) ON CONFLICT (id) DO UPDATE SET self = EXCLUDED.self`,
+		`CREATE TABLE IF NOT EXISTS user_signatures (id SERIAL PRIMARY KEY, fingerprint VARCHAR(255) NOT NULL, signature TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS server_signatures (id SERIAL PRIMARY KEY, fingerprint VARCHAR(255) NOT NULL, signature TEXT NOT NULL, signed_at TIMESTAMP NOT NULL)`,
+		`DROP TABLE IF EXISTS reed_mentions CASCADE`,
+		`DROP TABLE IF EXISTS reed_allocations CASCADE`,
+		`DROP TABLE IF EXISTS pending_fanout CASCADE`,
+		`DROP TABLE IF EXISTS reeds CASCADE`,
+		`DROP TABLE IF EXISTS account_removals CASCADE`,
+		`DROP TABLE IF EXISTS users CASCADE`,
+		`CREATE TABLE users (
+			id VARCHAR(255) PRIMARY KEY,
+			username VARCHAR(255) UNIQUE NOT NULL,
+			user_fingerprint VARCHAR(255),
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+		)`,
+		`CREATE TABLE account_removals (
+			user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id)
+		)`,
+		`CREATE TABLE reeds (
+			id VARCHAR(255) NOT NULL,
+			user_id VARCHAR(255) NOT NULL REFERENCES users(id),
+			private_key_fingerprint VARCHAR(255) NOT NULL,
+			signed_at TIMESTAMP NOT NULL,
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+			allocation_count INT NOT NULL DEFAULT 0,
+			PRIMARY KEY (user_id, id)
+		)`,
+		`CREATE TABLE reed_allocations (
+			reed_id VARCHAR(255) NOT NULL,
+			holder_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			author_user_id VARCHAR(255) NOT NULL,
+			delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (holder_user_id, author_user_id, reed_id),
+			FOREIGN KEY (author_user_id, reed_id) REFERENCES reeds(user_id, id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE pending_fanout (
+			user_id VARCHAR(255) NOT NULL,
+			reed_id VARCHAR(255) NOT NULL,
+			tags TEXT[] NOT NULL DEFAULT '{}',
+			PRIMARY KEY (user_id, reed_id)
+		)`,
+		`CREATE TABLE reed_mentions (
+			mentioning_user_id VARCHAR(255) NOT NULL,
+			mentioning_reed_id VARCHAR(255) NOT NULL,
+			mentioned_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			mentioned_server_id VARCHAR(255) NOT NULL,
+			PRIMARY KEY (mentioning_reed_id, mentioned_server_id, mentioned_user_id),
+			FOREIGN KEY (mentioning_user_id, mentioning_reed_id)
+				REFERENCES reeds(user_id, id) ON DELETE CASCADE
+		)`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func openMentionsTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	return newTestDatabase(t, ensureMentionsSchema)
+}
+
+func seedMentionUser(t *testing.T, db *sql.DB, userID string) {
+	t.Helper()
+	var usID, ssID int
+	if err := db.QueryRow(`INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, 'sig') RETURNING id`, userID+"fp").Scan(&usID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "srvfp-"+userID).Scan(&ssID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO users (id, username, user_signature_id, server_signature_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+		userID, userID+"name", usID, ssID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func newTestReedID(t *testing.T) string {
+	t.Helper()
+	id, err := uuid.NewV7()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id.String()
+}
+
+func TestCreateReed_MentionsIndexed(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	seedMentionUser(t, db, "alice")
+	seedMentionUser(t, db, "bob")
+	seedMentionUser(t, db, "carol")
+
+	reedID := newTestReedID(t)
+	ts := time.Now().UTC().Truncate(time.Second)
+	mentions := []ReedRef{
+		{ServerID: "testserver", AuthorID: "bob"},
+		{ServerID: "testserver", AuthorID: "carol"},
+	}
+
+	_, err := svc.CreateReed(ctx, createReedParams{
+		ReedID:             reedID,
+		UserID:             "alice",
+		UserFingerprint:    "alicefp",
+		UserSignatureB64:   "usersig",
+		ServerFingerprint:  "srvfp-alice",
+		ServerSignatureB64: "serversig",
+		Timestamp:          ts,
+		Mentions:           mentions,
+	})
+	if err != nil {
+		t.Fatalf("CreateReed: %v", err)
+	}
+
+	rows, err := db.Query(`SELECT mentioned_user_id FROM reed_mentions WHERE mentioning_reed_id = $1 ORDER BY mentioned_user_id`, reedID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, u)
+	}
+	if len(got) != 2 || got[0] != "bob" || got[1] != "carol" {
+		t.Fatalf("mentioned users = %v, want [bob carol]", got)
+	}
+}
+
+// TestCreateReed_MentionOfNonexistentUserRejected guards the FK on
+// reed_mentions.mentioned_user_id -> users(id): only local users can ever
+// be indexed. This is what makes it safe to index foreign-server mentions
+// as "never stored" at the handler layer — the FK is the backstop if that
+// filtering is ever bypassed or wrong.
+func TestCreateReed_MentionOfNonexistentUserRejected(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	seedMentionUser(t, db, "alice")
+
+	reedID := newTestReedID(t)
+	ts := time.Now().UTC().Truncate(time.Second)
+	_, err := svc.CreateReed(ctx, createReedParams{
+		ReedID:             reedID,
+		UserID:             "alice",
+		UserFingerprint:    "alicefp",
+		UserSignatureB64:   "usersig",
+		ServerFingerprint:  "srvfp-alice",
+		ServerSignatureB64: "serversig",
+		Timestamp:          ts,
+		Mentions:           []ReedRef{{ServerID: "foreignsrv", AuthorID: "nobody-on-this-server"}},
+	})
+	if err == nil {
+		t.Fatal("expected FK violation for a mention of a nonexistent local user")
+	}
+}
+
+func TestDeleteMentionsForReed_ClearsRows(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	seedMentionUser(t, db, "alice")
+	seedMentionUser(t, db, "bob")
+
+	reedID := newTestReedID(t)
+	ts := time.Now().UTC().Truncate(time.Second)
+	_, err := svc.CreateReed(ctx, createReedParams{
+		ReedID:             reedID,
+		UserID:             "alice",
+		UserFingerprint:    "alicefp",
+		UserSignatureB64:   "usersig",
+		ServerFingerprint:  "srvfp-alice",
+		ServerSignatureB64: "serversig",
+		Timestamp:          ts,
+		Mentions:           []ReedRef{{ServerID: "testserver", AuthorID: "bob"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateReed: %v", err)
+	}
+
+	if err := svc.DeleteMentionsForReed(ctx, "alice", reedID); err != nil {
+		t.Fatalf("DeleteMentionsForReed: %v", err)
+	}
+
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM reed_mentions WHERE mentioning_reed_id = $1`, reedID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0 mention rows after delete, got %d", n)
+	}
+}
+
+func TestDeleteMentionsByAuthor_ClearsBothSides(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	seedMentionUser(t, db, "alice")
+	seedMentionUser(t, db, "bob")
+	seedMentionUser(t, db, "carol")
+
+	// alice mentions bob (reed authored by alice)
+	reed1 := newTestReedID(t)
+	ts := time.Now().UTC().Truncate(time.Second)
+	if _, err := svc.CreateReed(ctx, createReedParams{
+		ReedID: reed1, UserID: "alice", UserFingerprint: "alicefp",
+		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
+		Timestamp: ts, Mentions: []ReedRef{{ServerID: "testserver", AuthorID: "bob"}},
+	}); err != nil {
+		t.Fatalf("CreateReed 1: %v", err)
+	}
+
+	// carol mentions bob (a second, independent mention of bob — proves
+	// DeleteMentionsByAuthor(bob) clears mentions of bob regardless of author)
+	reed2 := newTestReedID(t)
+	if _, err := svc.CreateReed(ctx, createReedParams{
+		ReedID: reed2, UserID: "carol", UserFingerprint: "carolfp",
+		UserSignatureB64: "sig", ServerFingerprint: "srvfp-carol", ServerSignatureB64: "sig",
+		Timestamp: ts, Mentions: []ReedRef{{ServerID: "testserver", AuthorID: "bob"}},
+	}); err != nil {
+		t.Fatalf("CreateReed 2: %v", err)
+	}
+
+	if err := svc.DeleteMentionsByAuthor(ctx, "bob"); err != nil {
+		t.Fatalf("DeleteMentionsByAuthor: %v", err)
+	}
+
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM reed_mentions WHERE mentioned_user_id = 'bob'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("expected all mentions of bob cleared, got %d", n)
+	}
+}
+
+func TestMentionTargetValid(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	seedMentionUser(t, db, "alice")
+
+	valid, err := svc.MentionTargetValid(ctx, "alice", "testserver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !valid {
+		t.Fatal("expected alice to be a valid mention target")
+	}
+
+	valid, err = svc.MentionTargetValid(ctx, "nobody", "testserver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if valid {
+		t.Fatal("expected nonexistent user to be invalid mention target")
+	}
+
+	valid, err = svc.MentionTargetValid(ctx, "alice", "unknown-server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if valid {
+		t.Fatal("expected unknown serverID to be invalid mention target")
+	}
+
+	if _, err := db.Exec(`INSERT INTO account_removals (user_id) VALUES ('alice')`); err != nil {
+		t.Fatal(err)
+	}
+	valid, err = svc.MentionTargetValid(ctx, "alice", "testserver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if valid {
+		t.Fatal("expected account-removed user to be invalid mention target")
+	}
+}
+
+func TestSearchUsers(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	seedMentionUser(t, db, "alice")
+	seedMentionUser(t, db, "bob")
+	if _, err := db.Exec(`INSERT INTO account_removals (user_id) VALUES ('bob')`); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := svc.SearchUsers(ctx, "alice", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ID != "alice" {
+		t.Fatalf("results = %+v", results)
+	}
+
+	results, err = svc.SearchUsers(ctx, "bobname", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected account-removed user excluded, got %+v", results)
+	}
+}

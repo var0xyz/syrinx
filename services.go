@@ -1241,6 +1241,7 @@ type createReedParams struct {
 	ServerSignatureB64 string
 	Timestamp          time.Time
 	Tags               []string
+	Mentions           []ReedRef
 }
 
 // ResolveThreadIDForParent returns the canonical thread id for a reply to parent P.
@@ -1448,6 +1449,18 @@ func (s *DataService) insertReedCoreTx(
 		return Reed{}, fmt.Errorf("insert pending fanout: %w", err)
 	}
 
+	for _, m := range p.Mentions {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reed_mentions (
+				mentioning_user_id, mentioning_reed_id,
+				mentioned_user_id, mentioned_server_id
+			) VALUES ($1, $2, $3, $4)
+			ON CONFLICT (mentioning_reed_id, mentioned_server_id, mentioned_user_id) DO NOTHING
+		`, p.UserID, p.ReedID, m.AuthorID, m.ServerID); err != nil {
+			return Reed{}, fmt.Errorf("insert mention index: %w", err)
+		}
+	}
+
 	return created, nil
 }
 
@@ -1608,6 +1621,71 @@ func (s *DataService) ReedExists(ctx context.Context, userID, reedID string) (bo
 	return exists, err
 }
 
+// MentionTargetValid reports whether userID exists, is not account-removed,
+// and serverID is a known row in servers (self or a federated peer) — the
+// gate for a local (this-server) mention to be indexed.
+func (s *DataService) MentionTargetValid(ctx context.Context, userID, serverID string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM users u
+			WHERE u.id = $1
+			  AND EXISTS (
+			      SELECT 1 FROM servers s WHERE s.id = $2
+			  )
+			  AND NOT EXISTS (
+			      SELECT 1 FROM account_removals ar WHERE ar.user_id = u.id
+			  )
+		)
+	`, userID, serverID).Scan(&exists)
+	return exists, err
+}
+
+// UserSearchResult is one row in a GET /users/search response — minimal
+// fields only, no keys, no bio.
+type UserSearchResult struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+}
+
+// SearchUsers returns users whose username contains query (case-insensitive
+// substring match), excluding account-removed users, ordered by username.
+func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) ([]UserSearchResult, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT u.id, u.username
+		FROM users u
+		WHERE u.username ILIKE '%' || $1 || '%'
+		  AND NOT EXISTS (
+		      SELECT 1 FROM account_removals ar WHERE ar.user_id = u.id
+		  )
+		ORDER BY u.username ASC
+		LIMIT $2
+	`, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results := []UserSearchResult{}
+	for rows.Next() {
+		var r UserSearchResult
+		if err := rows.Scan(&r.ID, &r.Username); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
 // CountEchoes returns how many echoes point at the given reed.
 func (s *DataService) CountEchoes(ctx context.Context, echoedUserID, echoedReedID string) (int, error) {
 	var n int
@@ -1686,6 +1764,27 @@ func (s *DataService) DeleteEchoesByAuthor(ctx context.Context, userID string) (
 		return nil, err
 	}
 	return targets, nil
+}
+
+// DeleteMentionsForReed clears mention index rows contained in a removed reed.
+func (s *DataService) DeleteMentionsForReed(ctx context.Context, userID, reedID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM reed_mentions
+		WHERE mentioning_user_id = $1 AND mentioning_reed_id = $2
+	`, userID, reedID)
+	return err
+}
+
+// DeleteMentionsByAuthor clears mention index rows on account removal: rows
+// the removed user authored (mentioning), and rows mentioning the removed
+// user on this server (mentioned) — both sides, per spec lock.
+func (s *DataService) DeleteMentionsByAuthor(ctx context.Context, userID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM reed_mentions
+		WHERE mentioning_user_id = $1
+		   OR (mentioned_server_id = $2 AND mentioned_user_id = $1)
+	`, userID, s.serverID)
+	return err
 }
 
 // ReplyCountNotifyTargets returns every ancestor of parent (inclusive) whose

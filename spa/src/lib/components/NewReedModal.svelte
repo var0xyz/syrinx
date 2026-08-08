@@ -17,6 +17,7 @@
   import { goto } from '$app/navigation';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import MentionPicker from '$lib/components/MentionPicker.svelte';
   import { get } from 'svelte/store';
   import { isOnline } from '$lib/services/pwa';
 
@@ -64,6 +65,10 @@
   let errorMessage = '';
   let isPublishing = false;
   let hasPendingRevocation = false;
+  let textareaEl;
+  let mentionPicker;
+  /** userID -> username for mentions picked this session (preview hint only). */
+  let mentionUsernameHints = new Map();
 
   $: if (open) checkPendingRevocation();
 
@@ -103,6 +108,7 @@
     content = '';
     draftSaved = false;
     errorMessage = '';
+    mentionUsernameHints = new Map();
     if (saveDraftTimeout) clearTimeout(saveDraftTimeout);
     localStorage.removeItem('reedDraft');
   }
@@ -213,11 +219,17 @@
     <form on:submit|preventDefault={publish}>
       <div class="form-group">
         <textarea
+          bind:this={textareaEl}
           placeholder={placeholder}
           rows="6"
           bind:value={content}
-          on:input={handleContentChange}
+          on:input={() => { handleContentChange(); mentionPicker?.handleCaretChange(); }}
+          on:click={() => mentionPicker?.handleCaretChange()}
+          on:keyup={(e) => {
+            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) mentionPicker?.handleCaretChange();
+          }}
         ></textarea>
+        <MentionPicker bind:this={mentionPicker} textarea={textareaEl} bind:content bind:usernameHints={mentionUsernameHints} />
         <div class="content-info">
           <div class="draft-saved" class:hidden={!draftSaved}>Draft saved</div>
           <div class="character-counter" class:over-limit={isOverVisibleLimit}>
@@ -249,7 +261,7 @@
         <div class="reed-preview-card">
           <div class="reed-preview-body">
             {#if content.trim()}
-              <MarkdownParser text={content} preview={true} />
+              <MarkdownParser text={content} preview={true} usernameHints={mentionUsernameHints} />
             {:else}
               <p class="reed-preview-empty">Your reed will appear here as you type.</p>
             {/if}
