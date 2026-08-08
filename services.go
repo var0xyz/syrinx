@@ -41,6 +41,11 @@ var (
 	ErrPredecessorNotRevoked      = errors.New("predecessor key is not revoked")
 	ErrPredecessorAlreadyReplaced = errors.New("predecessor key already has a successor")
 	ErrActiveKeyExists            = errors.New("user already has an active key")
+	// ErrReedFork is returned by CreateReed/CreateReedWithEcho/
+	// CreateReedWithReply when the client's PreviousID does not match the
+	// author's current tip (see specs/recovery/16_reed_tip_check.md). The
+	// handler maps this to 409 so the client can refresh its tip and retry.
+	ErrReedFork = errors.New("reed fork: previousID does not match current tip")
 )
 
 func isUsernameUniqueViolation(err error) bool {
@@ -1242,6 +1247,9 @@ type createReedParams struct {
 	Timestamp          time.Time
 	Tags               []string
 	Mentions           []ReedRef
+	// PreviousID is the reed the client believes is the author's current
+	// tip. Empty means "author has zero reeds" — see checkReedTip.
+	PreviousID string
 }
 
 // ResolveThreadIDForParent returns the canonical thread id for a reply to parent P.
@@ -1389,6 +1397,50 @@ func (s *DataService) ListReplies(ctx context.Context, parentUserID, parentReedI
 	return &ReplyListResponse{Replies: items, HasMore: hasMore}, nil
 }
 
+// checkReedTipTx enforces the history-fork safeguard (see
+// specs/recovery/16_reed_tip_check.md): previousID must name the author's
+// current tip (newest non-removed reed by signed_at, id DESC tie-break), or
+// be empty when the author has zero reeds. Locks the author's users row
+// first so concurrent creates for the same author serialize — caller must
+// run this and the subsequent INSERT INTO reeds in the same transaction,
+// otherwise the check is only advisory under a dual-tab/dual-device race.
+func checkReedTipTx(ctx context.Context, tx *sql.Tx, userID, previousID string) error {
+	if err := tx.QueryRowContext(ctx, `
+		SELECT 1 FROM users WHERE id = $1 FOR UPDATE
+	`, userID).Scan(new(int)); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrUserNotFound
+		}
+		return err
+	}
+
+	var tip string
+	err := tx.QueryRowContext(ctx, `
+		SELECT r.id FROM reeds r
+		WHERE r.user_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals rm
+		      WHERE rm.user_id = r.user_id AND rm.reed_id = r.id
+		  )
+		ORDER BY r.signed_at DESC, r.id DESC
+		LIMIT 1
+	`, userID).Scan(&tip)
+
+	switch {
+	case err == sql.ErrNoRows:
+		if previousID != "" {
+			return ErrReedFork
+		}
+		return nil
+	case err != nil:
+		return err
+	case previousID != tip:
+		return ErrReedFork
+	default:
+		return nil
+	}
+}
+
 func (s *DataService) insertReedCoreTx(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -1396,6 +1448,10 @@ func (s *DataService) insertReedCoreTx(
 ) (Reed, error) {
 	if !crypto.IsValidUUIDv7(p.ReedID) {
 		return Reed{}, fmt.Errorf("invalid reed ID")
+	}
+
+	if err := checkReedTipTx(ctx, tx, p.UserID, p.PreviousID); err != nil {
+		return Reed{}, err
 	}
 
 	ts := p.Timestamp.UTC().Truncate(time.Second)

@@ -66,6 +66,12 @@ func ensureMentionsSchema(db *sql.DB) error {
 			FOREIGN KEY (mentioning_user_id, mentioning_reed_id)
 				REFERENCES reeds(user_id, id) ON DELETE CASCADE
 		)`,
+		`DROP TABLE IF EXISTS reed_removals CASCADE`,
+		`CREATE TABLE reed_removals (
+			reed_id VARCHAR(255) NOT NULL,
+			user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			PRIMARY KEY (user_id, reed_id)
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
