@@ -2,8 +2,8 @@
   import { onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import Auth from '$lib/components/Auth.svelte';
-  import Avatar from '$lib/components/Avatar.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
   import { pipeReedQueue } from '$lib/repositories/reeds';
@@ -95,19 +95,11 @@
               on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.userID}/${reed.id}`)}
             >
               <div class="feed-header">
-                <div class="feed-author">
-                  <div class="avatar">
-                    <Avatar
-                      userID={reed.userID}
-                      username={authors[reed.userID]?.username ?? reed.userID}
-                      size="40px"
-                    />
-                  </div>
-                  <div class="author-info">
-                    <span class="author-name">{authors[reed.userID]?.username ?? reed.userID}</span>
-                    <span class="feed-time">{formatRelativeTime(reed.serverSignature?.timestamp)}</span>
-                  </div>
-                </div>
+                <ReedAuthorHeader
+                  userID={reed.userID}
+                  username={authors[reed.userID]?.username ?? reed.userID}
+                  subtext={formatRelativeTime(reed.serverSignature?.timestamp)}
+                />
               </div>
               {#if (reed.content || '').trim()}
                 <div class="feed-content">
@@ -209,37 +201,7 @@
     align-items: center;
     padding: 1rem;
     border-bottom: 1px solid var(--border);
-  }
-
-  .feed-author {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .avatar {
-    width: 40px;
-    height: 40px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .author-info {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .author-name {
-    font-weight: 600;
-    color: var(--fg);
-    font-size: 0.9rem;
-  }
-
-  .feed-time {
-    color: var(--muted);
-    font-size: 0.8rem;
+    min-width: 0;
   }
 
   .feed-content {

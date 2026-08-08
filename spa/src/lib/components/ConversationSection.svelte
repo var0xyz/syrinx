@@ -10,7 +10,7 @@
   import { formatRelativeTime } from '$lib/utils/time';
   import { parseReedRef } from '$lib/utils/reedRef';
   import { get } from 'svelte/store';
-  import Avatar from '$lib/components/Avatar.svelte';
+  import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
 
   /** Parent reed author. */
@@ -234,14 +234,13 @@
     {#each rows as row (row.reedID)}
       <li>
         <button type="button" class="reply-row" on:click={() => navigateToReply(row)}>
-          <Avatar userID={row.userID} username={row.username} size="36px" />
+          <ReedAuthorHeader
+            userID={row.userID}
+            username={row.username}
+            avatarSize="36px"
+            subtext={row.timestamp ? formatRelativeTime(row.timestamp) : ''}
+          />
           <div class="reply-body">
-            <div class="reply-meta">
-              <span class="reply-author">{row.username}</span>
-              {#if row.timestamp}
-                <span class="reply-time">{formatRelativeTime(row.timestamp)}</span>
-              {/if}
-            </div>
             {#if row.loading}
               <p class="reply-preview muted">Loading reply…</p>
             {:else if row.reed?.content?.trim()}
@@ -287,7 +286,8 @@
 
   .reply-row {
     display: flex;
-    gap: 0.75rem;
+    flex-direction: column;
+    gap: 0.5rem;
     width: 100%;
     text-align: left;
     font: inherit;
@@ -304,29 +304,7 @@
   }
 
   .reply-body {
-    flex: 1;
     min-width: 0;
-  }
-
-  .reply-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.25rem 0.5rem;
-    align-items: baseline;
-    margin-bottom: 0.25rem;
-    min-width: 0;
-  }
-
-  .reply-author {
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: var(--fg);
-    word-break: break-word;
-  }
-
-  .reply-time {
-    font-size: 0.8rem;
-    color: var(--muted);
   }
 
   .reply-preview {

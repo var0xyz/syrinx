@@ -440,7 +440,7 @@
             <div class="reed-meta">
               <div class="reed-author">
                 <a href="/profile/{userID}" class="author-avatar">
-                  <Avatar userID={userID} username={authorUser?.username ?? userID} size="48px" />
+                  <Avatar userID={userID} username={authorUser?.username ?? userID} size="69px" />
                 </a>
                 <div class="author-info">
                   <a href="/profile/{userID}" class="author-name">{authorUser?.username ?? userID}</a>
@@ -499,7 +499,7 @@
             <div class="reed-meta">
               <div class="reed-author">
                 <a href="/profile/{reed.userID}" class="author-avatar">
-                  <Avatar userID={reed.userID} username={authorUser?.username ?? reed.userID} size="48px" />
+                  <Avatar userID={reed.userID} username={authorUser?.username ?? reed.userID} size="69px" />
                 </a>
                 <div class="author-info">
                   <a href="/profile/{reed.userID}" class="author-name">{authorUser?.username ?? reed.userID}</a>
@@ -628,20 +628,20 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1.5rem;
+    padding: 1rem;
     border-bottom: 1px solid var(--border);
   }
 
   .reed-author {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: 1rem;
     min-width: 0;
   }
 
   .author-avatar {
-    width: 48px;
-    height: 48px;
+    width: 69px;
+    height: 69px;
     border-radius: 8px;
     overflow: hidden;
     display: flex;
@@ -653,16 +653,19 @@
 
   .author-info {
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
   }
 
   .author-name {
     display: block;
-    margin: 0 0 0.25rem 0;
     color: var(--fg);
     font-size: 1.2rem;
     font-weight: 600;
     text-decoration: none;
     word-break: break-word;
+    margin-bottom: 0.25rem;
   }
 
   .author-name:hover {
@@ -744,7 +747,7 @@
   }
 
   .reed-body {
-    padding: 1.5rem;
+    padding: 1rem;
     word-break: break-word;
   }
 
@@ -860,11 +863,11 @@
     }
 
     .reed-meta {
-      padding: 1rem;
+      padding: 0.75rem;
     }
 
     .reed-body {
-      padding: 1rem;
+      padding: 0.75rem;
     }
 
     .reed-actions-bar {
