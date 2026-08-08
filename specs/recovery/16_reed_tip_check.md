@@ -2,7 +2,13 @@
 
 ## Status
 
-Proposed.
+Implemented. Server: `checkReedTipTx` (per-author `FOR UPDATE` lock +
+tip comparison inside the same transaction as the reed insert, called from
+`insertReedCoreTx` so it covers plain/echo/reply creates uniformly) +
+`ErrReedFork` → 409 in `SignReed`. Client: `previousIDForPublish` sends the
+locally-known tip on every publish; a 409 is logged distinctly and left to
+the existing requeue-and-retry-on-reconnect path (tip is always recomputed
+live, no caching, so a retry after local sync catches up self-heals).
 
 ## Depends on
 
@@ -138,21 +144,29 @@ only.
 
 ## Open questions
 
-1. **Conflict UX** — on `reed_fork`, only refresh tip + retry unsigned queue,
-   or also treat it like a stale-device signal (coordinate with 17)?
-2. **Form field name** — `previousID` vs `lastReedID` (same semantics; pick
-   one for the API).
+1. **Conflict UX** — implemented as "retry unsigned queue only" (log
+   distinctly, no special handling beyond the existing
+   requeue-and-retry-on-reconnect path). Treating a fork as a stale-device
+   signal too (coordinating with [17](17_device_binding.md)) was **not**
+   built — still open if that coupling is wanted later.
+2. **Form field name** — resolved: `previousID` (matches what the SPA
+   composer already sent before this step landed).
 
 ## Test plan
 
-- [ ] First reed with empty `previousID` succeeds; second create with empty
-      `previousID` while a reed exists → `reed_fork`
-- [ ] Create with `previousID` = current tip succeeds; create naming the old
-      tip after another publish → `reed_fork`
-- [ ] `previousID` unknown → `reed_fork` / 400
-- [ ] `previousID` owned by another user → reject
-- [ ] After deleting the tip, create naming the new tip (former second-newest)
+- [x] First reed with empty `previousID` succeeds; second create with empty
+      `previousID` while a reed exists → fork (409)
+- [x] Create with `previousID` = current tip succeeds; create naming the old
+      tip after another publish → fork (409)
+- [x] `previousID` unknown → fork (409, not 400 — see Resolved below)
+- [x] `previousID` owned by another user → reject
+- [x] After deleting the tip, create naming the new tip (former second-newest)
       succeeds; create naming the deleted id fails
-- [ ] Concurrent dual-tab / dual-device publish with same tip → exactly one
-      201, one fork error (lock holds)
-- [ ] SPA sends local tip on create; on fork refreshes before retry
+- [x] Concurrent dual-tab / dual-device publish with same tip → exactly one
+      success, one fork error (lock holds) —
+      `TestCreateReed_ConcurrentSameTipOneWinsOneForks`
+- [x] SPA sends local tip on create; on fork, logs distinctly and leaves the
+      reed queued for the existing requeue-and-retry-on-reconnect path
+      (`previousIDForPublish` always recomputes live, no caching, so a retry
+      after local sync self-heals — no explicit "refresh tip" step was
+      needed beyond what already existed).

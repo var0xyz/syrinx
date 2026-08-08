@@ -1548,6 +1548,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	contentBody := r.FormValue("content")
 	echoing := strings.TrimSpace(r.FormValue("echoing"))
 	replying := strings.TrimSpace(r.FormValue("replying"))
+	previousID := strings.TrimSpace(r.FormValue("previousID"))
 
 	if !ReedContentWithinLimits(contentBody) {
 		h.metrics.ReedRejectedLength(r.Context(), len(contentBody), CountMarkdownCharacters(contentBody))
@@ -1722,6 +1723,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		Timestamp:          serverSignature.SignedAt,
 		Tags:               tags,
 		Mentions:           localMentions,
+		PreviousID:         previousID,
 	}
 
 	var reed *Reed
@@ -1745,6 +1747,10 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 				h.respondSignReedReplay(w, r, existing, userSignature, userID, reedID)
 				return
 			}
+		}
+		if errors.Is(err, ErrReedFork) {
+			writeResponse(w, http.StatusConflict, "previousID does not match the author's current tip")
+			return
 		}
 		log.Error().
 			Str("reedID", reedID).
