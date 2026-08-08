@@ -7,6 +7,8 @@
   export let className: string = '';
   /** When true, links/mentions/pipes are inert (label only). */
   export let preview: boolean = false;
+  /** Optional userID -> username display hints (composer preview only). */
+  export let usernameHints: Map<string, string> | undefined = undefined;
 
   let pendingUrl = '';
   let modalOpen = false;
@@ -25,7 +27,7 @@
       <pre>{block.value}</pre>
     {:else if block.type === 'paragraph'}
       <p>
-        <MarkdownInline nodes={block.children} {preview} onExternal={openExternal} />
+        <MarkdownInline nodes={block.children} {preview} {usernameHints} onExternal={openExternal} />
       </p>
     {/if}
   {/each}
@@ -50,6 +52,25 @@
   .markdown-content :global(a:hover),
   .markdown-content :global(.inline-link:hover) {
     text-decoration: none;
+  }
+
+  /* Mentions render without an '@' in the signed content (it's a compose-time
+     trigger only, stripped before insertion) — the symbol is added visually
+     so a mention still reads like one. */
+  .markdown-content :global(a.mention-link),
+  .markdown-content :global(.inline-link.mention-link) {
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .markdown-content :global(a.mention-link:hover),
+  .markdown-content :global(.inline-link.mention-link:hover) {
+    text-decoration: underline;
+  }
+
+  .markdown-content :global(a.mention-link)::before,
+  .markdown-content :global(.inline-link.mention-link)::before {
+    content: '@';
   }
 
   .markdown-content :global(strong) {

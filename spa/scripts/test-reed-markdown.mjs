@@ -54,6 +54,29 @@ assert.deepEqual(parseReedMarkdown(null ?? ''), { blocks: [] });
   assert.equal(nodes[5].type, 'del');
 }
 
+// bold / italic: multi-word content still matches...
+{
+  const bold = firstInlines('*this is bold*');
+  assert.equal(bold[0].type, 'strong');
+  assert.equal(bold[0].children[0].value, 'this is bold');
+
+  const italic = firstInlines('_this is italic_');
+  assert.equal(italic[0].type, 'em');
+  assert.equal(italic[0].children[0].value, 'this is italic');
+}
+
+// ...but a space touching either delimiter disqualifies it (not emphasis;
+// stays literal text) — "* Tomorrow *" must not render as bold.
+{
+  const cases = ['* Tomorrow *', '*bold *', '* bold*', '_ hi there _', '_italic _', '_ italic_'];
+  for (const input of cases) {
+    const nodes = firstInlines(input);
+    assert.equal(nodes.length, 1, input);
+    assert.equal(nodes[0].type, 'text', input);
+    assert.equal(nodes[0].value, input, input);
+  }
+}
+
 // inline code — no hashtag / emphasis inside
 {
   const nodes = firstInlines('use `#tag` and `*x*`');
@@ -259,6 +282,129 @@ for (const { name, markdown, href } of attacks) {
   assert.equal(c.href, formatPipeHref('hashtag'));
   assert.equal(c.children[0].value, '#hashtag');
   assert.equal(internalPath(c.href), '/pipe/hashtag');
+}
+
+// ---------------------------------------------------------------------------
+// Mentions: ~userID@serverID. IDs are alphanumeric runs of ANY length ≥ 1
+// (not fixed-width — e.g. the root user's id is "1"; foreign servers may
+// mint IDs of any length). Boundary = the alphanumeric run itself, same
+// idea as #hashtag's \S+ run. Strikethrough (~text~) takes precedence
+// whenever a closing '~' exists.
+// ---------------------------------------------------------------------------
+
+{
+  // well-formed mention, mid-sentence
+  const nodes = firstInlines('hi ~a1B2c3D4@srv1xyz1 there');
+  assert.equal(nodes[0].type, 'text');
+  assert.equal(nodes[0].value, 'hi ');
+  assert.equal(nodes[1].type, 'mention');
+  assert.equal(nodes[1].userID, 'a1B2c3D4');
+  assert.equal(nodes[1].serverID, 'srv1xyz1');
+  assert.equal(nodes[2].type, 'text');
+  assert.equal(nodes[2].value, ' there');
+}
+
+{
+  // mention at start of content, end of content
+  const nodes = firstInlines('~a1B2c3D4@srv1xyz1');
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].type, 'mention');
+  assert.equal(nodes[0].userID, 'a1B2c3D4');
+  assert.equal(nodes[0].serverID, 'srv1xyz1');
+}
+
+{
+  // root user id is "1" — a single-char, non-alphabet-in-the-typical-sense
+  // but still alphanumeric ID. Must resolve as a mention.
+  const nodes = firstInlines('ping ~1@CcODhAr7 please');
+  assert.equal(nodes[1].type, 'mention');
+  assert.equal(nodes[1].userID, '1');
+  assert.equal(nodes[1].serverID, 'CcODhAr7');
+}
+
+{
+  // closing '~' present → strikethrough wins, never a mention, even though
+  // the inner text is exactly userID@serverID shaped.
+  const nodes = firstInlines('~a1B2c3D4@srv1xyz1~');
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].type, 'del');
+  assert.equal(nodes[0].children[0].value, 'a1B2c3D4@srv1xyz1');
+}
+
+{
+  // missing '@' separator → not a mention (whole alphanumeric run is
+  // consumed as a candidate userID, then no '@' follows)
+  const nodes = firstInlines('~a1B2c3D4srv1xyz1 rest');
+  assert.equal(nodes[0].type, 'text');
+  assert.ok(nodes[0].value.startsWith('~a1B2c3D4srv1xyz1'));
+}
+
+{
+  // '@' with nothing alphanumeric after it → no serverID, not a mention
+  const nodes = firstInlines('~a1B2c3D4@ rest');
+  assert.equal(nodes[0].type, 'text');
+  assert.ok(nodes[0].value.startsWith('~a1B2c3D4@'));
+}
+
+{
+  // punctuation is never part of an ID — a server id with a hyphen (as
+  // federation might otherwise produce) does not form a mention; only the
+  // alphanumeric prefix before the hyphen would be attempted, and fails
+  // without a proper trailing boundary since '-' just isn't consumed at all
+  // (the run simply stops there, which is a valid, complete match).
+  const nodes = firstInlines('~a1B2c3D4@some-id rest');
+  assert.equal(nodes[0].type, 'mention');
+  assert.equal(nodes[0].userID, 'a1B2c3D4');
+  assert.equal(nodes[0].serverID, 'some');
+  assert.equal(nodes[1].type, 'text');
+  assert.equal(nodes[1].value, '-id rest');
+}
+
+{
+  // chained '@' right after a serverID run → serverID stops at the second
+  // '@' (not part of the alphanumeric alphabet); the mention is still
+  // well-formed up to that point, followed by literal text.
+  const nodes = firstInlines('~a1B2c3D4@srv1xyz1@more');
+  assert.equal(nodes[0].type, 'mention');
+  assert.equal(nodes[0].serverID, 'srv1xyz1');
+  assert.equal(nodes[1].type, 'text');
+  assert.equal(nodes[1].value, '@more');
+}
+
+{
+  // two mentions in one paragraph — a second mention's '~' must never be
+  // mistaken for a strikethrough closer of the first.
+  const nodes = firstInlines('~a1B2c3D4@srv1xyz1 and ~e5F6g7H8@srv2abc2');
+  const mentions = nodes.filter((n) => n.type === 'mention');
+  assert.equal(mentions.length, 2);
+  assert.equal(mentions[0].userID, 'a1B2c3D4');
+  assert.equal(mentions[1].userID, 'e5F6g7H8');
+}
+
+{
+  // strikethrough is single-word only — a space before any closing '~'
+  // disqualifies it. ~hey you~ must NOT strikethrough, and since "hey" has
+  // no '@' immediately after it, it's not a mention either.
+  const nodes = firstInlines('~hey you~');
+  assert.equal(nodes[0].type, 'text');
+  assert.ok(nodes[0].value.startsWith('~hey you'), nodes[0].value);
+}
+
+{
+  // "~hey you ~foo": first '~' has no closer without crossing a space (not
+  // strikethrough) and "hey" has no '@' right after it (not a mention);
+  // second '~' has no closer and "foo" has no '@' either. All literal text.
+  const nodes = firstInlines('~hey you ~foo');
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].type, 'text');
+  assert.equal(nodes[0].value, '~hey you ~foo');
+}
+
+{
+  // single-word strikethrough still works with the space restriction.
+  const nodes = firstInlines('a ~word~ b');
+  assert.equal(nodes[1].type, 'del');
+  assert.equal(nodes[1].children[0].value, 'word');
 }
 
 console.log('reedMarkdown: all checks passed');

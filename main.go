@@ -254,6 +254,9 @@ func main() {
 	api.HandleFunc("/users/device", h.BindDevice).Methods("POST")
 	api.HandleFunc("/users/device", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/users/search", h.SearchUsers).Methods("GET")
+	api.HandleFunc("/users/search", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/users/{userID}/profile", h.GetUserProfile).Methods("GET")
 	api.HandleFunc("/users/{userID}/profile", h.noop).Methods("OPTIONS")
 

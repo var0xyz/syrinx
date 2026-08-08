@@ -280,6 +280,7 @@
     font-size: 0.75rem;
     color: var(--muted);
     margin-bottom: 0.25rem;
+    word-break: break-word;
   }
 
   :global(.quote-content) {

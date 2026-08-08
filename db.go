@@ -349,6 +349,32 @@ func InitDB(db *sql.DB) error {
 		ON reed_replies (thread_id, timestamp);
 	`
 
+	// One row per (reed, mentioned user). mentioning_* = reed that contains
+	// the @. Only LOCAL mentions are stored — a mention of a user on a
+	// foreign server is never inserted (nothing here to FK against), so
+	// mentioned_user_id can be a hard FK to users(id). mentioned_server_id
+	// is therefore always this server's own id today; kept for when
+	// cross-server mention notification lands.
+	createReedMentionsTable := `
+	CREATE TABLE IF NOT EXISTS reed_mentions (
+		mentioning_user_id VARCHAR(255) NOT NULL,
+		mentioning_reed_id VARCHAR(255) NOT NULL,
+		mentioned_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		mentioned_server_id VARCHAR(255) NOT NULL,
+
+		PRIMARY KEY (mentioning_reed_id, mentioned_server_id, mentioned_user_id),
+		FOREIGN KEY (mentioning_user_id, mentioning_reed_id)
+			REFERENCES reeds(user_id, id) ON DELETE CASCADE
+	);`
+
+	createReedMentionsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_reed_mentions_mentioned
+		ON reed_mentions (mentioned_server_id, mentioned_user_id);
+
+	CREATE INDEX IF NOT EXISTS idx_reed_mentions_reed
+		ON reed_mentions (mentioning_reed_id);
+	`
+
 	// Signed reed-removal certificates. Source of truth for “gone”; no FK to
 	// reeds(id) so the live row may be dropped after the cert is stored.
 	// PK is (user_id, reed_id). user_fingerprint binds the signing key;
@@ -651,6 +677,9 @@ func InitDB(db *sql.DB) error {
 
 		createReedRepliesTable,
 		createReedRepliesIndexes,
+
+		createReedMentionsTable,
+		createReedMentionsIndexes,
 
 		createReedRemovalsTable,
 		createAccountRemovalsTable,

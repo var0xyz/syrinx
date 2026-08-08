@@ -359,6 +359,15 @@ export const apiService = {
     return request<api.UserInfo>(`/users/${userId}/info`, { method: 'GET' });
   },
 
+  async searchUsers(query: string, limit?: number): Promise<{ users: { id: string; username: string }[] }> {
+    const params = new URLSearchParams({ q: query });
+    if (limit != null) params.set('limit', String(limit));
+    return request<{ users: { id: string; username: string }[] }>(
+      `/users/search?${params}`,
+      { method: 'GET' },
+    );
+  },
+
   async getUserProfileWithStatus(userId: string): Promise<{
     status: number;
     user?: api.User;

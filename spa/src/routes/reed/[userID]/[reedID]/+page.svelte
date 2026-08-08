@@ -636,6 +636,7 @@
     display: flex;
     align-items: center;
     gap: 1rem;
+    min-width: 0;
   }
 
   .author-avatar {
@@ -650,6 +651,10 @@
     text-decoration: none;
   }
 
+  .author-info {
+    min-width: 0;
+  }
+
   .author-name {
     display: block;
     margin: 0 0 0.25rem 0;
@@ -657,6 +662,7 @@
     font-size: 1.2rem;
     font-weight: 600;
     text-decoration: none;
+    word-break: break-word;
   }
 
   .author-name:hover {

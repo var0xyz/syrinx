@@ -701,6 +701,35 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, info)
 }
 
+// SearchUsers handles GET /users/search?q=&limit= — the composer @-mention
+// picker's backing search. Auth required (not in signatureAuthMiddleware's
+// excludePaths); minimal fields only, no keys.
+func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		writeResponse(w, http.StatusOK, map[string]any{"users": []UserSearchResult{}})
+		return
+	}
+
+	limit := 20
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			limit = n
+		}
+	}
+
+	results, err := h.services.db.SearchUsers(r.Context(), query, limit)
+	if err != nil {
+		log.Error().Str("query", query).Err(err).Msg("Error searching users")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, map[string]any{"users": results})
+}
+
 func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	followerID := h.getUserID(r)
@@ -858,6 +887,10 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 
 	noteHas := strings.TrimSpace(note) != ""
 	h.metrics.UserDeleted(r.Context(), userID, noteHas)
+
+	if err := h.services.db.DeleteMentionsByAuthor(r.Context(), userID); err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error clearing mention index for removed account")
+	}
 
 	affectedTargets, err := h.services.db.DeleteEchoesByAuthor(r.Context(), userID)
 	if err != nil {
@@ -1577,6 +1610,30 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Only local mentions are indexed — reed_mentions.mentioned_user_id is a
+	// hard FK to users(id), so a mention of a user on a foreign server has
+	// nothing to reference and is never stored. The content itself still
+	// carries the ~userID@serverID token either way; this only affects what
+	// gets recorded server-side (and, later, who gets notified).
+	allMentions := ExtractMentions(contentBody, userID)
+	localMentions := make([]ReedRef, 0, len(allMentions))
+	for _, m := range allMentions {
+		if m.ServerID != localServerID {
+			continue
+		}
+		valid, err := h.services.db.MentionTargetValid(r.Context(), m.AuthorID, m.ServerID)
+		if err != nil {
+			log.Error().Str("mentionedUserID", m.AuthorID).Err(err).Msg("Error validating mention target")
+			internalServerError(w)
+			return
+		}
+		if !valid {
+			writeResponse(w, http.StatusBadRequest, "unknown_mentioned_user")
+			return
+		}
+		localMentions = append(localMentions, m)
+	}
+
 	markdown := ReedAsMarkdown(reedID, userID, contentBody, echoing, replying, threadID)
 
 	user, err := h.services.db.GetUserProfile(r.Context(), userID)
@@ -1664,6 +1721,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		ServerSignatureB64: serverSignature.Armor,
 		Timestamp:          serverSignature.SignedAt,
 		Tags:               tags,
+		Mentions:           localMentions,
 	}
 
 	var reed *Reed
@@ -1932,6 +1990,10 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.metrics.ReedDeleted(r.Context(), userID, reedID)
+
+	if err := h.services.db.DeleteMentionsForReed(r.Context(), userID, reedID); err != nil {
+		log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing mention index for removed reed")
+	}
 
 	affectedTargets, err := h.services.db.DeleteEchoIndexForReed(r.Context(), userID, reedID)
 	if err != nil {

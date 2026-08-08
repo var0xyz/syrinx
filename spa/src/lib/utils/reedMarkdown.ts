@@ -5,7 +5,8 @@
  * Constructs (scan precedence):
  *   blocks: fenced ```code```, then paragraphs (\n\n)
  *   inlines: [label](url) → link or label-only; `code`;
- *            ~strike~, _italic_, *bold*, #hashtag → link, \n
+ *            ~strike~ (else ~userID@serverID → mention), _italic_, *bold*,
+ *            #hashtag → link, \n
  *
  * Link href policy:
  *   - http / https / mailto / web+syrinx → as-is
@@ -13,6 +14,13 @@
  *   - any other scheme / empty → label text only
  *
  * web+syrinx://… links are still `link` nodes; click routing uses internalPath().
+ *
+ * Mentions (~userID@serverID) carry no display text in signed content —
+ * `userID`/`serverID` are alphanumeric entity IDs, never a username. IDs
+ * are NOT fixed-length (e.g. the root user's id is "1"; foreign servers may
+ * mint IDs of any length) — the boundary is the alphanumeric run itself,
+ * same idea as #hashtag's \S+ run. Rendering resolves the username
+ * asynchronously; the raw IDs are the fallback label until resolved.
  */
 
 export type Inline =
@@ -20,7 +28,11 @@ export type Inline =
   | { type: 'break' }
   | { type: 'code'; value: string }
   | { type: 'strong' | 'em' | 'del'; children: Inline[] }
-  | { type: 'link'; href: string; children: Inline[] };
+  | { type: 'link'; href: string; children: Inline[] }
+  | { type: 'mention'; userID: string; serverID: string };
+
+/** Entity ID alphabet: alphanumeric only, any length ≥ 1. */
+const ID_CHAR = /[a-zA-Z0-9]/;
 
 export type Block =
   | { type: 'paragraph'; children: Inline[] }
@@ -53,21 +65,34 @@ export function resolveLinkHref(raw: string): string | null {
   return null;
 }
 
+const MENTION_HREF = /^web\+syrinx:\/\/users\/([^/]+)\/([^/]+)\/?$/i;
+const PIPE_HREF = /^web\+syrinx:\/\/pipe\/(.+)$/i;
+
 /**
  * Map a web+syrinx href to an in-app path, or null if it is not an internal link
  * (caller should treat it as external — e.g. open the disclosure modal).
  */
 export function internalPath(href: string): string | null {
   const raw = href.trim();
-  const user = /^web\+syrinx:\/\/users\/([^/]+)\/([^/]+)\/?$/i.exec(raw);
+  const user = MENTION_HREF.exec(raw);
   if (user?.[1] && user[2]) {
     return `/profile/${user[2]}`;
   }
-  const pipe = /^web\+syrinx:\/\/pipe\/(.+)$/i.exec(raw);
+  const pipe = PIPE_HREF.exec(raw);
   if (pipe?.[1]) {
     return `/pipe/${encodeURIComponent(pipe[1])}`;
   }
   return null;
+}
+
+export type LinkKind = 'mention' | 'pipe' | 'external';
+
+/** Classifies a link href for styling — does not affect navigation. */
+export function linkKind(href: string): LinkKind {
+  const raw = href.trim();
+  if (MENTION_HREF.test(raw)) return 'mention';
+  if (PIPE_HREF.test(raw)) return 'pipe';
+  return 'external';
 }
 
 export function parseReedMarkdown(input: string): Doc {
@@ -185,11 +210,25 @@ function parseInlines(s: string): Inline[] {
     }
 
     if (s[i] === '~') {
-      const delim = readDelimited(s, i, '~', 'del');
+      // Strikethrough is single-word only (no spaces) — this both matches
+      // the intended dialect and is what keeps it from ever swallowing a
+      // second, unrelated mention's '~' as an accidental closer.
+      const delim = readDelimited(s, i, '~', 'del', true);
       if (delim) {
         flush(i);
         out.push(delim.node);
         i = delim.end;
+        textStart = i;
+        continue;
+      }
+      // No closing '~' — try the mention form instead of falling through
+      // to plain text. ~a1B2c3D4@srv1xyz~ with a closer above still wins
+      // as strikethrough; only an unterminated '~' reaches here.
+      const mention = readMention(s, i);
+      if (mention) {
+        flush(i);
+        out.push(mention.node);
+        i = mention.end;
         textStart = i;
         continue;
       }
@@ -296,14 +335,26 @@ function readDelimited(
   s: string,
   start: number,
   delim: string,
-  type: 'strong' | 'em' | 'del'
+  type: 'strong' | 'em' | 'del',
+  noSpaces = false
 ): { node: Inline; end: number } | null {
   if (s[start] !== delim) return null;
   let i = start + 1;
-  while (i < s.length && s[i] !== delim && s[i] !== '\n') i++;
+  while (
+    i < s.length &&
+    s[i] !== delim &&
+    s[i] !== '\n' &&
+    !(noSpaces && /\s/.test(s[i]))
+  ) {
+    i++;
+  }
   if (i >= s.length || s[i] !== delim) return null;
   const inner = s.slice(start + 1, i);
   if (inner.length === 0) return null;
+  // Delimiters must be tight against the content — a space touching either
+  // side means it isn't emphasis (e.g. "* Tomorrow *" or "*this is bold *"
+  // stay literal text; "*bold*" and "*this is bold*" still match).
+  if (/^\s/.test(inner) || /\s$/.test(inner)) return null;
   return {
     node: { type, children: parseInlines(inner) },
     end: i + 1,
@@ -320,4 +371,33 @@ function readHashtag(
   const tag = s.slice(start + 1, i);
   if (tag.length === 0) return null;
   return { tag, end: i };
+}
+
+/**
+ * ~userID@serverID — strict fixed-length ID form, no closing delimiter.
+ * Only called after a strikethrough attempt at the same '~' already failed
+ * (no closing '~' before end/newline), so '~userID@serverID~' still parses
+ * as strikethrough of the literal text, never as a mention.
+ */
+function readMention(
+  s: string,
+  start: number
+): { node: Inline; end: number } | null {
+  if (s[start] !== '~') return null;
+  let i = start + 1;
+  const userStart = i;
+  while (i < s.length && ID_CHAR.test(s[i])) i++;
+  const userID = s.slice(userStart, i);
+  if (userID.length === 0) return null;
+  if (s[i] !== '@') return null;
+  i++; // consume '@'
+  const serverStart = i;
+  while (i < s.length && ID_CHAR.test(s[i])) i++;
+  const serverID = s.slice(serverStart, i);
+  if (serverID.length === 0) return null;
+  // The serverID run already stopped at the first non-alphanumeric char
+  // (or end of string) by construction — that IS the boundary, no
+  // fixed-length assumption. A following '@' is naturally excluded since
+  // '@' isn't in ID_CHAR, so "~uid@srv@more" already can't over-consume.
+  return { node: { type: 'mention', userID, serverID }, end: i };
 }
