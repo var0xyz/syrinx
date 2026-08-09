@@ -18,6 +18,8 @@
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
+  import QRButton from '$lib/components/QRButton.svelte';
+  import QRCodeModal from '$lib/components/QRCodeModal.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
 
   let user = null;
@@ -30,6 +32,8 @@
   let isAdmin = false;
   let showRoleModal = false;
   let selectedGrantRole: 'user' | 'admin' = 'user';
+  let qrModalURL = '';
+  let showQRModal = false;
 
   $: maxInvites = $serverInfo?.maxInvitesPerUser ?? -1;
   $: usedInvites = invites.length;
@@ -162,13 +166,19 @@
     }
   }
 
-  async function copyFreshLink() {
-    await copyLink(freshShareURL);
-  }
-
   function dismissFreshLink() {
     showFreshLink = false;
     freshShareURL = '';
+  }
+
+  function openQRModal(url: string) {
+    qrModalURL = url;
+    showQRModal = true;
+  }
+
+  function dismissQRModal() {
+    showQRModal = false;
+    qrModalURL = '';
   }
 
   function statusLabel(status: string) {
@@ -246,6 +256,10 @@
                   <CopyButton
                     ariaLabel="Copy invite link"
                     on:click={() => copyLink(shareURL(invite)!)}
+                  />
+                  <QRButton
+                    ariaLabel="Show invite QR code"
+                    on:click={() => openQRModal(shareURL(invite)!)}
                   />
                 {/if}
                 {#if invite.status === 'pending'}
@@ -326,29 +340,19 @@
       </div>
     {/if}
 
-    {#if showFreshLink}
-      <div
-        class="modal-backdrop"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="fresh-invite-title"
-        tabindex="-1"
-        on:click={(e) => e.target === e.currentTarget && dismissFreshLink()}
-        on:keydown={(e) => e.key === 'Escape' && dismissFreshLink()}
-      >
-        <div class="modal">
-          <h2 id="fresh-invite-title">Invite link ready</h2>
-          <div class="link-row">
-            <code class="share-url">{freshShareURL}</code>
-            <CopyButton
-              ariaLabel="Copy invite link"
-              on:click={copyFreshLink}
-            />
-          </div>
-          <button class="btn primary" on:click={dismissFreshLink}>Done</button>
-        </div>
-      </div>
-    {/if}
+    <QRCodeModal
+      open={showFreshLink}
+      title="Invite link ready"
+      url={freshShareURL}
+      on:close={dismissFreshLink}
+    />
+
+    <QRCodeModal
+      open={showQRModal}
+      title="Invite link"
+      url={qrModalURL}
+      on:close={dismissQRModal}
+    />
 
     <BottomToolbar currentPage="invites" />
   </div>
@@ -688,22 +692,6 @@
   .modal-actions .btn {
     width: auto;
     min-width: 5.5rem;
-  }
-
-  .link-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-  }
-
-  .share-url {
-    flex: 1;
-    font-size: 0.8rem;
-    word-break: break-all;
-    background: var(--input-bg);
-    padding: 0.5rem;
-    border-radius: 6px;
   }
 
   @media (max-width: 768px) {
