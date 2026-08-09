@@ -18,13 +18,15 @@ Operators run their own community—invite policy, recovery, trust boundaries. F
 
 This is the hard long-term piece. It has to preserve cryptographic authenticity, respect signup and privacy posture on each side, and avoid recreating “one search box over everyone.” Until it ships, each instance is a world of its own—which is already a feature.
 
-## Ephemeral comments
+## Ripples (ephemeral comments)
 
-Publish a comment on a reed and it **disappears after one week**—unless someone replies. A reply keeps that thread alive for **another week**. Silence lets it go.
+Publish a **ripple**—a comment on a reed—and it **disappears after one week**—unless someone replies. A reply keeps that thread alive for **another week**. Silence lets it go.
 
-Humans change their minds. Permanent comment sections turn every half-formed reaction into a forever-exhibit: quote-mined, context-stripped, weaponized years later. Ephemeral comments let you speak in the moment without becoming a slave to that moment. Conversation that stays warm stays visible; conversation that cools falls away.
+Humans change their minds. Permanent comment sections turn every half-formed reaction into a forever-exhibit: quote-mined, context-stripped, weaponized years later. Ripples let you speak in the moment without becoming a slave to that moment. Conversation that stays warm stays visible; conversation that cools falls away.
 
-This is related to—but different from—reed permanence and signed deletion. Reeds are intentional publications with a honesty-about-holders story. Comments are social tissue around a reed: high churn, lower permanence by default. The week-and-extend rule is the product statement: presence requires ongoing attention, not archival guilt.
+This is related to—but different from—reed permanence and signed deletion. Reeds are intentional publications with a honesty-about-holders story. Ripples are social tissue around a reed: unsigned, server-only, high churn, no permanence by default. The week-and-extend rule is the product statement: presence requires ongoing attention, not archival guilt.
+
+Full design: [`specs/ripples/`](https://github.com/var0xyz/syrinx/tree/main/specs/ripples).
 
 ## Private messaging
 
