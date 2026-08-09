@@ -34,7 +34,8 @@ extract headers at publish time.
 
 ## Non-goals
 
-- Ephemeral comments ([planned](../../docs/planned.md)) — different feature.
+- Ripples / ephemeral comments ([`ripples/`](../ripples/README.md)) —
+  different feature: unsigned, server-only, 7-day rolling expiry.
 - Full recursive thread tree on one screen (Reddit-style collapse tree).
 - Server storage of reed bodies for replies.
 - Cross-instance reply discovery before federation ships.

@@ -24,6 +24,7 @@ Each table below has a **Status** column per step. Values:
 
 | Track            | Status      | Remaining                                            |
 |------------------|-------------|------------------------------------------------------|
+| Ripples          | Proposed    | 00–04                                                |
 | Load testing     | Proposed    | 00–03                                                |
 | Federation       | In progress | 00, 02–05 (depends on roles)                         |
 | Prerequisites    | In progress | 09 (revocation fanout), 11 (notifications, deferred) |
@@ -335,6 +336,11 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
   `loadtest/`, follow the depends-on column (00→03); 01 (extracting
   `performSignup`/`performPublish`) can land and be verified against the
   existing e2e suite independently of 02/03.
+- **Ripples** ([`ripples/`](ripples/README.md)) — unsigned, server-only,
+  ephemeral reed comments; independent of every other track (new package,
+  no shared schema). Within `ripples/`, follow 00→04 in order (schema
+  before API before realtime before SPA). Implements
+  `docs/planned.md` § Ripples (ephemeral comments).
 
 ## Shared conventions
 
