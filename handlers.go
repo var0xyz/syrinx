@@ -26,6 +26,7 @@ import (
 	"syrinx/roles"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog"
 )
 
 // countersign signs payload with the active server key and returns a
@@ -488,21 +489,8 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	values, err := parseFormData(r)
-	if err != nil {
-		log.Error().Err(err).Msg("Error parsing form data")
-		writeResponse(w, http.StatusBadRequest, "Invalid request format")
-		return
-	}
-
-	username := trimInvisibleChars(values.Get("username"))
-	if username == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `username` is required")
-		return
-	}
-
-	if len(username) > 32 {
-		writeResponse(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
+	values, username, ok := h.parseCheckUsernameForm(w, r, log)
+	if !ok {
 		return
 	}
 
@@ -535,6 +523,58 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.respondUsernameAvailability(w, r, log, username)
+}
+
+// CheckUsernameForRename handles POST /api/users/me/check-username — the
+// authenticated counterpart to CheckUsername. An already-logged-in user
+// checking a prospective rename on the profile page is not signing up, so
+// none of the signup gates (recovery mode, signup mode, invite requirement)
+// apply here; this only ever checks availability for a caller who is
+// already an existing account.
+func (h *Handlers) CheckUsernameForRename(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("CheckUsernameForRename request received")
+
+	h.getUserID(r) // require an authenticated caller; panics via middleware contract otherwise
+
+	_, username, ok := h.parseCheckUsernameForm(w, r, log)
+	if !ok {
+		return
+	}
+
+	h.respondUsernameAvailability(w, r, log, username)
+}
+
+// parseCheckUsernameForm parses and validates the `username` form field
+// shared by CheckUsername and CheckUsernameForRename, writing the
+// appropriate error response and returning ok=false on failure.
+func (h *Handlers) parseCheckUsernameForm(w http.ResponseWriter, r *http.Request, log *zerolog.Logger) (url.Values, string, bool) {
+	values, err := parseFormData(r)
+	if err != nil {
+		log.Error().Err(err).Msg("Error parsing form data")
+		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		return nil, "", false
+	}
+
+	username := trimInvisibleChars(values.Get("username"))
+	if username == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `username` is required")
+		return nil, "", false
+	}
+
+	if len(username) > 32 {
+		writeResponse(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
+		return nil, "", false
+	}
+
+	return values, username, true
+}
+
+// respondUsernameAvailability checks username availability and writes the
+// shared 200/409/500 response, used by both CheckUsername and
+// CheckUsernameForRename after their distinct gating logic.
+func (h *Handlers) respondUsernameAvailability(w http.ResponseWriter, r *http.Request, log *zerolog.Logger, username string) {
 	exists, err := h.services.db.UsernameExists(r.Context(), username)
 	if err != nil {
 		log.Error().

@@ -64,7 +64,17 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			armor TEXT NOT NULL,
 			created_at TIMESTAMP NOT NULL,
 			expires_at TIMESTAMP,
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+			predecessor_signature TEXT,
+			predecessor_fingerprint VARCHAR(255)
+		)`,
+		`CREATE TABLE user_key_revocations (
+			user_fingerprint VARCHAR(255) NOT NULL REFERENCES user_keys(fingerprint),
+			owner VARCHAR(255) NOT NULL REFERENCES users(id),
+			PRIMARY KEY (owner, user_fingerprint)
+		)`,
+		`CREATE TABLE IF NOT EXISTS account_removals (
+			user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id)
 		)`,
 		`CREATE TABLE invites (
 			created_by VARCHAR(255) NOT NULL REFERENCES users(id),

@@ -5,9 +5,11 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -154,5 +156,108 @@ func TestSignup_RecoveryModeBlocksEvenWhenOpen(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "recovery mode") {
 		t.Fatalf("body=%q", rr.Body.String())
+	}
+}
+
+// signedRequest builds a request signed exactly the way
+// signatureAuthMiddleware verifies: method + path + body + timestamp,
+// signed with the given private key, base64-encoded into the X-Syrinx-*
+// headers.
+func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint, privateKeyArmor string, form url.Values) *http.Request {
+	t.Helper()
+	body := form.Encode()
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+
+	canonical := method + " " + path + "\n\n" + body + "\n\n" + timestamp
+	sigArmor, err := h.services.crypto.Sign(canonical, privateKeyArmor)
+	if err != nil {
+		t.Fatalf("sign request: %v", err)
+	}
+	sigB64 := base64.StdEncoding.EncodeToString([]byte(sigArmor))
+
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Syrinx-User-Id", userID)
+	req.Header.Set("X-Syrinx-Fingerprint", fingerprint)
+	req.Header.Set("X-Syrinx-Signature", sigB64)
+	req.Header.Set("X-Syrinx-Signature-Scope", "body")
+	req.Header.Set("X-Syrinx-Timestamp", timestamp)
+	return req
+}
+
+// signedUpUser creates a user with a real keypair (needed to sign requests
+// against authenticated endpoints in tests) and returns its keypair.
+func signedUpUser(t *testing.T, h *Handlers, userID, username string) crypto.KeyPair {
+	t.Helper()
+	kp, err := h.services.crypto.CreateKeyPair(userID, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := signupInput(userID, username, nil)
+	in.Fingerprint = kp.Fingerprint
+	in.PublicKeyArmor = kp.PublicKey
+	in.KeyCreatedAt = time.Now().UTC().Truncate(time.Second)
+	if _, err := h.services.db.Signup(t.Context(), in); err != nil {
+		t.Fatal(err)
+	}
+	return *kp
+}
+
+// postCheckUsernameForRename drives the request through the real
+// signatureAuthMiddleware (not the bare handler) — CheckUsernameForRename
+// relies on that middleware having verified the request and populated the
+// userID in context, same as it would via the real /api router.
+func postCheckUsernameForRename(t *testing.T, h *Handlers, req *http.Request) *httptest.ResponseRecorder {
+	t.Helper()
+	rr := httptest.NewRecorder()
+	handler := h.signatureAuthMiddleware("/api")(http.HandlerFunc(h.CheckUsernameForRename))
+	handler.ServeHTTP(rr, req)
+	return rr
+}
+
+// TestCheckUsernameForRename_NoInviteGate is the regression test for the
+// bug: /check-username unconditionally required an invite even for an
+// already-signed-in user checking a rename. The dedicated authenticated
+// endpoint must never apply that gate, regardless of SignupMode.
+func TestCheckUsernameForRename_NoInviteGate(t *testing.T) {
+	db := openSignupTestDB(t)
+	h := newInviteModeHandlers(t, db)
+	kp := signedUpUser(t, h, "alice", "alice")
+
+	req := signedRequest(t, h, http.MethodPost, "/api/users/me/check-username", "alice", kp.Fingerprint, kp.PrivateKey, url.Values{"username": {"bob"}})
+	rr := postCheckUsernameForRename(t, h, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestCheckUsernameForRename_TakenUsername confirms the availability check
+// itself still works (409) on the new endpoint.
+func TestCheckUsernameForRename_TakenUsername(t *testing.T) {
+	db := openSignupTestDB(t)
+	h := newInviteModeHandlers(t, db)
+	kp := signedUpUser(t, h, "alice", "alice")
+	signedUpUser(t, h, "bob", "bob")
+
+	req := signedRequest(t, h, http.MethodPost, "/api/users/me/check-username", "alice", kp.Fingerprint, kp.PrivateKey, url.Values{"username": {"bob"}})
+	rr := postCheckUsernameForRename(t, h, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestCheckUsernameForRename_RequiresAuthentication confirms the endpoint
+// rejects unsigned requests instead of silently treating them as anonymous
+// (unlike /check-username, this one has no legitimate anonymous caller).
+func TestCheckUsernameForRename_RequiresAuthentication(t *testing.T) {
+	db := openSignupTestDB(t)
+	h := newInviteModeHandlers(t, db)
+	signedUpUser(t, h, "alice", "alice")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/users/me/check-username", strings.NewReader("username=bob"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := postCheckUsernameForRename(t, h, req)
+	if rr.Code == http.StatusOK {
+		t.Fatalf("unauthenticated request succeeded: status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
