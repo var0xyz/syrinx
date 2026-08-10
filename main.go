@@ -88,6 +88,9 @@ func main() {
 
 	obs, err := observability.Setup(cfg.OTELCollectorHost, cfg.OTELCollectorPort)
 	if err != nil {
+		if cfg.OTELCollectorHost != "" {
+			log.Fatal().Err(err).Msg("[ERR] Telemetry host configured but unreachable")
+		}
 		log.Warn().Err(err).Msg("[WARN] Observability disabled")
 	} else if cfg.OTELCollectorHost != "" {
 		log.Info().Msg("[OK] Observability enabled")
