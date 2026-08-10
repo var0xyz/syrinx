@@ -40,8 +40,10 @@ extract headers at publish time.
 - Server storage of reed bodies for replies.
 - Cross-instance reply discovery before federation ships.
 - Likes / reaction counts (separate [planned](../../docs/planned.md) item).
-- Notifications ("X replied to your reed") — may reuse
-  [proposal 11](../11_user_notifications.md) later; out of scope here.
+- Notifications ("X replied to your reed") — a social/per-event
+  notification concept distinct from [`notifications/`](../notifications/README.md)'s
+  Mailbox (server/admin-initiated) and admin mentions (broadcast); not
+  covered by any current proposal. Out of scope here.
 
 ## Design
 

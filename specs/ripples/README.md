@@ -74,8 +74,9 @@ From `docs/planned.md`:
 - Recursive nested ripple threads (reed-style conversation-of-conversations).
 - Edit history / ripple editing (delete-and-repost is the only revision path,
   if even that — see [00](00_design.md)).
-- Notifications ("X replied to your ripple") — may reuse
-  [proposal 11](../11_user_notifications.md) later.
+- Notifications ("X replied to your ripple") — a social/per-event
+  notification concept distinct from [`notifications/`](../notifications/README.md);
+  not covered by any current proposal.
 - Likes/reactions on ripples (separate [planned](../../docs/planned.md) item).
 - Offline queueing/retry the way reed publish does (`unsignedReeds`) — a
   ripple post either succeeds against the live server or it didn't happen;
