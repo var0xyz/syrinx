@@ -548,15 +548,15 @@
 
             <div class="reed-actions-bar">
               <button class="action-btn" on:click={handleEcho} aria-label="Echo" disabled={isPending}>
-                <span class="action-icon">📢</span>
+                <span class="action-icon icon-echo"></span>
                 <span class="action-label">Echo</span>
               </button>
               <button class="action-btn" on:click={handleReply} aria-label="Reply" disabled={isPending}>
-                <span class="action-icon">↩️</span>
+                <span class="action-icon icon-reply"></span>
                 <span class="action-label">Reply</span>
               </button>
               <button class="action-btn" on:click={handleShare} aria-label="Share" disabled={isPending}>
-                <span class="action-icon">🔗</span>
+                <span class="action-icon icon-share"></span>
                 <span class="action-label">Share</span>
               </button>
               <!--
@@ -691,8 +691,8 @@
 
   .reed-stat-icon {
     display: inline-block;
-    width: 0.85rem;
-    height: 0.85rem;
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
     background-color: currentColor;
     -webkit-mask-position: center;
@@ -774,6 +774,36 @@
   .action-icon {
     font-size: 1.2rem;
     line-height: 1;
+  }
+
+  .icon-echo,
+  .icon-reply,
+  .icon-share {
+    display: inline-block;
+    width: 1.2rem;
+    height: 1.2rem;
+    background-color: currentColor;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
+
+  .icon-echo {
+    -webkit-mask-image: url('/icons/megaphone-24.png');
+    mask-image: url('/icons/megaphone-24.png');
+  }
+
+  .icon-reply {
+    -webkit-mask-image: url('/icons/reply-24.png');
+    mask-image: url('/icons/reply-24.png');
+  }
+
+  .icon-share {
+    -webkit-mask-image: url('/icons/share-24.png');
+    mask-image: url('/icons/share-24.png');
   }
 
   .action-label {
