@@ -4,6 +4,7 @@
    * @property {string} label
    * @property {() => void} onSelect
    * @property {boolean} [danger]
+   * @property {string} [icon] - URL of a mask icon (e.g. '/icons/trash-16.png')
    */
 
   /** @type {KebabMenuOption[]} */
@@ -64,6 +65,9 @@
           role="menuitem"
           on:click|stopPropagation={() => select(option)}
         >
+          {#if option.icon}
+            <span class="kebab-option-icon" style="-webkit-mask-image: url('{option.icon}'); mask-image: url('{option.icon}');"></span>
+          {/if}
           {option.label}
         </button>
       {/each}
@@ -111,6 +115,9 @@
   }
 
   .kebab-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     background: none;
     border: none;
     text-align: left;
@@ -120,6 +127,20 @@
     cursor: pointer;
     border-radius: 4px;
     white-space: nowrap;
+  }
+
+  .kebab-option-icon {
+    display: inline-block;
+    width: 0.9rem;
+    height: 0.9rem;
+    flex-shrink: 0;
+    background-color: currentColor;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
   }
 
   .kebab-option:hover {
