@@ -153,7 +153,7 @@ header h1 {
   -webkit-text-fill-color: transparent;
   background-clip: text;
   font-size: 1.75rem;
-  line-height: 4rem;
+  line-height: 3rem;
   animation: gradient-shift 30s ease-in-out infinite;
 }
 

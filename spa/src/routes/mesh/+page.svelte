@@ -295,7 +295,7 @@
 
 <style>
   .mesh-container {
-    min-height: calc(100vh - 4rem - 1px);
+    min-height: calc(100vh - 3rem - 1px);
     display: flex;
     flex-direction: column;
     background: var(--bg);
