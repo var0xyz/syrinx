@@ -253,7 +253,13 @@
           />
         </div>
       {/if}
-      <ReedsList authorId={userId} {isOwner} showWriteButton={false} {scrollRestoreY} />
+      <ReedsList
+        authorId={userId}
+        {isOwner}
+        showWriteButton={false}
+        {scrollRestoreY}
+        expectContent={!isOwner}
+      />
     {/if}
   </div>
 
