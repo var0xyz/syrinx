@@ -278,6 +278,17 @@ class ServerConnection {
     this.send({ type: 'DATA_INVALID', data: { event_id: eventId } });
   }
 
+  /** Reports a failed key fetch needed to verify content received over this
+   * (already-authenticated) connection — an anomaly, not a routine cache miss. */
+  sendKeyFetchError(userId: string, fingerprint: string): void {
+    this.send({ type: 'KEY_FETCH_ERROR', data: { user_id: userId, fingerprint } });
+  }
+
+  /** Reports content whose timestamp is at or after its signing key's revocation. */
+  sendRevokedKeyUsed(userId: string, fingerprint: string): void {
+    this.send({ type: 'REVOKED_KEY_USED', data: { user_id: userId, fingerprint } });
+  }
+
   async publishReady(reedId: string, options?: { broadcast?: boolean }): Promise<void> {
     await this.connect();
     this.send({

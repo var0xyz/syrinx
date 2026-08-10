@@ -710,6 +710,18 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 			rs.handleDataInvalid(client, d)
 		}
 
+	case "KEY_FETCH_ERROR":
+		var d KeyFetchErrorData
+		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
+			rs.handleKeyFetchError(client, d)
+		}
+
+	case "REVOKED_KEY_USED":
+		var d RevokedKeyUsedData
+		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
+			rs.handleRevokedKeyUsed(client, d)
+		}
+
 	case "SUBSCRIBE_PROFILE":
 		rs.handleSubscribeProfile(client, jsonMsg.Data)
 
@@ -1197,6 +1209,37 @@ func (rs *RealtimeService) handleDataInvalid(client *Client, data DataInvalidDat
 	if err := rs.dbService.DeletePendingEvent(context.Background(), data.EventID); err != nil {
 		log.Error().Err(err).Str("eventID", data.EventID).Msg("Failed to delete pending event on data invalid")
 	}
+}
+
+// handleKeyFetchError is called when a client received signed content over
+// an already-authenticated connection but a subsequent key fetch needed to
+// verify it failed. Not tied to a pending_events row — this is the client
+// self-reporting an anomaly, not acking a specific delivery.
+func (rs *RealtimeService) handleKeyFetchError(client *Client, data KeyFetchErrorData) {
+	if data.UserID == "" || data.Fingerprint == "" {
+		return
+	}
+	log.Warn().
+		Str("reporterUserID", client.userID).
+		Str("targetUserID", data.UserID).
+		Str("fingerprint", data.Fingerprint).
+		Msg("Client reported key fetch error")
+	rs.metrics.KeyFetchError(context.Background(), client.userID, data.UserID, data.Fingerprint)
+}
+
+// handleRevokedKeyUsed is called when a client found signed content whose
+// timestamp is at or after its signing key's revocation — a genuine
+// revoked-key-abuse signal, surfaced for later security analysis.
+func (rs *RealtimeService) handleRevokedKeyUsed(client *Client, data RevokedKeyUsedData) {
+	if data.UserID == "" || data.Fingerprint == "" {
+		return
+	}
+	log.Warn().
+		Str("reporterUserID", client.userID).
+		Str("targetUserID", data.UserID).
+		Str("fingerprint", data.Fingerprint).
+		Msg("Client reported content signed with a revoked key")
+	rs.metrics.RevokedKeyUsed(context.Background(), client.userID, data.UserID, data.Fingerprint)
 }
 
 func (rs *RealtimeService) handleSubscribeProfile(client *Client, data json.RawMessage) {
