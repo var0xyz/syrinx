@@ -40,7 +40,6 @@
   /** @type {{ userID: string; reedID: string; kind: 'reed' | 'account'; timestamp?: string } | null} */
   let removedTarget = null;
 
-  $: icon = type === 'echo' ? '📢' : '💬';
   $: label = type === 'reply' ? 'Replying to ' : '';
   $: borderColor = type === 'echo' ? 'var(--primary)' : '#7c3aed';
   $: reedId = reed?.id ?? '';
@@ -181,11 +180,11 @@
 
 {#if missing || loadFailed}
   <div class="quote quote--missing" style="--border-color: {borderColor}">
-    <div class="quote-meta">{icon} Original reed unavailable</div>
+    <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> Original reed unavailable</div>
   </div>
 {:else if loading}
   <div class="quote" style="--border-color: {borderColor}">
-    <div class="quote-meta">{icon} Loading...</div>
+    <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> Loading...</div>
   </div>
 {:else if removedTarget}
   {#if linked}
@@ -198,7 +197,7 @@
       on:click={handleClick}
       on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
     >
-      <div class="quote-meta">{icon} {label}{username} · {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> {label}{username} · {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</div>
       <p class="quote-removed-note">
         {removedTarget.kind === 'account'
           ? 'This author deleted their account.'
@@ -211,7 +210,7 @@
       class:quote--clamped={maxLines > 0}
       style="--border-color: {borderColor}; --max-lines: {maxLines}"
     >
-      <div class="quote-meta">{icon} {label}{username} · {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> {label}{username} · {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</div>
       <p class="quote-removed-note">
         {removedTarget.kind === 'account'
           ? 'This author deleted their account.'
@@ -230,7 +229,7 @@
       on:click={handleClick}
       on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
     >
-      <div class="quote-meta">{icon} {label}{username}{#if displayReed.serverSignature?.timestamp} · {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> {label}{username}{#if displayReed.serverSignature?.timestamp} · {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
 
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
@@ -242,7 +241,7 @@
       class:quote--clamped={maxLines > 0}
       style="--border-color: {borderColor}; --max-lines: {maxLines}"
     >
-      <div class="quote-meta">{icon} {label}{username}{#if displayReed.serverSignature?.timestamp} · {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> {label}{username}{#if displayReed.serverSignature?.timestamp} · {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
 
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
@@ -277,10 +276,41 @@
   }
 
   .quote-meta {
+    display: flex;
     font-size: 0.75rem;
     color: var(--muted);
     margin-bottom: 0.25rem;
     word-break: break-word;
+  }
+
+  .quote-icon {
+    margin-right: 0.25rem;
+  }
+
+
+  .quote-icon.echo,
+  .quote-icon.reply {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    vertical-align: -0.1rem;
+    background-color: currentColor;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
+
+  .quote-icon.echo {
+    -webkit-mask-image: url('/icons/megaphone-16.png');
+    mask-image: url('/icons/megaphone-16.png');
+  }
+
+  .quote-icon.reply {
+    -webkit-mask-image: url('/icons/reply-16.png');
+    mask-image: url('/icons/reply-16.png');
   }
 
   :global(.quote-content) {
