@@ -542,6 +542,30 @@ export const apiService = {
     return request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
   },
 
+  async listFollowing(
+    userId: string,
+    opts?: { limit?: number; before?: string },
+  ): Promise<api.FollowListResponse> {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.before) params.set('before', opts.before);
+    const qs = params.toString();
+    const path = `/users/${userId}/following${qs ? `?${qs}` : ''}`;
+    return request<api.FollowListResponse>(path, { method: 'GET' });
+  },
+
+  async listFollowers(
+    userId: string,
+    opts?: { limit?: number; before?: string },
+  ): Promise<api.FollowListResponse> {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.before) params.set('before', opts.before);
+    const qs = params.toString();
+    const path = `/users/${userId}/followers${qs ? `?${qs}` : ''}`;
+    return request<api.FollowListResponse>(path, { method: 'GET' });
+  },
+
   /**
    * GET reed with 410 handling. Account certs are returned as-is for 09;
    * callers must switch on `removal.type` and not treat account as reed.

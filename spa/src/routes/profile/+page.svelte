@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
 
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
@@ -36,6 +37,24 @@
   let storageTotal: number = data.storage?.total ?? 0;
   let storagePercentage: number = storageTotal > 0 ? (storageUsed / storageTotal) * 100 : 0;
   let storageAvailable: boolean = data.storage != null;
+
+  // Follow-list modal state lives in the URL hash (#following / #followers)
+  // — same pattern as routes/profile/[userId]/+page.svelte and
+  // routes/feeds/+page.svelte: survives back/forward after a click-through
+  // navigation (open modal, click a row, hit back), which plain component
+  // state does not reliably do.
+  function followListModeFromHash(hash: string): 'following' | 'followers' | null {
+    const h = (hash || '').replace(/^#/, '').toLowerCase();
+    return h === 'following' || h === 'followers' ? h : null;
+  }
+
+  $: followListMode = followListModeFromHash($page.url.hash) ?? 'following';
+  $: followListOpen = followListModeFromHash($page.url.hash) !== null;
+
+  function setFollowListHash(open: boolean, mode: string) {
+    const hash = open ? `#${mode}` : '';
+    void goto(`/profile${hash}`, { replaceState: !open, noScroll: true, keepFocus: true });
+  }
 
   // Edit mode state
   let isEditing: boolean = false;
@@ -557,7 +576,15 @@
         </div>
       </div>
       {:else}
-        <UserProfileCard {user} editable={true} on:edit={startEditing} />
+        <UserProfileCard
+          {user}
+          editable={true}
+          {followListOpen}
+          {followListMode}
+          on:edit={startEditing}
+          on:openFollowList={(e) => setFollowListHash(true, e.detail.mode)}
+          on:closeFollowList={() => setFollowListHash(false, followListMode)}
+        />
       {/if}
 
       <div class="profile-sections">

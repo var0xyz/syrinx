@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { beforeNavigate } from '$app/navigation';
+  import { beforeNavigate, goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { apiService } from '$lib/services/api';
   import { serverConnection } from '$lib/services/serverConnection';
@@ -43,6 +43,32 @@
       scrollRestoreY = y;
     },
   };
+
+  // Follow-list modal state lives in the URL hash (#following / #followers),
+  // not component state — this page's [userId] segment is reused (not
+  // remounted) across same-route param changes, so plain `let` state or
+  // even the snapshot above does not reliably survive "open modal, click a
+  // row, navigate to another /profile/[userId], hit back." The hash is
+  // part of the history entry itself, so back/forward always restores it
+  // correctly, matching the working pattern in routes/feeds/+page.svelte.
+  /** @param {string} hash */
+  function followListModeFromHash(hash) {
+    const h = (hash || '').replace(/^#/, '').toLowerCase();
+    return h === 'following' || h === 'followers' ? h : null;
+  }
+
+  $: followListMode = followListModeFromHash($page.url.hash) ?? 'following';
+  $: followListOpen = followListModeFromHash($page.url.hash) !== null;
+
+  /** @param {boolean} open @param {string} mode */
+  function setFollowListHash(open, mode) {
+    const hash = open ? `#${mode}` : '';
+    void goto(`/profile/${userId}${hash}`, {
+      replaceState: !open,
+      noScroll: true,
+      keepFocus: true,
+    });
+  }
 
   $: applyPageData(data);
 
@@ -197,7 +223,11 @@
             user={profileUser}
             {isOwner}
             {isFollowing}
+            {followListOpen}
+            {followListMode}
             on:followingChange={onFollowingChange}
+            on:openFollowList={(e) => setFollowListHash(true, e.detail.mode)}
+            on:closeFollowList={() => setFollowListHash(false, followListMode)}
           />
         </div>
       {/if}
@@ -232,7 +262,11 @@
             user={profileUser}
             {isOwner}
             {isFollowing}
+            {followListOpen}
+            {followListMode}
             on:followingChange={onFollowingChange}
+            on:openFollowList={(e) => setFollowListHash(true, e.detail.mode)}
+            on:closeFollowList={() => setFollowListHash(false, followListMode)}
           />
         </div>
       {/if}
@@ -249,7 +283,11 @@
             user={profileUser}
             {isOwner}
             {isFollowing}
+            {followListOpen}
+            {followListMode}
             on:followingChange={onFollowingChange}
+            on:openFollowList={(e) => setFollowListHash(true, e.detail.mode)}
+            on:closeFollowList={() => setFollowListHash(false, followListMode)}
           />
         </div>
       {/if}
