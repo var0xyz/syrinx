@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { authService } from '$lib/services/auth';
   import type * as api from '$lib/types/api';
   import {
@@ -14,6 +15,7 @@
     refreshServerInfo,
     serverInfo,
   } from '$lib/services/serverInfo';
+  import { isOnline } from '$lib/services/pwa';
   import { notificationStore } from '$lib/stores/notifications';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -133,6 +135,10 @@
 
   async function revokeInvite(id: string) {
     if (revokingId) return;
+    if (!get(isOnline)) {
+      notificationStore.error("You're offline — reconnect to revoke this invite.");
+      return;
+    }
     if (!confirm('Are you sure you want to revoke this invite?')) {
       return;
     }
@@ -143,9 +149,11 @@
       notificationStore.success('Invite revoked');
     } catch (err) {
       console.error(err);
-      notificationStore.error(
-        err instanceof Error ? err.message : 'Failed to revoke invite'
-      );
+      const message =
+        err instanceof Error && !(err as { networkError?: boolean }).networkError
+          ? err.message
+          : 'Error revoking invite. Please try again.';
+      notificationStore.error(message);
     } finally {
       revokingId = null;
     }
