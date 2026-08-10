@@ -20,6 +20,11 @@
   export let authorId;
   export let isOwner = false;
   export let showWriteButton = false;
+  /** Server already reports this author has reeds (info.hasReeds), but none
+   * are held locally yet — e.g. the author is offline and no online peer
+   * has relayed the body. Distinguishes "known content, still arriving"
+   * from a genuinely empty author. */
+  export let expectContent = false;
   /** Window scrollY to restore after the first load (SvelteKit page snapshot). */
   export let scrollRestoreY = /** @type {number | null} */ (null);
 
@@ -293,11 +298,17 @@
       <p>{errorLoadingReeds}</p>
       <button class="btn btn-primary" on:click={loadReeds}>Try Again</button>
     </div>
+  {:else if reeds.length === 0 && pendingReeds.length === 0 && expectContent}
+    <div class="empty-state">
+      <div class="empty-icon">🌱</div>
+      <h3>Waiting for content…</h3>
+      <p>Reeds will appear automatically appear here once we find a peer to fetch them from.</p>
+    </div>
   {:else if reeds.length === 0 && pendingReeds.length === 0}
     <div class="empty-state">
       <div class="empty-icon">🌾</div>
       <h3>No reeds yet</h3>
-      <p>Your reeds will appear here when you publish them.</p>
+      <p>{isOwner ? 'Your reeds will appear here when you publish them.' : 'New reeds will appear here once we receive them.'}</p>
     </div>
   {:else}
     {#each pendingReeds as reed (reed.id)}
