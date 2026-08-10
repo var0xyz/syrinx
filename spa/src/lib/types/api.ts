@@ -183,6 +183,17 @@ export interface ReplyListResponse extends Base {
   hasMore: boolean;
 }
 
+/** One row in GET /users/{userID}/following or /users/{userID}/followers. */
+export interface FollowListUser extends Base {
+  userID: string;
+  followedAt: string;
+}
+
+export interface FollowListResponse extends Base {
+  users: FollowListUser[];
+  hasMore: boolean;
+}
+
 /** Local + create-response shape for a signed invite (status is unsigned). */
 export interface Invite extends Base {
   id: string;

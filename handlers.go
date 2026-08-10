@@ -2232,6 +2232,90 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, list)
 }
 
+// GetUserFollowing handles GET /users/{userID}/following.
+func (h *Handlers) GetUserFollowing(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("GetUserFollowing request received")
+
+	userID := mux.Vars(r)["userID"]
+	if userID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		return
+	}
+
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			return
+		}
+		limit = n
+	}
+
+	var before *time.Time
+	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			return
+		}
+		t = t.UTC().Truncate(time.Second)
+		before = &t
+	}
+
+	list, err := h.services.db.ListFollowing(r.Context(), userID, limit, before)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error listing following")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, list)
+}
+
+// GetUserFollowers handles GET /users/{userID}/followers.
+func (h *Handlers) GetUserFollowers(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("GetUserFollowers request received")
+
+	userID := mux.Vars(r)["userID"]
+	if userID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		return
+	}
+
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			return
+		}
+		limit = n
+	}
+
+	var before *time.Time
+	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			return
+		}
+		t = t.UTC().Truncate(time.Second)
+		before = &t
+	}
+
+	list, err := h.services.db.ListFollowers(r.Context(), userID, limit, before)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error listing followers")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, list)
+}
+
 // =================== //
 //   Device handlers   //
 // =================== //

@@ -276,6 +276,12 @@ func main() {
 	api.HandleFunc("/users/{userID}/follow", h.UnfollowUser).Methods("DELETE")
 	api.HandleFunc("/users/{userID}/follow", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/users/{userID}/following", h.GetUserFollowing).Methods("GET")
+	api.HandleFunc("/users/{userID}/following", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/users/{userID}/followers", h.GetUserFollowers).Methods("GET")
+	api.HandleFunc("/users/{userID}/followers", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.GetPublicKey).Methods("GET")
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.noop).Methods("OPTIONS")
 

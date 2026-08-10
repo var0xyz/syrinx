@@ -1397,6 +1397,89 @@ func (s *DataService) ListReplies(ctx context.Context, parentUserID, parentReedI
 	return &ReplyListResponse{Replies: items, HasMore: hasMore}, nil
 }
 
+// FollowListItem is one row of a following/followers list.
+type FollowListItem struct {
+	UserID     string    `json:"userID"`
+	FollowedAt time.Time `json:"followedAt"`
+}
+
+// FollowListResponse is the body of GET /users/{userID}/following and
+// GET /users/{userID}/followers.
+type FollowListResponse struct {
+	Users   []FollowListItem `json:"users"`
+	HasMore bool             `json:"hasMore"`
+}
+
+// ListFollowing returns userID's following list, oldest-followed first.
+func (s *DataService) ListFollowing(ctx context.Context, userID string, limit int, before *time.Time) (*FollowListResponse, error) {
+	return s.listFollowEdge(ctx, "user_following", "following_user_id", userID, limit, before)
+}
+
+// ListFollowers returns userID's followers list, oldest-followed first.
+func (s *DataService) ListFollowers(ctx context.Context, userID string, limit int, before *time.Time) (*FollowListResponse, error) {
+	return s.listFollowEdge(ctx, "user_followers", "follower_user_id", userID, limit, before)
+}
+
+// listFollowEdge is the shared keyset-paginated query behind ListFollowing /
+// ListFollowers — same table shape, only the table/column name differs.
+func (s *DataService) listFollowEdge(ctx context.Context, table, otherCol, userID string, limit int, before *time.Time) (*FollowListResponse, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	args := []any{userID}
+	query := fmt.Sprintf(`
+		SELECT e.%[1]s, e.created_at
+		FROM %[2]s e
+		WHERE e.user_id = $1
+		AND NOT EXISTS (
+			SELECT 1 FROM account_removals ar WHERE ar.user_id = e.%[1]s
+		)
+	`, otherCol, table)
+	if before != nil {
+		args = append(args, before.UTC().Truncate(time.Second))
+		query += fmt.Sprintf(`
+			AND (e.created_at, e.%s) > ($%d, '')
+		`, otherCol, len(args))
+	}
+	args = append(args, limit+1)
+	query += fmt.Sprintf(`
+		ORDER BY e.created_at ASC, e.%s ASC
+		LIMIT $%d
+	`, otherCol, len(args))
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []FollowListItem
+	for rows.Next() {
+		var id string
+		var followedAt time.Time
+		if err := rows.Scan(&id, &followedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, FollowListItem{UserID: id, FollowedAt: followedAt})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	if items == nil {
+		items = []FollowListItem{}
+	}
+	return &FollowListResponse{Users: items, HasMore: hasMore}, nil
+}
+
 // checkReedTipTx enforces the history-fork safeguard (see
 // specs/recovery/16_reed_tip_check.md): previousID must name the author's
 // current tip (newest non-removed reed by signed_at, id DESC tie-break), or

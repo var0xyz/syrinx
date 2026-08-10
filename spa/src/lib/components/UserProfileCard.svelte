@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
+  import FollowListModal from '$lib/components/FollowListModal.svelte';
   import { followingRepository } from '$lib/repositories/following';
   import { userInfoRepository } from '$lib/repositories/userInfo';
   import { apiService } from '$lib/services/api';
@@ -11,12 +12,27 @@
   export let isOwner = false;
   /** Resolved before first paint by the profile page load — avoids Follow→Unfollow flash. */
   export let isFollowing = false;
+  /** Owned by the parent (e.g. derived from the URL hash there) so the
+   * modal's open state survives a click-through navigation and back —
+   * this component only reports open/close/mode requests upward, it does
+   * not hold the state itself. */
+  export let followListOpen = false;
+  export let followListMode = 'following';
 
   const dispatch = createEventDispatcher();
 
   let following = isFollowing;
   let followersCount = 0;
   let followingCount = 0;
+
+  function openFollowList(mode) {
+    if (!user?.id) return;
+    dispatch('openFollowList', { mode });
+  }
+
+  function closeFollowList() {
+    dispatch('closeFollowList');
+  }
 
   // Keep local counts aligned with the parent merge. Stale /info overwrites are
   // prevented on the profile page (fetch seq invalidated on follow).
@@ -157,8 +173,20 @@
         </p>
       {/if}
       <div class="follow-stats">
-        <span class="follow-stat"><strong>{followingCount}</strong> Following</span>
-        <span class="follow-stat"><strong>{followersCount}</strong> Followers</span>
+        {#if followingCount > 0}
+          <button type="button" class="follow-stat" on:click={() => openFollowList('following')}>
+            <strong>{followingCount}</strong> Following
+          </button>
+        {:else}
+          <span class="follow-stat"><strong>{followingCount}</strong> Following</span>
+        {/if}
+        {#if followersCount > 0}
+          <button type="button" class="follow-stat" on:click={() => openFollowList('followers')}>
+            <strong>{followersCount}</strong> {followersCount === 1 ? 'Follower' : 'Followers'}
+          </button>
+        {:else}
+          <span class="follow-stat"><strong>{followersCount}</strong> Followers</span>
+        {/if}
       </div>
     </div>
   </div>
@@ -200,6 +228,13 @@
     </div>
   </div>
 {/if}
+
+<FollowListModal
+  open={followListOpen}
+  userId={user?.id ?? ''}
+  mode={followListMode}
+  on:close={closeFollowList}
+/>
 
 <style>
   .profile-card {
@@ -306,6 +341,25 @@
     margin-top: 0.5rem;
     font-size: 0.85rem;
     color: var(--muted);
+  }
+
+  .follow-stat {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  button.follow-stat {
+    cursor: pointer;
+  }
+
+  button.follow-stat:hover {
+    text-decoration: underline;
   }
 
   .follow-stat strong {
