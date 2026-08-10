@@ -508,7 +508,7 @@
                 />
                 {#if editForm.username && editForm.username !== user.username}
                   <div class="help-text">
-                    <UsernameChecker username={editForm.username} />
+                    <UsernameChecker username={editForm.username} authenticated />
                   </div>
                 {/if}
               </div>

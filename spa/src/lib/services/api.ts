@@ -167,6 +167,51 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+/** Shared by both username-availability checks: same request shape, same
+ * 409-vs-other response branching. `signed` picks the authenticated (an
+ * existing user checking a rename) vs. anonymous (signup) request path. */
+async function checkUsername(
+  path: string,
+  formFields: Record<string, string>,
+  signed: boolean,
+  signal?: AbortSignal,
+): Promise<UsernameAvailabilityResult> {
+  const body = new URLSearchParams();
+  for (const [key, value] of Object.entries(formFields)) {
+    if (value) {
+      body.append(key, value);
+    }
+  }
+
+  let init: RequestInit = {
+    method: 'POST',
+    body,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    signal,
+  };
+  if (signed) {
+    init = await requestSigner.signRequest(`${BASE_URL}${path}`, init);
+  }
+
+  const headers = new Headers(init.headers);
+  headers.set('Accept', 'application/json');
+  for (const [key, value] of Object.entries(deviceIdHeader())) {
+    headers.set(key, value);
+  }
+
+  const res = await fetch(`${BASE_URL}${path}`, { ...init, headers });
+
+  if (res.ok) {
+    return { available: true };
+  }
+
+  const message = await readApiErrorMessage(res);
+  if (res.status === 409) {
+    return { available: false, taken: true, message };
+  }
+  return { available: false, taken: false, message, status: res.status };
+}
+
 export const apiService = {
   /**
    * Unauthenticated probe: POST countersigned profile, branch on HTTP status.
@@ -222,37 +267,16 @@ export const apiService = {
     extraFormFields: Record<string, string> = {},
     signal?: AbortSignal,
   ): Promise<UsernameAvailabilityResult> {
-    const formData = new URLSearchParams({ username });
-    for (const [key, value] of Object.entries(extraFormFields)) {
-      if (value) {
-        formData.append(key, value);
-      }
-    }
+    return checkUsername('/check-username', { username, ...extraFormFields }, false, signal);
+  },
 
-    const headers = new Headers({
-      Accept: 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded',
-    });
-    for (const [key, value] of Object.entries(deviceIdHeader())) {
-      headers.set(key, value);
-    }
-
-    const res = await fetch(`${BASE_URL}/check-username`, {
-      method: 'POST',
-      body: formData,
-      headers,
-      signal,
-    });
-
-    if (res.ok) {
-      return { available: true };
-    }
-
-    const message = await readApiErrorMessage(res);
-    if (res.status === 409) {
-      return { available: false, taken: true, message };
-    }
-    return { available: false, taken: false, message, status: res.status };
+  /** Authenticated counterpart for the profile-edit rename checker — no
+   * invite/signup-mode gate, since the caller already has an account. */
+  async checkUsernameAvailabilityForRename(
+    username: string,
+    signal?: AbortSignal,
+  ): Promise<UsernameAvailabilityResult> {
+    return checkUsername('/users/me/check-username', { username }, true, signal);
   },
 
   async signup(input: SignupInput): Promise<api.User> {

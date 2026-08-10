@@ -5,6 +5,9 @@
   export let username = '';
   /** Opaque form fields forwarded to POST /check-username (e.g. invite credentials). */
   export let extraFormFields = {};
+  /** True on the profile page: calls the authenticated rename-check endpoint
+   * (no invite/signup-mode gate) instead of the signup-time one. */
+  export let authenticated = false;
 
   let status = 'idle'; // 'idle', 'checking', 'available', 'taken', 'error'
   let message = '';
@@ -42,11 +45,9 @@
     message = 'Checking availability...';
 
     try {
-      const result = await apiService.checkUsernameAvailability(
-        username,
-        fields,
-        currentCheck.signal,
-      );
+      const result = authenticated
+        ? await apiService.checkUsernameAvailabilityForRename(username, currentCheck.signal)
+        : await apiService.checkUsernameAvailability(username, fields, currentCheck.signal);
 
       if (result.available) {
         status = 'available';

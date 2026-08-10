@@ -209,7 +209,9 @@ func main() {
 	h.SetMetrics(obs.Metrics())
 	h.SetPipeTagFilter(realtimeService.FilterSubscribedPipeTags)
 	h.SetKickUserWS(realtimeService.DisconnectUser)
-	realtimeService.SetDeviceCheck(func(userID, deviceID string) error { return dataService.CheckActiveDevice(context.Background(), userID, deviceID) })
+	realtimeService.SetDeviceCheck(func(userID, deviceID string) error {
+		return dataService.CheckActiveDevice(context.Background(), userID, deviceID)
+	})
 	log.Info().Msg("[OK] Handlers initialized successfully")
 
 	log.Debug().Msg("Setting up router...")
@@ -250,8 +252,12 @@ func main() {
 
 	api.HandleFunc("/users/me", h.UpdateUser).Methods("PUT")
 	api.HandleFunc("/users/me", h.DeleteMe).Methods("DELETE")
-	api.HandleFunc("/users/me/backup", h.RecordBackup).Methods("POST")
 	api.HandleFunc("/users/me", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/users/me/check-username", h.CheckUsernameForRename).Methods("POST")
+	api.HandleFunc("/users/me/check-username", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/users/me/backup", h.RecordBackup).Methods("POST")
 	api.HandleFunc("/users/me/backup", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/users/device", h.BindDevice).Methods("POST")
