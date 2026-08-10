@@ -525,7 +525,7 @@
               </div>
               {#if user?.id === reed.userID}
                 <div class="reed-actions">
-                  <KebabMenu options={[{ label: 'Delete', danger: true, onSelect: deleteReed }]} />
+                  <KebabMenu options={[{ label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: deleteReed }]} />
                 </div>
               {/if}
             </div>

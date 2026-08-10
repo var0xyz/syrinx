@@ -331,7 +331,7 @@
           />
           {#if isOwner}
             <div class="reed-meta">
-              <KebabMenu options={[{ label: 'Delete', danger: true, onSelect: () => deleteReed(reed.id, true) }]} />
+              <KebabMenu options={[{ label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: () => deleteReed(reed.id, true) }]} />
             </div>
           {/if}
         </div>
@@ -386,7 +386,7 @@
           />
           {#if isOwner}
             <div class="reed-meta">
-              <KebabMenu options={[{ label: 'Delete', danger: true, onSelect: () => deleteReed(reed.id) }]} />
+              <KebabMenu options={[{ label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: () => deleteReed(reed.id) }]} />
             </div>
           {/if}
         </div>
