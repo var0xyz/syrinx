@@ -41,9 +41,14 @@ type Manager struct {
 // Setup builds the tracing/metrics pipeline against host:port when host is
 // non-empty. An empty host (the default — no collector configured) returns a
 // disabled Manager and a nil error: that's the expected shape for dev
-// laptops/CI, not a failure. Once host is set, a real SDK/exporter failure is
-// returned as an error and the caller should treat observability as
-// unavailable for this run (Manager is still safe to use — nil-like).
+// laptops/CI, not a failure. Once host is set, this is a readiness check:
+// Setup force-flushes a real boot metric through the exporter and returns an
+// error if the collector isn't actually reachable, so callers should treat a
+// non-nil error here as fatal — a configured-but-unreachable host means
+// operator intent (telemetry required) can't be honored. Once observability
+// is running, a later, ongoing outage is not this package's concern; the
+// Manager keeps degrading its own instruments gracefully at that point (see
+// observability/metrics).
 func Setup(host, port string) (*Manager, error) {
 	if host == "" {
 		return &Manager{}, nil
@@ -88,11 +93,6 @@ func Setup(host, port string) (*Manager, error) {
 		sdktrace.WithBatcher(traceExporter),
 		sdktrace.WithResource(res),
 	)
-	otel.SetTracerProvider(tracerProvider)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
 
 	// Metrics ride the OTLP HTTP port, one above the gRPC trace port — same
 	// convention the app-host collector already uses for logs/metrics today.
@@ -110,6 +110,30 @@ func Setup(host, port string) (*Manager, error) {
 		metricsdk.WithReader(metricsdk.NewPeriodicReader(metricsExporter, metricsdk.WithInterval(10*time.Second))),
 		metricsdk.WithResource(res),
 	)
+
+	// Readiness probe: OTLP exporters connect lazily, so nothing above
+	// actually touches the network. Recording and force-flushing one real
+	// metric is the only way to know the collector is actually reachable
+	// before deciding boot succeeded — a misconfigured/unreachable host
+	// should fail startup, not silently drop telemetry forever after. Runs
+	// before any global otel.Set* call so a failed probe leaves no global
+	// state behind.
+	bootCounter, err := meterProvider.Meter("syrinx/boot").Int64Counter("syrinx.system.boot")
+	if err != nil {
+		return &Manager{}, fmt.Errorf("build boot counter: %w", err)
+	}
+	bootCounter.Add(context.Background(), 1)
+	flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := meterProvider.ForceFlush(flushCtx); err != nil {
+		return &Manager{}, fmt.Errorf("telemetry collector unreachable at %s: %w", httpEndpoint, err)
+	}
+
+	otel.SetTracerProvider(tracerProvider)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
 	otel.SetMeterProvider(meterProvider)
 
 	return &Manager{

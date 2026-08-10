@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 
+	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -28,75 +29,52 @@ type OTEL struct {
 	coveragePercent     metric.Int64Histogram
 }
 
-// New builds an OTEL recorder from a meter. Panics only if instrument registration fails.
+// New builds an OTEL recorder from a meter. An instrument that fails to
+// register is logged and left nil; every recording method guards against a
+// nil instrument, so a registration failure degrades that one metric to a
+// no-op instead of taking down the server.
 func New(m metric.Meter) *OTEL {
 	r := &OTEL{}
-	var err error
 
-	r.usersCreated, err = m.Int64Counter("syrinx.users.created")
-	if err != nil {
-		panic(err)
+	counter := func(name string) metric.Int64Counter {
+		c, err := m.Int64Counter(name)
+		if err != nil {
+			log.Error().Err(err).Str("instrument", name).Msg("Failed to register metric counter")
+			return nil
+		}
+		return c
 	}
-	r.usersDeleted, err = m.Int64Counter("syrinx.users.deleted")
-	if err != nil {
-		panic(err)
+	histogram := func(name string) metric.Int64Histogram {
+		h, err := m.Int64Histogram(name)
+		if err != nil {
+			log.Error().Err(err).Str("instrument", name).Msg("Failed to register metric histogram")
+			return nil
+		}
+		return h
 	}
-	r.reedsPublished, err = m.Int64Counter("syrinx.reeds.published")
-	if err != nil {
-		panic(err)
-	}
-	r.reedsDeleted, err = m.Int64Counter("syrinx.reeds.deleted")
-	if err != nil {
-		panic(err)
-	}
-	r.echoesTargeted, err = m.Int64Counter("syrinx.echoes.targeted")
-	if err != nil {
-		panic(err)
-	}
-	r.reedsRejectedLength, err = m.Int64Counter("syrinx.reeds.rejected.length")
-	if err != nil {
-		panic(err)
-	}
-	r.keysRevoked, err = m.Int64Counter("syrinx.keys.revoked")
-	if err != nil {
-		panic(err)
-	}
-	r.keyFetchErrors, err = m.Int64Counter("syrinx.keys.fetch_errors")
-	if err != nil {
-		panic(err)
-	}
-	r.revokedKeysUsed, err = m.Int64Counter("syrinx.keys.revoked_used")
-	if err != nil {
-		panic(err)
-	}
-	r.usersBackup, err = m.Int64Counter("syrinx.users.backup")
-	if err != nil {
-		panic(err)
-	}
-	r.wsMessages, err = m.Int64Counter("syrinx.ws.messages")
-	if err != nil {
-		panic(err)
-	}
-	r.rawChars, err = m.Int64Histogram("syrinx.reed.content.raw_chars")
-	if err != nil {
-		panic(err)
-	}
-	r.visibleChars, err = m.Int64Histogram("syrinx.reed.content.visible_chars")
-	if err != nil {
-		panic(err)
-	}
-	r.holders, err = m.Int64Histogram("syrinx.reed.holders")
-	if err != nil {
-		panic(err)
-	}
-	r.coveragePercent, err = m.Int64Histogram("syrinx.reed.coverage_percent")
-	if err != nil {
-		panic(err)
-	}
+
+	r.usersCreated = counter("syrinx.users.created")
+	r.usersDeleted = counter("syrinx.users.deleted")
+	r.reedsPublished = counter("syrinx.reeds.published")
+	r.reedsDeleted = counter("syrinx.reeds.deleted")
+	r.echoesTargeted = counter("syrinx.echoes.targeted")
+	r.reedsRejectedLength = counter("syrinx.reeds.rejected.length")
+	r.keysRevoked = counter("syrinx.keys.revoked")
+	r.keyFetchErrors = counter("syrinx.keys.fetch_errors")
+	r.revokedKeysUsed = counter("syrinx.keys.revoked_used")
+	r.usersBackup = counter("syrinx.users.backup")
+	r.wsMessages = counter("syrinx.ws.messages")
+	r.rawChars = histogram("syrinx.reed.content.raw_chars")
+	r.visibleChars = histogram("syrinx.reed.content.visible_chars")
+	r.holders = histogram("syrinx.reed.holders")
+	r.coveragePercent = histogram("syrinx.reed.coverage_percent")
 	return r
 }
 
 func (r *OTEL) UserCreated(ctx context.Context, signupMode, userID string) {
+	if r.usersCreated == nil {
+		return
+	}
 	r.usersCreated.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("signup.mode", signupMode),
 		attribute.String("user.id_hash", UserIDHash(userID)),
@@ -104,6 +82,9 @@ func (r *OTEL) UserCreated(ctx context.Context, signupMode, userID string) {
 }
 
 func (r *OTEL) UserDeleted(ctx context.Context, userID string, noteHas bool) {
+	if r.usersDeleted == nil {
+		return
+	}
 	r.usersDeleted.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("user.id_hash", UserIDHash(userID)),
 		attribute.Bool("note.has", noteHas),
@@ -113,23 +94,32 @@ func (r *OTEL) UserDeleted(ctx context.Context, userID string, noteHas bool) {
 func (r *OTEL) ReedPublished(ctx context.Context, p ReedPublishedAttrs) {
 	tagCount := TagCountAttr(p.TagCount)
 	authorHash := UserIDHash(p.AuthorID)
-	r.reedsPublished.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("reed.kind", string(p.Kind)),
-		attribute.Bool("tags.has", tagCount > 0),
-		attribute.Int("tags.count", tagCount),
-		attribute.String("author.id_hash", authorHash),
-		attribute.String("reed.id", p.ReedID),
-	))
+	if r.reedsPublished != nil {
+		r.reedsPublished.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("reed.kind", string(p.Kind)),
+			attribute.Bool("tags.has", tagCount > 0),
+			attribute.Int("tags.count", tagCount),
+			attribute.String("author.id_hash", authorHash),
+			attribute.String("reed.id", p.ReedID),
+		))
+	}
 	reedAttrs := metric.WithAttributes(
 		attribute.String("reed.kind", string(p.Kind)),
 		attribute.String("author.id_hash", authorHash),
 		attribute.String("reed.id", p.ReedID),
 	)
-	r.rawChars.Record(ctx, int64(p.RawChars), reedAttrs)
-	r.visibleChars.Record(ctx, int64(p.VisibleChars), reedAttrs)
+	if r.rawChars != nil {
+		r.rawChars.Record(ctx, int64(p.RawChars), reedAttrs)
+	}
+	if r.visibleChars != nil {
+		r.visibleChars.Record(ctx, int64(p.VisibleChars), reedAttrs)
+	}
 }
 
 func (r *OTEL) ReedDeleted(ctx context.Context, authorID, reedID string) {
+	if r.reedsDeleted == nil {
+		return
+	}
 	r.reedsDeleted.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("author.id_hash", UserIDHash(authorID)),
 		attribute.String("reed.id", reedID),
@@ -137,6 +127,9 @@ func (r *OTEL) ReedDeleted(ctx context.Context, authorID, reedID string) {
 }
 
 func (r *OTEL) EchoTargeted(ctx context.Context, targetAuthorID, targetReedID string) {
+	if r.echoesTargeted == nil {
+		return
+	}
 	r.echoesTargeted.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("target.author.id_hash", UserIDHash(targetAuthorID)),
 		attribute.String("target.reed.id", targetReedID),
@@ -144,6 +137,9 @@ func (r *OTEL) EchoTargeted(ctx context.Context, targetAuthorID, targetReedID st
 }
 
 func (r *OTEL) ReedRejectedLength(ctx context.Context, rawChars, visibleChars int) {
+	if r.reedsRejectedLength == nil {
+		return
+	}
 	r.reedsRejectedLength.Add(ctx, 1, metric.WithAttributes(
 		attribute.Bool("raw.exceeds_max", rawChars > maxReedRawChars),
 		attribute.Bool("visible.exceeds_max", visibleChars > maxReedVisibleChars),
@@ -151,6 +147,9 @@ func (r *OTEL) ReedRejectedLength(ctx context.Context, rawChars, visibleChars in
 }
 
 func (r *OTEL) KeyRevoked(ctx context.Context, userID string) {
+	if r.keysRevoked == nil {
+		return
+	}
 	r.keysRevoked.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("user.id_hash", UserIDHash(userID)),
 	))
@@ -160,6 +159,9 @@ func (r *OTEL) KeyRevoked(ctx context.Context, userID string) {
 // to verify signed content it received over an already-authenticated
 // connection — an anomaly, not a routine cache miss.
 func (r *OTEL) KeyFetchError(ctx context.Context, reporterUserID, targetUserID, fingerprint string) {
+	if r.keyFetchErrors == nil {
+		return
+	}
 	r.keyFetchErrors.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("reporter.id_hash", UserIDHash(reporterUserID)),
 		attribute.String("target.id_hash", UserIDHash(targetUserID)),
@@ -171,6 +173,9 @@ func (r *OTEL) KeyFetchError(ctx context.Context, reporterUserID, targetUserID, 
 // falls at or after its signing key's revocation — kept in the clear
 // (fingerprint, not user identity) for later security analysis.
 func (r *OTEL) RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID, fingerprint string) {
+	if r.revokedKeysUsed == nil {
+		return
+	}
 	r.revokedKeysUsed.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("reporter.id_hash", UserIDHash(reporterUserID)),
 		attribute.String("target.id_hash", UserIDHash(targetUserID)),
@@ -179,6 +184,9 @@ func (r *OTEL) RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID,
 }
 
 func (r *OTEL) UserBackup(ctx context.Context, userID string, kind BackupKind) {
+	if r.usersBackup == nil {
+		return
+	}
 	r.usersBackup.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("user.id_hash", UserIDHash(userID)),
 		attribute.String("backup.kind", string(kind)),
@@ -190,11 +198,18 @@ func (r *OTEL) ReedCoverage(ctx context.Context, authorID, reedID string, holder
 		attribute.String("author.id_hash", UserIDHash(authorID)),
 		attribute.String("reed.id", reedID),
 	)
-	r.holders.Record(ctx, int64(holders), attrs)
-	r.coveragePercent.Record(ctx, int64(coveragePercent), attrs)
+	if r.holders != nil {
+		r.holders.Record(ctx, int64(holders), attrs)
+	}
+	if r.coveragePercent != nil {
+		r.coveragePercent.Record(ctx, int64(coveragePercent), attrs)
+	}
 }
 
 func (r *OTEL) WSMessage(ctx context.Context, direction Direction, msgType string) {
+	if r.wsMessages == nil {
+		return
+	}
 	r.wsMessages.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("ws.direction", string(direction)),
 		attribute.String("ws.message.type", msgType),
