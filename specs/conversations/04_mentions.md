@@ -19,8 +19,8 @@ Authors want to address other users inside reed content. Mentions must:
 
 1. Survive domain moves — signed content must **not** embed `https://this-host/...`.
 2. Be clickable inside the SPA (and optionally OS/browser deep-linkable later).
-3. Leave a durable **server-side index** so a future notification system
-   ([proposal 11](../11_user_notifications.md)) can tell users they were
+3. Leave a durable **server-side index** so a future mentions tab
+   ([`notifications/02`](../notifications/02_mentions_tab.md)) can tell users they were
    mentioned — without re-reading reed bodies the server does not keep.
 
 ## Scope
@@ -37,7 +37,8 @@ Authors want to address other users inside reed content. Mentions must:
 ## Non-goals
 
 - Delivering mention notifications (in-app store, badge, push, email). Out of
-  scope; table is the producer substrate for [11](../11_user_notifications.md).
+  scope; table is the producer substrate for the mentions tab
+  ([`notifications/02`](../notifications/02_mentions_tab.md)).
 - Mentions of users on foreign instances beyond recording `server_id` in the
   href / index (no federation routing in v1).
 - Editing already-published reeds to refresh display names.
@@ -226,17 +227,14 @@ a dedicated `MentionLink` component:
   flight — never persisted, never a substitute for that fetch.
 - All other `http(s)` links keep the existing external-link confirm modal.
 
-### Hook to notifications (future)
+### Hook to the mentions tab (future)
 
-When [11](../11_user_notifications.md) lands, a producer can:
-
-```text
-after insert into reed_mentions:
-  for each row where mentioned is local and != author:
-    NotifyUser(mentioned, kind="mention", metadata={authorId, reedId, …})
-```
-
-This step only guarantees the table and cleanup so that hook is trivial.
+Superseded by [`notifications/02_mentions_tab.md`](../notifications/02_mentions_tab.md):
+mentions are surfaced by **reading** `reed_mentions` via a list endpoint,
+not by pushing a separate message per mention through the Mailbox — a
+mention is already its own durable, browsable record, so no additional
+producer/delivery step is needed here. This step only guarantees the
+table and cleanup so that read is trivial.
 
 ## Work items
 

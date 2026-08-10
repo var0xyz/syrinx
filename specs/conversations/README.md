@@ -29,7 +29,7 @@ conversation section and local reply cache.
 After 00, [01](01_publish_and_refs.md) can land alone (security hardening).
 [02](02_index_and_api.md) needs the publish hook from 01. SPA ([03](03_spa_reed_detail.md))
 needs the APIs from 02. Mentions ([04](04_mentions.md)) only need 01 (content on
-publish); notification delivery stays in [proposal 11](../11_user_notifications.md).
+publish); notification/read delivery stays in [`notifications/`](../notifications/README.md).
 Thread reply counts ([05](05_thread_reply_counts.md)) only need the
 `reed_replies` schema from 02; independent of 03/04.
 

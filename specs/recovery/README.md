@@ -46,7 +46,8 @@ history-fork tip check ([16](16_reed_tip_check.md)), and device binding
 numbered steps (skip superseded [08](08_spa_recovery_landing.md); each step
 depends only on earlier numbers).
 Normal-operation prerequisites (proposals 01–10 under `specs/`) are
-in place. Notifications (proposal 11) remain deferred.
+in place. Proposal 11 is superseded by [`notifications/`](../notifications/README.md),
+not needed by recovery.
 
 **Implemented** (normal operation — not part of this directory):
 
@@ -360,9 +361,10 @@ questions by that server timestamp — never the submitter's.
 
 **Partial / proposed** — still open in normal operation:
 
-- Revocation **follower fanout** ([09](../09_revocation_fanout.md)).
-- Per-user system notifications ([11](../11_user_notifications.md))
-  (also listed under Deferred below).
+- None — revocation handling ([09](../09_revocation_fanout.md)) is
+  Implemented (on-demand check, not fanout), and per-user notifications
+  (proposal 11) are superseded by [`notifications/`](../notifications/README.md), not
+  required by recovery (see Deferred below).
 
 **Remaining** — land numbered SPA / client steps below. Server recovery API
 ([00](00_server_key_passphrase_keychain.md)–[06](06_reeds_follows_complete.md))
@@ -397,10 +399,12 @@ is **superseded** by [10](10_spa_unified_restore.md).
 - Reed tip check history-fork safeguard ([16](16_reed_tip_check.md)).
 - Device binding ([17](17_device_binding.md)) — after 09–15.
 
-**Deferred**:
-
-- Per-user system notification store for collision renames (Proposal 11).
-  Recovery renames losers silently for now.
+**Deferred**: none — the notification-store-for-collision-renames premise
+(Proposal 11) is stale. Username-collision losers are **deleted**, not
+renamed (see `recovery/upsert.go`'s collision handling) — a rename can't
+work, since the server can't mint a new signed profile for a user. There
+is no "loser" left to notify. General-purpose server↔user messaging is
+now [`notifications/`](../notifications/README.md), independent of recovery.
 
 ## What is reconstructed
 

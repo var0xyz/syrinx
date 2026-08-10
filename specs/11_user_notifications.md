@@ -2,12 +2,33 @@
 
 ## Status
 
-Proposed. Prerequisite for the recovery collision-loser notification (see
-[`takeover_recovery.md`](../takeover_recovery.md), "What must be built" and
-Rule 3), but **useful on its own** as a general-purpose notification
-substrate.
+**Superseded** by [`notifications/`](notifications/README.md).
 
-## Context
+This proposal's motivating case — telling a username-collision "loser"
+they'd been renamed during server recovery — no longer exists. Commit
+`cc735d7` ("On username collision nuke the loser") made **deletion**, not
+rename, the actual collision policy, and
+[`recovery/upsert.go`](../recovery/upsert.go)'s own comment explains why a
+rename could never have worked: a renamed-in-place row would carry a
+username that no longer matches what its owner signed, permanently
+breaking verification. The server cannot mint a new signed profile for a
+user; only the user's own key can, and clients reject anything else. So
+there is no "loser" left to notify.
+
+[`notifications/`](notifications/README.md) replaces this proposal's general-purpose
+notification substrate goal, split into two mechanisms instead of one
+generic store: an encrypted, one-way **Mailbox** for server→user private
+messages (the direct successor to this file's schema/API/producer
+design, reworked to be encrypted-at-rest and delivered-then-deleted
+rather than a durable read/unread log), and **admin mentions**
+(`@everyone`) for public, repliable, server/admin→everyone broadcasts,
+which this proposal never covered. The existing client-side toast/alert
+system is explicitly out of scope for both and untouched.
+
+Kept below for history; do not implement against this file — see
+[`notifications/`](notifications/README.md) instead.
+
+## Context (original, historical)
 
 There is no per-user message store today. Recovery needs one to tell a
 username-collision loser that they were renamed, since the affected user is
