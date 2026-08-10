@@ -27,7 +27,7 @@ Each table below has a **Status** column per step. Values:
 | Ripples          | Proposed    | 00–04                                                |
 | Load testing     | Proposed    | 00–03                                                |
 | Federation       | In progress | 00, 02–05 (depends on roles)                         |
-| Prerequisites    | In progress | 09 (revocation fanout), 11 (notifications, deferred) |
+| Prerequisites    | In progress | 11 (notifications, deferred)                         |
 | Protobuf wire    | In progress | 01, 03, 04, 06 (HTTP + shared protos + SPA types)    |
 | Publish ready    | Implemented | —                                                    |
 | Pipes            | Implemented | —                                                    |
@@ -39,8 +39,8 @@ Each table below has a **Status** column per step. Values:
 | Avatars          | Deferred    | 00–05                                                |
 
 **Already done:** Invites, Coverage, Deletion, Signature storage, Publish
-ready, Conversations, Recovery feature, and the prerequisites other than
-09/11.
+ready, Conversations, Recovery feature, and the prerequisites other than 11
+(deferred).
 
 ## Prerequisite proposals
 
@@ -53,8 +53,8 @@ ready, Conversations, Recovery feature, and the prerequisites other than
 | 05 | Signed profile updates                             | 01, 04         | Implemented |
 | 06 | Signed key revocations                             | 01             | Implemented |
 | 07 | Server-signed client keys on distribution          | 01             | Implemented |
-| 08 | Client signature validation                        | 01, 03, 07, 09 | Implemented |
-| 09 | Revocation realtime fanout + catch-up              | 06, 10         | Proposed    |
+| 08 | Client signature validation                        | 01, 03, 07     | Implemented |
+| 09 | Revocation: on-demand check, not fanout            | 06, 10         | Implemented |
 | 10 | Revocations as a separate signed resource          | 01             | Implemented |
 | 11 | Per-user system-notification store                 | —              | Deferred    |
 
@@ -282,10 +282,11 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 
 ## Parallelism
 
-- **Remaining open (prerequisites):** 09 (revocation fanout), 11.
+- **Remaining open (prerequisites):** 11 (deferred).
 - **After 01 lands**: 03, 04, 05, 06, 07 unblocked on `BytesToSign`
   (most of these are already shipped).
-- **After 06+10 land**: 09 (revocation fanout) unblocks.
+- **09** (revocation: on-demand check, not fanout) is implemented; landed
+  after 06+10 as an SPA verify-path + throttle change, not a WS fanout.
 - **Signatures 09** (verify-before-store) is implemented; attested
   possession cancelled.
 - **Recovery feature steps** land only after the prerequisites they need;

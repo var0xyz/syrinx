@@ -51,6 +51,8 @@ type Recorder interface {
 	EchoTargeted(ctx context.Context, targetAuthorID, targetReedID string)
 	ReedRejectedLength(ctx context.Context, rawChars, visibleChars int)
 	KeyRevoked(ctx context.Context, userID string)
+	KeyFetchError(ctx context.Context, reporterUserID, targetUserID, fingerprint string)
+	RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID, fingerprint string)
 	UserBackup(ctx context.Context, userID string, kind BackupKind)
 	ReedCoverage(ctx context.Context, authorID, reedID string, holders, coveragePercent int)
 	WSMessage(ctx context.Context, direction Direction, msgType string)
@@ -66,6 +68,8 @@ func (Noop) ReedDeleted(context.Context, string, string)            {}
 func (Noop) EchoTargeted(context.Context, string, string)           {}
 func (Noop) ReedRejectedLength(context.Context, int, int)           {}
 func (Noop) KeyRevoked(context.Context, string)                     {}
+func (Noop) KeyFetchError(context.Context, string, string, string)  {}
+func (Noop) RevokedKeyUsed(context.Context, string, string, string) {}
 func (Noop) UserBackup(context.Context, string, BackupKind)         {}
 func (Noop) ReedCoverage(context.Context, string, string, int, int) {}
 func (Noop) WSMessage(context.Context, Direction, string)           {}

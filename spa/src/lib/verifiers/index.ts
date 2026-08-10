@@ -9,7 +9,9 @@ import { reedAsMarkdown, type ReedType } from '$lib/types/reed';
 import { apiService } from '$lib/services/api';
 import { cryptoService } from '$lib/services/crypto';
 import { dbService } from '$lib/services/db';
+import { serverConnection } from '$lib/services/serverConnection';
 import { reedContentWithinLimits } from '$lib/utils/reedContent';
+import { shouldRecheck, markChecked } from '$lib/utils/keyCheckThrottle';
 import {
   buildAccountRemovalServerPayload,
   buildAccountRemovalUserPayload,
@@ -33,37 +35,49 @@ export async function allowUnsigned(_data: unknown): Promise<boolean> {
   return true;
 }
 
+/** Fetches, attests, and stores fresh key data. Reports genuine fetch
+ * failures (anything but "key not found") since content already arrived
+ * over an authenticated connection — the server was reachable. */
+async function fetchAndStorePublicKey(
+  userID: string,
+  fingerprint: string
+): Promise<api.PublicKey | null> {
+  try {
+    const key = await apiService.getPublicKey(userID, fingerprint);
+    if (!key) return null;
+    await dbService.put('publicKeys', key, verifyPublicKey);
+    markChecked(fingerprint);
+    return key;
+  } catch (err) {
+    const status = (err as { status?: number })?.status;
+    if (status !== 404) {
+      serverConnection.sendKeyFetchError(userID, fingerprint);
+    }
+    return null;
+  }
+}
+
 async function resolvePublicKeyArmor(
   userID: string,
   fingerprint: string
 ): Promise<string | null> {
   const cached = await dbService.get<api.PublicKey>('publicKeys', fingerprint);
-  if (cached?.armor) return cached.armor;
-  try {
-    const key = await apiService.getPublicKey(userID, fingerprint);
-    if (!key?.armor) return null;
-    await dbService.put('publicKeys', key, verifyPublicKey);
-    return key.armor;
-  } catch {
-    return null;
-  }
+  if (cached?.armor && !shouldRecheck(fingerprint)) return cached.armor;
+  const key = await fetchAndStorePublicKey(userID, fingerprint);
+  return key?.armor ?? null;
 }
 
-/** Cached public key, fetching + attesting + storing only on miss. */
+/** Cached public key, re-fetching + attesting + storing on miss or once the
+ * sessionStorage throttle window has elapsed since the last check. A failed
+ * re-check (transient network error, not 404) fails closed rather than
+ * falling back to the stale cached copy — freshness could not be confirmed. */
 async function resolvePublicKey(
   userID: string,
   fingerprint: string
 ): Promise<api.PublicKey | null> {
   const cached = await dbService.get<api.PublicKey>('publicKeys', fingerprint);
-  if (cached) return cached;
-  try {
-    const key = await apiService.getPublicKey(userID, fingerprint);
-    if (!key) return null;
-    await dbService.put('publicKeys', key, verifyPublicKey);
-    return key;
-  } catch {
-    return null;
-  }
+  if (cached && !shouldRecheck(fingerprint)) return cached;
+  return await fetchAndStorePublicKey(userID, fingerprint);
 }
 
 async function resolvePredecessor(key: api.PublicKey): Promise<api.PublicKey | null> {
@@ -136,6 +150,32 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
   return true;
 }
 
+/** True if a key was valid at the given (server-attested) instant: not
+ * revoked, or revoked strictly after that instant — a key remains valid for
+ * content it signed before its own revocation. Fails closed (false) if the
+ * revocation record can't be fetched, and reports REVOKED_KEY_USED when
+ * content was genuinely signed at/after revocation. */
+async function isKeyValidAt(
+  userID: string,
+  fingerprint: string,
+  revoked: boolean,
+  atISO: string
+): Promise<boolean> {
+  if (!revoked) return true;
+  let revocation: api.KeyRevocation;
+  try {
+    revocation = await apiService.getKeyRevocation(userID, fingerprint);
+  } catch {
+    return false;
+  }
+  if (!revocation?.serverSignature?.timestamp) return false;
+  const valid = Date.parse(atISO) < Date.parse(revocation.serverSignature.timestamp);
+  if (!valid) {
+    serverConnection.sendRevokedKeyUsed(userID, fingerprint);
+  }
+  return valid;
+}
+
 export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promise<boolean> {
   if (!revocation?.serverSignature || !revocation.userSignature?.armor) {
     console.error('[verifyKeyRevocation] missing signatures', revocation?.fingerprint);
@@ -191,8 +231,8 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     return false;
   }
 
-  const armor = await resolvePublicKeyArmor(user.id, user.userSignature.fingerprint);
-  if (!armor) {
+  const publicKeyData = await resolvePublicKey(user.id, user.userSignature.fingerprint);
+  if (!publicKeyData?.armor) {
     console.error('[verifyUser] public key unavailable', user.userSignature.fingerprint);
     return false;
   }
@@ -209,7 +249,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     console.error('[verifyUser] invalid userSignature encoding');
     return false;
   }
-  const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, armor);
+  const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, publicKeyData.armor);
   if (!userValid) {
     console.error('[verifyUser] user signature failed', user.id);
     return false;
@@ -233,6 +273,19 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     console.error('[verifyUser] server signature failed', serverResult);
     return false;
   }
+
+  if (
+    !(await isKeyValidAt(
+      user.id,
+      user.userSignature.fingerprint,
+      publicKeyData.revoked,
+      user.serverSignature.timestamp
+    ))
+  ) {
+    console.error('[verifyUser] key was revoked before this profile update was signed', user.id);
+    return false;
+  }
+
   return true;
 }
 
@@ -291,6 +344,19 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     console.error('[verifyReed] server signature failed', serverResult);
     return false;
   }
+
+  if (
+    !(await isKeyValidAt(
+      reed.userID,
+      reed.userSignature.fingerprint,
+      publicKeyData.revoked,
+      reed.serverSignature.timestamp
+    ))
+  ) {
+    console.error('[verifyReed] author key was revoked before this reed was signed', reed.id);
+    return false;
+  }
+
   return true;
 }
 

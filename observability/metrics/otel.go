@@ -18,6 +18,8 @@ type OTEL struct {
 	echoesTargeted      metric.Int64Counter
 	reedsRejectedLength metric.Int64Counter
 	keysRevoked         metric.Int64Counter
+	keyFetchErrors      metric.Int64Counter
+	revokedKeysUsed     metric.Int64Counter
 	usersBackup         metric.Int64Counter
 	wsMessages          metric.Int64Counter
 	rawChars            metric.Int64Histogram
@@ -56,6 +58,14 @@ func New(m metric.Meter) *OTEL {
 		panic(err)
 	}
 	r.keysRevoked, err = m.Int64Counter("syrinx.keys.revoked")
+	if err != nil {
+		panic(err)
+	}
+	r.keyFetchErrors, err = m.Int64Counter("syrinx.keys.fetch_errors")
+	if err != nil {
+		panic(err)
+	}
+	r.revokedKeysUsed, err = m.Int64Counter("syrinx.keys.revoked_used")
 	if err != nil {
 		panic(err)
 	}
@@ -143,6 +153,28 @@ func (r *OTEL) ReedRejectedLength(ctx context.Context, rawChars, visibleChars in
 func (r *OTEL) KeyRevoked(ctx context.Context, userID string) {
 	r.keysRevoked.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("user.id_hash", UserIDHash(userID)),
+	))
+}
+
+// KeyFetchError records a client-reported failure to fetch a key it needed
+// to verify signed content it received over an already-authenticated
+// connection — an anomaly, not a routine cache miss.
+func (r *OTEL) KeyFetchError(ctx context.Context, reporterUserID, targetUserID, fingerprint string) {
+	r.keyFetchErrors.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("reporter.id_hash", UserIDHash(reporterUserID)),
+		attribute.String("target.id_hash", UserIDHash(targetUserID)),
+		attribute.String("key.fingerprint", fingerprint),
+	))
+}
+
+// RevokedKeyUsed records a client-reported signed resource whose timestamp
+// falls at or after its signing key's revocation — kept in the clear
+// (fingerprint, not user identity) for later security analysis.
+func (r *OTEL) RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID, fingerprint string) {
+	r.revokedKeysUsed.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("reporter.id_hash", UserIDHash(reporterUserID)),
+		attribute.String("target.id_hash", UserIDHash(targetUserID)),
+		attribute.String("key.fingerprint", fingerprint),
 	))
 }
 
