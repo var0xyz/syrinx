@@ -11,6 +11,7 @@
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
+  import KebabMenu from '$lib/components/KebabMenu.svelte';
   import { goto } from '$app/navigation';
   import { parseReedRef } from '$lib/utils/reedRef';
   import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
@@ -330,7 +331,7 @@
           />
           {#if isOwner}
             <div class="reed-meta">
-              <button class="reed-menu" on:click|stopPropagation={() => deleteReed(reed.id, true)} aria-label="Delete">🗑️</button>
+              <KebabMenu options={[{ label: 'Delete', danger: true, onSelect: () => deleteReed(reed.id, true) }]} />
             </div>
           {/if}
         </div>
@@ -385,7 +386,7 @@
           />
           {#if isOwner}
             <div class="reed-meta">
-              <button class="reed-menu" on:click|stopPropagation={() => deleteReed(reed.id)} aria-label="Delete">🗑️</button>
+              <KebabMenu options={[{ label: 'Delete', danger: true, onSelect: () => deleteReed(reed.id) }]} />
             </div>
           {/if}
         </div>
@@ -523,19 +524,6 @@
     padding: 1rem;
     border-bottom: 1px solid var(--border);
     min-width: 0;
-  }
-
-  .reed-menu {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0.25rem;
-    border-radius: 4px;
-    transition: background-color 0.2s ease;
-  }
-
-  .reed-menu:hover {
-    background: var(--border);
   }
 
   .error-state {

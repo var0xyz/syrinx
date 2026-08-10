@@ -19,6 +19,7 @@
   import Avatar from '$lib/components/Avatar.svelte';
   import ReedStatsSubscription from '$lib/components/ReedStatsSubscription.svelte';
   import ConversationSection from '$lib/components/ConversationSection.svelte';
+  import KebabMenu from '$lib/components/KebabMenu.svelte';
   import { followReedQueue } from '$lib/repositories/reeds';
   import { parseReedRef, resolveThreadId } from '$lib/utils/reedRef';
 
@@ -524,9 +525,7 @@
               </div>
               {#if user?.id === reed.userID}
                 <div class="reed-actions">
-                  <button class="reed-menu" on:click={deleteReed} aria-label="Delete">
-                    <span class="menu-dots">🗑️</span>
-                  </button>
+                  <KebabMenu options={[{ label: 'Delete', danger: true, onSelect: deleteReed }]} />
                 </div>
               {/if}
             </div>
@@ -726,24 +725,6 @@
     flex-direction: column;
     align-items: flex-end;
     gap: 0.25rem;
-  }
-
-  .reed-menu {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0.25rem;
-    border-radius: 4px;
-    transition: background-color 0.2s ease;
-  }
-
-  .reed-menu:hover {
-    background: var(--border);
-  }
-
-  .menu-dots {
-    font-size: 1.2rem;
-    color: var(--muted);
   }
 
   .reed-body {
