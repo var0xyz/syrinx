@@ -134,7 +134,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   signedInit = withDeviceHeaders(signedInit);
 
-  const res = await fetch(`${BASE_URL}${path}`, signedInit);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, signedInit);
+  } catch (error) {
+    // fetch() itself only throws for network-level failures (offline, DNS,
+    // connection refused, CORS) — never for a non-2xx response, which is
+    // handled separately below. The raw error here is a browser-specific
+    // string like "Failed to fetch" that means nothing to a user.
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error;
+    }
+    const err = new Error('Unable to reach the server. Please check your connection and try again.') as Error & {
+      status?: number;
+      networkError?: boolean;
+    };
+    err.networkError = true;
+    throw err;
+  }
 
   if (!res.ok) {
     if (res.status === 400 || res.status === 401 || res.status === 403) {
