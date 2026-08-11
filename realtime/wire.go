@@ -150,6 +150,7 @@ type ReedStatsMsg struct {
 	Echoes          int    `json:"echoes"`
 	CoveragePercent int    `json:"coveragePercent"`
 	Replies         int    `json:"replies"`
+	Likes           int    `json:"likes"`
 }
 
 // ReedCoverageMsg notifies reed subscribers of holder coverage changes.
@@ -174,4 +175,12 @@ type ReedRepliesMsg struct {
 	UserID  string `json:"userID"`
 	ReedID  string `json:"reedID"`
 	Replies int    `json:"replies"`
+}
+
+// ReedLikesMsg notifies reed subscribers of like count changes.
+type ReedLikesMsg struct {
+	Type   string `json:"type"`
+	UserID string `json:"userID"`
+	ReedID string `json:"reedID"`
+	Likes  int    `json:"likes"`
 }
