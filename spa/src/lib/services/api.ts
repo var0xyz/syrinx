@@ -606,6 +606,26 @@ export const apiService = {
     });
   },
 
+  async likeReed(
+    authorId: string,
+    reedId: string,
+    signature: string,
+    fingerprint: string
+  ): Promise<api.ReedLike> {
+    const formData = new URLSearchParams();
+    formData.append('signature', signature);
+    formData.append('fingerprint', fingerprint);
+    return request<api.ReedLike>(`/reeds/${authorId}/${reedId}/like`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString(),
+    });
+  },
+
+  async unlikeReed(authorId: string, reedId: string): Promise<void> {
+    return request<void>(`/reeds/${authorId}/${reedId}/like`, { method: 'DELETE' });
+  },
+
   async revokeKey(
     userId: string,
     fingerprint: string,

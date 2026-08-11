@@ -6,6 +6,8 @@
   import { apiService } from '$lib/services/api';
   import { removeReedAsAuthor, verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
+  import { likeReed, unlikeReed } from '$lib/services/reedLike';
+  import { likedReedsRepository } from '$lib/repositories/likedReeds';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
@@ -38,6 +40,7 @@
   let echoCount = 0;
   let replyCount = 0;
   let coveragePercent = 0;
+  let likeCount = 0;
   /** @type {'loading' | 'loaded' | 'failed'} */
   let statsStatus = 'loading';
   let statsTimeoutId = 0;
@@ -53,7 +56,6 @@
   let loadSeq = 0;
 
   // Action buttons state
-  let likesCount = 0;
   let isLiked = false;
   let isReplyModalOpen = false;
   let isEchoModalOpen = false;
@@ -98,6 +100,12 @@
     fetchingReed = false;
     resetStatsState();
     lastHandledFollowReedId = '';
+    isLiked = false;
+    if (next.reed?.userID && next.reed?.id) {
+      void likedReedsRepository.has(next.reed.userID, next.reed.id).then((liked) => {
+        if (reed?.id === next.reed.id) isLiked = liked;
+      });
+    }
     loadingReed = !next.fromCache && !next.errorMessage;
     if (next.fromCache) {
       void afterCacheHit(next);
@@ -126,6 +134,7 @@
     echoCount = 0;
     replyCount = 0;
     coveragePercent = 0;
+    likeCount = 0;
     statsStatus = 'loading';
     clearStatsTimeout();
   }
@@ -156,6 +165,9 @@
       if (typeof msg.replies === 'number') {
         replyCount = msg.replies;
       }
+      if (typeof msg.likes === 'number') {
+        likeCount = msg.likes;
+      }
     }
   }
 
@@ -171,6 +183,14 @@
     if (msg?.userID === userID && msg?.reedID === reedID) {
       if (typeof msg.replies === 'number') {
         replyCount = msg.replies;
+      }
+    }
+  }
+
+  function handleReedLikes(msg) {
+    if (msg?.userID === userID && msg?.reedID === reedID) {
+      if (typeof msg.likes === 'number') {
+        likeCount = msg.likes;
       }
     }
   }
@@ -197,6 +217,7 @@
     serverConnection.on(ServerEvent.ReedEchoes, handleReedEchoes);
     serverConnection.on(ServerEvent.ReedReplies, handleReedReplies);
     serverConnection.on(ServerEvent.ReedCoverage, handleReedCoverage);
+    serverConnection.on(ServerEvent.ReedLikes, handleReedLikes);
   });
 
   onDestroy(() => {
@@ -205,6 +226,7 @@
     serverConnection.off(ServerEvent.ReedEchoes, handleReedEchoes);
     serverConnection.off(ServerEvent.ReedReplies, handleReedReplies);
     serverConnection.off(ServerEvent.ReedCoverage, handleReedCoverage);
+    serverConnection.off(ServerEvent.ReedLikes, handleReedLikes);
   });
 
   async function reloadFromCache() {
@@ -398,12 +420,19 @@
     }
   }
 
-  function handleLike() {
-    isLiked = !isLiked;
-    if (isLiked) {
-      likesCount += 1;
-    } else {
-      likesCount = Math.max(0, likesCount - 1);
+  async function handleLike() {
+    if (isPending) return;
+    const wasLiked = isLiked;
+    isLiked = !wasLiked;
+    try {
+      if (wasLiked) {
+        await unlikeReed(userID, reedID);
+      } else {
+        await likeReed(userID, reedID);
+      }
+    } catch (error) {
+      isLiked = wasLiked;
+      console.error('Error toggling like:', error);
     }
   }
 
@@ -522,6 +551,8 @@
                         {echoCount}
                         <span class="reed-stat-icon replies" aria-hidden="true"></span>
                         {replyCount}
+                        <span class="reed-stat-icon likes" aria-hidden="true"></span>
+                        {likeCount}
                         <span class="reed-stat-icon coverage" aria-hidden="true"></span>
                         {coveragePercent}%
                         <span class="reed-stat-icon info" aria-hidden="true"></span>
@@ -562,23 +593,14 @@
                 <span class="action-icon icon-reply"></span>
                 <span class="action-label">Reply</span>
               </button>
+              <button class="action-btn" on:click={handleLike} aria-label={isLiked ? 'Unlike' : 'Like'} disabled={isPending}>
+                <span class="action-icon icon-like" class:filled={isLiked}></span>
+                <span class="action-label">Like</span>
+              </button>
               <button class="action-btn" on:click={handleShare} aria-label="Share" disabled={isPending}>
                 <span class="action-icon icon-share"></span>
                 <span class="action-label">Share</span>
               </button>
-              <!--
-              <button
-                class="action-btn like-btn"
-                class:liked={isLiked}
-                on:click={handleLike}
-                aria-label="Like"
-              >
-                <span class="action-icon">{isLiked ? '❤️' : '🤍'}</span>
-                <span class="action-label">
-                  {likesCount > 0 ? likesCount : 'Like'}
-                </span>
-              </button>
-              -->
             </div>
           </div>
           {#if !isPending}
@@ -737,6 +759,12 @@
     mask-image: url('/icons/graph-16.png');
   }
 
+  .reed-stat-icon.likes {
+    margin-left: 0.15rem;
+    -webkit-mask-image: url('/icons/like-16-outlined.png');
+    mask-image: url('/icons/like-16-outlined.png');
+  }
+
   .reed-stat-icon.info {
     margin-left: 0.25rem;
     -webkit-mask-image: url('/icons/info-16.png');
@@ -801,7 +829,8 @@
 
   .icon-echo,
   .icon-reply,
-  .icon-share {
+  .icon-share,
+  .icon-like {
     display: inline-block;
     width: 1.2rem;
     height: 1.2rem;
@@ -827,6 +856,16 @@
   .icon-share {
     -webkit-mask-image: url('/icons/share-24.png');
     mask-image: url('/icons/share-24.png');
+  }
+
+  .icon-like {
+    -webkit-mask-image: url('/icons/like-24-outlined.png');
+    mask-image: url('/icons/like-24-outlined.png');
+  }
+
+  .icon-like.filled {
+    -webkit-mask-image: url('/icons/like-24-filled.png');
+    mask-image: url('/icons/like-24-filled.png');
   }
 
   .action-label {

@@ -38,7 +38,14 @@
             <span class="stats-icon replies" aria-hidden="true"></span>
             Replies
           </dt>
-          <dd>How many replies this conversation has received.</dd>
+          <dd>How many replies this conversation has.</dd>
+        </div>
+        <div class="stats-row">
+          <dt>
+            <span class="stats-icon likes" aria-hidden="true"></span>
+            Likes
+          </dt>
+          <dd>How many users have liked this reed.</dd>
         </div>
         <div class="stats-row">
           <dt>
@@ -166,5 +173,10 @@
   .stats-icon.coverage {
     -webkit-mask-image: url('/icons/graph-24.png');
     mask-image: url('/icons/graph-24.png');
+  }
+
+  .stats-icon.likes {
+    -webkit-mask-image: url('/icons/like-24-filled.png');
+    mask-image: url('/icons/like-24-filled.png');
   }
 </style>

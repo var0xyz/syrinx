@@ -172,6 +172,15 @@ export interface AccountRemoval extends Base {
   serverSignature: ServerSignature;
 }
 
+/** Wire shape of a signed reed-like certificate (POST /reeds/{userID}/{reedID}/like). */
+export interface ReedLike extends Base {
+  serverID: string;
+  authorID: string;
+  reedID: string;
+  userSignature: UserSignature;
+  serverSignature: ServerSignature;
+}
+
 /** One direct reply in GET /reeds/{userID}/{reedID}/replies. */
 export interface ReplyMeta extends Base {
   userID: string;
