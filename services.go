@@ -2126,6 +2126,171 @@ func (s *DataService) HasAccountRemoval(ctx context.Context, userID string) (boo
 	return deletion.HasAccountRemoval(ctx, s.db, userID)
 }
 
+// ErrLikeConflict is returned when an existing like row differs from the
+// cert being inserted (identical replay succeeds).
+var ErrLikeConflict = errors.New("like conflict")
+
+// GetReedLike returns the stored like cert for (likerID, authorID, reedID),
+// or nil if the reed is not liked by that user.
+func (s *DataService) GetReedLike(ctx context.Context, likerID, authorID, reedID string) (*LikeCert, error) {
+	cert, err := s.loadLikeCertTx(ctx, s.db, likerID, authorID, reedID, false)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return cert, nil
+}
+
+// InsertReedLike stores a like cert once and bumps reeds.like_count in
+// the same TX. Same signatures → no-op (idempotent replay); different
+// signatures for the same (likerID, authorID, reedID) → ErrLikeConflict.
+// likerID and likerFingerprint key the reeds_liked row.
+func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerprint string, cert LikeCert) error {
+	cert.ServerSignature.SignedAt = cert.ServerSignature.SignedAt.UTC().Truncate(time.Second)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	existing, err := s.loadLikeCertTx(ctx, tx, likerID, cert.AuthorID, cert.ReedID, true)
+	switch {
+	case err == sql.ErrNoRows:
+		userSigID, err := signing.InsertUserSignature(ctx, tx, cert.UserSignature.Fingerprint, cert.UserSignature.Armor)
+		if err != nil {
+			return err
+		}
+		serverSigID, err := signing.InsertServerSignature(ctx, tx, cert.ServerSignature.Fingerprint, cert.ServerSignature.Armor, cert.ServerSignature.SignedAt)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reeds_liked (
+				liker_user_id, author_user_id, reed_id, liker_fingerprint,
+				user_signature_id, server_signature_id
+			) VALUES ($1, $2, $3, $4, $5, $6)
+		`, likerID, cert.AuthorID, cert.ReedID, likerFingerprint, userSigID, serverSigID); err != nil {
+			return fmt.Errorf("insert reed like: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE reeds SET like_count = like_count + 1
+			WHERE user_id = $1 AND id = $2
+		`, cert.AuthorID, cert.ReedID); err != nil {
+			return fmt.Errorf("bump like_count: %w", err)
+		}
+	case err != nil:
+		return err
+	default:
+		if existing.UserSignature.Armor != cert.UserSignature.Armor ||
+			existing.UserSignature.Fingerprint != cert.UserSignature.Fingerprint ||
+			existing.ServerSignature.Armor != cert.ServerSignature.Armor ||
+			existing.ServerSignature.Fingerprint != cert.ServerSignature.Fingerprint ||
+			!existing.ServerSignature.SignedAt.Equal(cert.ServerSignature.SignedAt) {
+			return ErrLikeConflict
+		}
+	}
+
+	return tx.Commit()
+}
+
+// DeleteReedLike hard-deletes the like row for (likerID, authorID, reedID)
+// if present and decrements reeds.like_count in the same TX. Deleting a
+// nonexistent row is a no-op, returning deleted=false with no error.
+func (s *DataService) DeleteReedLike(ctx context.Context, likerID, authorID, reedID string) (deleted bool, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
+		DELETE FROM reeds_liked
+		WHERE liker_user_id = $1 AND author_user_id = $2 AND reed_id = $3
+	`, likerID, authorID, reedID)
+	if err != nil {
+		return false, fmt.Errorf("delete reed like: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
+		return false, tx.Commit()
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE reeds SET like_count = GREATEST(0, like_count - 1)
+		WHERE user_id = $1 AND id = $2
+	`, authorID, reedID); err != nil {
+		return false, fmt.Errorf("decrement like_count: %w", err)
+	}
+
+	return true, tx.Commit()
+}
+
+// CountLikes returns the current like count for a reed, read from the
+// denormalized reeds.like_count column (never COUNT(*) on a hot path).
+func (s *DataService) CountLikes(ctx context.Context, authorID, reedID string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT like_count FROM reeds WHERE user_id = $1 AND id = $2
+	`, authorID, reedID).Scan(&count)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return count, err
+}
+
+type likeQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerID, authorID, reedID string, forUpdate bool) (*LikeCert, error) {
+	query := `
+		SELECT liker_fingerprint, user_signature_id, server_signature_id
+		FROM reeds_liked
+		WHERE liker_user_id = $1 AND author_user_id = $2 AND reed_id = $3`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
+	var likerFP string
+	var userSigID, serverSigID int64
+	err := q.QueryRowContext(ctx, query, likerID, authorID, reedID).Scan(&likerFP, &userSigID, &serverSigID)
+	if err != nil {
+		return nil, err
+	}
+
+	// signing helpers need DBTX; *sql.DB and *sql.Tx both satisfy it.
+	dbtx, ok := q.(signing.DBTX)
+	if !ok {
+		return nil, fmt.Errorf("reed like load: querier is not signing.DBTX")
+	}
+	userRow, err := signing.GetUserSignature(ctx, dbtx, userSigID)
+	if err != nil {
+		return nil, err
+	}
+	serverRow, err := signing.GetServerSignature(ctx, dbtx, serverSigID)
+	if err != nil {
+		return nil, err
+	}
+	return &LikeCert{
+		AuthorID: authorID,
+		ReedID:   reedID,
+		UserSignature: UserSignature{
+			Fingerprint: userRow.Fingerprint,
+			Armor:       userRow.Signature,
+		},
+		ServerSignature: ServerSignature{
+			Fingerprint: serverRow.Fingerprint,
+			Armor:       serverRow.Signature,
+			SignedAt:    serverRow.SignedAt,
+		},
+	}, nil
+}
+
 // ==================== //
 //   Account recovery   //
 // ==================== //

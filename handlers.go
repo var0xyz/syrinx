@@ -2082,6 +2082,164 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, h.reedRemovalWire(&cert))
 }
 
+// LikeReed handles POST /reeds/{userID}/{reedID}/like — a signed like.
+// {userID} is the reed's author; the liker is the authenticated caller.
+// The request carries the liker's own key fingerprint alongside the
+// signature, so verification targets that exact key.
+func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("LikeReed request received")
+
+	authorID := mux.Vars(r)["userID"]
+	reedID := mux.Vars(r)["reedID"]
+	if authorID == "" || reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		return
+	}
+
+	likerID := h.getUserID(r)
+
+	values, err := parseFormData(r)
+	if err != nil {
+		log.Error().Err(err).Msg("Error parsing form")
+		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		return
+	}
+	userSignatureB64 := strings.TrimSpace(values.Get("signature"))
+	if userSignatureB64 == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+		return
+	}
+	fingerprint := strings.TrimSpace(values.Get("fingerprint"))
+	if fingerprint == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `fingerprint` is required")
+		return
+	}
+
+	serverID := h.services.db.GetServerID()
+
+	existing, err := h.services.db.GetReedLike(r.Context(), likerID, authorID, reedID)
+	if err != nil {
+		log.Error().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Err(err).Msg("Error loading reed like")
+		internalServerError(w)
+		return
+	}
+	if existing != nil {
+		if existing.UserSignature.Armor != userSignatureB64 {
+			writeResponse(w, http.StatusConflict, "Reed like already exists with a different signature")
+			return
+		}
+		writeResponse(w, http.StatusOK, existing)
+		return
+	}
+
+	reed, err := h.services.db.GetReed(r.Context(), authorID, reedID)
+	if err != nil {
+		log.Error().Str("authorID", authorID).Str("reedID", reedID).Err(err).Msg("Error getting reed")
+		internalServerError(w)
+		return
+	}
+	if reed == nil {
+		writeResponse(w, http.StatusNotFound, "Reed not found")
+		return
+	}
+
+	userPayload := identity.BuildReedLikeUserPayload(serverID, authorID, reedID, fingerprint)
+	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
+		return
+	}
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), likerID, fingerprint)
+	if err != nil {
+		log.Error().Str("likerID", likerID).Str("fingerprint", fingerprint).Err(err).Msg("Error loading public key")
+		internalServerError(w)
+		return
+	}
+	if pubKey == nil || pubKey.Revoked {
+		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		return
+	}
+	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
+		log.Error().
+			Str("likerID", likerID).
+			Str("authorID", authorID).
+			Str("reedID", reedID).
+			Err(err).
+			Msg("signature verification failed")
+		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		return
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	serverPayload := identity.BuildReedLikeServerPayload(
+		serverID, authorID, reedID,
+		h.signingKey.Fingerprint, userSignatureB64, now,
+	)
+	serverSignature, err := h.countersign(serverPayload, now)
+	if err != nil {
+		log.Error().Err(err).Msg("Error producing reed-like countersignature")
+		internalServerError(w)
+		return
+	}
+
+	cert := LikeCert{
+		ServerID: serverID,
+		AuthorID: authorID,
+		ReedID:   reedID,
+		UserSignature: UserSignature{
+			Fingerprint: fingerprint,
+			Armor:       userSignatureB64,
+		},
+		ServerSignature: serverSignature,
+	}
+	if err := h.services.db.InsertReedLike(r.Context(), likerID, fingerprint, cert); err != nil {
+		if errors.Is(err, ErrLikeConflict) {
+			existing, getErr := h.services.db.GetReedLike(r.Context(), likerID, authorID, reedID)
+			if getErr == nil && existing != nil && existing.UserSignature.Armor == userSignatureB64 {
+				writeResponse(w, http.StatusOK, existing)
+				return
+			}
+			writeResponse(w, http.StatusConflict, "Reed like already exists with a different signature")
+			return
+		}
+		log.Error().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Err(err).Msg("Error storing reed like")
+		internalServerError(w)
+		return
+	}
+
+	log.Info().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Msg("Reed like accepted")
+	writeResponse(w, http.StatusOK, cert)
+}
+
+// UnlikeReed handles DELETE /reeds/{userID}/{reedID}/like: a plain hard
+// delete of the liker's row, authenticated as the liker. Empty request
+// and response bodies; the status code is the whole signal. Works
+// against a since-deleted reed, which is how a client clears it from its
+// own liked-reeds view.
+func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("UnlikeReed request received")
+
+	authorID := mux.Vars(r)["userID"]
+	reedID := mux.Vars(r)["reedID"]
+	if authorID == "" || reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		return
+	}
+
+	likerID := h.getUserID(r)
+
+	if _, err := h.services.db.DeleteReedLike(r.Context(), likerID, authorID, reedID); err != nil {
+		log.Error().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Err(err).Msg("Error deleting reed like")
+		internalServerError(w)
+		return
+	}
+
+	log.Info().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Msg("Reed unlike accepted")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handlers) reedRemovalWire(cert *deletion.Cert) ReedRemoval {
 	return ReedRemoval{
 		Type:     identity.TypeReed,

@@ -372,6 +372,85 @@ func BuildReedRemovalServerPayload(
 	)
 }
 
+// TypeReedLike is the wire and signed-header `type` for a reed-like
+// certificate (JSON `"type": "reed_like"`).
+const TypeReedLike = "reed_like"
+
+// reedLikeUserHeaders returns the header map the liker signs. authorID
+// and reedID identify the target reed (same composite reference shape as
+// every other reed reference in this codebase). fingerprint names the
+// liker's own signing key, so the server verifies against that exact key
+// — avoids a spurious verification failure if the liker rotates keys
+// between signing and the server processing the request. Content is
+// empty.
+func reedLikeUserHeaders(serverID, authorID, reedID, fingerprint string) map[string]string {
+	return map[string]string{
+		"type":        TypeReedLike,
+		"serverID":    serverID,
+		"authorID":    authorID,
+		"reedID":      reedID,
+		"fingerprint": fingerprint,
+	}
+}
+
+// BuildReedLikeUserPayload returns the exact bytes the liker signs to
+// produce the wire `signature` field on a reed-like cert.
+func BuildReedLikeUserPayload(serverID, authorID, reedID, fingerprint string) []byte {
+	return signing.BytesToSign(
+		reedLikeUserHeaders(serverID, authorID, reedID, fingerprint),
+		"",
+	)
+}
+
+// reedLikeServerHeaders returns the header map the server countersigns.
+// userSignatureB64 binds the liker's attestation into the server-signed
+// bytes (same class as identity / revocation / reed-removal countersign).
+func reedLikeServerHeaders(
+	serverID,
+	authorID,
+	reedID,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	signedAt time.Time,
+) map[string]string {
+	return map[string]string{
+		"type":                 TypeReedLike,
+		"serverID":             serverID,
+		"authorID":             authorID,
+		"reedID":               reedID,
+		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignatureB64,
+	}
+}
+
+// BuildReedLikeServerPayload returns the exact bytes the server signs
+// when countersigning a reed like. signedAt becomes server.timestamp on
+// the wire.
+//
+// `signedAt` must already be truncated to whole seconds so that what is
+// signed matches what Postgres stores after any timestamp round-trip.
+func BuildReedLikeServerPayload(
+	serverID,
+	authorID,
+	reedID,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	signedAt time.Time,
+) []byte {
+	return signing.BytesToSign(
+		reedLikeServerHeaders(
+			serverID,
+			authorID,
+			reedID,
+			serverKeyFingerprint,
+			userSignatureB64,
+			signedAt,
+		),
+		"",
+	)
+}
+
 // TypeAccount is the wire and signed-header `type` for account removal.
 const TypeAccount = "account"
 
