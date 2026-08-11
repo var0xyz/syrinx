@@ -20,6 +20,7 @@
   import ReedStatsSubscription from '$lib/components/ReedStatsSubscription.svelte';
   import ConversationSection from '$lib/components/ConversationSection.svelte';
   import KebabMenu from '$lib/components/KebabMenu.svelte';
+  import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue } from '$lib/repositories/reeds';
   import { parseReedRef, resolveThreadId } from '$lib/utils/reedRef';
 
@@ -56,6 +57,7 @@
   let isLiked = false;
   let isReplyModalOpen = false;
   let isEchoModalOpen = false;
+  let isStatsInfoModalOpen = false;
   let conversationRefresh = 0;
   /** @type {import('$lib/components/ConversationSection.svelte').default | null} */
   let conversationSection = null;
@@ -358,6 +360,10 @@
     isReplyModalOpen = true;
   }
 
+  function handleStatsInfo() {
+    isStatsInfoModalOpen = true;
+  }
+
   async function handleShare() {
     if (!reed || isPending) return;
 
@@ -506,7 +512,7 @@
                   <a href="/profile/{reed.userID}" class="author-name">{authorUser?.username ?? reed.userID}</a>
                   <p class="reed-date" class:pending={isPending}>{isPending ? 'Pending…' : formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
                   {#if !isPending}
-                    <p class="reed-stats" title="Stats for nerds">
+                    <button type="button" class="reed-stats" on:click={handleStatsInfo} aria-label="Reed stats — click for details">
                       {#if statsStatus === 'loading'}
                         Loading stats...
                       {:else if statsStatus === 'failed'}
@@ -518,8 +524,9 @@
                         {replyCount}
                         <span class="reed-stat-icon coverage" aria-hidden="true"></span>
                         {coveragePercent}%
+                        <span class="reed-stat-icon info" aria-hidden="true"></span>
                       {/if}
-                    </p>
+                    </button>
                   {/if}
                 </div>
               </div>
@@ -592,6 +599,7 @@
 
     <NewReedModal open={isReplyModalOpen} replyingTo={reed} on:close={() => { isReplyModalOpen = false; }} />
     <NewReedModal open={isEchoModalOpen} echoOf={reed} on:close={() => { isEchoModalOpen = false; }} />
+    <ReedStatsInfoModal open={isStatsInfoModalOpen} on:close={() => { isStatsInfoModalOpen = false; }} />
   </Auth>
 
 <style>
@@ -682,11 +690,20 @@
     align-items: end;
     gap: 0.45rem;
     margin: 0.25rem 0 0;
+    padding: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
     color: var(--muted);
     font-size: 0.7rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     letter-spacing: 0.02em;
     opacity: 0.8;
+  }
+
+  .reed-stats:hover {
+    opacity: 1;
+    color: var(--fg);
   }
 
   .reed-stat-icon {
@@ -718,6 +735,12 @@
     margin-left: 0.15rem;
     -webkit-mask-image: url('/icons/graph-16.png');
     mask-image: url('/icons/graph-16.png');
+  }
+
+  .reed-stat-icon.info {
+    margin-left: 0.25rem;
+    -webkit-mask-image: url('/icons/info-16.png');
+    mask-image: url('/icons/info-16.png');
   }
 
   .reed-actions {
