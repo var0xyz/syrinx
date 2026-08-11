@@ -1,4 +1,5 @@
 import { redirect } from '@sveltejs/kit';
+import { getFollowReeds, initFollowIds } from '$lib/repositories/reeds';
 
 /** @type {import('./$types').PageLoad} */
 export async function load({ parent }) {
@@ -6,5 +7,12 @@ export async function load({ parent }) {
   if (!user) {
     throw redirect(307, '/');
   }
-  throw redirect(307, `/profile/${user.id}`);
+
+  await initFollowIds();
+  const followReeds = await getFollowReeds();
+
+  return {
+    user,
+    followReeds,
+  };
 }

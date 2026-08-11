@@ -1,13 +1,9 @@
 <script>
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
-  import ReedsList from '$lib/components/ReedsList.svelte';
+  import FeedTabs from '$lib/components/FeedTabs.svelte';
+  import LikedReedsList from '$lib/components/LikedReedsList.svelte';
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
-
-  /** @type {import('./$types').PageData} */
-  export let data;
-
-  $: user = data.user;
 
   /** @type {number | null} */
   let scrollRestoreY = null;
@@ -22,23 +18,26 @@
 </script>
 
 <Auth>
-  <div class="reeds-container">
-    <div class="reeds-content">
-      <ReedsList authorId={user.id} isOwner={true} showWriteButton={true} {scrollRestoreY} />
+  <div class="feed-container">
+    <FeedTabs active="liked" />
+
+    <div class="feed-content-wrap">
+      <LikedReedsList {scrollRestoreY} />
     </div>
-    <BottomToolbar currentPage="reeds" />
+
+    <BottomToolbar currentPage="feeds" />
   </div>
 </Auth>
 
 <style>
-  .reeds-container {
+  .feed-container {
     min-height: calc(100vh - 3rem - 1px);
     display: flex;
     flex-direction: column;
     background: var(--bg);
   }
 
-  .reeds-content {
+  .feed-content-wrap {
     flex: 1;
     max-width: 600px;
     margin: 0 auto;
@@ -47,7 +46,7 @@
   }
 
   @media (max-width: 768px) {
-    .reeds-content {
+    .feed-content-wrap {
       padding: 0.5rem;
     }
   }
