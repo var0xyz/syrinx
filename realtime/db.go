@@ -510,21 +510,36 @@ func (ds *DBService) CountEchoes(ctx context.Context, echoedUserID, echoedReedID
 	return n, err
 }
 
-// GetReedStatsSnapshot returns echoes, coverage, and subtree reply count for subscribe ACK.
-func (ds *DBService) GetReedStatsSnapshot(ctx context.Context, authorUserID, reedID string) (echoes, coveragePercent, replies int, err error) {
+// CountLikes returns the current like count for a reed, read from the
+// denormalized reeds.like_count column.
+func (ds *DBService) CountLikes(ctx context.Context, authorUserID, reedID string) (int, error) {
+	var n int
+	err := ds.db.QueryRowContext(ctx, `
+		SELECT like_count FROM reeds WHERE user_id = $1 AND id = $2
+	`, authorUserID, reedID).Scan(&n)
+	return n, err
+}
+
+// GetReedStatsSnapshot returns echoes, coverage, subtree reply count, and
+// like count for subscribe ACK.
+func (ds *DBService) GetReedStatsSnapshot(ctx context.Context, authorUserID, reedID string) (echoes, coveragePercent, replies, likes int, err error) {
 	coveragePercent, err = ds.GetReedCoveragePercent(ctx, authorUserID, reedID)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, 0, err
 	}
 	echoes, err = ds.CountEchoes(ctx, authorUserID, reedID)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, 0, err
 	}
 	replies, err = ds.GetSubtreeReplyCount(ctx, authorUserID, reedID)
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, 0, err
 	}
-	return echoes, coveragePercent, replies, nil
+	likes, err = ds.CountLikes(ctx, authorUserID, reedID)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	return echoes, coveragePercent, replies, likes, nil
 }
 
 // GetSubtreeReplyCount returns live descendant reply count beneath userID/reedID.

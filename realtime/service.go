@@ -126,6 +126,10 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			rs.notifyReedReplies(message.UserID, message.ReedID)
 		}
 
+		if message.Type == LikeCountChanged {
+			rs.notifyReedLikes(message.UserID, message.ReedID)
+		}
+
 		if message.Type == ReedRemoved {
 			log.Info().
 				Str("userID", message.UserID).
@@ -1310,7 +1314,7 @@ func (rs *RealtimeService) handleSubscribeReed(client *Client, msg InboundJSONMs
 		return
 	}
 
-	echoes, coveragePercent, replies, err := rs.dbService.GetReedStatsSnapshot(context.Background(), authorID, reedID)
+	echoes, coveragePercent, replies, likes, err := rs.dbService.GetReedStatsSnapshot(context.Background(), authorID, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", authorID).Str("reedID", reedID).Msg("Failed to load reed stats for subscribe")
 		return
@@ -1324,6 +1328,7 @@ func (rs *RealtimeService) handleSubscribeReed(client *Client, msg InboundJSONMs
 		Echoes:          echoes,
 		CoveragePercent: coveragePercent,
 		Replies:         replies,
+		Likes:           likes,
 	}
 	if err := rs.connManager.SendToClient(client, stats); err != nil {
 		log.Error().Err(err).Str("userID", client.userID).Str("reedID", reedID).Msg("Failed to send REED_STATS")
@@ -1432,6 +1437,27 @@ func (rs *RealtimeService) notifyReedReplies(authorUserID, reedID string) {
 		Replies: replies,
 	}); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_REPLIES")
+	}
+}
+
+func (rs *RealtimeService) notifyReedLikes(authorUserID, reedID string) {
+	likes, err := rs.dbService.CountLikes(context.Background(), authorUserID, reedID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("userID", authorUserID).
+			Str("reedID", reedID).
+			Msg("Failed to load reed likes for notify")
+		return
+	}
+
+	if err := rs.connManager.SendToReedSubscribers(authorUserID, reedID, ReedLikesMsg{
+		Type:   "REED_LIKES",
+		UserID: authorUserID,
+		ReedID: reedID,
+		Likes:  likes,
+	}); err != nil {
+		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_LIKES")
 	}
 }
 

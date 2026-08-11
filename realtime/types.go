@@ -17,6 +17,7 @@ const (
 	AccountRemoved
 	EchoCountChanged // UserID/ReedID = echoed target; refresh REED_ECHOES for subscribers
 	ReplyCountChanged // UserID/ReedID = ancestor reed; refresh REED_REPLIES subtree count for subscribers
+	LikeCountChanged // UserID/ReedID = liked reed; refresh REED_LIKES for subscribers
 )
 
 // BroadcastMessage represents a message sent from the main app to the realtime service.
@@ -93,6 +94,8 @@ func (bt BroadcastType) String() string {
 		return "EchoCountChanged"
 	case ReplyCountChanged:
 		return "ReplyCountChanged"
+	case LikeCountChanged:
+		return "LikeCountChanged"
 	default:
 		return "Unknown"
 	}

@@ -2208,6 +2208,12 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.broadcastChan <- realtime.BroadcastMessage{
+		Type:   realtime.LikeCountChanged,
+		UserID: authorID,
+		ReedID: reedID,
+	}
+
 	log.Info().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Msg("Reed like accepted")
 	writeResponse(w, http.StatusOK, cert)
 }
@@ -2230,10 +2236,19 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 
 	likerID := h.getUserID(r)
 
-	if _, err := h.services.db.DeleteReedLike(r.Context(), likerID, authorID, reedID); err != nil {
+	deleted, err := h.services.db.DeleteReedLike(r.Context(), likerID, authorID, reedID)
+	if err != nil {
 		log.Error().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Err(err).Msg("Error deleting reed like")
 		internalServerError(w)
 		return
+	}
+
+	if deleted {
+		h.broadcastChan <- realtime.BroadcastMessage{
+			Type:   realtime.LikeCountChanged,
+			UserID: authorID,
+			ReedID: reedID,
+		}
 	}
 
 	log.Info().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Msg("Reed unlike accepted")
