@@ -38,6 +38,7 @@ Each table below has a **Status** column per step. Values:
 | Roles            | Implemented | 00–02                                             |
 | Prerequisites    | Implemented | 01–10 (11 superseded — see Notifications)         |
 | Avatars          | Deferred    | 00–05                                             |
+| Likes            | Proposed    | 00–06                                             |
 
 **Already done:** Invites, Coverage, Deletion, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -115,6 +116,26 @@ See [`coverage/`](coverage/README.md):
 | 00 | Design + UX + formula                            | Implemented |
 | 01 | Denormalized counters                            | Implemented |
 | 02 | WS subscribe snapshot ACK + live echoes/coverage | Implemented |
+
+## Reed likes
+
+See [`likes/`](likes/README.md). Like is signed and server-countersigned;
+unlike is a plain unsigned `DELETE` (hard row delete, no cert). Both are
+offline-first (`pendingLikes` / `pendingUnlike` outboxes), backed by a
+denormalized `reeds.like_count`, with live count updates via the existing
+per-reed WS subscription (`REED_LIKES` alongside
+`REED_ECHOES`/`REED_COVERAGE`), and a "Liked reeds" feed entry point on
+the profile page.
+
+| #  | Title                                              | Status   |
+|----|-----------------------------------------------------|----------|
+| 00 | Design + locked model                              | Proposed |
+| 01 | `reeds_liked` schema + denormalized like count     | Proposed |
+| 02 | Like canonical payload + countersign               | Proposed |
+| 03 | Like (signed) / unlike (unsigned) API (idempotent) | Proposed |
+| 04 | `REED_LIKES` subscribe snapshot + live updates     | Proposed |
+| 05 | SPA `pendingLikes`/`pendingUnlike` + like button   | Proposed |
+| 06 | SPA "Liked reeds" list (profile entry point)       | Proposed |
 
 ## Publish ready (fanout gate)
 
@@ -341,6 +362,13 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
   (00→06). Steps 01–02 (schema) may proceed before flipping traffic;
   04 and 05 are the hard cutovers.
 - **Pipes** ([`pipes/`](pipes/README.md)) — Implemented (00–03).
+- **Likes** ([`likes/`](likes/README.md)) — independent of every other
+  track; a straightforward extension of the existing coverage/echo
+  subscription plumbing and the reed-removal offline-first pattern, not a
+  new mechanism. Within `likes/`, follow 00→06: schema (01) and payload
+  (02) can proceed in parallel after 00; 03 needs both; 04 (realtime)
+  needs 03; 05 (SPA outbox + button) needs 03 and 04; 06 (liked feed)
+  needs 05.
 - **Notifications** ([`notifications/`](notifications/README.md)) —
   independent of every other track; supersedes prerequisite 11. Within
   `notifications/`, follow 00→05: 01 (`@everyone`) and 03 (mailbox message
