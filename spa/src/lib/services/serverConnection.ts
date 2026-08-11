@@ -30,6 +30,7 @@ export enum ServerEvent {
   ReedEchoes       = 'REED_ECHOES',
   ReedReplies      = 'REED_REPLIES',
   ReedCoverage     = 'REED_COVERAGE',
+  ReedLikes        = 'REED_LIKES',
 }
 
 class ServerConnection {

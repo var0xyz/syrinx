@@ -283,6 +283,48 @@ export function buildReedRemovalServerPayload(
   );
 }
 
+/** Mirror of BuildReedLikeUserPayload in identity.go (`type: reed_like`). */
+export function buildReedLikeUserPayload(
+  serverID: string,
+  authorID: string,
+  reedID: string,
+  fingerprint: string
+): string {
+  return stringToSign(
+    {
+      type: 'reed_like',
+      serverID,
+      authorID,
+      reedID,
+      fingerprint
+    },
+    ''
+  );
+}
+
+/** Mirror of BuildReedLikeServerPayload in identity.go. */
+export function buildReedLikeServerPayload(
+  serverID: string,
+  authorID: string,
+  reedID: string,
+  serverKeyFingerprint: string,
+  userSignatureB64: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'reed_like',
+      serverID,
+      authorID,
+      reedID,
+      signedAt,
+      serverKeyFingerprint,
+      userSignature: userSignatureB64
+    },
+    ''
+  );
+}
+
 /** Mirror of BuildAccountRemovalUserPayload (`type: account`, note as content). */
 export function buildAccountRemovalUserPayload(
   serverID: string,

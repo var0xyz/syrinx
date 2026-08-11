@@ -20,6 +20,8 @@ import {
   buildProfilePayload,
   buildPublicKeyPayload,
   buildReedPayload,
+  buildReedLikeServerPayload,
+  buildReedLikeUserPayload,
   buildReedRemovalServerPayload,
   buildReedRemovalUserPayload,
   buildServerRevocationPayload,
@@ -398,6 +400,62 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
   const serverResult = await verify(cert.serverSignature, serverPayload);
   if (serverResult.ok === false) {
     console.error('[verifyReedRemoval] server signature failed', serverResult);
+    return false;
+  }
+  return true;
+}
+
+/** A like is always the signed-in user's own — resolve the liker's key
+ * against the local userID rather than any wire-carried identity. */
+export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
+  if (!cert || !cert.userSignature?.armor || !cert.serverSignature) {
+    console.error('[verifyReedLike] missing fields');
+    return false;
+  }
+
+  const likerID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+  if (!likerID) {
+    console.error('[verifyReedLike] no signed-in user');
+    return false;
+  }
+
+  const armor = await resolvePublicKeyArmor(likerID, cert.userSignature.fingerprint);
+  if (!armor) {
+    console.error('[verifyReedLike] no public key for liker', likerID);
+    return false;
+  }
+
+  let userSigArmor: string;
+  try {
+    userSigArmor = atob(cert.userSignature.armor);
+  } catch {
+    console.error('[verifyReedLike] invalid signature encoding');
+    return false;
+  }
+
+  const userPayload = buildReedLikeUserPayload(
+    cert.serverID,
+    cert.authorID,
+    cert.reedID,
+    cert.userSignature.fingerprint
+  );
+  const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, armor);
+  if (!userValid) {
+    console.error('[verifyReedLike] user signature failed', cert.reedID);
+    return false;
+  }
+
+  const serverPayload = buildReedLikeServerPayload(
+    cert.serverID,
+    cert.authorID,
+    cert.reedID,
+    cert.serverSignature.fingerprint,
+    cert.userSignature.armor,
+    signedAtHeader(cert.serverSignature.timestamp)
+  );
+  const serverResult = await verify(cert.serverSignature, serverPayload);
+  if (serverResult.ok === false) {
+    console.error('[verifyReedLike] server signature failed', serverResult);
     return false;
   }
   return true;
