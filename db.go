@@ -141,6 +141,18 @@ type AccountRemoval struct {
 	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
+// LikeCert is both the stored and wire shape of a signed reed-like
+// certificate, returned only from POST .../like. Each field was actually
+// signed by the liker's key and countersigned by the server; the liker
+// is always the authenticated caller.
+type LikeCert struct {
+	ServerID        string          `json:"serverID"`
+	AuthorID        string          `json:"authorID"`
+	ReedID          string          `json:"reedID"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
+}
+
 // /////// //
 //   P2P   //
 // /////// //
@@ -297,6 +309,7 @@ func InitDB(db *sql.DB) error {
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		allocation_count INT NOT NULL DEFAULT 0,
+		like_count INT NOT NULL DEFAULT 0,
 
 		PRIMARY KEY (user_id, id)
 	);`
@@ -409,6 +422,32 @@ func InitDB(db *sql.DB) error {
 			ON DELETE CASCADE,
 		CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140)
 	);`
+
+	// Signed like certificates, one row per currently-liked (liker, reed)
+	// pair; unliking hard-deletes the row. liker_fingerprint binds the
+	// signing key (same class as reed removals).
+	createReedsLikedTable := `
+	CREATE TABLE IF NOT EXISTS reeds_liked (
+		liker_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		author_user_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL,
+		liker_fingerprint VARCHAR(255) NOT NULL,
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+
+		PRIMARY KEY (liker_user_id, author_user_id, reed_id),
+		FOREIGN KEY (author_user_id, reed_id) REFERENCES reeds(user_id, id),
+		FOREIGN KEY (liker_user_id, liker_fingerprint)
+			REFERENCES user_keys(owner, fingerprint)
+			ON DELETE CASCADE
+	);`
+
+	createReedsLikedIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_reeds_liked_liker_created
+		ON reeds_liked (liker_user_id, user_signature_id DESC);
+	CREATE INDEX IF NOT EXISTS idx_reeds_liked_reed
+		ON reeds_liked (author_user_id, reed_id);
+	`
 
 	// ////////// //
 	//   Social   //
@@ -683,6 +722,9 @@ func InitDB(db *sql.DB) error {
 
 		createReedRemovalsTable,
 		createAccountRemovalsTable,
+
+		createReedsLikedTable,
+		createReedsLikedIndexes,
 
 		createUserDevicesTable,
 		createUserDevicesIndexes,

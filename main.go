@@ -307,6 +307,10 @@ func main() {
 	api.HandleFunc("/reeds/{userID}/{reedID}/replies", h.GetReedReplies).Methods("GET")
 	api.HandleFunc("/reeds/{userID}/{reedID}/replies", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/reeds/{userID}/{reedID}/like", h.LikeReed).Methods("POST")
+	api.HandleFunc("/reeds/{userID}/{reedID}/like", h.UnlikeReed).Methods("DELETE")
+	api.HandleFunc("/reeds/{userID}/{reedID}/like", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}).Methods("GET")
