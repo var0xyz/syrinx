@@ -1083,12 +1083,12 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bio := r.FormValue("bio")
-	if len(bio) > 500 {
+	if CountMarkdownCharacters(bio) > MaxReedVisibleChars {
 		log.Error().
 			Str("userID", userID).
-			Int("length", len(bio)).
-			Msg("Bio cannot exceed 500 characters")
-		writeResponse(w, http.StatusBadRequest, "Bio cannot exceed 500 characters")
+			Int("length", CountMarkdownCharacters(bio)).
+			Msg("Bio cannot exceed 140 visible characters")
+		writeResponse(w, http.StatusBadRequest, "Bio cannot exceed 140 characters")
 		return
 	}
 

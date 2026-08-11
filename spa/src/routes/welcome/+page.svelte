@@ -47,7 +47,7 @@
       <a href="/reeds" class="btn btn-primary">
         Start Posting!
       </a>
-      <a href="/profile" class="btn btn-secondary">
+      <a href="/account" class="btn btn-secondary">
         View Profile
       </a>
     </div>

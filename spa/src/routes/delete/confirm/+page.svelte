@@ -50,7 +50,7 @@
   }
 
   function handleCancel(): void {
-    goto('/profile');
+    goto('/account');
   }
 </script>
 

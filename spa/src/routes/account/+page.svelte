@@ -1,12 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
 
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
   import { cryptoService } from '$lib/services/crypto';
-  import { buildUserIdentityPayload, buildUserRevocationPayload } from '$lib/services/signing';
+  import { buildUserRevocationPayload } from '$lib/services/signing';
   import { requestSigner } from '$lib/services/request-signer';
   import { isOnline } from '$lib/services/pwa';
   import { dbService } from '$lib/services/db';
@@ -16,9 +15,6 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import ExportDataModal from '$lib/components/ExportDataModal.svelte';
   import Auth from '$lib/components/Auth.svelte';
-  import UsernameChecker from '$lib/components/UsernameChecker.svelte';
-  import MarkdownParser from '$lib/components/MarkdownParser.svelte';
-  import UserProfileCard from '$lib/components/UserProfileCard.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import { formatRelativeTime } from '$lib/utils/time';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
@@ -37,34 +33,6 @@
   let storageTotal: number = data.storage?.total ?? 0;
   let storagePercentage: number = storageTotal > 0 ? (storageUsed / storageTotal) * 100 : 0;
   let storageAvailable: boolean = data.storage != null;
-
-  // Follow-list modal state lives in the URL hash (#following / #followers)
-  // — same pattern as routes/profile/[userId]/+page.svelte and
-  // routes/feeds/+page.svelte: survives back/forward after a click-through
-  // navigation (open modal, click a row, hit back), which plain component
-  // state does not reliably do.
-  function followListModeFromHash(hash: string): 'following' | 'followers' | null {
-    const h = (hash || '').replace(/^#/, '').toLowerCase();
-    return h === 'following' || h === 'followers' ? h : null;
-  }
-
-  $: followListMode = followListModeFromHash($page.url.hash) ?? 'following';
-  $: followListOpen = followListModeFromHash($page.url.hash) !== null;
-
-  function setFollowListHash(open: boolean, mode: string) {
-    const hash = open ? `#${mode}` : '';
-    void goto(`/profile${hash}`, { replaceState: !open, noScroll: true, keepFocus: true });
-  }
-
-  // Edit mode state
-  let isEditing: boolean = false;
-  let editForm = {
-    username: '',
-    bio: ''
-  };
-  let editError: string = '';
-  let editSuccess: string = '';
-  let saving: boolean = false;
 
   // Encryption Key state (seeded from page load)
   let keyFingerprint: string = data.keyInfo.fingerprint;
@@ -311,118 +279,6 @@
     }
   }
 
-  function startEditing(): void {
-    isEditing = true;
-    editForm = {
-      username: user.username || '',
-      bio: user.bio || ''
-    };
-    editError = '';
-    editSuccess = '';
-  }
-
-  function cancelEditing(): void {
-    isEditing = false;
-    editForm = {
-      username: '',
-      bio: ''
-    };
-    editError = '';
-    editSuccess = '';
-  }
-
-  async function saveProfile(): Promise<void> {
-    saving = true;
-    editError = '';
-    editSuccess = '';
-
-    try {
-      // Normalise once so the values we validate, sign, and send are
-      // the same bytes. Server verifies against these exact strings —
-      // any post-hoc trimming would break signature verification.
-      const nextUsername = editForm.username.trim();
-      const nextBio = editForm.bio.trim();
-
-      if (nextUsername === '') {
-        editError = 'Username is required';
-        return;
-      }
-      if (nextUsername.length > 32) {
-        editError = 'Username cannot exceed 32 characters';
-        return;
-      }
-      if (nextBio.length > 500) {
-        editError = 'Bio cannot exceed 500 characters';
-        return;
-      }
-
-      // Skip the network entirely when nothing changed. The server
-      // would happily return the current record on a signature-match
-      // no-op, but we can avoid a round-trip (and a fresh signature)
-      // whenever the visible field values already match the stored
-      // record.
-      const unchanged =
-        nextUsername === user.username &&
-        nextBio === (user.bio || '');
-      if (unchanged) {
-        isEditing = false;
-        return;
-      }
-
-      // Build and sign the identity-user payload. Bytes MUST match
-      // what the server rebuilds via buildUserIdentityPayload in
-      // identity.go — see signing.ts for the mirror contract. The
-      // signature travels as base64(armored PGP) to survive
-      // form-encoding.
-      //
-      // Sign with the currently-active key (local session), not an unsigned hint.
-      const fingerprint = authService.getActiveKeyFingerprint();
-      const passphrase = authService.getPassphrase();
-      if (!fingerprint || !passphrase) {
-        editError = 'Session expired. Please sign in again.';
-        return;
-      }
-      const privateKey = await privateKeyRepository.getPrivateKey(fingerprint);
-      if (!privateKey) {
-        editError = 'Could not locate your signing key.';
-        return;
-      }
-      const payload = buildUserIdentityPayload(
-        nextUsername,
-        fingerprint,
-        nextBio,
-      );
-      const sigArmor = await cryptoService.signMessage(
-        payload,
-        privateKey.armor,
-        passphrase,
-      );
-      const userSignature = btoa(sigArmor);
-
-      const updatedUser = await apiService.updateUser({
-        username: nextUsername,
-        bio: nextBio,
-        userSignature,
-      });
-
-      await authService.saveUserToStorage(updatedUser);
-      const cachedInfo = await userInfoRepository.get(updatedUser.id);
-      user = mergeUserView(updatedUser, cachedInfo)!;
-      editSuccess = 'Profile updated successfully!';
-
-      setTimeout(() => {
-        editSuccess = '';
-      }, 3000);
-
-      isEditing = false;
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      editError = error instanceof Error ? error.message : 'Failed to update profile. Please try again.';
-    } finally {
-      saving = false;
-    }
-  }
-
   async function exportData(backupPassword: string): Promise<void> {
     exporting = true;
     try {
@@ -512,81 +368,6 @@
   <div class="profile-container">
     <!-- Main Content -->
     <div class="profile-content">
-      {#if isEditing}
-      <div class="profile-card">
-        <div class="profile-info">
-            <div class="edit-form">
-              <div class="form-group">
-                <label for="edit-username">Username</label>
-                <input
-                  id="edit-username"
-                  type="text"
-                  bind:value={editForm.username}
-                  placeholder="Enter username"
-                  maxlength="50"
-                />
-                {#if editForm.username && editForm.username !== user.username}
-                  <div class="help-text">
-                    <UsernameChecker username={editForm.username} authenticated />
-                  </div>
-                {/if}
-              </div>
-
-              <div class="form-group">
-                <label for="edit-bio">Bio</label>
-                <textarea
-                  id="edit-bio"
-                  bind:value={editForm.bio}
-                  placeholder="Tell us about yourself..."
-                  maxlength="500"
-                  rows="3"
-                ></textarea>
-                <div class="char-count">{editForm.bio.length}/500</div>
-              </div>
-
-              {#if editError}
-                <div class="error-message">
-                  <p>{editError}</p>
-                </div>
-              {/if}
-
-              {#if editSuccess}
-                <div class="success-message">
-                  <p>{editSuccess}</p>
-                </div>
-              {/if}
-
-              <div class="edit-actions">
-                <button
-                  class="action-btn secondary"
-                  on:click={cancelEditing}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-                <button
-                  class="action-btn primary"
-                  on:click={saveProfile}
-                  disabled={saving}
-                >
-                  {saving ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            </div>
-        </div>
-      </div>
-      {:else}
-        <UserProfileCard
-          {user}
-          editable={true}
-          {followListOpen}
-          {followListMode}
-          on:edit={startEditing}
-          on:openFollowList={(e) => setFollowListHash(true, e.detail.mode)}
-          on:closeFollowList={() => setFollowListHash(false, followListMode)}
-        />
-      {/if}
-
       <div class="profile-sections">
         <!-- Storage Usage -->
         <div class="section">
@@ -792,7 +573,7 @@
     />
 
     <!-- Bottom Toolbar -->
-    <BottomToolbar currentPage="profile" />
+    <BottomToolbar currentPage="account" />
   </div>
 </Auth>
 
@@ -812,14 +593,6 @@
     padding: 1rem;
   }
 
-  .profile-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1rem;
-    text-align: center;
-    margin-bottom: 1rem;
-  }
 
   .action-btn {
     padding: 0.5rem 1rem;
@@ -878,14 +651,6 @@
 
 
 
-  /* Edit Form Styles */
-  .edit-form {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    margin: 1rem 0;
-  }
-
   .form-group {
     display: flex;
     flex-direction: column;
@@ -917,33 +682,6 @@
   .form-group textarea {
     resize: vertical;
     min-height: 80px;
-  }
-
-  .char-count {
-    color: var(--muted);
-    font-size: 0.8rem;
-    text-align: right;
-  }
-
-  .edit-actions {
-    display: flex;
-    gap: 0.75rem;
-    margin-top: 1rem;
-    justify-content: center;
-  }
-
-  .success-message {
-    background: rgba(76, 175, 80, 0.1);
-    border: 1px solid rgba(76, 175, 80, 0.3);
-    border-radius: 6px;
-    padding: 0.75rem;
-    margin: 1rem 0;
-  }
-
-  .success-message p {
-    margin: 0;
-    color: #4caf50;
-    font-size: 0.9rem;
   }
 
   /* Storage Usage Styles */
@@ -1229,11 +967,6 @@
 
   /* Responsive Design */
   @media (max-width: 768px) {
-    .profile-card {
-      padding: 0 0.75rem;
-      margin-bottom: 0.5rem;
-    }
-
     .profile-content {
       padding: 0.5rem;
     }
