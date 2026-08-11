@@ -12,7 +12,7 @@
     <span class="icon">🌾</span>
     <span class="label">Reeds</span>
   </a>
-  <a href="/feeds" class="toolbar-btn" class:active={currentPage === 'feeds'}>
+  <a href="/feed" class="toolbar-btn" class:active={currentPage === 'feeds'}>
     <span class="icon">📰</span>
     <span class="label">Feed</span>
   </a>
@@ -28,7 +28,7 @@
   {/if}
   <a href="/profile" class="toolbar-btn" class:active={currentPage === 'profile'}>
     <span class="icon">👤</span>
-    <span class="label">Profile</span>
+    <span class="label">Account</span>
   </a>
 </nav>
 

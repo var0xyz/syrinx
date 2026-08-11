@@ -34,7 +34,7 @@ export type QueuedReed = {
 // Receives profile_subscription and request_reed deliveries (explicitly requested content)
 export const profileReedQueue = writable<QueuedReed | null>(null);
 
-// Receives FOLLOW_REED deliveries (followcast fanout + catch-up)
+// Receives FOLLOW_REED deliveries (follow-feed fanout + catch-up)
 export const followReedQueue = writable<QueuedReed | null>(null);
 
 // Receives broadcast_reed deliveries — ephemeral, NOT stored in IndexedDB
@@ -356,8 +356,8 @@ if (typeof window !== 'undefined') {
   });
 }
 
-const FOLLOWCAST_KEY = 'followcastIds';
-const FOLLOWCAST_LIMIT = 50;
+const FOLLOW_FEED_KEY = 'followFeedIds';
+const FOLLOW_FEED_LIMIT = 50;
 const BROADCAST_KEY = 'broadcastReeds';
 
 /** Drop a reed from the ephemeral broadcast session list (e.g. it arrived via follow). */
@@ -377,35 +377,35 @@ export function removeBroadcastReed(reedId: string): void {
   }
 }
 
-export async function initFollowcastIds(): Promise<void> {
-  if (sessionStorage.getItem(FOLLOWCAST_KEY) !== null) return;
+export async function initFollowIds(): Promise<void> {
+  if (sessionStorage.getItem(FOLLOW_FEED_KEY) !== null) return;
   const following = await dbService.getAll<{ userId: string }>('following');
   if (following.length === 0) return;
   const followedSet = new Set(following.map(f => f.userId));
   const reeds = await dbService.getLatestFromIndex<ReedType>(
-    'reeds', 'serverSignature.timestamp', FOLLOWCAST_LIMIT,
+    'reeds', 'serverSignature.timestamp', FOLLOW_FEED_LIMIT,
     reed => followedSet.has(reed.userID)
   );
-  sessionStorage.setItem(FOLLOWCAST_KEY, JSON.stringify(reeds.map(r => r.id)));
+  sessionStorage.setItem(FOLLOW_FEED_KEY, JSON.stringify(reeds.map(r => r.id)));
 }
 
-export function prependFollowcastId(reedId: string): void {
+export function prependFollowId(reedId: string): void {
   let ids: string[] = [];
   try {
-    ids = JSON.parse(sessionStorage.getItem(FOLLOWCAST_KEY) ?? '[]');
+    ids = JSON.parse(sessionStorage.getItem(FOLLOW_FEED_KEY) ?? '[]');
   } catch {
     // ignore
   }
   if (!ids.includes(reedId)) {
-    ids = [reedId, ...ids].slice(0, FOLLOWCAST_LIMIT);
-    sessionStorage.setItem(FOLLOWCAST_KEY, JSON.stringify(ids));
+    ids = [reedId, ...ids].slice(0, FOLLOW_FEED_LIMIT);
+    sessionStorage.setItem(FOLLOW_FEED_KEY, JSON.stringify(ids));
   }
 }
 
-export async function getFollowcastReeds(): Promise<{ reeds: ReedType[]; authors: Record<string, User> }> {
+export async function getFollowReeds(): Promise<{ reeds: ReedType[]; authors: Record<string, User> }> {
   let ids: string[] = [];
   try {
-    ids = JSON.parse(sessionStorage.getItem(FOLLOWCAST_KEY) ?? '[]');
+    ids = JSON.parse(sessionStorage.getItem(FOLLOW_FEED_KEY) ?? '[]');
   } catch {
     // ignore
   }

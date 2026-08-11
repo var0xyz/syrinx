@@ -1,8 +1,4 @@
 import { redirect } from '@sveltejs/kit';
-import {
-  getFollowcastReeds,
-  initFollowcastIds,
-} from '$lib/repositories/reeds';
 import { isBlankEcho } from '$lib/utils/emptyEcho';
 
 const BROADCAST_KEY = 'broadcastReeds';
@@ -28,13 +24,10 @@ export async function load({ parent }) {
     throw redirect(307, '/');
   }
 
-  await initFollowcastIds();
   const broadcastReeds = loadBroadcastReeds();
-  const followcastReeds = await getFollowcastReeds();
 
   return {
     user,
     broadcastReeds,
-    followcastReeds,
   };
 }

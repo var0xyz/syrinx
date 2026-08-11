@@ -6,5 +6,5 @@ export async function load({ parent }) {
   if (!user) {
     throw redirect(307, '/');
   }
-  return { user };
+  throw redirect(307, `/profile/${user.id}`);
 }

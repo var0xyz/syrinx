@@ -352,6 +352,7 @@
     color: inherit;
     text-align: left;
     white-space: nowrap;
+    width: auto;
   }
 
   button.follow-stat {

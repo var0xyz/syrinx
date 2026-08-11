@@ -294,7 +294,7 @@
       <ReedsList
         authorId={userId}
         {isOwner}
-        showWriteButton={false}
+        showWriteButton={isOwner}
         {scrollRestoreY}
         expectContent={!isOwner}
       />

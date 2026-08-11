@@ -12,7 +12,7 @@
   import { enforceImportGate } from '$lib/services/restoreFlow';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { dbService } from '$lib/services/db';
-  import { reedsService, dispatchReedToQueue, initFollowcastIds, prependFollowcastId, removeBroadcastReed } from '$lib/repositories/reeds';
+  import { reedsService, dispatchReedToQueue, initFollowIds, prependFollowId, removeBroadcastReed } from '$lib/repositories/reeds';
   import { reedRequestsRepository } from '$lib/repositories/reedRequests';
   import { followingRepository } from '$lib/repositories/following';
   import { clearReedRequestDispatched, startReedRequestDrainer } from '$lib/services/reedRequestDrainer';
@@ -116,7 +116,7 @@
         // Explicit REQUEST_REED or profile_subscription relay reply.
         dispatchReedToQueue(reed, ServerEvent.DataResponse);
         if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
-          prependFollowcastId(reed.id);
+          prependFollowId(reed.id);
         }
         await requestReferencedReeds(reed);
       } catch (error) {
@@ -133,7 +133,7 @@
         await reedsService.storeReed(reed);
         if (eventId) serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
-        prependFollowcastId(reed.id);
+        prependFollowId(reed.id);
         dispatchReedToQueue(reed, 'follow_reed');
         await requestReferencedReeds(reed);
       } catch (error) {
@@ -150,9 +150,9 @@
         if (eventId) serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
         dispatchReedToQueue(reed, 'pipe_reed');
-        // Also following the author: keep followcast in sync without a second relay.
+        // Also following the author: keep the follow feed in sync without a second relay.
         if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
-          prependFollowcastId(reed.id);
+          prependFollowId(reed.id);
           dispatchReedToQueue(reed, 'follow_reed');
         }
         await requestReferencedReeds(reed);
@@ -163,7 +163,7 @@
     });
     serverConnection.on(ServerEvent.BroadcastReed, async (data) => {
       // Broadcast reeds are ephemeral: never stored in IndexedDB.
-      // Followed authors belong in followcast only — ignore if we follow them.
+      // Followed authors belong in the follow feed only — ignore if we follow them.
       const reed = data.data;
       if (isBlankEcho(reed)) return;
       if (reed?.userID && (await followingRepository.isFollowing(reed.userID))) {
