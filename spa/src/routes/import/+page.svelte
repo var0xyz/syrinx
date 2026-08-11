@@ -212,7 +212,7 @@
         <p>Your backup has been restored. You can now access your account.</p>
         <div class="success-actions">
           <a href="/reeds" class="btn btn-primary">Go to reeds</a>
-          <a href="/profile" class="btn btn-secondary">Go to profile</a>
+          <a href="/account" class="btn btn-secondary">Go to profile</a>
         </div>
       </div>
     {:else}

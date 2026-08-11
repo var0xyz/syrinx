@@ -26,7 +26,7 @@
       <span class="label">Mesh</span>
     </a>
   {/if}
-  <a href="/profile" class="toolbar-btn" class:active={currentPage === 'profile'}>
+  <a href="/account" class="toolbar-btn" class:active={currentPage === 'account'}>
     <span class="icon">👤</span>
     <span class="label">Account</span>
   </a>

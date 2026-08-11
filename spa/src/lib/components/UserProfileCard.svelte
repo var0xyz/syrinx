@@ -8,7 +8,6 @@
   import { apiService } from '$lib/services/api';
 
   export let user;
-  export let editable = false;
   export let isOwner = false;
   /** Resolved before first paint by the profile page load — avoids Follow→Unfollow flash. */
   export let isFollowing = false;
@@ -195,11 +194,11 @@
       <MarkdownParser text={user.bio} />
     </div>
   {/if}
-  {#if editable}
+  {#if isOwner}
     <div class="profile-actions">
       <button class="action-btn primary" on:click={() => dispatch('edit')}>Edit Profile</button>
     </div>
-  {:else if !isOwner}
+  {:else}
     <div class="profile-actions">
       <button class="action-btn" class:primary={!following} class:secondary={following} on:click={toggleFollow}>
         {following ? 'Unfollow' : 'Follow'}
