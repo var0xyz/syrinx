@@ -165,6 +165,12 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			// isn't necessarily a follower/broadcast/profile subscriber.
 			reedSubscribers := rs.connManager.ReedSubscriberUserIDs(message.UserID, message.ReedID, "")
 			rs.dispatchRemovalMany(reedSubscribers, message.UserID, message.ReedID, cert)
+
+			// If the removed reed was itself a reply, everyone subscribed to
+			// an ancestor further up the thread also needs the removal notice
+			// — they were shown the reply and need to know it's gone, same as
+			// notifyReplyAncestorsOfReply for a newly posted reply.
+			rs.notifyReplyAncestorsOfRemoval(message.UserID, message.ReedID, cert)
 		}
 
 		if message.Type == AccountRemoved {
@@ -1455,6 +1461,30 @@ func (rs *RealtimeService) notifyReplyAncestorsOfReply(replyUserID, replyReedID 
 			return
 		}
 		rs.notifyReedSubscribersOfReply(parentUserID, parentReedID, replyUserID, replyReedID)
+		userID, reedID = parentUserID, parentReedID
+	}
+}
+
+// notifyReplyAncestorsOfRemoval walks (removedUserID, removedReedID)'s
+// ancestor chain and delivers the removal cert to each ancestor's
+// reed-stat subscribers — someone viewing a thread needs to learn a reply
+// in it was deleted, not just subscribers of the removed reed itself.
+// Removal certs are server-stored (unlike reply content), so unlike
+// notifyReplyAncestorsOfReply there's no relay-holder race to worry about;
+// this can run inline with the removed reed's own subscriber fanout.
+func (rs *RealtimeService) notifyReplyAncestorsOfRemoval(removedUserID, removedReedID string, cert *ReedRemovalWire) {
+	userID, reedID := removedUserID, removedReedID
+	for {
+		parentUserID, parentReedID, ok, err := rs.dbService.ReplyParent(context.Background(), userID, reedID)
+		if err != nil {
+			log.Error().Err(err).Str("userID", userID).Str("reedID", reedID).Msg("Failed to resolve reply parent for removal")
+			return
+		}
+		if !ok {
+			return
+		}
+		recipients := rs.connManager.ReedSubscriberUserIDs(parentUserID, parentReedID, "")
+		rs.dispatchRemovalMany(recipients, removedUserID, removedReedID, cert)
 		userID, reedID = parentUserID, parentReedID
 	}
 }
