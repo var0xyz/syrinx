@@ -2,11 +2,11 @@ package recovery
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strconv"
 	"time"
 
+	"syrinx/encoding"
 	"syrinx/identity"
 	"syrinx/roles"
 )
@@ -242,11 +242,11 @@ func verifyRevocation(ctx context.Context, rev *Revocation, key KeyWire, userID,
 }
 
 func decodeB64Armor(s string) (string, error) {
-	raw, err := base64.StdEncoding.DecodeString(s)
+	raw, err := encoding.Base64Decode(s)
 	if err != nil {
 		return "", fmt.Errorf("invalid base64 encoding")
 	}
-	return string(raw), nil
+	return raw, nil
 }
 
 // decodeKeyNestArmor walks a key nest outermost→oldest, decoding each
