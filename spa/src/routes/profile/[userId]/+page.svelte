@@ -28,7 +28,7 @@
 
   $: userId = $page.params.userId;
 
-  // 'loading' | 'tombstone' | 'notFound' | 'noContent' | 'ready'
+  // 'loading' | 'tombstone' | 'notFound' | 'noContent' | 'ready' | 'error'
   let status = data.status;
   let isOwner = data.isOwner;
   let isFollowing = data.isFollowing;
@@ -226,53 +226,64 @@
   async function refreshFromNetwork(uid: string) {
     if (accountRemoved || status === 'tombstone') return;
     const seq = ++infoFetchSeq;
-    const { status: httpStatus, info, removal } = await apiService.getUserInfoWithStatus(uid);
-    if (seq !== infoFetchSeq) return;
-
-    if (httpStatus === 404) {
-      status = 'notFound';
-      return;
-    }
-    if (httpStatus === 410) {
-      await handleGone(removal);
-      return;
-    }
-    if (httpStatus !== 200 || !info) {
-      return;
-    }
-
-    await userInfoRepository.put(info);
-    if (seq !== infoFetchSeq) return;
-
-    let profile: api.User | null = isOwner
-      ? data.currentUser
-      : await userRepository.get(uid).catch(() => null);
-
-    if (profileNeedsRefresh(profile, info)) {
-      const {
-        status: profileStatus,
-        user,
-        removal: profileRemoval,
-      } = await apiService.getUserProfileWithStatus(uid);
+    try {
+      const { status: httpStatus, info, removal } = await apiService.getUserInfoWithStatus(uid);
       if (seq !== infoFetchSeq) return;
-      if (profileStatus === 410) {
-        await handleGone(profileRemoval);
-        return;
-      }
-      if (profileStatus === 404) {
+
+      if (httpStatus === 404) {
         status = 'notFound';
         return;
       }
-      if (profileStatus === 200 && user) {
-        await userRepository.put(user);
-        profile = user;
+      if (httpStatus === 410) {
+        await handleGone(removal);
+        return;
       }
-    }
+      if (httpStatus !== 200 || !info) {
+        return;
+      }
 
-    if (seq !== infoFetchSeq) return;
-    profileUser = mergeUserView(profile, info);
-    await subscribeToProfileIfNotFollowing(uid);
-    status = info.hasReeds ? 'ready' : 'noContent';
+      await userInfoRepository.put(info);
+      if (seq !== infoFetchSeq) return;
+
+      let profile: api.User | null = isOwner
+        ? data.currentUser
+        : await userRepository.get(uid).catch(() => null);
+
+      if (profileNeedsRefresh(profile, info)) {
+        const {
+          status: profileStatus,
+          user,
+          removal: profileRemoval,
+        } = await apiService.getUserProfileWithStatus(uid);
+        if (seq !== infoFetchSeq) return;
+        if (profileStatus === 410) {
+          await handleGone(profileRemoval);
+          return;
+        }
+        if (profileStatus === 404) {
+          status = 'notFound';
+          return;
+        }
+        if (profileStatus === 200 && user) {
+          await userRepository.put(user);
+          profile = user;
+        }
+      }
+
+      if (seq !== infoFetchSeq) return;
+      profileUser = mergeUserView(profile, info);
+      await subscribeToProfileIfNotFollowing(uid);
+      status = info.hasReeds ? 'ready' : 'noContent';
+    } catch (error) {
+      if (seq !== infoFetchSeq) return;
+      console.error('Failed to load profile:', error);
+      notificationStore.error(
+        error instanceof Error && error.message.includes('verification failed')
+          ? 'This profile could not be verified and was rejected for your safety.'
+          : 'Failed to load this profile. Please try again.'
+      );
+      status = 'error';
+    }
   }
 
   function onFollowingChange(e) {
@@ -426,6 +437,13 @@
         <div class="state-icon">🔍</div>
         <h3>User not found</h3>
         <p>No account exists with this ID.</p>
+      </div>
+
+    {:else if status === 'error'}
+      <div class="state-message">
+        <div class="state-icon">⚠️</div>
+        <h3>Couldn't load this profile</h3>
+        <p>Something went wrong loading this profile. Please try again.</p>
       </div>
 
     {:else if status === 'noContent'}
