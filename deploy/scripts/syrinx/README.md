@@ -11,11 +11,11 @@ permissions and are never committed to git.
 
 ## Scripts
 
-- **`deploy.sh`** — run from your Mac/laptop, not the host. Copies this
-  directory to the app host over `scp` and runs the requested script there
-  via `ssh` (as root, with `sudo`), so you don't have to manually copy files
-  over and log in yourself first. See "Deploying without a manual copy"
-  below.
+- **[`../../syrinx.sh`](../../syrinx.sh)** — run from your Mac/laptop, not
+  the host. Copies this directory to the app host over `scp` and runs the
+  requested script there via `ssh` (as root, with `sudo`), so you don't have
+  to manually copy files over and log in yourself first. See "Deploying
+  without a manual copy" below.
 - **`cp-root-creds.sh`** — run from your Mac/laptop. Downloads the root
   identity's export file + passphrase from the host and offers to delete
   them there afterward. See "Root identity bootstrap" below.
@@ -59,7 +59,7 @@ You'll be prompted for:
 - **Cloudflare Zero Trust Tunnel token** — required. See "Network exposure"
   below for why this is the only way in.
 - **OTEL collector host** (optional) — IP/hostname of a telemetry Pi running
-  the `deploy/telemetry` stack. Leave empty to disable observability export.
+  the `deploy/scripts/telemetry` stack. Leave empty to disable observability export.
 
 Answers are saved to `setup.env` (mode 600) so re-running `setup.sh` later
 only asks about things that changed (press Enter to keep the saved value).
@@ -71,23 +71,26 @@ and written to `/etc/$APP_NAME/app.env` (mode 640, owned by
 
 ## Deploying without a manual copy
 
-Every script above assumes it's already sitting on the app host. `deploy.sh`
-is a thin wrapper that runs on your Mac/laptop instead, so you don't have to
-`git clone`/`scp` this directory over and SSH in yourself first:
+Every script above assumes it's already sitting on the app host.
+`../../syrinx.sh` is a thin wrapper that runs on your Mac/laptop instead, so
+you don't have to `git clone`/`scp` this directory over and SSH in yourself
+first:
 
 ```
-./deploy.sh setup                        # first-time install
-./deploy.sh update                       # routine deploy
-./deploy.sh restart
-./deploy.sh signup-mode invite
-./deploy.sh psql -c 'select count(*) from users;'
-./deploy.sh wipe-db
+./syrinx.sh setup                        # first-time install
+./syrinx.sh update                       # routine deploy
+./syrinx.sh restart
+./syrinx.sh signup-mode invite
+./syrinx.sh psql -c 'select count(*) from users;'
+./syrinx.sh wipe-db
 ```
+
+(run from `deploy/`, i.e. `./deploy/syrinx.sh setup` from the repo root)
 
 It prompts once for the host address (`user@ip` or `ip`), saves it to
 `deploy.env` (mode 600, gitignored — same convention as
-`deploy/telemetry/deploy-openobserve-pi.sh`), copies this directory to
-`~/syrinx` on the host over `scp`, then `ssh`es in and runs the
+`deploy/scripts/telemetry/deploy-openobserve-pi.sh`), copies this directory
+to `~/syrinx` on the host over `scp`, then `ssh`es in and runs the
 requested script there with `sudo`. It never touches `setup.env`/`app.env`
 on the host — those are only ever written by `setup.sh` itself, on the host,
 so redeploying can't clobber settings or secrets already saved there.
@@ -185,7 +188,7 @@ OUT_DIR=~/Desktop ./cp-root-creds.sh   # default: ./root-creds (gitignored)
 ```
 
 It reads `APP_NAME` from `~/syrinx/setup.env` on the host (so run
-`./deploy.sh setup` there at least once first), finds the latest export via
+`./syrinx.sh setup` there at least once first), finds the latest export via
 `sudo find`/`sudo cat` over SSH — nothing is chmod'd or made world-readable
 on the host in the process — writes both files locally at mode 600, then
 prompts whether to delete the remote copies (default: no). Say yes once
