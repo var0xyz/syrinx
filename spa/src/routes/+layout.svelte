@@ -55,7 +55,7 @@
       pendingLikeRepository.syncPending();
       pendingUnlikeRepository.syncPending();
       syncPendingBackupEvents();
-      serverConnection.connect()
+      serverConnection.reconnect()
         .then(async () => {
           clearReedRequestDispatched();
           serverConnection.syncRequest();
