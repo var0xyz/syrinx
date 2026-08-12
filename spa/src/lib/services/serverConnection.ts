@@ -40,6 +40,36 @@ class ServerConnection {
   private pendingRequests: Map<string, PendingRequest> = new Map();
   private pendingReedPromises: Map<string, Promise<any>> = new Map();
   private dispatchedReedRequests = new Set<string>();
+  // Subscriptions live server-side per-connection: a fresh socket after a
+  // network drop starts with none of them, so we replay whatever was
+  // active once the new connection opens. Reed/profile/pipe are mutually
+  // exclusive in practice (each is scoped to its own route, and callers
+  // always unsubscribe on unmount before subscribing elsewhere), so one
+  // slot covers all three. Broadcast is independent and can coexist.
+  private activeSubscription:
+    | { kind: 'reed'; authorId: string; reedId: string }
+    | { kind: 'profile'; userId: string }
+    | { kind: 'pipe'; tag: string }
+    | null = null;
+  private broadcastSubscribed = false;
+
+  /**
+   * Force a fresh connection even if the current socket still reports
+   * OPEN. Browsers don't reliably fire `close`/`error` on a real network
+   * drop — the OS may not notice a dead route for minutes — so after an
+   * offline→online transition we can't trust readyState and must not
+   * short-circuit like `connect()` does.
+   */
+  async reconnect(): Promise<void> {
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
+      const prev = this.ws;
+      this.ws = null;
+      prev.onclose = null;
+      prev.close();
+    }
+    this.connectingPromise = null;
+    return this.connect();
+  }
 
   async connect(): Promise<void> {
     if (this.ws?.readyState === WebSocket.OPEN) return;
@@ -171,6 +201,7 @@ class ServerConnection {
         this.ws!.onopen = () => {
           clearTimeout(timeout);
           console.log('ServerConnection: connected');
+          this.resubscribeAll();
           resolve();
         };
 
@@ -196,6 +227,8 @@ class ServerConnection {
       this.ws = null;
     }
     this.dispatchedReedRequests.clear();
+    this.activeSubscription = null;
+    this.broadcastSubscribed = false;
     console.log('ServerConnection: disconnected');
   }
 
@@ -310,10 +343,14 @@ class ServerConnection {
 
   async subscribeProfile(userId: string): Promise<void> {
     await this.connect();
+    this.activeSubscription = { kind: 'profile', userId };
     this.send({ type: 'SUBSCRIBE_PROFILE', data: { user_id: userId } });
   }
 
   unsubscribeProfile(userId: string): void {
+    if (this.activeSubscription?.kind === 'profile' && this.activeSubscription.userId === userId) {
+      this.activeSubscription = null;
+    }
     this.send({ type: 'UNSUBSCRIBE_PROFILE', data: { user_id: userId } });
   }
 
@@ -322,19 +359,29 @@ class ServerConnection {
     if (!this.isConnected()) {
       return false;
     }
+    this.activeSubscription = { kind: 'reed', authorId, reedId };
     this.send({ type: 'SUBSCRIBE_REED', userID: authorId, reedID: reedId });
     return true;
   }
 
   unsubscribeReed(authorId: string, reedId: string): void {
+    if (
+      this.activeSubscription?.kind === 'reed' &&
+      this.activeSubscription.authorId === authorId &&
+      this.activeSubscription.reedId === reedId
+    ) {
+      this.activeSubscription = null;
+    }
     this.send({ type: 'UNSUBSCRIBE_REED', userID: authorId, reedID: reedId });
   }
 
   subscribeToBroadcast(): void {
+    this.broadcastSubscribed = true;
     this.send({ type: 'SUBSCRIBE_BROADCAST' });
   }
 
   unsubscribeFromBroadcast(): void {
+    this.broadcastSubscribed = false;
     this.send({ type: 'UNSUBSCRIBE_BROADCAST' });
   }
 
@@ -342,13 +389,39 @@ class ServerConnection {
     const normalized = tag.trim().replace(/^#/, '').toLowerCase();
     if (!normalized) return;
     await this.connect();
+    this.activeSubscription = { kind: 'pipe', tag: normalized };
     this.send({ type: 'SUBSCRIBE_PIPE', data: { tag: normalized } });
   }
 
   unsubscribePipe(tag: string): void {
     const normalized = tag.trim().replace(/^#/, '').toLowerCase();
     if (!normalized) return;
+    if (this.activeSubscription?.kind === 'pipe' && this.activeSubscription.tag === normalized) {
+      this.activeSubscription = null;
+    }
     this.send({ type: 'UNSUBSCRIBE_PIPE', data: { tag: normalized } });
+  }
+
+  /** Replays whatever subscription was active — server-side state doesn't survive a reconnect. */
+  private resubscribeAll(): void {
+    switch (this.activeSubscription?.kind) {
+      case 'reed':
+        this.send({
+          type: 'SUBSCRIBE_REED',
+          userID: this.activeSubscription.authorId,
+          reedID: this.activeSubscription.reedId,
+        });
+        break;
+      case 'profile':
+        this.send({ type: 'SUBSCRIBE_PROFILE', data: { user_id: this.activeSubscription.userId } });
+        break;
+      case 'pipe':
+        this.send({ type: 'SUBSCRIBE_PIPE', data: { tag: this.activeSubscription.tag } });
+        break;
+    }
+    if (this.broadcastSubscribed) {
+      this.send({ type: 'SUBSCRIBE_BROADCAST' });
+    }
   }
 
   private send(message: { type: string; data?: any; userID?: string; reedID?: string }): void {
