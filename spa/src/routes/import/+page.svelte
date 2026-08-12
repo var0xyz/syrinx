@@ -50,8 +50,8 @@
     ? (restoring ? 'Importing...' : 'Import backup')
     : (restoring ? 'Restoring...' : 'Restore with keys');
 
-  const DEVICE_TAKEOVER_CONFIRM =
-    'Continuing will log out any other devices that are signed in with this account. Continue?';
+  const DEVICE_TAKEOVER_NOTICE =
+    'Continuing will log out any other devices that are signed in with this account.';
 
   onMount(async () => {
     if (await redirectForRestoreState()) return;
@@ -93,9 +93,6 @@
   async function handleIdentityRestore() {
     if (!file) return;
 
-    const confirmed = confirm(DEVICE_TAKEOVER_CONFIRM);
-    if (!confirmed) return;
-
     restoring = true;
     error = '';
 
@@ -116,9 +113,6 @@
 
   async function handleBackupRestore() {
     if (!file) return;
-
-    const confirmed = confirm(DEVICE_TAKEOVER_CONFIRM);
-    if (!confirmed) return;
 
     restoring = true;
     error = '';
@@ -284,6 +278,8 @@
       {#if error}
         <div class="error-box">{error}</div>
       {/if}
+
+      <div class="info-box">{DEVICE_TAKEOVER_NOTICE}</div>
 
       <div class="actions">
         <a href="/" class="btn btn-secondary">Cancel</a>
