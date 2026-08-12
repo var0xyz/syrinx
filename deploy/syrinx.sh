@@ -21,15 +21,18 @@
 #   ./syrinx.sh psql -c 'select count(*) from users;'
 #   ./syrinx.sh wipe-db
 #
-# The host address is prompted for once and saved to
-# deploy/scripts/syrinx/deploy.env (mode 600, gitignored) — same convention
-# as deploy/telemetry.sh. Set DEPLOY_HOST or SSH_USER to override.
+# Only `setup` prompts for the host address — it's the one command allowed
+# to establish or change it, saved to deploy/scripts/syrinx/deploy.env
+# (mode 600, gitignored) — same convention as deploy/telemetry.sh. Every
+# other command runs silently against whatever's already saved: no banner,
+# no host prompt, no connectivity probe. If there's nothing saved yet, or
+# the saved host stops working, the fix is the same either way: run
+# `./syrinx.sh setup`. Set DEPLOY_HOST or SSH_USER to override for one run
+# without touching the saved value.
 #
 # Root-requiring remote scripts (setup, update, restart, ...) are run with
-# sudo; wipe-db is interactive, so its prompts pass straight through your
-# terminal. psql skips the banner/connectivity-check/host-prompt entirely —
-# it only runs against an already-saved host and errors out (pointing at
-# setup) if there isn't one yet, so its stdout is exactly what psql prints.
+# sudo; wipe-db and psql are interactive, so their prompts pass straight
+# through your terminal.
 #
 # After the first root identity mint, run
 # ./deploy/scripts/syrinx/cp-root-creds.sh separately to copy the export
@@ -82,6 +85,10 @@ normalize_host() {
     esac
 }
 
+# Only `setup` calls this — every other command uses load_saved_host_or_die
+# instead. Always asks (even with a saved value) since setup is how you
+# change the host; DEPLOY_HOST from the environment skips the prompt for a
+# one-off override without touching the saved file.
 prompt_host() {
     local saved="${DEPLOY_HOST:-}" input=""
     if [ -n "${DEPLOY_HOST:-}" ] && [ "${DEPLOY_HOST_SET_BY_ENV:-0}" = "1" ]; then
@@ -103,29 +110,33 @@ prompt_host() {
     normalize_host "$input"
 }
 
+# Every command except setup: use the saved host silently, no prompt/banner/
+# connectivity probe. Nothing saved yet means setup has never run here.
+load_saved_host_or_die() {
+    load_saved_host
+    local host="${DEPLOY_HOST:-}"
+    [ -n "$host" ] || die "No saved host — run './syrinx.sh setup' first"
+    normalize_host "$host"
+}
+
 [ $# -ge 1 ] || { usage; exit 2; }
 CMD="$1"
 shift
 
+# Every mapped command here runs on the host via sudo.
 case "$CMD" in
-    setup)         REMOTE_SCRIPT="setup.sh"; NEEDS_SUDO=1 ;;
-    update)        REMOTE_SCRIPT="update.sh"; NEEDS_SUDO=1 ;;
-    restart)       REMOTE_SCRIPT="restart.sh"; NEEDS_SUDO=1 ;;
-    signup-mode)   REMOTE_SCRIPT="set-signup-mode.sh"; NEEDS_SUDO=1 ;;
-    psql)          REMOTE_SCRIPT="psql.sh"; NEEDS_SUDO=1 ;;
-    wipe-db)       REMOTE_SCRIPT="wipe-db.sh"; NEEDS_SUDO=1 ;;
+    setup)         REMOTE_SCRIPT="setup.sh" ;;
+    update)        REMOTE_SCRIPT="update.sh" ;;
+    restart)       REMOTE_SCRIPT="restart.sh" ;;
+    signup-mode)   REMOTE_SCRIPT="set-signup-mode.sh" ;;
+    psql)          REMOTE_SCRIPT="psql.sh" ;;
+    wipe-db)       REMOTE_SCRIPT="wipe-db.sh" ;;
     -h|--help|help) usage; exit 0 ;;
     *) die "Unknown command: $CMD (run '$0 --help' for the list)" ;;
 esac
 
-# psql wants clean output: no banner, no prompt, no connectivity probe —
-# just the saved host and straight into psql. Nothing saved yet means
-# no other command has run here before; point at setup instead of prompting.
-if [ "$CMD" = "psql" ]; then
-    load_saved_host
-    DEPLOY_HOST="${DEPLOY_HOST:-}"
-    [ -n "$DEPLOY_HOST" ] || die "No saved host — run './syrinx.sh setup' first"
-    DEPLOY_HOST="$(normalize_host "$DEPLOY_HOST")"
+if [ "$CMD" != "setup" ]; then
+    DEPLOY_HOST="$(load_saved_host_or_die)"
 
     scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_DIR}/"
     REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo ./$REMOTE_SCRIPT"
@@ -157,12 +168,7 @@ ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_DIR")"
 scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_DIR}/"
 ok "Copied"
 
-REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh"
-if [ "$NEEDS_SUDO" = "1" ]; then
-    REMOTE_CMD="$REMOTE_CMD && sudo ./$REMOTE_SCRIPT"
-else
-    REMOTE_CMD="$REMOTE_CMD && ./$REMOTE_SCRIPT"
-fi
+REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo ./$REMOTE_SCRIPT"
 for arg in "$@"; do
     REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
 done

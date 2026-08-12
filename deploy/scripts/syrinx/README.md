@@ -87,13 +87,17 @@ first:
 
 (run from `deploy/`, i.e. `./deploy/syrinx.sh setup` from the repo root)
 
-It prompts once for the host address (`user@ip` or `ip`), saves it to
-`deploy.env` (mode 600, gitignored — same convention as
-`deploy/scripts/telemetry/deploy-openobserve-pi.sh`), copies this directory
-to `~/syrinx` on the host over `scp`, then `ssh`es in and runs the
-requested script there with `sudo`. It never touches `setup.env`/`app.env`
-on the host — those are only ever written by `setup.sh` itself, on the host,
-so redeploying can't clobber settings or secrets already saved there.
+Only `setup` prompts for the host address (`user@ip` or `ip`) — it's the
+one command allowed to establish or change it, saved to `deploy.env` (mode
+600, gitignored — same convention as
+`deploy/scripts/telemetry/deploy-openobserve-pi.sh`). Every other command
+(`update`, `restart`, `signup-mode`, `psql`, `wipe-db`) runs silently
+against whatever's already saved — no banner, no prompt, no connectivity
+check. If nothing's saved yet, or the saved host stops working, the fix is
+the same: run `./syrinx.sh setup` again. It never touches `setup.env`/
+`app.env` on the host — those are only ever written by `setup.sh` itself,
+on the host, so redeploying can't clobber settings or secrets already
+saved there.
 
 ## How setup.sh hardens the host for the internet
 
