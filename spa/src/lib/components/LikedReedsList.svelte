@@ -80,7 +80,7 @@
     </div>
   {:else if items.length === 0}
     <div class="empty-state">
-      <div class="empty-icon">💛</div>
+      <div class="empty-icon">💖</div>
       <h3>No liked reeds yet</h3>
       <p>Reeds you like will appear here.</p>
     </div>
