@@ -88,6 +88,14 @@ export async function redirectForRestoreState(): Promise<boolean> {
     return true;
   }
 
+  // TODO: this is the IndexedDB schema-bump wipe (db.ts onupgradeneeded
+  // deletes every store, including users/privateKeys) firing on a deploy
+  // that changes db.ts's version — localStorage's userId marker survives
+  // (separate storage), IndexedDB's user record does not. Net effect: the
+  // user is silently signed out and their private key is gone from
+  // IndexedDB, with no prompt to re-import. Needs a real decision (auto
+  // route to /import, or scope the wipe to only the store that changed)
+  // before touching this — see conversation from 2026-08-12.
   console.warn(
     'restoreFlow: local session markers present but no user in IndexedDB; staying put'
   );
