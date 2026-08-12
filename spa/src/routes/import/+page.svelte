@@ -41,7 +41,6 @@
   let importSucceeded = false;
 
   $: file = files?.[0] ?? null;
-  $: canRestore = file !== null && password.length > 0;
   $: resumeImport = mode === 'backup' && isImportInProgress();
   $: fileAccept = mode === 'backup' ? '.sxb.gpg' : '.sxi.gpg';
   $: fileLabel = mode === 'backup' ? 'Backup file' : 'Identity file';
@@ -63,8 +62,6 @@
   function switchMode(next: ImportMode) {
     if (mode === next) return;
     mode = next;
-    files = null;
-    password = '';
     error = '';
   }
 
@@ -286,7 +283,7 @@
         <button
           class="btn btn-primary"
           on:click={handleRestore}
-          disabled={!canRestore || restoring}
+          disabled={restoring}
         >
           {submitLabel}
         </button>
