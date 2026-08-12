@@ -323,12 +323,20 @@ func InitDB(db *sql.DB) error {
 
 	// echoing_* is the reed that does the echo
 	// echoed_* is the reed it points at.
+	// is_blank: the echoing reed carried no commentary (a bare re-share) —
+	// same "blank echo" concept as the client's isBlankEcho/
+	// resolveBlankEchoChain. The server never stores reed content, so this
+	// is captured once at insert time (SignReed has contentBody in scope) —
+	// it's what lets SignReed reject a reply/echo aimed at a blank echo
+	// instead of the underlying original, without having to store or
+	// re-derive content.
 	createReedEchoesTable := `
 	CREATE TABLE IF NOT EXISTS reed_echoes (
 		echoing_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		echoing_reed_id VARCHAR(255) NOT NULL,
 		echoed_user_id VARCHAR(255) NOT NULL,
 		echoed_reed_id VARCHAR(255) NOT NULL,
+		is_blank BOOLEAN NOT NULL DEFAULT FALSE,
 		signed_at TIMESTAMP NOT NULL,
 
 		PRIMARY KEY (echoing_user_id, echoing_reed_id)

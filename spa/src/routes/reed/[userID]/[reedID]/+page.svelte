@@ -25,6 +25,7 @@
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue } from '$lib/repositories/reeds';
   import { parseReedRef, resolveThreadId } from '$lib/utils/reedRef';
+  import { resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -59,6 +60,10 @@
   let isLiked = false;
   let isReplyModalOpen = false;
   let isEchoModalOpen = false;
+  /** Target for the reply/echo modals — resolved off `reed` through any
+   * blank-echo chain so replying/echoing a blank echo always lands on the
+   * real original instead. */
+  let replyEchoTarget = reed;
   let isStatsInfoModalOpen = false;
   let conversationRefresh = 0;
   /** @type {import('$lib/components/ConversationSection.svelte').default | null} */
@@ -372,13 +377,22 @@
   }
 
   // Action button handlers
-  function handleEcho() {
+  async function resolveReplyEchoTarget() {
+    if (!reed) return reed;
+    return resolveBlankEchoChain(reed, (authorId, targetReedId) =>
+      reedsService.getReed(authorId, targetReedId)
+    );
+  }
+
+  async function handleEcho() {
     if (isPending) return;
+    replyEchoTarget = await resolveReplyEchoTarget();
     isEchoModalOpen = true;
   }
 
-  function handleReply() {
+  async function handleReply() {
     if (isPending) return;
+    replyEchoTarget = await resolveReplyEchoTarget();
     isReplyModalOpen = true;
   }
 
@@ -619,8 +633,8 @@
       <BottomToolbar currentPage="reeds" />
     </div>
 
-    <NewReedModal open={isReplyModalOpen} replyingTo={reed} on:close={() => { isReplyModalOpen = false; }} />
-    <NewReedModal open={isEchoModalOpen} echoOf={reed} on:close={() => { isEchoModalOpen = false; }} />
+    <NewReedModal open={isReplyModalOpen} replyingTo={replyEchoTarget} on:close={() => { isReplyModalOpen = false; }} />
+    <NewReedModal open={isEchoModalOpen} echoOf={replyEchoTarget} on:close={() => { isEchoModalOpen = false; }} />
     <ReedStatsInfoModal open={isStatsInfoModalOpen} on:close={() => { isStatsInfoModalOpen = false; }} />
   </Auth>
 

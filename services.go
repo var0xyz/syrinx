@@ -1626,11 +1626,14 @@ func (s *DataService) CreateReed(ctx context.Context, p createReedParams) (*Reed
 }
 
 // CreateReedWithEcho inserts a reed and indexes it as an echo of echoTarget.
-// echoIndexed is true when a new reed_echoes row was inserted.
+// echoIndexed is true when a new reed_echoes row was inserted. isBlank
+// records whether the echoing reed carried no commentary — see is_blank on
+// reed_echoes.
 func (s *DataService) CreateReedWithEcho(
 	ctx context.Context,
 	p createReedParams,
 	echoTarget ReedRef,
+	isBlank bool,
 ) (reed *Reed, echoIndexed bool, err error) {
 	p.Timestamp = p.Timestamp.UTC().Truncate(time.Second)
 	ts := p.Timestamp
@@ -1647,10 +1650,10 @@ func (s *DataService) CreateReedWithEcho(
 	}
 
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, signed_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, is_blank, signed_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (echoing_user_id, echoing_reed_id) DO NOTHING
-	`, p.UserID, p.ReedID, echoTarget.AuthorID, echoTarget.ReedID, ts)
+	`, p.UserID, p.ReedID, echoTarget.AuthorID, echoTarget.ReedID, isBlank, ts)
 	if err != nil {
 		return nil, false, fmt.Errorf("insert echo index: %w", err)
 	}
@@ -1661,6 +1664,39 @@ func (s *DataService) CreateReedWithEcho(
 		return nil, false, err
 	}
 	return &created, echoIndexed, nil
+}
+
+// ErrReedNotFound is returned by IsBlankEcho when (authorID, reedID) is not
+// a live tip reed.
+var ErrReedNotFound = errors.New("reed not found")
+
+// IsBlankEcho reports whether reed (authorID, reedID) is itself a
+// content-less echo — used to reject a reply/echo aimed at it instead of
+// the underlying original. Returns false (not an error) when the reed
+// exists but isn't an echo. Returns ErrReedNotFound when the reed doesn't
+// exist — a missing reed is not the same as "not blank" and callers must
+// not conflate the two.
+func (s *DataService) IsBlankEcho(ctx context.Context, authorID, reedID string) (bool, error) {
+	exists, err := s.ReedExists(ctx, authorID, reedID)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, ErrReedNotFound
+	}
+
+	var isBlank bool
+	err = s.db.QueryRowContext(ctx, `
+		SELECT is_blank FROM reed_echoes
+		WHERE echoing_user_id = $1 AND echoing_reed_id = $2
+	`, authorID, reedID).Scan(&isBlank)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return isBlank, nil
 }
 
 // CreateReedWithReply inserts a reed and indexes it as a direct reply to parent.
