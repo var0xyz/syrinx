@@ -8,10 +8,15 @@ import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { removedReedsRepository } from '$lib/repositories/removedReeds';
 import { verifyReedRemoval } from '$lib/verifiers';
-import { get } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { serverInfo } from './serverInfo';
 
 export { verifyReedRemoval };
+
+/** Incremented after each reed removal cert is committed locally — lets an
+ * open view (e.g. the reed detail page's conversation thread) know to
+ * reload rather than keep showing a reply that just got deleted. */
+export const reedRemovalCommitted = writable(0);
 
 /**
  * Persist cert then drop the local reed. Verification runs inside
@@ -26,6 +31,7 @@ export async function commitReedRemovalLocally(cert: api.ReedRemoval): Promise<v
 export async function verifyAndCommitReedRemoval(cert: api.ReedRemoval): Promise<boolean> {
   try {
     await commitReedRemovalLocally(cert);
+    reedRemovalCommitted.update((n) => n + 1);
     return true;
   } catch (error) {
     console.error('[verifyAndCommitReedRemoval] refused', cert?.reedID, error);

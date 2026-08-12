@@ -4,7 +4,7 @@
   import { reedsService, stripMarkdown, unsignedReedsProcessed } from '$lib/repositories/reeds';
   import { formatAbsoluteDateTime } from '$lib/utils/time';
   import { apiService } from '$lib/services/api';
-  import { removeReedAsAuthor, verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
+  import { removeReedAsAuthor, verifyAndCommitReedRemoval, reedRemovalCommitted } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { likeReed, unlikeReed, isReedLiked } from '$lib/services/reedLike';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -208,6 +208,16 @@
       }
     }
   }
+
+  /**
+   * Fires after ANY reed removal cert is committed locally (see
+   * reedRemoval.ts) — could be a reply anywhere in this thread, not just
+   * the reed this page itself is subscribed to. Reloading the conversation
+   * is what makes a deleted reply actually disappear (ConversationSection
+   * only checks removedReedsRepository at load time, not reactively). A
+   * redundant reload for an unrelated removal is harmless.
+   */
+  $: if ($reedRemovalCommitted > 0) conversationRefresh += 1;
 
   function handleReedCoverage(msg) {
     if (msg?.userID === userID && msg?.reedID === reedID) {
