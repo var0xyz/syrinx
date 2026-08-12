@@ -1633,14 +1633,18 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Invalid echoing reference")
 			return
 		}
-		exists, err := h.services.db.ReedExists(r.Context(), ref.AuthorID, ref.ReedID)
+		blank, err := h.services.db.IsBlankEcho(r.Context(), ref.AuthorID, ref.ReedID)
+		if errors.Is(err, ErrReedNotFound) {
+			writeResponse(w, http.StatusBadRequest, "Target reed not found")
+			return
+		}
 		if err != nil {
-			log.Error().Err(err).Msg("Error checking echo target")
+			log.Error().Err(err).Msg("Error checking echo target blankness")
 			internalServerError(w)
 			return
 		}
-		if !exists {
-			writeResponse(w, http.StatusBadRequest, "Target reed not found")
+		if blank {
+			writeResponse(w, http.StatusBadRequest, "Cannot echo an empty echo — echo the original reed instead")
 			return
 		}
 		echoRef = &ref
@@ -1651,14 +1655,18 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Invalid replying reference")
 			return
 		}
-		exists, err := h.services.db.ReedExists(r.Context(), ref.AuthorID, ref.ReedID)
+		blank, err := h.services.db.IsBlankEcho(r.Context(), ref.AuthorID, ref.ReedID)
+		if errors.Is(err, ErrReedNotFound) {
+			writeResponse(w, http.StatusBadRequest, "Target reed not found")
+			return
+		}
 		if err != nil {
-			log.Error().Err(err).Msg("Error checking reply target")
+			log.Error().Err(err).Msg("Error checking reply target blankness")
 			internalServerError(w)
 			return
 		}
-		if !exists {
-			writeResponse(w, http.StatusBadRequest, "Target reed not found")
+		if blank {
+			writeResponse(w, http.StatusBadRequest, "Cannot reply to an empty echo — reply to the original reed instead")
 			return
 		}
 		replyRef = &ref
@@ -1798,7 +1806,8 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	var echoIndexed bool
 	switch {
 	case echoRef != nil:
-		reed, echoIndexed, err = h.services.db.CreateReedWithEcho(r.Context(), createParams, *echoRef)
+		isBlankEcho := strings.TrimSpace(contentBody) == ""
+		reed, echoIndexed, err = h.services.db.CreateReedWithEcho(r.Context(), createParams, *echoRef, isBlankEcho)
 	case replyRef != nil:
 		reed, err = h.services.db.CreateReedWithReply(r.Context(), createParams, threadID, *replyRef)
 	default:
