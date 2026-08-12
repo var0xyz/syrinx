@@ -542,6 +542,24 @@ func (ds *DBService) GetReedStatsSnapshot(ctx context.Context, authorUserID, ree
 	return echoes, coveragePercent, replies, likes, nil
 }
 
+// ReplyParent returns the immediate (parent_user_id, parent_reed_id) that
+// (userID, reedID) replies to, if it's indexed as a reply at all — ok is
+// false when it isn't.
+func (ds *DBService) ReplyParent(ctx context.Context, userID, reedID string) (parentUserID, parentReedID string, ok bool, err error) {
+	err = ds.db.QueryRowContext(ctx, `
+		SELECT parent_user_id, parent_reed_id
+		FROM reed_replies
+		WHERE user_id = $1 AND reed_id = $2
+	`, userID, reedID).Scan(&parentUserID, &parentReedID)
+	if err == sql.ErrNoRows {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	return parentUserID, parentReedID, true, nil
+}
+
 // GetSubtreeReplyCount returns live descendant reply count beneath userID/reedID.
 func (ds *DBService) GetSubtreeReplyCount(ctx context.Context, userID, reedID string) (int, error) {
 	var count int

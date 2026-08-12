@@ -1029,6 +1029,7 @@ func (rs *RealtimeService) handlePublishReady(client *Client, data json.RawMessa
 		} else {
 			go rs.fanoutNewReedNoBroadcast(authorUserID, reedID, tags)
 		}
+		go rs.notifyReplyAncestorsOfReply(authorUserID, reedID)
 	} else {
 		exists, err := rs.dbService.ReedExists(context.Background(), authorUserID, reedID)
 		if err != nil {
@@ -1432,6 +1433,29 @@ func (rs *RealtimeService) notifyReedEchoes(authorUserID, reedID string) {
 		Echoes: echoes,
 	}); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_ECHOES")
+	}
+}
+
+// notifyReplyAncestorsOfReply walks (replyUserID, replyReedID)'s ancestor
+// chain and relays the reply to each ancestor's reed-stat subscribers. Only
+// called from handlePublishReady, once the reply's author has actually
+// claimed PUBLISH_READY — calling this any earlier (e.g. straight from
+// SignReed) makes the author a relay target before their own client is
+// ready to serve it, and the resulting relay miss deletes their allocation,
+// orphaning the reed from relay entirely.
+func (rs *RealtimeService) notifyReplyAncestorsOfReply(replyUserID, replyReedID string) {
+	userID, reedID := replyUserID, replyReedID
+	for {
+		parentUserID, parentReedID, ok, err := rs.dbService.ReplyParent(context.Background(), userID, reedID)
+		if err != nil {
+			log.Error().Err(err).Str("userID", userID).Str("reedID", reedID).Msg("Failed to resolve reply parent")
+			return
+		}
+		if !ok {
+			return
+		}
+		rs.notifyReedSubscribersOfReply(parentUserID, parentReedID, replyUserID, replyReedID)
+		userID, reedID = parentUserID, parentReedID
 	}
 }
 
