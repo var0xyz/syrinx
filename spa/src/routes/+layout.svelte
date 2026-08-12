@@ -95,9 +95,9 @@
       if (!reed_id) return;
       void pendingPublicationRepository.delete(reed_id);
     });
-    serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, reed_id }) => {
-      console.log('ServerConnection: relay request received for reed:', reed_id, 'event:', event_id);
-      const reed = await dbService.get('reeds', reed_id);
+    serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, author_id, reed_id }) => {
+      console.log('ServerConnection: relay request received for reed:', author_id, reed_id, 'event:', event_id);
+      const reed = await dbService.get('reeds', [author_id, reed_id]);
       if (reed) {
         console.log('ServerConnection: reed found in IndexedDB, fulfilling relay:', reed_id);
         serverConnection.sendRelayResponse(event_id, reed);
@@ -119,7 +119,7 @@
         // Explicit REQUEST_REED or profile_subscription relay reply.
         dispatchReedToQueue(reed, ServerEvent.DataResponse);
         if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
-          prependFollowId(reed.id);
+          prependFollowId(reed.userID, reed.id);
         }
         await requestReferencedReeds(reed);
       } catch (error) {
@@ -136,7 +136,7 @@
         await reedsService.storeReed(reed);
         if (eventId) serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
-        prependFollowId(reed.id);
+        prependFollowId(reed.userID, reed.id);
         dispatchReedToQueue(reed, 'follow_reed');
         await requestReferencedReeds(reed);
       } catch (error) {
@@ -155,7 +155,7 @@
         dispatchReedToQueue(reed, 'pipe_reed');
         // Also following the author: keep the follow feed in sync without a second relay.
         if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
-          prependFollowId(reed.id);
+          prependFollowId(reed.userID, reed.id);
           dispatchReedToQueue(reed, 'follow_reed');
         }
         await requestReferencedReeds(reed);

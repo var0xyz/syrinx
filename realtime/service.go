@@ -901,7 +901,7 @@ func (rs *RealtimeService) dispatchNext(holderUserID string) {
 	if !ok {
 		return // another replica claimed it
 	}
-	if err := rs.connManager.SendToUser(holderUserID, NewRelayRequestMsg(pe.EventID, pe.ReedID)); err != nil {
+	if err := rs.connManager.SendToUser(holderUserID, NewRelayRequestMsg(pe.EventID, pe.UserID, pe.ReedID)); err != nil {
 		log.Error().
 			Err(err).
 			Str("holderUserID", holderUserID).

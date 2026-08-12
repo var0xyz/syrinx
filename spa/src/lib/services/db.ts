@@ -16,12 +16,17 @@ export function payloadByteLength(data: unknown): number {
   return new TextEncoder().encode(JSON.stringify(data)).byteLength;
 }
 
+/** A store's primary key: a single string for most stores, or an array for
+ * a store whose keyPath is a compound key (currently just 'reeds':
+ * [userID, id] — see storeNames below). */
+export type DbKey = string | string[];
+
 export interface DbService {
   init(): Promise<void>;
   put<T extends api.Base>(storeName: string, data: T, verifier: Verifier<T>): Promise<void>;
-  get<T extends api.Base>(storeName: string, key: string): Promise<T | null>;
-  getMeta(storeName: string, key: string): Promise<DbMetadata | null>;
-  delete(storeName: string, key: string): Promise<void>;
+  get<T extends api.Base>(storeName: string, key: DbKey): Promise<T | null>;
+  getMeta(storeName: string, key: DbKey): Promise<DbMetadata | null>;
+  delete(storeName: string, key: DbKey): Promise<void>;
   getAll<T extends api.Base>(storeName: string): Promise<T[]>;
   getAllSortedByIndex<T>(storeName: string, indexName: string): Promise<T[]>;
   getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean): Promise<T[]>;
@@ -32,13 +37,17 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  private readonly version = 7;
+  // v8: 'reeds' keyPath became [userID, id] (was 'id' alone) — a reed ID is
+  // only unique per author, not globally, so a single-string key let one
+  // author's cached reed silently overwrite another's on an ID collision.
+  // Wipes local caches on upgrade (see onupgradeneeded below); everything
+  // here is peer/server-fetchable, so clients just re-sync on next load.
+  private readonly version = 8;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
     ['publicKeys',  'fingerprint'],
     ['revocations', 'fingerprint'],
-    ['reeds',       'id', 'userID', 'serverSignature.timestamp'],
     ['tags',        'tagName'    ],
     ['users',       'id'         ],
     ['usersInfo',   'id'         ],
@@ -86,6 +95,13 @@ export class IndexedDbService implements DbService {
             store.createIndex(indexName, indexName, { unique: false });
           }
         }
+
+        // Compound key: a reed ID is only unique per author. Keeps 'userID'
+        // and 'serverSignature.timestamp' as regular (non-key) indexes for
+        // getReedsByAuthor / deleteReedsByAuthor / recency queries.
+        const reedsStore = db.createObjectStore('reeds', { keyPath: ['userID', 'id'] });
+        reedsStore.createIndex('userID', 'userID', { unique: false });
+        reedsStore.createIndex('serverSignature.timestamp', 'serverSignature.timestamp', { unique: false });
       };
     });
   }
@@ -121,7 +137,7 @@ export class IndexedDbService implements DbService {
     });
   }
 
-  async get<T extends api.Base>(storeName: string, key: string): Promise<T | null> {
+  async get<T extends api.Base>(storeName: string, key: DbKey): Promise<T | null> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -144,7 +160,7 @@ export class IndexedDbService implements DbService {
   }
 
   /** Read `__meta__` (created/bytes) for a record without unwrapping the payload. */
-  async getMeta(storeName: string, key: string): Promise<DbMetadata | null> {
+  async getMeta(storeName: string, key: DbKey): Promise<DbMetadata | null> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -161,7 +177,7 @@ export class IndexedDbService implements DbService {
     });
   }
 
-  async delete(storeName: string, key: string): Promise<void> {
+  async delete(storeName: string, key: DbKey): Promise<void> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
 

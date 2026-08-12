@@ -31,6 +31,9 @@ export type QueuedReed = {
   username?: string;
 };
 
+/** A reed ID is only unique per author — tag index entries must carry both. */
+type TagReedRef = { userID: string; id: string };
+
 // Receives profile_subscription and request_reed deliveries (explicitly requested content)
 export const profileReedQueue = writable<QueuedReed | null>(null);
 
@@ -185,7 +188,7 @@ class ReedsService {
    */
   async getReed(userId: string, reedId: string): Promise<ReedType | null> {
     try {
-      return await dbService.get<ReedType>('reeds', reedId);
+      return await dbService.get<ReedType>('reeds', [userId, reedId]);
     } catch (error) {
       console.error('Failed to get reed:', error);
       throw error;
@@ -248,10 +251,11 @@ class ReedsService {
 
     if (reed.tags?.length > 0) {
       for (const tag of reed.tags) {
-        const existing = await dbService.get<{ tagName: string; reeds: string[] }>('tags', tag);
-        const reeds = existing?.reeds?.includes(reed.id)
-          ? existing.reeds
-          : [...(existing?.reeds ?? []), reed.id];
+        const existing = await dbService.get<{ tagName: string; reeds: TagReedRef[] }>('tags', tag);
+        const already = existing?.reeds?.some((r) => r.userID === reed.userID && r.id === reed.id);
+        const reeds = already
+          ? existing!.reeds
+          : [...(existing?.reeds ?? []), { userID: reed.userID, id: reed.id }];
         await dbService.put('tags', { tagName: tag, reeds }, allowUnsigned);
       }
     }
@@ -259,7 +263,7 @@ class ReedsService {
 
   async deleteReedsByAuthor(authorId: string): Promise<void> {
     const reeds = await dbService.getAllByIndex<ReedType>('reeds', 'userID', authorId);
-    await Promise.all(reeds.map(r => dbService.delete('reeds', r.id)));
+    await Promise.all(reeds.map(r => dbService.delete('reeds', [r.userID, r.id])));
   }
 
   /**
@@ -296,11 +300,11 @@ class ReedsService {
       return { reeds: [], authors: {} };
     }
     try {
-      const entry = await dbService.get<{ tagName: string; reeds: string[] }>('tags', normalized);
-      const ids = entry?.reeds ?? [];
+      const entry = await dbService.get<{ tagName: string; reeds: TagReedRef[] }>('tags', normalized);
+      const refs = entry?.reeds ?? [];
       const reeds: ReedType[] = [];
-      for (const id of ids) {
-        const reed = await dbService.get<ReedType>('reeds', id);
+      for (const ref of refs) {
+        const reed = await dbService.get<ReedType>('reeds', [ref.userID, ref.id]);
         if (reed?.tags?.includes(normalized)) {
           reeds.push(reed);
         }
@@ -331,9 +335,14 @@ class ReedsService {
     const pending = await pendingPublicationRepository.getAll();
     if (pending.length === 0) return;
 
+    // pendingPublication only ever tracks the current device's own user —
+    // publishing always goes through countersignReed() for a locally-signed
+    // reed, never another author's.
+    const ownUserId = localStorage.getItem('userId') ?? '';
+
     await serverConnection.connect();
     for (const { reedID } of pending) {
-      const reed = await dbService.get<ReedType>('reeds', reedID);
+      const reed = ownUserId ? await dbService.get<ReedType>('reeds', [ownUserId, reedID]) : null;
       const broadcast = reed ? !isBlankEcho(reed) : true;
       await serverConnection.publishReady(reedID, { broadcast });
     }
@@ -386,32 +395,33 @@ export async function initFollowIds(): Promise<void> {
     'reeds', 'serverSignature.timestamp', FOLLOW_FEED_LIMIT,
     reed => followedSet.has(reed.userID)
   );
-  sessionStorage.setItem(FOLLOW_FEED_KEY, JSON.stringify(reeds.map(r => r.id)));
+  const refs: TagReedRef[] = reeds.map(r => ({ userID: r.userID, id: r.id }));
+  sessionStorage.setItem(FOLLOW_FEED_KEY, JSON.stringify(refs));
 }
 
-export function prependFollowId(reedId: string): void {
-  let ids: string[] = [];
+export function prependFollowId(reedUserID: string, reedId: string): void {
+  let refs: TagReedRef[] = [];
   try {
-    ids = JSON.parse(sessionStorage.getItem(FOLLOW_FEED_KEY) ?? '[]');
+    refs = JSON.parse(sessionStorage.getItem(FOLLOW_FEED_KEY) ?? '[]');
   } catch {
     // ignore
   }
-  if (!ids.includes(reedId)) {
-    ids = [reedId, ...ids].slice(0, FOLLOW_FEED_LIMIT);
-    sessionStorage.setItem(FOLLOW_FEED_KEY, JSON.stringify(ids));
+  if (!refs.some((r) => r.userID === reedUserID && r.id === reedId)) {
+    refs = [{ userID: reedUserID, id: reedId }, ...refs].slice(0, FOLLOW_FEED_LIMIT);
+    sessionStorage.setItem(FOLLOW_FEED_KEY, JSON.stringify(refs));
   }
 }
 
 export async function getFollowReeds(): Promise<{ reeds: ReedType[]; authors: Record<string, User> }> {
-  let ids: string[] = [];
+  let refs: TagReedRef[] = [];
   try {
-    ids = JSON.parse(sessionStorage.getItem(FOLLOW_FEED_KEY) ?? '[]');
+    refs = JSON.parse(sessionStorage.getItem(FOLLOW_FEED_KEY) ?? '[]');
   } catch {
     // ignore
   }
   const reeds: ReedType[] = [];
-  for (const id of ids) {
-    const reed = await dbService.get<ReedType>('reeds', id);
+  for (const ref of refs) {
+    const reed = await dbService.get<ReedType>('reeds', [ref.userID, ref.id]);
     if (reed) reeds.push(reed);
   }
   const authors: Record<string, User> = {};

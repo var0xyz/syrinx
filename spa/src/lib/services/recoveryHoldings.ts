@@ -6,10 +6,12 @@ import type { ReedType } from '$lib/types/reed';
 import { apiService } from './api';
 import { dbService } from './db';
 
-/** POST one reed from IndexedDB (must have server block + user signature). */
+/** POST one reed from IndexedDB (must have server block + user signature).
+ * Recovery only ever reports the current device's own account's reeds. */
 export async function reportRecoveryReed(reedId: string): Promise<void> {
   await dbService.init();
-  const reed = await dbService.get<ReedType>('reeds', reedId);
+  const ownUserId = localStorage.getItem('userId') ?? '';
+  const reed = await dbService.get<ReedType>('reeds', [ownUserId, reedId]);
   if (!reed) {
     throw new Error(`Missing reed ${reedId}`);
   }
