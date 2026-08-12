@@ -4,8 +4,8 @@
   let isOnline = true;
   let showOfflineMessage = false;
   let showOnlineMessage = false;
-  let offlineTimer: number | null = null;
-  let onlineTimer: number | null = null;
+  let offlineTimer: ReturnType<typeof setTimeout> | null = null;
+  let onlineTimer: ReturnType<typeof setTimeout> | null = null;
 
   onMount(() => {
     // Check initial online status

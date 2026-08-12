@@ -94,15 +94,15 @@ export async function verifyResponseSignature(
     const completeResponse = canonicalHeaders + '\n\n' + responseText;
 
     const publicKey = await openpgp.readKey({ armoredKey: serverPublicKey });
-    const signatureMessage = await openpgp.readMessage({
-      armoredMessage: signature
+    const detachedSignature = await openpgp.readSignature({
+      armoredSignature: signature
     });
     const message = await openpgp.createMessage({
       text: completeResponse
     });
     const verificationResult = await openpgp.verify({
       message,
-      signature: signatureMessage,
+      signature: detachedSignature,
       verificationKeys: publicKey
     });
 
