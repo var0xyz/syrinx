@@ -1,10 +1,10 @@
 #!/bin/bash
-# Run a deploy/syrinx script on the app host without manually copying files
-# over first: scp this directory to the host, then ssh in and run the
-# requested script there (as root, via sudo).
+# Run a deploy/scripts/syrinx script on the app host without manually
+# copying files over first: scp that directory to the host, then ssh in and
+# run the requested script there (as root, via sudo).
 #
 # Usage:
-#   ./deploy.sh <command> [args...]
+#   ./syrinx.sh <command> [args...]
 #
 # Commands (map 1:1 to the script of the same name on the host):
 #   setup                    sudo ./setup.sh
@@ -15,28 +15,30 @@
 #   wipe-db                   sudo ./wipe-db.sh   (interactive confirmation)
 #
 # Examples:
-#   ./deploy.sh setup
-#   DEPLOY_HOST=pi@10.0.0.50 ./deploy.sh update
-#   ./deploy.sh signup-mode invite
-#   ./deploy.sh psql -c 'select count(*) from users;'
-#   ./deploy.sh wipe-db
+#   ./syrinx.sh setup
+#   DEPLOY_HOST=pi@10.0.0.50 ./syrinx.sh update
+#   ./syrinx.sh signup-mode invite
+#   ./syrinx.sh psql -c 'select count(*) from users;'
+#   ./syrinx.sh wipe-db
 #
-# The host address is prompted for once and saved to deploy.env (mode 600,
-# gitignored) — same convention as deploy/telemetry/deploy-openobserve-pi.sh
-# and deploy/telemetry/tunnel.sh. Set DEPLOY_HOST or SSH_USER to override.
+# The host address is prompted for once and saved to
+# deploy/scripts/syrinx/deploy.env (mode 600, gitignored) — same convention
+# as deploy/telemetry.sh. Set DEPLOY_HOST or SSH_USER to override.
 #
 # Root-requiring remote scripts (setup, update, restart, ...) are run with
 # sudo; wipe-db and psql are interactive, so their prompts pass straight
 # through your terminal.
 #
-# After the first root identity mint, run ./cp-root-creds.sh separately to
-# copy the export file + passphrase down from the host (it runs locally,
-# like this script, and shares the same deploy.env).
+# After the first root identity mint, run
+# ./deploy/scripts/syrinx/cp-root-creds.sh separately to copy the export
+# file + passphrase down from the host (it runs locally, like this script,
+# and shares the same deploy.env).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEPLOY_ENV="${DEPLOY_ENV:-$SCRIPT_DIR/deploy.env}"
+SYRINX_SCRIPTS_DIR="$SCRIPT_DIR/scripts/syrinx"
+DEPLOY_ENV="${DEPLOY_ENV:-$SYRINX_SCRIPTS_DIR/deploy.env}"
 SSH_USER_DEFAULT="${SSH_USER:-$(id -un)}"
 REMOTE_DIR="${REMOTE_DIR:-syrinx}"
 
@@ -45,7 +47,7 @@ info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
 usage() {
-    sed -n '2,34p' "$0" | sed -e 's/^# //' -e 's/^#$//'
+    sed -n '2,35p' "$0" | sed -e 's/^# //' -e 's/^#$//'
 }
 
 load_saved_host() {
@@ -131,9 +133,9 @@ if ! ssh -o ConnectTimeout=8 "$DEPLOY_HOST" "true"; then
 fi
 ok "SSH OK"
 
-info "Copying deploy/syrinx to ${DEPLOY_HOST}:${REMOTE_DIR} ..."
+info "Copying deploy/scripts/syrinx to ${DEPLOY_HOST}:${REMOTE_DIR} ..."
 ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_DIR")"
-scp -q "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_DIR}/"
+scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_DIR}/"
 ok "Copied"
 
 REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh"

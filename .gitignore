@@ -1,10 +1,9 @@
 .env
 __pycache__
 bin/
-deploy/*/deploy.env
-deploy/*/setup.env
-deploy/*/telemetry.env
-deploy/syrinx/root-creds/
+deploy/**/*.env
+!deploy/**/*.env.example
+deploy/scripts/syrinx/root-creds/
 docs/.vitepress/cache
 docs/.vitepress/dist
 docs/node_modules

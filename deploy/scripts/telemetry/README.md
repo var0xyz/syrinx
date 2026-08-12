@@ -2,9 +2,9 @@
 
 Scripts to install and operate an [OpenObserve](https://openobserve.ai/) +
 OpenTelemetry Collector stack on a **dedicated telemetry host**, separate
-from the Syrinx app host(s). App hosts (via `deploy/syrinx/otel-agent.sh`)
-ship traces, logs, and metrics here over OTLP; this host stores and
-visualizes them.
+from the Syrinx app host(s). App hosts (via
+`deploy/scripts/syrinx/otel-agent.sh`) ship traces, logs, and metrics here
+over OTLP; this host stores and visualizes them.
 
 Everything environment-specific is prompted for interactively,
 generated randomly, or read from `telemetry.env` / `deploy.env`, both of
@@ -14,11 +14,12 @@ real values).
 
 ## Scripts
 
-- **`deploy.sh`** — run from your Mac/laptop, not the telemetry host. Copies
-  `setup.sh`, `update.sh`, `build-openobserve-pi.sh`, `common.sh`, and
-  `dashboards/` to the host over `scp` and runs the requested one via `ssh`
-  (as root, with `sudo`); `deploy.sh tunnel` runs `tunnel.sh` locally
-  instead. See "Deploying without a manual copy" below.
+- **[`../../telemetry.sh`](../../telemetry.sh)** — run from your Mac/laptop,
+  not the telemetry host. Copies `setup.sh`, `update.sh`,
+  `build-openobserve-pi.sh`, `common.sh`, and `dashboards/` to the host over
+  `scp` and runs the requested one via `ssh` (as root, with `sudo`);
+  `telemetry.sh tunnel` runs `tunnel.sh` locally instead. See "Deploying
+  without a manual copy" below.
 - **`setup.sh`** — the main installer for the telemetry host itself. Prompts
   for hostname, OpenObserve admin credentials, optional public domain, and
   which LAN ranges may reach it, then installs OpenObserve + the OTEL
@@ -102,15 +103,18 @@ box.
 ## Deploying without a manual copy
 
 `setup.sh`/`update.sh`/`build-openobserve-pi.sh` assume they're already
-sitting on the telemetry host. `deploy.sh` runs on your Mac/laptop instead:
+sitting on the telemetry host. `../../telemetry.sh` runs on your Mac/laptop
+instead:
 
 ```
-./deploy.sh setup                  # first-time install
-./deploy.sh update                 # routine update
-./deploy.sh build                  # on-Pi source build (troubleshooting)
-SHOW_PASSWORD=1 ./deploy.sh setup  # also print the OpenObserve admin password
-./deploy.sh tunnel                 # SSH port-forward to the UI (see below)
+./telemetry.sh setup                  # first-time install
+./telemetry.sh update                 # routine update
+./telemetry.sh build                  # on-Pi source build (troubleshooting)
+SHOW_PASSWORD=1 ./telemetry.sh setup  # also print the OpenObserve admin password
+./telemetry.sh tunnel                 # SSH port-forward to the UI (see below)
 ```
+
+(run from `deploy/`, i.e. `./deploy/telemetry.sh setup` from the repo root)
 
 It prompts once for the host address, saves it to `deploy.env` (mode 600,
 gitignored — shared with `deploy-openobserve-pi.sh` and `tunnel.sh`), copies
@@ -119,19 +123,19 @@ then `ssh`es in and runs the requested script with `sudo`. It never touches
 `telemetry.env` on the host — that's only ever written by `setup.sh` itself,
 on the host, so redeploying can't clobber settings already saved there.
 
-Env vars set locally aren't visible over `ssh` on their own, so `deploy.sh`
-forwards `SHOW_PASSWORD` explicitly into the remote `sudo` invocation —
-setting it before `./deploy.sh setup`/`update` has the same effect as
-setting it before `sudo ./setup.sh` directly on the host.
+Env vars set locally aren't visible over `ssh` on their own, so
+`telemetry.sh` forwards `SHOW_PASSWORD` explicitly into the remote `sudo`
+invocation — setting it before `./telemetry.sh setup`/`update` has the same
+effect as setting it before `sudo ./setup.sh` directly on the host.
 
-`deploy.sh tunnel` is a shortcut for `tunnel.sh` — it runs entirely locally
-(nothing to `scp` or execute remotely), so it skips the copy/ssh-to-script
-flow above and just execs `tunnel.sh` directly, sharing the same
+`telemetry.sh tunnel` is a shortcut for `tunnel.sh` — it runs entirely
+locally (nothing to `scp` or execute remotely), so it skips the copy/ssh-to-
+script flow above and just execs `tunnel.sh` directly, sharing the same
 `deploy.env`.
 
 `cross-compile-openobserve-pi.sh` and `deploy-openobserve-pi.sh` already run
-from the Mac and do their own `ssh`/`scp` — use those directly rather than
-through `deploy.sh`.
+from the Mac and do their own `ssh`/`scp` — use those directly (from
+`deploy/scripts/telemetry/`) rather than through `telemetry.sh`.
 
 ## Network exposure model
 
@@ -159,14 +163,14 @@ LAN without opening a tunnel, forward it over SSH instead:
 
 ```
 ./tunnel.sh                          # prompts for the host, same as deploy-openobserve-pi.sh
-./deploy.sh tunnel                   # equivalent — deploy.sh execs tunnel.sh directly
+../../telemetry.sh tunnel            # equivalent — telemetry.sh execs tunnel.sh directly
 DEPLOY_HOST=pi@10.0.0.50 ./tunnel.sh
 LOCAL_PORT=15080 ./tunnel.sh         # forward a different local port
 ```
 
 Opens `http://127.0.0.1:5080` (or `$LOCAL_PORT`) tunneled to the host's
 `:5080` and blocks in the foreground until you `Ctrl-C`. Shares the saved
-host in `deploy.env` with `deploy-openobserve-pi.sh` and `deploy.sh`.
+host in `deploy.env` with `deploy-openobserve-pi.sh` and `../../telemetry.sh`.
 
 ## Credential handling
 
