@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -129,7 +130,7 @@ func TestCreateFederationInvitation_Admin(t *testing.T) {
 
 	body, _ := json.Marshal(federationCreateRequest{
 		Name:                 "Acme staging",
-		RemotePublicKeyArmor: remoteKP.PublicKey,
+		RemotePublicKeyArmor: base64.StdEncoding.EncodeToString([]byte(remoteKP.PublicKey)),
 	})
 	rr := httptest.NewRecorder()
 	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/invitations", bytes.NewReader(body)), "admin1")

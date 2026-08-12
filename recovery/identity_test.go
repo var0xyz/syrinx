@@ -3,6 +3,7 @@ package recovery
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -77,7 +78,7 @@ func TestClaimIdentity_BadChallengeSignature(t *testing.T) {
 	}
 	root := KeyNode{
 		KeyWire: KeyWire{
-			Fingerprint: "AAA", Armor: "armor-a", UserID: "user1", CreatedAt: ts,
+			Fingerprint: "AAA", Armor: base64.StdEncoding.EncodeToString([]byte("armor-a")), UserID: "user1", CreatedAt: ts,
 			ServerSignature: testServerSig(serverID, ts),
 		},
 	}
@@ -144,13 +145,13 @@ func TestReportPeerIdentity_BrokenNest(t *testing.T) {
 	}
 	root := KeyNode{
 		KeyWire: KeyWire{
-			Fingerprint: "BBB", Armor: "armor-b", UserID: "peer1", CreatedAt: ts,
+			Fingerprint: "BBB", Armor: base64.StdEncoding.EncodeToString([]byte("armor-b")), UserID: "peer1", CreatedAt: ts,
 			ServerSignature: testServerSig(serverID, ts),
 		},
 		Predecessor: &KeyNode{
 			Signature: "bad-pred-sig",
 			KeyWire: KeyWire{
-				Fingerprint: "AAA", Armor: "armor-a", UserID: "peer1", CreatedAt: ts,
+				Fingerprint: "AAA", Armor: base64.StdEncoding.EncodeToString([]byte("armor-a")), UserID: "peer1", CreatedAt: ts,
 				ServerSignature: testServerSig(serverID, ts),
 			},
 		},

@@ -47,6 +47,10 @@ func (d Deps) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	if err := decodeKeyNestArmor(&req.Key); err != nil {
+		writeJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	now := d.now()
 	if err := ValidateChallengeAge(req.Challenge, now, challengeMaxAge); err != nil {
@@ -99,6 +103,10 @@ func (d Deps) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 	var req PeerIdentityRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := decodeKeyNestArmor(&req.Key); err != nil {
+		writeJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

@@ -636,11 +636,12 @@ export const apiService = {
     formData.append('reason', reason);
     formData.append('userSignature', userSignature);
 
-    return request<api.PublicKey>(`/users/${userId}/keys/${fingerprint}/revoke`, {
+    const key = await request<api.PublicKey>(`/users/${userId}/keys/${fingerprint}/revoke`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()
     });
+    return { ...key, armor: atob(key.armor) };
   },
 
   async getKeyRevocation(userId: string, fingerprint: string): Promise<api.KeyRevocation> {
@@ -659,7 +660,8 @@ export const apiService = {
   },
 
   async getPublicKey(userID: string, fingerprint: string): Promise<api.PublicKey> {
-    return request<api.PublicKey>(`/users/${userID}/keys/${fingerprint}`, { method: 'GET' });
+    const key = await request<api.PublicKey>(`/users/${userID}/keys/${fingerprint}`, { method: 'GET' });
+    return { ...key, armor: atob(key.armor) };
   },
 
   /** Fetch a historical server signing public key by fingerprint (cached in publicKeys). */
@@ -671,10 +673,11 @@ export const apiService = {
       return { fingerprint: cached.fingerprint, armor: cached.armor };
     }
 
-    const key = await request<{ fingerprint: string; armor: string }>(
+    const wireKey = await request<{ fingerprint: string; armor: string }>(
       `/server/keys/${fp}`,
       { method: 'GET' }
     );
+    const key = { fingerprint: wireKey.fingerprint, armor: atob(wireKey.armor) };
     try {
       const { allowUnsigned } = await import('$lib/verifiers');
       await dbService.put('publicKeys', key, allowUnsigned);
@@ -698,11 +701,12 @@ export const apiService = {
     formData.append('revokedKeySignature', revokedKeySignature);
     formData.append('newKeySignature', newKeySignature);
 
-    return request<api.PublicKey>('/keys', {
+    const key = await request<api.PublicKey>('/keys', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()
     });
+    return { ...key, armor: atob(key.armor) };
   },
 
   /** Unauthenticated: GET account-recovery challenge (unix seconds). */

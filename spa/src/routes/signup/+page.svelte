@@ -188,11 +188,11 @@
       await privateKeyRepository.put(keyPair.fingerprint, keyPair.privateKey);
 
       currentStep = 4;
-      const signature = await cryptoService.signMessage(
+      const signature = btoa(await cryptoService.signMessage(
         keyPair.publicKey,
         keyPair.privateKey,
         password,
-      );
+      ));
 
       const identityPayload = buildNewUserIdentityPayload(
         username,
@@ -208,7 +208,7 @@
       currentStep = 5;
       const signupPayload = {
         username,
-        publicKey: keyPair.publicKey,
+        publicKey: btoa(keyPair.publicKey),
         signature,
         userSignature,
         userID: reserved.userID,

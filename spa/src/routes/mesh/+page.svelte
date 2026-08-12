@@ -48,7 +48,7 @@
     if (!armor || !name || creating) return;
     creating = true;
     try {
-      const created = await apiService.createFederationInvitation(name, armor);
+      const created = await apiService.createFederationInvitation(name, btoa(armor));
       showCreateModal = false;
       freshConnectionString = created.connectionString;
       showConnectionModal = true;
