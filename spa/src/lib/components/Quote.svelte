@@ -39,11 +39,24 @@
   let loadFailed = false;
   /** @type {{ userID: string; reedID: string; kind: 'reed' | 'account'; timestamp?: string } | null} */
   let removedTarget = null;
+  /** Drops a stale load() completion if reed/reedRef/missing changed again
+   * (or the target resolved locally) before the earlier call finished —
+   * e.g. `reed` prop starts undefined, `load()` fires and goes down the
+   * slower ref-fetch path, then `repliedToReeds`/`echoedReeds` populates
+   * and `reed` changes; without this the earlier "unavailable" result can
+   * land after the correct one and silently overwrite it. */
+  let loadSeq = 0;
 
   $: label = type === 'reply' ? 'Replying to ' : '';
   $: borderColor = type === 'echo' ? 'var(--primary)' : '#7c3aed';
   $: reedId = reed?.id ?? '';
-  $: void load(reedId, reedRef, missing);
+  $: void load(reedId, reedRef, missing, reed);
+  // Even a locally-unavailable reed should still be reachable: its detail
+  // page shows the conversation (replies/echoes) around it independent of
+  // whether the reed body itself resolved on this device.
+  $: unavailableTarget = reed
+    ? { authorId: reed.userID, reedId: reed.id }
+    : parseReedRef(reedRef);
 
   async function resolveGone(authorId, targetReedId) {
     const accountCert = await removedAccountsRepository.get(authorId);
@@ -103,35 +116,40 @@
     }
   }
 
-  async function load(_id, ref, isMissing) {
+  async function load(_id, ref, isMissing, sourceReed) {
+    const seq = ++loadSeq;
     loading = true;
     loadFailed = false;
     displayReed = null;
     removedTarget = null;
     username = '';
 
-    if (isMissing && !ref && !reed) {
+    if (isMissing && !ref && !sourceReed) {
       loading = false;
       return;
     }
 
     try {
-      let source = reed ?? null;
+      let source = sourceReed ?? null;
       let parsed = null;
 
       if (!source && ref) {
         parsed = parseReedRef(ref);
         if (!parsed) {
+          if (seq !== loadSeq) return;
           loadFailed = true;
           loading = false;
           return;
         }
         source = await reedsService.getReed(parsed.authorId, parsed.reedId);
+        if (seq !== loadSeq) return;
         if (!source) {
           const gone = await resolveGone(parsed.authorId, parsed.reedId);
+          if (seq !== loadSeq) return;
           if (gone) {
             removedTarget = gone;
             username = await loadUsername(gone.userID);
+            if (seq !== loadSeq) return;
             loading = false;
             return;
           }
@@ -150,18 +168,22 @@
       const resolved = await resolveBlankEchoChain(source, (authorId, targetReedId) =>
         reedsService.getReed(authorId, targetReedId)
       );
+      if (seq !== loadSeq) return;
+      const resolvedUsername = await loadUsername(resolved.userID);
+      if (seq !== loadSeq) return;
       displayReed = resolved;
-      username = await loadUsername(resolved.userID);
+      username = resolvedUsername;
     } catch (error) {
       console.error('Error loading quote:', error);
-      if (reed) {
-        displayReed = reed;
-        username = await loadUsername(reed.userID);
+      if (seq !== loadSeq) return;
+      if (sourceReed) {
+        displayReed = sourceReed;
+        username = await loadUsername(sourceReed.userID);
       } else {
         loadFailed = true;
       }
     } finally {
-      loading = false;
+      if (seq === loadSeq) loading = false;
     }
   }
 
@@ -174,6 +196,10 @@
     }
     if (removedTarget) {
       goto(`/reed/${removedTarget.userID}/${removedTarget.reedID}`);
+      return;
+    }
+    if (unavailableTarget) {
+      goto(`/reed/${unavailableTarget.authorId}/${unavailableTarget.reedId}`);
     }
   }
 </script>
