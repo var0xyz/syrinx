@@ -421,8 +421,12 @@ export async function getFollowReeds(): Promise<{ reeds: ReedType[]; authors: Re
   }
   const reeds: ReedType[] = [];
   for (const ref of refs) {
-    const reed = await dbService.get<ReedType>('reeds', [ref.userID, ref.id]);
-    if (reed) reeds.push(reed);
+    try {
+      const reed = await dbService.get<ReedType>('reeds', [ref.userID, ref.id]);
+      if (reed) reeds.push(reed);
+    } catch (error) {
+      console.warn('getFollowReeds: skipping unreadable ref', ref, error);
+    }
   }
   const authors: Record<string, User> = {};
   for (const reed of reeds) {
