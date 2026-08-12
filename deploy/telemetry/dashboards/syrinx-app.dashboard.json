@@ -1,0 +1,4020 @@
+{
+  "version": 8,
+  "title": "Syrinx",
+  "description": "Application golden signals from HTTP/DB traces, otelsql pool metrics, and syrinx.* business counters. Host CPU/memory/disk live on the separate Host Metrics dashboard.",
+  "role": "",
+  "owner": "",
+  "created": "2026-08-04T00:00:00Z",
+  "tabs": [
+    {
+      "tabId": "overview",
+      "name": "Overview",
+      "panels": [
+        {
+          "id": "syrinx_stat_reqs",
+          "type": "metric",
+          "title": "Requests",
+          "description": "HTTP server spans in the selected window",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT count(*) AS reqs FROM syrinx WHERE span_kind = '2'",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [],
+                "y": [
+                  {
+                    "label": "Requests",
+                    "alias": "reqs",
+                    "column": "reqs",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reqs",
+                        "function": null,
+                        "alias": "reqs"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 48,
+            "h": 6,
+            "i": 1
+          }
+        },
+        {
+          "id": "syrinx_stat_err_pct",
+          "type": "metric",
+          "title": "Error % (5xx)",
+          "description": "Share of HTTP server spans with status >= 500",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": "percent",
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT CASE WHEN count(*) = 0 THEN 0 ELSE 100.0 * sum(CASE WHEN CAST(http_response_status_code AS BIGINT) >= 500 THEN 1 ELSE 0 END) / count(*) END AS err_pct FROM syrinx WHERE span_kind = '2'",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [],
+                "y": [
+                  {
+                    "label": "Error %",
+                    "alias": "err_pct",
+                    "column": "err_pct",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "err_pct",
+                        "function": null,
+                        "alias": "err_pct"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 48,
+            "y": 0,
+            "w": 48,
+            "h": 6,
+            "i": 2
+          }
+        },
+        {
+          "id": "syrinx_stat_p95",
+          "type": "metric",
+          "title": "p95 latency (ms)",
+          "description": "HTTP server span duration; stored \u00b5s, shown as ms",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT approx_percentile_cont(duration, 0.95) / 1000.0 AS p95_ms FROM syrinx WHERE span_kind = '2'",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [],
+                "y": [
+                  {
+                    "label": "p95 ms",
+                    "alias": "p95_ms",
+                    "column": "p95_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p95_ms",
+                        "function": null,
+                        "alias": "p95_ms"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 48,
+            "h": 6,
+            "i": 3
+          }
+        },
+        {
+          "id": "syrinx_stat_db_spans",
+          "type": "metric",
+          "title": "DB spans",
+          "description": "PostgreSQL client spans in the selected window",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT count(*) AS db_spans FROM syrinx WHERE db_system = 'postgresql'",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [],
+                "y": [
+                  {
+                    "label": "DB spans",
+                    "alias": "db_spans",
+                    "column": "db_spans",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "db_spans",
+                        "function": null,
+                        "alias": "db_spans"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 144,
+            "y": 0,
+            "w": 48,
+            "h": 6,
+            "i": 4
+          }
+        },
+        {
+          "id": "syrinx_rps",
+          "type": "line",
+          "title": "Request rate",
+          "description": "",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS ts, count(*) AS reqs FROM syrinx WHERE span_kind = '2' GROUP BY ts ORDER BY ts",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Timestamp",
+                    "alias": "ts",
+                    "column": "ts",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": "ASC",
+                    "args": [
+                      {
+                        "field": "ts",
+                        "function": null,
+                        "alias": "ts"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Requests",
+                    "alias": "reqs",
+                    "column": "reqs",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reqs",
+                        "function": null,
+                        "alias": "reqs"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 6,
+            "w": 96,
+            "h": 14,
+            "i": 5
+          }
+        },
+        {
+          "id": "syrinx_errs",
+          "type": "line",
+          "title": "5xx errors",
+          "description": "",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS ts, count(*) AS errs FROM syrinx WHERE span_kind = '2' AND CAST(http_response_status_code AS BIGINT) >= 500 GROUP BY ts ORDER BY ts",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Timestamp",
+                    "alias": "ts",
+                    "column": "ts",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": "ASC",
+                    "args": [
+                      {
+                        "field": "ts",
+                        "function": null,
+                        "alias": "ts"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "5xx",
+                    "alias": "errs",
+                    "column": "errs",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "errs",
+                        "function": null,
+                        "alias": "errs"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 6,
+            "w": 96,
+            "h": 14,
+            "i": 6
+          }
+        },
+        {
+          "id": "syrinx_latency",
+          "type": "line",
+          "title": "Latency p50 / p95 (ms)",
+          "description": "",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS ts, approx_percentile_cont(duration, 0.5) / 1000.0 AS p50_ms, approx_percentile_cont(duration, 0.95) / 1000.0 AS p95_ms FROM syrinx WHERE span_kind = '2' GROUP BY ts ORDER BY ts",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Timestamp",
+                    "alias": "ts",
+                    "column": "ts",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": "ASC",
+                    "args": [
+                      {
+                        "field": "ts",
+                        "function": null,
+                        "alias": "ts"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "p50 ms",
+                    "alias": "p50_ms",
+                    "column": "p50_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p50_ms",
+                        "function": null,
+                        "alias": "p50_ms"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "p95 ms",
+                    "alias": "p95_ms",
+                    "column": "p95_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p95_ms",
+                        "function": null,
+                        "alias": "p95_ms"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 20,
+            "w": 96,
+            "h": 14,
+            "i": 7
+          }
+        },
+        {
+          "id": "syrinx_pool_overview",
+          "type": "line",
+          "title": "DB connections (open vs max)",
+          "description": "Connection pool saturation. Host CPU/RAM live on the Host Metrics dashboard.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "db_sql_connection_open",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "db_sql_connection_open",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "open",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "db_sql_connection_max_open",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "db_sql_connection_max_open",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "max_open",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 20,
+            "w": 96,
+            "h": 14,
+            "i": 8
+          }
+        }
+      ]
+    },
+    {
+      "tabId": "requests",
+      "name": "Requests",
+      "panels": [
+        {
+          "id": "syrinx_top_routes",
+          "type": "bar",
+          "title": "Top routes by volume",
+          "description": "",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT http_route, count(*) AS reqs FROM syrinx WHERE span_kind = '2' AND http_route IS NOT NULL GROUP BY http_route ORDER BY reqs DESC LIMIT 20",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Route",
+                    "alias": "http_route",
+                    "column": "http_route",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "http_route",
+                        "function": null,
+                        "alias": "http_route"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Requests",
+                    "alias": "reqs",
+                    "column": "reqs",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reqs",
+                        "function": null,
+                        "alias": "reqs"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 10
+          }
+        },
+        {
+          "id": "syrinx_slow_routes",
+          "type": "table",
+          "title": "Slowest routes (p95 ms)",
+          "description": "",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT http_route, approx_percentile_cont(duration, 0.95) / 1000.0 AS p95_ms, count(*) AS reqs FROM syrinx WHERE span_kind = '2' AND http_route IS NOT NULL AND http_route != '/ws/' GROUP BY http_route ORDER BY p95_ms DESC LIMIT 20",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Route",
+                    "alias": "http_route",
+                    "column": "http_route",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "http_route",
+                        "function": null,
+                        "alias": "http_route"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "p95 ms",
+                    "alias": "p95_ms",
+                    "column": "p95_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p95_ms",
+                        "function": null,
+                        "alias": "p95_ms"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Requests",
+                    "alias": "reqs",
+                    "column": "reqs",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reqs",
+                        "function": null,
+                        "alias": "reqs"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 11
+          }
+        },
+        {
+          "id": "syrinx_status",
+          "type": "stacked",
+          "title": "Status codes over time",
+          "description": "",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS ts, http_response_status_code, count(*) AS cnt FROM syrinx WHERE span_kind = '2' GROUP BY ts, http_response_status_code ORDER BY ts",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Timestamp",
+                    "alias": "ts",
+                    "column": "ts",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": "ASC",
+                    "args": [
+                      {
+                        "field": "ts",
+                        "function": null,
+                        "alias": "ts"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Count",
+                    "alias": "cnt",
+                    "column": "cnt",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "cnt",
+                        "function": null,
+                        "alias": "cnt"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [
+                  {
+                    "label": "Status",
+                    "alias": "http_response_status_code",
+                    "column": "http_response_status_code",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "http_response_status_code",
+                        "function": null,
+                        "alias": "http_response_status_code"
+                      }
+                    ]
+                  }
+                ],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 192,
+            "h": 14,
+            "i": 12
+          }
+        },
+        {
+          "id": "syrinx_route_latency_table",
+          "type": "table",
+          "title": "Route latency summary",
+          "description": "Outliers without a heatmap \u2014 sort by p95 in the UI if needed",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT http_route, count(*) AS reqs, approx_percentile_cont(duration, 0.5) / 1000.0 AS p50_ms, approx_percentile_cont(duration, 0.95) / 1000.0 AS p95_ms, avg(duration) / 1000.0 AS avg_ms FROM syrinx WHERE span_kind = '2' AND http_route IS NOT NULL AND http_route != '/ws/' GROUP BY http_route ORDER BY reqs DESC LIMIT 30",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Route",
+                    "alias": "http_route",
+                    "column": "http_route",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "http_route",
+                        "function": null,
+                        "alias": "http_route"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Requests",
+                    "alias": "reqs",
+                    "column": "reqs",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reqs",
+                        "function": null,
+                        "alias": "reqs"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "p50 ms",
+                    "alias": "p50_ms",
+                    "column": "p50_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p50_ms",
+                        "function": null,
+                        "alias": "p50_ms"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "p95 ms",
+                    "alias": "p95_ms",
+                    "column": "p95_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p95_ms",
+                        "function": null,
+                        "alias": "p95_ms"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "avg ms",
+                    "alias": "avg_ms",
+                    "column": "avg_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "avg_ms",
+                        "function": null,
+                        "alias": "avg_ms"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 28,
+            "w": 192,
+            "h": 16,
+            "i": 13
+          }
+        }
+      ]
+    },
+    {
+      "tabId": "database",
+      "name": "Database",
+      "panels": [
+        {
+          "id": "syrinx_pool_open_wait",
+          "type": "line",
+          "title": "Pool open / wait",
+          "description": "",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "db_sql_connection_open",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "db_sql_connection_open",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "open",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "db_sql_connection_wait",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "db_sql_connection_wait",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "wait",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 20
+          }
+        },
+        {
+          "id": "syrinx_pool_wait_duration",
+          "type": "line",
+          "title": "Pool wait duration",
+          "description": "Time spent waiting for a free connection",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": "seconds",
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "db_sql_connection_wait_duration",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "db_sql_connection_wait_duration",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "wait_duration",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 21
+          }
+        },
+        {
+          "id": "syrinx_db_lat",
+          "type": "line",
+          "title": "DB query latency p95 (ms)",
+          "description": "From DB spans (preferred over empty histogram_quantile buckets)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS ts, approx_percentile_cont(duration, 0.95) / 1000.0 AS p95_ms FROM syrinx WHERE db_system = 'postgresql' GROUP BY ts ORDER BY ts",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Timestamp",
+                    "alias": "ts",
+                    "column": "ts",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": "ASC",
+                    "args": [
+                      {
+                        "field": "ts",
+                        "function": null,
+                        "alias": "ts"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "p95 ms",
+                    "alias": "p95_ms",
+                    "column": "p95_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p95_ms",
+                        "function": null,
+                        "alias": "p95_ms"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 22
+          }
+        },
+        {
+          "id": "syrinx_db_ops",
+          "type": "bar",
+          "title": "DB ops by type",
+          "description": "",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT operation_name, count(*) AS cnt FROM syrinx WHERE db_system = 'postgresql' GROUP BY operation_name ORDER BY cnt DESC",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Operation",
+                    "alias": "operation_name",
+                    "column": "operation_name",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "operation_name",
+                        "function": null,
+                        "alias": "operation_name"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Count",
+                    "alias": "cnt",
+                    "column": "cnt",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "cnt",
+                        "function": null,
+                        "alias": "cnt"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 23
+          }
+        },
+        {
+          "id": "syrinx_slow_queries",
+          "type": "table",
+          "title": "Slowest queries (p95 ms)",
+          "description": "Statement text without bind args; truncated to 120 chars",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT substr(db_query_text, 1, 120) AS query, count(*) AS cnt, approx_percentile_cont(duration, 0.95) / 1000.0 AS p95_ms, avg(duration) / 1000.0 AS avg_ms FROM syrinx WHERE db_system = 'postgresql' AND db_query_text IS NOT NULL AND db_query_text != '' GROUP BY query ORDER BY p95_ms DESC LIMIT 20",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Query",
+                    "alias": "query",
+                    "column": "query",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "query",
+                        "function": null,
+                        "alias": "query"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Count",
+                    "alias": "cnt",
+                    "column": "cnt",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "cnt",
+                        "function": null,
+                        "alias": "cnt"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "p95 ms",
+                    "alias": "p95_ms",
+                    "column": "p95_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p95_ms",
+                        "function": null,
+                        "alias": "p95_ms"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "avg ms",
+                    "alias": "avg_ms",
+                    "column": "avg_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "avg_ms",
+                        "function": null,
+                        "alias": "avg_ms"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 28,
+            "w": 192,
+            "h": 18,
+            "i": 24
+          }
+        },
+        {
+          "id": "syrinx_db_nesting",
+          "type": "bar",
+          "title": "DB spans: nested vs orphan",
+          "description": "After context threading, DB spans should nest under the HTTP request span (reference_parent_span_id set). Orphans indicate unmigrated call sites.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT nesting, count(*) AS cnt FROM ( SELECT CASE WHEN reference_parent_span_id IS NOT NULL AND reference_parent_span_id != '' THEN 'nested under request' ELSE 'orphan (no parent span)' END AS nesting FROM syrinx WHERE db_system = 'postgresql' ) GROUP BY nesting ORDER BY cnt DESC",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Nesting",
+                    "alias": "nesting",
+                    "column": "nesting",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "nesting",
+                        "function": null,
+                        "alias": "nesting"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Spans",
+                    "alias": "cnt",
+                    "column": "cnt",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "cnt",
+                        "function": null,
+                        "alias": "cnt"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 46,
+            "w": 64,
+            "h": 14,
+            "i": 25
+          }
+        },
+        {
+          "id": "syrinx_db_nested_pct",
+          "type": "line",
+          "title": "Nested DB span % over time",
+          "description": "Share of PostgreSQL client spans with a parent request span",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": "percent",
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 1
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS ts, 100.0 * sum(CASE WHEN reference_parent_span_id IS NOT NULL AND reference_parent_span_id != '' THEN 1 ELSE 0 END) / count(*) AS nested_pct FROM syrinx WHERE db_system = 'postgresql' GROUP BY ts ORDER BY ts",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Timestamp",
+                    "alias": "ts",
+                    "column": "ts",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": "ASC",
+                    "args": [
+                      {
+                        "field": "ts",
+                        "function": null,
+                        "alias": "ts"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Nested %",
+                    "alias": "nested_pct",
+                    "column": "nested_pct",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "nested_pct",
+                        "function": null,
+                        "alias": "nested_pct"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 64,
+            "y": 46,
+            "w": 64,
+            "h": 14,
+            "i": 26
+          }
+        },
+        {
+          "id": "syrinx_db_queries_per_route",
+          "type": "table",
+          "title": "DB queries per request by route",
+          "description": "Per HTTP request trace: count of nested DB spans, averaged by route. Requires context-threaded queries (trace_id join).",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT http_route, avg(db_queries) AS avg_queries, approx_percentile_cont(db_queries, 0.95) AS p95_queries, count(*) AS requests FROM ( SELECT h.http_route, h.trace_id, count(d.span_id) AS db_queries FROM syrinx h INNER JOIN syrinx d ON h.trace_id = d.trace_id AND d.db_system = 'postgresql' WHERE span_kind = '2' AND h.http_route IS NOT NULL GROUP BY h.http_route, h.trace_id ) GROUP BY http_route ORDER BY avg_queries DESC LIMIT 25",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Route",
+                    "alias": "http_route",
+                    "column": "http_route",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "http_route",
+                        "function": null,
+                        "alias": "http_route"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Avg queries",
+                    "alias": "avg_queries",
+                    "column": "avg_queries",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "avg_queries",
+                        "function": null,
+                        "alias": "avg_queries"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "p95 queries",
+                    "alias": "p95_queries",
+                    "column": "p95_queries",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p95_queries",
+                        "function": null,
+                        "alias": "p95_queries"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Requests",
+                    "alias": "requests",
+                    "column": "requests",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "requests",
+                        "function": null,
+                        "alias": "requests"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 128,
+            "y": 46,
+            "w": 64,
+            "h": 14,
+            "i": 27
+          }
+        },
+        {
+          "id": "syrinx_db_time_share",
+          "type": "line",
+          "title": "DB time as % of request duration",
+          "description": "Sum of nested DB span durations divided by HTTP span duration, averaged per trace then over time",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": "percent",
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 1
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS ts, avg(db_ms * 100.0 / nullif(http_ms, 0)) AS db_pct FROM ( SELECT h._timestamp, h.duration / 1000.0 AS http_ms, coalesce(sum(d.duration), 0) / 1000.0 AS db_ms FROM syrinx h LEFT JOIN syrinx d ON h.trace_id = d.trace_id AND d.db_system = 'postgresql' WHERE span_kind = '2' GROUP BY h.trace_id, h._timestamp, h.duration ) GROUP BY ts ORDER BY ts",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Timestamp",
+                    "alias": "ts",
+                    "column": "ts",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": "ASC",
+                    "args": [
+                      {
+                        "field": "ts",
+                        "function": null,
+                        "alias": "ts"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "DB % of request",
+                    "alias": "db_pct",
+                    "column": "db_pct",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "db_pct",
+                        "function": null,
+                        "alias": "db_pct"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 60,
+            "w": 192,
+            "h": 14,
+            "i": 28
+          }
+        }
+      ]
+    },
+    {
+      "tabId": "users",
+      "name": "Users",
+      "panels": [
+        {
+          "id": "syrinx_users_created",
+          "type": "line",
+          "title": "Signups",
+          "description": "Successful signups by signup.mode (open / invite / closed)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_users_created",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_created",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "total",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_users_created{signup_mode=\"open\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_created",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "open",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_users_created{signup_mode=\"invite\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_created",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "invite",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_users_created{signup_mode=\"closed\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_created",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "closed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 30
+          }
+        },
+        {
+          "id": "syrinx_users_deleted",
+          "type": "line",
+          "title": "Account deletions",
+          "description": "Account removals on first successful cert (not replays). note.has = whether a goodbye note was supplied (never the text).",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_users_deleted",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_deleted",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "total",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_users_deleted{note_has=\"true\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_deleted",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "with note",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_users_deleted{note_has=\"false\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_deleted",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "silent",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 31
+          }
+        },
+        {
+          "id": "syrinx_keys_revoked",
+          "type": "line",
+          "title": "Key revocations",
+          "description": "Successful key revocations; per-user series carry user.id in Explore",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_keys_revoked",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_keys_revoked",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "revoked",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 32
+          }
+        },
+        {
+          "id": "syrinx_user_churn",
+          "type": "line",
+          "title": "Signups vs deletions",
+          "description": "Compare signup and account-deletion counters over the selected window",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_users_created",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_created",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "created",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_users_deleted",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_deleted",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "deleted",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 33
+          }
+        },
+        {
+          "id": "syrinx_users_identity_backup",
+          "type": "bar",
+          "title": "Users with identity backup (.sxi)",
+          "description": "Live snapshot from DB counters (identity_backup_count > 0). Updated every metrics scrape (~10s).",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_users_with_identity_backup",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_with_identity_backup",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "backed up",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_users_without_identity_backup",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_without_identity_backup",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "never backed up",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 28,
+            "w": 96,
+            "h": 14,
+            "i": 34
+          }
+        },
+        {
+          "id": "syrinx_users_full_backup",
+          "type": "bar",
+          "title": "Users with full backup (.sxb)",
+          "description": "Live snapshot from DB counters (full_backup_count > 0). Separate from keys-only identity export.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_users_with_full_backup",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_with_full_backup",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "backed up",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_users_without_full_backup",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_without_full_backup",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "never backed up",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 28,
+            "w": 96,
+            "h": 14,
+            "i": 35
+          }
+        },
+        {
+          "id": "syrinx_users_backup_events",
+          "type": "line",
+          "title": "Backup events by kind",
+          "description": "Successful SPA export acknowledgements via POST /users/me/backup (after the file is saved locally)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_users_backup",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_backup",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "total",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_users_backup{backup_kind=\"identity\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_backup",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "identity (.sxi)",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_users_backup{backup_kind=\"full\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_backup",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "full (.sxb)",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 42,
+            "w": 96,
+            "h": 14,
+            "i": 36
+          }
+        },
+        {
+          "id": "syrinx_users_backup_repeat",
+          "type": "line",
+          "title": "First vs repeat backups",
+          "description": "repeat=true when the user had already recorded at least one backup of the same kind (identity or full)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_users_backup{backup_repeat=\"false\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_backup",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "first time",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_users_backup{backup_repeat=\"true\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_backup",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "repeat",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 42,
+            "w": 96,
+            "h": 14,
+            "i": 37
+          }
+        },
+        {
+          "id": "syrinx_user_retention",
+          "type": "line",
+          "title": "Signup cohort retention (% still active by day N)",
+          "description": "Per-user (user_id_hash) signup timestamp, excluded once a matching deletion timestamp exists (both from raw histogram exemplars). user_id_hash IS NOT NULL filters out pre-hash datapoints from before this label was added. Not cohort-bucketed by signup week \u2014 just 'signups from N days ago still active today', across all hashed signups to date. Reads as ~100% flat until syrinx_users_deleted has data (no deletions recorded as of authoring). extract(epoch FROM now()) and floor() verified directly against this OpenObserve instance's DataFusion SQL engine; datediff/to_unix_timestamp are NOT supported here.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "WITH signups AS ( SELECT user_id_hash, min(_timestamp) AS signed_up_at FROM syrinx_users_created WHERE user_id_hash IS NOT NULL GROUP BY user_id_hash ), deletions AS ( SELECT user_id_hash, min(_timestamp) AS deleted_at FROM syrinx_users_deleted WHERE user_id_hash IS NOT NULL GROUP BY user_id_hash ) SELECT floor((extract(epoch FROM now()) * 1000000.0 - s.signed_up_at) / 86400000000.0) AS days_active, count(*) AS cohort_still_active FROM signups s LEFT JOIN deletions d ON s.user_id_hash = d.user_id_hash WHERE d.deleted_at IS NULL GROUP BY days_active ORDER BY days_active",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_users_created",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Days since signup",
+                    "alias": "days_active",
+                    "column": "days_active",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": "ASC",
+                    "args": [
+                      {
+                        "field": "days_active",
+                        "function": null,
+                        "alias": "days_active"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Signups still active",
+                    "alias": "cohort_still_active",
+                    "column": "cohort_still_active",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "cohort_still_active",
+                        "function": null,
+                        "alias": "cohort_still_active"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 56,
+            "w": 192,
+            "h": 14,
+            "i": 38
+          }
+        }
+      ]
+    },
+    {
+      "tabId": "reeds",
+      "name": "Reeds",
+      "panels": [
+        {
+          "id": "syrinx_reeds_published",
+          "type": "line",
+          "title": "Publishes by kind",
+          "description": "Successful SignReed creates (not replays), split by reed.kind",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_reeds_published",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_published",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "total",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_reeds_published{reed_kind=\"plain\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_published",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "plain",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_reeds_published{reed_kind=\"echo\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_published",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "echo",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_reeds_published{reed_kind=\"reply\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_published",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "reply",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 40
+          }
+        },
+        {
+          "id": "syrinx_echoes_targeted",
+          "type": "line",
+          "title": "Echoes sent vs received",
+          "description": "Echo sent = new echo reed published; targeted = original reed indexed (syrinx.echoes.targeted)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_reeds_published{reed_kind=\"echo\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_published",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "echo sent",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_echoes_targeted",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_echoes_targeted",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "echo indexed on target",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 41
+          }
+        },
+        {
+          "id": "syrinx_reeds_deleted",
+          "type": "line",
+          "title": "Reed deletions",
+          "description": "Successful reed removal certs (not replays). No Data = no deletions in the selected window.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_reeds_deleted",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_deleted",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "deleted",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 48,
+            "h": 14,
+            "i": 42
+          }
+        },
+        {
+          "id": "syrinx_reeds_rejected_length",
+          "type": "line",
+          "title": "Length rejections",
+          "description": "SignReed HTTP 400 from ReedContentWithinLimits (max raw 1400, visible 140). No Data = no rejections in the selected window.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_reeds_rejected_length",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_rejected_length",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "total",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_reeds_rejected_length{raw_exceeds_max=\"true\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_rejected_length",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "raw over max",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_reeds_rejected_length{visible_exceeds_max=\"true\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_rejected_length",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "visible over max",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 48,
+            "y": 14,
+            "w": 48,
+            "h": 14,
+            "i": 43
+          }
+        },
+        {
+          "id": "syrinx_reeds_tags",
+          "type": "line",
+          "title": "Publishes with tags",
+          "description": "Tag count bucketed 0\u20133 exact, 4 = four or more (never tag text)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_reeds_published{tags_has=\"true\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_published",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "with tags",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_reeds_published{tags_has=\"false\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_published",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "no tags",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_reeds_published{tags_count=\"4\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_published",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "4+ tags",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 44
+          }
+        },
+        {
+          "id": "syrinx_reed_raw_chars",
+          "type": "area",
+          "title": "Reed body length (raw chars) \u2014 p50/p90/p99",
+          "description": "Shape of len(body) on successful publish, from OTLP histogram buckets (not just the mean). Cap is 1400 raw chars \u2014 p99 hugging the cap may indicate abuse. Bucket boundaries are SDK defaults, coarse between 100\u20131400; see syrinx/observability for tuning a View if more resolution near the cap is needed.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "histogram_quantile(0.5, sum(syrinx_reed_content_raw_chars_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reed_content_raw_chars_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "p50",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "histogram_quantile(0.9, sum(syrinx_reed_content_raw_chars_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reed_content_raw_chars_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "p90",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "histogram_quantile(0.99, sum(syrinx_reed_content_raw_chars_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reed_content_raw_chars_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "p99",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 28,
+            "w": 96,
+            "h": 14,
+            "i": 45
+          }
+        },
+        {
+          "id": "syrinx_reed_visible_chars",
+          "type": "area",
+          "title": "Reed body length (visible chars) \u2014 p50/p90/p99",
+          "description": "Shape of CountMarkdownCharacters(body) on publish. Cap is 140 visible chars.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "histogram_quantile(0.5, sum(syrinx_reed_content_visible_chars_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reed_content_visible_chars_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "p50",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "histogram_quantile(0.9, sum(syrinx_reed_content_visible_chars_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reed_content_visible_chars_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "p90",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "histogram_quantile(0.99, sum(syrinx_reed_content_visible_chars_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reed_content_visible_chars_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "p99",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 28,
+            "w": 96,
+            "h": 14,
+            "i": 46
+          }
+        },
+        {
+          "id": "syrinx_reed_holders_coverage",
+          "type": "area",
+          "title": "Reed holders & coverage % \u2014 p50/p90/p99",
+          "description": "holders and coverage % are the same event (ReedCoverage records both together \u2014 coverage % = holders / active users) so they're merged here. Shape from OTLP histogram buckets instead of a flattened mean. Per-reed series (author.id + reed.id) aggregate; filter in Explore.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "histogram_quantile(0.5, sum(syrinx_reed_holders_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reed_holders_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "holders p50",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "histogram_quantile(0.9, sum(syrinx_reed_holders_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reed_holders_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "holders p90",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "histogram_quantile(0.99, sum(syrinx_reed_holders_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reed_holders_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "holders p99",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "histogram_quantile(0.5, sum(syrinx_reed_coverage_percent_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reed_coverage_percent_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "coverage % p50",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 42,
+            "w": 192,
+            "h": 14,
+            "i": 47
+          }
+        }
+      ]
+    },
+    {
+      "tabId": "websocket",
+      "name": "WebSocket",
+      "panels": [
+        {
+          "id": "syrinx_ws_volume",
+          "type": "line",
+          "title": "WebSocket messages",
+          "description": "Every handled WS frame (spec 5.4 normalized message types)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_ws_messages",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "total",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"in\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "in",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"out\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "out",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 50
+          }
+        },
+        {
+          "id": "syrinx_ws_in_types",
+          "type": "line",
+          "title": "Inbound by message type",
+          "description": "Client \u2192 server frames (ws.direction=in)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"PING\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "PING",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"REQUEST_REED\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "REQUEST_REED",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"DATA_ACK\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "DATA_ACK",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"SYNC_REQUEST\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "SYNC_REQUEST",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_RESPONSE\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "RELAY_RESPONSE",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_MISS\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "RELAY_MISS",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"SUBSCRIBE_REED\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "SUBSCRIBE_REED",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 51
+          }
+        },
+        {
+          "id": "syrinx_ws_out_types",
+          "type": "line",
+          "title": "Outbound by message type",
+          "description": "Server \u2192 client frames (ws.direction=out)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"RELAY_REQUEST\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "RELAY_REQUEST",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"DATA_RESPONSE\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "DATA_RESPONSE",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"BROADCAST_REED\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "BROADCAST_REED",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REED_COVERAGE\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "REED_COVERAGE",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REQUEST_ACK\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "REQUEST_ACK",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"pong\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "pong",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REED_ECHOES\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "REED_ECHOES",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REED_REPLIES\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "REED_REPLIES",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 192,
+            "h": 14,
+            "i": 52
+          }
+        },
+        {
+          "id": "syrinx_ws_relay_health",
+          "type": "line",
+          "title": "Relay path (in vs out)",
+          "description": "Quick view of reed relay request/response/miss balance",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"REQUEST_REED\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "in: REQUEST_REED",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_RESPONSE\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "in: RELAY_RESPONSE",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_MISS\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "in: RELAY_MISS",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"RELAY_REQUEST\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "out: RELAY_REQUEST",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"DATA_RESPONSE\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "out: DATA_RESPONSE",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 28,
+            "w": 192,
+            "h": 14,
+            "i": 53
+          }
+        }
+      ]
+    }
+  ],
+  "variables": {
+    "list": [],
+    "showDynamicFilters": false
+  },
+  "defaultDatetimeDuration": {
+    "type": "relative",
+    "relativeTimePeriod": "15m"
+  }
+}

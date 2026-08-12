@@ -1,5 +1,10 @@
 .env
+__pycache__
 bin/
+deploy/*/deploy.env
+deploy/*/setup.env
+deploy/*/telemetry.env
+deploy/syrinx/root-creds/
 docs/.vitepress/cache
 docs/.vitepress/dist
 docs/node_modules
@@ -9,4 +14,3 @@ spa/certs
 spa/node_modules
 spa/playwright-report
 spa/test-results
-syrinx
