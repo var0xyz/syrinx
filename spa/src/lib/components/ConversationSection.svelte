@@ -21,6 +21,8 @@
   export let threadId = '';
   /** Bump to force reload (e.g. after FOLLOW_REED). */
   export let refreshToken = 0;
+  /** Bound out to the parent for tab-count display and empty-state gating. */
+  export let count = 0;
 
   /** @type {{ userID: string; reedID: string; reed?: import('$lib/types/reed').ReedType | null; username?: string; timestamp?: string; loading?: boolean; removed?: boolean }[]} */
   let rows = [];
@@ -223,13 +225,15 @@
     goto(`/reed/${row.userID}/${row.reedID}`);
   }
 
-  $: visible = !loading && rows.length > 0;
+  $: visible = !loading;
+  $: count = rows.length;
 </script>
 
 {#if visible}
 <section class="conversation-section" aria-label="Conversation">
-  <h2 class="conversation-header">Conversation</h2>
-
+  {#if rows.length === 0}
+    <p class="conversation-empty">Start the conversation. Be the first to reply.</p>
+  {/if}
   <ul class="reply-list">
     {#each rows as row (row.reedID)}
       <li>
@@ -268,11 +272,12 @@
     padding-top: 1rem;
   }
 
-  .conversation-header {
-    font-size: 1rem;
-    font-weight: 600;
-    margin: 0 0.75rem 0.75rem;
-    color: var(--fg);
+  .conversation-empty {
+    margin: 0 0.75rem 1rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-style: italic;
+    padding-left: 1rem;
   }
 
   .reply-list {

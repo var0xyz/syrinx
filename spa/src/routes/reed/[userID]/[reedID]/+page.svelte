@@ -20,6 +20,7 @@
   import Avatar from '$lib/components/Avatar.svelte';
   import ReedStatsSubscription from '$lib/components/ReedStatsSubscription.svelte';
   import ConversationSection from '$lib/components/ConversationSection.svelte';
+  import RipplesSection from '$lib/components/RipplesSection.svelte';
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
@@ -69,6 +70,11 @@
   let conversationSection = null;
   let lastHandledFollowReedId = '';
   let lastHandledReedReplyId = '';
+
+  /** @type {'conversation' | 'ripples'} */
+  let discussionTab = 'conversation';
+  let conversationCount = 0;
+  let ripplesCount = 0;
 
   $: parentThreadId = reed && reedMatchesRoute
     ? (reed.threadId || resolveThreadId(reed, reed.serverSignature?.serverID || localStorage.getItem('serverId') || ''))
@@ -641,13 +647,41 @@
             </div>
           </div>
           {#if !isPending}
-            <ConversationSection
-              bind:this={conversationSection}
-              parentUserID={userID}
-              parentReedID={reedID}
-              threadId={parentThreadId}
-              refreshToken={conversationRefresh}
-            />
+            <div class="discussion-tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                class="discussion-tab"
+                class:active={discussionTab === 'conversation'}
+                aria-selected={discussionTab === 'conversation'}
+                on:click={() => { discussionTab = 'conversation'; }}
+              >
+                Conversation{#if conversationCount > 0} ({conversationCount}){/if}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                class="discussion-tab"
+                class:active={discussionTab === 'ripples'}
+                aria-selected={discussionTab === 'ripples'}
+                on:click={() => { discussionTab = 'ripples'; }}
+              >
+                Ripples{#if ripplesCount > 0} ({ripplesCount}){/if}
+              </button>
+            </div>
+            <div class="discussion-panel" class:hidden={discussionTab !== 'conversation'}>
+              <ConversationSection
+                bind:this={conversationSection}
+                parentUserID={userID}
+                parentReedID={reedID}
+                threadId={parentThreadId}
+                refreshToken={conversationRefresh}
+                bind:count={conversationCount}
+              />
+            </div>
+            <div class="discussion-panel" class:hidden={discussionTab !== 'ripples'}>
+              <RipplesSection bind:count={ripplesCount} />
+            </div>
           {/if}
         {/if}
       </div>
@@ -822,6 +856,38 @@
 
   .quote-container {
     margin: 1rem 0;
+  }
+
+  .discussion-tabs {
+    display: flex;
+    gap: 1.25rem;
+    padding: 0 0.75rem;
+    margin-top: 1rem;
+  }
+
+  .discussion-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0.6rem 0.1rem;
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .discussion-tab.active {
+    color: var(--fg);
+    border-bottom-color: var(--primary);
+  }
+
+  .discussion-tab:hover {
+    color: var(--fg);
+  }
+
+  .discussion-panel.hidden {
+    display: none;
   }
 
   .reed-actions-bar {
