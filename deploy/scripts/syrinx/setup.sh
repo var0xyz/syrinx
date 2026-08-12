@@ -311,12 +311,25 @@ npm run build
 echo -e "\n🚀 Both builds succeeded — installing atomically..."
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME" "/usr/local/bin/$APP_NAME"
 
-# @sveltejs/adapter-static writes to "build" (not Vite's default "dist")
-rm -rf "$WWW_ROOT/build"
-cp -r build "$WWW_ROOT/"
-chown -R root:www-data "$WWW_ROOT/build"
-find "$WWW_ROOT/build" -type d -exec chmod 755 {} \;
-find "$WWW_ROOT/build" -type f -exec chmod 644 {} \;
+# @sveltejs/adapter-static writes to "build" (not Vite's default "dist").
+# Ship into a timestamped release dir and point the `build` symlink at it —
+# same atomic-swap scheme update.sh uses, so the very first install already
+# has old-release retention in place instead of a plain directory a later
+# update would need to migrate away from.
+RELEASES_DIR="$WWW_ROOT/releases"
+RELEASE_DIR="$RELEASES_DIR/$(date +%Y%m%dT%H%M%S)-${GIT_COMMIT:0:12}"
+mkdir -p "$RELEASES_DIR"
+cp -r build "$RELEASE_DIR"
+chown -R root:www-data "$RELEASE_DIR"
+find "$RELEASE_DIR" -type d -exec chmod 755 {} \;
+find "$RELEASE_DIR" -type f -exec chmod 644 {} \;
+# ln -sfn silently nests inside an existing plain directory instead of
+# replacing it — matters if setup.sh is re-run against a host that was set
+# up before this script adopted the symlink scheme.
+if [ -d "$WWW_ROOT/build" ] && [ ! -L "$WWW_ROOT/build" ]; then
+    rm -rf "$WWW_ROOT/build"
+fi
+ln -sfn "$RELEASE_DIR" "$WWW_ROOT/build"
 
 # ==============================================================================
 # LOCAL EDGE: nginx serves SPA + proxies /api and /ws to Go
@@ -359,6 +372,17 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$http_x_forwarded_proto;
         proxy_read_timeout 86400;
+    }
+
+    # Hashed build assets: a 404 here must stay a 404, never the SPA shell.
+    # Falling back to index.html (text/html) for a missing chunk is what
+    # causes "Failed to load module script: ... MIME type of text/html" —
+    # the previous deploy's rm -rf leaves old clients referencing chunk
+    # hashes that no longer exist, and SvelteKit's stale-chunk reload then
+    # loops forever because the reload re-fetches the very shell pointing
+    # at the same missing chunk.
+    location /_app/ {
+        try_files \$uri =404;
     }
 
     # SPA assets + client-side router fallback

@@ -147,11 +147,32 @@ npm run build
 echo -e "\n🚀 Both builds succeeded — installing atomically..."
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME" "/usr/local/bin/$APP_NAME"
 
-rm -rf "$WWW_ROOT/build"
-cp -r build "$WWW_ROOT/"
-chown -R root:www-data "$WWW_ROOT/build"
-find "$WWW_ROOT/build" -type d -exec chmod 755 {} \;
-find "$WWW_ROOT/build" -type f -exec chmod 644 {} \;
+# Ship the SPA into its own timestamped release dir and repoint the `build`
+# symlink with `ln -sfn` (atomic rename, not an in-place rm+cp). A tab left
+# open from before this deploy keeps resolving its already-loaded chunk
+# hashes against the OLD release dir until it reloads on its own — no more
+# "chunk deleted out from under a live tab" 404/MIME-type errors, and no
+# window where nginx serves a half-old/half-new build.
+RELEASES_DIR="$WWW_ROOT/releases"
+RELEASE_DIR="$RELEASES_DIR/$(date +%Y%m%dT%H%M%S)-${GIT_COMMIT:0:12}"
+mkdir -p "$RELEASES_DIR"
+cp -r build "$RELEASE_DIR"
+chown -R root:www-data "$RELEASE_DIR"
+find "$RELEASE_DIR" -type d -exec chmod 755 {} \;
+find "$RELEASE_DIR" -type f -exec chmod 644 {} \;
+# `mv -T` refuses to replace a real (non-symlink) directory with a symlink —
+# expected on the first run after this script adopts the symlink scheme,
+# since $WWW_ROOT/build was a plain directory before. Clear that one-time
+# case explicitly; every run after this one is swapping symlink-for-symlink.
+if [ -d "$WWW_ROOT/build" ] && [ ! -L "$WWW_ROOT/build" ]; then
+    rm -rf "$WWW_ROOT/build"
+fi
+ln -sfn "$RELEASE_DIR" "$WWW_ROOT/build.new"
+mv -Tf "$WWW_ROOT/build.new" "$WWW_ROOT/build"
+
+# Keep the 5 most recent releases (current + a few for in-flight tabs), prune the rest.
+find "$RELEASES_DIR" -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
+    | sort -rn | tail -n +6 | cut -d' ' -f2- | xargs -r rm -rf
 
 if [ -f "$ENV_FILE" ]; then
     wire_observability_env
