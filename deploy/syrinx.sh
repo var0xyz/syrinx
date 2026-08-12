@@ -26,8 +26,10 @@
 # as deploy/telemetry.sh. Set DEPLOY_HOST or SSH_USER to override.
 #
 # Root-requiring remote scripts (setup, update, restart, ...) are run with
-# sudo; wipe-db and psql are interactive, so their prompts pass straight
-# through your terminal.
+# sudo; wipe-db is interactive, so its prompts pass straight through your
+# terminal. psql skips the banner/connectivity-check/host-prompt entirely —
+# it only runs against an already-saved host and errors out (pointing at
+# setup) if there isn't one yet, so its stdout is exactly what psql prints.
 #
 # After the first root identity mint, run
 # ./deploy/scripts/syrinx/cp-root-creds.sh separately to copy the export
@@ -47,7 +49,7 @@ info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
 usage() {
-    sed -n '2,35p' "$0" | sed -e 's/^# //' -e 's/^#$//'
+    sed -n '2,37p' "$0" | sed -e 's/^# //' -e 's/^#$//'
 }
 
 load_saved_host() {
@@ -115,6 +117,23 @@ case "$CMD" in
     -h|--help|help) usage; exit 0 ;;
     *) die "Unknown command: $CMD (run '$0 --help' for the list)" ;;
 esac
+
+# psql wants clean output: no banner, no prompt, no connectivity probe —
+# just the saved host and straight into psql. Nothing saved yet means
+# no other command has run here before; point at setup instead of prompting.
+if [ "$CMD" = "psql" ]; then
+    load_saved_host
+    DEPLOY_HOST="${DEPLOY_HOST:-}"
+    [ -n "$DEPLOY_HOST" ] || die "No saved host — run './syrinx.sh setup' first"
+    DEPLOY_HOST="$(normalize_host "$DEPLOY_HOST")"
+
+    scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_DIR}/"
+    REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo ./$REMOTE_SCRIPT"
+    for arg in "$@"; do
+        REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
+    done
+    exec ssh -t "$DEPLOY_HOST" "$REMOTE_CMD"
+fi
 
 DEPLOY_HOST_FROM_ENV="${DEPLOY_HOST:-}"
 load_saved_host
