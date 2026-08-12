@@ -10,7 +10,7 @@
   import { userRepository } from '$lib/repositories/user';
   import { userInfoRepository } from '$lib/repositories/userInfo';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
-  import { reedsService, profileReedQueue } from '$lib/repositories/reeds';
+  import { reedsService } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { notificationStore } from '$lib/stores/notifications';
@@ -195,21 +195,6 @@
   }
 
   $: applyPageData(data);
-
-  // Promote out of noContent the moment the subscribed profile's first reed
-  // arrives — ReedsList (which normally handles profileReedQueue) isn't
-  // mounted while status is noContent, so nothing else would flip this.
-  let lastHandledProfileReedId = '';
-  $: profileArrived = $profileReedQueue?.reed;
-  $: if (
-    profileArrived &&
-    profileArrived.userID === userId &&
-    profileArrived.id !== lastHandledProfileReedId &&
-    status === 'noContent'
-  ) {
-    lastHandledProfileReedId = profileArrived.id;
-    status = 'ready';
-  }
 
   function applyPageData(next) {
     status = next.status;
@@ -468,83 +453,7 @@
         </p>
       </div>
 
-    {:else if status === 'noContent'}
-      {#if profileUser}
-        <div class="user-profile-card-container">
-          {#if isEditing && isOwner}
-            <div class="profile-card">
-              <div class="edit-form">
-                <div class="form-group">
-                  <label for="edit-username">Username</label>
-                  <input
-                    id="edit-username"
-                    type="text"
-                    bind:value={editForm.username}
-                    placeholder="Enter username"
-                    maxlength="50"
-                  />
-                  {#if editForm.username && editForm.username !== profileUser.username}
-                    <div class="help-text">
-                      <UsernameChecker username={editForm.username} authenticated />
-                    </div>
-                  {/if}
-                </div>
-
-                <div class="form-group">
-                  <label for="edit-bio">Bio</label>
-                  <textarea
-                    id="edit-bio"
-                    bind:value={editForm.bio}
-                    placeholder="Tell us about yourself..."
-                    rows="3"
-                  ></textarea>
-                  <div class="char-count" class:over-limit={visibleBioChars > MAX_REED_VISIBLE_CHARS}>{visibleBioChars}/{MAX_REED_VISIBLE_CHARS}</div>
-                </div>
-
-                {#if editError}
-                  <div class="error-message">
-                    <p>{editError}</p>
-                  </div>
-                {/if}
-
-                {#if editSuccess}
-                  <div class="success-message">
-                    <p>{editSuccess}</p>
-                  </div>
-                {/if}
-
-                <div class="edit-actions">
-                  <button class="action-btn secondary" on:click={cancelEditing} disabled={saving}>
-                    Cancel
-                  </button>
-                  <button class="action-btn primary" on:click={saveProfile} disabled={saving}>
-                    {saving ? 'Saving...' : 'Save Changes'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          {:else}
-            <UserProfileCard
-              user={profileUser}
-              {isOwner}
-              {isFollowing}
-              {followListOpen}
-              {followListMode}
-              on:edit={startEditing}
-              on:followingChange={onFollowingChange}
-              on:openFollowList={(e) => setFollowListHash(true, e.detail.mode)}
-              on:closeFollowList={() => setFollowListHash(false, followListMode)}
-            />
-          {/if}
-        </div>
-      {/if}
-      <div class="state-message">
-        <div class="state-icon">🫙</div>
-        <h3>No reeds yet</h3>
-        <p>New reeds will appear here once we receive them.</p>
-      </div>
-
-    {:else if status === 'ready'}
+    {:else if status === 'noContent' || status === 'ready'}
       {#if profileUser}
         <div class="user-profile-card-container">
           {#if isEditing && isOwner}
