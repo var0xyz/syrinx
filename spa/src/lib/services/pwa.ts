@@ -5,6 +5,10 @@ export const canInstall = writable(false);
 export const isOnline = writable(
   typeof navigator !== 'undefined' ? navigator.onLine : true
 );
+/** A new service worker has taken control of this page — the running app
+ * is stale. Set once by the controllerchange handler below; cleared only
+ * by reloading (applyUpdate), never automatically. */
+export const updateAvailable = writable(false);
 
 type ReconnectListener = () => void;
 const reconnectListeners = new Set<ReconnectListener>();
@@ -99,49 +103,18 @@ export function initializePWA() {
       updateViaCache: 'none'
     };
 
-    // Reload once when a new worker takes control (update path only).
-    // Guard with localStorage + a time window: sessionStorage alone is not
-    // always available (some PWA / private modes), and flip-flopping SW bytes
-    // during a rolling deploy can fire controllerchange repeatedly.
+    // A new worker taking control (update path only, never the first-ever
+    // install for a fresh visitor) means the running app is now stale —
+    // surface the update banner instead of reloading out from under the
+    // user. reloadPending guards against firing twice if controllerchange
+    // races with the registration.waiting check below.
     const hadController = !!navigator.serviceWorker.controller;
-    const RELOAD_COUNT_KEY = 'syrinx:sw-reload-count';
-    const RELOAD_TIME_KEY = 'syrinx:sw-reload-time';
-    const RELOAD_WINDOW_MS = 60_000;
-    const MAX_RELOADS_PER_WINDOW = 2;
-
-    let controllerChangeTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function mayReloadForSWUpdate(): boolean {
-      try {
-        const now = Date.now();
-        const last = Number(localStorage.getItem(RELOAD_TIME_KEY) || '0');
-        let count = Number(localStorage.getItem(RELOAD_COUNT_KEY) || '0');
-        if (!last || now - last > RELOAD_WINDOW_MS) {
-          count = 0;
-        }
-        if (count >= MAX_RELOADS_PER_WINDOW) {
-          console.warn(
-            'PWA: Service Worker updated again within reload window; skipping reload to avoid a loop.'
-          );
-          return false;
-        }
-        localStorage.setItem(RELOAD_COUNT_KEY, String(count + 1));
-        localStorage.setItem(RELOAD_TIME_KEY, String(now));
-        return true;
-      } catch {
-        // Storage blocked — prefer a working stale shell over an infinite reload.
-        return false;
-      }
-    }
+    let reloadPending = false;
 
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!hadController) return;
-      if (controllerChangeTimer) return;
-      controllerChangeTimer = setTimeout(() => {
-        controllerChangeTimer = null;
-        if (!mayReloadForSWUpdate()) return;
-        window.location.reload();
-      }, 100);
+      if (!hadController || reloadPending) return;
+      reloadPending = true;
+      updateAvailable.set(true);
     });
 
     navigator.serviceWorker.register(swUrl, swOptions)
@@ -174,6 +147,11 @@ export function initializePWA() {
       console.error('PWA: Service Worker registration failed:', error);
     });
   }
+}
+
+/** Reload onto the new version — called by the update banner's button. */
+export function applyUpdate(): void {
+  window.location.reload();
 }
 
 export async function installPWA(): Promise<boolean> {
