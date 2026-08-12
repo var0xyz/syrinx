@@ -1848,6 +1848,11 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if replyRef != nil {
+		// ReplyPosted (content relay) is NOT fired here — the reply's own
+		// author isn't a valid relay holder for it until their client sends
+		// PUBLISH_READY (see handlePublishReady). Firing it this early races
+		// PUBLISH_READY: the resulting relay miss deletes the author's
+		// allocation for their own reed, orphaning it from relay entirely.
 		targets, err := h.services.db.ReplyCountNotifyTargets(r.Context(), replyRef.AuthorID, replyRef.ReedID)
 		if err != nil {
 			log.Error().Err(err).Msg("Error resolving reply count notify targets")
@@ -1857,13 +1862,6 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 					Type:   realtime.ReplyCountChanged,
 					UserID: t.AuthorID,
 					ReedID: t.ReedID,
-				}
-				h.broadcastChan <- realtime.BroadcastMessage{
-					Type:        realtime.ReplyPosted,
-					UserID:      t.AuthorID,
-					ReedID:      t.ReedID,
-					ReplyUserID: userID,
-					ReplyReedID: reed.ID,
 				}
 			}
 		}
