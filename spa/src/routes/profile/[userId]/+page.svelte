@@ -38,6 +38,12 @@
   /** Account removal cert is local — never re-fetch profile from server. */
   let accountRemoved = data.accountRemoved ?? data.status === 'tombstone';
 
+  /** Drives the offline-vs-generic-error copy on the 'error' state. */
+  let isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  function updateOnlineStatus() {
+    isOffline = !navigator.onLine;
+  }
+
   // Edit mode state (own profile only — see isOwner gate on the button).
   let isEditing = false;
   let editForm = { username: '', bio: '' };
@@ -239,6 +245,16 @@
         return;
       }
       if (httpStatus !== 200 || !info) {
+        // Network error (httpStatus === 0) or an unexpected non-2xx.
+        // If we already have something cached (profileUser, or the page
+        // isn't stuck on the initial 'loading' state), keep showing it —
+        // offline-first means a failed refresh doesn't take away data the
+        // user already has. Only when there's truly nothing to show yet
+        // (first-ever visit to this profile, offline) do we surface an
+        // explicit error instead of hanging on "Loading..." forever.
+        if (status === 'loading' && !profileUser) {
+          status = 'error';
+        }
         return;
       }
 
@@ -343,6 +359,8 @@
   }
 </script>
 
+<svelte:window on:online={updateOnlineStatus} on:offline={updateOnlineStatus} />
+
 <div class="profile-container">
   <div class="profile-content">
     {#if status === 'loading'}
@@ -441,9 +459,13 @@
 
     {:else if status === 'error'}
       <div class="state-message">
-        <div class="state-icon">⚠️</div>
-        <h3>Couldn't load this profile</h3>
-        <p>Something went wrong loading this profile. Please try again.</p>
+        <div class="state-icon">{isOffline ? '📡' : '⚠️'}</div>
+        <h3>{isOffline ? "You're offline" : "Couldn't load this profile"}</h3>
+        <p>
+          {isOffline
+            ? "This profile hasn't been downloaded to this device yet, so it can't be shown offline."
+            : 'Something went wrong loading this profile. Please try again.'}
+        </p>
       </div>
 
     {:else if status === 'noContent'}

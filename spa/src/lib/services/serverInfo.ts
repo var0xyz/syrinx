@@ -62,7 +62,10 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
   serverInfoLoading.set(true);
 
   try {
-    const response = await fetch('/api/server/info');
+    // A reachable-but-slow/hanging server must not stall this indefinitely —
+    // offline-first means the app finishes booting either way, background
+    // work included.
+    const response = await fetch('/api/server/info', { signal: AbortSignal.timeout(8000) });
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
