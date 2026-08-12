@@ -128,7 +128,7 @@ export async function encryptAndSaveBackup(
         }],
       });
       const writable = await fileHandle.createWritable();
-      await writable.write(new Blob([encryptedData], { type: 'application/octet-stream' }));
+      await writable.write(new Blob([encryptedData.slice()], { type: 'application/octet-stream' }));
       await writable.close();
       return true;
     } catch (error: any) {
@@ -137,7 +137,7 @@ export async function encryptAndSaveBackup(
     }
   }
 
-  const blob = new Blob([encryptedData], { type: 'application/octet-stream' });
+  const blob = new Blob([encryptedData.slice()], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

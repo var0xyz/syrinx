@@ -90,6 +90,9 @@ test.describe('Signup and Reed Publishing Flow', () => {
           all.onerror = () => reject(all.error);
         };
       });
+      // Browser-side dynamic import resolved by Vite against the live page's
+      // module graph at runtime — not a TS-resolvable specifier from this file.
+      // @ts-expect-error -- runtime URL import, see comment above
       const { verifyReed } = await import('/src/lib/verifiers/index.ts');
       const ok = await verifyReed(reed);
       return { ok, fingerprint: reed.serverSignature?.fingerprint };

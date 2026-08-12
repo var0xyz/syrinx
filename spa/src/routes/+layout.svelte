@@ -80,11 +80,13 @@
     }
   });
 
-  onMount(async () => {
+  onMount(() => {
     initializePWA();
     const stopReconnect = onReconnect(syncAfterReconnect);
     refreshServerInfo();
     enforceImportGate(window.location.pathname);
+
+    void (async () => {
 
     // Register WS handlers unconditionally so they're in place whether the
     // connection is established now (existing user) or later (post-signup).
@@ -226,6 +228,7 @@
         syncPendingBackupEvents();
       }
     }
+    })();
 
     return () => {
       stopReconnect();
