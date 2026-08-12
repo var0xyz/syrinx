@@ -123,6 +123,9 @@ fi
 echo -e "\n📦 Shallow-cloning latest code..."
 mkdir -p "$BUILD_DIR"
 git clone --depth 1 "$APP_REPO" "$BUILD_DIR/src"
+GIT_COMMIT="$(git -C "$BUILD_DIR/src" rev-parse HEAD)"
+export GIT_COMMIT
+echo "    Commit: $GIT_COMMIT"
 
 echo -e "\n💻 Building Go backend (staged — not installed yet)..."
 cd "$BUILD_DIR/src/$BACKEND_PATH"

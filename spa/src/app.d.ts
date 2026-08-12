@@ -7,6 +7,9 @@ declare global {
     // interface PageData {}
     // interface Platform {}
   }
+
+  /** Git commit hash of this build — injected by vite.config.ts's define block. */
+  const __APP_VERSION__: string;
 }
 
 export {};
