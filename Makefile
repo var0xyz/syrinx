@@ -17,7 +17,8 @@ help:
 # Build targets
 build:
 	@echo "Building API..."
-	go build .
+	@mkdir -p bin
+	go build -o bin/syrinx .
 
 ops:
 	@echo "Building ops CLI..."
@@ -33,8 +34,9 @@ import-identity: ops
 
 # Run targets for development
 run:
-	go build .
-	./syrinx
+	@mkdir -p bin
+	go build -o bin/syrinx .
+	./bin/syrinx
 
 
 # Docker targets

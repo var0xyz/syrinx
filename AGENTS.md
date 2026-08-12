@@ -44,8 +44,8 @@ Vocabulary:
 Backend (from repo root):
 
 ```bash
-make build          # go build .
-make run            # build + ./syrinx  (needs a .env; see below)
+make build          # go build -o bin/syrinx .
+make run            # build + ./bin/syrinx  (needs a .env; see below)
 make test           # go test ./...
 make up / make down # docker-compose
 ```

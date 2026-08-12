@@ -13,7 +13,7 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o syrinx .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/syrinx .
 
 # Final stage
 FROM alpine:latest
@@ -23,7 +23,7 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 
 # Copy the binary from builder stage
-COPY --from=builder /app/syrinx .
+COPY --from=builder /app/bin/syrinx .
 
 # Expose port
 EXPOSE 8080
