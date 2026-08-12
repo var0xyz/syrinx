@@ -28,7 +28,7 @@
 
   $: userId = $page.params.userId;
 
-  // 'loading' | 'tombstone' | 'notFound' | 'noContent' | 'ready' | 'error'
+  // 'loading' | 'tombstone' | 'notFound' | 'ready' | 'error'
   let status = data.status;
   let isOwner = data.isOwner;
   let isFollowing = data.isFollowing;
@@ -206,7 +206,7 @@
     if (accountRemoved || next.status === 'tombstone') {
       return;
     }
-    if (next.fromCache && (next.status === 'ready' || next.status === 'noContent')) {
+    if (next.fromCache && next.status === 'ready') {
       void refreshFromNetwork(next.userId);
       void subscribeToProfileIfNotFollowing(next.userId);
     } else if (!next.fromCache && next.status === 'loading') {
@@ -274,7 +274,7 @@
       if (seq !== infoFetchSeq) return;
       profileUser = mergeUserView(profile, info);
       await subscribeToProfileIfNotFollowing(uid);
-      status = info.hasReeds ? 'ready' : 'noContent';
+      status = 'ready';
     } catch (error) {
       if (seq !== infoFetchSeq) return;
       console.error('Failed to load profile:', error);
@@ -453,7 +453,7 @@
         </p>
       </div>
 
-    {:else if status === 'noContent' || status === 'ready'}
+    {:else if status === 'ready'}
       {#if profileUser}
         <div class="user-profile-card-container">
           {#if isEditing && isOwner}
