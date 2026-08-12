@@ -5,7 +5,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"syrinx/crypto"
+	"syrinx/encoding"
 	"syrinx/identity"
 
 	"github.com/google/uuid"
@@ -441,23 +441,13 @@ func (h *Handlers) verifyRequestSignature(r *http.Request, signature, publicKey 
 	requestString := h.buildCanonicalRequestString(r)
 
 	// Decode base64 signature to get the armored signature
-	decodedSignature, err := h.decodeBase64Signature(signature)
+	decodedSignature, err := encoding.Base64Decode(signature)
 	if err != nil {
 		return fmt.Errorf("failed to decode base64 signature: %w", err)
 	}
 
 	// Use the existing CryptoService method to verify the signature
 	return h.services.crypto.VerifySignature(requestString, decodedSignature, publicKey)
-}
-
-// decodeBase64Signature decodes a base64-encoded signature
-func (h *Handlers) decodeBase64Signature(encodedSignature string) (string, error) {
-	// Decode base64
-	decoded, err := base64.StdEncoding.DecodeString(encodedSignature)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode base64: %w", err)
-	}
-	return string(decoded), nil
 }
 
 // buildCanonicalRequestString creates a canonical representation of the request for signing

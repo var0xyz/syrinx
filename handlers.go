@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -18,6 +17,7 @@ import (
 	"syrinx/coverage"
 	"syrinx/crypto"
 	"syrinx/deletion"
+	"syrinx/encoding"
 	"syrinx/identity"
 	"syrinx/invites"
 	"syrinx/observability/metrics"
@@ -39,7 +39,7 @@ func (h *Handlers) countersign(payload []byte, ts time.Time) (ServerSignature, e
 	return ServerSignature{
 		ServerID:    h.services.db.GetServerID(),
 		Fingerprint: h.signingKey.Fingerprint,
-		Armor:       base64.StdEncoding.EncodeToString([]byte(sigArmor)),
+		Armor:       encoding.Base64Encode(sigArmor),
 		SignedAt:    ts,
 	}, nil
 }
@@ -183,7 +183,7 @@ func (h *Handlers) GetServerPublicKey(w http.ResponseWriter, r *http.Request) {
 
 	writeResponse(w, http.StatusOK, map[string]string{
 		"fingerprint": fingerprint,
-		"armor":       base64.StdEncoding.EncodeToString([]byte(armor)),
+		"armor":       encoding.Base64Encode(armor),
 	})
 }
 
@@ -229,19 +229,18 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `publicKey` is required")
 		return
 	}
-	publicKeyArmor, err := base64.StdEncoding.DecodeString(publicKeyB64)
+	publicKey, err := encoding.Base64Decode(publicKeyB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid publicKey encoding")
 		return
 	}
-	publicKey := string(publicKeyArmor)
 
 	signatureB64 := values.Get("signature")
 	if signatureB64 == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
-	signatureArmor, err := base64.StdEncoding.DecodeString(signatureB64)
+	signatureArmor, err := encoding.Base64Decode(signatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
@@ -272,7 +271,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `userIDSignature` is required")
 		return
 	}
-	userIDSigArmor, err := base64.StdEncoding.DecodeString(userIDSigB64)
+	userIDSigArmor, err := encoding.Base64Decode(userIDSigB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid userIDSignature encoding")
 		return
@@ -323,7 +322,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	if err := h.services.crypto.VerifySignature(userID, string(userIDSigArmor), serverPubKey); err != nil {
+	if err := h.services.crypto.VerifySignature(userID, userIDSigArmor, serverPubKey); err != nil {
 		log.Error().Err(err).Msg("userID signature verification failed")
 		writeResponse(w, http.StatusBadRequest, "userID signature verification failed")
 		return
@@ -346,7 +345,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	// canonical fingerprint / creation time / expiry from the armored
 	// key. This must happen before we can build the user identity
 	// payload, since the payload binds the fingerprint.
-	key, err := h.services.crypto.ValidateAndExtractPublicKey(publicKey, string(signatureArmor))
+	key, err := h.services.crypto.ValidateAndExtractPublicKey(publicKey, signatureArmor)
 	if err != nil {
 		log.Error().Err(err).Msg("Error validating public key")
 		writeResponse(w, http.StatusBadRequest, err.Error())
@@ -360,13 +359,13 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 
 	// userSignature travels as base64(armored PGP). Decode once and hand
 	// the armor to VerifySignature.
-	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
+	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
 	if err != nil {
 		log.Error().Err(err).Msg("Invalid userSignature encoding")
 		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), publicKey); err != nil {
+	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, publicKey); err != nil {
 		log.Error().Err(err).Msg("userSignature verification failed")
 		writeResponse(w, http.StatusBadRequest, "userSignature verification failed")
 		return
@@ -481,7 +480,7 @@ func (h *Handlers) GenerateUserID(w http.ResponseWriter, r *http.Request) {
 
 	writeResponse(w, http.StatusOK, map[string]string{
 		"userID":      userID,
-		"signature":   base64.StdEncoding.EncodeToString([]byte(sig)),
+		"signature":   encoding.Base64Encode(sig),
 		"fingerprint": h.signingKey.Fingerprint,
 	})
 }
@@ -876,7 +875,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userPayload := identity.BuildAccountRemovalUserPayload(serverID, userID, note)
-	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
+	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
@@ -891,7 +890,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
+	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Err(err).
@@ -1116,7 +1115,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	userPayload := identity.BuildUserIdentityPayload(username, fingerprint, bio)
 
-	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
+	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
 	if err != nil {
 		log.Error().Err(err).Msg("Invalid userSignature encoding")
 		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
@@ -1158,7 +1157,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusUnauthorized, "Key is revoked")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
+	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Err(err).Msg("userSignature verification failed")
@@ -1261,7 +1260,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `revokedKeySignature` is required")
 		return
 	}
-	revokedKeySigArmor, err := base64.StdEncoding.DecodeString(revokedKeySignatureB64)
+	revokedKeySigArmor, err := encoding.Base64Decode(revokedKeySignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid revokedKeySignature encoding")
 		return
@@ -1275,7 +1274,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `newKeySignature` is required")
 		return
 	}
-	newKeySigArmor, err := base64.StdEncoding.DecodeString(newKeySignatureB64)
+	newKeySigArmor, err := encoding.Base64Decode(newKeySignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid newKeySignature encoding")
 		return
@@ -1287,12 +1286,11 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `publicKey` is required")
 		return
 	}
-	armoredPublicKeyBytes, err := base64.StdEncoding.DecodeString(publicKeyB64)
+	armoredPublicKey, err := encoding.Base64Decode(publicKeyB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid publicKey encoding")
 		return
 	}
-	armoredPublicKey := string(armoredPublicKeyBytes)
 
 	revokedKeyFingerprint := strings.TrimSpace(r.FormValue("revokedKeyFingerprint"))
 	if revokedKeyFingerprint == "" {
@@ -1324,7 +1322,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify revoked key signature against old key
-	err = h.services.crypto.VerifySignedChallenge(string(revokedKeySigArmor), revokedKey.Armor, armoredPublicKey)
+	err = h.services.crypto.VerifySignedChallenge(revokedKeySigArmor, revokedKey.Armor, armoredPublicKey)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1340,7 +1338,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Msg("Revoked key signature verified successfully")
 
 	// Validate and verify the public newKey using crypto service
-	newKey, err := h.services.crypto.ValidateAndExtractPublicKey(armoredPublicKey, string(newKeySigArmor))
+	newKey, err := h.services.crypto.ValidateAndExtractPublicKey(armoredPublicKey, newKeySigArmor)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1378,7 +1376,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Server:      keySignature,
 
 		PredecessorFingerprint: revokedKeyFingerprint,
-		PredecessorSignature:   string(revokedKeySigArmor),
+		PredecessorSignature:   revokedKeySigArmor,
 	})
 	if err != nil {
 		switch {
@@ -1409,7 +1407,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", newKey.Fingerprint).
 		Msg("Public key created")
 
-	publicKey.Armor = base64.StdEncoding.EncodeToString([]byte(publicKey.Armor))
+	publicKey.Armor = encoding.Base64Encode(publicKey.Armor)
 	writeResponse(w, http.StatusOK, publicKey)
 }
 func (h *Handlers) GetPublicKey(w http.ResponseWriter, r *http.Request) {
@@ -1442,7 +1440,7 @@ func (h *Handlers) GetPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key.Armor = base64.StdEncoding.EncodeToString([]byte(key.Armor))
+	key.Armor = encoding.Base64Encode(key.Armor)
 	writeResponse(w, http.StatusOK, key)
 }
 
@@ -1490,13 +1488,13 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userPayload := identity.BuildUserRevocationPayload(userID, fingerprint, reason)
-	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
+	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
 	if err != nil {
 		log.Error().Err(err).Msg("Invalid userSignature encoding")
 		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
+	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Str("fingerprint", fingerprint).
@@ -1555,7 +1553,7 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 
 	h.metrics.KeyRevoked(r.Context(), userID)
 
-	key.Armor = base64.StdEncoding.EncodeToString([]byte(key.Armor))
+	key.Armor = encoding.Base64Encode(key.Armor)
 	writeResponse(w, http.StatusOK, key)
 }
 
@@ -1724,7 +1722,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	userSigArmor, err := base64.StdEncoding.DecodeString(userSignature)
+	userSigArmor, err := encoding.Base64Decode(userSignature)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
@@ -1739,7 +1737,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(markdown, string(userSigArmor), pubKey.Armor); err != nil {
+	if err := h.services.crypto.VerifySignature(markdown, userSigArmor, pubKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Str("reedID", reedID).
@@ -2002,7 +2000,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userPayload := identity.BuildReedRemovalUserPayload(serverID, userID, reedID)
-	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
+	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
@@ -2017,7 +2015,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
+	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Str("reedID", reedID).
@@ -2175,7 +2173,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userPayload := identity.BuildReedLikeUserPayload(serverID, authorID, reedID, fingerprint)
-	userSigArmor, err := base64.StdEncoding.DecodeString(userSignatureB64)
+	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
@@ -2190,7 +2188,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), string(userSigArmor), pubKey.Armor); err != nil {
+	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().
 			Str("likerID", likerID).
 			Str("authorID", authorID).
@@ -2729,7 +2727,7 @@ func (h *Handlers) federationSignServer(message []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString([]byte(sigArmor)), nil
+	return encoding.Base64Encode(sigArmor), nil
 }
 
 func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Request) {
@@ -2763,12 +2761,11 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 		writeResponse(w, http.StatusBadRequest, "remotePublicKeyArmor is required")
 		return
 	}
-	remoteArmorBytes, err := base64.StdEncoding.DecodeString(remoteArmorB64)
+	remoteArmor, err := encoding.Base64Decode(remoteArmorB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid remotePublicKeyArmor encoding")
 		return
 	}
-	remoteArmor := string(remoteArmorBytes)
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		writeResponse(w, http.StatusBadRequest, "name is required")

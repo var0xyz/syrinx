@@ -3,12 +3,12 @@ package recovery
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	"syrinx/crypto"
+	"syrinx/encoding"
 )
 
 const BundleVersion = 1
@@ -190,8 +190,8 @@ func MarshalBundleJSON(b *Bundle) ([]byte, error) {
 	wire.Keys = make([]BundleKey, len(b.Keys))
 	for i, k := range b.Keys {
 		wire.Keys[i] = k
-		wire.Keys[i].PrivateKeyArmor = base64.StdEncoding.EncodeToString([]byte(k.PrivateKeyArmor))
-		wire.Keys[i].PublicKeyArmor = base64.StdEncoding.EncodeToString([]byte(k.PublicKeyArmor))
+		wire.Keys[i].PrivateKeyArmor = encoding.Base64Encode(k.PrivateKeyArmor)
+		wire.Keys[i].PublicKeyArmor = encoding.Base64Encode(k.PublicKeyArmor)
 	}
 	return json.MarshalIndent(&wire, "", "  ")
 }
@@ -205,16 +205,16 @@ func ParseBundleJSON(data []byte) (*Bundle, error) {
 		return nil, fmt.Errorf("invalid bundle JSON")
 	}
 	for i, k := range b.Keys {
-		priv, err := base64.StdEncoding.DecodeString(k.PrivateKeyArmor)
+		priv, err := encoding.Base64Decode(k.PrivateKeyArmor)
 		if err != nil {
 			return nil, fmt.Errorf("keys[%d]: invalid privateKeyArmor encoding", i)
 		}
-		pub, err := base64.StdEncoding.DecodeString(k.PublicKeyArmor)
+		pub, err := encoding.Base64Decode(k.PublicKeyArmor)
 		if err != nil {
 			return nil, fmt.Errorf("keys[%d]: invalid publicKeyArmor encoding", i)
 		}
-		b.Keys[i].PrivateKeyArmor = string(priv)
-		b.Keys[i].PublicKeyArmor = string(pub)
+		b.Keys[i].PrivateKeyArmor = priv
+		b.Keys[i].PublicKeyArmor = pub
 	}
 	if err := ValidateShape(&b); err != nil {
 		return nil, err

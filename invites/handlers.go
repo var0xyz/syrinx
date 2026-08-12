@@ -2,7 +2,6 @@ package invites
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"syrinx/crypto"
+	"syrinx/encoding"
 	"syrinx/identity"
 	"syrinx/roles"
 
@@ -188,7 +188,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 	userPayload := identity.BuildInviteUserPayload(
 		d.ServerID, caller, req.ID, tokenHashHex, grantedRole, createdAt,
 	)
-	userSigArmor, err := base64.StdEncoding.DecodeString(req.UserSignature.Armor)
+	userSigArmor, err := encoding.Base64Decode(req.UserSignature.Armor)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, "Invalid userSignature encoding")
 		return
@@ -202,7 +202,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
-	if err := d.VerifySignature(string(userPayload), string(userSigArmor), pubArmor); err != nil {
+	if err := d.VerifySignature(string(userPayload), userSigArmor, pubArmor); err != nil {
 		writeJSON(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}

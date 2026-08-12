@@ -3,11 +3,11 @@ package realtime
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 
 	"syrinx/crypto"
+	"syrinx/encoding"
 
 	"github.com/rs/zerolog/log"
 )
@@ -101,7 +101,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	}
 
 	// Decode base64 signature first
-	decodedSignature, err := as.decodeBase64Signature(signature)
+	decodedSignature, err := encoding.Base64Decode(signature)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -156,12 +156,3 @@ func (as *AuthService) getPublicKey(ctx context.Context, userID, fingerprint str
 	return armor, revoked, nil
 }
 
-// decodeBase64Signature decodes a base64-encoded signature
-func (as *AuthService) decodeBase64Signature(encodedSignature string) (string, error) {
-	// Decode base64
-	decoded, err := base64.StdEncoding.DecodeString(encodedSignature)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode base64: %w", err)
-	}
-	return string(decoded), nil
-}
