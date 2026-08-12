@@ -54,13 +54,12 @@ export async function load({ params, parent }) {
 
   const localReeds = await reedsService.getReedsByAuthor(userId);
   if (localReeds.length > 0 || profileUser) {
-    const hasReeds = localReeds.length > 0 || cachedInfo?.hasReeds === true;
     return {
       currentUser,
       userId,
       isOwner,
       isFollowing,
-      status: hasReeds ? 'ready' : profileUser ? 'noContent' : 'loading',
+      status: profileUser ? 'ready' : 'loading',
       profileUser,
       tombstoneNote: '',
       fromCache: true,
