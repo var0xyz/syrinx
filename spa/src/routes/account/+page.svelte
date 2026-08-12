@@ -197,18 +197,18 @@
       const userRevocationSignature = btoa(userRevocationSigArmor);
 
       // Sign the new public key with old private key (rotation proof).
-      const revokedKeySignature = await cryptoService.signMessage(
+      const revokedKeySignature = btoa(await cryptoService.signMessage(
         newKeyPair.publicKey.trim(),
         oldPrivateKey.armor,
         passphrase
-      );
+      ));
 
       // Sign the new public key with new private key
-      const newKeySignature = await cryptoService.signMessage(
+      const newKeySignature = btoa(await cryptoService.signMessage(
         newKeyPair.publicKey.trim(),
         newKeyPair.privateKey,
         passphrase
-      );
+      ));
 
       // Store pending revocation so it can be retried if the server call fails
       await pendingRevocationRepository.put({
@@ -244,7 +244,7 @@
         // Upload new public key; response is the full wire PublicKey.
         const newPublicKey = await apiService.addPublicKey(
           user.id,
-          newKeyPair.publicKey,
+          btoa(newKeyPair.publicKey),
           oldFingerprint,
           revokedKeySignature,
           newKeySignature
@@ -294,9 +294,12 @@
       for (const tableName of tableNames) {
         try {
           const items = await dbService.getAll(tableName);
+          const isKeyTable = tableName === 'publicKeys' || tableName === 'privateKeys';
           tables.push({
             name: tableName,
-            items: items
+            items: isKeyTable
+              ? items.map((item) => ({ ...(item as { armor: string }), armor: btoa((item as { armor: string }).armor) }))
+              : items
           });
         } catch (error) {
           console.error(`Error reading table ${tableName}:`, error);

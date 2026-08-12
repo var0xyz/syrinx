@@ -101,7 +101,7 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
     throw new Error('Invalid identity backup: missing private key armor.');
   }
 
-  const bootstrap = await fetchBootstrap(userId, fingerprint, privateKeyEntry.armor, passphrase);
+  const bootstrap = await fetchBootstrap(userId, fingerprint, atob(privateKeyEntry.armor), passphrase);
 
   await writeIdentityKeysBackup(backup);
 

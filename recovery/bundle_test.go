@@ -71,6 +71,9 @@ func TestValidateShape_AndDecrypt(t *testing.T) {
 	if parsed.ServerID != b.ServerID || parsed.ServerName != b.ServerName || parsed.SigningKeyFingerprint != b.SigningKeyFingerprint {
 		t.Fatalf("parsed mismatch: %+v", parsed)
 	}
+	if len(parsed.Keys) != 1 || parsed.Keys[0].PrivateKeyArmor != encPriv || parsed.Keys[0].PublicKeyArmor != kp.PublicKey {
+		t.Fatalf("key armor round-trip mismatch: %+v", parsed.Keys)
+	}
 }
 
 func TestValidateShape_SigningKeyMissing(t *testing.T) {

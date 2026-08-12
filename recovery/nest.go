@@ -249,6 +249,22 @@ func decodeB64Armor(s string) (string, error) {
 	return string(raw), nil
 }
 
+// decodeKeyNestArmor walks a key nest outermost→oldest, decoding each
+// KeyWire.Armor from base64 to plain armor in place. Must run once, right
+// after JSON-decoding the request, before FlattenKeysNest or any crypto use
+// — every downstream consumer (signature verification, payload signing)
+// expects plain armor, matching how flat signature fields already work.
+func decodeKeyNestArmor(root *KeyNode) error {
+	for n := root; n != nil; n = n.Predecessor {
+		armor, err := decodeB64Armor(n.Armor)
+		if err != nil {
+			return fmt.Errorf("key %s: invalid armor encoding", n.Fingerprint)
+		}
+		n.Armor = armor
+	}
+	return nil
+}
+
 // ValidateChallengeAge rejects challenges in the future or older than maxAge.
 func ValidateChallengeAge(challenge int64, now time.Time, maxAge time.Duration) error {
 	nowUnix := now.UTC().Unix()

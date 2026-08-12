@@ -191,6 +191,7 @@ func exportRootIdentity(
 	if err != nil || wireKey == nil {
 		return "", fmt.Errorf("load root public key after signup: %w", err)
 	}
+	wireKey.Armor = base64.StdEncoding.EncodeToString([]byte(wireKey.Armor))
 
 	ts := time.Now().UnixMilli()
 	payload := identityBackupPayload{
@@ -211,7 +212,7 @@ func exportRootIdentity(
 			Items: []interface{}{
 				identityPrivateKeyItem{
 					Fingerprint: keyMeta.Fingerprint,
-					Armor:       encryptedPrivate,
+					Armor:       base64.StdEncoding.EncodeToString([]byte(encryptedPrivate)),
 					CreatedAt:   now,
 					Revoked:     false,
 				},

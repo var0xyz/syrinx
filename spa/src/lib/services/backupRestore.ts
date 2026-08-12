@@ -368,9 +368,11 @@ export function assertBackupIdentity(backup: BackupPayload): void {
 
 async function restoreItem(storeName: string, item: unknown): Promise<void> {
   switch (storeName) {
-    case 'publicKeys':
-      await publicKeyRepository.put(item as api.PublicKey);
+    case 'publicKeys': {
+      const key = item as api.PublicKey;
+      await publicKeyRepository.put({ ...key, armor: atob(key.armor) });
       return;
+    }
     case 'revocations':
       await revocationRepository.put(item as api.KeyRevocation);
       return;
@@ -397,7 +399,7 @@ async function restoreItem(storeName: string, item: unknown): Promise<void> {
       return;
     case 'privateKeys': {
       const key = item as PrivateKey;
-      await privateKeyRepository.put(key.fingerprint, key.armor);
+      await privateKeyRepository.put(key.fingerprint, atob(key.armor));
       if (key.revoked) {
         await privateKeyRepository.setRevoked(key.fingerprint);
       }

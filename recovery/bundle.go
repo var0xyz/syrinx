@@ -3,6 +3,7 @@ package recovery
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -177,18 +178,43 @@ func ValidateDecrypt(b *Bundle, cryptoSvc *crypto.Service, passphrase string) er
 }
 
 // MarshalBundleJSON encodes the bundle as JSON (second-precision times).
+// Key armor is base64-encoded on the way out — the bundle's in-memory
+// BundleKey fields are plain armor (matching the DB), but the serialized
+// file, like every other signed/keyed artifact that crosses a wire or file
+// boundary, carries base64.
 func MarshalBundleJSON(b *Bundle) ([]byte, error) {
 	if err := ValidateShape(b); err != nil {
 		return nil, err
 	}
-	return json.MarshalIndent(b, "", "  ")
+	wire := *b
+	wire.Keys = make([]BundleKey, len(b.Keys))
+	for i, k := range b.Keys {
+		wire.Keys[i] = k
+		wire.Keys[i].PrivateKeyArmor = base64.StdEncoding.EncodeToString([]byte(k.PrivateKeyArmor))
+		wire.Keys[i].PublicKeyArmor = base64.StdEncoding.EncodeToString([]byte(k.PublicKeyArmor))
+	}
+	return json.MarshalIndent(&wire, "", "  ")
 }
 
-// ParseBundleJSON decodes and shape-validates a plaintext bundle.
+// ParseBundleJSON decodes a serialized bundle, base64-decoding key armor
+// back to plain armor before shape validation — the mirror of
+// MarshalBundleJSON's encode step.
 func ParseBundleJSON(data []byte) (*Bundle, error) {
 	var b Bundle
 	if err := json.Unmarshal(data, &b); err != nil {
 		return nil, fmt.Errorf("invalid bundle JSON")
+	}
+	for i, k := range b.Keys {
+		priv, err := base64.StdEncoding.DecodeString(k.PrivateKeyArmor)
+		if err != nil {
+			return nil, fmt.Errorf("keys[%d]: invalid privateKeyArmor encoding", i)
+		}
+		pub, err := base64.StdEncoding.DecodeString(k.PublicKeyArmor)
+		if err != nil {
+			return nil, fmt.Errorf("keys[%d]: invalid publicKeyArmor encoding", i)
+		}
+		b.Keys[i].PrivateKeyArmor = string(priv)
+		b.Keys[i].PublicKeyArmor = string(pub)
 	}
 	if err := ValidateShape(&b); err != nil {
 		return nil, err

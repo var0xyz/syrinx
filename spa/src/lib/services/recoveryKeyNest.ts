@@ -118,7 +118,7 @@ export function buildKeyNest(
     const node: api.RecoveryKeyNode = {
       fingerprint: key.fingerprint,
       userID: key.userID,
-      armor: key.armor,
+      armor: btoa(key.armor),
       revoked: key.revoked,
       serverSignature: key.serverSignature,
       revocation,

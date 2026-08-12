@@ -67,7 +67,7 @@ export const pendingRevocationRepository = {
         }
         const newPublicKey = await apiService.addPublicKey(
           record.userId,
-          record.newPublicKey,
+          btoa(record.newPublicKey),
           record.fingerprint,
           record.revokedKeySignature,
           record.newKeySignature
