@@ -251,7 +251,7 @@ func TestStatus_ClaimedBy(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Status != "claimed" || body.ClaimedBy == nil || body.ClaimedBy.Username != "bob" {
+	if body.Status != "claimed" || body.ClaimedBy == nil || *body.ClaimedBy != "invitee" {
 		t.Fatalf("unexpected status body: %+v", body)
 	}
 }

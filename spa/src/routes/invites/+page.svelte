@@ -10,6 +10,7 @@
     revokeLocalInvite,
   } from '$lib/services/invites';
   import { invitesRepository } from '$lib/repositories/invites';
+  import { userRepository } from '$lib/repositories/user';
   import {
     isSignupClosed,
     refreshServerInfo,
@@ -36,6 +37,7 @@
   let selectedGrantRole: 'user' | 'admin' = 'user';
   let qrModalURL = '';
   let showQRModal = false;
+  let claimerUsernames: Record<string, string> = {};
 
   $: maxInvites = $serverInfo?.maxInvitesPerUser ?? -1;
   $: usedInvites = invites.length;
@@ -59,8 +61,31 @@
     // Show local invites immediately so the toolbar stays mounted.
     invites = await invitesRepository.getAll();
     void refreshServerInfo();
+    void resolveClaimerUsernames(invites);
     await refreshPendingStatuses();
   });
+
+  /**
+   * Username for each claimer id, from the local cache only. Never fetches
+   * over the network — this view must not reveal to the server which user
+   * ids the caller is looking up, or pull down profile/key data for users
+   * the caller has no other relation to. Unresolved ids just show the id.
+   */
+  async function resolveClaimerUsernames(list: api.Invite[]) {
+    const ids = list
+      .map((invite) => invite.claimedBy)
+      .filter((id): id is string => !!id)
+      .filter((id) => !(id in claimerUsernames));
+
+    await Promise.all(
+      ids.map(async (id) => {
+        const cached = await userRepository.get(id);
+        if (cached?.username) {
+          claimerUsernames = { ...claimerUsernames, [id]: cached.username };
+        }
+      })
+    );
+  }
 
   function applyInviteUpdate(updated: api.Invite) {
     refreshingIds = refreshingIds.filter((id) => id !== updated.id);
@@ -71,6 +96,7 @@
       invites[idx] = updated;
       invites = invites;
     }
+    void resolveClaimerUsernames([updated]);
   }
 
   async function refreshPendingStatuses() {
@@ -253,8 +279,8 @@
                 {#if invite.status === 'claimed' && invite.claimedBy}
                   <span class="meta">
                     Claimed by
-                    <a href="/profile/{invite.claimedBy.id}"
-                      >@{invite.claimedBy.username}</a
+                    <a href="/profile/{invite.claimedBy}"
+                      >@{claimerUsernames[invite.claimedBy] ?? invite.claimedBy}</a
                     >
                   </span>
                 {/if}

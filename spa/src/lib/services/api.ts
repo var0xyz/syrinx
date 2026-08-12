@@ -357,7 +357,7 @@ export const apiService = {
     createdAt: string;
     status: 'pending' | 'claimed' | 'revoked';
     claimedAt: string | null;
-    claimedBy: { id: string; username: string } | null;
+    claimedBy: string | null;
     revokedAt: string | null;
   }> {
     return request(`/invites/${encodeURIComponent(id)}`, { method: 'GET' });

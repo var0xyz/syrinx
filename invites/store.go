@@ -69,48 +69,6 @@ func (s *Store) GetByCreatorAndID(ctx context.Context, creatorID, id string) (*I
 	return &inv, nil
 }
 
-// GetStatusByCreatorAndID returns the invite plus claimed username when set.
-func (s *Store) GetStatusByCreatorAndID(
-	ctx context.Context,
-	creatorID, id string,
-) (*Invite, string, error) {
-	row := s.DB.QueryRowContext(ctx, `
-		SELECT i.id, i.created_by, i.created_at, i.granted_role, i.claimed_at, i.claimed_by, i.revoked_at,
-		       COALESCE(u.username, '')
-		FROM invites i
-		LEFT JOIN users u ON u.id = i.claimed_by
-		WHERE i.created_by = $1 AND i.id = $2
-	`, creatorID, id)
-
-	var inv Invite
-	var claimedAt, revokedAt sql.NullTime
-	var claimedBy sql.NullString
-	var username string
-	err := row.Scan(
-		&inv.ID, &inv.CreatedBy, &inv.CreatedAt, &inv.GrantedRole,
-		&claimedAt, &claimedBy, &revokedAt, &username,
-	)
-	if err == sql.ErrNoRows {
-		return nil, "", nil
-	}
-	if err != nil {
-		return nil, "", err
-	}
-	if claimedAt.Valid {
-		t := claimedAt.Time.UTC()
-		inv.ClaimedAt = &t
-	}
-	if claimedBy.Valid {
-		s := claimedBy.String
-		inv.ClaimedBy = &s
-	}
-	if revokedAt.Valid {
-		t := revokedAt.Time.UTC()
-		inv.RevokedAt = &t
-	}
-	return &inv, username, nil
-}
-
 func (s *Store) GetByTokenHash(ctx context.Context, hash []byte) (*Invite, error) {
 	return getByTokenHash(ctx, s.DB, hash)
 }

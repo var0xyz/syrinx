@@ -243,18 +243,13 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type claimedByWire struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-}
-
 type statusResponse struct {
-	ID        string         `json:"id"`
-	CreatedAt time.Time      `json:"createdAt"`
-	Status    string         `json:"status"`
-	ClaimedAt *time.Time     `json:"claimedAt"`
-	ClaimedBy *claimedByWire `json:"claimedBy"`
-	RevokedAt *time.Time     `json:"revokedAt"`
+	ID        string     `json:"id"`
+	CreatedAt time.Time  `json:"createdAt"`
+	Status    string     `json:"status"`
+	ClaimedAt *time.Time `json:"claimedAt"`
+	ClaimedBy *string    `json:"claimedBy"`
+	RevokedAt *time.Time `json:"revokedAt"`
 }
 
 // Status handles GET /api/invites/{id} for the caller's invite.
@@ -270,7 +265,7 @@ func (d Deps) Status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inv, username, err := d.Store.GetStatusByCreatorAndID(r.Context(), caller, id)
+	inv, err := d.Store.GetByCreatorAndID(r.Context(), caller, id)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
@@ -285,13 +280,8 @@ func (d Deps) Status(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: inv.CreatedAt.UTC(),
 		Status:    inv.Status(),
 		ClaimedAt: inv.ClaimedAt,
+		ClaimedBy: inv.ClaimedBy,
 		RevokedAt: inv.RevokedAt,
-	}
-	if inv.ClaimedBy != nil {
-		out.ClaimedBy = &claimedByWire{
-			ID:       *inv.ClaimedBy,
-			Username: username,
-		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
