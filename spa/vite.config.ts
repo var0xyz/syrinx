@@ -3,11 +3,24 @@ import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 import { defineConfig, type Plugin } from 'vite';
 import path from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import devtoolsJson from 'vite-plugin-devtools-json';
 import { licensePlugin } from './vite-plugin-license.js';
 
 const spaRoot = path.dirname(fileURLToPath(import.meta.url));
+
+// deploy/scripts/syrinx/update.sh sets GIT_COMMIT from the shallow clone it
+// just built from (see BUILD_DIR/src). Falls back to `git rev-parse` for
+// local dev builds run straight from a checkout.
+function resolveAppVersion(): string {
+  if (process.env.GIT_COMMIT) return process.env.GIT_COMMIT.trim();
+  try {
+    return execSync('git rev-parse HEAD', { cwd: spaRoot }).toString().trim();
+  } catch {
+    return 'unknown';
+  }
+}
 // openpgp/lightweight only lists a `browser` export; Node's resolver (used
 // when Kit loads server chunks during build) ignores that condition.
 const openpgpLightweight = path.resolve(
@@ -136,6 +149,7 @@ export default defineConfig({
   ],
   define: {
     global: 'globalThis',
+    __APP_VERSION__: JSON.stringify(resolveAppVersion()),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production')
   },
   resolve: {

@@ -270,6 +270,9 @@ fi
 echo -e "\n📦 Cloning monorepo into build workspace..."
 rm -rf "$BUILD_DIR/src"
 git clone --depth 1 "$APP_REPO" "$BUILD_DIR/src"
+GIT_COMMIT="$(git -C "$BUILD_DIR/src" rev-parse HEAD)"
+export GIT_COMMIT
+echo "    Commit: $GIT_COMMIT"
 
 # Ensure local Go compilation libraries are ready (Pi 5 / Debian = linux-arm64)
 if ! command -v go &> /dev/null && [ ! -x /usr/local/go/bin/go ]; then

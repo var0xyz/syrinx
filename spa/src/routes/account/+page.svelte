@@ -563,6 +563,8 @@
       </div>
     </div>
 
+    <p class="app-version">Version: {__APP_VERSION__.slice(0, 12)}</p>
+
     <ExportDataModal
       open={showExportWarningModal}
       on:confirm={(e) => { showExportWarningModal = false; exportData(e.detail); }}
@@ -594,6 +596,14 @@
     margin: 0 auto;
     width: 100%;
     padding: 1rem;
+  }
+
+  .app-version {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-family: monospace;
+    margin: 0 0 1rem;
   }
 
 
