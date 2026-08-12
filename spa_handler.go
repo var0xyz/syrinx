@@ -26,7 +26,17 @@ func spaHandler(root string) http.Handler {
 				fileServer.ServeHTTP(w, r)
 				return
 			}
-			// Client route or missing asset: fall back to the SPA shell.
+			// Hashed build assets must 404, not fall back to the SPA shell:
+			// serving index.html (text/html) for a missing chunk is what
+			// produces "Failed to load module script ... MIME type of
+			// text/html" after a deploy replaces /_app/'s hashed filenames —
+			// and the reload SvelteKit fires in response just re-fetches the
+			// same stale shell, looping forever.
+			if strings.HasPrefix(urlPath, "/_app/") {
+				http.NotFound(w, r)
+				return
+			}
+			// Client route: fall back to the SPA shell.
 			r2 := r.Clone(r.Context())
 			r2.URL.Path = "/"
 			fileServer.ServeHTTP(w, r2)

@@ -21,6 +21,11 @@ function resolveAppVersion(): string {
     return 'unknown';
   }
 }
+// Captured once, here, at `vite build` invocation time — this is the build
+// time, not deploy time (the SPA build step runs before the release dir is
+// swapped in). Lets the account page footer disambiguate two deploys that
+// happen to land on the same commit (e.g. a config-only redeploy).
+const buildTime = new Date().toISOString();
 // openpgp/lightweight only lists a `browser` export; Node's resolver (used
 // when Kit loads server chunks during build) ignores that condition.
 const openpgpLightweight = path.resolve(
@@ -150,6 +155,7 @@ export default defineConfig({
   define: {
     global: 'globalThis',
     __APP_VERSION__: JSON.stringify(resolveAppVersion()),
+    __APP_BUILD_TIME__: JSON.stringify(buildTime),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production')
   },
   resolve: {

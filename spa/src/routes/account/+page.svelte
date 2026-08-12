@@ -16,7 +16,7 @@
   import ExportDataModal from '$lib/components/ExportDataModal.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import { notificationStore } from '$lib/stores/notifications';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, formatAbsoluteDateTime } from '$lib/utils/time';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { userInfoRepository } from '$lib/repositories/userInfo';
@@ -563,7 +563,7 @@
       </div>
     </div>
 
-    <p class="app-version">Version: {__APP_VERSION__.slice(0, 12)}</p>
+    <p class="app-version">Version: {__APP_VERSION__.slice(0, 12)} · Built {formatAbsoluteDateTime(__APP_BUILD_TIME__)}</p>
 
     <ExportDataModal
       open={showExportWarningModal}
