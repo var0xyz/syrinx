@@ -22,6 +22,19 @@ export async function commitReedLikeLocally(cert: api.ReedLike): Promise<void> {
   await likedReedsRepository.put(cert);
 }
 
+/**
+ * Effective liked state, overlaying any offline-queued action on top of the
+ * confirmed record — a pending like/unlike is a real action the user took
+ * and hasn't been undone, so it must count even before the server has
+ * countersigned it. Pending state wins over the confirmed record since it's
+ * always more recent (queuing an action clears the opposite pending entry).
+ */
+export async function isReedLiked(authorID: string, reedID: string): Promise<boolean> {
+  if (await pendingLikeRepository.get(authorID, reedID)) return true;
+  if (await pendingUnlikeRepository.get(authorID, reedID)) return false;
+  return likedReedsRepository.has(authorID, reedID);
+}
+
 /** Put-then-side-effects. Returns false if verification fails. */
 export async function verifyAndCommitReedLike(cert: api.ReedLike): Promise<boolean> {
   try {

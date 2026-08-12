@@ -6,8 +6,7 @@
   import { apiService } from '$lib/services/api';
   import { removeReedAsAuthor, verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
-  import { likeReed, unlikeReed } from '$lib/services/reedLike';
-  import { likedReedsRepository } from '$lib/repositories/likedReeds';
+  import { likeReed, unlikeReed, isReedLiked } from '$lib/services/reedLike';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
@@ -107,7 +106,7 @@
     lastHandledFollowReedId = '';
     isLiked = false;
     if (next.reed?.userID && next.reed?.id) {
-      void likedReedsRepository.has(next.reed.userID, next.reed.id).then((liked) => {
+      void isReedLiked(next.reed.userID, next.reed.id).then((liked) => {
         if (reed?.id === next.reed.id) isLiked = liked;
       });
     }
@@ -445,8 +444,12 @@
         await likeReed(userID, reedID);
       }
     } catch (error) {
-      isLiked = wasLiked;
       console.error('Error toggling like:', error);
+      // The like/unlike is queued (pendingLike/pendingUnlike) before the
+      // network call runs, so a network failure alone doesn't mean the
+      // action was lost — re-check the effective state (which overlays
+      // pending actions) rather than blindly reverting the optimistic flip.
+      isLiked = await isReedLiked(userID, reedID);
     }
   }
 
