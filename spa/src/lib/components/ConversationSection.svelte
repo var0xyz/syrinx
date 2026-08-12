@@ -233,24 +233,24 @@
   <ul class="reply-list">
     {#each rows as row (row.reedID)}
       <li>
-        <button type="button" class="reply-row" on:click={() => navigateToReply(row)}>
+        <button type="button" class="reply-row" class:reply-row--loading={row.loading} on:click={() => navigateToReply(row)}>
           <ReedAuthorHeader
             userID={row.userID}
             username={row.username}
             avatarSize="36px"
-            subtext={row.timestamp ? formatRelativeTime(row.timestamp) : ''}
+            subtext={row.timestamp ? formatRelativeTime(row.timestamp) : 'Waiting for reed...'}
           />
-          <div class="reply-body">
-            {#if row.loading}
-              <p class="reply-preview muted">Loading reply…</p>
-            {:else if row.reed?.content?.trim()}
-              <div class="reply-preview">
-                <MarkdownParser text={row.reed.content} preview={true} />
-              </div>
-            {:else}
-              <p class="reply-preview muted">Empty reply</p>
-            {/if}
-          </div>
+          {#if !row.loading}
+            <div class="reply-body">
+              {#if row.reed?.content?.trim()}
+                <div class="reply-preview">
+                  <MarkdownParser text={row.reed.content} preview={true} />
+                </div>
+              {:else}
+                <p class="reply-preview muted">Empty reply</p>
+              {/if}
+            </div>
+          {/if}
         </button>
       </li>
     {/each}
@@ -297,6 +297,10 @@
     border-radius: 8px;
     padding: 0.75rem;
     cursor: pointer;
+  }
+
+  .reply-row--loading {
+    gap: 0;
   }
 
   .reply-row:hover {
