@@ -563,7 +563,10 @@
       </div>
     </div>
 
-    <p class="app-version">Version: {__APP_VERSION__.slice(0, 12)} · Built {formatAbsoluteDateTime(__APP_BUILD_TIME__)}</p>
+    <p class="app-version">
+      Version: {__APP_VERSION__.slice(0, 12)}<br />
+      Built {formatAbsoluteDateTime(__APP_BUILD_TIME__)}
+    </p>
 
     <ExportDataModal
       open={showExportWarningModal}
