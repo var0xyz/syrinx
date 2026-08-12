@@ -11,7 +11,7 @@
     📡 Broadcast
   </a>
   <a href="/feed/liked" class="toggle-btn" class:active={active === 'liked'}>
-    ❤️ Likes
+    💛 Likes
   </a>
 </div>
 
