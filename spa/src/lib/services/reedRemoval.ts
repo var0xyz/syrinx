@@ -19,7 +19,7 @@ export { verifyReedRemoval };
  */
 export async function commitReedRemovalLocally(cert: api.ReedRemoval): Promise<void> {
   await removedReedsRepository.put(cert);
-  await dbService.delete('reeds', cert.reedID);
+  await dbService.delete('reeds', [cert.userID, cert.reedID]);
 }
 
 /** Put-then-side-effects. Returns false if verification fails (reed retained). */
