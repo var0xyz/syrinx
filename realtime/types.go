@@ -18,6 +18,7 @@ const (
 	EchoCountChanged // UserID/ReedID = echoed target; refresh REED_ECHOES for subscribers
 	ReplyCountChanged // UserID/ReedID = ancestor reed; refresh REED_REPLIES subtree count for subscribers
 	LikeCountChanged // UserID/ReedID = liked reed; refresh REED_LIKES for subscribers
+	ReplyPosted // UserID/ReedID = ancestor reed to notify; ReplyUserID/ReplyReedID = the new reply (content holder)
 )
 
 // BroadcastMessage represents a message sent from the main app to the realtime service.
@@ -27,6 +28,11 @@ type BroadcastMessage struct {
 	ServerID string
 	UserID   string
 	ReedID   string
+
+	// ReplyPosted only: identifies the new reply itself, distinct from
+	// UserID/ReedID above (the ancestor being notified).
+	ReplyUserID string
+	ReplyReedID string
 
 	ReedRemoval    *ReedRemovalWire
 	AccountRemoval *AccountRemovalWire
@@ -96,6 +102,8 @@ func (bt BroadcastType) String() string {
 		return "ReplyCountChanged"
 	case LikeCountChanged:
 		return "LikeCountChanged"
+	case ReplyPosted:
+		return "ReplyPosted"
 	default:
 		return "Unknown"
 	}

@@ -1858,6 +1858,13 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 					UserID: t.AuthorID,
 					ReedID: t.ReedID,
 				}
+				h.broadcastChan <- realtime.BroadcastMessage{
+					Type:        realtime.ReplyPosted,
+					UserID:      t.AuthorID,
+					ReedID:      t.ReedID,
+					ReplyUserID: userID,
+					ReplyReedID: reed.ID,
+				}
 			}
 		}
 	}

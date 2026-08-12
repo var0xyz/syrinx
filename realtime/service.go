@@ -130,6 +130,10 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			rs.notifyReedLikes(message.UserID, message.ReedID)
 		}
 
+		if message.Type == ReplyPosted {
+			rs.notifyReedSubscribersOfReply(message.UserID, message.ReedID, message.ReplyUserID, message.ReplyReedID)
+		}
+
 		if message.Type == ReedRemoved {
 			log.Info().
 				Str("userID", message.UserID).
@@ -1087,6 +1091,12 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMess
 			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver follow reed")
 		}
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
+	} else if pe.EventName == string(ReedReplyEvent) {
+		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering reed reply to subscriber")
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewReedReplyMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Data)); err != nil {
+			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver reed reply")
+		}
+		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else {
 		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Data)); err != nil {
 			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver data response")
@@ -1417,6 +1427,19 @@ func (rs *RealtimeService) notifyReedEchoes(authorUserID, reedID string) {
 	}); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_ECHOES")
 	}
+}
+
+// notifyReedSubscribersOfReply relays a newly posted reply's content to
+// everyone subscribed to (ancestorUserID, ancestorReedID) — someone viewing
+// that reed's thread, not necessarily following the reply's author. The
+// reply's own author is the content holder, same relay-through-a-peer
+// mechanism as FOLLOW_REED/PIPE_REED (the server never stores reed content).
+func (rs *RealtimeService) notifyReedSubscribersOfReply(ancestorUserID, ancestorReedID, replyUserID, replyReedID string) {
+	recipients := rs.connManager.ReedSubscriberUserIDs(ancestorUserID, ancestorReedID, replyUserID)
+	if len(recipients) == 0 {
+		return
+	}
+	rs.dispatchMany(recipients, ReedReplyEvent, replyReedID, replyUserID)
 }
 
 func (rs *RealtimeService) notifyReedReplies(authorUserID, reedID string) {

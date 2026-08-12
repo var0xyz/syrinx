@@ -22,7 +22,7 @@
   import ConversationSection from '$lib/components/ConversationSection.svelte';
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
-  import { followReedQueue } from '$lib/repositories/reeds';
+  import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
   import { parseReedRef, resolveThreadId } from '$lib/utils/reedRef';
   import { resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
@@ -68,6 +68,7 @@
   /** @type {import('$lib/components/ConversationSection.svelte').default | null} */
   let conversationSection = null;
   let lastHandledFollowReedId = '';
+  let lastHandledReedReplyId = '';
 
   $: parentThreadId = reed && reedMatchesRoute
     ? (reed.threadId || resolveThreadId(reed, reed.serverSignature?.serverID || localStorage.getItem('serverId') || ''))
@@ -77,6 +78,14 @@
   $: if (followArrived && followArrived.id !== lastHandledFollowReedId && (reedMatchesRoute || removedReedCert || removedAccountCert)) {
     lastHandledFollowReedId = followArrived.id;
     void onFollowReedArrived(followArrived);
+  }
+
+  // Reply from an author we don't necessarily follow, pushed because we're
+  // subscribed to this reed's stats — see REED_REPLY in +layout.svelte.
+  $: reedReplyArrived = $reedReplyQueue?.reed;
+  $: if (reedReplyArrived && reedReplyArrived.id !== lastHandledReedReplyId && (reedMatchesRoute || removedReedCert || removedAccountCert)) {
+    lastHandledReedReplyId = reedReplyArrived.id;
+    void onFollowReedArrived(reedReplyArrived);
   }
 
   $: userID = $page.params.userID;
@@ -104,6 +113,7 @@
     fetchingReed = false;
     resetStatsState();
     lastHandledFollowReedId = '';
+    lastHandledReedReplyId = '';
     isLiked = false;
     if (next.reed?.userID && next.reed?.id) {
       void isReedLiked(next.reed.userID, next.reed.id).then((liked) => {
