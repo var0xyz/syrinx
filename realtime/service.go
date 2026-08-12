@@ -159,6 +159,12 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			for _, sub := range profileSubscribers {
 				rs.dispatchRemovalTo(sub.ViewerUserID, message.UserID, message.ReedID, cert)
 			}
+
+			// Anyone viewing this reed's thread (SUBSCRIBE_REED) needs to know
+			// it's gone too — same gap as ReplyPosted: a reed-stat subscriber
+			// isn't necessarily a follower/broadcast/profile subscriber.
+			reedSubscribers := rs.connManager.ReedSubscriberUserIDs(message.UserID, message.ReedID, "")
+			rs.dispatchRemovalMany(reedSubscribers, message.UserID, message.ReedID, cert)
 		}
 
 		if message.Type == AccountRemoved {
