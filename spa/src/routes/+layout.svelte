@@ -164,6 +164,21 @@
         if (eventId) serverConnection.sendDataInvalid(eventId);
       }
     });
+    serverConnection.on(ServerEvent.ReedReply, async (data) => {
+      const reed = data.data;
+      const eventId = data.event_id;
+
+      try {
+        await reedsService.storeReed(reed);
+        if (eventId) serverConnection.sendDataAck(eventId);
+        removeBroadcastReed(reed.id);
+        dispatchReedToQueue(reed, 'reed_reply');
+        await requestReferencedReeds(reed);
+      } catch (error) {
+        console.warn('ServerConnection: invalid reed reply signature, rejecting:', reed?.id, error);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+      }
+    });
     serverConnection.on(ServerEvent.BroadcastReed, async (data) => {
       // Broadcast reeds are ephemeral: never stored in IndexedDB.
       // Followed authors belong in the follow feed only — ignore if we follow them.

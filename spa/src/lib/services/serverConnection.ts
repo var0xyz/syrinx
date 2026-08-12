@@ -21,6 +21,7 @@ export enum ServerEvent {
   BroadcastReed    = 'BROADCAST_REED',
   PipeReed         = 'PIPE_REED',
   FollowReed       = 'FOLLOW_REED',
+  ReedReply        = 'REED_REPLY',
   ReedNotFound     = 'REED_NOT_FOUND',
   ReedNotHeld      = 'REED_NOT_HELD',
   ReedRemoved      = 'REED_REMOVED',

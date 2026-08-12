@@ -13,6 +13,7 @@ const (
 	PipeReedEvent            EventName = "pipe_reed"
 	ReedRemovedEvent         EventName = "reed_removed"
 	AccountRemovedEvent      EventName = "account_removed"
+	ReedReplyEvent           EventName = "reed_reply"
 )
 
 // RelayRequestMsg is sent from the server to a holder to request reed content.
@@ -99,6 +100,22 @@ func NewPipeReedMsg(eventID, requestID, reedID string, data json.RawMessage) Dat
 func NewFollowReedMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "FOLLOW_REED",
+		Data: DataResponseData{
+			EventID:   eventID,
+			RequestID: requestID,
+			ReedID:    reedID,
+			Data:      data,
+		},
+	}
+}
+
+// NewReedReplyMsg builds a REED_REPLY delivery: pushed to subscribers of a
+// reed (and its ancestors) when a new reply lands, distinct from FOLLOW_REED
+// so it doesn't also feed the follow-feed cache — the recipient isn't
+// necessarily following the reply's author, they're just viewing the thread.
+func NewReedReplyMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
+	return DataResponseMsg{
+		Type: "REED_REPLY",
 		Data: DataResponseData{
 			EventID:   eventID,
 			RequestID: requestID,

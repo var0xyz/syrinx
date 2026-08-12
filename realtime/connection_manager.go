@@ -396,6 +396,33 @@ func (cm *ConnectionManager) PipeListenerUserIDs(tags []string, excludeUserID st
 	return out
 }
 
+// ReedSubscriberUserIDs returns the distinct user IDs currently subscribed
+// to (authorUserID, reedID), excluding excludeUserID (typically the reply's
+// own author, who doesn't need it relayed back to themselves).
+func (cm *ConnectionManager) ReedSubscriberUserIDs(authorUserID, reedID, excludeUserID string) []string {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	subs := cm.reedSubscribers[makeReedKey(authorUserID, reedID)]
+	if len(subs) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	var out []string
+	for client := range subs {
+		if client == nil || client.userID == "" || client.userID == excludeUserID {
+			continue
+		}
+		if _, ok := seen[client.userID]; ok {
+			continue
+		}
+		seen[client.userID] = struct{}{}
+		out = append(out, client.userID)
+	}
+	return out
+}
+
 // SendToClient writes a JSON payload to one client.
 func (cm *ConnectionManager) SendToClient(client *Client, payload any) error {
 	jsonBytes, err := json.Marshal(payload)

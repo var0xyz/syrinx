@@ -46,6 +46,12 @@ export const broadcastReedQueue = writable<QueuedReed | null>(null);
 // Receives PIPE_REED deliveries (pipe subscription push; stored like follow reeds)
 export const pipeReedQueue = writable<QueuedReed | null>(null);
 
+// Receives REED_REPLY deliveries (reed-subscription push for a new reply
+// somewhere in the subscribed thread) — kept separate from followReedQueue:
+// the recipient isn't necessarily following the reply's author, so folding
+// it into the follow feed / "new reed" banners would misattribute it.
+export const reedReplyQueue = writable<QueuedReed | null>(null);
+
 export function dispatchReedToQueue(
   reed: ReedType,
   eventName: string,
@@ -58,6 +64,8 @@ export function dispatchReedToQueue(
     broadcastReedQueue.set(queued);
   } else if (eventName === 'pipe_reed') {
     pipeReedQueue.set(queued);
+  } else if (eventName === 'reed_reply') {
+    reedReplyQueue.set(queued);
   } else {
     profileReedQueue.set(queued);
   }
