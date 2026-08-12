@@ -33,6 +33,10 @@
   let isOwner = data.isOwner;
   let isFollowing = data.isFollowing;
   let profileUser = data.profileUser;
+  /** Server reports this author has reeds, but none are held locally yet —
+   * distinguishes "known content, still arriving" from a genuinely empty
+   * author. Kept in sync with the freshest info.hasReeds we've seen. */
+  let expectContent = data.expectContent ?? false;
   let profileSubscriptionActive = false;
   let tombstoneNote = data.tombstoneNote;
   /** Account removal cert is local — never re-fetch profile from server. */
@@ -245,6 +249,9 @@
 
       await userInfoRepository.put(info);
       if (seq !== infoFetchSeq) return;
+
+      const localReedCount = (await reedsService.getReedsByAuthor(uid)).length;
+      expectContent = localReedCount === 0 && info.hasReeds === true;
 
       let profile: api.User | null = isOwner
         ? data.currentUser
@@ -529,7 +536,7 @@
           {isOwner}
           showWriteButton={isOwner}
           {scrollRestoreY}
-          expectContent={!isOwner}
+          {expectContent}
         />
       {/key}
     {/if}

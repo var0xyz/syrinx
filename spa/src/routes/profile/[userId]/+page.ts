@@ -53,6 +53,10 @@ export async function load({ params, parent }) {
   const profileUser = mergeUserView(cachedProfile, cachedInfo);
 
   const localReeds = await reedsService.getReedsByAuthor(userId);
+  // Server-known content not yet synced to this device — distinct from a
+  // genuinely empty author. Only meaningful once we actually have zero
+  // local reeds; if some are already here, there's nothing left to wait for.
+  const expectContent = localReeds.length === 0 && cachedInfo?.hasReeds === true;
   if (localReeds.length > 0 || profileUser) {
     return {
       currentUser,
@@ -61,6 +65,7 @@ export async function load({ params, parent }) {
       isFollowing,
       status: profileUser ? 'ready' : 'loading',
       profileUser,
+      expectContent,
       tombstoneNote: '',
       fromCache: true,
       accountRemoved: false,
@@ -74,6 +79,7 @@ export async function load({ params, parent }) {
     isFollowing,
     status: 'loading',
     profileUser: null,
+    expectContent,
     tombstoneNote: '',
     fromCache: false,
     accountRemoved: false,

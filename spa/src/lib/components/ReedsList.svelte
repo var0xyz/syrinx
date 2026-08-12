@@ -307,7 +307,7 @@
     </div>
   {:else if reeds.length === 0 && pendingReeds.length === 0}
     <div class="empty-state">
-      <div class="empty-icon">🌾</div>
+      <div class="empty-icon">{isOwner ? '🌾' : '🫙'}</div>
       <h3>No reeds yet</h3>
       <p>{isOwner ? 'Your reeds will appear here when you publish them.' : 'New reeds will appear here once we receive them.'}</p>
     </div>
