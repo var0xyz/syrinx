@@ -252,6 +252,7 @@
             avatarSize="36px"
             subtext={row.timestamp ? formatRelativeTime(row.timestamp) : 'Waiting for reed...'}
             stopPropagation
+            linked={false}
           />
           {#if !row.loading}
             <div class="reply-body">

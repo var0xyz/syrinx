@@ -74,6 +74,7 @@
                   nameTag="h3"
                   subtext={formatRelativeTime(reed.serverSignature.timestamp)}
                   stopPropagation
+                  linked={false}
                 />
               </div>
               {#if reed.replying}

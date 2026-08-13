@@ -430,6 +430,7 @@
             subtext="Pending…"
             subtextClass="pending"
             stopPropagation
+            linked={false}
           />
           {#if isOwner}
             <div class="reed-meta">
@@ -493,6 +494,7 @@
             nameTag="h3"
             subtext={formatRelativeTime((awaitingOriginal ? reed : displayReed).serverSignature?.timestamp ?? reed.serverSignature?.timestamp)}
             stopPropagation
+            linked={false}
           />
           {#if isOwner}
             <div class="reed-meta">
