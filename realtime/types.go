@@ -19,6 +19,8 @@ const (
 	ReplyCountChanged // UserID/ReedID = ancestor reed; refresh REED_REPLIES subtree count for subscribers
 	LikeCountChanged // UserID/ReedID = liked reed; refresh REED_LIKES for subscribers
 	ReplyPosted // UserID/ReedID = ancestor reed to notify; ReplyUserID/ReplyReedID = the new reply (content holder)
+	RipplePosted  // UserID/ReedID = parent reed; Ripple = the new ripple response (full signed payload)
+	RippleUpdated // UserID/ReedID = parent reed; Ripple = the soft-deleted ripple response (deleted=true, content="[DELETED]")
 )
 
 // BroadcastMessage represents a message sent from the main app to the realtime service.
@@ -37,6 +39,9 @@ type BroadcastMessage struct {
 	ReedRemoval    *ReedRemovalWire
 	AccountRemoval *AccountRemovalWire
 	UserUpdate     *UserUpdateBroadcast
+
+	// RipplePosted/RippleUpdated only: the full signed ripple response.
+	Ripple *RippleWire
 }
 
 // ReedKey identifies a reed-scoped subscription.
@@ -104,6 +109,10 @@ func (bt BroadcastType) String() string {
 		return "LikeCountChanged"
 	case ReplyPosted:
 		return "ReplyPosted"
+	case RipplePosted:
+		return "RipplePosted"
+	case RippleUpdated:
+		return "RippleUpdated"
 	default:
 		return "Unknown"
 	}

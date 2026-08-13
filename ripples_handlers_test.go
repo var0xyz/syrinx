@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"syrinx/crypto"
+	"syrinx/realtime"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -27,7 +28,10 @@ func withRippleVars(r *http.Request, vars map[string]string) *http.Request {
 
 // ripplesTestHandlers builds *Handlers with a real, freshly generated
 // server signing key so h.countersign works end to end in HTTP-level
-// tests.
+// tests. broadcastChan is a real buffered channel (matching main.go's
+// capacity) rather than the zero value — PostRipple/DeleteRipple send
+// onto it synchronously, and a nil channel would block that send forever
+// since nothing here runs RealtimeService to drain it.
 func ripplesTestHandlers(db *DataService) *Handlers {
 	svc := crypto.NewService()
 	kp, err := svc.CreateKeyPair("test-server", "", "")
@@ -35,7 +39,8 @@ func ripplesTestHandlers(db *DataService) *Handlers {
 		panic(err)
 	}
 	return &Handlers{
-		services: &Services{db: db, crypto: svc, log: NewLoggingService()},
+		services:      &Services{db: db, crypto: svc, log: NewLoggingService()},
+		broadcastChan: make(chan realtime.BroadcastMessage, 100),
 		signingKey: Key{
 			Fingerprint: kp.Fingerprint,
 			Armor:       kp.PrivateKey,
