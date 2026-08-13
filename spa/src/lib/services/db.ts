@@ -37,13 +37,23 @@ export interface DbService {
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
-  // v8: 'reeds' keyPath became [userID, id] (was 'id' alone) — a reed ID is
-  // only unique per author, not globally, so a single-string key let one
-  // author's cached reed silently overwrite another's on an ID collision.
-  // Wipes local caches on upgrade (see onupgradeneeded below); everything
-  // here is peer/server-fetchable, so clients just re-sync on next load.
-  // v9: added 'ripples', keyed by hash (content-addressed, globally unique
-  // — see specs/ripples/00_design.md's Signing section).
+  // Bumping `version` must NOT wipe existing stores — see onupgradeneeded
+  // below, which is additive: it only creates stores/indexes that don't
+  // exist yet on this client, never deletes anything. A prior version of
+  // this file deleted every object store on every bump (even when only
+  // one new store was added), unconditionally wiping privateKeys,
+  // unsignedReeds, and everything else on every client on every feature
+  // deploy that touched IndexedDB. There is no "clients resync from the
+  // server" fallback for privateKeys/unsignedReeds — the server never
+  // holds a copy of either — so that was outright, permanent data loss
+  // for every user on every such deploy, not a cache-miss.
+  //
+  // v8: 'reeds' keyPath became [userID, id] (was 'id' alone) — a reed ID
+  // is only unique per author, not globally, so a single-string key let
+  // one author's cached reed silently overwrite another's on an ID
+  // collision.
+  // v9: added 'ripples', keyed by hash (content-addressed, globally
+  // unique — see specs/ripples/00_design.md's Signing section).
   private readonly version = 9;
   private readonly storeNames = [
     ['following',   'userId'     ],
@@ -87,24 +97,38 @@ export class IndexedDbService implements DbService {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        const tx = (event.target as IDBOpenDBRequest).transaction!;
 
-        for (const name of Array.from(db.objectStoreNames)) {
-          db.deleteObjectStore(name);
-        }
+        // NOTE: keyPath is immutable on an existing store — IndexedDB has
+        // no in-place "change the key" API. If a future change needs a
+        // different keyPath for a store that already shipped (like v8's
+        // 'reeds' change once did), this helper's `contains(storeName)`
+        // branch will keep the OLD keyPath silently; that migration needs
+        // its own explicit read-all/delete/recreate/reinsert code here,
+        // not a plain ensureStore call with the new keyPath.
+        const ensureStore = (
+          storeName: string,
+          keyPath: string | string[],
+          indexes: string[]
+        ) => {
+          const store = db.objectStoreNames.contains(storeName)
+            ? tx.objectStore(storeName)
+            : db.createObjectStore(storeName, { keyPath });
+          for (const indexName of indexes) {
+            if (!store.indexNames.contains(indexName)) {
+              store.createIndex(indexName, indexName, { unique: false });
+            }
+          }
+        };
 
         for (const [storeName, keyPath, ...indexes] of this.storeNames) {
-          const store = db.createObjectStore(storeName, { keyPath });
-          for (const indexName of indexes) {
-            store.createIndex(indexName, indexName, { unique: false });
-          }
+          ensureStore(storeName, keyPath, indexes);
         }
 
         // Compound key: a reed ID is only unique per author. Keeps 'userID'
         // and 'serverSignature.timestamp' as regular (non-key) indexes for
         // getReedsByAuthor / deleteReedsByAuthor / recency queries.
-        const reedsStore = db.createObjectStore('reeds', { keyPath: ['userID', 'id'] });
-        reedsStore.createIndex('userID', 'userID', { unique: false });
-        reedsStore.createIndex('serverSignature.timestamp', 'serverSignature.timestamp', { unique: false });
+        ensureStore('reeds', ['userID', 'id'], ['userID', 'serverSignature.timestamp']);
       };
     });
   }
