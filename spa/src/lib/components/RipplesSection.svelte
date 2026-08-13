@@ -8,22 +8,12 @@
   import { onDestroy, onMount } from 'svelte';
   import Avatar from '$lib/components/Avatar.svelte';
   import Username from '$lib/components/Username.svelte';
-  import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import RippleComposer from '$lib/components/RippleComposer.svelte';
   import { apiService } from '$lib/services/api';
-  import { authService } from '$lib/services/auth';
-  import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { userRepository } from '$lib/repositories/user';
   import { ripplesRepository } from '$lib/repositories/ripples';
-  import { cryptoService } from '$lib/services/crypto';
-  import { buildRippleUserPayload } from '$lib/services/signing';
   import { formatRelativeTime } from '$lib/utils/time';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
-  import {
-    MAX_REED_RAW_CHARS,
-    MAX_REED_VISIBLE_CHARS,
-    countMarkdownCharacters,
-    reedContentWithinLimits,
-  } from '$lib/utils/reedContent';
 
   /** @type {string} */
   export let userID;
@@ -32,10 +22,6 @@
 
   /** Bound out to the parent for tab-count display. */
   export let count = 0;
-
-  // Ripples render as markdown, same grammar as reeds — reuse the reed
-  // visible/raw caps rather than a separate ripple-specific budget.
-  const MAX_RIPPLE_CHARS = MAX_REED_VISIBLE_CHARS;
 
   const MIN = 60_000;
   const HOUR = 60 * MIN;
@@ -124,8 +110,30 @@
     }
   });
 
+  /** Insert a ripple at the position that matches server ordering, not at
+   * the end of the array: right after its replyingTo target if one is
+   * loaded (a reply belongs immediately after the message it replies to,
+   * within that thread's run), otherwise at the very end (a new top-level
+   * thread). This is what keeps a freshly-posted or live-delivered reply
+   * from jumping across the whole list on the next reload — see
+   * specs/ripples/04_spa_ripples_section.md's Data flow section. A
+   * genuinely concurrent reply to the same target can still land in a
+   * slightly different spot than the server's final thread-grouped order;
+   * accepted tradeoff, not worth a full resort against a partial page. */
+  function insertRipple(ripple) {
+    if (ripples.some((r) => r.hash === ripple.hash)) return;
+    const targetIndex = ripple.replyingTo
+      ? ripples.findIndex((r) => r.hash === ripple.replyingTo)
+      : -1;
+    if (targetIndex === -1) {
+      ripples = [...ripples, ripple];
+    } else {
+      ripples = [...ripples.slice(0, targetIndex + 1), ripple, ...ripples.slice(targetIndex + 1)];
+    }
+  }
+
   /** RIPPLE_POSTED: verify-or-discard (same path a list fetch uses), then
-   * append if not already present — guards against the optimistic-append-
+   * insert if not already present — guards against the optimistic-insert-
    * then-echo double-add for the poster's own just-submitted ripple. */
   async function handleRipplePosted(msg) {
     if (msg?.userID !== userID || msg?.reedID !== reedID || !msg?.ripple) return;
@@ -134,7 +142,7 @@
     const ok = await ripplesRepository.storeRipple(ripple, userID, reedID);
     if (!ok) return;
     await resolveUsername(ripple.userID);
-    ripples = [...ripples, ripple];
+    insertRipple(ripple);
   }
 
   /** RIPPLE_UPDATED: patch the matching row in place (deleted/content) —
@@ -157,12 +165,13 @@
     serverConnection.off(ServerEvent.RippleUpdated, handleRippleUpdated);
   });
 
-  let draft = '';
+  /** The ripple being replied to, or null while the composer sits at the
+   * bottom for a top-level post. Set by clicking "reply" on a row; moves
+   * the composer to render right after that row instead of at the list's
+   * end, so the reply target stays visible while typing — see the
+   * component's own header comment for why this replaced the old
+   * always-at-the-bottom layout. */
   let replyingTo = /** @type {import('$lib/types/api').Ripple | null} */ (null);
-  let posting = false;
-  let postError = '';
-  $: remaining = MAX_RIPPLE_CHARS - countMarkdownCharacters(draft);
-  $: overLimit = remaining < 0 || draft.length > MAX_REED_RAW_CHARS;
 
   function startReply(ripple) {
     replyingTo = ripple;
@@ -172,63 +181,18 @@
     replyingTo = null;
   }
 
-  async function submitRipple() {
-    if (posting) return;
-    const content = draft.trim();
-    if (!content || !reedContentWithinLimits(content)) return;
-
-    postError = '';
-    posting = true;
-    try {
-      const user = await authService.getCurrentUser();
-      if (!user) throw new Error('No user ID found. Please log in.');
-
-      const fingerprint = authService.getActiveKeyFingerprint();
-      if (!fingerprint) throw new Error('No active key fingerprint found.');
-
-      const keyData = await privateKeyRepository.getPrivateKey(fingerprint);
-      if (!keyData) throw new Error('Private key not found. Please import your key.');
-
-      const passphrase = authService.getPassphrase();
-      if (!passphrase) throw new Error('Session expired. Please sign in again.');
-
-      const threadID = replyingTo ? replyingTo.threadID : crypto.randomUUID();
-      const replyingToHash = replyingTo?.hash;
-
-      const userPayload = buildRippleUserPayload(
-        userID,
-        reedID,
-        user.id,
-        fingerprint,
-        threadID,
-        replyingToHash ?? '',
-        content
-      );
-      const detachedArmor = await cryptoService.signMessage(userPayload, keyData.armor, passphrase);
-      const userSignature = btoa(detachedArmor.trim()).trim();
-
-      const posted = await apiService.postRipple(userID, reedID, {
-        content,
-        threadID,
-        replyingTo: replyingToHash,
-        fingerprint,
-        userSignature,
-      });
-
-      const ok = await ripplesRepository.storeRipple(posted, userID, reedID);
-      if (ok) {
-        await resolveUsername(posted.userID);
-        ripples = [...ripples, posted];
-      }
-
-      draft = '';
-      replyingTo = null;
-    } catch (error) {
-      console.error('Failed to post ripple:', error);
-      postError = error?.message || 'Failed to post comment';
-    } finally {
-      posting = false;
+  /** RippleComposer's `posted` event: insert at the same position the
+   * composer itself was rendered at (right after replyingTo, or at the
+   * end for top-level) — matches server ordering in the common case, so
+   * nothing jumps position on the next reload. */
+  async function handleComposerPosted(event) {
+    const { ripple: posted } = event.detail;
+    const ok = await ripplesRepository.storeRipple(posted, userID, reedID);
+    if (ok) {
+      await resolveUsername(posted.userID);
+      insertRipple(posted);
     }
+    replyingTo = null;
   }
 
   async function deleteRipple(hash) {
@@ -304,13 +268,26 @@
             {#if ripple.deleted}
               <p class="ripple-content ripple-content-deleted">[DELETED]</p>
             {:else}
-              <div class="ripple-content">
-                <MarkdownParser text={ripple.content} className="ripple-content-markdown" />
+              <p class="ripple-content">
+                {ripple.content}
                 <button type="button" class="ripple-action ripple-reply-inline" on:click={() => startReply(ripple)}>reply</button>
-              </div>
+              </p>
             {/if}
           </div>
         </li>
+        {#if replyingTo?.hash === ripple.hash}
+          <li class="ripple-composer-row">
+            <RippleComposer
+              {userID}
+              {reedID}
+              {replyingTo}
+              replyingToUsername={usernames[replyingTo.userID] ?? null}
+              autofocus
+              on:posted={handleComposerPosted}
+              on:cancel={cancelReply}
+            />
+          </li>
+        {/if}
       {/each}
     </ul>
     {#if hasMore}
@@ -320,35 +297,18 @@
     {/if}
   {/if}
 
-  <div class="ripple-composer">
-    {#if replyingTo}
-      <div class="reply-chip-bar">
-        <span>Replying to {usernames[replyingTo.userID] ? `@${usernames[replyingTo.userID]}` : 'a removed account'}</span>
-        <button type="button" class="chip-dismiss" on:click={cancelReply} aria-label="Cancel reply">×</button>
-      </div>
-    {/if}
-    <textarea
-      class="ripple-textarea"
-      placeholder="Join the ripple…"
-      bind:value={draft}
-      maxlength={MAX_REED_RAW_CHARS}
-      rows="2"
-      disabled={posting}
-    ></textarea>
-    {#if postError}
-      <p class="ripple-post-error">{postError}</p>
-    {/if}
-    <div class="composer-footer">
-      <span class="char-counter" class:over={overLimit}>{remaining}</span>
-      <button type="button" class="post-btn" disabled={!draft.trim() || overLimit || posting} on:click={submitRipple}>
-        {posting ? 'Posting…' : 'Post'}
-      </button>
-    </div>
-  </div>
+  {#if !replyingTo}
+    <RippleComposer
+      {userID}
+      {reedID}
+      on:posted={handleComposerPosted}
+    />
+  {/if}
 
   <p class="ripples-why-explainer">
     Ripples aren't saved permanently — this thread disappears 7 days after
-    its last reply, and posting a new one resets the countdown.
+    its last reply, and posting a new one resets the countdown. Plain text
+    only — markdown isn't supported.
   </p>
 </section>
 
@@ -489,15 +449,8 @@
     font-size: 0.88rem;
     line-height: 1.45;
     color: var(--fg);
+    white-space: pre-wrap;
     word-break: break-word;
-  }
-
-  .ripple-content :global(.ripple-content-markdown) {
-    font-size: inherit;
-  }
-
-  .ripple-content :global(.ripple-content-markdown p) {
-    margin: 0;
   }
 
   .ripple-content-deleted {
@@ -537,90 +490,10 @@
     font-size: 0.8rem;
   }
 
-  .ripple-composer {
-    margin: 0 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.6rem;
-    background: var(--bg);
-  }
-
-  .reply-chip-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--input-bg, rgba(127,127,127,0.1));
-    border-radius: 6px;
-    padding: 0.25rem 0.5rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.78rem;
-    color: var(--muted);
-  }
-
-  .chip-dismiss {
-    width: auto;
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-size: 1rem;
-    line-height: 1;
-    cursor: pointer;
-    padding: 0 0.25rem;
-  }
-
-  .ripple-textarea {
-    width: 100%;
-    resize: vertical;
-    min-height: 3rem;
-    border: none;
-    background: transparent;
-    color: var(--fg);
-    font: inherit;
-    padding: 0;
-  }
-
-  .ripple-textarea:focus {
-    outline: none;
-  }
-
-  .ripple-post-error {
-    margin: 0.4rem 0 0;
-    font-size: 0.78rem;
-    color: #d9534f;
-  }
-
-  .composer-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 0.4rem;
-  }
-
-  .char-counter {
-    font-size: 0.75rem;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .char-counter.over {
-    color: #d9534f;
-    font-weight: 600;
-  }
-
-  .post-btn {
-    width: auto;
-    background: var(--primary);
-    color: white;
-    border: none;
-    border-radius: 999px;
-    padding: 0.35rem 1rem;
-    font-size: 0.85rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .post-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  /* No list-item box model needed — this <li> only exists so the inline
+     composer can sit between two <li> siblings in the same <ul>. */
+  .ripple-composer-row {
+    list-style: none;
+    margin: 0.4rem 0;
   }
 </style>
