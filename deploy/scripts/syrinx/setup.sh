@@ -316,10 +316,16 @@ install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME" "/usr/local/
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME-ripples-cleanup" "/usr/local/bin/$APP_NAME-ripples-cleanup"
 
 # Deletes expired ripple threads every minute — see
-# specs/ripples/01_schema_and_expiry.md. Own log dir under LOG_DIR (which
-# is root-only 700, see above): the cron job runs as $APP_USER, not root,
-# and needs somewhere it can actually write — LOG_DIR itself is
-# deliberately kept root-only since setup/update logs can contain secrets.
+# specs/ripples/01_schema_and_expiry.md. Own log dir under LOG_DIR: the
+# cron job runs as $APP_USER, not root, and needs somewhere it can
+# actually write. LOG_DIR's own setup/update logs stay unreadable to
+# $APP_USER (700 blocks read+write+traversal for non-owners) — but mode
+# 700 on the PARENT also blocks a non-owner from merely passing through
+# it to reach a subdirectory they DO own, even one they own outright.
+# 711 (execute-only for group/other) fixes that: $APP_USER can traverse
+# into LOG_DIR/jobs, but still can't list or read anything living
+# directly in LOG_DIR itself (setup-*.log/update-*.log stay root:root 600).
+chmod 711 "$LOG_DIR"
 JOB_LOG_DIR="$LOG_DIR/jobs"
 mkdir -p "$JOB_LOG_DIR"
 chown "$APP_USER:$APP_USER" "$JOB_LOG_DIR"
