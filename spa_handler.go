@@ -1,4 +1,4 @@
-//go:build !ops
+//go:build !ops && !ripplescleanup
 
 package main
 

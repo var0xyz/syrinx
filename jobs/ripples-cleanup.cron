@@ -1,0 +1,4 @@
+# Deletes expired ripple threads every minute (see specs/ripples/01_schema_and_expiry.md).
+# Installed by deploy/scripts/syrinx/setup.sh into /etc/cron.d/<APP_NAME>-ripples-cleanup,
+# with @APP_NAME@/@ENV_FILE@ substituted for the real values at install time.
+* * * * * @APP_USER@ . @ENV_FILE@ && /usr/local/bin/@APP_NAME@-ripples-cleanup >> /var/log/@APP_NAME@/ripples-cleanup.log 2>&1

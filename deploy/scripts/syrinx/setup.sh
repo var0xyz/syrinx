@@ -293,6 +293,9 @@ echo -e "\n💻 Building production Go Application binary artifacts (staged — 
 cd "$BUILD_DIR/src/$BACKEND_PATH"
 CGO_ENABLED=0 go build -ldflags="-w -s" -o "$BUILD_DIR/$APP_NAME" .
 
+echo -e "\n💻 Building ripples-cleanup cron job (staged — not installed yet)..."
+CGO_ENABLED=0 go build -tags ripplescleanup -ldflags="-w -s" -o "$BUILD_DIR/$APP_NAME-ripples-cleanup" .
+
 echo -e "\n⚛️  Assembling and transpiling Vite Frontend SPA assets (staged — not published yet)..."
 cd "$BUILD_DIR/src/$FRONTEND_PATH"
 
@@ -310,6 +313,13 @@ npm run build
 # either both the binary and SPA ship together, or neither does.
 echo -e "\n🚀 Both builds succeeded — installing atomically..."
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME" "/usr/local/bin/$APP_NAME"
+install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME-ripples-cleanup" "/usr/local/bin/$APP_NAME-ripples-cleanup"
+
+# Deletes expired ripple threads hourly — see specs/ripples/01_schema_and_expiry.md.
+# Placeholders (@APP_USER@ etc.) come from jobs/ripples-cleanup.cron in the repo.
+sed -e "s|@APP_USER@|$APP_USER|g" -e "s|@ENV_FILE@|$ENV_FILE|g" -e "s|@APP_NAME@|$APP_NAME|g" \
+    "$BUILD_DIR/src/jobs/ripples-cleanup.cron" > "/etc/cron.d/$APP_NAME-ripples-cleanup"
+chmod 644 "/etc/cron.d/$APP_NAME-ripples-cleanup"
 
 # @sveltejs/adapter-static writes to "build" (not Vite's default "dist").
 # Ship into a timestamped release dir and point the `build` symlink at it —
