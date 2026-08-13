@@ -107,6 +107,21 @@
   let lastHandledProfileReedId = '';
   let lastHandledFollowReedId = '';
   let appliedScrollRestore = false;
+  /** authorId a profileUser fetch is in flight for/last completed for — lets
+   * a slow response for a since-superseded authorId (e.g. profile A -> B
+   * client-side nav) be dropped instead of clobbering profile B's data. */
+  let profileUserFor = '';
+
+  $: if (authorId && authorId !== profileUserFor) {
+    profileUserFor = authorId;
+    void loadProfileUser(authorId);
+  }
+
+  async function loadProfileUser(id) {
+    const user = await userRepository.getByUserId(id).catch(() => null);
+    if (id !== profileUserFor) return;
+    profileUser = user;
+  }
 
   $: if ($unsignedReedsProcessed > 0) loadReeds();
   $: if ($pendingRemovalSynced > 0) loadReeds();
@@ -126,7 +141,6 @@
   }
 
   onMount(async () => {
-    profileUser = await userRepository.getByUserId(authorId).catch(() => null);
     await loadReeds();
   });
 
