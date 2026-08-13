@@ -667,7 +667,7 @@
                 aria-selected={discussionTab === 'conversation'}
                 on:click={() => { discussionTab = 'conversation'; }}
               >
-                Conversation{#if conversationCount > 0} ({conversationCount}){/if}
+                Conversation{#if conversationCount > 0}&nbsp;({conversationCount}){/if}
               </button>
               <button
                 type="button"
@@ -677,7 +677,7 @@
                 aria-selected={discussionTab === 'ripples'}
                 on:click={() => { discussionTab = 'ripples'; }}
               >
-                Ripples{#if ripplesCount > 0} ({ripplesCount}){/if}
+                Ripples{#if ripplesCount > 0}&nbsp;({ripplesCount}){/if}
               </button>
             </div>
             <div class="discussion-panel" class:hidden={discussionTab !== 'conversation'}>
