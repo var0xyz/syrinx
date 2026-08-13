@@ -17,6 +17,11 @@
   export let nameTag = 'span';
   /** Set when this header sits inside another clickable element (e.g. a reed row) that navigates elsewhere on click. */
   export let stopPropagation = false;
+  /** Render the username as its own profile link. Set false when the
+   * surrounding row already navigates elsewhere on click (e.g. a reed
+   * list where clicking anywhere goes to the reed detail page first) so
+   * the username isn't a second, competing click target. */
+  export let linked = true;
 </script>
 
 <div class="reed-author-header">
@@ -25,7 +30,7 @@
   </div>
   <div class="reed-author-info">
     <svelte:element this={nameTag} class="reed-author-name">
-      <Username {userID} {serverID} {username} {stopPropagation} />
+      <Username {userID} {serverID} {username} {stopPropagation} {linked} />
     </svelte:element>
     {#if subtext}
       <span class="reed-author-subtext {subtextClass}">{subtext}</span>

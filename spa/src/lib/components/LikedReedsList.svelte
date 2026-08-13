@@ -95,6 +95,7 @@
             nameTag="h3"
             subtext={formatRelativeTime(item.record.likedAt)}
             stopPropagation
+            linked={false}
           />
         </div>
         {#if item.reed.replying}

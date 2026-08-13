@@ -101,6 +101,7 @@
                   username={authors[reed.userID]?.username ?? reed.userID}
                   subtext={formatRelativeTime(reed.serverSignature?.timestamp)}
                   stopPropagation
+                  linked={false}
                 />
               </div>
               {#if (reed.content || '').trim()}
