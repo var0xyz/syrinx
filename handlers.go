@@ -3188,12 +3188,17 @@ type rippleListResponse struct {
 	Responses  []RippleWire `json:"responses"`
 	HasMore    bool         `json:"hasMore"`
 	NextCursor string       `json:"nextCursor,omitempty"`
-	// ExpiresInSeconds is a relative duration, not an absolute timestamp —
-	// the client starts its own local countdown from this value instead of
-	// comparing an absolute expiresAt against its own clock, so a client
-	// with a skewed system clock still counts down accurately. Clamped to
-	// 0 rather than going negative (the sweep may not have run yet).
-	ExpiresInSeconds *int64 `json:"expiresInSeconds,omitempty"`
+	// ExpiresAt is the absolute instant the whole ripples section on this
+	// reed disappears — the client converts this to a local monotonic
+	// countdown once at fetch time (Date.parse(expiresAt) - Date.now(),
+	// then ticked via performance.now()), so the animation itself stays
+	// skew-resistant, but the reference point can be independently
+	// re-validated against any fresh read (poll, reload, WS event)
+	// without the server needing to compute a fresh relative delta each
+	// time. The client must treat an already-past expiresAt as "do not
+	// render this section's ripples," even if the server still sent them
+	// (the sweep may not have run yet).
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 }
 
 // GetRipples handles GET /api/reeds/{userID}/{reedID}/ripples.
@@ -3253,11 +3258,7 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		NextCursor: list.NextCursor,
 	}
 	if !expiresAt.IsZero() {
-		secondsLeft := int64(0)
-		if remaining := time.Until(expiresAt); remaining > 0 {
-			secondsLeft = int64(remaining.Seconds())
-		}
-		resp.ExpiresInSeconds = &secondsLeft
+		resp.ExpiresAt = &expiresAt
 	}
 	writeResponse(w, http.StatusOK, resp)
 }
