@@ -1,4 +1,12 @@
 # Deletes expired ripple threads every minute (see specs/ripples/01_schema_and_expiry.md).
 # Installed by deploy/scripts/syrinx/setup.sh into /etc/cron.d/<APP_NAME>-ripples-cleanup,
-# with @APP_NAME@/@ENV_FILE@ substituted for the real values at install time.
-* * * * * @APP_USER@ . @ENV_FILE@ && /usr/local/bin/@APP_NAME@-ripples-cleanup >> /var/log/@APP_NAME@/ripples-cleanup.log 2>&1
+# with @APP_NAME@/@ENV_FILE@/@JOB_LOG_DIR@ substituted for the real values
+# at install time. @JOB_LOG_DIR@ is a dedicated $APP_USER-owned directory
+# (NOT /var/log/<APP_NAME> itself, which is root-only 700 — this job runs
+# as $APP_USER and cannot write there).
+#
+# `set -a` before sourcing is required: plain `. file` only sets shell
+# variables in cron's non-interactive sh, it does NOT export them, so the
+# binary below (a separate process) would see none of DB_HOST/etc via
+# os.Getenv without it.
+* * * * * @APP_USER@ set -a; . @ENV_FILE@; set +a; /usr/local/bin/@APP_NAME@-ripples-cleanup >> @JOB_LOG_DIR@/ripples-cleanup.log 2>&1
