@@ -255,11 +255,19 @@ cryptographic work before the network call:
   an **opaque string** (per 02's Pagination cursor section), not a bare
   RFC3339 timestamp — pass it through as an opaque value, don't attempt to
   parse or construct it client-side.
-- The list response's top-level `expiresAt` field drives the countdown
-  display (see 00's Lifetime rule) — it is **not** derived client-side
-  from the currently-loaded responses' `postedAt` values, since that
-  derivation would be wrong once pagination is involved (a partial page
-  may not contain the most recent response).
+- The list response's top-level `expiresInSeconds` field drives the
+  countdown display (see 00's Lifetime rule) — it is **not** derived
+  client-side from the currently-loaded responses' `postedAt` values,
+  since that derivation would be wrong once pagination is involved (a
+  partial page may not contain the most recent response). The client
+  converts it once, at fetch time, into a local deadline measured against
+  `performance.now()` (monotonic, immune to system clock changes
+  mid-session) rather than storing or comparing against an absolute
+  timestamp — this is what makes the countdown immune to a skewed device
+  clock. If the server reports `expiresInSeconds <= 0`, the client treats
+  the section as already expired and does not render whatever responses
+  came with it, even if the sweep hasn't deleted them yet (see the
+  Expired state subsection below).
 - WS: subscribe to the existing per-reed channel (already established by
   `ConversationSection`'s own subscription — check whether that
   subscription is page-scoped or component-scoped before adding a second
@@ -347,6 +355,32 @@ in `ReedsList.svelte`/`Quote.svelte`) is a heavier signed-cert
 verification flow for a *different* kind of removal cert, not applicable
 here. Keep this minimal: a label swap only, no extra network call beyond
 the profile-resolution already described in Data flow above.
+
+#### Expiry animation and the expired state
+
+When the local countdown (derived from `expiresInSeconds`, see Data flow
+above) reaches zero, the client plays a short fire/burn animation on the
+visible list — each row fades, rises, and shifts color toward orange/red
+in a staggered sequence rather than the whole list vanishing as one flat
+block — then replaces the entire ripples section (list, composer, and the
+"aren't saved permanently" explainer) with a single expired-state message
+and a 🔥 icon. The composer disappears along with the list: there is no
+way to reply to an already-expired thread client-side, matching the
+server (which 400s/404s a post against a reed whose shared `expires_at`
+has passed, per [02](02_post_and_list_api.md)).
+
+This is a client-only visual event — no new WS message type, no new API
+call. It fires purely off the local countdown timer already described in
+Data flow. If the *server* itself reports `expiresInSeconds <= 0` on a
+fresh fetch (the fetch landed in the race window before the cron sweep
+in [01](01_schema_and_expiry.md) has run), the client goes straight to
+the expired state without playing the animation — there's nothing
+visibly alive on screen to burn in that case, the section was already
+gone by the time this client asked. Either path — local countdown
+hitting zero, or a fetch discovering it's already expired — also refuses
+to render any RIPPLE_POSTED/RIPPLE_UPDATED event that arrives afterward,
+so a straggling WS message can't resurrect a thread the client has
+already treated as gone.
 
 #### The remaining, rarer fallback
 

@@ -214,7 +214,11 @@ export interface RippleListResponse extends Base {
   responses: Ripple[];
   hasMore: boolean;
   nextCursor?: string;
-  expiresAt?: string;
+  /** Seconds until the whole ripples section expires, relative to the
+   * server's clock at fetch time — not an absolute timestamp, so the
+   * client's own (possibly skewed) system clock never enters the
+   * countdown. */
+  expiresInSeconds?: number;
 }
 
 /** One row in GET /users/{userID}/following or /users/{userID}/followers. */

@@ -314,6 +314,14 @@ undifferentiated stream, while still keeping the render itself simple.
   the responses themselves are removed as a cascade side effect of that
   single delete, not by a direct delete against the content table. This
   is also why the underlying schema is split into two tables — see 01.
+- The list API (see [02](02_post_and_list_api.md)) never puts the stored
+  `expires_at` on the wire as an absolute timestamp — it sends
+  `expiresInSeconds`, a duration computed server-side at request time.
+  The client starts a local countdown from that value instead of
+  comparing an absolute deadline against its own system clock, so a
+  skewed device clock can never make a thread appear to expire early or
+  late. See [04](04_spa_ripples_section.md)'s Expiry animation section
+  for the client-side countdown/animation this drives.
 
 ### Visibility gate (locked)
 
