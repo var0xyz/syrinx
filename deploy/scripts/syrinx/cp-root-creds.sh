@@ -12,6 +12,10 @@
 #   DEPLOY_HOST=pi@10.0.0.50 ./cp-root-creds.sh
 #   OUT_DIR=~/Desktop ./cp-root-creds.sh   # default: ./root-creds
 #
+# The host address is only asked for once — after that it's saved to
+# deploy.env (next to this script) and reused silently on every later run.
+# Set FORCE_HOST_PROMPT=1 to be asked again (e.g. switching hosts).
+#
 # Reads APP_NAME from ~/syrinx/setup.env on the host (the directory
 # deploy.sh copies scripts to and setup.sh saves its answers in), so run
 # ./deploy.sh setup at least once on this host before this script.
@@ -36,7 +40,7 @@ info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
 usage() {
-    sed -n '2,24p' "$0" | sed -e 's/^# //' -e 's/^#$//'
+    sed -n '2,28p' "$0" | sed -e 's/^# //' -e 's/^#$//'
 }
 
 load_saved_host() {
@@ -71,8 +75,12 @@ normalize_host() {
 
 prompt_host() {
     local saved="${DEPLOY_HOST:-}" input=""
-    if [ -n "${DEPLOY_HOST:-}" ] && [ "${DEPLOY_HOST_SET_BY_ENV:-0}" = "1" ]; then
-        normalize_host "$DEPLOY_HOST"
+    # Skip the prompt whenever a host is already known — either passed as an
+    # actual env var, or previously saved to deploy.env by a prior run. Only
+    # ask when neither is set. Pass FORCE_HOST_PROMPT=1 to re-prompt anyway
+    # (e.g. switching to a different host).
+    if [ -n "$saved" ] && [ "${FORCE_HOST_PROMPT:-0}" != "1" ]; then
+        normalize_host "$saved"
         return 0
     fi
 
@@ -95,14 +103,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
     exit 0
 fi
 
-DEPLOY_HOST_FROM_ENV="${DEPLOY_HOST:-}"
 load_saved_host
-if [ -n "$DEPLOY_HOST_FROM_ENV" ]; then
-    DEPLOY_HOST_SET_BY_ENV=1
-    DEPLOY_HOST="$DEPLOY_HOST_FROM_ENV"
-else
-    DEPLOY_HOST_SET_BY_ENV=0
-fi
 DEPLOY_HOST="$(prompt_host)"
 save_host "$DEPLOY_HOST"
 
