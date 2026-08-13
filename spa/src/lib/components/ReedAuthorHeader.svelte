@@ -1,10 +1,13 @@
 <script>
   import Avatar from '$lib/components/Avatar.svelte';
+  import Username from '$lib/components/Username.svelte';
 
   /** @type {string} */
   export let userID;
   /** @type {string} */
   export let username;
+  /** @type {string} */
+  export let serverID = '';
   /** Secondary line under the name — caller formats (relative time, "Pending…", etc). */
   export let subtext = '';
   /** Extra class on the subtext span, e.g. for a "Pending…" state style. */
@@ -12,14 +15,18 @@
   export let avatarSize = '40px';
   /** Wrapping element for the name — 'h3' for a page's primary list (a11y heading), 'span' for secondary lists. */
   export let nameTag = 'span';
+  /** Set when this header sits inside another clickable element (e.g. a reed row) that navigates elsewhere on click. */
+  export let stopPropagation = false;
 </script>
 
 <div class="reed-author-header">
   <div class="reed-author-avatar">
-    <Avatar {userID} {username} size={avatarSize} />
+    <Avatar {userID} {serverID} {username} size={avatarSize} />
   </div>
   <div class="reed-author-info">
-    <svelte:element this={nameTag} class="reed-author-name">{username}</svelte:element>
+    <svelte:element this={nameTag} class="reed-author-name">
+      <Username {userID} {serverID} {username} {stopPropagation} />
+    </svelte:element>
     {#if subtext}
       <span class="reed-author-subtext {subtextClass}">{subtext}</span>
     {/if}

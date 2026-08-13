@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
   import { userRepository } from '$lib/repositories/user';
+  import Username from '$lib/components/Username.svelte';
 
   /** @type {string} */
   export let userID;
@@ -61,23 +61,18 @@
     }
   });
 
-  function activate() {
-    if (!isLocal) return;
-    goto(`/profile/${userID}`);
-  }
 </script>
 
 {#if unresolved}
   {`~${userID}@${serverID}`}
-{:else if preview || !isLocal}
-  <span class="inline-link mention-link"
-    >{username}</span
-  >
 {:else}
-  <a
-    href="/profile/{userID}"
+  <Username
+    {userID}
+    {serverID}
+    {username}
     class="inline-link mention-link"
-    on:click|preventDefault={activate}
-    >{username}</a
-  >
+    at
+    fire={false}
+    linked={!preview && isLocal}
+  />
 {/if}

@@ -85,14 +85,13 @@ export function internalPath(href: string): string | null {
   return null;
 }
 
-export type LinkKind = 'mention' | 'pipe' | 'external';
-
-/** Classifies a link href for styling — does not affect navigation. */
-export function linkKind(href: string): LinkKind {
-  const raw = href.trim();
-  if (MENTION_HREF.test(raw)) return 'mention';
-  if (PIPE_HREF.test(raw)) return 'pipe';
-  return 'external';
+/** Extracts {serverID, userID} from a mention-shaped href, or null. Lets a
+ * hand-typed `[label](web+syrinx://users/...)` link be rendered the same way
+ * as a `~mention` node — through Username — instead of a raw label link. */
+export function parseMentionHref(href: string): { serverID: string; userID: string } | null {
+  const m = MENTION_HREF.exec(href.trim());
+  if (!m?.[1] || !m[2]) return null;
+  return { serverID: m[1], userID: m[2] };
 }
 
 export function parseReedMarkdown(input: string): Doc {

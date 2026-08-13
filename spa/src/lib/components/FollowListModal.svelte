@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { goto } from '$app/navigation';
   import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
@@ -13,7 +14,7 @@
 
   const dispatch = createEventDispatcher();
 
-  type Row = { userID: string; username: string; followedAt: string };
+  type Row = { userID: string; username: string; serverID: string; followedAt: string };
 
   let rows: Row[] = [];
   let loading = false;
@@ -54,6 +55,7 @@
           return {
             userID: u.userID,
             username: profile?.username ?? u.userID,
+            serverID: profile?.serverSignature?.serverID ?? '',
             followedAt: u.followedAt,
           };
         })
@@ -102,13 +104,21 @@
           </p>
         {:else}
           {#each rows as row (row.userID)}
-            <a class="user-row" href="/profile/{row.userID}">
+            <div
+              class="user-row"
+              role="button"
+              tabindex="0"
+              on:click={() => goto(`/profile/${row.userID}`)}
+              on:keydown={(e) => e.key === 'Enter' && goto(`/profile/${row.userID}`)}
+            >
               <ReedAuthorHeader
                 userID={row.userID}
+                serverID={row.serverID}
                 username={row.username}
                 subtext={`Since ${formatRelativeTime(row.followedAt)}`}
+                stopPropagation
               />
-            </a>
+            </div>
           {/each}
           {#if error}
             <p class="state-text error">{error}</p>
@@ -197,6 +207,7 @@
     color: inherit;
     padding: 0.4rem;
     border-radius: 8px;
+    cursor: pointer;
   }
 
   .user-row:hover {

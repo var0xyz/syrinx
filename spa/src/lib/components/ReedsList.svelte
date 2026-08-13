@@ -410,10 +410,12 @@
         <div class="reed-header">
           <ReedAuthorHeader
             userID={displayReed.userID}
+            serverID={displayReed.serverSignature?.serverID ?? ''}
             username={displayUser.username}
             nameTag="h3"
             subtext="Pending…"
             subtextClass="pending"
+            stopPropagation
           />
           {#if isOwner}
             <div class="reed-meta">
@@ -472,9 +474,11 @@
         <div class="reed-header">
           <ReedAuthorHeader
             userID={displayReed.userID}
+            serverID={displayReed.serverSignature?.serverID ?? ''}
             username={displayUser.username}
             nameTag="h3"
             subtext={formatRelativeTime((awaitingOriginal ? reed : displayReed).serverSignature?.timestamp ?? reed.serverSignature?.timestamp)}
+            stopPropagation
           />
           {#if isOwner}
             <div class="reed-meta">

@@ -18,6 +18,7 @@
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
   import Avatar from '$lib/components/Avatar.svelte';
+  import Username from '$lib/components/Username.svelte';
   import ReedStatsSubscription from '$lib/components/ReedStatsSubscription.svelte';
   import ConversationSection from '$lib/components/ConversationSection.svelte';
   import RipplesSection from '$lib/components/RipplesSection.svelte';
@@ -522,7 +523,12 @@
                   <Avatar userID={userID} username={authorUser?.username ?? userID} size="69px" />
                 </a>
                 <div class="author-info">
-                  <a href="/profile/{userID}" class="author-name">{authorUser?.username ?? userID}</a>
+                  <Username
+                    userID={userID}
+                    serverID={authorUser?.serverSignature?.serverID ?? ''}
+                    username={authorUser?.username ?? userID}
+                    class="author-name"
+                  />
                   <p class="reed-stats" title="Stats for nerds">
                     {#if statsStatus === 'loading'}
                       Loading stats...
@@ -581,7 +587,12 @@
                   <Avatar userID={reed.userID} username={authorUser?.username ?? reed.userID} size="69px" />
                 </a>
                 <div class="author-info">
-                  <a href="/profile/{reed.userID}" class="author-name">{authorUser?.username ?? reed.userID}</a>
+                  <Username
+                    userID={reed.userID}
+                    serverID={reed.serverSignature?.serverID ?? ''}
+                    username={authorUser?.username ?? reed.userID}
+                    class="author-name"
+                  />
                   <p class="reed-date" class:pending={isPending}>{isPending ? 'Pending…' : formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
                   {#if !isPending}
                     <button type="button" class="reed-stats" on:click={handleStatsInfo} aria-label="Reed stats — click for details">
@@ -758,7 +769,7 @@
     justify-content: space-between;
   }
 
-  .author-name {
+  :global(.author-name) {
     display: block;
     color: var(--fg);
     font-size: 1.2rem;
@@ -768,7 +779,7 @@
     margin-bottom: 0.25rem;
   }
 
-  .author-name:hover {
+  :global(.author-name .username:hover) {
     text-decoration: underline;
   }
 
