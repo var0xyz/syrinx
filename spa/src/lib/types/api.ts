@@ -214,11 +214,13 @@ export interface RippleListResponse extends Base {
   responses: Ripple[];
   hasMore: boolean;
   nextCursor?: string;
-  /** Seconds until the whole ripples section expires, relative to the
-   * server's clock at fetch time — not an absolute timestamp, so the
-   * client's own (possibly skewed) system clock never enters the
-   * countdown. */
-  expiresInSeconds?: number;
+  /** Absolute instant the whole ripples section on this reed disappears.
+   * Converted to a local countdown once at fetch time (see
+   * RipplesSection.svelte) rather than compared against the wall clock
+   * on every tick, so the animation stays smooth even if the system
+   * clock changes mid-session — but the value itself is independently
+   * re-checkable against any fresh fetch, unlike a relative duration. */
+  expiresAt?: string;
 }
 
 /** One row in GET /users/{userID}/following or /users/{userID}/followers. */

@@ -255,17 +255,22 @@ cryptographic work before the network call:
   an **opaque string** (per 02's Pagination cursor section), not a bare
   RFC3339 timestamp — pass it through as an opaque value, don't attempt to
   parse or construct it client-side.
-- The list response's top-level `expiresInSeconds` field drives the
-  countdown display (see 00's Lifetime rule) — it is **not** derived
-  client-side from the currently-loaded responses' `postedAt` values,
-  since that derivation would be wrong once pagination is involved (a
-  partial page may not contain the most recent response). The client
-  converts it once, at fetch time, into a local deadline measured against
-  `performance.now()` (monotonic, immune to system clock changes
-  mid-session) rather than storing or comparing against an absolute
-  timestamp — this is what makes the countdown immune to a skewed device
-  clock. If the server reports `expiresInSeconds <= 0`, the client does
-  not render whatever responses came with it, even if the sweep hasn't
+- The list response's top-level `expiresAt` field (an absolute timestamp)
+  drives the countdown display (see 00's Lifetime rule) — it is **not**
+  derived client-side from the currently-loaded responses' `postedAt`
+  values, since that derivation would be wrong once pagination is
+  involved (a partial page may not contain the most recent response). The
+  client converts it once, at fetch time, into a local deadline measured
+  against `performance.now()` (`performance.now() + (Date.parse(expiresAt)
+  - Date.now())`) — every tick after that compares against
+  `performance.now()`, not the wall clock, so the animation itself can't
+  jump if the system clock changes mid-session. The absolute value is
+  still what's stored and re-derived fresh on every fetch, so a session
+  that outlives a server-side change to `expires_at` (an operator
+  manually rewriting it, for example) self-corrects on the next fetch
+  instead of drifting from a stale relative countdown forever. If the
+  server reports an `expiresAt` already in the past, the client does not
+  render whatever responses came with it, even if the sweep hasn't
   deleted them yet — the section falls back to its ordinary empty state
   instead (see the Expiry animation subsection below).
 - WS: subscribe to the existing per-reed channel (already established by
@@ -358,16 +363,16 @@ the profile-resolution already described in Data flow above.
 
 #### Expiry animation
 
-When the local countdown (derived from `expiresInSeconds`, see Data flow
-above) reaches zero, the client plays a short fire/burn animation on the
-visible list — each row fades, rises, and shifts color toward orange/red
-in a staggered sequence rather than the whole list vanishing as one flat
-block — then the list clears. This is a client-only visual event: no new
-WS message type, no new API call, fires purely off the local countdown
-timer already described in Data flow. If the *server* itself reports
-`expiresInSeconds <= 0` on a fresh fetch (the fetch landed in the race
-window before the cron sweep in [01](01_schema_and_expiry.md) has run),
-the client clears the list without playing the animation — there's
+When the local countdown (derived from `expiresAt`, see Data flow above)
+reaches zero, the client plays a short fire/burn animation on the visible
+list — each row fades, rises, and shifts color toward orange/red in a
+staggered sequence rather than the whole list vanishing as one flat block
+— then the list clears. This is a client-only visual event: no new WS
+message type, no new API call, fires purely off the local countdown
+timer already described in Data flow. If the *server* itself reports an
+`expiresAt` already in the past on a fresh fetch (the fetch landed in the
+race window before the cron sweep in [01](01_schema_and_expiry.md) has
+run), the client clears the list without playing the animation — there's
 nothing visibly alive on screen to burn in that case.
 
 **Once the burn finishes, the section looks exactly like a reed that

@@ -36,17 +36,23 @@
   let usernames = {};
 
   let loading = true;
-  /** Local deadline in performance.now() units, derived once per fetch
-   * from the server's relative expiresInSeconds — never from an absolute
-   * timestamp compared against this device's wall clock, which could be
-   * skewed. performance.now() is monotonic (immune to system clock
-   * adjustments mid-session), unlike Date.now(). */
+  /** Local deadline in performance.now() units. Derived ONCE per fetch
+   * from the server's absolute `expiresAt`: `performance.now() +
+   * (Date.parse(expiresAt) - Date.now())`. That one conversion is the
+   * only place a wall-clock read (Date.now()) enters the picture — every
+   * tick after that compares against performance.now() (monotonic,
+   * immune to system clock adjustments mid-session), so the animation
+   * itself can't jump or misbehave if the OS clock changes underneath
+   * it. Re-derived fresh on every fetch (mount, pagination, reload), so
+   * a session that picks up a changed expiresAt server-side (e.g. an
+   * operator manually rewriting it) self-corrects on the next fetch
+   * rather than drifting forever from a stale relative countdown. */
   let expiresAtMonotonic = /** @type {number | null} */ (null);
   let nextCursor = /** @type {string | undefined} */ (undefined);
   let hasMore = false;
   let loadingMore = false;
   /** True once the local countdown reaches zero (or a fresh fetch reports
-   * expiresInSeconds <= 0). Guards against resurrecting a dead thread via
+   * an expiresAt already in the past). Guards against resurrecting a dead thread via
    * a straggling WS event delivered right after expiry — but is NOT a
    * permanent "this reed can never have ripples again" flag: a brand-new
    * top-level post starts its own thread with its own expires_at,
@@ -67,6 +73,18 @@
   let nowTick = performance.now();
   const tickTimer = setInterval(() => { nowTick = performance.now(); }, 1000);
   onDestroy(() => clearInterval(tickTimer));
+
+  // Countdown color: green while there's plenty of time, shifting to
+  // yellow then red as the deadline approaches, red-and-"gone" once past
+  // it. Thresholds are coarse on purpose — this is a vibe indicator, not
+  // a precise budget.
+  $: remainingMs = expiresAtMonotonic != null ? expiresAtMonotonic - nowTick : null;
+  $: urgency =
+    remainingMs == null ? 'calm'
+    : remainingMs <= 0 ? 'gone'
+    : remainingMs <= HOUR ? 'critical'
+    : remainingMs <= DAY ? 'warning'
+    : 'calm';
 
   // Single-row burn animation is 800ms; each row's start is staggered by
   // BURN_STAGGER_MS, capped at MAX_BURN_STAGGER_MS so a long list's last
@@ -117,15 +135,27 @@
     return ripples.find((r) => r.hash === hash) ?? null;
   }
 
+  /** Convert an absolute ISO expiresAt into a local performance.now()
+   * deadline — the one place Date.now() (wall clock) enters the
+   * countdown; every tick after this compares against performance.now()
+   * instead. Returns null for an unparseable value (defensive; the
+   * server always sends a valid RFC3339 string when the field is
+   * present at all). */
+  function toMonotonicDeadline(expiresAtISO) {
+    const parsed = Date.parse(expiresAtISO);
+    if (Number.isNaN(parsed)) return null;
+    return performance.now() + (parsed - Date.now());
+  }
+
   async function loadPage(before) {
     const res = await apiService.listRipples(userID, reedID, { limit: 50, before });
 
-    // Defensive: if the server itself reports the section as already
-    // expired (a fetch landing in the race window right before the next
-    // cron sweep), don't render whatever it sent — treat it the same as
-    // a client-side countdown hitting zero, just without the animation
-    // (nothing was visibly alive to burn).
-    if (res.expiresInSeconds != null && res.expiresInSeconds <= 0) {
+    // Defensive: if the server itself reports expiresAt as already in
+    // the past (a fetch landing in the race window right before the
+    // next cron sweep), don't render whatever it sent — treat it the
+    // same as a client-side countdown hitting zero, just without the
+    // animation (nothing was visibly alive to burn).
+    if (res.expiresAt != null && Date.parse(res.expiresAt) <= Date.now()) {
       ripples = [];
       expired = true;
       return;
@@ -142,8 +172,8 @@
     ripples = before ? [...ripples, ...kept] : kept;
     hasMore = res.hasMore;
     nextCursor = res.nextCursor;
-    if (res.expiresInSeconds != null) {
-      expiresAtMonotonic = performance.now() + res.expiresInSeconds * 1000;
+    if (res.expiresAt != null) {
+      expiresAtMonotonic = toMonotonicDeadline(res.expiresAt);
     }
   }
 
@@ -296,9 +326,12 @@
 <section class="ripples-section" aria-label="Ripples">
   {#if !loading && !expired && ripples.length > 0 && expiresAtMonotonic != null}
     <div class="ripples-header">
-      <span class="ripples-countdown" class:ripples-countdown--burning={burning} title="Whole thread disappears if nobody replies before this">
-        <span class="countdown-dot"></span>
-        {burning ? 'gone' : `gone in ${formatCountdown(expiresAtMonotonic, nowTick)}`}
+      <span
+        class="ripples-countdown"
+        title="Whole thread disappears if nobody replies before this"
+      >
+        <span class="countdown-dot countdown-dot--{urgency}"></span>
+        {urgency === 'gone' ? 'gone' : `gone in ${formatCountdown(expiresAtMonotonic, nowTick)}`}
       </span>
     </div>
   {/if}
@@ -415,21 +448,39 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Only the dot carries urgency color — the countdown text itself
+     stays the same muted tone at every tier, matching every other piece
+     of secondary text in this section. Every tier pulses gently (a sign
+     of life), speeding up as the deadline approaches: calm barely
+     breathes, gone pulses fastest. */
   .countdown-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #e0a030;
     flex-shrink: 0;
+    animation: ember-pulse 2.2s ease-in-out infinite alternate;
   }
 
-  .ripples-countdown--burning {
-    color: #ff6a1a;
+  /* Calm (plenty of time) → warning (< 1 day) → critical (< 1 hour) →
+     gone (past the deadline). A vibe indicator, not a precise budget —
+     see the `urgency` derivation in the script block. */
+  .countdown-dot--calm {
+    background: #3fb950;
   }
 
-  .ripples-countdown--burning .countdown-dot {
+  .countdown-dot--warning {
+    background: #e0a030;
+    animation-duration: 1.4s;
+  }
+
+  .countdown-dot--critical {
     background: #ff6a1a;
-    animation: ember-pulse 0.5s ease-in-out infinite alternate;
+    animation-duration: 0.6s;
+  }
+
+  .countdown-dot--gone {
+    background: #e5484d;
+    animation-duration: 0.4s;
   }
 
   /* Each row fades/rises away in its own delayed pass (--burn-delay,
@@ -474,7 +525,7 @@
       animation: ripple-burn-reduced 0.3s ease-in forwards;
       animation-delay: 0ms;
     }
-    .ripples-countdown--burning .countdown-dot {
+    .countdown-dot {
       animation: none;
     }
   }

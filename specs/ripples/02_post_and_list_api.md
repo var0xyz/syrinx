@@ -184,7 +184,7 @@ Response `200` — a **flat array**, not a nested per-thread structure:
   ],
   "hasMore": false,
   "nextCursor": "eyJ0aHJlYWRDcmVhdGVkQXQiOi4uLn0=",
-  "expiresInSeconds": 604800
+  "expiresAt": "2026-08-21T12:00:00Z"
 }
 ```
 
@@ -205,17 +205,20 @@ expected, not an error, and how a client should handle it).
 - **Ordering**: threads ordered by thread-creation time (the earliest
   `postedAt` among that thread's responses), oldest thread first;
   responses within a thread ordered `postedAt ASC`, `hash ASC` tie-break.
-- **`expiresInSeconds`** is included at the top level because it's shared
-  across every thread on the reed (see [00](00_design.md)) and is not
-  reliably derivable client-side from a possibly-partial page of
-  responses — a client that only fetched page 1 of a long list has no way
-  to know the true most-recent-activity timestamp otherwise. It's a
-  **relative** duration (seconds remaining, computed server-side at
-  request time from the stored `expires_at`), not an absolute timestamp —
-  the client starts its own local countdown from this value instead of
-  comparing an absolute deadline against its own (possibly skewed) system
-  clock. Clamped to `0` rather than going negative if the sweep hasn't
-  run yet; omitted entirely if the reed has no ripples at all.
+- **`expiresAt`** is included at the top level because it's shared across
+  every thread on the reed (see [00](00_design.md)) and is not reliably
+  derivable client-side from a possibly-partial page of responses — a
+  client that only fetched page 1 of a long list has no way to know the
+  true most-recent-activity timestamp otherwise. It's the **absolute**
+  stored `expires_at` value, not a relative duration — the client
+  converts it to a local countdown once at fetch time
+  (`performance.now() + (Date.parse(expiresAt) - Date.now())`) so the
+  animation itself ticks against a monotonic clock and can't jump if the
+  system clock changes mid-session, while the reference point is still
+  independently re-checkable on every fresh fetch. A client must treat an
+  already-past `expiresAt` as "do not render this section's ripples,"
+  even if the server still sent them (the sweep may not have run yet).
+  Omitted entirely if the reed has no ripples at all.
 - No responses yet for this reed → `200` with `responses: []`, not 404 —
   absence of comments isn't an error state.
 - Parent reed removed, or its author's account removed → `410`, same as
