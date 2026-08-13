@@ -25,6 +25,7 @@ import (
 	"syrinx/recovery"
 	"syrinx/roles"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
 )
@@ -2960,4 +2961,296 @@ func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Req
 	default:
 		writeResponse(w, http.StatusOK, map[string]string{"inviteId": id, "status": federationStatusRevoked})
 	}
+}
+
+// //////////// //
+//   Ripples    //
+// //////////// //
+
+// MaxRippleContentChars/MaxRippleRawChars mirror MaxReedVisibleChars/
+// MaxReedRawChars — ripples render as markdown (same grammar as reeds),
+// so the visible-character budget is markdown-stripped
+// (CountMarkdownCharacters), same as reed content, and a separate raw
+// cap blocks markdown-syntax padding abuse.
+const (
+	MaxRippleContentChars = MaxReedVisibleChars
+	MaxRippleRawChars     = MaxReedRawChars
+)
+
+// RippleWire is the JSON shape of one ripple response, shared by POST and
+// GET. The response's id is `hash` — the hex-SHA256 digest of its signed
+// server payload (see specs/ripples/00_design.md's Signing section) —
+// not a randomly minted id.
+type RippleWire struct {
+	Hash            string          `json:"hash"`
+	ThreadID        string          `json:"threadID"`
+	UserID          string          `json:"userID"`
+	Content         string          `json:"content"`
+	ReplyingTo      *string         `json:"replyingTo"`
+	Deleted         bool            `json:"deleted"`
+	PostedAt        time.Time       `json:"postedAt"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
+}
+
+func rippleWire(r *Ripple) RippleWire {
+	return RippleWire{
+		Hash:            r.ID,
+		ThreadID:        r.ThreadID,
+		UserID:          r.UserID,
+		Content:         r.Content,
+		ReplyingTo:      r.ReplyingTo,
+		Deleted:         r.Deleted,
+		PostedAt:        r.PostedAt,
+		UserSignature:   r.UserSignature,
+		ServerSignature: r.ServerSignature,
+	}
+}
+
+// checkRippleParentReed validates the parent reed for a ripples request,
+// writing the appropriate 404/410 response and returning ok=false if the
+// caller should stop. Mirrors GetReed/GetReedEchoes's convention (not
+// GetReedReplies, which omits the removal checks).
+func (h *Handlers) checkRippleParentReed(w http.ResponseWriter, r *http.Request, userID, reedID string) (ok bool) {
+	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
+	if err != nil {
+		internalServerError(w)
+		return false
+	}
+	if result.AccountRemoval != nil {
+		writeResponse(w, http.StatusGone, h.accountRemovalWire(result.AccountRemoval))
+		return false
+	}
+	if result.ReedRemoval != nil {
+		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
+		return false
+	}
+	if result.Reed == nil {
+		writeResponse(w, http.StatusNotFound, "Post not found")
+		return false
+	}
+	return true
+}
+
+type postRippleRequest struct {
+	Content       string  `json:"content"`
+	ThreadID      string  `json:"threadID"`
+	ReplyingTo    *string `json:"replyingTo"`
+	Fingerprint   string  `json:"fingerprint"`
+	UserSignature string  `json:"userSignature"`
+}
+
+// PostRipple handles POST /api/reeds/{userID}/{reedID}/ripples. The
+// caller submits a user-signed payload (see
+// specs/ripples/00_design.md's Signing section); this handler verifies
+// that signature, then countersigns and hashes the server payload via
+// DataService.PostRipple.
+func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	callerID := h.getUserID(r)
+
+	reedUserID := mux.Vars(r)["userID"]
+	reedID := mux.Vars(r)["reedID"]
+	if reedUserID == "" || reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		return
+	}
+
+	if !h.checkRippleParentReed(w, r, reedUserID, reedID) {
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	var req postRippleRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	content := strings.TrimSpace(req.Content)
+	if content == "" {
+		writeResponse(w, http.StatusBadRequest, "Comment cannot be empty")
+		return
+	}
+	if len(content) > MaxRippleRawChars {
+		writeResponse(w, http.StatusBadRequest, "Comment is too long")
+		return
+	}
+	if CountMarkdownCharacters(content) > MaxRippleContentChars {
+		writeResponse(w, http.StatusBadRequest, "Comment is too long (max 140 characters)")
+		return
+	}
+
+	if _, err := uuid.Parse(req.ThreadID); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid threadID")
+		return
+	}
+
+	if req.ReplyingTo != nil {
+		target, err := h.services.db.GetRipple(r.Context(), *req.ReplyingTo)
+		if errors.Is(err, ErrRippleNotFound) {
+			writeResponse(w, http.StatusBadRequest, "Cannot reply to a comment that doesn't exist")
+			return
+		}
+		if err != nil {
+			internalServerError(w)
+			return
+		}
+		if target.ReedAuthorID != reedUserID || target.ReedID != reedID {
+			writeResponse(w, http.StatusBadRequest, "Cannot reply to a comment on a different post")
+			return
+		}
+		if target.ThreadID != req.ThreadID {
+			writeResponse(w, http.StatusBadRequest, "Reply must use the same thread as the comment it replies to.")
+			return
+		}
+	}
+
+	if req.Fingerprint == "" || req.UserSignature == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `fingerprint` and `userSignature` are required")
+		return
+	}
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), callerID, req.Fingerprint)
+	if err != nil {
+		log.Error().Str("userID", callerID).Str("fingerprint", req.Fingerprint).Err(err).Msg("Error loading public key")
+		internalServerError(w)
+		return
+	}
+	if pubKey == nil || pubKey.Revoked {
+		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		return
+	}
+	userSigArmor, err := encoding.Base64Decode(req.UserSignature)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
+		return
+	}
+	replyingToVal := ""
+	if req.ReplyingTo != nil {
+		replyingToVal = *req.ReplyingTo
+	}
+	userPayload := identity.BuildRippleUserPayload(
+		reedUserID, reedID, callerID, req.Fingerprint, req.ThreadID, replyingToVal, content,
+	)
+	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
+		log.Error().Str("userID", callerID).Str("reedID", reedID).Err(err).Msg("ripple signature verification failed")
+		writeResponse(w, http.StatusBadRequest, "Invalid signature.")
+		return
+	}
+
+	resp, err := h.services.db.PostRipple(
+		r.Context(), reedUserID, reedID, callerID, content, req.ThreadID, req.ReplyingTo,
+		req.Fingerprint, req.UserSignature, h.countersign, time.Now(),
+	)
+	if errors.Is(err, ErrRippleThreadMismatch) {
+		writeResponse(w, http.StatusBadRequest, "Reply must use the same thread as the comment it replies to.")
+		return
+	}
+	if err != nil {
+		log.Error().Str("userID", reedUserID).Str("reedID", reedID).Err(err).Msg("Error posting ripple")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusCreated, rippleWire(resp))
+}
+
+type rippleListResponse struct {
+	Responses  []RippleWire `json:"responses"`
+	HasMore    bool         `json:"hasMore"`
+	NextCursor string       `json:"nextCursor,omitempty"`
+	ExpiresAt  *time.Time   `json:"expiresAt,omitempty"`
+}
+
+// GetRipples handles GET /api/reeds/{userID}/{reedID}/ripples.
+func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	reedUserID := mux.Vars(r)["userID"]
+	reedID := mux.Vars(r)["reedID"]
+	if reedUserID == "" || reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		return
+	}
+
+	if !h.checkRippleParentReed(w, r, reedUserID, reedID) {
+		return
+	}
+
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			return
+		}
+		limit = n
+	}
+
+	before := strings.TrimSpace(r.URL.Query().Get("before"))
+	if before != "" {
+		if _, err := decodeRippleCursor(before); err != nil {
+			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			return
+		}
+	}
+
+	list, err := h.services.db.ListRipples(r.Context(), reedUserID, reedID, limit, before)
+	if err != nil {
+		log.Error().Str("userID", reedUserID).Str("reedID", reedID).Err(err).Msg("Error listing ripples")
+		internalServerError(w)
+		return
+	}
+
+	expiresAt, err := h.services.db.GetRipplesExpiresAt(r.Context(), reedUserID, reedID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+
+	wires := make([]RippleWire, len(list.Ripples))
+	for i := range list.Ripples {
+		wires[i] = rippleWire(&list.Ripples[i])
+	}
+
+	resp := rippleListResponse{
+		Responses:  wires,
+		HasMore:    list.HasMore,
+		NextCursor: list.NextCursor,
+	}
+	if !expiresAt.IsZero() {
+		resp.ExpiresAt = &expiresAt
+	}
+	writeResponse(w, http.StatusOK, resp)
+}
+
+// DeleteRipple handles DELETE /api/ripples/{rippleID}.
+func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
+	callerID := h.getUserID(r)
+
+	rippleID := mux.Vars(r)["rippleID"]
+	if rippleID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `rippleID` is required")
+		return
+	}
+
+	found, owned, err := h.services.db.SoftDeleteRipple(r.Context(), rippleID, callerID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if !found {
+		writeResponse(w, http.StatusNotFound, "Comment not found")
+		return
+	}
+	if !owned {
+		writeResponse(w, http.StatusForbidden, "You can only delete your own comments.")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -457,6 +457,53 @@ func InitDB(db *sql.DB) error {
 		ON reeds_liked (author_user_id, reed_id);
 	`
 
+	// //////////// //
+	//   Ripples    //
+	// //////////// //
+
+	createRipplesTable := `
+	CREATE TABLE IF NOT EXISTS ripples (
+		reed_author_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL,
+		expires_at TIMESTAMP NOT NULL,
+
+		PRIMARY KEY (reed_author_id, reed_id),
+		FOREIGN KEY (reed_author_id, reed_id) REFERENCES reeds(user_id, id)
+			ON DELETE CASCADE
+	);`
+
+	createRipplesIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_ripples_expires
+		ON ripples (expires_at);
+	`
+
+	createRippleResponsesTable := `
+	CREATE TABLE IF NOT EXISTS ripple_responses (
+		id VARCHAR(64) PRIMARY KEY,
+		reed_author_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL,
+		thread_id UUID NOT NULL,
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		content VARCHAR(1400) NOT NULL,
+		replying_to VARCHAR(64) REFERENCES ripple_responses(id) ON DELETE SET NULL,
+		deleted BOOLEAN NOT NULL DEFAULT FALSE,
+		posted_at TIMESTAMP NOT NULL,
+
+		user_fingerprint VARCHAR(255) NOT NULL,
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+
+		FOREIGN KEY (reed_author_id, reed_id) REFERENCES ripples(reed_author_id, reed_id)
+			ON DELETE CASCADE
+	);`
+
+	createRippleResponsesIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_ripple_responses_reed_thread_posted
+		ON ripple_responses (reed_author_id, reed_id, thread_id, posted_at);
+	CREATE INDEX IF NOT EXISTS idx_ripple_responses_thread_posted
+		ON ripple_responses (thread_id, posted_at);
+	`
+
 	// ////////// //
 	//   Social   //
 	// ////////// //
@@ -733,6 +780,12 @@ func InitDB(db *sql.DB) error {
 
 		createReedsLikedTable,
 		createReedsLikedIndexes,
+
+		createRipplesTable,
+		createRipplesIndexes,
+
+		createRippleResponsesTable,
+		createRippleResponsesIndexes,
 
 		createUserDevicesTable,
 		createUserDevicesIndexes,
