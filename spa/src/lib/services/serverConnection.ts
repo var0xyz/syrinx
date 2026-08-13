@@ -32,6 +32,8 @@ export enum ServerEvent {
   ReedReplies      = 'REED_REPLIES',
   ReedCoverage     = 'REED_COVERAGE',
   ReedLikes        = 'REED_LIKES',
+  RipplePosted     = 'RIPPLE_POSTED',
+  RippleUpdated    = 'RIPPLE_UPDATED',
 }
 
 class ServerConnection {

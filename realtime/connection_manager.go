@@ -455,6 +455,36 @@ func (cm *ConnectionManager) SendToReedSubscribers(authorUserID, reedID string, 
 	return nil
 }
 
+// sendToReedSubscribersExceptAuthor sends a JSON payload to all subscribers
+// of a reed, skipping excludeUserID's own connections. Used for ripple
+// pushes, whose author already has the content from their own synchronous
+// HTTP response — unlike echo/reply/like count refreshes, which the actor
+// also wants delivered back to themselves.
+func (cm *ConnectionManager) sendToReedSubscribersExceptAuthor(authorUserID, reedID, excludeUserID string, payload any) error {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	subs := cm.reedSubscribers[makeReedKey(authorUserID, reedID)]
+	if len(subs) == 0 {
+		return nil
+	}
+
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	for client := range subs {
+		if client.userID == excludeUserID {
+			continue
+		}
+		if err := client.writeMessage(websocket.TextMessage, jsonBytes); err != nil {
+			log.Error().Err(err).Str("userID", client.userID).Msg("Failed to send reed subscription message")
+		}
+	}
+	return nil
+}
+
 // BroadcastReedCoverage sends a coverage update to all subscribers of a reed.
 func (cm *ConnectionManager) BroadcastReedCoverage(msg ReedCoverageMsg) error {
 	if msg.UserID == "" || msg.ReedID == "" {

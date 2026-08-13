@@ -184,3 +184,40 @@ type ReedLikesMsg struct {
 	ReedID string `json:"reedID"`
 	Likes  int    `json:"likes"`
 }
+
+// RippleWire is the wire shape of one ripple response, mirroring the
+// RippleWire struct handlers.go returns from POST/GET — duplicated here
+// (not imported) because realtime cannot depend on the main package,
+// same reasoning as ReedRemovalWire/AccountRemovalWire above. The id is
+// `hash`, the hex-SHA256 digest of the signed server payload — see
+// specs/ripples/00_design.md's Signing section.
+type RippleWire struct {
+	Hash            string              `json:"hash"`
+	ThreadID        string              `json:"threadID"`
+	UserID          string              `json:"userID"`
+	Content         string              `json:"content"`
+	ReplyingTo      *string             `json:"replyingTo"`
+	Deleted         bool                `json:"deleted"`
+	PostedAt        time.Time           `json:"postedAt"`
+	UserSignature   UserSignatureWire   `json:"userSignature"`
+	ServerSignature ServerSignatureWire `json:"serverSignature"`
+}
+
+// RipplePostedMsg notifies reed subscribers a new ripple response landed.
+type RipplePostedMsg struct {
+	Type   string     `json:"type"`
+	UserID string     `json:"userID"` // reed author
+	ReedID string     `json:"reedID"`
+	Ripple RippleWire `json:"ripple"`
+}
+
+// RippleUpdatedMsg notifies reed subscribers an existing ripple response
+// was soft-deleted (content patched to "[DELETED]"). Named Updated, not
+// Deleted, because the client patches the row in place rather than
+// removing it — there is no RIPPLE_DELETED event.
+type RippleUpdatedMsg struct {
+	Type   string     `json:"type"`
+	UserID string     `json:"userID"`
+	ReedID string     `json:"reedID"`
+	Ripple RippleWire `json:"ripple"`
+}

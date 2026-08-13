@@ -3156,7 +3156,40 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeResponse(w, http.StatusCreated, rippleWire(resp))
+	wire := rippleWire(resp)
+	writeResponse(w, http.StatusCreated, wire)
+
+	h.broadcastChan <- realtime.BroadcastMessage{
+		Type:   realtime.RipplePosted,
+		UserID: reedUserID,
+		ReedID: reedID,
+		Ripple: realtimeRippleWire(&wire),
+	}
+}
+
+// realtimeRippleWire converts the HTTP-layer RippleWire into realtime's
+// own duplicated wire shape (realtime cannot import the main package —
+// same reasoning as ReedRemovalWire/AccountRemovalWire).
+func realtimeRippleWire(w *RippleWire) *realtime.RippleWire {
+	return &realtime.RippleWire{
+		Hash:       w.Hash,
+		ThreadID:   w.ThreadID,
+		UserID:     w.UserID,
+		Content:    w.Content,
+		ReplyingTo: w.ReplyingTo,
+		Deleted:    w.Deleted,
+		PostedAt:   w.PostedAt,
+		UserSignature: realtime.UserSignatureWire{
+			Fingerprint: w.UserSignature.Fingerprint,
+			Armor:       w.UserSignature.Armor,
+		},
+		ServerSignature: realtime.ServerSignatureWire{
+			ServerID:    w.ServerSignature.ServerID,
+			Fingerprint: w.ServerSignature.Fingerprint,
+			Armor:       w.ServerSignature.Armor,
+			Timestamp:   w.ServerSignature.SignedAt,
+		},
+	}
 }
 
 type rippleListResponse struct {
@@ -3253,4 +3286,18 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+
+	tombstoned, err := h.services.db.GetRipple(r.Context(), rippleID)
+	if err != nil {
+		h.services.log.GetLogger(r.Context()).Error().Str("rippleID", rippleID).Err(err).
+			Msg("Failed to load tombstoned ripple for RIPPLE_UPDATED broadcast")
+		return
+	}
+	wire := rippleWire(tombstoned)
+	h.broadcastChan <- realtime.BroadcastMessage{
+		Type:   realtime.RippleUpdated,
+		UserID: tombstoned.ReedAuthorID,
+		ReedID: tombstoned.ReedID,
+		Ripple: realtimeRippleWire(&wire),
+	}
 }

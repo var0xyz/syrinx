@@ -134,6 +134,14 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			rs.notifyReedSubscribersOfReply(message.UserID, message.ReedID, message.ReplyUserID, message.ReplyReedID)
 		}
 
+		if message.Type == RipplePosted && message.Ripple != nil {
+			rs.notifyRipplePosted(message.UserID, message.ReedID, message.Ripple.UserID, *message.Ripple)
+		}
+
+		if message.Type == RippleUpdated && message.Ripple != nil {
+			rs.notifyRippleUpdated(message.UserID, message.ReedID, message.Ripple.UserID, *message.Ripple)
+		}
+
 		if message.Type == ReedRemoved {
 			log.Info().
 				Str("userID", message.UserID).
@@ -1520,6 +1528,43 @@ func (rs *RealtimeService) notifyReedReplies(authorUserID, reedID string) {
 		Replies: replies,
 	}); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_REPLIES")
+	}
+}
+
+// notifyRipplePosted pushes a newly posted ripple response to everyone
+// currently subscribed to its parent reed, except the ripple's own author
+// — their client already has it from the synchronous HTTP response, so
+// relaying it back would just echo to their other open tabs/devices. The
+// full signed payload is carried (not just a "something changed, refetch"
+// ping) so a subscribed client can run the same verify-or-discard path a
+// list fetch uses without a second round-trip — see
+// specs/ripples/00_design.md's Client-side verification section.
+func (rs *RealtimeService) notifyRipplePosted(authorUserID, reedID, rippleAuthorID string, ripple RippleWire) {
+	if err := rs.connManager.sendToReedSubscribersExceptAuthor(authorUserID, reedID, rippleAuthorID, RipplePostedMsg{
+		Type:   "RIPPLE_POSTED",
+		UserID: authorUserID,
+		ReedID: reedID,
+		Ripple: ripple,
+	}); err != nil {
+		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_POSTED")
+	}
+}
+
+// notifyRippleUpdated pushes a soft-deleted ripple response to everyone
+// currently subscribed to its parent reed, except the response's own
+// author (same reasoning as notifyRipplePosted — they already got the
+// 204 from their own DELETE). The original userSignature/serverSignature
+// travel unchanged (soft-delete never touches them); a receiving client
+// trusts the deleted flag and skips re-verification, per verifyRipple's
+// tombstone short-circuit.
+func (rs *RealtimeService) notifyRippleUpdated(authorUserID, reedID, rippleAuthorID string, ripple RippleWire) {
+	if err := rs.connManager.sendToReedSubscribersExceptAuthor(authorUserID, reedID, rippleAuthorID, RippleUpdatedMsg{
+		Type:   "RIPPLE_UPDATED",
+		UserID: authorUserID,
+		ReedID: reedID,
+		Ripple: ripple,
+	}); err != nil {
+		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_UPDATED")
 	}
 }
 

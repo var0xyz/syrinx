@@ -1,12 +1,14 @@
 <script>
   // Wires the layout from specs/ripples/04_spa_ripples_section.md's mock to
   // real data: signed POST, verify-and-cache on fetch, soft-delete tombstones,
-  // removed-account author rendering. No WS live delivery yet (03 is
-  // unimplemented server-side) — this degrades gracefully to fetch-on-mount +
-  // optimistic local append, per specs/ripples/README.md's Parallelism note.
+  // removed-account author rendering, and live delivery of new/updated
+  // ripples via the reed's existing WS subscription (piggybacks on
+  // ReedStatsSubscription, mounted by the parent page — no separate
+  // subscribe call needed here, same as ConversationSection's REED_REPLIES).
   import { onDestroy, onMount } from 'svelte';
   import Avatar from '$lib/components/Avatar.svelte';
   import Username from '$lib/components/Username.svelte';
+  import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { apiService } from '$lib/services/api';
   import { authService } from '$lib/services/auth';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
@@ -15,6 +17,13 @@
   import { cryptoService } from '$lib/services/crypto';
   import { buildRippleUserPayload } from '$lib/services/signing';
   import { formatRelativeTime } from '$lib/utils/time';
+  import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
+  import {
+    MAX_REED_RAW_CHARS,
+    MAX_REED_VISIBLE_CHARS,
+    countMarkdownCharacters,
+    reedContentWithinLimits,
+  } from '$lib/utils/reedContent';
 
   /** @type {string} */
   export let userID;
@@ -24,7 +33,9 @@
   /** Bound out to the parent for tab-count display. */
   export let count = 0;
 
-  const MAX_RIPPLE_CHARS = 140; // MAX_REED_VISIBLE_CHARS, per spec 00/04
+  // Ripples render as markdown, same grammar as reeds — reuse the reed
+  // visible/raw caps rather than a separate ripple-specific budget.
+  const MAX_RIPPLE_CHARS = MAX_REED_VISIBLE_CHARS;
 
   const MIN = 60_000;
   const HOUR = 60 * MIN;
@@ -113,12 +124,45 @@
     }
   });
 
+  /** RIPPLE_POSTED: verify-or-discard (same path a list fetch uses), then
+   * append if not already present — guards against the optimistic-append-
+   * then-echo double-add for the poster's own just-submitted ripple. */
+  async function handleRipplePosted(msg) {
+    if (msg?.userID !== userID || msg?.reedID !== reedID || !msg?.ripple) return;
+    const ripple = msg.ripple;
+    if (ripples.some((r) => r.hash === ripple.hash)) return;
+    const ok = await ripplesRepository.storeRipple(ripple, userID, reedID);
+    if (!ok) return;
+    await resolveUsername(ripple.userID);
+    ripples = [...ripples, ripple];
+  }
+
+  /** RIPPLE_UPDATED: patch the matching row in place (deleted/content) —
+   * never remove it. Does not re-verify (verifyRipple's tombstone
+   * short-circuit already trusts the deleted flag). */
+  async function handleRippleUpdated(msg) {
+    if (msg?.userID !== userID || msg?.reedID !== reedID || !msg?.ripple) return;
+    const ripple = msg.ripple;
+    await ripplesRepository.storeRipple(ripple, userID, reedID);
+    ripples = ripples.map((r) => (r.hash === ripple.hash ? ripple : r));
+  }
+
+  onMount(() => {
+    serverConnection.on(ServerEvent.RipplePosted, handleRipplePosted);
+    serverConnection.on(ServerEvent.RippleUpdated, handleRippleUpdated);
+  });
+
+  onDestroy(() => {
+    serverConnection.off(ServerEvent.RipplePosted, handleRipplePosted);
+    serverConnection.off(ServerEvent.RippleUpdated, handleRippleUpdated);
+  });
+
   let draft = '';
   let replyingTo = /** @type {import('$lib/types/api').Ripple | null} */ (null);
   let posting = false;
   let postError = '';
-  $: remaining = MAX_RIPPLE_CHARS - draft.length;
-  $: overLimit = remaining < 0;
+  $: remaining = MAX_RIPPLE_CHARS - countMarkdownCharacters(draft);
+  $: overLimit = remaining < 0 || draft.length > MAX_REED_RAW_CHARS;
 
   function startReply(ripple) {
     replyingTo = ripple;
@@ -131,7 +175,7 @@
   async function submitRipple() {
     if (posting) return;
     const content = draft.trim();
-    if (!content || overLimit) return;
+    if (!content || !reedContentWithinLimits(content)) return;
 
     postError = '';
     posting = true;
@@ -258,10 +302,10 @@
             {#if ripple.deleted}
               <p class="ripple-content ripple-content-deleted">[DELETED]</p>
             {:else}
-              <p class="ripple-content">
-                {ripple.content}
+              <div class="ripple-content">
+                <MarkdownParser text={ripple.content} className="ripple-content-markdown" />
                 <button type="button" class="ripple-action ripple-reply-inline" on:click={() => startReply(ripple)}>reply</button>
-              </p>
+              </div>
             {/if}
           </div>
         </li>
@@ -285,7 +329,7 @@
       class="ripple-textarea"
       placeholder="Join the ripple…"
       bind:value={draft}
-      maxlength={MAX_RIPPLE_CHARS + 20}
+      maxlength={MAX_REED_RAW_CHARS}
       rows="2"
       disabled={posting}
     ></textarea>
@@ -444,11 +488,22 @@
     font-size: 0.88rem;
     line-height: 1.45;
     color: var(--fg);
-    white-space: pre-wrap;
     word-break: break-word;
   }
 
+  .ripple-content :global(.ripple-content-markdown) {
+    font-size: inherit;
+  }
+
+  .ripple-content :global(.ripple-content-markdown p) {
+    margin: 0;
+  }
+
   .ripple-content-deleted {
+    margin: 0 0 0.3rem;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
     color: var(--muted);
     font-style: italic;
   }
