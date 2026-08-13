@@ -151,9 +151,17 @@ echo -e "\n🚀 Both builds succeeded — installing atomically..."
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME" "/usr/local/bin/$APP_NAME"
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME-ripples-cleanup" "/usr/local/bin/$APP_NAME-ripples-cleanup"
 
+# Own log dir under LOG_DIR (root-only 700, see above) — the cron job runs
+# as $APP_USER, not root, and needs somewhere it can actually write.
+JOB_LOG_DIR="$LOG_DIR/jobs"
+mkdir -p "$JOB_LOG_DIR"
+chown "$APP_USER:$APP_USER" "$JOB_LOG_DIR"
+chmod 700 "$JOB_LOG_DIR"
+
 # Refresh the cron fragment on every deploy too, in case the schedule/command
 # in the repo's jobs/ripples-cleanup.cron changes.
 sed -e "s|@APP_USER@|$APP_USER|g" -e "s|@ENV_FILE@|$ENV_FILE|g" -e "s|@APP_NAME@|$APP_NAME|g" \
+    -e "s|@JOB_LOG_DIR@|$JOB_LOG_DIR|g" \
     "$BUILD_DIR/src/jobs/ripples-cleanup.cron" > "/etc/cron.d/$APP_NAME-ripples-cleanup"
 chmod 644 "/etc/cron.d/$APP_NAME-ripples-cleanup"
 

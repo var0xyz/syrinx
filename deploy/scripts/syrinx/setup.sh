@@ -315,9 +315,19 @@ echo -e "\n🚀 Both builds succeeded — installing atomically..."
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME" "/usr/local/bin/$APP_NAME"
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME-ripples-cleanup" "/usr/local/bin/$APP_NAME-ripples-cleanup"
 
-# Deletes expired ripple threads hourly — see specs/ripples/01_schema_and_expiry.md.
+# Deletes expired ripple threads every minute — see
+# specs/ripples/01_schema_and_expiry.md. Own log dir under LOG_DIR (which
+# is root-only 700, see above): the cron job runs as $APP_USER, not root,
+# and needs somewhere it can actually write — LOG_DIR itself is
+# deliberately kept root-only since setup/update logs can contain secrets.
+JOB_LOG_DIR="$LOG_DIR/jobs"
+mkdir -p "$JOB_LOG_DIR"
+chown "$APP_USER:$APP_USER" "$JOB_LOG_DIR"
+chmod 700 "$JOB_LOG_DIR"
+
 # Placeholders (@APP_USER@ etc.) come from jobs/ripples-cleanup.cron in the repo.
 sed -e "s|@APP_USER@|$APP_USER|g" -e "s|@ENV_FILE@|$ENV_FILE|g" -e "s|@APP_NAME@|$APP_NAME|g" \
+    -e "s|@JOB_LOG_DIR@|$JOB_LOG_DIR|g" \
     "$BUILD_DIR/src/jobs/ripples-cleanup.cron" > "/etc/cron.d/$APP_NAME-ripples-cleanup"
 chmod 644 "/etc/cron.d/$APP_NAME-ripples-cleanup"
 
