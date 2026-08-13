@@ -372,20 +372,19 @@ not) — never as a direct consequence of an individual self-delete.
 ### Content constraints
 
 Reuse the existing reed visible-length constant as the ripple cap:
-`MAX_REED_VISIBLE_CHARS = 140` (from `spa/src/lib/utils/reedContent.ts`)
-— same constraint, same reasoning (short-form, terse). Ripples render
-with the **same markdown grammar as reeds** — `reedMarkdown.ts`/
-`MarkdownParser.svelte` client-side, `CountMarkdownCharacters` server-side
-— formatting, `#hashtags`, `~user@server` mentions, and `[text](url)`
-links all work exactly as they do in a reed. There is no ripple-specific
-parser or renderer; `MarkdownParser` is mounted directly, and mentions
-resolve through the same `MentionLink` component reeds use. The 140-char
-visible budget is markdown-stripped (`CountMarkdownCharacters`/
-`countMarkdownCharacters`), and a separate raw cap
-(`MaxRippleRawChars`/`MAX_REED_RAW_CHARS`, 1400) blocks markdown-syntax
-padding abuse — same two-cap split reeds use, same constants, reused
-rather than duplicated. `ripple_responses.content` is `VARCHAR(1400)` to
-match the raw cap.
+`MAX_REED_VISIBLE_CHARS = 140` (from
+`spa/src/lib/utils/reedContent.ts`) — same constraint, same reasoning
+(short-form, terse). No markdown grammar — ripples render as **plain
+text** (no `reedMarkdown.ts` parsing, no mentions, no hashtags, no links).
+Keeping ripples markdown-free avoids re-litigating the entire mention/link
+security surface for a feature that's deleted in a week anyway; plain text
+is escaped/rendered as-is by the SPA. Server-side, the 140-char limit is
+validated with a plain Unicode code-point count (`utf8.RuneCountInString`
+in Go), not the markdown-aware character counter reeds use elsewhere in
+this codebase — that counter strips markdown syntax before counting, which
+is the wrong tool for content that's never parsed as markdown in the first
+place and would let markdown-syntax-heavy plain text dodge the visible
+budget.
 
 **Client/server byte parity for signing.** Because the server validates
 and (if it trims) normalizes `content` independently of what the client

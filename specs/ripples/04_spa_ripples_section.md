@@ -283,13 +283,10 @@ cryptographic work before the network call:
 
 ### Composer (field shape)
 
-Plain `<textarea>`, 140-char visible counter (reuse `countMarkdownCharacters`/
-`MAX_REED_VISIBLE_CHARS`/`MAX_REED_RAW_CHARS` from
-`spa/src/lib/utils/reedContent.ts` — same constants 00/02 reference
-server-side, single source of truth split only by language runtime). No
-markdown toolbar (composing is still a plain textarea — the user types
-markdown syntax directly, same as the reed composer), but content renders
-through the full markdown grammar on display, per 00. "Replying to
+Plain `<textarea>`, 140-char counter (reuse `MAX_REED_VISIBLE_CHARS` from
+`spa/src/lib/utils/reedContent.ts` — same constant 00/02 reference
+server-side, single source of truth split only by language runtime), no
+markdown toolbar (00's lock: ripples are plain text). "Replying to
 @username" chip appears above the textarea when the user taps "reply" on a
 specific response (sets `replyingTo` and resolves `threadID` from that
 response — see Signing above), dismissible to go back to top-level
@@ -302,8 +299,8 @@ this avatar+username+timestamp overflow problem — see
 [`conversations/03_spa_reed_detail.md`](../conversations/03_spa_reed_detail.md)
 and the pipe-page/reeds-list call sites) for the author line:
 `<ReedAuthorHeader userID={response.userID} username={...} subtext={formatRelativeTime(response.postedAt)} avatarSize="32px" nameTag="span" />`,
-followed by the content rendered via `<MarkdownParser text={response.content} />`
-— same component and grammar a reed's body uses, per 00 — and, if present, a
+followed by the plain-text content (rendered via `{response.content}` in a
+`<p>` — no `MarkdownParser`, per 00's plain-text lock) and, if present, a
 small "↳ replying to @X" line resolved from the local list.
 
 That resolution has two distinct fallback cases:

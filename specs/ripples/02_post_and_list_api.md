@@ -83,14 +83,15 @@ Validation, in order:
    removal section: the same parent-reed lookup this validation reuses
    already treats a removed-account author's reed as removed, so this rule
    needs no separate check here.
-2. `content`: non-empty after trim, ≤ 1400 raw chars (`MaxRippleRawChars`)
-   and ≤ 140 visible chars after markdown-stripping
-   (`CountMarkdownCharacters`, `MaxRippleContentChars` = `MAX_REED_VISIBLE_CHARS`,
-   see [00](00_design.md)) — same two-cap validation reeds use. **The
-   server does not further trim or otherwise mutate `content` before it's
-   used to rebuild the signed payload** — see 00's Content constraints on
-   client/server byte parity; the client is responsible for having already
-   signed the exact bytes it submits.
+2. `content`: non-empty after trim, ≤ 140 chars (`MAX_REED_VISIBLE_CHARS`,
+   see [00](00_design.md)), validated with a plain Unicode code-point count
+   — not this codebase's markdown-aware character counter, which is the
+   wrong tool for content that's never parsed as markdown. Plain text only
+   — no markdown parsing, no mention extraction, no hashtag extraction
+   (00's lock). **The server does not further trim or otherwise mutate
+   `content` before it's used to rebuild the signed payload** — see 00's
+   Content constraints on client/server byte parity; the client is
+   responsible for having already signed the exact bytes it submits.
 3. `threadID` must be a syntactically valid UUID → 400 otherwise.
 4. `replyingTo`, if present, must reference a response in the **same**
    reed → 400 otherwise. Replying to an already-soft-deleted response is
