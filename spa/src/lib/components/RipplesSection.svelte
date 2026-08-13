@@ -268,7 +268,7 @@
   {:else}
     <ul class="ripple-list">
       {#each ripples as ripple (ripple.hash)}
-        <li class="ripple-row">
+        <li class="ripple-row" class:ripple-row--reply={!!ripple.replyingTo}>
           <div class="ripple-avatar">
             <Avatar userID={ripple.userID} username={usernames[ripple.userID] ?? ''} size="32px" />
           </div>
@@ -279,12 +279,14 @@
                   <span class="ripple-delete-icon"></span>
                 </button>
               {/if}
-              {#if usernames[ripple.userID]}
-                <span class="ripple-username"><Username userID={ripple.userID} username={usernames[ripple.userID]} /></span>
-              {:else}
-                <span class="ripple-username ripple-username-removed">[removed account]</span>
-              {/if}
-              <span class="ripple-time">{formatRelativeTime(ripple.postedAt)}</span>
+              <span class="ripple-meta-text">
+                {#if usernames[ripple.userID]}
+                  <Username userID={ripple.userID} username={usernames[ripple.userID]} color="var(--muted)" />
+                {:else}
+                  <span class="ripple-username-removed">[removed account]</span>
+                {/if}
+                · {formatRelativeTime(ripple.postedAt)}
+              </span>
             </p>
             {#if ripple.replyingTo}
               <p class="ripple-reply-chip">
@@ -408,6 +410,12 @@
     padding: 0.25rem 0;
   }
 
+  /* Not a full nested-reply indent (00's lock: flat rendering) — just a
+     visual hint that this response is part of a thread, not top-level. */
+  .ripple-row--reply {
+    margin-left: 1rem;
+  }
+
   .ripple-avatar {
     flex: 0 0 auto;
     padding-top: 0.1rem;
@@ -420,25 +428,18 @@
 
   .ripple-meta {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     margin: 0;
     font-size: 0.82rem;
   }
 
-  .ripple-username {
-    font-weight: 600;
-    color: var(--fg);
+  .ripple-meta-text {
+    color: var(--muted);
+    min-width: 0;
   }
 
   .ripple-username-removed {
-    font-weight: 400;
     font-style: italic;
-    color: var(--muted);
-  }
-
-  .ripple-time {
-    color: var(--muted);
-    margin-left: 0.4rem;
   }
 
   .ripple-delete-btn {
