@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/tooxie/env"
@@ -54,10 +55,10 @@ func main() {
 		fail(err)
 	}
 	n, _ := result.RowsAffected()
-	fmt.Printf("ripples-cleanup: removed %d expired thread(s)\n", n)
+	fmt.Printf("%s ripples-cleanup: removed %d expired thread(s)\n", time.Now().UTC().Format(time.RFC3339), n)
 }
 
 func fail(err error) {
-	fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	fmt.Fprintf(os.Stderr, "%s error: %v\n", time.Now().UTC().Format(time.RFC3339), err)
 	os.Exit(1)
 }
