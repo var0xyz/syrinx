@@ -6,6 +6,7 @@
   import { authService } from '$lib/services/auth';
   import { cryptoService } from '$lib/services/crypto';
   import { buildUserIdentityPayload } from '$lib/services/signing';
+  import { trimInvisibleChars } from '$lib/utils/text';
   import { serverConnection } from '$lib/services/serverConnection';
   import { userRepository } from '$lib/repositories/user';
   import { userInfoRepository } from '$lib/repositories/userInfo';
@@ -85,7 +86,10 @@
       // Normalise once so the values we validate, sign, and send are
       // the same bytes. Server verifies against these exact strings —
       // any post-hoc trimming would break signature verification.
-      const nextUsername = editForm.username.trim();
+      // Mirrors trimInvisibleChars in utils.go exactly (not plain
+      // .trim()): the server also strips embedded non-printable
+      // characters, not just leading/trailing whitespace.
+      const nextUsername = trimInvisibleChars(editForm.username);
       const nextBio = editForm.bio.trim();
 
       if (nextUsername === '') {

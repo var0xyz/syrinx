@@ -5,6 +5,7 @@
   import { authService } from "$lib/services/auth";
   import { cryptoService } from "$lib/services/crypto";
   import { buildNewUserIdentityPayload } from "$lib/services/signing";
+  import { trimInvisibleChars } from "$lib/utils/text";
   import UsernameChecker from "$lib/components/UsernameChecker.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
   import { notificationStore } from "$lib/stores/notifications";
@@ -194,8 +195,12 @@
         password,
       ));
 
+      // Must match the server's trimInvisibleChars(username) exactly — it
+      // rebuilds this same payload to verify userSignature, using the
+      // sanitized username rather than what was typed.
+      const trimmedUsername = trimInvisibleChars(username);
       const identityPayload = buildNewUserIdentityPayload(
-        username,
+        trimmedUsername,
         keyPair.fingerprint,
       );
       const identitySigArmor = await cryptoService.signMessage(
@@ -207,7 +212,7 @@
 
       currentStep = 5;
       const signupPayload = {
-        username,
+        username: trimmedUsername,
         publicKey: btoa(keyPair.publicKey),
         signature,
         userSignature,

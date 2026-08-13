@@ -160,6 +160,21 @@ cp -r build "$RELEASE_DIR"
 chown -R root:www-data "$RELEASE_DIR"
 find "$RELEASE_DIR" -type d -exec chmod 755 {} \;
 find "$RELEASE_DIR" -type f -exec chmod 644 {} \;
+
+# `_app/` filenames are content-hashed by Vite, so merging every release's
+# _app/ into one cumulative, never-pruned directory is collision-free and
+# lets nginx serve a still-referenced old chunk long after its release dir
+# is gone. Without this, only the CURRENT release is ever reachable through
+# the `build` symlink nginx serves from — a tab open across a deploy 404s
+# on its next dynamic import ("chunk deleted out from under a live tab"),
+# which is the exact bug the timestamped-releases scheme was meant to avoid.
+SHARED_APP_DIR="$WWW_ROOT/shared-app"
+mkdir -p "$SHARED_APP_DIR"
+cp -rn "$RELEASE_DIR/_app/." "$SHARED_APP_DIR/"
+chown -R root:www-data "$SHARED_APP_DIR"
+find "$SHARED_APP_DIR" -type d -exec chmod 755 {} \;
+find "$SHARED_APP_DIR" -type f -exec chmod 644 {} \;
+
 # `mv -T` refuses to replace a real (non-symlink) directory with a symlink —
 # expected on the first run after this script adopts the symlink scheme,
 # since $WWW_ROOT/build was a plain directory before. Clear that one-time
@@ -171,6 +186,7 @@ ln -sfn "$RELEASE_DIR" "$WWW_ROOT/build.new"
 mv -Tf "$WWW_ROOT/build.new" "$WWW_ROOT/build"
 
 # Keep the 5 most recent releases (current + a few for in-flight tabs), prune the rest.
+# shared-app/ is intentionally NOT pruned here — see comment above.
 find "$RELEASES_DIR" -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
     | sort -rn | tail -n +6 | cut -d' ' -f2- | xargs -r rm -rf
 
