@@ -192,6 +192,31 @@ export interface ReplyListResponse extends Base {
   hasMore: boolean;
 }
 
+/**
+ * A ripple response — POST/GET /reeds/{userID}/{reedID}/ripples.
+ * `hash` is the id (content-addressed hex-SHA256 of the signed server
+ * payload) — frozen at creation, never recomputed even by a soft delete.
+ * See specs/ripples/00_design.md's Signing section.
+ */
+export interface Ripple extends Base {
+  hash: string;
+  threadID: string;
+  userID: string;
+  content: string;
+  replyingTo: string | null;
+  deleted: boolean;
+  postedAt: string;
+  userSignature: UserSignature;
+  serverSignature: ServerSignature;
+}
+
+export interface RippleListResponse extends Base {
+  responses: Ripple[];
+  hasMore: boolean;
+  nextCursor?: string;
+  expiresAt?: string;
+}
+
 /** One row in GET /users/{userID}/following or /users/{userID}/followers. */
 export interface FollowListUser extends Base {
   userID: string;

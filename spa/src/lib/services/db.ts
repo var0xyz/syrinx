@@ -42,7 +42,9 @@ export class IndexedDbService implements DbService {
   // author's cached reed silently overwrite another's on an ID collision.
   // Wipes local caches on upgrade (see onupgradeneeded below); everything
   // here is peer/server-fetchable, so clients just re-sync on next load.
-  private readonly version = 8;
+  // v9: added 'ripples', keyed by hash (content-addressed, globally unique
+  // — see specs/ripples/00_design.md's Signing section).
+  private readonly version = 9;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -53,6 +55,7 @@ export class IndexedDbService implements DbService {
     ['usersInfo',   'id'         ],
     ['invites',     'id'         ],
     ['reedReplies', 'reedID', 'parentKey'],
+    ['ripples',     'hash', 'threadID'],
 
     // Offline-first
     ['unfollow',           'userId'     ],

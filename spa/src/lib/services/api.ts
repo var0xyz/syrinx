@@ -542,6 +542,47 @@ export const apiService = {
     return request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
   },
 
+  async listRipples(
+    userId: string,
+    reedId: string,
+    opts?: { limit?: number; before?: string },
+  ): Promise<api.RippleListResponse> {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.before) params.set('before', opts.before);
+    const qs = params.toString();
+    const path = `/reeds/${userId}/${reedId}/ripples${qs ? `?${qs}` : ''}`;
+    return request<api.RippleListResponse>(path, { method: 'GET' });
+  },
+
+  async postRipple(
+    userId: string,
+    reedId: string,
+    fields: {
+      content: string;
+      threadID: string;
+      replyingTo?: string;
+      fingerprint: string;
+      userSignature: string;
+    }
+  ): Promise<api.Ripple> {
+    return request<api.Ripple>(`/reeds/${userId}/${reedId}/ripples`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: fields.content,
+        threadID: fields.threadID,
+        replyingTo: fields.replyingTo ?? null,
+        fingerprint: fields.fingerprint,
+        userSignature: fields.userSignature,
+      }),
+    });
+  },
+
+  async deleteRipple(rippleHash: string): Promise<void> {
+    return request<void>(`/ripples/${rippleHash}`, { method: 'DELETE' });
+  },
+
   async listFollowing(
     userId: string,
     opts?: { limit?: number; before?: string },

@@ -1,76 +1,51 @@
 <script>
-  // UI-only PoC of specs/ripples/00_design.md + 04_spa_ripples_section.md.
-  // Everything below is hardcoded — no api.ts calls, no WS, no persistence.
-  // Purely here to look at layout/copy/interaction shape before real work starts.
-  // These aren't reeds — no card, just identicon + name + text like an HN
-  // comment thread (flat, dense, plain text).
-  import { onDestroy } from 'svelte';
+  // Wires the layout from specs/ripples/04_spa_ripples_section.md's mock to
+  // real data: signed POST, verify-and-cache on fetch, soft-delete tombstones,
+  // removed-account author rendering. No WS live delivery yet (03 is
+  // unimplemented server-side) — this degrades gracefully to fetch-on-mount +
+  // optimistic local append, per specs/ripples/README.md's Parallelism note.
+  import { onDestroy, onMount } from 'svelte';
   import Avatar from '$lib/components/Avatar.svelte';
+  import Username from '$lib/components/Username.svelte';
+  import { apiService } from '$lib/services/api';
+  import { authService } from '$lib/services/auth';
+  import { privateKeyRepository } from '$lib/repositories/privateKey';
+  import { userRepository } from '$lib/repositories/user';
+  import { ripplesRepository } from '$lib/repositories/ripples';
+  import { cryptoService } from '$lib/services/crypto';
+  import { buildRippleUserPayload } from '$lib/services/signing';
+  import { formatRelativeTime } from '$lib/utils/time';
+
+  /** @type {string} */
+  export let userID;
+  /** @type {string} */
+  export let reedID;
 
   /** Bound out to the parent for tab-count display. */
   export let count = 0;
 
   const MAX_RIPPLE_CHARS = 140; // MAX_REED_VISIBLE_CHARS, per spec 00/04
 
-  const now = Date.now();
   const MIN = 60_000;
   const HOUR = 60 * MIN;
   const DAY = 24 * HOUR;
 
-  /** @typedef {{ id: string; userID: string; username: string; content: string; postedAt: number; inReplyToRippleID?: string; mine?: boolean }} Ripple */
+  /** @type {import('$lib/types/api').Ripple[]} */
+  let ripples = [];
+  /** username resolved for each ripple's userID, or null if unresolvable
+   * (removed account) — keyed by userID, see specs/ripples/04's
+   * "Rendering a removed-account commenter" section. */
+  let usernames = {};
 
-  /** @type {Ripple[]} */
-  let ripples = [
-    {
-      id: 'r1',
-      userID: 'u-astra',
-      username: 'astra',
-      content: 'Wait, does this mean the coverage percent recomputes every time a holder drops offline?',
-      postedAt: now - 6 * DAY - 20 * HOUR,
-    },
-    {
-      id: 'r2',
-      userID: 'u-me',
-      username: 'you',
-      content: 'Yeah — it\'s a live snapshot, not cached. Same query the stats subscription already runs.',
-      postedAt: now - 6 * DAY - 19 * HOUR,
-      inReplyToRippleID: 'r1',
-      mine: true,
-    },
-    {
-      id: 'r3',
-      userID: 'u-fennel',
-      username: 'fennel',
-      content: 'kind of wild that this whole thread just... vanishes in a week if nobody says anything else',
-      postedAt: now - 2 * HOUR,
-    },
-    {
-      id: 'r4',
-      userID: 'u-astra',
-      username: 'astra',
-      content: '@fennel that\'s the point though — no archival guilt, no dead comment sections nobody reads',
-      postedAt: now - 40 * MIN,
-      inReplyToRippleID: 'r3',
-    },
-    {
-      id: 'r5',
-      userID: 'u-deleted-thread-demo',
-      username: 'wisp',
-      content: 'replying to something that\'s already gone, to show the fallback line',
-      postedAt: now - 12 * MIN,
-      inReplyToRippleID: 'r-expired-and-gone',
-    },
-  ];
+  let loading = true;
+  let expiresAt = /** @type {number | null} */ (null);
+  let nextCursor = /** @type {string | undefined} */ (undefined);
+  let hasMore = false;
+  let loadingMore = false;
 
   $: count = ripples.length;
 
-  // Thread's last-activity clock — bumped by the newest ripple's postedAt.
-  $: lastActivityAt = ripples.length
-    ? Math.max(...ripples.map((r) => r.postedAt))
-    : now;
-  $: expiresAt = lastActivityAt + 7 * DAY;
-
-  let nowTick = now;
+  let nowTick = Date.now();
   const tickTimer = setInterval(() => { nowTick = Date.now(); }, 1000);
   onDestroy(() => clearInterval(tickTimer));
 
@@ -87,24 +62,61 @@
     return `${s}s`;
   }
 
-  function formatRelative(ts, fromMs) {
-    const diffSeconds = Math.floor((fromMs - ts) / 1000);
-    if (diffSeconds < 15) return 'just now';
-    if (diffSeconds < 60) return `${diffSeconds}s ago`;
-    const diffMinutes = Math.floor(diffSeconds / 60);
-    if (diffMinutes < 60) return `${diffMinutes}m ago`;
-    const diffHours = Math.floor(diffMinutes / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    return `${diffDays}d ago`;
+  async function resolveUsername(uid) {
+    if (uid in usernames) return usernames[uid];
+    const user = await userRepository.getByUserId(uid).catch(() => null);
+    usernames = { ...usernames, [uid]: user?.username ?? null };
+    return usernames[uid];
   }
 
-  function usernameFor(rippleID) {
-    return ripples.find((r) => r.id === rippleID)?.username ?? null;
+  function findByHash(hash) {
+    return ripples.find((r) => r.hash === hash) ?? null;
   }
+
+  async function loadPage(before) {
+    const res = await apiService.listRipples(userID, reedID, { limit: 50, before });
+    const kept = [];
+    for (const ripple of res.responses) {
+      const ok = await ripplesRepository.storeRipple(ripple, userID, reedID);
+      if (ok) kept.push(ripple);
+    }
+    for (const ripple of kept) {
+      await resolveUsername(ripple.userID);
+    }
+    ripples = before ? [...ripples, ...kept] : kept;
+    hasMore = res.hasMore;
+    nextCursor = res.nextCursor;
+    if (res.expiresAt) {
+      expiresAt = Date.parse(res.expiresAt);
+    }
+  }
+
+  async function loadMore() {
+    if (!hasMore || loadingMore || !nextCursor) return;
+    loadingMore = true;
+    try {
+      await loadPage(nextCursor);
+    } catch (error) {
+      console.error('Failed to load more ripples:', error);
+    } finally {
+      loadingMore = false;
+    }
+  }
+
+  onMount(async () => {
+    try {
+      await loadPage(undefined);
+    } catch (error) {
+      console.error('Failed to load ripples:', error);
+    } finally {
+      loading = false;
+    }
+  });
 
   let draft = '';
-  let replyingTo = /** @type {Ripple | null} */ (null);
+  let replyingTo = /** @type {import('$lib/types/api').Ripple | null} */ (null);
+  let posting = false;
+  let postError = '';
   $: remaining = MAX_RIPPLE_CHARS - draft.length;
   $: overLimit = remaining < 0;
 
@@ -116,35 +128,87 @@
     replyingTo = null;
   }
 
-  function submitRipple() {
+  async function submitRipple() {
+    if (posting) return;
     const content = draft.trim();
     if (!content || overLimit) return;
-    ripples = [
-      ...ripples,
-      {
-        id: `local-${Date.now()}`,
-        userID: 'u-me',
-        username: 'you',
+
+    postError = '';
+    posting = true;
+    try {
+      const user = await authService.getCurrentUser();
+      if (!user) throw new Error('No user ID found. Please log in.');
+
+      const fingerprint = authService.getActiveKeyFingerprint();
+      if (!fingerprint) throw new Error('No active key fingerprint found.');
+
+      const keyData = await privateKeyRepository.getPrivateKey(fingerprint);
+      if (!keyData) throw new Error('Private key not found. Please import your key.');
+
+      const passphrase = authService.getPassphrase();
+      if (!passphrase) throw new Error('Session expired. Please sign in again.');
+
+      const threadID = replyingTo ? replyingTo.threadID : crypto.randomUUID();
+      const replyingToHash = replyingTo?.hash;
+
+      const userPayload = buildRippleUserPayload(
+        userID,
+        reedID,
+        user.id,
+        fingerprint,
+        threadID,
+        replyingToHash ?? '',
+        content
+      );
+      const detachedArmor = await cryptoService.signMessage(userPayload, keyData.armor, passphrase);
+      const userSignature = btoa(detachedArmor.trim()).trim();
+
+      const posted = await apiService.postRipple(userID, reedID, {
         content,
-        postedAt: Date.now(),
-        inReplyToRippleID: replyingTo?.id,
-        mine: true,
-      },
-    ];
-    draft = '';
-    replyingTo = null;
+        threadID,
+        replyingTo: replyingToHash,
+        fingerprint,
+        userSignature,
+      });
+
+      const ok = await ripplesRepository.storeRipple(posted, userID, reedID);
+      if (ok) {
+        await resolveUsername(posted.userID);
+        ripples = [...ripples, posted];
+      }
+
+      draft = '';
+      replyingTo = null;
+    } catch (error) {
+      console.error('Failed to post ripple:', error);
+      postError = error?.message || 'Failed to post comment';
+    } finally {
+      posting = false;
+    }
   }
 
-  function deleteRipple(id) {
+  async function deleteRipple(hash) {
     if (!confirm('Are you sure you want to delete this ripple?')) {
       return;
     }
-    ripples = ripples.filter((r) => r.id !== id);
+    try {
+      await apiService.deleteRipple(hash);
+      ripples = ripples.map((r) =>
+        r.hash === hash ? { ...r, deleted: true, content: '[DELETED]' } : r
+      );
+    } catch (error) {
+      console.error('Failed to delete ripple:', error);
+    }
   }
+
+  let ownUserID = '';
+  onMount(() => {
+    ownUserID = localStorage.getItem('userId') ?? '';
+  });
 </script>
 
 <section class="ripples-section" aria-label="Ripples">
-  {#if ripples.length > 0}
+  {#if !loading && ripples.length > 0 && expiresAt != null}
     <div class="ripples-header">
       <span class="ripples-countdown" title="Whole thread disappears if nobody replies before this">
         <span class="countdown-dot"></span>
@@ -153,44 +217,67 @@
     </div>
   {/if}
 
-  {#if ripples.length === 0}
+  {#if loading}
+    <p class="ripples-empty">Loading…</p>
+  {:else if ripples.length === 0}
     <p class="ripples-empty">No ripples yet — be the first to say something.</p>
   {:else}
     <ul class="ripple-list">
-      {#each ripples as ripple (ripple.id)}
+      {#each ripples as ripple (ripple.hash)}
         <li class="ripple-row">
           <div class="ripple-avatar">
-            <Avatar userID={ripple.userID} username={ripple.username} size="32px" />
+            <Avatar userID={ripple.userID} username={usernames[ripple.userID] ?? ''} size="32px" />
           </div>
           <div class="ripple-body">
             <p class="ripple-meta">
-              {#if ripple.mine}
-                <button type="button" class="ripple-delete-btn" on:click={() => deleteRipple(ripple.id)} aria-label="Delete ripple">
+              {#if ripple.userID === ownUserID && !ripple.deleted}
+                <button type="button" class="ripple-delete-btn" on:click={() => deleteRipple(ripple.hash)} aria-label="Delete ripple">
                   <span class="ripple-delete-icon"></span>
                 </button>
               {/if}
-              <span class="ripple-username">{ripple.username}</span>
-              <span class="ripple-time">{formatRelative(ripple.postedAt, nowTick)}</span>
+              {#if usernames[ripple.userID]}
+                <span class="ripple-username"><Username userID={ripple.userID} username={usernames[ripple.userID]} /></span>
+              {:else}
+                <span class="ripple-username ripple-username-removed">[removed account]</span>
+              {/if}
+              <span class="ripple-time">{formatRelativeTime(ripple.postedAt)}</span>
             </p>
-            {#if ripple.inReplyToRippleID}
+            {#if ripple.replyingTo}
               <p class="ripple-reply-chip">
-                replying to {#if usernameFor(ripple.inReplyToRippleID)}@{usernameFor(ripple.inReplyToRippleID)}{:else}a deleted comment{/if}
+                replying to {#if findByHash(ripple.replyingTo)}
+                  {#if usernames[findByHash(ripple.replyingTo).userID]}
+                    @{usernames[findByHash(ripple.replyingTo).userID]}
+                  {:else}
+                    a removed account
+                  {/if}
+                {:else}
+                  a comment
+                {/if}
               </p>
             {/if}
-            <p class="ripple-content">
-              {ripple.content}
-              <button type="button" class="ripple-action ripple-reply-inline" on:click={() => startReply(ripple)}>reply</button>
-            </p>
+            {#if ripple.deleted}
+              <p class="ripple-content ripple-content-deleted">[DELETED]</p>
+            {:else}
+              <p class="ripple-content">
+                {ripple.content}
+                <button type="button" class="ripple-action ripple-reply-inline" on:click={() => startReply(ripple)}>reply</button>
+              </p>
+            {/if}
           </div>
         </li>
       {/each}
     </ul>
+    {#if hasMore}
+      <button type="button" class="ripple-action load-more-btn" on:click={loadMore} disabled={loadingMore}>
+        {loadingMore ? 'Loading…' : 'Load more'}
+      </button>
+    {/if}
   {/if}
 
   <div class="ripple-composer">
     {#if replyingTo}
       <div class="reply-chip-bar">
-        <span>Replying to @{replyingTo.username}</span>
+        <span>Replying to {usernames[replyingTo.userID] ? `@${usernames[replyingTo.userID]}` : 'a removed account'}</span>
         <button type="button" class="chip-dismiss" on:click={cancelReply} aria-label="Cancel reply">×</button>
       </div>
     {/if}
@@ -200,11 +287,15 @@
       bind:value={draft}
       maxlength={MAX_RIPPLE_CHARS + 20}
       rows="2"
+      disabled={posting}
     ></textarea>
+    {#if postError}
+      <p class="ripple-post-error">{postError}</p>
+    {/if}
     <div class="composer-footer">
       <span class="char-counter" class:over={overLimit}>{remaining}</span>
-      <button type="button" class="post-btn" disabled={!draft.trim() || overLimit} on:click={submitRipple}>
-        Post
+      <button type="button" class="post-btn" disabled={!draft.trim() || overLimit || posting} on:click={submitRipple}>
+        {posting ? 'Posting…' : 'Post'}
       </button>
     </div>
   </div>
@@ -295,6 +386,12 @@
     color: var(--fg);
   }
 
+  .ripple-username-removed {
+    font-weight: 400;
+    font-style: italic;
+    color: var(--muted);
+  }
+
   .ripple-time {
     color: var(--muted);
     margin-left: 0.4rem;
@@ -351,6 +448,11 @@
     word-break: break-word;
   }
 
+  .ripple-content-deleted {
+    color: var(--muted);
+    font-style: italic;
+  }
+
   .ripple-action {
     display: inline;
     width: auto;
@@ -372,6 +474,11 @@
   .ripple-reply-inline {
     margin-left: 0.5rem;
     white-space: nowrap;
+  }
+
+  .load-more-btn {
+    margin: 0 0.75rem 1rem;
+    font-size: 0.8rem;
   }
 
   .ripple-composer {
@@ -418,6 +525,12 @@
 
   .ripple-textarea:focus {
     outline: none;
+  }
+
+  .ripple-post-error {
+    margin: 0.4rem 0 0;
+    font-size: 0.78rem;
+    color: #d9534f;
   }
 
   .composer-footer {
