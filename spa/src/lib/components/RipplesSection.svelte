@@ -421,7 +421,7 @@
   .ripple-meta {
     display: flex;
     align-items: center;
-    margin: 0 0 0.15rem;
+    margin: 0;
     font-size: 0.82rem;
   }
 
