@@ -72,8 +72,29 @@
   let lastHandledFollowReedId = '';
   let lastHandledReedReplyId = '';
 
-  /** @type {'conversation' | 'ripples'} */
-  let discussionTab = 'conversation';
+  // Which discussion tab is active lives in the URL hash (#ripples), not
+  // plain component state — same reasoning as the follow-list modal on
+  // the profile page: a reload or a shared link should land back on the
+  // tab the user was looking at instead of always resetting to
+  // Conversation. Absence of the hash (or any other value) means the
+  // default, Conversation.
+  /** @param {string} hash @returns {'conversation' | 'ripples'} */
+  function discussionTabFromHash(hash) {
+    return (hash || '').replace(/^#/, '').toLowerCase() === 'ripples' ? 'ripples' : 'conversation';
+  }
+
+  $: discussionTab = discussionTabFromHash($page.url.hash);
+
+  /** @param {'conversation' | 'ripples'} tab */
+  function setDiscussionTab(tab) {
+    const hash = tab === 'ripples' ? '#ripples' : '';
+    void goto(`/reed/${userID}/${reedID}${hash}`, {
+      replaceState: true,
+      noScroll: true,
+      keepFocus: true,
+    });
+  }
+
   let conversationCount = 0;
   let ripplesCount = 0;
 
@@ -665,7 +686,7 @@
                 class="discussion-tab"
                 class:active={discussionTab === 'conversation'}
                 aria-selected={discussionTab === 'conversation'}
-                on:click={() => { discussionTab = 'conversation'; }}
+                on:click={() => setDiscussionTab('conversation')}
               >
                 Conversation{#if conversationCount > 0}&nbsp;({conversationCount}){/if}
               </button>
@@ -675,7 +696,7 @@
                 class="discussion-tab"
                 class:active={discussionTab === 'ripples'}
                 aria-selected={discussionTab === 'ripples'}
-                on:click={() => { discussionTab = 'ripples'; }}
+                on:click={() => setDiscussionTab('ripples')}
               >
                 Ripples{#if ripplesCount > 0}&nbsp;({ripplesCount}){/if}
               </button>
