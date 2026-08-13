@@ -377,11 +377,18 @@ server {
     # Hashed build assets: a 404 here must stay a 404, never the SPA shell.
     # Falling back to index.html (text/html) for a missing chunk is what
     # causes "Failed to load module script: ... MIME type of text/html" —
-    # the previous deploy's rm -rf leaves old clients referencing chunk
-    # hashes that no longer exist, and SvelteKit's stale-chunk reload then
-    # loops forever because the reload re-fetches the very shell pointing
-    # at the same missing chunk.
+    # a client that loaded chunk hashes from a previous deploy hits this
+    # once the \`build\` symlink moves on. update.sh mirrors every release's
+    # _app/ (content-hashed, so collision-free) into shared-app/, which is
+    # never pruned — fall back there before giving up, so an in-flight tab
+    # keeps resolving old chunks instead of erroring out mid-navigation.
     location /_app/ {
+        try_files \$uri @shared_app;
+    }
+
+    location @shared_app {
+        root $WWW_ROOT;
+        rewrite ^/_app/(.*)\$ /shared-app/\$1 break;
         try_files \$uri =404;
     }
 
