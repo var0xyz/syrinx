@@ -264,10 +264,10 @@ cryptographic work before the network call:
   `performance.now()` (monotonic, immune to system clock changes
   mid-session) rather than storing or comparing against an absolute
   timestamp — this is what makes the countdown immune to a skewed device
-  clock. If the server reports `expiresInSeconds <= 0`, the client treats
-  the section as already expired and does not render whatever responses
-  came with it, even if the sweep hasn't deleted them yet (see the
-  Expired state subsection below).
+  clock. If the server reports `expiresInSeconds <= 0`, the client does
+  not render whatever responses came with it, even if the sweep hasn't
+  deleted them yet — the section falls back to its ordinary empty state
+  instead (see the Expiry animation subsection below).
 - WS: subscribe to the existing per-reed channel (already established by
   `ConversationSection`'s own subscription — check whether that
   subscription is page-scoped or component-scoped before adding a second
@@ -356,31 +356,38 @@ verification flow for a *different* kind of removal cert, not applicable
 here. Keep this minimal: a label swap only, no extra network call beyond
 the profile-resolution already described in Data flow above.
 
-#### Expiry animation and the expired state
+#### Expiry animation
 
 When the local countdown (derived from `expiresInSeconds`, see Data flow
 above) reaches zero, the client plays a short fire/burn animation on the
 visible list — each row fades, rises, and shifts color toward orange/red
 in a staggered sequence rather than the whole list vanishing as one flat
-block — then replaces the entire ripples section (list, composer, and the
-"aren't saved permanently" explainer) with a single expired-state message
-and a 🔥 icon. The composer disappears along with the list: there is no
-way to reply to an already-expired thread client-side, matching the
-server (which 400s/404s a post against a reed whose shared `expires_at`
-has passed, per [02](02_post_and_list_api.md)).
+block — then the list clears. This is a client-only visual event: no new
+WS message type, no new API call, fires purely off the local countdown
+timer already described in Data flow. If the *server* itself reports
+`expiresInSeconds <= 0` on a fresh fetch (the fetch landed in the race
+window before the cron sweep in [01](01_schema_and_expiry.md) has run),
+the client clears the list without playing the animation — there's
+nothing visibly alive on screen to burn in that case.
 
-This is a client-only visual event — no new WS message type, no new API
-call. It fires purely off the local countdown timer already described in
-Data flow. If the *server* itself reports `expiresInSeconds <= 0` on a
-fresh fetch (the fetch landed in the race window before the cron sweep
-in [01](01_schema_and_expiry.md) has run), the client goes straight to
-the expired state without playing the animation — there's nothing
-visibly alive on screen to burn in that case, the section was already
-gone by the time this client asked. Either path — local countdown
-hitting zero, or a fetch discovering it's already expired — also refuses
-to render any RIPPLE_POSTED/RIPPLE_UPDATED event that arrives afterward,
-so a straggling WS message can't resurrect a thread the client has
-already treated as gone.
+**Once the burn finishes, the section looks exactly like a reed that
+never had any ripples** — the ordinary empty state ("No ripples yet — be
+the first to say something"), composer still present, no special
+"expired" message, no distinguishing marker of any kind. This is
+deliberate: a burned-away thread and a never-started one are the same
+state from this point forward. Starting a brand-new top-level post is a
+completely fresh thread with its own `expires_at`, unrelated to whatever
+just expired — the client clears its stale local deadline/guard the
+moment a new post succeeds, so the composer is never blocked and a
+freshly-posted ripple can never immediately re-trigger the burn
+animation off the old deadline.
+
+Between the countdown hitting zero and a possible next post, the client
+does refuse to render any RIPPLE_POSTED/RIPPLE_UPDATED event that
+arrives for the burned-away thread — a straggling WS message can't
+resurrect content the client has already treated as gone. That guard is
+lifted the moment the user's own next post succeeds (see Data flow),
+not on any timer.
 
 #### The remaining, rarer fallback
 

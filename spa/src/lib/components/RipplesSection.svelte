@@ -45,12 +45,16 @@
   let nextCursor = /** @type {string | undefined} */ (undefined);
   let hasMore = false;
   let loadingMore = false;
-  /** True once the local countdown reaches zero. Drives the fire
-   * animation and then clears the section — belt-and-suspenders against
-   * the section rendering stale content the server hasn't swept yet
-   * (a fetch that lands in the race window right before a cron tick, or
-   * a WS event delivered after this client already considers the thread
-   * gone). */
+  /** True once the local countdown reaches zero (or a fresh fetch reports
+   * expiresInSeconds <= 0). Guards against resurrecting a dead thread via
+   * a straggling WS event delivered right after expiry — but is NOT a
+   * permanent "this reed can never have ripples again" flag: a brand-new
+   * top-level post starts its own thread with its own expires_at,
+   * completely unrelated to the burned-away one, so posting clears this
+   * back to false and the section behaves exactly like it never had any
+   * ripples at all (see handleComposerPosted). The UI never shows a
+   * lingering "expired" message for this reason — after the burn
+   * animation finishes it falls back to the ordinary empty state. */
   let expired = false;
   /** True for the duration of the fire animation, then false — separate
    * from `expired` so the burning ripples stay visible (and burning)
@@ -58,7 +62,7 @@
    * hits zero. */
   let burning = false;
 
-  $: count = expired ? 0 : ripples.length;
+  $: count = ripples.length;
 
   let nowTick = performance.now();
   const tickTimer = setInterval(() => { nowTick = performance.now(); }, 1000);
@@ -243,9 +247,24 @@
   /** RippleComposer's `posted` event: insert at the same position the
    * composer itself was rendered at (right after replyingTo, or at the
    * end for top-level) — matches server ordering in the common case, so
-   * nothing jumps position on the next reload. */
+   * nothing jumps position on the next reload. A successful post always
+   * means the section is alive again — clear `expired`/`burning`/the old
+   * countdown first (a top-level post after a burn starts a brand-new
+   * thread with its own expires_at, unrelated to whatever just expired),
+   * otherwise `insertRipple`'s expired-guard would silently drop the
+   * response the user just typed. */
   async function handleComposerPosted(event) {
     const { ripple: posted } = event.detail;
+    expired = false;
+    burning = false;
+    // Also clear the stale deadline itself, not just the flags — a new
+    // top-level post's own expires_at hasn't been fetched yet (the POST
+    // response doesn't include it), so leaving the old, already-past
+    // deadline in place would let the next tick immediately re-trigger
+    // the burn animation on the ripple that was just posted. loadPage
+    // (called for GET responses) is what actually sets the real value;
+    // null here just means "no known deadline yet," not "expired."
+    expiresAtMonotonic = null;
     const ok = await ripplesRepository.storeRipple(posted, userID, reedID);
     if (ok) {
       await resolveUsername(posted.userID);
@@ -286,11 +305,6 @@
 
   {#if loading}
     <p class="ripples-empty">Loading…</p>
-  {:else if expired}
-    <p class="ripples-empty ripples-empty--expired">
-      <span class="ripples-empty-icon" aria-hidden="true">🔥</span>
-      This thread burned away — nobody kept it alive in time.
-    </p>
   {:else if ripples.length === 0}
     <p class="ripples-empty">No ripples yet — be the first to say something.</p>
   {:else}
@@ -365,7 +379,7 @@
     {/if}
   {/if}
 
-  {#if !expired && !replyingTo}
+  {#if !replyingTo}
     <RippleComposer
       {userID}
       {reedID}
@@ -373,13 +387,11 @@
     />
   {/if}
 
-  {#if !expired}
-    <p class="ripples-why-explainer">
-      Ripples aren't saved permanently — this thread disappears 7 days after
-      its last reply, and posting a new one resets the countdown. Plain text
-      only — markdown isn't supported.
-    </p>
-  {/if}
+  <p class="ripples-why-explainer">
+    Ripples aren't saved permanently — this thread disappears 7 days after
+    its last reply, and posting a new one resets the countdown. Plain text
+    only — markdown isn't supported.
+  </p>
 </section>
 
 <style>
@@ -418,19 +430,6 @@
   .ripples-countdown--burning .countdown-dot {
     background: #ff6a1a;
     animation: ember-pulse 0.5s ease-in-out infinite alternate;
-  }
-
-  .ripples-empty--expired {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-style: normal;
-  }
-
-  .ripples-empty-icon {
-    font-size: 1.1rem;
-    line-height: 1;
-    animation: ember-pulse 1.2s ease-in-out infinite alternate;
   }
 
   /* Each row fades/rises away in its own delayed pass (--burn-delay,
@@ -475,8 +474,7 @@
       animation: ripple-burn-reduced 0.3s ease-in forwards;
       animation-delay: 0ms;
     }
-    .ripples-countdown--burning .countdown-dot,
-    .ripples-empty-icon {
+    .ripples-countdown--burning .countdown-dot {
       animation: none;
     }
   }
