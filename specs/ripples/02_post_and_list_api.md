@@ -184,7 +184,7 @@ Response `200` — a **flat array**, not a nested per-thread structure:
   ],
   "hasMore": false,
   "nextCursor": "eyJ0aHJlYWRDcmVhdGVkQXQiOi4uLn0=",
-  "expiresAt": "2026-08-14T12:00:00Z"
+  "expiresInSeconds": 604800
 }
 ```
 
@@ -205,11 +205,17 @@ expected, not an error, and how a client should handle it).
 - **Ordering**: threads ordered by thread-creation time (the earliest
   `postedAt` among that thread's responses), oldest thread first;
   responses within a thread ordered `postedAt ASC`, `hash ASC` tie-break.
-- **`expiresAt`** is included at the top level because it's shared across
-  every thread on the reed (see [00](00_design.md)) and is not reliably
-  derivable client-side from a possibly-partial page of responses — a
-  client that only fetched page 1 of a long list has no way to know the
-  true most-recent-activity timestamp otherwise.
+- **`expiresInSeconds`** is included at the top level because it's shared
+  across every thread on the reed (see [00](00_design.md)) and is not
+  reliably derivable client-side from a possibly-partial page of
+  responses — a client that only fetched page 1 of a long list has no way
+  to know the true most-recent-activity timestamp otherwise. It's a
+  **relative** duration (seconds remaining, computed server-side at
+  request time from the stored `expires_at`), not an absolute timestamp —
+  the client starts its own local countdown from this value instead of
+  comparing an absolute deadline against its own (possibly skewed) system
+  clock. Clamped to `0` rather than going negative if the sweep hasn't
+  run yet; omitted entirely if the reed has no ripples at all.
 - No responses yet for this reed → `200` with `responses: []`, not 404 —
   absence of comments isn't an error state.
 - Parent reed removed, or its author's account removed → `410`, same as

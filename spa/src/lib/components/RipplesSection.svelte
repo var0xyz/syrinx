@@ -23,7 +23,8 @@
   /** Bound out to the parent for tab-count display. */
   export let count = 0;
 
-  const MIN = 60_000;
+  const SEC = 1000;
+  const MIN = 60 * SEC;
   const HOUR = 60 * MIN;
   const DAY = 24 * HOUR;
 
@@ -35,19 +36,61 @@
   let usernames = {};
 
   let loading = true;
-  let expiresAt = /** @type {number | null} */ (null);
+  /** Local deadline in performance.now() units, derived once per fetch
+   * from the server's relative expiresInSeconds — never from an absolute
+   * timestamp compared against this device's wall clock, which could be
+   * skewed. performance.now() is monotonic (immune to system clock
+   * adjustments mid-session), unlike Date.now(). */
+  let expiresAtMonotonic = /** @type {number | null} */ (null);
   let nextCursor = /** @type {string | undefined} */ (undefined);
   let hasMore = false;
   let loadingMore = false;
+  /** True once the local countdown reaches zero. Drives the fire
+   * animation and then clears the section — belt-and-suspenders against
+   * the section rendering stale content the server hasn't swept yet
+   * (a fetch that lands in the race window right before a cron tick, or
+   * a WS event delivered after this client already considers the thread
+   * gone). */
+  let expired = false;
+  /** True for the duration of the fire animation, then false — separate
+   * from `expired` so the burning ripples stay visible (and burning)
+   * during the animation instead of vanishing the instant the countdown
+   * hits zero. */
+  let burning = false;
 
-  $: count = ripples.length;
+  $: count = expired ? 0 : ripples.length;
 
-  let nowTick = Date.now();
-  const tickTimer = setInterval(() => { nowTick = Date.now(); }, 1000);
+  let nowTick = performance.now();
+  const tickTimer = setInterval(() => { nowTick = performance.now(); }, 1000);
   onDestroy(() => clearInterval(tickTimer));
 
-  function formatCountdown(targetMs, fromMs) {
-    const remaining = targetMs - fromMs;
+  // Single-row burn animation is 800ms; each row's start is staggered by
+  // BURN_STAGGER_MS, capped at MAX_BURN_STAGGER_MS so a long list's last
+  // rows can't get their animation truncated by the section clearing —
+  // total time is always the single-row duration plus the capped stagger.
+  const BURN_ROW_MS = 800;
+  const BURN_STAGGER_MS = 60;
+  const MAX_BURN_STAGGER_MS = 600;
+  const BURN_DURATION_MS = BURN_ROW_MS + MAX_BURN_STAGGER_MS;
+  let burnTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
+  onDestroy(() => { if (burnTimer) clearTimeout(burnTimer); });
+
+  $: if (!expired && expiresAtMonotonic != null && nowTick >= expiresAtMonotonic) {
+    triggerExpiry();
+  }
+
+  function triggerExpiry() {
+    if (expired || burning) return;
+    burning = true;
+    burnTimer = setTimeout(() => {
+      burning = false;
+      expired = true;
+      ripples = [];
+    }, BURN_DURATION_MS);
+  }
+
+  function formatCountdown(targetMonotonic, fromMonotonic) {
+    const remaining = targetMonotonic - fromMonotonic;
     if (remaining <= 0) return 'expiring…';
     const d = Math.floor(remaining / DAY);
     const h = Math.floor((remaining % DAY) / HOUR);
@@ -72,6 +115,18 @@
 
   async function loadPage(before) {
     const res = await apiService.listRipples(userID, reedID, { limit: 50, before });
+
+    // Defensive: if the server itself reports the section as already
+    // expired (a fetch landing in the race window right before the next
+    // cron sweep), don't render whatever it sent — treat it the same as
+    // a client-side countdown hitting zero, just without the animation
+    // (nothing was visibly alive to burn).
+    if (res.expiresInSeconds != null && res.expiresInSeconds <= 0) {
+      ripples = [];
+      expired = true;
+      return;
+    }
+
     const kept = [];
     for (const ripple of res.responses) {
       const ok = await ripplesRepository.storeRipple(ripple, userID, reedID);
@@ -83,8 +138,8 @@
     ripples = before ? [...ripples, ...kept] : kept;
     hasMore = res.hasMore;
     nextCursor = res.nextCursor;
-    if (res.expiresAt) {
-      expiresAt = Date.parse(res.expiresAt);
+    if (res.expiresInSeconds != null) {
+      expiresAtMonotonic = performance.now() + res.expiresInSeconds * 1000;
     }
   }
 
@@ -121,6 +176,10 @@
    * slightly different spot than the server's final thread-grouped order;
    * accepted tradeoff, not worth a full resort against a partial page. */
   function insertRipple(ripple) {
+    // The section already burned away locally — don't resurrect it for a
+    // straggling WS event or a just-completed post whose response arrived
+    // after the countdown hit zero.
+    if (expired) return;
     if (ripples.some((r) => r.hash === ripple.hash)) return;
     const targetIndex = ripple.replyingTo
       ? ripples.findIndex((r) => r.hash === ripple.replyingTo)
@@ -136,7 +195,7 @@
    * insert if not already present — guards against the optimistic-insert-
    * then-echo double-add for the poster's own just-submitted ripple. */
   async function handleRipplePosted(msg) {
-    if (msg?.userID !== userID || msg?.reedID !== reedID || !msg?.ripple) return;
+    if (expired || msg?.userID !== userID || msg?.reedID !== reedID || !msg?.ripple) return;
     const ripple = msg.ripple;
     if (ripples.some((r) => r.hash === ripple.hash)) return;
     const ok = await ripplesRepository.storeRipple(ripple, userID, reedID);
@@ -149,7 +208,7 @@
    * never remove it. Does not re-verify (verifyRipple's tombstone
    * short-circuit already trusts the deleted flag). */
   async function handleRippleUpdated(msg) {
-    if (msg?.userID !== userID || msg?.reedID !== reedID || !msg?.ripple) return;
+    if (expired || msg?.userID !== userID || msg?.reedID !== reedID || !msg?.ripple) return;
     const ripple = msg.ripple;
     await ripplesRepository.storeRipple(ripple, userID, reedID);
     ripples = ripples.map((r) => (r.hash === ripple.hash ? ripple : r));
@@ -216,23 +275,32 @@
 </script>
 
 <section class="ripples-section" aria-label="Ripples">
-  {#if !loading && ripples.length > 0 && expiresAt != null}
+  {#if !loading && !expired && ripples.length > 0 && expiresAtMonotonic != null}
     <div class="ripples-header">
-      <span class="ripples-countdown" title="Whole thread disappears if nobody replies before this">
+      <span class="ripples-countdown" class:ripples-countdown--burning={burning} title="Whole thread disappears if nobody replies before this">
         <span class="countdown-dot"></span>
-        gone in {formatCountdown(expiresAt, nowTick)}
+        {burning ? 'gone' : `gone in ${formatCountdown(expiresAtMonotonic, nowTick)}`}
       </span>
     </div>
   {/if}
 
   {#if loading}
     <p class="ripples-empty">Loading…</p>
+  {:else if expired}
+    <p class="ripples-empty ripples-empty--expired">
+      <span class="ripples-empty-icon" aria-hidden="true">🔥</span>
+      This thread burned away — nobody kept it alive in time.
+    </p>
   {:else if ripples.length === 0}
     <p class="ripples-empty">No ripples yet — be the first to say something.</p>
   {:else}
-    <ul class="ripple-list">
-      {#each ripples as ripple (ripple.hash)}
-        <li class="ripple-row" class:ripple-row--reply={!!ripple.replyingTo}>
+    <ul class="ripple-list" class:ripple-list--burning={burning}>
+      {#each ripples as ripple, i (ripple.hash)}
+        <li
+          class="ripple-row"
+          class:ripple-row--reply={!!ripple.replyingTo}
+          style={burning ? `--burn-delay: ${Math.min(i * BURN_STAGGER_MS, MAX_BURN_STAGGER_MS)}ms` : undefined}
+        >
           <div class="ripple-avatar">
             <Avatar userID={ripple.userID} username={usernames[ripple.userID] ?? ''} size="32px" />
           </div>
@@ -297,7 +365,7 @@
     {/if}
   {/if}
 
-  {#if !replyingTo}
+  {#if !expired && !replyingTo}
     <RippleComposer
       {userID}
       {reedID}
@@ -305,11 +373,13 @@
     />
   {/if}
 
-  <p class="ripples-why-explainer">
-    Ripples aren't saved permanently — this thread disappears 7 days after
-    its last reply, and posting a new one resets the countdown. Plain text
-    only — markdown isn't supported.
-  </p>
+  {#if !expired}
+    <p class="ripples-why-explainer">
+      Ripples aren't saved permanently — this thread disappears 7 days after
+      its last reply, and posting a new one resets the countdown. Plain text
+      only — markdown isn't supported.
+    </p>
+  {/if}
 </section>
 
 <style>
@@ -339,6 +409,81 @@
     border-radius: 50%;
     background: #e0a030;
     flex-shrink: 0;
+  }
+
+  .ripples-countdown--burning {
+    color: #ff6a1a;
+  }
+
+  .ripples-countdown--burning .countdown-dot {
+    background: #ff6a1a;
+    animation: ember-pulse 0.5s ease-in-out infinite alternate;
+  }
+
+  .ripples-empty--expired {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-style: normal;
+  }
+
+  .ripples-empty-icon {
+    font-size: 1.1rem;
+    line-height: 1;
+    animation: ember-pulse 1.2s ease-in-out infinite alternate;
+  }
+
+  /* Each row fades/rises away in its own delayed pass (--burn-delay,
+     set inline per-row) so the whole list doesn't vanish as one flat
+     block — closer to embers catching one after another. */
+  .ripple-list--burning .ripple-row {
+    animation: ripple-burn 0.8s ease-in forwards;
+    animation-delay: var(--burn-delay, 0ms);
+  }
+
+  @keyframes ripple-burn {
+    0% {
+      opacity: 1;
+      filter: none;
+      transform: translateY(0) scale(1);
+    }
+    30% {
+      opacity: 1;
+      filter: brightness(1.6) saturate(1.8) hue-rotate(-25deg);
+      transform: translateY(-2px) scale(1.01);
+    }
+    100% {
+      opacity: 0;
+      filter: brightness(1.6) saturate(1.8) hue-rotate(-25deg) blur(2px);
+      transform: translateY(-14px) scale(0.97);
+    }
+  }
+
+  @keyframes ember-pulse {
+    from {
+      opacity: 0.6;
+      transform: scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1.15);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ripple-list--burning .ripple-row {
+      animation: ripple-burn-reduced 0.3s ease-in forwards;
+      animation-delay: 0ms;
+    }
+    .ripples-countdown--burning .countdown-dot,
+    .ripples-empty-icon {
+      animation: none;
+    }
+  }
+
+  @keyframes ripple-burn-reduced {
+    from { opacity: 1; }
+    to { opacity: 0; }
   }
 
   .ripples-why-explainer {
