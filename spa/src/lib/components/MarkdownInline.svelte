@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { internalPath, linkKind, type Inline } from '$lib/utils/reedMarkdown';
+  import { internalPath, parseMentionHref, type Inline } from '$lib/utils/reedMarkdown';
   import MentionLink from './MentionLink.svelte';
 
   export let nodes: Inline[] = [];
@@ -33,14 +33,16 @@
     <em><svelte:self nodes={node.children} {preview} {onExternal} {usernameHints} /></em>
   {:else if node.type === 'del'}
     <del><svelte:self nodes={node.children} {preview} {onExternal} {usernameHints} /></del>
+  {:else if node.type === 'link' && parseMentionHref(node.href)}
+    {@const target = parseMentionHref(node.href)}
+    <MentionLink userID={target.userID} serverID={target.serverID} {preview} hintUsername={usernameHints?.get(target.userID)} />
   {:else if node.type === 'link'}
     {#if preview}
-      <span class="inline-link" class:mention-link={linkKind(node.href) === 'mention'}><svelte:self nodes={node.children} {preview} {onExternal} {usernameHints} /></span>
+      <span class="inline-link"><svelte:self nodes={node.children} {preview} {onExternal} {usernameHints} /></span>
     {:else}
       <a
         href={internalPath(node.href) ?? '#'}
         class="inline-link"
-        class:mention-link={linkKind(node.href) === 'mention'}
         on:click|preventDefault={() => activateLink(node.href)}
       ><svelte:self nodes={node.children} {preview} {onExternal} {usernameHints} /></a>
     {/if}

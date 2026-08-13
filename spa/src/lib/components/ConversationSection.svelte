@@ -237,12 +237,21 @@
   <ul class="reply-list">
     {#each rows as row (row.reedID)}
       <li>
-        <button type="button" class="reply-row" class:reply-row--loading={row.loading} on:click={() => navigateToReply(row)}>
+        <div
+          class="reply-row"
+          class:reply-row--loading={row.loading}
+          role="button"
+          tabindex="0"
+          on:click={() => navigateToReply(row)}
+          on:keydown={(e) => e.key === 'Enter' && navigateToReply(row)}
+        >
           <ReedAuthorHeader
             userID={row.userID}
+            serverID={row.reed?.serverSignature?.serverID ?? ''}
             username={row.username}
             avatarSize="36px"
             subtext={row.timestamp ? formatRelativeTime(row.timestamp) : 'Waiting for reed...'}
+            stopPropagation
           />
           {#if !row.loading}
             <div class="reply-body">
@@ -255,7 +264,7 @@
               {/if}
             </div>
           {/if}
-        </button>
+        </div>
       </li>
     {/each}
   </ul>

@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
+  import Username from '$lib/components/Username.svelte';
   import FollowListModal from '$lib/components/FollowListModal.svelte';
   import { followingRepository } from '$lib/repositories/following';
   import { userInfoRepository } from '$lib/repositories/userInfo';
@@ -157,7 +158,13 @@
       {/if}
     </div>
     <div class="profile-info">
-      <h2 class:root-username={user?.id === '1'}>{user?.username}</h2>
+      <h2>
+        <Username
+          userID={user?.id ?? ''}
+          serverID={user?.serverSignature?.serverID ?? ''}
+          username={user?.username ?? ''}
+        />
+      </h2>
       <div class="user-id-container">
         {#if serverLabel}
           <p class="user-info">{serverLabel}</p>
@@ -167,8 +174,7 @@
       <p class="user-info">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
       {#if user?.invitedBy}
         <p class="user-info invited-by">
-          Invited by
-          <a href="/profile/{user.invitedBy.id}">@{user.invitedBy.username}</a>
+          Invited by <Username userID={user.invitedBy.id} username={user.invitedBy.username} at fire={false} />
         </p>
       {/if}
       <div class="follow-stats">
@@ -301,10 +307,6 @@
     word-break: break-word;
   }
 
-  .profile-info h2.root-username {
-    font-style: italic;
-  }
-
   .user-id-container {
     display: flex;
     flex-direction: column;
@@ -323,15 +325,6 @@
     max-width: 100%;
     overflow-wrap: anywhere;
     word-break: break-word;
-  }
-
-  .invited-by a {
-    color: var(--primary);
-    text-decoration: none;
-  }
-
-  .invited-by a:hover {
-    text-decoration: underline;
   }
 
   .follow-stats {

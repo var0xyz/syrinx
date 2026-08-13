@@ -11,6 +11,7 @@
   } from '$lib/services/invites';
   import { invitesRepository } from '$lib/repositories/invites';
   import { userRepository } from '$lib/repositories/user';
+  import Username from '$lib/components/Username.svelte';
   import {
     isSignupClosed,
     refreshServerInfo,
@@ -278,10 +279,13 @@
                 >
                 {#if invite.status === 'claimed' && invite.claimedBy}
                   <span class="meta">
-                    Claimed by
-                    <a href="/profile/{invite.claimedBy}"
-                      >@{claimerUsernames[invite.claimedBy] ?? invite.claimedBy}</a
-                    >
+                    Claimed by <Username
+                      userID={invite.claimedBy}
+                      username={claimerUsernames[invite.claimedBy] ?? invite.claimedBy}
+                      class="meta-link"
+                      at
+                      fire={false}
+                    />
                   </span>
                 {/if}
               </div>
@@ -586,7 +590,7 @@
     overflow-wrap: break-word;
   }
 
-  .meta a {
+  :global(.meta .meta-link) {
     color: var(--primary);
     text-decoration: none;
     word-break: break-word;

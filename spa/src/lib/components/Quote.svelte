@@ -13,6 +13,7 @@
   import { parseReedRef } from '$lib/utils/reedRef';
   import { resolveBlankEchoChain } from '$lib/utils/emptyEcho';
   import MarkdownParser from './MarkdownParser.svelte';
+  import Username from './Username.svelte';
 
   /** @type {import('$lib/types/reed').ReedType | null | undefined} */
   export let reed = null;
@@ -47,7 +48,6 @@
    * land after the correct one and silently overwrite it. */
   let loadSeq = 0;
 
-  $: label = type === 'reply' ? 'Replying to ' : '';
   $: borderColor = type === 'echo' ? 'var(--primary)' : '#7c3aed';
   $: reedId = reed?.id ?? '';
   $: void load(reedId, reedRef, missing, reed);
@@ -223,7 +223,7 @@
       on:click={handleClick}
       on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> {label}{username} · {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><Username userID={removedTarget.userID} {username} linked={false} fire={false} color="var(--muted)" />&nbsp;· {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</div>
       <p class="quote-removed-note">
         {removedTarget.kind === 'account'
           ? 'This author deleted their account.'
@@ -236,7 +236,7 @@
       class:quote--clamped={maxLines > 0}
       style="--border-color: {borderColor}; --max-lines: {maxLines}"
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> {label}{username} · {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><Username userID={removedTarget.userID} {username} linked={false} fire={false} color="var(--muted)" />&nbsp;· {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</div>
       <p class="quote-removed-note">
         {removedTarget.kind === 'account'
           ? 'This author deleted their account.'
@@ -255,7 +255,7 @@
       on:click={handleClick}
       on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> {label}{username}{#if displayReed.serverSignature?.timestamp} · {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><Username userID={displayReed.userID} serverID={displayReed.serverSignature?.serverID ?? ''} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
 
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
@@ -267,7 +267,7 @@
       class:quote--clamped={maxLines > 0}
       style="--border-color: {borderColor}; --max-lines: {maxLines}"
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> {label}{username}{#if displayReed.serverSignature?.timestamp} · {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><Username userID={displayReed.userID} serverID={displayReed.serverSignature?.serverID ?? ''} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
 
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />

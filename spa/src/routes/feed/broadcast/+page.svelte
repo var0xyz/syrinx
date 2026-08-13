@@ -116,9 +116,11 @@
               <div class="reed-header">
                 <ReedAuthorHeader
                   userID={reed.userID}
+                  serverID={reed.serverSignature?.serverID ?? ''}
                   username={broadcastReeds.authors[reed.userID]?.username ?? reed.userID}
                   nameTag="h3"
                   subtext={formatRelativeTime(reed.serverSignature.timestamp)}
+                  stopPropagation
                 />
               </div>
               {#if reed.replying}

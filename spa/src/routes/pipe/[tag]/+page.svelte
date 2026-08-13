@@ -97,8 +97,10 @@
               <div class="feed-header">
                 <ReedAuthorHeader
                   userID={reed.userID}
+                  serverID={reed.serverSignature?.serverID ?? ''}
                   username={authors[reed.userID]?.username ?? reed.userID}
                   subtext={formatRelativeTime(reed.serverSignature?.timestamp)}
+                  stopPropagation
                 />
               </div>
               {#if (reed.content || '').trim()}

@@ -54,9 +54,6 @@
     text-decoration: none;
   }
 
-  /* Mentions render without an '@' in the signed content (it's a compose-time
-     trigger only, stripped before insertion) — the symbol is added visually
-     so a mention still reads like one. */
   .markdown-content :global(a.mention-link),
   .markdown-content :global(.inline-link.mention-link) {
     font-weight: 600;
@@ -66,11 +63,6 @@
   .markdown-content :global(a.mention-link:hover),
   .markdown-content :global(.inline-link.mention-link:hover) {
     text-decoration: underline;
-  }
-
-  .markdown-content :global(a.mention-link)::before,
-  .markdown-content :global(.inline-link.mention-link)::before {
-    content: '@';
   }
 
   .markdown-content :global(strong) {

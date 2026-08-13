@@ -7,6 +7,7 @@
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
+  import Username from '$lib/components/Username.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
 
   let user: api.User | null = null;
@@ -160,11 +161,19 @@
                   <span class="badge-row">
                     <span class="badge" data-status={inv.status}>{statusLabel(inv.status)}</span>
                   </span>
-                  <span class="meta">Created {formatRelativeTime(inv.createdAt)} by @{inv.createdByUsername}</span>
+                  <span class="meta"
+                    >Created {formatRelativeTime(inv.createdAt)} by <Username
+                      userID={inv.createdBy}
+                      username={inv.createdByUsername}
+                      class="meta-link"
+                      at
+                      fire={false}
+                    /></span
+                  >
                   {#if inv.reviewedBy && inv.reviewedByUsername}
                     <span class="meta">
                       {reviewActionLabel(inv.status)}
-                      <a href="/profile/{inv.reviewedBy}">@{inv.reviewedByUsername}</a>
+                      <Username userID={inv.reviewedBy} username={inv.reviewedByUsername} class="meta-link" at fire={false} />
                       {#if inv.reviewedAt}
                         · {formatRelativeTime(inv.reviewedAt)}
                       {/if}
@@ -441,7 +450,7 @@
     color: var(--muted);
   }
 
-  .meta a {
+  :global(.meta .meta-link) {
     color: var(--primary);
     text-decoration: none;
   }
