@@ -484,7 +484,7 @@ func InitDB(db *sql.DB) error {
 		reed_id VARCHAR(255) NOT NULL,
 		thread_id UUID NOT NULL,
 		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		content VARCHAR(1400) NOT NULL,
+		content VARCHAR(140) NOT NULL,
 		replying_to VARCHAR(64) REFERENCES ripple_responses(id) ON DELETE SET NULL,
 		deleted BOOLEAN NOT NULL DEFAULT FALSE,
 		posted_at TIMESTAMP NOT NULL,

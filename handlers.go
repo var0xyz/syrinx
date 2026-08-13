@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"syrinx/coverage"
 	"syrinx/crypto"
@@ -2967,15 +2968,10 @@ func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Req
 //   Ripples    //
 // //////////// //
 
-// MaxRippleContentChars/MaxRippleRawChars mirror MaxReedVisibleChars/
-// MaxReedRawChars — ripples render as markdown (same grammar as reeds),
-// so the visible-character budget is markdown-stripped
-// (CountMarkdownCharacters), same as reed content, and a separate raw
-// cap blocks markdown-syntax padding abuse.
-const (
-	MaxRippleContentChars = MaxReedVisibleChars
-	MaxRippleRawChars     = MaxReedRawChars
-)
+// MaxRippleContentChars mirrors MaxReedVisibleChars — ripples reuse the
+// reed visible-length cap, validated as a plain code-point count since
+// ripple content is never markdown.
+const MaxRippleContentChars = 140
 
 // RippleWire is the JSON shape of one ripple response, shared by POST and
 // GET. The response's id is `hash` — the hex-SHA256 digest of its signed
@@ -3076,11 +3072,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Comment cannot be empty")
 		return
 	}
-	if len(content) > MaxRippleRawChars {
-		writeResponse(w, http.StatusBadRequest, "Comment is too long")
-		return
-	}
-	if CountMarkdownCharacters(content) > MaxRippleContentChars {
+	if utf8.RuneCountInString(content) > MaxRippleContentChars {
 		writeResponse(w, http.StatusBadRequest, "Comment is too long (max 140 characters)")
 		return
 	}
