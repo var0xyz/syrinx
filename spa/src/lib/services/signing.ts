@@ -412,3 +412,66 @@ export function buildInviteServerPayload(
     ''
   );
 }
+
+/**
+ * Mirror of BuildRippleUserPayload / rippleUserHeaders in identity.go. The
+ * exact bytes a ripple's author signs. threadID is always present
+ * (client-minted, see specs/ripples/00_design.md); replyingTo is omitted
+ * for a top-level post (empty string is dropped by bytesToSign). No
+ * timestamp — client clocks are never signed over.
+ */
+export function buildRippleUserPayload(
+  reedAuthorID: string,
+  reedID: string,
+  rippleAuthorID: string,
+  fingerprint: string,
+  threadID: string,
+  replyingTo: string,
+  content: string
+): string {
+  return stringToSign(
+    {
+      reedAuthorID,
+      reedID,
+      rippleAuthorID,
+      fingerprint,
+      threadID,
+      replyingTo
+    },
+    content
+  );
+}
+
+/**
+ * Mirror of BuildRippleServerPayload / rippleServerHeaders in identity.go.
+ * Same fields the user signed, plus serverID and the server-supplied
+ * timestamp. Content is the author's detached signature (base64 armor),
+ * not the ripple text — mirrors buildReedPayload exactly. `fingerprint`
+ * here is the ripple author's signing-key fingerprint (same value passed
+ * to buildRippleUserPayload), not the server key's.
+ */
+export function buildRippleServerPayload(
+  serverID: string,
+  reedAuthorID: string,
+  reedID: string,
+  rippleAuthorID: string,
+  fingerprint: string,
+  threadID: string,
+  replyingTo: string,
+  userSignatureB64: string,
+  timestamp: string
+): string {
+  return stringToSign(
+    {
+      serverID,
+      reedAuthorID,
+      reedID,
+      rippleAuthorID,
+      fingerprint,
+      threadID,
+      replyingTo,
+      timestamp
+    },
+    userSignatureB64
+  );
+}

@@ -691,7 +691,7 @@
               />
             </div>
             <div class="discussion-panel" class:hidden={discussionTab !== 'ripples'}>
-              <RipplesSection bind:count={ripplesCount} />
+              <RipplesSection {userID} {reedID} bind:count={ripplesCount} />
             </div>
           {/if}
         {/if}

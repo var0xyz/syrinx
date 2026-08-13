@@ -24,6 +24,8 @@ import {
   buildReedLikeUserPayload,
   buildReedRemovalServerPayload,
   buildReedRemovalUserPayload,
+  buildRippleServerPayload,
+  buildRippleUserPayload,
   buildServerRevocationPayload,
   buildUserIdentityPayload,
   buildUserRevocationPayload,
@@ -356,6 +358,96 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     ))
   ) {
     console.error('[verifyReed] author key was revoked before this reed was signed', reed.id);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Verify a ripple response: author signature + server countersignature,
+ * modeled on verifyReed. `reedAuthorID`/`reedID` identify the parent reed
+ * this ripple is attached to — not part of the wire object itself, so the
+ * caller (which already knows which reed's list it fetched) supplies them.
+ * A tombstoned (soft-deleted) response is trusted on its `deleted` flag
+ * alone — its stored signatures describe the original pre-delete content,
+ * which this client does not have and cannot re-verify against (see
+ * specs/ripples/00_design.md's Client-side verification section).
+ */
+export async function verifyRipple(
+  ripple: api.Ripple,
+  reedAuthorID: string,
+  reedID: string
+): Promise<boolean> {
+  if (ripple?.deleted) {
+    return true;
+  }
+
+  if (
+    !ripple?.userSignature?.armor ||
+    !ripple.userSignature?.fingerprint ||
+    !ripple.userID ||
+    !ripple.serverSignature
+  ) {
+    console.error('[verifyRipple] missing signatures', ripple?.hash);
+    return false;
+  }
+
+  const publicKeyData = await resolvePublicKey(ripple.userID, ripple.userSignature.fingerprint);
+  if (!publicKeyData) {
+    console.error('[verifyRipple] author public key unavailable', ripple.hash);
+    return false;
+  }
+  if (!(await verifyPublicKey(publicKeyData))) {
+    console.error('[verifyRipple] author public key attestation failed', ripple.hash);
+    return false;
+  }
+
+  const userPayload = buildRippleUserPayload(
+    reedAuthorID,
+    reedID,
+    ripple.userID,
+    ripple.userSignature.fingerprint,
+    ripple.threadID,
+    ripple.replyingTo ?? '',
+    ripple.content
+  );
+  const authorValid = await cryptoService.verifySignature(
+    userPayload,
+    atob(ripple.userSignature.armor),
+    publicKeyData.armor
+  );
+  if (!authorValid) {
+    console.error('[verifyRipple] author signature failed', ripple.hash);
+    return false;
+  }
+
+  const serverPayload = buildRippleServerPayload(
+    ripple.serverSignature.serverID,
+    reedAuthorID,
+    reedID,
+    ripple.userID,
+    ripple.userSignature.fingerprint,
+    ripple.threadID,
+    ripple.replyingTo ?? '',
+    ripple.userSignature.armor,
+    signedAtHeader(ripple.serverSignature.timestamp)
+  );
+  const serverResult = await verify(ripple.serverSignature, serverPayload);
+  if (serverResult.ok === false) {
+    console.error('[verifyRipple] server signature failed', serverResult);
+    return false;
+  }
+
+  if (
+    !(await isKeyValidAt(
+      ripple.userID,
+      ripple.userSignature.fingerprint,
+      publicKeyData.revoked,
+      ripple.serverSignature.timestamp
+    ))
+  ) {
+    console.error('[verifyRipple] author key was revoked before this ripple was signed', ripple.hash);
     return false;
   }
 
