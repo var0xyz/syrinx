@@ -534,7 +534,7 @@
           {/if}
         </div>
       {/if}
-      {#key profileUser?.username}
+      {#key userId}
         <ReedsList
           authorId={userId}
           {isOwner}
