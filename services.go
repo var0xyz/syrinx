@@ -634,8 +634,16 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 		                 SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
 		             )
 		       ) AS has_reeds,
-		       (SELECT COUNT(*)::int FROM user_followers uf WHERE uf.user_id = u.id),
-		       (SELECT COUNT(*)::int FROM user_following ufl WHERE ufl.user_id = u.id)
+		       (SELECT COUNT(*)::int FROM user_followers uf
+		           WHERE uf.user_id = u.id
+		             AND NOT EXISTS (
+		                 SELECT 1 FROM account_removals ar WHERE ar.user_id = uf.follower_user_id
+		             )),
+		       (SELECT COUNT(*)::int FROM user_following ufl
+		           WHERE ufl.user_id = u.id
+		             AND NOT EXISTS (
+		                 SELECT 1 FROM account_removals ar WHERE ar.user_id = ufl.following_user_id
+		             ))
 		FROM users u
 		JOIN server_signatures ss ON ss.id = u.server_signature_id
 		WHERE u.id = $1
