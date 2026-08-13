@@ -131,6 +131,9 @@ echo -e "\n💻 Building Go backend (staged — not installed yet)..."
 cd "$BUILD_DIR/src/$BACKEND_PATH"
 CGO_ENABLED=0 go build -ldflags="-w -s" -o "$BUILD_DIR/$APP_NAME" .
 
+echo -e "\n💻 Building ripples-cleanup cron job (staged — not installed yet)..."
+CGO_ENABLED=0 go build -tags ripplescleanup -ldflags="-w -s" -o "$BUILD_DIR/$APP_NAME-ripples-cleanup" .
+
 echo -e "\n⚛️  Building SPA (staged — not published yet)..."
 cd "$BUILD_DIR/src/$FRONTEND_PATH"
 npm install
@@ -146,6 +149,13 @@ npm run build
 # either both the binary and SPA ship together, or neither does.
 echo -e "\n🚀 Both builds succeeded — installing atomically..."
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME" "/usr/local/bin/$APP_NAME"
+install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME-ripples-cleanup" "/usr/local/bin/$APP_NAME-ripples-cleanup"
+
+# Refresh the cron fragment on every deploy too, in case the schedule/command
+# in the repo's jobs/ripples-cleanup.cron changes.
+sed -e "s|@APP_USER@|$APP_USER|g" -e "s|@ENV_FILE@|$ENV_FILE|g" -e "s|@APP_NAME@|$APP_NAME|g" \
+    "$BUILD_DIR/src/jobs/ripples-cleanup.cron" > "/etc/cron.d/$APP_NAME-ripples-cleanup"
+chmod 644 "/etc/cron.d/$APP_NAME-ripples-cleanup"
 
 # Ship the SPA into its own timestamped release dir and repoint the `build`
 # symlink with `ln -sfn` (atomic rename, not an in-place rm+cp). A tab left

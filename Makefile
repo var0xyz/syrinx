@@ -1,4 +1,4 @@
-.PHONY: help build run up down clean test setup-env ops export-identity import-identity
+.PHONY: help build run up down clean test setup-env ops export-identity import-identity ripples-cleanup
 
 # Default target
 help:
@@ -8,6 +8,7 @@ help:
 	@echo "  ops              - Build the operator CLI (bin/ops)"
 	@echo "  export-identity  - Build ops and run export-identity"
 	@echo "  import-identity  - Build ops (pass infile: make import-identity FILE=...)"
+	@echo "  ripples-cleanup  - Build the ripples expiry cron job (bin/ripples-cleanup)"
 	@echo "  up               - Run service with Docker Compose"
 	@echo "  down             - Stop all docker services"
 	@echo "  clean            - Clean up containers and volumes"
@@ -31,6 +32,11 @@ export-identity: ops
 import-identity: ops
 	@if [ -z "$(FILE)" ]; then echo "usage: make import-identity FILE=path/to/bundle.sxi.gpg"; exit 2; fi
 	./bin/ops import-identity "$(FILE)"
+
+ripples-cleanup:
+	@echo "Building ripples-cleanup..."
+	@mkdir -p bin
+	go build -tags ripplescleanup -o bin/ripples-cleanup .
 
 # Run targets for development
 run:
