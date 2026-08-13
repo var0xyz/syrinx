@@ -5,6 +5,9 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -2949,4 +2952,398 @@ func (s *DataService) AcceptFederationInvitation(ctx context.Context, id string,
 		return errFederationInvitationNotFound
 	}
 	return nil
+}
+
+// ==================== //
+//       Ripples        //
+// ==================== //
+
+var ErrRippleNotFound = errors.New("ripple not found")
+
+// ErrRippleThreadMismatch is returned by PostRipple when replyingTo is set
+// but the caller's submitted threadID doesn't match the referenced
+// response's stored thread_id. The signature alone only proves author
+// intent, not consistency with the actual parent — see
+// specs/ripples/00_design.md's Thread shape.
+var ErrRippleThreadMismatch = errors.New("ripple thread mismatch")
+
+// Ripple is a single ripple response, including its signatures. The id
+// is the hex-SHA256 hash of the signed server payload (see
+// specs/ripples/00_design.md's Signing section) — frozen at creation,
+// never recomputed on soft-delete.
+type Ripple struct {
+	ID              string
+	ReedAuthorID    string
+	ReedID          string
+	ThreadID        string
+	UserID          string
+	Content         string
+	ReplyingTo      *string
+	Deleted         bool
+	PostedAt        time.Time
+	UserFingerprint string
+	UserSignature   UserSignature
+	ServerSignature ServerSignature
+}
+
+// RippleListResult is the paginated output of ListRipples.
+type RippleListResult struct {
+	Ripples    []Ripple
+	HasMore    bool
+	NextCursor string
+}
+
+// PostRipple verifies, countersigns, hashes, and persists a new ripple
+// response, bumping the reed's shared expires_at in the same transaction.
+//
+// Callers (the HTTP handler) are responsible for verifying userSigArmor
+// against the caller's active public key BEFORE calling this — this
+// mirrors SignReed's division of labor (handler verifies the user
+// signature, store builds+persists the countersignature). This method
+// only re-checks the one thing that needs a database lookup: if
+// replyingTo is set, the submitted threadID must equal the referenced
+// response's stored thread_id (ErrRippleThreadMismatch otherwise).
+//
+// now is the single server-side timestamp used for the server payload's
+// `timestamp` header, posted_at, and expires_at (= now + 7 days) — one
+// clock reading for the whole request, no client-supplied timestamp
+// anywhere in this flow.
+func (s *DataService) PostRipple(
+	ctx context.Context,
+	reedAuthorID, reedID, userID, content, threadID string,
+	replyingTo *string,
+	userFingerprint, userSigArmor string,
+	countersign func(payload []byte, ts time.Time) (ServerSignature, error),
+	now time.Time,
+) (*Ripple, error) {
+	now = now.UTC().Truncate(time.Second)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	if replyingTo != nil {
+		var parentThreadID string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT thread_id FROM ripple_responses WHERE id = $1
+		`, *replyingTo).Scan(&parentThreadID); err != nil {
+			return nil, fmt.Errorf("resolve replyingTo thread: %w", err)
+		}
+		if parentThreadID != threadID {
+			return nil, ErrRippleThreadMismatch
+		}
+	}
+
+	replyingToVal := ""
+	if replyingTo != nil {
+		replyingToVal = *replyingTo
+	}
+	serverID := s.GetServerID()
+	serverPayload := identity.BuildRippleServerPayload(
+		serverID, reedAuthorID, reedID, userID,
+		userFingerprint, threadID, replyingToVal,
+		userSigArmor, now,
+	)
+	serverSig, err := countersign(serverPayload, now)
+	if err != nil {
+		return nil, fmt.Errorf("countersign ripple: %w", err)
+	}
+
+	id := hex.EncodeToString(crypto.Hash(string(serverPayload)))
+
+	userSigID, err := signing.InsertUserSignature(ctx, tx, userFingerprint, userSigArmor)
+	if err != nil {
+		return nil, err
+	}
+	serverSigID, err := signing.InsertServerSignature(ctx, tx, serverSig.Fingerprint, serverSig.Armor, serverSig.SignedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	expiresAt := now.Add(7 * 24 * time.Hour)
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO ripples (reed_author_id, reed_id, expires_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (reed_author_id, reed_id) DO UPDATE
+		SET expires_at = EXCLUDED.expires_at
+	`, reedAuthorID, reedID, expiresAt); err != nil {
+		return nil, fmt.Errorf("upsert ripples bookkeeping: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO ripple_responses (
+			id, reed_author_id, reed_id, thread_id, user_id,
+			content, replying_to, deleted, posted_at,
+			user_fingerprint, user_signature_id, server_signature_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8, $9, $10, $11)
+	`, id, reedAuthorID, reedID, threadID, userID, content, replyingTo, now,
+		userFingerprint, userSigID, serverSigID); err != nil {
+		return nil, fmt.Errorf("insert ripple response: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &Ripple{
+		ID:              id,
+		ReedAuthorID:    reedAuthorID,
+		ReedID:          reedID,
+		ThreadID:        threadID,
+		UserID:          userID,
+		Content:         content,
+		ReplyingTo:      replyingTo,
+		Deleted:         false,
+		PostedAt:        now,
+		UserFingerprint: userFingerprint,
+		UserSignature:   UserSignature{Fingerprint: userFingerprint, Armor: userSigArmor},
+		ServerSignature: serverSig,
+	}, nil
+}
+
+// GetRipple loads one ripple response by id regardless of deleted state.
+// Returns ErrRippleNotFound if no row matches. No account-removal
+// filtering here — a commenter's own account being removed doesn't
+// affect their past responses on other reeds; blocking access to a whole
+// reed's ripples because its author is removed is handled by the
+// parent-reed check in the HTTP handler, not here.
+func (s *DataService) GetRipple(ctx context.Context, id string) (*Ripple, error) {
+	r, err := scanRipple(s.db.QueryRowContext(ctx, `
+		SELECT rr.id, rr.reed_author_id, rr.reed_id, rr.thread_id, rr.user_id,
+		       rr.content, rr.replying_to, rr.deleted, rr.posted_at,
+		       rr.user_fingerprint, us.signature, ss.fingerprint, ss.signature, ss.signed_at
+		FROM ripple_responses rr
+		JOIN user_signatures us ON us.id = rr.user_signature_id
+		JOIN server_signatures ss ON ss.id = rr.server_signature_id
+		WHERE rr.id = $1
+	`, id))
+	if err == sql.ErrNoRows {
+		return nil, ErrRippleNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	r.ServerSignature.ServerID = s.GetServerID()
+	return r, nil
+}
+
+// rippleRowScanner abstracts *sql.Row/*sql.Rows so scanRipple works for
+// both GetRipple's single-row query and ListRipples' multi-row query.
+type rippleRowScanner interface {
+	Scan(dest ...any) error
+}
+
+// rippleListRow adapts a *sql.Rows result to rippleRowScanner for
+// ListRipples, which selects one extra trailing column
+// (thread_created_at) beyond scanRipple's fixed set — appended to
+// whatever destinations scanRipple passes in, so the same scan function
+// serves both GetRipple (no extra column) and ListRipples (one extra).
+type rippleListRow struct {
+	rows            *sql.Rows
+	threadCreatedAt *time.Time
+}
+
+func (r rippleListRow) Scan(dest ...any) error {
+	return r.rows.Scan(append(dest, r.threadCreatedAt)...)
+}
+
+// scanRipple scans one ripple_responses row joined against its
+// user_signatures/server_signatures rows, in the exact column order
+// GetRipple and ListRipples both select in. ServerSignature.ServerID is
+// not a stored column (a ripple's countersignature is always this
+// server's own) — callers set it from DataService.GetServerID() after
+// scanning.
+func scanRipple(row rippleRowScanner) (*Ripple, error) {
+	var r Ripple
+	var replyingTo sql.NullString
+	err := row.Scan(
+		&r.ID, &r.ReedAuthorID, &r.ReedID, &r.ThreadID, &r.UserID, &r.Content,
+		&replyingTo, &r.Deleted, &r.PostedAt,
+		&r.UserFingerprint, &r.UserSignature.Armor,
+		&r.ServerSignature.Fingerprint, &r.ServerSignature.Armor, &r.ServerSignature.SignedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if replyingTo.Valid {
+		r.ReplyingTo = &replyingTo.String
+	}
+	r.UserSignature.Fingerprint = r.UserFingerprint
+	r.ServerSignature.SignedAt = r.ServerSignature.SignedAt.UTC().Truncate(time.Second)
+	return &r, nil
+}
+
+// rippleCursor is the decoded form of the opaque ripples-list pagination
+// cursor. Ordering is (thread creation time, thread id, posted at, id) —
+// a single timestamp can't disambiguate thread groups, unlike ListReplies'
+// plain RFC3339 cursor.
+type rippleCursor struct {
+	ThreadCreatedAt time.Time `json:"threadCreatedAt"`
+	ThreadID        string    `json:"threadID"`
+	PostedAt        time.Time `json:"postedAt"`
+	ID              string    `json:"id"`
+}
+
+func encodeRippleCursor(c rippleCursor) string {
+	b, _ := json.Marshal(c)
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+func decodeRippleCursor(s string) (*rippleCursor, error) {
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid cursor encoding: %w", err)
+	}
+	var c rippleCursor
+	if err := json.Unmarshal(b, &c); err != nil {
+		return nil, fmt.Errorf("invalid cursor payload: %w", err)
+	}
+	return &c, nil
+}
+
+// ListRipples returns ripple responses for (reedAuthorID, reedID) as a
+// flat, already-ordered slice: threads ordered by the thread's own
+// creation time (MIN(posted_at) for that thread_id) oldest first,
+// responses within a thread ordered posted_at ASC. Includes soft-deleted
+// rows and rows from removed-account authors unfiltered — both render
+// as-is one layer up.
+func (s *DataService) ListRipples(
+	ctx context.Context,
+	reedAuthorID, reedID string,
+	limit int,
+	before string,
+) (*RippleListResult, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	args := []any{reedAuthorID, reedID}
+	query := `
+		SELECT id, reed_author_id, reed_id, thread_id, user_id, content,
+		       replying_to, deleted, posted_at,
+		       user_fingerprint, user_sig, server_fingerprint, server_sig, server_signed_at,
+		       thread_created_at
+		FROM (
+			SELECT rr.id, rr.reed_author_id, rr.reed_id, rr.thread_id, rr.user_id,
+			       rr.content, rr.replying_to, rr.deleted, rr.posted_at,
+			       rr.user_fingerprint, us.signature AS user_sig,
+			       ss.fingerprint AS server_fingerprint, ss.signature AS server_sig,
+			       ss.signed_at AS server_signed_at,
+			       MIN(rr.posted_at) OVER (PARTITION BY rr.thread_id) AS thread_created_at
+			FROM ripple_responses rr
+			JOIN user_signatures us ON us.id = rr.user_signature_id
+			JOIN server_signatures ss ON ss.id = rr.server_signature_id
+			WHERE rr.reed_author_id = $1 AND rr.reed_id = $2
+		) t
+	`
+	if before != "" {
+		c, err := decodeRippleCursor(before)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, c.ThreadCreatedAt, c.ThreadID, c.PostedAt, c.ID)
+		query += fmt.Sprintf(`
+			WHERE (thread_created_at, thread_id, posted_at, id) > ($%d, $%d, $%d, $%d)
+		`, len(args)-3, len(args)-2, len(args)-1, len(args))
+	}
+	args = append(args, limit+1)
+	query += fmt.Sprintf(`
+		ORDER BY thread_created_at ASC, thread_id ASC, posted_at ASC, id ASC
+		LIMIT $%d
+	`, len(args))
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	serverID := s.GetServerID()
+	var items []Ripple
+	var threadCreatedAts []time.Time
+	for rows.Next() {
+		var threadCreatedAt time.Time
+		r, err := scanRipple(rippleListRow{rows, &threadCreatedAt})
+		if err != nil {
+			return nil, err
+		}
+		r.ServerSignature.ServerID = serverID
+		items = append(items, *r)
+		threadCreatedAts = append(threadCreatedAts, threadCreatedAt)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+		threadCreatedAts = threadCreatedAts[:limit]
+	}
+
+	nextCursor := ""
+	if hasMore && len(items) > 0 {
+		last := items[len(items)-1]
+		nextCursor = encodeRippleCursor(rippleCursor{
+			ThreadCreatedAt: threadCreatedAts[len(items)-1],
+			ThreadID:        last.ThreadID,
+			PostedAt:        last.PostedAt,
+			ID:              last.ID,
+		})
+	}
+
+	if items == nil {
+		items = []Ripple{}
+	}
+	return &RippleListResult{Ripples: items, HasMore: hasMore, NextCursor: nextCursor}, nil
+}
+
+// GetRipplesExpiresAt returns the reed's shared expires_at from the
+// ripples bookkeeping row, or the zero time if no ripple has ever been
+// posted to this reed.
+func (s *DataService) GetRipplesExpiresAt(ctx context.Context, reedAuthorID, reedID string) (time.Time, error) {
+	var expiresAt time.Time
+	err := s.db.QueryRowContext(ctx, `
+		SELECT expires_at FROM ripples WHERE reed_author_id = $1 AND reed_id = $2
+	`, reedAuthorID, reedID).Scan(&expiresAt)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	return expiresAt, err
+}
+
+// SoftDeleteRipple flips deleted=true and content='[DELETED]' for id,
+// only if ownerUserID matches ripple_responses.user_id. found reports
+// whether the row exists at all; owned reports whether ownerUserID
+// matches (only meaningful when found is true). Does not touch
+// ripples.expires_at. Idempotent: deleting an already-deleted row
+// succeeds again as a no-op.
+func (s *DataService) SoftDeleteRipple(ctx context.Context, id, ownerUserID string) (found, owned bool, err error) {
+	var actualOwner string
+	err = s.db.QueryRowContext(ctx, `
+		SELECT user_id FROM ripple_responses WHERE id = $1
+	`, id).Scan(&actualOwner)
+	if err == sql.ErrNoRows {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	if actualOwner != ownerUserID {
+		return true, false, nil
+	}
+
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE ripple_responses
+		SET deleted = TRUE, content = '[DELETED]'
+		WHERE id = $1
+	`, id); err != nil {
+		return true, true, err
+	}
+	return true, true, nil
 }

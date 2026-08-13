@@ -638,3 +638,66 @@ func BuildFederationInvitationPayload(inviteID, serverID, baseURL, fingerprint, 
 		"serverId":    serverID,
 	}, "")
 }
+
+// rippleUserHeaders returns the header map covered by a ripple response's
+// userSignature. threadID is always present (client-minted, see
+// specs/ripples/00_design.md); replyingTo is omitted (and therefore
+// dropped by BytesToSign) for a top-level post. No timestamp — client
+// clocks are never signed over, same as every other user payload in this
+// package.
+func rippleUserHeaders(reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo string) map[string]string {
+	return map[string]string{
+		"reedAuthorID":   reedAuthorID,
+		"reedID":         reedID,
+		"rippleAuthorID": rippleAuthorID,
+		"fingerprint":    fingerprint,
+		"threadID":       threadID,
+		"replyingTo":     replyingTo,
+	}
+}
+
+// BuildRippleUserPayload returns the exact bytes a ripple's author signs.
+// `content` is the ripple text, placed in the envelope's content section
+// verbatim, unescaped. `replyingTo` may be empty for a top-level post.
+func BuildRippleUserPayload(reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo, content string) []byte {
+	return signing.BytesToSign(
+		rippleUserHeaders(reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo),
+		content,
+	)
+}
+
+// rippleServerHeaders returns the header map covered by a ripple
+// response's serverSignature: the same fields the user signed, plus
+// serverID and a server-supplied timestamp. Binding reedAuthorID/reedID/
+// rippleAuthorID/threadID/replyingTo kills cross-reed, cross-author, and
+// cross-thread replay; binding the server-key fingerprint lets a
+// verifier with multiple historical server keys pick the right one.
+func rippleServerHeaders(serverID, reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo string, ts time.Time) map[string]string {
+	return map[string]string{
+		"serverID":       serverID,
+		"reedAuthorID":   reedAuthorID,
+		"reedID":         reedID,
+		"rippleAuthorID": rippleAuthorID,
+		"fingerprint":    fingerprint,
+		"threadID":       threadID,
+		"replyingTo":     replyingTo,
+		"timestamp":      ts.UTC().Format(recordTimeFormat),
+	}
+}
+
+// BuildRippleServerPayload returns the exact bytes the server
+// countersigns for a ripple response. Content is the author's detached
+// signature (not the ripple text), mirroring BuildReedPayload exactly —
+// the countersignature covers both the ripple's identity and the user's
+// attestation of it. The response's id is the hash of these bytes (see
+// specs/ripples/00_design.md's Signing section) — frozen at creation,
+// never recomputed.
+//
+// `timestamp` must already be truncated to whole seconds so that what is
+// signed matches what Postgres stores after any timestamp round-trip.
+func BuildRippleServerPayload(serverID, reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo, userSignatureB64 string, timestamp time.Time) []byte {
+	return signing.BytesToSign(
+		rippleServerHeaders(serverID, reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo, timestamp),
+		userSignatureB64,
+	)
+}
