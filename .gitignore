@@ -4,6 +4,7 @@ bin/
 deploy/**/*.env
 !deploy/**/*.env.example
 deploy/scripts/syrinx/root-creds/
+deploy/scripts/syrinx/client-certs/
 docs/.vitepress/cache
 docs/.vitepress/dist
 docs/node_modules

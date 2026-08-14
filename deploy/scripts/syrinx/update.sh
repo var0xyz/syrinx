@@ -21,6 +21,10 @@ SETUP_ENV="$SCRIPT_DIR/setup.env"
 . "$SCRIPT_DIR/otel-agent.sh"
 # shellcheck source=root-bootstrap.sh
 . "$SCRIPT_DIR/root-bootstrap.sh"
+# shellcheck source=mtls.sh
+. "$SCRIPT_DIR/mtls.sh"
+# shellcheck source=ddns.sh
+. "$SCRIPT_DIR/ddns.sh"
 
 if [ ! -f "$SETUP_ENV" ]; then
     echo "❌ Error: missing $SETUP_ENV — run setup first."
@@ -215,6 +219,17 @@ find "$RELEASES_DIR" -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/n
 
 if [ -f "$ENV_FILE" ]; then
     wire_observability_env
+fi
+
+# Repair/no-op only, same as wire_observability_env above — never
+# reconfigures the tunnel, so this must never touch the edge choice itself,
+# only regenerate mTLS material if it's missing/drifted (mtls_install and
+# ddns_install are both idempotent).
+if [ "${EDGE_MODE:-cloudflare}" = "mtls" ] && [ -n "${APP_DOMAIN:-}" ]; then
+    mtls_install "$APP_DOMAIN"
+    if [ -n "${CF_DNS_TOKEN:-}" ] && [ -n "${CF_ZONE_ID:-}" ]; then
+        ddns_install "$APP_DOMAIN" "$CF_DNS_TOKEN" "$CF_ZONE_ID"
+    fi
 fi
 
 # Mint root (id=1) on first boot if missing — temporary ReadWritePaths drop-in,

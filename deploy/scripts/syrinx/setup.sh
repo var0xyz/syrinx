@@ -29,6 +29,10 @@ SETUP_ENV="$SCRIPT_DIR/setup.env"
 . "$SCRIPT_DIR/otel-agent.sh"
 # shellcheck source=root-bootstrap.sh
 . "$SCRIPT_DIR/root-bootstrap.sh"
+# shellcheck source=mtls.sh
+. "$SCRIPT_DIR/mtls.sh"
+# shellcheck source=ddns.sh
+. "$SCRIPT_DIR/ddns.sh"
 
 if [ -f "$SETUP_ENV" ]; then
     # shellcheck disable=SC1090
@@ -56,12 +60,55 @@ APP_REPO="${APP_REPO_INPUT:-$APP_REPO}"
 BACKEND_PATH="."
 FRONTEND_PATH="spa"
 
-if [ -n "$CF_TOKEN" ]; then
-    read -p "🔹 Enter your Cloudflare Zero Trust Tunnel Token [saved]: " CF_TOKEN_INPUT
+# Public edge: how the outside world reaches this host.
+#   cloudflare (default) — outbound-only Tunnel, zero inbound ports, works
+#     behind any NAT, TLS terminated by Cloudflare.
+#   mtls — nginx listens on 443 directly and hard-rejects any connection
+#     without a client certificate signed by a locally-generated CA
+#     (ssl_verify_client on) — enforced at the TLS layer, before the request
+#     reaches any app code. Requires the operator to port-forward 443 and
+#     accept a rotating-public-IP DDNS updater (see ddns.sh) if their ISP
+#     doesn't give a static IP.
+edge_prompt_default="${EDGE_MODE:-cloudflare}"
+read -r -p "🔹 Public edge mode: cloudflare/mtls [${edge_prompt_default}] (cloudflare = Tunnel, NAT-friendly, no port-forwarding; mtls = nginx on 443 with required client certs, needs port-forwarding): " EDGE_MODE_INPUT
+EDGE_MODE="${EDGE_MODE_INPUT:-$edge_prompt_default}"
+case "$EDGE_MODE" in
+    cloudflare|mtls) ;;
+    *) echo "❌ Error: Public edge mode must be 'cloudflare' or 'mtls', got '$EDGE_MODE'"; exit 1 ;;
+esac
+
+if [ "$EDGE_MODE" = "cloudflare" ]; then
+    if [ -n "$CF_TOKEN" ]; then
+        read -p "🔹 Enter your Cloudflare Zero Trust Tunnel Token [saved]: " CF_TOKEN_INPUT
+    else
+        read -p "🔹 Enter your Cloudflare Zero Trust Tunnel Token: " CF_TOKEN_INPUT
+    fi
+    CF_TOKEN="${CF_TOKEN_INPUT:-$CF_TOKEN}"
 else
-    read -p "🔹 Enter your Cloudflare Zero Trust Tunnel Token: " CF_TOKEN_INPUT
+    CF_TOKEN=""
+    echo "🔹 mTLS edge selected — nginx will terminate TLS on 443 directly."
+    if [ -n "${CF_DNS_TOKEN:-}" ]; then
+        read -p "🔹 Enter your Cloudflare DNS API token (Zone:DNS:Edit) for dynamic-IP updates [saved]: " CF_DNS_TOKEN_INPUT
+    else
+        read -p "🔹 Enter your Cloudflare DNS API token (Zone:DNS:Edit) for dynamic-IP updates: " CF_DNS_TOKEN_INPUT
+    fi
+    CF_DNS_TOKEN="${CF_DNS_TOKEN_INPUT:-${CF_DNS_TOKEN:-}}"
+
+    if [ -n "${CF_ZONE_ID:-}" ]; then
+        read -p "🔹 Enter the Cloudflare Zone ID for the domain's DNS zone [saved]: " CF_ZONE_ID_INPUT
+    else
+        read -p "🔹 Enter the Cloudflare Zone ID for the domain's DNS zone: " CF_ZONE_ID_INPUT
+    fi
+    CF_ZONE_ID="${CF_ZONE_ID_INPUT:-${CF_ZONE_ID:-}}"
+
+    if [ -z "$CF_DNS_TOKEN" ] || [ -z "$CF_ZONE_ID" ]; then
+        echo "❌ Error: EDGE_MODE=mtls requires a Cloudflare DNS API token and Zone ID"
+        echo "   so this host can keep \$APP_DOMAIN pointed at its current public IP"
+        echo "   (residential ISPs frequently rotate it). See README.md for how to"
+        echo "   create a Zone:DNS:Edit scoped token."
+        exit 1
+    fi
 fi
-CF_TOKEN="${CF_TOKEN_INPUT:-$CF_TOKEN}"
 
 # OTEL / OpenObserve collector on the LAN. Empty (or "off") disables export.
 otel_prompt_default="${TELEMETRY_HOST:-}"
@@ -98,18 +145,25 @@ else
     echo "📡 Observability: disabled (no OTEL collector)"
 fi
 
-if [ -z "$APP_DOMAIN" ] || [ -z "$APP_REPO" ] || [ -z "$CF_TOKEN" ]; then
-    echo "❌ Error: APP_DOMAIN, APP_REPO, and CF_TOKEN are required."
+if [ -z "$APP_DOMAIN" ] || [ -z "$APP_REPO" ]; then
+    echo "❌ Error: APP_DOMAIN and APP_REPO are required."
+    exit 1
+fi
+if [ "$EDGE_MODE" = "cloudflare" ] && [ -z "$CF_TOKEN" ]; then
+    echo "❌ Error: CF_TOKEN is required when EDGE_MODE=cloudflare."
     exit 1
 fi
 
-# Persist answers for the next run (mode 600 — contains CF_TOKEN)
+# Persist answers for the next run (mode 600 — contains CF_TOKEN/CF_DNS_TOKEN)
 umask 077
 {
     printf "APP_NAME=%q\n" "$APP_NAME"
     printf "APP_DOMAIN=%q\n" "$APP_DOMAIN"
     printf "APP_REPO=%q\n" "$APP_REPO"
+    printf "EDGE_MODE=%q\n" "$EDGE_MODE"
     printf "CF_TOKEN=%q\n" "$CF_TOKEN"
+    printf "CF_DNS_TOKEN=%q\n" "${CF_DNS_TOKEN:-}"
+    printf "CF_ZONE_ID=%q\n" "${CF_ZONE_ID:-}"
     printf "TELEMETRY_HOST=%q\n" "$TELEMETRY_HOST"
 } > "$SETUP_ENV"
 chmod 600 "$SETUP_ENV"
@@ -148,12 +202,20 @@ on_error() {
 trap 'on_error $LINENO' ERR
 
 echo -e "\n⚙️  Validating target dependency versions on Debian Trixie..."
-apt update && apt install -y curl git postgresql postgresql-contrib ufw nodejs npm wget build-essential nginx
+apt update && apt install -y curl git postgresql postgresql-contrib ufw nodejs npm wget build-essential nginx openssl
 
-# Ensure local system firewall blocks edge attempts (Zero ports open externally)
+# Ensure local system firewall blocks edge attempts (Zero ports open externally
+# in cloudflare mode; mtls mode needs 443 reachable for its direct edge).
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp comment 'SSH Secure Administration Management'
+if [ "$EDGE_MODE" = "mtls" ]; then
+    ufw allow 443/tcp comment 'nginx mTLS public edge'
+    ufw allow 80/tcp comment 'HTTP->HTTPS redirect only'
+else
+    ufw delete allow 443/tcp >/dev/null 2>&1 || true
+    ufw delete allow 80/tcp >/dev/null 2>&1 || true
+fi
 ufw --force enable
 
 # ==============================================================================
@@ -359,21 +421,15 @@ ln -sfn "$RELEASE_DIR" "$WWW_ROOT/build"
 
 # ==============================================================================
 # LOCAL EDGE: nginx serves SPA + proxies /api and /ws to Go
-# Cloudflare Tunnel Service URL → http://127.0.0.1:8081
+# cloudflare mode: Tunnel Service URL → http://127.0.0.1:8081
+# mtls mode: nginx itself is the public edge, listening on 443 with a
+#   required client certificate (ssl_verify_client on) — see mtls.sh
 # ==============================================================================
-echo -e "\n🌐 Configuring localhost nginx static origin (SPA + API proxy)..."
+echo -e "\n🌐 Configuring nginx (SPA + API proxy, edge mode: $EDGE_MODE)..."
 STATIC_PORT=8081
 
-cat > "/etc/nginx/sites-available/$APP_NAME" <<EOF
-server {
-    listen 127.0.0.1:$STATIC_PORT;
-    server_name $APP_DOMAIN;
-
-    # Cloudflare Tunnel terminates TLS; redirect any cleartext client requests.
-    if (\$http_x_forwarded_proto = "http") {
-        return 301 https://\$host\$request_uri;
-    }
-
+# Shared location blocks — only the listen/TLS preamble differs by edge mode.
+NGINX_LOCATIONS=$(cat <<EOF
     root $WWW_ROOT/build;
     index index.html;
 
@@ -422,8 +478,40 @@ server {
     location / {
         try_files \$uri \$uri/ /index.html;
     }
-}
 EOF
+)
+
+if [ "$EDGE_MODE" = "mtls" ]; then
+    mtls_install "$APP_DOMAIN"
+
+    {
+        echo "server {"
+        mtls_nginx_listen_block "$APP_DOMAIN"
+        echo "$NGINX_LOCATIONS"
+        echo "}"
+        echo ""
+        mtls_nginx_redirect_block "$APP_DOMAIN"
+    } > "/etc/nginx/sites-available/$APP_NAME"
+
+    ddns_install "$APP_DOMAIN" "$CF_DNS_TOKEN" "$CF_ZONE_ID"
+else
+    mtls_remove
+    ddns_remove
+
+    {
+        echo "server {"
+        echo "    listen 127.0.0.1:$STATIC_PORT;"
+        echo "    server_name $APP_DOMAIN;"
+        echo ""
+        echo "    # Cloudflare Tunnel terminates TLS; redirect any cleartext client requests."
+        echo "    if (\$http_x_forwarded_proto = \"http\") {"
+        echo "        return 301 https://\$host\$request_uri;"
+        echo "    }"
+        echo ""
+        echo "$NGINX_LOCATIONS"
+        echo "}"
+    } > "/etc/nginx/sites-available/$APP_NAME"
+fi
 
 ln -sfn "/etc/nginx/sites-available/$APP_NAME" "/etc/nginx/sites-enabled/$APP_NAME"
 rm -f /etc/nginx/sites-enabled/default
@@ -487,7 +575,17 @@ systemctl restart "$APP_NAME.service"
 
 # ==============================================================================
 # EDGE NETWORK EXPOSURE CONTROL (Cloudflare Outbound Tunnel Setup)
+# Skipped entirely under EDGE_MODE=mtls — nginx is the public edge there.
 # ==============================================================================
+if [ "$EDGE_MODE" = "mtls" ]; then
+    if systemctl is-active --quiet cloudflared 2>/dev/null || [ -f /etc/systemd/system/cloudflared.service ]; then
+        echo -e "\n☁️  EDGE_MODE=mtls — tearing down previously configured cloudflared..."
+        systemctl disable --now cloudflared 2>/dev/null || true
+        rm -f /etc/systemd/system/cloudflared.service
+        systemctl daemon-reload
+        echo "✅ cloudflared removed (nginx mTLS is now the public edge)"
+    fi
+else
 # Token tunnels only need reconfigure when missing, token changed, or unhealthy.
 # Ping cannot validate a Cloudflare tunnel — use HTTPS to the public hostname.
 cloudflare_tunnel_healthy() {
@@ -562,6 +660,7 @@ EOF
     systemctl enable cloudflared --now
     sleep 2
 fi
+fi
 
 # ==============================================================================
 # VERIFICATION STATUS REPORTS
@@ -570,7 +669,13 @@ echo -e "\n🎉 Final Deployment Report Assessment Profile:"
 echo "------------------------------------------------------------------"
 systemctl is-active --quiet "$APP_NAME" && echo "✅ Application Process Node: ONLINE" || echo "❌ Application Process Node: FAILED"
 systemctl is-active --quiet nginx && echo "✅ Local Static Origin (nginx): ONLINE" || echo "❌ Local Static Origin (nginx): FAILED"
-systemctl is-active --quiet cloudflared && echo "✅ Cloudflare Gateway Network: CONNECTED" || echo "❌ Cloudflare Gateway Network: DISCONNECTED"
+if [ "$EDGE_MODE" = "mtls" ]; then
+    echo "✅ Public edge: nginx mTLS on 443 (client cert required, CA in $MTLS_DIR)"
+    echo "   Last known public IP: $(ddns_last_known_ip)"
+    systemctl is-active --quiet "$DDNS_TIMER" && echo "✅ DDNS updater: ACTIVE" || echo "❌ DDNS updater: INACTIVE"
+else
+    systemctl is-active --quiet cloudflared && echo "✅ Cloudflare Gateway Network: CONNECTED" || echo "❌ Cloudflare Gateway Network: DISCONNECTED"
+fi
 if [ -n "$TELEMETRY_HOST" ]; then
     echo "✅ OTEL: journald shipper → ${TELEMETRY_HOST}:4318 (OpenObserve org=default)"
     systemctl is-active --quiet otelcol-agent && echo "✅ Journald OTLP shipper: ONLINE" || echo "❌ Journald OTLP shipper: FAILED"
@@ -578,8 +683,16 @@ else
     echo "⚪ OTEL export: disabled"
 fi
 echo "------------------------------------------------------------------"
-echo "Cloudflare dashboard → Public Hostname for $APP_DOMAIN"
-echo "  Service URL: http://127.0.0.1:$STATIC_PORT"
+if [ "$EDGE_MODE" = "mtls" ]; then
+    echo "nginx is listening directly on 443 — make sure your router forwards"
+    echo "443/tcp (and 80/tcp for the HTTPS redirect) to this host."
+    echo "Issue a client cert for a device with:"
+    echo "  sudo bash -c 'source $SCRIPT_DIR/mtls.sh; mtls_issue_client_cert <name>'"
+    echo "Fetch it from your laptop with: ./cp-client-cert.sh <name>"
+else
+    echo "Cloudflare dashboard → Public Hostname for $APP_DOMAIN"
+    echo "  Service URL: http://127.0.0.1:$STATIC_PORT"
+fi
 echo "🚀 Environment build finished! Your setup is safely listening at https://$APP_DOMAIN"
 echo "📝 Log saved to $LOG_FILE"
 echo "📄 App env: $ENV_FILE"
