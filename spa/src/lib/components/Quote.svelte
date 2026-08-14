@@ -223,7 +223,7 @@
       on:click={handleClick}
       on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><Username userID={removedTarget.userID} {username} linked={false} fire={false} color="var(--muted)" />&nbsp;· {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={removedTarget.userID} {username} linked={false} fire={false} color="var(--muted)" />&nbsp;· {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</span></div>
       <p class="quote-removed-note">
         {removedTarget.kind === 'account'
           ? 'This author deleted their account.'
@@ -236,7 +236,7 @@
       class:quote--clamped={maxLines > 0}
       style="--border-color: {borderColor}; --max-lines: {maxLines}"
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><Username userID={removedTarget.userID} {username} linked={false} fire={false} color="var(--muted)" />&nbsp;· {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={removedTarget.userID} {username} linked={false} fire={false} color="var(--muted)" />&nbsp;· {removedTarget.kind === 'account' ? 'Account deleted' : 'Removed'}</span></div>
       <p class="quote-removed-note">
         {removedTarget.kind === 'account'
           ? 'This author deleted their account.'
@@ -255,7 +255,7 @@
       on:click={handleClick}
       on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><Username userID={displayReed.userID} serverID={displayReed.serverSignature?.serverID ?? ''} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} serverID={displayReed.serverSignature?.serverID ?? ''} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</span></div>
 
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
@@ -267,7 +267,7 @@
       class:quote--clamped={maxLines > 0}
       style="--border-color: {borderColor}; --max-lines: {maxLines}"
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><Username userID={displayReed.userID} serverID={displayReed.serverSignature?.serverID ?? ''} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} serverID={displayReed.serverSignature?.serverID ?? ''} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</span></div>
 
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
@@ -303,10 +303,16 @@
 
   .quote-meta {
     display: flex;
+    align-items: flex-start;
     font-size: 0.75rem;
     color: var(--muted);
     margin-bottom: 0.25rem;
     word-break: break-word;
+  }
+
+  .quote-meta-text {
+    color: var(--muted);
+    min-width: 0;
   }
 
   .quote-icon {
