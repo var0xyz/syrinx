@@ -542,6 +542,19 @@ export const apiService = {
     return request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
   },
 
+  async listEchoers(
+    userId: string,
+    reedId: string,
+    opts?: { limit?: number; before?: string },
+  ): Promise<api.EchoerListResponse> {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.before) params.set('before', opts.before);
+    const qs = params.toString();
+    const path = `/reeds/${userId}/${reedId}/chorus${qs ? `?${qs}` : ''}`;
+    return request<api.EchoerListResponse>(path, { method: 'GET' });
+  },
+
   /**
    * Listing ripples requires proving possession of the parent reed —
    * `serverSignatureArmor` (the reed's own base64 server-signature armor,

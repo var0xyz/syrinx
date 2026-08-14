@@ -301,8 +301,11 @@ func main() {
 	api.HandleFunc("/reeds/{userID}/{reedID}", h.DeleteReed).Methods("DELETE")
 	api.HandleFunc("/reeds/{userID}/{reedID}", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/reeds/{userID}/{reedID}/echoes", h.GetReedEchoes).Methods("GET")
+	api.HandleFunc("/reeds/{userID}/{reedID}/echoes", h.GetReedEchoCount).Methods("GET")
 	api.HandleFunc("/reeds/{userID}/{reedID}/echoes", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/reeds/{userID}/{reedID}/chorus", h.GetReedChorus).Methods("GET")
+	api.HandleFunc("/reeds/{userID}/{reedID}/chorus", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/reeds/{userID}/{reedID}/replies", h.GetReedReplies).Methods("GET")
 	api.HandleFunc("/reeds/{userID}/{reedID}/replies", h.noop).Methods("OPTIONS")

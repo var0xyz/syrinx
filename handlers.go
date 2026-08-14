@@ -2356,9 +2356,9 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, result.Reed)
 }
 
-func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) GetReedEchoCount(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("GetReedEchoes request received")
+	log.Info().Msg("GetReedEchoCount request received")
 
 	reedID := mux.Vars(r)["reedID"]
 	userID := mux.Vars(r)["userID"]
@@ -2394,6 +2394,60 @@ func (h *Handlers) GetReedEchoes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeResponse(w, http.StatusOK, count)
+}
+
+// GetReedChorus handles GET /reeds/{userID}/{reedID}/chorus.
+func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("GetReedChorus request received")
+
+	reedID := mux.Vars(r)["reedID"]
+	userID := mux.Vars(r)["userID"]
+	if userID == "" || reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		return
+	}
+
+	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed")
+		internalServerError(w)
+		return
+	}
+	if result.Reed == nil && result.ReedRemoval == nil && result.AccountRemoval == nil {
+		writeResponse(w, http.StatusNotFound, "Post not found")
+		return
+	}
+
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			return
+		}
+		limit = n
+	}
+
+	var before *time.Time
+	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			return
+		}
+		t = t.UTC().Truncate(time.Second)
+		before = &t
+	}
+
+	list, err := h.services.db.GetReedChorus(r.Context(), userID, reedID, limit, before)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error listing echoers")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, list)
 }
 
 func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
@@ -3004,7 +3058,7 @@ func rippleWire(r *Ripple) RippleWire {
 
 // checkRippleParentReed validates the parent reed for a ripples request,
 // writing the appropriate 404/410 response and returning ok=false if the
-// caller should stop. Mirrors GetReed/GetReedEchoes's convention (not
+// caller should stop. Mirrors GetReed/GetReedEchoCount's convention (not
 // GetReedReplies, which omits the removal checks).
 func (h *Handlers) checkRippleParentReed(w http.ResponseWriter, r *http.Request, userID, reedID string) (ok bool) {
 	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)

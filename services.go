@@ -1882,6 +1882,81 @@ func (s *DataService) CountEchoes(ctx context.Context, echoedUserID, echoedReedI
 	return n, err
 }
 
+// EchoerListItem is one echoer in a paginated list response.
+type EchoerListItem struct {
+	UserID   string    `json:"userID"`
+	EchoedAt time.Time `json:"echoedAt"`
+}
+
+// EchoerListResponse is the body of GET /reeds/{userID}/{reedID}/echoers.
+type EchoerListResponse struct {
+	Users   []EchoerListItem `json:"users"`
+	HasMore bool             `json:"hasMore"`
+}
+
+// GetReedChorus returns the users who echoed the given reed, oldest first.
+func (s *DataService) GetReedChorus(ctx context.Context, echoedUserID, echoedReedID string, limit int, before *time.Time) (*EchoerListResponse, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	// A user can echo the same target more than once (separate echoing
+	// reeds), so group by echoing_user_id and take their earliest echo as
+	// the row's timestamp — the chorus lists each person once.
+	args := []any{echoedUserID, echoedReedID}
+	query := `
+		SELECT re.echoing_user_id, MIN(re.signed_at) AS first_echoed_at
+		FROM reed_echoes re
+		WHERE re.echoed_user_id = $1 AND re.echoed_reed_id = $2
+		AND NOT EXISTS (
+			SELECT 1 FROM account_removals ar WHERE ar.user_id = re.echoing_user_id
+		)
+		GROUP BY re.echoing_user_id
+	`
+	if before != nil {
+		args = append(args, before.UTC().Truncate(time.Second))
+		query += fmt.Sprintf(`
+			HAVING (MIN(re.signed_at), re.echoing_user_id) > ($%d, '')
+		`, len(args))
+	}
+	args = append(args, limit+1)
+	query += fmt.Sprintf(`
+		ORDER BY first_echoed_at ASC, re.echoing_user_id ASC
+		LIMIT $%d
+	`, len(args))
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []EchoerListItem
+	for rows.Next() {
+		var userID string
+		var echoedAt time.Time
+		if err := rows.Scan(&userID, &echoedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, EchoerListItem{UserID: userID, EchoedAt: echoedAt})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	if items == nil {
+		items = []EchoerListItem{}
+	}
+	return &EchoerListResponse{Users: items, HasMore: hasMore}, nil
+}
+
 // DeleteEchoIndexForReed clears echo index rows when a reed is removed.
 // Returns distinct echoed targets whose counts may have changed (excluding
 // the removed reed itself, which no longer has live tip subscribers).
