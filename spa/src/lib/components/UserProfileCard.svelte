@@ -202,7 +202,7 @@
   {/if}
   {#if isOwner}
     <div class="profile-actions">
-      <button class="action-btn primary" on:click={() => dispatch('edit')}>Edit Profile</button>
+      <button class="action-btn secondary" on:click={() => dispatch('edit')}>Edit Profile</button>
     </div>
   {:else}
     <div class="profile-actions">
