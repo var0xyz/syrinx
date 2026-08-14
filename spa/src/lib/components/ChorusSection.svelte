@@ -1,10 +1,11 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
+  import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
 
   /** @type {string} */
   export let userID;
@@ -55,6 +56,26 @@
     }
   }
 
+  /** REED_ECHOES only carries the new total, not who echoed — refetch from
+   * the top rather than trying to patch `rows` in place. Collapses any
+   * pagination the viewer had done back to the first page, same tradeoff
+   * ConversationSection makes on a live reply. */
+  async function reload() {
+    try {
+      rows = [];
+      hasMore = false;
+      cursor = undefined;
+      await loadPage();
+    } catch (err) {
+      console.error('Failed to refresh chorus:', err);
+    }
+  }
+
+  function handleReedEchoes(msg) {
+    if (msg?.userID !== userID || msg?.reedID !== reedID) return;
+    void reload();
+  }
+
   onMount(async () => {
     try {
       await loadPage();
@@ -64,6 +85,14 @@
     } finally {
       loading = false;
     }
+  });
+
+  onMount(() => {
+    serverConnection.on(ServerEvent.ReedEchoes, handleReedEchoes);
+  });
+
+  onDestroy(() => {
+    serverConnection.off(ServerEvent.ReedEchoes, handleReedEchoes);
   });
 </script>
 
