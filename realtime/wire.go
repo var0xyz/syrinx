@@ -221,3 +221,11 @@ type RippleUpdatedMsg struct {
 	ReedID string     `json:"reedID"`
 	Ripple RippleWire `json:"ripple"`
 }
+
+// ShutdownMsg is broadcast to every connected client right before the
+// server closes their socket for a graceful shutdown (SIGTERM/SIGINT), so
+// the client can reconnect immediately instead of waiting on a connection
+// that silently went dead.
+type ShutdownMsg struct {
+	Type string `json:"type"`
+}
