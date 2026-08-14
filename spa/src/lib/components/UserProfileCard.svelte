@@ -178,20 +178,12 @@
         </p>
       {/if}
       <div class="follow-stats">
-        {#if followingCount > 0}
-          <button type="button" class="follow-stat" on:click={() => openFollowList('following')}>
-            <strong>{followingCount}</strong> Following
-          </button>
-        {:else}
-          <span class="follow-stat"><strong>{followingCount}</strong> Following</span>
-        {/if}
-        {#if followersCount > 0}
-          <button type="button" class="follow-stat" on:click={() => openFollowList('followers')}>
-            <strong>{followersCount}</strong> {followersCount === 1 ? 'Follower' : 'Followers'}
-          </button>
-        {:else}
-          <span class="follow-stat"><strong>{followersCount}</strong> Followers</span>
-        {/if}
+        <button type="button" class="follow-stat" on:click={() => openFollowList('following')}>
+          <strong>{followingCount}</strong> Following
+        </button>
+        <button type="button" class="follow-stat" on:click={() => openFollowList('followers')}>
+          <strong>{followersCount}</strong> {followersCount === 1 ? 'Follower' : 'Followers'}
+        </button>
       </div>
     </div>
   </div>
@@ -234,12 +226,13 @@
   </div>
 {/if}
 
-<FollowListModal
-  open={followListOpen}
-  userId={user?.id ?? ''}
-  mode={followListMode}
-  on:close={closeFollowList}
-/>
+{#if followListOpen}
+  <FollowListModal
+    userId={user?.id ?? ''}
+    mode={followListMode}
+    on:close={closeFollowList}
+  />
+{/if}
 
 <style>
   .profile-card {

@@ -7,7 +7,6 @@
   import { formatRelativeTime } from '$lib/utils/time';
   import type * as api from '$lib/types/api';
 
-  export let open = false;
   export let userId = '';
   /** 'following' | 'followers' */
   export let mode: 'following' | 'followers' = 'following';
@@ -25,9 +24,11 @@
 
   $: title = mode === 'following' ? 'Following' : 'Followers';
 
-  $: openKey = `${userId}:${mode}`;
-  $: if (open && openKey !== loadedForKey) {
-    loadedForKey = openKey;
+  // Fires once on mount (loadedForKey starts empty) and again if the
+  // parent ever reuses a still-mounted instance for a different user/mode.
+  $: key = `${userId}:${mode}`;
+  $: if (key !== loadedForKey) {
+    loadedForKey = key;
     reset();
     void loadPage();
   }
@@ -77,62 +78,60 @@
   }
 </script>
 
-{#if open}
-  <div
-    class="modal-backdrop"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="follow-list-modal-title"
-    tabindex="-1"
-    on:click={(e) => e.target === e.currentTarget && close()}
-    on:keydown={(e) => e.key === 'Escape' && close()}
-  >
-    <div class="modal">
-      <div class="modal-header">
-        <h2 id="follow-list-modal-title">{title}</h2>
-        <button class="close-btn" aria-label="Close" on:click={close}>✕</button>
-      </div>
+<div
+  class="modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="follow-list-modal-title"
+  tabindex="-1"
+  on:click={(e) => e.target === e.currentTarget && close()}
+  on:keydown={(e) => e.key === 'Escape' && close()}
+>
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="follow-list-modal-title">{title}</h2>
+      <button class="close-btn" aria-label="Close" on:click={close}>✕</button>
+    </div>
 
-      <div class="list-body">
-        {#if rows.length === 0 && loading}
-          <p class="state-text">Loading…</p>
-        {:else if error && rows.length === 0}
+    <div class="list-body">
+      {#if rows.length === 0 && loading}
+        <p class="state-text">Loading…</p>
+      {:else if error && rows.length === 0}
+        <p class="state-text error">{error}</p>
+      {:else if rows.length === 0}
+        <p class="state-text">
+          {mode === 'following' ? 'Not following anyone yet.' : 'No followers yet.'}
+        </p>
+      {:else}
+        {#each rows as row (row.userID)}
+          <div
+            class="user-row"
+            role="button"
+            tabindex="0"
+            on:click={() => goto(`/profile/${row.userID}`)}
+            on:keydown={(e) => e.key === 'Enter' && goto(`/profile/${row.userID}`)}
+          >
+            <ReedAuthorHeader
+              userID={row.userID}
+              serverID={row.serverID}
+              username={row.username}
+              subtext={`Since ${formatRelativeTime(row.followedAt)}`}
+              stopPropagation
+            />
+          </div>
+        {/each}
+        {#if error}
           <p class="state-text error">{error}</p>
-        {:else if rows.length === 0}
-          <p class="state-text">
-            {mode === 'following' ? 'Not following anyone yet.' : 'No followers yet.'}
-          </p>
-        {:else}
-          {#each rows as row (row.userID)}
-            <div
-              class="user-row"
-              role="button"
-              tabindex="0"
-              on:click={() => goto(`/profile/${row.userID}`)}
-              on:keydown={(e) => e.key === 'Enter' && goto(`/profile/${row.userID}`)}
-            >
-              <ReedAuthorHeader
-                userID={row.userID}
-                serverID={row.serverID}
-                username={row.username}
-                subtext={`Since ${formatRelativeTime(row.followedAt)}`}
-                stopPropagation
-              />
-            </div>
-          {/each}
-          {#if error}
-            <p class="state-text error">{error}</p>
-          {/if}
-          {#if hasMore}
-            <button class="load-more-btn" on:click={loadPage} disabled={loading}>
-              {loading ? 'Loading…' : 'Load more'}
-            </button>
-          {/if}
         {/if}
-      </div>
+        {#if hasMore}
+          <button class="load-more-btn" on:click={loadPage} disabled={loading}>
+            {loading ? 'Loading…' : 'Load more'}
+          </button>
+        {/if}
+      {/if}
     </div>
   </div>
-{/if}
+</div>
 
 <style>
   .modal-backdrop {
