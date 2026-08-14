@@ -16,6 +16,10 @@
   export let userID;
   /** @type {string} */
   export let reedID;
+  /** The parent reed's base64 server-signature armor — proof of
+   * possession required to post a ripple (see api.ts's postRipple). */
+  /** @type {string} */
+  export let serverSignatureArmor;
   /** The ripple being replied to, or null for a top-level post. */
   export let replyingTo = /** @type {import('$lib/types/api').Ripple | null} */ (null);
   /** Resolved username for replyingTo.userID, or null (removed account) —
@@ -82,6 +86,7 @@
         content,
         threadID,
         replyingTo: replyingToHash,
+        proof: serverSignatureArmor,
         fingerprint,
         userSignature,
       });

@@ -542,9 +542,19 @@ export const apiService = {
     return request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
   },
 
+  /**
+   * Listing ripples requires proving possession of the parent reed —
+   * `serverSignatureArmor` (the reed's own base64 server-signature armor,
+   * only visible on a copy of the reed itself) is sent as the request
+   * body. QUERY is the standard-track HTTP method for a safe, body-bearing
+   * request; if a given environment doesn't support it end-to-end, swap
+   * the method/path below for the commented POST .../ripples/proof
+   * fallback (kept in sync with main.go's route registration).
+   */
   async listRipples(
     userId: string,
     reedId: string,
+    serverSignatureArmor: string,
     opts?: { limit?: number; before?: string },
   ): Promise<api.RippleListResponse> {
     const params = new URLSearchParams();
@@ -552,9 +562,16 @@ export const apiService = {
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
     const path = `/reeds/${userId}/${reedId}/ripples${qs ? `?${qs}` : ''}`;
-    return request<api.RippleListResponse>(path, { method: 'GET' });
+    return request<api.RippleListResponse>(path, { method: 'QUERY', body: serverSignatureArmor });
+    // Fallback if QUERY isn't supported end-to-end:
+    // const path = `/reeds/${userId}/${reedId}/ripples/proof${qs ? `?${qs}` : ''}`;
+    // return request<api.RippleListResponse>(path, { method: 'POST', body: serverSignatureArmor });
   },
 
+  /** Posting a ripple requires the same proof of possession of the parent
+   * reed as listing them — see listRipples and the server's
+   * checkReedPossession. `proof` is the reed's base64 server-signature
+   * armor. */
   async postRipple(
     userId: string,
     reedId: string,
@@ -562,6 +579,7 @@ export const apiService = {
       content: string;
       threadID: string;
       replyingTo?: string;
+      proof: string;
       fingerprint: string;
       userSignature: string;
     }
@@ -573,6 +591,7 @@ export const apiService = {
         content: fields.content,
         threadID: fields.threadID,
         replyingTo: fields.replyingTo ?? null,
+        proof: fields.proof,
         fingerprint: fields.fingerprint,
         userSignature: fields.userSignature,
       }),
