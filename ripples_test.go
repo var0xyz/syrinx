@@ -27,6 +27,7 @@ func ensureRipplesSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS server_signatures (id SERIAL PRIMARY KEY, fingerprint VARCHAR(255) NOT NULL, signature TEXT NOT NULL, signed_at TIMESTAMP NOT NULL)`,
 		`DROP TABLE IF EXISTS ripple_responses CASCADE`,
 		`DROP TABLE IF EXISTS ripples CASCADE`,
+		`DROP TABLE IF EXISTS reed_echoes CASCADE`,
 		`DROP TABLE IF EXISTS reed_removals CASCADE`,
 		`DROP TABLE IF EXISTS reeds CASCADE`,
 		`DROP TABLE IF EXISTS account_removals CASCADE`,
@@ -78,6 +79,16 @@ func ensureRipplesSchema(db *sql.DB) error {
 			user_fingerprint VARCHAR(255) NOT NULL DEFAULT '',
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+		)`,
+		`CREATE TABLE reed_echoes (
+			echoing_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			echoing_reed_id VARCHAR(255) NOT NULL,
+			echoed_user_id VARCHAR(255) NOT NULL,
+			echoed_reed_id VARCHAR(255) NOT NULL,
+			is_blank BOOLEAN NOT NULL DEFAULT FALSE,
+			signed_at TIMESTAMP NOT NULL,
+
+			PRIMARY KEY (echoing_user_id, echoing_reed_id)
 		)`,
 		`CREATE TABLE ripples (
 			reed_author_id VARCHAR(255) NOT NULL,
@@ -160,6 +171,21 @@ func insertRipplesTestReed(t *testing.T, db *sql.DB, authorID, reedID string) {
 		reedID, authorID, "fp-"+authorID, userSigID, serverSigID,
 	); err != nil {
 		t.Fatalf("insert reed %s: %v", reedID, err)
+	}
+}
+
+// markReedBlankEcho records (authorID, reedID) as a blank echo (a bare
+// re-share with no commentary) of some other reed, mirroring the row
+// SignReed writes on insert — used to exercise checkRippleParentReed's
+// blank-echo rejection.
+func markReedBlankEcho(t *testing.T, db *sql.DB, authorID, reedID string) {
+	t.Helper()
+	if _, err := db.Exec(
+		`INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, is_blank, signed_at)
+		 VALUES ($1, $2, $1, $3, TRUE, now())`,
+		authorID, reedID, "original-"+reedID,
+	); err != nil {
+		t.Fatalf("mark reed %s as blank echo: %v", reedID, err)
 	}
 }
 

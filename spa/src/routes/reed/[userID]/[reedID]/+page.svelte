@@ -26,7 +26,7 @@
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
   import { parseReedRef, resolveThreadId } from '$lib/utils/reedRef';
-  import { resolveBlankEchoChain } from '$lib/utils/emptyEcho';
+  import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -119,6 +119,11 @@
   $: userID = $page.params.userID;
   $: reedID = $page.params.reedID;
   $: isPending = !!(reed && !reed.serverSignature);
+  // Blank echoes (a bare re-share with no commentary) carry no
+  // interactions of their own — no stats, no conversation/ripples, no live
+  // updates. The interactions bar shows disabled rather than being hidden,
+  // so the layout doesn't jump.
+  $: isBlankEchoView = isBlankEcho(reed);
   // Params can update before `data` on same-route navigations; never show a
   // reed that doesn't match the URL (e.g. parent body under the new author).
   $: reedMatchesRoute = !!(reed && reed.id === reedID && reed.userID === userID);
@@ -432,23 +437,24 @@
   }
 
   async function handleEcho() {
-    if (isPending) return;
+    if (isPending || isBlankEchoView) return;
     replyEchoTarget = await resolveReplyEchoTarget();
     isEchoModalOpen = true;
   }
 
   async function handleReply() {
-    if (isPending) return;
+    if (isPending || isBlankEchoView) return;
     replyEchoTarget = await resolveReplyEchoTarget();
     isReplyModalOpen = true;
   }
 
   function handleStatsInfo() {
+    if (isBlankEchoView) return;
     isStatsInfoModalOpen = true;
   }
 
   async function handleShare() {
-    if (!reed || isPending) return;
+    if (!reed || isPending || isBlankEchoView) return;
 
     const reedUrl = `${window.location.origin}/reed/${userID}/${reedID}`;
     const reedText = stripMarkdown(reed.content);
@@ -482,7 +488,7 @@
   }
 
   async function handleLike() {
-    if (isPending) return;
+    if (isPending || isBlankEchoView) return;
     const wasLiked = isLiked;
     isLiked = !wasLiked;
     try {
@@ -506,7 +512,7 @@
   <Auth>
     <div class="reed-detail-container">
       {#key `${userID}/${reedID}`}
-        {#if (reedMatchesRoute && reed?.serverSignature) || removedReedCert || removedAccountCert}
+        {#if !isBlankEchoView && ((reedMatchesRoute && reed?.serverSignature) || removedReedCert || removedAccountCert)}
           <ReedStatsSubscription
             authorId={userID}
             reedId={reedID}
@@ -614,26 +620,34 @@
                     username={authorUser?.username ?? reed.userID}
                     class="author-name"
                   />
-                  <p class="reed-date" class:pending={isPending}>{isPending ? 'Pending…' : formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
-                  {#if !isPending}
-                    <button type="button" class="reed-stats" on:click={handleStatsInfo} aria-label="Reed stats — click for details">
-                      {#if statsStatus === 'loading'}
-                        Loading stats...
-                      {:else if statsStatus === 'failed'}
-                        Failed to load stats
-                      {:else}
-                        <span class="reed-stat-icon echoes" aria-hidden="true"></span>
-                        {echoCount}
-                        <span class="reed-stat-icon replies" aria-hidden="true"></span>
-                        {replyCount}
-                        <span class="reed-stat-icon likes" aria-hidden="true"></span>
-                        {likeCount}
-                        <span class="reed-stat-icon coverage" aria-hidden="true"></span>
-                        {coveragePercent}%
-                        <span class="reed-stat-icon info" aria-hidden="true"></span>
-                      {/if}
-                    </button>
-                  {/if}
+                  <p class="reed-date">{isPending ? 'Pending…' : formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
+                  <button
+                    type="button"
+                    class="reed-stats"
+                    class:invisible={isBlankEchoView || isPending}
+                    on:click={handleStatsInfo}
+                    aria-label="Reed stats — click for details"
+                    aria-hidden={isBlankEchoView}
+                    tabindex={isBlankEchoView ? -1 : 0}
+                  >
+                    {#if isPending}
+                      &nbsp;
+                    {:else if statsStatus === 'loading'}
+                      Loading stats...
+                    {:else if statsStatus === 'failed'}
+                      Failed to load stats
+                    {:else}
+                      <span class="reed-stat-icon echoes" aria-hidden="true"></span>
+                      {echoCount}
+                      <span class="reed-stat-icon replies" aria-hidden="true"></span>
+                      {replyCount}
+                      <span class="reed-stat-icon likes" aria-hidden="true"></span>
+                      {likeCount}
+                      <span class="reed-stat-icon coverage" aria-hidden="true"></span>
+                      {coveragePercent}%
+                      <span class="reed-stat-icon info" aria-hidden="true"></span>
+                    {/if}
+                  </button>
                 </div>
               </div>
               {#if user?.id === reed.userID}
@@ -660,25 +674,25 @@
             </div>
 
             <div class="reed-actions-bar">
-              <button class="action-btn" on:click={handleEcho} aria-label="Echo" disabled={isPending}>
+              <button class="action-btn" on:click={handleEcho} aria-label="Echo" disabled={isPending || isBlankEchoView}>
                 <span class="action-icon icon-echo"></span>
                 <span class="action-label">Echo</span>
               </button>
-              <button class="action-btn" on:click={handleReply} aria-label="Reply" disabled={isPending}>
+              <button class="action-btn" on:click={handleReply} aria-label="Reply" disabled={isPending || isBlankEchoView}>
                 <span class="action-icon icon-reply"></span>
                 <span class="action-label">Reply</span>
               </button>
-              <button class="action-btn" on:click={handleLike} aria-label={isLiked ? 'Unlike' : 'Like'} disabled={isPending}>
+              <button class="action-btn" on:click={handleLike} aria-label={isLiked ? 'Unlike' : 'Like'} disabled={isPending || isBlankEchoView}>
                 <span class="action-icon icon-like" class:filled={isLiked}></span>
                 <span class="action-label">Like</span>
               </button>
-              <button class="action-btn" on:click={handleShare} aria-label="Share" disabled={isPending}>
+              <button class="action-btn" on:click={handleShare} aria-label="Share" disabled={isPending || isBlankEchoView}>
                 <span class="action-icon icon-share"></span>
                 <span class="action-label">Share</span>
               </button>
             </div>
           </div>
-          {#if !isPending}
+          {#if !isPending && !isBlankEchoView}
             <div class="discussion-tabs" role="tablist">
               <button
                 type="button"
@@ -811,6 +825,7 @@
   }
 
   .reed-stats {
+    min-height: 1rem;
     display: inline-flex;
     align-items: end;
     gap: 0.45rem;
@@ -829,6 +844,13 @@
   .reed-stats:hover {
     opacity: 1;
     color: var(--fg);
+  }
+
+  /* Blank echoes have no stats to show, but the button stays in the
+     layout (just invisible) so the date above it doesn't shift. */
+  .reed-stats.invisible {
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .reed-stat-icon {
