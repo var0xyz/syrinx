@@ -19,11 +19,16 @@ permissions and are never committed to git.
 - **`cp-root-creds.sh`** — run from your Mac/laptop. Downloads the root
   identity's export file + passphrase from the host and offers to delete
   them there afterward. See "Root identity bootstrap" below.
+- **`cp-client-cert.sh <name>`** — run from your Mac/laptop. Downloads a
+  device's mTLS client certificate (issued via `mtls_issue_client_cert`) and
+  offers to delete it from the host afterward. Only relevant when
+  `EDGE_MODE=mtls`. See "Public edge: Cloudflare Tunnel vs. mTLS" below.
 - **`setup.sh`** — the main installer. Idempotent: safe to re-run any time to
   repair config drift or pick up new settings. See "What setup.sh does" below.
 - **`update.sh`** — pulls the latest code, rebuilds, and restarts. Does not
-  touch the firewall, the database, or the Cloudflare tunnel. Use this for
-  routine deploys once `setup.sh` has run once.
+  touch the firewall, the database, or the public edge (Cloudflare tunnel or
+  mTLS material — both are repaired in place if missing/drifted, never
+  reconfigured). Use this for routine deploys once `setup.sh` has run once.
 - **`restart.sh`** — restarts the `$APP_NAME.service` systemd unit without
   rebuilding anything. Fast path for config-only changes.
 - **`set-signup-mode.sh <open|invite|closed>`** — flips `SIGNUP_MODE` in
@@ -40,6 +45,15 @@ permissions and are never committed to git.
   install/remove the local telemetry shipper (`otelcol-agent`) that forwards
   this host's app traces/metrics/logs to a separate telemetry Pi. Only
   installed when a telemetry collector host is configured; fully optional.
+- **`mtls.sh`** — not run directly; sourced by `setup.sh`/`update.sh` to
+  generate the local CA, the nginx server certificate, and per-device client
+  certificates when `EDGE_MODE=mtls`. See "Public edge: Cloudflare Tunnel vs.
+  mTLS" below.
+- **`ddns.sh`** — not run directly; sourced by `setup.sh`/`update.sh` to
+  install a systemd timer that keeps `$APP_DOMAIN`'s DNS record pointed at
+  this host's current public IP. Only installed under `EDGE_MODE=mtls`
+  (Cloudflare Tunnel mode doesn't need it — DNS there points at Cloudflare,
+  not this host).
 
 ## First run
 
@@ -56,8 +70,14 @@ You'll be prompted for:
   every build. Use an SSH URL or a plain public HTTPS URL; avoid embedding a
   token in the URL (`https://TOKEN@github.com/...`) since it will briefly be
   visible in `ps aux` output to any local user during the clone.
-- **Cloudflare Zero Trust Tunnel token** — required. See "Network exposure"
-  below for why this is the only way in.
+- **Public edge mode** — `cloudflare` (default) or `mtls`. See "Public edge:
+  Cloudflare Tunnel vs. mTLS" below before choosing.
+- **Cloudflare Zero Trust Tunnel token** — required when edge mode is
+  `cloudflare`. See "Network exposure" below for why this is the only way in
+  for that mode.
+- **Cloudflare DNS API token + Zone ID** — required when edge mode is
+  `mtls`, so this host can keep its domain pointed at its own public IP. See
+  "Public edge: Cloudflare Tunnel vs. mTLS" below.
 - **OTEL collector host** (optional) — IP/hostname of a telemetry Pi running
   the `deploy/scripts/telemetry` stack. Leave empty to disable observability export.
 
@@ -99,10 +119,80 @@ the same: run `./syrinx.sh setup` again. It never touches `setup.env`/
 on the host, so redeploying can't clobber settings or secrets already
 saved there.
 
+## Public edge: Cloudflare Tunnel vs. mTLS
+
+`setup.sh` asks which of two mutually exclusive edge modes to use — pick
+whichever fits your network and threat model. Re-running `setup.sh` with a
+different `EDGE_MODE` switches a host from one to the other (tears down the
+previous edge's config, sets up the new one).
+
+### `cloudflare` (default)
+
+Described in full in "How setup.sh hardens the host for the internet"
+below. A Cloudflare Zero Trust Tunnel makes an **outbound** connection from
+this host to Cloudflare's edge, which terminates public TLS and proxies
+requests down the tunnel. No inbound port is ever opened, so this works
+behind any NAT/CGNAT/strict home router without any configuration on your
+end, and the domain's DNS just points at Cloudflare — nothing to keep in
+sync with this host's IP.
+
+### `mtls`
+
+nginx itself becomes the public edge, listening directly on `443` and
+terminating TLS with a certificate this script generates. It also requires
+every client to present a **client certificate** signed by a CA generated
+locally on this host (`ssl_verify_client on`) — any connection without one
+is rejected at the TLS handshake, before nginx evaluates a single `location`
+block or proxies anything to the Go app. This is a stronger, transport-level
+guarantee than an application-layer check, at the cost of more moving parts
+you're responsible for:
+
+- **Port-forwarding.** Your router must forward `443/tcp` (and `80/tcp`,
+  used only for the HTTP→HTTPS redirect) to this host. Not reliably possible
+  on strict/symmetric NAT or carrier-grade NAT (common on some ISPs) — check
+  before choosing this mode.
+- **Dynamic public IP.** Most residential ISPs rotate the public IP
+  periodically. `ddns.sh` installs a systemd timer (`$APP_NAME-ddns.timer`,
+  every 5 minutes) that detects IP changes and updates `$APP_DOMAIN`'s
+  DNS record via the Cloudflare DNS API — this is why `mtls` mode asks for a
+  Cloudflare DNS API token (`Zone:DNS:Edit` scope) and the zone's Zone ID
+  even though it isn't using a Tunnel. Create the token at
+  <https://dash.cloudflare.com/profile/api-tokens> → "Create Token" →
+  "Edit zone DNS" template, scoped to the zone for your domain. Find the
+  Zone ID on the domain's Cloudflare dashboard overview page.
+- **Self-signed CA.** The server certificate and all client certificates are
+  signed by one CA generated locally on this host
+  (`/etc/$APP_NAME/mtls/ca.crt` + `ca.key`, the key never leaves the box) —
+  there's no dependency on Let's Encrypt or port 80 being reachable from the
+  public internet for issuance, but it also means the server cert isn't
+  publicly trusted: any client (browser, `curl`, mobile app) needs the CA's
+  public certificate installed to trust the connection at all, on top of
+  needing its own client certificate to get past `ssl_verify_client`.
+- **Issuing client certificates.** For each device/user that should be able
+  to reach the site, run on the host:
+  ```
+  sudo bash -c 'source mtls.sh; mtls_issue_client_cert <name>'
+  ```
+  then fetch it from your laptop (never printed to the terminal or a log,
+  same convention as the root-identity export):
+  ```
+  ./cp-client-cert.sh <name>
+  ```
+  This downloads `client.key`, `client.crt`, and `ca.crt` to
+  `client-certs/<name>/` (gitignored). Import into a browser's certificate
+  store, or test from the command line:
+  ```
+  curl --cert client.crt --key client.key https://<domain>/
+  ```
+
 ## How setup.sh hardens the host for the internet
 
-Syrinx is designed to be exposed publicly without ever opening an inbound
-port. The hardening happens in layers:
+The zero-inbound-port model below describes **`EDGE_MODE=cloudflare`**
+specifically — `mtls` mode intentionally opens `443`/`80` and makes nginx
+the public edge instead; see "Public edge: Cloudflare Tunnel vs. mTLS"
+above for its own (different) hardening properties. Syrinx is designed to
+be exposed publicly without ever opening an inbound port when using the
+default `cloudflare` mode. The hardening happens in layers:
 
 1. **Zero inbound ports.** `ufw default deny incoming` blocks everything
    except SSH (`22/tcp`, for administration only). The app itself is never
@@ -211,8 +301,13 @@ exist yet).
 - All scripts that touch the live system require root (`sudo`).
 - `FORCE_CF=1 sudo ./setup.sh` forces the Cloudflare tunnel config to be
   rewritten even if it currently looks healthy (e.g. after rotating the
-  token).
+  token). Only applies to `EDGE_MODE=cloudflare`.
 - Consider restricting SSH (port 22) to known source IPs or a VPN/allowlist
   if your Pi has a static administrative access path — `setup.sh` leaves it
   open to any source by default since it's the only way in for initial
   administration.
+- Switching `EDGE_MODE` on a live host (e.g. `cloudflare` → `mtls`) tears
+  down the previous edge's config (cloudflared unit, or mTLS
+  CA/certs+DDNS timer) and stands up the new one on the next `setup.sh` run
+  — there's no in-between state, but expect a brief window of downtime
+  while nginx reloads and the new edge comes up.
