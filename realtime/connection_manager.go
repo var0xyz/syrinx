@@ -198,6 +198,33 @@ func (cm *ConnectionManager) pingClients() {
 	}
 }
 
+// BroadcastShutdown tells every connected client the server is going away
+// (SIGTERM/SIGINT) so it can drop the socket and start reconnecting right
+// away, instead of waiting on a dead connection with no more pings. Best
+// effort — the process is exiting either way, so a failed write here is
+// just logged, not retried. This is the server-initiated counterpart to
+// the client noticing an ordinary network drop.
+func (cm *ConnectionManager) BroadcastShutdown() {
+	cm.mutex.RLock()
+	clients := make([]*Client, 0)
+	for _, userConns := range cm.userConnections {
+		for _, c := range userConns {
+			clients = append(clients, c)
+		}
+	}
+	cm.mutex.RUnlock()
+
+	shutdown := ShutdownMsg{Type: "SIGTERM"}
+	for _, c := range clients {
+		if err := cm.SendToClient(c, shutdown); err != nil {
+			log.Error().Err(err).Str("userID", c.userID).Msg("Failed to send SIGTERM notice")
+		}
+	}
+	for _, c := range clients {
+		c.conn.Close()
+	}
+}
+
 // sendPing sends a ping message to a connection
 func (cm *ConnectionManager) sendPing(client *Client) {
 	ping := &pb.WSMessage{

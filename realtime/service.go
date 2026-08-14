@@ -81,6 +81,14 @@ func (rs *RealtimeService) DisconnectUser(userID string) {
 	rs.connManager.DisconnectUser(userID)
 }
 
+// Shutdown notifies every connected client the server is going away and
+// closes their sockets. Call this before the process exits so clients can
+// reconnect immediately instead of waiting on a connection that silently
+// went dead.
+func (rs *RealtimeService) Shutdown() {
+	rs.connManager.BroadcastShutdown()
+}
+
 func (rs *RealtimeService) deviceMismatch(userID, deviceID string) bool {
 	if rs.deviceCheck == nil {
 		return false

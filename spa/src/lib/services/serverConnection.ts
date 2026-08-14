@@ -34,6 +34,7 @@ export enum ServerEvent {
   RequestAck       = 'REQUEST_ACK',
   RipplePosted     = 'RIPPLE_POSTED',
   RippleUpdated    = 'RIPPLE_UPDATED',
+  Sigterm          = 'SIGTERM',
 }
 
 class ServerConnection {
@@ -55,6 +56,46 @@ class ServerConnection {
     | { kind: 'pipe'; tag: string }
     | null = null;
   private broadcastSubscribed = false;
+  /** Set while retrying after a server-initiated SIGTERM shutdown notice,
+   * so a concurrent connect() elsewhere doesn't leave a duplicate timer
+   * running. Cleared once a retry succeeds (or something else reconnects). */
+  private sigtermRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private cancelSigtermRetry(): void {
+    if (this.sigtermRetryTimer != null) {
+      clearTimeout(this.sigtermRetryTimer);
+      this.sigtermRetryTimer = null;
+    }
+  }
+
+  /** SIGTERM: the server told us it's shutting down before the socket goes
+   * dead. Drop the connection now and retry every 3s until a new process
+   * is up, rather than waiting on navigator.onLine (which a same-network
+   * server restart never flips). */
+  private handleSigterm(): void {
+    console.log('ServerConnection: server sent SIGTERM, reconnecting…');
+    this.cancelSigtermRetry();
+    if (this.ws) {
+      const prev = this.ws;
+      this.ws = null;
+      prev.onclose = null;
+      prev.close();
+    }
+    const retry = () => {
+      this.connect()
+        .then(() => {
+          if (this.isConnected()) {
+            this.cancelSigtermRetry();
+          } else {
+            this.sigtermRetryTimer = setTimeout(retry, 3000);
+          }
+        })
+        .catch(() => {
+          this.sigtermRetryTimer = setTimeout(retry, 3000);
+        });
+    };
+    this.sigtermRetryTimer = setTimeout(retry, 3000);
+  }
 
   /**
    * Force a fresh connection even if the current socket still reports
@@ -155,6 +196,11 @@ class ServerConnection {
           const message = JSON.parse(event.data);
           console.log('ServerConnection: message received:', message.type);
 
+          if (message.type === ServerEvent.Sigterm) {
+            this.handleSigterm();
+            return;
+          }
+
           if (message.type === ServerEvent.RequestAck) {
             void reedRequestsRepository.get(message.data.request_id).then((record) => {
               if (!record) {
@@ -225,6 +271,7 @@ class ServerConnection {
   }
 
   disconnect(): void {
+    this.cancelSigtermRetry();
     if (this.ws) {
       this.ws.close();
       this.ws = null;

@@ -451,6 +451,13 @@ func main() {
 	<-sigChan
 	log.Info().Msg("Shutdown signal received, shutting down gracefully...")
 
+	// WebSocket connections are hijacked from net/http once upgraded, so
+	// server.Shutdown below can't see or close them — it would just block
+	// on their still-open sockets until its timeout. Notify and close them
+	// ourselves first so clients reconnect immediately instead of being
+	// left on a connection that silently goes dead.
+	realtimeService.Shutdown()
+
 	// Shutdown server
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
