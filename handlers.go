@@ -3025,6 +3025,15 @@ func (h *Handlers) checkRippleParentReed(w http.ResponseWriter, r *http.Request,
 		writeResponse(w, http.StatusNotFound, "Post not found")
 		return false
 	}
+	blank, err := h.services.db.IsBlankEcho(r.Context(), userID, reedID)
+	if err != nil && !errors.Is(err, ErrReedNotFound) {
+		internalServerError(w)
+		return false
+	}
+	if blank {
+		writeResponse(w, http.StatusBadRequest, "Empty echoes have no ripples — use the original reed instead")
+		return false
+	}
 	return true
 }
 

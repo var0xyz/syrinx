@@ -249,6 +249,38 @@ func TestPostRipple_Handler_RemovedParentReed(t *testing.T) {
 	}
 }
 
+func TestPostRipple_Handler_BlankEchoParent(t *testing.T) {
+	db := openRipplesTestDB(t)
+	insertRipplesTestUser(t, db, "author1", "author1")
+	insertRipplesTestUser(t, db, "commenter1", "commenter1")
+	insertRipplesTestReed(t, db, "author1", "reed1")
+	markReedBlankEcho(t, db, "author1", "reed1")
+	svc := &DataService{db: db}
+	h := ripplesTestHandlers(svc)
+
+	rr := postRipple(h, "commenter1", "author1", "reed1", postRippleRequest{
+		Content:  "hi",
+		ThreadID: uuid.NewString(),
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGetRipples_Handler_BlankEchoParent(t *testing.T) {
+	db := openRipplesTestDB(t)
+	insertRipplesTestUser(t, db, "author1", "author1")
+	insertRipplesTestReed(t, db, "author1", "reed1")
+	markReedBlankEcho(t, db, "author1", "reed1")
+	svc := &DataService{db: db}
+	h := ripplesTestHandlers(svc)
+
+	rr := getRipples(h, "commenter1", "author1", "reed1", "")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
 func TestPostRipple_Handler_RemovedAccountParent(t *testing.T) {
 	db := openRipplesTestDB(t)
 	insertRipplesTestUser(t, db, "author1", "author1")
