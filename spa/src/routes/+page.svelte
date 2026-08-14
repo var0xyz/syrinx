@@ -1,49 +1,21 @@
 <script>
   import { onMount } from 'svelte';
-  import { requestPersistentStorage } from '$lib/services/pwa';
+  import { requestPersistentStorage, canInstall, isInstalled, installPWA } from '$lib/services/pwa';
   import { redirectForRestoreState } from '$lib/services/restoreFlow';
   import { isRecoveryMode, isSignupOpen, serverInfoLoading } from '$lib/services/serverInfo';
 
   $: showRecoveryBanner = !$serverInfoLoading && $isRecoveryMode;
-
-  let deferredPrompt = null;
-  let showInstallButton = false;
-  let isPWAInstalled = false;
 
   onMount(async () => {
     if (await redirectForRestoreState()) {
       return;
     }
 
-    // Request persistent storage first
     await requestPersistentStorage();
-
-    // Check if PWA is already installed
-    isPWAInstalled = window.matchMedia('(display-mode: standalone)').matches;
-
-    // Listen for the beforeinstallprompt event
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-      showInstallButton = true;
-    });
-
-    // Listen for appinstalled event
-    window.addEventListener('appinstalled', () => {
-      isPWAInstalled = true;
-      showInstallButton = false;
-      deferredPrompt = null;
-    });
   });
 
   async function installApp() {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      console.log(`User response to the install prompt: ${outcome}`);
-      deferredPrompt = null;
-      showInstallButton = false;
-    }
+    await installPWA();
   }
 </script>
 
@@ -62,23 +34,19 @@
       <p class="subtitle">A distributed, P2P content-distribution platform</p>
     {/if}
 
-    {#if showInstallButton && !isPWAInstalled}
+    {#if $canInstall && !$isInstalled}
       <div class="install-section">
         <button on:click={installApp} class="btn btn-install">
           📱 Install App
         </button>
         <p class="install-text">Install Syrinx to get started</p>
       </div>
-    {:else if !isPWAInstalled}
-      <div class="install-section">
-        <p class="install-text">Syrinx is not installed. Please install it to continue.</p>
-      </div>
     {/if}
 
     <div class="action-buttons">
       <a href="/import" class="btn btn-primary">Already a user</a>
       {#if !$serverInfoLoading && $isSignupOpen && !$isRecoveryMode}
-        <a href="/preamble" class="btn btn-secondary">Sign Up</a>
+        <a href="/signup" class="btn btn-secondary">Sign Up</a>
       {/if}
     </div>
   </div>

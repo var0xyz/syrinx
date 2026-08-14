@@ -52,6 +52,19 @@
         }
       }
 
+      // Key backup is mandatory before using the app — send anyone who
+      // hasn't backed up yet back to /welcome, on every page wrapped in
+      // <Auth>, until they do (welcome/+page.svelte's backupKeys sets
+      // this on success). Every authenticated route is expected to wrap
+      // itself in <Auth> so this applies uniformly.
+      if (
+        window.location.pathname !== '/welcome' &&
+        !localStorage.getItem('lastKeyBackupAt')
+      ) {
+        goto('/welcome');
+        return;
+      }
+
       isChecking = false;
     } catch (error) {
       console.error('Authentication check failed:', error);
