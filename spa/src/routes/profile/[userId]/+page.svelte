@@ -15,6 +15,7 @@
   import { followingRepository } from '$lib/repositories/following';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { notificationStore } from '$lib/stores/notifications';
+  import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import ReedsList from '$lib/components/ReedsList.svelte';
   import UserProfileCard from '$lib/components/UserProfileCard.svelte';
@@ -357,6 +358,7 @@
 
 <svelte:window on:online={updateOnlineStatus} on:offline={updateOnlineStatus} />
 
+<Auth>
 <div class="profile-container">
   <div class="profile-content">
     {#if status === 'loading'}
@@ -548,6 +550,7 @@
 
   <BottomToolbar currentPage="reeds" />
 </div>
+</Auth>
 
 <style>
   .profile-container {

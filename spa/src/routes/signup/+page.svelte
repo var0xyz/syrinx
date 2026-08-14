@@ -8,9 +8,11 @@
   import { trimInvisibleChars } from "$lib/utils/text";
   import UsernameChecker from "$lib/components/UsernameChecker.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
+  import PreambleModal from "$lib/components/PreambleModal.svelte";
   import { notificationStore } from "$lib/stores/notifications";
   import { requestSigner } from "$lib/services/request-signer";
   import { serverConnection } from "$lib/services/serverConnection";
+  import { requestPersistentStorage } from "$lib/services/pwa";
   import {
     isRecoveryMode,
     isSignupClosed,
@@ -28,6 +30,10 @@
   let inviteCreatorID = "";
   let inviteSecret = "";
   let inviteCheckFailed = false;
+  /** Every eligible signup must see the preamble — invited users too, not
+   * just the open-home-page CTA (the old separate /preamble route only
+   * covered the latter). Accepting is the only way to dismiss it. */
+  let preambleAccepted = false;
   let inviteChecking = false;
   let gateReady = false;
 
@@ -94,6 +100,10 @@
     } else if ((inviteID || inviteCreatorID) && !inviteSecret) {
       // Query id without fragment secret — treat as broken link.
       inviteCheckFailed = true;
+    }
+
+    if (!inviteCheckFailed) {
+      await requestPersistentStorage();
     }
   });
 
@@ -262,15 +272,9 @@
 
     {#if !gateReady || $serverInfoLoading || inviteChecking}
       <p class="gate-message">Checking signup availability…</p>
-    {:else if $isRecoveryMode}
+    {:else if $isRecoveryMode || $isSignupClosed}
       <p class="gate-message">
-        This server is rebuilding and is not accepting new signups. Restore
-        from an encrypted backup instead.
-      </p>
-      <a href="/" class="back-link">Back to home</a>
-    {:else if $isSignupClosed}
-      <p class="gate-message">
-        This server is not accepting new signups.
+        This server is currently not accepting new signups.
       </p>
       <a href="/" class="back-link">Back to home</a>
     {:else if $signupMode === 'invite' && (!inviteID || !inviteCreatorID)}
@@ -283,11 +287,9 @@
         This invite is invalid or has already been used.
       </p>
       <a href="/" class="back-link">Back to home</a>
+    {:else if !preambleAccepted}
+      <PreambleModal open on:accept={() => (preambleAccepted = true)} />
     {:else}
-      {#if inviteID && inviteCreatorID && inviteSecret}
-        <p class="invite-hint">Signing up with an invite link.</p>
-      {/if}
-
       <form on:submit|preventDefault={onSubmit}>
         <div class="row">
           <label for="username">Name</label>
@@ -340,8 +342,7 @@
     margin-top: 1.5rem;
   }
 
-  .gate-message,
-  .invite-hint {
+  .gate-message {
     color: var(--muted);
     line-height: 1.5;
     margin: 0 0 1rem 0;
