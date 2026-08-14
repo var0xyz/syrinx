@@ -93,7 +93,7 @@
             serverID={item.reed.serverSignature?.serverID ?? ''}
             username={item.author.username}
             nameTag="h3"
-            subtext={formatRelativeTime(item.record.likedAt)}
+            subtext={`Liked ${formatRelativeTime(item.record.likedAt)}`}
             stopPropagation
             linked={false}
           />
