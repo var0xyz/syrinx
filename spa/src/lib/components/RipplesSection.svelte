@@ -1,6 +1,5 @@
 <script>
-  // Wires the layout from specs/ripples/04_spa_ripples_section.md's mock to
-  // real data: signed POST, verify-and-cache on fetch, soft-delete tombstones,
+  // Signed POST, verify-and-cache on fetch, soft-delete tombstones,
   // removed-account author rendering, and live delivery of new/updated
   // ripples via the reed's existing WS subscription (piggybacks on
   // ReedStatsSubscription, mounted by the parent page — no separate
@@ -19,6 +18,10 @@
   export let userID;
   /** @type {string} */
   export let reedID;
+  /** The parent reed's base64 server-signature armor — proof of
+   * possession required to list its ripples (see api.ts's listRipples). */
+  /** @type {string} */
+  export let serverSignatureArmor;
 
   /** Bound out to the parent for tab-count display. */
   export let count = 0;
@@ -37,8 +40,7 @@
   /** @type {import('$lib/types/api').Ripple[]} */
   let ripples = [];
   /** username resolved for each ripple's userID, or null if unresolvable
-   * (removed account) — keyed by userID, see specs/ripples/04's
-   * "Rendering a removed-account commenter" section. */
+   * (removed account) — keyed by userID. */
   let usernames = {};
 
   let loading = true;
@@ -162,7 +164,7 @@
   }
 
   async function loadPage(before) {
-    const res = await apiService.listRipples(userID, reedID, { limit: 50, before });
+    const res = await apiService.listRipples(userID, reedID, serverSignatureArmor, { limit: 50, before });
 
     // Defensive: if the server itself reports expiresAt as already in
     // the past (a fetch landing in the race window right before the
@@ -218,10 +220,9 @@
    * loaded (a reply belongs immediately after the message it replies to,
    * within that thread's run), otherwise at the very end (a new top-level
    * thread). This is what keeps a freshly-posted or live-delivered reply
-   * from jumping across the whole list on the next reload — see
-   * specs/ripples/04_spa_ripples_section.md's Data flow section. A
-   * genuinely concurrent reply to the same target can still land in a
-   * slightly different spot than the server's final thread-grouped order;
+   * from jumping across the whole list on the next reload. A genuinely
+   * concurrent reply to the same target can still land in a slightly
+   * different spot than the server's final thread-grouped order;
    * accepted tradeoff, not worth a full resort against a partial page. */
   function insertRipple(ripple) {
     // The section already burned away locally — don't resurrect it for a
@@ -407,6 +408,7 @@
             <RippleComposer
               {userID}
               {reedID}
+              {serverSignatureArmor}
               {replyingTo}
               replyingToUsername={usernames[replyingTo.userID] ?? null}
               autofocus
@@ -428,6 +430,7 @@
     <RippleComposer
       {userID}
       {reedID}
+      {serverSignatureArmor}
       on:posted={handleComposerPosted}
     />
   {/if}

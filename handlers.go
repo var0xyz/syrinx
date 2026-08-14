@@ -2975,8 +2975,7 @@ const MaxRippleContentChars = 140
 
 // RippleWire is the JSON shape of one ripple response, shared by POST and
 // GET. The response's id is `hash` — the hex-SHA256 digest of its signed
-// server payload (see specs/ripples/00_design.md's Signing section) —
-// not a randomly minted id.
+// server payload — not a randomly minted id.
 type RippleWire struct {
 	Hash            string          `json:"hash"`
 	ThreadID        string          `json:"threadID"`
@@ -3043,13 +3042,17 @@ type postRippleRequest struct {
 	ReplyingTo    *string `json:"replyingTo"`
 	Fingerprint   string  `json:"fingerprint"`
 	UserSignature string  `json:"userSignature"`
+
+	// Proof is the parent reed's base64 server-signature armor — proof of
+	// possession, see checkReedPossession.
+	Proof string `json:"proof"`
 }
 
 // PostRipple handles POST /api/reeds/{userID}/{reedID}/ripples. The
-// caller submits a user-signed payload (see
-// specs/ripples/00_design.md's Signing section); this handler verifies
-// that signature, then countersigns and hashes the server payload via
-// DataService.PostRipple.
+// caller submits a user-signed payload plus proof of possession of the
+// parent reed (see checkReedPossession — posting requires the same proof
+// as listing); this handler verifies that signature, then countersigns
+// and hashes the server payload via DataService.PostRipple.
 func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	callerID := h.getUserID(r)
@@ -3061,10 +3064,6 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.checkRippleParentReed(w, r, reedUserID, reedID) {
-		return
-	}
-
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
@@ -3073,6 +3072,19 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	var req postRippleRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// `checkReedPossession` only looks at the live reeds row, so a removed
+	// reed looks identical to a nonexistent one from its point of view —
+	// att == nil either way. Running it first would collapse that 410 into
+	// a 400 (no live reed to prove possession against), losing both the
+	// correct status code and the removal-cert payload callers may depend on.
+	if !h.checkRippleParentReed(w, r, reedUserID, reedID) {
+		return
+	}
+
+	if !h.checkReedPossession(w, r.Context(), reedUserID, reedID, req.Proof) {
 		return
 	}
 
@@ -3210,7 +3222,42 @@ type rippleListResponse struct {
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 }
 
-// GetRipples handles GET /api/reeds/{userID}/{reedID}/ripples.
+// checkReedPossession requires the caller to prove they've actually seen
+// the parent reed before it will act on its ripples — list them, or post
+// a new one: a ripple thread is only discoverable/joinable by someone the
+// reed was relayed to (e.g. an echo in their feed), never by guessing a
+// (userID, reedID) pair. Proof is the reed's own base64-encoded
+// server-signature armor — something only visible on a copy of the reed
+// itself — echoed back by the caller (proof extracts it: the raw request
+// body for GetRipples, a JSON field for PostRipple).
+func (h *Handlers) checkReedPossession(w http.ResponseWriter, ctx context.Context, userID, reedID, proof string) (ok bool) {
+	proof = strings.TrimSpace(proof)
+	if proof == "" {
+		writeResponse(w, http.StatusBadRequest, "Proof of posession required")
+		return false
+	}
+
+	att, err := h.services.db.GetReedAttestation(ctx, userID, reedID)
+	if err != nil {
+		internalServerError(w)
+		return false
+	}
+	if att == nil {
+		writeResponse(w, http.StatusNotFound, "Post not found")
+		return false
+	}
+	if proof != att.ServerSignature {
+		writeResponse(w, http.StatusForbidden, "Invalid proof of posession")
+		return false
+	}
+	return true
+}
+
+// GetRipples handles QUERY /api/reeds/{userID}/{reedID}/ripples — listing
+// ripples requires proving possession of the parent reed (see
+// checkReedPossession), so this is a QUERY (body-bearing, safe/read-only)
+// rather than a plain GET. If QUERY turns out not to be viable end-to-end,
+// swap to the commented-out POST /ripples/proof route in main.go instead.
 func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 
@@ -3221,7 +3268,21 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Why `checkRippleParentReed` should run before `checkReedPossession`:
+	// it's the only way to tell a removed reed (410 + cert body) apart from
+	// one that never existed (404), which checkReedPossession's
+	// live-row-only lookup can't distinguish. See the ordering note above
+	// PostRipple's equivalent pair of checks.
 	if !h.checkRippleParentReed(w, r, reedUserID, reedID) {
+		return
+	}
+
+	proofBody, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if !h.checkReedPossession(w, r.Context(), reedUserID, reedID, string(proofBody)) {
 		return
 	}
 

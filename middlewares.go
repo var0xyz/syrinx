@@ -536,7 +536,7 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, QUERY, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", strings.Join(allowedHeaders, ", "))
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Expose-Headers", "Signature")
