@@ -234,6 +234,17 @@ export interface FollowListResponse extends Base {
   hasMore: boolean;
 }
 
+/** One row in GET /reeds/{userID}/{reedID}/chorus. */
+export interface EchoerListUser extends Base {
+  userID: string;
+  echoedAt: string;
+}
+
+export interface EchoerListResponse extends Base {
+  users: EchoerListUser[];
+  hasMore: boolean;
+}
+
 /** Local + create-response shape for a signed invite (status is unsigned). */
 export interface Invite extends Base {
   id: string;

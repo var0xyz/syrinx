@@ -22,6 +22,7 @@
   import ReedStatsSubscription from '$lib/components/ReedStatsSubscription.svelte';
   import ConversationSection from '$lib/components/ConversationSection.svelte';
   import RipplesSection from '$lib/components/RipplesSection.svelte';
+  import ChorusSection from '$lib/components/ChorusSection.svelte';
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
@@ -78,16 +79,19 @@
   // tab the user was looking at instead of always resetting to
   // Conversation. Absence of the hash (or any other value) means the
   // default, Conversation.
-  /** @param {string} hash @returns {'conversation' | 'ripples'} */
+  /** @param {string} hash @returns {'conversation' | 'ripples' | 'chorus'} */
   function discussionTabFromHash(hash) {
-    return (hash || '').replace(/^#/, '').toLowerCase() === 'ripples' ? 'ripples' : 'conversation';
+    const normalized = (hash || '').replace(/^#/, '').toLowerCase();
+    if (normalized === 'ripples') return 'ripples';
+    if (normalized === 'chorus') return 'chorus';
+    return 'conversation';
   }
 
   $: discussionTab = discussionTabFromHash($page.url.hash);
 
-  /** @param {'conversation' | 'ripples'} tab */
+  /** @param {'conversation' | 'ripples' | 'chorus'} tab */
   function setDiscussionTab(tab) {
-    const hash = tab === 'ripples' ? '#ripples' : '';
+    const hash = tab === 'conversation' ? '' : `#${tab}`;
     void goto(`/reed/${userID}/${reedID}${hash}`, {
       replaceState: true,
       noScroll: true,
@@ -97,6 +101,7 @@
 
   let conversationCount = 0;
   let ripplesCount = 0;
+  let chorusCount = 0;
 
   $: parentThreadId = reed && reedMatchesRoute
     ? (reed.threadId || resolveThreadId(reed, reed.serverSignature?.serverID || localStorage.getItem('serverId') || ''))
@@ -714,6 +719,16 @@
               >
                 Ripples{#if ripplesCount > 0}&nbsp;({ripplesCount}){/if}
               </button>
+              <button
+                type="button"
+                role="tab"
+                class="discussion-tab"
+                class:active={discussionTab === 'chorus'}
+                aria-selected={discussionTab === 'chorus'}
+                on:click={() => setDiscussionTab('chorus')}
+              >
+                Chorus{#if chorusCount > 0}&nbsp;({chorusCount}){/if}
+              </button>
             </div>
             <div class="discussion-panel" class:hidden={discussionTab !== 'conversation'}>
               <ConversationSection
@@ -727,6 +742,9 @@
             </div>
             <div class="discussion-panel" class:hidden={discussionTab !== 'ripples'}>
               <RipplesSection {userID} {reedID} serverSignatureArmor={reed.serverSignature?.armor ?? ''} bind:count={ripplesCount} />
+            </div>
+            <div class="discussion-panel" class:hidden={discussionTab !== 'chorus'}>
+              <ChorusSection {userID} {reedID} bind:count={chorusCount} />
             </div>
           {/if}
         {/if}
