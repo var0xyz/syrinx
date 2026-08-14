@@ -1,0 +1,10 @@
+This file lists attribution for icon/graphic assets in this directory
+that are not already covered by about.txt.
+
+- Asset: fire.gif
+- Source: https://www.artstation.com/artwork/Xgnx90
+- Author: Áiron Bruce (https://estellairon.artstation.com/)
+
+All other icons (graph, info, like, megaphone, reply, share, trash) are
+from icons8.com, Material Outlined and Material Filled icon sets:
+- Source: https://icons8.com/icons
