@@ -185,8 +185,11 @@ export async function buildKeyBackupPayload(): Promise<BackupPayload> {
     indexedDB: {
       name: 'Syrinx',
       tables: [
-        { name: 'privateKeys', items: [privateKey] },
-        { name: 'publicKeys', items: [publicKey] },
+        // restoreItem's privateKeys/publicKeys cases atob() the armor on the
+        // way back in (matching the full-backup export below) — repository
+        // armor is stored raw, so it must be base64-wrapped here too.
+        { name: 'privateKeys', items: [{ ...privateKey, armor: btoa(privateKey.armor) }] },
+        { name: 'publicKeys', items: [{ ...publicKey, armor: btoa(publicKey.armor) }] },
       ],
     },
   };
