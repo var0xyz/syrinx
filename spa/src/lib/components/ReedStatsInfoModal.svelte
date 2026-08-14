@@ -28,17 +28,17 @@
       <dl class="stats-list">
         <div class="stats-row">
           <dt>
-            <span class="stats-icon echoes" aria-hidden="true"></span>
-            Echoes
-          </dt>
-          <dd>How many times this reed has been echoed by other users.</dd>
-        </div>
-        <div class="stats-row">
-          <dt>
             <span class="stats-icon replies" aria-hidden="true"></span>
             Replies
           </dt>
           <dd>How many replies this conversation has.</dd>
+        </div>
+        <div class="stats-row">
+          <dt>
+            <span class="stats-icon echoes" aria-hidden="true"></span>
+            Echoes
+          </dt>
+          <dd>How many times this reed has been echoed by other users.</dd>
         </div>
         <div class="stats-row">
           <dt>

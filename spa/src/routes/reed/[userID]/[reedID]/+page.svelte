@@ -562,10 +562,10 @@
                     {:else if statsStatus === 'failed'}
                       Failed to load stats
                     {:else}
-                      <span class="reed-stat-icon echoes" aria-hidden="true"></span>
-                      {echoCount}
                       <span class="reed-stat-icon replies" aria-hidden="true"></span>
                       {replyCount}
+                      <span class="reed-stat-icon echoes" aria-hidden="true"></span>
+                      {echoCount}
                       <span class="reed-stat-icon coverage" aria-hidden="true"></span>
                       {coveragePercent}%
                     {/if}
@@ -637,10 +637,10 @@
                     {:else if statsStatus === 'failed'}
                       Failed to load stats
                     {:else}
-                      <span class="reed-stat-icon echoes" aria-hidden="true"></span>
-                      {echoCount}
                       <span class="reed-stat-icon replies" aria-hidden="true"></span>
                       {replyCount}
+                      <span class="reed-stat-icon echoes" aria-hidden="true"></span>
+                      {echoCount}
                       <span class="reed-stat-icon likes" aria-hidden="true"></span>
                       {likeCount}
                       <span class="reed-stat-icon coverage" aria-hidden="true"></span>
@@ -674,13 +674,13 @@
             </div>
 
             <div class="reed-actions-bar">
-              <button class="action-btn" on:click={handleEcho} aria-label="Echo" disabled={isPending || isBlankEchoView}>
-                <span class="action-icon icon-echo"></span>
-                <span class="action-label">Echo</span>
-              </button>
               <button class="action-btn" on:click={handleReply} aria-label="Reply" disabled={isPending || isBlankEchoView}>
                 <span class="action-icon icon-reply"></span>
                 <span class="action-label">Reply</span>
+              </button>
+              <button class="action-btn" on:click={handleEcho} aria-label="Echo" disabled={isPending || isBlankEchoView}>
+                <span class="action-icon icon-echo"></span>
+                <span class="action-label">Echo</span>
               </button>
               <button class="action-btn" on:click={handleLike} aria-label={isLiked ? 'Unlike' : 'Like'} disabled={isPending || isBlankEchoView}>
                 <span class="action-icon icon-like" class:filled={isLiked}></span>
