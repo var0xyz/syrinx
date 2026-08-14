@@ -27,6 +27,12 @@
   const MIN = 60 * SEC;
   const HOUR = 60 * MIN;
   const DAY = 24 * HOUR;
+  // Ripples always use a fixed 7-day TTL from last activity (see
+  // services.go's PostRipple: now.Add(7 * 24 * time.Hour)) — the client
+  // doesn't know when THIS reed's clock last reset, only the resulting
+  // deadline, but since the window itself is always exactly 7 days, that
+  // constant is enough to derive proportional urgency thresholds.
+  const WEEK = 7 * DAY;
 
   /** @type {import('$lib/types/api').Ripple[]} */
   let ripples = [];
@@ -74,16 +80,16 @@
   const tickTimer = setInterval(() => { nowTick = performance.now(); }, 1000);
   onDestroy(() => clearInterval(tickTimer));
 
-  // Countdown color: green while there's plenty of time, shifting to
-  // yellow then red as the deadline approaches, red-and-"gone" once past
-  // it. Thresholds are coarse on purpose — this is a vibe indicator, not
-  // a precise budget.
+  // Countdown color, proportional to the fixed 7-day window: green for
+  // the first half (> 3.5 days left), yellow for the next quarter
+  // (1.75-3.5 days left), red-pulsating for the final quarter (< 1.75
+  // days left), red-solid-and-"gone" once past the deadline.
   $: remainingMs = expiresAtMonotonic != null ? expiresAtMonotonic - nowTick : null;
   $: urgency =
     remainingMs == null ? 'calm'
     : remainingMs <= 0 ? 'gone'
-    : remainingMs <= HOUR ? 'critical'
-    : remainingMs <= DAY ? 'warning'
+    : remainingMs <= WEEK / 4 ? 'critical'
+    : remainingMs <= WEEK / 2 ? 'warning'
     : 'calm';
 
   // Single-row burn animation is 800ms; each row's start is staggered by
@@ -111,14 +117,22 @@
     }, BURN_DURATION_MS);
   }
 
+  /** More than a day left: "1 week" for the first 24h since the clock
+   * last reset (> 6 days remaining), then whole days ("6 days" ... "1
+   * day") down to the 24h mark. Under a day left: cascades through
+   * hours → minutes → seconds, same granularity as before, so the
+   * countdown still feels precise right up to the deadline. */
   function formatCountdown(targetMonotonic, fromMonotonic) {
     const remaining = targetMonotonic - fromMonotonic;
     if (remaining <= 0) return 'expiring…';
-    const d = Math.floor(remaining / DAY);
+    if (remaining > WEEK - DAY) return '1 week';
+    if (remaining > DAY) {
+      const d = Math.round(remaining / DAY);
+      return `${d} day${d === 1 ? '' : 's'}`;
+    }
     const h = Math.floor((remaining % DAY) / HOUR);
     const m = Math.floor((remaining % HOUR) / MIN);
     const s = Math.floor((remaining % MIN) / 1000);
-    if (d > 0) return `${d}d ${h}h`;
     if (h > 0) return `${h}h ${m}m`;
     if (m > 0) return `${m}m ${s}s`;
     return `${s}s`;
@@ -278,23 +292,21 @@
    * composer itself was rendered at (right after replyingTo, or at the
    * end for top-level) — matches server ordering in the common case, so
    * nothing jumps position on the next reload. A successful post always
-   * means the section is alive again — clear `expired`/`burning`/the old
-   * countdown first (a top-level post after a burn starts a brand-new
-   * thread with its own expires_at, unrelated to whatever just expired),
-   * otherwise `insertRipple`'s expired-guard would silently drop the
-   * response the user just typed. */
+   * means the section is alive again and the reed's shared expires_at
+   * just got reset to a fresh 7 days from now (see PostRipple in
+   * services.go) — no need to round-trip the exact server value for
+   * this: a post can only ever happen because it succeeded, so we just
+   * reset the local countdown to a full week locally. If a concurrent
+   * post from someone else landed a few seconds before or after this
+   * one, the real deadline differs from this local guess by at most a
+   * few seconds, which is irrelevant at a week's granularity — and the
+   * next natural fetch (reload, pagination) reconciles with whatever
+   * the server actually has anyway. */
   async function handleComposerPosted(event) {
     const { ripple: posted } = event.detail;
     expired = false;
     burning = false;
-    // Also clear the stale deadline itself, not just the flags — a new
-    // top-level post's own expires_at hasn't been fetched yet (the POST
-    // response doesn't include it), so leaving the old, already-past
-    // deadline in place would let the next tick immediately re-trigger
-    // the burn animation on the ripple that was just posted. loadPage
-    // (called for GET responses) is what actually sets the real value;
-    // null here just means "no known deadline yet," not "expired."
-    expiresAtMonotonic = null;
+    expiresAtMonotonic = performance.now() + WEEK;
     const ok = await ripplesRepository.storeRipple(posted, userID, reedID);
     if (ok) {
       await resolveUsername(posted.userID);
