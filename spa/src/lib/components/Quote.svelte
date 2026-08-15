@@ -38,7 +38,7 @@
   /** @type {import('$lib/types/reed').ReedType | null} */
   let displayReed = null;
   let loadFailed = false;
-  /** @type {{ userID: string; reedID: string; kind: 'reed' | 'account'; timestamp?: string } | null} */
+  /** @type {{ userID: string; reedID: string; kind: 'reed' | 'account'; serverID?: string; timestamp?: string } | null} */
   let removedTarget = null;
   /** Drops a stale load() completion if reed/reedRef/missing changed again
    * (or the target resolved locally) before the earlier call finished —
@@ -65,6 +65,7 @@
         userID: authorId,
         reedID: targetReedId,
         kind: 'account',
+        serverID: accountCert.serverID,
         timestamp: accountCert.serverSignature?.timestamp,
       };
     }
@@ -89,6 +90,7 @@
           userID: authorId,
           reedID: targetReedId,
           kind: 'account',
+          serverID: result.removal.serverID,
           timestamp: result.removal.serverSignature?.timestamp,
         };
       }
@@ -114,6 +116,13 @@
     } catch {
       return userID;
     }
+  }
+
+  /** Deleted accounts have no username left to show — the tombstone stub
+   * carries no `username` field. Show the raw identity instead of a name
+   * that no longer means anything. */
+  function deletedAccountLabel(userID, serverID) {
+    return serverID ? `~${userID}@${serverID}` : `~${userID}`;
   }
 
   async function load(_id, ref, isMissing, sourceReed) {
@@ -148,7 +157,9 @@
           if (seq !== loadSeq) return;
           if (gone) {
             removedTarget = gone;
-            username = await loadUsername(gone.userID);
+            username = gone.kind === 'account'
+              ? deletedAccountLabel(gone.userID, gone.serverID)
+              : await loadUsername(gone.userID);
             if (seq !== loadSeq) return;
             loading = false;
             return;
