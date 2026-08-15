@@ -9,13 +9,18 @@ import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
 import { dbService } from './db';
 import { verifyAccountRemoval } from '$lib/verifiers';
-import { get } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { isOnline } from './pwa';
 import { serverInfo } from './serverInfo';
 
 const MAX_NOTE_LEN = 140;
 
 export { verifyAccountRemoval };
+
+/** Incremented after each account removal cert is committed locally — lets
+ * an open view (e.g. the reed detail page) know to check whether the reed
+ * it's showing just became a tombstone. */
+export const accountRemovalCommitted = writable(0);
 
 /**
  * Peer purge set (07): drop profile/reeds/follows; keep public keys;
@@ -36,6 +41,7 @@ export async function verifyAndCommitAccountRemoval(
 ): Promise<boolean> {
   try {
     await commitAccountRemovalLocally(cert);
+    accountRemovalCommitted.update((n) => n + 1);
     return true;
   } catch (error) {
     console.error('[verifyAndCommitAccountRemoval] refused', cert?.userID, error);

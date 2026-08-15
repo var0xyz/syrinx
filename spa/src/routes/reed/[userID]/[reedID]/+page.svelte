@@ -5,7 +5,9 @@
   import { formatAbsoluteDateTime } from '$lib/utils/time';
   import { apiService } from '$lib/services/api';
   import { removeReedAsAuthor, verifyAndCommitReedRemoval, reedRemovalCommitted } from '$lib/services/reedRemoval';
-  import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
+  import { verifyAndCommitAccountRemoval, accountRemovalCommitted } from '$lib/services/accountRemoval';
+  import { removedReedsRepository } from '$lib/repositories/removedReeds';
+  import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
   import { likeReed, unlikeReed, isReedLiked } from '$lib/services/reedLike';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
@@ -26,7 +28,7 @@
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
-  import { parseReedRef, resolveThreadId } from '$lib/utils/reedRef';
+  import { parseReedRef, resolveThreadId, formatReedRef } from '$lib/utils/reedRef';
   import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
@@ -103,9 +105,19 @@
   let ripplesCount = 0;
   let chorusCount = 0;
 
+  // A removed reed's own body (and thus any threadId it inherited) is
+  // gone — self-reference using the removal cert's serverID so replies
+  // cached from before the removal still key correctly, same as a live
+  // thread-root reed would.
   $: parentThreadId = reed && reedMatchesRoute
     ? (reed.threadId || resolveThreadId(reed, reed.serverSignature?.serverID || localStorage.getItem('serverId') || ''))
-    : '';
+    : (removedReedCert || removedAccountCert)
+      ? formatReedRef(
+          userID,
+          (removedReedCert || removedAccountCert).serverID || localStorage.getItem('serverId') || '',
+          reedID,
+        )
+      : '';
 
   $: followArrived = $followReedQueue?.reed;
   $: if (followArrived && followArrived.id !== lastHandledFollowReedId && (reedMatchesRoute || removedReedCert || removedAccountCert)) {
@@ -256,6 +268,33 @@
    * redundant reload for an unrelated removal is harmless.
    */
   $: if ($reedRemovalCommitted > 0) conversationRefresh += 1;
+
+  /**
+   * A removal cert (reed or account) can arrive over WS while this exact
+   * reed is on screen — e.g. the author deletes it live. Re-check whether
+   * it's *this* reed/author so the page tombstones immediately instead of
+   * continuing to show stale content and stay subscribed to stats/coverage
+   * for a reed the server no longer considers to exist.
+   */
+  $: if ($reedRemovalCommitted > 0 || $accountRemovalCommitted > 0) {
+    void checkLiveRemoval();
+  }
+
+  async function checkLiveRemoval() {
+    if (!reedMatchesRoute || removedReedCert || removedAccountCert) return;
+    const accountCert = await removedAccountsRepository.get(userID);
+    if (accountCert) {
+      removedAccountCert = accountCert;
+      removedReedCert = null;
+      reed = null;
+      return;
+    }
+    const reedCert = await removedReedsRepository.get(reedID);
+    if (reedCert && reedCert.userID === userID) {
+      removedReedCert = reedCert;
+      reed = null;
+    }
+  }
 
   function handleReedCoverage(msg) {
     if (msg?.userID === userID && msg?.reedID === reedID) {
@@ -517,7 +556,7 @@
   <Auth>
     <div class="reed-detail-container">
       {#key `${userID}/${reedID}`}
-        {#if !isBlankEchoView && ((reedMatchesRoute && reed?.serverSignature) || removedReedCert || removedAccountCert)}
+        {#if !isBlankEchoView && reedMatchesRoute && reed?.serverSignature && !removedReedCert && !removedAccountCert}
           <ReedStatsSubscription
             authorId={userID}
             reedId={reedID}
@@ -561,20 +600,6 @@
                     username={authorUser?.username ?? userID}
                     class="author-name"
                   />
-                  <p class="reed-stats" title="Stats for nerds">
-                    {#if statsStatus === 'loading'}
-                      Loading stats...
-                    {:else if statsStatus === 'failed'}
-                      Failed to load stats
-                    {:else}
-                      <span class="reed-stat-icon replies" aria-hidden="true"></span>
-                      {replyCount}
-                      <span class="reed-stat-icon echoes" aria-hidden="true"></span>
-                      {echoCount}
-                      <span class="reed-stat-icon coverage" aria-hidden="true"></span>
-                      {coveragePercent}%
-                    {/if}
-                  </p>
                 </div>
               </div>
             </div>
@@ -592,13 +617,20 @@
               </p>
             </div>
           </div>
-          <ConversationSection
-            bind:this={conversationSection}
-            parentUserID={userID}
-            parentReedID={reedID}
-            threadId={parentThreadId}
-            refreshToken={conversationRefresh}
-          />
+          <!-- No discussion tabs: the reed can't be interacted with (no
+               replying/echoing) and Ripples/Chorus lose meaning once nobody
+               can see the original content. Replies made before removal are
+               still real, though, so show them directly if any exist. -->
+          <div class:hidden={conversationCount === 0}>
+            <ConversationSection
+              bind:this={conversationSection}
+              parentUserID={userID}
+              parentReedID={reedID}
+              threadId={parentThreadId}
+              refreshToken={conversationRefresh}
+              bind:count={conversationCount}
+            />
+          </div>
         {:else if loadingReed || !reedMatchesRoute}
           <div class="loading">
             <h2>Loading reed...</h2>

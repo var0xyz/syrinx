@@ -1415,6 +1415,18 @@ func (rs *RealtimeService) FilterSubscribedPipeTags(tags []string) []string {
 }
 
 func (rs *RealtimeService) notifyReedCoverage(authorUserID, reedID string) {
+	exists, err := rs.dbService.ReedExists(context.Background(), authorUserID, reedID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to check reed for coverage notify")
+		return
+	}
+	if !exists {
+		// Removed reed (or removed author) — no meaningful coverage to
+		// report, and SUBSCRIBE_REED already refuses these, so nobody
+		// legitimately subscribed is waiting on this broadcast.
+		return
+	}
+
 	holders, percent, err := rs.dbService.GetReedCoverage(context.Background(), authorUserID, reedID)
 	if err != nil {
 		log.Error().
