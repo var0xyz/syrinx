@@ -105,12 +105,14 @@ func (ds *DBService) GetUserPublicKey(ctx context.Context, userID, fingerprint s
 // GetUsername returns the current username for display on ephemeral deliveries
 // (e.g. broadcast reeds). Empty string when the user row is missing.
 func (ds *DBService) GetUsername(ctx context.Context, userID string) (string, error) {
-	var username string
-	err := ds.db.QueryRowContext(ctx, `SELECT username FROM users WHERE id = $1`, userID).Scan(&username)
-	if err == sql.ErrNoRows {
-		return "", nil
+	var name sql.NullString
+	if err := ds.db.QueryRowContext(ctx, `SELECT username FROM users WHERE id = $1`, userID).Scan(&name); err != nil {
+		return "", err
 	}
-	return username, err
+	if !name.Valid {
+		return "", sql.ErrNoRows
+	}
+	return name.String, nil
 }
 
 // SubscribeToBroadcast adds a user to the broadcast subscriptions table

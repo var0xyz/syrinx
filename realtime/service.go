@@ -1095,15 +1095,17 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMess
 	}
 
 	if pe.EventName == string(BroadcastReedEvent) {
-		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering broadcast reed to subscriber")
-		username := ""
-		if name, err := rs.dbService.GetUsername(context.Background(), pe.UserID); err != nil {
+		username, err := rs.dbService.GetUsername(context.Background(), pe.UserID)
+		if err != nil && err != sql.ErrNoRows {
 			log.Error().Err(err).Str("userID", pe.UserID).Msg("Failed to load author username for broadcast reed")
-		} else {
-			username = name
 		}
-		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewBroadcastReedMsg(pe.ReedID, relay.Data, username)); err != nil {
-			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver broadcast reed")
+		if err != nil {
+			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Dropping broadcast reed: author account was either removed or never existed")
+		} else {
+			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering broadcast reed to subscriber")
+			if err := rs.connManager.SendToUser(pe.RequesterUserID, NewBroadcastReedMsg(pe.ReedID, relay.Data, username)); err != nil {
+				log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver broadcast reed")
+			}
 		}
 		if err := rs.dbService.DeletePendingEvent(context.Background(), eventID); err != nil {
 			log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event")

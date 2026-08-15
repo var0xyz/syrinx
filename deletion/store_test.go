@@ -111,11 +111,11 @@ func ensureTestSchema(db *sql.DB) error {
 		`DROP TABLE IF EXISTS users CASCADE`,
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY,
-			username VARCHAR(255) UNIQUE NOT NULL,
+			username VARCHAR(255) UNIQUE,
 			user_fingerprint VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+			user_signature_id INT REFERENCES user_signatures(id),
+			server_signature_id INT REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE user_keys (
 			fingerprint VARCHAR(255) UNIQUE NOT NULL,
