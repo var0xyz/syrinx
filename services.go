@@ -1669,7 +1669,7 @@ func (s *DataService) CreateReedWithEcho(
 		return nil, false, fmt.Errorf("insert echo index: %w", err)
 	}
 	n, _ := res.RowsAffected()
-	echoIndexed = n > 0
+	echoIndexed = n > 0 && echoTarget.AuthorID != p.UserID
 
 	if err := tx.Commit(); err != nil {
 		return nil, false, err
@@ -1872,12 +1872,14 @@ func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) 
 	return results, nil
 }
 
-// CountEchoes returns how many echoes point at the given reed.
+// CountEchoes returns how many echoes point at the given reed. Self-echoes
+// (a user echoing their own reed) are excluded.
 func (s *DataService) CountEchoes(ctx context.Context, echoedUserID, echoedReedID string) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM reed_echoes
+		SELECT COUNT(DISTINCT echoing_user_id) FROM reed_echoes
 		WHERE echoed_user_id = $1 AND echoed_reed_id = $2
+		AND echoing_user_id != echoed_user_id
 	`, echoedUserID, echoedReedID).Scan(&n)
 	return n, err
 }
@@ -1895,6 +1897,7 @@ type EchoerListResponse struct {
 }
 
 // GetReedChorus returns the users who echoed the given reed, oldest first.
+// Self-echoes (a user echoing their own reed) are excluded.
 func (s *DataService) GetReedChorus(ctx context.Context, echoedUserID, echoedReedID string, limit int, before *time.Time) (*EchoerListResponse, error) {
 	if limit <= 0 {
 		limit = 50
@@ -1911,6 +1914,7 @@ func (s *DataService) GetReedChorus(ctx context.Context, echoedUserID, echoedRee
 		SELECT re.echoing_user_id, MIN(re.signed_at) AS first_echoed_at
 		FROM reed_echoes re
 		WHERE re.echoed_user_id = $1 AND re.echoed_reed_id = $2
+		AND re.echoing_user_id != re.echoed_user_id
 		AND NOT EXISTS (
 			SELECT 1 FROM account_removals ar WHERE ar.user_id = re.echoing_user_id
 		)
