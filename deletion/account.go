@@ -70,6 +70,31 @@ func InsertAccountCert(ctx context.Context, db *sql.DB, cert AccountCert) error 
 		`, cert.UserID, cert.Note, cert.UserFingerprint, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert account removal: %w", err)
 		}
+		// Clear the username so it becomes reclaimable by a future signup —
+		// the account is gone and the name is no longer displayed anywhere.
+		var profileUserSigID, profileServerSigID int64
+		if err := tx.QueryRowContext(ctx, `
+			SELECT user_signature_id, server_signature_id FROM users WHERE id = $1
+		`, cert.UserID).Scan(&profileUserSigID, &profileServerSigID); err != nil {
+			return fmt.Errorf("load profile signature ids: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE users SET username = NULL, user_signature_id = NULL, server_signature_id = NULL
+			WHERE id = $1
+		`, cert.UserID); err != nil {
+			return fmt.Errorf("clear profile on removal: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM user_signatures WHERE id = $1
+		`, profileUserSigID); err != nil {
+			return fmt.Errorf("delete stale profile user signature: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM server_signatures WHERE id = $1
+		`, profileServerSigID); err != nil {
+			return fmt.Errorf("delete stale profile server signature: %w", err)
+		}
+
 		if err := coverage.BumpActiveUsers(ctx, tx, -1); err != nil {
 			return err
 		}

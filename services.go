@@ -727,6 +727,13 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 	}
 	defer tx.Rollback()
 
+	var oldUserSignatureID, oldServerSignatureID int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT user_signature_id, server_signature_id FROM users WHERE id = $1
+	`, in.UserID).Scan(&oldUserSignatureID, &oldServerSignatureID); err != nil {
+		return err
+	}
+
 	userSignatureID, err := signing.InsertUserSignature(ctx, tx, in.Fingerprint, in.UserSignatureB64)
 	if err != nil {
 		return err
@@ -758,6 +765,20 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 		}
 		return err
 	}
+
+	// The superseded profile signature no longer describes the live
+	// profile — delete it now that the users row points at the new one.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM user_signatures WHERE id = $1
+	`, oldUserSignatureID); err != nil {
+		return fmt.Errorf("delete superseded profile user signature: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM server_signatures WHERE id = $1
+	`, oldServerSignatureID); err != nil {
+		return fmt.Errorf("delete superseded profile server signature: %w", err)
+	}
+
 	return tx.Commit()
 }
 
@@ -2935,7 +2956,7 @@ func (s *DataService) GetFederationInvitation(ctx context.Context, id string) (*
 
 func (s *DataService) ListFederationInvitations(ctx context.Context) ([]federationInvitationListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT fi.id, fi.name, fi.status, fi.created_by, creator.username,
+		SELECT fi.id, fi.name, fi.status, fi.created_by, COALESCE(creator.username, ''),
 		       fi.remote_fingerprint, fi.created_at, fi.accepted_at, fi.approved_at,
 		       COALESCE(fi.reviewed_by, ''), COALESCE(reviewer.username, ''), fi.reviewed_at,
 		       COALESCE(fi.connection_ciphertext, '')
