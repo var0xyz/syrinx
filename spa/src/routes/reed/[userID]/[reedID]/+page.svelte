@@ -628,7 +628,7 @@
                replying/echoing) and Ripples/Chorus lose meaning once nobody
                can see the original content. Replies made before removal are
                still real, though, so show them directly if any exist. -->
-          <div class:hidden={conversationCount === 0}>
+          <div class="discussion-panel" class:hidden={conversationCount === 0}>
             <ConversationSection
               bind:this={conversationSection}
               parentUserID={userID}
