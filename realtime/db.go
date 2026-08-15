@@ -3,7 +3,6 @@ package realtime
 import (
 	"context"
 	"database/sql"
-	"time"
 
 	"syrinx/coverage"
 	"syrinx/deletion"
@@ -112,44 +111,6 @@ func (ds *DBService) GetUsername(ctx context.Context, userID string) (string, er
 		return "", nil
 	}
 	return username, err
-}
-
-// GetUserByID retrieves basic user information
-func (ds *DBService) GetUserByID(ctx context.Context, userID string) (*User, error) {
-	var user User
-	var bio sql.NullString
-
-	err := ds.db.QueryRowContext(ctx, `
-		SELECT id, username, bio, created_at
-		FROM users
-		WHERE id = $1
-	`, userID).Scan(
-		&user.ID,
-		&user.Username,
-		&bio,
-		&user.CreatedAt,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	if bio.Valid {
-		user.Bio = bio.String
-	}
-
-	return &user, nil
-}
-
-// User represents a user in the system
-type User struct {
-	ID        string    `json:"id"`
-	Username  string    `json:"username"`
-	Bio       string    `json:"bio"`
-	CreatedAt time.Time `json:"memberSince"`
 }
 
 // SubscribeToBroadcast adds a user to the broadcast subscriptions table
