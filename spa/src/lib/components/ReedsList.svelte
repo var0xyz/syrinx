@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import { reedsService, unsignedReedsProcessed, profileReedQueue, followReedQueue } from '$lib/repositories/reeds';
   import { formatRelativeTime } from '$lib/utils/time';
-  import { apiService } from '$lib/services/api';
   import { dbService } from '$lib/services/db';
   import { userRepository } from '$lib/repositories/user';
   import { removeReedAsAuthor } from '$lib/services/reedRemoval';
@@ -16,13 +15,9 @@
   import { parseReedRef } from '$lib/utils/reedRef';
   import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
   import { serverConnection } from '$lib/services/serverConnection';
-  import { isOnline } from '$lib/services/pwa';
   import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';
-  import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
-  import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { removedReedsRepository } from '$lib/repositories/removedReeds';
   import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
-  import { get } from 'svelte/store';
 
   export let authorId;
   export let isOwner = false;
@@ -48,12 +43,6 @@
   let echoedReedUsers = new Map();
   /** Echo refs we already asked the server for (avoid duplicate REQUEST_REED). */
   let pendingEchoRequests = new Set();
-  /** Echo refs confirmed gone — stop showing "Loading echoed reed…" forever
-   * for these. Value is the known reason: 'account' (author's account was
-   * removed, cert in hand), 'reed' (the reed itself was removed, cert in
-   * hand), or 'unknown' (server says not_found, no cert either way — the
-   * only case that stays hedged instead of stating a fact we don't have). */
-  let unavailableEchoKeys = new Map();
 
   /**
    * We already have the answer locally most of the time: removedReeds and
@@ -69,39 +58,6 @@
     const reedCert = await removedReedsRepository.get(reedId);
     if (reedCert && reedCert.userID === authorId) return 'reed';
     return null;
-  }
-
-  /**
-   * A passive relay fetch (requestReedContent) can hang forever if no peer
-   * ever holds the target — including "removed", the common real case.
-   * Only called after a relay miss; locallyKnownRemovalReason already ruled
-   * out the fast local answer before we got this far.
-   */
-  async function checkEchoUnavailable(key, authorId, reedId) {
-    try {
-      const localReason = await locallyKnownRemovalReason(authorId, reedId);
-      if (localReason) {
-        unavailableEchoKeys = new Map(unavailableEchoKeys).set(key, localReason);
-        return;
-      }
-
-      if (!get(isOnline)) return;
-      const result = await apiService.getReedOrRemoval(authorId, reedId);
-      if (result.kind === 'reed') return;
-      let reason = 'unknown';
-      if (result.kind === 'gone' && result.removal && 'type' in result.removal) {
-        if (result.removal.type === 'account') {
-          await verifyAndCommitAccountRemoval(result.removal);
-          reason = 'account';
-        } else if (result.removal.type === 'reed') {
-          await verifyAndCommitReedRemoval(result.removal);
-          reason = 'reed';
-        }
-      }
-      unavailableEchoKeys = new Map(unavailableEchoKeys).set(key, reason);
-    } catch (error) {
-      console.warn('ReedsList: could not resolve echo target', key, error);
-    }
   }
   /** profileReedQueue / followReedQueue items already handled (store value is sticky). */
   let lastHandledProfileReedId = '';
@@ -166,14 +122,11 @@
       }
       if (!pendingEchoRequests.has(walk.echoing)) {
         pendingEchoRequests.add(walk.echoing);
-        const echoingRef = walk.echoing;
         const localReason = await locallyKnownRemovalReason(parsed.authorId, parsed.reedId);
-        if (localReason) {
-          unavailableEchoKeys = new Map(unavailableEchoKeys).set(echoingRef, localReason);
-        } else {
+        if (!localReason) {
           serverConnection
             .requestReedContent(parsed.reedId, parsed.authorId, parsed.serverId)
-            .catch(() => checkEchoUnavailable(echoingRef, parsed.authorId, parsed.reedId));
+            .catch(() => {});
         }
       }
       break;
@@ -272,13 +225,10 @@
             pendingEchoRequests.add(key);
             void (async () => {
               const localReason = await locallyKnownRemovalReason(author, reedId);
-              if (localReason) {
-                unavailableEchoKeys = new Map(unavailableEchoKeys).set(key, localReason);
-                return;
-              }
+              if (localReason) return;
               serverConnection
                 .requestReedContent(reedId, author, parsed.serverId)
-                .catch(() => checkEchoUnavailable(key, author, reedId));
+                .catch(() => {});
             })();
           }
         });
@@ -358,12 +308,6 @@
     }
   }
 
-  function echoUnavailableMessage(reason) {
-    if (reason === 'account') return 'Echoed reed unavailable — the author deleted their account';
-    if (reason === 'reed') return 'Echoed reed unavailable — the author removed it';
-    return 'Echoed reed unavailable';
-  }
-
   function navigateToReed(reed) {
     goto(`/reed/${reed.userID}/${reed.id}`);
   }
@@ -417,8 +361,6 @@
         isBlankEcho(reed) &&
         isBlankEcho(displayReed) &&
         !(displayReed.echoing && echoedReeds.has(displayReed.echoing))}
-      {@const echoUnavailableReason = awaitingOriginal ? unavailableEchoKeys.get(displayReed.echoing) : undefined}
-      {@const echoUnavailable = !!echoUnavailableReason}
       {@const displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
       <div class="reed-item pending" role="button" tabindex="0" on:click={() => navigateToReed(reed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(reed)}>
         <div class="reed-header">
@@ -449,20 +391,12 @@
             />
           </div>
         {/if}
-        {#if echoUnavailable}
-          <div class="reed-preview echo placeholder">
-            <span class="placeholder-label">{echoUnavailableMessage(echoUnavailableReason)}</span>
-          </div>
-        {:else if awaitingOriginal}
-          <div class="reed-preview echo placeholder" aria-busy="true">
-            <span class="placeholder-label">Loading echoed reed…</span>
-          </div>
-        {:else if (displayReed.content || "").trim()}
+        {#if !awaitingOriginal && (displayReed.content || "").trim()}
           <div class={["reed-preview", !isUnwrapped && reed.echoing && "echo", !isUnwrapped && reed.replying && "reply"]}>
             <MarkdownParser text={displayReed.content} preview={true} />
           </div>
         {/if}
-        {#if !awaitingOriginal && displayReed.echoing}
+        {#if displayReed.echoing}
           <div class="quote-container">
             <Quote
               reed={echoedReeds.get(displayReed.echoing)}
@@ -482,8 +416,6 @@
         isBlankEcho(reed) &&
         isBlankEcho(displayReed) &&
         !(displayReed.echoing && echoedReeds.has(displayReed.echoing))}
-      {@const echoUnavailableReason = awaitingOriginal ? unavailableEchoKeys.get(displayReed.echoing) : undefined}
-      {@const echoUnavailable = !!echoUnavailableReason}
       {@const displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
       <div class="reed-item" role="button" tabindex="0" on:click={() => navigateToReed(awaitingOriginal ? reed : displayReed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(awaitingOriginal ? reed : displayReed)}>
         <div class="reed-header">
@@ -513,20 +445,12 @@
             />
           </div>
         {/if}
-        {#if echoUnavailable}
-          <div class="reed-preview echo placeholder">
-            <span class="placeholder-label">{echoUnavailableMessage(echoUnavailableReason)}</span>
-          </div>
-        {:else if awaitingOriginal}
-          <div class="reed-preview echo placeholder" aria-busy="true">
-            <span class="placeholder-label">Loading echoed reed…</span>
-          </div>
-        {:else if (displayReed.content || "").trim()}
+        {#if !awaitingOriginal && (displayReed.content || "").trim()}
           <div class={["reed-preview", !isUnwrapped && reed.echoing && "echo", !isUnwrapped && reed.replying && "reply"]}>
             <MarkdownParser text={displayReed.content} preview={true} />
           </div>
         {/if}
-        {#if !awaitingOriginal && displayReed.echoing}
+        {#if displayReed.echoing}
           <div class="quote-container">
             <Quote
               reed={echoedReeds.get(displayReed.echoing)}
@@ -683,19 +607,6 @@
 
   .reed-preview.echo {
     padding-bottom: 0;
-  }
-
-  .reed-preview.placeholder {
-    min-height: 4.5rem;
-    display: flex;
-    align-items: center;
-    padding-bottom: 1rem;
-  }
-
-  .placeholder-label {
-    color: var(--muted);
-    font-size: 0.9rem;
-    font-style: italic;
   }
 
   .quote-container {
