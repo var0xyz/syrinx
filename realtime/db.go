@@ -463,7 +463,8 @@ func (ds *DBService) DeleteReedAllocation(ctx context.Context, authorUserID, ree
 	return n > 0, nil
 }
 
-// ReedExists reports whether a non-removed tip reed row exists for the author.
+// ReedExists reports whether a non-removed tip reed row exists for the
+// author, and the author's account hasn't itself been removed.
 func (ds *DBService) ReedExists(ctx context.Context, authorUserID, reedID string) (bool, error) {
 	var exists bool
 	err := ds.db.QueryRowContext(ctx, `
@@ -473,6 +474,9 @@ func (ds *DBService) ReedExists(ctx context.Context, authorUserID, reedID string
 			  AND NOT EXISTS (
 			    SELECT 1 FROM reed_removals rr
 			    WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
+			  )
+			  AND NOT EXISTS (
+			    SELECT 1 FROM account_removals ar WHERE ar.user_id = r.user_id
 			  )
 		)
 	`, authorUserID, reedID).Scan(&exists)
