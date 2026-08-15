@@ -119,6 +119,13 @@
         )
       : '';
 
+  // Deleted accounts leave no username behind (the local tombstone stub
+  // carries no `username` field) — show the raw identity instead of a
+  // name that no longer means anything.
+  $: authorDisplayName = removedAccountCert
+    ? (removedAccountCert.serverID ? `~${userID}@${removedAccountCert.serverID}` : `~${userID}`)
+    : (authorUser?.username ?? userID);
+
   $: followArrived = $followReedQueue?.reed;
   $: if (followArrived && followArrived.id !== lastHandledFollowReedId && (reedMatchesRoute || removedReedCert || removedAccountCert)) {
     lastHandledFollowReedId = followArrived.id;
@@ -591,13 +598,13 @@
             <div class="reed-meta">
               <div class="reed-author">
                 <a href="/profile/{userID}" class="author-avatar">
-                  <Avatar userID={userID} username={authorUser?.username ?? userID} size="69px" />
+                  <Avatar userID={userID} username={authorDisplayName} size="69px" />
                 </a>
                 <div class="author-info">
                   <Username
                     userID={userID}
-                    serverID={authorUser?.serverSignature?.serverID ?? ''}
-                    username={authorUser?.username ?? userID}
+                    serverID={removedAccountCert?.serverID ?? authorUser?.serverSignature?.serverID ?? ''}
+                    username={authorDisplayName}
                     class="author-name"
                   />
                 </div>
