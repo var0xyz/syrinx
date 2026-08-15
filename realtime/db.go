@@ -508,8 +508,9 @@ func (ds *DBService) GetReedCoveragePercent(ctx context.Context, authorUserID, r
 func (ds *DBService) CountEchoes(ctx context.Context, echoedUserID, echoedReedID string) (int, error) {
 	var n int
 	err := ds.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM reed_echoes
+		SELECT COUNT(DISTINCT echoing_user_id) FROM reed_echoes
 		WHERE echoed_user_id = $1 AND echoed_reed_id = $2
+		AND echoing_user_id != echoed_user_id
 	`, echoedUserID, echoedReedID).Scan(&n)
 	return n, err
 }
