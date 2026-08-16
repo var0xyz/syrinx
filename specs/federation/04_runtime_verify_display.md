@@ -26,7 +26,8 @@ not manual ops paste.
 
 ## Non-goals
 
-- Cross-instance reed relay
+- Cross-instance reed relay — see [06](06_content_relay.md), which
+  depends on this step's peer-authentication design
 - Federated follow
 
 ## Design

@@ -18,6 +18,7 @@ established peers. `serverID` in signed envelopes prepares for foreign
 | [03](03_approval_established.md) | Second-admin accept → `federation_established` | 02 |
 | [04](04_runtime_verify_display.md) | Remote identity verify + foreign ref display | 03 |
 | [05](05_revoke_established.md) | Revoke peering + 401 on incoming peer traffic | 03, 04 |
+| [06](06_content_relay.md) | Cross-instance reed relay — extends the same-server relay machinery | 04, 05 |
 
 Related: [`roles/`](../roles/README.md) (admin UI + admin invites);
 conversations foreign refs [`conversations/01`](../conversations/01_publish_and_refs.md).
@@ -26,14 +27,14 @@ conversations foreign refs [`conversations/01`](../conversations/01_publish_and_
 
 ## Status
 
-**In progress.** Steps **01–02** implemented; 00, 03–05 remain Proposed.
+**In progress.** Steps **01–02** implemented; 00, 03–06 remain Proposed.
 
 | Step  | Status          |
 |-------|-----------------|
 | 00    | Proposed        |
 | 01    | **Implemented** |
 | 02    | **Implemented** |
-| 03–05 | Proposed        |
+| 03–06 | Proposed        |
 
 ## Locked decisions
 
@@ -49,7 +50,8 @@ conversations foreign refs [`conversations/01`](../conversations/01_publish_and_
 | Visibility | **All admins** see **all** invites on the instance (not creator-only) |
 | Admin UI | **Admin → Mesh** (create invite, paste connection string, approve pending) |
 | Revoke peering | **`federation_established.revoked`**; revoker returns **401** to incoming peer traffic; **no auto-action on remote** |
-| Non-goals (v1) | Cross-instance reed relay, federated follow, open federation, automated reciprocal revoke |
+| Content relay | **`POST /api/federation/relay/reed`** extends the same-server relay machinery (see [06](06_content_relay.md) and [Relay model](/relay-model)) — no longer a non-goal |
+| Non-goals (v1) | Federated follow, open federation, automated reciprocal revoke, presence/online-status sharing across servers, account-deletion propagation across federation |
 
 ## Motivation
 
