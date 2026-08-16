@@ -3,10 +3,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -60,6 +63,10 @@ type Handlers struct {
 	// Nil means stash all extracted tags (tests / no realtime).
 	filterPipeTags func([]string) []string
 	kickUserWS     func(userID string)
+	// federationHTTPClientOverride lets tests substitute a client that
+	// trusts an httptest.NewTLSServer's certificate. Nil means production
+	// default (see federationHTTPClient).
+	federationHTTPClientOverride *http.Client
 }
 
 type ServerInfo struct {
@@ -2800,6 +2807,42 @@ func (h *Handlers) federationSignServer(message []byte) (string, error) {
 	return encoding.Base64Encode(sigArmor), nil
 }
 
+// federationHTTPClient returns the client used for server-to-server
+// federation callbacks (e.g. POST .../federation/connect/{inviteId}).
+// Bounded timeout: this call happens synchronously inside an admin's
+// accept request and must not hang indefinitely on an unreachable peer.
+func (h *Handlers) federationHTTPClient() *http.Client {
+	if h.federationHTTPClientOverride != nil {
+		return h.federationHTTPClientOverride
+	}
+	return &http.Client{Timeout: 15 * time.Second}
+}
+
+// logFederationInvitationAsync records a federation_log line for
+// invitationID without blocking the caller or affecting its response — a
+// failure to write a log line must never turn a successful (or already
+// being reported) handshake step into a 500. Errors are logged locally
+// instead.
+func (h *Handlers) logFederationInvitationAsync(invitationID, level, message string) {
+	go func() {
+		ctx := context.Background()
+		if err := h.services.db.logFederationInvitation(ctx, invitationID, level, message); err != nil {
+			h.services.log.GetLogger(ctx).Error().Err(err).Str("invitationId", invitationID).Msg("Failed to write federation invitation log")
+		}
+	}()
+}
+
+// logFederationServerAsync records a federation_log line for serverID —
+// see logFederationInvitationAsync.
+func (h *Handlers) logFederationServerAsync(serverID, level, message string) {
+	go func() {
+		ctx := context.Background()
+		if err := h.services.db.logFederationServer(ctx, serverID, level, message); err != nil {
+			h.services.log.GetLogger(ctx).Error().Err(err).Str("serverId", serverID).Msg("Failed to write federation server log")
+		}
+	}()
+}
+
 func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
@@ -2863,7 +2906,7 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	baseURL := federationBaseURL(r)
+	baseURL := h.federationBaseURL()
 	signBytes := identity.BuildFederationInvitationPayload(
 		inviteID,
 		h.services.db.GetServerID(),
@@ -2906,7 +2949,7 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 
 	secretHash := crypto.Hash(secret)
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := h.services.db.InsertFederationInvitation(r.Context(), inviteID, name, caller, remoteFingerprint, secretHash, connectionString, now); err != nil {
+	if err := h.services.db.InsertFederationInvitation(r.Context(), inviteID, name, caller, remoteFingerprint, remoteArmor, secretHash, connectionString, now); err != nil {
 		if errors.Is(err, errFederationInvitationExists) {
 			writeResponse(w, http.StatusConflict, "Invitation already exists")
 			return
@@ -2952,16 +2995,16 @@ func (h *Handlers) ListFederationInvitations(w http.ResponseWriter, r *http.Requ
 			Status:            row.Status,
 			CreatedBy:         row.CreatedBy,
 			CreatedByUsername: row.CreatedByUsername,
-			RemoteFingerprint: row.RemoteFingerprint,
+			RemoteFingerprint: row.Fingerprint,
 			CreatedAt:         row.CreatedAt.UTC().Format(time.RFC3339),
 		}
 		if row.AcceptedAt != nil {
 			s := row.AcceptedAt.UTC().Format(time.RFC3339)
 			item.AcceptedAt = &s
 		}
-		if row.ApprovedAt != nil {
-			s := row.ApprovedAt.UTC().Format(time.RFC3339)
-			item.ApprovedAt = &s
+		if row.ServerID != "" {
+			sid := row.ServerID
+			item.ServerID = &sid
 		}
 		if row.ReviewedBy != "" {
 			rb := row.ReviewedBy
@@ -3014,8 +3057,279 @@ func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Req
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("id", id).Msg("federation invitation revoke failed")
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
-		writeResponse(w, http.StatusOK, map[string]string{"inviteId": id, "status": federationStatusRevoked})
+		writeResponse(w, http.StatusOK, map[string]string{"inviteId": id, "status": federationStatusCanceled})
 	}
+}
+
+// IncomingFederationAttempt is the initiator-side callback a remote
+// (responder) server calls after decrypting a connection string it was
+// given out-of-band. No session auth — legitimacy is proven by the
+// invitation secret and the responder's own signature. Allowlisted in
+// signatureAuthMiddleware.
+func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	inviteID := strings.TrimSpace(mux.Vars(r)["id"])
+	if inviteID == "" {
+		writeResponse(w, http.StatusBadRequest, "id is required")
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	var req federationConnectRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.ServerID = strings.TrimSpace(req.ServerID)
+	req.BaseURL = strings.TrimSpace(req.BaseURL)
+	req.Fingerprint = strings.TrimSpace(req.Fingerprint)
+	req.Secret = strings.TrimSpace(req.Secret)
+	if req.ServerID == "" || req.BaseURL == "" || req.Fingerprint == "" ||
+		req.Signature == "" || req.Secret == "" {
+		writeResponse(w, http.StatusBadRequest, "Missing required fields")
+		return
+	}
+	if !strings.HasPrefix(req.BaseURL, "https://") {
+		writeResponse(w, http.StatusBadRequest, "baseUrl must be https")
+		return
+	}
+
+	inv, err := h.services.db.GetFederationInvitation(r.Context(), inviteID)
+	if err != nil {
+		log.Error().Err(err).Str("inviteId", inviteID).Msg("Error loading federation invitation")
+		internalServerError(w)
+		return
+	}
+	if inv == nil {
+		// Nothing to attach a log line to — an unknown invite id isn't a
+		// real invitation's problem to surface.
+		writeResponse(w, http.StatusNotFound, "Invitation not found")
+		return
+	}
+
+	h.logFederationInvitationAsync(inviteID, federationLogInfo,
+		fmt.Sprintf("Incoming connect attempt from %s (%s)", req.ServerID, req.BaseURL))
+
+	if inv.Status != federationStatusNew {
+		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invitation is not new")
+		writeResponse(w, http.StatusConflict, "Invitation is not new")
+		return
+	}
+
+	if subtle.ConstantTimeCompare(crypto.Hash(req.Secret), inv.SecretHash) != 1 {
+		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invalid secret")
+		writeResponse(w, http.StatusForbidden, "Invalid secret")
+		return
+	}
+	// req.Fingerprint must be the exact key A's admin pasted when creating
+	// this invitation — the connection string was encrypted to it, so only
+	// the holder of the matching private key could have decrypted the
+	// secret in the first place. This also pins which key we verify the
+	// signature against, instead of trusting a self-reported fingerprint.
+	if req.Fingerprint != inv.Fingerprint {
+		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: fingerprint does not match invitation")
+		writeResponse(w, http.StatusForbidden, "Fingerprint does not match invitation")
+		return
+	}
+
+	signBytes := identity.BuildFederationConnectPayload(inviteID, req.ServerID, req.BaseURL, req.Fingerprint)
+	sigArmor, err := encoding.Base64Decode(req.Signature)
+	if err != nil {
+		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invalid signature encoding")
+		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
+		return
+	}
+	if err := h.services.crypto.VerifyDetachedSignature(string(signBytes), sigArmor, inv.PublicKey); err != nil {
+		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invalid signature")
+		writeResponse(w, http.StatusBadRequest, "Invalid signature")
+		return
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	err = h.services.db.MarkFederationInvitationAccepted(r.Context(), inviteID, federationPeer{
+		ServerID:    req.ServerID,
+		BaseURL:     req.BaseURL,
+		Fingerprint: req.Fingerprint,
+	}, now)
+	switch {
+	case errors.Is(err, errFederationInvitationNotFound):
+		writeResponse(w, http.StatusNotFound, "Invitation not found")
+	case errors.Is(err, errFederationInvitationNotNew):
+		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invitation is not new")
+		writeResponse(w, http.StatusConflict, "Invitation is not new")
+	case err != nil:
+		log.Error().Err(err).Str("inviteId", inviteID).Msg("federation connect accept failed")
+		h.logFederationInvitationAsync(inviteID, federationLogError, "Failed to record connect attempt: internal error")
+		internalServerError(w)
+	default:
+		h.logFederationInvitationAsync(inviteID, federationLogInfo, "Connect attempt accepted; pending approval")
+		writeResponse(w, http.StatusOK, federationConnectResponse{Status: federationStatusAccepted, ServerID: req.ServerID})
+	}
+}
+
+// OutgoingFederationAttempt is the responder-side action: an admin here
+// pastes a connection string they received out-of-band from the
+// initiator's admin. This decrypts it, verifies the initiator's signature,
+// records the peer server row (connected=FALSE — so there's somewhere to
+// log against even if the next step fails), signs and posts our own
+// callback to the initiator's connect endpoint, and marks the peer
+// connected once the initiator confirms.
+func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	var req federationAttemptRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	connectionString := strings.TrimSpace(req.ConnectionString)
+	if connectionString == "" {
+		writeResponse(w, http.StatusBadRequest, "connectionString is required")
+		return
+	}
+
+	plaintext, err := h.services.crypto.Decrypt(connectionString, h.signingKey.Armor)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Failed to decrypt connection string")
+		return
+	}
+	var payload federationConnectionPayload
+	if err := json.Unmarshal(plaintext, &payload); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid connection payload")
+		return
+	}
+	if payload.InviteID == "" || payload.ServerID == "" || payload.BaseURL == "" ||
+		payload.Fingerprint == "" || payload.PublicKeyArmor == "" || payload.Signature == "" || payload.Secret == "" {
+		writeResponse(w, http.StatusBadRequest, "Incomplete connection payload")
+		return
+	}
+	if !strings.HasPrefix(payload.BaseURL, "https://") {
+		writeResponse(w, http.StatusBadRequest, "baseUrl must be https")
+		return
+	}
+
+	remoteFingerprint, err := h.services.crypto.ExtractFingerprintFromArmor(payload.PublicKeyArmor)
+	if err != nil || remoteFingerprint != payload.Fingerprint {
+		writeResponse(w, http.StatusBadRequest, "Public key does not match claimed fingerprint")
+		return
+	}
+	initiatorSignBytes := identity.BuildFederationInvitationPayload(
+		payload.InviteID, payload.ServerID, payload.BaseURL, payload.Fingerprint, payload.Secret,
+	)
+	initiatorSigArmor, err := encoding.Base64Decode(payload.Signature)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
+		return
+	}
+	if err := h.services.crypto.VerifyDetachedSignature(string(initiatorSignBytes), initiatorSigArmor, payload.PublicKeyArmor); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid initiator signature")
+		return
+	}
+
+	// Record the peer (connected=FALSE) before attempting the handshake —
+	// so there's somewhere to log against even if the next steps fail,
+	// instead of writing nothing until success.
+	now := time.Now().UTC().Truncate(time.Second)
+	peer := federationPeer{
+		ServerID:    payload.ServerID,
+		BaseURL:     payload.BaseURL,
+		Fingerprint: payload.Fingerprint,
+		PublicKey:   payload.PublicKeyArmor,
+	}
+	if err := h.services.db.RedeemFederationInvitation(r.Context(), peer, now); err != nil {
+		log.Error().Err(err).Msg("failed to record federation peer")
+		internalServerError(w)
+		return
+	}
+	h.logFederationServerAsync(payload.ServerID, federationLogInfo,
+		fmt.Sprintf("Attempting to redeem invitation from %s (%s)", payload.ServerID, payload.BaseURL))
+
+	localBaseURL := h.federationBaseURL()
+	localServerID := h.services.db.GetServerID()
+	connectSignBytes := identity.BuildFederationConnectPayload(payload.InviteID, localServerID, localBaseURL, h.signingKey.Fingerprint)
+	connectSigB64, err := h.federationSignServer(connectSignBytes)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+
+	connectReq := federationConnectRequest{
+		ServerID:    localServerID,
+		BaseURL:     localBaseURL,
+		Fingerprint: h.signingKey.Fingerprint,
+		Signature:   connectSigB64,
+		Secret:      payload.Secret,
+	}
+	connectBody, err := json.Marshal(connectReq)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+
+	connectURL := strings.TrimRight(payload.BaseURL, "/") + "/api/federation/connect/" + payload.InviteID
+	httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, connectURL, bytes.NewReader(connectBody))
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := h.federationHTTPClient().Do(httpReq)
+	if err != nil {
+		log.Error().Err(err).Str("connectURL", connectURL).Msg("federation connect callback failed")
+		h.logFederationServerAsync(payload.ServerID, federationLogError,
+			fmt.Sprintf("Failed to reach %s (%s): %s", payload.ServerID, payload.BaseURL, err.Error()))
+		writeResponse(w, http.StatusBadGateway, "Failed to reach initiator server")
+		return
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		log.Info().Int("status", resp.StatusCode).Str("connectURL", connectURL).Msg("federation connect callback rejected")
+		h.logFederationServerAsync(payload.ServerID, federationLogError,
+			fmt.Sprintf("Rejected by %s (%s): %s", payload.ServerID, payload.BaseURL, string(respBody)))
+		writeResponse(w, resp.StatusCode, string(respBody))
+		return
+	}
+	var connectResp federationConnectResponse
+	if err := json.Unmarshal(respBody, &connectResp); err != nil {
+		internalServerError(w)
+		return
+	}
+
+	if err := h.services.db.AcceptFederationInvitation(r.Context(), payload.ServerID); err != nil {
+		log.Error().Err(err).Msg("failed to mark federation peer connected")
+		internalServerError(w)
+		return
+	}
+	h.logFederationServerAsync(payload.ServerID, federationLogInfo,
+		fmt.Sprintf("Connected to %s (%s); pending approval", payload.ServerID, payload.BaseURL))
+
+	writeResponse(w, http.StatusOK, federationAttemptResponse{Status: federationStatusAccepted, ServerID: payload.ServerID})
 }
 
 // //////////// //

@@ -639,6 +639,20 @@ func BuildFederationInvitationPayload(inviteID, serverID, baseURL, fingerprint, 
 	}, "")
 }
 
+// BuildFederationConnectPayload returns the canonical bytes the responder
+// server signs when calling back to POST /federation/connect/{inviteId},
+// binding its identity to the specific invite. No secret: the responder
+// proves possession of the invite separately via the secret field on the
+// connect request body, not by signing over it.
+func BuildFederationConnectPayload(inviteID, serverID, baseURL, fingerprint string) []byte {
+	return signing.BytesToSign(map[string]string{
+		"baseUrl":     baseURL,
+		"fingerprint": fingerprint,
+		"inviteId":    inviteID,
+		"serverId":    serverID,
+	}, "")
+}
+
 // rippleUserHeaders returns the header map covered by a ripple response's
 // userSignature. threadID is always present (client-minted, see
 // specs/ripples/00_design.md); replyingTo is omitted (and therefore

@@ -28,7 +28,7 @@ func newInviteModeHandlers(t *testing.T, db *sql.DB) *Handlers {
 func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
 	t.Helper()
 	dataService := NewDataService(db, "test")
-	if err := dataService.InitServer(context.Background(), false); err != nil {
+	if err := dataService.InitServer(context.Background(), false, "https://test.example"); err != nil {
 		t.Fatal(err)
 	}
 	cryptoSvc := crypto.NewService()

@@ -33,8 +33,14 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS servers (
 			id VARCHAR(255) PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
-			self BOOLEAN NOT NULL DEFAULT FALSE
+			self BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			base_url TEXT,
+			connected BOOLEAN NOT NULL DEFAULT FALSE
 		)`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS base_url TEXT`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS connected BOOLEAN NOT NULL DEFAULT FALSE`,
 		`CREATE TABLE IF NOT EXISTS users (
 			id VARCHAR(255) PRIMARY KEY,
 			username VARCHAR(255) NOT NULL,
@@ -48,21 +54,33 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			id VARCHAR(255) PRIMARY KEY,
 			name VARCHAR(255) NOT NULL DEFAULT '',
 			secret_hash BYTEA NOT NULL,
-			remote_fingerprint VARCHAR(255) NOT NULL,
+			fingerprint VARCHAR(255) NOT NULL REFERENCES public_keys(fingerprint),
 			created_by VARCHAR(255) NOT NULL REFERENCES users(id),
-			status VARCHAR(16) NOT NULL DEFAULT 'new'
-				CHECK (status IN ('new', 'accepted', 'approved', 'revoked')),
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			accepted_at TIMESTAMPTZ,
-			approved_at TIMESTAMPTZ,
+			server_id VARCHAR(255) REFERENCES servers(id),
+			status VARCHAR(16) NOT NULL DEFAULT 'new'
+				CHECK (status IN ('new', 'accepted', 'approved', 'rejected', 'canceled', 'revoked')),
+			reviewed_by VARCHAR(255) REFERENCES users(id),
+			reviewed_at TIMESTAMPTZ,
 			connection_ciphertext TEXT
 		)`,
-		`ALTER TABLE federation_invitation ADD COLUMN IF NOT EXISTS connection_ciphertext TEXT`,
-		`ALTER TABLE federation_invitation ADD COLUMN IF NOT EXISTS name VARCHAR(255) NOT NULL DEFAULT ''`,
-		`ALTER TABLE federation_invitation ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(255) REFERENCES users(id)`,
-		`ALTER TABLE federation_invitation ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ`,
-		`INSERT INTO servers (id, name, self) VALUES ('server-a', 'test', TRUE)
-		 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, self = EXCLUDED.self`,
+		`CREATE TABLE IF NOT EXISTS federation_log (
+			id VARCHAR(255) PRIMARY KEY,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			level VARCHAR(16) NOT NULL CHECK (level IN ('info', 'error')),
+			message TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS federation_invitation_log (
+			invitation_id VARCHAR(255) NOT NULL REFERENCES federation_invitation(id) ON DELETE CASCADE,
+			log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
+			PRIMARY KEY (invitation_id, log_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS federation_server_log (
+			server_id VARCHAR(255) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+			log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
+			PRIMARY KEY (server_id, log_id)
+		)`,
 	}
 	for _, q := range stmts {
 		if _, err := db.Exec(q); err != nil {
@@ -89,9 +107,15 @@ func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *crypto.KeyP
 	if _, err := db.Exec(`DELETE FROM federation_invitation`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`DELETE FROM federation_log`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM servers WHERE self = FALSE`); err != nil {
+		t.Fatal(err)
+	}
 
 	dataService := NewDataService(db, "test")
-	if err := dataService.InitServer(context.Background(), false); err != nil {
+	if err := dataService.InitServer(context.Background(), false, "https://test.example"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -117,7 +141,7 @@ func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *crypto.KeyP
 	`, serverKP.Fingerprint, serverKP.PublicKey); err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandlers(services, AppConfig{ServerName: "test"}, make(chan realtime.BroadcastMessage, 1), Key{
+	h := NewHandlers(services, AppConfig{ServerName: "test", APIBaseURL: "https://test.example"}, make(chan realtime.BroadcastMessage, 1), Key{
 		Fingerprint: serverKP.Fingerprint,
 		Armor:       serverKP.PrivateKey,
 	})
@@ -150,7 +174,7 @@ func TestCreateFederationInvitation_Admin(t *testing.T) {
 	if err != nil || inv == nil {
 		t.Fatalf("inv=%v err=%v", inv, err)
 	}
-	if inv.Status != federationStatusNew || inv.CreatedBy != "admin1" || inv.RemoteFingerprint != remoteKP.Fingerprint || inv.Name != "Acme staging" {
+	if inv.Status != federationStatusNew || inv.CreatedBy != "admin1" || inv.Fingerprint != remoteKP.Fingerprint || inv.Name != "Acme staging" {
 		t.Fatalf("row=%+v", inv)
 	}
 
@@ -212,7 +236,7 @@ func TestListFederationInvitations_AllAdminsSeeAll(t *testing.T) {
 	seedFederationUser(t, ds.db, "admin2", "other", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := crypto.Hash("s")
-	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", "admin1", "fp-b", hash, "cipher-armor", fixed); err != nil {
+	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", "admin1", "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
 		t.Fatal(err)
 	}
 
@@ -239,7 +263,7 @@ func TestRevokeFederationInvitation_NewOnly(t *testing.T) {
 	seedFederationUser(t, ds.db, "admin1", "admin", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := crypto.Hash("s")
-	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", "admin1", "fp-b", hash, "cipher-armor", fixed); err != nil {
+	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", "admin1", "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
 		t.Fatal(err)
 	}
 
@@ -255,7 +279,7 @@ func TestRevokeFederationInvitation_NewOnly(t *testing.T) {
 	}
 
 	inv, _ := ds.GetFederationInvitation(context.Background(), "inv1")
-	if inv.Status != federationStatusRevoked {
+	if inv.Status != federationStatusCanceled {
 		t.Fatalf("status=%q", inv.Status)
 	}
 	var reviewedBy sql.NullString
@@ -299,21 +323,25 @@ func TestRevokeFederationInvitation_NewOnly(t *testing.T) {
 	}
 }
 
-func TestAcceptFederationInvitation_ClearsCiphertext(t *testing.T) {
+func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
 	seedFederationUser(t, ds.db, "admin1", "admin", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := crypto.Hash("s")
-	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", "admin1", "fp-b", hash, "cipher-armor", fixed); err != nil {
+	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", "admin1", "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := ds.AcceptFederationInvitation(context.Background(), "inv1", fixed); err != nil {
+	if err := ds.MarkFederationInvitationAccepted(context.Background(), "inv1", federationPeer{
+		ServerID:    "server-b",
+		BaseURL:     "https://b.example",
+		Fingerprint: "fp-b",
+	}, fixed); err != nil {
 		t.Fatal(err)
 	}
 
 	inv, _ := ds.GetFederationInvitation(context.Background(), "inv1")
-	if inv.Status != federationStatusAccepted || inv.AcceptedAt == nil {
+	if inv.Status != federationStatusAccepted || inv.AcceptedAt == nil || inv.ServerID != "server-b" {
 		t.Fatalf("inv=%+v", inv)
 	}
 	var ciphertext sql.NullString
@@ -324,6 +352,15 @@ func TestAcceptFederationInvitation_ClearsCiphertext(t *testing.T) {
 	}
 	if ciphertext.Valid {
 		t.Fatalf("expected ciphertext cleared on accept, got %q", ciphertext.String)
+	}
+	var connected bool
+	if err := ds.db.QueryRowContext(context.Background(),
+		`SELECT connected FROM servers WHERE id = $1`, "server-b",
+	).Scan(&connected); err != nil {
+		t.Fatal(err)
+	}
+	if !connected {
+		t.Fatalf("expected peer server marked connected")
 	}
 
 	rr := httptest.NewRecorder()

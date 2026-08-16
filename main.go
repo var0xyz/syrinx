@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -41,6 +42,9 @@ type AppConfig struct {
 	ServerName    string `env:"name='SERVER_NAME'"`
 	Port          int
 	AllowedOrigin string `env:"name='ALLOWED_ORIGIN'"`
+
+	// This server's own public URL, used for federation.
+	APIBaseURL env.HTTPURL `env:"name='API_BASE_URL'"`
 
 	ServerKeyPassphrase string `env:"name='SERVER_KEY_PASSPHRASE'"`
 
@@ -80,6 +84,10 @@ func main() {
 	// reasonable. Consider something short and unique.
 	if len(cfg.ServerName) == 0 {
 		l.Panicf("[ERR] ServerName cannot be empty")
+	}
+
+	if !strings.HasPrefix(string(cfg.APIBaseURL), "https://") {
+		l.Printf("[WARN] API_BASE_URL %q is not https:// — fine for local dev, not for production", cfg.APIBaseURL)
 	}
 
 	log.Info().Msg("Starting Syrinx API...")
@@ -143,7 +151,7 @@ func main() {
 	log.Info().Msg("[OK] Services initialized successfully")
 
 	log.Debug().Msg("Initializing server identity...")
-	if err := dataService.InitServer(context.Background(), cfg.RecoveryMode); err != nil {
+	if err := dataService.InitServer(context.Background(), cfg.RecoveryMode, string(cfg.APIBaseURL)); err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server identity")
 	}
 
@@ -368,6 +376,10 @@ func main() {
 	api.HandleFunc("/federation/invitations", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/invitations/{id}/revoke", h.RevokeFederationInvitation).Methods("POST")
 	api.HandleFunc("/federation/invitations/{id}/revoke", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/attempt", h.OutgoingFederationAttempt).Methods("POST")
+	api.HandleFunc("/federation/attempt", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods("POST")
+	api.HandleFunc("/federation/connect/{id}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")
