@@ -53,6 +53,7 @@ export type EnumerateInput = {
   users: api.User[];
   usersInfo: api.UserInfo[];
   publicKeys: api.PublicKey[];
+  revocations: api.KeyRevocation[];
   reeds: ReedType[];
   following: { userId: string }[];
 };
@@ -136,7 +137,11 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
 
   const byFp = new Map<string, api.PublicKey>();
   for (const key of input.publicKeys) {
-    byFp.set(key.fingerprint.toLowerCase(), key);
+    byFp.set(key.id.toLowerCase(), key);
+  }
+  const byRevocationId = new Map<string, api.KeyRevocation>();
+  for (const revocation of input.revocations) {
+    byRevocationId.set(revocation.id.toLowerCase(), revocation);
   }
   const byUser = new Map<string, api.User>();
   for (const user of input.users) {
@@ -149,11 +154,12 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
 
   const lookups = {
     getUser: (id: string) => byUser.get(id),
-    getActiveKeyFingerprint: (id: string) =>
-      byInfo.get(id)?.activeKeyFingerprint ||
-      (byUser.get(id) as api.User & { activeKeyFingerprint?: string } | undefined)
-        ?.activeKeyFingerprint,
+    getActiveKeyId: (id: string) =>
+      byInfo.get(id)?.activeKeyID ||
+      (byUser.get(id) as api.User & { activeKeyID?: string } | undefined)
+        ?.activeKeyID,
     getPublicKey: (fp: string) => byFp.get(fp.toLowerCase()) ?? byFp.get(fp),
+    getRevocation: (id: string) => byRevocationId.get(id.toLowerCase()) ?? byRevocationId.get(id),
   };
 
   for (const user of input.users) {
@@ -316,10 +322,11 @@ export async function ensureRecoveryProgress(): Promise<RecoveryProgressLedger> 
   const selfUserId =
     typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';
 
-  const [users, usersInfo, publicKeys, reeds, following] = await Promise.all([
+  const [users, usersInfo, publicKeys, revocations, reeds, following] = await Promise.all([
     dbService.getAll<api.User>('users'),
     dbService.getAll<api.UserInfo>('usersInfo'),
     dbService.getAll<api.PublicKey>('publicKeys'),
+    dbService.getAll<api.KeyRevocation>('revocations'),
     dbService.getAll<ReedType>('reeds'),
     dbService.getAll<FollowRecord>('following'),
   ]);
@@ -329,6 +336,7 @@ export async function ensureRecoveryProgress(): Promise<RecoveryProgressLedger> 
     users,
     usersInfo,
     publicKeys,
+    revocations,
     reeds,
     following,
   });

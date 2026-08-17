@@ -36,6 +36,7 @@ export default withMermaid(
             { text: 'Trust model', link: '/trust' },
             { text: 'Cryptography', link: '/cryptography' },
             { text: 'Content distribution', link: '/content' },
+            { text: 'Relay model', link: '/relay-model' },
             { text: 'Invites', link: '/invites' },
             { text: 'Identity, invites & recovery', link: '/identity' },
             { text: 'Deletion', link: '/deletion' }

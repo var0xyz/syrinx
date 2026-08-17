@@ -14,6 +14,11 @@ import (
 	"syrinx/signing"
 )
 
+// Every subject handled by this file (profile.ID, follow targets, reed
+// authors/reporters) is a bare userID local to serverID; every identity
+// minted or looked up here uses identity.CanonicalID(serverID, userID) —
+// cross-server subjects aren't handled by this package.
+
 // SaveIdentityResult describes what a save did to the users row.
 type SaveIdentityResult struct {
 	Created bool
@@ -30,14 +35,16 @@ var errUsernameCollisionLoss = fmt.Errorf("incoming profile lost username collis
 
 // SaveOwnIdentity upserts a verified own-claim identity + nest. Clears
 // unclaimed_accounts and records the user in ongoing_recoveries.
-func SaveOwnIdentity(ctx context.Context, db *sql.DB, profile Profile, flat []FlatKey, deviceID string) (*SaveIdentityResult, error) {
+func SaveOwnIdentity(ctx context.Context, db *sql.DB, serverID string, profile Profile, flat []FlatKey, deviceID string) (*SaveIdentityResult, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	res, err := upsertIdentity(ctx, tx, profile, flat)
+	selfIdentity := identity.CanonicalID(serverID, profile.ID)
+
+	res, err := upsertIdentity(ctx, tx, serverID, profile, flat)
 	if err != nil {
 		return nil, err
 	}
@@ -47,20 +54,20 @@ func SaveOwnIdentity(ctx context.Context, db *sql.DB, profile Profile, flat []Fl
 		}
 		return res, nil
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM unclaimed_accounts WHERE user_id = $1`, profile.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM unclaimed_accounts WHERE user_id = $1`, selfIdentity); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ongoing_recoveries (user_id) VALUES ($1)
 		ON CONFLICT DO NOTHING
-	`, profile.ID); err != nil {
+	`, selfIdentity); err != nil {
 		return nil, err
 	}
-	if err := drainPendingFollows(ctx, tx, profile.ID); err != nil {
+	if err := drainPendingFollows(ctx, tx, profile.ID, selfIdentity); err != nil {
 		return nil, err
 	}
 	if deviceID != "" {
-		if err := bindClaimDeviceTx(ctx, tx, profile.ID, deviceID, profile.ServerSignature.Timestamp.UTC()); err != nil {
+		if err := bindClaimDeviceTx(ctx, tx, selfIdentity, deviceID, profile.ServerSignature.Timestamp.UTC()); err != nil {
 			return nil, err
 		}
 	}
@@ -73,14 +80,16 @@ func SaveOwnIdentity(ctx context.Context, db *sql.DB, profile Profile, flat []Fl
 // SavePeerIdentity upserts a verified peer-reported identity + nest.
 // Newly created rows are inserted into unclaimed_accounts; already-claimed
 // accounts are never re-marked unclaimed.
-func SavePeerIdentity(ctx context.Context, db *sql.DB, profile Profile, flat []FlatKey) (*SaveIdentityResult, error) {
+func SavePeerIdentity(ctx context.Context, db *sql.DB, serverID string, profile Profile, flat []FlatKey) (*SaveIdentityResult, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	res, err := upsertIdentity(ctx, tx, profile, flat)
+	selfIdentity := identity.CanonicalID(serverID, profile.ID)
+
+	res, err := upsertIdentity(ctx, tx, serverID, profile, flat)
 	if err != nil {
 		return nil, err
 	}
@@ -94,11 +103,11 @@ func SavePeerIdentity(ctx context.Context, db *sql.DB, profile Profile, flat []F
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO unclaimed_accounts (user_id) VALUES ($1)
 			ON CONFLICT DO NOTHING
-		`, profile.ID); err != nil {
+		`, selfIdentity); err != nil {
 			return nil, err
 		}
 	}
-	if err := drainPendingFollows(ctx, tx, profile.ID); err != nil {
+	if err := drainPendingFollows(ctx, tx, profile.ID, selfIdentity); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -107,28 +116,49 @@ func SavePeerIdentity(ctx context.Context, db *sql.DB, profile Profile, flat []F
 	return res, nil
 }
 
-func upsertIdentity(ctx context.Context, tx *sql.Tx, profile Profile, flat []FlatKey) (*SaveIdentityResult, error) {
+func upsertIdentity(ctx context.Context, tx *sql.Tx, serverID string, profile Profile, flat []FlatKey) (*SaveIdentityResult, error) {
 	if len(flat) == 0 {
 		return nil, fmt.Errorf("empty key nest")
 	}
-	activeFP := flat[len(flat)-1].Key.Fingerprint
 	incomingSignedAt := profile.ServerSignature.Timestamp.UTC().Truncate(time.Second)
+	selfIdentity := identity.CanonicalID(serverID, profile.ID)
+	// flat's fingerprints are bare (see insertKeys' comment); canonicalize
+	// for users.active_key_id and the signature-attestation rows, which
+	// want the same canonical form as every other table.
+	activeFP := string(identity.AppendEntity(selfIdentity, flat[len(flat)-1].Key.Fingerprint))
 
+	// Lock/check the identities row, not users — identities is the actual FK
+	// target. users.id IS identities.id directly, so the join is on u.id.
 	var existingSignedAt time.Time
 	err := tx.QueryRowContext(ctx, `
 		SELECT ss.signed_at
-		FROM users u
+		FROM identities i
+		JOIN users u ON u.id = i.id
 		JOIN server_signatures ss ON ss.id = u.server_signature_id
-		WHERE u.id = $1
-		FOR UPDATE OF u
-	`, profile.ID).Scan(&existingSignedAt)
+		WHERE i.id = $1
+		FOR UPDATE OF i
+	`, selfIdentity).Scan(&existingSignedAt)
 
 	created := false
 	updated := false
 
 	switch {
 	case err == sql.ErrNoRows:
-		if err := insertUser(ctx, tx, profile, activeFP, incomingSignedAt); err != nil {
+		// Mint the identities row before public_keys/users — both
+		// FK to it, and neither exists yet on this branch. ON CONFLICT DO
+		// NOTHING: a stale identities row surviving an earlier partial run
+		// is safe to leave in place.
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO identities (id, server_id)
+			VALUES ($1, $2)
+			ON CONFLICT (id) DO NOTHING
+		`, selfIdentity, serverID); err != nil {
+			return nil, fmt.Errorf("insert identity: %w", err)
+		}
+		if err := insertKeys(ctx, tx, selfIdentity, flat); err != nil {
+			return nil, err
+		}
+		if err := insertUser(ctx, tx, serverID, profile, activeFP, incomingSignedAt); err != nil {
 			if errors.Is(err, errUsernameCollisionLoss) {
 				return &SaveIdentityResult{Rejected: true}, nil
 			}
@@ -139,7 +169,10 @@ func upsertIdentity(ctx context.Context, tx *sql.Tx, profile Profile, flat []Fla
 	case err != nil:
 		return nil, err
 	default:
-		wrote, err := updateUserIfNewer(ctx, tx, profile, activeFP, existingSignedAt, incomingSignedAt)
+		if err := insertKeys(ctx, tx, selfIdentity, flat); err != nil {
+			return nil, err
+		}
+		wrote, err := updateUserIfNewer(ctx, tx, selfIdentity, profile, activeFP, existingSignedAt, incomingSignedAt)
 		if err != nil {
 			if errors.Is(err, errUsernameCollisionLoss) {
 				return &SaveIdentityResult{Rejected: true}, nil
@@ -149,44 +182,55 @@ func upsertIdentity(ctx context.Context, tx *sql.Tx, profile Profile, flat []Fla
 		updated = wrote
 	}
 
-	if err := insertKeys(ctx, tx, profile.ID, flat); err != nil {
-		return nil, err
-	}
-
 	return &SaveIdentityResult{Created: created, Updated: updated}, nil
 }
 
-func insertUser(ctx context.Context, tx *sql.Tx, profile Profile, activeFP string, signedAt time.Time) error {
-	username, err := claimUsername(ctx, tx, profile.ID, profile.Username, signedAt)
+// insertUser inserts the users row (its satellite identities row is
+// already minted by the caller). active_key_id references a public_keys
+// row inserted by the caller's insertKeys call, before this runs.
+func insertUser(ctx context.Context, tx *sql.Tx, serverID string, profile Profile, activeFP string, signedAt time.Time) error {
+	selfIdentity := identity.CanonicalID(serverID, profile.ID)
+
+	username, err := claimUsername(ctx, tx, selfIdentity, profile.Username, signedAt)
 	if err != nil {
 		return err
 	}
-	if err := roles.ValidateProfileRole(profile.ID, profile.Role); err != nil {
+	if err := roles.ValidateProfileRole(profile.ID, profile.Role, serverID); err != nil {
 		return err
 	}
-	fingerprint := profile.UserSignature.Fingerprint
-	if fingerprint == "" {
-		fingerprint = activeFP
+
+	// profile.UserSignature.KeyID is already the full canonical key
+	// id (unlike flat's bare fingerprints) — use it as-is when present.
+	keyID := activeFP
+	if profile.UserSignature.KeyID != "" {
+		keyID = profile.UserSignature.KeyID
 	}
-	userSignatureID, err := signing.InsertUserSignature(ctx, tx, fingerprint, profile.UserSignature.Armor,
-	)
+	userSignatureID, err := signing.InsertUserSignature(ctx, tx, keyID, profile.UserSignature.Armor)
 	if err != nil {
 		return err
 	}
-	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, profile.ServerSignature.Fingerprint, profile.ServerSignature.Armor, signedAt,
-	)
+	serverKeyID := string(identity.CanonicalID(serverID, profile.ServerSignature.Fingerprint))
+	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, serverKeyID, profile.ServerSignature.Armor, signedAt)
 	if err != nil {
 		return err
 	}
+	// invited_by FKs identities(id): the inviter is always a local user,
+	// so the same CanonicalID conversion applies, as in services.go's Signup.
+	var invitedBy any
+	if inviter := profileInvitedByID(profile); inviter != "" {
+		invitedBy = identity.CanonicalID(serverID, inviter)
+	}
+	// users.id IS identities.id directly — selfIdentity is the sole PK
+	// value, same pattern as services.go's Signup INSERT.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO users (
-			id, username, role, created_at, user_fingerprint, bio,
+			id, username, role, created_at, active_key_id, bio,
 			user_signature_id, server_signature_id, invited_by
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`,
-		profile.ID, username, profile.Role, profile.MemberSince.UTC().Truncate(time.Second),
+		selfIdentity, username, profile.Role, profile.MemberSince.UTC().Truncate(time.Second),
 		activeFP, nullIfEmpty(profile.Bio),
-		userSignatureID, serverSignatureID, nullIfEmpty(profileInvitedByID(profile)),
+		userSignatureID, serverSignatureID, invitedBy,
 	)
 	if err != nil {
 		return fmt.Errorf("insert user: %w", err)
@@ -197,6 +241,7 @@ func insertUser(ctx context.Context, tx *sql.Tx, profile Profile, activeFP strin
 func updateUserIfNewer(
 	ctx context.Context,
 	tx *sql.Tx,
+	selfIdentity identity.IdentityID,
 	profile Profile,
 	activeFP string,
 	existingSignedAt time.Time,
@@ -205,36 +250,41 @@ func updateUserIfNewer(
 	if !incomingSignedAt.After(existingSignedAt) {
 		return false, nil
 	}
-	username, err := claimUsername(ctx, tx, profile.ID, profile.Username, incomingSignedAt)
+	username, err := claimUsername(ctx, tx, selfIdentity, profile.Username, incomingSignedAt)
 	if err != nil {
 		return false, err
 	}
-	fingerprint := profile.UserSignature.Fingerprint
-	if fingerprint == "" {
-		fingerprint = activeFP
+	// profile.UserSignature.KeyID is already the full canonical key
+	// id (unlike flat's bare fingerprints) — use it as-is when present.
+	keyID := activeFP
+	if profile.UserSignature.KeyID != "" {
+		keyID = profile.UserSignature.KeyID
 	}
-	userSignatureID, err := signing.InsertUserSignature(ctx, tx, fingerprint, profile.UserSignature.Armor,
-	)
+	userSignatureID, err := signing.InsertUserSignature(ctx, tx, keyID, profile.UserSignature.Armor)
 	if err != nil {
 		return false, err
 	}
-	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, profile.ServerSignature.Fingerprint, profile.ServerSignature.Armor, incomingSignedAt,
-	)
+	serverKeyID := string(identity.CanonicalID(selfIdentity.ServerID(), profile.ServerSignature.Fingerprint))
+	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, serverKeyID, profile.ServerSignature.Armor, incomingSignedAt)
 	if err != nil {
 		return false, err
 	}
+	// Profile fields only — role/username/bio/fingerprint/signatures. This
+	// updates the existing satellite users row in place; the identities row
+	// is untouched. WHERE id = $7 targets users.id, which IS identities.id
+	// — must bind selfIdentity, not bare profile.ID, or this updates zero rows.
 	_, err = tx.ExecContext(ctx, `
 		UPDATE users SET
 			username = $1,
 			bio = $2,
 			role = $3,
-			user_fingerprint = $4,
+			active_key_id = $4,
 			user_signature_id = $5,
 			server_signature_id = $6
 		WHERE id = $7
 	`,
 		username, nullIfEmpty(profile.Bio),
-		profile.Role, activeFP, userSignatureID, serverSignatureID, profile.ID,
+		profile.Role, activeFP, userSignatureID, serverSignatureID, selfIdentity,
 	)
 	if err != nil {
 		return false, fmt.Errorf("update user: %w", err)
@@ -242,15 +292,33 @@ func updateUserIfNewer(
 	return true, nil
 }
 
-func insertKeys(ctx context.Context, tx *sql.Tx, userID string, flat []FlatKey) error {
+// insertKeys writes flat's keys/revocations to public_keys/
+// public_key_revocations. flat's fingerprints arrive BARE —
+// verifyKeyCountersig/verifyRevocation checked them against bytes the
+// SPA's recoveryKeyNest.ts actually signed, which (per this package's
+// deliberate bare-userID exception) pairs a bare fingerprint with a bare
+// userID, so the wire/verification layer must stay bare here too. DB
+// storage still wants the canonical form like every other table, so
+// canonicalize against owner right at this boundary, after verification
+// and before any INSERT. owner is always a real, local identity here —
+// this package handles only local subjects (see its own package doc).
+func insertKeys(ctx context.Context, tx *sql.Tx, owner identity.IdentityID, flat []FlatKey) error {
+	canonicalFP := func(bare string) string {
+		return string(identity.AppendEntity(owner, bare))
+	}
+	// Server signature ServerID on the wire is optional (verifyKeyCountersig
+	// only checks it if non-empty); owner.ServerID() is always populated and
+	// is what verification actually binds against, so use it here.
+	ownerServerID := owner.ServerID()
 	for i, fk := range flat {
-		var predFP, predSig interface{}
+		fingerprint := canonicalFP(fk.Key.Fingerprint)
+		var predID interface{}
 		if fk.PredecessorFingerprint != "" {
-			predFP = fk.PredecessorFingerprint
-			predSig = fk.PredecessorSignature
+			predID = canonicalFP(fk.PredecessorFingerprint)
 		}
+		keyServerKeyID := string(identity.CanonicalID(ownerServerID, fk.Key.ServerSignature.Fingerprint))
 		serverSigID, err := signing.InsertServerSignature(ctx, tx,
-			fk.Key.ServerSignature.Fingerprint,
+			keyServerKeyID,
 			fk.Key.ServerSignature.Armor,
 			fk.Key.ServerSignature.Timestamp,
 		)
@@ -258,30 +326,29 @@ func insertKeys(ctx context.Context, tx *sql.Tx, userID string, flat []FlatKey) 
 			return fmt.Errorf("insert key server signature %s: %w", fk.Key.Fingerprint, err)
 		}
 		_, err = tx.ExecContext(ctx, `
-			INSERT INTO user_keys (
-				fingerprint, owner, armor, created_at, expires_at,
-				server_signature_id,
-				predecessor_signature, predecessor_fingerprint
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (owner, fingerprint) DO NOTHING
+			INSERT INTO public_keys (
+				id, owner, armor, created_at,
+				server_signature_id, predecessor_id
+			) VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (id) DO NOTHING
 		`,
-			fk.Key.Fingerprint, userID, fk.Key.Armor,
-			fk.Key.CreatedAt.UTC().Truncate(time.Second), fk.Key.ExpiresAt,
-			serverSigID,
-			predSig, predFP,
+			fingerprint, owner, fk.Key.Armor,
+			fk.Key.CreatedAt.UTC().Truncate(time.Second),
+			serverSigID, predID,
 		)
 		if err != nil {
 			return fmt.Errorf("insert key %s: %w", fk.Key.Fingerprint, err)
 		}
 
 		if fk.Revocation != nil {
-			userSigID, err := signing.InsertUserSignature(ctx, tx, fk.Revocation.Fingerprint, fk.Revocation.UserSignature.Armor,
-			)
+			revocationFP := canonicalFP(fk.Revocation.Fingerprint)
+			userSigID, err := signing.InsertUserSignature(ctx, tx, revocationFP, fk.Revocation.UserSignature.Armor)
 			if err != nil {
 				return fmt.Errorf("insert revocation user signature %s: %w", fk.Key.Fingerprint, err)
 			}
+			revServerKeyID := string(identity.CanonicalID(ownerServerID, fk.Revocation.ServerSignature.Fingerprint))
 			serverSigID, err := signing.InsertServerSignature(ctx, tx,
-				fk.Revocation.ServerSignature.Fingerprint,
+				revServerKeyID,
 				fk.Revocation.ServerSignature.Armor,
 				fk.Revocation.ServerSignature.Timestamp,
 			)
@@ -289,13 +356,13 @@ func insertKeys(ctx context.Context, tx *sql.Tx, userID string, flat []FlatKey) 
 				return fmt.Errorf("insert revocation server signature %s: %w", fk.Key.Fingerprint, err)
 			}
 			_, err = tx.ExecContext(ctx, `
-				INSERT INTO user_key_revocations (
-					user_fingerprint, owner, reason,
+				INSERT INTO public_key_revocations (
+					key_id, owner, reason,
 					user_signature_id, server_signature_id
 				) VALUES ($1, $2, $3, $4, $5)
-				ON CONFLICT (owner, user_fingerprint) DO NOTHING
+				ON CONFLICT (key_id) DO NOTHING
 			`,
-				fk.Revocation.Fingerprint, userID, fk.Revocation.Reason,
+				revocationFP, owner, fk.Revocation.Reason,
 				userSigID, serverSigID,
 			)
 			if err != nil {
@@ -303,14 +370,23 @@ func insertKeys(ctx context.Context, tx *sql.Tx, userID string, flat []FlatKey) 
 			}
 		}
 
-		// After inserting a newer key, point the predecessor revocation's successor.
+		// After inserting a newer key, point the predecessor revocation's
+		// successor + the handoff signature proof onto that same row.
 		if i > 0 {
+			var successorSigID interface{}
+			if fk.PredecessorSignature != "" {
+				sigID, err := signing.InsertUserSignature(ctx, tx, canonicalFP(flat[i-1].Key.Fingerprint), fk.PredecessorSignature)
+				if err != nil {
+					return fmt.Errorf("insert successor signature for %s: %w", flat[i-1].Key.Fingerprint, err)
+				}
+				successorSigID = sigID
+			}
 			_, err := tx.ExecContext(ctx, `
-				UPDATE user_key_revocations
-				SET successor = $1
-				WHERE user_fingerprint = $2 AND owner = $3
+				UPDATE public_key_revocations
+				SET successor = $1, successor_signature_id = $2
+				WHERE key_id = $3
 				  AND (successor IS NULL OR successor = '')
-			`, fk.Key.Fingerprint, flat[i-1].Key.Fingerprint, userID)
+			`, fingerprint, successorSigID, canonicalFP(flat[i-1].Key.Fingerprint))
 			if err != nil {
 				return fmt.Errorf("set successor for %s: %w", flat[i-1].Key.Fingerprint, err)
 			}
@@ -327,16 +403,20 @@ func insertKeys(ctx context.Context, tx *sql.Tx, userID string, flat []FlatKey) 
 // (if any) is hard-deleted — ON DELETE CASCADE removes its keys,
 // signatures, and recovery/social bookkeeping — and username is returned
 // unchanged for the caller to store.
-func claimUsername(ctx context.Context, tx *sql.Tx, userID, username string, signedAt time.Time) (string, error) {
-	var holderID string
+func claimUsername(ctx context.Context, tx *sql.Tx, selfIdentity identity.IdentityID, username string, signedAt time.Time) (string, error) {
+	var holderIdentityID string
 	var holderSignedAt time.Time
+	// users.id IS identities.id directly now, so both the self-exclusion
+	// comparison and the selected holder id must use that form — comparing
+	// bare here would make "u.id <> $2" always-true, wrongly treating a
+	// same-identity re-report as a collision.
 	err := tx.QueryRowContext(ctx, `
 		SELECT u.id, ss.signed_at
 		FROM users u
 		JOIN server_signatures ss ON ss.id = u.server_signature_id
 		WHERE LOWER(u.username) = LOWER($1) AND u.id <> $2
 		FOR UPDATE OF u
-	`, username, userID).Scan(&holderID, &holderSignedAt)
+	`, username, selfIdentity).Scan(&holderIdentityID, &holderSignedAt)
 	if err == sql.ErrNoRows {
 		return username, nil
 	}
@@ -354,8 +434,12 @@ func claimUsername(ctx context.Context, tx *sql.Tx, userID, username string, sig
 	// destructive by design (see specs/recovery/README.md#recovery-flow):
 	// a renamed-in-place row would carry a username that no longer matches
 	// what its owner signed, permanently breaking verification instead.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, holderID); err != nil {
-		return "", fmt.Errorf("delete username collision loser %s: %w", holderID, err)
+	//
+	// Deletes FROM identities, not FROM users: identities is the actual FK
+	// root, so ON DELETE CASCADE removes the satellite users row and
+	// everything else (keys, signatures, recovery/social bookkeeping) in one shot.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM identities WHERE id = $1`, holderIdentityID); err != nil {
+		return "", fmt.Errorf("delete username collision loser %s: %w", holderIdentityID, err)
 	}
 	if err := coverage.BumpActiveUsers(ctx, tx, -1); err != nil {
 		return "", err
@@ -371,24 +455,26 @@ func nullIfEmpty(s string) interface{} {
 }
 
 // drainPendingFollows moves pending edges targeting targetUserID into the
-// real follow tables, then deletes those pending rows.
-func drainPendingFollows(ctx context.Context, tx *sql.Tx, targetUserID string) error {
+// real follow tables, then deletes those pending rows. targetUserID is bare
+// (pending_follows has no FK); targetIdentity is the same subject's
+// identities.id, used for the fully-FK'd destination tables.
+func drainPendingFollows(ctx context.Context, tx *sql.Tx, targetUserID string, targetIdentity identity.IdentityID) error {
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO user_following (user_id, following_user_id)
-		SELECT follower_user_id, following_user_id
+		SELECT follower_user_id, $2
 		FROM pending_follows
 		WHERE following_user_id = $1
 		ON CONFLICT DO NOTHING
-	`, targetUserID); err != nil {
+	`, targetUserID, targetIdentity); err != nil {
 		return fmt.Errorf("drain pending following: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO user_followers (user_id, follower_user_id)
-		SELECT following_user_id, follower_user_id
+		SELECT $2, follower_user_id
 		FROM pending_follows
 		WHERE following_user_id = $1
 		ON CONFLICT DO NOTHING
-	`, targetUserID); err != nil {
+	`, targetUserID, targetIdentity); err != nil {
 		return fmt.Errorf("drain pending followers: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -399,8 +485,10 @@ func drainPendingFollows(ctx context.Context, tx *sql.Tx, targetUserID string) e
 	return nil
 }
 
-// bindClaimDeviceTx binds the claiming device in the own-identity claim transaction.
-func bindClaimDeviceTx(ctx context.Context, tx *sql.Tx, userID, deviceID string, now time.Time) error {
+// bindClaimDeviceTx binds the claiming device in the own-identity claim
+// transaction. Device binding is local-account-only, so ownerIdentity is
+// always a local selfIdentity — same convention as services.go's BindDeviceTx.
+func bindClaimDeviceTx(ctx context.Context, tx *sql.Tx, ownerIdentity identity.IdentityID, deviceID string, now time.Time) error {
 	deviceID, err := identity.ParseDeviceID(deviceID)
 	if err != nil {
 		return err
@@ -409,13 +497,13 @@ func bindClaimDeviceTx(ctx context.Context, tx *sql.Tx, userID, deviceID string,
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE user_devices SET revoked_at = $2
 		WHERE user_id = $1 AND revoked_at IS NULL
-	`, userID, now); err != nil {
+	`, ownerIdentity, now); err != nil {
 		return err
 	}
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO user_devices (user_id, device_id, linked_at, revoked_at)
 		VALUES ($1, $2, $3, NULL)
-	`, userID, deviceID, now)
+	`, ownerIdentity, deviceID, now)
 	return err
 }

@@ -222,7 +222,7 @@ func runImportIdentity(infile string) error {
 		return err
 	}
 
-	result, err := recovery.ImportIntoDB(context.Background(), db, bundle)
+	result, err := recovery.ImportIntoDB(context.Background(), db, cryptoSvc, passphrase.Value, bundle)
 	if err != nil {
 		return err
 	}

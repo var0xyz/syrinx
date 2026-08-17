@@ -8,11 +8,11 @@ import (
 func TestNewReedNotHeldMsg(t *testing.T) {
 	t.Parallel()
 
-	msg := NewReedNotHeldMsg("req-1", "author-1", "reed-1")
+	msg := NewReedNotHeldMsg("req-1", "reed-1")
 	if msg.Type != "REED_NOT_HELD" {
 		t.Fatalf("Type = %q, want REED_NOT_HELD", msg.Type)
 	}
-	if msg.Data.RequestID != "req-1" || msg.Data.AuthorID != "author-1" || msg.Data.ReedID != "reed-1" {
+	if msg.Data.RequestID != "req-1" || msg.Data.ReedID != "reed-1" {
 		t.Fatalf("unexpected data: %+v", msg.Data)
 	}
 
@@ -31,7 +31,7 @@ func TestNewReedNotHeldMsg(t *testing.T) {
 	if !ok {
 		t.Fatal("expected data object")
 	}
-	if data["request_id"] != "req-1" || data["author_id"] != "author-1" || data["reed_id"] != "reed-1" {
+	if data["request_id"] != "req-1" || data["reed_id"] != "reed-1" {
 		t.Fatalf("unexpected wire data: %+v", data)
 	}
 }
@@ -39,7 +39,7 @@ func TestNewReedNotHeldMsg(t *testing.T) {
 func TestReedNotHeldDistinctFromReedNotFound(t *testing.T) {
 	t.Parallel()
 
-	held := NewReedNotHeldMsg("req-1", "author-1", "reed-1")
+	held := NewReedNotHeldMsg("req-1", "reed-1")
 	found := NewReedNotFoundMsg("req-1", "reed-1")
 	if held.Type == found.Type {
 		t.Fatalf("REED_NOT_HELD and REED_NOT_FOUND must differ on the wire")

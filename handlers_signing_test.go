@@ -18,7 +18,7 @@ func TestPublicKeyCountersignCanonicalShape(t *testing.T) {
 		armor,
 	)
 	want := "---\n" +
-		"fingerprint: FINGERPRINT01\n" +
+		"keyID: FINGERPRINT01\n" +
 		"serverID: Server01\n" +
 		"serverKeyFingerprint: SERVERKEY01\n" +
 		"signedAt: 2026-07-16T12:00:00Z\n" +

@@ -15,31 +15,31 @@ export class PublicKeyRepository {
 
   /**
    * Persist a server-attested public key. Verification runs inside
-   * `dbService.put` via `verifyPublicKey`. If we already hold this
-   * fingerprint, refuse to overwrite with different armor.
+   * `dbService.put` via `verifyPublicKey`. If we already hold this id,
+   * refuse to overwrite with different armor.
    */
   async put(key: api.PublicKey): Promise<void> {
-    const existing = await this.getPublicKey(key.fingerprint);
+    const existing = await this.getPublicKey(key.id);
     if (existing && existing.armor !== key.armor) {
       throw new Error(
-        `Refusing to overwrite locally-cached public key ${key.fingerprint}: ` +
+        `Refusing to overwrite locally-cached public key ${key.id}: ` +
           'server-returned armor does not match the one already on file'
       );
     }
 
-    await this.db.put('publicKeys', { ...key, armor: key.armor }, verifyPublicKey);
+    await this.db.put('publicKeys', key, verifyPublicKey);
   }
 
-  async getPublicKey(fingerprint: string): Promise<api.PublicKey | null> {
-    return await this.db.get<api.PublicKey>('publicKeys', fingerprint);
+  async getPublicKey(id: string): Promise<api.PublicKey | null> {
+    return await this.db.get<api.PublicKey>('publicKeys', id);
   }
 
-  async hasPublicKey(fingerprint: string): Promise<boolean> {
-    return !!(await this.getPublicKey(fingerprint));
+  async hasPublicKey(id: string): Promise<boolean> {
+    return !!(await this.getPublicKey(id));
   }
 
-  async deletePublicKey(fingerprint: string): Promise<void> {
-    return await this.db.delete('publicKeys', fingerprint);
+  async deletePublicKey(id: string): Promise<void> {
+    return await this.db.delete('publicKeys', id);
   }
 
   /**
@@ -49,7 +49,7 @@ export class PublicKeyRepository {
   async setRevoked(revokedKey: api.PublicKey): Promise<void> {
     if (!revokedKey.revoked) {
       throw new Error(
-        `setRevoked called without revoked=true for: ${revokedKey.fingerprint}`
+        `setRevoked called without revoked=true for: ${revokedKey.id}`
       );
     }
     await this.put(revokedKey);

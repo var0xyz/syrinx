@@ -5,6 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"syrinx/crypto"
+	"syrinx/identity"
+	"syrinx/signing"
 )
 
 // ImportResult describes the outcome of ImportIntoDB.
@@ -19,8 +23,8 @@ const (
 
 // ExistingKey is one private_keys row used for match comparison.
 type ExistingKey struct {
-	Fingerprint string
-	Armor       string
+	ID    string
+	Armor string
 }
 
 // ExistingSelf is the self servers row used for match comparison.
@@ -30,24 +34,25 @@ type ExistingSelf struct {
 	SigningKey string
 }
 
-// IdentityMatches reports whether existing self + keys equal the bundle
-// (serverID, serverName, signingKeyFingerprint, and every fingerprint+armor).
+// IdentityMatches reports whether existing self + keys equal the bundle.
+// Both sides are already canonical ids — no stripping/re-wrapping needed.
 func IdentityMatches(b *Bundle, self ExistingSelf, keys []ExistingKey) bool {
 	if b == nil {
 		return false
 	}
-	if self.ID != b.ServerID || self.Name != b.ServerName || self.SigningKey != b.SigningKeyFingerprint {
+	if self.ID != b.ServerID || self.Name != b.ServerName ||
+		self.SigningKey != b.SigningKeyID {
 		return false
 	}
 	if len(keys) != len(b.Keys) {
 		return false
 	}
-	byFP := make(map[string]string, len(keys))
+	byID := make(map[string]string, len(keys))
 	for _, k := range keys {
-		byFP[k.Fingerprint] = k.Armor
+		byID[k.ID] = k.Armor
 	}
 	for _, k := range b.Keys {
-		armor, ok := byFP[k.Fingerprint]
+		armor, ok := byID[k.ID]
 		if !ok || armor != k.PrivateKeyArmor {
 			return false
 		}
@@ -55,9 +60,13 @@ func IdentityMatches(b *Bundle, self ExistingSelf, keys []ExistingKey) bool {
 	return true
 }
 
-// ImportIntoDB restores identity from bundle into db. Caller must have run InitDB.
-// On mismatch with an existing self identity, returns an error and writes nothing.
-func ImportIntoDB(ctx context.Context, db *sql.DB, b *Bundle) (ImportResult, error) {
+// ImportIntoDB restores identity from bundle into db. Caller must have run
+// InitDB and already validated every key decrypts under passphrase
+// (recovery.ValidateDecrypt) — that same passphrase is used here to produce
+// a fresh self-countersignature for each restored public key, since the
+// original self-signature isn't part of the bundle. On mismatch with an
+// existing self identity, returns an error and writes nothing.
+func ImportIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *crypto.Service, passphrase string, b *Bundle) (ImportResult, error) {
 	if err := ValidateShape(b); err != nil {
 		return 0, err
 	}
@@ -77,7 +86,7 @@ func ImportIntoDB(ctx context.Context, db *sql.DB, b *Bundle) (ImportResult, err
 		}
 		return 0, fmt.Errorf(
 			"self identity already exists and does not match the bundle (db id=%s name=%s signing=%s; bundle id=%s name=%s signing=%s) — resolve manually before re-importing",
-			self.ID, self.Name, self.SigningKey, b.ServerID, b.ServerName, b.SigningKeyFingerprint,
+			self.ID, self.Name, self.SigningKey, b.ServerID, b.ServerName, b.SigningKeyID,
 		)
 	}
 	if err != sql.ErrNoRows {
@@ -99,17 +108,38 @@ func ImportIntoDB(ctx context.Context, db *sql.DB, b *Bundle) (ImportResult, err
 		if k.RevokeReason != nil {
 			reason = *k.RevokeReason
 		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO private_keys (fingerprint, armor, created_at, revoked_at, revoke_reason)
-			VALUES ($1, $2, $3, $4, $5)
-		`, k.Fingerprint, k.PrivateKeyArmor, k.CreatedAt.UTC(), revokedAt, reason); err != nil {
-			return 0, fmt.Errorf("insert private_keys %s: %w", k.Fingerprint, err)
+		keyID := k.ID
+		bareFP, _, ok := identity.ParseIdentityID(identity.IdentityID(keyID))
+		if !ok {
+			return 0, fmt.Errorf("malformed bundle key id: %s", keyID)
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO public_keys (fingerprint, armor, created_at)
-			VALUES ($1, $2, $3)
-		`, k.Fingerprint, k.PublicKeyArmor, k.CreatedAt.UTC()); err != nil {
-			return 0, fmt.Errorf("insert public_keys %s: %w", k.Fingerprint, err)
+			INSERT INTO private_keys (id, armor, created_at, revoked_at, revoke_reason)
+			VALUES ($1, $2, $3, $4, $5)
+		`, keyID, k.PrivateKeyArmor, k.CreatedAt.UTC(), revokedAt, reason); err != nil {
+			return 0, fmt.Errorf("insert private_keys %s: %w", keyID, err)
+		}
+
+		plainPrivate, err := cryptoSvc.DecryptPrivateKey(k.PrivateKeyArmor, passphrase)
+		if err != nil {
+			return 0, fmt.Errorf("decrypt private key %s: %w", keyID, err)
+		}
+		selfPayload := identity.BuildPublicKeyPayload(
+			b.ServerID, keyID, keyID, bareFP, k.PublicKeyArmor, k.CreatedAt.UTC(),
+		)
+		selfSigArmor, err := cryptoSvc.Sign(string(selfPayload), plainPrivate)
+		if err != nil {
+			return 0, fmt.Errorf("self-countersign restored key %s: %w", keyID, err)
+		}
+		serverSignatureID, err := signing.InsertServerSignature(ctx, tx, keyID, selfSigArmor, k.CreatedAt.UTC())
+		if err != nil {
+			return 0, fmt.Errorf("insert server signature for %s: %w", keyID, err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO public_keys (id, armor, created_at, server_signature_id)
+			VALUES ($1, $2, $3, $4)
+		`, keyID, k.PublicKeyArmor, k.CreatedAt.UTC(), serverSignatureID); err != nil {
+			return 0, fmt.Errorf("insert public_keys %s: %w", keyID, err)
 		}
 	}
 
@@ -117,7 +147,7 @@ func ImportIntoDB(ctx context.Context, db *sql.DB, b *Bundle) (ImportResult, err
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO servers (id, name, self, signing_key, identity_backup_at)
 		VALUES ($1, $2, TRUE, $3, $4)
-	`, b.ServerID, b.ServerName, b.SigningKeyFingerprint, backupAt); err != nil {
+	`, b.ServerID, b.ServerName, b.SigningKeyID, backupAt); err != nil {
 		return 0, fmt.Errorf("insert self server: %w", err)
 	}
 
@@ -128,7 +158,7 @@ func ImportIntoDB(ctx context.Context, db *sql.DB, b *Bundle) (ImportResult, err
 }
 
 func loadExistingPrivateKeys(ctx context.Context, db *sql.DB) ([]ExistingKey, error) {
-	rows, err := db.QueryContext(ctx, `SELECT fingerprint, armor FROM private_keys`)
+	rows, err := db.QueryContext(ctx, `SELECT id, armor FROM private_keys`)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +166,7 @@ func loadExistingPrivateKeys(ctx context.Context, db *sql.DB) ([]ExistingKey, er
 	var keys []ExistingKey
 	for rows.Next() {
 		var k ExistingKey
-		if err := rows.Scan(&k.Fingerprint, &k.Armor); err != nil {
+		if err := rows.Scan(&k.ID, &k.Armor); err != nil {
 			return nil, err
 		}
 		keys = append(keys, k)

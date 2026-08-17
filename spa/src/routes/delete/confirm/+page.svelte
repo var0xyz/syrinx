@@ -7,6 +7,7 @@
   import { localStorageService } from '$lib/services/localstorage';
   import { notificationStore } from '$lib/stores/notifications';
   import { isOnline } from '$lib/services/pwa';
+  import { isRoot } from '$lib/utils/identityRef';
   import Auth from '$lib/components/Auth.svelte';
 
   let ready = false;
@@ -22,6 +23,10 @@
     const user = await authService.getCurrentUser().catch(() => null);
     if (!user) {
       goto('/');
+      return;
+    }
+    if (isRoot(user.id)) {
+      goto('/account');
       return;
     }
     ready = true;

@@ -4,7 +4,7 @@
   import { reedsService, stripMarkdown, unsignedReedsProcessed } from '$lib/repositories/reeds';
   import { formatAbsoluteDateTime } from '$lib/utils/time';
   import { apiService } from '$lib/services/api';
-  import { removeReedAsAuthor, verifyAndCommitReedRemoval, reedRemovalCommitted } from '$lib/services/reedRemoval';
+  import { removeReedAsAuthor, verifyAndCommitReedRemoval, reedRemovalCommitted, reedRemovalCommittedID } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval, accountRemovalCommitted } from '$lib/services/accountRemoval';
   import { removedReedsRepository } from '$lib/repositories/removedReeds';
   import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
@@ -28,7 +28,7 @@
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
-  import { parseReedRef, resolveThreadId, formatReedRef } from '$lib/utils/reedRef';
+  import { resolveThreadId, getUserId } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
@@ -53,6 +53,8 @@
   let loadingReed = !data.fromCache && !data.errorMessage;
   let fetchingReed = false;
   let reedNotFound = false;
+  /** Cached locally but the server 404s it — interactions disabled. */
+  let reedNotRecognized = false;
   /** When set, show tombstone stub instead of full reed body. */
   let removedReedCert = null;
   /** When set, author deleted their account — tombstone + replies still shown. */
@@ -69,7 +71,6 @@
    * real original instead. */
   let replyEchoTarget = reed;
   let isStatsInfoModalOpen = false;
-  let conversationRefresh = 0;
   /** @type {import('$lib/components/ConversationSection.svelte').default | null} */
   let conversationSection = null;
   let lastHandledFollowReedId = '';
@@ -94,7 +95,7 @@
   /** @param {'conversation' | 'ripples' | 'chorus'} tab */
   function setDiscussionTab(tab) {
     const hash = tab === 'conversation' ? '' : `#${tab}`;
-    void goto(`/reed/${userID}/${reedID}${hash}`, {
+    void goto(`/reed/${routeReedRef}${hash}`, {
       replaceState: true,
       noScroll: true,
       keepFocus: true,
@@ -106,24 +107,20 @@
   let chorusCount = 0;
 
   // A removed reed's own body (and thus any threadId it inherited) is
-  // gone — self-reference using the removal cert's serverID so replies
+  // gone — self-reference using the removal cert's own fields so replies
   // cached from before the removal still key correctly, same as a live
   // thread-root reed would.
   $: parentThreadId = reed && reedMatchesRoute
-    ? (reed.threadId || resolveThreadId(reed, reed.serverSignature?.serverID || localStorage.getItem('serverId') || ''))
-    : (removedReedCert || removedAccountCert)
-      ? formatReedRef(
-          userID,
-          (removedReedCert || removedAccountCert).serverID || localStorage.getItem('serverId') || '',
-          reedID,
-        )
-      : '';
+    ? (reed.threadId || resolveThreadId(reed))
+    : removedReedCert
+      ? removedReedCert.reedID
+      : removedAccountCert
+        ? routeReedRef
+        : '';
 
-  // Deleted accounts leave no username behind (the local tombstone stub
-  // carries no `username` field) — show the raw identity instead of a
-  // name that no longer means anything.
+  // Deleted accounts leave no username behind — show the raw identity.
   $: authorDisplayName = removedAccountCert
-    ? (removedAccountCert.serverID ? `~${userID}@${removedAccountCert.serverID}` : `~${userID}`)
+    ? removedAccountCert.userID
     : (authorUser?.username ?? userID);
 
   $: followArrived = $followReedQueue?.reed;
@@ -140,8 +137,15 @@
     void onFollowReedArrived(reedReplyArrived);
   }
 
-  $: userID = $page.params.userID;
-  $: reedID = $page.params.reedID;
+  // The URL's one param IS the canonical reed ref — never split, never
+  // reassembled. userID below is read from it only where a narrower
+  // value (the author) is genuinely needed.
+  $: routeReedRef = $page.params.reedID;
+  $: userID = getUserId(routeReedRef) ?? '';
+  // The single canonical id (authorID@serverID/uuid) every reed-scoped API
+  // call/subscription below this point should use. reed.id is already
+  // canonical (see types/reed.ts), so no further composition is needed.
+  $: canonicalReedID = reed ? reed.id : routeReedRef;
   $: isPending = !!(reed && !reed.serverSignature);
   // Blank echoes (a bare re-share with no commentary) carry no
   // interactions of their own — no stats, no conversation/ripples, no live
@@ -150,7 +154,7 @@
   $: isBlankEchoView = isBlankEcho(reed);
   // Params can update before `data` on same-route navigations; never show a
   // reed that doesn't match the URL (e.g. parent body under the new author).
-  $: reedMatchesRoute = !!(reed && reed.id === reedID && reed.userID === userID);
+  $: reedMatchesRoute = !!(reed && reed.id === routeReedRef);
 
   // Apply fresh load() results when navigating between reeds.
   $: applyPageData(data);
@@ -165,6 +169,7 @@
     repliedToReedMissing = next.repliedToReedMissing;
     errorMessage = next.errorMessage;
     reedNotFound = false;
+    reedNotRecognized = false;
     removedReedCert = next.removedReedCert ?? null;
     removedAccountCert = next.removedAccountCert ?? null;
     fetchingReed = false;
@@ -172,8 +177,8 @@
     lastHandledFollowReedId = '';
     lastHandledReedReplyId = '';
     isLiked = false;
-    if (next.reed?.userID && next.reed?.id) {
-      void isReedLiked(next.reed.userID, next.reed.id).then((liked) => {
+    if (next.reed?.id) {
+      void isReedLiked(next.reed.id).then((liked) => {
         if (reed?.id === next.reed.id) isLiked = liked;
       });
     }
@@ -191,6 +196,26 @@
     }
     if (!authorUser) {
       await loadAuthorProfile();
+    }
+    if (next.reed?.serverSignature) {
+      void checkServerRecognizesReed(next.reed.id);
+    }
+  }
+
+  /** loadReedFromNetwork never runs for a cache hit, so this is the only
+   * re-check against the server — fire-and-forget, dropped on navigation. */
+  async function checkServerRecognizesReed(reedRef) {
+    if (!$isOnline) return;
+    try {
+      await serverConnection.connect();
+      if (canonicalReedID !== reedRef) return;
+      const result = await apiService.getReedOrRemoval(reedRef);
+      if (canonicalReedID !== reedRef) return;
+      if (result.kind === 'not_found') {
+        reedNotRecognized = true;
+      }
+    } catch {
+      // Network/relay hiccup — not conclusive, so don't flag the reed.
     }
   }
 
@@ -228,7 +253,7 @@
   }
 
   function handleReedStats(msg) {
-    if (msg?.userID === userID && msg?.reedID === reedID) {
+    if (msg?.reedID === routeReedRef) {
       clearStatsTimeout();
       statsStatus = 'loaded';
       echoCount = msg.echoes ?? echoCount;
@@ -243,7 +268,7 @@
   }
 
   function handleReedEchoes(msg) {
-    if (msg?.userID === userID && msg?.reedID === reedID) {
+    if (msg?.reedID === routeReedRef) {
       if (typeof msg.echoes === 'number') {
         echoCount = msg.echoes;
       }
@@ -251,7 +276,7 @@
   }
 
   function handleReedReplies(msg) {
-    if (msg?.userID === userID && msg?.reedID === reedID) {
+    if (msg?.reedID === routeReedRef) {
       if (typeof msg.replies === 'number') {
         replyCount = msg.replies;
       }
@@ -259,7 +284,7 @@
   }
 
   function handleReedLikes(msg) {
-    if (msg?.userID === userID && msg?.reedID === reedID) {
+    if (msg?.reedID === routeReedRef) {
       if (typeof msg.likes === 'number') {
         likeCount = msg.likes;
       }
@@ -269,12 +294,12 @@
   /**
    * Fires after ANY reed removal cert is committed locally (see
    * reedRemoval.ts) — could be a reply anywhere in this thread, not just
-   * the reed this page itself is subscribed to. Reloading the conversation
-   * is what makes a deleted reply actually disappear (ConversationSection
-   * only checks removedReedsRepository at load time, not reactively). A
-   * redundant reload for an unrelated removal is harmless.
+   * the reed this page itself is subscribed to. Splices the row out in
+   * place instead of reloading the whole conversation, which would reset
+   * the viewer's scroll position. A miss for an unrelated removal is a
+   * harmless no-op filter.
    */
-  $: if ($reedRemovalCommitted > 0) conversationRefresh += 1;
+  $: if ($reedRemovalCommittedID) conversationSection?.onReplyRemoved($reedRemovalCommittedID);
 
   /**
    * A removal cert (reed or account) can arrive over WS while this exact
@@ -296,7 +321,7 @@
       reed = null;
       return;
     }
-    const reedCert = await removedReedsRepository.get(reedID);
+    const reedCert = await removedReedsRepository.get(routeReedRef);
     if (reedCert && reedCert.userID === userID) {
       removedReedCert = reedCert;
       reed = null;
@@ -304,15 +329,17 @@
   }
 
   function handleReedCoverage(msg) {
-    if (msg?.userID === userID && msg?.reedID === reedID) {
+    if (msg?.reedID === routeReedRef) {
       coveragePercent = msg.coveragePercent ?? coveragePercent;
     }
   }
 
+  // replyCount is set only from the authoritative REED_STATS/REED_REPLIES
+  // push (handleReedStats/handleReedReplies below) — no local increment
+  // here, since that push already lands on the same fanout wave and an
+  // extra += 1 on top double-counts the very reply it's confirming.
   async function onFollowReedArrived(incoming) {
-    const parentRef = parseReedRef(incoming.replying);
-    if (parentRef?.authorId === userID && parentRef?.reedId === reedID) {
-      if (statsStatus === 'loaded') replyCount += 1;
+    if (incoming?.replying && incoming.replying === canonicalReedID) {
       await conversationSection?.onReplyArrived(incoming);
     }
   }
@@ -338,23 +365,22 @@
   });
 
   async function reloadFromCache() {
-    if (!user || !userID || !reedID) return;
+    if (!user || !routeReedRef) return;
+    const requestedReedRef = routeReedRef;
     const requestedUserID = userID;
-    const requestedReedID = reedID;
-    let found = await reedsService.getReed(requestedUserID, requestedReedID);
+    let found = await reedsService.getReed(requestedReedRef);
     if (!found && user.id === requestedUserID) {
-      const pending = await reedsService.getUnsignedReed(requestedReedID);
+      const pending = await reedsService.getUnsignedReed(requestedReedRef);
       if (pending?.userID === requestedUserID) found = pending;
     }
     // Drop stale completions after navigating to another reed.
-    if (requestedUserID !== userID || requestedReedID !== reedID) return;
+    if (requestedReedRef !== routeReedRef) return;
     if (found) {
       reed = found;
       loadingReed = false;
       await afterCacheHit({
         user,
         userID: requestedUserID,
-        reedID: requestedReedID,
         reed: found,
         authorUser,
         fromCache: true,
@@ -363,8 +389,7 @@
   }
 
   async function loadReedFromNetwork() {
-    if (!user || !userID || !reedID) return;
-    if (reed && reed.id === reedID) return;
+    if (reed && reed.id === routeReedRef) return;
     if (!$isOnline) {
       loadingReed = false;
       return;
@@ -383,7 +408,7 @@
       }
 
       try {
-        const result = await apiService.getReedOrRemoval(userID, reedID);
+        const result = await apiService.getReedOrRemoval(routeReedRef);
         if (seq !== loadSeq) return;
         if (result.kind === 'not_found') {
           reedNotFound = true;
@@ -406,6 +431,12 @@
           }
           return;
         }
+        // result.kind === 'reed' confirms the reed exists (and isn't
+        // removed) but carries only tip metadata, not full signed
+        // content -- the server never stores reed bodies (see db.go's
+        // "server never stores reed content" comment). Fall through to
+        // requestReedContent below, which relays the real, fully-signed
+        // body from a peer that holds it.
       } catch {
         if (seq !== loadSeq) return;
         reedNotFound = true;
@@ -417,7 +448,7 @@
       loadingReed = false;
       fetchingReed = true;
       try {
-        const networkReed = await serverConnection.requestReedContent(reedID, userID, userID);
+        const networkReed = await serverConnection.requestReedContent(routeReedRef);
         if (seq !== loadSeq) return;
         reed = networkReed;
         await loadAuthorProfile();
@@ -459,9 +490,9 @@
   async function performDelete() {
     try {
       if (reed && !reed.serverSignature) {
-        await reedsService.discardUnsignedReed(reedID);
+        await reedsService.discardUnsignedReed(reed.id);
       } else {
-        await removeReedAsAuthor(userID, reedID);
+        await removeReedAsAuthor(canonicalReedID);
       }
       goto('/reeds');
     } catch (error) {
@@ -482,19 +513,17 @@
   // Action button handlers
   async function resolveReplyEchoTarget() {
     if (!reed) return reed;
-    return resolveBlankEchoChain(reed, (authorId, targetReedId) =>
-      reedsService.getReed(authorId, targetReedId)
-    );
+    return resolveBlankEchoChain(reed, (canonicalRef) => reedsService.getReed(canonicalRef));
   }
 
   async function handleEcho() {
-    if (isPending || isBlankEchoView) return;
+    if (isPending || isBlankEchoView || reedNotRecognized) return;
     replyEchoTarget = await resolveReplyEchoTarget();
     isEchoModalOpen = true;
   }
 
   async function handleReply() {
-    if (isPending || isBlankEchoView) return;
+    if (isPending || isBlankEchoView || reedNotRecognized) return;
     replyEchoTarget = await resolveReplyEchoTarget();
     isReplyModalOpen = true;
   }
@@ -505,9 +534,9 @@
   }
 
   async function handleShare() {
-    if (!reed || isPending || isBlankEchoView) return;
+    if (!reed || isPending || isBlankEchoView || reedNotRecognized) return;
 
-    const reedUrl = `${window.location.origin}/reed/${userID}/${reedID}`;
+    const reedUrl = `${window.location.origin}/reed/${routeReedRef}`;
     const reedText = stripMarkdown(reed.content);
     const shareData = {
       title: `${authorUser?.username ?? userID}'s Reed`,
@@ -539,14 +568,14 @@
   }
 
   async function handleLike() {
-    if (isPending || isBlankEchoView) return;
+    if (isPending || isBlankEchoView || reedNotRecognized) return;
     const wasLiked = isLiked;
     isLiked = !wasLiked;
     try {
       if (wasLiked) {
-        await unlikeReed(userID, reedID);
+        await unlikeReed(canonicalReedID);
       } else {
-        await likeReed(userID, reedID);
+        await likeReed(canonicalReedID);
       }
     } catch (error) {
       console.error('Error toggling like:', error);
@@ -554,7 +583,7 @@
       // network call runs, so a network failure alone doesn't mean the
       // action was lost — re-check the effective state (which overlays
       // pending actions) rather than blindly reverting the optimistic flip.
-      isLiked = await isReedLiked(userID, reedID);
+      isLiked = await isReedLiked(canonicalReedID);
     }
   }
 
@@ -562,11 +591,10 @@
 
   <Auth>
     <div class="reed-detail-container">
-      {#key `${userID}/${reedID}`}
+      {#key routeReedRef}
         {#if !isBlankEchoView && reedMatchesRoute && reed?.serverSignature && !removedReedCert && !removedAccountCert}
           <ReedStatsSubscription
-            authorId={userID}
-            reedId={reedID}
+            reedId={canonicalReedID}
             onSubscribeOk={onStatsSubscribeOk}
             onSubscribeFailed={onStatsSubscribeFailed}
           />
@@ -603,7 +631,6 @@
                 <div class="author-info">
                   <Username
                     userID={userID}
-                    serverID={removedAccountCert?.serverID ?? authorUser?.serverSignature?.serverID ?? ''}
                     username={authorDisplayName}
                     class="author-name"
                   />
@@ -631,10 +658,8 @@
           <div class="discussion-panel" class:hidden={conversationCount === 0}>
             <ConversationSection
               bind:this={conversationSection}
-              parentUserID={userID}
-              parentReedID={reedID}
+              parentReedRef={routeReedRef}
               threadId={parentThreadId}
-              refreshToken={conversationRefresh}
               bind:count={conversationCount}
             />
           </div>
@@ -660,7 +685,6 @@
                 <div class="author-info">
                   <Username
                     userID={reed.userID}
-                    serverID={reed.serverSignature?.serverID ?? ''}
                     username={authorUser?.username ?? reed.userID}
                     class="author-name"
                   />
@@ -718,25 +742,37 @@
             </div>
 
             <div class="reed-actions-bar">
-              <button class="action-btn" on:click={handleReply} aria-label="Reply" disabled={isPending || isBlankEchoView}>
+              <button class="action-btn" on:click={handleReply} aria-label="Reply" disabled={isPending || isBlankEchoView || reedNotRecognized}>
                 <span class="action-icon icon-reply"></span>
                 <span class="action-label">Reply</span>
               </button>
-              <button class="action-btn" on:click={handleEcho} aria-label="Echo" disabled={isPending || isBlankEchoView}>
+              <button class="action-btn" on:click={handleEcho} aria-label="Echo" disabled={isPending || isBlankEchoView || reedNotRecognized}>
                 <span class="action-icon icon-echo"></span>
                 <span class="action-label">Echo</span>
               </button>
-              <button class="action-btn" on:click={handleLike} aria-label={isLiked ? 'Unlike' : 'Like'} disabled={isPending || isBlankEchoView}>
+              <button class="action-btn" on:click={handleLike} aria-label={isLiked ? 'Unlike' : 'Like'} disabled={isPending || isBlankEchoView || reedNotRecognized}>
                 <span class="action-icon icon-like" class:filled={isLiked}></span>
                 <span class="action-label">Like</span>
               </button>
-              <button class="action-btn" on:click={handleShare} aria-label="Share" disabled={isPending || isBlankEchoView}>
+              <button class="action-btn" on:click={handleShare} aria-label="Share" disabled={isPending || isBlankEchoView || reedNotRecognized}>
                 <span class="action-icon icon-share"></span>
                 <span class="action-label">Share</span>
               </button>
             </div>
           </div>
-          {#if !isPending && !isBlankEchoView}
+          {#if reedNotRecognized}
+            <p class="not-recognized-notice">Reed not recognized by the server</p>
+            <!-- Ripples/Chorus lose meaning without server vouching for
+                 the reed; Conversation stays since cached replies are real. -->
+            <div class="discussion-panel" class:hidden={conversationCount === 0}>
+              <ConversationSection
+                bind:this={conversationSection}
+                parentReedRef={routeReedRef}
+                threadId={parentThreadId}
+                bind:count={conversationCount}
+              />
+            </div>
+          {:else if !isPending && !isBlankEchoView}
             <div class="discussion-tabs" role="tablist">
               <button
                 type="button"
@@ -772,18 +808,16 @@
             <div class="discussion-panel" class:hidden={discussionTab !== 'conversation'}>
               <ConversationSection
                 bind:this={conversationSection}
-                parentUserID={userID}
-                parentReedID={reedID}
+                parentReedRef={routeReedRef}
                 threadId={parentThreadId}
-                refreshToken={conversationRefresh}
                 bind:count={conversationCount}
               />
             </div>
             <div class="discussion-panel" class:hidden={discussionTab !== 'ripples'}>
-              <RipplesSection {userID} {reedID} serverSignatureArmor={reed.serverSignature?.armor ?? ''} bind:count={ripplesCount} />
+              <RipplesSection reedID={canonicalReedID} serverSignatureArmor={reed.serverSignature?.armor ?? ''} bind:count={ripplesCount} />
             </div>
             <div class="discussion-panel" class:hidden={discussionTab !== 'chorus'}>
-              <ChorusSection {userID} {reedID} bind:count={chorusCount} />
+              <ChorusSection reedID={canonicalReedID} bind:count={chorusCount} />
             </div>
           {/if}
         {/if}
@@ -963,6 +997,13 @@
   .reed-body {
     padding: 1rem;
     word-break: break-word;
+  }
+
+  .not-recognized-notice {
+    margin: 0;
+    padding: 1rem 1rem 0;
+    color: var(--error);
+    font-size: 0.85rem;
   }
 
   .quote-container {

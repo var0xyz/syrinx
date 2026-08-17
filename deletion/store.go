@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"syrinx/identity"
 	"syrinx/signing"
 )
 
@@ -16,19 +17,24 @@ import (
 var ErrConflict = errors.New("removal conflict")
 
 // Cert is the reed-removal attestation (in-memory / wire-facing shape).
+//
+// UserID asymmetry (same as AccountCert): InsertCert/GetCert's userID
+// params are bare, but every Cert RETURNED by GetCert/loadReedCertTx holds
+// the full "userID@serverID" form.
 type Cert struct {
 	ReedID            string
 	UserID            string
 	UserSignature     string
-	UserFingerprint   string
+	UserKeyID         string
 	ServerSignature   string
 	ServerFingerprint string
 	ServerSignedAt    time.Time
 }
 
 // InsertCert stores a reed-removal cert once. Same signatures → no-op;
-// different signatures for the same (userID, reedID) → ErrConflict.
-func InsertCert(ctx context.Context, db *sql.DB, cert Cert) error {
+// different signatures for the same reedID → ErrConflict. cert.ReedID is
+// canonical (embeds the author), so no separate user_id column is needed.
+func InsertCert(ctx context.Context, db *sql.DB, cert Cert, serverID string) error {
 	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
 
 	tx, err := db.BeginTx(ctx, nil)
@@ -37,11 +43,11 @@ func InsertCert(ctx context.Context, db *sql.DB, cert Cert) error {
 	}
 	defer tx.Rollback()
 
-	existing, err := loadReedCertTx(ctx, tx, cert.UserID, cert.ReedID, true)
+	existing, err := loadReedCertTx(ctx, tx, cert.ReedID, true)
 	switch {
 	case err == sql.ErrNoRows:
 		userSigID, err := signing.InsertUserSignature(
-			ctx, tx, cert.UserFingerprint, cert.UserSignature,
+			ctx, tx, cert.UserKeyID, cert.UserSignature,
 		)
 		if err != nil {
 			return err
@@ -54,17 +60,17 @@ func InsertCert(ctx context.Context, db *sql.DB, cert Cert) error {
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reed_removals (
-				reed_id, user_id, user_fingerprint,
+				reed_id, public_key_id,
 				user_signature_id, server_signature_id
-			) VALUES ($1, $2, $3, $4, $5)
-		`, cert.ReedID, cert.UserID, cert.UserFingerprint, userSigID, serverSigID); err != nil {
+			) VALUES ($1, $2, $3, $4)
+		`, cert.ReedID, cert.UserKeyID, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert reed removal: %w", err)
 		}
 	case err != nil:
 		return err
 	default:
 		if existing.UserSignature != cert.UserSignature ||
-			existing.UserFingerprint != cert.UserFingerprint ||
+			existing.UserKeyID != cert.UserKeyID ||
 			existing.ServerSignature != cert.ServerSignature ||
 			existing.ServerFingerprint != cert.ServerFingerprint ||
 			!existing.ServerSignedAt.Equal(cert.ServerSignedAt) {
@@ -75,9 +81,9 @@ func InsertCert(ctx context.Context, db *sql.DB, cert Cert) error {
 	return tx.Commit()
 }
 
-// GetCert returns the stored cert for (userID, reedID), or nil if none.
-func GetCert(ctx context.Context, db *sql.DB, userID, reedID string) (*Cert, error) {
-	cert, err := loadReedCertTx(ctx, db, userID, reedID, false)
+// GetCert returns the stored cert for reedID (canonical), or nil if none.
+func GetCert(ctx context.Context, db *sql.DB, reedID, serverID string) (*Cert, error) {
+	cert, err := loadReedCertTx(ctx, db, reedID, false)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -91,21 +97,25 @@ type reedQuerier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-func loadReedCertTx(ctx context.Context, q reedQuerier, userID, reedID string, forUpdate bool) (*Cert, error) {
+func loadReedCertTx(ctx context.Context, q reedQuerier, reedID string, forUpdate bool) (*Cert, error) {
 	query := `
-		SELECT user_fingerprint, user_signature_id, server_signature_id
+		SELECT public_key_id, user_signature_id, server_signature_id
 		FROM reed_removals
-		WHERE user_id = $1 AND reed_id = $2`
+		WHERE reed_id = $1`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
 	var userFP string
 	var userSigID, serverSigID int64
-	err := q.QueryRowContext(ctx, query, userID, reedID).Scan(&userFP, &userSigID, &serverSigID)
+	err := q.QueryRowContext(ctx, query, reedID).Scan(&userFP, &userSigID, &serverSigID)
 	if err != nil {
 		return nil, err
 	}
-	return assembleReedCert(ctx, q, reedID, userID, userFP, userSigID, serverSigID)
+	authorID, ok := identity.AuthorOf(identity.IdentityID(reedID))
+	if !ok {
+		return nil, fmt.Errorf("malformed reed id: %s", reedID)
+	}
+	return assembleReedCert(ctx, q, reedID, string(authorID), userFP, userSigID, serverSigID)
 }
 
 func assembleReedCert(ctx context.Context, q reedQuerier, reedID, userID, userFP string, userSigID, serverSigID int64) (*Cert, error) {
@@ -125,10 +135,10 @@ func assembleReedCert(ctx context.Context, q reedQuerier, reedID, userID, userFP
 	return &Cert{
 		ReedID:            reedID,
 		UserID:            userID,
-		UserFingerprint:   userFP,
+		UserKeyID:         userFP,
 		UserSignature:     userRow.Signature,
 		ServerSignature:   serverRow.Signature,
-		ServerFingerprint: serverRow.Fingerprint,
+		ServerFingerprint: serverRow.PrivateKeyID,
 		ServerSignedAt:    serverRow.SignedAt,
 	}, nil
 }

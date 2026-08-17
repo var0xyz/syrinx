@@ -113,6 +113,10 @@ func NewFollowReedMsg(eventID, requestID, reedID string, data json.RawMessage) D
 // reed (and its ancestors) when a new reply lands, distinct from FOLLOW_REED
 // so it doesn't also feed the follow-feed cache — the recipient isn't
 // necessarily following the reply's author, they're just viewing the thread.
+// Used both for same-server subscriber fanout and for a foreign viewer whose
+// home server relayed it to us on their behalf (see
+// notifyForeignReedSubscribersOfReply) — the client handles both identically,
+// so there is no separate cross-server wire type.
 func NewReedReplyMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "REED_REPLY",
@@ -169,23 +173,23 @@ type DataInvalidData struct {
 }
 
 // KeyFetchErrorData is the parsed payload of an incoming KEY_FETCH_ERROR
-// message: the client tried to fetch userID's key (fingerprint) to verify
+// message: the client tried to fetch userID's key (keyID) to verify
 // signed content and the request failed (network error, non-2xx other than
 // a legitimate "key not found"). The server was reachable enough to have
 // delivered the content in the first place, so this is an anomaly worth
 // logging, not a routine cache miss.
 type KeyFetchErrorData struct {
-	UserID      string `json:"user_id"`
-	Fingerprint string `json:"fingerprint"`
+	UserID string `json:"user_id"`
+	KeyID  string `json:"key_id"`
 }
 
 // RevokedKeyUsedData is the parsed payload of an incoming REVOKED_KEY_USED
-// message: the client fetched userID's key (fingerprint), found it revoked,
+// message: the client fetched userID's key (keyID), found it revoked,
 // and the signed content's timestamp was at or after the revocation time —
 // i.e. content purportedly signed with an already-revoked key.
 type RevokedKeyUsedData struct {
-	UserID      string `json:"user_id"`
-	Fingerprint string `json:"fingerprint"`
+	UserID string `json:"user_id"`
+	KeyID  string `json:"key_id"`
 }
 
 // SyncRequestData is the parsed payload of an incoming SYNC_REQUEST message.
@@ -233,16 +237,35 @@ type ReedNotHeldMsg struct {
 type ReedNotHeldData struct {
 	RequestID string `json:"request_id"`
 	ReedID    string `json:"reed_id"`
-	AuthorID  string `json:"author_id"`
 }
 
-func NewReedNotHeldMsg(requestID, authorID, reedID string) ReedNotHeldMsg {
+func NewReedNotHeldMsg(requestID, reedID string) ReedNotHeldMsg {
 	return ReedNotHeldMsg{
 		Type: "REED_NOT_HELD",
 		Data: ReedNotHeldData{
 			RequestID: requestID,
 			ReedID:    reedID,
-			AuthorID:  authorID,
 		},
+	}
+}
+
+// InvalidRequestIDErrorMsg is sent when an inbound message's request_id
+// doesn't embed the identity of the connection that sent it (malformed,
+// or claiming a different user/server than this WebSocket authenticated
+// as) — the client should discard the offending local record rather than
+// retry it, since the server never created any pending state for it.
+type InvalidRequestIDErrorMsg struct {
+	Type string                `json:"type"`
+	Data InvalidRequestIDError `json:"data"`
+}
+
+type InvalidRequestIDError struct {
+	RequestID string `json:"request_id"`
+}
+
+func NewInvalidRequestIDErrorMsg(requestID string) InvalidRequestIDErrorMsg {
+	return InvalidRequestIDErrorMsg{
+		Type: "INVALID_REQUEST_ID_ERROR",
+		Data: InvalidRequestIDError{RequestID: requestID},
 	}
 }

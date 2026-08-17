@@ -16,11 +16,14 @@
  * web+syrinx://… links are still `link` nodes; click routing uses internalPath().
  *
  * Mentions (~userID@serverID) carry no display text in signed content —
- * `userID`/`serverID` are alphanumeric entity IDs, never a username. IDs
- * are NOT fixed-length (e.g. the root user's id is "1"; foreign servers may
+ * userID and serverID are alphanumeric entity IDs, never a username. The
+ * mention node stores them already joined as one `userID@serverID` string
+ * (the same id form every other part of the app takes a user id in) rather
+ * than as separate fields callers would have to rejoin themselves. IDs are
+ * NOT fixed-length (e.g. the root user's id is "1"; foreign servers may
  * mint IDs of any length) — the boundary is the alphanumeric run itself,
  * same idea as #hashtag's \S+ run. Rendering resolves the username
- * asynchronously; the raw IDs are the fallback label until resolved.
+ * asynchronously; the raw id is the fallback label until resolved.
  */
 
 export type Inline =
@@ -29,7 +32,7 @@ export type Inline =
   | { type: 'code'; value: string }
   | { type: 'strong' | 'em' | 'del'; children: Inline[] }
   | { type: 'link'; href: string; children: Inline[] }
-  | { type: 'mention'; userID: string; serverID: string };
+  | { type: 'mention'; userID: string };
 
 /** Entity ID alphabet: alphanumeric only, any length ≥ 1. */
 const ID_CHAR = /[a-zA-Z0-9]/;
@@ -65,7 +68,9 @@ export function resolveLinkHref(raw: string): string | null {
   return null;
 }
 
-const MENTION_HREF = /^web\+syrinx:\/\/users\/([^/]+)\/([^/]+)\/?$/i;
+// The path segment IS the canonical userID (userID@serverID) — one opaque
+// id, not two fields to rejoin.
+const MENTION_HREF = /^web\+syrinx:\/\/users\/([^/]+)\/?$/i;
 const PIPE_HREF = /^web\+syrinx:\/\/pipe\/(.+)$/i;
 
 /**
@@ -75,8 +80,8 @@ const PIPE_HREF = /^web\+syrinx:\/\/pipe\/(.+)$/i;
 export function internalPath(href: string): string | null {
   const raw = href.trim();
   const user = MENTION_HREF.exec(raw);
-  if (user?.[1] && user[2]) {
-    return `/profile/${user[2]}`;
+  if (user?.[1]) {
+    return `/profile/${user[1]}`;
   }
   const pipe = PIPE_HREF.exec(raw);
   if (pipe?.[1]) {
@@ -85,13 +90,13 @@ export function internalPath(href: string): string | null {
   return null;
 }
 
-/** Extracts {serverID, userID} from a mention-shaped href, or null. Lets a
- * hand-typed `[label](web+syrinx://users/...)` link be rendered the same way
- * as a `~mention` node — through Username — instead of a raw label link. */
-export function parseMentionHref(href: string): { serverID: string; userID: string } | null {
+/** Extracts { userID } from a mention-shaped href, or null. Lets a
+ * hand-typed link render through Username like a `~mention` node instead
+ * of a raw label link. */
+export function parseMentionHref(href: string): { userID: string } | null {
   const m = MENTION_HREF.exec(href.trim());
-  if (!m?.[1] || !m[2]) return null;
-  return { serverID: m[1], userID: m[2] };
+  if (!m?.[1]) return null;
+  return { userID: m[1] };
 }
 
 export function parseReedMarkdown(input: string): Doc {
@@ -383,20 +388,20 @@ function readMention(
   start: number
 ): { node: Inline; end: number } | null {
   if (s[start] !== '~') return null;
-  let i = start + 1;
-  const userStart = i;
+  const idStart = start + 1;
+  let i = idStart;
   while (i < s.length && ID_CHAR.test(s[i])) i++;
-  const userID = s.slice(userStart, i);
-  if (userID.length === 0) return null;
+  if (i === idStart) return null; // empty bare-user run
   if (s[i] !== '@') return null;
   i++; // consume '@'
   const serverStart = i;
   while (i < s.length && ID_CHAR.test(s[i])) i++;
-  const serverID = s.slice(serverStart, i);
-  if (serverID.length === 0) return null;
-  // The serverID run already stopped at the first non-alphanumeric char
-  // (or end of string) by construction — that IS the boundary, no
+  if (i === serverStart) return null; // empty server run
+  // The server run already stopped at the first non-alphanumeric char (or
+  // end of string) by construction — that IS the boundary, no
   // fixed-length assumption. A following '@' is naturally excluded since
   // '@' isn't in ID_CHAR, so "~uid@srv@more" already can't over-consume.
-  return { node: { type: 'mention', userID, serverID }, end: i };
+  // idStart..i spans exactly "userID@serverID" — take it as one slice
+  // rather than capturing the two runs separately and rejoining them.
+  return { node: { type: 'mention', userID: s.slice(idStart, i) }, end: i };
 }

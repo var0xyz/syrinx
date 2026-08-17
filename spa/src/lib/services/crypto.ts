@@ -62,18 +62,27 @@ export class CryptoService {
         format: 'armored' // Return keys in ASCII-armored format
       });
 
-      const fingerprint = await getFingerprint(publicKey);
+      // openpgp.generateKey's armored output carries a trailing newline.
+      // Trim once, here, so every caller gets byte-identical armor whether
+      // it signs, stores, or transmits it over the wire — a caller that
+      // signs a trimmed copy but sends/stores an untrimmed one (or vice
+      // versa) produces a signature the server can never verify, since
+      // VerifySignedChallenge checks the signature against the exact
+      // bytes it receives.
+      const trimmedPublicKey = publicKey.trim();
+      const trimmedPrivateKey = privateKey.trim();
+      const fingerprint = await getFingerprint(trimmedPublicKey);
 
       console.log({
         fingerprint: fingerprint,
-        privateKey: privateKey,
-        publicKey: publicKey
+        privateKey: trimmedPrivateKey,
+        publicKey: trimmedPublicKey
       });
 
       return {
         fingerprint: fingerprint,
-        privateKey: privateKey,
-        publicKey: publicKey
+        privateKey: trimmedPrivateKey,
+        publicKey: trimmedPublicKey
       };
     } catch (error) {
       console.error('Error generating key pair:', error);

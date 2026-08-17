@@ -37,13 +37,13 @@ func FlattenKeysNest(
 	if profile.ID == "" || profile.Username == "" {
 		return FlatKey{}, nil, fmt.Errorf("profile id and username are required")
 	}
-	if err := roles.ValidateProfileRole(profile.ID, profile.Role); err != nil {
+	if err := roles.ValidateProfileRole(profile.ID, profile.Role, serverID); err != nil {
 		return FlatKey{}, nil, err
 	}
 	if profile.ServerSignature.ServerID != serverID {
 		return FlatKey{}, nil, fmt.Errorf("profile server id mismatch")
 	}
-	if profile.UserSignature.Fingerprint == "" || profile.UserSignature.Armor == "" {
+	if profile.UserSignature.KeyID == "" || profile.UserSignature.Armor == "" {
 		return FlatKey{}, nil, fmt.Errorf("profile signature is required")
 	}
 
@@ -94,14 +94,20 @@ func FlattenKeysNest(
 	}
 	active = newestFirst[0]
 
-	signer, ok := byFP[profile.UserSignature.Fingerprint]
+	// byFP is keyed by bare fingerprint (KeyWire.Fingerprint); profile's is
+	// the full canonical key id — extract the bare part to look it up.
+	_, _, signerFP, ok := identity.ParseKeyFingerprint(identity.IdentityID(profile.UserSignature.KeyID))
+	if !ok {
+		return FlatKey{}, nil, fmt.Errorf("profile userSignature.id is not a canonical key id")
+	}
+	signer, ok := byFP[signerFP]
 	if !ok {
 		return FlatKey{}, nil, fmt.Errorf("profile signatureFingerprint not in nest")
 	}
 
 	userPayload := identity.BuildUserIdentityPayload(
 		profile.Username,
-		profile.UserSignature.Fingerprint,
+		profile.UserSignature.KeyID,
 		profile.Bio,
 	)
 	userSigArmor, err := decodeB64Armor(profile.UserSignature.Armor)
@@ -116,7 +122,7 @@ func FlattenKeysNest(
 		return FlatKey{}, nil, err
 	}
 
-	// Oldest → newest for user_keys.predecessor_fingerprint inserts.
+	// Oldest → newest for public_keys.predecessor_id inserts.
 	flat = make([]FlatKey, 0, len(newestFirst))
 	for i := len(newestFirst) - 1; i >= 0; i-- {
 		flat = append(flat, newestFirst[i])
@@ -151,7 +157,7 @@ func VerifyProfileServerCountersig(ctx context.Context, profile Profile, serverI
 	profilePayload := identity.BuildProfilePayload(
 		profile.ID,
 		profile.Username,
-		profile.UserSignature.Fingerprint,
+		profile.UserSignature.KeyID,
 		serverID,
 		profile.ServerSignature.Fingerprint,
 		profile.UserSignature.Armor,

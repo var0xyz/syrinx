@@ -8,37 +8,41 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/encoding"
+	"syrinx/identity"
 
 	"github.com/rs/zerolog/log"
 )
 
 // AuthService handles WebSocket authentication
 type AuthService struct {
-	db     *sql.DB
-	crypto *crypto.Service
+	db       *sql.DB
+	crypto   *crypto.Service
+	serverID string
 }
 
-// NewAuthService creates a new auth service
-func NewAuthService(db *sql.DB, crypto *crypto.Service) *AuthService {
+// NewAuthService creates a new auth service. serverID is this server's own
+// id, needed to build the identities.id form ("userID@serverID") for every
+// FK'd query below.
+func NewAuthService(db *sql.DB, crypto *crypto.Service, serverID string) *AuthService {
 	return &AuthService{
-		db:     db,
-		crypto: crypto,
+		db:       db,
+		crypto:   crypto,
+		serverID: serverID,
 	}
 }
 
-// AuthenticateWebSocket authenticates a WebSocket connection using PGP signature
+// AuthenticateWebSocket authenticates a WebSocket connection. userID is
+// recovered from the verified publicKeyId, never a client-supplied param.
 func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	// Extract required authentication parameters from query string
-	// (WebSocket doesn't support custom headers in all browsers)
-	userID := r.URL.Query().Get("userID")
-	fingerprint := r.URL.Query().Get("fingerprint")
+	// (WebSocket doesn't support custom headers in all browsers).
+	publicKeyID := r.URL.Query().Get("publicKeyId")
 	signature := r.URL.Query().Get("signature")
 	timestamp := r.URL.Query().Get("timestamp")
 
-	if userID == "" || fingerprint == "" || signature == "" || timestamp == "" {
+	if publicKeyID == "" || signature == "" || timestamp == "" {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Bool("hasSignature", signature != "").
 			Str("timestamp", timestamp).
 			Msg("Missing authentication parameters")
@@ -54,13 +58,11 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 		return "", fmt.Errorf("invalid timestamp: %w", err)
 	}
 
-	// Get public key for the user and fingerprint, along with its
-	// revocation state.
-	publicKey, revoked, err := as.getPublicKey(r.Context(), userID, fingerprint)
+	// Get public key for the fingerprint, along with its revocation state.
+	publicKey, revoked, err := as.getPublicKey(r.Context(), publicKeyID)
 	if err != nil {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Err(err).
 			Msg("Error retrieving public key")
 		return "", fmt.Errorf("error retrieving public key: %w", err)
@@ -68,8 +70,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 
 	if publicKey == "" {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Msg("Public key not found")
 		return "", fmt.Errorf("public key not found")
 	}
@@ -83,20 +84,28 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	// a revoked key is what we forbid.
 	if revoked {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Msg("WebSocket auth rejected: key is revoked")
 		return "", fmt.Errorf("key is revoked")
 	}
 
+	// WebSocket sessions are always per-end-user (no peer-server use case
+	// today, unlike the HTTP proxy path) — a 2-part server-key id has no
+	// userID to recover and is rejected here.
+	userID, _, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(publicKeyID))
+	if !ok {
+		log.Error().Str("publicKeyId", publicKeyID).Msg("WebSocket auth rejected: not a user key")
+		return "", fmt.Errorf("not a user key")
+	}
+	selfIdentity := identity.CanonicalID(as.serverID, userID)
 	var removed bool
 	if err := as.db.QueryRowContext(r.Context(), `
 		SELECT EXISTS(SELECT 1 FROM account_removals WHERE user_id = $1)
-	`, userID).Scan(&removed); err != nil {
+	`, selfIdentity).Scan(&removed); err != nil {
 		return "", fmt.Errorf("error checking account removal: %w", err)
 	}
 	if removed {
-		log.Error().Str("userID", userID).Msg("WebSocket auth rejected: account removed")
+		log.Error().Str("userID", string(selfIdentity)).Msg("WebSocket auth rejected: account removed")
 		return "", fmt.Errorf("account removed")
 	}
 
@@ -104,8 +113,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	decodedSignature, err := encoding.Base64Decode(signature)
 	if err != nil {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Err(err).
 			Msg("Failed to decode base64 signature")
 		return "", fmt.Errorf("failed to decode base64 signature: %w", err)
@@ -114,8 +122,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	// Verify signature against timestamp directly
 	if err := as.crypto.VerifySignature(timestamp, decodedSignature, publicKey); err != nil {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Str("timestamp", timestamp).
 			Err(err).
 			Msg("Signature verification failed")
@@ -123,28 +130,26 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	}
 
 	log.Info().
-		Str("userID", userID).
-		Str("fingerprint", fingerprint).
+		Str("userID", string(selfIdentity)).
+		Str("publicKeyId", publicKeyID).
 		Msg("WebSocket authentication successful")
 
-	return userID, nil
+	return string(selfIdentity), nil
 }
 
-// getPublicKey retrieves a public key from the database along with its
-// revocation state. A key is revoked iff a matching row exists in
-// user_key_revocations.
-func (as *AuthService) getPublicKey(ctx context.Context, userID, fingerprint string) (string, bool, error) {
+// getPublicKey retrieves a key's armor and revocation state by canonical id.
+func (as *AuthService) getPublicKey(ctx context.Context, fingerprint string) (string, bool, error) {
 	var armor string
 	var revoked bool
 	err := as.db.QueryRowContext(ctx, `
-		SELECT uk.armor,
+		SELECT pk.armor,
 		       EXISTS(
-			SELECT 1 FROM user_key_revocations rv
-			WHERE rv.user_fingerprint = uk.fingerprint AND rv.owner = uk.owner
+			SELECT 1 FROM public_key_revocations rv
+			WHERE rv.key_id = pk.id
 		)
-		FROM user_keys uk
-		WHERE uk.owner = $1 AND uk.fingerprint = $2
-	`, userID, fingerprint).Scan(&armor, &revoked)
+		FROM public_keys pk
+		WHERE pk.id = $1
+	`, fingerprint).Scan(&armor, &revoked)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -155,4 +160,3 @@ func (as *AuthService) getPublicKey(ctx context.Context, userID, fingerprint str
 
 	return armor, revoked, nil
 }
-

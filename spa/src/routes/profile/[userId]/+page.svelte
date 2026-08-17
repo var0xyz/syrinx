@@ -13,7 +13,8 @@
   import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { reedsService } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
-  import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
+  import { verifyAndCommitAccountRemoval, accountRemovalCommitted } from '$lib/services/accountRemoval';
+  import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
   import { notificationStore } from '$lib/stores/notifications';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -23,6 +24,7 @@
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
   import { mergeUserView, profileNeedsRefresh } from '$lib/utils/userView';
   import { countMarkdownCharacters, MAX_REED_VISIBLE_CHARS } from '$lib/utils/reedContent';
+  import { parseCanonicalId } from '$lib/utils/identityRef';
   import type * as api from '$lib/types/api';
 
   /** @type {import('./$types').PageData} */
@@ -120,18 +122,18 @@
       // identity.go — see signing.ts for the mirror contract. The
       // signature travels as base64(armored PGP) to survive
       // form-encoding.
-      const fingerprint = authService.getActiveKeyFingerprint();
+      const keyId = authService.getActiveKeyId();
       const passphrase = authService.getPassphrase();
-      if (!fingerprint || !passphrase) {
+      if (!keyId || !passphrase) {
         editError = 'Session expired. Please sign in again.';
         return;
       }
-      const privateKey = await privateKeyRepository.getPrivateKey(fingerprint);
+      const privateKey = await privateKeyRepository.getPrivateKey(keyId);
       if (!privateKey) {
         editError = 'Could not locate your signing key.';
         return;
       }
-      const payload = buildUserIdentityPayload(nextUsername, fingerprint, nextBio);
+      const payload = buildUserIdentityPayload(nextUsername, keyId, nextBio);
       const sigArmor = await cryptoService.signMessage(payload, privateKey.armor, passphrase);
       const userSignature = btoa(sigArmor);
 
@@ -312,15 +314,27 @@
     }
   }
 
+  /** Foreign-author FOLLOW_REED fanout never reaches a remote follower (it
+   * only notifies followers with an active connection on the author's own
+   * server) — SUBSCRIBE_PROFILE is the only delivery path that actually
+   * works cross-server, so foreign profiles must always use it, following
+   * or not. For a local author, following already gets live delivery via
+   * FOLLOW_REED, so subscribing too would just be redundant. */
   async function subscribeToProfileIfNotFollowing(uid: string) {
     if (isOwner) return;
-    if (await followingRepository.isFollowing(uid)) return;
+    const localServerID = localStorage.getItem('serverId') || '';
+    const isForeign = parseCanonicalId(uid)?.[1] !== localServerID;
+    if (!isForeign && (await followingRepository.isFollowing(uid))) return;
     await subscribeToProfile(uid);
   }
 
   async function subscribeToProfile(uid: string) {
-    await serverConnection.subscribeProfile(uid);
+    // applyPageData's fromCache branch calls this directly and also kicks
+    // off refreshFromNetwork, which calls it again on completion — without
+    // this guard both calls race and send SUBSCRIBE_PROFILE twice.
+    if (profileSubscriptionActive) return;
     profileSubscriptionActive = true;
+    await serverConnection.subscribeProfile(uid);
   }
 
   function cleanupProfileSubscription() {
@@ -337,6 +351,28 @@
   beforeNavigate(() => {
     cleanupProfileSubscription();
   });
+
+  /**
+   * An account-removal cert can arrive over WS while this exact profile is
+   * on screen — e.g. the user deletes their account live in another tab.
+   * The commit already happened in +layout.svelte's handler; this just
+   * checks whether it was for the author we're currently viewing so the
+   * page tombstones immediately instead of continuing to show stale
+   * content until a reload.
+   */
+  $: if ($accountRemovalCommitted > 0) {
+    void checkLiveAccountRemoval();
+  }
+
+  async function checkLiveAccountRemoval() {
+    if (accountRemoved || status === 'tombstone') return;
+    const cert = await removedAccountsRepository.get(userId);
+    if (!cert) return;
+    tombstoneNote = cert.note ?? '';
+    accountRemoved = true;
+    profileUser = null;
+    status = 'tombstone';
+  }
 
   async function handleGone(removal) {
     if (removal?.type === 'account') {

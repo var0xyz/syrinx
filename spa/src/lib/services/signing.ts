@@ -93,22 +93,22 @@ export function stringToSign(headers: Record<string, string>, content: string): 
  * using this SPA.
  *
  * Headers (sorted by `bytesToSign` at signing time):
- *   - type:        "identity-user"
- *   - username:    the account username
- *   - fingerprint: the key producing this signature (self-describing)
+ *   - type:     "identity-user"
+ *   - username: the account username
+ *   - keyID:    the key producing this signature (self-describing)
  *
  * Content: `bio` (verbatim, unescaped, may span multiple lines or be empty).
  */
 export function buildUserIdentityPayload(
   username: string,
-  fingerprint: string,
+  keyID: string,
   bio: string
 ): string {
   return stringToSign(
     {
       type: 'identity-user',
       username,
-      fingerprint
+      keyID
     },
     bio
   );
@@ -116,11 +116,11 @@ export function buildUserIdentityPayload(
 
 export function buildNewUserIdentityPayload(
   username: string,
-  fingerprint: string,
+  keyID: string,
 ): string {
   return buildUserIdentityPayload(
     username,
-    fingerprint,
+    keyID,
     "",
   );
 }
@@ -129,7 +129,7 @@ export function buildNewUserIdentityPayload(
 export function buildProfilePayload(
   userID: string,
   username: string,
-  fingerprint: string,
+  keyID: string,
   serverID: string,
   serverKeyFingerprint: string,
   userSignatureB64: string,
@@ -144,7 +144,7 @@ export function buildProfilePayload(
       type: 'identity-server',
       userID,
       username,
-      fingerprint,
+      keyID,
       memberSince,
       role,
       serverID,
@@ -159,12 +159,11 @@ export function buildProfilePayload(
 
 /**
  * Mirror of BuildReedPayload / ReedCountersignHeaders in identity.go.
- * Content is the author userSignature wire value (base64 armor), same as
- * POST /reeds `signature` form field.
+ * reedID is the full canonical id. Content is the author userSignature
+ * wire value (base64 armor), same as POST /reeds `signature` form field.
  */
 export function buildReedPayload(
   serverID: string,
-  authorID: string,
   reedID: string,
   serverKeyFingerprint: string,
   userSignatureB64: string,
@@ -172,7 +171,6 @@ export function buildReedPayload(
 ): string {
   return stringToSign(
     {
-      authorID,
       fingerprint: serverKeyFingerprint,
       serverID,
       reedID,
@@ -185,7 +183,7 @@ export function buildReedPayload(
 /** Mirror of publicKeyCountersignHeaders + armor in handlers.go. */
 export function buildPublicKeyPayload(
   userID: string,
-  fingerprint: string,
+  keyID: string,
   serverID: string,
   serverKeyFingerprint: string,
   armor: string,
@@ -193,7 +191,7 @@ export function buildPublicKeyPayload(
 ): string {
   return stringToSign(
     {
-      fingerprint,
+      keyID,
       serverID,
       serverKeyFingerprint,
       signedAt,
@@ -206,14 +204,14 @@ export function buildPublicKeyPayload(
 /** Mirror of buildUserRevocationPayload in identity.go. */
 export function buildUserRevocationPayload(
   userID: string,
-  fingerprint: string,
+  keyID: string,
   reason: string
 ): string {
   return stringToSign(
     {
       type: 'revocation',
       userID,
-      fingerprint
+      keyID
     },
     reason
   );
@@ -222,7 +220,7 @@ export function buildUserRevocationPayload(
 /** Mirror of buildServerRevocationPayload in identity.go. */
 export function buildServerRevocationPayload(
   userID: string,
-  fingerprint: string,
+  keyID: string,
   reason: string,
   serverID: string,
   serverKeyFingerprint: string,
@@ -233,7 +231,7 @@ export function buildServerRevocationPayload(
     {
       type: 'revocation',
       userID,
-      fingerprint,
+      keyID,
       signedAt,
       serverID,
       serverKeyFingerprint,
@@ -243,17 +241,15 @@ export function buildServerRevocationPayload(
   );
 }
 
-/** Mirror of BuildReedRemovalUserPayload in identity.go (`type: reed`). */
+/** Mirror of BuildReedRemovalUserPayload in identity.go (`type: reed`). reedID is the full canonical id. */
 export function buildReedRemovalUserPayload(
   serverID: string,
-  userID: string,
   reedID: string
 ): string {
   return stringToSign(
     {
       type: 'reed',
       serverID,
-      userID,
       reedID
     },
     ''
@@ -263,7 +259,6 @@ export function buildReedRemovalUserPayload(
 /** Mirror of BuildReedRemovalServerPayload in identity.go. */
 export function buildReedRemovalServerPayload(
   serverID: string,
-  userID: string,
   reedID: string,
   serverKeyFingerprint: string,
   userSignatureB64: string,
@@ -273,7 +268,6 @@ export function buildReedRemovalServerPayload(
     {
       type: 'reed',
       serverID,
-      userID,
       reedID,
       signedAt,
       serverKeyFingerprint,
@@ -283,20 +277,16 @@ export function buildReedRemovalServerPayload(
   );
 }
 
-/** Mirror of BuildReedLikeUserPayload in identity.go (`type: reed_like`). */
+/** Mirror of BuildReedLikeUserPayload in identity.go (`type: reed_like`). reedID is the full canonical id. */
 export function buildReedLikeUserPayload(
-  serverID: string,
-  authorID: string,
   reedID: string,
-  fingerprint: string
+  keyID: string
 ): string {
   return stringToSign(
     {
       type: 'reed_like',
-      serverID,
-      authorID,
       reedID,
-      fingerprint
+      keyID
     },
     ''
   );
@@ -304,8 +294,6 @@ export function buildReedLikeUserPayload(
 
 /** Mirror of BuildReedLikeServerPayload in identity.go. */
 export function buildReedLikeServerPayload(
-  serverID: string,
-  authorID: string,
   reedID: string,
   serverKeyFingerprint: string,
   userSignatureB64: string,
@@ -314,8 +302,6 @@ export function buildReedLikeServerPayload(
   return stringToSign(
     {
       type: 'reed_like',
-      serverID,
-      authorID,
       reedID,
       signedAt,
       serverKeyFingerprint,
@@ -415,26 +401,25 @@ export function buildInviteServerPayload(
 
 /**
  * Mirror of BuildRippleUserPayload / rippleUserHeaders in identity.go. The
- * exact bytes a ripple's author signs. threadID is always present
- * (client-minted, see specs/ripples/00_design.md); replyingTo is omitted
- * for a top-level post (empty string is dropped by bytesToSign). No
- * timestamp — client clocks are never signed over.
+ * exact bytes a ripple's author signs. reedID is the full canonical id of
+ * the parent reed. threadID is always present (client-minted, see
+ * specs/ripples/00_design.md); replyingTo is omitted for a top-level post
+ * (empty string is dropped by bytesToSign). No timestamp — client clocks
+ * are never signed over.
  */
 export function buildRippleUserPayload(
-  reedAuthorID: string,
   reedID: string,
   rippleAuthorID: string,
-  fingerprint: string,
+  keyID: string,
   threadID: string,
   replyingTo: string,
   content: string
 ): string {
   return stringToSign(
     {
-      reedAuthorID,
       reedID,
       rippleAuthorID,
-      fingerprint,
+      keyID,
       threadID,
       replyingTo
     },
@@ -446,16 +431,15 @@ export function buildRippleUserPayload(
  * Mirror of BuildRippleServerPayload / rippleServerHeaders in identity.go.
  * Same fields the user signed, plus serverID and the server-supplied
  * timestamp. Content is the author's detached signature (base64 armor),
- * not the ripple text — mirrors buildReedPayload exactly. `fingerprint`
- * here is the ripple author's signing-key fingerprint (same value passed
+ * not the ripple text — mirrors buildReedPayload exactly. `keyID`
+ * here is the ripple author's signing key id (same value passed
  * to buildRippleUserPayload), not the server key's.
  */
 export function buildRippleServerPayload(
   serverID: string,
-  reedAuthorID: string,
   reedID: string,
   rippleAuthorID: string,
-  fingerprint: string,
+  keyID: string,
   threadID: string,
   replyingTo: string,
   userSignatureB64: string,
@@ -464,10 +448,9 @@ export function buildRippleServerPayload(
   return stringToSign(
     {
       serverID,
-      reedAuthorID,
       reedID,
       rippleAuthorID,
-      fingerprint,
+      keyID,
       threadID,
       replyingTo,
       timestamp

@@ -35,7 +35,7 @@
     <del><svelte:self nodes={node.children} {preview} {onExternal} {usernameHints} /></del>
   {:else if node.type === 'link' && parseMentionHref(node.href)}
     {@const target = parseMentionHref(node.href)}
-    <MentionLink userID={target.userID} serverID={target.serverID} {preview} hintUsername={usernameHints?.get(target.userID)} />
+    <MentionLink userID={target.userID} {preview} hintUsername={usernameHints?.get(target.userID)} />
   {:else if node.type === 'link'}
     {#if preview}
       <span class="inline-link"><svelte:self nodes={node.children} {preview} {onExternal} {usernameHints} /></span>
@@ -47,6 +47,6 @@
       ><svelte:self nodes={node.children} {preview} {onExternal} {usernameHints} /></a>
     {/if}
   {:else if node.type === 'mention'}
-    <MentionLink userID={node.userID} serverID={node.serverID} {preview} hintUsername={usernameHints?.get(node.userID)} />
+    <MentionLink userID={node.userID} {preview} hintUsername={usernameHints?.get(node.userID)} />
   {/if}
 {/each}

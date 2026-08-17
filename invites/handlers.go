@@ -19,16 +19,16 @@ import (
 
 // UserSignatureWire is the nested user attestation on create/response.
 type UserSignatureWire struct {
-	Fingerprint string `json:"fingerprint"`
-	Armor       string `json:"armor"`
+	ID    string `json:"id"`
+	Armor string `json:"armor"`
 }
 
-// ServerSignatureWire is the nested server countersignature on create response.
+// ServerSignatureWire is the nested server countersignature on create
+// response, same shape as every other ServerSignature.
 type ServerSignatureWire struct {
-	ServerID    string `json:"serverID"`
-	Fingerprint string `json:"fingerprint"`
-	Armor       string `json:"armor"`
-	Timestamp   string `json:"timestamp"`
+	ID        string `json:"id"`
+	Armor     string `json:"armor"`
+	Timestamp string `json:"timestamp"`
 }
 
 // Deps are dependencies RegisterRoutes needs from main.
@@ -59,9 +59,12 @@ func RegisterRoutes(api *mux.Router, deps Deps) {
 	api.HandleFunc("/invites", noop).Methods(http.MethodOptions)
 	api.HandleFunc("/invites/check", deps.Check).Methods(http.MethodGet)
 	api.HandleFunc("/invites/check", noop).Methods(http.MethodOptions)
-	api.HandleFunc("/invites/{id}", deps.Status).Methods(http.MethodGet)
-	api.HandleFunc("/invites/{id}", deps.RevokeInvite).Methods(http.MethodDelete)
-	api.HandleFunc("/invites/{id}", noop).Methods(http.MethodOptions)
+	// {id} is "userID@serverID/reedID"-shaped and carries a "/", so it needs
+	// a greedy path variable ({id:.+}) — a plain {id} stops at the first "/"
+	// and never matches (see main.go's /keys/{id:.+} for the same gotcha).
+	api.HandleFunc("/invites/{id:.+}", deps.Status).Methods(http.MethodGet)
+	api.HandleFunc("/invites/{id:.+}", deps.RevokeInvite).Methods(http.MethodDelete)
+	api.HandleFunc("/invites/{id:.+}", noop).Methods(http.MethodOptions)
 }
 
 func noop(w http.ResponseWriter, r *http.Request) {
@@ -123,8 +126,13 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if !crypto.IsValidID(req.ID) {
+	idOwner, idServerID, idEntity, ok := identity.ParseKeyFingerprint(identity.IdentityID(req.ID))
+	if !ok || !crypto.IsValidUUIDv7(idEntity) {
 		writeJSON(w, http.StatusBadRequest, "Invalid invite id")
+		return
+	}
+	if string(identity.CanonicalID(idServerID, idOwner)) != caller {
+		writeJSON(w, http.StatusForbidden, "Invite id does not belong to the caller")
 		return
 	}
 	tokenHash, err := DecodeHashHex(req.TokenHash)
@@ -133,7 +141,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tokenHashHex := EncodeHashHex(tokenHash)
-	if req.UserSignature.Fingerprint == "" || req.UserSignature.Armor == "" {
+	if req.UserSignature.ID == "" || req.UserSignature.Armor == "" {
 		writeJSON(w, http.StatusBadRequest, "userSignature is required")
 		return
 	}
@@ -193,7 +201,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Invalid userSignature encoding")
 		return
 	}
-	pubArmor, err := d.GetPublicKeyArmor(r.Context(), caller, req.UserSignature.Fingerprint)
+	pubArmor, err := d.GetPublicKeyArmor(r.Context(), caller, req.UserSignature.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
@@ -265,12 +273,12 @@ func (d Deps) Status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inv, err := d.Store.GetByCreatorAndID(r.Context(), caller, id)
+	inv, err := d.Store.GetByID(r.Context(), id)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
-	if inv == nil {
+	if inv == nil || inv.CreatedBy != caller {
 		writeJSON(w, http.StatusNotFound, "Invite not found")
 		return
 	}
@@ -318,17 +326,16 @@ type checkResponse struct {
 	Valid bool `json:"valid"`
 }
 
-// Check handles GET /api/invites/check?uid=&iid=&secret=.
-// Client sends the fragment secret; server looks up by composite PK + hash.
+// Check handles GET /api/invites/check?id=&secret=.
+// Client sends the fragment secret; server looks up by id + hash.
 func (d Deps) Check(w http.ResponseWriter, r *http.Request) {
-	creatorID := strings.TrimSpace(r.URL.Query().Get("uid"))
-	id := strings.TrimSpace(r.URL.Query().Get("iid"))
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	secret := strings.TrimSpace(r.URL.Query().Get("secret"))
-	if creatorID == "" || id == "" || secret == "" {
-		writeJSON(w, http.StatusBadRequest, "Arguments `uid`, `iid`, and `secret` are required")
+	if id == "" || secret == "" {
+		writeJSON(w, http.StatusBadRequest, "Arguments `id` and `secret` are required")
 		return
 	}
-	inv, err := d.Store.GetPendingInvite(r.Context(), creatorID, id, HashSecret(secret))
+	inv, err := d.Store.GetPendingInvite(r.Context(), id, HashSecret(secret))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"syrinx/identity"
+
 	_ "github.com/lib/pq"
 )
 
@@ -93,12 +95,12 @@ func ensureTestSchema(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS user_signatures (
 			id             SERIAL PRIMARY KEY,
-			fingerprint    VARCHAR(255) NOT NULL,
+			public_key_id  VARCHAR(255) NOT NULL,
 			signature      TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (
 			id             SERIAL PRIMARY KEY,
-			fingerprint    VARCHAR(255) NOT NULL,
+			private_key_id VARCHAR(255) NOT NULL,
 			signature      TEXT NOT NULL,
 			signed_at      TIMESTAMP NOT NULL
 		)`,
@@ -106,45 +108,44 @@ func ensureTestSchema(db *sql.DB) error {
 		// current DDL (IF NOT EXISTS would leave a stale inline-column table).
 		`DROP TABLE IF EXISTS account_removals`,
 		`DROP TABLE IF EXISTS reed_removals`,
-		`DROP TABLE IF EXISTS user_key_revocations`,
-		`DROP TABLE IF EXISTS user_keys CASCADE`,
+		`DROP TABLE IF EXISTS public_key_revocations`,
+		`DROP TABLE IF EXISTS public_keys CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
-		`CREATE TABLE users (
+		`DROP TABLE IF EXISTS identities CASCADE`,
+		// identities is the FK target for "a user" (see db.go).
+		`CREATE TABLE identities (
 			id VARCHAR(255) PRIMARY KEY,
+			server_id VARCHAR(16),
+			public_key_fingerprint VARCHAR(255),
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE users (
+			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			username VARCHAR(255) UNIQUE,
-			user_fingerprint VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			user_signature_id INT REFERENCES user_signatures(id),
 			server_signature_id INT REFERENCES server_signatures(id)
 		)`,
-		`CREATE TABLE user_keys (
-			fingerprint VARCHAR(255) UNIQUE NOT NULL,
-			owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		`CREATE TABLE public_keys (
+			id VARCHAR(255) PRIMARY KEY,
+			owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
 			armor TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			PRIMARY KEY (owner, fingerprint)
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
+			predecessor_id VARCHAR(255) REFERENCES public_keys(id)
 		)`,
 		`CREATE TABLE reed_removals (
-			reed_id VARCHAR(255) NOT NULL,
-			user_id VARCHAR(255) NOT NULL REFERENCES users(id),
-			user_fingerprint VARCHAR(255) NOT NULL,
+			reed_id VARCHAR(255) PRIMARY KEY,
+			public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			PRIMARY KEY (user_id, reed_id),
-			FOREIGN KEY (user_id, user_fingerprint)
-				REFERENCES user_keys(owner, fingerprint)
-				ON DELETE CASCADE
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE account_removals (
-			user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id),
+			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id),
 			note VARCHAR(140) NOT NULL DEFAULT '',
-			user_fingerprint VARCHAR(255) NOT NULL,
+			public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			FOREIGN KEY (user_id, user_fingerprint)
-				REFERENCES user_keys(owner, fingerprint)
-				ON DELETE CASCADE,
 			CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140)
 		)`,
 		`CREATE TABLE IF NOT EXISTS network_stats (
@@ -162,18 +163,29 @@ func ensureTestSchema(db *sql.DB) error {
 	return nil
 }
 
+// testServerID is the serverID used to mint identities.id values here;
+// must match the serverID passed to InsertCert/GetCert/etc.
+const testServerID = "test-srv"
+
 func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 	t.Helper()
+	identityID := string(identity.CanonicalID(testServerID, userID))
+	if _, err := db.Exec(`
+		INSERT INTO identities (id, server_id)
+		VALUES ($1, $2)
+	`, identityID, testServerID); err != nil {
+		t.Fatalf("seed identities: %v", err)
+	}
 	var userSigID, serverSigID int64
 	err := db.QueryRow(`
-		INSERT INTO user_signatures (fingerprint, signature)
+		INSERT INTO user_signatures (public_key_id, signature)
 		VALUES ('seed-ufp', 'u') RETURNING id
 	`).Scan(&userSigID)
 	if err != nil {
 		t.Fatalf("seed user_signatures: %v", err)
 	}
 	err = db.QueryRow(`
-		INSERT INTO server_signatures (fingerprint, signature, signed_at)
+		INSERT INTO server_signatures (private_key_id, signature, signed_at)
 		VALUES ('seed-sfp', 's', NOW()) RETURNING id
 	`).Scan(&serverSigID)
 	if err != nil {
@@ -182,7 +194,7 @@ func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 	_, err = db.Exec(`
 		INSERT INTO users (id, username, user_signature_id, server_signature_id)
 		VALUES ($1, $2, $3, $4)
-	`, userID, username, userSigID, serverSigID)
+	`, identityID, username, userSigID, serverSigID)
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
@@ -190,18 +202,20 @@ func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 
 func seedUserKey(t *testing.T, db *sql.DB, userID, fingerprint string) {
 	t.Helper()
+	identityID := string(identity.CanonicalID(testServerID, userID))
+	canonicalFP := string(identity.AppendEntity(identity.IdentityID(identityID), fingerprint))
 	var serverSigID int64
 	err := db.QueryRow(`
-		INSERT INTO server_signatures (fingerprint, signature, signed_at)
+		INSERT INTO server_signatures (private_key_id, signature, signed_at)
 		VALUES ('key-sfp', 's', NOW()) RETURNING id
 	`).Scan(&serverSigID)
 	if err != nil {
 		t.Fatalf("seed key server_signatures: %v", err)
 	}
 	_, err = db.Exec(`
-		INSERT INTO user_keys (fingerprint, owner, armor, server_signature_id)
+		INSERT INTO public_keys (id, owner, armor, server_signature_id)
 		VALUES ($1, $2, 'armor', $3)
-	`, fingerprint, userID, serverSigID)
+	`, canonicalFP, identityID, serverSigID)
 	if err != nil {
 		t.Fatalf("seed key: %v", err)
 	}
@@ -210,44 +224,51 @@ func seedUserKey(t *testing.T, db *sql.DB, userID, fingerprint string) {
 func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 	db := openTestDB(t)
 	userID := fmt.Sprintf("rm-user-%d", time.Now().UnixNano())
-	reedID := fmt.Sprintf("rm-reed-%d", time.Now().UnixNano())
-	fp := fmt.Sprintf("rm-fp-%d", time.Now().UnixNano())
+	bareReedID := fmt.Sprintf("rm-reed-%d", time.Now().UnixNano())
+	bareFP := fmt.Sprintf("rm-fp-%d", time.Now().UnixNano())
+	identityID := string(identity.CanonicalID(testServerID, userID))
+	reedID := string(identity.AppendEntity(identity.IdentityID(identityID), bareReedID))
+	fp := string(identity.AppendEntity(identity.IdentityID(identityID), bareFP))
 
 	seedUser(t, db, userID, "u-"+userID)
-	seedUserKey(t, db, userID, fp)
+	seedUserKey(t, db, userID, bareFP)
 	t.Cleanup(func() {
-		_, _ = db.Exec(`DELETE FROM reed_removals WHERE user_id = $1`, userID)
-		_, _ = db.Exec(`DELETE FROM user_keys WHERE owner = $1`, userID)
-		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+		_, _ = db.Exec(`DELETE FROM reed_removals WHERE reed_id = $1`, reedID)
+		_, _ = db.Exec(`DELETE FROM public_keys WHERE owner = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM identities WHERE id = $1`, identityID)
 	})
 
 	cert := Cert{
 		ReedID:            reedID,
-		UserID:            userID,
+		UserID:            identityID,
 		UserSignature:     "user-sig",
-		UserFingerprint:   fp,
+		UserKeyID:         fp,
 		ServerSignature:   "server-sig",
 		ServerFingerprint: "server-fp",
 		ServerSignedAt:    time.Now().UTC(),
 	}
-	if err := InsertCert(context.Background(), db, cert); err != nil {
+	if err := InsertCert(context.Background(), db, cert, testServerID); err != nil {
 		t.Fatalf("first insert: %v", err)
 	}
-	if err := InsertCert(context.Background(), db, cert); err != nil {
+	if err := InsertCert(context.Background(), db, cert, testServerID); err != nil {
 		t.Fatalf("identical replay: %v", err)
 	}
 
-	got, err := GetCert(context.Background(), db, userID, reedID)
+	got, err := GetCert(context.Background(), db, reedID, testServerID)
 	if err != nil || got == nil {
 		t.Fatalf("get: got=%v err=%v", got, err)
 	}
-	if got.UserFingerprint != fp {
-		t.Fatalf("fingerprint=%q", got.UserFingerprint)
+	if got.UserKeyID != fp {
+		t.Fatalf("fingerprint=%q", got.UserKeyID)
+	}
+	if got.UserID != identityID {
+		t.Fatalf("UserID = %q, want canonical %q", got.UserID, identityID)
 	}
 
 	conflict := cert
 	conflict.UserSignature = "other"
-	if err := InsertCert(context.Background(), db, conflict); err != ErrConflict {
+	if err := InsertCert(context.Background(), db, conflict, testServerID); err != ErrConflict {
 		t.Fatalf("want ErrConflict, got %v", err)
 	}
 }
@@ -255,14 +276,17 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 func TestInsertAccountCert_IdempotentConflictAndNote(t *testing.T) {
 	db := openTestDB(t)
 	userID := fmt.Sprintf("ar-user-%d", time.Now().UnixNano())
-	fp := fmt.Sprintf("ar-fp-%d", time.Now().UnixNano())
+	bareFP := fmt.Sprintf("ar-fp-%d", time.Now().UnixNano())
+	identityID := string(identity.CanonicalID(testServerID, userID))
+	fp := string(identity.AppendEntity(identity.IdentityID(identityID), bareFP))
 
 	seedUser(t, db, userID, "u-"+userID)
-	seedUserKey(t, db, userID, fp)
+	seedUserKey(t, db, userID, bareFP)
 	t.Cleanup(func() {
-		_, _ = db.Exec(`DELETE FROM account_removals WHERE user_id = $1`, userID)
-		_, _ = db.Exec(`DELETE FROM user_keys WHERE owner = $1`, userID)
-		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+		_, _ = db.Exec(`DELETE FROM account_removals WHERE user_id = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM public_keys WHERE owner = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM identities WHERE id = $1`, identityID)
 	})
 
 	if err := ValidateAccountNote(string(make([]rune, MaxAccountNoteLen+1))); err == nil {
@@ -273,39 +297,113 @@ func TestInsertAccountCert_IdempotentConflictAndNote(t *testing.T) {
 		UserID:            userID,
 		Note:              "goodbye",
 		UserSignature:     "user-sig",
-		UserFingerprint:   fp,
+		UserKeyID:         fp,
 		ServerSignature:   "server-sig",
 		ServerFingerprint: "server-fp",
 		ServerSignedAt:    time.Now().UTC(),
 	}
-	if err := InsertAccountCert(context.Background(), db, cert); err != nil {
+	if err := InsertAccountCert(context.Background(), db, cert, testServerID); err != nil {
 		t.Fatalf("first insert: %v", err)
 	}
-	if err := InsertAccountCert(context.Background(), db, cert); err != nil {
+	if err := InsertAccountCert(context.Background(), db, cert, testServerID); err != nil {
 		t.Fatalf("identical replay: %v", err)
 	}
 
-	got, err := GetAccountCert(context.Background(), db, userID)
+	got, err := GetAccountCert(context.Background(), db, userID, testServerID)
 	if err != nil || got == nil {
 		t.Fatalf("get: got=%v err=%v", got, err)
 	}
 	if got.Note != "goodbye" {
 		t.Fatalf("note=%q", got.Note)
 	}
-	ok, err := HasAccountRemoval(context.Background(), db, userID)
+	ok, err := HasAccountRemoval(context.Background(), db, userID, testServerID)
 	if err != nil || !ok {
 		t.Fatalf("has: ok=%v err=%v", ok, err)
 	}
 
 	conflict := cert
 	conflict.UserSignature = "other"
-	if err := InsertAccountCert(context.Background(), db, conflict); err != ErrConflict {
+	if err := InsertAccountCert(context.Background(), db, conflict, testServerID); err != ErrConflict {
 		t.Fatalf("want ErrConflict, got %v", err)
 	}
 
 	long := cert
 	long.Note = string(make([]rune, MaxAccountNoteLen+1))
-	if err := InsertAccountCert(context.Background(), db, long); err == nil {
+	if err := InsertAccountCert(context.Background(), db, long, testServerID); err == nil {
 		t.Fatal("expected note length rejection")
+	}
+}
+
+// TestInsertForeignAccountCert_NoLocalSideEffects verifies the foreign
+// path only writes account_removals: no users row is touched (there is
+// none to touch — the account was never local), unlike InsertAccountCert.
+func TestInsertForeignAccountCert_NoLocalSideEffects(t *testing.T) {
+	db := openTestDB(t)
+	const foreignServerID = "foreign-srv"
+	userID := fmt.Sprintf("foreign-ar-user-%d", time.Now().UnixNano())
+	bareFP := fmt.Sprintf("foreign-ar-fp-%d", time.Now().UnixNano())
+	identityID := string(identity.CanonicalID(foreignServerID, userID))
+	fp := string(identity.AppendEntity(identity.IdentityID(identityID), bareFP))
+
+	if _, err := db.Exec(`
+		INSERT INTO identities (id, server_id) VALUES ($1, $2)
+	`, identityID, foreignServerID); err != nil {
+		t.Fatalf("seed foreign identity: %v", err)
+	}
+	var serverSigID int64
+	if err := db.QueryRow(`
+		INSERT INTO server_signatures (private_key_id, signature, signed_at)
+		VALUES ('foreign-key-sfp', 's', NOW()) RETURNING id
+	`).Scan(&serverSigID); err != nil {
+		t.Fatalf("seed key server_signatures: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO public_keys (id, owner, armor, server_signature_id)
+		VALUES ($1, $2, 'armor', $3)
+	`, fp, identityID, serverSigID); err != nil {
+		t.Fatalf("seed foreign public key: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM account_removals WHERE user_id = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM public_keys WHERE owner = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM identities WHERE id = $1`, identityID)
+	})
+
+	cert := AccountCert{
+		UserID:            identityID,
+		Note:              "gone",
+		UserSignature:     "user-sig",
+		UserKeyID:         fp,
+		ServerSignature:   "server-sig",
+		ServerFingerprint: "server-fp",
+		ServerSignedAt:    time.Now().UTC(),
+	}
+	if err := InsertForeignAccountCert(context.Background(), db, cert); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	if err := InsertForeignAccountCert(context.Background(), db, cert); err != nil {
+		t.Fatalf("identical replay: %v", err)
+	}
+
+	got, err := GetAccountCert(context.Background(), db, userID, foreignServerID)
+	if err != nil || got == nil {
+		t.Fatalf("get: got=%v err=%v", got, err)
+	}
+	if got.Note != "gone" {
+		t.Fatalf("note=%q", got.Note)
+	}
+
+	var usersCount int
+	if err := db.QueryRow(`SELECT count(*) FROM users WHERE id = $1`, identityID).Scan(&usersCount); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if usersCount != 0 {
+		t.Fatalf("expected no users row for a foreign account removal, got %d", usersCount)
+	}
+
+	conflict := cert
+	conflict.UserSignature = "other"
+	if err := InsertForeignAccountCert(context.Background(), db, conflict); err != ErrConflict {
+		t.Fatalf("want ErrConflict, got %v", err)
 	}
 }

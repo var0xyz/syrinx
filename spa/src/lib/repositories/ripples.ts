@@ -1,6 +1,6 @@
 import { dbService, type DbService } from '../services/db';
 import type * as api from '$lib/types/api';
-import { apiService } from '$lib/services/api';
+import { apiService, canonicalKeyId } from '$lib/services/api';
 import { verifyRipple } from '$lib/verifiers';
 import { publicKeyRepository } from './publicKey';
 import { userRepository } from './user';
@@ -30,22 +30,22 @@ export class RipplesRepository {
   /**
    * Verify (unless already cached) and store a ripple. Also ensures the
    * author's public key and profile are cached, same as storeReed does
-   * for a reed's author. reedAuthorID/reedID identify the parent reed
+   * for a reed's author. reedID (canonical) identifies the parent reed
    * (needed to rebuild the signed payload — not part of the wire object).
    * Returns false (and does not store) if verification fails; callers
    * must treat that as "discard, do not render" per 00's Client-side
    * verification section, not as an error to surface to the user.
    */
-  async storeRipple(ripple: api.Ripple, reedAuthorID: string, reedID: string): Promise<boolean> {
+  async storeRipple(ripple: api.Ripple, reedID: string): Promise<boolean> {
     if (await this.hasRipple(ripple.hash)) {
       return true;
     }
 
-    if (ripple.userSignature?.fingerprint && ripple.userID) {
-      const fp = ripple.userSignature.fingerprint;
+    if (ripple.userSignature?.id && ripple.userID) {
+      const fp = ripple.userSignature.id;
       if (!(await publicKeyRepository.hasPublicKey(fp))) {
         try {
-          const key = await apiService.getPublicKey(ripple.userID, fp);
+          const key = await apiService.getPublicKey(canonicalKeyId(ripple.userID, fp));
           await publicKeyRepository.put(key);
         } catch (error) {
           console.error('Failed to cache ripple author public key:', error);
@@ -54,7 +54,7 @@ export class RipplesRepository {
     }
 
     try {
-      await this.db.put('ripples', ripple, (r) => verifyRipple(r, reedAuthorID, reedID));
+      await this.db.put('ripples', ripple, (r) => verifyRipple(r, reedID));
     } catch (error) {
       console.error('Ripple failed verification, discarding:', ripple.hash, error);
       return false;

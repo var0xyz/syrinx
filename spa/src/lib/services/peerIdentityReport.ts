@@ -39,10 +39,10 @@ export async function reportPeerIdentity(
   const usersById = new Map(users.map((u) => [u.id, u]));
   const infoByUserId = new Map(usersInfo.map((i) => [i.id, i]));
   const keysByFp = new Map(
-    publicKeys.map((k) => [k.fingerprint.toLowerCase(), k])
+    publicKeys.map((k) => [k.id.toLowerCase(), k])
   );
   const revocationsByFp = new Map(
-    revocations.map((r) => [r.fingerprint.toLowerCase(), r])
+    revocations.map((r) => [r.id.toLowerCase(), r])
   );
 
   const profile = usersById.get(peerUserId);
@@ -52,10 +52,10 @@ export async function reportPeerIdentity(
 
   const nest = buildKeyNest(peerUserId, {
     getUser: (id) => usersById.get(id),
-    getActiveKeyFingerprint: (id) =>
-      infoByUserId.get(id)?.activeKeyFingerprint ||
-      (usersById.get(id) as api.User & { activeKeyFingerprint?: string } | undefined)
-        ?.activeKeyFingerprint,
+    getActiveKeyId: (id) =>
+      infoByUserId.get(id)?.activeKeyID ||
+      (usersById.get(id) as api.User & { activeKeyID?: string } | undefined)
+        ?.activeKeyID,
     getPublicKey: (fp) => keysByFp.get(fp.toLowerCase()),
     getRevocation: (fp) => revocationsByFp.get(fp.toLowerCase()) ?? null,
   });

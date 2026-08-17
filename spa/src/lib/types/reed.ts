@@ -5,6 +5,7 @@
 
 import type { ServerSignature, UserSignature } from '$lib/types/api';
 import { generateReedId } from '$lib/utils/id';
+import { canonicalReedId } from '$lib/utils/identityRef';
 
 // Reed markdown frontmatter fields. Note: there is intentionally no client-side
 // `timestamp` field. The canonical publication date is the server's
@@ -54,11 +55,12 @@ export class Reed {
   private _tags: string[] = [];
 
   constructor() {
-    // Client-minted UUID v7; author lists sort by id.
-    this._id = generateReedId();
-
-    // Auto-populate userID
+    // Auto-populate userID (already canonical: userID@serverID).
     this._userID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';
+
+    // Canonical id (userID/uuid) — same composition as everywhere else in
+    // the app; author lists sort by the UUIDv7 suffix.
+    this._id = canonicalReedId({ userID: this._userID, id: generateReedId() });
   }
 
   get userID(): string {
@@ -98,22 +100,16 @@ export class Reed {
   }
 
   /** Record the user's detached signature over asMarkdown(). */
-  setUserSignature(fingerprint: string, detachedArmor: string): void {
+  setUserSignature(keyId: string, detachedArmor: string): void {
     this._userSignature = {
-      fingerprint,
+      id: keyId,
       armor: btoa(detachedArmor.trim()).trim(),
     };
   }
 
-  applyServerResponse(r: {
-    serverID: string;
-    fingerprint: string;
-    timestamp: string;
-    armor: string;
-  }): void {
+  applyServerResponse(r: { id: string; timestamp: string; armor: string }): void {
     this._serverSignature = {
-      serverID: r.serverID,
-      fingerprint: r.fingerprint,
+      id: r.id,
       armor: r.armor,
       timestamp: r.timestamp,
     };

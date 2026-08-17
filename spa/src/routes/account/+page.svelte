@@ -24,6 +24,7 @@
   import { revocationRepository } from '$lib/repositories/revocation';
   import { loadProfileKeyInfo, type ProfileKeyInfo } from './keyInfo';
   import { mergeUserView, type UserView } from '$lib/utils/userView';
+  import { appendFingerprint, isRoot } from '$lib/utils/identityRef';
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -35,7 +36,7 @@
   let storageAvailable: boolean = data.storage != null;
 
   // Encryption Key state (seeded from page load)
-  let keyFingerprint: string = data.keyInfo.fingerprint;
+  let activeKeyId: string = data.keyInfo.keyId;
   let keyIdentity: string = data.keyInfo.identity;
   let loadingKeyInfo: boolean = false;
   let revoking: boolean = false;
@@ -49,16 +50,19 @@
   // Export state
   let exporting: boolean = false;
   let showExportWarningModal: boolean = false;
-  let lastBackupAt: number | null = null;
+  let lastBackupAt: number | null = data.lastBackupAt;
 
   // Key backup state
   let backingUpKeys: boolean = false;
   let showBackupKeysModal: boolean = false;
-  let lastKeyBackupAt: number | null = null;
-  let activeKeyMintedAt: number | null = null;
-  // Never backed up, or backed up before the currently active key was minted
-  // (e.g. after a revoke) — the existing backup no longer covers this key.
-  $: keyBackupStale = !lastKeyBackupAt || (activeKeyMintedAt != null && lastKeyBackupAt < activeKeyMintedAt);
+  // Always set by the time this page is reachable — <Auth> redirects to
+  // /welcome for mandatory backup before any authenticated route
+  // (including this one) will render otherwise.
+  let lastKeyBackupAt: number | null = data.lastKeyBackupAt;
+  let activeKeyMintedAt: number | null = data.activeKeyMintedAt;
+  // Backed up before the currently active key was minted (e.g. after a
+  // revoke) — the existing backup no longer covers this key.
+  $: keyBackupStale = activeKeyMintedAt != null && !!lastKeyBackupAt && lastKeyBackupAt < activeKeyMintedAt;
 
   // Helper function to format bytes into human-readable format
   function formatBytes(bytes: number): string {
@@ -98,21 +102,15 @@
       console.error('Failed to refresh profile:', error);
     }
 
-    const storedBackupAt = localStorage.getItem('lastBackupAt');
-    if (storedBackupAt) lastBackupAt = parseInt(storedBackupAt);
-
-    const storedKeyBackupAt = localStorage.getItem('lastKeyBackupAt');
-    if (storedKeyBackupAt) lastKeyBackupAt = parseInt(storedKeyBackupAt);
-
     await refreshActiveKeyMintedAt();
   });
 
   async function refreshActiveKeyMintedAt(): Promise<void> {
-    activeKeyMintedAt = await privateKeyRepository.getMintedAt(keyFingerprint);
+    activeKeyMintedAt = await privateKeyRepository.getMintedAt(activeKeyId);
   }
 
   function applyKeyInfo(info: ProfileKeyInfo): void {
-    keyFingerprint = info.fingerprint;
+    activeKeyId = info.keyId;
     keyIdentity = info.identity;
     isPendingRevocation = info.isPendingRevocation;
     isKeyRevoked = info.isKeyRevoked;
@@ -158,7 +156,7 @@
     }
 
     revoking = true;
-    const oldFingerprint = keyFingerprint;
+    const oldKeyId = activeKeyId;
     const reason = revokeReason.trim();
     try {
       // Generate new key pair first (before revoking old key)
@@ -167,28 +165,32 @@
         throw new Error('Passphrase not found');
       }
 
-      const serverId = localStorage.getItem('serverId') || '';
       const serverName = localStorage.getItem('serverName') || '';
+      // user.id is already the "userID@serverID" form — use it verbatim as
+      // the OpenPGP identity name. Do NOT append the server id again here.
       const newKeyPair = await cryptoService.generateKeyPair({
-        name: `${user.id}@${serverId}`,
+        name: user.id,
         email: revokeEmail.trim() || undefined,
         comment: serverName || undefined,
         password: passphrase
       });
-      console.log("new key fingerprint:", newKeyPair.fingerprint);
+      console.log("new key id:", newKeyPair.fingerprint);
+      // user.id is already canonical (userID@serverID); newKeyPair.fingerprint
+      // is bare, fresh from generateKeyPair — canonicalize once, up front.
+      const newKeyId = appendFingerprint(user.id, newKeyPair.fingerprint);
 
       // Store the new private key locally. The public key is cached only
       // after AddPublicKey returns the server countersignature.
-      await privateKeyRepository.put(newKeyPair.fingerprint, newKeyPair.privateKey);
+      await privateKeyRepository.put(newKeyId, newKeyPair.privateKey);
 
       // Get old key's private key from IndexedDB
-      const oldPrivateKey = await privateKeyRepository.getPrivateKey(oldFingerprint);
+      const oldPrivateKey = await privateKeyRepository.getPrivateKey(oldKeyId);
       if (!oldPrivateKey) {
         throw new Error('Old private key not found');
       }
 
       // Sign the user revocation attestation with the old private key.
-      const userRevocationPayload = buildUserRevocationPayload(user.id, oldFingerprint, reason);
+      const userRevocationPayload = buildUserRevocationPayload(user.id, oldKeyId, reason);
       const userRevocationSigArmor = await cryptoService.signMessage(
         userRevocationPayload,
         oldPrivateKey.armor,
@@ -197,25 +199,28 @@
       const userRevocationSignature = btoa(userRevocationSigArmor);
 
       // Sign the new public key with old private key (rotation proof).
+      // newKeyPair.publicKey is already trimmed by generateKeyPair — sign,
+      // store, and transmit this exact same string everywhere below, or
+      // the server's byte-for-byte signature check fails.
       const revokedKeySignature = btoa(await cryptoService.signMessage(
-        newKeyPair.publicKey.trim(),
+        newKeyPair.publicKey,
         oldPrivateKey.armor,
         passphrase
       ));
 
       // Sign the new public key with new private key
       const newKeySignature = btoa(await cryptoService.signMessage(
-        newKeyPair.publicKey.trim(),
+        newKeyPair.publicKey,
         newKeyPair.privateKey,
         passphrase
       ));
 
       // Store pending revocation so it can be retried if the server call fails
       await pendingRevocationRepository.put({
-        fingerprint: oldFingerprint,
+        keyId: oldKeyId,
         reason,
         userId: user.id,
-        newFingerprint: newKeyPair.fingerprint,
+        newKeyId: newKeyId,
         newPublicKey: newKeyPair.publicKey,
         userRevocationSignature,
         revokedKeySignature,
@@ -228,41 +233,54 @@
       const progressNotificationId = notificationStore.info('Key revocation in progress...');
 
       try {
-        // Revoke the old key — server returns the key with revoked: true.
-        const revokedKey = await apiService.revokeKey(
-          user.id,
-          oldFingerprint,
-          reason,
-          userRevocationSignature
-        );
-        await publicKeyRepository.setRevoked(revokedKey);
-        await privateKeyRepository.setRevoked(oldFingerprint);
+        // Revoke the old key and register the new one atomically — a
+        // separate revoke-then-add round trip leaves a window where this
+        // account has no valid key at all to sign anything with.
+        let newPublicKey;
+        try {
+          newPublicKey = await apiService.addPublicKey(
+            user.id,
+            btoa(newKeyPair.publicKey),
+            oldKeyId,
+            revokedKeySignature,
+            newKeySignature,
+            reason,
+            userRevocationSignature
+          );
+        } catch (addKeyError) {
+          const status = (addKeyError as { status?: number })?.status;
+          if (status !== 409) throw addKeyError;
+          newPublicKey = await apiService.getPublicKey(newKeyId);
+        }
 
-        // Mark revokeKey as done so a retry skips it and goes straight to addPublicKey
-        await pendingRevocationRepository.markRevoked(oldFingerprint);
+        // The rotation is fully done server-side at this point — clear the
+        // pending record and switch the active key BEFORE storing/verifying
+        // the new key locally. Verifying it fetches the predecessor's
+        // revocation cert over a signed request; that request must be
+        // signed with the new key, not the now-revoked old one.
+        await pendingRevocationRepository.delete(oldKeyId);
+        await privateKeyRepository.setRevoked(oldKeyId);
+        authService.setActiveKey(newKeyId);
+        await requestSigner.initializeWorker(newKeyId, passphrase);
 
-        // Upload new public key; response is the full wire PublicKey.
-        const newPublicKey = await apiService.addPublicKey(
-          user.id,
-          btoa(newKeyPair.publicKey),
-          oldFingerprint,
-          revokedKeySignature,
-          newKeySignature
-        );
         await publicKeyRepository.put(newPublicKey);
-
-        // Switch to the new key, then fetch the countersigned revocation proof.
-        authService.setActiveKey(newKeyPair.fingerprint);
-        await requestSigner.initializeWorker(newKeyPair.fingerprint, passphrase);
-
-        const revocation = await apiService.getKeyRevocation(user.id, oldFingerprint);
-        await revocationRepository.put(revocation);
-
-        await pendingRevocationRepository.delete(oldFingerprint);
         notificationStore.dismiss(progressNotificationId);
         isPendingRevocation = false;
         await loadKeyInfo();
         notificationStore.success('Key revoked and new key generated successfully');
+
+        // Best-effort: fetch the now-revoked old key's updated record and
+        // the server-countersigned revocation proof for local caching.
+        // Failure here is not the user's problem to retry — the rotation
+        // already succeeded — so it's logged, not surfaced.
+        try {
+          const revokedKey = await apiService.getPublicKey(oldKeyId);
+          await publicKeyRepository.setRevoked(revokedKey);
+          const revocation = await apiService.getKeyRevocation(user.id, oldKeyId);
+          await revocationRepository.put(revocation);
+        } catch (revocationFetchError) {
+          console.error('Failed to fetch revocation certificate (rotation already complete):', revocationFetchError);
+        }
       } catch (serverError) {
         // Leave pending record in place; syncPending() will retry on reconnect
         console.error('Server revocation failed, will retry on reconnect:', serverError);
@@ -435,8 +453,8 @@
                 {/if}
               {/if}
               <div class="key-field">
-                <strong>Fingerprint</strong>
-                <div class="key-value fingerprint">{keyFingerprint}</div>
+                <strong>Key ID</strong>
+                <div class="key-value key-id">{activeKeyId}</div>
               </div>
               <div class="key-field">
                 <strong>Identity</strong>
@@ -445,9 +463,7 @@
               <div class="key-backup">
                 {#if keyBackupStale}
                   <span class="key-backup-warning">
-                    ⚠️ {lastKeyBackupAt
-                      ? 'Your key backup is outdated — back up again to protect your current key.'
-                      : 'Your keys have never been backed up.'}
+                    ⚠️ Your key backup is outdated — back up again to protect your current key.
                   </span>
                 {:else}
                   <span class="last-backup">Last key backup {formatRelativeTime(lastKeyBackupAt)}</span>
@@ -557,7 +573,9 @@
                 {exporting ? 'Exporting...' : 'Export Data'}
               </button>
             </div>
-            <button class="action-btn danger" on:click={() => goto('/delete/confirm')}>Delete Account</button>
+            {#if !isRoot(user.id)}
+              <button class="action-btn danger" on:click={() => goto('/delete/confirm')}>Delete Account</button>
+            {/if}
           </div>
         </div>
       </div>
@@ -869,7 +887,7 @@
     white-space: pre;
   }
 
-  .key-value.fingerprint {
+  .key-value.key-id {
     font-size: 0.85rem;
     letter-spacing: 0.5px;
   }

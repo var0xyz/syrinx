@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
   import type * as api from '$lib/types/api';
   import { notificationStore } from '$lib/stores/notifications';
+  import { serverInfo } from '$lib/services/serverInfo';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
@@ -13,6 +15,8 @@
   let user: api.User | null = null;
   let isAdmin = false;
   let invitations: api.FederationInvitation[] = [];
+  let attempts: api.FederationAttempt[] = [];
+  let servers: api.FederationServer[] = [];
   let loading = true;
   let remotePublicKey = '';
   let inviteName = '';
@@ -21,6 +25,10 @@
   let freshConnectionString = '';
   let showConnectionModal = false;
   let showCreateModal = false;
+  let showAcceptModal = false;
+  let acceptConnectionString = '';
+  let accepting = false;
+  let copyingOwnKey = false;
 
   onMount(async () => {
     user = await authService.getCurrentUser();
@@ -36,7 +44,10 @@
 
   async function refreshList() {
     try {
-      invitations = await apiService.listFederationInvitations();
+      const list = await apiService.listFederation();
+      invitations = list.invitations;
+      attempts = list.attempts;
+      servers = list.servers;
     } catch (err) {
       console.error('[mesh]', err);
       notificationStore.error(err instanceof Error ? err.message : 'Failed to load federation invites');
@@ -66,6 +77,7 @@
 
   function openCreateModal() {
     if (creating) return;
+    showAcceptModal = false;
     showCreateModal = true;
   }
 
@@ -102,6 +114,44 @@
     return btoa(binary);
   }
 
+  function decodeConnectionString(encoded: string): string {
+    const binary = atob(encoded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new TextDecoder().decode(bytes);
+  }
+
+  function openAcceptModal() {
+    if (accepting) return;
+    showCreateModal = false;
+    showAcceptModal = true;
+  }
+
+  function dismissAcceptModal() {
+    if (accepting) return;
+    showAcceptModal = false;
+    acceptConnectionString = '';
+  }
+
+  async function acceptInvite() {
+    const encoded = acceptConnectionString.trim();
+    if (!encoded || accepting) return;
+    accepting = true;
+    try {
+      const connectionString = decodeConnectionString(encoded);
+      await apiService.attemptFederationConnection(connectionString);
+      showAcceptModal = false;
+      acceptConnectionString = '';
+      notificationStore.success('Connection accepted — awaiting a second admin’s approval.');
+    } catch (err) {
+      notificationStore.error(err instanceof Error ? err.message : 'Failed to accept connection');
+    } finally {
+      accepting = false;
+    }
+  }
+
   $: freshConnectionEncoded = freshConnectionString
     ? encodeConnectionString(freshConnectionString)
     : '';
@@ -109,6 +159,20 @@
   function dismissConnectionModal() {
     showConnectionModal = false;
     freshConnectionString = '';
+  }
+
+  async function copyOwnPublicKey() {
+    if (copyingOwnKey) return;
+    copyingOwnKey = true;
+    try {
+      const armor = await apiService.getOwnServerKey();
+      await navigator.clipboard.writeText(armor);
+      notificationStore.success('Server public key copied');
+    } catch (err) {
+      notificationStore.error(err instanceof Error ? err.message : 'Could not copy server public key');
+    } finally {
+      copyingOwnKey = false;
+    }
   }
 
   async function copyConnectionString(connectionString: string) {
@@ -125,14 +189,48 @@
   function statusLabel(status: api.FederationInvitation['status']) {
     if (status === 'accepted') return 'Accepted';
     if (status === 'approved') return 'Approved';
+    if (status === 'rejected') return 'Rejected';
+    if (status === 'canceled') return 'Canceled';
     if (status === 'revoked') return 'Revoked';
     return 'Pending';
   }
 
   function reviewActionLabel(status: api.FederationInvitation['status']) {
     if (status === 'approved') return 'Approved by';
+    if (status === 'rejected') return 'Rejected by';
+    if (status === 'canceled') return 'Canceled by';
     if (status === 'revoked') return 'Revoked by';
     return 'Reviewed by';
+  }
+
+  function attemptStatusLabel(status: api.FederationAttempt['status']) {
+    if (status === 'approved') return 'Approved';
+    if (status === 'rejected') return 'Rejected';
+    return 'Pending';
+  }
+
+  /** Reuses the invitation badge's color scheme (same status vocabulary). */
+  function attemptBadgeStatus(status: api.FederationAttempt['status']) {
+    if (status === 'approved') return 'approved';
+    if (status === 'rejected') return 'rejected';
+    return 'new';
+  }
+
+  type PeerRow =
+    | { kind: 'attempt'; key: string; createdAt: string; item: api.FederationAttempt }
+    | { kind: 'server'; key: string; createdAt: string; item: api.FederationServer };
+
+  // Attempts and servers are the same lifecycle (pending/approved connection),
+  // just rendered as one list instead of two separately-headed sections.
+  $: peerRows = [
+    ...attempts.map((item): PeerRow => ({ kind: 'attempt', key: `att-${item.attemptId}`, createdAt: item.createdAt, item })),
+    ...servers.map((item): PeerRow => ({ kind: 'server', key: `srv-${item.serverId}`, createdAt: item.createdAt, item })),
+  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  function rowHref(row: PeerRow): string {
+    return row.kind === 'attempt'
+      ? `/mesh/attempt/${encodeURIComponent(row.item.attemptId)}`
+      : `/mesh/peer/${encodeURIComponent(row.item.serverId)}`;
   }
 </script>
 
@@ -144,15 +242,24 @@
       {:else if !isAdmin}
         <p class="error" role="alert">Admin access required.</p>
       {:else}
-        <p class="lead">Federate with other Syrinx instances</p>
+        <div class="lead-row">
+          <p class="lead">Federate with other Syrinx instances</p>
+          <button
+            class="btn secondary own-key-btn"
+            disabled={!$serverInfo?.serverKeyId || copyingOwnKey}
+            on:click={copyOwnPublicKey}
+          >
+            {copyingOwnKey ? 'Copying…' : 'Copy this server’s public key'}
+          </button>
+        </div>
 
-        {#if invitations.length === 0}
+        {#if invitations.length === 0 && attempts.length === 0 && servers.length === 0}
           <div class="empty-state">
             <div class="empty-icon">🔗</div>
             <h3>No federation invites yet</h3>
             <p>Create an invite to share an encrypted connection string with another server&apos;s admin.</p>
           </div>
-        {:else}
+        {:else if invitations.length > 0}
           <ul class="invite-list">
             {#each invitations as inv (inv.inviteId)}
               <li class="invite-row">
@@ -164,16 +271,15 @@
                   <span class="meta"
                     >Created {formatRelativeTime(inv.createdAt)} by <Username
                       userID={inv.createdBy}
-                      username={inv.createdByUsername}
                       class="meta-link"
                       at
                       fire={false}
                     /></span
                   >
-                  {#if inv.reviewedBy && inv.reviewedByUsername}
+                  {#if inv.reviewedBy}
                     <span class="meta">
                       {reviewActionLabel(inv.status)}
-                      <Username userID={inv.reviewedBy} username={inv.reviewedByUsername} class="meta-link" at fire={false} />
+                      <Username userID={inv.reviewedBy} class="meta-link" at fire={false} />
                       {#if inv.reviewedAt}
                         · {formatRelativeTime(inv.reviewedAt)}
                       {/if}
@@ -201,6 +307,70 @@
             {/each}
           </ul>
         {/if}
+
+        {#if peerRows.length > 0}
+          <ul class="invite-list">
+            {#each peerRows as row (row.key)}
+              <li
+                class="invite-row clickable"
+                role="button"
+                tabindex="0"
+                on:click={() => goto(rowHref(row))}
+                on:keydown={(e) => e.key === 'Enter' && goto(rowHref(row))}
+              >
+                {#if row.kind === 'attempt'}
+                  <div class="invite-main">
+                    <span class="invite-name">{row.item.remoteServerName}</span>
+                    <span class="badge-row">
+                      <span class="badge" data-status={attemptBadgeStatus(row.item.status)}>
+                        {attemptStatusLabel(row.item.status)}
+                      </span>
+                    </span>
+                    <span class="meta">{row.item.baseUrl}</span>
+                    <span class="meta">Started {formatRelativeTime(row.item.createdAt)}</span>
+                  </div>
+                {:else}
+                  <div class="invite-main">
+                    <span class="invite-name">{row.item.name}</span>
+                    <span class="badge-row">
+                      <span
+                        class="badge"
+                        data-status={row.item.revoked
+                          ? 'revoked'
+                          : row.item.disconnectPending
+                            ? 'pending'
+                            : row.item.connected
+                              ? 'connected'
+                              : 'accepted'}
+                      >
+                        {row.item.revoked
+                          ? 'Disconnected'
+                          : row.item.disconnectPending
+                            ? 'Pending disconnect'
+                            : row.item.connected
+                              ? 'Connected'
+                              : 'Awaiting confirmation'}
+                      </span>
+                    </span>
+                    {#if row.item.baseUrl}
+                      <span class="meta">{row.item.baseUrl}</span>
+                    {/if}
+                    <span class="meta">Added {formatRelativeTime(row.item.createdAt)}</span>
+                  </div>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+
+        <button
+          class="floating-accept-btn"
+          disabled={accepting}
+          on:click={openAcceptModal}
+          aria-label={accepting ? 'Accepting connection' : 'Accept federation connection'}
+        >
+          <span class="icon">{accepting ? '…' : '📥'}</span>
+        </button>
 
         <button
           class="floating-create-btn"
@@ -265,6 +435,46 @@
     </div>
   {/if}
 
+  {#if showAcceptModal}
+    <div
+      class="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="accept-connection-title"
+      tabindex="-1"
+      on:click={(e) => e.target === e.currentTarget && dismissAcceptModal()}
+      on:keydown={(e) => e.key === 'Escape' && dismissAcceptModal()}
+    >
+      <div class="modal">
+        <h2 id="accept-connection-title">Accept connection</h2>
+        <p class="modal-lead">
+          Paste the connection string another server&apos;s admin shared with you out of band.
+        </p>
+        <label class="field">
+          <span>Connection string</span>
+          <textarea
+            bind:value={acceptConnectionString}
+            rows="8"
+            spellcheck="false"
+            placeholder="Paste the share code here"
+          ></textarea>
+        </label>
+        <div class="modal-actions">
+          <button class="btn secondary" disabled={accepting} on:click={dismissAcceptModal}>
+            Cancel
+          </button>
+          <button
+            class="btn primary"
+            disabled={accepting || !acceptConnectionString.trim()}
+            on:click={acceptInvite}
+          >
+            {accepting ? 'Accepting…' : 'Accept'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   {#if showConnectionModal}
     <div
       class="modal-backdrop"
@@ -319,9 +529,24 @@
   }
 
   .lead {
-    margin: 0 0 1rem 0;
+    margin: 0;
     color: var(--muted);
     font-size: 0.9rem;
+  }
+
+  .lead-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+
+  .own-key-btn {
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.75rem;
   }
 
   .empty-state {
@@ -395,6 +620,10 @@
     background: var(--surface);
   }
 
+  .invite-row.clickable {
+    cursor: pointer;
+  }
+
   .invite-main {
     display: flex;
     flex-direction: column;
@@ -433,14 +662,21 @@
     color: var(--primary);
   }
 
-  .badge[data-status='accepted'] {
+  .badge[data-status='accepted'],
+  .badge[data-status='pending'] {
     color: #d68910;
   }
 
   .badge[data-status='approved'] {
+    color: #2980b9;
+  }
+
+  .badge[data-status='connected'] {
     color: #27ae60;
   }
 
+  .badge[data-status='rejected'],
+  .badge[data-status='canceled'],
   .badge[data-status='revoked'] {
     color: var(--muted);
   }
@@ -463,7 +699,8 @@
     color: #b91c1c;
   }
 
-  .floating-create-btn {
+  .floating-create-btn,
+  .floating-accept-btn {
     position: fixed;
     bottom: 5rem;
     right: 1.5rem;
@@ -482,17 +719,24 @@
     justify-content: center;
   }
 
-  .floating-create-btn:hover:not(:disabled) {
+  .floating-accept-btn {
+    bottom: 9.5rem;
+  }
+
+  .floating-create-btn:hover:not(:disabled),
+  .floating-accept-btn:hover:not(:disabled) {
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(88, 166, 255, 0.4);
   }
 
-  .floating-create-btn:disabled {
+  .floating-create-btn:disabled,
+  .floating-accept-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
   }
 
-  .floating-create-btn .icon {
+  .floating-create-btn .icon,
+  .floating-accept-btn .icon {
     font-size: 1.5rem;
   }
 
@@ -529,7 +773,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 200;
+    /* Above .floating-create-btn/.floating-accept-btn (z-index: 1000) so
+       the modal covers them instead of the buttons floating over it. */
+    z-index: 1100;
     padding: 1rem;
   }
 

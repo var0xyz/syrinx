@@ -1,14 +1,13 @@
 export type Base = {};
 
 export interface UserSignature extends Base {
-  fingerprint: string;
+  id: string;
   armor: string;
 }
 
 /** Nested server countersignature wire block shared by every signed resource. */
 export interface ServerSignature extends Base {
-  serverID: string;
-  fingerprint: string;
+  id: string;
   armor: string;
   timestamp: string;
 }
@@ -41,47 +40,36 @@ export interface UserInfo extends Base {
   hasReeds: boolean;
   followersCount: number;
   followingCount: number;
-  activeKeyFingerprint: string;
+  activeKeyID: string;
   /** Same instant as the user's profile serverSignature.timestamp. */
   profileTimestamp: string;
 }
 
-export interface PublicKeyIdentity extends Base {
-  id: string;
-  value: string;
-};
-
-// KeyPredecessor is the rotation handoff proof on keys uploaded via
-// AddPublicKey: predecessor fingerprint + detached signature over armor.
-export interface KeyPredecessor extends Base {
-  fingerprint: string;
-  signature: string;
-};
-
-// PublicKey is the wire shape of a distributed user public key.
-// `serverSignature` is required (countersignature over userID/fingerprint/armor).
-// `revoked` is computed on read — revocation details live in KeyRevocation.
-// `predecessor` is null for signup keys; set for rotation keys.
+// PublicKey is the wire shape of a distributed user or server public key.
+// `serverSignature` is required (countersignature over userID/id/armor).
+// `predecessor` is the replaced key's id (null for signup keys); the proof
+// it approved the rotation lives on that key's own KeyRevocation.successorSignature.
 export interface PublicKey extends Base {
-  fingerprint: string;
+  id: string;
   userID: string;
   armor: string;
   createdAt?: string;
-  expiresAt?: string | null;
-  identities?: PublicKeyIdentity[];
   revoked: boolean;
-  predecessor: KeyPredecessor | null;
+  predecessor: string | null;
   serverSignature: ServerSignature;
 };
 
 // KeyRevocation is the wire shape of a signed revocation attestation.
-// Revoke time is serverSignature.timestamp. successor is bookkeeping written
-// later by AddPublicKey and is not covered by either signature.
+// id is the revoked key's own id. Revoke time is serverSignature.timestamp.
+// successor/successorSignature are bookkeeping written later by
+// AddPublicKey (proof the *old* key approved the new one) and are not
+// covered by either of this cert's own signatures.
 export interface KeyRevocation extends Base {
-  fingerprint: string;
+  id: string;
   userID: string;
   reason: string;
   successor: string | null;
+  successorSignature: string | null;
   userSignature: UserSignature;
   serverSignature: ServerSignature;
 };
@@ -91,6 +79,20 @@ export interface KeyRevocation extends Base {
 // active key; predecessor walks back to the signup key (null). `signature`
 // is set only on predecessor links: the older key's detached sig over the
 // newer (parent) key's armor.
+//
+// This bundle format is deliberately bare-everything (recovery/wire.go's
+// signed-payload exception — see recovery/nest.go) and predates the
+// /keys unification, so it keeps its own `fingerprint`-named revocation
+// shape rather than reusing KeyRevocation.
+export interface RecoveryKeyRevocation extends Base {
+  fingerprint: string;
+  userID: string;
+  reason: string;
+  successor: string | null;
+  userSignature: UserSignature;
+  serverSignature: ServerSignature;
+};
+
 export interface RecoveryKeyNode extends Base {
   fingerprint: string;
   userID: string;
@@ -100,7 +102,7 @@ export interface RecoveryKeyNode extends Base {
   revoked: boolean;
   serverSignature: ServerSignature;
   signature?: string;
-  revocation: KeyRevocation | null;
+  revocation: RecoveryKeyRevocation | null;
   predecessor: RecoveryKeyNode | null;
 };
 
@@ -111,7 +113,7 @@ export type AccountRecoveryChallenge = {
 export type AccountRecoveryBootstrapRequest = {
   challenge: number;
   userID: string;
-  fingerprint: string;
+  keyID: string;
   signature: string;
 };
 
@@ -266,15 +268,13 @@ export interface Invite extends Base {
 export interface FederationInvitation {
   inviteId: string;
   name: string;
-  status: 'new' | 'accepted' | 'approved' | 'revoked';
+  status: 'new' | 'accepted' | 'approved' | 'rejected' | 'canceled' | 'revoked';
   createdBy: string;
-  createdByUsername: string;
   remoteFingerprint: string;
   createdAt: string;
   acceptedAt?: string | null;
-  approvedAt?: string | null;
+  serverId?: string | null;
   reviewedBy?: string | null;
-  reviewedByUsername?: string | null;
   reviewedAt?: string | null;
   connectionString?: string;
 }
@@ -283,4 +283,62 @@ export interface FederationInvitationCreateResponse {
   inviteId: string;
   connectionString: string;
   status: 'new';
+}
+
+export interface FederationAttemptResponse {
+  status: 'accepted';
+  serverId: string;
+}
+
+export interface FederationAttemptApproveResponse {
+  attemptId: string;
+  serverId: string;
+  status: 'approved';
+}
+
+/** An approved peer — servers rows only exist once a FederationAttempt has
+ * been approved (see ApproveFederationAttempt). */
+export interface FederationServer {
+  serverId: string;
+  name: string;
+  baseUrl: string;
+  connected: boolean;
+  createdAt: string;
+  revoked: boolean;
+  revokedAt?: string;
+  revokedBy?: string;
+  revokedReason?: string;
+  /** A disconnect has been requested but not yet confirmed by a second admin. */
+  disconnectPending: boolean;
+  disconnectRequestedAt?: string;
+  disconnectRequestedBy?: string;
+  disconnectReason?: string;
+}
+
+/** A handshake attempt against a peer, at any stage — permanent audit
+ * trail, never deleted. RemoteServerId/RemoteServerName/BaseUrl/Fingerprint
+ * are the peer's own claims from its handshake payload. InvitationId is
+ * set on the initiator side only; ServerId once approved. */
+export interface FederationAttempt {
+  attemptId: string;
+  remoteServerId: string;
+  remoteServerName: string;
+  baseUrl: string;
+  fingerprint: string;
+  invitationId?: string | null;
+  serverId?: string | null;
+  createdAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectedAt?: string | null;
+  rejectedReason?: string | null;
+}
+
+/** The mesh tab's combined view: invitations + attempts + servers. */
+export interface FederationList {
+  invitations: FederationInvitation[];
+  attempts: FederationAttempt[];
+  servers: FederationServer[];
 }

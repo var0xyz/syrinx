@@ -159,19 +159,30 @@ admins may invite other admins. Prerequisite for federation operator actions.
 | 02 | Admin-only admin invites (create + signup) | Implemented |
 | 03 | Role on profile countersignature           | Implemented |
 
-## Federation (explicit peering)
+## Federation (explicit peering + cross-server content)
 
 See [`federation/`](federation/README.md). Encrypted admin invite, server
-`connect` callback, second-admin approval, then **`federation_established`**.
+`connect` callback, then trust/runtime-verify/content-relay — each doc's
+own Status header has the precise shipped-vs-designed breakdown; this
+table is just the rollup.
 
 | #  | Title                                            | Status      |
 |----|--------------------------------------------------|-------------|
-| 00 | Design + handshake model                         | Proposed    |
+| 00 | Design + handshake model                         | Superseded by shipped design (02) |
 | 01 | Invitation create + `federation_invitation` + UI | Implemented |
-| 02 | Connect handshake + `federation_attempt`         | Proposed    |
-| 03 | Second-admin approval + `federation_established` | Proposed    |
-| 04 | Runtime verify + foreign ref display             | Proposed    |
-| 05 | Revoke peering + 401 incoming peer traffic       | Proposed    |
+| 02 | Connect handshake + `federation_attempt`         | Implemented (deviated — see doc for exact shape) |
+| 03 | Second-admin approval + `federation_established` | Implemented as a single-admin gate on `federation_attempt` — no `federation_established` table, and the "second admin" check is never enforced (any admin, including the invite's creator, can approve) |
+| 04 | Runtime verify + foreign ref display             | Implemented (trust store simplified, see 03) |
+| 05 | Revoke peering + 401 incoming peer traffic       | **Gap: check exists, nothing ever sets `revoked = true`** — no way to actually revoke an approved peer today |
+| 06 | Cross-instance content relay                     | Implemented, via a per-operation "leg" pattern (`federation_relay.go`) instead of this doc's generic relay endpoints |
+| 07 | Server presence + durable event delivery         | **Gap: shipped fire-and-forget, no durability** — an unreachable peer at notify time silently loses the event, no backlog/retry |
+
+Beyond this doc set's original scope, `federation_relay.go` also covers
+mentions, federated user search, and reed-stats/like-count propagation —
+none of which had a numbered spec when built. Two feature areas have zero
+federation story at all: account/plain-reed deletion (no removal-notify
+leg outside reply/echo) and key revocation (no propagation to peers
+holding content signed by a revoked key).
 
 ## Custom avatars (hash + processed PNG)
 

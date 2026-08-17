@@ -1,4 +1,3 @@
-import { parseReedRef } from '$lib/utils/reedRef';
 import type { ReedType } from '$lib/types/reed';
 
 /** Echo with no commentary — feeds should show the original instead. */
@@ -6,7 +5,7 @@ export function isBlankEcho(reed: { content?: string; echoing?: string } | null 
   return !!(reed?.echoing && !(reed.content || '').trim());
 }
 
-type GetReed = (authorId: string, reedId: string) => Promise<ReedType | null>;
+type GetReed = (reedId: string) => Promise<ReedType | null>;
 
 const MAX_BLANK_UNWRAP = 8;
 
@@ -23,9 +22,8 @@ export async function resolveBlankEchoChain(
     if (!isBlankEcho(current)) return current;
     if (seen.has(current.id)) return current;
     seen.add(current.id);
-    const ref = parseReedRef(current.echoing);
-    if (!ref) return current;
-    const next = await getReed(ref.authorId, ref.reedId);
+    if (!current.echoing) return current;
+    const next = await getReed(current.echoing);
     if (!next) return current;
     current = next;
   }

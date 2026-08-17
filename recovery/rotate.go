@@ -16,7 +16,7 @@ func RotateServerKeyPassphrase(ctx context.Context, db *sql.DB, cryptoSvc *crypt
 		return fmt.Errorf("new passphrase must be at least 16 characters")
 	}
 
-	rows, err := db.QueryContext(ctx, `SELECT fingerprint, armor FROM private_keys`)
+	rows, err := db.QueryContext(ctx, `SELECT id, armor FROM private_keys`)
 	if err != nil {
 		return fmt.Errorf("list private keys: %w", err)
 	}
@@ -61,7 +61,7 @@ func RotateServerKeyPassphrase(ctx context.Context, db *sql.DB, cryptoSvc *crypt
 	defer tx.Rollback()
 
 	for _, it := range rewrapped {
-		if _, err := tx.ExecContext(ctx, `UPDATE private_keys SET armor = $1 WHERE fingerprint = $2`, it.armor, it.fp); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE private_keys SET armor = $1 WHERE id = $2`, it.armor, it.fp); err != nil {
 			return fmt.Errorf("update %s: %w", it.fp, err)
 		}
 	}

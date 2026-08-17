@@ -3,13 +3,33 @@
 # ==============================================================================
 # UNIFIED SECURE DEPLOYMENT ENGINE (Idempotent Architecture Blueprint)
 # Target Environment: Raspberry Pi 5 / Debian 13 (Trixie)
+#
+# Usage: ./setup.sh [--branch <name>]
+#   --branch <name>   Clone this branch instead of APP_REPO's default branch.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status
 set -e
 
-# Clear Terminal and print ASCII Banner
-clear
+BRANCH=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --branch)
+            [ $# -ge 2 ] || { echo "❌ Error: --branch requires a value"; exit 1; }
+            BRANCH="$2"
+            shift 2
+            ;;
+        *)
+            echo "❌ Error: unknown argument: $1"
+            exit 1
+            ;;
+    esac
+done
+
+# clear fails (and, under set -e, kills the whole script) when TERM is
+# unset/unknown — happens under sudo's use_pty with no real terminal, e.g.
+# piped/non-interactive runs. Cosmetic only, so never fatal.
+clear || true
 echo "================================================================"
 echo "🛡️  Go-Postgres-Vite Secure Fullstack Installer for Raspberry Pi 5"
 echo "================================================================"
@@ -202,7 +222,11 @@ on_error() {
 trap 'on_error $LINENO' ERR
 
 echo -e "\n⚙️  Validating target dependency versions on Debian Trixie..."
-apt update && apt install -y curl git postgresql postgresql-contrib ufw nodejs npm wget build-essential nginx openssl
+# Host's apt-listchanges.conf uses frontend=pager, which DEBIAN_FRONTEND
+# doesn't override — hangs a non-tty run on any package with changelogs.
+export DEBIAN_FRONTEND=noninteractive
+APT_LISTCHANGES_FRONTEND=none apt update
+APT_LISTCHANGES_FRONTEND=none apt install -y curl git postgresql postgresql-contrib ufw nodejs npm wget build-essential nginx openssl
 
 # Ensure local system firewall blocks edge attempts (Zero ports open externally
 # in cloudflare mode; mtls mode needs 443 reachable for its direct edge).
@@ -302,6 +326,7 @@ DB_SSLMODE=disable
 PORT=8080
 SERVER_NAME=$APP_NAME
 ALLOWED_ORIGIN=https://$APP_DOMAIN
+API_BASE_URL=https://$APP_DOMAIN
 SERVER_KEY_PASSPHRASE=$SERVER_KEY_PASSPHRASE
 SIGNUP_MODE=invite
 MAX_INVITES_PER_USER=3
@@ -318,6 +343,7 @@ else
     ensure_env_kv "PORT" "8080"
     ensure_env_kv "SERVER_NAME" "$APP_NAME"
     ensure_env_kv "ALLOWED_ORIGIN" "https://$APP_DOMAIN"
+    ensure_env_kv "API_BASE_URL" "https://$APP_DOMAIN"
     wire_observability_env
     if ! grep -q '^SERVER_KEY_PASSPHRASE=.\+' "$ENV_FILE"; then
         ensure_env_kv "SERVER_KEY_PASSPHRASE" "$(generate_secret)"
@@ -329,9 +355,17 @@ fi
 # ==============================================================================
 # REPO RETRIEVAL, COMPILATION & PLACEMENT
 # ==============================================================================
-echo -e "\n📦 Cloning monorepo into build workspace..."
+if [ -n "$BRANCH" ]; then
+    echo -e "\n📦 Cloning monorepo into build workspace (branch: $BRANCH)..."
+else
+    echo -e "\n📦 Cloning monorepo into build workspace..."
+fi
 rm -rf "$BUILD_DIR/src"
-git clone --depth 1 "$APP_REPO" "$BUILD_DIR/src"
+if [ -n "$BRANCH" ]; then
+    git clone --depth 1 --branch "$BRANCH" "$APP_REPO" "$BUILD_DIR/src"
+else
+    git clone --depth 1 "$APP_REPO" "$BUILD_DIR/src"
+fi
 GIT_COMMIT="$(git -C "$BUILD_DIR/src" rev-parse HEAD)"
 export GIT_COMMIT
 echo "    Commit: $GIT_COMMIT"

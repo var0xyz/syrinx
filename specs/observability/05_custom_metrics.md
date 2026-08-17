@@ -69,6 +69,8 @@ stream as host metrics today.
 | `syrinx.reed.holders` | Histogram | Whenever holder count changes for a reed | `author.id_hash`, `reed.id` — value = `allocation_count` |
 | `syrinx.reed.coverage_percent` | Histogram | Same hook as holders | `author.id_hash`, `reed.id` — value = `coveragePercent` (0–100) |
 | `syrinx.ws.messages` | Counter | Every WS frame handled (see 5.4) | `ws.direction` (`in` \| `out`), `ws.message.type` (normalized type name) |
+| `syrinx.relay.event` | Counter | Every `pending_events` row created/fulfilled/deleted | `relay.lifecycle` (`created` \| `fulfilled` \| `deleted`), `event.kind` (`EventName`, e.g. `request_reed`), `event.id_hash` (SHA-256 of the event id, which embeds the requester's identity) |
+| `syrinx.federation.relay` | Counter | Every federation relay HTTP leg, either side | `federation.direction` (`in` \| `out`), `peer.server_id`, `federation.leg` (path's last segment, e.g. `request`, `deliver`), `ok` (bool — 2xx response) |
 
 **Echoes and replies** use two complementary counters:
 
@@ -95,6 +97,31 @@ would indicate a validation bug, not a normal metric path.
 Constants today: `MaxReedRawChars = 1400`, `MaxReedVisibleChars = 140`
 (`services.go`).
 
+**Relay lifecycle and wasted bandwidth:** `syrinx.relay.event` records one
+sample per `pending_events` row transition — `created` when a relay request
+is registered, `fulfilled` when a `RELAY_RESPONSE` is actually delivered for
+it, `deleted` when it's removed without ever recording a `fulfilled` (a
+cancellation, a `DATA_ACK`/`DATA_INVALID` cleanup, or the requester going
+offline). `event.id_hash` is stable per event, so dashboards can correlate
+the three stages for the same request:
+
+- **Leaked requests**: `created` with no matching `fulfilled` or `deleted`
+  for the same `event.id_hash` — the request never got an answer and never
+  got cleaned up either (there is no timeout/expiry on `pending_events`
+  today, so this is currently unbounded until the process restarts).
+- **Wasted/duplicate responses**: more than one `fulfilled` for the same
+  `event.id_hash` — a holder retransmitted a `RELAY_RESPONSE` after the
+  first one already satisfied the request (only possible for event types
+  whose row isn't deleted immediately on delivery; see 5.3).
+
+`syrinx.federation.relay` is the same idea for cross-server traffic: one
+sample per federation relay HTTP leg, either a peer calling one of this
+server's 16 `/federation/relay/*` endpoints (`federation.direction=in`) or
+this server calling out to a peer (`federation.direction=out`).
+`peer.server_id` (this server's own DB id for the peer, never a raw
+domain/URL) lets an operator see how much relay traffic a specific foreign
+server is generating.
+
 ### 5.3 Instrumentation call sites
 
 | Event | Call site | Notes |
@@ -112,6 +139,11 @@ Constants today: `MaxReedRawChars = 1400`, `MaxReedVisibleChars = 140`
 | Initial coverage at publish | Same hook after author allocation on publish | Ensures every reed gets at least one coverage sample |
 | WS inbound | Start of `handleJSONMessage` / `handleProtobufMessage` | Normalize `msgType` / `pb.MessageType_*` to the same string enum |
 | WS outbound | `Client.writeMessage` (single choke point) | Parse JSON `type` field or protobuf message type from payload when cheap; else `ws.message.type=binary_unknown` / `json_unknown` |
+| Relay event created | `RealtimeService.createPendingReedEvent` / `createPendingAccountEvent` / `createProfileSubscriptionEvent` (wrap the `DBService` inserts) | Every `service.go` call site goes through these wrappers instead of `dbService` directly, so no creation path can skip the metric |
+| Relay event fulfilled | `RealtimeService.handleRelayResponse`, right after the `pe == nil` (already-resolved) check | Recorded once per processed `RELAY_RESPONSE`; a same-holder retransmit for a not-yet-deleted event type records a second `fulfilled` for the same `event.id_hash` — the duplicate-response signal |
+| Relay event deleted | `RealtimeService.deletePendingEvent` (wraps `DBService.DeletePendingEvent`) / `DeletePendingEventsByUser`'s `RETURNING` rows on disconnect | `DeletePendingEvent` now returns the deleted row's `event_name` so the wrapper can record it; skipped if the row was already gone |
+| Federation relay inbound | `main.go` route registration via `Handlers.withFederationRelayMetric` wrapping each of the 16 `/federation/relay/*` handlers | `peer.server_id` from `authenticateAsPeer`'s context value; not recorded if auth rejected the request before reaching the handler |
+| Federation relay outbound | `Handlers.callPeerRelayEndpoint` (single choke point for all 16 outbound legs) | `federation.leg` derived from the request path's last segment; `peer.server_id` passed in by each leg's caller (already resolved from the reed/author identity) |
 
 Recovery-mode import paths call `UserCreated` with `signup.mode=import` when a
 new `users` row is inserted (own claim or peer seed).
@@ -184,6 +216,14 @@ Example questions this unlocks:
   given `reed_id` + `author_id_hash`.
 - Length abuse: `syrinx_reeds_rejected_length` > 0, or
   `syrinx_reed_content_raw_chars` p99 near 1400.
+- Leaked relay requests: per `event_id_hash`, `created` with no matching
+  `fulfilled`/`deleted` in a sufficiently wide window (see the "Relay" tab's
+  `syrinx_relay_leaked` panel for the exact SQL).
+- Wasted/duplicate responses: per `event_id_hash`, more than one `fulfilled`
+  (`syrinx_relay_duplicate_fulfilled` panel).
+- Federation traffic by peer: `sum(syrinx_federation_relay)` by
+  `peer_server_id`, `federation_direction`, `federation_leg`.
+- Federation error rate: `sum(syrinx_federation_relay{ok="false"})`.
 
 Cardinality grows with total reeds (holder/coverage histograms). Start without
 sampling; add explicit aggregation views or drop `reed.id` from long-retention

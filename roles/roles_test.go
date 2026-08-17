@@ -2,6 +2,10 @@ package roles
 
 import "testing"
 
+// testServerID is this server's own id, used throughout this file's
+// IsRoot/RoleForSignup/SignupRole/ValidateProfileRole calls.
+const testServerID = "srv"
+
 func TestIsAdmin(t *testing.T) {
 	if !IsAdmin(RoleRoot) || !IsAdmin(RoleAdmin) {
 		t.Fatal("root and admin must be admin")
@@ -12,11 +16,17 @@ func TestIsAdmin(t *testing.T) {
 }
 
 func TestIsRoot(t *testing.T) {
-	if !IsRoot(RootUserID, RoleRoot) {
+	if !IsRoot(RootUserID, RoleRoot, testServerID) {
 		t.Fatal("reserved id with root role must be root")
 	}
-	if IsRoot(RootUserID, RoleAdmin) || IsRoot("other", RoleRoot) {
+	if IsRoot(RootUserID, RoleAdmin, testServerID) || IsRoot("other", RoleRoot, testServerID) {
 		t.Fatal("wrong id/role pairs must not be root")
+	}
+	if IsRoot(RootUserID+"@otherServer", RoleRoot, testServerID) {
+		t.Fatal("a remote identity sharing the bare root id must not be root")
+	}
+	if !IsRoot(RootUserID+"@"+testServerID, RoleRoot, testServerID) {
+		t.Fatal("already-canonical local root identity must still be root")
 	}
 }
 
@@ -30,10 +40,10 @@ func TestCanGrantAdmin(t *testing.T) {
 }
 
 func TestRoleForSignup(t *testing.T) {
-	if got := RoleForSignup(RootUserID); got != RoleRoot {
+	if got := RoleForSignup(RootUserID, testServerID); got != RoleRoot {
 		t.Fatalf("root mint role = %q want %q", got, RoleRoot)
 	}
-	if got := RoleForSignup("abc123"); got != RoleUser {
+	if got := RoleForSignup("abc123", testServerID); got != RoleUser {
 		t.Fatalf("normal signup role = %q want %q", got, RoleUser)
 	}
 }
@@ -51,16 +61,16 @@ func TestRoleFromInviteGrant(t *testing.T) {
 }
 
 func TestSignupRole(t *testing.T) {
-	if got := SignupRole(RootUserID, RoleAdmin, true); got != RoleRoot {
+	if got := SignupRole(RootUserID, RoleAdmin, true, testServerID); got != RoleRoot {
 		t.Fatalf("root signup = %q", got)
 	}
-	if got := SignupRole("u2", RoleAdmin, true); got != RoleAdmin {
+	if got := SignupRole("u2", RoleAdmin, true, testServerID); got != RoleAdmin {
 		t.Fatalf("admin invite = %q", got)
 	}
-	if got := SignupRole("u2", RoleUser, true); got != RoleUser {
+	if got := SignupRole("u2", RoleUser, true, testServerID); got != RoleUser {
 		t.Fatalf("user invite = %q", got)
 	}
-	if got := SignupRole("u2", RoleAdmin, false); got != RoleUser {
+	if got := SignupRole("u2", RoleAdmin, false, testServerID); got != RoleUser {
 		t.Fatalf("open signup = %q", got)
 	}
 }
@@ -75,19 +85,19 @@ func TestRequireAdmin(t *testing.T) {
 }
 
 func TestValidateProfileRole(t *testing.T) {
-	if err := ValidateProfileRole("u2", RoleAdmin); err != nil {
+	if err := ValidateProfileRole("u2", RoleAdmin, testServerID); err != nil {
 		t.Fatalf("admin: %v", err)
 	}
-	if err := ValidateProfileRole(RootUserID, RoleRoot); err != nil {
+	if err := ValidateProfileRole(RootUserID, RoleRoot, testServerID); err != nil {
 		t.Fatalf("root: %v", err)
 	}
-	if err := ValidateProfileRole("u2", RoleRoot); err == nil {
+	if err := ValidateProfileRole("u2", RoleRoot, testServerID); err == nil {
 		t.Fatal("non-root id with root role must fail")
 	}
-	if err := ValidateProfileRole(RootUserID, RoleAdmin); err == nil {
+	if err := ValidateProfileRole(RootUserID, RoleAdmin, testServerID); err == nil {
 		t.Fatal("root id without root role must fail")
 	}
-	if err := ValidateProfileRole("u2", "superuser"); err == nil {
+	if err := ValidateProfileRole("u2", "superuser", testServerID); err == nil {
 		t.Fatal("unknown role must fail")
 	}
 }

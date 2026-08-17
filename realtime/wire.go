@@ -8,18 +8,18 @@ import (
 	"syrinx/identity"
 )
 
-// UserSignatureWire is the nested user attestation block on removal certs.
+// UserSignatureWire is the nested user attestation block on removal certs
+// and ripple pushes.
 type UserSignatureWire struct {
-	Fingerprint string `json:"fingerprint"`
-	Armor       string `json:"armor"`
+	ID    string `json:"id"`
+	Armor string `json:"armor"`
 }
 
 // ServerSignatureWire is the nested server countersignature block on removal certs.
 type ServerSignatureWire struct {
-	ServerID    string    `json:"serverID"`
-	Fingerprint string    `json:"fingerprint"`
-	Armor       string    `json:"armor"`
-	Timestamp   time.Time `json:"timestamp"`
+	ID        string    `json:"id"`
+	Armor     string    `json:"armor"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // ReedRemovalWire is the wire shape of a signed reed-removal certificate.
@@ -50,14 +50,13 @@ func NewReedRemovalWire(serverID string, cert *deletion.Cert) ReedRemovalWire {
 		UserID:   cert.UserID,
 		ReedID:   cert.ReedID,
 		UserSignature: UserSignatureWire{
-			Fingerprint: cert.UserFingerprint,
-			Armor:       cert.UserSignature,
+			ID:    cert.UserKeyID,
+			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignatureWire{
-			ServerID:    serverID,
-			Fingerprint: cert.ServerFingerprint,
-			Armor:       cert.ServerSignature,
-			Timestamp:   cert.ServerSignedAt.UTC(),
+			ID:        cert.ServerFingerprint,
+			Armor:     cert.ServerSignature,
+			Timestamp: cert.ServerSignedAt.UTC(),
 		},
 	}
 }
@@ -70,14 +69,13 @@ func NewAccountRemovalWire(serverID string, cert *deletion.AccountCert) AccountR
 		UserID:   cert.UserID,
 		Note:     cert.Note,
 		UserSignature: UserSignatureWire{
-			Fingerprint: cert.UserFingerprint,
-			Armor:       cert.UserSignature,
+			ID:    cert.UserKeyID,
+			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignatureWire{
-			ServerID:    serverID,
-			Fingerprint: cert.ServerFingerprint,
-			Armor:       cert.ServerSignature,
-			Timestamp:   cert.ServerSignedAt.UTC(),
+			ID:        cert.ServerFingerprint,
+			Armor:     cert.ServerSignature,
+			Timestamp: cert.ServerSignedAt.UTC(),
 		},
 	}
 }
@@ -89,10 +87,10 @@ type UserUpdateBroadcast struct {
 }
 
 // InboundJSONMsg is the common envelope for client JSON WebSocket frames.
+// ReedID is the whole canonical reed ref (SUBSCRIBE_REED/UNSUBSCRIBE_REED).
 type InboundJSONMsg struct {
 	Type   string          `json:"type"`
 	Data   json.RawMessage `json:"data"`
-	UserID string          `json:"userID"`
 	ReedID string          `json:"reedID"`
 }
 
@@ -112,7 +110,6 @@ type SubscribedMsg struct {
 type RequestReedData struct {
 	RequestID string `json:"request_id"`
 	ReedID    string `json:"reed_id"`
-	AuthorID  string `json:"author_id"`
 }
 
 // RelayResponseData is the payload of an incoming RELAY_RESPONSE message.
@@ -145,7 +142,6 @@ type SubscribePipeData struct {
 // ReedStatsMsg is pushed when a client subscribes to reed stats.
 type ReedStatsMsg struct {
 	Type            string `json:"type"`
-	UserID          string `json:"userID"`
 	ReedID          string `json:"reedID"`
 	Echoes          int    `json:"echoes"`
 	CoveragePercent int    `json:"coveragePercent"`
@@ -156,7 +152,6 @@ type ReedStatsMsg struct {
 // ReedCoverageMsg notifies reed subscribers of holder coverage changes.
 type ReedCoverageMsg struct {
 	Type            string `json:"type"`
-	UserID          string `json:"userID"`
 	ReedID          string `json:"reedID"`
 	CoveragePercent int    `json:"coveragePercent"`
 }
@@ -164,7 +159,6 @@ type ReedCoverageMsg struct {
 // ReedEchoesMsg notifies reed subscribers of echo count changes.
 type ReedEchoesMsg struct {
 	Type   string `json:"type"`
-	UserID string `json:"userID"`
 	ReedID string `json:"reedID"`
 	Echoes int    `json:"echoes"`
 }
@@ -172,7 +166,6 @@ type ReedEchoesMsg struct {
 // ReedRepliesMsg notifies reed subscribers of reply subtree count changes.
 type ReedRepliesMsg struct {
 	Type    string `json:"type"`
-	UserID  string `json:"userID"`
 	ReedID  string `json:"reedID"`
 	Replies int    `json:"replies"`
 }
@@ -180,7 +173,6 @@ type ReedRepliesMsg struct {
 // ReedLikesMsg notifies reed subscribers of like count changes.
 type ReedLikesMsg struct {
 	Type   string `json:"type"`
-	UserID string `json:"userID"`
 	ReedID string `json:"reedID"`
 	Likes  int    `json:"likes"`
 }

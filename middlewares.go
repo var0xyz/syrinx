@@ -272,6 +272,29 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// authenticateAsPeer verifies a request signed by a peer's own key, read
+// from the local public_keys row promoted at approval time (see
+// ApproveFederationAttempt) — no live fetch to the peer needed.
+func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, next http.Handler, fingerprint, callerServerID, signatureHeader string) {
+	ok, publicKeyArmor, err := h.services.db.VerifyFederationPeer(r.Context(), callerServerID, fingerprint)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if !ok {
+		writeResponse(w, http.StatusForbidden, "Not an established peer")
+		return
+	}
+
+	if err := h.verifyRequestSignature(r, signatureHeader, publicKeyArmor); err != nil {
+		writeResponse(w, http.StatusUnauthorized, "Request signature verification failed")
+		return
+	}
+
+	ctx := context.WithValue(r.Context(), peerServerIDKey, callerServerID)
+	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
 // Signature-based authentication middleware
 func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -286,16 +309,18 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				prefix + "/check-username",
 				prefix + "/keys",
 				prefix + "/server/info",
+				// GetServerKey only ever returns this server's own key, so
+				// it's safe to leave unauthenticated.
+				prefix + "/server/key",
 				prefix + "/recovery/identity/claim",
 				prefix + "/account-recovery/challenge",
 				prefix + "/account-recovery/bootstrap",
 				prefix + "/invites/check",
 			}
-			// Server signing public keys are public verification material —
-			// anyone validating a countersignature must be able to fetch them
-			// without being signed in (and without a non-revoked user key).
+			// /federation/connect/ is the initiator's callback route — no
+			// local session, the invitation secret proves legitimacy.
 			excludePrefixes := []string{
-				prefix + "/server/keys/",
+				prefix + "/federation/connect/",
 			}
 
 			for _, path := range excludePaths {
@@ -311,17 +336,16 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				}
 			}
 
-			// Extract required authentication headers
-			userID := r.Header.Get("X-Syrinx-User-Id")
-			fingerprintHeader := r.Header.Get("X-Syrinx-Fingerprint")
+			// Canonical id of the key that signed the request — local
+			// user's own key or a federated peer's own key (see proxyToPeer).
+			publicKeyIDHeader := r.Header.Get("X-Syrinx-Public-Key-Id")
 			signatureHeader := r.Header.Get("X-Syrinx-Signature")
 			signatureScopeHeader := r.Header.Get("X-Syrinx-Signature-Scope")
 			timestampHeader := r.Header.Get("X-Syrinx-Timestamp")
 
-			if userID == "" || fingerprintHeader == "" || signatureHeader == "" || signatureScopeHeader == "" || timestampHeader == "" {
+			if publicKeyIDHeader == "" || signatureHeader == "" || signatureScopeHeader == "" || timestampHeader == "" {
 				log.Error().
-					Str("userID", userID).
-					Str("fingerprint", fingerprintHeader).
+					Str("publicKeyId", publicKeyIDHeader).
 					Bool("hasSignature", signatureHeader != "").
 					Str("signatureScope", signatureScopeHeader).
 					Str("timestamp", timestampHeader).
@@ -350,23 +374,27 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				return
 			}
 
-			// Get public key for the user and fingerprint
-			publicKey, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprintHeader)
+			publicKey, err := h.services.db.GetPublicKey(r.Context(), publicKeyIDHeader)
 			if err != nil {
 				log.Error().
-					Str("userID", userID).
-					Str("fingerprint", fingerprintHeader).
+					Str("publicKeyId", publicKeyIDHeader).
 					Err(err).
 					Msg("Error retrieving public key")
 				internalServerError(w)
 				return
 			}
+			// No local row — could be a foreign peer's own key (never
+			// stored locally), so try authenticateAsPeer before giving up.
 			if publicKey == nil {
+				fingerprint, callerServerID, ok := identity.ParseIdentityID(identity.IdentityID(publicKeyIDHeader))
+				if ok && !strings.Contains(publicKeyIDHeader, "/") {
+					h.authenticateAsPeer(w, r, next, fingerprint, callerServerID, signatureHeader)
+					return
+				}
 				log.Error().
-					Str("userID", userID).
-					Str("fingerprint", fingerprintHeader).
+					Str("publicKeyId", publicKeyIDHeader).
 					Msg("Public key not found")
-				writeResponse(w, http.StatusBadRequest, "Can't validate request signature: Key not found for fingerprint")
+				writeResponse(w, http.StatusForbidden, "Key not found")
 				return
 			}
 
@@ -391,43 +419,77 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			// active.
 			if publicKey.Revoked {
 				log.Error().
-					Str("userID", userID).
-					Str("fingerprint", fingerprintHeader).
+					Str("publicKeyId", publicKeyIDHeader).
 					Msg("Request signed by revoked key rejected")
 				writeResponse(w, http.StatusUnauthorized, "Key is revoked")
 				return
 			}
 
-			// Account-removed users may only replay DELETE /users/me (idempotent
-			// cert fetch). All other authenticated actions are forbidden.
-			removed, remErr := h.services.db.HasAccountRemoval(r.Context(), userID)
-			if remErr != nil {
-				log.Error().Str("userID", userID).Err(remErr).Msg("Error checking account removal")
-				internalServerError(w)
-				return
-			}
-			if removed {
-				path := r.URL.Path
-				if !(r.Method == http.MethodDelete && (path == prefix+"/users/me" || strings.HasSuffix(path, "/users/me"))) {
-					log.Info().Str("userID", userID).Str("path", path).Msg("Rejected auth for removed account")
-					writeResponse(w, http.StatusGone, "Account removed")
+			// publicKey.UserID is empty when the caller signed with this
+			// server's own key rather than a user key — skip the
+			// account-removal check in that case.
+			userID := publicKey.UserID
+			if userID != "" {
+				// Account-removed users may only replay DELETE /users/me
+				// (idempotent cert fetch). All other authenticated actions
+				// are forbidden.
+				removed, remErr := h.services.db.HasAccountRemoval(r.Context(), userID)
+				if remErr != nil {
+					log.Error().Str("userID", userID).Err(remErr).Msg("Error checking account removal")
+					internalServerError(w)
 					return
+				}
+				if removed {
+					path := r.URL.Path
+					if !(r.Method == http.MethodDelete && (path == prefix+"/users/me" || strings.HasSuffix(path, "/users/me"))) {
+						log.Info().Str("userID", userID).Str("path", path).Msg("Rejected auth for removed account")
+						writeResponse(w, http.StatusGone, "Account removed")
+						return
+					}
 				}
 			}
 
 			// Verify signature
 			if err := h.verifyRequestSignature(r, signatureHeader, publicKey.Armor); err != nil {
 				log.Error().
-					Str("userID", userID).
-					Str("fingerprint", fingerprintHeader).
+					Str("publicKeyId", publicKeyIDHeader).
 					Err(err).
 					Msg("Request signature verification failed")
 				writeResponse(w, http.StatusUnauthorized, "Request signature verification failed")
 				return
 			}
 
-			// Add user ID to request context for downstream handlers
-			ctx := context.WithValue(r.Context(), userIDKey, userID)
+			ctx := r.Context()
+			if userID != "" {
+				ctx = context.WithValue(ctx, userIDKey, userID)
+			} else {
+				// No owner means this key was promoted from a peer handshake
+				// (ApproveFederationAttempt) rather than a local user's own —
+				// its id is "{fingerprint}@{peerServerID}", so recover the
+				// caller's server id from it instead of assuming self.
+				fingerprint, callerServerID, ok := identity.ParseIdentityID(identity.IdentityID(publicKeyIDHeader))
+				if !ok {
+					log.Error().
+						Str("publicKeyId", publicKeyIDHeader).
+						Msg("Owner-less key id not parseable as peer key")
+					internalServerError(w)
+					return
+				}
+				// The key row itself only tracks per-key revocation
+				// (checked above); disconnecting a peer revokes the servers
+				// row instead, so that must be checked here too or a
+				// disconnected peer's still-unrevoked key keeps working.
+				peerOK, _, err := h.services.db.VerifyFederationPeer(r.Context(), callerServerID, fingerprint)
+				if err != nil {
+					internalServerError(w)
+					return
+				}
+				if !peerOK {
+					writeResponse(w, http.StatusForbidden, "Not an established peer")
+					return
+				}
+				ctx = context.WithValue(ctx, peerServerIDKey, callerServerID)
+			}
 			r = r.WithContext(ctx)
 
 			next.ServeHTTP(w, r)
@@ -527,11 +589,10 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 			"hx-trigger-value",
 			"X-Requested-With",
 			"X-Syrinx-Device-Id",
-			"X-Syrinx-Fingerprint",
+			"X-Syrinx-Public-Key-Id",
 			"X-Syrinx-Signature",
 			"X-Syrinx-Signature-Scope",
 			"X-Syrinx-Timestamp",
-			"X-Syrinx-User-Id",
 		}
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

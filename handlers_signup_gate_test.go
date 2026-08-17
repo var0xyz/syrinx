@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"syrinx/crypto"
+	"syrinx/identity"
 	"syrinx/invites"
 	"syrinx/realtime"
 	"syrinx/roles"
@@ -28,7 +30,7 @@ func newInviteModeHandlers(t *testing.T, db *sql.DB) *Handlers {
 func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
 	t.Helper()
 	dataService := NewDataService(db, "test")
-	if err := dataService.InitServer(context.Background(), false); err != nil {
+	if err := dataService.InitServer(context.Background(), false, "https://test.example"); err != nil {
 		t.Fatal(err)
 	}
 	cryptoSvc := crypto.NewService()
@@ -49,7 +51,7 @@ func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
 		services,
 		cfg,
 		make(chan realtime.BroadcastMessage, 1),
-		Key{Fingerprint: serverKP.Fingerprint, Armor: serverKP.PrivateKey},
+		ServerSigningKey{Fingerprint: serverKP.Fingerprint, Armor: serverKP.PrivateKey},
 	)
 }
 
@@ -94,20 +96,21 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := invites.HashSecret(secret)
-	id, err := invites.NewInviteID()
+	rawID, err := invites.NewInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := &invites.Store{DB: db}
-	if err := store.Insert(ctx, id, "inviter", hash, time.Now().UTC(), roles.RoleUser); err != nil {
+	inviterCanonical := "inviter@" + h.services.db.GetServerID()
+	id := inviterCanonical + "/" + rawID
+	store := &invites.Store{DB: db, ServerID: h.services.db.GetServerID()}
+	if err := store.Insert(ctx, id, inviterCanonical, hash, time.Now().UTC(), roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 
 	rrBad := postCheckUsername(t, h, url.Values{
-		"username":          {"bob"},
-		"inviteID":          {id},
-		"inviteCreatorID":   {"inviter"},
-		"inviteSecret":      {"wrong-secret"},
+		"username":     {"bob"},
+		"inviteID":     {id},
+		"inviteSecret": {"wrong-secret"},
 	})
 	if rrBad.Code != http.StatusForbidden {
 		t.Fatalf("bad secret: status=%d body=%s", rrBad.Code, rrBad.Body.String())
@@ -117,10 +120,9 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 	}
 
 	rrOk := postCheckUsername(t, h, url.Values{
-		"username":          {"bob"},
-		"inviteID":          {id},
-		"inviteCreatorID":   {"inviter"},
-		"inviteSecret":      {secret},
+		"username":     {"bob"},
+		"inviteID":     {id},
+		"inviteSecret": {secret},
 	})
 	if rrOk.Code != http.StatusOK {
 		t.Fatalf("valid invite: status=%d body=%s", rrOk.Code, rrOk.Body.String())
@@ -177,8 +179,7 @@ func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint,
 
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("X-Syrinx-User-Id", userID)
-	req.Header.Set("X-Syrinx-Fingerprint", fingerprint)
+	req.Header.Set("X-Syrinx-Public-Key-Id", string(identity.AppendEntity(identity.IdentityID(userID), fingerprint)))
 	req.Header.Set("X-Syrinx-Signature", sigB64)
 	req.Header.Set("X-Syrinx-Signature-Scope", "body")
 	req.Header.Set("X-Syrinx-Timestamp", timestamp)
@@ -186,7 +187,12 @@ func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint,
 }
 
 // signedUpUser creates a user with a real keypair (needed to sign requests
-// against authenticated endpoints in tests) and returns its keypair.
+// against authenticated endpoints in tests) and returns its keypair. The
+// returned KeyPair.Fingerprint stays bare (matching what
+// h.services.crypto.CreateKeyPair produces) since callers use it to build
+// the canonical X-Syrinx-Public-Key-Id header via signedRequest —
+// DataService.Signup itself is given the canonical form, matching what
+// handlers.go now does.
 func signedUpUser(t *testing.T, h *Handlers, userID, username string) crypto.KeyPair {
 	t.Helper()
 	kp, err := h.services.crypto.CreateKeyPair(userID, "", "")
@@ -194,7 +200,9 @@ func signedUpUser(t *testing.T, h *Handlers, userID, username string) crypto.Key
 		t.Fatal(err)
 	}
 	in := signupInput(userID, username, nil)
-	in.Fingerprint = kp.Fingerprint
+	in.Fingerprint = string(identity.AppendEntity(
+		identity.CanonicalID(h.services.db.GetServerID(), userID), kp.Fingerprint,
+	))
 	in.PublicKeyArmor = kp.PublicKey
 	in.KeyCreatedAt = time.Now().UTC().Truncate(time.Second)
 	if _, err := h.services.db.Signup(t.Context(), in); err != nil {
@@ -224,7 +232,7 @@ func TestCheckUsernameForRename_NoInviteGate(t *testing.T) {
 	h := newInviteModeHandlers(t, db)
 	kp := signedUpUser(t, h, "alice", "alice")
 
-	req := signedRequest(t, h, http.MethodPost, "/api/users/me/check-username", "alice", kp.Fingerprint, kp.PrivateKey, url.Values{"username": {"bob"}})
+	req := signedRequest(t, h, http.MethodPost, "/api/users/me/check-username", "alice@"+h.services.db.GetServerID(), kp.Fingerprint, kp.PrivateKey, url.Values{"username": {"bob"}})
 	rr := postCheckUsernameForRename(t, h, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -239,7 +247,7 @@ func TestCheckUsernameForRename_TakenUsername(t *testing.T) {
 	kp := signedUpUser(t, h, "alice", "alice")
 	signedUpUser(t, h, "bob", "bob")
 
-	req := signedRequest(t, h, http.MethodPost, "/api/users/me/check-username", "alice", kp.Fingerprint, kp.PrivateKey, url.Values{"username": {"bob"}})
+	req := signedRequest(t, h, http.MethodPost, "/api/users/me/check-username", "alice@"+h.services.db.GetServerID(), kp.Fingerprint, kp.PrivateKey, url.Values{"username": {"bob"}})
 	rr := postCheckUsernameForRename(t, h, req)
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -259,5 +267,162 @@ func TestCheckUsernameForRename_RequiresAuthentication(t *testing.T) {
 	rr := postCheckUsernameForRename(t, h, req)
 	if rr.Code == http.StatusOK {
 		t.Fatalf("unauthenticated request succeeded: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestSignup_HandlerSignsCanonicalUserID drives Signup through the real
+// HTTP handler (not svc.Signup, which bypasses the payload-signing code
+// entirely) and re-verifies both signed payloads exactly the way the SPA's
+// verifyPublicKey/verifyUser do: rebuild the payload using userID@serverID
+// (the form every wire response now returns it in) and check it against
+// the server signature. Regression test for a bug where the handler signed
+// the bare userID form field instead of the canonical id, so the SPA's
+// post-signup verification always failed with "verification failed".
+func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
+	db := openSignupTestDB(t)
+	dataService := NewDataService(db, "test")
+	if err := dataService.InitServer(context.Background(), false, "https://test.example"); err != nil {
+		t.Fatal(err)
+	}
+	cryptoSvc := crypto.NewService()
+	serverKP, err := cryptoSvc.CreateKeyPair("test", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandlers(
+		&Services{db: dataService, crypto: cryptoSvc, log: NewLoggingService(), md: NewMarkdownService()},
+		AppConfig{ServerName: "test", SignupMode: "open"},
+		make(chan realtime.BroadcastMessage, 1),
+		ServerSigningKey{Fingerprint: serverKP.Fingerprint, Armor: serverKP.PrivateKey},
+	)
+	// GetServerPublicKeyByFingerprint (used to verify the userID reservation
+	// signature) reads from public_keys by id = fingerprint@serverID;
+	// InitServer registers its own generated key there, not this test's
+	// separately-created serverKP, so it needs its own row here. Every
+	// public_keys row needs a server_signature_id (NOT NULL); the content
+	// doesn't matter for this test's purposes, only that the row exists.
+	var serverSigID int64
+	if err := db.QueryRow(
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		serverKP.Fingerprint,
+	).Scan(&serverSigID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO public_keys (id, armor, created_at, server_signature_id) VALUES ($1, $2, now(), $3)`,
+		serverKP.Fingerprint+"@"+dataService.GetServerID(), serverKP.PublicKey, serverSigID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	userID, err := crypto.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	userIDSig, err := h.services.crypto.Sign(userID, h.signingKey.Armor)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	kp, err := h.services.crypto.CreateKeyPair(userID, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubKeyArmorB64 := base64.StdEncoding.EncodeToString([]byte(kp.PublicKey))
+	keySelfSig, err := h.services.crypto.Sign(kp.PublicKey, kp.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	canonicalFingerprint := string(identity.AppendEntity(
+		identity.CanonicalID(h.services.db.GetServerID(), userID), kp.Fingerprint,
+	))
+	identityPayload := identity.BuildUserIdentityPayload("bob", canonicalFingerprint, "")
+	userSigArmor, err := h.services.crypto.Sign(string(identityPayload), kp.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{
+		"username":          {"bob"},
+		"publicKey":         {pubKeyArmorB64},
+		"signature":         {base64.StdEncoding.EncodeToString([]byte(keySelfSig))},
+		"userSignature":     {base64.StdEncoding.EncodeToString([]byte(userSigArmor))},
+		"userID":            {userID},
+		"userIDSignature":   {base64.StdEncoding.EncodeToString([]byte(userIDSig))},
+		"userIDFingerprint": {h.signingKey.Fingerprint},
+	}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/signup", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Syrinx-Device-Id", "550e8400-e29b-41d4-a716-446655440000")
+	h.Signup(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("signup status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var user User
+	if err := json.Unmarshal(rr.Body.Bytes(), &user); err != nil {
+		t.Fatal(err)
+	}
+	wantID := userID + "@" + h.services.db.GetServerID()
+	if user.ID != wantID {
+		t.Fatalf("signup response id = %q, want %q", user.ID, wantID)
+	}
+
+	key, err := h.services.db.GetPublicKey(t.Context(), canonicalFingerprint)
+	if err != nil || key == nil {
+		t.Fatalf("GetPublicKey: key=%v err=%v", key, err)
+	}
+	if key.UserID != wantID {
+		t.Fatalf("key.UserID = %q, want %q", key.UserID, wantID)
+	}
+
+	// Exactly what verifyPublicKey does client-side: rebuild the payload
+	// using the userID this same response returned, then check the server
+	// signature against it.
+	keyServerFingerprint, keyServerID, ok := identity.ParseIdentityID(identity.IdentityID(key.ServerSignature.ID))
+	if !ok {
+		t.Fatalf("malformed key server signature id: %s", key.ServerSignature.ID)
+	}
+	rebuiltKey := identity.BuildPublicKeyPayload(
+		keyServerID,
+		key.UserID,
+		key.ID,
+		keyServerFingerprint,
+		key.Armor,
+		key.ServerSignature.SignedAt,
+	)
+	keySigArmor, err := base64.StdEncoding.DecodeString(key.ServerSignature.Armor)
+	if err != nil {
+		t.Fatalf("decode key server signature armor: %v", err)
+	}
+	if err := h.services.crypto.VerifySignature(string(rebuiltKey), string(keySigArmor), serverKP.PublicKey); err != nil {
+		t.Fatalf("public key server signature does not verify against the response's own userID: %v", err)
+	}
+
+	// Same check for verifyUser's profile payload rebuild.
+	profileServerFingerprint, profileServerID, ok := identity.ParseIdentityID(identity.IdentityID(user.ServerSignature.ID))
+	if !ok {
+		t.Fatalf("malformed profile server signature id: %s", user.ServerSignature.ID)
+	}
+	rebuiltProfile := identity.BuildProfilePayload(
+		user.ID,
+		user.Username,
+		user.UserSignature.ID,
+		profileServerID,
+		profileServerFingerprint,
+		user.UserSignature.Armor,
+		"",
+		user.Role,
+		user.Bio,
+		user.CreatedAt,
+		user.ServerSignature.SignedAt,
+	)
+	profileSigArmor, err := base64.StdEncoding.DecodeString(user.ServerSignature.Armor)
+	if err != nil {
+		t.Fatalf("decode profile server signature armor: %v", err)
+	}
+	if err := h.services.crypto.VerifySignature(string(rebuiltProfile), string(profileSigArmor), serverKP.PublicKey); err != nil {
+		t.Fatalf("profile server signature does not verify against the response's own userID: %v", err)
 	}
 }

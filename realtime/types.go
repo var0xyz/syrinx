@@ -44,15 +44,9 @@ type BroadcastMessage struct {
 	Ripple *RippleWire
 }
 
-// ReedKey identifies a reed-scoped subscription.
-type ReedKey struct {
-	AuthorUserID string
-	ReedID       string
-}
-
-func makeReedKey(authorUserID, reedID string) ReedKey {
-	return ReedKey{AuthorUserID: authorUserID, ReedID: reedID}
-}
+// ReedKey identifies a reed-scoped subscription — the reed's own canonical
+// id, which already self-describes (embeds the author).
+type ReedKey string
 
 // clientSubscriptionFlags tracks protobuf/legacy JSON subscription toggles.
 type clientSubscriptionFlags struct {

@@ -30,7 +30,7 @@ func testDeps(t *testing.T, mode SignupMode, max MaxInvitesPerUser) Deps {
 	db := openTestDB(t)
 	fixed := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 	return Deps{
-		Store:                &Store{DB: db},
+		Store:                &Store{DB: db, ServerID: testServerID},
 		Mode:                 mode,
 		Max:                  max,
 		UserIDKey:            testUserIDKey,
@@ -53,16 +53,28 @@ func testDeps(t *testing.T, mode SignupMode, max MaxInvitesPerUser) Deps {
 		},
 		Countersign: func(payload []byte, ts time.Time) (ServerSignatureWire, error) {
 			return ServerSignatureWire{
-				ServerID:    "test-server",
-				Fingerprint: "server-fp",
-				Armor:       base64.StdEncoding.EncodeToString([]byte("server-sig")),
-				Timestamp:   ts.UTC().Format(time.RFC3339),
+				ID:        "server-fp@test-server",
+				Armor:     base64.StdEncoding.EncodeToString([]byte("server-sig")),
+				Timestamp: ts.UTC().Format(time.RFC3339),
 			}, nil
 		},
 	}
 }
 
-func createBody(t *testing.T, id, tokenHashHex string, createdAt time.Time, grantedRole string) *bytes.Buffer {
+// newTestInviteID mints a canonical invite id (creatorID/uuid) — creatorID
+// must match whichever caller identity the request is sent as.
+func newTestInviteID(t *testing.T, creatorID string) string {
+	t.Helper()
+	rawID, err := NewInviteID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return creatorID + "/" + rawID
+}
+
+// createBody builds a Create request body. id, if empty, is minted fresh
+// via newTestInviteID(t, creatorID).
+func createBody(t *testing.T, creatorID, id, tokenHashHex string, createdAt time.Time, grantedRole string) *bytes.Buffer {
 	t.Helper()
 	var err error
 	if tokenHashHex == "" {
@@ -73,10 +85,7 @@ func createBody(t *testing.T, id, tokenHashHex string, createdAt time.Time, gran
 		tokenHashHex = EncodeHashHex(HashSecret(secret))
 	}
 	if id == "" {
-		id, err = NewInviteID()
-		if err != nil {
-			t.Fatal(err)
-		}
+		id = newTestInviteID(t, creatorID)
 	}
 	b, err := json.Marshal(createRequest{
 		ID:          id,
@@ -84,8 +93,8 @@ func createBody(t *testing.T, id, tokenHashHex string, createdAt time.Time, gran
 		CreatedAt:   createdAt,
 		GrantedRole: grantedRole,
 		UserSignature: UserSignatureWire{
-			Fingerprint: "user-fp",
-			Armor:       base64.StdEncoding.EncodeToString([]byte("user-sig")),
+			ID:    "user-fp@" + testServerID,
+			Armor: base64.StdEncoding.EncodeToString([]byte("user-sig")),
 		},
 	})
 	if err != nil {
@@ -108,8 +117,9 @@ func TestCreate_Open(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
 	seedUser(t, deps.Store.DB, "u1", "alice")
 	fixed := deps.Now()
+	creator := "u1@" + testServerID
 
-	rr := postCreate(deps, "u1", createBody(t, "", "", fixed, ""))
+	rr := postCreate(deps, creator, createBody(t, creator, "", "", fixed, ""))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -117,18 +127,21 @@ func TestCreate_Open(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.ID == "" || body.TokenHash == "" || body.ServerSignature.Armor == "" {
+	if body.ID == "" || body.TokenHash == "" || body.ServerSignature.Armor == "" || body.ServerSignature.ID == "" {
 		t.Fatalf("empty fields: %+v", body)
+	}
+	if body.ServerSignature.ID != "server-fp@test-server" {
+		t.Fatalf("serverSignature.id = %q, want canonical id unsplit", body.ServerSignature.ID)
 	}
 	if len(body.TokenHash) != crypto.HashSize*2 {
 		t.Fatalf("tokenHash len = %d", len(body.TokenHash))
 	}
 
-	rr2 := postCreate(deps, "u1", createBody(t, "", "", fixed, ""))
+	rr2 := postCreate(deps, creator, createBody(t, creator, "", "", fixed, ""))
 	if rr2.Code != http.StatusCreated {
 		t.Fatalf("second create status = %d", rr2.Code)
 	}
-	n, err := deps.Store.CountByCreator(context.Background(), "u1")
+	n, err := deps.Store.CountByCreator(context.Background(), creator)
 	if err != nil || n != 2 {
 		t.Fatalf("count = %d err=%v", n, err)
 	}
@@ -138,20 +151,21 @@ func TestCreate_Quota(t *testing.T) {
 	deps := testDeps(t, ModeInvite, MaxInvitesPerUser(1))
 	seedUser(t, deps.Store.DB, "u1", "alice")
 	fixed := deps.Now()
+	creator := "u1@" + testServerID
 
-	rr := postCreate(deps, "u1", createBody(t, "", "", fixed, ""))
+	rr := postCreate(deps, creator, createBody(t, creator, "", "", fixed, ""))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("first create = %d", rr.Code)
 	}
 
-	rr2 := postCreate(deps, "u1", createBody(t, "", "", fixed, ""))
+	rr2 := postCreate(deps, creator, createBody(t, creator, "", "", fixed, ""))
 	if rr2.Code != http.StatusForbidden {
 		t.Fatalf("quota create = %d want 403", rr2.Code)
 	}
 
 	depsUnlimited := deps
 	depsUnlimited.Max = MaxInvitesUnlimited
-	rr3 := postCreate(depsUnlimited, "u1", createBody(t, "", "", fixed, ""))
+	rr3 := postCreate(depsUnlimited, creator, createBody(t, creator, "", "", fixed, ""))
 	if rr3.Code != http.StatusCreated {
 		t.Fatalf("unlimited create = %d", rr3.Code)
 	}
@@ -161,25 +175,25 @@ func TestCreate_Closed(t *testing.T) {
 	deps := testDeps(t, ModeClosed, MaxInvitesUnlimited)
 	seedUser(t, deps.Store.DB, "u1", "alice")
 	fixed := deps.Now()
+	creator := "u1@" + testServerID
 
-	rr := postCreate(deps, "u1", createBody(t, "", "", fixed, ""))
+	rr := postCreate(deps, creator, createBody(t, creator, "", "", fixed, ""))
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("create closed = %d want 403", rr.Code)
 	}
 
-	id, err := NewInviteID()
-	if err != nil {
-		t.Fatal(err)
-	}
+	id := newTestInviteID(t, creator)
 	secret, err := NewSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := deps.Store.Insert(context.Background(), id, "u1", HashSecret(secret), fixed, roles.RoleUser); err != nil {
+	if err := deps.Store.Insert(context.Background(), id, creator, HashSecret(secret), fixed, roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 	rrStatus := httptest.NewRecorder()
-	deps.Status(rrStatus, withUID(httptest.NewRequest(http.MethodGet, "/api/invites/"+id, nil), "u1"))
+	statusReq := withUID(httptest.NewRequest(http.MethodGet, "/api/invites/"+id, nil), creator)
+	statusReq = mux.SetURLVars(statusReq, map[string]string{"id": id})
+	deps.Status(rrStatus, statusReq)
 	if rrStatus.Code != http.StatusOK {
 		t.Fatalf("status closed = %d", rrStatus.Code)
 	}
@@ -187,7 +201,7 @@ func TestCreate_Closed(t *testing.T) {
 
 func TestCreate_Unauthenticated(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
-	rr := postCreate(deps, "", createBody(t, "", "", deps.Now(), ""))
+	rr := postCreate(deps, "", createBody(t, "nobody@"+testServerID, "", "", deps.Now(), ""))
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d want 401", rr.Code)
 	}
@@ -197,16 +211,14 @@ func TestCreate_DuplicateID(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
 	seedUser(t, deps.Store.DB, "u1", "alice")
 	fixed := deps.Now()
-	id, err := NewInviteID()
-	if err != nil {
-		t.Fatal(err)
-	}
+	creator := "u1@" + testServerID
+	id := newTestInviteID(t, creator)
 
-	rr := postCreate(deps, "u1", createBody(t, id, "", fixed, ""))
+	rr := postCreate(deps, creator, createBody(t, creator, id, "", fixed, ""))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("first = %d", rr.Code)
 	}
-	rr2 := postCreate(deps, "u1", createBody(t, id, "", fixed, ""))
+	rr2 := postCreate(deps, creator, createBody(t, creator, id, "", fixed, ""))
 	if rr2.Code != http.StatusConflict {
 		t.Fatalf("dup = %d want 409 body=%s", rr2.Code, rr2.Body.String())
 	}
@@ -217,23 +229,21 @@ func TestStatus_ClaimedBy(t *testing.T) {
 	seedUser(t, deps.Store.DB, "creator", "alice")
 	seedUser(t, deps.Store.DB, "invitee", "bob")
 	now := deps.Now()
+	creator := "creator@" + testServerID
 
-	id, err := NewInviteID()
-	if err != nil {
-		t.Fatal(err)
-	}
+	id := newTestInviteID(t, creator)
 	secret, err := NewSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := deps.Store.Insert(context.Background(), id, "creator", HashSecret(secret), now, roles.RoleUser); err != nil {
+	if err := deps.Store.Insert(context.Background(), id, creator, HashSecret(secret), now, roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := deps.Store.DB.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok, err := deps.Store.MarkClaimed(context.Background(), tx, "creator", id, "invitee", now.Add(time.Minute))
+	ok, err := deps.Store.MarkClaimed(context.Background(), tx, id, "invitee", now.Add(time.Minute))
 	if err != nil || !ok {
 		tx.Rollback()
 		t.Fatalf("MarkClaimed ok=%v err=%v", ok, err)
@@ -243,7 +253,9 @@ func TestStatus_ClaimedBy(t *testing.T) {
 	}
 
 	rr := httptest.NewRecorder()
-	deps.Status(rr, withUID(httptest.NewRequest(http.MethodGet, "/api/invites/"+id, nil), "creator"))
+	statusReq := withUID(httptest.NewRequest(http.MethodGet, "/api/invites/"+id, nil), creator)
+	statusReq = mux.SetURLVars(statusReq, map[string]string{"id": id})
+	deps.Status(rr, statusReq)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -251,7 +263,7 @@ func TestStatus_ClaimedBy(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Status != "claimed" || body.ClaimedBy == nil || *body.ClaimedBy != "invitee" {
+	if body.Status != "claimed" || body.ClaimedBy == nil || *body.ClaimedBy != "invitee@"+testServerID {
 		t.Fatalf("unexpected status body: %+v", body)
 	}
 }
@@ -260,39 +272,36 @@ func TestRevokeAndCheck(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
 	seedUser(t, deps.Store.DB, "u1", "alice")
 	fixed := deps.Now()
+	creator := "u1@" + testServerID
 
 	secret, err := NewSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
 	hashHex := EncodeHashHex(HashSecret(secret))
-	id, err := NewInviteID()
-	if err != nil {
-		t.Fatal(err)
-	}
+	id := newTestInviteID(t, creator)
 
-	rrCreate := postCreate(deps, "u1", createBody(t, id, hashHex, fixed, ""))
+	rrCreate := postCreate(deps, creator, createBody(t, creator, id, hashHex, fixed, ""))
 	if rrCreate.Code != http.StatusCreated {
 		t.Fatalf("create = %d", rrCreate.Code)
 	}
 
 	rrCheck := httptest.NewRecorder()
-	deps.Check(rrCheck, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid="+id+"&secret="+secret, nil))
+	deps.Check(rrCheck, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
 	if rrCheck.Code != http.StatusOK || !bytes.Contains(rrCheck.Body.Bytes(), []byte(`"valid":true`)) {
 		t.Fatalf("check pending: %d %s", rrCheck.Code, rrCheck.Body.String())
 	}
 
 	rrRevoke := httptest.NewRecorder()
-	deps.RevokeInvite(
-		rrRevoke,
-		withUID(httptest.NewRequest(http.MethodDelete, "/api/invites/"+id, nil), "u1"),
-	)
+	revokeReq := withUID(httptest.NewRequest(http.MethodDelete, "/api/invites/"+id, nil), creator)
+	revokeReq = mux.SetURLVars(revokeReq, map[string]string{"id": id})
+	deps.RevokeInvite(rrRevoke, revokeReq)
 	if rrRevoke.Code != http.StatusNoContent {
 		t.Fatalf("revoke = %d", rrRevoke.Code)
 	}
 
 	rrCheck2 := httptest.NewRecorder()
-	deps.Check(rrCheck2, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid="+id+"&secret="+secret, nil))
+	deps.Check(rrCheck2, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
 	if rrCheck2.Code != http.StatusOK || !bytes.Contains(rrCheck2.Body.Bytes(), []byte(`"valid":false`)) {
 		t.Fatalf("check revoked: %d %s", rrCheck2.Code, rrCheck2.Body.String())
 	}
@@ -302,6 +311,7 @@ func TestCheck_Variants(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
 	seedUser(t, deps.Store.DB, "u1", "alice")
 	fixed := deps.Now()
+	creator := "u1@" + testServerID
 
 	rrMissing := httptest.NewRecorder()
 	deps.Check(rrMissing, httptest.NewRequest(http.MethodGet, "/api/invites/check", nil))
@@ -310,27 +320,27 @@ func TestCheck_Variants(t *testing.T) {
 	}
 
 	rrUnknown := httptest.NewRecorder()
-	deps.Check(rrUnknown, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid=abcdefghijkl&secret=nope", nil))
+	deps.Check(rrUnknown, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+creator+"/abcdefgh&secret=nope", nil))
 	if rrUnknown.Code != http.StatusOK || !bytes.Contains(rrUnknown.Body.Bytes(), []byte(`"valid":false`)) {
 		t.Fatalf("unknown: %s", rrUnknown.Body.String())
 	}
 
 	secret, _ := NewSecret()
-	id, _ := NewInviteID()
+	id := newTestInviteID(t, creator)
 	hashHex := EncodeHashHex(HashSecret(secret))
-	rrCreate := postCreate(deps, "u1", createBody(t, id, hashHex, fixed, ""))
+	rrCreate := postCreate(deps, creator, createBody(t, creator, id, hashHex, fixed, ""))
 	if rrCreate.Code != http.StatusCreated {
 		t.Fatalf("create = %d", rrCreate.Code)
 	}
 	rrOk := httptest.NewRecorder()
-	deps.Check(rrOk, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid="+id+"&secret="+secret, nil))
+	deps.Check(rrOk, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
 	if rrOk.Code != http.StatusOK || !bytes.Contains(rrOk.Body.Bytes(), []byte(`"valid":true`)) {
 		t.Fatalf("pending check: %s", rrOk.Body.String())
 	}
 
 	// Wrong id for valid secret → invalid
 	rrWrongID := httptest.NewRecorder()
-	deps.Check(rrWrongID, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid=zzzzzzzzzzzz&secret="+secret, nil))
+	deps.Check(rrWrongID, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+creator+"/zzzzzzzz&secret="+secret, nil))
 	if !bytes.Contains(rrWrongID.Body.Bytes(), []byte(`"valid":false`)) {
 		t.Fatalf("wrong id: %s", rrWrongID.Body.String())
 	}
@@ -339,8 +349,9 @@ func TestCheck_Variants(t *testing.T) {
 func TestCreate_UserCannotGrantAdmin(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
 	seedUser(t, deps.Store.DB, "u1", "alice")
+	creator := "u1@" + testServerID
 
-	rr := postCreate(deps, "u1", createBody(t, "", "", deps.Now(), roles.RoleAdmin))
+	rr := postCreate(deps, creator, createBody(t, creator, "", "", deps.Now(), roles.RoleAdmin))
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -352,8 +363,9 @@ func TestCreate_UserCannotGrantAdmin(t *testing.T) {
 func TestCreate_AdminCanGrantAdmin(t *testing.T) {
 	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
 	seedUserWithRole(t, deps.Store.DB, "admin1", "admin", roles.RoleAdmin)
+	creator := "admin1@" + testServerID
 
-	rr := postCreate(deps, "admin1", createBody(t, "", "", deps.Now(), roles.RoleAdmin))
+	rr := postCreate(deps, creator, createBody(t, creator, "", "", deps.Now(), roles.RoleAdmin))
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -373,8 +385,42 @@ func TestRegisterRoutes_CheckAllowlistedPath(t *testing.T) {
 	RegisterRoutes(api, deps)
 
 	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/invites/check?uid=u1&iid=x&secret=y", nil))
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/invites/check?id=u1@"+testServerID+"/x&secret=y", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("check route = %d", rr.Code)
+	}
+}
+
+// TestRegisterRoutes_StatusAndRevokeSlashID exercises Status/RevokeInvite
+// through the real router (not deps.Status called directly with manually
+// injected mux vars) — invite ids are "userID@serverID/reedID"-shaped and
+// carry a "/", so a plain {id} route variable never matches them.
+func TestRegisterRoutes_StatusAndRevokeSlashID(t *testing.T) {
+	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
+	seedUser(t, deps.Store.DB, "u1", "alice")
+	creator := "u1@" + testServerID
+	id := newTestInviteID(t, creator)
+	secret, err := NewSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deps.Store.Insert(context.Background(), id, creator, HashSecret(secret), deps.Now(), roles.RoleUser); err != nil {
+		t.Fatal(err)
+	}
+
+	r := mux.NewRouter()
+	api := r.PathPrefix("/api").Subrouter()
+	RegisterRoutes(api, deps)
+
+	rrStatus := httptest.NewRecorder()
+	r.ServeHTTP(rrStatus, withUID(httptest.NewRequest(http.MethodGet, "/api/invites/"+id, nil), creator))
+	if rrStatus.Code != http.StatusOK {
+		t.Fatalf("status via router = %d body=%s", rrStatus.Code, rrStatus.Body.String())
+	}
+
+	rrRevoke := httptest.NewRecorder()
+	r.ServeHTTP(rrRevoke, withUID(httptest.NewRequest(http.MethodDelete, "/api/invites/"+id, nil), creator))
+	if rrRevoke.Code != http.StatusNoContent {
+		t.Fatalf("revoke via router = %d body=%s", rrRevoke.Code, rrRevoke.Body.String())
 	}
 }

@@ -75,7 +75,7 @@ func (d Deps) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := SaveOwnIdentity(r.Context(), d.DB, req.Profile, keys, deviceID)
+	res, err := SaveOwnIdentity(r.Context(), d.DB, d.ServerID, req.Profile, keys, deviceID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
@@ -121,7 +121,7 @@ func (d Deps) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := SavePeerIdentity(r.Context(), d.DB, req.Profile, keys)
+	res, err := SavePeerIdentity(r.Context(), d.DB, d.ServerID, req.Profile, keys)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return

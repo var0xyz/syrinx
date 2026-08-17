@@ -104,13 +104,6 @@
     await refreshFollowCounts();
   }
 
-  const serverName = localStorage.getItem('serverName') || '';
-  $: serverId = user?.serverSignature?.serverID || localStorage.getItem('serverId') || '';
-  $: serverLabel =
-    serverId && serverName
-      ? `${serverName} (${serverId})`
-      : serverId || serverName;
-
   let avatarOpen = false;
 
   function openAvatar() {
@@ -150,7 +143,6 @@
         >
           <Avatar
             userID={user.id}
-            serverID={user.serverSignature?.serverID ?? ''}
             username={user.username}
             size="80px"
           />
@@ -161,14 +153,10 @@
       <h2>
         <Username
           userID={user?.id ?? ''}
-          serverID={user?.serverSignature?.serverID ?? ''}
           username={user?.username ?? ''}
         />
       </h2>
       <div class="user-id-container">
-        {#if serverLabel}
-          <p class="user-info">{serverLabel}</p>
-        {/if}
         <p class="user-info">{user?.id}</p>
       </div>
       <p class="user-info">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
@@ -218,7 +206,6 @@
     <div class="avatar-lightbox">
       <Avatar
         userID={user.id}
-        serverID={user.serverSignature?.serverID ?? ''}
         username={user.username}
         size="100%"
       />

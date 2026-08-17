@@ -5,7 +5,7 @@ import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation
 import { revocationRepository } from '$lib/repositories/revocation';
 
 export type ProfileKeyInfo = {
-  fingerprint: string;
+  keyId: string;
   identity: string;
   armor: string;
   isPendingRevocation: boolean;
@@ -15,14 +15,14 @@ export type ProfileKeyInfo = {
 
 /** Resolve the active key's armor, identity, and revocation state from local stores. */
 export async function loadProfileKeyInfo(): Promise<ProfileKeyInfo> {
-  const fingerprint = authService.getActiveKeyFingerprint();
-  if (!fingerprint) {
-    throw new Error('Active key fingerprint is missing');
+  const keyId = authService.getActiveKeyId();
+  if (!keyId) {
+    throw new Error('Active key id is missing');
   }
 
-  const publicKey = await publicKeyRepository.getPublicKey(fingerprint);
+  const publicKey = await publicKeyRepository.getPublicKey(keyId);
   if (!publicKey) {
-    throw new Error(`Public key not found for fingerprint ${fingerprint}`);
+    throw new Error(`Public key not found for key id ${keyId}`);
   }
 
   const identity = await cryptoService.getKeyIdentity(publicKey.armor);
@@ -30,7 +30,7 @@ export async function loadProfileKeyInfo(): Promise<ProfileKeyInfo> {
   let revokedInfo: ProfileKeyInfo['revokedInfo'] = null;
 
   if (publicKey.revoked) {
-    const revocation = await revocationRepository.get(fingerprint);
+    const revocation = await revocationRepository.get(keyId);
     if (revocation) {
       revokedInfo = {
         reason: revocation.reason,
@@ -40,11 +40,11 @@ export async function loadProfileKeyInfo(): Promise<ProfileKeyInfo> {
     }
   }
 
-  const isPendingRevocation = !!(await pendingRevocationRepository.get(fingerprint));
+  const isPendingRevocation = !!(await pendingRevocationRepository.get(keyId));
   if (isPendingRevocation) isKeyRevoked = true;
 
   return {
-    fingerprint,
+    keyId,
     identity,
     armor: publicKey.armor,
     isPendingRevocation,

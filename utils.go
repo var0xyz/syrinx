@@ -1,7 +1,6 @@
 package main
 
 import (
-	"net/http"
 	"strings"
 	"unicode"
 )
@@ -21,12 +20,4 @@ func trimInvisibleChars(s string) string {
 
 	// Trim spaces again after removing invisible chars
 	return strings.TrimSpace(result.String())
-}
-
-func federationBaseURL(r *http.Request) string {
-	host := r.Host
-	if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); fwd != "" {
-		host = fwd
-	}
-	return strings.TrimRight("https://"+host, "/")
 }
