@@ -41,6 +41,7 @@ func (d Deps) ReportReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err := SaveReed(r.Context(), d.DB,
+		d.ServerID,
 		req.ReedID,
 		req.AuthorID,
 		req.ServerSignature.Fingerprint,
@@ -86,7 +87,7 @@ func (d Deps) ReportFollowing(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := SaveFollowing(r.Context(), d.DB, caller, req.UserIDs); err != nil {
+	if err := SaveFollowing(r.Context(), d.DB, d.ServerID, caller, req.UserIDs); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
@@ -101,7 +102,7 @@ func (d Deps) CompleteImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := DeleteOngoing(r.Context(), d.DB, caller); err != nil {
+	if err := DeleteOngoing(r.Context(), d.DB, d.ServerID, caller); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}

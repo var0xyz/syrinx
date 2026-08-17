@@ -90,7 +90,6 @@
         <div class="reed-header">
           <ReedAuthorHeader
             userID={item.reed.userID}
-            serverID={item.reed.serverSignature?.serverID ?? ''}
             username={item.author.username}
             nameTag="h3"
             subtext={`Liked ${formatRelativeTime(item.record.likedAt)}`}

@@ -59,12 +59,16 @@ func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *crypto.Servic
 		return false, nil
 	}
 
-	root, err := db.GetUserProfile(context.Background(), roles.RootUserID)
+	// GetUserProfile takes userID in "userID@serverID" form; roles.RootUserID
+	// is the bare literal ("1"), composed with this server's own serverID
+	// so it resolves THIS instance's own root, not another server's "1".
+	rootIdentity := identity.LocalID(roles.RootUserID, db.GetServerID())
+	root, err := db.GetUserProfile(context.Background(), rootIdentity.String())
 	if err != nil {
 		return false, err
 	}
 	if root != nil {
-		return false, fmt.Errorf("ROOT_KEY_EXPORT_PASSPHRASE is set but root user %q already exists — remove the env var and restart", roles.RootUserID)
+		return false, fmt.Errorf("ROOT_KEY_EXPORT_PASSPHRASE is set but root user %q already exists — remove the env var and restart", rootIdentity)
 	}
 
 	outPath, err := exportRootIdentity(db, cryptoSvc, signingKey, passphrase, cfg.RootKeyExportPath, cfg.ServerName)
@@ -85,7 +89,9 @@ func requireRootUser(cfg AppConfig, db *DataService) error {
 	if cfg.RecoveryMode {
 		return nil
 	}
-	root, err := db.GetUserProfile(context.Background(), roles.RootUserID)
+	// Same reasoning as maybeExportRootKey above.
+	rootIdentity := identity.LocalID(roles.RootUserID, db.GetServerID())
+	root, err := db.GetUserProfile(context.Background(), rootIdentity.String())
 	if err != nil {
 		return err
 	}
@@ -94,7 +100,7 @@ func requireRootUser(cfg AppConfig, db *DataService) error {
 	}
 	return fmt.Errorf(
 		"no root user (id %q): set ROOT_KEY_EXPORT_PASSPHRASE, start once to mint root and write syrinx-1-….sxi.gpg, import that file via /import, then unset the env var and restart",
-		roles.RootUserID,
+		rootIdentity,
 	)
 }
 
@@ -187,7 +193,8 @@ func exportRootIdentity(
 		return "", fmt.Errorf("persist root identity: %w", err)
 	}
 
-	wireKey, err := db.GetPublicKey(context.Background(), roles.RootUserID, keyMeta.Fingerprint)
+	// GetPublicKey requires userID in "userID@serverID" form too.
+	wireKey, err := db.GetPublicKey(context.Background(), identity.LocalID(roles.RootUserID, serverID).String(), keyMeta.Fingerprint)
 	if err != nil || wireKey == nil {
 		return "", fmt.Errorf("load root public key after signup: %w", err)
 	}

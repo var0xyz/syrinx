@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"syrinx/identity"
+
 	_ "github.com/lib/pq"
 )
 
@@ -25,8 +27,19 @@ func ensureReplyCountSchema(db *sql.DB) error {
 		`DROP TABLE IF EXISTS reed_replies CASCADE`,
 		`DROP TABLE IF EXISTS reeds CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
-		`CREATE TABLE users (
+		`DROP TABLE IF EXISTS identities CASCADE`,
+		// identities is the FK target for "a user" (see db.go).
+		`CREATE TABLE identities (
 			id VARCHAR(255) PRIMARY KEY,
+			remote_user_id VARCHAR(255) NOT NULL,
+			server_id VARCHAR(16),
+			public_key_fingerprint VARCHAR(255),
+			verified BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE (remote_user_id, server_id)
+		)`,
+		`CREATE TABLE users (
+			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			username VARCHAR(255) UNIQUE NOT NULL,
 			user_fingerprint VARCHAR(255),
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
@@ -34,13 +47,15 @@ func ensureReplyCountSchema(db *sql.DB) error {
 		)`,
 		`CREATE TABLE reeds (
 			id VARCHAR(255) NOT NULL,
-			user_id VARCHAR(255) NOT NULL REFERENCES users(id),
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 			private_key_fingerprint VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			PRIMARY KEY (user_id, id)
 		)`,
+		// reed_replies.user_id/parent_user_id have no direct FK, mirroring
+		// db.go (composite-FK'd to reeds(user_id, id) transitively).
 		`CREATE TABLE reed_replies (
 			thread_id VARCHAR(255) NOT NULL,
 			user_id VARCHAR(255) NOT NULL,
@@ -53,12 +68,12 @@ func ensureReplyCountSchema(db *sql.DB) error {
 		`DROP TABLE IF EXISTS reed_removals CASCADE`,
 		`CREATE TABLE reed_removals (
 			reed_id VARCHAR(255) NOT NULL,
-			user_id VARCHAR(255) NOT NULL REFERENCES users(id),
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 			PRIMARY KEY (user_id, reed_id)
 		)`,
 		`DROP TABLE IF EXISTS account_removals CASCADE`,
 		`CREATE TABLE account_removals (
-			user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id)
+			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id)
 		)`,
 	}
 	for _, stmt := range stmts {
@@ -71,6 +86,11 @@ func ensureReplyCountSchema(db *sql.DB) error {
 
 func seedReplyTestUser(t *testing.T, db *sql.DB, userID string) {
 	t.Helper()
+	identityID := string(identity.LocalID(userID, "testserver"))
+	if _, err := db.Exec(`INSERT INTO identities (id, remote_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE) ON CONFLICT DO NOTHING`,
+		identityID, userID, "testserver"); err != nil {
+		t.Fatal(err)
+	}
 	var usID, ssID int
 	if err := db.QueryRow(`INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, 'sig') RETURNING id`, userID+"fp").Scan(&usID); err != nil {
 		t.Fatal(err)
@@ -79,13 +99,16 @@ func seedReplyTestUser(t *testing.T, db *sql.DB, userID string) {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO users (id, username, user_signature_id, server_signature_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-		userID, userID+"name", usID, ssID); err != nil {
+		identityID, userID+"name", usID, ssID); err != nil {
 		t.Fatal(err)
 	}
 }
 
+// seedReplyTestReed writes reeds.user_id using "testserver", matching
+// TestReplyCountsFromGraph's DataService.serverID.
 func seedReplyTestReed(t *testing.T, db *sql.DB, userID, reedID string) {
 	t.Helper()
+	identityID := string(identity.LocalID(userID, "testserver"))
 	var usID, ssID int
 	if err := db.QueryRow(`INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, 'sig') RETURNING id`, reedID+"fp").Scan(&usID); err != nil {
 		t.Fatal(err)
@@ -95,7 +118,7 @@ func seedReplyTestReed(t *testing.T, db *sql.DB, userID, reedID string) {
 	}
 	if _, err := db.Exec(`INSERT INTO reeds (id, user_id, private_key_fingerprint, signed_at, user_signature_id, server_signature_id)
 		VALUES ($1, $2, $3, NOW(), $4, $5)`,
-		reedID, userID, userID+"fp", usID, ssID); err != nil {
+		reedID, identityID, userID+"fp", usID, ssID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -111,14 +134,17 @@ func TestReplyCountsFromGraph(t *testing.T) {
 	seedReplyTestReed(t, db, "alice", "mid")
 	seedReplyTestReed(t, db, "alice", "leaf")
 
+	// root.ServerID must be set to "testserver", or insertReplyTx builds
+	// the malformed "alice@" instead of "alice@testserver".
+	aliceIdentity := identity.LocalID("alice", "testserver")
 	threadID := "alice@testserver/root"
-	root := ReedRef{AuthorID: "alice", ReedID: "root"}
+	root := ReedRef{AuthorID: "alice", ServerID: "testserver", ReedID: "root"}
 
 	tx1, err := db.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ds.insertReplyTx(ctx, tx1, threadID, root, "alice", "mid", ts); err != nil {
+	if err := ds.insertReplyTx(ctx, tx1, threadID, root, aliceIdentity, "mid", ts); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx1.Commit(); err != nil {
@@ -129,7 +155,8 @@ func TestReplyCountsFromGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ds.insertReplyTx(ctx, tx2, threadID, ReedRef{AuthorID: "alice", ReedID: "mid"}, "alice", "leaf", ts.Add(time.Second)); err != nil {
+	mid := ReedRef{AuthorID: "alice", ServerID: "testserver", ReedID: "mid"}
+	if err := ds.insertReplyTx(ctx, tx2, threadID, mid, aliceIdentity, "leaf", ts.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx2.Commit(); err != nil {

@@ -247,7 +247,6 @@
         >
           <ReedAuthorHeader
             userID={row.userID}
-            serverID={row.reed?.serverSignature?.serverID ?? ''}
             username={row.username}
             avatarSize="36px"
             subtext={row.timestamp ? formatRelativeTime(row.timestamp) : 'Waiting for reed...'}
@@ -301,7 +300,6 @@
 
   .reply-row {
     display: flex;
-    flex-direction: column;
     gap: 0.5rem;
     width: 100%;
     text-align: left;
@@ -323,6 +321,7 @@
   }
 
   .reply-body {
+    flex: 1;
     min-width: 0;
   }
 

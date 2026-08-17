@@ -286,9 +286,18 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inviteID := strings.TrimSpace(values.Get("inviteID"))
+	// inviteCreatorID arrives already in "userID@serverID" form.
+	// GetPendingInvite composes identity.LocalID internally and expects
+	// bare, so decode only for that call.
 	inviteCreatorID := strings.TrimSpace(values.Get("inviteCreatorID"))
+	inviteCreatorBare := ""
+	if inviteCreatorID != "" {
+		if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(inviteCreatorID)); ok {
+			inviteCreatorBare = bare
+		}
+	}
 	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
-	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteCreatorID, inviteID, inviteSecret)
+	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteCreatorBare, inviteID, inviteSecret)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to look up invite")
 		internalServerError(w)
@@ -380,10 +389,15 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	if hasInvite {
 		inviteGrantedRole = invite.GrantedRole
 	}
-	signupRole := roles.SignupRole(userID, inviteGrantedRole, hasInvite)
+	signupRole := roles.SignupRole(userID, inviteGrantedRole, hasInvite, h.services.db.GetServerID())
+
+	// GetUserProfile/GetPublicKey return this user in userID@serverID form,
+	// so the signed payloads must sign that same form or client-side
+	// verification will rebuild different bytes than what was signed.
+	selfIdentity := identity.LocalID(userID, h.services.db.GetServerID())
 
 	profilePayload := identity.BuildNewProfilePayload(
-		userID,
+		string(selfIdentity),
 		username,
 		key.Fingerprint,
 		h.services.db.GetServerID(),
@@ -404,7 +418,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	// Server signature over the user's public key
 	keyPayload := identity.BuildPublicKeyPayload(
 		h.services.db.GetServerID(),
-		userID,
+		string(selfIdentity),
 		key.Fingerprint,
 		h.signingKey.Fingerprint,
 		publicKey,
@@ -507,9 +521,17 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inviteID := strings.TrimSpace(values.Get("inviteID"))
+	// Same inviteCreatorID handling as CreateAccount's identical block
+	// above — see that call site's comment.
 	inviteCreatorID := strings.TrimSpace(values.Get("inviteCreatorID"))
+	inviteCreatorBare := ""
+	if inviteCreatorID != "" {
+		if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(inviteCreatorID)); ok {
+			inviteCreatorBare = bare
+		}
+	}
 	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
-	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteCreatorID, inviteID, inviteSecret)
+	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteCreatorBare, inviteID, inviteSecret)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to look up invite")
 		internalServerError(w)

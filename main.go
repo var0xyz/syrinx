@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"syrinx/crypto"
+	"syrinx/identity"
 	"syrinx/invites"
 	"syrinx/observability"
 	"syrinx/realtime"
@@ -195,7 +196,7 @@ func main() {
 	log.Info().Msg("[OK] Server identity initialized successfully")
 
 	log.Debug().Msg("Initializing realtime service...")
-	realtimeService := realtime.NewService(db, cryptoService, cfg.AllowedOrigin)
+	realtimeService := realtime.NewService(db, cryptoService, cfg.AllowedOrigin, dataService.GetServerID())
 	realtimeService.SetMetrics(obs.Metrics())
 
 	// Create broadcast channel
@@ -210,7 +211,9 @@ func main() {
 	h.SetPipeTagFilter(realtimeService.FilterSubscribedPipeTags)
 	h.SetKickUserWS(realtimeService.DisconnectUser)
 	realtimeService.SetDeviceCheck(func(userID, deviceID string) error {
-		return dataService.CheckActiveDevice(context.Background(), userID, deviceID)
+		// userID arrives already in "userID@serverID" form (see
+		// realtime/auth.go); CheckActiveDevice is bare-in, so decode here.
+		return dataService.CheckActiveDevice(context.Background(), identity.IdentityID(userID).UserID(), deviceID)
 	})
 	log.Info().Msg("[OK] Handlers initialized successfully")
 
@@ -226,7 +229,10 @@ func main() {
 	api.Use(h.CORSMiddleware(cfg.AllowedOrigin))
 	api.Use(h.signatureAuthMiddleware("/api"))
 	if cfg.RecoveryMode {
-		realtimeService.SetOngoingCheck(func(userID string) (bool, error) { return dataService.IsOngoing(context.Background(), userID) })
+		realtimeService.SetOngoingCheck(func(userID string) (bool, error) {
+			// Same boundary decode as SetDeviceCheck above.
+			return dataService.IsOngoing(context.Background(), identity.IdentityID(userID).UserID())
+		})
 		api.Use(recovery.Middleware(userIDKey, func(ctx context.Context, userID string) (bool, error) { return dataService.IsOngoing(ctx, userID) }))
 	}
 	api.Use(h.deviceMiddleware())
@@ -329,7 +335,7 @@ func main() {
 	}).Methods("GET")
 
 	invites.RegisterRoutes(api, invites.Deps{
-		Store:                &invites.Store{DB: db},
+		Store:                &invites.Store{DB: db, ServerID: dataService.GetServerID()},
 		Mode:                 invites.SignupMode(cfg.SignupMode),
 		Max:                  invites.MaxInvitesPerUser(cfg.MaxInvitesPerUser),
 		UserIDKey:            userIDKey,

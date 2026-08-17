@@ -167,10 +167,11 @@
         throw new Error('Passphrase not found');
       }
 
-      const serverId = localStorage.getItem('serverId') || '';
       const serverName = localStorage.getItem('serverName') || '';
+      // user.id is already the "userID@serverID" form — use it verbatim as
+      // the OpenPGP identity name. Do NOT append the server id again here.
       const newKeyPair = await cryptoService.generateKeyPair({
-        name: `${user.id}@${serverId}`,
+        name: user.id,
         email: revokeEmail.trim() || undefined,
         comment: serverName || undefined,
         password: passphrase

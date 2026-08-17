@@ -320,6 +320,10 @@ type checkResponse struct {
 
 // Check handles GET /api/invites/check?uid=&iid=&secret=.
 // Client sends the fragment secret; server looks up by composite PK + hash.
+//
+// uid arrives already in "userID@serverID" form — Store.GetPendingInvite
+// composes identity.LocalID internally, so uid is decoded to bare right at
+// this boundary to avoid double-appending serverID.
 func (d Deps) Check(w http.ResponseWriter, r *http.Request) {
 	creatorID := strings.TrimSpace(r.URL.Query().Get("uid"))
 	id := strings.TrimSpace(r.URL.Query().Get("iid"))
@@ -328,7 +332,14 @@ func (d Deps) Check(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Arguments `uid`, `iid`, and `secret` are required")
 		return
 	}
-	inv, err := d.Store.GetPendingInvite(r.Context(), creatorID, id, HashSecret(secret))
+	bareCreatorID, _, ok := identity.ParseIdentityID(identity.IdentityID(creatorID))
+	if !ok {
+		// Public, unauthenticated endpoint — use ParseIdentityID's safe
+		// ok-check rather than .UserID(), which panics on malformed input.
+		writeJSON(w, http.StatusBadRequest, "Invalid `uid`")
+		return
+	}
+	inv, err := d.Store.GetPendingInvite(r.Context(), bareCreatorID, id, HashSecret(secret))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return

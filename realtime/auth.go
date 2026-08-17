@@ -8,28 +8,37 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/encoding"
+	"syrinx/identity"
 
 	"github.com/rs/zerolog/log"
 )
 
 // AuthService handles WebSocket authentication
 type AuthService struct {
-	db     *sql.DB
-	crypto *crypto.Service
+	db       *sql.DB
+	crypto   *crypto.Service
+	serverID string
 }
 
-// NewAuthService creates a new auth service
-func NewAuthService(db *sql.DB, crypto *crypto.Service) *AuthService {
+// NewAuthService creates a new auth service. serverID is this server's own
+// id, needed to build the identities.id form ("userID@serverID") for every
+// FK'd query below.
+func NewAuthService(db *sql.DB, crypto *crypto.Service, serverID string) *AuthService {
 	return &AuthService{
-		db:     db,
-		crypto: crypto,
+		db:       db,
+		crypto:   crypto,
+		serverID: serverID,
 	}
 }
 
-// AuthenticateWebSocket authenticates a WebSocket connection using PGP signature
+// AuthenticateWebSocket authenticates a WebSocket connection using PGP
+// signature. Parallel implementation of the HTTP path's
+// signatureAuthMiddleware; the userID query param already arrives in
+// "userID@serverID" form — do not re-compose it via identity.LocalID.
 func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	// Extract required authentication parameters from query string
-	// (WebSocket doesn't support custom headers in all browsers)
+	// (WebSocket doesn't support custom headers in all browsers). userID is
+	// already in "userID@serverID" form — see doc comment above.
 	userID := r.URL.Query().Get("userID")
 	fingerprint := r.URL.Query().Get("fingerprint")
 	signature := r.URL.Query().Get("signature")
@@ -89,10 +98,13 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 		return "", fmt.Errorf("key is revoked")
 	}
 
+	// userID is already in identities.id form (see doc comment above) —
+	// used directly, not composed via identity.LocalID.
+	selfIdentity := identity.IdentityID(userID)
 	var removed bool
 	if err := as.db.QueryRowContext(r.Context(), `
 		SELECT EXISTS(SELECT 1 FROM account_removals WHERE user_id = $1)
-	`, userID).Scan(&removed); err != nil {
+	`, selfIdentity).Scan(&removed); err != nil {
 		return "", fmt.Errorf("error checking account removal: %w", err)
 	}
 	if removed {
@@ -132,8 +144,12 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 
 // getPublicKey retrieves a public key from the database along with its
 // revocation state. A key is revoked iff a matching row exists in
-// user_key_revocations.
+// user_key_revocations. userID is already in userID@serverID form (see
+// AuthenticateWebSocket's doc comment), used directly against the FK'd
+// user_keys.owner/user_key_revocations.owner columns.
 func (as *AuthService) getPublicKey(ctx context.Context, userID, fingerprint string) (string, bool, error) {
+	selfIdentity := identity.IdentityID(userID)
+
 	var armor string
 	var revoked bool
 	err := as.db.QueryRowContext(ctx, `
@@ -144,7 +160,7 @@ func (as *AuthService) getPublicKey(ctx context.Context, userID, fingerprint str
 		)
 		FROM user_keys uk
 		WHERE uk.owner = $1 AND uk.fingerprint = $2
-	`, userID, fingerprint).Scan(&armor, &revoked)
+	`, selfIdentity, fingerprint).Scan(&armor, &revoked)
 
 	if err != nil {
 		if err == sql.ErrNoRows {

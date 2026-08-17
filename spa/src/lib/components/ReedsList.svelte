@@ -366,7 +366,6 @@
         <div class="reed-header">
           <ReedAuthorHeader
             userID={displayReed.userID}
-            serverID={displayReed.serverSignature?.serverID ?? ''}
             username={displayUser.username}
             nameTag="h3"
             subtext="Pending…"
@@ -421,7 +420,6 @@
         <div class="reed-header">
           <ReedAuthorHeader
             userID={displayReed.userID}
-            serverID={displayReed.serverSignature?.serverID ?? ''}
             username={displayUser.username}
             nameTag="h3"
             subtext={formatRelativeTime((awaitingOriginal ? reed : displayReed).serverSignature?.timestamp ?? reed.serverSignature?.timestamp)}
@@ -563,7 +561,19 @@
     align-items: center;
     padding: 1rem;
     border-bottom: 1px solid var(--border);
-    min-width: 0;
+  }
+
+  .reed-menu {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+  }
+
+  .reed-menu:hover {
+    background: var(--border);
   }
 
   .error-state {

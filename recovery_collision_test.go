@@ -21,13 +21,13 @@ func ensureRecoveryCollisionSchema(db *sql.DB) error {
 		`DROP TABLE IF EXISTS ongoing_recoveries CASCADE`,
 		`DROP TABLE IF EXISTS unclaimed_accounts CASCADE`,
 		`DROP TABLE IF EXISTS network_stats CASCADE`,
-		// Recreate user_keys with the columns and cascade behavior
-		// insertKeys/claimUsername rely on — the base signup schema's
-		// version predates predecessor tracking and ON DELETE CASCADE.
+		// Recreate user_keys with the columns/cascade behavior
+		// insertKeys/claimUsername rely on. owner FKs identities(id),
+		// the target insertUser/upsertIdentity write/lock against.
 		`DROP TABLE IF EXISTS user_keys CASCADE`,
 		`CREATE TABLE user_keys (
 			fingerprint VARCHAR(255) UNIQUE NOT NULL,
-			owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			owner VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 			armor TEXT NOT NULL,
 			created_at TIMESTAMP NOT NULL,
 			expires_at TIMESTAMP,
@@ -42,21 +42,21 @@ func ensureRecoveryCollisionSchema(db *sql.DB) error {
 		)`,
 		`INSERT INTO network_stats (id, active_users) VALUES (TRUE, 0)`,
 		`CREATE TABLE unclaimed_accounts (
-			user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE ongoing_recoveries (
-			user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE pending_follows (
-			follower_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			follower_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 			following_user_id VARCHAR(255) NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (follower_user_id, following_user_id)
 		)`,
 		`CREATE TABLE user_devices (
-			user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 			device_id TEXT NOT NULL,
 			linked_at TIMESTAMPTZ NOT NULL,
 			revoked_at TIMESTAMPTZ NULL,
@@ -128,13 +128,13 @@ func TestSaveOwnIdentity_UsernameCollision_IncomingLoses(t *testing.T) {
 
 	holderSignedAt := time.Now().UTC().Truncate(time.Second)
 	holder := recoveryProfile("holder1", "bob", holderSignedAt)
-	if _, err := recovery.SavePeerIdentity(ctx, db, holder, recoveryFlatKey("holder1", holderSignedAt)); err != nil {
+	if _, err := recovery.SavePeerIdentity(ctx, db, "test", holder, recoveryFlatKey("holder1", holderSignedAt)); err != nil {
 		t.Fatalf("seed holder: %v", err)
 	}
 
 	olderSignedAt := holderSignedAt.Add(-time.Hour)
 	claimant := recoveryProfile("claimant1", "bob", olderSignedAt)
-	res, err := recovery.SaveOwnIdentity(ctx, db, claimant, recoveryFlatKey("claimant1", olderSignedAt), "")
+	res, err := recovery.SaveOwnIdentity(ctx, db, "test", claimant, recoveryFlatKey("claimant1", olderSignedAt), "")
 	if err != nil {
 		t.Fatalf("SaveOwnIdentity: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestSaveOwnIdentity_UsernameCollision_IncomingLoses(t *testing.T) {
 	}
 
 	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = $1`, "claimant1").Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = $1`, "claimant1@test").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
@@ -151,7 +151,7 @@ func TestSaveOwnIdentity_UsernameCollision_IncomingLoses(t *testing.T) {
 	}
 
 	var holderUsername string
-	if err := db.QueryRow(`SELECT username FROM users WHERE id = $1`, "holder1").Scan(&holderUsername); err != nil {
+	if err := db.QueryRow(`SELECT username FROM users WHERE id = $1`, "holder1@test").Scan(&holderUsername); err != nil {
 		t.Fatal(err)
 	}
 	if holderUsername != "bob" {
@@ -169,13 +169,13 @@ func TestSavePeerIdentity_UsernameCollision_IncomingWins(t *testing.T) {
 
 	holderSignedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	holder := recoveryProfile("holder2", "carol", holderSignedAt)
-	if _, err := recovery.SavePeerIdentity(ctx, db, holder, recoveryFlatKey("holder2", holderSignedAt)); err != nil {
+	if _, err := recovery.SavePeerIdentity(ctx, db, "test", holder, recoveryFlatKey("holder2", holderSignedAt)); err != nil {
 		t.Fatalf("seed holder: %v", err)
 	}
 
 	newerSignedAt := time.Now().UTC().Truncate(time.Second)
 	winner := recoveryProfile("winner2", "carol", newerSignedAt)
-	res, err := recovery.SavePeerIdentity(ctx, db, winner, recoveryFlatKey("winner2", newerSignedAt))
+	res, err := recovery.SavePeerIdentity(ctx, db, "test", winner, recoveryFlatKey("winner2", newerSignedAt))
 	if err != nil {
 		t.Fatalf("SavePeerIdentity: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestSavePeerIdentity_UsernameCollision_IncomingWins(t *testing.T) {
 	}
 
 	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = $1`, "holder2").Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = $1`, "holder2@test").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
@@ -192,7 +192,7 @@ func TestSavePeerIdentity_UsernameCollision_IncomingWins(t *testing.T) {
 	}
 
 	var keyCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE owner = $1`, "holder2").Scan(&keyCount); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE owner = $1`, "holder2@test").Scan(&keyCount); err != nil {
 		t.Fatal(err)
 	}
 	if keyCount != 0 {
@@ -200,7 +200,7 @@ func TestSavePeerIdentity_UsernameCollision_IncomingWins(t *testing.T) {
 	}
 
 	var winnerUsername string
-	if err := db.QueryRow(`SELECT username FROM users WHERE id = $1`, "winner2").Scan(&winnerUsername); err != nil {
+	if err := db.QueryRow(`SELECT username FROM users WHERE id = $1`, "winner2@test").Scan(&winnerUsername); err != nil {
 		t.Fatal(err)
 	}
 	if winnerUsername != "carol" {
@@ -217,12 +217,12 @@ func TestSaveOwnIdentity_UsernameCollision_TieGoesToHolder(t *testing.T) {
 
 	tie := time.Now().UTC().Truncate(time.Second)
 	holder := recoveryProfile("holder3", "dave", tie)
-	if _, err := recovery.SavePeerIdentity(ctx, db, holder, recoveryFlatKey("holder3", tie)); err != nil {
+	if _, err := recovery.SavePeerIdentity(ctx, db, "test", holder, recoveryFlatKey("holder3", tie)); err != nil {
 		t.Fatalf("seed holder: %v", err)
 	}
 
 	claimant := recoveryProfile("claimant3", "dave", tie)
-	res, err := recovery.SaveOwnIdentity(ctx, db, claimant, recoveryFlatKey("claimant3", tie), "")
+	res, err := recovery.SaveOwnIdentity(ctx, db, "test", claimant, recoveryFlatKey("claimant3", tie), "")
 	if err != nil {
 		t.Fatalf("SaveOwnIdentity: %v", err)
 	}
