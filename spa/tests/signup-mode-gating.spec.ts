@@ -77,7 +77,7 @@ test.describe('Signup mode gating', () => {
         body: JSON.stringify({ valid: true }),
       });
     });
-    await page.goto('/signup?iid=abcdefghijkl&uid=inviter1#test-secret-abc');
+    await page.goto('/signup?id=inviter1%2Fabcdefghijkl#test-secret-abc');
     await expect(page.locator('text=This server is rebuilding')).toBeVisible();
     await expect(page.locator('form')).toHaveCount(0);
   });
@@ -91,7 +91,7 @@ test.describe('Signup mode gating', () => {
         body: JSON.stringify({ valid: true }),
       });
     });
-    await page.goto('/signup?iid=abcdefghijkl&uid=inviter1#test-secret-abc');
+    await page.goto('/signup?id=inviter1%2Fabcdefghijkl#test-secret-abc');
     await expect(page.locator('text=Signing up with an invite link.')).toBeVisible();
     await expect(page.locator('#username')).toBeVisible();
   });

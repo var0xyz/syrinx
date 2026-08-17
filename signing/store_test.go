@@ -50,12 +50,12 @@ func ensureSignatureTables(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS user_signatures (
 			id             SERIAL PRIMARY KEY,
-			fingerprint    VARCHAR(255) NOT NULL,
+			public_key_id  VARCHAR(255) NOT NULL,
 			signature      TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (
 			id             SERIAL PRIMARY KEY,
-			fingerprint    VARCHAR(255) NOT NULL,
+			private_key_id VARCHAR(255) NOT NULL,
 			signature      TEXT NOT NULL,
 			signed_at      TIMESTAMP NOT NULL
 		)`,
@@ -85,7 +85,7 @@ func TestUserSignatureInsertGetWire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if row.Fingerprint != fp || row.Signature != "user-sig-b64" {
+	if row.PublicKeyID != fp || row.Signature != "user-sig-b64" {
 		t.Fatalf("row: %+v", row)
 	}
 

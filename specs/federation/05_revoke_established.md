@@ -2,7 +2,25 @@
 
 ## Status
 
-Proposed.
+**Implemented, with two deviations from this doc's original design.**
+`servers.revoked` (no separate `federation_established` table — see
+[03](03_approval_established.md)'s status note) is read everywhere this
+doc calls for: `VerifyFederationPeer` rejects incoming peer-authenticated
+calls from a revoked peer, and `GetServerByID`/`ListConnectedPeers`
+exclude revoked peers from outbound calls and the search-fanout target
+list. `POST /api/federation/servers/{id}/revoke` (admin, reason
+required) sets it.
+
+Deviations: (1) revocation is **not** purely local/asymmetric as
+originally scoped — the disconnecting server sends a best-effort signed
+notify to the peer, which auto-revokes the caller back on receipt
+(`revoked_by = NULL`, reason records it was peer-initiated); (2) a
+root-only `POST /api/federation/servers/{id}/purge` was added beyond
+this doc's non-goals — once a peer is revoked, root can permanently
+delete the `servers` row and every local reed/identity it owns (schema
+now cascades fully from `servers` down through `reed_identities`/
+`identities`). No signal is sent to any client to delete anything
+locally; the purge is a local DB cleanup only.
 
 ## Depends on
 

@@ -23,12 +23,12 @@ func TestReedCountersignRoundtrip(t *testing.T) {
 
 	ts := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	serverID := "TestServer01"
-	reedID := "0k2n1p0000000000000ReedA"
 	authorID := "AuthorAlice0"
+	reedID := authorID + "@" + serverID + "/0k2n1p0000000000000ReedA"
 	content := "dXNlci1zaWctYnl0ZXM="
 
 	payload := identity.BuildReedPayload(
-		serverID, authorID, reedID, kp.Fingerprint, content, ts,
+		serverID, reedID, kp.Fingerprint, content, ts,
 	)
 
 	sig, err := svc.Sign(string(payload), kp.PrivateKey)
@@ -47,28 +47,28 @@ func TestReedCountersignRoundtrip(t *testing.T) {
 	}
 
 	altServer := identity.BuildReedPayload(
-		"TestServer02", authorID, reedID, kp.Fingerprint, content, ts,
+		"TestServer02", reedID, kp.Fingerprint, content, ts,
 	)
 	if err := svc.VerifySignature(string(altServer), sig, kp.PublicKey); err == nil {
 		t.Fatal("VerifySignature accepted a payload with a swapped serverID")
 	}
 
 	altReed := identity.BuildReedPayload(
-		serverID, authorID, "0k2n1p0000000000000ReedB", kp.Fingerprint, content, ts,
+		serverID, authorID+"@"+serverID+"/0k2n1p0000000000000ReedB", kp.Fingerprint, content, ts,
 	)
 	if err := svc.VerifySignature(string(altReed), sig, kp.PublicKey); err == nil {
 		t.Fatal("VerifySignature accepted a cross-reed replay (reedID swap)")
 	}
 
 	altAuthor := identity.BuildReedPayload(
-		serverID, "AuthorMallory", reedID, kp.Fingerprint, content, ts,
+		serverID, "AuthorMallory@"+serverID+"/0k2n1p0000000000000ReedA", kp.Fingerprint, content, ts,
 	)
 	if err := svc.VerifySignature(string(altAuthor), sig, kp.PublicKey); err == nil {
 		t.Fatal("VerifySignature accepted a cross-author replay (authorID swap)")
 	}
 
 	altFP := identity.BuildReedPayload(
-		serverID, authorID, reedID, "0000000000000000000000000000000000000000", content, ts,
+		serverID, reedID, "0000000000000000000000000000000000000000", content, ts,
 	)
 	if err := svc.VerifySignature(string(altFP), sig, kp.PublicKey); err == nil {
 		t.Fatal("VerifySignature accepted a payload with a swapped fingerprint")

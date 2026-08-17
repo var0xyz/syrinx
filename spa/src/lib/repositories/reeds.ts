@@ -3,7 +3,7 @@
  * Handles reed creation, storage, and retrieval
  */
 
-import { apiService as api } from '../services/api';
+import { apiService as api, canonicalKeyId } from '../services/api';
 import { dbService } from '../services/db';
 import { publicKeyRepository } from './publicKey';
 import { userRepository } from './user';
@@ -31,8 +31,6 @@ export type QueuedReed = {
   username?: string;
 };
 
-/** A reed ID is only unique per author — tag index entries must carry both. */
-type TagReedRef = { userID: string; id: string };
 
 // Receives profile_subscription and request_reed deliveries (explicitly requested content)
 export const profileReedQueue = writable<QueuedReed | null>(null);
@@ -141,8 +139,7 @@ class ReedsService {
         published = {
           ...reed,
           serverSignature: {
-            serverID: response.serverID,
-            fingerprint: response.fingerprint,
+            id: response.id,
             armor: response.armor,
             timestamp: response.timestamp,
           },
@@ -154,7 +151,7 @@ class ReedsService {
       await serverConnection.connect();
       const broadcast = !isBlankEcho(published);
       await serverConnection.publishReady(published.id, { broadcast });
-      await dbService.delete('unsignedReeds', reed.id);
+      await dbService.delete('unsignedReeds', published.id);
       unsignedReedsProcessed.update((n) => n + 1);
       return true;
     } catch (error: any) {
@@ -192,11 +189,11 @@ class ReedsService {
   }
 
   /**
-   * Get a specific reed by ID (published / countersigned only).
+   * Get a specific reed by its canonical id (published / countersigned only).
    */
-  async getReed(userId: string, reedId: string): Promise<ReedType | null> {
+  async getReed(reedId: string): Promise<ReedType | null> {
     try {
-      return await dbService.get<ReedType>('reeds', [userId, reedId]);
+      return await dbService.get<ReedType>('reeds', reedId);
     } catch (error) {
       console.error('Failed to get reed:', error);
       throw error;
@@ -230,11 +227,11 @@ class ReedsService {
    */
   async storeReed(reed: ReedType): Promise<void> {
     // Ensure author key is cached (verifyReed needs armor; put attests).
-    if (reed.userSignature?.fingerprint && reed.userID) {
-      const fp = reed.userSignature.fingerprint;
+    if (reed.userSignature?.id && reed.userID) {
+      const fp = reed.userSignature.id;
       if (!(await publicKeyRepository.hasPublicKey(fp))) {
         try {
-          const key = await api.getPublicKey(reed.userID, fp);
+          const key = await api.getPublicKey(canonicalKeyId(reed.userID, fp));
           await publicKeyRepository.put(key);
         } catch (error) {
           console.error('Failed to cache author public key before reed store:', error);
@@ -259,11 +256,11 @@ class ReedsService {
 
     if (reed.tags?.length > 0) {
       for (const tag of reed.tags) {
-        const existing = await dbService.get<{ tagName: string; reeds: TagReedRef[] }>('tags', tag);
-        const already = existing?.reeds?.some((r) => r.userID === reed.userID && r.id === reed.id);
+        const existing = await dbService.get<{ tagName: string; reeds: string[] }>('tags', tag);
+        const already = existing?.reeds?.includes(reed.id);
         const reeds = already
           ? existing!.reeds
-          : [...(existing?.reeds ?? []), { userID: reed.userID, id: reed.id }];
+          : [...(existing?.reeds ?? []), reed.id];
         await dbService.put('tags', { tagName: tag, reeds }, allowUnsigned);
       }
     }
@@ -271,7 +268,7 @@ class ReedsService {
 
   async deleteReedsByAuthor(authorId: string): Promise<void> {
     const reeds = await dbService.getAllByIndex<ReedType>('reeds', 'userID', authorId);
-    await Promise.all(reeds.map(r => dbService.delete('reeds', [r.userID, r.id])));
+    await Promise.all(reeds.map(r => dbService.delete('reeds', r.id)));
   }
 
   /**
@@ -308,11 +305,11 @@ class ReedsService {
       return { reeds: [], authors: {} };
     }
     try {
-      const entry = await dbService.get<{ tagName: string; reeds: TagReedRef[] }>('tags', normalized);
+      const entry = await dbService.get<{ tagName: string; reeds: string[] }>('tags', normalized);
       const refs = entry?.reeds ?? [];
       const reeds: ReedType[] = [];
       for (const ref of refs) {
-        const reed = await dbService.get<ReedType>('reeds', [ref.userID, ref.id]);
+        const reed = await dbService.get<ReedType>('reeds', ref);
         if (reed?.tags?.includes(normalized)) {
           reeds.push(reed);
         }
@@ -343,14 +340,9 @@ class ReedsService {
     const pending = await pendingPublicationRepository.getAll();
     if (pending.length === 0) return;
 
-    // pendingPublication only ever tracks the current device's own user —
-    // publishing always goes through countersignReed() for a locally-signed
-    // reed, never another author's.
-    const ownUserId = localStorage.getItem('userId') ?? '';
-
     await serverConnection.connect();
     for (const { reedID } of pending) {
-      const reed = ownUserId ? await dbService.get<ReedType>('reeds', [ownUserId, reedID]) : null;
+      const reed = await dbService.get<ReedType>('reeds', reedID);
       const broadcast = reed ? !isBlankEcho(reed) : true;
       await serverConnection.publishReady(reedID, { broadcast });
     }
@@ -403,25 +395,25 @@ export async function initFollowIds(): Promise<void> {
     'reeds', 'serverSignature.timestamp', FOLLOW_FEED_LIMIT,
     reed => followedSet.has(reed.userID)
   );
-  const refs: TagReedRef[] = reeds.map(r => ({ userID: r.userID, id: r.id }));
+  const refs: string[] = reeds.map(r => r.id);
   sessionStorage.setItem(FOLLOW_FEED_KEY, JSON.stringify(refs));
 }
 
-export function prependFollowId(reedUserID: string, reedId: string): void {
-  let refs: TagReedRef[] = [];
+export function prependFollowId(reedId: string): void {
+  let refs: string[] = [];
   try {
     refs = JSON.parse(sessionStorage.getItem(FOLLOW_FEED_KEY) ?? '[]');
   } catch {
     // ignore
   }
-  if (!refs.some((r) => r.userID === reedUserID && r.id === reedId)) {
-    refs = [{ userID: reedUserID, id: reedId }, ...refs].slice(0, FOLLOW_FEED_LIMIT);
+  if (!refs.includes(reedId)) {
+    refs = [reedId, ...refs].slice(0, FOLLOW_FEED_LIMIT);
     sessionStorage.setItem(FOLLOW_FEED_KEY, JSON.stringify(refs));
   }
 }
 
 export async function getFollowReeds(): Promise<{ reeds: ReedType[]; authors: Record<string, User> }> {
-  let refs: TagReedRef[] = [];
+  let refs: string[] = [];
   try {
     refs = JSON.parse(sessionStorage.getItem(FOLLOW_FEED_KEY) ?? '[]');
   } catch {
@@ -430,7 +422,7 @@ export async function getFollowReeds(): Promise<{ reeds: ReedType[]; authors: Re
   const reeds: ReedType[] = [];
   for (const ref of refs) {
     try {
-      const reed = await dbService.get<ReedType>('reeds', [ref.userID, ref.id]);
+      const reed = await dbService.get<ReedType>('reeds', ref);
       if (reed) reeds.push(reed);
     } catch (error) {
       console.warn('getFollowReeds: skipping unreadable ref', ref, error);

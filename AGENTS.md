@@ -118,7 +118,16 @@ DDL, routes, and middleware.
   and in `specs/README.md` → "Why nothing is escaped".)
 - `identity/` — shared canonical identity/profile/reed payload builders used by
   both live traffic and recovery. Shared builders belong here, not in feature
-  packages.
+  packages. **Canonical ID** = `identity.CanonicalID(serverID, userID, ...reedID)`
+  → `IdentityID("{userID}@{serverID}[/{reedID}]")` (`identity_id.go`), parsed
+  back by splitting on the *last* `@`. "Canonical" means **everywhere**, not
+  just the DB FK: `users.id`/`identities.id`, wire/JSON fields, URL path params
+  (`@` unencoded), and every signed payload (`Build*Payload` in
+  `identity/identity.go`, mirrored in SPA `signing.ts`) all carry the full
+  `userID@serverID` form — see `specs/federation/SCOPE_canonical_id_everywhere.md`.
+  Exception: `roles.RootUserID = "1"` stays a bare literal; reconstruct the full
+  canonical form to compare it, never bare-string-match (prevents a remote user
+  with local id "1" from being treated as root).
 - `ids/` — random, server-scoped user/reed ID generation.
 - `secret/` — server-key passphrase resolver (env → keychain → prompt → auto-gen).
 - `recovery/` — **all** server-side DB-reconstruction (`RECOVERY_MODE`) logic:
@@ -257,6 +266,44 @@ SPA `test:signing` / `test:verify-binary`).
 - "Realtime/WebSocket behavior" → `realtime/` (+ its `README.md`) and
   `proto/websocket.proto`.
 - "How does response signing work?" → `RESPONSE_SIGNER.md` + `middlewares.go`.
+
+## Debugging
+
+**Two-instance federation dev setup.** `scripts/federation-dev-up.sh` (see also
+`federation-dev-down.sh`) spins up two independent Syrinx instances (A on
+`:8081`/SPA `:5174`, B on `:8082`/SPA `:5175`) in a `tmux` session
+(`syrinx-federation`), sharing one `syrinx_db` postgres container but each with
+its own database (`syrinx_a`, `syrinx_b`). Use this — not two ad hoc manually
+launched processes — to reproduce or fix any federation bug; it builds
+`bin/syrinx` once and launches both instances from it with the right env
+already exported in each pane. To pick a debug build back up after editing
+Go source, restart the instances *from their own tmux panes* (`tmux attach -t
+syrinx-federation`, Ctrl-C + re-run `./bin/syrinx` in each `instance-a`/
+`instance-b` API pane) — don't launch replacement processes elsewhere
+(background `nohup`, a different terminal); the env each pane already has
+(`DB_NAME`, `PORT`, `SERVER_NAME`, `SERVER_KEY_PASSPHRASE`, ...) needs to match
+exactly, and relaunching outside the user's own terminal/tmux session is not
+yours to do without asking.
+
+**A `writeResponse(w, http.StatusBadRequest, ...)` branch does not always have
+a matching `log.Error()` call next to it** — several exist bare in
+`federation_relay.go`'s peer-relay handlers. If a federation request 400s (or
+programmed with a similarly abrupt error) with *no* error-level log line
+anywhere nearby in the JSON log stream, do not assume the build is stale or
+logging isn't wired — grep the handler source directly for every
+`StatusBadRequest`/`StatusForbidden`/`StatusUnauthorized` call in that exact
+function and read each condition by hand. This has burned real debugging time
+more than once.
+
+**Ownership/ID checks in `federation_relay.go` are not symmetric across
+legs — verify direction before trusting a "same guard as leg N" comment.**
+Some legs run *peer → home* (the caller's own user is the subject: check
+`embeddedServerID == peerServerID`); others run *home → peer* (the *callee's*
+own user is the subject: check `embeddedServerID == h.services.db.GetServerID()`).
+A field named `requester_user_id` or similar can belong to either side
+depending on which direction that specific leg flows — read the leg's own
+doc comment for who calls whom, don't pattern-match the check from a
+similarly-named sibling.
 
 ## House rules for changes
 

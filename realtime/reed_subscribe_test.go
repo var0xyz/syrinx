@@ -6,8 +6,8 @@ func TestReedSubscriptionBookkeeping(t *testing.T) {
 	cm := NewConnectionManager()
 	client := NewClient(nil, "viewer")
 
-	cm.SubscribeReed(client, "author", "reed1")
-	key := makeReedKey("author", "reed1")
+	cm.SubscribeReed(client, "reed1")
+	key := ReedKey("reed1")
 	if _, ok := client.reedSubscriptions[key]; !ok {
 		t.Fatal("expected client reed subscription")
 	}
@@ -15,7 +15,7 @@ func TestReedSubscriptionBookkeeping(t *testing.T) {
 		t.Fatal("expected one reed subscriber")
 	}
 
-	cm.UnsubscribeReed(client, "author", "reed1")
+	cm.UnsubscribeReed(client, "reed1")
 	if _, ok := client.reedSubscriptions[key]; ok {
 		t.Fatal("expected client reed subscription cleared")
 	}

@@ -28,7 +28,7 @@
       const records = await likedReedsRepository.getAll();
 
       const resolved = await Promise.allSettled(
-        records.map((record) => reedsService.getReed(record.authorID, record.reedID))
+        records.map((record) => reedsService.getReed(record.reedID))
       );
 
       const withReeds = [];
@@ -69,7 +69,7 @@
   }
 
   function navigateToReed(reed) {
-    goto(`/reed/${reed.userID}/${reed.id}`);
+    goto(`/reed/${reed.id}`);
   }
 </script>
 
@@ -90,7 +90,6 @@
         <div class="reed-header">
           <ReedAuthorHeader
             userID={item.reed.userID}
-            serverID={item.reed.serverSignature?.serverID ?? ''}
             username={item.author.username}
             nameTag="h3"
             subtext={`Liked ${formatRelativeTime(item.record.likedAt)}`}

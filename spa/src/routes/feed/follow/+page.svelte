@@ -64,12 +64,11 @@
         {:else}
           {#each followReeds.reeds as reed (reed.id)}
             <div class="reed-item" role="button" tabindex="0"
-              on:click={() => goto(`/reed/${reed.userID}/${reed.id}`)}
-              on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.userID}/${reed.id}`)}>
+              on:click={() => goto(`/reed/${reed.id}`)}
+              on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.id}`)}>
               <div class="reed-header">
                 <ReedAuthorHeader
                   userID={reed.userID}
-                  serverID={reed.serverSignature?.serverID ?? ''}
                   username={followReeds.authors[reed.userID]?.username ?? reed.userID}
                   nameTag="h3"
                   subtext={formatRelativeTime(reed.serverSignature.timestamp)}
@@ -79,7 +78,7 @@
               </div>
               {#if reed.replying}
                 <div class="quote-container">
-                  <Quote reedRef={reed.replying} type="reply" missing={false} linked={true} />
+                  <Quote reedRef={reed.replying} type="reply" missing={false} linked={false} />
                 </div>
               {/if}
               {#if (reed.content || '').trim()}
@@ -89,7 +88,7 @@
               {/if}
               {#if reed.echoing}
                 <div class="quote-container">
-                  <Quote reedRef={reed.echoing} type="echo" missing={false} linked={true} />
+                  <Quote reedRef={reed.echoing} type="echo" missing={false} linked={false} />
                 </div>
               {/if}
             </div>

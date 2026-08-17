@@ -139,12 +139,16 @@
           clearRecoveryRun();
         }
         await writeBackup(backup);
-        const fingerprint = authService.getActiveKeyFingerprint();
+        // Restoring from a backup file means the user already has one by
+        // definition — don't send them through the mandatory-backup nag on
+        // the very next <Auth> mount (see Auth.svelte's lastKeyBackupAt gate).
+        localStorage.setItem('lastKeyBackupAt', String(Date.now()));
+        const keyId = authService.getActiveKeyId();
         const passphrase = authService.getPassphrase();
-        if (!fingerprint || !passphrase) {
+        if (!keyId || !passphrase) {
           throw new Error('Restored backup is missing key material for device binding.');
         }
-        await requestSigner.initializeWorker(fingerprint, passphrase);
+        await requestSigner.initializeWorker(keyId, passphrase);
         await apiService.bindDevice();
         clearRecoveryRun();
         completeImportRun();
@@ -164,6 +168,8 @@
 
       if (needsRecovery) {
         await writeBackup(backup);
+        // Same reasoning as the complete-account branch above.
+        localStorage.setItem('lastKeyBackupAt', String(Date.now()));
         if (localRecovery) {
           resumeRecoveryRun();
         } else {

@@ -154,8 +154,10 @@
     // resolves userID -> username and links to the profile.
     const before = content.slice(0, mentionStart);
     const after = content.slice(caret);
-    const serverId = localStorage.getItem('serverId') || '';
-    let token = `~${user.id}@${serverId}`;
+    // user.id from GET /users/search is already canonical (userID@serverID,
+    // see services.go's SearchUsers) — do not re-append the server suffix,
+    // that's what produced the doubled "@serverID@serverID" bug.
+    let token = `~${user.id}`;
     // Guarantee a boundary so the token can't fuse with adjacent text and
     // get misread as a longer/invalid ID run (see readMention's boundary
     // check) — only pad when the next character would otherwise continue
@@ -272,7 +274,7 @@
           on:mouseenter={() => (highlighted = i)}
           on:click={() => confirm(user)}
         >
-          {user.username}
+          {user.username}<span class="mention-result-server">· {user.serverName}</span>
         </button>
       {/each}
     {/if}
@@ -316,5 +318,10 @@
   .mention-result.highlighted,
   .mention-result:hover {
     background: var(--input-bg);
+  }
+
+  .mention-result-server {
+    color: var(--muted);
+    margin-left: 0.3em;
   }
 </style>

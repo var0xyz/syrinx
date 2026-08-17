@@ -16,7 +16,6 @@ interface SignupUser {
   userIDSignature: string;
   userIDFingerprint: string;
   inviteID?: string;
-  inviteCreatorID?: string;
   inviteSecret?: string;
 }
 
@@ -95,17 +94,22 @@ export class AuthService {
   }
 
   /**
-   * Set the active key fingerprint
+   * Set the active key id. Callers must pass the canonical form
+   * (userID@serverID/fingerprint, see $lib/utils/identityRef) — this matches the
+   * privateKeys/publicKeys IndexedDB keyPath, what signed payloads embed,
+   * and the X-Syrinx-Public-Key-Id request header directly. Extract to
+   * bare only at the specific boundaries that still need it (URL path
+   * segments, wire fields paired with a separately-known userID).
    */
-  setActiveKey(fingerprint: string): void {
-    localStorage.setItem('keyFingerprint', fingerprint);
+  setActiveKey(keyId: string): void {
+    localStorage.setItem('activeKeyId', keyId);
   }
 
   /**
-   * Get the active key fingerprint
+   * Get the active key id (canonical — see setActiveKey).
    */
-  getActiveKeyFingerprint(): string | null {
-    return localStorage.getItem('keyFingerprint');
+  getActiveKeyId(): string | null {
+    return localStorage.getItem('activeKeyId');
   }
 
   /**
@@ -157,9 +161,6 @@ export class AuthService {
     formData.append('userIDFingerprint', userData.userIDFingerprint);
     if (userData.inviteID) {
       formData.append('inviteID', userData.inviteID);
-    }
-    if (userData.inviteCreatorID) {
-      formData.append('inviteCreatorID', userData.inviteCreatorID);
     }
     if (userData.inviteSecret) {
       formData.append('inviteSecret', userData.inviteSecret);

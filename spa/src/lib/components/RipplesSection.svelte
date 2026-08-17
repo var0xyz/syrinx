@@ -5,17 +5,14 @@
   // ReedStatsSubscription, mounted by the parent page — no separate
   // subscribe call needed here, same as ConversationSection's REED_REPLIES).
   import { onDestroy, onMount } from 'svelte';
-  import Avatar from '$lib/components/Avatar.svelte';
-  import Username from '$lib/components/Username.svelte';
+  import RippleRow from '$lib/components/RippleRow.svelte';
   import RippleComposer from '$lib/components/RippleComposer.svelte';
   import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
   import { ripplesRepository } from '$lib/repositories/ripples';
-  import { formatRelativeTime } from '$lib/utils/time';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
 
-  /** @type {string} */
-  export let userID;
+  /** The parent reed's canonical id (authorID@serverID/uuid). */
   /** @type {string} */
   export let reedID;
   /** The parent reed's base64 server-signature armor — proof of
@@ -76,7 +73,13 @@
    * hits zero. */
   let burning = false;
 
-  $: count = ripples.length;
+  // Includes pendingRipples/liveExtras — held out of `ripples` while a
+  // composer is open, but still received and worth counting.
+  $: count =
+    ripples.length +
+    pendingRipples.length +
+    topLevelLiveExtras.length +
+    Object.values(liveExtras).reduce((sum, list) => sum + list.length, 0);
 
   let nowTick = performance.now();
   const tickTimer = setInterval(() => { nowTick = performance.now(); }, 1000);
@@ -164,7 +167,7 @@
   }
 
   async function loadPage(before) {
-    const res = await apiService.listRipples(userID, reedID, serverSignatureArmor, { limit: 50, before });
+    const res = await apiService.listRipples(reedID, serverSignatureArmor, { limit: 50, before });
 
     // Defensive: if the server itself reports expiresAt as already in
     // the past (a fetch landing in the race window right before the
@@ -179,7 +182,7 @@
 
     const kept = [];
     for (const ripple of res.responses) {
-      const ok = await ripplesRepository.storeRipple(ripple, userID, reedID);
+      const ok = await ripplesRepository.storeRipple(ripple, reedID);
       if (ok) kept.push(ripple);
     }
     for (const ripple of kept) {
@@ -215,28 +218,96 @@
     }
   });
 
-  /** Insert a ripple at the position that matches server ordering, not at
-   * the end of the array: right after its replyingTo target if one is
-   * loaded (a reply belongs immediately after the message it replies to,
-   * within that thread's run), otherwise at the very end (a new top-level
-   * thread). This is what keeps a freshly-posted or live-delivered reply
-   * from jumping across the whole list on the next reload. A genuinely
-   * concurrent reply to the same target can still land in a slightly
-   * different spot than the server's final thread-grouped order;
-   * accepted tradeoff, not worth a full resort against a partial page. */
+  /** Replies to a ripple whose inline composer is open right now, keyed by
+   * that ripple's hash. Rendered live, right below that composer — the
+   * composer moving down for its OWN thread's new replies is fine, since
+   * they're what the user is actively looking at. */
+  let liveExtras = /** @type {Record<string, import('$lib/types/api').Ripple[]>} */ ({});
+
+  /** New top-level ripples arriving while the top-level composer is open.
+   * Rendered live, right below that composer — same idea as liveExtras,
+   * but for the composer with no single target ripple to key by. Only a
+   * NEW top-level ripple ever lands here; a reply to some ripple above the
+   * composer still goes to pendingRipples (that ripple's own row would
+   * move if inserted now — see blockedByOpenComposer). */
+  let topLevelLiveExtras = /** @type {import('$lib/types/api').Ripple[]} */ ([]);
+
+  /** Everything that would push an open composer down if inserted now: a
+   * new top-level ripple while the top-level composer is open, or a reply
+   * to some ripple OTHER than the one(s) being replied to. Held until the
+   * blocking composer(s) close, then flushed in arrival order. */
+  let pendingRipples = /** @type {import('$lib/types/api').Ripple[]} */ ([]);
+
+  /** Re-run whenever composer state changes (topComposerOpen flips, or
+   * replyingToHashes gains/loses an entry) — closing one composer can
+   * unblock some held ripples while others stay blocked by another. */
+  $: if (topComposerOpen || replyingToHashes) rerouteIfAnyPending();
+
+  function rerouteIfAnyPending() {
+    if (pendingRipples.length === 0) return;
+    const toRoute = pendingRipples;
+    pendingRipples = [];
+    for (const ripple of toRoute) routeIncomingRipple(ripple);
+  }
+
+  /** Where ripple would land if inserted right now (see insertRipple). */
+  function insertionIndexFor(ripple) {
+    if (!ripple.replyingTo) return ripples.length;
+    const targetIndex = ripples.findIndex((r) => r.hash === ripple.replyingTo);
+    if (targetIndex === -1) return ripples.length;
+    let insertAt = targetIndex + 1;
+    while (insertAt < ripples.length && ripples[insertAt].replyingTo === ripple.replyingTo) {
+      insertAt += 1;
+    }
+    return insertAt;
+  }
+
+  /** Top-level ripples skip topComposerOpen (they get their own live area
+   * below it). Only a reply to a ripple already in the list is blocked,
+   * since that row sits above the bottom-anchored top composer. */
+  function blockedByOpenComposer(ripple) {
+    if (topComposerOpen && ripple.replyingTo) return true;
+    if (replyingToHashes.size === 0) return false;
+    const insertAt = insertionIndexFor(ripple);
+    for (const hash of replyingToHashes) {
+      const composerAnchor = ripples.findIndex((r) => r.hash === hash);
+      if (composerAnchor !== -1 && insertAt <= composerAnchor + 1) return true;
+    }
+    return false;
+  }
+
+  /** Inserts at insertionIndexFor's position — right after replyingTo's
+   * existing reply run, or at the end for a top-level ripple. */
   function insertRipple(ripple) {
-    // The section already burned away locally — don't resurrect it for a
-    // straggling WS event or a just-completed post whose response arrived
-    // after the countdown hit zero.
     if (expired) return;
     if (ripples.some((r) => r.hash === ripple.hash)) return;
-    const targetIndex = ripple.replyingTo
-      ? ripples.findIndex((r) => r.hash === ripple.replyingTo)
-      : -1;
-    if (targetIndex === -1) {
-      ripples = [...ripples, ripple];
+    const insertAt = insertionIndexFor(ripple);
+    ripples = [...ripples.slice(0, insertAt), ripple, ...ripples.slice(insertAt)];
+  }
+
+  /** Single entry point for a ripple that just showed up. Same-target
+   * inline replies and new top-level ripples (while the top composer is
+   * open) render live below their composer; anything else that would
+   * push a composer down is held; otherwise it inserts immediately. */
+  function routeIncomingRipple(ripple) {
+    if (expired) return;
+    if (ripples.some((r) => r.hash === ripple.hash)) return;
+    if (pendingRipples.some((r) => r.hash === ripple.hash)) return;
+    if (ripple.replyingTo && replyingToHashes.has(ripple.replyingTo)) {
+      const existing = liveExtras[ripple.replyingTo] ?? [];
+      if (existing.some((r) => r.hash === ripple.hash)) return;
+      liveExtras = { ...liveExtras, [ripple.replyingTo]: [...existing, ripple] };
+      return;
+    }
+    if (!ripple.replyingTo && topComposerOpen) {
+      if (topLevelLiveExtras.some((r) => r.hash === ripple.hash)) return;
+      topLevelLiveExtras = [...topLevelLiveExtras, ripple];
+      return;
+    }
+    if (blockedByOpenComposer(ripple)) {
+      pendingRipples = [...pendingRipples, ripple];
     } else {
-      ripples = [...ripples.slice(0, targetIndex + 1), ripple, ...ripples.slice(targetIndex + 1)];
+      insertRipple(ripple);
     }
   }
 
@@ -244,23 +315,34 @@
    * insert if not already present — guards against the optimistic-insert-
    * then-echo double-add for the poster's own just-submitted ripple. */
   async function handleRipplePosted(msg) {
-    if (expired || msg?.userID !== userID || msg?.reedID !== reedID || !msg?.ripple) return;
+    if (expired || msg?.reedID !== reedID || !msg?.ripple) return;
     const ripple = msg.ripple;
     if (ripples.some((r) => r.hash === ripple.hash)) return;
-    const ok = await ripplesRepository.storeRipple(ripple, userID, reedID);
+    const ok = await ripplesRepository.storeRipple(ripple, reedID);
     if (!ok) return;
     await resolveUsername(ripple.userID);
-    insertRipple(ripple);
+    routeIncomingRipple(ripple);
   }
 
   /** RIPPLE_UPDATED: patch the matching row in place (deleted/content) —
    * never remove it. Does not re-verify (verifyRipple's tombstone
    * short-circuit already trusts the deleted flag). */
   async function handleRippleUpdated(msg) {
-    if (expired || msg?.userID !== userID || msg?.reedID !== reedID || !msg?.ripple) return;
+    if (expired || msg?.reedID !== reedID || !msg?.ripple) return;
     const ripple = msg.ripple;
-    await ripplesRepository.storeRipple(ripple, userID, reedID);
+    await ripplesRepository.storeRipple(ripple, reedID);
     ripples = ripples.map((r) => (r.hash === ripple.hash ? ripple : r));
+    // Also patch it wherever it might be held, not yet in `ripples`.
+    pendingRipples = pendingRipples.map((r) => (r.hash === ripple.hash ? ripple : r));
+    topLevelLiveExtras = topLevelLiveExtras.map((r) => (r.hash === ripple.hash ? ripple : r));
+    if (ripple.replyingTo && liveExtras[ripple.replyingTo]) {
+      liveExtras = {
+        ...liveExtras,
+        [ripple.replyingTo]: liveExtras[ripple.replyingTo].map((r) =>
+          r.hash === ripple.hash ? ripple : r
+        ),
+      };
+    }
   }
 
   onMount(() => {
@@ -273,47 +355,67 @@
     serverConnection.off(ServerEvent.RippleUpdated, handleRippleUpdated);
   });
 
-  /** The ripple being replied to, or null while the composer sits at the
-   * bottom for a top-level post. Set by clicking "reply" on a row; moves
-   * the composer to render right after that row instead of at the list's
-   * end, so the reply target stays visible while typing — see the
-   * component's own header comment for why this replaced the old
-   * always-at-the-bottom layout. */
-  let replyingTo = /** @type {import('$lib/types/api').Ripple | null} */ (null);
+  /** Ripples currently showing an inline reply composer, keyed by hash.
+   * Multiple threads can have their composer open at once — clicking
+   * "reply" on one row must not close another row's already-open composer,
+   * so this is a set rather than a single value. Each stays open until the
+   * user explicitly cancels it. */
+  let replyingToHashes = /** @type {Set<string>} */ (new Set());
+
+  /** Whether the top-level (non-reply) composer is open. Starts closed and
+   * sits behind the "post ripple" button at the top of the section — an
+   * always-rendered composer at the bottom of the list would otherwise keep
+   * getting pushed down by every new incoming ripple (whack-a-mole). */
+  let topComposerOpen = false;
 
   function startReply(ripple) {
-    replyingTo = ripple;
+    replyingToHashes = new Set(replyingToHashes).add(ripple.hash);
   }
 
-  function cancelReply() {
-    replyingTo = null;
+  /** Closes hash's composer and flushes anything liveExtras held for it
+   * into `ripples`, in arrival order, right after that target's run. */
+  function cancelReply(hash) {
+    const next = new Set(replyingToHashes);
+    next.delete(hash);
+    replyingToHashes = next;
+
+    const extras = liveExtras[hash];
+    if (extras?.length) {
+      const rest = { ...liveExtras };
+      delete rest[hash];
+      liveExtras = rest;
+      for (const ripple of extras) insertRipple(ripple);
+    }
   }
 
-  /** RippleComposer's `posted` event: insert at the same position the
-   * composer itself was rendered at (right after replyingTo, or at the
-   * end for top-level) — matches server ordering in the common case, so
-   * nothing jumps position on the next reload. A successful post always
-   * means the section is alive again and the reed's shared expires_at
-   * just got reset to a fresh 7 days from now (see PostRipple in
-   * services.go) — no need to round-trip the exact server value for
-   * this: a post can only ever happen because it succeeded, so we just
-   * reset the local countdown to a full week locally. If a concurrent
-   * post from someone else landed a few seconds before or after this
-   * one, the real deadline differs from this local guess by at most a
-   * few seconds, which is irrelevant at a week's granularity — and the
-   * next natural fetch (reload, pagination) reconciles with whatever
-   * the server actually has anyway. */
-  async function handleComposerPosted(event) {
+  /** Closes the top composer and flushes topLevelLiveExtras into ripples. */
+  function closeTopComposer() {
+    topComposerOpen = false;
+    const extras = topLevelLiveExtras;
+    topLevelLiveExtras = [];
+    for (const ripple of extras) insertRipple(ripple);
+  }
+
+  /** RippleComposer's `posted` event. A post always means the section is
+   * alive again with a fresh 7-day countdown (see PostRipple in
+   * services.go) — reset locally rather than round-tripping the server. */
+  async function handleComposerPosted(event, replyHash) {
     const { ripple: posted } = event.detail;
     expired = false;
     burning = false;
     expiresAtMonotonic = performance.now() + WEEK;
-    const ok = await ripplesRepository.storeRipple(posted, userID, reedID);
+    const ok = await ripplesRepository.storeRipple(posted, reedID);
+    // Close this composer first so routeIncomingRipple treats it as gone
+    // and the just-posted reply inserts immediately, not into liveExtras.
+    if (replyHash) {
+      cancelReply(replyHash);
+    } else {
+      closeTopComposer();
+    }
     if (ok) {
       await resolveUsername(posted.userID);
-      insertRipple(posted);
+      routeIncomingRipple(posted);
     }
-    replyingTo = null;
   }
 
   async function deleteRipple(hash) {
@@ -321,7 +423,7 @@
       return;
     }
     try {
-      await apiService.deleteRipple(hash);
+      await apiService.deleteRipple(reedID, hash);
       ripples = ripples.map((r) =>
         r.hash === hash ? { ...r, deleted: true, content: '[DELETED]' } : r
       );
@@ -354,68 +456,42 @@
   {:else if ripples.length === 0}
     <p class="ripples-empty">No ripples yet — be the first to say something.</p>
   {:else}
-    <ul class="ripple-list" class:ripple-list--burning={burning}>
+    <ul class="ripple-list">
       {#each ripples as ripple, i (ripple.hash)}
-        <li
-          class="ripple-row"
-          class:ripple-row--reply={!!ripple.replyingTo}
-          style={burning ? `--burn-delay: ${Math.min(i * BURN_STAGGER_MS, MAX_BURN_STAGGER_MS)}ms` : undefined}
-        >
-          <div class="ripple-avatar">
-            <Avatar userID={ripple.userID} username={usernames[ripple.userID] ?? ''} size="32px" />
-          </div>
-          <div class="ripple-body">
-            <p class="ripple-meta">
-              {#if ripple.userID === ownUserID && !ripple.deleted}
-                <button type="button" class="ripple-delete-btn" on:click={() => deleteRipple(ripple.hash)} aria-label="Delete ripple">
-                  <span class="ripple-delete-icon"></span>
-                </button>
-              {/if}
-              <span class="ripple-meta-text">
-                {#if usernames[ripple.userID]}
-                  <Username userID={ripple.userID} username={usernames[ripple.userID]} color="var(--muted)" />
-                {:else}
-                  <span class="ripple-username-removed">[removed account]</span>
-                {/if}
-                · {formatRelativeTime(ripple.postedAt)}
-              </span>
-            </p>
-            {#if ripple.replyingTo}
-              <p class="ripple-reply-chip">
-                replying to {#if findByHash(ripple.replyingTo)}
-                  {#if usernames[findByHash(ripple.replyingTo).userID]}
-                    @{usernames[findByHash(ripple.replyingTo).userID]}
-                  {:else}
-                    a removed account
-                  {/if}
-                {:else}
-                  a comment
-                {/if}
-              </p>
-            {/if}
-            {#if ripple.deleted}
-              <p class="ripple-content ripple-content-deleted">[DELETED]</p>
-            {:else}
-              <p class="ripple-content">
-                {ripple.content}
-                <button type="button" class="ripple-action ripple-reply-inline" on:click={() => startReply(ripple)}>reply</button>
-              </p>
-            {/if}
-          </div>
-        </li>
-        {#if replyingTo?.hash === ripple.hash}
+        <RippleRow
+          {ripple}
+          username={usernames[ripple.userID] ?? null}
+          replyingToLoaded={!!findByHash(ripple.replyingTo)}
+          replyingToUsername={ripple.replyingTo ? (usernames[findByHash(ripple.replyingTo)?.userID] ?? null) : undefined}
+          {ownUserID}
+          {burning}
+          burnDelayMs={Math.min(i * BURN_STAGGER_MS, MAX_BURN_STAGGER_MS)}
+          on:delete={(e) => deleteRipple(e.detail)}
+          on:reply={() => startReply(ripple)}
+        />
+        {#if replyingToHashes.has(ripple.hash)}
           <li class="ripple-composer-row">
             <RippleComposer
-              {userID}
               {reedID}
               {serverSignatureArmor}
-              {replyingTo}
-              replyingToUsername={usernames[replyingTo.userID] ?? null}
+              replyingTo={ripple}
+              replyingToUsername={usernames[ripple.userID] ?? null}
               autofocus
-              on:posted={handleComposerPosted}
-              on:cancel={cancelReply}
+              on:posted={(e) => handleComposerPosted(e, ripple.hash)}
+              on:cancel={() => cancelReply(ripple.hash)}
             />
           </li>
+          {#each liveExtras[ripple.hash] ?? [] as extra (extra.hash)}
+            <RippleRow
+              ripple={extra}
+              username={usernames[extra.userID] ?? null}
+              replyingToLoaded={true}
+              replyingToUsername={usernames[ripple.userID] ?? null}
+              {ownUserID}
+              replyable={false}
+              on:delete={(e) => deleteRipple(e.detail)}
+            />
+          {/each}
         {/if}
       {/each}
     </ul>
@@ -426,13 +502,36 @@
     {/if}
   {/if}
 
-  {#if !replyingTo}
+  {#if topComposerOpen}
     <RippleComposer
-      {userID}
       {reedID}
       {serverSignatureArmor}
-      on:posted={handleComposerPosted}
+      autofocus
+      on:posted={(e) => handleComposerPosted(e, null)}
+      on:cancel={closeTopComposer}
     />
+    {#if topLevelLiveExtras.length > 0}
+      <ul class="ripple-list">
+        {#each topLevelLiveExtras as ripple (ripple.hash)}
+          <RippleRow
+            {ripple}
+            username={usernames[ripple.userID] ?? null}
+            replyingToLoaded={false}
+            {ownUserID}
+            replyable={false}
+            on:delete={(e) => deleteRipple(e.detail)}
+          />
+        {/each}
+      </ul>
+    {/if}
+  {:else}
+    <button
+      type="button"
+      class="ripple-action post-ripple-trigger"
+      on:click={() => (topComposerOpen = true)}
+    >
+      Post ripple
+    </button>
   {/if}
 
   <p class="ripples-why-explainer">
@@ -498,32 +597,6 @@
     animation-duration: 0.4s;
   }
 
-  /* Each row fades/rises away in its own delayed pass (--burn-delay,
-     set inline per-row) so the whole list doesn't vanish as one flat
-     block — closer to embers catching one after another. */
-  .ripple-list--burning .ripple-row {
-    animation: ripple-burn 0.8s ease-in forwards;
-    animation-delay: var(--burn-delay, 0ms);
-  }
-
-  @keyframes ripple-burn {
-    0% {
-      opacity: 1;
-      filter: none;
-      transform: translateY(0) scale(1);
-    }
-    30% {
-      opacity: 1;
-      filter: brightness(1.6) saturate(1.8) hue-rotate(-25deg);
-      transform: translateY(-2px) scale(1.01);
-    }
-    100% {
-      opacity: 0;
-      filter: brightness(1.6) saturate(1.8) hue-rotate(-25deg) blur(2px);
-      transform: translateY(-14px) scale(0.97);
-    }
-  }
-
   @keyframes ember-pulse {
     from {
       opacity: 0.6;
@@ -536,18 +609,9 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .ripple-list--burning .ripple-row {
-      animation: ripple-burn-reduced 0.3s ease-in forwards;
-      animation-delay: 0ms;
-    }
     .countdown-dot {
       animation: none;
     }
-  }
-
-  @keyframes ripple-burn-reduced {
-    from { opacity: 1; }
-    to { opacity: 0; }
   }
 
   .ripples-why-explainer {
@@ -573,104 +637,6 @@
     padding: 0 0.75rem;
   }
 
-  .ripple-row {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0.25rem 0;
-  }
-
-  /* Not a full nested-reply indent (00's lock: flat rendering) — just a
-     visual hint that this response is part of a thread, not top-level. */
-  .ripple-row--reply {
-    margin-left: 1rem;
-  }
-
-  .ripple-avatar {
-    flex: 0 0 auto;
-    padding-top: 0.1rem;
-  }
-
-  .ripple-body {
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-
-  .ripple-meta {
-    display: flex;
-    align-items: baseline;
-    margin: 0;
-    font-size: 0.82rem;
-  }
-
-  .ripple-meta-text {
-    color: var(--muted);
-    min-width: 0;
-  }
-
-  .ripple-username-removed {
-    font-style: italic;
-  }
-
-  .ripple-delete-btn {
-    display: inline-flex;
-    flex: 0 0 auto;
-    width: auto;
-    align-items: center;
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0 0.4rem 0 0;
-    line-height: 0;
-    cursor: pointer;
-    color: var(--muted);
-    opacity: 0.7;
-  }
-
-  .ripple-delete-btn:hover {
-    opacity: 1;
-    color: #d9534f;
-  }
-
-  .ripple-delete-icon {
-    display: inline-block;
-    width: 0.85rem;
-    height: 0.85rem;
-    background-color: currentColor;
-    -webkit-mask-image: url('/icons/trash-16.png');
-    mask-image: url('/icons/trash-16.png');
-    -webkit-mask-position: center;
-    mask-position: center;
-    -webkit-mask-size: contain;
-    mask-size: contain;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-  }
-
-  .ripple-reply-chip {
-    margin: 0 0 0.25rem;
-    font-size: 0.78rem;
-    color: var(--muted);
-    font-style: italic;
-  }
-
-  .ripple-content {
-    margin: 0 0 0.3rem;
-    font-size: 0.88rem;
-    line-height: 1.45;
-    color: var(--fg);
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  .ripple-content-deleted {
-    margin: 0 0 0.3rem;
-    font-size: 0.88rem;
-    line-height: 1.45;
-    white-space: pre-wrap;
-    color: var(--muted);
-    font-style: italic;
-  }
-
   .ripple-action {
     display: inline;
     width: auto;
@@ -689,14 +655,29 @@
     text-decoration: underline;
   }
 
-  .ripple-reply-inline {
-    margin-left: 0.5rem;
-    white-space: nowrap;
-  }
-
   .load-more-btn {
     margin: 0 0.75rem 1rem;
     font-size: 0.8rem;
+  }
+
+  .post-ripple-trigger {
+    display: block;
+    width: calc(100% - 1.5rem);
+    margin: 0 0.75rem 1rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .post-ripple-trigger:hover {
+    color: var(--fg);
+    text-decoration: none;
+    background: var(--input-bg, rgba(127, 127, 127, 0.08));
   }
 
   /* No list-item box model needed — this <li> only exists so the inline

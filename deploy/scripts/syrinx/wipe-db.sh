@@ -114,6 +114,20 @@ sudo -i -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${APP_USER};"
 sudo -i -u postgres psql -d "$DB_NAME" -c \
     "REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT CREATE ON SCHEMA public TO ${APP_USER};"
 
+# Wiping the DB drops users.id=1 along with everything else, so any root
+# export/passphrase pair minted against it is now orphaned — undecryptable
+# against whatever setup.sh mints next, and left sitting here it can fool
+# root-bootstrap.sh's completion check into thinking a *later* mint already
+# finished before it actually wrote anything (see root-bootstrap.sh's cutoff
+# comment for that race in detail).
+ROOT_EXPORT_DIR="/var/lib/$APP_NAME/root-export"
+if [ -d "$ROOT_EXPORT_DIR" ]; then
+    echo -e "\n🧹 Clearing orphaned root identity export(s) from $ROOT_EXPORT_DIR..."
+    find "$ROOT_EXPORT_DIR" -maxdepth 1 -type f \
+        \( -name 'syrinx-1-*.sxi.gpg' -o -name 'syrinx-1-*.sxi.gpg.passphrase' -o -name '.bootstrap-complete' \) \
+        -delete
+fi
+
 echo "✅ Empty database ready — run ./setup.sh to migrate and restart $APP_NAME"
 
 if [ -n "$BACKUP_FILE" ]; then

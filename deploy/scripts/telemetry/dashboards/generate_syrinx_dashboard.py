@@ -234,6 +234,8 @@ REED_VISIBLE_CHARS = metric_stream("syrinx.reed.content.visible_chars")
 REED_HOLDERS = metric_stream("syrinx.reed.holders")
 REED_COVERAGE = metric_stream("syrinx.reed.coverage_percent")
 WS_MESSAGES = metric_stream("syrinx.ws.messages")
+RELAY_EVENTS = metric_stream("syrinx.relay.event")
+FEDERATION_RELAY = metric_stream("syrinx.federation.relay")
 
 # High-signal WS types from spec 5.4 (full enum lives in Explore).
 WS_IN_TYPES = [
@@ -923,6 +925,147 @@ websocket = [
     ),
 ]
 
+relay = [
+    promql_panel(
+        pid="syrinx_relay_lifecycle",
+        title="Pending relay events by lifecycle stage",
+        queries=[
+            promql_labeled(RELAY_EVENTS, "relay_lifecycle", "created", "created"),
+            promql_labeled(RELAY_EVENTS, "relay_lifecycle", "fulfilled", "fulfilled"),
+            promql_labeled(RELAY_EVENTS, "relay_lifecycle", "deleted", "deleted"),
+        ],
+        layout=layout(0, 0, 96, 14, 60),
+        description=(
+            "created/fulfilled/deleted samples for pending_events rows "
+            "(syrinx.relay.event). created without a matching fulfilled or "
+            "deleted for the same event.id_hash means the request leaked — "
+            "no holder ever answered and nothing ever cleaned it up."
+        ),
+    ),
+    promql_panel(
+        pid="syrinx_relay_lifecycle_by_kind",
+        title="Relay events by kind",
+        queries=[
+            *promql_labeled_queries(
+                RELAY_EVENTS,
+                "event_kind",
+                [
+                    ("request_reed", "request_reed"),
+                    ("profile_subscription", "profile_subscription"),
+                    ("follow_reed", "follow_reed"),
+                    ("broadcast_reed", "broadcast_reed"),
+                    ("pipe_reed", "pipe_reed"),
+                    ("reed_removed", "reed_removed"),
+                    ("account_removed", "account_removed"),
+                    ("reed_reply", "reed_reply"),
+                ],
+            ),
+        ],
+        layout=layout(96, 0, 96, 14, 61),
+        description="All lifecycle stages summed together, split by event.kind",
+    ),
+    sql_panel(
+        pid="syrinx_relay_leaked",
+        title="Leaked requests (created, never fulfilled or deleted)",
+        ptype="table",
+        sql=(
+            "SELECT event_kind, count(*) AS leaked FROM ( "
+            "SELECT event_id_hash, max(event_kind) AS event_kind, "
+            "sum(CASE WHEN relay_lifecycle = 'created' THEN 1 ELSE 0 END) AS created, "
+            "sum(CASE WHEN relay_lifecycle IN ('fulfilled', 'deleted') THEN 1 ELSE 0 END) AS resolved "
+            f"FROM {RELAY_EVENTS} WHERE event_id_hash IS NOT NULL "
+            "GROUP BY event_id_hash ) "
+            "WHERE created > 0 AND resolved = 0 "
+            "GROUP BY event_kind ORDER BY leaked DESC"
+        ),
+        layout=layout(0, 14, 96, 14, 62),
+        x=[axis("Event kind", "event_kind"), axis("Leaked", "leaked")],
+        y=[],
+        stream=RELAY_EVENTS,
+        stream_type="metrics",
+        description=(
+            "Per event.id_hash: created but never followed by a fulfilled or "
+            "deleted sample in the selected window. A wide window is needed "
+            "for this to be meaningful — a request created seconds ago just "
+            "hasn't had time to resolve yet, that isn't necessarily a leak."
+        ),
+    ),
+    sql_panel(
+        pid="syrinx_relay_duplicate_fulfilled",
+        title="Duplicate/wasted responses (fulfilled more than once)",
+        ptype="table",
+        sql=(
+            "SELECT event_kind, count(*) AS duplicate_events, "
+            "sum(fulfilled_count) - count(*) AS wasted_responses FROM ( "
+            "SELECT event_id_hash, max(event_kind) AS event_kind, count(*) AS fulfilled_count "
+            f"FROM {RELAY_EVENTS} WHERE relay_lifecycle = 'fulfilled' AND event_id_hash IS NOT NULL "
+            "GROUP BY event_id_hash HAVING count(*) > 1 ) "
+            "GROUP BY event_kind ORDER BY wasted_responses DESC"
+        ),
+        layout=layout(96, 14, 96, 14, 63),
+        x=[
+            axis("Event kind", "event_kind"),
+            axis("Duplicate events", "duplicate_events"),
+            axis("Wasted responses", "wasted_responses"),
+        ],
+        y=[],
+        stream=RELAY_EVENTS,
+        stream_type="metrics",
+        description=(
+            "Same event.id_hash fulfilled more than once — a holder "
+            "retransmitted a RELAY_RESPONSE after the first one already "
+            "satisfied the request. wasted_responses = extra deliveries "
+            "beyond the one actually needed."
+        ),
+    ),
+    promql_panel(
+        pid="syrinx_federation_relay_volume",
+        title="Federation relay traffic",
+        queries=[
+            (FEDERATION_RELAY, "total", FEDERATION_RELAY),
+            promql_labeled(FEDERATION_RELAY, "federation_direction", "in", "in (from peers)"),
+            promql_labeled(FEDERATION_RELAY, "federation_direction", "out", "out (to peers)"),
+        ],
+        layout=layout(0, 28, 96, 14, 64),
+        description="Every federation relay leg handled or called, either direction",
+    ),
+    promql_panel(
+        pid="syrinx_federation_relay_errors",
+        title="Federation relay error rate",
+        queries=[
+            promql_labeled(FEDERATION_RELAY, "ok", "false", "errors"),
+        ],
+        layout=layout(96, 28, 96, 14, 65),
+        description="ok=false: non-2xx response either handling or calling a peer leg",
+    ),
+    sql_panel(
+        pid="syrinx_federation_relay_by_peer",
+        title="Relay traffic by peer server",
+        ptype="table",
+        sql=(
+            "SELECT peer_server_id, federation_direction, federation_leg, count(*) AS calls "
+            f"FROM {FEDERATION_RELAY} WHERE peer_server_id IS NOT NULL "
+            "GROUP BY peer_server_id, federation_direction, federation_leg "
+            "ORDER BY calls DESC LIMIT 50"
+        ),
+        layout=layout(0, 42, 192, 16, 66),
+        x=[
+            axis("Peer server", "peer_server_id"),
+            axis("Direction", "federation_direction"),
+            axis("Leg", "federation_leg"),
+            axis("Calls", "calls"),
+        ],
+        y=[],
+        stream=FEDERATION_RELAY,
+        stream_type="metrics",
+        description=(
+            "How much relay traffic each foreign server is generating (in) or "
+            "receiving from us (out), broken down by leg. peer.server_id is "
+            "this server's own DB id for the peer, not a raw domain/URL."
+        ),
+    ),
+]
+
 dashboard = {
     "version": 8,
     "title": "Syrinx",
@@ -941,6 +1084,7 @@ dashboard = {
         {"tabId": "users", "name": "Users", "panels": users},
         {"tabId": "reeds", "name": "Reeds", "panels": reeds},
         {"tabId": "websocket", "name": "WebSocket", "panels": websocket},
+        {"tabId": "relay", "name": "Relay", "panels": relay},
     ],
     "variables": {"list": [], "showDynamicFilters": False},
     "defaultDatetimeDuration": {

@@ -133,14 +133,14 @@ assert.deepEqual(parseReedMarkdown(null ?? ''), { blocks: [] });
 
 // web+syrinx user → ordinary link (in-app via internalPath)
 {
-  const nodes = firstInlines('[Ada](web+syrinx://users/srv/uid123)');
+  const nodes = firstInlines('[Ada](web+syrinx://users/uid123@srv)');
   assert.equal(nodes[0].type, 'link');
-  assert.equal(nodes[0].href, 'web+syrinx://users/srv/uid123');
+  assert.equal(nodes[0].href, 'web+syrinx://users/uid123@srv');
   assert.equal(nodes[0].children[0].value, 'Ada');
-  assert.equal(internalPath(nodes[0].href), '/profile/uid123');
+  assert.equal(internalPath(nodes[0].href), '/profile/uid123@srv');
 }
 
-assert.equal(internalPath('web+syrinx://users/a/b'), '/profile/b');
+assert.equal(internalPath('web+syrinx://users/a@b'), '/profile/a@b');
 assert.equal(internalPath('https://x'), null);
 
 // hashtag → link to pipe href
@@ -298,8 +298,7 @@ for (const { name, markdown, href } of attacks) {
   assert.equal(nodes[0].type, 'text');
   assert.equal(nodes[0].value, 'hi ');
   assert.equal(nodes[1].type, 'mention');
-  assert.equal(nodes[1].userID, 'a1B2c3D4');
-  assert.equal(nodes[1].serverID, 'srv1xyz1');
+  assert.equal(nodes[1].userID, 'a1B2c3D4@srv1xyz1');
   assert.equal(nodes[2].type, 'text');
   assert.equal(nodes[2].value, ' there');
 }
@@ -309,8 +308,7 @@ for (const { name, markdown, href } of attacks) {
   const nodes = firstInlines('~a1B2c3D4@srv1xyz1');
   assert.equal(nodes.length, 1);
   assert.equal(nodes[0].type, 'mention');
-  assert.equal(nodes[0].userID, 'a1B2c3D4');
-  assert.equal(nodes[0].serverID, 'srv1xyz1');
+  assert.equal(nodes[0].userID, 'a1B2c3D4@srv1xyz1');
 }
 
 {
@@ -318,8 +316,7 @@ for (const { name, markdown, href } of attacks) {
   // but still alphanumeric ID. Must resolve as a mention.
   const nodes = firstInlines('ping ~1@CcODhAr7 please');
   assert.equal(nodes[1].type, 'mention');
-  assert.equal(nodes[1].userID, '1');
-  assert.equal(nodes[1].serverID, 'CcODhAr7');
+  assert.equal(nodes[1].userID, '1@CcODhAr7');
 }
 
 {
@@ -354,8 +351,7 @@ for (const { name, markdown, href } of attacks) {
   // (the run simply stops there, which is a valid, complete match).
   const nodes = firstInlines('~a1B2c3D4@some-id rest');
   assert.equal(nodes[0].type, 'mention');
-  assert.equal(nodes[0].userID, 'a1B2c3D4');
-  assert.equal(nodes[0].serverID, 'some');
+  assert.equal(nodes[0].userID, 'a1B2c3D4@some');
   assert.equal(nodes[1].type, 'text');
   assert.equal(nodes[1].value, '-id rest');
 }
@@ -366,7 +362,7 @@ for (const { name, markdown, href } of attacks) {
   // well-formed up to that point, followed by literal text.
   const nodes = firstInlines('~a1B2c3D4@srv1xyz1@more');
   assert.equal(nodes[0].type, 'mention');
-  assert.equal(nodes[0].serverID, 'srv1xyz1');
+  assert.equal(nodes[0].userID, 'a1B2c3D4@srv1xyz1');
   assert.equal(nodes[1].type, 'text');
   assert.equal(nodes[1].value, '@more');
 }
@@ -377,8 +373,8 @@ for (const { name, markdown, href } of attacks) {
   const nodes = firstInlines('~a1B2c3D4@srv1xyz1 and ~e5F6g7H8@srv2abc2');
   const mentions = nodes.filter((n) => n.type === 'mention');
   assert.equal(mentions.length, 2);
-  assert.equal(mentions[0].userID, 'a1B2c3D4');
-  assert.equal(mentions[1].userID, 'e5F6g7H8');
+  assert.equal(mentions[0].userID, 'a1B2c3D4@srv1xyz1');
+  assert.equal(mentions[1].userID, 'e5F6g7H8@srv2abc2');
 }
 
 {

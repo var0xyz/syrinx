@@ -5,6 +5,7 @@
   import { authService } from "$lib/services/auth";
   import { cryptoService } from "$lib/services/crypto";
   import { buildNewUserIdentityPayload } from "$lib/services/signing";
+  import { appendFingerprint } from "$lib/utils/identityRef";
   import { trimInvisibleChars } from "$lib/utils/text";
   import UsernameChecker from "$lib/components/UsernameChecker.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
@@ -27,7 +28,6 @@
   let loading = false;
   let currentStep = 0;
   let inviteID = "";
-  let inviteCreatorID = "";
   let inviteSecret = "";
   let inviteCheckFailed = false;
   /** Every eligible signup must see the preamble — invited users too, not
@@ -37,14 +37,11 @@
   let inviteChecking = false;
   let gateReady = false;
 
-  // Invite links: /signup?iid=<id>&uid=<creator>#<secret> (secret stays in the fragment).
-  $: inviteID = ($page.url.searchParams.get("iid") || "").trim();
-  $: inviteCreatorID = ($page.url.searchParams.get("uid") || "").trim();
+  // Invite links: /signup?id=<id>#<secret> (secret stays in the fragment).
+  $: inviteID = ($page.url.searchParams.get("id") || "").trim();
 
   $: usernameCheckFields =
-    inviteID && inviteCreatorID && inviteSecret
-      ? { inviteID, inviteCreatorID, inviteSecret }
-      : {};
+    inviteID && inviteSecret ? { inviteID, inviteSecret } : {};
 
   onMount(async () => {
     if (authService.isLoggedIn()) {
@@ -81,15 +78,15 @@
       return;
     }
 
-    if (get(signupMode) === 'invite' && (!inviteID || !inviteCreatorID)) {
+    if (get(signupMode) === 'invite' && !inviteID) {
       return;
     }
 
-    if (inviteID && inviteCreatorID && inviteSecret) {
+    if (inviteID && inviteSecret) {
       inviteChecking = true;
       try {
         const { apiService } = await import("$lib/services/api");
-        const result = await apiService.checkInvite(inviteCreatorID, inviteID, inviteSecret);
+        const result = await apiService.checkInvite(inviteID, inviteSecret);
         inviteCheckFailed = !result.valid;
       } catch (err) {
         console.error("invite check failed", err);
@@ -97,7 +94,7 @@
       } finally {
         inviteChecking = false;
       }
-    } else if ((inviteID || inviteCreatorID) && !inviteSecret) {
+    } else if (inviteID && !inviteSecret) {
       // Query id without fragment secret — treat as broken link.
       inviteCheckFailed = true;
     }
@@ -134,20 +131,20 @@
     return msg || "Unknown error";
   }
 
-  async function cleanupFailedSignup(fingerprint) {
+  async function cleanupFailedSignup(keyId) {
     try {
       localStorage.removeItem("keyPassphrase");
-      localStorage.removeItem("keyFingerprint");
+      localStorage.removeItem("activeKeyId");
       localStorage.removeItem("userId");
     } catch {
       // ignore
     }
-    if (!fingerprint) return;
+    if (!keyId) return;
     try {
       const { privateKeyRepository } = await import(
         "$lib/repositories/privateKey"
       );
-      await privateKeyRepository.deletePrivateKey(fingerprint);
+      await privateKeyRepository.deletePrivateKey(keyId);
     } catch (err) {
       console.error("Failed to clean up private key after signup error", err);
     }
@@ -158,7 +155,7 @@
 
     if (
       get(signupMode) === 'invite' &&
-      (!inviteID || !inviteCreatorID || !inviteSecret || inviteCheckFailed)
+      (!inviteID || !inviteSecret || inviteCheckFailed)
     ) {
       notificationStore.error(
         'You need a valid invite link to join this server.'
@@ -168,7 +165,7 @@
 
     loading = true;
     currentStep = 0;
-    let fingerprint = "";
+    let keyId = "";
 
     try {
       const { privateKeyRepository } = await import(
@@ -177,7 +174,7 @@
       const { publicKeyRepository } = await import(
         "$lib/repositories/publicKey"
       );
-      const { apiService } = await import("$lib/services/api");
+      const { apiService, canonicalKeyId } = await import("$lib/services/api");
 
       currentStep = 1;
       const reserved = await apiService.getUserID();
@@ -186,17 +183,21 @@
       password = generatePassword();
       const serverId = localStorage.getItem('serverId') || '';
       const serverName = localStorage.getItem('serverName') || '';
+      // This user's own canonical id, minted here for the first time.
+      // Computed once; every use below passes it through as-is.
+      const canonicalUserId = `${reserved.userID}@${serverId}`;
       const keyPair = await cryptoService.generateKeyPair({
-        name: `${reserved.userID}@${serverId}`,
+        name: canonicalUserId,
         email,
         comment: serverName || undefined,
         password,
       });
-      fingerprint = keyPair.fingerprint;
+      const newKeyId = appendFingerprint(canonicalUserId, keyPair.fingerprint);
+      keyId = newKeyId;
       authService.setPassphrase(password);
 
       currentStep = 3;
-      await privateKeyRepository.put(keyPair.fingerprint, keyPair.privateKey);
+      await privateKeyRepository.put(newKeyId, keyPair.privateKey);
 
       currentStep = 4;
       const signature = btoa(await cryptoService.signMessage(
@@ -211,7 +212,7 @@
       const trimmedUsername = trimInvisibleChars(username);
       const identityPayload = buildNewUserIdentityPayload(
         trimmedUsername,
-        keyPair.fingerprint,
+        newKeyId,
       );
       const identitySigArmor = await cryptoService.signMessage(
         identityPayload,
@@ -229,9 +230,7 @@
         userID: reserved.userID,
         userIDSignature: reserved.signature,
         userIDFingerprint: reserved.fingerprint,
-        ...(inviteID && inviteCreatorID && inviteSecret
-          ? { inviteID, inviteCreatorID, inviteSecret }
-          : {}),
+        ...(inviteID && inviteSecret ? { inviteID, inviteSecret } : {}),
       };
       const user = await authService.signup(signupPayload);
 
@@ -239,15 +238,20 @@
       // authenticated. Cache the attested public key before the verified
       // user put — verifyUser resolves armor from IndexedDB.
       currentStep = 6;
-      authService.setActiveKey(keyPair.fingerprint);
-      await requestSigner.initializeWorker(keyPair.fingerprint, password);
+      authService.setActiveKey(newKeyId);
+      await requestSigner.initializeWorker(newKeyId, password);
 
       currentStep = 7;
+      // getPublicKey takes an already-canonical GET /keys/{id} id — see
+      // api.ts's canonicalKeyId.
       const attestedKey = await apiService.getPublicKey(
-        user.id,
-        keyPair.fingerprint,
+        canonicalKeyId(user.id, keyPair.fingerprint),
       );
       await publicKeyRepository.put(attestedKey);
+      // A stale backup timestamp from a previous account on this browser
+      // must not carry over — it would make Auth.svelte's welcome-page gate
+      // think this brand new key has already been backed up.
+      localStorage.removeItem('lastKeyBackupAt');
       await authService.saveUserToStorage(user);
 
       serverConnection.connect().then(() => serverConnection.syncRequest());
@@ -256,7 +260,7 @@
     } catch (err) {
       loading = false;
       currentStep = 0;
-      await cleanupFailedSignup(fingerprint);
+      await cleanupFailedSignup(keyId);
       const errorMessage =
         "Signup failed: " +
         friendlySignupError(err instanceof Error ? err.message : "");
@@ -277,7 +281,7 @@
         This server is currently not accepting new signups.
       </p>
       <a href="/" class="back-link">Back to home</a>
-    {:else if $signupMode === 'invite' && (!inviteID || !inviteCreatorID)}
+    {:else if $signupMode === 'invite' && !inviteID}
       <p class="gate-message">
         You need a valid invite link to join this server.
       </p>

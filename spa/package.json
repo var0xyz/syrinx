@@ -15,7 +15,8 @@
     "test:verify-binary": "node scripts/test-verify-binary.mjs",
     "test:reed-markdown": "node --experimental-strip-types scripts/test-reed-markdown.mjs",
     "test:identicon": "node --experimental-strip-types scripts/test-identicon.mjs",
-    "test:key-revocation": "node scripts/test-key-revocation.mjs"
+    "test:key-revocation": "node scripts/test-key-revocation.mjs",
+    "test:key-id": "node --experimental-strip-types scripts/test-key-id.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

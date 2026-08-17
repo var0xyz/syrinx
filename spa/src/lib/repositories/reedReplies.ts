@@ -6,34 +6,25 @@ import { dbService } from '$lib/services/db';
 import { allowUnsigned } from '$lib/verifiers';
 import type { ReedType } from '$lib/types/reed';
 import type * as api from '$lib/types/api';
-import { parseReedRef } from '$lib/utils/reedRef';
 
 export type ReedReplyRow = {
   reedID: string;
   userID: string;
-  parentUserID: string;
+  /** Canonical ref (authorID/reedID) of the reed this one replies to. */
   parentReedID: string;
-  parentKey: string;
   threadId: string;
 };
-
-export function parentKey(parentUserID: string, parentReedID: string): string {
-  return `${parentUserID}/${parentReedID}`;
-}
 
 function rowFromFields(
   replyUserID: string,
   replyReedID: string,
-  parentUserID: string,
-  parentReedID: string,
+  parentReedRef: string,
   threadId: string,
 ): ReedReplyRow {
   return {
     reedID: replyReedID,
     userID: replyUserID,
-    parentUserID,
-    parentReedID,
-    parentKey: parentKey(parentUserID, parentReedID),
+    parentReedID: parentReedRef,
     threadId,
   };
 }
@@ -45,37 +36,49 @@ export const reedRepliesRepository = {
 
   async upsertFromMeta(
     reply: api.ReplyMeta,
-    parentUserID: string,
-    parentReedID: string,
+    parentReedRef: string,
     threadId: string,
   ): Promise<void> {
     await reedRepliesRepository.put(
-      rowFromFields(reply.userID, reply.reedID, parentUserID, parentReedID, threadId),
+      rowFromFields(reply.userID, reply.reedID, parentReedRef, threadId),
     );
   },
 
   async upsertFromReed(reed: Pick<ReedType, 'id' | 'userID' | 'threadId' | 'replying'>): Promise<void> {
     if (!reed.replying || !reed.threadId) return;
-    const parent = parseReedRef(reed.replying);
-    if (!parent) return;
     await reedRepliesRepository.put(
-      rowFromFields(reed.userID, reed.id, parent.authorId, parent.reedId, reed.threadId),
+      rowFromFields(reed.userID, reed.id, reed.replying, reed.threadId),
     );
   },
 
   async syncFromServerList(
-    parentUserID: string,
-    parentReedID: string,
+    parentReedRef: string,
     threadId: string,
     replies: api.ReplyMeta[],
   ): Promise<void> {
     for (const reply of replies) {
-      await reedRepliesRepository.upsertFromMeta(reply, parentUserID, parentReedID, threadId);
+      await reedRepliesRepository.upsertFromMeta(reply, parentReedRef, threadId);
     }
   },
 
-  async listByParent(parentUserID: string, parentReedID: string): Promise<ReedReplyRow[]> {
-    return dbService.getAllByIndex<ReedReplyRow>('reedReplies', 'parentKey', parentKey(parentUserID, parentReedID));
+  // Prunes locally cached rows for replies the server no longer lists
+  // (e.g. removed on a federated server before this client ever saw a
+  // live removal notice) — without this, a stale row flashes on load
+  // before the server refresh corrects the count.
+  async pruneStale(
+    parentReedRef: string,
+    liveReedIDs: Set<string>,
+  ): Promise<void> {
+    const cached = await reedRepliesRepository.listByParent(parentReedRef);
+    for (const row of cached) {
+      if (!liveReedIDs.has(row.reedID)) {
+        await reedRepliesRepository.remove(row.reedID);
+      }
+    }
+  },
+
+  async listByParent(parentReedRef: string): Promise<ReedReplyRow[]> {
+    return dbService.getAllByIndex<ReedReplyRow>('reedReplies', 'parentReedID', parentReedRef);
   },
 
   async remove(reedID: string): Promise<void> {

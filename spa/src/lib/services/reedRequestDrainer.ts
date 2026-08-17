@@ -31,7 +31,7 @@ async function drainTick(): Promise<void> {
     const pending = await reedRequestsRepository.getAllPending();
     for (const record of pending) {
       if (serverConnection.isReedRequestDispatched(record.requestId)) continue;
-      const held = await reedsService.getReed(record.authorId, record.reedId);
+      const held = await reedsService.getReed(record.reedId);
       if (held) {
         await reedRequestsRepository.delete(record.requestId);
         continue;

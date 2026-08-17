@@ -12,6 +12,8 @@ import { dbService } from '$lib/services/db';
 import { serverConnection } from '$lib/services/serverConnection';
 import { reedContentWithinLimits } from '$lib/utils/reedContent';
 import { shouldRecheck, markChecked } from '$lib/utils/keyCheckThrottle';
+import { parseKeyId, parseCanonicalId } from '$lib/utils/identityRef';
+import { canonicalKeyId } from '$lib/services/api';
 import {
   buildAccountRemovalServerPayload,
   buildAccountRemovalUserPayload,
@@ -34,6 +36,16 @@ import { signedAtHeader, verify } from '$lib/services/verify';
 
 export type Verifier<T = unknown> = (data: T) => Promise<boolean>;
 
+/** Splits a ServerSignature.id ("fingerprint@serverID") back into the raw
+ * parts payload builders sign as separate headers. Falls back to empty
+ * strings on a malformed id — callers already require serverSignature.id
+ * to be present, so verify() will fail closed on the resulting mismatch. */
+function splitServerSignatureId(id: string): { fingerprint: string; serverID: string } {
+  const parsed = parseCanonicalId(id);
+  if (!parsed) return { fingerprint: '', serverID: '' };
+  return { fingerprint: parsed[0], serverID: parsed[1] };
+}
+
 /** Explicit no-op for stores that are not signed resources. */
 export async function allowUnsigned(_data: unknown): Promise<boolean> {
   return true;
@@ -47,7 +59,7 @@ async function fetchAndStorePublicKey(
   fingerprint: string
 ): Promise<api.PublicKey | null> {
   try {
-    const key = await apiService.getPublicKey(userID, fingerprint);
+    const key = await apiService.getPublicKey(canonicalKeyId(userID, fingerprint));
     if (!key) return null;
     await dbService.put('publicKeys', key, verifyPublicKey);
     markChecked(fingerprint);
@@ -85,12 +97,12 @@ async function resolvePublicKey(
 }
 
 async function resolvePredecessor(key: api.PublicKey): Promise<api.PublicKey | null> {
-  const predFp = key.predecessor?.fingerprint;
-  if (!predFp) return null;
-  const cached = await dbService.get<api.PublicKey>('publicKeys', predFp);
+  const predId = key.predecessor;
+  if (!predId) return null;
+  const cached = await dbService.get<api.PublicKey>('publicKeys', predId);
   if (cached) return cached;
   try {
-    const pred = await apiService.getPublicKey(key.userID, predFp);
+    const pred = await apiService.getPublicKey(canonicalKeyId(key.userID, predId));
     if (!pred) return null;
     try {
       await dbService.put('publicKeys', pred, verifyPublicKey);
@@ -103,19 +115,46 @@ async function resolvePredecessor(key: api.PublicKey): Promise<api.PublicKey | n
   }
 }
 
-/** Server attestation + armor↔fingerprint (+ optional predecessor handoff). */
+/** Fetch + cache the predecessor key's own revocation cert, needed for its
+ * `successorSignature` (the predecessor's proof it approved this rotation —
+ * see verifyPublicKey's predecessor handoff check). */
+async function resolvePredecessorRevocation(predId: string): Promise<api.KeyRevocation | null> {
+  const cached = await dbService.get<api.KeyRevocation>('revocations', predId);
+  if (cached) return cached;
+  if (!parseKeyId(predId)) return null;
+  try {
+    // predId is already canonical, so getKeyRevocation's userId arg is
+    // moot (canonicalKeyId in api.ts passes an already-canonical
+    // fingerprint straight through) — pass it again rather than
+    // re-deriving userId@serverID from the parsed id.
+    const revocation = await apiService.getKeyRevocation(predId, predId);
+    try {
+      await dbService.put('revocations', revocation, verifyKeyRevocation);
+    } catch {
+      // Still hand the fetched revocation to the current attestation pass.
+    }
+    return revocation;
+  } catch {
+    return null;
+  }
+}
+
+/** Server attestation + armor↔id (+ optional predecessor handoff). */
 export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
   if (!key?.serverSignature) {
-    console.error('[verifyPublicKey] missing serverSignature block', key?.fingerprint);
+    console.error('[verifyPublicKey] missing serverSignature block', key?.id);
     return false;
   }
+  const { fingerprint: keySignerFingerprint, serverID: keySignerServerID } = splitServerSignatureId(
+    key.serverSignature.id
+  );
   const result = await verify(
     key.serverSignature,
     buildPublicKeyPayload(
       key.userID,
-      key.fingerprint,
-      key.serverSignature.serverID,
-      key.serverSignature.fingerprint,
+      key.id,
+      keySignerServerID,
+      keySignerFingerprint,
       key.armor,
       signedAtHeader(key.serverSignature.timestamp)
     )
@@ -124,29 +163,53 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
     console.error('[verifyPublicKey] server signature failed', result);
     return false;
   }
+  // key.id must start with key.userID + "/" — a substring check on two
+  // already-whole values, not a parse-and-rebuild. Closes a spoofing gap
+  // (mirrors recovery/nest.go's FlattenKeysNest check server-side).
+  const ownerPrefix = `${key.userID}/`;
+  if (!key.id.startsWith(ownerPrefix)) {
+    console.error('[verifyPublicKey] id owner mismatch', { id: key.id, userID: key.userID });
+    return false;
+  }
+  const labeledFingerprint = key.id.slice(ownerPrefix.length);
   const derived = await cryptoService.fingerprintFromArmor(key.armor);
-  if (derived.toLowerCase() !== key.fingerprint.toLowerCase()) {
-    console.error('[verifyPublicKey] fingerprint mismatch', { labeled: key.fingerprint, derived });
+  if (derived.toLowerCase() !== labeledFingerprint.toLowerCase()) {
+    console.error('[verifyPublicKey] fingerprint mismatch', { labeled: key.id, derived });
     return false;
   }
 
-  if (key.predecessor?.signature) {
-    if (!key.predecessor.fingerprint) {
-      console.error('[verifyPublicKey] predecessor block missing fingerprint');
-      return false;
-    }
+  // Rotation provenance is one hop away: the predecessor's handoff proof
+  // lives on the *predecessor's own* revocation cert, as successorSignature.
+  if (key.predecessor) {
     const predecessor = await resolvePredecessor(key);
     if (!predecessor?.armor) {
-      console.error('[verifyPublicKey] predecessor public key unavailable', key.predecessor.fingerprint);
+      console.error('[verifyPublicKey] predecessor public key unavailable', key.predecessor);
       return false;
     }
+    const predRevocation = await resolvePredecessorRevocation(key.predecessor);
+    if (!predRevocation?.successorSignature) {
+      console.error('[verifyPublicKey] predecessor revocation/successorSignature unavailable', key.predecessor);
+      return false;
+    }
+    if (predRevocation.successor !== key.id) {
+      console.error('[verifyPublicKey] predecessor revocation successor mismatch', {
+        expected: key.id,
+        actual: predRevocation.successor,
+      });
+      return false;
+    }
+    // successorSignature travels as raw armor, not base64 — it's written
+    // from the same already-decoded value the old predecessor.signature
+    // field used to carry (see AddPublicKeyInput.PredecessorSignature's
+    // doc comment in services.go), unlike userSignature.armor/
+    // serverSignature.armor elsewhere on this cert, which are base64.
     const handoffValid = await cryptoService.verifySignature(
       key.armor,
-      key.predecessor.signature,
+      predRevocation.successorSignature,
       predecessor.armor
     );
     if (!handoffValid) {
-      console.error('[verifyPublicKey] predecessor handoff signature failed', key.fingerprint);
+      console.error('[verifyPublicKey] predecessor handoff signature failed', key.id);
       return false;
     }
   }
@@ -182,20 +245,20 @@ async function isKeyValidAt(
 
 export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promise<boolean> {
   if (!revocation?.serverSignature || !revocation.userSignature?.armor) {
-    console.error('[verifyKeyRevocation] missing signatures', revocation?.fingerprint);
+    console.error('[verifyKeyRevocation] missing signatures', revocation?.id);
     return false;
   }
 
   // User attestation is signed by the key being revoked.
-  const publicKeyArmor = await resolvePublicKeyArmor(revocation.userID, revocation.fingerprint);
+  const publicKeyArmor = await resolvePublicKeyArmor(revocation.userID, revocation.id);
   if (!publicKeyArmor) {
-    console.error('[verifyKeyRevocation] public key armor unavailable', revocation.fingerprint);
+    console.error('[verifyKeyRevocation] public key armor unavailable', revocation.id);
     return false;
   }
 
   const userPayload = buildUserRevocationPayload(
     revocation.userID,
-    revocation.fingerprint,
+    revocation.id,
     revocation.reason
   );
   const userValid = await cryptoService.verifySignature(
@@ -204,16 +267,18 @@ export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promis
     publicKeyArmor
   );
   if (!userValid) {
-    console.error('[verifyKeyRevocation] user signature failed', revocation.fingerprint);
+    console.error('[verifyKeyRevocation] user signature failed', revocation.id);
     return false;
   }
 
+  const { fingerprint: revocationServerFingerprint, serverID: revocationServerID } =
+    splitServerSignatureId(revocation.serverSignature.id);
   const serverPayload = buildServerRevocationPayload(
     revocation.userID,
-    revocation.fingerprint,
+    revocation.id,
     revocation.reason,
-    revocation.serverSignature.serverID,
-    revocation.serverSignature.fingerprint,
+    revocationServerID,
+    revocationServerFingerprint,
     revocation.userSignature.armor,
     signedAtHeader(revocation.serverSignature.timestamp)
   );
@@ -226,7 +291,7 @@ export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promis
 }
 
 export async function verifyUser(user: api.User): Promise<boolean> {
-  if (!user?.userSignature?.armor || !user.userSignature?.fingerprint || !user.serverSignature) {
+  if (!user?.userSignature?.armor || !user.userSignature?.id || !user.serverSignature) {
     console.error('[verifyUser] missing signatures', user?.id);
     return false;
   }
@@ -235,15 +300,15 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     return false;
   }
 
-  const publicKeyData = await resolvePublicKey(user.id, user.userSignature.fingerprint);
+  const publicKeyData = await resolvePublicKey(user.id, user.userSignature.id);
   if (!publicKeyData?.armor) {
-    console.error('[verifyUser] public key unavailable', user.userSignature.fingerprint);
+    console.error('[verifyUser] public key unavailable', user.userSignature.id);
     return false;
   }
 
   const userPayload = buildUserIdentityPayload(
     user.username,
-    user.userSignature.fingerprint,
+    user.userSignature.id,
     user.bio ?? ''
   );
   let userSigArmor: string;
@@ -259,12 +324,15 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     return false;
   }
 
+  const { fingerprint: profileServerFingerprint, serverID: profileServerID } = splitServerSignatureId(
+    user.serverSignature.id
+  );
   const serverPayload = buildProfilePayload(
     user.id,
     user.username,
-    user.userSignature.fingerprint,
-    user.serverSignature.serverID,
-    user.serverSignature.fingerprint,
+    user.userSignature.id,
+    profileServerID,
+    profileServerFingerprint,
     user.userSignature.armor,
     user.invitedBy?.id ?? '',
     user.role,
@@ -281,7 +349,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
   if (
     !(await isKeyValidAt(
       user.id,
-      user.userSignature.fingerprint,
+      user.userSignature.id,
       publicKeyData.revoked,
       user.serverSignature.timestamp
     ))
@@ -296,7 +364,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
 export async function verifyReed(reed: ReedType): Promise<boolean> {
   if (
     !reed?.userSignature?.armor ||
-    !reed.userSignature?.fingerprint ||
+    !reed.userSignature?.id ||
     !reed.userID ||
     !reed.serverSignature
   ) {
@@ -315,7 +383,7 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     return false;
   }
 
-  const publicKeyData = await resolvePublicKey(reed.userID, reed.userSignature.fingerprint);
+  const publicKeyData = await resolvePublicKey(reed.userID, reed.userSignature.id);
   if (!publicKeyData) {
     console.error('[verifyReed] author public key unavailable', reed.id);
     return false;
@@ -335,11 +403,13 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     return false;
   }
 
+  const { fingerprint: reedServerFingerprint, serverID: reedServerID } = splitServerSignatureId(
+    reed.serverSignature.id
+  );
   const serverPayload = buildReedPayload(
-    reed.serverSignature.serverID,
-    reed.userID,
+    reedServerID,
     reed.id,
-    reed.serverSignature.fingerprint,
+    reedServerFingerprint,
     reed.userSignature.armor,
     signedAtHeader(reed.serverSignature.timestamp)
   );
@@ -352,7 +422,7 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
   if (
     !(await isKeyValidAt(
       reed.userID,
-      reed.userSignature.fingerprint,
+      reed.userSignature.id,
       publicKeyData.revoked,
       reed.serverSignature.timestamp
     ))
@@ -366,9 +436,9 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
 
 /**
  * Verify a ripple response: author signature + server countersignature,
- * modeled on verifyReed. `reedAuthorID`/`reedID` identify the parent reed
+ * modeled on verifyReed. `reedID` (canonical) identifies the parent reed
  * this ripple is attached to — not part of the wire object itself, so the
- * caller (which already knows which reed's list it fetched) supplies them.
+ * caller (which already knows which reed's list it fetched) supplies it.
  * A tombstoned (soft-deleted) response is trusted on its `deleted` flag
  * alone — its stored signatures describe the original pre-delete content,
  * which this client does not have and cannot re-verify against (see
@@ -376,7 +446,6 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
  */
 export async function verifyRipple(
   ripple: api.Ripple,
-  reedAuthorID: string,
   reedID: string
 ): Promise<boolean> {
   if (ripple?.deleted) {
@@ -385,7 +454,7 @@ export async function verifyRipple(
 
   if (
     !ripple?.userSignature?.armor ||
-    !ripple.userSignature?.fingerprint ||
+    !ripple.userSignature?.id ||
     !ripple.userID ||
     !ripple.serverSignature
   ) {
@@ -393,7 +462,7 @@ export async function verifyRipple(
     return false;
   }
 
-  const publicKeyData = await resolvePublicKey(ripple.userID, ripple.userSignature.fingerprint);
+  const publicKeyData = await resolvePublicKey(ripple.userID, ripple.userSignature.id);
   if (!publicKeyData) {
     console.error('[verifyRipple] author public key unavailable', ripple.hash);
     return false;
@@ -404,10 +473,9 @@ export async function verifyRipple(
   }
 
   const userPayload = buildRippleUserPayload(
-    reedAuthorID,
     reedID,
     ripple.userID,
-    ripple.userSignature.fingerprint,
+    ripple.userSignature.id,
     ripple.threadID,
     ripple.replyingTo ?? '',
     ripple.content
@@ -422,12 +490,12 @@ export async function verifyRipple(
     return false;
   }
 
+  const { serverID: rippleServerID } = splitServerSignatureId(ripple.serverSignature.id);
   const serverPayload = buildRippleServerPayload(
-    ripple.serverSignature.serverID,
-    reedAuthorID,
+    rippleServerID,
     reedID,
     ripple.userID,
-    ripple.userSignature.fingerprint,
+    ripple.userSignature.id,
     ripple.threadID,
     ripple.replyingTo ?? '',
     ripple.userSignature.armor,
@@ -442,7 +510,7 @@ export async function verifyRipple(
   if (
     !(await isKeyValidAt(
       ripple.userID,
-      ripple.userSignature.fingerprint,
+      ripple.userSignature.id,
       publicKeyData.revoked,
       ripple.serverSignature.timestamp
     ))
@@ -460,7 +528,7 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
     return false;
   }
 
-  const armor = await resolveAuthorArmorForRemoval(cert.userID, cert.userSignature.fingerprint);
+  const armor = await resolveAuthorArmorForRemoval(cert.userID, cert.userSignature.id);
   if (!armor) {
     console.error('[verifyReedRemoval] no public key for author', cert.userID);
     return false;
@@ -474,18 +542,18 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
     return false;
   }
 
-  const userPayload = buildReedRemovalUserPayload(cert.serverID, cert.userID, cert.reedID);
+  const userPayload = buildReedRemovalUserPayload(cert.serverID, cert.reedID);
   const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, armor);
   if (!userValid) {
     console.error('[verifyReedRemoval] user signature failed', cert.reedID);
     return false;
   }
 
+  const { fingerprint: removalServerFingerprint } = splitServerSignatureId(cert.serverSignature.id);
   const serverPayload = buildReedRemovalServerPayload(
     cert.serverID,
-    cert.userID,
     cert.reedID,
-    cert.serverSignature.fingerprint,
+    removalServerFingerprint,
     cert.userSignature.armor,
     signedAtHeader(cert.serverSignature.timestamp)
   );
@@ -511,7 +579,7 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
     return false;
   }
 
-  const armor = await resolvePublicKeyArmor(likerID, cert.userSignature.fingerprint);
+  const armor = await resolvePublicKeyArmor(likerID, cert.userSignature.id);
   if (!armor) {
     console.error('[verifyReedLike] no public key for liker', likerID);
     return false;
@@ -526,10 +594,8 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
   }
 
   const userPayload = buildReedLikeUserPayload(
-    cert.serverID,
-    cert.authorID,
     cert.reedID,
-    cert.userSignature.fingerprint
+    cert.userSignature.id
   );
   const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, armor);
   if (!userValid) {
@@ -537,11 +603,10 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
     return false;
   }
 
+  const { fingerprint: likeServerFingerprint } = splitServerSignatureId(cert.serverSignature.id);
   const serverPayload = buildReedLikeServerPayload(
-    cert.serverID,
-    cert.authorID,
     cert.reedID,
-    cert.serverSignature.fingerprint,
+    likeServerFingerprint,
     cert.userSignature.armor,
     signedAtHeader(cert.serverSignature.timestamp)
   );
@@ -565,7 +630,7 @@ export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<bo
     return false;
   }
 
-  const armor = await resolveAuthorArmorForRemoval(cert.userID, cert.userSignature.fingerprint);
+  const armor = await resolveAuthorArmorForRemoval(cert.userID, cert.userSignature.id);
   if (!armor) {
     console.error('[verifyAccountRemoval] no public key for author', cert.userID);
     return false;
@@ -590,11 +655,12 @@ export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<bo
     return false;
   }
 
+  const { fingerprint: accountServerFingerprint } = splitServerSignatureId(cert.serverSignature.id);
   const serverPayload = buildAccountRemovalServerPayload(
     cert.serverID,
     cert.userID,
     cert.note ?? '',
-    cert.serverSignature.fingerprint,
+    accountServerFingerprint,
     cert.userSignature.armor,
     signedAtHeader(cert.serverSignature.timestamp)
   );
@@ -611,7 +677,7 @@ export async function verifyInvite(invite: api.Invite): Promise<boolean> {
     !invite?.id ||
     !invite.createdAt ||
     !invite.userSignature?.armor ||
-    !invite.userSignature?.fingerprint ||
+    !invite.userSignature?.id ||
     !invite.serverSignature
   ) {
     console.error('[verifyInvite] missing fields', invite?.id);
@@ -624,7 +690,7 @@ export async function verifyInvite(invite: api.Invite): Promise<boolean> {
     return false;
   }
 
-  const armor = await resolvePublicKeyArmor(userID, invite.userSignature.fingerprint);
+  const armor = await resolvePublicKeyArmor(userID, invite.userSignature.id);
   if (!armor) {
     console.error('[verifyInvite] no public key', userID);
     return false;
@@ -643,8 +709,11 @@ export async function verifyInvite(invite: api.Invite): Promise<boolean> {
     console.error('[verifyInvite] missing tokenHash', invite.id);
     return false;
   }
+  const { fingerprint: inviteServerFingerprint, serverID: inviteServerID } = splitServerSignatureId(
+    invite.serverSignature.id
+  );
   const userPayload = buildInviteUserPayload(
-    invite.serverSignature.serverID,
+    inviteServerID,
     userID,
     invite.id,
     invite.tokenHash,
@@ -658,11 +727,11 @@ export async function verifyInvite(invite: api.Invite): Promise<boolean> {
   }
 
   const serverPayload = buildInviteServerPayload(
-    invite.serverSignature.serverID,
+    inviteServerID,
     userID,
     invite.id,
     invite.tokenHash,
-    invite.serverSignature.fingerprint,
+    inviteServerFingerprint,
     invite.userSignature.armor,
     createdAt,
     signedAtHeader(invite.serverSignature.timestamp)
@@ -692,8 +761,8 @@ async function resolveAuthorArmorForRemoval(
     const info = await apiService.getUserInfo(userID).catch(() => null);
     const fp =
       fingerprint ||
-      info?.activeKeyFingerprint ||
-      forUser[0]?.fingerprint;
+      info?.activeKeyID ||
+      forUser[0]?.id;
     if (!fp) return forUser[0]?.armor ?? null;
     return resolvePublicKeyArmor(userID, fp);
   } catch (error) {

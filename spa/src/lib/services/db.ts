@@ -17,8 +17,7 @@ export function payloadByteLength(data: unknown): number {
 }
 
 /** A store's primary key: a single string for most stores, or an array for
- * a store whose keyPath is a compound key (currently just 'reeds':
- * [userID, id] — see storeNames below). */
+ * a store whose keyPath is a compound key. */
 export type DbKey = string | string[];
 
 export interface DbService {
@@ -39,39 +38,28 @@ export class IndexedDbService implements DbService {
   private readonly dbName = 'Syrinx';
   // Bumping `version` must NOT wipe existing stores — see onupgradeneeded
   // below, which is additive: it only creates stores/indexes that don't
-  // exist yet on this client, never deletes anything. A prior version of
-  // this file deleted every object store on every bump (even when only
-  // one new store was added), unconditionally wiping privateKeys,
-  // unsignedReeds, and everything else on every client on every feature
-  // deploy that touched IndexedDB. There is no "clients resync from the
-  // server" fallback for privateKeys/unsignedReeds — the server never
-  // holds a copy of either — so that was outright, permanent data loss
-  // for every user on every such deploy, not a cache-miss.
-  //
-  // v8: 'reeds' keyPath became [userID, id] (was 'id' alone) — a reed ID
-  // is only unique per author, not globally, so a single-string key let
-  // one author's cached reed silently overwrite another's on an ID
-  // collision.
-  // v9: added 'ripples', keyed by hash (content-addressed, globally
-  // unique — see specs/ripples/00_design.md's Signing section).
-  private readonly version = 9;
+  // exist yet on this client, never deletes anything, except for stores
+  // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
+  // must be dropped and recreated — see the drop loop below). Pre-launch,
+  // so dropped stores' data loss is acceptable rather than migrated.
+  private readonly version = 14;
   private readonly storeNames = [
     ['following',   'userId'     ],
-    ['privateKeys', 'fingerprint'],
-    ['publicKeys',  'fingerprint'],
-    ['revocations', 'fingerprint'],
+    ['privateKeys', 'keyId'      ],
+    ['publicKeys',  'id'         ],
+    ['revocations', 'id'         ],
     ['tags',        'tagName'    ],
     ['users',       'id'         ],
     ['usersInfo',   'id'         ],
     ['invites',     'id'         ],
-    ['reedReplies', 'reedID', 'parentKey'],
+    ['reedReplies', 'reedID', 'parentReedID'],
     ['ripples',     'hash', 'threadID'],
 
     // Offline-first
     ['unfollow',           'userId'     ],
     ['unsignedReeds',      'id'         ],
     ['pendingFollows',     'userId'     ],
-    ['pendingRevocation',  'fingerprint'],
+    ['pendingRevocation',  'keyId'      ],
     ['pendingRemoval',     'reedID'     ],
     ['pendingPublication', 'reedID'     ],
     ['pendingBackups',     'id'         ],
@@ -92,20 +80,49 @@ export class IndexedDbService implements DbService {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         this.db = request.result;
+        // Another tab (or a future deploy in this same tab) requesting a
+        // higher version blocks behind this connection until it closes —
+        // without this, a live tab left open across a deploy wedges every
+        // other tab's IndexedDB open indefinitely (no error, no timeout).
+        this.db.onversionchange = () => {
+          this.db?.close();
+          this.db = null;
+          window.location.reload();
+        };
         resolve();
+      };
+
+      // Fires when an older connection (this same origin, another tab) is
+      // still open and hasn't responded to versionchange in time — without
+      // this handler the open request just hangs forever with no callback.
+      request.onblocked = () => {
+        reject(new Error('IndexedDB upgrade blocked by another open tab — close other tabs of this app and retry.'));
       };
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
         const tx = (event.target as IDBOpenDBRequest).transaction!;
 
+        // keyPath is immutable on an existing store, so a version bump that
+        // changes a store's keyPath must drop and recreate it — a plain
+        // ensureStore call would silently keep the OLD keyPath on a store
+        // that already exists (see the NOTE below). Pre-launch project, no
+        // production data to preserve, so dropped stores are just cleared,
+        // not migrated in place — including privateKeys/pendingRevocation
+        // here for the fingerprint -> keyId rename.
+        for (const storeName of ['publicKeys', 'revocations', 'reeds', 'privateKeys', 'pendingRevocation']) {
+          if (db.objectStoreNames.contains(storeName)) {
+            db.deleteObjectStore(storeName);
+          }
+        }
+
         // NOTE: keyPath is immutable on an existing store — IndexedDB has
         // no in-place "change the key" API. If a future change needs a
         // different keyPath for a store that already shipped (like v8's
-        // 'reeds' change once did), this helper's `contains(storeName)`
-        // branch will keep the OLD keyPath silently; that migration needs
-        // its own explicit read-all/delete/recreate/reinsert code here,
-        // not a plain ensureStore call with the new keyPath.
+        // 'reeds' change, or v11's 'publicKeys'/'revocations' change
+        // above), this helper's `contains(storeName)` branch will keep the
+        // OLD keyPath silently unless the store was explicitly dropped
+        // first.
         const ensureStore = (
           storeName: string,
           keyPath: string | string[],
@@ -125,10 +142,8 @@ export class IndexedDbService implements DbService {
           ensureStore(storeName, keyPath, indexes);
         }
 
-        // Compound key: a reed ID is only unique per author. Keeps 'userID'
-        // and 'serverSignature.timestamp' as regular (non-key) indexes for
-        // getReedsByAuthor / deleteReedsByAuthor / recency queries.
-        ensureStore('reeds', ['userID', 'id'], ['userID', 'serverSignature.timestamp']);
+        // Reed ids are canonical (globally unique) as of v12 — dropped above.
+        ensureStore('reeds', 'id', ['userID', 'serverSignature.timestamp']);
       };
     });
   }
