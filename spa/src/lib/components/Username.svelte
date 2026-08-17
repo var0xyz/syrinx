@@ -2,8 +2,8 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
 
-  /** Omit to mean "the local server" — matches Avatar's fallback. */
-  export let serverID = '';
+  /** `userID@serverID` id — callers already have this form, so this
+   * component takes it as a single value rather than composing it. */
   /** @type {string} */
   export let userID;
   /** @type {string} */
@@ -29,10 +29,14 @@
 
   let localServerID = '';
 
-  $: effectiveServerID =
-    serverID || (typeof localStorage !== 'undefined' ? localStorage.getItem('serverId') : '') || '';
-  $: isLocal = !!localServerID && effectiveServerID === localServerID;
-  $: isAdmin = userID === '1';
+  // Split "userID@serverID" on the LAST '@' — matches the Go side's
+  // identity.ParseIdentityID convention. Only the bare userID part is
+  // compared below; the frontend only ever reasons about its own account.
+  $: atIndex = userID ? userID.lastIndexOf('@') : -1;
+  $: bareUserID = atIndex > 0 ? userID.slice(0, atIndex) : userID;
+  $: userServerID = atIndex > 0 ? userID.slice(atIndex + 1) : '';
+  $: isLocal = !!localServerID && userServerID === localServerID;
+  $: isAdmin = bareUserID === '1';
   // Inline, not class-based: callers embed this in contexts with their own
   // `.inline-link`/etc color rules (e.g. MarkdownParser's link styling) that
   // would otherwise win on specificity/source order over a scoped class.

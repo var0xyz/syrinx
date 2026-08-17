@@ -6,6 +6,7 @@ import (
 
 	"syrinx/coverage"
 	"syrinx/deletion"
+	"syrinx/identity"
 
 	"github.com/lib/pq"
 	"github.com/rs/zerolog/log"
@@ -13,22 +14,26 @@ import (
 
 // DBService handles database operations for the realtime service
 type DBService struct {
-	db *sql.DB
+	db       *sql.DB
+	serverID string
 }
 
-// NewDBService creates a new database service
-func NewDBService(db *sql.DB) *DBService {
-	return &DBService{db: db}
+// NewDBService creates a new database service. Every userID/authorID/
+// viewerID/etc. string parameter in this file is the full "userID@serverID"
+// form already, not bare — do not compose identity.LocalID against it.
+func NewDBService(db *sql.DB, serverID string) *DBService {
+	return &DBService{db: db, serverID: serverID}
 }
 
 // MarkUserOnline marks a user as online in the database
 func (ds *DBService) MarkUserOnline(ctx context.Context, userID string) error {
+	selfIdentity := identity.IdentityID(userID)
 	_, err := ds.db.ExecContext(ctx, `
 		INSERT INTO online_users (user_id)
 		VALUES ($1)
 		ON CONFLICT (user_id) DO UPDATE
 		SET created_at = CURRENT_TIMESTAMP
-	`, userID)
+	`, selfIdentity)
 
 	if err != nil {
 		log.Error().
@@ -47,26 +52,29 @@ func (ds *DBService) MarkUserOnline(ctx context.Context, userID string) error {
 
 // SetSyncRequestID stores the client-provided sync request ID for a user.
 func (ds *DBService) SetSyncRequestID(ctx context.Context, userID, requestID string) error {
+	selfIdentity := identity.IdentityID(userID)
 	_, err := ds.db.ExecContext(ctx, `
 		UPDATE online_users SET sync_request_id = $1 WHERE user_id = $2
-	`, requestID, userID)
+	`, requestID, selfIdentity)
 	return err
 }
 
 // GetSyncRequestID returns the stored sync request ID for a user, or "" if not set.
 func (ds *DBService) GetSyncRequestID(ctx context.Context, userID string) (string, error) {
+	selfIdentity := identity.IdentityID(userID)
 	var id string
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT COALESCE(sync_request_id, '') FROM online_users WHERE user_id = $1
-	`, userID).Scan(&id)
+	`, selfIdentity).Scan(&id)
 	return id, err
 }
 
 // MarkUserOffline marks a user as offline in the database
 func (ds *DBService) MarkUserOffline(ctx context.Context, userID string) error {
+	selfIdentity := identity.IdentityID(userID)
 	_, err := ds.db.ExecContext(ctx, `
 		DELETE FROM online_users WHERE user_id = $1
-	`, userID)
+	`, selfIdentity)
 
 	if err != nil {
 		log.Error().
@@ -83,14 +91,16 @@ func (ds *DBService) MarkUserOffline(ctx context.Context, userID string) error {
 	return nil
 }
 
-// GetUserPublicKey retrieves a user's public key by fingerprint
+// GetUserPublicKey retrieves a user's public key by fingerprint. user_keys.owner
+// is FK'd to identities(id); userID here is always local.
 func (ds *DBService) GetUserPublicKey(ctx context.Context, userID, fingerprint string) (string, error) {
+	selfIdentity := identity.IdentityID(userID)
 	var armor string
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT armor
 		FROM user_keys
 		WHERE owner = $1 AND fingerprint = $2
-	`, userID, fingerprint).Scan(&armor)
+	`, selfIdentity, fingerprint).Scan(&armor)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -104,6 +114,9 @@ func (ds *DBService) GetUserPublicKey(ctx context.Context, userID, fingerprint s
 
 // GetUsername returns the current username for display on ephemeral deliveries
 // (e.g. broadcast reeds). Empty string when the user row is missing.
+//
+// users.id IS identities.id directly, and userID here already arrives in
+// that form, so this queries users.id directly, no join needed.
 func (ds *DBService) GetUsername(ctx context.Context, userID string) (string, error) {
 	var name sql.NullString
 	if err := ds.db.QueryRowContext(ctx, `SELECT username FROM users WHERE id = $1`, userID).Scan(&name); err != nil {
@@ -115,14 +128,17 @@ func (ds *DBService) GetUsername(ctx context.Context, userID string) (string, er
 	return name.String, nil
 }
 
-// SubscribeToBroadcast adds a user to the broadcast subscriptions table
+// SubscribeToBroadcast adds a user to the broadcast subscriptions table.
+// broadcast_subscriptions.user_id has no direct FK to identities but is
+// composite-FK'd to online_users(user_id), which is itself FK'd to identities(id).
 func (ds *DBService) SubscribeToBroadcast(ctx context.Context, userID string) error {
+	selfIdentity := identity.IdentityID(userID)
 	_, err := ds.db.ExecContext(ctx, `
 		INSERT INTO broadcast_subscriptions (user_id)
 		VALUES ($1)
 		ON CONFLICT (user_id) DO UPDATE
 		SET created_at = CURRENT_TIMESTAMP
-	`, userID)
+	`, selfIdentity)
 
 	if err != nil {
 		log.Error().
@@ -137,9 +153,10 @@ func (ds *DBService) SubscribeToBroadcast(ctx context.Context, userID string) er
 
 // UnsubscribeFromBroadcast removes a user from the broadcast subscriptions table
 func (ds *DBService) UnsubscribeFromBroadcast(ctx context.Context, userID string) error {
+	selfIdentity := identity.IdentityID(userID)
 	_, err := ds.db.ExecContext(ctx, `
 		DELETE FROM broadcast_subscriptions WHERE user_id = $1
-	`, userID)
+	`, selfIdentity)
 
 	if err != nil {
 		log.Error().
@@ -153,14 +170,17 @@ func (ds *DBService) UnsubscribeFromBroadcast(ctx context.Context, userID string
 }
 
 
-// GetOnlineFollowers returns the IDs of online users who follow the given author
+// GetOnlineFollowers returns the IDs of online users who follow the given author.
+// online_users.user_id and user_followers.user_id/follower_user_id are all
+// direct FKs to identities(id).
 func (ds *DBService) GetOnlineFollowers(ctx context.Context, authorID string) ([]string, error) {
+	authorIdentity := identity.IdentityID(authorID)
 	rows, err := ds.db.QueryContext(ctx, `
 		SELECT ou.user_id
 		FROM online_users ou
 		JOIN user_followers uf ON ou.user_id = uf.follower_user_id
 		WHERE uf.user_id = $1
-	`, authorID)
+	`, authorIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -168,11 +188,11 @@ func (ds *DBService) GetOnlineFollowers(ctx context.Context, authorID string) ([
 
 	var followers []string
 	for rows.Next() {
-		var userID string
+		var userID identity.IdentityID
 		if err := rows.Scan(&userID); err != nil {
 			return nil, err
 		}
-		followers = append(followers, userID)
+		followers = append(followers, string(userID))
 	}
 
 	return followers, nil
@@ -208,7 +228,12 @@ type PendingSubject struct {
 
 // CreatePendingReedEvent inserts pending_events + pending_reed_events (FK to reeds).
 // requesterUserID is the viewer; authorUserID + reedID identify the reed subject.
+// Every caller here already holds the userID@serverID form (see NewDBService's
+// doc comment).
 func (ds *DBService) CreatePendingReedEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName EventName, authorUserID, reedID string) error {
+	requesterIdentity := identity.IdentityID(requesterUserID)
+	authorIdentity := identity.IdentityID(authorUserID)
+
 	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -218,7 +243,7 @@ func (ds *DBService) CreatePendingReedEvent(ctx context.Context, eventID, reques
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
 		VALUES ($1, $2, $3, $4)
-	`, eventID, requestID, requesterUserID, eventName)
+	`, eventID, requestID, requesterIdentity, eventName)
 	if err != nil {
 		return err
 	}
@@ -226,7 +251,7 @@ func (ds *DBService) CreatePendingReedEvent(ctx context.Context, eventID, reques
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_reed_events (event_id, user_id, reed_id)
 		VALUES ($1, $2, $3)
-	`, eventID, authorUserID, reedID)
+	`, eventID, authorIdentity, reedID)
 	if err != nil {
 		return err
 	}
@@ -235,7 +260,11 @@ func (ds *DBService) CreatePendingReedEvent(ctx context.Context, eventID, reques
 }
 
 // CreatePendingAccountEvent inserts pending_events + pending_account_events.
+// pending_account_events.user_id is a direct FK to identities(id).
 func (ds *DBService) CreatePendingAccountEvent(ctx context.Context, eventID, requestID, requesterUserID, removedUserID string) error {
+	requesterIdentity := identity.IdentityID(requesterUserID)
+	removedIdentity := identity.IdentityID(removedUserID)
+
 	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -245,7 +274,7 @@ func (ds *DBService) CreatePendingAccountEvent(ctx context.Context, eventID, req
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
 		VALUES ($1, $2, $3, $4)
-	`, eventID, requestID, requesterUserID, AccountRemovedEvent)
+	`, eventID, requestID, requesterIdentity, AccountRemovedEvent)
 	if err != nil {
 		return err
 	}
@@ -253,7 +282,7 @@ func (ds *DBService) CreatePendingAccountEvent(ctx context.Context, eventID, req
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_account_events (event_id, user_id)
 		VALUES ($1, $2)
-	`, eventID, removedUserID)
+	`, eventID, removedIdentity)
 	if err != nil {
 		return err
 	}
@@ -263,6 +292,9 @@ func (ds *DBService) CreatePendingAccountEvent(ctx context.Context, eventID, req
 
 // CreateProfileSubscriptionEvent inserts a reed pending event tied to a profile subscription.
 func (ds *DBService) CreateProfileSubscriptionEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName EventName, authorUserID, reedID, subscriptionID string) error {
+	requesterIdentity := identity.IdentityID(requesterUserID)
+	authorIdentity := identity.IdentityID(authorUserID)
+
 	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -272,7 +304,7 @@ func (ds *DBService) CreateProfileSubscriptionEvent(ctx context.Context, eventID
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name, subscription_id)
 		VALUES ($1, $2, $3, $4, $5)
-	`, eventID, requestID, requesterUserID, eventName, subscriptionID)
+	`, eventID, requestID, requesterIdentity, eventName, subscriptionID)
 	if err != nil {
 		return err
 	}
@@ -280,7 +312,7 @@ func (ds *DBService) CreateProfileSubscriptionEvent(ctx context.Context, eventID
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_reed_events (event_id, user_id, reed_id)
 		VALUES ($1, $2, $3)
-	`, eventID, authorUserID, reedID)
+	`, eventID, authorIdentity, reedID)
 	if err != nil {
 		return err
 	}
@@ -289,28 +321,37 @@ func (ds *DBService) CreateProfileSubscriptionEvent(ctx context.Context, eventID
 }
 
 // GetPendingSubject loads a pending event and its typed child subject by event ID.
+// requester_user_id / pending_reed_events.user_id / pending_account_events.user_id
+// are scanned into identity.IdentityID and kept in that form (cast to
+// string, no .UserID() decode) — see NewDBService's doc comment.
 func (ds *DBService) GetPendingSubject(ctx context.Context, eventID string) (*PendingSubject, error) {
 	var pe PendingSubject
+	var requester identity.IdentityID
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name
 		FROM pending_events pe
 		WHERE pe.event_id = $1
-	`, eventID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName)
+	`, eventID).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	pe.RequesterUserID = string(requester)
 
+	var subjectID identity.IdentityID
 	if EventName(pe.EventName) == AccountRemovedEvent {
 		err = ds.db.QueryRowContext(ctx, `
 			SELECT user_id FROM pending_account_events WHERE event_id = $1
-		`, eventID).Scan(&pe.UserID)
+		`, eventID).Scan(&subjectID)
 	} else {
 		err = ds.db.QueryRowContext(ctx, `
 			SELECT user_id, reed_id FROM pending_reed_events WHERE event_id = $1
-		`, eventID).Scan(&pe.UserID, &pe.ReedID)
+		`, eventID).Scan(&subjectID, &pe.ReedID)
+	}
+	if err == nil {
+		pe.UserID = string(subjectID)
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -322,20 +363,25 @@ func (ds *DBService) GetPendingSubject(ctx context.Context, eventID string) (*Pe
 }
 
 // GetPendingReedEvent loads a reed-subject pending event (nil if missing or account event).
+// requester_user_id and pre.user_id are kept in userID@serverID form on
+// return (see GetPendingSubject's comment).
 func (ds *DBService) GetPendingReedEvent(ctx context.Context, eventID string) (*PendingReedEvent, error) {
 	var pe PendingReedEvent
+	var requester, author identity.IdentityID
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
 		FROM pending_events pe
 		JOIN pending_reed_events pre ON pre.event_id = pe.event_id
 		WHERE pe.event_id = $1
-	`, eventID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName, &pe.UserID, &pe.ReedID)
+	`, eventID).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName, &author, &pe.ReedID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	pe.RequesterUserID = string(requester)
+	pe.UserID = string(author)
 	return &pe, nil
 }
 
@@ -347,13 +393,15 @@ func (ds *DBService) DeletePendingEvent(ctx context.Context, eventID string) err
 
 // DeletePendingEventsByUser deletes all pending events for a given requester user ID
 func (ds *DBService) DeletePendingEventsByUser(ctx context.Context, userID string) error {
-	_, err := ds.db.ExecContext(ctx, `DELETE FROM pending_events WHERE requester_user_id = $1`, userID)
+	selfIdentity := identity.IdentityID(userID)
+	_, err := ds.db.ExecContext(ctx, `DELETE FROM pending_events WHERE requester_user_id = $1`, selfIdentity)
 	return err
 }
 
 // DeleteProfileSubscriptionsByViewer deletes all profile subscriptions for a given viewer.
 func (ds *DBService) DeleteProfileSubscriptionsByViewer(ctx context.Context, userID string) error {
-	_, err := ds.db.ExecContext(ctx, `DELETE FROM profile_subscriptions WHERE viewer_user_id = $1`, userID)
+	selfIdentity := identity.IdentityID(userID)
+	_, err := ds.db.ExecContext(ctx, `DELETE FROM profile_subscriptions WHERE viewer_user_id = $1`, selfIdentity)
 	return err
 }
 
@@ -364,8 +412,12 @@ type ReedCoverageTarget struct {
 }
 
 // AllocateReed records that holderUserID now holds the reed authored by authorUserID.
-// Returns true when a new allocation row was inserted.
+// Returns true when a new allocation row was inserted. reed_allocations.holder_user_id
+// is a direct FK to identities(id); author_user_id is composite-FK'd to reeds(user_id, id).
 func (ds *DBService) AllocateReed(ctx context.Context, reedID, holderUserID, authorUserID string) (bool, error) {
+	holderIdentity := identity.IdentityID(holderUserID)
+	authorIdentity := identity.IdentityID(authorUserID)
+
 	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
@@ -376,7 +428,7 @@ func (ds *DBService) AllocateReed(ctx context.Context, reedID, holderUserID, aut
 		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING
-	`, reedID, holderUserID, authorUserID)
+	`, reedID, holderIdentity, authorIdentity)
 	if err != nil {
 		return false, err
 	}
@@ -385,7 +437,9 @@ func (ds *DBService) AllocateReed(ctx context.Context, reedID, holderUserID, aut
 		return false, err
 	}
 	if n > 0 {
-		if err := coverage.BumpAllocationCount(ctx, tx, authorUserID, reedID, 1); err != nil {
+		// coverage.BumpAllocationCount filters reeds.user_id = $2 (an FK'd
+		// column) — pass this form, not the bare param.
+		if err := coverage.BumpAllocationCount(ctx, tx, string(authorIdentity), reedID, 1); err != nil {
 			return false, err
 		}
 	}
@@ -398,6 +452,9 @@ func (ds *DBService) AllocateReed(ctx context.Context, reedID, holderUserID, aut
 // DeleteReedAllocation removes a single holder's allocation for a reed.
 // Returns true when a row was deleted.
 func (ds *DBService) DeleteReedAllocation(ctx context.Context, authorUserID, reedID, holderUserID string) (bool, error) {
+	authorIdentity := identity.IdentityID(authorUserID)
+	holderIdentity := identity.IdentityID(holderUserID)
+
 	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
@@ -407,7 +464,7 @@ func (ds *DBService) DeleteReedAllocation(ctx context.Context, authorUserID, ree
 	res, err := tx.ExecContext(ctx, `
 		DELETE FROM reed_allocations
 		WHERE author_user_id = $1 AND reed_id = $2 AND holder_user_id = $3
-	`, authorUserID, reedID, holderUserID)
+	`, authorIdentity, reedID, holderIdentity)
 	if err != nil {
 		return false, err
 	}
@@ -416,7 +473,7 @@ func (ds *DBService) DeleteReedAllocation(ctx context.Context, authorUserID, ree
 		return false, err
 	}
 	if n > 0 {
-		if err := coverage.BumpAllocationCount(ctx, tx, authorUserID, reedID, -1); err != nil {
+		if err := coverage.BumpAllocationCount(ctx, tx, string(authorIdentity), reedID, -1); err != nil {
 			return false, err
 		}
 	}
@@ -428,7 +485,12 @@ func (ds *DBService) DeleteReedAllocation(ctx context.Context, authorUserID, ree
 
 // ReedExists reports whether a non-removed tip reed row exists for the
 // author, and the author's account hasn't itself been removed.
+//
+// account_removals.user_id / reed_removals.user_id are now written in
+// identities.id form (deletion.InsertAccountCert/InsertCert), matching
+// r.user_id, so the NOT EXISTS checks correctly match real removal rows.
 func (ds *DBService) ReedExists(ctx context.Context, authorUserID, reedID string) (bool, error) {
+	authorIdentity := identity.IdentityID(authorUserID)
 	var exists bool
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
@@ -442,15 +504,16 @@ func (ds *DBService) ReedExists(ctx context.Context, authorUserID, reedID string
 			    SELECT 1 FROM account_removals ar WHERE ar.user_id = r.user_id
 			  )
 		)
-	`, authorUserID, reedID).Scan(&exists)
+	`, authorIdentity, reedID).Scan(&exists)
 	return exists, err
 }
 
 // GetReedCoverage returns holder count and network coverage percent for a tip reed.
 func (ds *DBService) GetReedCoverage(ctx context.Context, authorUserID, reedID string) (holders, percent int, err error) {
+	authorIdentity := identity.IdentityID(authorUserID)
 	err = ds.db.QueryRowContext(ctx, `
 		SELECT allocation_count FROM reeds WHERE user_id = $1 AND id = $2
-	`, authorUserID, reedID).Scan(&holders)
+	`, authorIdentity, reedID).Scan(&holders)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -468,6 +531,9 @@ func (ds *DBService) GetReedCoveragePercent(ctx context.Context, authorUserID, r
 }
 
 // CountEchoes returns how many non-removed echoes point at the given reed.
+//
+// No conversion for echoedUserID/echoedReedID: reed_echoes.echoed_user_id/
+// echoed_reed_id have no FK and are written bare at insert time.
 func (ds *DBService) CountEchoes(ctx context.Context, echoedUserID, echoedReedID string) (int, error) {
 	var n int
 	err := ds.db.QueryRowContext(ctx, `
@@ -481,10 +547,11 @@ func (ds *DBService) CountEchoes(ctx context.Context, echoedUserID, echoedReedID
 // CountLikes returns the current like count for a reed, read from the
 // denormalized reeds.like_count column.
 func (ds *DBService) CountLikes(ctx context.Context, authorUserID, reedID string) (int, error) {
+	authorIdentity := identity.IdentityID(authorUserID)
 	var n int
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT like_count FROM reeds WHERE user_id = $1 AND id = $2
-	`, authorUserID, reedID).Scan(&n)
+	`, authorIdentity, reedID).Scan(&n)
 	return n, err
 }
 
@@ -512,24 +579,30 @@ func (ds *DBService) GetReedStatsSnapshot(ctx context.Context, authorUserID, ree
 
 // ReplyParent returns the immediate (parent_user_id, parent_reed_id) that
 // (userID, reedID) replies to, if it's indexed as a reply at all — ok is
-// false when it isn't.
+// false when it isn't. reed_replies.user_id/parent_user_id are both
+// composite-FK'd to reeds(user_id, id).
 func (ds *DBService) ReplyParent(ctx context.Context, userID, reedID string) (parentUserID, parentReedID string, ok bool, err error) {
+	selfIdentity := identity.IdentityID(userID)
+	var parentIdentity identity.IdentityID
 	err = ds.db.QueryRowContext(ctx, `
 		SELECT parent_user_id, parent_reed_id
 		FROM reed_replies
 		WHERE user_id = $1 AND reed_id = $2
-	`, userID, reedID).Scan(&parentUserID, &parentReedID)
+	`, selfIdentity, reedID).Scan(&parentIdentity, &parentReedID)
 	if err == sql.ErrNoRows {
 		return "", "", false, nil
 	}
 	if err != nil {
 		return "", "", false, err
 	}
-	return parentUserID, parentReedID, true, nil
+	return string(parentIdentity), parentReedID, true, nil
 }
 
 // GetSubtreeReplyCount returns live descendant reply count beneath userID/reedID.
+// Matches services.go's identical GetSubtreeReplyCount: only the top-level
+// parent_user_id bind param needs conversion.
 func (ds *DBService) GetSubtreeReplyCount(ctx context.Context, userID, reedID string) (int, error) {
+	selfIdentity := identity.IdentityID(userID)
 	var count int
 	err := ds.db.QueryRowContext(ctx, `
 		WITH RECURSIVE descendants AS (
@@ -557,13 +630,15 @@ func (ds *DBService) GetSubtreeReplyCount(ctx context.Context, userID, reedID st
 			)
 		)
 		SELECT COUNT(*) FROM descendants
-	`, userID, reedID).Scan(&count)
+	`, selfIdentity, reedID).Scan(&count)
 	return count, err
 }
 
 // GetNextPendingForHolder returns the oldest undispatched reed pending for reeds held by holderUserID.
 func (ds *DBService) GetNextPendingForHolder(ctx context.Context, holderUserID string) (*PendingReedEvent, error) {
+	holderIdentity := identity.IdentityID(holderUserID)
 	var pe PendingReedEvent
+	var requester, author identity.IdentityID
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
 		FROM pending_reed_events pre
@@ -574,13 +649,15 @@ func (ds *DBService) GetNextPendingForHolder(ctx context.Context, holderUserID s
 		  AND pe.dispatched_at IS NULL
 		ORDER BY pe.created_at
 		LIMIT 1
-	`, holderUserID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName, &pe.UserID, &pe.ReedID)
+	`, holderIdentity).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName, &author, &pe.ReedID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	pe.RequesterUserID = string(requester)
+	pe.UserID = string(author)
 	return &pe, nil
 }
 
@@ -610,6 +687,7 @@ func (ds *DBService) ResetDispatchedAt(ctx context.Context, eventID string) erro
 // for relay dispatch when available. Callers must delete stale holder rows (e.g. the
 // requester) before calling when appropriate.
 func (ds *DBService) GetOnlineHolders(ctx context.Context, authorUserID, reedID string) (hasHolders bool, holder string, err error) {
+	authorIdentity := identity.IdentityID(authorUserID)
 	var onlineHolder sql.NullString
 	err = ds.db.QueryRowContext(ctx, `
 		SELECT
@@ -624,7 +702,7 @@ func (ds *DBService) GetOnlineHolders(ctx context.Context, authorUserID, reedID 
 				WHERE ra.author_user_id = $1 AND ra.reed_id = $2
 				LIMIT 1
 			)
-	`, authorUserID, reedID).Scan(&hasHolders, &onlineHolder)
+	`, authorIdentity, reedID).Scan(&hasHolders, &onlineHolder)
 	if err != nil {
 		return false, "", err
 	}
@@ -637,30 +715,36 @@ func (ds *DBService) GetOnlineHolders(ctx context.Context, authorUserID, reedID 
 // GetOnlineReedHolder returns the user ID of one online holder of the given reed,
 // or an empty string if no holder is currently online.
 func (ds *DBService) GetOnlineReedHolder(ctx context.Context, authorUserID, reedID string) (string, error) {
-	var userID string
+	authorIdentity := identity.IdentityID(authorUserID)
+	var userID identity.IdentityID
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT ou.user_id FROM online_users ou
 		JOIN reed_allocations ra ON ra.holder_user_id = ou.user_id
 		WHERE ra.author_user_id = $1 AND ra.reed_id = $2
 		LIMIT 1
-	`, authorUserID, reedID).Scan(&userID)
+	`, authorIdentity, reedID).Scan(&userID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
-	return userID, err
+	if err != nil {
+		return "", err
+	}
+	return string(userID), nil
 }
 
 // ClaimPendingFanout removes the pending_fanout row if present. Returns true when
 // this call claimed fanout (row deleted), plus any pipe tags stashed at SignReed.
-// Concurrent READY messages only claim once.
+// Concurrent READY messages only claim once. pending_fanout.user_id is
+// composite-FK'd to reeds(user_id, id).
 func (ds *DBService) ClaimPendingFanout(ctx context.Context, authorUserID, reedID string) (claimed bool, tags []string, err error) {
+	authorIdentity := identity.IdentityID(authorUserID)
 	var id string
 	var tagArray pq.StringArray
 	err = ds.db.QueryRowContext(ctx, `
 		DELETE FROM pending_fanout
 		WHERE user_id = $1 AND reed_id = $2
 		RETURNING reed_id, tags
-	`, authorUserID, reedID).Scan(&id, &tagArray)
+	`, authorIdentity, reedID).Scan(&id, &tagArray)
 	if err == sql.ErrNoRows {
 		return false, nil, nil
 	}
@@ -672,6 +756,7 @@ func (ds *DBService) ClaimPendingFanout(ctx context.Context, authorUserID, reedI
 
 // GetPendingEventsForUser returns all pending reed events for reeds held by the given user.
 func (ds *DBService) GetPendingEventsForUser(ctx context.Context, userID string) ([]PendingReedEvent, error) {
+	selfIdentity := identity.IdentityID(userID)
 	rows, err := ds.db.QueryContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
 		FROM pending_reed_events pre
@@ -679,7 +764,7 @@ func (ds *DBService) GetPendingEventsForUser(ctx context.Context, userID string)
 		JOIN reed_allocations ra
 		  ON ra.reed_id = pre.reed_id AND ra.author_user_id = pre.user_id
 		WHERE ra.holder_user_id = $1
-	`, userID)
+	`, selfIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -688,16 +773,19 @@ func (ds *DBService) GetPendingEventsForUser(ctx context.Context, userID string)
 	var results []PendingReedEvent
 	for rows.Next() {
 		var prr PendingReedEvent
+		var requester, author identity.IdentityID
 		if err := rows.Scan(
 			&prr.EventID,
 			&prr.RequestID,
-			&prr.RequesterUserID,
+			&requester,
 			&prr.EventName,
-			&prr.UserID,
+			&author,
 			&prr.ReedID,
 		); err != nil {
 			return nil, err
 		}
+		prr.RequesterUserID = string(requester)
+		prr.UserID = string(author)
 		results = append(results, prr)
 	}
 	return results, nil
@@ -706,12 +794,13 @@ func (ds *DBService) GetPendingEventsForUser(ctx context.Context, userID string)
 // GetPendingRequestsForRequester returns pending reed events initiated by the given user
 // (reed relay retry only — not account events).
 func (ds *DBService) GetPendingRequestsForRequester(ctx context.Context, requesterUserID string) ([]PendingReedEvent, error) {
+	requesterIdentity := identity.IdentityID(requesterUserID)
 	rows, err := ds.db.QueryContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.user_id, pre.reed_id
 		FROM pending_reed_events pre
 		JOIN pending_events pe ON pe.event_id = pre.event_id
 		WHERE pe.requester_user_id = $1
-	`, requesterUserID)
+	`, requesterIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -720,16 +809,19 @@ func (ds *DBService) GetPendingRequestsForRequester(ctx context.Context, request
 	var results []PendingReedEvent
 	for rows.Next() {
 		var prr PendingReedEvent
+		var requester, author identity.IdentityID
 		if err := rows.Scan(
 			&prr.EventID,
 			&prr.RequestID,
-			&prr.RequesterUserID,
+			&requester,
 			&prr.EventName,
-			&prr.UserID,
+			&author,
 			&prr.ReedID,
 		); err != nil {
 			return nil, err
 		}
+		prr.RequesterUserID = string(requester)
+		prr.UserID = string(author)
 		results = append(results, prr)
 	}
 	return results, nil
@@ -741,6 +833,8 @@ func (ds *DBService) GetMissingReedIDsForViewer(ctx context.Context, authorID, v
 	if ownedIDs == nil {
 		ownedIDs = []string{}
 	}
+	authorIdentity := identity.IdentityID(authorID)
+	viewerIdentity := identity.IdentityID(viewerID)
 	rows, err := ds.db.QueryContext(ctx, `
 		SELECT r.id FROM reeds r
 		WHERE r.user_id = $1
@@ -753,7 +847,7 @@ func (ds *DBService) GetMissingReedIDsForViewer(ctx context.Context, authorID, v
 		      SELECT 1 FROM reed_removals rr
 		      WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
 		  )
-	`, authorID, viewerID, pq.Array(ownedIDs))
+	`, authorIdentity, viewerIdentity, pq.Array(ownedIDs))
 	if err != nil {
 		return nil, err
 	}
@@ -778,7 +872,9 @@ type UnallocatedReed struct {
 
 // GetMissingOut returns all reeds from authors that userID follows
 // which are not yet present in reed_allocations for that user.
+// user_following.user_id/following_user_id are both direct FKs to identities(id).
 func (ds *DBService) GetMissingOut(ctx context.Context, userID string) ([]UnallocatedReed, error) {
+	selfIdentity := identity.IdentityID(userID)
 	rows, err := ds.db.QueryContext(ctx, `
 		SELECT r.id, r.user_id
 		FROM reeds r
@@ -792,7 +888,7 @@ func (ds *DBService) GetMissingOut(ctx context.Context, userID string) ([]Unallo
 		      SELECT 1 FROM reed_removals rr
 		      WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
 		  )
-	`, userID)
+	`, selfIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -800,17 +896,20 @@ func (ds *DBService) GetMissingOut(ctx context.Context, userID string) ([]Unallo
 
 	var results []UnallocatedReed
 	for rows.Next() {
-		var reed UnallocatedReed
-		if err := rows.Scan(&reed.ReedID, &reed.AuthorID); err != nil {
+		var reedID string
+		var authorIdentity identity.IdentityID
+		if err := rows.Scan(&reedID, &authorIdentity); err != nil {
 			return nil, err
 		}
-		results = append(results, reed)
+		results = append(results, UnallocatedReed{ReedID: reedID, AuthorID: string(authorIdentity)})
 	}
 	return results, nil
 }
 
 // GetUnallocatedReeds returns IDs of reeds by authorID that viewerID does not have in reed_allocations.
 func (ds *DBService) GetUnallocatedReeds(ctx context.Context, authorID, viewerID string) ([]string, error) {
+	authorIdentity := identity.IdentityID(authorID)
+	viewerIdentity := identity.IdentityID(viewerID)
 	rows, err := ds.db.QueryContext(ctx, `
 		SELECT r.id FROM reeds r
 		WHERE r.user_id = $1
@@ -822,7 +921,7 @@ func (ds *DBService) GetUnallocatedReeds(ctx context.Context, authorID, viewerID
 		      SELECT 1 FROM reed_removals rr
 		      WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
 		  )
-	`, authorID, viewerID)
+	`, authorIdentity, viewerIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -840,22 +939,27 @@ func (ds *DBService) GetUnallocatedReeds(ctx context.Context, authorID, viewerID
 }
 
 // CreateProfileSubscription records an active profile feed subscription for a viewer.
+// profile_subscriptions.viewer_user_id/author_user_id are both direct FKs to identities(id).
 func (ds *DBService) CreateProfileSubscription(ctx context.Context, subscriptionID, viewerUserID, authorUserID string) error {
+	viewerIdentity := identity.IdentityID(viewerUserID)
+	authorIdentity := identity.IdentityID(authorUserID)
 	_, err := ds.db.ExecContext(ctx, `
 		INSERT INTO profile_subscriptions (subscription_id, viewer_user_id, author_user_id)
 		VALUES ($1, $2, $3)
-	`, subscriptionID, viewerUserID, authorUserID)
+	`, subscriptionID, viewerIdentity, authorIdentity)
 	return err
 }
 
 // GetProfileSubscription returns the subscription ID for an active (viewer, author) pair.
 // Returns an empty string when no subscription exists.
 func (ds *DBService) GetProfileSubscription(ctx context.Context, viewerUserID, authorUserID string) (string, error) {
+	viewerIdentity := identity.IdentityID(viewerUserID)
+	authorIdentity := identity.IdentityID(authorUserID)
 	var id string
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT subscription_id FROM profile_subscriptions
 		WHERE viewer_user_id = $1 AND author_user_id = $2
-	`, viewerUserID, authorUserID).Scan(&id)
+	`, viewerIdentity, authorIdentity).Scan(&id)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -878,11 +982,12 @@ type ProfileSubscriber struct {
 
 // GetProfileSubscribers returns all active profile subscriptions for the given author.
 func (ds *DBService) GetProfileSubscribers(ctx context.Context, authorID string) ([]ProfileSubscriber, error) {
+	authorIdentity := identity.IdentityID(authorID)
 	rows, err := ds.db.QueryContext(ctx, `
 		SELECT subscription_id, viewer_user_id
 		FROM profile_subscriptions
 		WHERE author_user_id = $1
-	`, authorID)
+	`, authorIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -891,9 +996,11 @@ func (ds *DBService) GetProfileSubscribers(ctx context.Context, authorID string)
 	var subscribers []ProfileSubscriber
 	for rows.Next() {
 		var subscriber ProfileSubscriber
-		if err := rows.Scan(&subscriber.SubscriptionID, &subscriber.ViewerUserID); err != nil {
+		var viewer identity.IdentityID
+		if err := rows.Scan(&subscriber.SubscriptionID, &viewer); err != nil {
 			return nil, err
 		}
+		subscriber.ViewerUserID = string(viewer)
 		subscribers = append(subscribers, subscriber)
 	}
 	return subscribers, nil
@@ -910,7 +1017,11 @@ func (ds *DBService) GetProfileSubscribers(ctx context.Context, authorID string)
 // the same batch before either writes last_delivery, causing up to 100 users to receive a
 // duplicate. At our current replica count this is acceptable — duplicates are harmless (the
 // client deduplicates by reed ID) and the race window is tiny.
+//
+// authorID is converted once, up front, and reused everywhere $1 appears
+// so the != and = comparisons agree.
 func (ds *DBService) GetBroadcastSubscribers(ctx context.Context, authorID string) ([]string, error) {
+	authorIdentity := identity.IdentityID(authorID)
 	rows, err := ds.db.QueryContext(ctx, `
 		WITH eligible AS (
 			SELECT bs.user_id
@@ -930,7 +1041,7 @@ func (ds *DBService) GetBroadcastSubscribers(ctx context.Context, authorID strin
 			WHERE user_id IN (SELECT user_id FROM eligible)
 		)
 		SELECT user_id FROM eligible
-	`, authorID)
+	`, authorIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -938,11 +1049,11 @@ func (ds *DBService) GetBroadcastSubscribers(ctx context.Context, authorID strin
 
 	var subscribers []string
 	for rows.Next() {
-		var userID string
+		var userID identity.IdentityID
 		if err := rows.Scan(&userID); err != nil {
 			return nil, err
 		}
-		subscribers = append(subscribers, userID)
+		subscribers = append(subscribers, string(userID))
 	}
 
 	return subscribers, nil
@@ -956,60 +1067,54 @@ type MissingRemoval struct {
 }
 
 // GetMissingRemovals returns removal certs for reeds this user still holds.
+// deletion.GetCert takes a bare userID + serverID, so authorIdentity is
+// split via .UserID() only for that call; MissingRemoval.UserID stays in
+// userID@serverID form, from cert.UserID.
 func (ds *DBService) GetMissingRemovals(ctx context.Context, userID string) ([]MissingRemoval, error) {
+	selfIdentity := identity.IdentityID(userID)
 	rows, err := ds.db.QueryContext(ctx, `
 		SELECT rr.reed_id, rr.user_id
 		FROM reed_allocations ra
 		JOIN reed_removals rr
 		  ON rr.reed_id = ra.reed_id AND rr.user_id = ra.author_user_id
 		WHERE ra.holder_user_id = $1
-	`, userID)
+	`, selfIdentity)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	serverID, err := ds.serverID(ctx)
-	if err != nil {
-		return nil, err
-	}
+	serverID := ds.serverID
 
 	var out []MissingRemoval
 	for rows.Next() {
-		var reedID, authorID string
-		if err := rows.Scan(&reedID, &authorID); err != nil {
+		var reedID string
+		var authorIdentity identity.IdentityID
+		if err := rows.Scan(&reedID, &authorIdentity); err != nil {
 			return nil, err
 		}
-		cert, err := deletion.GetCert(ctx, ds.db, authorID, reedID)
+		cert, err := deletion.GetCert(ctx, ds.db, authorIdentity.UserID(), reedID, serverID)
 		if err != nil || cert == nil {
 			return nil, err
 		}
 		out = append(out, MissingRemoval{
 			ReedID: reedID,
-			UserID: authorID,
+			UserID: cert.UserID,
 			Cert:   NewReedRemovalWire(serverID, cert),
 		})
 	}
 	return out, rows.Err()
 }
 
-// GetReedRemovalWire loads a removal cert for WS delivery.
+// GetReedRemovalWire loads a removal cert for WS delivery. authorID arrives
+// in userID@serverID form (see NewDBService's doc comment), but
+// deletion.GetCert takes a bare userID + serverID — decoded here.
 func (ds *DBService) GetReedRemovalWire(ctx context.Context, authorID, reedID string) (ReedRemovalWire, error) {
-	cert, err := deletion.GetCert(ctx, ds.db, authorID, reedID)
+	cert, err := deletion.GetCert(ctx, ds.db, identity.IdentityID(authorID).UserID(), reedID, ds.serverID)
 	if err != nil || cert == nil {
 		return ReedRemovalWire{}, err
 	}
-	serverID, err := ds.serverID(ctx)
-	if err != nil {
-		return ReedRemovalWire{}, err
-	}
-	return NewReedRemovalWire(serverID, cert), nil
-}
-
-func (ds *DBService) serverID(ctx context.Context, ) (string, error) {
-	var id string
-	err := ds.db.QueryRowContext(ctx, `SELECT id FROM servers WHERE self = TRUE`).Scan(&id)
-	return id, err
+	return NewReedRemovalWire(ds.serverID, cert), nil
 }
 
 // MissingAccountRemoval is a catch-up row: viewer still follows or holds
@@ -1021,11 +1126,14 @@ type MissingAccountRemoval struct {
 
 // GetMissingAccountRemovals returns account_removals that still apply to viewer
 // (follow ∪ allocations for that author's reeds).
+//
+// uf.user_id/uf.following_user_id and ra.holder_user_id are direct FKs to
+// identities(id); the $1 bind param (viewerUserID) is converted.
+// deletion.InsertAccountCert now writes account_removals.user_id in the
+// same form, so the EXISTS subqueries above match real removal rows.
 func (ds *DBService) GetMissingAccountRemovals(ctx context.Context, viewerUserID string) ([]MissingAccountRemoval, error) {
-	serverID, err := ds.serverID(ctx)
-	if err != nil {
-		return nil, err
-	}
+	selfIdentity := identity.IdentityID(viewerUserID)
+	serverID := ds.serverID
 	rows, err := ds.db.QueryContext(ctx, `
 		SELECT ar.user_id
 		FROM account_removals ar
@@ -1036,7 +1144,7 @@ func (ds *DBService) GetMissingAccountRemovals(ctx context.Context, viewerUserID
 			SELECT 1 FROM reed_allocations ra
 			WHERE ra.holder_user_id = $1 AND ra.author_user_id = ar.user_id
 		)
-	`, viewerUserID)
+	`, selfIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -1044,16 +1152,19 @@ func (ds *DBService) GetMissingAccountRemovals(ctx context.Context, viewerUserID
 
 	var out []MissingAccountRemoval
 	for rows.Next() {
-		var removedUserID string
-		if err := rows.Scan(&removedUserID); err != nil {
+		var removedIdentity identity.IdentityID
+		if err := rows.Scan(&removedIdentity); err != nil {
 			return nil, err
 		}
-		cert, err := deletion.GetAccountCert(ctx, ds.db, removedUserID)
+		// deletion.GetAccountCert takes a bare userID + serverID — decode
+		// only for this call; MissingAccountRemoval.UserID stays in
+		// userID@serverID form, sourced from cert.UserID.
+		cert, err := deletion.GetAccountCert(ctx, ds.db, removedIdentity.UserID(), serverID)
 		if err != nil || cert == nil {
 			return nil, err
 		}
 		out = append(out, MissingAccountRemoval{
-			UserID: removedUserID,
+			UserID: cert.UserID,
 			Cert:   NewAccountRemovalWire(serverID, cert),
 		})
 	}
@@ -1061,22 +1172,27 @@ func (ds *DBService) GetMissingAccountRemovals(ctx context.Context, viewerUserID
 }
 
 // GetAccountRemovalWire loads an account-removal cert for WS delivery.
+// userID arrives in userID@serverID form (see NewDBService's doc comment);
+// deletion.GetAccountCert takes a bare userID + serverID — decoded here.
 func (ds *DBService) GetAccountRemovalWire(ctx context.Context, userID string) (AccountRemovalWire, error) {
-	cert, err := deletion.GetAccountCert(ctx, ds.db, userID)
+	cert, err := deletion.GetAccountCert(ctx, ds.db, identity.IdentityID(userID).UserID(), ds.serverID)
 	if err != nil || cert == nil {
 		return AccountRemovalWire{}, err
 	}
-	serverID, err := ds.serverID(ctx)
-	if err != nil {
-		return AccountRemovalWire{}, err
-	}
-	return NewAccountRemovalWire(serverID, cert), nil
+	return NewAccountRemovalWire(ds.serverID, cert), nil
 }
 
 // ClearPeerStateForRemovedAccount drops follow edges and allocations so
 // catch-up no longer re-delivers the account cert to this viewer.
 // Returns reeds whose holder counts changed.
+//
+// All 6 tables touched here are FK'd, directly or transitively, to
+// identities(id); viewerUserID and removedUserID are converted once, up
+// front, and used consistently across every statement in the transaction.
 func (ds *DBService) ClearPeerStateForRemovedAccount(ctx context.Context, viewerUserID, removedUserID string) ([]ReedCoverageTarget, error) {
+	viewerIdentity := identity.IdentityID(viewerUserID)
+	removedIdentity := identity.IdentityID(removedUserID)
+
 	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -1085,13 +1201,13 @@ func (ds *DBService) ClearPeerStateForRemovedAccount(ctx context.Context, viewer
 
 	stmts := []struct {
 		q  string
-		a1 string
-		a2 string
+		a1 identity.IdentityID
+		a2 identity.IdentityID
 	}{
-		{`DELETE FROM user_following WHERE user_id = $1 AND following_user_id = $2`, viewerUserID, removedUserID},
-		{`DELETE FROM user_following WHERE user_id = $1 AND following_user_id = $2`, removedUserID, viewerUserID},
-		{`DELETE FROM user_followers WHERE user_id = $1 AND follower_user_id = $2`, removedUserID, viewerUserID},
-		{`DELETE FROM user_followers WHERE user_id = $1 AND follower_user_id = $2`, viewerUserID, removedUserID},
+		{`DELETE FROM user_following WHERE user_id = $1 AND following_user_id = $2`, viewerIdentity, removedIdentity},
+		{`DELETE FROM user_following WHERE user_id = $1 AND following_user_id = $2`, removedIdentity, viewerIdentity},
+		{`DELETE FROM user_followers WHERE user_id = $1 AND follower_user_id = $2`, removedIdentity, viewerIdentity},
+		{`DELETE FROM user_followers WHERE user_id = $1 AND follower_user_id = $2`, viewerIdentity, removedIdentity},
 	}
 	for _, s := range stmts {
 		if _, err := tx.ExecContext(ctx, s.q, s.a1, s.a2); err != nil {
@@ -1118,7 +1234,7 @@ func (ds *DBService) ClearPeerStateForRemovedAccount(ctx context.Context, viewer
 			RETURNING c.author_user_id, c.reed_id
 		)
 		SELECT author_user_id, reed_id FROM updated
-	`, viewerUserID, removedUserID)
+	`, viewerIdentity, removedIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -1127,9 +1243,11 @@ func (ds *DBService) ClearPeerStateForRemovedAccount(ctx context.Context, viewer
 	var targets []ReedCoverageTarget
 	for rows.Next() {
 		var t ReedCoverageTarget
-		if err := rows.Scan(&t.AuthorUserID, &t.ReedID); err != nil {
+		var author identity.IdentityID
+		if err := rows.Scan(&author, &t.ReedID); err != nil {
 			return nil, err
 		}
+		t.AuthorUserID = string(author)
 		targets = append(targets, t)
 	}
 	if err := rows.Err(); err != nil {

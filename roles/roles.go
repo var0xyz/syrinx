@@ -7,10 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"syrinx/identity"
 )
 
 const (
-	// RootUserID is the reserved users.id for the operator root account.
+	// RootUserID is the reserved bare userID for the operator root account.
+	// This stays a bare compile-time constant since the full identity
+	// ("1@serverID") can't be — serverID is only known at runtime.
 	RootUserID = "1"
 
 	RoleRoot  = "root"
@@ -30,9 +34,23 @@ func IsAdmin(role string) bool {
 	return role == RoleRoot || role == RoleAdmin
 }
 
-// IsRoot reports whether userID is the reserved root identity with role root.
-func IsRoot(userID, role string) bool {
-	return userID == RootUserID && role == RoleRoot
+// IsRoot reports whether userID is this server's own reserved root
+// identity with role root. Compare the full "1@serverID" form, never the
+// bare "1" — a remote user whose bare id is also "1" must not match.
+func IsRoot(userID, role, serverID string) bool {
+	return isRootIdentity(userID, serverID) && role == RoleRoot
+}
+
+// isRootIdentity is the shared comparison core for IsRoot/RoleForSignup/
+// SignupRole/ValidateProfileRole — see IsRoot's doc comment for the full
+// security reasoning.
+func isRootIdentity(userID, serverID string) bool {
+	rootIdentity := identity.LocalID(RootUserID, serverID)
+	// userID may arrive bare or already in "userID@serverID" form; try both.
+	if userID == string(rootIdentity) {
+		return true
+	}
+	return userID == RootUserID
 }
 
 // CanGrantAdmin reports whether the caller may create admin-granting invites.
@@ -41,9 +59,10 @@ func CanGrantAdmin(role string) bool {
 }
 
 // RoleForSignup returns the role persisted for a brand-new account with no
-// invite redeem (open signup or root mint).
-func RoleForSignup(userID string) string {
-	if userID == RootUserID {
+// invite redeem (open signup or root mint). See IsRoot's doc comment for
+// why the root comparison must use serverID, not a bare literal match.
+func RoleForSignup(userID, serverID string) string {
+	if isRootIdentity(userID, serverID) {
 		return RoleRoot
 	}
 	return RoleUser
@@ -58,9 +77,10 @@ func RoleFromInviteGrant(grantedRole string) string {
 }
 
 // SignupRole returns users.role for a signup insert. When hasInvite is true,
-// inviteGrantedRole from the invites row is applied (never root).
-func SignupRole(userID, inviteGrantedRole string, hasInvite bool) string {
-	if userID == RootUserID {
+// inviteGrantedRole from the invites row is applied (never root). See
+// IsRoot's doc comment for why the root comparison must use serverID.
+func SignupRole(userID, inviteGrantedRole string, hasInvite bool, serverID string) string {
+	if isRootIdentity(userID, serverID) {
 		return RoleRoot
 	}
 	if hasInvite {
@@ -78,22 +98,24 @@ func RequireAdmin(role string) error {
 }
 
 // ValidateProfileRole checks role is a known tier and consistent with userID
-// (root only on the reserved id). Used when verifying or persisting profiles.
-func ValidateProfileRole(userID, role string) error {
+// (root only on the reserved id). See IsRoot's doc comment for why the root
+// comparison must use serverID.
+func ValidateProfileRole(userID, role, serverID string) error {
 	role = strings.TrimSpace(role)
 	switch role {
 	case RoleRoot, RoleAdmin, RoleUser:
 	default:
 		return fmt.Errorf("%w: %q", ErrInvalidRole, role)
 	}
-	if userID == RootUserID {
+	isRoot := isRootIdentity(userID, serverID)
+	if isRoot {
 		if role != RoleRoot {
 			return fmt.Errorf("%w: root user must have role root", ErrInvalidRole)
 		}
 		return nil
 	}
 	if role == RoleRoot {
-		return fmt.Errorf("%w: only user id %q may have role root", ErrInvalidRole, RootUserID)
+		return fmt.Errorf("%w: only user id %q (this server's own root identity) may have role root", ErrInvalidRole, RootUserID)
 	}
 	return nil
 }

@@ -2,6 +2,10 @@ package recovery
 
 import "time"
 
+// DELIBERATE EXCEPTION — this file's userID-shaped fields stay BARE, unlike
+// every other package's wire fields: the SPA's recoveryKeyNest.ts still
+// signs payloads with bare userIDs, so converting these breaks verification.
+
 // UserSignature is the nested user attestation wire block.
 type UserSignature struct {
 	Fingerprint string `json:"fingerprint"`

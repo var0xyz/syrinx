@@ -37,7 +37,7 @@ func FlattenKeysNest(
 	if profile.ID == "" || profile.Username == "" {
 		return FlatKey{}, nil, fmt.Errorf("profile id and username are required")
 	}
-	if err := roles.ValidateProfileRole(profile.ID, profile.Role); err != nil {
+	if err := roles.ValidateProfileRole(profile.ID, profile.Role, serverID); err != nil {
 		return FlatKey{}, nil, err
 	}
 	if profile.ServerSignature.ServerID != serverID {

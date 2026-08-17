@@ -97,7 +97,6 @@
               <div class="feed-header">
                 <ReedAuthorHeader
                   userID={reed.userID}
-                  serverID={reed.serverSignature?.serverID ?? ''}
                   username={authors[reed.userID]?.username ?? reed.userID}
                   subtext={formatRelativeTime(reed.serverSignature?.timestamp)}
                   stopPropagation
@@ -204,7 +203,6 @@
     align-items: center;
     padding: 1rem;
     border-bottom: 1px solid var(--border);
-    min-width: 0;
   }
 
   .feed-content {

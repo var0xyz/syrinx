@@ -31,7 +31,6 @@
     return {
       userID: u.userID,
       username: profile?.username ?? u.userID,
-      serverID: profile?.serverSignature?.serverID ?? '',
       echoedAt: u.echoedAt,
     };
   }
@@ -115,7 +114,6 @@
         >
           <ReedAuthorHeader
             userID={row.userID}
-            serverID={row.serverID}
             username={row.username}
             subtext={`Echoed ${formatRelativeTime(row.echoedAt)}`}
             stopPropagation

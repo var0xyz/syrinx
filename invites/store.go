@@ -6,10 +6,14 @@ import (
 	"errors"
 	"time"
 
+	"syrinx/identity"
+
 	"github.com/lib/pq"
 )
 
 // Invite is the durable invite row (never includes the raw token).
+// CreatedBy/ClaimedBy hold the full "userID@serverID" form; ClaimedBy is
+// exposed via statusResponse.ClaimedBy on GET /api/invites/{id}.
 type Invite struct {
 	ID          string
 	CreatedBy   string
@@ -21,8 +25,11 @@ type Invite struct {
 }
 
 // Store persists invites. MarkClaimed accepts an existing *sql.Tx for signup.
+// ServerID builds the "userID@serverID" form for invites.created_by/claimed_by;
+// most callers pass that form already, but MarkClaimed/GetPendingInvite take bare userIDs.
 type Store struct {
-	DB *sql.DB
+	DB       *sql.DB
+	ServerID string
 }
 
 func (s *Store) CountByCreator(ctx context.Context, creatorID string) (int, error) {
@@ -81,6 +88,9 @@ type tokenHashQuerier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
+// getByTokenHash has no creatorID in scope (token_hash is globally unique) —
+// created_by/claimed_by come back in full form from the row itself, no
+// conversion needed on the query side here.
 func getByTokenHash(ctx context.Context, q tokenHashQuerier, hash []byte) (*Invite, error) {
 	row := q.QueryRowContext(ctx, `
 		SELECT id, created_by, created_at, granted_role, claimed_at, claimed_by, revoked_at
@@ -98,19 +108,20 @@ func getByTokenHash(ctx context.Context, q tokenHashQuerier, hash []byte) (*Invi
 }
 
 func (s *Store) GetPendingInvite(ctx context.Context, creatorID, id string, hash []byte) (*Invite, error) {
-	return getPendingInvite(ctx, s.DB, creatorID, id, hash)
+	return getPendingInvite(ctx, s.DB, s.ServerID, creatorID, id, hash)
 }
 
 func (s *Store) GetPendingInviteTx(ctx context.Context, tx *sql.Tx, creatorID, id string, hash []byte) (*Invite, error) {
-	return getPendingInvite(ctx, tx, creatorID, id, hash)
+	return getPendingInvite(ctx, tx, s.ServerID, creatorID, id, hash)
 }
 
-func getPendingInvite(ctx context.Context, q tokenHashQuerier, creatorID, id string, hash []byte) (*Invite, error) {
+func getPendingInvite(ctx context.Context, q tokenHashQuerier, serverID, creatorID, id string, hash []byte) (*Invite, error) {
+	selfIdentity := identity.LocalID(creatorID, serverID)
 	row := q.QueryRowContext(ctx, `
 		SELECT id, created_by, created_at, granted_role, claimed_at, claimed_by, revoked_at
 		FROM invites
 		WHERE created_by = $1 AND id = $2 AND token_hash = $3
-	`, creatorID, id, hash)
+	`, selfIdentity, id, hash)
 	inv, err := scanInvite(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -125,20 +136,22 @@ func getPendingInvite(ctx context.Context, q tokenHashQuerier, creatorID, id str
 }
 
 // MarkClaimed claims an unused, unrevoked invite inside tx.
-// createdBy + inviteID form the composite primary key.
-// Returns whether a row was updated.
+// createdBy + inviteID form the composite primary key; claimedBy is a bare
+// userID. Returns whether a row was updated.
 func (s *Store) MarkClaimed(
 	ctx context.Context,
 	tx *sql.Tx,
 	createdBy, inviteID, claimedBy string,
 	claimedAt time.Time,
 ) (bool, error) {
+	createdByIdentity := identity.LocalID(createdBy, s.ServerID)
+	claimedByIdentity := identity.LocalID(claimedBy, s.ServerID)
 	res, err := tx.ExecContext(ctx, `
 		UPDATE invites
 		SET claimed_at = $3, claimed_by = $4
 		WHERE created_by = $1 AND id = $2
 		  AND claimed_at IS NULL AND revoked_at IS NULL
-	`, createdBy, inviteID, claimedAt.UTC(), claimedBy)
+	`, createdByIdentity, inviteID, claimedAt.UTC(), claimedByIdentity)
 	if err != nil {
 		return false, err
 	}
@@ -203,13 +216,17 @@ type scannable interface {
 	Scan(dest ...any) error
 }
 
+// scanInvite scans created_by/claimed_by as identity.IdentityID (the row's
+// actual stored form) and keeps that form on Invite's wire-facing fields,
+// no decode to bare.
 func scanInvite(row scannable) (Invite, error) {
 	var inv Invite
+	var createdBy identity.IdentityID
 	var claimedAt, revokedAt sql.NullTime
 	var claimedBy sql.NullString
 	err := row.Scan(
 		&inv.ID,
-		&inv.CreatedBy,
+		&createdBy,
 		&inv.CreatedAt,
 		&inv.GrantedRole,
 		&claimedAt,
@@ -219,6 +236,7 @@ func scanInvite(row scannable) (Invite, error) {
 	if err != nil {
 		return Invite{}, err
 	}
+	inv.CreatedBy = string(createdBy)
 	if claimedAt.Valid {
 		t := claimedAt.Time.UTC()
 		inv.ClaimedAt = &t

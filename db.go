@@ -198,13 +198,33 @@ func InitDB(db *sql.DB) error {
 		signed_at TIMESTAMP NOT NULL
 	);`
 
-	// users holds profile fields plus FKs to normalized attestation
-	// rows. user_fingerprint is the denormalized active-key hint (updated
-	// on key rotation); the signing key for the current identity record
-	// lives on user_signatures via user_signature_id.
+	// identities is the FK target for "a user," local or federated. id is
+	// always "{userID}@{serverID}"; verified is a durability flag, not a
+	// revocation check — read paths should query verified_identities (below).
+	createIdentitiesTable := `
+	CREATE TABLE IF NOT EXISTS identities (
+		id VARCHAR(255) PRIMARY KEY,
+		remote_user_id VARCHAR(255) NOT NULL,
+		server_id VARCHAR(16) REFERENCES servers(id),
+		public_key_fingerprint VARCHAR(255),
+		verified BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		UNIQUE (remote_user_id, server_id)
+	);`
+
+	createIdentitiesIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_identities_server_id
+		ON identities(server_id);
+	`
+
+	// users is now a satellite of identities — profile fields only. id IS
+	// identities.id: "{userID}@{serverID}" directly, no separate bare column.
+	// user_fingerprint is the denormalized active-key hint (updated on key
+	// rotation); the signing key lives on user_signatures via user_signature_id.
 	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
-		id VARCHAR(255) PRIMARY KEY,
+		id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		username VARCHAR(255) UNIQUE,
 		role VARCHAR(16) NOT NULL DEFAULT 'user'
 			CHECK (role IN ('root', 'admin', 'user')),
@@ -213,12 +233,24 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		user_signature_id INT REFERENCES user_signatures(id),
 		server_signature_id INT REFERENCES server_signatures(id),
-		invited_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL
+		invited_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL
 	);`
 
 	createUserIndexes := `
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_lower_users_username
 		ON users(LOWER(username));
+	`
+
+	// verified_identities is the single safe-to-display/safe-to-trust
+	// surface. Until federation_established lands, this view is equivalent
+	// to "local OR identities.verified" — MUST be tightened once it ships.
+	createVerifiedIdentitiesView := `
+	CREATE OR REPLACE VIEW verified_identities AS
+	SELECT i.*
+	FROM identities i
+	JOIN servers s ON s.id = i.server_id
+	WHERE s.self = TRUE
+	   OR i.verified = TRUE;
 	`
 
 	// Server-owned private keys
@@ -247,7 +279,7 @@ func InitDB(db *sql.DB) error {
 	createUserKeysTable := `
 	CREATE TABLE IF NOT EXISTS user_keys (
 		fingerprint VARCHAR(255) UNIQUE NOT NULL,
-		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		owner VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		expires_at TIMESTAMP,
@@ -277,7 +309,7 @@ func InitDB(db *sql.DB) error {
 	createUserKeyRevocationsTable := `
 	CREATE TABLE IF NOT EXISTS user_key_revocations (
 		user_fingerprint VARCHAR(255) NOT NULL,
-		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		owner VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		reason TEXT,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
@@ -303,7 +335,7 @@ func InitDB(db *sql.DB) error {
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
 		id VARCHAR(255) NOT NULL,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		private_key_fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
 		signed_at TIMESTAMP NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
@@ -332,7 +364,7 @@ func InitDB(db *sql.DB) error {
 	// re-derive content.
 	createReedEchoesTable := `
 	CREATE TABLE IF NOT EXISTS reed_echoes (
-		echoing_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		echoing_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		echoing_reed_id VARCHAR(255) NOT NULL,
 		echoed_user_id VARCHAR(255) NOT NULL,
 		echoed_reed_id VARCHAR(255) NOT NULL,
@@ -371,16 +403,13 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// One row per (reed, mentioned user). mentioning_* = reed that contains
-	// the @. Only LOCAL mentions are stored — a mention of a user on a
-	// foreign server is never inserted (nothing here to FK against), so
-	// mentioned_user_id can be a hard FK to users(id). mentioned_server_id
-	// is therefore always this server's own id today; kept for when
-	// cross-server mention notification lands.
+	// the @. mentioned_user_id FKs to identities(id), which can hold a
+	// provisional remote identity, but only LOCAL mentions are inserted today.
 	createReedMentionsTable := `
 	CREATE TABLE IF NOT EXISTS reed_mentions (
 		mentioning_user_id VARCHAR(255) NOT NULL,
 		mentioning_reed_id VARCHAR(255) NOT NULL,
-		mentioned_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		mentioned_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		mentioned_server_id VARCHAR(255) NOT NULL,
 
 		PRIMARY KEY (mentioning_reed_id, mentioned_server_id, mentioned_user_id),
@@ -403,7 +432,7 @@ func InitDB(db *sql.DB) error {
 	createReedRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS reed_removals (
 		reed_id VARCHAR(255) NOT NULL,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		user_fingerprint VARCHAR(255) NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
@@ -419,7 +448,7 @@ func InitDB(db *sql.DB) error {
 	// removals). note ≤140 enforced by CHECK + API.
 	createAccountRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS account_removals (
-		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		note VARCHAR(140) NOT NULL DEFAULT '',
 		user_fingerprint VARCHAR(255) NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
@@ -436,7 +465,7 @@ func InitDB(db *sql.DB) error {
 	// signing key (same class as reed removals).
 	createReedsLikedTable := `
 	CREATE TABLE IF NOT EXISTS reeds_liked (
-		liker_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		liker_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		author_user_id VARCHAR(255) NOT NULL,
 		reed_id VARCHAR(255) NOT NULL,
 		liker_fingerprint VARCHAR(255) NOT NULL,
@@ -483,7 +512,7 @@ func InitDB(db *sql.DB) error {
 		reed_author_id VARCHAR(255) NOT NULL,
 		reed_id VARCHAR(255) NOT NULL,
 		thread_id UUID NOT NULL,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		content VARCHAR(140) NOT NULL,
 		replying_to VARCHAR(64) REFERENCES ripple_responses(id) ON DELETE SET NULL,
 		deleted BOOLEAN NOT NULL DEFAULT FALSE,
@@ -510,8 +539,8 @@ func InitDB(db *sql.DB) error {
 
 	createUserFollowersTable := `
 	CREATE TABLE IF NOT EXISTS user_followers (
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		follower_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		follower_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 		PRIMARY KEY (user_id, follower_user_id)
@@ -526,8 +555,8 @@ func InitDB(db *sql.DB) error {
 
 	createUserFollowingTable := `
 	CREATE TABLE IF NOT EXISTS user_following (
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		following_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		following_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 		PRIMARY KEY (user_id, following_user_id)
@@ -546,7 +575,7 @@ func InitDB(db *sql.DB) error {
 
 	createOnlineUsersTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS online_users (
-		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		sync_request_id VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
@@ -567,7 +596,7 @@ func InitDB(db *sql.DB) error {
 	createReedAllocationsTable := `
 	CREATE TABLE IF NOT EXISTS reed_allocations (
 		reed_id VARCHAR(255) NOT NULL,
-		holder_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		holder_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		author_user_id VARCHAR(255) NOT NULL,
 		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -644,14 +673,14 @@ func InitDB(db *sql.DB) error {
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_account_events (
 		event_id VARCHAR(255) PRIMARY KEY
 			REFERENCES pending_events(event_id) ON DELETE CASCADE,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE
 	);`
 
 	createProfileSubscriptionsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS profile_subscriptions (
 		subscription_id VARCHAR(255) PRIMARY KEY,
-		viewer_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		author_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		viewer_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		author_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
@@ -668,22 +697,22 @@ func InitDB(db *sql.DB) error {
 
 	createUnclaimedAccountsTable := `
 	CREATE TABLE IF NOT EXISTS unclaimed_accounts (
-		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	createOngoingRecoveriesTable := `
 	CREATE TABLE IF NOT EXISTS ongoing_recoveries (
-		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	// Follow edges reported during recovery whose target is not yet in users.
-	// following_user_id has no FK — the whole point is to hold unknown targets
-	// until claim / peer report drains them into user_following / user_followers.
+	// Follow edges reported during recovery whose target has no identities
+	// row yet. following_user_id has no FK — holds unknown targets until
+	// claim/peer report drains them into user_following/user_followers.
 	createPendingFollowsTable := `
 	CREATE TABLE IF NOT EXISTS pending_follows (
-		follower_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		follower_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		following_user_id VARCHAR(255) NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -699,12 +728,12 @@ func InitDB(db *sql.DB) error {
 	// clients mint ids; scoping to the issuer prevents cross-user collisions.
 	createInvitesTable := `
 	CREATE TABLE IF NOT EXISTS invites (
-		created_by VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_by VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		id VARCHAR(255) NOT NULL,
 		token_hash BYTEA NOT NULL UNIQUE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		claimed_at TIMESTAMPTZ,
-		claimed_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL,
+		claimed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
 		revoked_at TIMESTAMPTZ,
 		granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
 			CHECK (granted_role IN ('admin', 'user')),
@@ -717,14 +746,14 @@ func InitDB(db *sql.DB) error {
 		id VARCHAR(255) PRIMARY KEY,
 		name VARCHAR(255) NOT NULL,
 		secret_hash BYTEA NOT NULL,
-		remote_fingerprint VARCHAR(255) NOT NULL,
-		status VARCHAR(16) NOT NULL DEFAULT 'new'
-			CHECK (status IN ('new', 'accepted', 'approved', 'revoked')),
-		created_by VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		fingerprint VARCHAR(255) NOT NULL REFERENCES public_keys(fingerprint),
+		created_by VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		accepted_at TIMESTAMPTZ,
-		approved_at TIMESTAMPTZ,
-		reviewed_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL,
+		server_id VARCHAR(16) REFERENCES servers(id),
+		status VARCHAR(16) NOT NULL DEFAULT 'new'
+			CHECK (status IN ('new', 'accepted', 'approved', 'rejected', 'canceled', 'revoked')),
+		reviewed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
 		reviewed_at TIMESTAMPTZ,
 		connection_ciphertext TEXT
 	);`
@@ -732,7 +761,7 @@ func InitDB(db *sql.DB) error {
 	// Device binding — append-only history; exactly one active row per user.
 	createUserDevicesTable := `
 	CREATE TABLE IF NOT EXISTS user_devices (
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		device_id TEXT NOT NULL,
 		linked_at TIMESTAMPTZ NOT NULL,
 		revoked_at TIMESTAMPTZ NULL,
@@ -751,8 +780,13 @@ func InitDB(db *sql.DB) error {
 		createUserSignaturesTable,
 		createServerSignaturesTable,
 
+		createIdentitiesTable,
+		createIdentitiesIndexes,
+
 		createUsersTable,
 		createUserIndexes,
+
+		createVerifiedIdentitiesView,
 
 		createPrivateKeysTable,
 		createPublicKeysTable,

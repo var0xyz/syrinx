@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"syrinx/coverage"
+	"syrinx/identity"
 	"syrinx/signing"
 
 	"github.com/lib/pq"
@@ -18,14 +19,16 @@ import (
 // match the countersigned submission (should be impossible under the bind).
 var ErrReedConflict = errors.New("reed metadata conflict")
 
-// ErrAuthorNotFound is returned when the reed author is not in users.
+// ErrAuthorNotFound is returned when the reed author has no identities row.
 var ErrAuthorNotFound = errors.New("reed author not found")
 
 // SaveReed inserts reed metadata if missing; rejects conflicting metadata;
-// always upserts an allocation for reporterUserID. Caller must have verified
-// the countersignature.
-func SaveReed(ctx context.Context, 
+// always upserts an allocation for reporterUserID. Caller must have
+// verified the countersignature. Checks identities, not users, so a
+// provisional row still works for a remote author.
+func SaveReed(ctx context.Context,
 	db *sql.DB,
+	serverID string,
 	reedID, authorID, fingerprint string,
 	signedAt time.Time,
 	reporterUserID string,
@@ -33,6 +36,8 @@ func SaveReed(ctx context.Context,
 	serverSignatureB64 string,
 ) error {
 	signedAt = signedAt.UTC().Truncate(time.Second)
+	authorIdentity := identity.LocalID(authorID, serverID)
+	reporterIdentity := identity.LocalID(reporterUserID, serverID)
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -41,7 +46,7 @@ func SaveReed(ctx context.Context,
 	defer tx.Rollback()
 
 	var exists bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`, authorID).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM identities WHERE id = $1)`, authorIdentity).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -54,7 +59,7 @@ func SaveReed(ctx context.Context,
 		SELECT user_id, private_key_fingerprint, signed_at
 		FROM reeds WHERE user_id = $1 AND id = $2
 		FOR UPDATE
-	`, authorID, reedID).Scan(&existingAuthor, &existingFP, &existingAt)
+	`, authorIdentity, reedID).Scan(&existingAuthor, &existingFP, &existingAt)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -72,28 +77,30 @@ func SaveReed(ctx context.Context,
 				user_signature_id, server_signature_id
 			)
 			VALUES ($1, $2, $3, $4, $5, $6)
-		`, reedID, authorID, fingerprint, signedAt, userSigID, serverSigID); err != nil {
+		`, reedID, authorIdentity, fingerprint, signedAt, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert reed: %w", err)
 		}
 	case err != nil:
 		return err
 	default:
 		existingAt = existingAt.UTC().Truncate(time.Second)
-		if existingAuthor != authorID || existingFP != fingerprint || !existingAt.Equal(signedAt) {
+		if existingAuthor != string(authorIdentity) || existingFP != fingerprint || !existingAt.Equal(signedAt) {
 			log.Printf(
 				"[ERR] recovery reed conflict: reedID=%s existing=(author=%s fp=%s at=%s) incoming=(author=%s fp=%s at=%s)",
 				reedID, existingAuthor, existingFP, existingAt.Format(time.RFC3339),
-				authorID, fingerprint, signedAt.Format(time.RFC3339),
+				authorIdentity, fingerprint, signedAt.Format(time.RFC3339),
 			)
 			return ErrReedConflict
 		}
 	}
 
+	// reed_allocations.holder_user_id is a direct FK to identities(id);
+	// author_user_id is composite-FK'd via reeds(user_id, id).
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING
-	`, reedID, reporterUserID, authorID)
+	`, reedID, reporterIdentity, authorIdentity)
 	if err != nil {
 		return fmt.Errorf("insert reed allocation: %w", err)
 	}
@@ -102,7 +109,8 @@ func SaveReed(ctx context.Context,
 		return err
 	}
 	if n > 0 {
-		if err := coverage.BumpAllocationCount(ctx, tx, authorID, reedID, 1); err != nil {
+		// reeds.user_id is the same FK'd column as above.
+		if err := coverage.BumpAllocationCount(ctx, tx, string(authorIdentity), reedID, 1); err != nil {
 			return err
 		}
 	}
@@ -111,9 +119,10 @@ func SaveReed(ctx context.Context,
 }
 
 // SaveFollowing writes follow edges for followerUserID. Existing targets go
-// into user_following / user_followers; missing targets go into pending_follows.
-// Caller must reject self-follows before calling.
-func SaveFollowing(ctx context.Context, db *sql.DB, followerUserID string, targetIDs []string) error {
+// into user_following / user_followers; missing targets go into
+// pending_follows. Caller must reject self-follows before calling.
+// followerUserID/targetIDs are bare userIDs local to serverID.
+func SaveFollowing(ctx context.Context, db *sql.DB, serverID string, followerUserID string, targetIDs []string) error {
 	if len(targetIDs) == 0 {
 		return nil
 	}
@@ -124,10 +133,23 @@ func SaveFollowing(ctx context.Context, db *sql.DB, followerUserID string, targe
 	}
 	defer tx.Rollback()
 
+	followerIdentity := identity.LocalID(followerUserID, serverID)
+
+	// Check identities, not users, same reason as SaveReed above.
 	existing := make(map[string]bool, len(targetIDs))
+	targetIdentities := make(map[string]identity.IdentityID, len(targetIDs))
+	canonicalTargets := make([]string, 0, len(targetIDs))
+	for _, targetID := range targetIDs {
+		if targetID == "" {
+			continue
+		}
+		targetIdentity := identity.LocalID(targetID, serverID)
+		targetIdentities[targetID] = targetIdentity
+		canonicalTargets = append(canonicalTargets, string(targetIdentity))
+	}
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id FROM users WHERE id = ANY($1)
-	`, pq.Array(targetIDs))
+		SELECT id FROM identities WHERE id = ANY($1)
+	`, pq.Array(canonicalTargets))
 	if err != nil {
 		return err
 	}
@@ -147,28 +169,32 @@ func SaveFollowing(ctx context.Context, db *sql.DB, followerUserID string, targe
 		if targetID == "" {
 			continue
 		}
-		if existing[targetID] {
+		targetIdentity := targetIdentities[targetID]
+		if existing[string(targetIdentity)] {
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO user_following (user_id, following_user_id)
 				VALUES ($1, $2)
 				ON CONFLICT DO NOTHING
-			`, followerUserID, targetID); err != nil {
+			`, followerIdentity, targetIdentity); err != nil {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO user_followers (user_id, follower_user_id)
 				VALUES ($1, $2)
 				ON CONFLICT DO NOTHING
-			`, targetID, followerUserID); err != nil {
+			`, targetIdentity, followerIdentity); err != nil {
 				return err
 			}
 			continue
 		}
+		// pending_follows.following_user_id has no FK by design (the target
+		// may have no identities row yet) — stays bare. follower_user_id
+		// IS FK'd to identities.
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO pending_follows (follower_user_id, following_user_id)
 			VALUES ($1, $2)
 			ON CONFLICT DO NOTHING
-		`, followerUserID, targetID); err != nil {
+		`, followerIdentity, targetID); err != nil {
 			return err
 		}
 	}

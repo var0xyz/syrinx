@@ -22,16 +22,31 @@ func openDevicesTestDB(t *testing.T) *sql.DB {
 	return newTestDatabase(t, ensureDevicesSchema)
 }
 
+// devicesTestServerID matches the serverID BindDeviceTx/GetActiveDeviceID
+// use internally, set via deviceTestSvc below — writer and reader must agree.
+const devicesTestServerID = "testserver"
+
 func ensureDevicesSchema(db *sql.DB) error {
 	stmts := []string{
 		`DROP TABLE IF EXISTS user_devices CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
-		`CREATE TABLE users (
+		`DROP TABLE IF EXISTS identities CASCADE`,
+		// identities is the FK target for "a user" (see db.go).
+		`CREATE TABLE identities (
 			id VARCHAR(255) PRIMARY KEY,
+			remote_user_id VARCHAR(255) NOT NULL,
+			server_id VARCHAR(16),
+			public_key_fingerprint VARCHAR(255),
+			verified BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE (remote_user_id, server_id)
+		)`,
+		`CREATE TABLE users (
+			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			username VARCHAR(255) UNIQUE NOT NULL
 		)`,
 		`CREATE TABLE user_devices (
-			user_id    VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			user_id    VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 			device_id  TEXT NOT NULL,
 			linked_at  TIMESTAMPTZ NOT NULL,
 			revoked_at TIMESTAMPTZ NULL,
@@ -49,14 +64,21 @@ func ensureDevicesSchema(db *sql.DB) error {
 }
 
 func insertDeviceTestUser(db *sql.DB, userID string) {
-	_, err := db.Exec(`INSERT INTO users (id, username) VALUES ($1, $2)`, userID, userID)
+	identityID := string(identity.LocalID(userID, devicesTestServerID))
+	if _, err := db.Exec(
+		`INSERT INTO identities (id, remote_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE)`,
+		identityID, userID, devicesTestServerID,
+	); err != nil {
+		panic(err)
+	}
+	_, err := db.Exec(`INSERT INTO users (id, username) VALUES ($1, $2)`, identityID, userID)
 	if err != nil {
 		panic(err)
 	}
 }
 
 func deviceTestSvc(db *sql.DB) *DataService {
-	return &DataService{db: db}
+	return &DataService{db: db, serverID: devicesTestServerID}
 }
 
 func TestBindDeviceTx_SameDeviceTwice(t *testing.T) {
@@ -88,7 +110,7 @@ func TestBindDeviceTx_SameDeviceTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	active, err := svc.GetActiveDeviceID(context.Background(), "u1")
+	active, err := svc.GetActiveDeviceID(context.Background(), "u1@testserver")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +134,7 @@ func TestBindDevice_BindRevokesPrevious(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	active, err := svc.GetActiveDeviceID(context.Background(), "u1")
+	active, err := svc.GetActiveDeviceID(context.Background(), "u1@testserver")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,13 +153,13 @@ func TestCheckActiveDevice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := svc.CheckActiveDevice(context.Background(), "u1", d1); err != nil {
+	if err := svc.CheckActiveDevice(context.Background(), "u1@testserver", d1); err != nil {
 		t.Fatalf("match: %v", err)
 	}
-	if err := svc.CheckActiveDevice(context.Background(), "u1", "6ba7b810-9dad-11d1-80b4-00c04fd430c8"); err != errDeviceMismatch {
+	if err := svc.CheckActiveDevice(context.Background(), "u1@testserver", "6ba7b810-9dad-11d1-80b4-00c04fd430c8"); err != errDeviceMismatch {
 		t.Fatalf("mismatch: %v", err)
 	}
-	if err := svc.CheckActiveDevice(context.Background(), "u1", ""); err != identity.ErrMissingDevice {
+	if err := svc.CheckActiveDevice(context.Background(), "u1@testserver", ""); err != identity.ErrMissingDevice {
 		t.Fatalf("missing: %v", err)
 	}
 }
@@ -176,7 +198,7 @@ func TestBindDevice_ConcurrentBind(t *testing.T) {
 	var activeCount int
 	if err := db.QueryRow(`
 		SELECT COUNT(*) FROM user_devices WHERE user_id = $1 AND revoked_at IS NULL
-	`, "u1").Scan(&activeCount); err != nil {
+	`, string(identity.LocalID("u1", devicesTestServerID))).Scan(&activeCount); err != nil {
 		t.Fatal(err)
 	}
 	if activeCount != 1 {
@@ -216,7 +238,7 @@ func TestDeviceMiddleware(t *testing.T) {
 	})
 
 	t.Run("matching device", func(t *testing.T) {
-		req := withUID(httptest.NewRequest(http.MethodGet, "/api/users/me", nil), "u1")
+		req := withUID(httptest.NewRequest(http.MethodGet, "/api/users/me", nil), "u1@testserver")
 		req.Header.Set("X-Syrinx-Device-Id", d1)
 		rr := httptest.NewRecorder()
 		chain.ServeHTTP(rr, req)
@@ -226,7 +248,7 @@ func TestDeviceMiddleware(t *testing.T) {
 	})
 
 	t.Run("mismatch", func(t *testing.T) {
-		req := withUID(httptest.NewRequest(http.MethodGet, "/api/users/me", nil), "u1")
+		req := withUID(httptest.NewRequest(http.MethodGet, "/api/users/me", nil), "u1@testserver")
 		req.Header.Set("X-Syrinx-Device-Id", d2)
 		rr := httptest.NewRecorder()
 		chain.ServeHTTP(rr, req)
@@ -243,7 +265,7 @@ func TestDeviceMiddleware(t *testing.T) {
 	})
 
 	t.Run("rebind exempt", func(t *testing.T) {
-		req := withUID(httptest.NewRequest(http.MethodPost, "/api/users/device", nil), "u1")
+		req := withUID(httptest.NewRequest(http.MethodPost, "/api/users/device", nil), "u1@testserver")
 		req.Header.Set("X-Syrinx-Device-Id", d2)
 		rr := httptest.NewRecorder()
 		chain.ServeHTTP(rr, req)
@@ -271,7 +293,7 @@ func TestBindDeviceHandler(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/users/device", nil)
-	req = req.WithContext(context.WithValue(req.Context(), userIDKey, "u1"))
+	req = req.WithContext(context.WithValue(req.Context(), userIDKey, "u1@testserver"))
 	req.Header.Set("X-Syrinx-Device-Id", d2)
 	rr := httptest.NewRecorder()
 	h.BindDevice(rr, req)
@@ -289,7 +311,7 @@ func TestBindDeviceHandler(t *testing.T) {
 	if !kicked {
 		t.Fatal("expected kick")
 	}
-	active, err := svc.GetActiveDeviceID(context.Background(), "u1")
+	active, err := svc.GetActiveDeviceID(context.Background(), "u1@testserver")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"syrinx/identity"
+
 	"github.com/google/uuid"
 )
 
@@ -23,19 +25,31 @@ func ensureMentionsSchema(db *sql.DB) error {
 		`DROP TABLE IF EXISTS reeds CASCADE`,
 		`DROP TABLE IF EXISTS account_removals CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
-		`CREATE TABLE users (
+		`DROP TABLE IF EXISTS identities CASCADE`,
+		// identities is the FK target for "a user" (see db.go) —
+		// CreateReed/MentionTargetValid/SearchUsers all resolve through it.
+		`CREATE TABLE identities (
 			id VARCHAR(255) PRIMARY KEY,
+			remote_user_id VARCHAR(255) NOT NULL,
+			server_id VARCHAR(16),
+			public_key_fingerprint VARCHAR(255),
+			verified BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE (remote_user_id, server_id)
+		)`,
+		`CREATE TABLE users (
+			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			username VARCHAR(255) UNIQUE NOT NULL,
 			user_fingerprint VARCHAR(255),
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE account_removals (
-			user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id)
+			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id)
 		)`,
 		`CREATE TABLE reeds (
 			id VARCHAR(255) NOT NULL,
-			user_id VARCHAR(255) NOT NULL REFERENCES users(id),
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 			private_key_fingerprint VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
@@ -45,7 +59,7 @@ func ensureMentionsSchema(db *sql.DB) error {
 		)`,
 		`CREATE TABLE reed_allocations (
 			reed_id VARCHAR(255) NOT NULL,
-			holder_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			holder_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 			author_user_id VARCHAR(255) NOT NULL,
 			delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (holder_user_id, author_user_id, reed_id),
@@ -57,10 +71,12 @@ func ensureMentionsSchema(db *sql.DB) error {
 			tags TEXT[] NOT NULL DEFAULT '{}',
 			PRIMARY KEY (user_id, reed_id)
 		)`,
+		// mentioned_user_id FKs identities(id) — backstops "only local
+		// users can be indexed" (see db.go).
 		`CREATE TABLE reed_mentions (
 			mentioning_user_id VARCHAR(255) NOT NULL,
 			mentioning_reed_id VARCHAR(255) NOT NULL,
-			mentioned_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			mentioned_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 			mentioned_server_id VARCHAR(255) NOT NULL,
 			PRIMARY KEY (mentioning_reed_id, mentioned_server_id, mentioned_user_id),
 			FOREIGN KEY (mentioning_user_id, mentioning_reed_id)
@@ -69,7 +85,7 @@ func ensureMentionsSchema(db *sql.DB) error {
 		`DROP TABLE IF EXISTS reed_removals CASCADE`,
 		`CREATE TABLE reed_removals (
 			reed_id VARCHAR(255) NOT NULL,
-			user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 			PRIMARY KEY (user_id, reed_id)
 		)`,
 	}
@@ -86,8 +102,16 @@ func openMentionsTestDB(t *testing.T) *sql.DB {
 	return newTestDatabase(t, ensureMentionsSchema)
 }
 
+// seedMentionUser mints an identities row (server_id = "testserver",
+// matching every DataService{serverID: "testserver"} in this file) before
+// the satellite users row, mirroring services.go's Signup.
 func seedMentionUser(t *testing.T, db *sql.DB, userID string) {
 	t.Helper()
+	identityID := string(identity.LocalID(userID, "testserver"))
+	if _, err := db.Exec(`INSERT INTO identities (id, remote_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE) ON CONFLICT DO NOTHING`,
+		identityID, userID, "testserver"); err != nil {
+		t.Fatal(err)
+	}
 	var usID, ssID int
 	if err := db.QueryRow(`INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, 'sig') RETURNING id`, userID+"fp").Scan(&usID); err != nil {
 		t.Fatal(err)
@@ -96,7 +120,7 @@ func seedMentionUser(t *testing.T, db *sql.DB, userID string) {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO users (id, username, user_signature_id, server_signature_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-		userID, userID+"name", usID, ssID); err != nil {
+		identityID, userID+"name", usID, ssID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -128,7 +152,7 @@ func TestCreateReed_MentionsIndexed(t *testing.T) {
 
 	_, err := svc.CreateReed(ctx, createReedParams{
 		ReedID:             reedID,
-		UserID:             "alice",
+		UserID:             "alice@testserver",
 		UserFingerprint:    "alicefp",
 		UserSignatureB64:   "usersig",
 		ServerFingerprint:  "srvfp-alice",
@@ -153,8 +177,10 @@ func TestCreateReed_MentionsIndexed(t *testing.T) {
 		}
 		got = append(got, u)
 	}
-	if len(got) != 2 || got[0] != "bob" || got[1] != "carol" {
-		t.Fatalf("mentioned users = %v, want [bob carol]", got)
+	// reed_mentions.mentioned_user_id stores identity.RemoteID(m.AuthorID,
+	// m.ServerID), not the bare AuthorID.
+	if len(got) != 2 || got[0] != "bob@testserver" || got[1] != "carol@testserver" {
+		t.Fatalf("mentioned users = %v, want [bob@testserver carol@testserver]", got)
 	}
 }
 
@@ -174,7 +200,7 @@ func TestCreateReed_MentionOfNonexistentUserRejected(t *testing.T) {
 	ts := time.Now().UTC().Truncate(time.Second)
 	_, err := svc.CreateReed(ctx, createReedParams{
 		ReedID:             reedID,
-		UserID:             "alice",
+		UserID:             "alice@testserver",
 		UserFingerprint:    "alicefp",
 		UserSignatureB64:   "usersig",
 		ServerFingerprint:  "srvfp-alice",
@@ -199,7 +225,7 @@ func TestDeleteMentionsForReed_ClearsRows(t *testing.T) {
 	ts := time.Now().UTC().Truncate(time.Second)
 	_, err := svc.CreateReed(ctx, createReedParams{
 		ReedID:             reedID,
-		UserID:             "alice",
+		UserID:             "alice@testserver",
 		UserFingerprint:    "alicefp",
 		UserSignatureB64:   "usersig",
 		ServerFingerprint:  "srvfp-alice",
@@ -211,7 +237,7 @@ func TestDeleteMentionsForReed_ClearsRows(t *testing.T) {
 		t.Fatalf("CreateReed: %v", err)
 	}
 
-	if err := svc.DeleteMentionsForReed(ctx, "alice", reedID); err != nil {
+	if err := svc.DeleteMentionsForReed(ctx, "alice@testserver", reedID); err != nil {
 		t.Fatalf("DeleteMentionsForReed: %v", err)
 	}
 
@@ -237,7 +263,7 @@ func TestDeleteMentionsByAuthor_ClearsBothSides(t *testing.T) {
 	reed1 := newTestReedID(t)
 	ts := time.Now().UTC().Truncate(time.Second)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: reed1, UserID: "alice", UserFingerprint: "alicefp",
+		ReedID: reed1, UserID: "alice@testserver", UserFingerprint: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts, Mentions: []ReedRef{{ServerID: "testserver", AuthorID: "bob"}},
 	}); err != nil {
@@ -248,19 +274,19 @@ func TestDeleteMentionsByAuthor_ClearsBothSides(t *testing.T) {
 	// DeleteMentionsByAuthor(bob) clears mentions of bob regardless of author)
 	reed2 := newTestReedID(t)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: reed2, UserID: "carol", UserFingerprint: "carolfp",
+		ReedID: reed2, UserID: "carol@testserver", UserFingerprint: "carolfp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-carol", ServerSignatureB64: "sig",
 		Timestamp: ts, Mentions: []ReedRef{{ServerID: "testserver", AuthorID: "bob"}},
 	}); err != nil {
 		t.Fatalf("CreateReed 2: %v", err)
 	}
 
-	if err := svc.DeleteMentionsByAuthor(ctx, "bob"); err != nil {
+	if err := svc.DeleteMentionsByAuthor(ctx, "bob@testserver"); err != nil {
 		t.Fatalf("DeleteMentionsByAuthor: %v", err)
 	}
 
 	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM reed_mentions WHERE mentioned_user_id = 'bob'`).Scan(&n); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM reed_mentions WHERE mentioned_user_id = 'bob@testserver'`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 0 {
@@ -299,7 +325,9 @@ func TestMentionTargetValid(t *testing.T) {
 		t.Fatal("expected unknown serverID to be invalid mention target")
 	}
 
-	if _, err := db.Exec(`INSERT INTO account_removals (user_id) VALUES ('alice')`); err != nil {
+	// account_removals.user_id joins against u.identity_id, so this must
+	// be the full id, not the bare username.
+	if _, err := db.Exec(`INSERT INTO account_removals (user_id) VALUES ('alice@testserver')`); err != nil {
 		t.Fatal(err)
 	}
 	valid, err = svc.MentionTargetValid(ctx, "alice", "testserver")
@@ -318,7 +346,8 @@ func TestSearchUsers(t *testing.T) {
 
 	seedMentionUser(t, db, "alice")
 	seedMentionUser(t, db, "bob")
-	if _, err := db.Exec(`INSERT INTO account_removals (user_id) VALUES ('bob')`); err != nil {
+	// account_removals.user_id joins against u.identity_id.
+	if _, err := db.Exec(`INSERT INTO account_removals (user_id) VALUES ('bob@testserver')`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -326,7 +355,8 @@ func TestSearchUsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].ID != "alice" {
+	// UserSearchResult.ID holds u.id directly (which IS identities.id).
+	if len(results) != 1 || results[0].ID != "alice@testserver" {
 		t.Fatalf("results = %+v", results)
 	}
 

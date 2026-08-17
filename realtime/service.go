@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"syrinx/crypto"
+	"syrinx/identity"
 	"syrinx/observability/metrics"
 
 	"github.com/google/uuid"
@@ -39,10 +40,12 @@ type RealtimeService struct {
 	deviceCheck   func(userID, deviceID string) error
 }
 
-// NewService creates a new realtime service
-func NewService(db *sql.DB, crypto *crypto.Service, allowedOrigin string) *RealtimeService {
-	dbService := NewDBService(db)
-	authService := NewAuthService(db, crypto)
+// NewService creates a new realtime service. serverID is this server's own
+// id, needed to build the identities.id form for every FK'd column touched
+// by DBService/AuthService (see db.go's/auth.go's doc comments).
+func NewService(db *sql.DB, crypto *crypto.Service, allowedOrigin, serverID string) *RealtimeService {
+	dbService := NewDBService(db, serverID)
+	authService := NewAuthService(db, crypto, serverID)
 	connManager := NewConnectionManager()
 	log.Info().Msg("[OK] Realtime services initialized successfully")
 
@@ -77,8 +80,11 @@ func (rs *RealtimeService) SetDeviceCheck(check func(userID, deviceID string) er
 }
 
 // DisconnectUser closes all WebSocket connections for a user (device rebind kick).
+// Its caller passes a bare userID, but connManager's registry is keyed by
+// the "userID@serverID" form (see auth.go) — convert here at the boundary.
 func (rs *RealtimeService) DisconnectUser(userID string) {
-	rs.connManager.DisconnectUser(userID)
+	selfIdentity := identity.LocalID(userID, rs.dbService.serverID)
+	rs.connManager.DisconnectUser(string(selfIdentity))
 }
 
 // Shutdown notifies every connected client the server is going away and

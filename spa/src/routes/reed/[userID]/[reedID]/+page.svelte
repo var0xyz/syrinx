@@ -603,7 +603,6 @@
                 <div class="author-info">
                   <Username
                     userID={userID}
-                    serverID={removedAccountCert?.serverID ?? authorUser?.serverSignature?.serverID ?? ''}
                     username={authorDisplayName}
                     class="author-name"
                   />
@@ -660,7 +659,6 @@
                 <div class="author-info">
                   <Username
                     userID={reed.userID}
-                    serverID={reed.serverSignature?.serverID ?? ''}
                     username={authorUser?.username ?? reed.userID}
                     class="author-name"
                   />

@@ -103,11 +103,11 @@ func TestPostRipple_Handler_Success(t *testing.T) {
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	key := newRippleTestKey(t, db, "commenter1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	body := postRippleRequestBody(t, svc, key, "author1", "reed1", "commenter1", "hello", "", nil)
-	rr := postRipple(h, "commenter1", "author1", "reed1", body)
+	body := postRippleRequestBody(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "hello", "", nil)
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", body)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -115,7 +115,7 @@ func TestPostRipple_Handler_Success(t *testing.T) {
 	if w.Hash == "" || w.ThreadID == "" {
 		t.Errorf("expected non-empty Hash/ThreadID, got %+v", w)
 	}
-	if w.UserID != "commenter1" || w.Content != "hello" || w.Deleted {
+	if w.UserID != canonicalCommenter1 || w.Content != "hello" || w.Deleted {
 		t.Errorf("unexpected wire shape: %+v", w)
 	}
 	if w.UserSignature.Fingerprint != key.Fingerprint || w.UserSignature.Armor != body.UserSignature {
@@ -132,12 +132,12 @@ func TestPostRipple_Handler_InvalidSignature(t *testing.T) {
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	key := newRippleTestKey(t, db, "commenter1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	body := postRippleRequestBody(t, svc, key, "author1", "reed1", "commenter1", "hello", "", nil)
+	body := postRippleRequestBody(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "hello", "", nil)
 	body.Content = "tampered after signing"
-	rr := postRipple(h, "commenter1", "author1", "reed1", body)
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rr.Code)
 	}
@@ -148,10 +148,10 @@ func TestPostRipple_Handler_UnknownFingerprint(t *testing.T) {
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := postRipple(h, "commenter1", "author1", "reed1", postRippleRequest{
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", postRippleRequest{
 		Content:       "hello",
 		ThreadID:      uuid.NewString(),
 		Proof:         testReedServerSignature,
@@ -168,14 +168,14 @@ func TestPostRipple_Handler_TooLong(t *testing.T) {
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
 	long := make([]byte, 141)
 	for i := range long {
 		long[i] = 'a'
 	}
-	rr := postRipple(h, "commenter1", "author1", "reed1", postRippleRequest{
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", postRippleRequest{
 		Content:  string(long),
 		ThreadID: uuid.NewString(),
 		Proof:    testReedServerSignature,
@@ -190,10 +190,10 @@ func TestPostRipple_Handler_Empty(t *testing.T) {
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := postRipple(h, "commenter1", "author1", "reed1", postRippleRequest{
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", postRippleRequest{
 		Content:  "   ",
 		ThreadID: uuid.NewString(),
 		Proof:    testReedServerSignature,
@@ -208,10 +208,10 @@ func TestPostRipple_Handler_InvalidThreadID(t *testing.T) {
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := postRipple(h, "commenter1", "author1", "reed1", postRippleRequest{
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", postRippleRequest{
 		Content:  "hi",
 		ThreadID: "not-a-uuid",
 		Proof:    testReedServerSignature,
@@ -223,10 +223,10 @@ func TestPostRipple_Handler_InvalidThreadID(t *testing.T) {
 
 func TestPostRipple_Handler_MissingParent(t *testing.T) {
 	db := openRipplesTestDB(t)
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := postRipple(h, "commenter1", "author1", "reed1", postRippleRequest{
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", postRippleRequest{
 		Content:  "hi",
 		ThreadID: uuid.NewString(),
 	})
@@ -241,10 +241,10 @@ func TestPostRipple_Handler_RemovedParentReed(t *testing.T) {
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	insertReedRemoval(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := postRipple(h, "commenter1", "author1", "reed1", postRippleRequest{
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", postRippleRequest{
 		Content:  "hi",
 		ThreadID: uuid.NewString(),
 	})
@@ -259,10 +259,10 @@ func TestPostRipple_Handler_BlankEchoParent(t *testing.T) {
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	markReedBlankEcho(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := postRipple(h, "commenter1", "author1", "reed1", postRippleRequest{
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", postRippleRequest{
 		Content:  "hi",
 		ThreadID: uuid.NewString(),
 	})
@@ -276,10 +276,10 @@ func TestPostRipple_Handler_MissingProof(t *testing.T) {
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := postRipple(h, "commenter1", "author1", "reed1", postRippleRequest{
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", postRippleRequest{
 		Content:  "hi",
 		ThreadID: uuid.NewString(),
 	})
@@ -293,10 +293,10 @@ func TestPostRipple_Handler_WrongProof(t *testing.T) {
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := postRipple(h, "commenter1", "author1", "reed1", postRippleRequest{
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", postRippleRequest{
 		Content:  "hi",
 		ThreadID: uuid.NewString(),
 		Proof:    "not-the-right-signature",
@@ -311,10 +311,10 @@ func TestGetRipples_Handler_BlankEchoParent(t *testing.T) {
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	markReedBlankEcho(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := getRipples(h, "commenter1", "author1", "reed1", "", testReedServerSignature)
+	rr := getRipples(h, canonicalCommenter1, canonicalAuthor1, "reed1", "", testReedServerSignature)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -324,10 +324,10 @@ func TestGetRipples_Handler_MissingProof(t *testing.T) {
 	db := openRipplesTestDB(t)
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := getRipples(h, "commenter1", "author1", "reed1", "", "")
+	rr := getRipples(h, canonicalCommenter1, canonicalAuthor1, "reed1", "", "")
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -337,10 +337,10 @@ func TestGetRipples_Handler_WrongProof(t *testing.T) {
 	db := openRipplesTestDB(t)
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := getRipples(h, "commenter1", "author1", "reed1", "", "not-the-right-signature")
+	rr := getRipples(h, canonicalCommenter1, canonicalAuthor1, "reed1", "", "not-the-right-signature")
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -349,10 +349,10 @@ func TestGetRipples_Handler_WrongProof(t *testing.T) {
 func TestGetRipples_Handler_MissingReedNotFound(t *testing.T) {
 	db := openRipplesTestDB(t)
 	insertRipplesTestUser(t, db, "author1", "author1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := getRipples(h, "commenter1", "author1", "no-such-reed", "", testReedServerSignature)
+	rr := getRipples(h, canonicalCommenter1, canonicalAuthor1, "no-such-reed", "", testReedServerSignature)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -363,10 +363,10 @@ func TestPostRipple_Handler_RemovedAccountParent(t *testing.T) {
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertAccountRemoval(t, db, "author1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := postRipple(h, "commenter1", "author1", "reed1", postRippleRequest{
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", postRippleRequest{
 		Content:  "hi",
 		ThreadID: uuid.NewString(),
 	})
@@ -383,13 +383,13 @@ func TestPostRipple_Handler_ReplyingToDifferentReed(t *testing.T) {
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	insertRipplesTestReed(t, db, "author2", "reed2")
 	key := newRippleTestKey(t, db, "commenter1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	other := postTestRipple(t, svc, key, "author2", "reed2", "commenter1", "elsewhere", nil, time.Now())
+	other := postTestRipple(t, svc, key, canonicalAuthor2, "reed2", canonicalCommenter1, "elsewhere", nil, time.Now())
 
-	body := postRippleRequestBody(t, svc, key, "author1", "reed1", "commenter1", "reply", "", &other.ID)
-	rr := postRipple(h, "commenter1", "author1", "reed1", body)
+	body := postRippleRequestBody(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "reply", "", &other.ID)
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (reply targets a different reed)", rr.Code)
 	}
@@ -401,13 +401,13 @@ func TestPostRipple_Handler_ThreadMismatch(t *testing.T) {
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	key := newRippleTestKey(t, db, "commenter1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	root := postTestRipple(t, svc, key, "author1", "reed1", "commenter1", "root", nil, time.Now())
+	root := postTestRipple(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "root", nil, time.Now())
 
-	body := postRippleRequestBody(t, svc, key, "author1", "reed1", "commenter1", "reply", uuid.NewString(), &root.ID)
-	rr := postRipple(h, "commenter1", "author1", "reed1", body)
+	body := postRippleRequestBody(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "reply", uuid.NewString(), &root.ID)
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (threadID mismatch with parent)", rr.Code)
 	}
@@ -419,16 +419,16 @@ func TestPostRipple_Handler_ReplyingToSoftDeletedResponse(t *testing.T) {
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	key := newRippleTestKey(t, db, "commenter1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	root := postTestRipple(t, svc, key, "author1", "reed1", "commenter1", "root", nil, time.Now())
-	if _, _, err := svc.SoftDeleteRipple(context.Background(), root.ID, "commenter1"); err != nil {
+	root := postTestRipple(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "root", nil, time.Now())
+	if _, _, err := svc.SoftDeleteRipple(context.Background(), root.ID, canonicalCommenter1); err != nil {
 		t.Fatalf("seed SoftDeleteRipple: %v", err)
 	}
 
-	body := postRippleRequestBody(t, svc, key, "author1", "reed1", "commenter1", "reply", "", &root.ID)
-	rr := postRipple(h, "commenter1", "author1", "reed1", body)
+	body := postRippleRequestBody(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "reply", "", &root.ID)
+	rr := postRipple(h, canonicalCommenter1, canonicalAuthor1, "reed1", body)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201 (replying to a tombstone is allowed) (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -463,10 +463,10 @@ func TestGetRipples_Handler_Empty(t *testing.T) {
 	db := openRipplesTestDB(t)
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := getRipples(h, "commenter1", "author1", "reed1", "", testReedServerSignature)
+	rr := getRipples(h, canonicalCommenter1, canonicalAuthor1, "reed1", "", testReedServerSignature)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -487,18 +487,18 @@ func TestGetRipples_Handler_IncludesTombstonesAndRemovedAccounts(t *testing.T) {
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	key1 := newRippleTestKey(t, db, "commenter1")
 	key2 := newRippleTestKey(t, db, "commenter2")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
 	base := time.Now().Add(-1 * time.Hour)
-	deleted := postTestRipple(t, svc, key1, "author1", "reed1", "commenter1", "will be deleted", nil, base)
-	if _, _, err := svc.SoftDeleteRipple(context.Background(), deleted.ID, "commenter1"); err != nil {
+	deleted := postTestRipple(t, svc, key1, canonicalAuthor1, "reed1", canonicalCommenter1, "will be deleted", nil, base)
+	if _, _, err := svc.SoftDeleteRipple(context.Background(), deleted.ID, canonicalCommenter1); err != nil {
 		t.Fatalf("seed delete: %v", err)
 	}
-	postTestRipple(t, svc, key2, "author1", "reed1", "commenter2", "removed account", nil, base.Add(time.Second))
+	postTestRipple(t, svc, key2, canonicalAuthor1, "reed1", canonicalCommenter2, "removed account", nil, base.Add(time.Second))
 	insertAccountRemoval(t, db, "commenter2")
 
-	rr := getRipples(h, "commenter1", "author1", "reed1", "", testReedServerSignature)
+	rr := getRipples(h, canonicalCommenter1, canonicalAuthor1, "reed1", "", testReedServerSignature)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -515,7 +515,7 @@ func TestGetRipples_Handler_IncludesTombstonesAndRemovedAccounts(t *testing.T) {
 	if body.Responses[0].UserSignature.Armor == "" {
 		t.Error("tombstoned response must still carry its original userSignature")
 	}
-	if body.Responses[1].UserID != "commenter2" || body.Responses[1].Deleted {
+	if body.Responses[1].UserID != canonicalCommenter2 || body.Responses[1].Deleted {
 		t.Errorf("removed-account response not rendered unfiltered: %+v", body.Responses[1])
 	}
 }
@@ -524,10 +524,10 @@ func TestGetRipples_Handler_OnRemovedAccountParent(t *testing.T) {
 	db := openRipplesTestDB(t)
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertAccountRemoval(t, db, "author1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := getRipples(h, "commenter1", "author1", "reed1", "", "")
+	rr := getRipples(h, canonicalCommenter1, canonicalAuthor1, "reed1", "", "")
 	if rr.Code != http.StatusGone {
 		t.Fatalf("status = %d, want 410", rr.Code)
 	}
@@ -539,15 +539,15 @@ func TestGetRipples_Handler_Pagination(t *testing.T) {
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	key := newRippleTestKey(t, db, "commenter1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
 	base := time.Now().Add(-1 * time.Hour)
 	for i := 0; i < 3; i++ {
-		postTestRipple(t, svc, key, "author1", "reed1", "commenter1", "msg", nil, base.Add(time.Duration(i)*time.Second))
+		postTestRipple(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "msg", nil, base.Add(time.Duration(i)*time.Second))
 	}
 
-	rr1 := getRipples(h, "commenter1", "author1", "reed1", "limit=2", testReedServerSignature)
+	rr1 := getRipples(h, canonicalCommenter1, canonicalAuthor1, "reed1", "limit=2", testReedServerSignature)
 	var page1 rippleListResponse
 	if err := json.Unmarshal(rr1.Body.Bytes(), &page1); err != nil {
 		t.Fatalf("decode page1: %v", err)
@@ -556,7 +556,7 @@ func TestGetRipples_Handler_Pagination(t *testing.T) {
 		t.Fatalf("page1 = %+v, want 2 items/hasMore=true/non-empty cursor", page1)
 	}
 
-	rr2 := getRipples(h, "commenter1", "author1", "reed1", "limit=2&before="+page1.NextCursor, testReedServerSignature)
+	rr2 := getRipples(h, canonicalCommenter1, canonicalAuthor1, "reed1", "limit=2&before="+page1.NextCursor, testReedServerSignature)
 	if rr2.Code != http.StatusOK {
 		t.Fatalf("page2 status = %d (body: %s)", rr2.Code, rr2.Body.String())
 	}
@@ -573,10 +573,10 @@ func TestGetRipples_Handler_InvalidCursor(t *testing.T) {
 	db := openRipplesTestDB(t)
 	insertRipplesTestUser(t, db, "author1", "author1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := getRipples(h, "commenter1", "author1", "reed1", "before=not-valid-base64!!!", testReedServerSignature)
+	rr := getRipples(h, canonicalCommenter1, canonicalAuthor1, "reed1", "before=not-valid-base64!!!", testReedServerSignature)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rr.Code)
 	}
@@ -599,12 +599,12 @@ func TestDeleteRipple_Handler_Own(t *testing.T) {
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	key := newRippleTestKey(t, db, "commenter1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	resp := postTestRipple(t, svc, key, "author1", "reed1", "commenter1", "hi", nil, time.Now())
+	resp := postTestRipple(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "hi", nil, time.Now())
 
-	rr := deleteRipple(h, "commenter1", resp.ID)
+	rr := deleteRipple(h, canonicalCommenter1, resp.ID)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -625,12 +625,12 @@ func TestDeleteRipple_Handler_Others(t *testing.T) {
 	insertRipplesTestUser(t, db, "commenter2", "commenter2")
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	key := newRippleTestKey(t, db, "commenter1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	resp := postTestRipple(t, svc, key, "author1", "reed1", "commenter1", "hi", nil, time.Now())
+	resp := postTestRipple(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "hi", nil, time.Now())
 
-	rr := deleteRipple(h, "commenter2", resp.ID)
+	rr := deleteRipple(h, canonicalCommenter2, resp.ID)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", rr.Code)
 	}
@@ -638,10 +638,10 @@ func TestDeleteRipple_Handler_Others(t *testing.T) {
 
 func TestDeleteRipple_Handler_Missing(t *testing.T) {
 	db := openRipplesTestDB(t)
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := deleteRipple(h, "commenter1", "nonexistent")
+	rr := deleteRipple(h, canonicalCommenter1, "nonexistent")
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rr.Code)
 	}
@@ -653,15 +653,15 @@ func TestDeleteRipple_Handler_AlreadyDeletedIdempotent(t *testing.T) {
 	insertRipplesTestUser(t, db, "commenter1", "commenter1")
 	insertRipplesTestReed(t, db, "author1", "reed1")
 	key := newRippleTestKey(t, db, "commenter1")
-	svc := &DataService{db: db}
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	resp := postTestRipple(t, svc, key, "author1", "reed1", "commenter1", "hi", nil, time.Now())
+	resp := postTestRipple(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "hi", nil, time.Now())
 
-	if rr := deleteRipple(h, "commenter1", resp.ID); rr.Code != http.StatusNoContent {
+	if rr := deleteRipple(h, canonicalCommenter1, resp.ID); rr.Code != http.StatusNoContent {
 		t.Fatalf("first delete status = %d", rr.Code)
 	}
-	if rr := deleteRipple(h, "commenter1", resp.ID); rr.Code != http.StatusNoContent {
+	if rr := deleteRipple(h, canonicalCommenter1, resp.ID); rr.Code != http.StatusNoContent {
 		t.Fatalf("second delete status = %d, want 204 (idempotent)", rr.Code)
 	}
 }
