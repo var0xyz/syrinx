@@ -1,9 +1,9 @@
-import { redirect } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
 import { removedReedsRepository } from '$lib/repositories/removedReeds';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
-import { parseReedRef } from '$lib/utils/reedRef';
+import { isValidRef, getUserId } from '$lib/utils/identityRef';
 
 /** @type {import('./$types').PageLoad} */
 export async function load({ params, parent }) {
@@ -12,12 +12,17 @@ export async function load({ params, parent }) {
     throw redirect(307, '/');
   }
 
-  const userID = params.userID;
-  const reedID = params.reedID;
+  // The URL's one param IS the canonical reed ref (authorID@serverID/uuid)
+  // — never split across segments, never reassembled from parts.
+  const canonicalReedID = params.reedID;
+  if (!isValidRef(canonicalReedID)) {
+    throw error(404, 'Not found');
+  }
+  const userID = getUserId(canonicalReedID);
 
-  let reed = await reedsService.getReed(userID, reedID);
+  let reed = await reedsService.getReed(canonicalReedID);
   if (!reed && user.id === userID) {
-    const pending = await reedsService.getUnsignedReed(reedID);
+    const pending = await reedsService.getUnsignedReed(canonicalReedID);
     if (pending?.userID === userID) {
       reed = pending;
     }
@@ -27,7 +32,7 @@ export async function load({ params, parent }) {
     return {
       user,
       userID,
-      reedID,
+      canonicalReedID: null,
       reed: null,
       authorUser: null,
       echoedReed: null,
@@ -50,7 +55,7 @@ export async function load({ params, parent }) {
   if (!reed) {
     removedAccountCert = await removedAccountsRepository.get(userID);
     if (!removedAccountCert) {
-      removedReedCert = await removedReedsRepository.get(reedID);
+      removedReedCert = await removedReedsRepository.get(canonicalReedID);
     }
     if (removedReedCert || removedAccountCert) {
       authorUser = await userRepository.get(userID).catch(() => null);
@@ -61,9 +66,8 @@ export async function load({ params, parent }) {
     authorUser = await userRepository.get(userID).catch(() => null);
 
     if (reed.echoing) {
-      const echoRef = parseReedRef(reed.echoing);
-      if (echoRef) {
-        echoedReed = await reedsService.getReed(echoRef.authorId, echoRef.reedId);
+      if (isValidRef(reed.echoing)) {
+        echoedReed = await reedsService.getReed(reed.echoing);
         echoedReedMissing = false;
       } else {
         echoedReedMissing = true;
@@ -71,9 +75,8 @@ export async function load({ params, parent }) {
     }
 
     if (reed.replying) {
-      const replyRef = parseReedRef(reed.replying);
-      if (replyRef) {
-        repliedToReed = await reedsService.getReed(replyRef.authorId, replyRef.reedId);
+      if (isValidRef(reed.replying)) {
+        repliedToReed = await reedsService.getReed(reed.replying);
         repliedToReedMissing = false;
       } else {
         repliedToReedMissing = true;
@@ -84,7 +87,9 @@ export async function load({ params, parent }) {
   return {
     user,
     userID,
-    reedID,
+    // Canonical id (authorID@serverID/uuid) — the single value every
+    // reed-scoped API call/subscription below the route boundary should use.
+    canonicalReedID,
     reed,
     authorUser,
     echoedReed,

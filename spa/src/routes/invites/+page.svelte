@@ -11,6 +11,7 @@
   } from '$lib/services/invites';
   import { invitesRepository } from '$lib/repositories/invites';
   import { userRepository } from '$lib/repositories/user';
+  import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
   import Username from '$lib/components/Username.svelte';
   import {
     isSignupClosed,
@@ -39,6 +40,7 @@
   let qrModalURL = '';
   let showQRModal = false;
   let claimerUsernames: Record<string, string> = {};
+  let claimerDefunct: Record<string, boolean> = {};
 
   $: maxInvites = $serverInfo?.maxInvitesPerUser ?? -1;
   $: usedInvites = invites.length;
@@ -51,7 +53,7 @@
       ? 'No invite limit on this server.'
       : invitesRemaining === 0
         ? `You’ve used all ${maxInvites} invite${maxInvites === 1 ? '' : 's'}. Revoking unused invites does not free quota.`
-        : `You can create ${maxInvites} invite${maxInvites === 1 ? '' : 's'} — ${invitesRemaining} left.`;
+        : `You can create ${maxInvites} invite${maxInvites === 1 ? '' : 's'} (including revoked) — ${invitesRemaining} left.`;
 
   onMount(async () => {
     user = await authService.getCurrentUser();
@@ -67,22 +69,27 @@
   });
 
   /**
-   * Username for each claimer id, from the local cache only. Never fetches
-   * over the network — this view must not reveal to the server which user
-   * ids the caller is looking up, or pull down profile/key data for users
-   * the caller has no other relation to. Unresolved ids just show the id.
+   * Username + removed-account status for each claimer id. The admin
+   * created these invites and is specifically looking at who claimed
+   * them, so fetching an unresolved claimer's profile (same fallback
+   * Username.svelte uses elsewhere) is fine here.
    */
   async function resolveClaimerUsernames(list: api.Invite[]) {
     const ids = list
       .map((invite) => invite.claimedBy)
       .filter((id): id is string => !!id)
-      .filter((id) => !(id in claimerUsernames));
+      .filter((id) => !(id in claimerUsernames) && !(id in claimerDefunct));
 
     await Promise.all(
       ids.map(async (id) => {
-        const cached = await userRepository.get(id);
-        if (cached?.username) {
-          claimerUsernames = { ...claimerUsernames, [id]: cached.username };
+        const removed = await removedAccountsRepository.get(id);
+        if (removed) {
+          claimerDefunct = { ...claimerDefunct, [id]: true };
+          return;
+        }
+        const user = await userRepository.getByUserId(id).catch(() => null);
+        if (user?.username) {
+          claimerUsernames = { ...claimerUsernames, [id]: user.username };
         }
       })
     );
@@ -146,7 +153,7 @@
     try {
       const created = await createSignedInvite(grantAdmin);
       if (created.secret && user?.id) {
-        freshShareURL = inviteShareURL(created.id, created.secret, user.id);
+        freshShareURL = inviteShareURL(created.id, created.secret);
         showFreshLink = true;
       }
       invites = await invitesRepository.getAll();
@@ -188,7 +195,7 @@
 
   function shareURL(invite: api.Invite): string | null {
     if (!invite.secret || !user?.id) return null;
-    return inviteShareURL(invite.id, invite.secret, user.id);
+    return inviteShareURL(invite.id, invite.secret);
   }
 
   async function copyLink(url: string) {
@@ -285,7 +292,9 @@
                       class="meta-link"
                       at
                       fire={false}
-                    />
+                    />{#if claimerDefunct[invite.claimedBy]}
+                      &nbsp;(defunct)
+                    {/if}
                   </span>
                 {/if}
               </div>
@@ -603,7 +612,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 200;
+    /* Above .floating-create-btn (z-index: 1000) so the modal covers it
+       instead of the button floating over the dialog. */
+    z-index: 1100;
     padding: 1rem;
   }
 

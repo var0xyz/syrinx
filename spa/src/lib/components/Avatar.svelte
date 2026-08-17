@@ -1,11 +1,10 @@
 <script>
   import { identiconForUser } from '$lib/utils/identicon';
 
+  /** `userID@serverID` id — callers already have this form, so this
+   * component takes it as a single value rather than composing it. */
   /** @type {string} */
   export let userID = '';
-
-  /** @type {string} */
-  export let serverID = '';
 
   /** @type {string} */
   export let username = '';
@@ -17,22 +16,16 @@
   let model = null;
   let loadedFor = '';
 
-  $: effectiveServerID =
-    serverID ||
-    (typeof localStorage !== 'undefined' ? localStorage.getItem('serverId') : '') ||
-    '';
-  $: identityKey = userID && effectiveServerID ? `${userID}@${effectiveServerID}` : '';
-
-  $: if (identityKey && identityKey !== loadedFor) {
-    loadedFor = identityKey;
+  $: if (userID && userID !== loadedFor) {
+    loadedFor = userID;
     model = null;
-    identiconForUser(userID, effectiveServerID).then((m) => {
-      if (loadedFor === identityKey) model = m;
+    identiconForUser(userID).then((m) => {
+      if (loadedFor === userID) model = m;
     });
   }
 </script>
 
-{#if userID && effectiveServerID}
+{#if userID}
   <span
     class="avatar"
     style="width: {size}; height: {size};"

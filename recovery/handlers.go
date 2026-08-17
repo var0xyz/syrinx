@@ -40,13 +40,17 @@ func (d Deps) ReportReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// req.AuthorID (reed.userID client-side) and req.UserSignature.KeyID
+	// both arrive already canonical — only req.ReedID is bare on this wire.
+	authorKeyID := req.UserSignature.KeyID
+	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(req.AuthorID), req.ReedID))
 	err := SaveReed(r.Context(), d.DB,
-		req.ReedID,
-		req.AuthorID,
+		d.ServerID,
+		canonicalReedID,
 		req.ServerSignature.Fingerprint,
 		req.ServerSignature.Timestamp,
 		caller,
-		req.UserSignature.Fingerprint,
+		authorKeyID,
 		req.UserSignature.Armor,
 		req.ServerSignature.Armor,
 	)
@@ -86,7 +90,7 @@ func (d Deps) ReportFollowing(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := SaveFollowing(r.Context(), d.DB, caller, req.UserIDs); err != nil {
+	if err := SaveFollowing(r.Context(), d.DB, d.ServerID, caller, req.UserIDs); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
@@ -101,7 +105,7 @@ func (d Deps) CompleteImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := DeleteOngoing(r.Context(), d.DB, caller); err != nil {
+	if err := DeleteOngoing(r.Context(), d.DB, d.ServerID, caller); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
@@ -120,11 +124,14 @@ func verifyReedCountersig(ctx context.Context, req ReedRequest, serverID string,
 		return fmt.Errorf("unknown server key %s", req.ServerSignature.Fingerprint)
 	}
 
+	// req.AuthorID arrives already canonical (reed.userID client-side);
+	// only req.ReedID is bare on this wire — append it to rebuild the id
+	// the original countersignature was computed over.
+	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(req.AuthorID), req.ReedID))
 	ts := req.ServerSignature.Timestamp.UTC().Truncate(time.Second)
 	payload := identity.BuildReedPayload(
 		serverID,
-		req.AuthorID,
-		req.ReedID,
+		canonicalReedID,
 		req.ServerSignature.Fingerprint,
 		req.UserSignature.Armor,
 		ts,

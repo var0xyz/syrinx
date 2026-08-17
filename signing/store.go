@@ -13,19 +13,24 @@ type DBTX interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// UserSignature is one row in user_signatures.
+// UserSignature is one row in user_signatures. PublicKeyID names which key
+// (public_keys.id) produced the signature — the wire shape still calls this
+// "fingerprint" (see WireUserSignature/UserWire below), since on the wire
+// it's identifying a signer, an orthogonal concept to a canonical key id.
 type UserSignature struct {
 	ID          int64
-	Fingerprint string
+	PublicKeyID string
 	Signature   string
 }
 
-// ServerSignature is one row in server_signatures.
+// ServerSignature is one row in server_signatures. PrivateKeyID names which
+// key (private_keys.id / public_keys.id — the two share ids) produced the
+// countersignature, same pattern as UserSignature.PublicKeyID.
 type ServerSignature struct {
-	ID          int64
-	Fingerprint string
-	Signature   string
-	SignedAt    time.Time
+	ID           int64
+	PrivateKeyID string
+	Signature    string
+	SignedAt     time.Time
 }
 
 // WireUserSignature is the nested userSignature wire block.
@@ -43,13 +48,13 @@ type WireServerSignature struct {
 }
 
 // InsertUserSignature inserts a user attestation row and returns its id.
-func InsertUserSignature(ctx context.Context, db DBTX, fingerprint, signature string) (int64, error) {
+func InsertUserSignature(ctx context.Context, db DBTX, publicKeyID, signature string) (int64, error) {
 	var id int64
 	err := db.QueryRowContext(ctx, `
-		INSERT INTO user_signatures (fingerprint, signature)
+		INSERT INTO user_signatures (public_key_id, signature)
 		VALUES ($1, $2)
 		RETURNING id
-	`, fingerprint, signature).Scan(&id)
+	`, publicKeyID, signature).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert user_signatures: %w", err)
 	}
@@ -58,14 +63,14 @@ func InsertUserSignature(ctx context.Context, db DBTX, fingerprint, signature st
 
 // InsertServerSignature inserts a server countersignature row and returns
 // its id. signedAt is stored UTC truncated to seconds.
-func InsertServerSignature(ctx context.Context, db DBTX, fingerprint, signature string, signedAt time.Time) (int64, error) {
+func InsertServerSignature(ctx context.Context, db DBTX, privateKeyID, signature string, signedAt time.Time) (int64, error) {
 	signedAt = signedAt.UTC().Truncate(time.Second)
 	var id int64
 	err := db.QueryRowContext(ctx, `
-		INSERT INTO server_signatures (fingerprint, signature, signed_at)
+		INSERT INTO server_signatures (private_key_id, signature, signed_at)
 		VALUES ($1, $2, $3)
 		RETURNING id
-	`, fingerprint, signature, signedAt).Scan(&id)
+	`, privateKeyID, signature, signedAt).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert server_signatures: %w", err)
 	}
@@ -76,12 +81,12 @@ func InsertServerSignature(ctx context.Context, db DBTX, fingerprint, signature 
 func GetUserSignature(ctx context.Context, db DBTX, id int64) (*UserSignature, error) {
 	var row UserSignature
 	err := db.QueryRowContext(ctx, `
-		SELECT id, fingerprint, signature
+		SELECT id, public_key_id, signature
 		FROM user_signatures
 		WHERE id = $1
 	`, id).Scan(
 		&row.ID,
-		&row.Fingerprint,
+		&row.PublicKeyID,
 		&row.Signature,
 	)
 	if err != nil {
@@ -94,12 +99,12 @@ func GetUserSignature(ctx context.Context, db DBTX, id int64) (*UserSignature, e
 func GetServerSignature(ctx context.Context, db DBTX, id int64) (*ServerSignature, error) {
 	var row ServerSignature
 	err := db.QueryRowContext(ctx, `
-		SELECT id, fingerprint, signature, signed_at
+		SELECT id, private_key_id, signature, signed_at
 		FROM server_signatures
 		WHERE id = $1
 	`, id).Scan(
 		&row.ID,
-		&row.Fingerprint,
+		&row.PrivateKeyID,
 		&row.Signature,
 		&row.SignedAt,
 	)
@@ -113,7 +118,7 @@ func GetServerSignature(ctx context.Context, db DBTX, id int64) (*ServerSignatur
 // UserWire assembles the nested userSignature block from a row.
 func UserWire(row *UserSignature) WireUserSignature {
 	return WireUserSignature{
-		Fingerprint: row.Fingerprint,
+		Fingerprint: row.PublicKeyID,
 		Armor:       row.Signature,
 	}
 }
@@ -124,7 +129,7 @@ func UserWire(row *UserSignature) WireUserSignature {
 func ServerWire(row *ServerSignature, serverID string) WireServerSignature {
 	return WireServerSignature{
 		ServerID:    serverID,
-		Fingerprint: row.Fingerprint,
+		Fingerprint: row.PrivateKeyID,
 		Armor:       row.Signature,
 		Timestamp:   row.SignedAt.UTC().Truncate(time.Second),
 	}

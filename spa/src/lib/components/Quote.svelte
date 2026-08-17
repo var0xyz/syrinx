@@ -10,7 +10,7 @@
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { formatRelativeTime } from '$lib/utils/time';
-  import { parseReedRef } from '$lib/utils/reedRef';
+  import { getUserId } from '$lib/utils/identityRef';
   import { resolveBlankEchoChain } from '$lib/utils/emptyEcho';
   import MarkdownParser from './MarkdownParser.svelte';
   import Username from './Username.svelte';
@@ -38,7 +38,7 @@
   /** @type {import('$lib/types/reed').ReedType | null} */
   let displayReed = null;
   let loadFailed = false;
-  /** @type {{ userID: string; reedID: string; kind: 'reed' | 'account'; serverID?: string; timestamp?: string } | null} */
+  /** @type {{ userID: string; reedID: string; kind: 'reed' | 'account'; timestamp?: string } | null} */
   let removedTarget = null;
   /** Drops a stale load() completion if reed/reedRef/missing changed again
    * (or the target resolved locally) before the earlier call finished —
@@ -54,23 +54,23 @@
   // Even a locally-unavailable reed should still be reachable: its detail
   // page shows the conversation (replies/echoes) around it independent of
   // whether the reed body itself resolved on this device.
-  $: unavailableTarget = reed
-    ? { authorId: reed.userID, reedId: reed.id }
-    : parseReedRef(reedRef);
+  $: unavailableTarget = reed?.id || reedRef || null;
 
-  async function resolveGone(authorId, targetReedId) {
+  async function resolveGone(reedRef) {
+    const authorId = getUserId(reedRef);
+    if (!authorId) return null;
+
     const accountCert = await removedAccountsRepository.get(authorId);
     if (accountCert) {
       return {
         userID: authorId,
-        reedID: targetReedId,
+        reedID: reedRef,
         kind: 'account',
-        serverID: accountCert.serverID,
         timestamp: accountCert.serverSignature?.timestamp,
       };
     }
 
-    const reedCert = await removedReedsRepository.get(targetReedId);
+    const reedCert = await removedReedsRepository.get(reedRef);
     if (reedCert && reedCert.userID === authorId) {
       return {
         userID: reedCert.userID,
@@ -82,15 +82,14 @@
 
     if (!get(isOnline)) return null;
     try {
-      const result = await apiService.getReedOrRemoval(authorId, targetReedId);
+      const result = await apiService.getReedOrRemoval(reedRef);
       if (result.kind !== 'gone' || !result.removal) return null;
       if (result.removal.type === 'account') {
         await verifyAndCommitAccountRemoval(result.removal);
         return {
           userID: authorId,
-          reedID: targetReedId,
+          reedID: reedRef,
           kind: 'account',
-          serverID: result.removal.serverID,
           timestamp: result.removal.serverSignature?.timestamp,
         };
       }
@@ -104,7 +103,7 @@
         };
       }
     } catch (error) {
-      console.warn('Quote: could not resolve gone reed', targetReedId, error);
+      console.warn('Quote: could not resolve gone reed', reedRef, error);
     }
     return null;
   }
@@ -118,11 +117,9 @@
     }
   }
 
-  /** Deleted accounts have no username left to show — the tombstone stub
-   * carries no `username` field. Show the raw identity instead of a name
-   * that no longer means anything. */
-  function deletedAccountLabel(userID, serverID) {
-    return serverID ? `~${userID}@${serverID}` : `~${userID}`;
+  /** Deleted accounts have no username left to show — falls back to the raw id. */
+  function deletedAccountLabel(userID) {
+    return `~${userID}`;
   }
 
   async function load(_id, ref, isMissing, sourceReed) {
@@ -140,25 +137,17 @@
 
     try {
       let source = sourceReed ?? null;
-      let parsed = null;
 
       if (!source && ref) {
-        parsed = parseReedRef(ref);
-        if (!parsed) {
-          if (seq !== loadSeq) return;
-          loadFailed = true;
-          loading = false;
-          return;
-        }
-        source = await reedsService.getReed(parsed.authorId, parsed.reedId);
+        source = await reedsService.getReed(ref);
         if (seq !== loadSeq) return;
         if (!source) {
-          const gone = await resolveGone(parsed.authorId, parsed.reedId);
+          const gone = await resolveGone(ref);
           if (seq !== loadSeq) return;
           if (gone) {
             removedTarget = gone;
             username = gone.kind === 'account'
-              ? deletedAccountLabel(gone.userID, gone.serverID)
+              ? deletedAccountLabel(gone.userID)
               : await loadUsername(gone.userID);
             if (seq !== loadSeq) return;
             loading = false;
@@ -176,8 +165,8 @@
         return;
       }
 
-      const resolved = await resolveBlankEchoChain(source, (authorId, targetReedId) =>
-        reedsService.getReed(authorId, targetReedId)
+      const resolved = await resolveBlankEchoChain(source, (canonicalRef) =>
+        reedsService.getReed(canonicalRef)
       );
       if (seq !== loadSeq) return;
       const resolvedUsername = await loadUsername(resolved.userID);
@@ -202,23 +191,36 @@
     if (!linked) return;
     event.stopPropagation();
     if (displayReed) {
-      goto(`/reed/${displayReed.userID}/${displayReed.id}`);
+      goto(`/reed/${displayReed.id}`);
       return;
     }
     if (removedTarget) {
-      goto(`/reed/${removedTarget.userID}/${removedTarget.reedID}`);
+      goto(`/reed/${removedTarget.reedID}`);
       return;
     }
     if (unavailableTarget) {
-      goto(`/reed/${unavailableTarget.authorId}/${unavailableTarget.reedId}`);
+      goto(`/reed/${unavailableTarget}`);
     }
   }
 </script>
 
 {#if missing || loadFailed}
-  <div class="quote quote--missing" style="--border-color: {borderColor}">
-    <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> Original reed unavailable</div>
-  </div>
+  {#if linked && unavailableTarget}
+    <div
+      class="quote quote--missing quote--linked"
+      style="--border-color: {borderColor}"
+      role="link"
+      tabindex="0"
+      on:click={handleClick}
+      on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
+    >
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> Original reed unavailable</div>
+    </div>
+  {:else}
+    <div class="quote quote--missing" style="--border-color: {borderColor}">
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> Original reed unavailable</div>
+    </div>
+  {/if}
 {:else if loading}
   <div class="quote" style="--border-color: {borderColor}">
     <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> Loading...</div>
@@ -266,7 +268,7 @@
       on:click={handleClick}
       on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} serverID={displayReed.serverSignature?.serverID ?? ''} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</span></div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</span></div>
 
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
@@ -278,7 +280,7 @@
       class:quote--clamped={maxLines > 0}
       style="--border-color: {borderColor}; --max-lines: {maxLines}"
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} serverID={displayReed.serverSignature?.serverID ?? ''} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</span></div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</span></div>
 
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />

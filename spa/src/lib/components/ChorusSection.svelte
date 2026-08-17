@@ -7,8 +7,7 @@
   import { formatRelativeTime } from '$lib/utils/time';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
 
-  /** @type {string} */
-  export let userID;
+  /** The reed's canonical id (authorID@serverID/uuid). */
   /** @type {string} */
   export let reedID;
 
@@ -31,13 +30,12 @@
     return {
       userID: u.userID,
       username: profile?.username ?? u.userID,
-      serverID: profile?.serverSignature?.serverID ?? '',
       echoedAt: u.echoedAt,
     };
   }
 
   async function loadPage() {
-    const list = await apiService.listEchoers(userID, reedID, { before: cursor });
+    const list = await apiService.listEchoers(reedID, { before: cursor });
     const resolved = await Promise.all(list.users.map(resolveRow));
     rows = [...rows, ...resolved];
     hasMore = list.hasMore;
@@ -72,7 +70,7 @@
   }
 
   function handleReedEchoes(msg) {
-    if (msg?.userID !== userID || msg?.reedID !== reedID) return;
+    if (msg?.reedID !== reedID) return;
     void reload();
   }
 
@@ -115,7 +113,6 @@
         >
           <ReedAuthorHeader
             userID={row.userID}
-            serverID={row.serverID}
             username={row.username}
             subtext={`Echoed ${formatRelativeTime(row.echoedAt)}`}
             stopPropagation

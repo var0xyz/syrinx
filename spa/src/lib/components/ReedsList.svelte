@@ -4,7 +4,7 @@
   import { formatRelativeTime } from '$lib/utils/time';
   import { dbService } from '$lib/services/db';
   import { userRepository } from '$lib/repositories/user';
-  import { removeReedAsAuthor } from '$lib/services/reedRemoval';
+  import { removeReedAsAuthor, reedRemovalCommitted } from '$lib/services/reedRemoval';
   import { pendingRemovalSynced } from '$lib/repositories/pendingRemoval';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import Quote from '$lib/components/Quote.svelte';
@@ -12,7 +12,7 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import { goto } from '$app/navigation';
-  import { parseReedRef } from '$lib/utils/reedRef';
+  import { isValidRef, getUserId } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
   import { serverConnection } from '$lib/services/serverConnection';
   import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';
@@ -53,9 +53,11 @@
    * multi-second delay for content we could've ruled out instantly.
    * Returns the known reason, or null if not locally known.
    */
-  async function locallyKnownRemovalReason(authorId, reedId) {
+  async function locallyKnownRemovalReason(reedRef) {
+    const authorId = getUserId(reedRef);
+    if (!authorId) return null;
     if (await removedAccountsRepository.get(authorId)) return 'account';
-    const reedCert = await removedReedsRepository.get(reedId);
+    const reedCert = await removedReedsRepository.get(reedRef);
     if (reedCert && reedCert.userID === authorId) return 'reed';
     return null;
   }
@@ -81,6 +83,11 @@
 
   $: if ($unsignedReedsProcessed > 0) loadReeds();
   $: if ($pendingRemovalSynced > 0) loadReeds();
+  /** A reed removal cert (this author's own, or one relayed for a reed
+   * shown here as an echo/reply target) can arrive over WS while this list
+   * is mounted — reload so the deleted item actually disappears instead of
+   * lingering until a manual reload remounts the component. */
+  $: if ($reedRemovalCommitted > 0) loadReeds();
 
   // Only depend on the queue store — never read reeds/pendingReeds here or
   // loadReeds() will retrigger this block and flash the loading screen.
@@ -93,7 +100,7 @@
   $: followArrived = $followReedQueue?.reed;
   $: if (followArrived?.userID === authorId && followArrived.id !== lastHandledFollowReedId) {
     lastHandledFollowReedId = followArrived.id;
-    showNewReedBanner = true;
+    void onFollowReedArrived(followArrived);
   }
 
   onMount(async () => {
@@ -112,9 +119,8 @@
         walk = echoMap.get(walk.echoing);
         continue;
       }
-      const parsed = parseReedRef(walk.echoing);
-      if (!parsed) break;
-      const nested = await reedsService.getReed(parsed.authorId, parsed.reedId);
+      if (!isValidRef(walk.echoing)) break;
+      const nested = await reedsService.getReed(walk.echoing);
       if (nested) {
         echoMap.set(walk.echoing, nested);
         walk = nested;
@@ -122,11 +128,9 @@
       }
       if (!pendingEchoRequests.has(walk.echoing)) {
         pendingEchoRequests.add(walk.echoing);
-        const localReason = await locallyKnownRemovalReason(parsed.authorId, parsed.reedId);
+        const localReason = await locallyKnownRemovalReason(walk.echoing);
         if (!localReason) {
-          serverConnection
-            .requestReedContent(parsed.reedId, parsed.authorId, parsed.serverId)
-            .catch(() => {});
+          serverConnection.requestReedContent(walk.echoing).catch(() => {});
         }
       }
       break;
@@ -151,11 +155,7 @@
 
   async function onProfileReedArrived(arrived) {
     const all = [...pendingReeds, ...reeds];
-    const echoRef = all.find((r) => {
-      if (!isBlankEcho(r)) return false;
-      const parsed = parseReedRef(r.echoing);
-      return parsed && parsed.reedId === arrived.id && parsed.authorId === arrived.userID;
-    })?.echoing;
+    const echoRef = all.find((r) => isBlankEcho(r) && r.echoing === arrived.id)?.echoing;
 
     if (echoRef) {
       await mergeEchoOriginal(arrived, echoRef);
@@ -171,10 +171,31 @@
     }
   }
 
+  /** FOLLOW_REED delivery for this profile's author — same scroll-gated
+   * choice as onProfileReedArrived (live-append at the top vs. banner while
+   * scrolled away), so the two delivery paths can't disagree about whether
+   * the banner is warranted for content that's already on screen. */
+  async function onFollowReedArrived(arrived) {
+    if (window.scrollY === 0) {
+      await loadReeds();
+    } else {
+      showNewReedBanner = true;
+    }
+  }
+
   async function loadReeds() {
     try {
       loadingReeds = true;
       errorLoadingReeds = '';
+      // Whatever raised the banner is about to be superseded by a full
+      // reload of this author's reeds — any previously-flagged "new
+      // content" is now either already rendered or stale, so the banner
+      // must not survive this call. Without this reset, a banner raised
+      // while scrolled down (or before a navigation away and back reused
+      // this same mounted component for a different/same author) could
+      // otherwise linger even once the content it was pointing at is on
+      // screen, only clearing via its own manual dismiss/show buttons.
+      showNewReedBanner = false;
       reeds = await reedsService.getReedsByAuthor(authorId);
       pendingReeds = isOwner
         ? await reedsService.getUnsignedReedsByAuthor(authorId)
@@ -185,15 +206,14 @@
       // Fetch echoed reeds; walk blank-echo chains so unwrap can reach content.
       const echoMap = new Map();
       const seenEchoKeys = new Set();
-      /** @type {{ key: string, author: string, reedId: string }[]} */
+      /** @type {string[]} */
       let echoFrontier = [];
 
       function enqueueEchoKey(key) {
         if (!key || seenEchoKeys.has(key)) return;
-        const parsed = parseReedRef(key);
-        if (!parsed) return;
+        if (!isValidRef(key)) return;
         seenEchoKeys.add(key);
-        echoFrontier.push({ key, author: parsed.authorId, reedId: parsed.reedId });
+        echoFrontier.push(key);
       }
 
       for (const r of allForQuotes) {
@@ -204,9 +224,9 @@
         const batch = echoFrontier;
         echoFrontier = [];
         const echoResults = await Promise.allSettled(
-          batch.map(({ author, reedId }) => reedsService.getReed(author, reedId))
+          batch.map((key) => reedsService.getReed(key))
         );
-        batch.forEach(({ key, author, reedId }, i) => {
+        batch.forEach((key, i) => {
           if (echoResults[i].status === 'fulfilled' && echoResults[i].value) {
             const original = echoResults[i].value;
             echoMap.set(key, original);
@@ -216,19 +236,15 @@
             }
             return;
           }
-          const parsed = parseReedRef(key);
-          if (!parsed) return;
           if (
             allForQuotes.some((r) => r.echoing === key && isBlankEcho(r)) &&
             !pendingEchoRequests.has(key)
           ) {
             pendingEchoRequests.add(key);
             void (async () => {
-              const localReason = await locallyKnownRemovalReason(author, reedId);
+              const localReason = await locallyKnownRemovalReason(key);
               if (localReason) return;
-              serverConnection
-                .requestReedContent(reedId, author, parsed.serverId)
-                .catch(() => {});
+              serverConnection.requestReedContent(key).catch(() => {});
             })();
           }
         });
@@ -260,15 +276,11 @@
         if (display.replying) replyKeys.add(display.replying);
       }
       const replyEntries = [...replyKeys]
-        .map((key) => {
-          const parsed = parseReedRef(key);
-          if (!parsed) return null;
-          return { key, author: parsed.authorId, reedId: parsed.reedId };
-        })
+        .map((key) => (isValidRef(key) ? { key } : null))
         .filter(Boolean);
 
       const replyResults = await Promise.allSettled(
-        replyEntries.map(({ author, reedId }) => reedsService.getReed(author, reedId))
+        replyEntries.map(({ key }) => reedsService.getReed(key))
       );
 
       const replyMap = new Map();
@@ -300,7 +312,7 @@
         await reedsService.discardUnsignedReed(reedId);
         pendingReeds = pendingReeds.filter((reed) => reed.id !== reedId);
       } else {
-        await removeReedAsAuthor(authorId, reedId);
+        await removeReedAsAuthor(reedId);
         reeds = reeds.filter(reed => reed.id !== reedId);
       }
     } catch (error) {
@@ -309,7 +321,7 @@
   }
 
   function navigateToReed(reed) {
-    goto(`/reed/${reed.userID}/${reed.id}`);
+    goto(`/reed/${reed.id}`);
   }
 </script>
 
@@ -328,7 +340,7 @@
   </div>
 {/if}
 
-<div class="reeds-list">
+<div class="reeds-list" class:with-write-button={showWriteButton}>
   {#if loadingReeds}
     <div class="loading">
       <h2>Loading reeds...</h2>
@@ -366,7 +378,6 @@
         <div class="reed-header">
           <ReedAuthorHeader
             userID={displayReed.userID}
-            serverID={displayReed.serverSignature?.serverID ?? ''}
             username={displayUser.username}
             nameTag="h3"
             subtext="Pending…"
@@ -421,7 +432,6 @@
         <div class="reed-header">
           <ReedAuthorHeader
             userID={displayReed.userID}
-            serverID={displayReed.serverSignature?.serverID ?? ''}
             username={displayUser.username}
             nameTag="h3"
             subtext={formatRelativeTime((awaitingOriginal ? reed : displayReed).serverSignature?.timestamp ?? reed.serverSignature?.timestamp)}
@@ -543,6 +553,12 @@
     gap: 1rem;
   }
 
+  .reeds-list.with-write-button {
+    /* Clears the floating write button (bottom: 80px, 56px tall) so it
+       doesn't cover the last reed. */
+    padding-bottom: 156px;
+  }
+
   .reed-item {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -563,7 +579,19 @@
     align-items: center;
     padding: 1rem;
     border-bottom: 1px solid var(--border);
-    min-width: 0;
+  }
+
+  .reed-menu {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+  }
+
+  .reed-menu:hover {
+    background: var(--border);
   }
 
   .error-state {

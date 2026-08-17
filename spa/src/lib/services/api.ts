@@ -2,6 +2,7 @@ import type * as api from '$lib/types/api';
 import { deviceIdHeader } from './deviceId';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
+import { appendFingerprint, parseKeyId } from '$lib/utils/identityRef';
 import {
   handleDeviceMismatch,
   handleFinishRecoveryForbidden,
@@ -10,8 +11,7 @@ import {
 } from './restoreFlow';
 
 export type SignReedResponse = {
-  serverID: string;
-  fingerprint: string;
+  id: string;
   timestamp: string;
   armor: string;
 };
@@ -25,7 +25,6 @@ export type SignupInput = {
   userIDSignature: string;
   userIDFingerprint: string;
   inviteID?: string;
-  inviteCreatorID?: string;
   inviteSecret?: string;
 };
 
@@ -78,42 +77,66 @@ export type UsernameAvailabilityResult =
   | { available: false; taken: true; message: string }
   | { available: false; taken: false; message: string; status: number };
 
+/** userId must already be canonical (userID@serverID); fingerprint may be
+ * bare or already a full canonical key id — passed through as-is either way. */
+export function canonicalKeyId(userId: string, fingerprint: string): string {
+  return parseKeyId(fingerprint) ? fingerprint : appendFingerprint(userId, fingerprint);
+}
+
+/**
+ * Splits a canonical reed id (authorID@serverID/uuid) into the two URL
+ * segments the server's /reeds/{userID}/{reedID} route expects. Mirrors
+ * handlers.go's route-boundary reconstruction in reverse.
+ */
+function splitReedId(reedId: string): { userId: string; bareId: string } {
+  const parsed = parseKeyId(reedId);
+  if (!parsed) throw new Error(`Invalid canonical reed id: ${reedId}`);
+  return { userId: `${parsed.userId}@${parsed.serverId}`, bareId: parsed.fingerprint };
+}
+
 // Unauthenticated endpoints that don't need signing.
-// `/server/keys` is public verification material — required so clients can
-// verify countersignatures even when their active user key is revoked
-// (e.g. mid-rotation, right after RevokeKey).
+// `/keys` (exact) is POST AddPublicKey — unauthenticated because a brand
+// new signup key has no session yet. Every other /keys/{id}... route
+// (GetKey, revoke, revocation) requires the caller's signature, mirroring
+// signatureAuthMiddleware's excludePaths in middlewares.go: only the bare
+// path is excluded, not the whole prefix.
 const UNAUTHENTICATED_ENDPOINTS = [
   '/users/id',
   '/users/signup',
   '/users/status',
   '/check-username',
-  '/keys',
   '/server/info',
-  '/server/keys',
+  '/server/key',
   '/recovery/identity/claim',
   '/account-recovery/challenge',
   '/account-recovery/bootstrap',
   '/invites/check',
 ];
+const UNAUTHENTICATED_EXACT_PATHS = ['/keys'];
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** Signs (if needed), sends, and validates the response — shared by request()
+ * (JSON body) and requestText() (plain text body); each only differs in how
+ * it reads the body once this returns an ok Response. */
+async function requestRaw(path: string, init?: RequestInit): Promise<Response> {
   let signedInit = init;
 
   // Check if this is an authenticated request
-  const isAuthenticated = !UNAUTHENTICATED_ENDPOINTS.some(endpoint => path.startsWith(endpoint));
+  const isAuthenticated =
+    !UNAUTHENTICATED_ENDPOINTS.some(endpoint => path.startsWith(endpoint)) &&
+    !UNAUTHENTICATED_EXACT_PATHS.some(endpoint => path === endpoint);
 
   if (isAuthenticated) {
     try {
       // Check if request signer is initialized
       if (!requestSigner.isInitialized()) {
         // Try to get auth data from auth service
-        const fingerprint = authService.getActiveKeyFingerprint();
+        const keyId = authService.getActiveKeyId();
         const passphrase = authService.getPassphrase();
-        if (!fingerprint || !passphrase) {
+        if (!keyId || !passphrase) {
           throw new Error('Cannot sign request: active key or passphrase not available');
         }
 
-        await requestSigner.initializeWorker(fingerprint, passphrase);
+        await requestSigner.initializeWorker(keyId, passphrase);
       }
 
       // Sign the request
@@ -177,11 +200,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw err;
   }
 
+  return res;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await requestRaw(path, init);
   try {
     return (await res.json()) as T;
   } catch {
     return undefined as T;
   }
+}
+
+/** Like request(), but reads the body as plain text instead of JSON —
+ * for endpoints whose response is displayed verbatim, never parsed. */
+async function requestText(path: string, init?: RequestInit): Promise<string> {
+  const res = await requestRaw(path, init);
+  return res.text();
 }
 
 /** Shared by both username-availability checks: same request shape, same
@@ -310,9 +345,6 @@ export const apiService = {
     if (input.inviteID) {
       formData.append('inviteID', input.inviteID);
     }
-    if (input.inviteCreatorID) {
-      formData.append('inviteCreatorID', input.inviteCreatorID);
-    }
     if (input.inviteSecret) {
       formData.append('inviteSecret', input.inviteSecret);
     }
@@ -324,8 +356,8 @@ export const apiService = {
     });
   },
 
-  async checkInvite(creatorId: string, id: string, secret: string): Promise<{ valid: boolean }> {
-    const q = new URLSearchParams({ uid: creatorId, iid: id, secret });
+  async checkInvite(id: string, secret: string): Promise<{ valid: boolean }> {
+    const q = new URLSearchParams({ id, secret });
     return request<{ valid: boolean }>(`/invites/check?${q}`, {
       method: 'GET'
     });
@@ -352,6 +384,8 @@ export const apiService = {
     });
   },
 
+  // id carries a literal "/" (userID@serverID/reedID) — no encodeURIComponent,
+  // same convention as canonicalKeyId above, or the signed path won't match.
   async getInviteStatus(id: string): Promise<{
     id: string;
     createdAt: string;
@@ -360,15 +394,20 @@ export const apiService = {
     claimedBy: string | null;
     revokedAt: string | null;
   }> {
-    return request(`/invites/${encodeURIComponent(id)}`, { method: 'GET' });
+    return request(`/invites/${id}`, { method: 'GET' });
   },
 
   async revokeInvite(id: string): Promise<void> {
-    await request(`/invites/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await request(`/invites/${id}`, { method: 'DELETE' });
   },
 
   async listFederationInvitations(): Promise<api.FederationInvitation[]> {
     return request<api.FederationInvitation[]>('/federation/invitations', { method: 'GET' });
+  },
+
+  /** Invitations + attempts + servers together — the mesh tab's combined view. */
+  async listFederation(): Promise<api.FederationList> {
+    return request<api.FederationList>('/federation/list', { method: 'GET' });
   },
 
   async createFederationInvitation(
@@ -382,8 +421,107 @@ export const apiService = {
     });
   },
 
-  async revokeFederationInvitation(inviteId: string): Promise<{ inviteId: string; status: 'revoked' }> {
+  async revokeFederationInvitation(inviteId: string): Promise<{ inviteId: string; status: 'canceled' }> {
     return request(`/federation/invitations/${encodeURIComponent(inviteId)}/revoke`, {
+      method: 'POST',
+    });
+  },
+
+  // Named "attempt", not "accept" — pasting the string only starts an
+  // attempt at redeeming the invitation; nothing is confirmed until the
+  // initiator's connect callback verifies it.
+  async attemptFederationConnection(connectionString: string): Promise<api.FederationAttemptResponse> {
+    return request<api.FederationAttemptResponse>('/federation/attempt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connectionString }),
+    });
+  },
+
+  async listFederationServers(): Promise<api.FederationServer[]> {
+    return request<api.FederationServer[]>('/federation/servers', { method: 'GET' });
+  },
+
+  /** Plain text, one log line per line — displayed verbatim, never parsed. */
+  async getFederationServerLogs(serverId: string): Promise<string> {
+    return requestText(`/federation/servers/${encodeURIComponent(serverId)}/logs`, {
+      method: 'GET',
+    });
+  },
+
+  /** null when this server was the responder (no local invitation row). */
+  async getFederationServerInvitation(
+    serverId: string
+  ): Promise<api.FederationInvitation | null> {
+    return request<api.FederationInvitation | null>(
+      `/federation/servers/${encodeURIComponent(serverId)}/invitation`,
+      { method: 'GET' }
+    );
+  },
+
+  /** null if no attempt row is found (shouldn't happen for a real server). */
+  async getFederationServerAttempt(serverId: string): Promise<api.FederationAttempt | null> {
+    return request<api.FederationAttempt | null>(
+      `/federation/servers/${encodeURIComponent(serverId)}/attempt`,
+      { method: 'GET' }
+    );
+  },
+
+  async getFederationAttempt(attemptId: string): Promise<api.FederationAttempt> {
+    return request<api.FederationAttempt>(
+      `/federation/attempts/${encodeURIComponent(attemptId)}`,
+      { method: 'GET' }
+    );
+  },
+
+  /** Plain text, one log line per line — displayed verbatim, never parsed. */
+  async getFederationAttemptLogs(attemptId: string): Promise<string> {
+    return requestText(`/federation/attempts/${encodeURIComponent(attemptId)}/logs`, {
+      method: 'GET',
+    });
+  },
+
+  async approveFederationAttempt(attemptId: string): Promise<api.FederationAttemptApproveResponse> {
+    return request<api.FederationAttemptApproveResponse>(`/federation/attempts/${encodeURIComponent(attemptId)}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async rejectFederationAttempt(attemptId: string, reason: string): Promise<void> {
+    await request(`/federation/attempts/${encodeURIComponent(attemptId)}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  /** Stages a disconnect — the peer stays connected until a second,
+   * different admin calls confirmFederationServerDisconnect. */
+  async requestFederationServerDisconnect(serverId: string, reason: string): Promise<void> {
+    await request(`/federation/servers/${encodeURIComponent(serverId)}/revoke`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  /** Finalizes a staged disconnect request. Server 403s if the confirming
+   * admin is the same one who requested it (root exempt). */
+  async confirmFederationServerDisconnect(serverId: string): Promise<void> {
+    await request(`/federation/servers/${encodeURIComponent(serverId)}/revoke/confirm`, {
+      method: 'POST',
+    });
+  },
+
+  /** Withdraws a staged disconnect request before it's confirmed. */
+  async cancelFederationServerDisconnect(serverId: string): Promise<void> {
+    await request(`/federation/servers/${encodeURIComponent(serverId)}/revoke/cancel`, {
+      method: 'POST',
+    });
+  },
+
+  async purgeFederationServer(serverId: string): Promise<void> {
+    await request(`/federation/servers/${encodeURIComponent(serverId)}/purge`, {
       method: 'POST',
     });
   },
@@ -400,10 +538,10 @@ export const apiService = {
     return request<api.UserInfo>(`/users/${userId}/info`, { method: 'GET' });
   },
 
-  async searchUsers(query: string, limit?: number): Promise<{ users: { id: string; username: string }[] }> {
+  async searchUsers(query: string, limit?: number): Promise<{ users: { id: string; username: string; serverName: string }[] }> {
     const params = new URLSearchParams({ q: query });
     if (limit != null) params.set('limit', String(limit));
-    return request<{ users: { id: string; username: string }[] }>(
+    return request<{ users: { id: string; username: string; serverName: string }[] }>(
       `/users/search?${params}`,
       { method: 'GET' },
     );
@@ -521,37 +659,39 @@ export const apiService = {
     });
   },
 
-  async getReedEchoCount(userId: string, reedId: string): Promise<number> {
-    return request(`/reeds/${userId}/${reedId}/echoes`, { method: 'GET' });
+  async getReedEchoCount(reedId: string): Promise<number> {
+    const { userId, bareId } = splitReedId(reedId);
+    return request(`/reeds/${userId}/${bareId}/echoes`, { method: 'GET' });
   },
 
   async listReplies(
-    userId: string,
     reedId: string,
     opts?: { limit?: number; before?: string },
   ): Promise<api.ReplyListResponse> {
+    const { userId, bareId } = splitReedId(reedId);
     const params = new URLSearchParams();
     if (opts?.limit != null) params.set('limit', String(opts.limit));
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
-    const path = `/reeds/${userId}/${reedId}/replies${qs ? `?${qs}` : ''}`;
+    const path = `/reeds/${userId}/${bareId}/replies${qs ? `?${qs}` : ''}`;
     return request<api.ReplyListResponse>(path, { method: 'GET' });
   },
 
-  async getReed(userId: string, reedId: string): Promise<any> {
-    return request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
+  async getReed(reedId: string): Promise<any> {
+    const { userId, bareId } = splitReedId(reedId);
+    return request(`/reeds/${userId}/${bareId}`, { method: 'GET' });
   },
 
   async listEchoers(
-    userId: string,
     reedId: string,
     opts?: { limit?: number; before?: string },
   ): Promise<api.EchoerListResponse> {
+    const { userId, bareId } = splitReedId(reedId);
     const params = new URLSearchParams();
     if (opts?.limit != null) params.set('limit', String(opts.limit));
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
-    const path = `/reeds/${userId}/${reedId}/chorus${qs ? `?${qs}` : ''}`;
+    const path = `/reeds/${userId}/${bareId}/chorus${qs ? `?${qs}` : ''}`;
     return request<api.EchoerListResponse>(path, { method: 'GET' });
   },
 
@@ -565,19 +705,19 @@ export const apiService = {
    * fallback (kept in sync with main.go's route registration).
    */
   async listRipples(
-    userId: string,
     reedId: string,
     serverSignatureArmor: string,
     opts?: { limit?: number; before?: string },
   ): Promise<api.RippleListResponse> {
+    const { userId, bareId } = splitReedId(reedId);
     const params = new URLSearchParams();
     if (opts?.limit != null) params.set('limit', String(opts.limit));
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
-    const path = `/reeds/${userId}/${reedId}/ripples${qs ? `?${qs}` : ''}`;
+    const path = `/reeds/${userId}/${bareId}/ripples${qs ? `?${qs}` : ''}`;
     return request<api.RippleListResponse>(path, { method: 'QUERY', body: serverSignatureArmor });
     // Fallback if QUERY isn't supported end-to-end:
-    // const path = `/reeds/${userId}/${reedId}/ripples/proof${qs ? `?${qs}` : ''}`;
+    // const path = `/reeds/${userId}/${bareId}/ripples/proof${qs ? `?${qs}` : ''}`;
     // return request<api.RippleListResponse>(path, { method: 'POST', body: serverSignatureArmor });
   },
 
@@ -585,19 +725,22 @@ export const apiService = {
    * reed as listing them — see listRipples and the server's
    * checkReedPossession. `proof` is the reed's base64 server-signature
    * armor. */
+  // fields.fingerprint travels bare over the wire — the server joins it
+  // with the authenticated caller's userID itself (see handlers.go's
+  // PostRipple).
   async postRipple(
-    userId: string,
     reedId: string,
     fields: {
       content: string;
       threadID: string;
       replyingTo?: string;
       proof: string;
-      fingerprint: string;
+      keyID: string;
       userSignature: string;
     }
   ): Promise<api.Ripple> {
-    return request<api.Ripple>(`/reeds/${userId}/${reedId}/ripples`, {
+    const { userId, bareId } = splitReedId(reedId);
+    return request<api.Ripple>(`/reeds/${userId}/${bareId}/ripples`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -605,14 +748,28 @@ export const apiService = {
         threadID: fields.threadID,
         replyingTo: fields.replyingTo ?? null,
         proof: fields.proof,
-        fingerprint: fields.fingerprint,
+        keyID: fields.keyID,
         userSignature: fields.userSignature,
+        // Only used server-side when this request is relayed to the
+        // reed's home server (see handlers.go's resolveActingUser) — a
+        // local caller's own session already provides this.
+        userID: localStorage.getItem('userId') ?? '',
       }),
     });
   },
 
-  async deleteRipple(rippleHash: string): Promise<void> {
-    return request<void>(`/ripples/${rippleHash}`, { method: 'DELETE' });
+  async deleteRipple(reedId: string, rippleHash: string): Promise<void> {
+    const { userId, bareId } = splitReedId(reedId);
+    return request<void>(`/reeds/${userId}/${bareId}/ripples/${rippleHash}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        // Only used server-side when this request is relayed to the
+        // reed's home server (see handlers.go's resolveActingUser) — a
+        // local caller's own session already provides this.
+        userID: localStorage.getItem('userId') ?? '',
+      }),
+    });
   },
 
   async listFollowing(
@@ -644,15 +801,15 @@ export const apiService = {
    * callers must switch on `removal.type` and not treat account as reed.
    */
   async getReedOrRemoval(
-    userId: string,
     reedId: string
   ): Promise<
     | { kind: 'reed'; reed: any }
     | { kind: 'gone'; removal: api.ReedRemoval | { type: string } }
     | { kind: 'not_found' }
   > {
+    const { userId, bareId } = splitReedId(reedId);
     try {
-      const reed = await request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
+      const reed = await request(`/reeds/${userId}/${bareId}`, { method: 'GET' });
       return { kind: 'reed', reed };
     } catch (err: any) {
       if (err?.status === 404) {
@@ -666,13 +823,13 @@ export const apiService = {
   },
 
   async deleteReed(
-    userId: string,
     reedId: string,
     signature: string
   ): Promise<api.ReedRemoval> {
+    const { userId, bareId } = splitReedId(reedId);
     const formData = new URLSearchParams();
     formData.append('signature', signature);
-    return request<api.ReedRemoval>(`/reeds/${userId}/${reedId}`, {
+    return request<api.ReedRemoval>(`/reeds/${userId}/${bareId}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString(),
@@ -680,48 +837,50 @@ export const apiService = {
   },
 
   async likeReed(
-    authorId: string,
     reedId: string,
     signature: string,
-    fingerprint: string
+    keyId: string
   ): Promise<api.ReedLike> {
+    const { userId, bareId } = splitReedId(reedId);
+    // fingerprint travels bare over the wire — the server joins it with the
+    // authenticated caller's userID itself (see handlers.go's LikeReed).
+    const bareFingerprint = parseKeyId(keyId)?.fingerprint ?? keyId;
     const formData = new URLSearchParams();
     formData.append('signature', signature);
-    formData.append('fingerprint', fingerprint);
-    return request<api.ReedLike>(`/reeds/${authorId}/${reedId}/like`, {
+    formData.append('fingerprint', bareFingerprint);
+    // Only used server-side when this request is relayed to the reed's
+    // home server (see handlers.go's resolveActingUser) — a local
+    // caller's own session already provides this.
+    formData.append('likerID', localStorage.getItem('userId') ?? '');
+    return request<api.ReedLike>(`/reeds/${userId}/${bareId}/like`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString(),
     });
   },
 
-  async unlikeReed(authorId: string, reedId: string): Promise<void> {
-    return request<void>(`/reeds/${authorId}/${reedId}/like`, { method: 'DELETE' });
-  },
-
-  async revokeKey(
-    userId: string,
-    fingerprint: string,
-    reason: string,
-    userSignature: string
-  ): Promise<api.PublicKey> {
+  async unlikeReed(reedId: string): Promise<void> {
+    const { userId, bareId } = splitReedId(reedId);
+    // likerID is only used server-side when relayed to the reed's home
+    // server (see handlers.go's resolveActingUser); a local caller's own
+    // session already provides this.
     const formData = new URLSearchParams();
-    formData.append('reason', reason);
-    formData.append('userSignature', userSignature);
-
-    const key = await request<api.PublicKey>(`/users/${userId}/keys/${fingerprint}/revoke`, {
-      method: 'POST',
+    formData.append('likerID', localStorage.getItem('userId') ?? '');
+    return request<void>(`/reeds/${userId}/${bareId}/like`, {
+      method: 'DELETE',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString()
+      body: formData.toString(),
     });
-    return { ...key, armor: atob(key.armor) };
   },
 
-  async getKeyRevocation(userId: string, fingerprint: string): Promise<api.KeyRevocation> {
-    return request<api.KeyRevocation>(
-      `/users/${userId}/keys/${fingerprint}/revocation`,
-      { method: 'GET' }
-    );
+  // getKeyRevocation/getPublicKey accept either a bare fingerprint or an
+  // already-canonical key id and build the full canonical id
+  // (userID@serverID/fingerprint) for the URL — GET /keys/{id:.+} takes
+  // the whole id as one greedy path segment now, not a separate {userID}
+  // plus a bare {fingerprint}. See main.go's route registration comment.
+  async getKeyRevocation(userId: string, keyId: string): Promise<api.KeyRevocation> {
+    const id = canonicalKeyId(userId, keyId);
+    return request<api.KeyRevocation>(`/keys/${id}/revocation`, { method: 'GET' });
   },
 
   async followUser(targetUserId: string): Promise<void> {
@@ -732,47 +891,50 @@ export const apiService = {
     return request<void>(`/users/${targetUserId}/follow`, { method: 'DELETE' });
   },
 
-  async getPublicKey(userID: string, fingerprint: string): Promise<api.PublicKey> {
-    const key = await request<api.PublicKey>(`/users/${userID}/keys/${fingerprint}`, { method: 'GET' });
+  /** id must already be a full canonical key id — userID@serverID/fingerprint
+   * for a user key, fingerprint@serverID for a server's own key (build with
+   * canonicalKeyId/formatServerKeyId). Authenticated: GET /keys/{id} serves
+   * any key — local or, transparently via server-side proxying, a
+   * federated peer's — but requires a session, unlike getOwnServerKey. */
+  async getPublicKey(id: string): Promise<api.PublicKey> {
+    const key = await request<api.PublicKey>(`/keys/${id}`, { method: 'GET' });
     return { ...key, armor: atob(key.armor) };
   },
 
-  /** Fetch a historical server signing public key by fingerprint (cached in publicKeys). */
-  async getServerPublicKey(fingerprint: string): Promise<{ fingerprint: string; armor: string }> {
-    const fp = fingerprint.trim();
-    const { dbService } = await import('./db');
-    const cached = await dbService.get<{ fingerprint: string; armor: string }>('publicKeys', fp);
-    if (cached?.armor) {
-      return { fingerprint: cached.fingerprint, armor: cached.armor };
-    }
-
-    const wireKey = await request<{ fingerprint: string; armor: string }>(
-      `/server/keys/${fp}`,
-      { method: 'GET' }
-    );
-    const key = { fingerprint: wireKey.fingerprint, armor: atob(wireKey.armor) };
-    try {
-      const { allowUnsigned } = await import('$lib/verifiers');
-      await dbService.put('publicKeys', key, allowUnsigned);
-    } catch (error) {
-      console.error('Failed to cache server public key:', error);
-    }
-    return key;
+  /**
+   * Fetch THIS server's own current signing key armor — unauthenticated
+   * (GET /server/key takes no id, only ever returns this server's own key,
+   * see GetServerKey in handlers.go), unlike getPublicKey. Needed by flows
+   * that run before a session/private key exists yet (e.g. identity
+   * backup restore) and can't use the authenticated general lookup.
+   */
+  async getOwnServerKey(): Promise<string> {
+    return requestText('/server/key', { method: 'GET' });
   },
 
+  /** Atomically revokes the predecessor key and registers the new one —
+   * a separate revoke-then-add round trip leaves a window where the
+   * caller has no valid key at all to sign anything with. */
   async addPublicKey(
     userID: string,
     publicKey: string,
-    revokedKeyFingerprint: string,
+    revokedKeyId: string,
     revokedKeySignature: string,
-    newKeySignature: string
+    newKeySignature: string,
+    revocationReason: string,
+    revocationUserSignature: string
   ): Promise<api.PublicKey> {
+    // revokedKeyFingerprint travels bare over the wire (form field) — the
+    // server joins it with userID itself (see handlers.go's AddPublicKey).
+    const bareRevokedKeyFingerprint = parseKeyId(revokedKeyId)?.fingerprint ?? revokedKeyId;
     const formData = new URLSearchParams();
     formData.append('userID', userID);
     formData.append('publicKey', publicKey);
-    formData.append('revokedKeyFingerprint', revokedKeyFingerprint);
+    formData.append('revokedKeyFingerprint', bareRevokedKeyFingerprint);
     formData.append('revokedKeySignature', revokedKeySignature);
     formData.append('newKeySignature', newKeySignature);
+    formData.append('revocationReason', revocationReason);
+    formData.append('revocationUserSignature', revocationUserSignature);
 
     const key = await request<api.PublicKey>('/keys', {
       method: 'POST',

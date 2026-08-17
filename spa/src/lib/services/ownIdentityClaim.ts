@@ -11,6 +11,7 @@ import { dbService } from './db';
 import { buildKeyNest } from './recoveryKeyNest';
 import { requestSigner } from './request-signer';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
+import { appendFingerprint } from '$lib/utils/identityRef';
 
 /**
  * Claim the restored owner's identity on a recovery-mode server.
@@ -22,9 +23,9 @@ export async function claimOwnIdentity(): Promise<api.User> {
     throw new Error('Missing local userId; restore a backup first.');
   }
 
-  const fingerprint = authService.getActiveKeyFingerprint();
+  const keyId = authService.getActiveKeyId();
   const passphrase = authService.getPassphrase();
-  if (!fingerprint || !passphrase) {
+  if (!keyId || !passphrase) {
     throw new Error('Missing active key or passphrase after restore.');
   }
 
@@ -39,10 +40,10 @@ export async function claimOwnIdentity(): Promise<api.User> {
   const usersById = new Map(users.map((u) => [u.id, u]));
   const infoByUserId = new Map(usersInfo.map((i) => [i.id, i]));
   const keysByFp = new Map(
-    publicKeys.map((k) => [k.fingerprint.toLowerCase(), k])
+    publicKeys.map((k) => [k.id.toLowerCase(), k])
   );
   const revocationsByFp = new Map(
-    revocations.map((r) => [r.fingerprint.toLowerCase(), r])
+    revocations.map((r) => [r.id.toLowerCase(), r])
   );
 
   const profile = usersById.get(userId);
@@ -50,20 +51,20 @@ export async function claimOwnIdentity(): Promise<api.User> {
     throw new Error('Missing restored profile for claim.');
   }
   const infoFp =
-    infoByUserId.get(userId)?.activeKeyFingerprint ||
-    (profile as api.User & { activeKeyFingerprint?: string }).activeKeyFingerprint;
-  if (!infoFp || fingerprint.toLowerCase() !== infoFp.toLowerCase()) {
+    infoByUserId.get(userId)?.activeKeyID ||
+    (profile as api.User & { activeKeyID?: string }).activeKeyID;
+  if (!infoFp || keyId.toLowerCase() !== infoFp.toLowerCase()) {
     throw new Error(
-      'Active key fingerprint does not match the restored profile.'
+      'Active key id does not match the restored profile.'
     );
   }
 
   const nest = buildKeyNest(userId, {
     getUser: (id) => usersById.get(id),
-    getActiveKeyFingerprint: (id) =>
-      infoByUserId.get(id)?.activeKeyFingerprint ||
-      (usersById.get(id) as api.User & { activeKeyFingerprint?: string } | undefined)
-        ?.activeKeyFingerprint,
+    getActiveKeyId: (id) =>
+      infoByUserId.get(id)?.activeKeyID ||
+      (usersById.get(id) as api.User & { activeKeyID?: string } | undefined)
+        ?.activeKeyID,
     getPublicKey: (fp) => keysByFp.get(fp.toLowerCase()),
     getRevocation: (fp) => revocationsByFp.get(fp.toLowerCase()) ?? null,
   });
@@ -72,10 +73,14 @@ export async function claimOwnIdentity(): Promise<api.User> {
   }
 
   // Challenge must be signed by the nest outermost key (server verifies that).
-  const activeFingerprint = nest.key.fingerprint;
-  const privateKey = await privateKeyRepository.getPrivateKey(activeFingerprint);
+  // nest.key.fingerprint is bare (recoveryKeyNest.ts builds wire nodes bare,
+  // matching the recovery package's wire/verification exception); the
+  // privateKeys lookup wants the canonical form.
+  const activeBareFingerprint = nest.key.fingerprint;
+  const activeKeyId = appendFingerprint(userId, activeBareFingerprint);
+  const privateKey = await privateKeyRepository.getPrivateKey(activeKeyId);
   if (!privateKey?.armor) {
-    throw new Error('Missing private key for active fingerprint.');
+    throw new Error('Missing private key for active key id.');
   }
 
   const { challenge } = await apiService.getIdentityClaimChallenge();
@@ -94,8 +99,8 @@ export async function claimOwnIdentity(): Promise<api.User> {
   });
 
   await authService.saveUserToStorage(claimed);
-  authService.setActiveKey(activeFingerprint);
-  await requestSigner.initializeWorker(activeFingerprint, passphrase);
+  authService.setActiveKey(activeKeyId);
+  await requestSigner.initializeWorker(activeKeyId, passphrase);
 
   return claimed;
 }

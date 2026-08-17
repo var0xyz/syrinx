@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"syrinx/crypto"
+
+	"github.com/google/uuid"
 )
 
 // InviteCreateSkew is how far a client-supplied createdAt may drift from
@@ -48,9 +50,14 @@ func NewSecret() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// NewInviteID returns a random invite id (same alphabet/length as user IDs).
+// NewInviteID returns a random UUIDv7 — the bare entity component of a
+// canonical invite id (creatorID@serverID/uuid), same convention as reed ids.
 func NewInviteID() (string, error) {
-	return crypto.NewID()
+	id, err := uuid.NewV7()
+	if err != nil {
+		return "", err
+	}
+	return id.String(), nil
 }
 
 // Status derives the invite read-model status (revoked wins over claimed).

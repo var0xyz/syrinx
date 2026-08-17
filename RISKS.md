@@ -45,6 +45,7 @@ more than in a typical web app.
 | L2     | Low      | server     | `FollowUser`/`UnfollowUser` unsigned + no target validation            |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
 | I1..I6 | Info     | mixed      | Residual trust assumptions & positives                                 |
+| A1     | N/A      | server     | In-memory subscriber state blocks running >1 replica (no HA)           |
 
 ---
 
@@ -310,6 +311,36 @@ issuer binding.
   trusts the server's binding of a key to a `userID` (the server countersigns
   it). A malicious/compromised server can bind a key to the wrong userID; peers
   cannot. This is inherent to the server-attestation model, not a client bug.
+
+---
+
+## Architectural / operational risks (non-security)
+
+Findings below aren't security defects — they're limitations of the current
+design worth tracking separately.
+
+### A1 — Reed/profile subscription state is in-process memory, blocking HA (>1 replica)
+**Where:** `realtime/connection_manager.go` (`ConnectionManager.reedSubscribers`,
+`profileSubscribers`, and the client registry generally) — a plain in-memory map
+guarded by a `sync.RWMutex`, e.g. `ReedSubscriberUserIDs` (`connection_manager.go:429`)
+reads `cm.reedSubscribers[ReedKey(reedID)]` directly with no external store
+backing it.
+Live fanout decisions — who gets `REED_REPLY`, `FOLLOW_REED` exclusion
+(`realtime/service.go` `handlePublishReady`), `SUBSCRIBE_REED`/`SUBSCRIBE_PROFILE`
+membership — depend on which websocket connections happen to be held by *this*
+process. If the server runs as more than one replica behind a load balancer, each
+replica only knows about its own locally-connected clients: a viewer connected to
+replica A subscribed to a reed will never be seen by replica B's fanout when the
+replying author's socket lands on replica B, so `REED_REPLY`/stats-push delivery
+silently becomes partial and instance-dependent. This is an availability/
+correctness gap, not an exploitable vulnerability, but it means **the app cannot
+be deployed with more than one concurrent replica today** without a shared
+subscription/presence layer (e.g. Redis pub/sub, a shared connection registry, or
+sticky-session + inter-replica event forwarding).
+**Fix:** before scaling horizontally, move subscriber/presence state to a shared
+store (or add inter-replica broadcast of `SUBSCRIBE_*`/fanout events) so any
+replica can compute the full recipient set regardless of which replica holds the
+recipient's socket.
 
 ---
 

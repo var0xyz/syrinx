@@ -1,18 +1,22 @@
 <script>
-  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { userRepository } from '$lib/repositories/user';
+  import { isRoot } from '$lib/utils/identityRef';
 
-  /** Omit to mean "the local server" — matches Avatar's fallback. */
-  export let serverID = '';
+  /** `userID@serverID` id — callers already have this form, so this
+   * component takes it as a single value rather than composing it. */
   /** @type {string} */
   export let userID;
-  /** @type {string} */
-  export let username;
+  /** Display name. Omit to resolve it from local cache or the server —
+   * shows the bare id until that resolves. */
+  /** @type {string | undefined} */
+  export let username = undefined;
   /** Set when nesting inside another clickable element (e.g. a reed row/quote)
    * that navigates elsewhere on click. */
   export let stopPropagation = false;
-  /** Render a leading "@" as part of the link/text itself, instead of the
-   * caller prefixing a plain "@" outside it. */
+  /** Render a leading "@" (resolved username) or "~" (raw unresolved id)
+   * as part of the link/text itself, instead of the caller prefixing a
+   * plain "@" outside it. */
   export let at = false;
   /** Render as a profile link. Set false when an ancestor element already
    * handles navigation (e.g. a whole Quote block linking to the reed) so this
@@ -27,24 +31,25 @@
   let extraClass = '';
   export { extraClass as class };
 
-  let localServerID = '';
+  let resolvedUsername = username;
+  $: resolvedUsername = username;
+  $: if (!username && userID) resolveUsername(userID);
 
-  $: effectiveServerID =
-    serverID || (typeof localStorage !== 'undefined' ? localStorage.getItem('serverId') : '') || '';
-  $: isLocal = !!localServerID && effectiveServerID === localServerID;
-  $: isAdmin = userID === '1';
+  async function resolveUsername(id) {
+    const user = await userRepository.getByUserId(id);
+    if (id === userID && user?.username) resolvedUsername = user.username;
+  }
+
+  $: displayName = resolvedUsername ?? userID;
+  $: atPrefix = at ? (displayName !== userID ? '@' : '~') : '';
+  $: isAdmin = isRoot(userID);
   // Inline, not class-based: callers embed this in contexts with their own
   // `.inline-link`/etc color rules (e.g. MarkdownParser's link styling) that
   // would otherwise win on specificity/source order over a scoped class.
   $: resolvedColor = isAdmin ? 'var(--error)' : color;
 
-  onMount(() => {
-    localServerID = localStorage.getItem('serverId') || '';
-  });
-
   function activate(event) {
     if (stopPropagation) event.stopPropagation();
-    if (!isLocal) return;
     goto(`/profile/${userID}`);
   }
 </script>
@@ -53,21 +58,21 @@
   {#if isAdmin && fire}
     <img class="username-fire" src="/icons/fire.gif" alt="" width="16" height="16" />
   {/if}
-  {#if isLocal && linked}
+  {#if linked}
     <a
       href="/profile/{userID}"
       class="username {extraClass}"
       class:admin={isAdmin}
       style={resolvedColor ? `color: ${resolvedColor}` : ''}
       on:click|preventDefault={activate}
-      >{at ? '@' : ''}{username}</a
+      >{atPrefix}{displayName}</a
     >
   {:else}
     <span
       class="username {extraClass}"
       class:admin={isAdmin}
       style={resolvedColor ? `color: ${resolvedColor}` : ''}
-      >{at ? '@' : ''}{username}</span
+      >{atPrefix}{displayName}</span
     >
   {/if}
 </span>

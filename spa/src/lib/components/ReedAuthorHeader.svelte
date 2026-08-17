@@ -2,12 +2,11 @@
   import Avatar from '$lib/components/Avatar.svelte';
   import Username from '$lib/components/Username.svelte';
 
+  /** Canonical `userID@serverID` id, passed straight through to Avatar/Username. */
   /** @type {string} */
   export let userID;
   /** @type {string} */
   export let username;
-  /** @type {string} */
-  export let serverID = '';
   /** Secondary line under the name — caller formats (relative time, "Pending…", etc). */
   export let subtext = '';
   /** Extra class on the subtext span, e.g. for a "Pending…" state style. */
@@ -26,11 +25,11 @@
 
 <div class="reed-author-header">
   <div class="reed-author-avatar">
-    <Avatar {userID} {serverID} {username} size={avatarSize} />
+    <Avatar {userID} {username} size={avatarSize} />
   </div>
   <div class="reed-author-info">
     <svelte:element this={nameTag} class="reed-author-name">
-      <Username {userID} {serverID} {username} {stopPropagation} {linked} />
+      <Username {userID} {username} {stopPropagation} {linked} />
     </svelte:element>
     {#if subtext}
       <span class="reed-author-subtext {subtextClass}">{subtext}</span>

@@ -13,7 +13,7 @@
   } from '$lib/utils/reedContent';
   import { notificationStore } from '$lib/stores/notifications';
   import { Reed } from '$lib/types/reed';
-  import { formatReedRef, resolveThreadId } from '$lib/utils/reedRef';
+  import { resolveThreadId } from '$lib/utils/identityRef';
   import { goto } from '$app/navigation';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -52,13 +52,6 @@
     wasOpen = open;
   }
 
-  /** @param {import('$lib/types/reed').ReedType} target */
-  function refFor(target) {
-    const serverId = target.serverSignature?.serverID || localStorage.getItem('serverId') || '';
-    if (!serverId) throw new Error('Server ID not available');
-    return formatReedRef(target.userID, serverId, target.id);
-  }
-
   let content = '';
   let draftSaved = false;
   let saveDraftTimeout;
@@ -73,9 +66,9 @@
   $: if (open) checkPendingRevocation();
 
   async function checkPendingRevocation() {
-    const fingerprint = authService.getActiveKeyFingerprint();
-    if (!fingerprint) return;
-    hasPendingRevocation = !!(await pendingRevocationRepository.get(fingerprint));
+    const keyId = authService.getActiveKeyId();
+    if (!keyId) return;
+    hasPendingRevocation = !!(await pendingRevocationRepository.get(keyId));
   }
 
   $: title = pinnedReply ? 'Reply Reed' : pinnedEcho ? 'Echo Reed' : 'New Reed';
@@ -130,9 +123,9 @@
         return;
       }
 
-      const activeKeyFingerprint = authService.getActiveKeyFingerprint();
-      if (!activeKeyFingerprint) {
-        errorMessage = 'No active key fingerprint found.';
+      const activeKeyId = authService.getActiveKeyId();
+      if (!activeKeyId) {
+        errorMessage = 'No active key id found.';
         return;
       }
 
@@ -155,8 +148,8 @@
         return;
       }
 
-      const fingerprint = authService.getActiveKeyFingerprint();
-      const keyData = await privateKeyRepository.getPrivateKey(fingerprint);
+      const keyId = authService.getActiveKeyId();
+      const keyData = await privateKeyRepository.getPrivateKey(keyId);
       if (!keyData) throw new Error('Private key not found. Please import your key.');
 
       const passphrase = authService.getPassphrase();
@@ -165,18 +158,16 @@
       const reed = new Reed();
       reed.content = content;
       if (pinnedReply) {
-        reed.replying = refFor(pinnedReply);
-        const serverId = pinnedReply.serverSignature?.serverID || localStorage.getItem('serverId') || '';
-        if (!serverId) throw new Error('Server ID not available');
-        reed.threadId = resolveThreadId(pinnedReply, serverId);
+        reed.replying = pinnedReply.id;
+        reed.threadId = resolveThreadId(pinnedReply);
       }
       if (pinnedEcho) {
-        reed.echoing = refFor(pinnedEcho);
+        reed.echoing = pinnedEcho.id;
       }
       const detachedArmor = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
-      reed.setUserSignature(fingerprint, detachedArmor);
+      reed.setUserSignature(keyId, detachedArmor);
       const { publish } = await reedsService.createReed(reed);
-      const href = `/reed/${user.id}/${reed.id}`;
+      const href = `/reed/${reed.id}`;
       // Keep the modal open (covering the feed/detail page underneath) until
       // the new route is ready — on a slow connection, loading the detail
       // route's JS chunk can take a few seconds, and closing first flashes

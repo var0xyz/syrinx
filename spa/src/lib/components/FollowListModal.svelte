@@ -13,7 +13,7 @@
 
   const dispatch = createEventDispatcher();
 
-  type Row = { userID: string; username: string; serverID: string; followedAt: string };
+  type Row = { userID: string; username: string; followedAt: string };
 
   let rows: Row[] = [];
   let loading = false;
@@ -56,7 +56,6 @@
           return {
             userID: u.userID,
             username: profile?.username ?? u.userID,
-            serverID: profile?.serverSignature?.serverID ?? '',
             followedAt: u.followedAt,
           };
         })
@@ -113,7 +112,6 @@
           >
             <ReedAuthorHeader
               userID={row.userID}
-              serverID={row.serverID}
               username={row.username}
               subtext={`Since ${formatRelativeTime(row.followedAt)}`}
               stopPropagation

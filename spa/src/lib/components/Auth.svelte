@@ -28,26 +28,26 @@
       }
 
       if (!authService.isLoggedIn()) {
-        goto('/signup');
+        goto('/');
         return;
       }
 
       const user = get(page).data?.user ?? (await authService.getCurrentUser());
 
       if (!user) {
-        goto('/signup');
+        goto('/');
         return;
       }
 
       const passphrase = authService.getPassphrase();
-      const fingerprint = authService.getActiveKeyFingerprint();
+      const keyId = authService.getActiveKeyId();
 
-      if (fingerprint && passphrase && !requestSigner.isInitialized()) {
+      if (keyId && passphrase && !requestSigner.isInitialized()) {
         try {
-          await requestSigner.initializeWorker(fingerprint, passphrase);
+          await requestSigner.initializeWorker(keyId, passphrase);
         } catch (error) {
           console.warn('Failed to auto-initialize request signer:', error);
-          goto('/signup');
+          goto('/');
           return;
         }
       }
@@ -68,7 +68,7 @@
       isChecking = false;
     } catch (error) {
       console.error('Authentication check failed:', error);
-      goto('/signup');
+      goto('/');
     }
   }
 </script>

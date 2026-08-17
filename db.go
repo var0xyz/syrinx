@@ -19,12 +19,8 @@ type Server struct {
 }
 
 // User is the wire shape of a signed identity record (GET /users/{id}/profile).
-//
-// Layout: user-authored fields live at the root; attestations nest under
+// User-authored fields live at the root; attestations nest under
 // `userSignature` and `serverSignature`.
-//
-// Mutable / unsigned hints (hasReeds, follow counts, activeKeyFingerprint)
-// live on UserInfo (GET /users/{id}/info), not here.
 type User struct {
 	ID              string          `json:"id"`
 	Username        string          `json:"username"`
@@ -38,15 +34,14 @@ type User struct {
 
 // UserInfo is the unsigned, frequently changing view of a user
 // (GET /users/{id}/info). ProfileTimestamp matches the user's current
-// profile serverSignature.timestamp so clients can invalidate a cached
-// signed profile.
+// profile serverSignature.timestamp so clients can invalidate a cached profile.
 type UserInfo struct {
-	ID                   string    `json:"id"`
-	HasReeds             bool      `json:"hasReeds"`
-	FollowersCount       int       `json:"followersCount"`
-	FollowingCount       int       `json:"followingCount"`
-	ActiveKeyFingerprint string    `json:"activeKeyFingerprint"`
-	ProfileTimestamp     time.Time `json:"profileTimestamp"`
+	ID               string    `json:"id"`
+	HasReeds         bool      `json:"hasReeds"`
+	FollowersCount   int       `json:"followersCount"`
+	FollowingCount   int       `json:"followingCount"`
+	ActiveKeyID      string    `json:"activeKeyID"`
+	ProfileTimestamp time.Time `json:"profileTimestamp"`
 }
 
 // InvitedBy is the durable inviter binding nested on User wire when set.
@@ -57,66 +52,58 @@ type InvitedBy struct {
 
 // UserSignature is the nested user attestation wire block.
 type UserSignature struct {
-	Fingerprint string `json:"fingerprint"`
-	Armor       string `json:"armor"`
+	ID    string `json:"id"`
+	Armor string `json:"armor"`
 }
 
 // ServerSignature is the nested server countersignature wire block
 // (identity, public key, reed, …): which server key signed it, when,
 // and the signature itself.
 type ServerSignature struct {
-	ServerID    string    `json:"serverID"`
-	Fingerprint string    `json:"fingerprint"`
-	Armor       string    `json:"armor"`
-	SignedAt    time.Time `json:"timestamp"`
+	ID       string    `json:"id"`
+	Armor    string    `json:"armor"`
+	SignedAt time.Time `json:"timestamp"`
 }
 
-// KeyPredecessor is the rotation handoff proof bundled on keys uploaded
-// via AddPublicKey: the revoked predecessor's detached signature over
-// this key's armor, and which key produced it.
-type KeyPredecessor struct {
-	Fingerprint string `json:"fingerprint"`
-	Signature   string `json:"signature"`
-}
-
-// Key is the wire shape of a distributed user public key.
-// `ServerSignature` is required: the countersignature over
-// (userID, fingerprint, armor). `Revoked` is computed on read from
-// user_key_revocations — never stored on user_keys.
-//
-// `Predecessor` is set for rotation keys only; signup keys return null.
+// Key is the wire shape of a public key — a local user's or this server's
+// own (peer servers' keys are never stored; foreign ids proxy live instead).
+// Revoked is computed on read; Predecessor is the replaced key's id (rotation only).
 type Key struct {
-	Fingerprint     string          `json:"fingerprint"`
+	ID              string          `json:"id"`
 	UserID          string          `json:"userID"`
 	Armor           string          `json:"armor"`
 	CreatedAt       time.Time       `json:"createdAt"`
 	Revoked         bool            `json:"revoked"`
-	Predecessor     *KeyPredecessor `json:"predecessor"`
+	Predecessor     *string         `json:"predecessor"`
 	ServerSignature ServerSignature `json:"serverSignature"`
+}
+
+// ServerSigningKey is the server's own active signing key, held in memory
+// for countersign operations — never serialized as wire JSON. Armor is the
+// DECRYPTED PRIVATE key armor, never exposed over the wire.
+type ServerSigningKey struct {
+	Fingerprint string
+	Armor       string
+	CreatedAt   time.Time
 }
 
 // KeyRevocation is the wire shape of a signed revocation attestation.
-// The user signature covers (userID, fingerprint, reason); the server
-// countersignature binds that user attestation and supplies the
-// authoritative revoke time as serverSignature.timestamp.
-//
-// Successor is bookkeeping written later by AddPublicKey when the
-// replacement key is uploaded. It is returned on GET when present but
-// is not covered by either signature — it is unknown at revoke time.
+// The user signature covers (userID, id, reason); the server countersignature
+// supplies the revoke time. Successor fields are nil until a replacement key is uploaded.
 type KeyRevocation struct {
-	Fingerprint     string          `json:"fingerprint"`
-	UserID          string          `json:"userID"`
-	Reason          string          `json:"reason"`
-	Successor       *string         `json:"successor"`
-	UserSignature   UserSignature   `json:"userSignature"`
-	ServerSignature ServerSignature `json:"serverSignature"`
+	ID                 string          `json:"id"`
+	UserID             string          `json:"userID"`
+	Reason             string          `json:"reason"`
+	Successor          *string         `json:"successor"`
+	SuccessorSignature *string         `json:"successorSignature"`
+	UserSignature      UserSignature   `json:"userSignature"`
+	ServerSignature    ServerSignature `json:"serverSignature"`
 }
 
 type Reed struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"userID"`
-	Fingerprint string    `json:"fingerprint"`
-	Timestamp   time.Time `json:"timestamp"`
+	ID        string    `json:"id"`
+	UserID    string    `json:"userID"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // ReedRemoval is the wire shape of a signed reed-removal certificate
@@ -142,9 +129,8 @@ type AccountRemoval struct {
 }
 
 // LikeCert is both the stored and wire shape of a signed reed-like
-// certificate, returned only from POST .../like. Each field was actually
-// signed by the liker's key and countersigned by the server; the liker
-// is always the authenticated caller.
+// certificate, returned only from POST .../like. The liker is always
+// the authenticated caller.
 type LikeCert struct {
 	ServerID        string          `json:"serverID"`
 	AuthorID        string          `json:"authorID"`
@@ -170,6 +156,16 @@ func InitDB(db *sql.DB) error {
 	// /////// //
 	//   API   //
 	// /////// //
+	// base_url/connected/key_id/revoked are federation fields, unset on the
+	// self row. signing_key and key_id are both soft references to
+	// public_keys(id) (not FK'd — servers is created before public_keys to
+	// satisfy identities' own FK on servers(id), a real three-way cycle:
+	// servers -> public_keys -> identities -> servers). signing_key is the
+	// canonical id of this server's own current signing key, shared by its
+	// private_keys row and its public_keys row alike. key_id is the peer's
+	// pinned signing key on a federated row — approving a handshake
+	// promotes the peer's key into public_keys (owner NULL) and points
+	// key_id at it, so the peer's real armor lives there like any other key.
 	createServersTable := `
 	CREATE TABLE IF NOT EXISTS servers (
 		id VARCHAR(16) UNIQUE,
@@ -177,43 +173,98 @@ func InitDB(db *sql.DB) error {
 		self BOOLEAN NOT NULL DEFAULT FALSE,
 		signing_key VARCHAR(255),
 		identity_backup_at TIMESTAMP,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		base_url TEXT,
+		connected BOOLEAN NOT NULL DEFAULT FALSE,
+		key_id VARCHAR(255),
+		revoked_at TIMESTAMP,
+		revoked_by VARCHAR(255),
+		revoked_reason TEXT,
+		disconnect_requested_at TIMESTAMP,
+		disconnect_requested_by VARCHAR(255),
+		disconnect_reason TEXT
 	);`
 
-	// Normalized attestation rows (signatures proposal 01). Entities will
-	// FK here in later migrate steps; fingerprint is not FK'd to key
-	// tables (historical / rotated keys).
+	// Normalized attestation rows. public_key_id/private_key_id are not
+	// FK'd to public_keys/private_keys (historical/rotated/peer keys — a
+	// signature can reference a key id that's since superseded or not
+	// stored locally at all, e.g. a cached peer server's countersignature).
 	createUserSignaturesTable := `
 	CREATE TABLE IF NOT EXISTS user_signatures (
 		id SERIAL PRIMARY KEY,
-		fingerprint VARCHAR(255) NOT NULL,
+		public_key_id VARCHAR(255) NOT NULL,
 		signature TEXT NOT NULL
 	);`
 
 	createServerSignaturesTable := `
 	CREATE TABLE IF NOT EXISTS server_signatures (
 		id SERIAL PRIMARY KEY,
-		fingerprint VARCHAR(255) NOT NULL,
+		private_key_id VARCHAR(255) NOT NULL,
 		signature TEXT NOT NULL,
 		signed_at TIMESTAMP NOT NULL
 	);`
 
-	// users holds profile fields plus FKs to normalized attestation
-	// rows. user_fingerprint is the denormalized active-key hint (updated
-	// on key rotation); the signing key for the current identity record
-	// lives on user_signatures via user_signature_id.
+	// identities is the FK target for "a user," local or federated. id is
+	// always "{userID}@{serverID}".
+	createIdentitiesTable := `
+	CREATE TABLE IF NOT EXISTS identities (
+		id VARCHAR(255) PRIMARY KEY,
+		server_id VARCHAR(16) REFERENCES servers(id) ON DELETE CASCADE,
+		public_key_fingerprint VARCHAR(255),
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createIdentitiesIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_identities_server_id
+		ON identities(server_id);
+	`
+
+	// Server-owned private keys. Unaffected by the public_keys unification
+	// below — private key material never leaves this table, regardless of
+	// whose key it is (a user's private key never touches the server at all).
+	createPrivateKeysTable := `
+	CREATE TABLE IF NOT EXISTS private_keys (
+		id VARCHAR(255) PRIMARY KEY,
+		armor TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		revoked_at TIMESTAMP,
+		revoke_reason TEXT
+	);`
+
+	// Unified public key storage — every key this server holds the public
+	// half of. owner FKs to identities for local users, NULL otherwise.
+	// predecessor_id points at the key this one replaced (rotation only).
+	createPublicKeysTable := `
+	CREATE TABLE IF NOT EXISTS public_keys (
+		id VARCHAR(255) PRIMARY KEY,
+		owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
+		armor TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
+		predecessor_id VARCHAR(255) REFERENCES public_keys(id)
+	);`
+
+	createPublicKeyIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_public_keys_owner
+		ON public_keys(owner) WHERE owner IS NOT NULL;
+	`
+
+	// users is a satellite of identities — profile fields only. id IS
+	// identities.id directly. active_key_id points at this user's current
+	// unrevoked key (public_keys.id); created after public_keys so the FK
+	// can be declared inline.
 	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
-		id VARCHAR(255) PRIMARY KEY,
+		id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		username VARCHAR(255) UNIQUE,
 		role VARCHAR(16) NOT NULL DEFAULT 'user'
 			CHECK (role IN ('root', 'admin', 'user')),
 		bio TEXT,
-		user_fingerprint VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		active_key_id VARCHAR(255) REFERENCES public_keys(id),
 		user_signature_id INT REFERENCES user_signatures(id),
 		server_signature_id INT REFERENCES server_signatures(id),
-		invited_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL
+		invited_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL
 	);`
 
 	createUserIndexes := `
@@ -221,240 +272,154 @@ func InitDB(db *sql.DB) error {
 		ON users(LOWER(username));
 	`
 
-	// Server-owned private keys
-	createPrivateKeysTable := `
-	CREATE TABLE IF NOT EXISTS private_keys (
-		fingerprint VARCHAR(255) PRIMARY KEY,
-		armor TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		revoked_at TIMESTAMP,
-		revoke_reason TEXT
-	);`
-
-	// Server-owned public keys
-	createPublicKeysTable := `
-	CREATE TABLE IF NOT EXISTS public_keys (
-		fingerprint VARCHAR(255) PRIMARY KEY,
-		armor TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);`
-
-	// Client-managed public keys. Server countersignature is via
-	// server_signature_id. predecessor_signature and
-	// predecessor_fingerprint are set together for rotation keys only
-	// (AddPublicKey): the old key's detached signature over this row's
-	// armor, and which key produced it. Signup keys leave both NULL.
-	createUserKeysTable := `
-	CREATE TABLE IF NOT EXISTS user_keys (
-		fingerprint VARCHAR(255) UNIQUE NOT NULL,
-		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		armor TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		expires_at TIMESTAMP,
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-		predecessor_signature TEXT,
-		predecessor_fingerprint VARCHAR(255) REFERENCES user_keys(fingerprint),
-
-		PRIMARY KEY (owner, fingerprint)
-	);`
-
-	// We only need one index on `fingerprint` here because `owner` is covered
-	// by being the first field in the `PRIMARY KEY` clause.
-	createUserKeyIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_user_keys_fingerprint
-		ON user_keys(fingerprint);
-	`
-
-	// Revocation attestation for a user key. A row's existence means the
-	// key is revoked. user_fingerprint identifies which key was revoked
-	// (PK + FK to user_keys). Signatures live in user_signatures /
-	// server_signatures; revoke time is server_signatures.signed_at.
-	//
-	// successor is written when the replacement key is uploaded via
-	// AddPublicKey, not at revocation time — the client revokes first
-	// and adds the new key second, so at RevokeKey we do not yet know
-	// the successor.
-	createUserKeyRevocationsTable := `
-	CREATE TABLE IF NOT EXISTS user_key_revocations (
-		user_fingerprint VARCHAR(255) NOT NULL,
-		owner VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	// A row's existence means the key is revoked. successor and
+	// successor_signature_id are written later, once a replacement key is
+	// uploaded — the latter is the OLD key's signature over the new one.
+	createPublicKeyRevocationsTable := `
+	CREATE TABLE IF NOT EXISTS public_key_revocations (
+		key_id VARCHAR(255) PRIMARY KEY
+			REFERENCES public_keys(id) ON DELETE CASCADE,
 		reason TEXT,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-		successor VARCHAR(255) REFERENCES user_keys(fingerprint),
-
-		PRIMARY KEY (owner, user_fingerprint),
-		FOREIGN KEY (owner, user_fingerprint)
-			REFERENCES user_keys(owner, fingerprint)
-			ON DELETE CASCADE
+		successor VARCHAR(255) REFERENCES public_keys(id),
+		successor_signature_id INT REFERENCES user_signatures(id)
 	);`
 
-	// We only need one index on `user_fingerprint` here because `owner` is
-	// covered by being the first field in the `PRIMARY KEY` clause.
-	createUserKeyRevocationsIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_user_key_revocations_user_fingerprint
-		ON user_key_revocations(user_fingerprint);
+	// reed_identities is to reeds what identities is to users: a thin
+	// pointer row other tables reference whether or not this server holds
+	// the reed's actual content (local, or foreign learned via relay).
+	createReedIdentitiesTable := `
+	CREATE TABLE IF NOT EXISTS reed_identities (
+		id VARCHAR(255) PRIMARY KEY,
+		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createReedIdentitiesIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_reed_identities_server_id
+		ON reed_identities(server_id);
 	`
 
-	// Tip reed metadata. private_key_fingerprint is the server key used
-	// for the countersignature. user_signature_id / server_signature_id
-	// store the attestations so SignReed retries can return the same
-	// countersignature (idempotent).
+	// Tip reed metadata. Signature ids store the attestations so SignReed
+	// retries can return the same countersignature (idempotent). reeds is
+	// always the local-only satellite of reed_identities.
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
-		id VARCHAR(255) NOT NULL,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		private_key_fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
+		id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		signed_at TIMESTAMP NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-		allocation_count INT NOT NULL DEFAULT 0,
-		like_count INT NOT NULL DEFAULT 0,
-
-		PRIMARY KEY (user_id, id)
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
 
 	createReedIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_reeds_id
-		ON reeds(id);
+	CREATE INDEX IF NOT EXISTS idx_reeds_user_id
+		ON reeds(user_id);
 	CREATE INDEX IF NOT EXISTS idx_reeds_signed_at
 		ON reeds(signed_at);
 	`
 
-	// echoing_* is the reed that does the echo
-	// echoed_* is the reed it points at.
-	// is_blank: the echoing reed carried no commentary (a bare re-share) —
-	// same "blank echo" concept as the client's isBlankEcho/
-	// resolveBlankEchoChain. The server never stores reed content, so this
-	// is captured once at insert time (SignReed has contentBody in scope) —
-	// it's what lets SignReed reject a reply/echo aimed at a blank echo
-	// instead of the underlying original, without having to store or
-	// re-derive content.
+	// echoing_* is the reed doing the echo; echoed_* is the reed it points at.
+	// is_blank marks a bare re-share, captured once at insert since the server never stores content.
+	// Author ids are stored directly since either side may be foreign to this server.
 	createReedEchoesTable := `
 	CREATE TABLE IF NOT EXISTS reed_echoes (
-		echoing_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		echoing_reed_id VARCHAR(255) NOT NULL,
-		echoed_user_id VARCHAR(255) NOT NULL,
-		echoed_reed_id VARCHAR(255) NOT NULL,
+		echoing_reed_id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
+		echoed_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+		echoing_author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		echoed_author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		is_blank BOOLEAN NOT NULL DEFAULT FALSE,
-		signed_at TIMESTAMP NOT NULL,
-
-		PRIMARY KEY (echoing_user_id, echoing_reed_id)
+		signed_at TIMESTAMP NOT NULL
 	);`
 
 	createReedEchoesIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_echoes_echoed_signed
-		ON reed_echoes (echoed_user_id, echoed_reed_id, signed_at);
+		ON reed_echoes (echoed_reed_id, signed_at);
 	`
 
-	// id is the root reed ref (user@server/reed); one row per thread (created on first reply).
+	// id is the root reed ref; one row per thread, created on first reply.
+	// reed_id FKs to reed_identities, not reeds directly, since a reply's
+	// home server may relay just a reference rather than the content itself.
 	createReedRepliesTable := `
 	CREATE TABLE IF NOT EXISTS reed_replies (
 		thread_id VARCHAR(255) NOT NULL,
-		user_id VARCHAR(255) NOT NULL,
-		reed_id VARCHAR(255) NOT NULL UNIQUE,
-		parent_user_id VARCHAR(255) NOT NULL,
-		parent_reed_id VARCHAR(255) NOT NULL,
-		timestamp TIMESTAMP NOT NULL,
-
-		PRIMARY KEY (user_id, reed_id),
-		FOREIGN KEY (user_id, reed_id) REFERENCES reeds(user_id, id),
-		FOREIGN KEY (parent_user_id, parent_reed_id) REFERENCES reeds(user_id, id)
+		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
+		parent_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+		timestamp TIMESTAMP NOT NULL
 	);`
 
 	createReedRepliesIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_replies_parent_timestamp
-		ON reed_replies (parent_user_id, parent_reed_id, timestamp);
+		ON reed_replies (parent_reed_id, timestamp);
 
 	CREATE INDEX IF NOT EXISTS idx_reed_replies_thread
 		ON reed_replies (thread_id, timestamp);
 	`
 
-	// One row per (reed, mentioned user). mentioning_* = reed that contains
-	// the @. Only LOCAL mentions are stored — a mention of a user on a
-	// foreign server is never inserted (nothing here to FK against), so
-	// mentioned_user_id can be a hard FK to users(id). mentioned_server_id
-	// is therefore always this server's own id today; kept for when
-	// cross-server mention notification lands.
+	// One row per (reed, mentioned user). mentioning_reed_id FKs to
+	// reed_identities, not reeds, since a foreign reed can mention a local
+	// user. mentioned_user_id already carries the server in its canonical form, so no separate mentioned_server_id column is needed.
 	createReedMentionsTable := `
 	CREATE TABLE IF NOT EXISTS reed_mentions (
-		mentioning_user_id VARCHAR(255) NOT NULL,
-		mentioning_reed_id VARCHAR(255) NOT NULL,
-		mentioned_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		mentioned_server_id VARCHAR(255) NOT NULL,
+		mentioning_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+		mentioned_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 
-		PRIMARY KEY (mentioning_reed_id, mentioned_server_id, mentioned_user_id),
-		FOREIGN KEY (mentioning_user_id, mentioning_reed_id)
-			REFERENCES reeds(user_id, id) ON DELETE CASCADE
+		PRIMARY KEY (mentioning_reed_id, mentioned_user_id)
 	);`
 
 	createReedMentionsIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_mentions_mentioned
-		ON reed_mentions (mentioned_server_id, mentioned_user_id);
+		ON reed_mentions (mentioned_user_id);
 
 	CREATE INDEX IF NOT EXISTS idx_reed_mentions_reed
 		ON reed_mentions (mentioning_reed_id);
 	`
 
-	// Signed reed-removal certificates. Source of truth for “gone”; no FK to
+	// Signed reed-removal certificates. Source of truth for "gone"; no FK to
 	// reeds(id) so the live row may be dropped after the cert is stored.
-	// PK is (user_id, reed_id). user_fingerprint binds the signing key;
-	// signatures via FKs.
+	// PK is reed_id, which embeds the author — no separate user_id column.
 	createReedRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS reed_removals (
-		reed_id VARCHAR(255) NOT NULL,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		user_fingerprint VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) PRIMARY KEY,
+		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-
-		PRIMARY KEY (user_id, reed_id),
-		FOREIGN KEY (user_id, user_fingerprint)
-			REFERENCES user_keys(owner, fingerprint)
-			ON DELETE CASCADE
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
 
 	// Signed account-removal certificates. One cert per user; public keys
-	// remain. user_fingerprint binds the signing key (same class as reed
+	// remain. public_key_id binds the signing key (same class as reed
 	// removals). note ≤140 enforced by CHECK + API.
 	createAccountRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS account_removals (
-		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		note VARCHAR(140) NOT NULL DEFAULT '',
-		user_fingerprint VARCHAR(255) NOT NULL,
+		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
-		FOREIGN KEY (user_id, user_fingerprint)
-			REFERENCES user_keys(owner, fingerprint)
-			ON DELETE CASCADE,
 		CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140)
 	);`
 
 	// Signed like certificates, one row per currently-liked (liker, reed)
-	// pair; unliking hard-deletes the row. liker_fingerprint binds the
-	// signing key (same class as reed removals).
+	// pair; unliking hard-deletes the row. reed_id FKs to reed_identities,
+	// not reeds, so a local user's like on a FOREIGN reed is represented here too.
 	createReedsLikedTable := `
 	CREATE TABLE IF NOT EXISTS reeds_liked (
-		liker_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		author_user_id VARCHAR(255) NOT NULL,
-		reed_id VARCHAR(255) NOT NULL,
-		liker_fingerprint VARCHAR(255) NOT NULL,
+		liker_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+		liker_public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
-		PRIMARY KEY (liker_user_id, author_user_id, reed_id),
-		FOREIGN KEY (author_user_id, reed_id) REFERENCES reeds(user_id, id),
-		FOREIGN KEY (liker_user_id, liker_fingerprint)
-			REFERENCES user_keys(owner, fingerprint)
-			ON DELETE CASCADE
+		PRIMARY KEY (liker_user_id, reed_id)
 	);`
 
 	createReedsLikedIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reeds_liked_liker_created
 		ON reeds_liked (liker_user_id, user_signature_id DESC);
 	CREATE INDEX IF NOT EXISTS idx_reeds_liked_reed
-		ON reeds_liked (author_user_id, reed_id);
+		ON reeds_liked (reed_id);
 	`
 
 	// //////////// //
@@ -463,13 +428,8 @@ func InitDB(db *sql.DB) error {
 
 	createRipplesTable := `
 	CREATE TABLE IF NOT EXISTS ripples (
-		reed_author_id VARCHAR(255) NOT NULL,
-		reed_id VARCHAR(255) NOT NULL,
-		expires_at TIMESTAMP NOT NULL,
-
-		PRIMARY KEY (reed_author_id, reed_id),
-		FOREIGN KEY (reed_author_id, reed_id) REFERENCES reeds(user_id, id)
-			ON DELETE CASCADE
+		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reeds(id) ON DELETE CASCADE,
+		expires_at TIMESTAMP NOT NULL
 	);`
 
 	createRipplesIndexes := `
@@ -480,26 +440,21 @@ func InitDB(db *sql.DB) error {
 	createRippleResponsesTable := `
 	CREATE TABLE IF NOT EXISTS ripple_responses (
 		id VARCHAR(64) PRIMARY KEY,
-		reed_author_id VARCHAR(255) NOT NULL,
-		reed_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL REFERENCES ripples(reed_id) ON DELETE CASCADE,
 		thread_id UUID NOT NULL,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		content VARCHAR(140) NOT NULL,
 		replying_to VARCHAR(64) REFERENCES ripple_responses(id) ON DELETE SET NULL,
 		deleted BOOLEAN NOT NULL DEFAULT FALSE,
 		posted_at TIMESTAMP NOT NULL,
 
-		user_fingerprint VARCHAR(255) NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-
-		FOREIGN KEY (reed_author_id, reed_id) REFERENCES ripples(reed_author_id, reed_id)
-			ON DELETE CASCADE
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
 
 	createRippleResponsesIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_ripple_responses_reed_thread_posted
-		ON ripple_responses (reed_author_id, reed_id, thread_id, posted_at);
+		ON ripple_responses (reed_id, thread_id, posted_at);
 	CREATE INDEX IF NOT EXISTS idx_ripple_responses_thread_posted
 		ON ripple_responses (thread_id, posted_at);
 	`
@@ -510,8 +465,8 @@ func InitDB(db *sql.DB) error {
 
 	createUserFollowersTable := `
 	CREATE TABLE IF NOT EXISTS user_followers (
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		follower_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		follower_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 		PRIMARY KEY (user_id, follower_user_id)
@@ -526,8 +481,8 @@ func InitDB(db *sql.DB) error {
 
 	createUserFollowingTable := `
 	CREATE TABLE IF NOT EXISTS user_following (
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		following_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		following_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 		PRIMARY KEY (user_id, following_user_id)
@@ -546,7 +501,7 @@ func InitDB(db *sql.DB) error {
 
 	createOnlineUsersTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS online_users (
-		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		sync_request_id VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
@@ -563,36 +518,48 @@ func InitDB(db *sql.DB) error {
 		ON broadcast_subscriptions(user_id);
 	`
 
-	// holder_user_id is who holds the reed; author_user_id + reed_id FK to reeds.
+	// holder_user_id is who holds the reed — always a genuine LOCAL user
+	// (FKs to users, not identities). reed_id FKs to reed_identities since
+	// a local user can be caching a FOREIGN reed's verified content.
 	createReedAllocationsTable := `
 	CREATE TABLE IF NOT EXISTS reed_allocations (
-		reed_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		holder_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		author_user_id VARCHAR(255) NOT NULL,
 		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-		PRIMARY KEY (holder_user_id, author_user_id, reed_id),
-		FOREIGN KEY (author_user_id, reed_id)
-			REFERENCES reeds(user_id, id) ON DELETE CASCADE
+		PRIMARY KEY (holder_user_id, reed_id)
 	);`
 
-	// Composite lookups by reed use author_user_id + reed_id; holder is in the PK.
+	// Lookups by reed use reed_id; holder is in the PK.
 	createReedAllocationIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_allocations_reed
-		ON reed_allocations(author_user_id, reed_id);
+		ON reed_allocations(reed_id);
+	`
+
+	// Records that a PEER SERVER (not a specific user) has told us one of
+	// its own users holds a verified copy of reed_id — the fallback target
+	// when no local holder is online for a reed we're home to.
+	createReedServerAllocationsTable := `
+	CREATE TABLE IF NOT EXISTS reed_server_allocations (
+		reed_id VARCHAR(255) NOT NULL
+			REFERENCES reed_identities(id) ON DELETE CASCADE,
+		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (reed_id, server_id)
+	);`
+
+	createReedServerAllocationIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_reed_server_allocations_reed
+		ON reed_server_allocations(reed_id);
 	`
 
 	// tags are normalized hashtag names extracted at SignReed for pipe
 	// fanout at PUBLISH_READY (pipes 01). Empty until claim deletes the row.
 	createPendingFanoutTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_fanout (
-		user_id VARCHAR(255) NOT NULL,
-		reed_id VARCHAR(255) NOT NULL,
-		tags    TEXT[] NOT NULL DEFAULT '{}',
-
-		PRIMARY KEY (user_id, reed_id),
-		FOREIGN KEY (user_id, reed_id)
-			REFERENCES reeds(user_id, id) ON DELETE CASCADE
+		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reeds(id) ON DELETE CASCADE,
+		tags TEXT[] NOT NULL DEFAULT '{}'
 	);`
 
 	createNetworkStatsTable := `
@@ -604,6 +571,239 @@ func InitDB(db *sql.DB) error {
 	seedNetworkStats := `
 	INSERT INTO network_stats (id, active_users) VALUES (TRUE, 0)
 	ON CONFLICT (id) DO NOTHING;
+	`
+
+	// One row per reed, kept in sync by triggers below instead of
+	// recomputed live on every read. Rows are created lazily by the
+	// trigger functions' upsert-increment, not seeded here.
+	createReedStatsTable := `
+	CREATE TABLE IF NOT EXISTS reed_stats (
+		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
+		reply_count INT NOT NULL DEFAULT 0,
+		echo_count INT NOT NULL DEFAULT 0,
+		like_count INT NOT NULL DEFAULT 0,
+		holder_count INT NOT NULL DEFAULT 0
+	);`
+
+	// Coverage percent is a pure function of two already-cheap counters
+	// (reed_stats.holder_count, network_stats.active_users) — a plain view,
+	// not a trigger, since there's nothing expensive left to precompute.
+	createReedCoverageView := `
+	CREATE OR REPLACE VIEW reed_coverage AS
+	SELECT
+		rs.reed_id,
+		rs.holder_count,
+		LEAST(100, (100 * rs.holder_count) / GREATEST(1, ns.active_users)) AS coverage_percent
+	FROM reed_stats rs
+	CROSS JOIN network_stats ns;
+	`
+
+	// bump_reed_stat upserts reed_stats and adds delta to one column,
+	// selected by col_name — shared by every simple (non-reply) counter
+	// trigger below so the increment/decrement logic lives in one place.
+	createBumpReedStatFunction := `
+	CREATE OR REPLACE FUNCTION bump_reed_stat(p_reed_id VARCHAR(255), col_name TEXT, delta INT)
+	RETURNS VOID AS $$
+	BEGIN
+		EXECUTE format(
+			'INSERT INTO reed_stats (reed_id, %1$I) VALUES ($1, GREATEST(0, $2))
+			 ON CONFLICT (reed_id) DO UPDATE SET %1$I = GREATEST(0, reed_stats.%1$I + $2)',
+			col_name
+		) USING p_reed_id, delta;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createEchoCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_echo_count_trigger() RETURNS TRIGGER AS $$
+	BEGIN
+		IF TG_OP = 'INSERT' AND NEW.echoing_author_id != NEW.echoed_author_id THEN
+			PERFORM bump_reed_stat(NEW.echoed_reed_id, 'echo_count', 1);
+		ELSIF TG_OP = 'DELETE' AND OLD.echoing_author_id != OLD.echoed_author_id THEN
+			PERFORM bump_reed_stat(OLD.echoed_reed_id, 'echo_count', -1);
+		END IF;
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createEchoCountTriggers := `
+	DROP TRIGGER IF EXISTS reed_echoes_count_insert ON reed_echoes;
+	CREATE TRIGGER reed_echoes_count_insert
+		AFTER INSERT ON reed_echoes
+		FOR EACH ROW EXECUTE FUNCTION reed_echo_count_trigger();
+
+	DROP TRIGGER IF EXISTS reed_echoes_count_delete ON reed_echoes;
+	CREATE TRIGGER reed_echoes_count_delete
+		AFTER DELETE ON reed_echoes
+		FOR EACH ROW EXECUTE FUNCTION reed_echo_count_trigger();
+	`
+
+	createLikeCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_like_count_trigger() RETURNS TRIGGER AS $$
+	BEGIN
+		IF TG_OP = 'INSERT' THEN
+			PERFORM bump_reed_stat(NEW.reed_id, 'like_count', 1);
+		ELSIF TG_OP = 'DELETE' THEN
+			PERFORM bump_reed_stat(OLD.reed_id, 'like_count', -1);
+		END IF;
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createLikeCountTriggers := `
+	DROP TRIGGER IF EXISTS reeds_liked_count_insert ON reeds_liked;
+	CREATE TRIGGER reeds_liked_count_insert
+		AFTER INSERT ON reeds_liked
+		FOR EACH ROW EXECUTE FUNCTION reed_like_count_trigger();
+
+	DROP TRIGGER IF EXISTS reeds_liked_count_delete ON reeds_liked;
+	CREATE TRIGGER reeds_liked_count_delete
+		AFTER DELETE ON reeds_liked
+		FOR EACH ROW EXECUTE FUNCTION reed_like_count_trigger();
+	`
+
+	createHolderCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_holder_count_trigger() RETURNS TRIGGER AS $$
+	BEGIN
+		IF TG_OP = 'INSERT' THEN
+			PERFORM bump_reed_stat(NEW.reed_id, 'holder_count', 1);
+		ELSIF TG_OP = 'DELETE' THEN
+			PERFORM bump_reed_stat(OLD.reed_id, 'holder_count', -1);
+		END IF;
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createHolderCountTriggers := `
+	DROP TRIGGER IF EXISTS reed_allocations_count_insert ON reed_allocations;
+	CREATE TRIGGER reed_allocations_count_insert
+		AFTER INSERT ON reed_allocations
+		FOR EACH ROW EXECUTE FUNCTION reed_holder_count_trigger();
+
+	DROP TRIGGER IF EXISTS reed_allocations_count_delete ON reed_allocations;
+	CREATE TRIGGER reed_allocations_count_delete
+		AFTER DELETE ON reed_allocations
+		FOR EACH ROW EXECUTE FUNCTION reed_holder_count_trigger();
+	`
+
+	// Walks parent_reed_id from start_reed_id up to the root, applying
+	// delta to reply_count at every level.
+	createBumpReplyAncestorsFunction := `
+	CREATE OR REPLACE FUNCTION bump_reply_ancestors(start_reed_id VARCHAR(255), delta INT)
+	RETURNS VOID AS $$
+	DECLARE
+		current_id VARCHAR(255);
+		next_id VARCHAR(255);
+	BEGIN
+		current_id := start_reed_id;
+		LOOP
+			SELECT parent_reed_id INTO next_id FROM reed_replies WHERE reed_id = current_id;
+			EXIT WHEN next_id IS NULL;
+			PERFORM bump_reed_stat(next_id, 'reply_count', delta);
+			current_id := next_id;
+		END LOOP;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	// A new reply increments every ancestor's reply_count, unless the
+	// replying author's account is already removed — mirrors
+	// GetSubtreeReplyCount's live NOT EXISTS account_removals filter.
+	createReplyCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_reply_count_trigger() RETURNS TRIGGER AS $$
+	DECLARE
+		author_removed BOOLEAN;
+	BEGIN
+		SELECT EXISTS(
+			SELECT 1 FROM account_removals ar
+			JOIN reeds r ON r.id = NEW.reed_id
+			WHERE ar.user_id = r.user_id
+		) INTO author_removed;
+		IF NOT author_removed THEN
+			PERFORM bump_reply_ancestors(NEW.reed_id, 1);
+		END IF;
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createReplyCountTrigger := `
+	DROP TRIGGER IF EXISTS reed_replies_count_insert ON reed_replies;
+	CREATE TRIGGER reed_replies_count_insert
+		AFTER INSERT ON reed_replies
+		FOR EACH ROW EXECUTE FUNCTION reed_reply_count_trigger();
+	`
+
+	// Starts from OLD.parent_reed_id, not OLD.reed_id — by AFTER DELETE
+	// time OLD's own row is gone, so bump_reply_ancestors(OLD.reed_id, ...)
+	// would find nothing and silently do nothing.
+	createReedReplyDeleteTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_reply_delete_count_trigger() RETURNS TRIGGER AS $$
+	BEGIN
+		PERFORM bump_reed_stat(OLD.parent_reed_id, 'reply_count', -1);
+		PERFORM bump_reply_ancestors(OLD.parent_reed_id, -1);
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createReedReplyDeleteTrigger := `
+	DROP TRIGGER IF EXISTS reed_replies_count_delete ON reed_replies;
+	CREATE TRIGGER reed_replies_count_delete
+		AFTER DELETE ON reed_replies
+		FOR EACH ROW EXECUTE FUNCTION reed_reply_delete_count_trigger();
+	`
+
+	// A reed removal decrements every ancestor's reply_count, undoing what
+	// the insert trigger added — a no-op walk for a removed root reed
+	// (reed_replies has no row for it, so the loop exits immediately).
+	createReedRemovalReplyCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_removal_reply_count_trigger() RETURNS TRIGGER AS $$
+	BEGIN
+		PERFORM bump_reply_ancestors(NEW.reed_id, -1);
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createReedRemovalReplyCountTrigger := `
+	DROP TRIGGER IF EXISTS reed_removals_count_insert ON reed_removals;
+	CREATE TRIGGER reed_removals_count_insert
+		AFTER INSERT ON reed_removals
+		FOR EACH ROW EXECUTE FUNCTION reed_removal_reply_count_trigger();
+	`
+
+	// Decrements every reply by this author not already covered by its
+	// own reed_removals row — O(replies × depth), the one bulk trigger.
+	createAccountRemovalReplyCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION account_removal_reply_count_trigger() RETURNS TRIGGER AS $$
+	DECLARE
+		reply_row RECORD;
+	BEGIN
+		FOR reply_row IN
+			SELECT rr.reed_id
+			FROM reed_replies rr
+			JOIN reeds r ON r.id = rr.reed_id
+			WHERE r.user_id = NEW.user_id
+			AND NOT EXISTS (
+				SELECT 1 FROM reed_removals rm WHERE rm.reed_id = rr.reed_id
+			)
+		LOOP
+			PERFORM bump_reply_ancestors(reply_row.reed_id, -1);
+		END LOOP;
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createAccountRemovalReplyCountTrigger := `
+	DROP TRIGGER IF EXISTS account_removals_count_insert ON account_removals;
+	CREATE TRIGGER account_removals_count_insert
+		AFTER INSERT ON account_removals
+		FOR EACH ROW EXECUTE FUNCTION account_removal_reply_count_trigger();
 	`
 
 	createPendingEventsTable := `
@@ -624,15 +824,14 @@ func InitDB(db *sql.DB) error {
 		ON pending_events(subscription_id);
 	`
 
+	// reed_id FKs to reed_identities, not reeds directly — a pending event
+	// can be about a FOREIGN reed, so this table uniformly represents both
+	// local and foreign subjects the same way.
 	createPendingReedEventsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_reed_events (
 		event_id VARCHAR(255) PRIMARY KEY
 			REFERENCES pending_events(event_id) ON DELETE CASCADE,
-		user_id VARCHAR(255) NOT NULL,
-		reed_id VARCHAR(255) NOT NULL,
-
-		FOREIGN KEY (user_id, reed_id)
-			REFERENCES reeds(user_id, id) ON DELETE CASCADE
+		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE
 	);`
 
 	createPendingReedEventsIndexes := `
@@ -644,15 +843,49 @@ func InitDB(db *sql.DB) error {
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_account_events (
 		event_id VARCHAR(255) PRIMARY KEY
 			REFERENCES pending_events(event_id) ON DELETE CASCADE,
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE
 	);`
+
+	// Originating-server bookkeeping: maps a local pending event to the
+	// outstanding peer registration on the reed's home server (which peer
+	// to call back, and what id THEY know this event by).
+	createForeignPendingEventsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS foreign_pending_events (
+		event_id VARCHAR(255) PRIMARY KEY
+			REFERENCES pending_events(event_id) ON DELETE CASCADE,
+		home_server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		peer_event_id VARCHAR(255) NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createForeignPendingEventsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_foreign_pending_events_home_server
+		ON foreign_pending_events(home_server_id);
+	`
+
+	// Home-server bookkeeping: records which peer+user a sentinel-attributed
+	// pending_events row was actually registered on behalf of.
+	createForeignRelayRequestsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS foreign_relay_requests (
+		event_id VARCHAR(255) PRIMARY KEY
+			REFERENCES pending_events(event_id) ON DELETE CASCADE,
+		requesting_server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		requesting_user_id VARCHAR(255) NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createForeignRelayRequestsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_foreign_relay_requests_server
+		ON foreign_relay_requests(requesting_server_id);
+	`
 
 	createProfileSubscriptionsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS profile_subscriptions (
 		subscription_id VARCHAR(255) PRIMARY KEY,
-		viewer_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		author_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		viewer_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		author_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE (viewer_user_id, author_user_id)
 	);`
 
 	createProfileSubscriptionsIndex := `
@@ -662,28 +895,46 @@ func InitDB(db *sql.DB) error {
 		ON profile_subscriptions(author_user_id);
 	`
 
+	// reed_id FKs to reed_identities (not reeds directly) so a viewer can
+	// durably subscribe to a foreign reed's stats too — mirrors
+	// profile_subscriptions' own local-vs-foreign-agnostic shape.
+	createReedSubscriptionsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS reed_subscriptions (
+		subscription_id VARCHAR(255) PRIMARY KEY,
+		viewer_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createReedSubscriptionsIndex := `
+	CREATE INDEX IF NOT EXISTS idx_reed_subscriptions_viewer
+		ON reed_subscriptions(viewer_user_id);
+	CREATE INDEX IF NOT EXISTS idx_reed_subscriptions_reed
+		ON reed_subscriptions(reed_id);
+	`
+
 	// //////////// //
 	//   Recovery   //
 	// //////////// //
 
 	createUnclaimedAccountsTable := `
 	CREATE TABLE IF NOT EXISTS unclaimed_accounts (
-		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	createOngoingRecoveriesTable := `
 	CREATE TABLE IF NOT EXISTS ongoing_recoveries (
-		user_id VARCHAR(255) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	// Follow edges reported during recovery whose target is not yet in users.
-	// following_user_id has no FK — the whole point is to hold unknown targets
-	// until claim / peer report drains them into user_following / user_followers.
+	// Follow edges reported during recovery whose target has no identities
+	// row yet. following_user_id has no FK — holds unknown targets until
+	// claim/peer report drains them into user_following/user_followers.
 	createPendingFollowsTable := `
 	CREATE TABLE IF NOT EXISTS pending_follows (
-		follower_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		follower_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		following_user_id VARCHAR(255) NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -695,44 +946,121 @@ func InitDB(db *sql.DB) error {
 		ON pending_follows(following_user_id);
 	`
 
-	// Invites — operational redeem state. PK is (created_by, id) because
-	// clients mint ids; scoping to the issuer prevents cross-user collisions.
+	// Invites — operational redeem state. id is canonical
+	// (creatorID@serverID/uuid), self-describing and globally unique, so
+	// it alone is PK; created_by stays a real column for CountByCreator
+	// and cascade-on-account-removal.
 	createInvitesTable := `
 	CREATE TABLE IF NOT EXISTS invites (
-		created_by VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		id VARCHAR(255) NOT NULL,
+		id VARCHAR(255) PRIMARY KEY,
+		created_by VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		token_hash BYTEA NOT NULL UNIQUE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		claimed_at TIMESTAMPTZ,
-		claimed_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL,
+		claimed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
 		revoked_at TIMESTAMPTZ,
 		granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
-			CHECK (granted_role IN ('admin', 'user')),
-
-		PRIMARY KEY (created_by, id)
+			CHECK (granted_role IN ('admin', 'user'))
 	);`
 
+	createInvitesIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_invites_created_by
+		ON invites(created_by);
+	`
+
+	// federation_invitation covers the whole handshake lifecycle: new ->
+	// accepted/canceled, accepted -> approved/rejected, approved -> revoked.
+	// fingerprint/public_key_armor are the peer's unverified key, promoted into public_keys/servers only once approved.
 	createFederationInvitationTable := `
 	CREATE TABLE IF NOT EXISTS federation_invitation (
 		id VARCHAR(255) PRIMARY KEY,
 		name VARCHAR(255) NOT NULL,
 		secret_hash BYTEA NOT NULL,
-		remote_fingerprint VARCHAR(255) NOT NULL,
-		status VARCHAR(16) NOT NULL DEFAULT 'new'
-			CHECK (status IN ('new', 'accepted', 'approved', 'revoked')),
-		created_by VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		fingerprint VARCHAR(255) NOT NULL,
+		public_key_armor TEXT NOT NULL,
+		created_by VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		accepted_at TIMESTAMPTZ,
-		approved_at TIMESTAMPTZ,
-		reviewed_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL,
+		server_id VARCHAR(16) REFERENCES servers(id) ON DELETE SET NULL,
+		status VARCHAR(16) NOT NULL DEFAULT 'new'
+			CHECK (status IN ('new', 'accepted', 'approved', 'rejected', 'canceled', 'revoked')),
+		reviewed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
 		reviewed_at TIMESTAMPTZ,
 		connection_ciphertext TEXT
+	);`
+
+	// One row per handshake attempt against a peer, permanent (never
+	// deleted on approve/reject — it's the audit trail). server_id is set
+	// only once APPROVED; invitation_id is set on the INITIATOR side only.
+	createFederationAttemptTable := `
+	CREATE TABLE IF NOT EXISTS federation_attempt (
+		id VARCHAR(255) PRIMARY KEY,
+		remote_server_id VARCHAR(16) NOT NULL,
+		remote_server_name VARCHAR(255) NOT NULL,
+		base_url TEXT NOT NULL,
+		fingerprint VARCHAR(255) NOT NULL,
+		public_key_armor TEXT NOT NULL,
+		invitation_id VARCHAR(255) REFERENCES federation_invitation(id),
+		server_id VARCHAR(16) REFERENCES servers(id) ON DELETE SET NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		status VARCHAR(16) NOT NULL DEFAULT 'pending'
+			CHECK (status IN ('pending', 'approved', 'rejected')),
+		approved_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
+		approved_at TIMESTAMPTZ,
+		rejected_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
+		rejected_at TIMESTAMPTZ,
+		rejected_reason TEXT
+	);`
+
+	// Generic append-only log line, not itself tied to an invitation,
+	// attempt, or server — three junction tables link a line to whichever
+	// it's about, so an admin can see what actually happened.
+	createFederationLogTable := `
+	CREATE TABLE IF NOT EXISTS federation_log (
+		id VARCHAR(255) PRIMARY KEY,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		level VARCHAR(16) NOT NULL
+			CHECK (level IN ('info', 'error')),
+		message TEXT NOT NULL
+	);`
+
+	// The INITIATOR logs against its invitation from the moment a connect
+	// callback arrives — invitation's server_id isn't set until approval,
+	// so pre-acceptance rejections have nothing else to log against yet.
+	createFederationInvitationLogTable := `
+	CREATE TABLE IF NOT EXISTS federation_invitation_log (
+		invitation_id VARCHAR(255) NOT NULL REFERENCES federation_invitation(id) ON DELETE CASCADE,
+		log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
+
+		PRIMARY KEY (invitation_id, log_id)
+	);`
+
+	// Attempt-scoped log lines — handshake verification through the
+	// approve/reject decision. Unlike federation_server_log, this survives
+	// rejection, so a rejection reason has somewhere permanent to live.
+	createFederationAttemptLogTable := `
+	CREATE TABLE IF NOT EXISTS federation_attempt_log (
+		attempt_id VARCHAR(255) NOT NULL REFERENCES federation_attempt(id) ON DELETE CASCADE,
+		log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
+
+		PRIMARY KEY (attempt_id, log_id)
+	);`
+
+	// federation_server_log: server-scoped log lines, for activity AFTER a
+	// servers row exists (i.e. after a federation_attempt was approved) —
+	// pre-approval activity belongs in federation_attempt_log instead.
+	createFederationServerLogTable := `
+	CREATE TABLE IF NOT EXISTS federation_server_log (
+		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
+
+		PRIMARY KEY (server_id, log_id)
 	);`
 
 	// Device binding — append-only history; exactly one active row per user.
 	createUserDevicesTable := `
 	CREATE TABLE IF NOT EXISTS user_devices (
-		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		device_id TEXT NOT NULL,
 		linked_at TIMESTAMPTZ NOT NULL,
 		revoked_at TIMESTAMPTZ NULL,
@@ -751,17 +1079,21 @@ func InitDB(db *sql.DB) error {
 		createUserSignaturesTable,
 		createServerSignaturesTable,
 
+		createIdentitiesTable,
+		createIdentitiesIndexes,
+
+		createPrivateKeysTable,
+
+		createPublicKeysTable,
+		createPublicKeyIndexes,
+
 		createUsersTable,
 		createUserIndexes,
 
-		createPrivateKeysTable,
-		createPublicKeysTable,
+		createPublicKeyRevocationsTable,
 
-		createUserKeysTable,
-		createUserKeyIndexes,
-
-		createUserKeyRevocationsTable,
-		createUserKeyRevocationsIndexes,
+		createReedIdentitiesTable,
+		createReedIdentitiesIndexes,
 
 		createReedsTable,
 		createReedIndexes,
@@ -798,6 +1130,7 @@ func InitDB(db *sql.DB) error {
 		createUserFollowingIndexes,
 
 		createInvitesTable,
+		createInvitesIndexes,
 
 		// Realtime
 		createOnlineUsersTable,
@@ -808,13 +1141,22 @@ func InitDB(db *sql.DB) error {
 		createReedAllocationsTable,
 		createReedAllocationIndexes,
 
+		createReedServerAllocationsTable,
+		createReedServerAllocationIndexes,
+
 		createPendingFanoutTable,
 
 		createNetworkStatsTable,
 		seedNetworkStats,
 
+		createReedStatsTable,
+		createReedCoverageView,
+
 		createProfileSubscriptionsTable,
 		createProfileSubscriptionsIndex,
+
+		createReedSubscriptionsTable,
+		createReedSubscriptionsIndex,
 
 		createPendingEventsTable,
 		createPendingEventsIndexes,
@@ -823,6 +1165,32 @@ func InitDB(db *sql.DB) error {
 		createPendingReedEventsIndexes,
 
 		createPendingAccountEventsTable,
+
+		createForeignPendingEventsTable,
+		createForeignPendingEventsIndexes,
+
+		createForeignRelayRequestsTable,
+		createForeignRelayRequestsIndexes,
+
+		// Triggers
+
+		createBumpReedStatFunction,
+
+		createAccountRemovalReplyCountTrigger,
+		createAccountRemovalReplyCountTriggerFunction,
+		createBumpReplyAncestorsFunction,
+		createEchoCountTriggerFunction,
+		createEchoCountTriggers,
+		createHolderCountTriggerFunction,
+		createHolderCountTriggers,
+		createLikeCountTriggerFunction,
+		createLikeCountTriggers,
+		createReedRemovalReplyCountTrigger,
+		createReedRemovalReplyCountTriggerFunction,
+		createReedReplyDeleteTrigger,
+		createReedReplyDeleteTriggerFunction,
+		createReplyCountTrigger,
+		createReplyCountTriggerFunction,
 
 		// Recovery
 		createUnclaimedAccountsTable,
@@ -834,6 +1202,11 @@ func InitDB(db *sql.DB) error {
 
 		// Federation
 		createFederationInvitationTable,
+		createFederationAttemptTable,
+		createFederationLogTable,
+		createFederationInvitationLogTable,
+		createFederationAttemptLogTable,
+		createFederationServerLogTable,
 	}
 
 	for i, query := range queries {

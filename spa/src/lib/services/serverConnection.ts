@@ -14,27 +14,28 @@ export type ServerEventHandler = (data: any) => void;
 type PendingRequest = { resolve: (data: any) => void; reject: (err: any) => void };
 
 export enum ServerEvent {
-  AccountRemoved   = 'ACCOUNT_REMOVED',
-  BroadcastReed    = 'BROADCAST_REED',
-  DataResponse     = 'DATA_RESPONSE',
-  FollowReed       = 'FOLLOW_REED',
-  PipeReed         = 'PIPE_REED',
-  PublishReadyAck  = 'PUBLISH_READY_ACK',
-  ReedCoverage     = 'REED_COVERAGE',
-  ReedEchoes       = 'REED_ECHOES',
-  ReedLikes        = 'REED_LIKES',
-  ReedNotFound     = 'REED_NOT_FOUND',
-  ReedNotHeld      = 'REED_NOT_HELD',
-  ReedNotification = 'reed_notification',
-  ReedRemoved      = 'REED_REMOVED',
-  ReedReplies      = 'REED_REPLIES',
-  ReedReply        = 'REED_REPLY',
-  ReedStats        = 'REED_STATS',
-  RelayRequest     = 'RELAY_REQUEST',
-  RequestAck       = 'REQUEST_ACK',
-  RipplePosted     = 'RIPPLE_POSTED',
-  RippleUpdated    = 'RIPPLE_UPDATED',
-  Sigterm          = 'SIGTERM',
+  AccountRemoved       = 'ACCOUNT_REMOVED',
+  BroadcastReed        = 'BROADCAST_REED',
+  DataResponse         = 'DATA_RESPONSE',
+  FollowReed           = 'FOLLOW_REED',
+  InvalidRequestIdError = 'INVALID_REQUEST_ID_ERROR',
+  PipeReed             = 'PIPE_REED',
+  PublishReadyAck      = 'PUBLISH_READY_ACK',
+  ReedCoverage         = 'REED_COVERAGE',
+  ReedEchoes           = 'REED_ECHOES',
+  ReedLikes            = 'REED_LIKES',
+  ReedNotFound         = 'REED_NOT_FOUND',
+  ReedNotHeld          = 'REED_NOT_HELD',
+  ReedNotification     = 'reed_notification',
+  ReedRemoved          = 'REED_REMOVED',
+  ReedReplies          = 'REED_REPLIES',
+  ReedReply            = 'REED_REPLY',
+  ReedStats            = 'REED_STATS',
+  RelayRequest         = 'RELAY_REQUEST',
+  RequestAck           = 'REQUEST_ACK',
+  RipplePosted         = 'RIPPLE_POSTED',
+  RippleUpdated        = 'RIPPLE_UPDATED',
+  Sigterm              = 'SIGTERM',
 }
 
 class ServerConnection {
@@ -51,7 +52,7 @@ class ServerConnection {
   // always unsubscribe on unmount before subscribing elsewhere), so one
   // slot covers all three. Broadcast is independent and can coexist.
   private activeSubscription:
-    | { kind: 'reed'; authorId: string; reedId: string }
+    | { kind: 'reed'; reedId: string }
     | { kind: 'profile'; userId: string }
     | { kind: 'pipe'; tag: string }
     | null = null;
@@ -151,16 +152,16 @@ class ServerConnection {
       }
 
       if (!requestSigner.isInitialized()) {
-        const fingerprint = authService.getActiveKeyFingerprint();
+        const keyId = authService.getActiveKeyId();
         const passphrase = authService.getPassphrase();
 
-        if (!fingerprint || !passphrase) {
+        if (!keyId || !passphrase) {
           console.log('ServerConnection: request signer not ready, skipping connection');
           return;
         }
 
         try {
-          await requestSigner.initializeWorker(fingerprint, passphrase);
+          await requestSigner.initializeWorker(keyId, passphrase);
         } catch (error) {
           console.error('ServerConnection: failed to initialize request signer:', error);
           return;
@@ -178,12 +179,11 @@ class ServerConnection {
 
       const timestamp = Math.floor(Date.now() / 1000).toString();
       const signature = await requestSigner.sign(timestamp);
-      const fingerprint = authService.getActiveKeyFingerprint()!;
+      const activeKeyId = authService.getActiveKeyId()!;
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const url = new URL(`${protocol}//${window.location.host}/ws/`);
-      url.searchParams.set('userID', user.id);
-      url.searchParams.set('fingerprint', fingerprint);
+      url.searchParams.set('publicKeyId', activeKeyId);
       url.searchParams.set('timestamp', timestamp);
       url.searchParams.set('signature', signature);
       url.searchParams.set('deviceId', ensureDeviceId());
@@ -225,6 +225,20 @@ class ServerConnection {
             const pending = this.pendingRequests.get(requestId);
             if (pending) {
               pending.reject(new Error(message.type === ServerEvent.ReedNotHeld ? 'reed_not_held' : 'reed_not_found'));
+              this.pendingRequests.delete(requestId);
+            }
+          } else if (message.type === ServerEvent.InvalidRequestIdError) {
+            // The server rejected a request_id we minted (malformed, or
+            // its identity doesn't match this connection) — the server
+            // never created any pending state for it, so just discard our
+            // own local record rather than retry it.
+            const requestId = message.data.request_id;
+            console.warn('ServerConnection: request_id rejected by server, discarding:', requestId);
+            this.dispatchedReedRequests.delete(requestId);
+            void reedRequestsRepository.delete(requestId);
+            const pending = this.pendingRequests.get(requestId);
+            if (pending) {
+              pending.reject(new Error('invalid_request_id'));
               this.pendingRequests.delete(requestId);
             }
           }
@@ -302,7 +316,6 @@ class ServerConnection {
       data: {
         request_id: record.requestId,
         reed_id: record.reedId,
-        author_id: record.authorId,
       },
     });
   }
@@ -324,12 +337,13 @@ class ServerConnection {
     }
   }
 
-  async requestReedContent(reedId: string, authorId: string, serverId: string): Promise<any> {
-    const requestId = computeReedRequestId(serverId, authorId, reedId);
-    const held = await reedsService.getReed(authorId, reedId);
+  async requestReedContent(reedId: string): Promise<any> {
+    const requesterId = localStorage.getItem('userId') ?? '';
+    const requestId = computeReedRequestId(requesterId, reedId);
+    const held = await reedsService.getReed(reedId);
     if (held) return held;
 
-    await reedRequestsRepository.enqueue({ requestId, serverId, authorId, reedId });
+    await reedRequestsRepository.enqueue({ requestId, reedId });
 
     let promise = this.pendingReedPromises.get(requestId);
     if (!promise) {
@@ -364,13 +378,13 @@ class ServerConnection {
 
   /** Reports a failed key fetch needed to verify content received over this
    * (already-authenticated) connection — an anomaly, not a routine cache miss. */
-  sendKeyFetchError(userId: string, fingerprint: string): void {
-    this.send({ type: 'KEY_FETCH_ERROR', data: { user_id: userId, fingerprint } });
+  sendKeyFetchError(userId: string, keyId: string): void {
+    this.send({ type: 'KEY_FETCH_ERROR', data: { user_id: userId, key_id: keyId } });
   }
 
   /** Reports content whose timestamp is at or after its signing key's revocation. */
-  sendRevokedKeyUsed(userId: string, fingerprint: string): void {
-    this.send({ type: 'REVOKED_KEY_USED', data: { user_id: userId, fingerprint } });
+  sendRevokedKeyUsed(userId: string, keyId: string): void {
+    this.send({ type: 'REVOKED_KEY_USED', data: { user_id: userId, key_id: keyId } });
   }
 
   async publishReady(reedId: string, options?: { broadcast?: boolean }): Promise<void> {
@@ -385,7 +399,8 @@ class ServerConnection {
   }
 
   syncRequest(): void {
-    const requestId = crypto.randomUUID();
+    const requesterId = localStorage.getItem('userId') ?? '';
+    const requestId = `${requesterId}/${crypto.randomUUID()}`;
     sessionStorage.setItem('syncRequestId', requestId);
     this.send({ type: 'SYNC_REQUEST', data: { request_id: requestId } });
     startReedRequestDrainer();
@@ -404,25 +419,21 @@ class ServerConnection {
     this.send({ type: 'UNSUBSCRIBE_PROFILE', data: { user_id: userId } });
   }
 
-  async subscribeReed(authorId: string, reedId: string): Promise<boolean> {
+  async subscribeReed(reedId: string): Promise<boolean> {
     await this.connect();
     if (!this.isConnected()) {
       return false;
     }
-    this.activeSubscription = { kind: 'reed', authorId, reedId };
-    this.send({ type: 'SUBSCRIBE_REED', userID: authorId, reedID: reedId });
+    this.activeSubscription = { kind: 'reed', reedId };
+    this.send({ type: 'SUBSCRIBE_REED', reedID: reedId });
     return true;
   }
 
-  unsubscribeReed(authorId: string, reedId: string): void {
-    if (
-      this.activeSubscription?.kind === 'reed' &&
-      this.activeSubscription.authorId === authorId &&
-      this.activeSubscription.reedId === reedId
-    ) {
+  unsubscribeReed(reedId: string): void {
+    if (this.activeSubscription?.kind === 'reed' && this.activeSubscription.reedId === reedId) {
       this.activeSubscription = null;
     }
-    this.send({ type: 'UNSUBSCRIBE_REED', userID: authorId, reedID: reedId });
+    this.send({ type: 'UNSUBSCRIBE_REED', reedID: reedId });
   }
 
   subscribeToBroadcast(): void {
@@ -456,11 +467,7 @@ class ServerConnection {
   private resubscribeAll(): void {
     switch (this.activeSubscription?.kind) {
       case 'reed':
-        this.send({
-          type: 'SUBSCRIBE_REED',
-          userID: this.activeSubscription.authorId,
-          reedID: this.activeSubscription.reedId,
-        });
+        this.send({ type: 'SUBSCRIBE_REED', reedID: this.activeSubscription.reedId });
         break;
       case 'profile':
         this.send({ type: 'SUBSCRIBE_PROFILE', data: { user_id: this.activeSubscription.userId } });

@@ -8,10 +8,10 @@ import (
 	"syrinx/identity"
 )
 
-func testUserSig(fingerprint string) UserSignature {
+func testUserSig(keyID string) UserSignature {
 	return UserSignature{
-		Fingerprint: fingerprint,
-		Armor:       "dXNlcg==",
+		KeyID: keyID,
+		Armor: "dXNlcg==",
 	}
 }
 
@@ -61,7 +61,7 @@ func TestVerifyProfileServerCountersig_BadSignature(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	profile := testStatusProfile("srv1", ts)
 	payload := string(identity.BuildProfilePayload(
-		profile.ID, profile.Username, profile.UserSignature.Fingerprint,
+		profile.ID, profile.Username, profile.UserSignature.KeyID,
 		"srv1", profile.ServerSignature.Fingerprint, profile.UserSignature.Armor, "",
 		profile.Role, profile.Bio,
 		profile.MemberSince, profile.ServerSignature.Timestamp,

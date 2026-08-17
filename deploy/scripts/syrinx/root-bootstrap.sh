@@ -25,21 +25,26 @@ syrinx_root_bootstrap_marker() {
     printf '%s' "$(syrinx_root_export_dir)/.bootstrap-complete"
 }
 
-# Latest keys-only export on disk (empty if none).
+# Latest keys-only export on disk (empty if none). Pass a cutoff (epoch
+# seconds, from `date +%s`) to consider only files created at or after it —
+# needed during a mint attempt so a leftover export+passphrase pair from a
+# prior mint (never cleaned up here — see wipe-db's separate concern) can't
+# be mistaken for the one this attempt is producing.
 syrinx_root_export_file() {
-    local export_dir
+    local export_dir cutoff
     export_dir="$(syrinx_root_export_dir)"
-    find "$export_dir" -maxdepth 1 -type f -name 'syrinx-1-*.sxi.gpg' 2>/dev/null \
+    cutoff="${1:-0}"
+    find "$export_dir" -maxdepth 1 -type f -name 'syrinx-1-*.sxi.gpg' -newermt "@$cutoff" 2>/dev/null \
         | sort | tail -n1
 }
 
 syrinx_root_bootstrap_complete() {
-    local marker export_file
+    local cutoff="${1:-0}" marker export_file
     marker="$(syrinx_root_bootstrap_marker)"
     if [ -f "$marker" ]; then
         return 0
     fi
-    export_file="$(syrinx_root_export_file)"
+    export_file="$(syrinx_root_export_file "$cutoff")"
     # Require the .passphrase sidecar too — an export file alone (no
     # passphrase, no marker) is undecryptable and not a complete bootstrap.
     [ -n "$export_file" ] && [ -f "$export_file" ] && [ -f "${export_file}.passphrase" ]
@@ -65,7 +70,7 @@ syrinx_root_other_user_count() {
     db="${DB_NAME:?DB_NAME missing in $ENV_FILE}"
 
     PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$db" -tAc \
-        "SELECT COUNT(*) FROM users WHERE id <> '1'" 2>/dev/null | tr -d '[:space:]'
+        "SELECT COUNT(*) FROM users WHERE id <> '1' AND id NOT LIKE '1@%'" 2>/dev/null | tr -d '[:space:]'
 }
 
 syrinx_delete_orphan_root() {
@@ -83,11 +88,10 @@ syrinx_delete_orphan_root() {
 
     echo "🔹 Removing incomplete root user (id=1) so mint can run again..."
     systemctl stop "$APP_NAME.service" 2>/dev/null || true
+    # identities(id) cascades to users and public_keys(owner) — one delete
+    # covers all three, and matches both the bare "1" and canonical "1@..." id.
     PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$db" -v ON_ERROR_STOP=1 <<'SQL'
-BEGIN;
-DELETE FROM user_keys WHERE owner = '1';
-DELETE FROM users WHERE id = '1';
-COMMIT;
+DELETE FROM identities WHERE id = '1' OR id LIKE '1@%';
 SQL
     rm -f "$(syrinx_root_bootstrap_marker)"
 }
@@ -115,7 +119,7 @@ syrinx_root_exists() {
     db="${DB_NAME:?DB_NAME missing in $ENV_FILE}"
 
     PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$db" -tAc \
-        "SELECT 1 FROM users WHERE id = '1' LIMIT 1" 2>/dev/null | grep -q 1
+        "SELECT 1 FROM users WHERE id = '1' OR id LIKE '1@%' LIMIT 1" 2>/dev/null | grep -q 1
 }
 
 syrinx_strip_root_export_env() {
@@ -170,9 +174,9 @@ syrinx_remove_root_export_dropin() {
 # *different* exit than the one that actually did the export, making
 # ExecMainStatus alone unreliable right at the transition.
 syrinx_wait_root_export_exit() {
-    local i status result
+    local cutoff="${1:-0}" i status result
     for i in $(seq 1 90); do
-        if syrinx_root_bootstrap_complete; then
+        if syrinx_root_bootstrap_complete "$cutoff"; then
             return 0
         fi
         if ! systemctl is-active --quiet "$APP_NAME.service"; then
@@ -252,9 +256,16 @@ syrinx_ensure_root_bootstrap() {
 
     syrinx_install_root_export_dropin
 
+    # Captured before the restart, minus a second of margin for mtime/clock
+    # granularity — a leftover export+passphrase pair from a prior mint (see
+    # syrinx_root_export_file's comment) predates this and is excluded, so
+    # the wait below can't fire early on someone else's stale file.
+    local mint_cutoff
+    mint_cutoff="$(($(date +%s) - 1))"
+
     echo "🔹 Starting $APP_NAME for root export (ReadWritePaths=$export_dir)..."
     systemctl restart "$APP_NAME.service"
-    if ! syrinx_wait_root_export_exit; then
+    if ! syrinx_wait_root_export_exit "$mint_cutoff"; then
         # Stop rather than leave it running: with the passphrase still set,
         # Restart=on-failure would otherwise crash-loop the unit indefinitely
         # against maybeExportRootKey's already-exists guard.
@@ -263,20 +274,24 @@ syrinx_ensure_root_bootstrap() {
         return 1
     fi
 
-    export_file="$(syrinx_root_export_file)"
+    export_file="$(syrinx_root_export_file "$mint_cutoff")"
     if [ -z "$export_file" ] || [ ! -f "$export_file" ]; then
         echo "❌ Root export exited 0 but no syrinx-1-*.sxi.gpg in $export_dir" >&2
         return 1
     fi
     chown "$APP_USER:$APP_USER" "$export_file" 2>/dev/null || true
     chmod 600 "$export_file" 2>/dev/null || true
-    touch "$(syrinx_root_bootstrap_marker)"
-    chown "$APP_USER:$APP_USER" "$(syrinx_root_bootstrap_marker)" 2>/dev/null || true
-    chmod 600 "$(syrinx_root_bootstrap_marker)" 2>/dev/null || true
 
     syrinx_strip_root_export_env
     syrinx_remove_root_export_dropin
 
+    # Retry briefly: the export file (proof the app committed the insert
+    # before writing it) can be visible here a beat before a fresh psql
+    # connection sees the same row — seen in practice, cause unconfirmed.
+    for i in 1 2 3 4 5; do
+        syrinx_root_exists && break
+        sleep 1
+    done
     if ! syrinx_root_exists; then
         echo "❌ Root export wrote $export_file but users.id=1 is still missing" >&2
         return 1
@@ -289,6 +304,14 @@ syrinx_ensure_root_bootstrap() {
     printf '%s\n' "$passphrase" > "$passphrase_file"
     chown "$APP_USER:$APP_USER" "$passphrase_file" 2>/dev/null || true
     chmod 600 "$passphrase_file" 2>/dev/null || true
+
+    # Marker is the fast-path signal syrinx_root_bootstrap_complete() trusts
+    # without re-checking the passphrase file — must not be written until
+    # the passphrase actually exists, or a later run's fast path skips
+    # straight past a genuinely incomplete bootstrap.
+    touch "$(syrinx_root_bootstrap_marker)"
+    chown "$APP_USER:$APP_USER" "$(syrinx_root_bootstrap_marker)" 2>/dev/null || true
+    chmod 600 "$(syrinx_root_bootstrap_marker)" 2>/dev/null || true
 
     echo "------------------------------------------------------------------"
     echo "✅ Root identity minted (users.id=1)"

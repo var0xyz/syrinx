@@ -4,8 +4,6 @@
   import { serverConnection } from '$lib/services/serverConnection';
 
   /** @type {string} */
-  export let authorId;
-  /** @type {string} */
   export let reedId;
   /** @type {() => void} */
   export let onSubscribeOk = () => {};
@@ -14,9 +12,9 @@
 
   let alive = true;
 
-  void serverConnection.subscribeReed(authorId, reedId).then((subscribed) => {
+  void serverConnection.subscribeReed(reedId).then((subscribed) => {
     if (!alive) {
-      serverConnection.unsubscribeReed(authorId, reedId);
+      serverConnection.unsubscribeReed(reedId);
       return;
     }
     if (subscribed) onSubscribeOk();
@@ -25,6 +23,6 @@
 
   onDestroy(() => {
     alive = false;
-    serverConnection.unsubscribeReed(authorId, reedId);
+    serverConnection.unsubscribeReed(reedId);
   });
 </script>

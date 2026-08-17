@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -41,6 +42,14 @@ type AppConfig struct {
 	ServerName    string `env:"name='SERVER_NAME'"`
 	Port          int
 	AllowedOrigin string `env:"name='ALLOWED_ORIGIN'"`
+
+	// This server's own public URL, used for federation.
+	APIBaseURL env.HTTPURL `env:"name='API_BASE_URL'"`
+
+	// Dev-only escape hatch: lets federation baseUrls be plain http:// so two
+	// local instances can complete a handshake without TLS. Never set this in
+	// production — federation's threat model assumes TLS on baseUrl.
+	FederationAllowInsecureHTTP bool `env:"optional,default='false',name='FEDERATION_ALLOW_INSECURE_HTTP'"`
 
 	ServerKeyPassphrase string `env:"name='SERVER_KEY_PASSPHRASE'"`
 
@@ -80,6 +89,10 @@ func main() {
 	// reasonable. Consider something short and unique.
 	if len(cfg.ServerName) == 0 {
 		l.Panicf("[ERR] ServerName cannot be empty")
+	}
+
+	if !strings.HasPrefix(string(cfg.APIBaseURL), "https://") {
+		l.Printf("[WARN] API_BASE_URL %q is not https:// — fine for local dev, not for production", cfg.APIBaseURL)
 	}
 
 	log.Info().Msg("Starting Syrinx API...")
@@ -143,7 +156,7 @@ func main() {
 	log.Info().Msg("[OK] Services initialized successfully")
 
 	log.Debug().Msg("Initializing server identity...")
-	if err := dataService.InitServer(context.Background(), cfg.RecoveryMode); err != nil {
+	if err := dataService.InitServer(context.Background(), cfg.RecoveryMode, string(cfg.APIBaseURL)); err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server identity")
 	}
 
@@ -195,7 +208,7 @@ func main() {
 	log.Info().Msg("[OK] Server identity initialized successfully")
 
 	log.Debug().Msg("Initializing realtime service...")
-	realtimeService := realtime.NewService(db, cryptoService, cfg.AllowedOrigin)
+	realtimeService := realtime.NewService(db, cryptoService, cfg.AllowedOrigin, dataService.GetServerID())
 	realtimeService.SetMetrics(obs.Metrics())
 
 	// Create broadcast channel
@@ -209,7 +222,25 @@ func main() {
 	h.SetMetrics(obs.Metrics())
 	h.SetPipeTagFilter(realtimeService.FilterSubscribedPipeTags)
 	h.SetKickUserWS(realtimeService.DisconnectUser)
+	h.SetRealtimeRelay(realtimeService)
+	realtimeService.SetForeignRequestReedHook(h.relayRequestToPeer)
+	realtimeService.SetForeignSubscribeProfileHook(h.subscribeProfileToPeer)
+	realtimeService.SetForeignDeliverHook(h.deliverRelayResponseToPeer)
+	realtimeService.SetForeignCancelHook(h.cancelRelayRequestWithPeer)
+	realtimeService.SetForeignAckHook(h.ackRelayDeliveryWithPeer)
+	realtimeService.SetForeignUnsubscribeProfileHook(h.unsubscribeProfileWithPeer)
+	realtimeService.SetForeignSubscribeReedHook(h.subscribeReedToPeer)
+	realtimeService.SetForeignUnsubscribeReedHook(h.unsubscribeReedWithPeer)
+	realtimeService.SetForeignReedStatsHook(h.pushReedStatsToPeer)
+	realtimeService.SetForeignReplyNotifyHook(h.notifyForeignReplyToPeer)
+	realtimeService.SetForeignHolderNotifyHook(h.notifyHolderToPeer)
+	realtimeService.SetForeignFallbackRequestHook(h.relayFallbackRequestToPeer)
+	realtimeService.SetForeignNewReedNotifyHook(h.notifyNewReedToPeer)
+	realtimeService.SetForeignReplyRemovalToViewerHook(h.notifyForeignReplyRemovalToViewer)
 	realtimeService.SetDeviceCheck(func(userID, deviceID string) error {
+		// userID arrives already in "userID@serverID" form (see
+		// realtime/auth.go), and CheckActiveDevice expects that same
+		// composed form (see its doc comment) — pass through unmodified.
 		return dataService.CheckActiveDevice(context.Background(), userID, deviceID)
 	})
 	log.Info().Msg("[OK] Handlers initialized successfully")
@@ -226,7 +257,13 @@ func main() {
 	api.Use(h.CORSMiddleware(cfg.AllowedOrigin))
 	api.Use(h.signatureAuthMiddleware("/api"))
 	if cfg.RecoveryMode {
-		realtimeService.SetOngoingCheck(func(userID string) (bool, error) { return dataService.IsOngoing(context.Background(), userID) })
+		realtimeService.SetOngoingCheck(func(userID string) (bool, error) {
+			// userID arrives already in "userID@serverID" form (see
+			// realtime/auth.go), and IsOngoing expects that same composed
+			// form — pass through unmodified, same as the recovery.Middleware
+			// registration below.
+			return dataService.IsOngoing(context.Background(), userID)
+		})
 		api.Use(recovery.Middleware(userIDKey, func(ctx context.Context, userID string) (bool, error) { return dataService.IsOngoing(ctx, userID) }))
 	}
 	api.Use(h.deviceMiddleware())
@@ -234,9 +271,6 @@ func main() {
 
 	api.HandleFunc("/server/info", h.GetServerInfo).Methods("GET")
 	api.HandleFunc("/server/info", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/server/keys/{fingerprint}", h.GetServerPublicKey).Methods("GET")
-	api.HandleFunc("/server/keys/{fingerprint}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/check-username", h.CheckUsername).Methods("POST")
 	api.HandleFunc("/check-username", h.noop).Methods("OPTIONS")
@@ -282,17 +316,33 @@ func main() {
 	api.HandleFunc("/users/{userID}/followers", h.GetUserFollowers).Methods("GET")
 	api.HandleFunc("/users/{userID}/followers", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.GetPublicKey).Methods("GET")
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.noop).Methods("OPTIONS")
+	// {id} is the full canonical key id — "userID@serverID/fingerprint" for
+	// a user key, "fingerprint@serverID" for a server's own key — and
+	// carries a "/", so it needs a greedy path variable ({id:.+}), not a
+	// plain {id} which would stop at the first "/". One route serves every
+	// key: local or (via handlers.go's proxyToPeer) foreign, user-owned or
+	// server-owned, since the id shape alone determines both ownership and
+	// which server to ask.
+	//
+	// /revocation is registered BEFORE the bare /keys/{id:.+}: gorilla/mux
+	// matches in registration order, and a greedy {id:.+} can otherwise
+	// swallow ".../revocation" as part of id before the more specific
+	// route ever gets a chance.
+	api.HandleFunc("/keys/{id:.+}/revocation", h.GetKeyRevocation).Methods("GET")
+	api.HandleFunc("/keys/{id:.+}/revocation", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revoke", h.RevokeKey).Methods("POST")
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revoke", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revocation", h.GetKeyRevocation).Methods("GET")
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revocation", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/keys/{id:.+}", h.GetKey).Methods("GET")
+	api.HandleFunc("/keys/{id:.+}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/keys", h.AddPublicKey).Methods("POST")
 	api.HandleFunc("/keys", h.noop).Methods("OPTIONS")
+
+	// /server/key is the one exception to /keys requiring auth: it takes no
+	// {id} param and only ever returns this server's own signing key, so
+	// there's nothing an unauthenticated caller can manipulate. See
+	// GetServerKey's doc comment and signatureAuthMiddleware's excludePaths.
+	api.HandleFunc("/server/key", h.GetServerKey).Methods("GET")
+	api.HandleFunc("/server/key", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/reeds", h.SignReed).Methods("POST")
 	api.HandleFunc("/reeds", h.noop).Methods("OPTIONS")
@@ -321,22 +371,22 @@ func main() {
 	// api.HandleFunc("/reeds/{userID}/{reedID}/ripples/proof", h.GetRipples).Methods("POST")
 	// api.HandleFunc("/reeds/{userID}/{reedID}/ripples/proof", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/ripples/{rippleID}", h.DeleteRipple).Methods("DELETE")
-	api.HandleFunc("/ripples/{rippleID}", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/reeds/{reedID:.+}/ripples/{rippleID}", h.DeleteRipple).Methods("DELETE")
+	api.HandleFunc("/reeds/{reedID:.+}/ripples/{rippleID}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}).Methods("GET")
 
 	invites.RegisterRoutes(api, invites.Deps{
-		Store:                &invites.Store{DB: db},
+		Store:                &invites.Store{DB: db, ServerID: dataService.GetServerID()},
 		Mode:                 invites.SignupMode(cfg.SignupMode),
 		Max:                  invites.MaxInvitesPerUser(cfg.MaxInvitesPerUser),
 		UserIDKey:            userIDKey,
 		ServerID:             dataService.GetServerID(),
 		ServerKeyFingerprint: signingKey.Fingerprint,
 		GetPublicKeyArmor: func(ctx context.Context, userID, fingerprint string) (string, error) {
-			key, err := dataService.GetPublicKey(ctx, userID, fingerprint)
+			key, err := dataService.GetPublicKey(ctx, fingerprint)
 			if err != nil {
 				return "", err
 			}
@@ -355,22 +405,143 @@ func main() {
 				return invites.ServerSignatureWire{}, err
 			}
 			return invites.ServerSignatureWire{
-				ServerID:    sig.ServerID,
-				Fingerprint: sig.Fingerprint,
-				Armor:       sig.Armor,
-				Timestamp:   sig.SignedAt.UTC().Format(time.RFC3339),
+				ID:        sig.ID,
+				Armor:     sig.Armor,
+				Timestamp: sig.SignedAt.UTC().Format(time.RFC3339),
 			}, nil
 		},
 	})
 
+	api.HandleFunc("/federation/list", h.GetFederationList).Methods("GET")
+	api.HandleFunc("/federation/list", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/invitations", h.CreateFederationInvitation).Methods("POST")
 	api.HandleFunc("/federation/invitations", h.ListFederationInvitations).Methods("GET")
 	api.HandleFunc("/federation/invitations", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/invitations/{id}/revoke", h.RevokeFederationInvitation).Methods("POST")
 	api.HandleFunc("/federation/invitations/{id}/revoke", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/servers", h.ListFederationServers).Methods("GET")
+	api.HandleFunc("/federation/servers", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/servers/{id}/logs", h.GetFederationServerLogs).Methods("GET")
+	api.HandleFunc("/federation/servers/{id}/logs", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/servers/{id}/invitation", h.GetFederationServerInvitation).Methods("GET")
+	api.HandleFunc("/federation/servers/{id}/invitation", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/servers/{id}/attempt", h.GetFederationServerAttempt).Methods("GET")
+	api.HandleFunc("/federation/servers/{id}/attempt", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/servers/{id}/revoke", h.RequestFederationServerDisconnect).Methods("POST")
+	api.HandleFunc("/federation/servers/{id}/revoke", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/servers/{id}/revoke/confirm", h.ConfirmFederationServerDisconnect).Methods("POST")
+	api.HandleFunc("/federation/servers/{id}/revoke/confirm", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/servers/{id}/revoke/cancel", h.CancelFederationServerDisconnect).Methods("POST")
+	api.HandleFunc("/federation/servers/{id}/revoke/cancel", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/servers/{id}/purge", h.PurgeFederationServer).Methods("POST")
+	api.HandleFunc("/federation/servers/{id}/purge", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/attempts/{id}", h.GetFederationAttempt).Methods("GET")
+	api.HandleFunc("/federation/attempts/{id}", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/attempts/{id}/logs", h.GetFederationAttemptLogs).Methods("GET")
+	api.HandleFunc("/federation/attempts/{id}/logs", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/attempts/{id}/approve", h.ApproveFederationAttempt).Methods("POST")
+	api.HandleFunc("/federation/attempts/{id}/approve", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/attempts/{id}/reject", h.RejectFederationAttempt).Methods("POST")
+	api.HandleFunc("/federation/attempts/{id}/reject", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/attempt", h.OutgoingFederationAttempt).Methods("POST")
+	api.HandleFunc("/federation/attempt", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods("POST")
+	api.HandleFunc("/federation/connect/{id}", h.noop).Methods("OPTIONS")
+
+	// Peer-authenticated (specs/federation/04): signatureAuthMiddleware
+	// recognizes a foreign-server X-Syrinx-Public-Key-Id and routes to
+	// authenticateAsPeer automatically — no separate wrapper needed here.
+	api.HandleFunc("/federation/users/{userID}/identity", h.GetFederationUserIdentity).Methods("GET")
+	api.HandleFunc("/federation/users/{userID}/identity", h.noop).Methods("OPTIONS")
+
+	// Cross-server REQUEST_REED relay (federation_relay.go): also
+	// peer-authenticated only, never end-user-callable. Each handler
+	// records its own syrinx.federation.relay metric inline.
+	api.HandleFunc("/federation/relay/request", h.RelayRequestFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/request", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/subscribe", h.RelaySubscribeProfileFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/subscribe", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/deliver", h.DeliverRelayResponseFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/deliver", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/cancel", h.CancelRelayRequestFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/cancel", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/ack", h.AckRelayDeliveryFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/ack", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/unsubscribe", h.RelayUnsubscribeProfileFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/unsubscribe", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/subscribe-reed", h.RelaySubscribeReedFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/subscribe-reed", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/unsubscribe-reed", h.RelayUnsubscribeReedFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/unsubscribe-reed", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/reed-stats", h.PushReedStatsFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/reed-stats", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/reply-notify", h.ReplyNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/reply-notify", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/echo-notify", h.EchoNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/echo-notify", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/mention-notify", h.MentionNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/mention-notify", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/reply-removal-notify", h.ReplyRemovalNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/reply-removal-notify", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/echo-removal-notify", h.EchoRemovalNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/echo-removal-notify", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/holder-notify", h.HolderNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/holder-notify", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/fallback-request", h.RelayFallbackRequestFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/fallback-request", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/new-reed-notify", h.RelayNewReedNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/new-reed-notify", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/search-users", h.SearchUsersFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/search-users", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/reply-removal-to-viewer", h.ReplyRemovalToViewerFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/reply-removal-to-viewer", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/disconnect-notify", h.DisconnectNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/disconnect-notify", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/account-removal-notify", h.AccountRemovalNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/account-removal-notify", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/reed-removal-notify", h.ReedRemovalNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/reed-removal-notify", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/account-recovery/bootstrap", h.BootstrapAccountRecovery).Methods("POST")
 	api.HandleFunc("/account-recovery/bootstrap", h.noop).Methods("OPTIONS")
 
