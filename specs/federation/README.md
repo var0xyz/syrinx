@@ -19,6 +19,7 @@ established peers. `serverID` in signed envelopes prepares for foreign
 | [04](04_runtime_verify_display.md) | Remote identity verify + foreign ref display | 03 |
 | [05](05_revoke_established.md) | Revoke peering + 401 on incoming peer traffic | 03, 04 |
 | [06](06_content_relay.md) | Cross-instance reed relay — extends the same-server relay machinery | 04, 05 |
+| [07](07_presence_delivery.md) | Server presence (`online`/`offline`/`ping`) + durable event delivery (mentions, deletions) | 06 |
 
 Related: [`roles/`](../roles/README.md) (admin UI + admin invites);
 conversations foreign refs [`conversations/01`](../conversations/01_publish_and_refs.md).
@@ -27,14 +28,14 @@ conversations foreign refs [`conversations/01`](../conversations/01_publish_and_
 
 ## Status
 
-**In progress.** Steps **01–02** implemented; 00, 03–06 remain Proposed.
+**In progress.** Steps **01–02** implemented; 00, 03–07 remain Proposed.
 
 | Step  | Status          |
 |-------|-----------------|
 | 00    | Proposed        |
 | 01    | **Implemented** |
 | 02    | **Implemented** |
-| 03–06 | Proposed        |
+| 03–07 | Proposed        |
 
 ## Locked decisions
 
@@ -51,7 +52,8 @@ conversations foreign refs [`conversations/01`](../conversations/01_publish_and_
 | Admin UI | **Admin → Mesh** (create invite, paste connection string, approve pending) |
 | Revoke peering | **`federation_established.revoked`**; revoker returns **401** to incoming peer traffic; **no auto-action on remote** |
 | Content relay | **`POST /api/federation/relay/reed`** extends the same-server relay machinery (see [06](06_content_relay.md) and [Relay model](/relay-model)) — no longer a non-goal |
-| Non-goals (v1) | Federated follow, open federation, automated reciprocal revoke, presence/online-status sharing across servers, account-deletion propagation across federation |
+| Presence + durable delivery | **`servers.online`** + `/federation/server/{id}/online`\|`offline`\|`ping`; undeliverable events fall back to `pending_events` (see [07](07_presence_delivery.md)) — no longer a non-goal |
+| Non-goals (v1) | Federated follow, open federation, automated reciprocal revoke, live client notification of a mid-session peering revoke |
 
 ## Motivation
 

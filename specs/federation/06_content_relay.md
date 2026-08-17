@@ -45,8 +45,8 @@ constraints this step removes.
 - Federated follow (a follower on one instance subscribing to fanout from
   an author on another) — this step only covers explicit fetch
   (`REQUEST_REED`)
-- Presence/online-status sharing between servers
-- Account-deletion propagation across federation
+- Presence/online-status sharing and durable event delivery (mentions,
+  deletions) between servers — see [07](07_presence_delivery.md)
 - Live client notification of a mid-session peering revoke
 
 ## Design
@@ -59,8 +59,9 @@ ALTER TABLE pending_events ALTER COLUMN requester_user_id DROP NOT NULL;
 -- (requester_user_id keeps its existing FK to online_users(user_id))
 ALTER TABLE pending_events ADD COLUMN server_id VARCHAR(16) NOT NULL
     REFERENCES servers(id);
--- server_id is the REQUESTER's origin: self for a local request,
--- the peer's id when requester_user_id IS NULL (inbound federation request).
+-- server_id is the delivery target: self for a local requester, the
+-- peer's id when requester_user_id IS NULL (inbound federation request,
+-- or — see 07 — an outbound notification with no requester at all).
 
 -- pending_reed_events: the reed's author can now be on another server.
 ALTER TABLE pending_reed_events DROP CONSTRAINT pending_reed_events_user_id_reed_id_fkey;
