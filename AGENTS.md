@@ -118,7 +118,16 @@ DDL, routes, and middleware.
   and in `specs/README.md` → "Why nothing is escaped".)
 - `identity/` — shared canonical identity/profile/reed payload builders used by
   both live traffic and recovery. Shared builders belong here, not in feature
-  packages.
+  packages. **Canonical ID** = `identity.CanonicalID(serverID, userID, ...reedID)`
+  → `IdentityID("{userID}@{serverID}[/{reedID}]")` (`identity_id.go`), parsed
+  back by splitting on the *last* `@`. "Canonical" means **everywhere**, not
+  just the DB FK: `users.id`/`identities.id`, wire/JSON fields, URL path params
+  (`@` unencoded), and every signed payload (`Build*Payload` in
+  `identity/identity.go`, mirrored in SPA `signing.ts`) all carry the full
+  `userID@serverID` form — see `specs/federation/SCOPE_canonical_id_everywhere.md`.
+  Exception: `roles.RootUserID = "1"` stays a bare literal; reconstruct the full
+  canonical form to compare it, never bare-string-match (prevents a remote user
+  with local id "1" from being treated as root).
 - `ids/` — random, server-scoped user/reed ID generation.
 - `secret/` — server-key passphrase resolver (env → keychain → prompt → auto-gen).
 - `recovery/` — **all** server-side DB-reconstruction (`RECOVERY_MODE`) logic:
