@@ -17,13 +17,13 @@ func InsertUnclaimed(ctx context.Context, db *sql.DB, serverID, userID string) e
 		INSERT INTO unclaimed_accounts (user_id)
 		VALUES ($1)
 		ON CONFLICT DO NOTHING
-	`, identity.LocalID(userID, serverID))
+	`, identity.CanonicalID(serverID, userID))
 	return err
 }
 
 // DeleteUnclaimed removes a user from the unclaimed gauge (e.g. after own claim).
 func DeleteUnclaimed(ctx context.Context, db *sql.DB, serverID, userID string) error {
-	_, err := db.ExecContext(ctx, `DELETE FROM unclaimed_accounts WHERE user_id = $1`, identity.LocalID(userID, serverID))
+	_, err := db.ExecContext(ctx, `DELETE FROM unclaimed_accounts WHERE user_id = $1`, identity.CanonicalID(serverID, userID))
 	return err
 }
 
@@ -33,13 +33,13 @@ func InsertOngoing(ctx context.Context, db *sql.DB, serverID, userID string) err
 		INSERT INTO ongoing_recoveries (user_id)
 		VALUES ($1)
 		ON CONFLICT DO NOTHING
-	`, identity.LocalID(userID, serverID))
+	`, identity.CanonicalID(serverID, userID))
 	return err
 }
 
 // DeleteOngoing clears the import gate for a user (e.g. after /complete).
 func DeleteOngoing(ctx context.Context, db *sql.DB, serverID, userID string) error {
-	_, err := db.ExecContext(ctx, `DELETE FROM ongoing_recoveries WHERE user_id = $1`, identity.LocalID(userID, serverID))
+	_, err := db.ExecContext(ctx, `DELETE FROM ongoing_recoveries WHERE user_id = $1`, identity.CanonicalID(serverID, userID))
 	return err
 }
 

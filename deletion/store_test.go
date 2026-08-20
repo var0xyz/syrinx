@@ -181,7 +181,7 @@ const testServerID = "test-srv"
 
 func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 	t.Helper()
-	identityID := string(identity.LocalID(userID, testServerID))
+	identityID := string(identity.CanonicalID(testServerID, userID))
 	if _, err := db.Exec(`
 		INSERT INTO identities (id, remote_user_id, server_id, verified)
 		VALUES ($1, $2, $3, TRUE)
@@ -214,7 +214,7 @@ func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 
 func seedUserKey(t *testing.T, db *sql.DB, userID, fingerprint string) {
 	t.Helper()
-	identityID := string(identity.LocalID(userID, testServerID))
+	identityID := string(identity.CanonicalID(testServerID, userID))
 	var serverSigID int64
 	err := db.QueryRow(`
 		INSERT INTO server_signatures (fingerprint, signature, signed_at)
@@ -237,7 +237,7 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 	userID := fmt.Sprintf("rm-user-%d", time.Now().UnixNano())
 	reedID := fmt.Sprintf("rm-reed-%d", time.Now().UnixNano())
 	fp := fmt.Sprintf("rm-fp-%d", time.Now().UnixNano())
-	identityID := string(identity.LocalID(userID, testServerID))
+	identityID := string(identity.CanonicalID(testServerID, userID))
 
 	seedUser(t, db, userID, "u-"+userID)
 	seedUserKey(t, db, userID, fp)
@@ -283,7 +283,7 @@ func TestInsertAccountCert_IdempotentConflictAndNote(t *testing.T) {
 	db := openTestDB(t)
 	userID := fmt.Sprintf("ar-user-%d", time.Now().UnixNano())
 	fp := fmt.Sprintf("ar-fp-%d", time.Now().UnixNano())
-	identityID := string(identity.LocalID(userID, testServerID))
+	identityID := string(identity.CanonicalID(testServerID, userID))
 
 	seedUser(t, db, userID, "u-"+userID)
 	seedUserKey(t, db, userID, fp)

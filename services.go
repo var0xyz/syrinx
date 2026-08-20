@@ -482,7 +482,7 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	// identities.id for the new local user, minted here inside the signup
 	// transaction so it never exists half-committed. Local identities are
 	// always verified — no handshake needed to trust this server's own signup.
-	selfIdentity := identity.LocalID(in.UserID, s.serverID)
+	selfIdentity := identity.CanonicalID(s.serverID, in.UserID)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO identities (id, remote_user_id, server_id, verified)
 		VALUES ($1, $2, $3, TRUE)
@@ -504,14 +504,14 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	}
 
 	// invited_by FKs identities(id): the inviter is always a local user, so
-	// the same LocalID conversion applies here as for selfIdentity above.
+	// the same CanonicalID conversion applies here as for selfIdentity above.
 	// in.Invite.CreatedBy arrives in userID@serverID form; strip it back to
-	// bare before re-composing via identity.LocalID, which expects bare.
+	// bare before re-composing via identity.CanonicalID, which expects bare.
 	var invitedBy any
 	var inviteCreatorBare string
 	if in.Invite != nil {
 		inviteCreatorBare = identity.IdentityID(in.Invite.CreatedBy).UserID()
-		invitedBy = identity.LocalID(inviteCreatorBare, s.serverID)
+		invitedBy = identity.CanonicalID(s.serverID, inviteCreatorBare)
 	}
 
 	inviteGrantedRole := ""
@@ -857,7 +857,7 @@ func (s *DataService) UsernameExists(ctx context.Context, username string) (bool
 // only the `users` row does not cascade to `identities` (FK direction is
 // identities → users), so wiring this up needs DELETE FROM identities instead.
 func (s *DataService) DeleteUser(ctx context.Context, userID string) error {
-	selfIdentity := identity.LocalID(userID, s.serverID)
+	selfIdentity := identity.CanonicalID(s.serverID, userID)
 
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1070,7 +1070,7 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, userID, fingerprint 
 }
 
 func (s *DataService) PublicKeyExists(ctx context.Context, fingerprint string, userID string) (bool, error) {
-	selfIdentity := identity.LocalID(userID, s.serverID)
+	selfIdentity := identity.CanonicalID(s.serverID, userID)
 
 	var exists bool
 
@@ -1122,7 +1122,7 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 		return nil, ErrPredecessorRequired
 	}
 	fingerprint := in.Fingerprint
-	selfIdentity := identity.LocalID(in.UserID, s.serverID)
+	selfIdentity := identity.CanonicalID(s.serverID, in.UserID)
 	createdAt := in.CreatedAt
 	expiresAt := in.ExpiresAt
 	armor := in.Armor
@@ -1327,10 +1327,10 @@ type ReedRef struct {
 // CanonicalAuthorID returns AuthorID@ServerID — the form every DB lookup,
 // WS subscription key, and broadcast UserID field actually needs. AuthorID
 // alone is bare; use this instead of AuthorID at any call site that isn't
-// itself recomposing a wire ref (FormatReedRef) or calling identity.LocalID/
-// RemoteID(AuthorID, ServerID) directly.
+// itself recomposing a wire ref (FormatReedRef) or calling
+// identity.CanonicalID(ServerID, AuthorID) directly.
 func (r ReedRef) CanonicalAuthorID() string {
-	return string(identity.LocalID(r.AuthorID, r.ServerID))
+	return string(identity.CanonicalID(r.ServerID, r.AuthorID))
 }
 
 // ParseReedRef parses "userID@serverID/reedID". Returns ok=false for empty or malformed input.
@@ -1397,9 +1397,9 @@ type createReedParams struct {
 //
 // reed_replies.user_id composite-FKs to reeds(user_id, id) (see db.go), so
 // it must carry the same value reeds.user_id does. parent is a full
-// ReedRef, so RemoteID is used rather than assuming local.
+// ReedRef, so parent.ServerID is used rather than assuming local.
 func (s *DataService) ResolveThreadIDForParent(ctx context.Context, parent ReedRef) (string, error) {
-	parentIdentity := identity.RemoteID(parent.AuthorID, parent.ServerID)
+	parentIdentity := identity.CanonicalID(parent.ServerID, parent.AuthorID)
 	var threadID string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT thread_id FROM reed_replies
@@ -1425,7 +1425,7 @@ func (s *DataService) InsertReply(
 	ts time.Time,
 ) (replyIndexed bool, err error) {
 	ts = ts.UTC().Truncate(time.Second)
-	replyIdentity := identity.LocalID(replyUserID, s.serverID)
+	replyIdentity := identity.CanonicalID(s.serverID, replyUserID)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1443,8 +1443,8 @@ func (s *DataService) InsertReply(
 }
 
 // insertReplyTx takes replyIdentity already in userID@serverID form (the
-// caller has either converted a local userID via identity.LocalID, or is
-// insertReedCoreTx's selfIdentity). parent's identity is built the same
+// caller has either converted a local userID via identity.CanonicalID, or
+// is insertReedCoreTx's selfIdentity). parent's identity is built the same
 // way ResolveThreadIDForParent does, from the full ReedRef.
 func (s *DataService) insertReplyTx(
 	ctx context.Context,
@@ -1455,7 +1455,7 @@ func (s *DataService) insertReplyTx(
 	replyReedID string,
 	ts time.Time,
 ) error {
-	parentIdentity := identity.RemoteID(parent.AuthorID, parent.ServerID)
+	parentIdentity := identity.CanonicalID(parent.ServerID, parent.AuthorID)
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_replies (
 			thread_id, user_id, reed_id,
@@ -1695,7 +1695,7 @@ func checkReedTipTx(ctx context.Context, tx *sql.Tx, selfIdentity identity.Ident
 // front, and uses it for every column that FKs to identities(id) (see
 // db.go's FOREIGN KEY clauses for reeds, reed_allocations, pending_fanout,
 // reed_mentions). Mention targets (p.Mentions) are converted the same way,
-// via identity.LocalID, since only local mentions are inserted today.
+// via identity.CanonicalID, since only local mentions are inserted today.
 func (s *DataService) insertReedCoreTx(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -1769,9 +1769,9 @@ func (s *DataService) insertReedCoreTx(
 	}
 
 	for _, m := range p.Mentions {
-		// RemoteID used for readability: m.ServerID names whatever server the
-		// mention syntax pointed at, which in principle could be foreign.
-		mentionTarget := identity.RemoteID(m.AuthorID, m.ServerID)
+		// m.ServerID names whatever server the mention syntax pointed at,
+		// which in principle could be foreign.
+		mentionTarget := identity.CanonicalID(m.ServerID, m.AuthorID)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reed_mentions (
 				mentioning_user_id, mentioning_reed_id,
@@ -1838,7 +1838,7 @@ func (s *DataService) CreateReedWithEcho(
 	// the URL-path-identified reed author elsewhere), so compose it the
 	// same way here rather than storing echoTarget.AuthorID bare.
 	selfIdentity := identity.IdentityID(p.UserID)
-	echoedUserID := identity.LocalID(echoTarget.AuthorID, echoTarget.ServerID)
+	echoedUserID := identity.CanonicalID(echoTarget.ServerID, echoTarget.AuthorID)
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, is_blank, signed_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -1880,9 +1880,9 @@ func (s *DataService) IsBlankEcho(ctx context.Context, authorID, reedID string) 
 	}
 
 	// echoing_user_id is a direct FK to identities(id).
-	selfIdentity := identity.LocalID(authorID, s.serverID)
+	selfIdentity := identity.CanonicalID(s.serverID, authorID)
 	if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(authorID)); ok {
-		selfIdentity = identity.LocalID(bare, s.serverID)
+		selfIdentity = identity.CanonicalID(s.serverID, bare)
 	}
 	var isBlank bool
 	err = s.db.QueryRowContext(ctx, `
@@ -1991,9 +1991,9 @@ func (s *DataService) DeleteReed(ctx context.Context, userID, reedID string) err
 // accepts either shape (bare or userID@serverID), same as IsBlankEcho,
 // since its only caller forwards whatever shape it itself received.
 func (s *DataService) ReedExists(ctx context.Context, userID, reedID string) (bool, error) {
-	selfIdentity := identity.LocalID(userID, s.serverID)
+	selfIdentity := identity.CanonicalID(s.serverID, userID)
 	if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(userID)); ok {
-		selfIdentity = identity.LocalID(bare, s.serverID)
+		selfIdentity = identity.CanonicalID(s.serverID, bare)
 	}
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
@@ -2017,7 +2017,7 @@ func (s *DataService) ReedExists(ctx context.Context, userID, reedID string) (bo
 // indexed. Checks `users`/`account_removals` directly rather than the
 // `verified_identities` view; revisit once foreign mentions are wired up.
 func (s *DataService) MentionTargetValid(ctx context.Context, userID, serverID string) (bool, error) {
-	targetIdentity := identity.RemoteID(userID, serverID)
+	targetIdentity := identity.CanonicalID(serverID, userID)
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
@@ -2293,7 +2293,7 @@ func (s *DataService) DeleteMentionsByAuthor(ctx context.Context, userID string)
 // (AuthorID holds the bare userID, ServerID is separate).
 func (s *DataService) ReplyCountNotifyTargets(ctx context.Context, parentUserID, parentReedID string) ([]ReedRef, error) {
 	var targets []ReedRef
-	selfIdentity, reedID := identity.LocalID(parentUserID, s.serverID), parentReedID
+	selfIdentity, reedID := identity.CanonicalID(s.serverID, parentUserID), parentReedID
 	for {
 		targets = append(targets, ReedRef{AuthorID: selfIdentity.UserID(), ServerID: selfIdentity.ServerID(), ReedID: reedID})
 		var nextIdentity identity.IdentityID
@@ -2317,7 +2317,7 @@ func (s *DataService) ReplyCountNotifyTargets(ctx context.Context, parentUserID,
 // ReplyCountNotifyTargetsForRemovedReply returns ancestors whose subtree count
 // drops when replyUserID/replyReedID is removed. nil when not indexed as a reply.
 func (s *DataService) ReplyCountNotifyTargetsForRemovedReply(ctx context.Context, replyUserID, replyReedID string) ([]ReedRef, error) {
-	replyIdentity := identity.LocalID(replyUserID, s.serverID)
+	replyIdentity := identity.CanonicalID(s.serverID, replyUserID)
 	var parentIdentity identity.IdentityID
 	var parentReedID string
 	err := s.db.QueryRowContext(ctx, `
@@ -2337,7 +2337,7 @@ func (s *DataService) ReplyCountNotifyTargetsForRemovedReply(ctx context.Context
 // ReplyCountNotifyTargetsForAuthor returns distinct ancestors whose subtree
 // counts may change when all of userID's indexed replies are treated as removed.
 func (s *DataService) ReplyCountNotifyTargetsForAuthor(ctx context.Context, userID string) ([]ReedRef, error) {
-	selfIdentity := identity.LocalID(userID, s.serverID)
+	selfIdentity := identity.CanonicalID(s.serverID, userID)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT parent_user_id, parent_reed_id
 		FROM reed_replies
@@ -2374,7 +2374,7 @@ func (s *DataService) ReplyCountNotifyTargetsForAuthor(ctx context.Context, user
 
 // GetSubtreeReplyCount returns live descendant reply count beneath userID/reedID.
 func (s *DataService) GetSubtreeReplyCount(ctx context.Context, userID, reedID string) (int, error) {
-	selfIdentity := identity.LocalID(userID, s.serverID)
+	selfIdentity := identity.CanonicalID(s.serverID, userID)
 	var count int
 	err := s.db.QueryRowContext(ctx, `
 		WITH RECURSIVE descendants AS (
@@ -2649,7 +2649,7 @@ func (s *DataService) DeleteReedLike(ctx context.Context, likerID, authorID, ree
 // denormalized reeds.like_count column (never COUNT(*) on a hot path).
 // authorID names the reed's author, local today.
 func (s *DataService) CountLikes(ctx context.Context, authorID, reedID string) (int, error) {
-	authorIdentity := identity.LocalID(authorID, s.serverID)
+	authorIdentity := identity.CanonicalID(s.serverID, authorID)
 	var count int
 	err := s.db.QueryRowContext(ctx, `
 		SELECT like_count FROM reeds WHERE user_id = $1 AND id = $2
@@ -3089,7 +3089,7 @@ func (s *DataService) BindDeviceTx(ctx context.Context, tx *sql.Tx, userID, devi
 	if err != nil {
 		return err
 	}
-	selfIdentity := identity.LocalID(userID, s.serverID)
+	selfIdentity := identity.CanonicalID(s.serverID, userID)
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE user_devices SET revoked_at = $2
@@ -3109,8 +3109,8 @@ func (s *DataService) BindDeviceTx(ctx context.Context, tx *sql.Tx, userID, devi
 }
 
 // BindDevice's userID arrives in userID@serverID form already. It calls
-// BindDeviceTx, which composes internally (identity.LocalID) — decode back
-// to bare first via identity.ParseIdentityID to avoid double-composing,
+// BindDeviceTx, which composes internally (identity.CanonicalID) — decode
+// back to bare first via identity.ParseIdentityID to avoid double-composing,
 // matching what BindDeviceTx expects from its other (Signup) caller.
 func (s *DataService) BindDevice(ctx context.Context, userID, deviceID string, now time.Time) error {
 	bareUserID := userID

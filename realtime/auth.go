@@ -34,7 +34,7 @@ func NewAuthService(db *sql.DB, crypto *crypto.Service, serverID string) *AuthSe
 // AuthenticateWebSocket authenticates a WebSocket connection using PGP
 // signature. Parallel implementation of the HTTP path's
 // signatureAuthMiddleware; the userID query param already arrives in
-// "userID@serverID" form — do not re-compose it via identity.LocalID.
+// "userID@serverID" form — do not re-compose it via identity.CanonicalID.
 func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	// Extract required authentication parameters from query string
 	// (WebSocket doesn't support custom headers in all browsers). userID is
@@ -99,7 +99,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	}
 
 	// userID is already in identities.id form (see doc comment above) —
-	// used directly, not composed via identity.LocalID.
+	// used directly, not composed via identity.CanonicalID.
 	selfIdentity := identity.IdentityID(userID)
 	var removed bool
 	if err := as.db.QueryRowContext(r.Context(), `

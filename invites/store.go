@@ -116,7 +116,7 @@ func (s *Store) GetPendingInviteTx(ctx context.Context, tx *sql.Tx, creatorID, i
 }
 
 func getPendingInvite(ctx context.Context, q tokenHashQuerier, serverID, creatorID, id string, hash []byte) (*Invite, error) {
-	selfIdentity := identity.LocalID(creatorID, serverID)
+	selfIdentity := identity.CanonicalID(serverID, creatorID)
 	row := q.QueryRowContext(ctx, `
 		SELECT id, created_by, created_at, granted_role, claimed_at, claimed_by, revoked_at
 		FROM invites
@@ -144,8 +144,8 @@ func (s *Store) MarkClaimed(
 	createdBy, inviteID, claimedBy string,
 	claimedAt time.Time,
 ) (bool, error) {
-	createdByIdentity := identity.LocalID(createdBy, s.ServerID)
-	claimedByIdentity := identity.LocalID(claimedBy, s.ServerID)
+	createdByIdentity := identity.CanonicalID(s.ServerID, createdBy)
+	claimedByIdentity := identity.CanonicalID(s.ServerID, claimedBy)
 	res, err := tx.ExecContext(ctx, `
 		UPDATE invites
 		SET claimed_at = $3, claimed_by = $4

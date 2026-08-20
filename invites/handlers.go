@@ -322,8 +322,8 @@ type checkResponse struct {
 // Client sends the fragment secret; server looks up by composite PK + hash.
 //
 // uid arrives already in "userID@serverID" form — Store.GetPendingInvite
-// composes identity.LocalID internally, so uid is decoded to bare right at
-// this boundary to avoid double-appending serverID.
+// composes identity.CanonicalID internally, so uid is decoded to bare right
+// at this boundary to avoid double-appending serverID.
 func (d Deps) Check(w http.ResponseWriter, r *http.Request) {
 	creatorID := strings.TrimSpace(r.URL.Query().Get("uid"))
 	id := strings.TrimSpace(r.URL.Query().Get("iid"))

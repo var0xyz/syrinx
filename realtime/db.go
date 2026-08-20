@@ -20,7 +20,7 @@ type DBService struct {
 
 // NewDBService creates a new database service. Every userID/authorID/
 // viewerID/etc. string parameter in this file is the full "userID@serverID"
-// form already, not bare — do not compose identity.LocalID against it.
+// form already, not bare — do not compose identity.CanonicalID against it.
 func NewDBService(db *sql.DB, serverID string) *DBService {
 	return &DBService{db: db, serverID: serverID}
 }

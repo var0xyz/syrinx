@@ -45,7 +45,7 @@ func InsertAccountCert(ctx context.Context, db *sql.DB, cert AccountCert, server
 		return err
 	}
 	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
-	selfIdentity := identity.LocalID(cert.UserID, serverID)
+	selfIdentity := identity.CanonicalID(serverID, cert.UserID)
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -125,7 +125,7 @@ func InsertAccountCert(ctx context.Context, db *sql.DB, cert AccountCert, server
 // userID (the lookup param) is bare; the RETURNED cert's UserID field is
 // the full "userID@serverID" form — see AccountCert's doc comment.
 func GetAccountCert(ctx context.Context, db *sql.DB, userID, serverID string) (*AccountCert, error) {
-	selfIdentity := identity.LocalID(userID, serverID)
+	selfIdentity := identity.CanonicalID(serverID, userID)
 	cert, err := loadAccountCertTx(ctx, db, selfIdentity, false)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -139,7 +139,7 @@ func GetAccountCert(ctx context.Context, db *sql.DB, userID, serverID string) (*
 // HasAccountRemoval reports whether userID has an account-removal cert.
 // userID is bare; serverID is this server's own id.
 func HasAccountRemoval(ctx context.Context, db *sql.DB, userID, serverID string) (bool, error) {
-	selfIdentity := identity.LocalID(userID, serverID)
+	selfIdentity := identity.CanonicalID(serverID, userID)
 	var one int
 	err := db.QueryRowContext(ctx, `
 		SELECT 1 FROM account_removals WHERE user_id = $1

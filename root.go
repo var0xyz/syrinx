@@ -62,7 +62,7 @@ func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *crypto.Servic
 	// GetUserProfile takes userID in "userID@serverID" form; roles.RootUserID
 	// is the bare literal ("1"), composed with this server's own serverID
 	// so it resolves THIS instance's own root, not another server's "1".
-	rootIdentity := identity.LocalID(roles.RootUserID, db.GetServerID())
+	rootIdentity := identity.CanonicalID(db.GetServerID(), roles.RootUserID)
 	root, err := db.GetUserProfile(context.Background(), rootIdentity.String())
 	if err != nil {
 		return false, err
@@ -90,7 +90,7 @@ func requireRootUser(cfg AppConfig, db *DataService) error {
 		return nil
 	}
 	// Same reasoning as maybeExportRootKey above.
-	rootIdentity := identity.LocalID(roles.RootUserID, db.GetServerID())
+	rootIdentity := identity.CanonicalID(db.GetServerID(), roles.RootUserID)
 	root, err := db.GetUserProfile(context.Background(), rootIdentity.String())
 	if err != nil {
 		return err
@@ -153,7 +153,7 @@ func exportRootIdentity(
 	// signed payloads must sign that same form or client-side verification
 	// will rebuild different bytes than what was signed (same invariant as
 	// the regular signup handler in handlers.go).
-	canonicalRootID := identity.LocalID(roles.RootUserID, serverID).String()
+	canonicalRootID := identity.CanonicalID(serverID, roles.RootUserID).String()
 
 	profilePayload := identity.BuildNewProfilePayload(
 		canonicalRootID,

@@ -296,7 +296,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 
 	inviteID := strings.TrimSpace(values.Get("inviteID"))
 	// inviteCreatorID arrives already in "userID@serverID" form.
-	// GetPendingInvite composes identity.LocalID internally and expects
+	// GetPendingInvite composes identity.CanonicalID internally and expects
 	// bare, so decode only for that call.
 	inviteCreatorID := strings.TrimSpace(values.Get("inviteCreatorID"))
 	inviteCreatorBare := ""
@@ -403,7 +403,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	// GetUserProfile/GetPublicKey return this user in userID@serverID form,
 	// so the signed payloads must sign that same form or client-side
 	// verification will rebuild different bytes than what was signed.
-	selfIdentity := identity.LocalID(userID, h.services.db.GetServerID())
+	selfIdentity := identity.CanonicalID(h.services.db.GetServerID(), userID)
 
 	profilePayload := identity.BuildNewProfilePayload(
 		string(selfIdentity),

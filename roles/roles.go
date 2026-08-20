@@ -45,7 +45,7 @@ func IsRoot(userID, role, serverID string) bool {
 // SignupRole/ValidateProfileRole — see IsRoot's doc comment for the full
 // security reasoning.
 func isRootIdentity(userID, serverID string) bool {
-	rootIdentity := identity.LocalID(RootUserID, serverID)
+	rootIdentity := identity.CanonicalID(serverID, RootUserID)
 	// userID may arrive bare or already in "userID@serverID" form; try both.
 	if userID == string(rootIdentity) {
 		return true

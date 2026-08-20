@@ -16,8 +16,8 @@ import (
 
 // Every subject handled by this file (profile.ID, follow targets, reed
 // authors/reporters) is a bare userID local to serverID; every identity
-// minted or looked up here uses identity.LocalID(userID, serverID), never
-// identity.RemoteID — cross-server subjects aren't handled by this package.
+// minted or looked up here uses identity.CanonicalID(serverID, userID) —
+// cross-server subjects aren't handled by this package.
 
 // SaveIdentityResult describes what a save did to the users row.
 type SaveIdentityResult struct {
@@ -42,7 +42,7 @@ func SaveOwnIdentity(ctx context.Context, db *sql.DB, serverID string, profile P
 	}
 	defer tx.Rollback()
 
-	selfIdentity := identity.LocalID(profile.ID, serverID)
+	selfIdentity := identity.CanonicalID(serverID, profile.ID)
 
 	res, err := upsertIdentity(ctx, tx, serverID, profile, flat)
 	if err != nil {
@@ -87,7 +87,7 @@ func SavePeerIdentity(ctx context.Context, db *sql.DB, serverID string, profile 
 	}
 	defer tx.Rollback()
 
-	selfIdentity := identity.LocalID(profile.ID, serverID)
+	selfIdentity := identity.CanonicalID(serverID, profile.ID)
 
 	res, err := upsertIdentity(ctx, tx, serverID, profile, flat)
 	if err != nil {
@@ -122,7 +122,7 @@ func upsertIdentity(ctx context.Context, tx *sql.Tx, serverID string, profile Pr
 	}
 	activeFP := flat[len(flat)-1].Key.Fingerprint
 	incomingSignedAt := profile.ServerSignature.Timestamp.UTC().Truncate(time.Second)
-	selfIdentity := identity.LocalID(profile.ID, serverID)
+	selfIdentity := identity.CanonicalID(serverID, profile.ID)
 
 	// Lock/check the identities row, not users — identities is the actual FK
 	// target. users.id IS identities.id directly, so the join is on u.id.
@@ -173,7 +173,7 @@ func upsertIdentity(ctx context.Context, tx *sql.Tx, serverID string, profile Pr
 // Every subject in this package is local, so the identities row is minted
 // verified=TRUE with server_id=serverID (self) — mirroring services.go's Signup.
 func insertUser(ctx context.Context, tx *sql.Tx, serverID string, profile Profile, activeFP string, signedAt time.Time) error {
-	selfIdentity := identity.LocalID(profile.ID, serverID)
+	selfIdentity := identity.CanonicalID(serverID, profile.ID)
 
 	username, err := claimUsername(ctx, tx, selfIdentity, profile.Username, signedAt)
 	if err != nil {
@@ -210,10 +210,10 @@ func insertUser(ctx context.Context, tx *sql.Tx, serverID string, profile Profil
 		return err
 	}
 	// invited_by FKs identities(id): the inviter is always a local user,
-	// so the same LocalID conversion applies, as in services.go's Signup.
+	// so the same CanonicalID conversion applies, as in services.go's Signup.
 	var invitedBy any
 	if inviter := profileInvitedByID(profile); inviter != "" {
-		invitedBy = identity.LocalID(inviter, serverID)
+		invitedBy = identity.CanonicalID(serverID, inviter)
 	}
 	// users.id IS identities.id directly — selfIdentity is the sole PK
 	// value, same pattern as services.go's Signup INSERT.
