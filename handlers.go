@@ -3693,7 +3693,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	}
 
 	h.logFederationInvitationAsync(inviteID, federationLogInfo,
-		fmt.Sprintf("Incoming connect attempt from %s (%s)", req.ServerID, req.BaseURL))
+		fmt.Sprintf("Incoming connect attempt from server %s (%s)", req.ServerID, req.BaseURL))
 
 	if inv.Status != federationStatusNew {
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invitation is not new")
@@ -3756,7 +3756,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		// OutgoingFederationAttempt so the initiator's mesh/attempt view
 		// isn't empty for a connection it originated.
 		h.logFederationAttemptAsync(attemptID, federationLogInfo,
-			fmt.Sprintf("Handshake verified with %s (%s); awaiting approval", req.ServerID, req.BaseURL))
+			fmt.Sprintf("Handshake verified with server %s (%s); awaiting approval", req.ServerID, req.BaseURL))
 		writeResponse(w, http.StatusOK, federationConnectResponse{Status: federationStatusAccepted, ServerID: req.ServerID})
 	}
 }
@@ -3860,7 +3860,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	h.logFederationAttemptAsync(attemptID, federationLogInfo,
-		fmt.Sprintf("Attempting to redeem invitation from %s (%s)", payload.ServerID, payload.BaseURL))
+		fmt.Sprintf("Attempting to redeem invitation from server %s (%s)", payload.ServerID, payload.BaseURL))
 
 	localBaseURL := h.federationBaseURL()
 	localServerID := h.services.db.GetServerID()
@@ -3919,7 +3919,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	// a second admin having approved the connection — see
 	// ApproveFederationAttempt.
 	h.logFederationAttemptAsync(attemptID, federationLogInfo,
-		fmt.Sprintf("Handshake verified with %s (%s); awaiting approval", payload.ServerID, payload.BaseURL))
+		fmt.Sprintf("Handshake verified with server %s (%s); awaiting approval", payload.ServerID, payload.BaseURL))
 
 	writeResponse(w, http.StatusOK, federationAttemptResponse{Status: federationStatusAccepted, ServerID: payload.ServerID})
 }
