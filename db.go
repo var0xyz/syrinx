@@ -760,9 +760,10 @@ func InitDB(db *sql.DB) error {
 	// revoke) — one pair of columns for all of them, since status already
 	// says which action reviewed_by refers to; no separate approved_by
 	// column duplicating the same fact under a different name.
-	// server_id is set once the responder's callback confirms it (FK to
-	// servers, not a bare string — base_url/fingerprint live there too,
-	// see servers table, so they're not duplicated here).
+	// server_id is nullable and only set once a federation_attempt against
+	// this invitation is APPROVED (a servers row only exists past that
+	// point — see federation_attempt below); it is not set at handshake
+	// acceptance time.
 	createFederationInvitationTable := `
 	CREATE TABLE IF NOT EXISTS federation_invitation (
 		id VARCHAR(255) PRIMARY KEY,
@@ -780,12 +781,47 @@ func InitDB(db *sql.DB) error {
 		connection_ciphertext TEXT
 	);`
 
+	// federation_attempt: one row per handshake attempt against a peer,
+	// permanent (never deleted on approve/reject — it's the audit trail:
+	// who created it, who approved/rejected it, and why). Created the
+	// moment a handshake verifies — on the RESPONDER when the connection
+	// string is redeemed, on the INITIATOR when the connect callback
+	// verifies — well before any approval. remote_server_id/
+	// remote_server_name/base_url/fingerprint are the peer's own claims
+	// from the handshake payload, captured here rather than on servers,
+	// because a servers row doesn't exist yet and may never (rejected) or
+	// may differ across multiple attempts from the same peer over time.
+	// server_id is nullable, set only once APPROVED, when the real servers
+	// row is created (see ApproveFederationAttempt) — same nullable-until-
+	// approved pattern as federation_invitation.server_id above.
+	// invitation_id is set on the INITIATOR side (it has a local invitation
+	// row); NULL on the RESPONDER (see OutgoingFederationAttempt — it never
+	// has one).
+	createFederationAttemptTable := `
+	CREATE TABLE IF NOT EXISTS federation_attempt (
+		id VARCHAR(255) PRIMARY KEY,
+		remote_server_id VARCHAR(16) NOT NULL,
+		remote_server_name VARCHAR(255) NOT NULL,
+		base_url TEXT NOT NULL,
+		fingerprint VARCHAR(255) NOT NULL,
+		invitation_id VARCHAR(255) REFERENCES federation_invitation(id),
+		server_id VARCHAR(16) REFERENCES servers(id),
+		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		status VARCHAR(16) NOT NULL DEFAULT 'pending'
+			CHECK (status IN ('pending', 'approved', 'rejected')),
+		approved_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
+		approved_at TIMESTAMPTZ,
+		rejected_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
+		rejected_at TIMESTAMPTZ,
+		rejected_reason TEXT
+	);`
+
 	// federation_log: generic append-only log line, not itself tied to an
-	// invitation or server — two junction tables link a line to whichever
-	// it's about. Handshake steps happen asynchronously across two
-	// servers (connect callbacks, outbound POSTs that may fail or time
-	// out), so this is how an admin sees what actually happened instead
-	// of a link silently never progressing.
+	// invitation, attempt, or server — three junction tables link a line
+	// to whichever it's about. Handshake steps happen asynchronously
+	// across two servers (connect callbacks, outbound POSTs that may fail
+	// or time out), so this is how an admin sees what actually happened
+	// instead of a link silently never progressing.
 	createFederationLogTable := `
 	CREATE TABLE IF NOT EXISTS federation_log (
 		id VARCHAR(255) PRIMARY KEY,
@@ -798,9 +834,9 @@ func InitDB(db *sql.DB) error {
 	// federation_invitation_log: the INITIATOR logs against its
 	// invitation from the moment a connect callback arrives (known
 	// immediately, regardless of accept/reject outcome) — the
-	// invitation's server_id isn't set until AFTER acceptance succeeds,
-	// so pre-acceptance rejections (bad secret, wrong status, bad
-	// signature) have nothing else to log against yet.
+	// invitation's server_id isn't set until approval, so pre-acceptance
+	// rejections (bad secret, wrong status, bad signature) have nothing
+	// else to log against yet.
 	createFederationInvitationLogTable := `
 	CREATE TABLE IF NOT EXISTS federation_invitation_log (
 		invitation_id VARCHAR(255) NOT NULL REFERENCES federation_invitation(id) ON DELETE CASCADE,
@@ -809,11 +845,24 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (invitation_id, log_id)
 	);`
 
-	// federation_server_log: server-scoped log lines. The RESPONDER always
-	// uses this (it never has a local invitation row to log against) from
-	// the moment it records the peer server row, before attempting the
-	// handshake. The initiator also logs here for server-level events
-	// after a server_id exists (i.e. post-acceptance).
+	// federation_attempt_log: attempt-scoped log lines — handshake
+	// verification, approve/reject, everything before (and including) the
+	// approve/reject decision itself. Both initiator and responder log
+	// here once their federation_attempt row exists. Unlike
+	// federation_server_log, this survives rejection (federation_attempt
+	// is never deleted), so a rejection reason has somewhere permanent to
+	// live.
+	createFederationAttemptLogTable := `
+	CREATE TABLE IF NOT EXISTS federation_attempt_log (
+		attempt_id VARCHAR(255) NOT NULL REFERENCES federation_attempt(id) ON DELETE CASCADE,
+		log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
+
+		PRIMARY KEY (attempt_id, log_id)
+	);`
+
+	// federation_server_log: server-scoped log lines, for activity AFTER a
+	// servers row exists (i.e. after a federation_attempt was approved) —
+	// pre-approval activity belongs in federation_attempt_log instead.
 	createFederationServerLogTable := `
 	CREATE TABLE IF NOT EXISTS federation_server_log (
 		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
@@ -932,8 +981,10 @@ func InitDB(db *sql.DB) error {
 
 		// Federation
 		createFederationInvitationTable,
+		createFederationAttemptTable,
 		createFederationLogTable,
 		createFederationInvitationLogTable,
+		createFederationAttemptLogTable,
 		createFederationServerLogTable,
 	}
 

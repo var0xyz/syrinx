@@ -5,14 +5,14 @@ package main
 // display-only metadata (the operator-configured SERVER_NAME), not part of
 // the signed bytes — see identity.BuildFederationInvitationPayload.
 type federationConnectionPayload struct {
-	InviteID        string `json:"inviteId"`
-	ServerID        string `json:"serverId"`
-	ServerName      string `json:"serverName"`
-	BaseURL         string `json:"baseUrl"`
-	Fingerprint     string `json:"fingerprint"`
-	PublicKeyArmor  string `json:"publicKeyArmor"`
-	Signature       string `json:"signature"`
-	Secret          string `json:"secret"`
+	InviteID       string `json:"inviteId"`
+	ServerID       string `json:"serverId"`
+	ServerName     string `json:"serverName"`
+	BaseURL        string `json:"baseUrl"`
+	Fingerprint    string `json:"fingerprint"`
+	PublicKeyArmor string `json:"publicKeyArmor"`
+	Signature      string `json:"signature"`
+	Secret         string `json:"secret"`
 }
 
 // federationCreateRequest is the POST /api/federation/invitations body.
@@ -81,13 +81,48 @@ type federationListItemWire struct {
 	ConnectionString   *string `json:"connectionString,omitempty"`
 }
 
-// federationServerWire is one row in GET /api/federation/servers — this
-// server's view of a connected peer (responder-side status; see
-// federationServerListRow's doc comment for why there's no fingerprint).
+// federationServerWire is one row in GET /api/federation/servers — an
+// approved peer (servers rows only exist post-approval; see
+// ApproveFederationAttempt). No fingerprint field: see
+// federationServerListRow's doc comment for why.
 type federationServerWire struct {
 	ServerID  string `json:"serverId"`
 	Name      string `json:"name"`
 	BaseURL   string `json:"baseUrl"`
 	Connected bool   `json:"connected"`
 	CreatedAt string `json:"createdAt"`
+}
+
+// federationAttemptWire is one row in GET /api/federation/attempts — a
+// handshake attempt against a peer, at any stage (pending/approved/
+// rejected). Permanent audit trail; never deleted. RemoteServerID/
+// RemoteServerName/BaseURL/Fingerprint are the peer's own claims from its
+// handshake payload. InvitationID/ServerID are set only when applicable
+// (InvitationID on the initiator side; ServerID once approved).
+type federationAttemptWire struct {
+	AttemptID          string  `json:"attemptId"`
+	RemoteServerID     string  `json:"remoteServerId"`
+	RemoteServerName   string  `json:"remoteServerName"`
+	BaseURL            string  `json:"baseUrl"`
+	Fingerprint        string  `json:"fingerprint"`
+	InvitationID       *string `json:"invitationId,omitempty"`
+	ServerID           *string `json:"serverId,omitempty"`
+	CreatedAt          string  `json:"createdAt"`
+	Status             string  `json:"status"`
+	ApprovedBy         *string `json:"approvedBy,omitempty"`
+	ApprovedByUsername *string `json:"approvedByUsername,omitempty"`
+	ApprovedAt         *string `json:"approvedAt,omitempty"`
+	RejectedBy         *string `json:"rejectedBy,omitempty"`
+	RejectedByUsername *string `json:"rejectedByUsername,omitempty"`
+	RejectedAt         *string `json:"rejectedAt,omitempty"`
+	RejectedReason     *string `json:"rejectedReason,omitempty"`
+}
+
+// federationListWire is the body of GET /api/federation/list — the mesh
+// tab's combined view. Each item is fetched individually by id from its
+// own endpoint for detail; this is just enough to render the list.
+type federationListWire struct {
+	Invitations []federationListItemWire `json:"invitations"`
+	Attempts    []federationAttemptWire  `json:"attempts"`
+	Servers     []federationServerWire   `json:"servers"`
 }
