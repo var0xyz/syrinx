@@ -110,47 +110,85 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 		t.Fatalf("attemptResp=%+v", attemptResp)
 	}
 
-	// a's invitation should now be accepted, with server_id set.
+	// a's invitation should now be accepted — but server_id stays NULL until
+	// a federation_attempt against it is APPROVED (not yet).
 	inv, err := a.ds.GetFederationInvitation(context.Background(), inviteID)
 	if err != nil || inv == nil {
 		t.Fatalf("inv=%v err=%v", inv, err)
 	}
-	if inv.Status != federationStatusAccepted || inv.AcceptedAt == nil || inv.ServerID == "" {
+	if inv.Status != federationStatusAccepted || inv.AcceptedAt == nil || inv.ServerID != "" {
 		t.Fatalf("a invitation=%+v", inv)
 	}
 
-	// a should have recorded b as a peer server — handshake verified, but
-	// connected stays FALSE until a second admin approves (spec 03, not
-	// yet built); the handshake alone must not flip it. name should be b's
-	// real display name ("Bravo"), not b's server id.
+	// No servers row exists yet on either side — servers only gets a row on
+	// approval (ApproveFederationAttempt).
+	var aServerCount, bServerCount int
+	if err := a.ds.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM servers WHERE self = FALSE`,
+	).Scan(&aServerCount); err != nil {
+		t.Fatal(err)
+	}
+	if aServerCount != 0 {
+		t.Fatalf("expected no servers row on a before approval, got %d", aServerCount)
+	}
+	if err := b.ds.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM servers WHERE self = FALSE`,
+	).Scan(&bServerCount); err != nil {
+		t.Fatal(err)
+	}
+	if bServerCount != 0 {
+		t.Fatalf("expected no servers row on b before approval, got %d", bServerCount)
+	}
+
+	// a should have a pending federation_attempt for b, with b's real
+	// display name ("Bravo"), tied to the invitation.
+	aAttempts, err := a.ds.ListFederationAttempts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aAttempts) != 1 {
+		t.Fatalf("a attempts=%+v, want 1", aAttempts)
+	}
+	aAttempt := aAttempts[0]
+	if aAttempt.Status != "pending" || aAttempt.RemoteServerName != "Bravo" || aAttempt.InvitationID != inviteID {
+		t.Fatalf("a attempt=%+v", aAttempt)
+	}
+
+	// b should independently have a pending attempt for a, with a's real
+	// display name ("Alpha"), no local invitation (b is the responder).
+	bAttempts, err := b.ds.ListFederationAttempts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bAttempts) != 1 {
+		t.Fatalf("b attempts=%+v, want 1", bAttempts)
+	}
+	bAttempt := bAttempts[0]
+	if bAttempt.Status != "pending" || bAttempt.RemoteServerName != "Alpha" || bAttempt.InvitationID != "" {
+		t.Fatalf("b attempt=%+v", bAttempt)
+	}
+
+	// Approving a's attempt for b creates the servers row, sets server_id
+	// on both the attempt and the (approved) invitation.
+	if err := a.ds.ApproveFederationAttempt(context.Background(), aAttempt.ID, aAdmin, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	approvedInv, err := a.ds.GetFederationInvitation(context.Background(), inviteID)
+	if err != nil || approvedInv == nil {
+		t.Fatalf("approvedInv=%v err=%v", approvedInv, err)
+	}
+	if approvedInv.Status != federationStatusApproved || approvedInv.ServerID != aAttempt.RemoteServerID {
+		t.Fatalf("approved invitation=%+v, want server_id=%q", approvedInv, aAttempt.RemoteServerID)
+	}
 	var aConnected bool
 	var aPeerName string
 	if err := a.ds.db.QueryRowContext(context.Background(),
-		`SELECT connected, name FROM servers WHERE id = $1`, inv.ServerID,
+		`SELECT connected, name FROM servers WHERE id = $1`, approvedInv.ServerID,
 	).Scan(&aConnected, &aPeerName); err != nil {
 		t.Fatal(err)
 	}
-	if aConnected {
-		t.Fatalf("expected peer server NOT connected on a (awaiting approval)")
-	}
-	if aPeerName != "Bravo" {
-		t.Fatalf("a's record of b: name=%q, want %q", aPeerName, "Bravo")
-	}
-
-	// b should independently have a as a peer server too, also unapproved,
-	// with a's real display name ("Alpha").
-	var bServerCount int
-	var bPeerName string
-	if err := b.ds.db.QueryRowContext(context.Background(),
-		`SELECT COUNT(*), MIN(name) FROM servers WHERE self = FALSE AND connected = FALSE`,
-	).Scan(&bServerCount, &bPeerName); err != nil {
-		t.Fatal(err)
-	}
-	if bServerCount != 1 {
-		t.Fatalf("expected 1 unapproved peer server on b, got %d", bServerCount)
-	}
-	if bPeerName != "Alpha" {
-		t.Fatalf("b's record of a: name=%q, want %q", bPeerName, "Alpha")
+	if !aConnected || aPeerName != "Bravo" {
+		t.Fatalf("a's approved server: connected=%v name=%q", aConnected, aPeerName)
 	}
 }
 
@@ -198,7 +236,7 @@ func TestIncomingFederationAttempt_ReplayNotNew(t *testing.T) {
 	if err := a.ds.InsertFederationInvitation(context.Background(), "inv1", "peer", aAdmin, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.ds.MarkFederationInvitationAccepted(context.Background(), "inv1", federationPeer{
+	if _, err := a.ds.MarkFederationInvitationAccepted(context.Background(), "inv1", federationPeer{
 		ServerID:    "server-b",
 		BaseURL:     "https://b.example",
 		Fingerprint: "fp-b",

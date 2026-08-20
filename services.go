@@ -3188,9 +3188,11 @@ type federationInvitation struct {
 }
 
 // federationServerListRow is a peer server row as seen from this server's
-// side — populated on the responder by OutgoingFederationAttempt (see its
-// doc comment); the initiator has no equivalent row until 03's approval
-// step lands (spec: specs/federation/03_approval_established.md).
+// side. servers rows only exist once a federation_attempt has been
+// APPROVED (see ApproveFederationAttempt) — connected is always TRUE for
+// any row this query returns; kept as a column rather than assumed so a
+// future de-establish/revoke step (specs/federation/05) has somewhere to
+// flip it without a schema change.
 // No fingerprint field: peer.Fingerprint is never persisted to servers.signing_key
 // (that column means this server's OWN signing key, joined against
 // private_keys — see InitServerKey/GetServerSigningKeyArmor) or anywhere
@@ -3203,9 +3205,7 @@ type federationServerListRow struct {
 	CreatedAt time.Time
 }
 
-// ListFederationServers returns known peer servers (self excluded) — the
-// responder-side view of federation status while 03's approval workflow
-// (federation_established, /pending, approve/reject) is still unbuilt.
+// ListFederationServers returns approved peer servers (self excluded).
 func (s *DataService) ListFederationServers(ctx context.Context) ([]federationServerListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name, COALESCE(base_url, ''), connected, created_at
@@ -3229,19 +3229,183 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 	return out, rows.Err()
 }
 
-// errFederationServerNotFound is returned by ApproveFederationServer and
-// RejectFederationServer when serverID doesn't match any peer row.
-var errFederationServerNotFound = errors.New("federation server not found")
+// errFederationAttemptNotFound is returned by ApproveFederationAttempt and
+// RejectFederationAttempt when attemptID doesn't match any row, and by
+// GetFederationAttempt.
+var errFederationAttemptNotFound = errors.New("federation attempt not found")
 
-// ApproveFederationServer is the minimal "for now" approval action (no
-// federation_attempt table yet — see specs/federation/03): flips connected
-// to TRUE on an existing peer server row. A real second-admin-approval
-// workflow, and the distinction between "who created the attempt" vs "who
-// approved it," is future work; today any admin can approve.
-func (s *DataService) ApproveFederationServer(ctx context.Context, serverID string) error {
+// errFederationAttemptNotPending is returned by ApproveFederationAttempt and
+// RejectFederationAttempt when the attempt has already been decided —
+// approve/reject are one-shot, not idempotent re-decisions.
+var errFederationAttemptNotPending = errors.New("federation attempt is not pending")
+
+type federationAttemptRow struct {
+	ID                 string
+	RemoteServerID     string
+	RemoteServerName   string
+	BaseURL            string
+	Fingerprint        string
+	InvitationID       string
+	ServerID           string
+	CreatedAt          time.Time
+	Status             string
+	ApprovedBy         string
+	ApprovedByUsername string
+	ApprovedAt         *time.Time
+	RejectedBy         string
+	RejectedByUsername string
+	RejectedAt         *time.Time
+	RejectedReason     string
+}
+
+const federationAttemptSelectCols = `
+	fa.id, fa.remote_server_id, fa.remote_server_name, fa.base_url, fa.fingerprint,
+	COALESCE(fa.invitation_id, ''), COALESCE(fa.server_id, ''), fa.created_at, fa.status,
+	COALESCE(fa.approved_by, ''), COALESCE(approver.username, ''), fa.approved_at,
+	COALESCE(fa.rejected_by, ''), COALESCE(rejecter.username, ''), fa.rejected_at,
+	COALESCE(fa.rejected_reason, '')
+`
+
+const federationAttemptFromJoin = `
+	FROM federation_attempt fa
+	LEFT JOIN users approver ON approver.id = fa.approved_by
+	LEFT JOIN users rejecter ON rejecter.id = fa.rejected_by
+`
+
+func scanFederationAttemptRow(scanner interface {
+	Scan(dest ...any) error
+}) (federationAttemptRow, error) {
+	var row federationAttemptRow
+	var approvedAt, rejectedAt sql.NullTime
+	err := scanner.Scan(
+		&row.ID, &row.RemoteServerID, &row.RemoteServerName, &row.BaseURL, &row.Fingerprint,
+		&row.InvitationID, &row.ServerID, &row.CreatedAt, &row.Status,
+		&row.ApprovedBy, &row.ApprovedByUsername, &approvedAt,
+		&row.RejectedBy, &row.RejectedByUsername, &rejectedAt,
+		&row.RejectedReason,
+	)
+	if err != nil {
+		return federationAttemptRow{}, err
+	}
+	if approvedAt.Valid {
+		t := approvedAt.Time.UTC()
+		row.ApprovedAt = &t
+	}
+	if rejectedAt.Valid {
+		t := rejectedAt.Time.UTC()
+		row.RejectedAt = &t
+	}
+	return row, nil
+}
+
+// ListFederationAttempts returns every attempt (pending/approved/rejected),
+// newest first — federation_attempt rows are permanent, so this is the
+// full history, not just the pending queue.
+func (s *DataService) ListFederationAttempts(ctx context.Context) ([]federationAttemptRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+federationAttemptSelectCols+federationAttemptFromJoin+`
+		ORDER BY fa.created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []federationAttemptRow
+	for rows.Next() {
+		row, err := scanFederationAttemptRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// GetFederationAttempt returns nil, not an error, if attemptID doesn't exist.
+func (s *DataService) GetFederationAttempt(ctx context.Context, attemptID string) (*federationAttemptRow, error) {
+	row, err := scanFederationAttemptRow(s.db.QueryRowContext(ctx, `
+		SELECT `+federationAttemptSelectCols+federationAttemptFromJoin+`
+		WHERE fa.id = $1
+	`, attemptID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+// ApproveFederationAttempt is the ONLY place a servers row is created — a
+// peer only becomes a real, addressable server once a second admin
+// approves the attempt that verified the handshake. Creates servers
+// (connected=TRUE from the start, since approval IS the confirmation now —
+// contrast the old model where a server row existed pre-approval with
+// connected=FALSE), backfills federation_attempt.server_id and, if this
+// attempt has a local invitation (initiator side), federation_invitation's
+// server_id and status too.
+func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, approvedBy string, approvedAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var remoteServerID, remoteServerName, baseURL, invitationID string
+	var status string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT remote_server_id, remote_server_name, base_url, COALESCE(invitation_id, ''), status
+		FROM federation_attempt WHERE id = $1 FOR UPDATE
+	`, attemptID).Scan(&remoteServerID, &remoteServerName, &baseURL, &invitationID, &status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errFederationAttemptNotFound
+		}
+		return err
+	}
+	if status != "pending" {
+		return errFederationAttemptNotPending
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO servers (id, name, self, base_url, connected, created_at)
+		VALUES ($1, $2, FALSE, $3, TRUE, $4)
+		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, name = EXCLUDED.name, connected = TRUE
+	`, remoteServerID, remoteServerName, baseURL, approvedAt.UTC()); err != nil {
+		return fmt.Errorf("insert federation peer: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE federation_attempt
+		SET status = 'approved', server_id = $2, approved_by = $3, approved_at = $4
+		WHERE id = $1
+	`, attemptID, remoteServerID, approvedBy, approvedAt.UTC()); err != nil {
+		return fmt.Errorf("update federation attempt: %w", err)
+	}
+
+	if invitationID != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE federation_invitation
+			SET status = $2, server_id = $3
+			WHERE id = $1
+		`, invitationID, federationStatusApproved, remoteServerID); err != nil {
+			return fmt.Errorf("update federation invitation: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// RejectFederationAttempt sets status=rejected with reason — the attempt
+// row is never deleted, so the log lines already written against it (see
+// logFederationAttempt) stay intact, unlike the earlier servers-row-based
+// design where rejecting cascade-deleted its own log.
+func (s *DataService) RejectFederationAttempt(ctx context.Context, attemptID, rejectedBy, reason string, rejectedAt time.Time) error {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE servers SET connected = TRUE WHERE id = $1 AND self = FALSE
-	`, serverID)
+		UPDATE federation_attempt
+		SET status = 'rejected', rejected_by = $2, rejected_at = $3, rejected_reason = $4
+		WHERE id = $1 AND status = 'pending'
+	`, attemptID, rejectedBy, rejectedAt.UTC(), reason)
 	if err != nil {
 		return err
 	}
@@ -3250,55 +3414,16 @@ func (s *DataService) ApproveFederationServer(ctx context.Context, serverID stri
 		return err
 	}
 	if n == 0 {
-		return errFederationServerNotFound
+		attempt, err := s.GetFederationAttempt(ctx, attemptID)
+		if err != nil {
+			return err
+		}
+		if attempt == nil {
+			return errFederationAttemptNotFound
+		}
+		return errFederationAttemptNotPending
 	}
 	return nil
-}
-
-// RejectFederationServer logs the rejection reason, then deletes the peer
-// server row — federation_server_log cascade-deletes with it (see db.go's
-// FK), so the reason line doesn't survive the reject. That's a known gap:
-// once federation_attempt exists (specs/federation), logs move there and
-// outlive the rejected attempt. For now, "eliminate the server entry" is
-// literal: no live row is left for a rejected peer.
-func (s *DataService) RejectFederationServer(ctx context.Context, serverID, reason string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	var exists bool
-	if err := tx.QueryRowContext(ctx, `
-		SELECT EXISTS(SELECT 1 FROM servers WHERE id = $1 AND self = FALSE)
-	`, serverID).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
-		return errFederationServerNotFound
-	}
-
-	logID, err := crypto.NewID()
-	if err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO federation_log (id, level, message) VALUES ($1, $2, $3)
-	`, logID, federationLogError, fmt.Sprintf("Rejected: %s", reason)); err != nil {
-		return fmt.Errorf("insert federation log: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO federation_server_log (server_id, log_id) VALUES ($1, $2)
-	`, serverID, logID); err != nil {
-		return fmt.Errorf("link federation server log: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM servers WHERE id = $1 AND self = FALSE
-	`, serverID); err != nil {
-		return fmt.Errorf("delete rejected server: %w", err)
-	}
-
-	return tx.Commit()
 }
 
 type federationServerLogRow struct {
@@ -3308,12 +3433,13 @@ type federationServerLogRow struct {
 	CreatedAt time.Time
 }
 
-// listFederationLog reads federation_log lines through one of its two
+// listFederationLog reads federation_log lines through one of its three
 // junction tables — federation_server_log (junctionTable="federation_server_log",
-// junctionCol="server_id") or federation_invitation_log
-// (junctionCol="invitation_id") — see logFederationServer/
-// logFederationInvitation's doc comments for which handshake steps write to
-// which.
+// junctionCol="server_id"), federation_invitation_log
+// (junctionCol="invitation_id"), or federation_attempt_log
+// (junctionCol="attempt_id") — see logFederationServer/
+// logFederationInvitation/logFederationAttempt's doc comments for which
+// handshake steps write to which.
 func (s *DataService) listFederationLog(ctx context.Context, junctionTable, junctionCol, id string) ([]federationServerLogRow, error) {
 	query := fmt.Sprintf(`
 		SELECT fl.id, fl.level, fl.message, fl.created_at
@@ -3345,6 +3471,10 @@ func (s *DataService) ListFederationServerLogs(ctx context.Context, serverID str
 
 func (s *DataService) ListFederationInvitationLogs(ctx context.Context, invitationID string) ([]federationServerLogRow, error) {
 	return s.listFederationLog(ctx, "federation_invitation_log", "invitation_id", invitationID)
+}
+
+func (s *DataService) ListFederationAttemptLogs(ctx context.Context, attemptID string) ([]federationServerLogRow, error) {
+	return s.listFederationLog(ctx, "federation_attempt_log", "attempt_id", attemptID)
 }
 
 type federationInvitationListRow struct {
@@ -3586,7 +3716,9 @@ func (s *DataService) RevokeFederationInvitation(ctx context.Context, id, review
 }
 
 // federationPeer describes the remote server on the other end of a
-// handshake, as recorded into the shared servers table.
+// handshake, as claimed in its handshake payload — captured onto
+// federation_attempt, not servers (which doesn't get a row until the
+// attempt is approved — see ApproveFederationAttempt).
 type federationPeer struct {
 	ServerID    string
 	ServerName  string
@@ -3595,17 +3727,16 @@ type federationPeer struct {
 	PublicKey   string
 }
 
-// RedeemFederationInvitation runs on the RESPONDER, before it even
-// attempts the handshake: it records the peer server (self=FALSE,
-// connected=FALSE) so there's somewhere to log against from the first
-// moment, rather than only writing anything once the handshake already
-// succeeded. peer.PublicKey is upserted into public_keys. Idempotent on
-// peer.ServerID via ON CONFLICT DO NOTHING (retried pastes of the same
-// connection string shouldn't error).
-func (s *DataService) RedeemFederationInvitation(ctx context.Context, peer federationPeer, createdAt time.Time) error {
+// CreateFederationAttempt runs on the RESPONDER, before it even attempts
+// the handshake: it upserts peer.PublicKey into public_keys and inserts a
+// pending federation_attempt row (invitation_id NULL — the responder never
+// has a local invitation row) so there's somewhere to log against from the
+// first moment, rather than only writing anything once the handshake
+// already succeeded. Returns the new attempt id.
+func (s *DataService) CreateFederationAttempt(ctx context.Context, peer federationPeer, createdAt time.Time) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback()
 
@@ -3613,36 +3744,39 @@ func (s *DataService) RedeemFederationInvitation(ctx context.Context, peer feder
 		INSERT INTO public_keys (fingerprint, armor) VALUES ($1, $2)
 		ON CONFLICT (fingerprint) DO NOTHING
 	`, peer.Fingerprint, peer.PublicKey); err != nil {
-		return fmt.Errorf("insert remote public key: %w", err)
+		return "", fmt.Errorf("insert remote public key: %w", err)
 	}
 
 	name := peer.ServerName
 	if name == "" {
 		name = peer.ServerID
 	}
+	attemptID, err := crypto.NewID()
+	if err != nil {
+		return "", err
+	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO servers (id, name, self, base_url, connected, created_at)
-		VALUES ($1, $2, FALSE, $3, FALSE, $4)
-		ON CONFLICT (id) DO NOTHING
-	`, peer.ServerID, name, peer.BaseURL, createdAt.UTC()); err != nil {
-		return fmt.Errorf("insert federation peer: %w", err)
+		INSERT INTO federation_attempt (id, remote_server_id, remote_server_name, base_url, fingerprint, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, attemptID, peer.ServerID, name, peer.BaseURL, peer.Fingerprint, createdAt.UTC()); err != nil {
+		return "", fmt.Errorf("insert federation attempt: %w", err)
 	}
 
-	return tx.Commit()
+	return attemptID, tx.Commit()
 }
 
 // MarkFederationInvitationAccepted runs on the INITIATOR when a remote
-// server's connect callback verifies successfully: it records the peer
-// server (self=FALSE, connected=TRUE immediately — the initiator's own
-// verification of the callback IS the confirmation, there's no further
-// round trip needed on this side) and moves the invitation new -> accepted
-// with server_id set, atomically. Returns errFederationInvitationNotFound
-// if id doesn't exist, errFederationInvitationNotNew if it exists but
-// isn't in status "new".
-func (s *DataService) MarkFederationInvitationAccepted(ctx context.Context, inviteID string, peer federationPeer, acceptedAt time.Time) error {
+// server's connect callback verifies successfully: it creates a pending
+// federation_attempt row (invitation_id set — the initiator has a local
+// invitation row) and moves the invitation new -> accepted, atomically.
+// server_id on both rows stays NULL until ApproveFederationAttempt.
+// Returns the new attempt id. Returns errFederationInvitationNotFound if id
+// doesn't exist, errFederationInvitationNotNew if it exists but isn't in
+// status "new".
+func (s *DataService) MarkFederationInvitationAccepted(ctx context.Context, inviteID string, peer federationPeer, acceptedAt time.Time) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback()
 
@@ -3651,39 +3785,38 @@ func (s *DataService) MarkFederationInvitationAccepted(ctx context.Context, invi
 		SELECT status FROM federation_invitation WHERE id = $1 FOR UPDATE
 	`, inviteID).Scan(&status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return errFederationInvitationNotFound
+			return "", errFederationInvitationNotFound
 		}
-		return err
+		return "", err
 	}
 	if status != federationStatusNew {
-		return errFederationInvitationNotNew
+		return "", errFederationInvitationNotNew
 	}
 
-	// connected stays FALSE here: the handshake having verified (valid
-	// signatures, reachable peer) is not the same as a second admin having
-	// approved the connection (spec 03, not yet built) — connected must not
-	// go TRUE until that approval step exists and actually runs.
 	name := peer.ServerName
 	if name == "" {
 		name = peer.ServerID
 	}
+	attemptID, err := crypto.NewID()
+	if err != nil {
+		return "", err
+	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO servers (id, name, self, base_url, connected, created_at)
-		VALUES ($1, $2, FALSE, $3, FALSE, $4)
-		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, name = EXCLUDED.name
-	`, peer.ServerID, name, peer.BaseURL, acceptedAt.UTC()); err != nil {
-		return fmt.Errorf("insert federation peer: %w", err)
+		INSERT INTO federation_attempt (id, remote_server_id, remote_server_name, base_url, fingerprint, invitation_id, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, attemptID, peer.ServerID, name, peer.BaseURL, peer.Fingerprint, inviteID, acceptedAt.UTC()); err != nil {
+		return "", fmt.Errorf("insert federation attempt: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE federation_invitation
-		SET status = $2, accepted_at = $3, connection_ciphertext = NULL, server_id = $4
+		SET status = $2, accepted_at = $3, connection_ciphertext = NULL
 		WHERE id = $1
-	`, inviteID, federationStatusAccepted, acceptedAt.UTC(), peer.ServerID); err != nil {
-		return err
+	`, inviteID, federationStatusAccepted, acceptedAt.UTC()); err != nil {
+		return "", err
 	}
 
-	return tx.Commit()
+	return attemptID, tx.Commit()
 }
 
 // federationLogLevel values — CHECK-constrained on federation_log.level.
@@ -3722,10 +3855,10 @@ func (s *DataService) logFederationInvitation(ctx context.Context, invitationID,
 }
 
 // logFederationServer records a federation_log line and links it to
-// serverID via federation_server_log — used by the responder (which never
-// has a local invitation row) from the moment it records the peer server,
-// and by the initiator for server-level events once server_id is known
-// (post-acceptance) — see logFederationInvitation.
+// serverID via federation_server_log — for activity AFTER a servers row
+// exists (i.e. after a federation_attempt was approved; see
+// ApproveFederationAttempt). Pre-approval activity uses
+// logFederationAttempt instead.
 func (s *DataService) logFederationServer(ctx context.Context, serverID, level, message string) error {
 	logID, err := crypto.NewID()
 	if err != nil {
@@ -3746,6 +3879,36 @@ func (s *DataService) logFederationServer(ctx context.Context, serverID, level, 
 		INSERT INTO federation_server_log (server_id, log_id) VALUES ($1, $2)
 	`, serverID, logID); err != nil {
 		return fmt.Errorf("link federation server log: %w", err)
+	}
+	return tx.Commit()
+}
+
+// logFederationAttempt records a federation_log line and links it to
+// attemptID via federation_attempt_log — used by both the responder
+// (CreateFederationAttempt) and initiator (MarkFederationInvitationAccepted)
+// from the moment their federation_attempt row exists, through
+// approve/reject. Unlike logFederationServer, this survives rejection —
+// federation_attempt is never deleted.
+func (s *DataService) logFederationAttempt(ctx context.Context, attemptID, level, message string) error {
+	logID, err := crypto.NewID()
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO federation_log (id, level, message) VALUES ($1, $2, $3)
+	`, logID, level, message); err != nil {
+		return fmt.Errorf("insert federation log: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO federation_attempt_log (attempt_id, log_id) VALUES ($1, $2)
+	`, attemptID, logID); err != nil {
+		return fmt.Errorf("link federation attempt log: %w", err)
 	}
 	return tx.Commit()
 }

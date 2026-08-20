@@ -78,6 +78,23 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			reviewed_at TIMESTAMPTZ,
 			connection_ciphertext TEXT
 		)`,
+		`CREATE TABLE IF NOT EXISTS federation_attempt (
+			id VARCHAR(255) PRIMARY KEY,
+			remote_server_id VARCHAR(255) NOT NULL,
+			remote_server_name VARCHAR(255) NOT NULL,
+			base_url TEXT NOT NULL,
+			fingerprint VARCHAR(255) NOT NULL,
+			invitation_id VARCHAR(255) REFERENCES federation_invitation(id),
+			server_id VARCHAR(255) REFERENCES servers(id),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			status VARCHAR(16) NOT NULL DEFAULT 'pending'
+				CHECK (status IN ('pending', 'approved', 'rejected')),
+			approved_by VARCHAR(255) REFERENCES identities(id),
+			approved_at TIMESTAMPTZ,
+			rejected_by VARCHAR(255) REFERENCES identities(id),
+			rejected_at TIMESTAMPTZ,
+			rejected_reason TEXT
+		)`,
 		`CREATE TABLE IF NOT EXISTS federation_log (
 			id VARCHAR(255) PRIMARY KEY,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -88,6 +105,11 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			invitation_id VARCHAR(255) NOT NULL REFERENCES federation_invitation(id) ON DELETE CASCADE,
 			log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
 			PRIMARY KEY (invitation_id, log_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS federation_attempt_log (
+			attempt_id VARCHAR(255) NOT NULL REFERENCES federation_attempt(id) ON DELETE CASCADE,
+			log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
+			PRIMARY KEY (attempt_id, log_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS federation_server_log (
 			server_id VARCHAR(255) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
@@ -128,6 +150,9 @@ func seedFederationUser(t *testing.T, ds *DataService, userID, username, role st
 func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *crypto.KeyPair, *crypto.KeyPair) {
 	t.Helper()
 	db := openFederationTestDB(t)
+	if _, err := db.Exec(`DELETE FROM federation_attempt`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`DELETE FROM federation_invitation`); err != nil {
 		t.Fatal(err)
 	}
@@ -352,22 +377,27 @@ func TestRevokeFederationInvitation_NewOnly(t *testing.T) {
 func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
 	admin1 := seedFederationUser(t, ds, "admin1", "admin", roles.RoleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := crypto.Hash("s")
 	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := ds.MarkFederationInvitationAccepted(context.Background(), "inv1", federationPeer{
+	attemptID, err := ds.MarkFederationInvitationAccepted(context.Background(), "inv1", federationPeer{
 		ServerID:    "server-b",
+		ServerName:  "Server B",
 		BaseURL:     "https://b.example",
 		Fingerprint: "fp-b",
-	}, fixed); err != nil {
+	}, fixed)
+	if err != nil {
 		t.Fatal(err)
 	}
 
+	// Accepted, but server_id stays NULL — no servers row exists yet, only
+	// a pending federation_attempt (see below).
 	inv, _ := ds.GetFederationInvitation(context.Background(), "inv1")
-	if inv.Status != federationStatusAccepted || inv.AcceptedAt == nil || inv.ServerID != "server-b" {
+	if inv.Status != federationStatusAccepted || inv.AcceptedAt == nil || inv.ServerID != "" {
 		t.Fatalf("inv=%+v", inv)
 	}
 	var ciphertext sql.NullString
@@ -379,21 +409,19 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 	if ciphertext.Valid {
 		t.Fatalf("expected ciphertext cleared on accept, got %q", ciphertext.String)
 	}
-	// Handshake verified (accepted), but connected stays FALSE until a
-	// second admin approves (spec 03, not yet built).
-	var connected bool
+	var serverCount int
 	if err := ds.db.QueryRowContext(context.Background(),
-		`SELECT connected FROM servers WHERE id = $1`, "server-b",
-	).Scan(&connected); err != nil {
+		`SELECT COUNT(*) FROM servers WHERE id = $1`, "server-b",
+	).Scan(&serverCount); err != nil {
 		t.Fatal(err)
 	}
-	if connected {
-		t.Fatalf("expected peer server NOT connected (awaiting approval)")
+	if serverCount != 0 {
+		t.Fatalf("expected no servers row before approval, got %d", serverCount)
 	}
 
 	// Accepted invitations no longer appear in the pending-invite list — the
 	// invitation can't change state anymore, so it now lives under the
-	// resulting server's own page (GetFederationInvitationForServer) instead.
+	// resulting attempt (and, once approved, the server's own page).
 	rr := httptest.NewRecorder()
 	req := federationWithUID(httptest.NewRequest(http.MethodGet, "/api/federation/invitations", nil), admin1)
 	h.ListFederationInvitations(rr, req)
@@ -405,7 +433,31 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 		t.Fatalf("list=%+v, want empty (accepted invitations are excluded)", list)
 	}
 
+	// Before approval, GetFederationInvitationForServer finds nothing (no
+	// invitation has this server_id yet).
 	forServer, err := ds.GetFederationInvitationForServer(context.Background(), "server-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forServer != nil {
+		t.Fatalf("forServer=%+v, want nil before approval", forServer)
+	}
+
+	// Approve (by a different admin) creates the servers row and backfills
+	// both the attempt's and the invitation's server_id.
+	if err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed); err != nil {
+		t.Fatal(err)
+	}
+	if err := ds.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM servers WHERE id = $1`, "server-b",
+	).Scan(&serverCount); err != nil {
+		t.Fatal(err)
+	}
+	if serverCount != 1 {
+		t.Fatalf("expected servers row after approval, got %d", serverCount)
+	}
+
+	forServer, err = ds.GetFederationInvitationForServer(context.Background(), "server-b")
 	if err != nil {
 		t.Fatal(err)
 	}

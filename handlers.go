@@ -2867,6 +2867,17 @@ func (h *Handlers) logFederationServerAsync(serverID, level, message string) {
 	}()
 }
 
+// logFederationAttemptAsync records a federation_log line for attemptID —
+// see logFederationInvitationAsync.
+func (h *Handlers) logFederationAttemptAsync(attemptID, level, message string) {
+	go func() {
+		ctx := context.Background()
+		if err := h.services.db.logFederationAttempt(ctx, attemptID, level, message); err != nil {
+			h.services.log.GetLogger(ctx).Error().Err(err).Str("attemptId", attemptID).Msg("Failed to write federation attempt log")
+		}
+	}()
+}
+
 func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
@@ -3202,10 +3213,56 @@ func (h *Handlers) GetFederationServerInvitation(w http.ResponseWriter, r *http.
 	writeResponse(w, http.StatusOK, federationInvitationRowToWire(*inv))
 }
 
-// ApproveFederationServer is the minimal "for now" approval action (no
-// federation_attempt table yet — see specs/federation/03): flips connected
-// to TRUE on the peer server row.
-func (h *Handlers) ApproveFederationServer(w http.ResponseWriter, r *http.Request) {
+func federationAttemptRowToWire(row federationAttemptRow) federationAttemptWire {
+	item := federationAttemptWire{
+		AttemptID:        row.ID,
+		RemoteServerID:   row.RemoteServerID,
+		RemoteServerName: row.RemoteServerName,
+		BaseURL:          row.BaseURL,
+		Fingerprint:      row.Fingerprint,
+		CreatedAt:        row.CreatedAt.UTC().Format(time.RFC3339),
+		Status:           row.Status,
+	}
+	if row.InvitationID != "" {
+		id := row.InvitationID
+		item.InvitationID = &id
+	}
+	if row.ServerID != "" {
+		id := row.ServerID
+		item.ServerID = &id
+	}
+	if row.ApprovedBy != "" {
+		ab := row.ApprovedBy
+		item.ApprovedBy = &ab
+		au := row.ApprovedByUsername
+		item.ApprovedByUsername = &au
+	}
+	if row.ApprovedAt != nil {
+		s := row.ApprovedAt.UTC().Format(time.RFC3339)
+		item.ApprovedAt = &s
+	}
+	if row.RejectedBy != "" {
+		rb := row.RejectedBy
+		item.RejectedBy = &rb
+		ru := row.RejectedByUsername
+		item.RejectedByUsername = &ru
+	}
+	if row.RejectedAt != nil {
+		s := row.RejectedAt.UTC().Format(time.RFC3339)
+		item.RejectedAt = &s
+	}
+	if row.RejectedReason != "" {
+		reason := row.RejectedReason
+		item.RejectedReason = &reason
+	}
+	return item
+}
+
+// GetFederationList returns invitations, attempts, and servers together —
+// the mesh tab's single combined-view fetch. Each item still links to its
+// own detail/logs endpoint by id; this just avoids three separate
+// round trips to render the list.
+func (h *Handlers) GetFederationList(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
 		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
@@ -3221,30 +3278,85 @@ func (h *Handlers) ApproveFederationServer(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	serverID := strings.TrimSpace(mux.Vars(r)["id"])
-	if serverID == "" {
+	invRows, err := h.services.db.ListFederationInvitations(r.Context())
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	attemptRows, err := h.services.db.ListFederationAttempts(r.Context())
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	serverRows, err := h.services.db.ListFederationServers(r.Context())
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	out := federationListWire{
+		Invitations: make([]federationListItemWire, 0, len(invRows)),
+		Attempts:    make([]federationAttemptWire, 0, len(attemptRows)),
+		Servers:     make([]federationServerWire, 0, len(serverRows)),
+	}
+	for _, row := range invRows {
+		out.Invitations = append(out.Invitations, federationInvitationRowToWire(row))
+	}
+	for _, row := range attemptRows {
+		out.Attempts = append(out.Attempts, federationAttemptRowToWire(row))
+	}
+	for _, row := range serverRows {
+		out.Servers = append(out.Servers, federationServerWire{
+			ServerID:  row.ID,
+			Name:      row.Name,
+			BaseURL:   row.BaseURL,
+			Connected: row.Connected,
+			CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	writeResponse(w, http.StatusOK, out)
+}
+
+// GetFederationAttempt returns one attempt by id — the mesh tab's
+// /mesh/attempt/{id} detail page.
+func (h *Handlers) GetFederationAttempt(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	attemptID := strings.TrimSpace(mux.Vars(r)["id"])
+	if attemptID == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
-	err = h.services.db.ApproveFederationServer(r.Context(), serverID)
-	switch {
-	case errors.Is(err, errFederationServerNotFound):
-		writeResponse(w, http.StatusNotFound, "Server not found")
-	case err != nil:
-		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server approve failed")
+	attempt, err := h.services.db.GetFederationAttempt(r.Context(), attemptID)
+	if err != nil {
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
-	default:
-		h.logFederationServerAsync(serverID, federationLogInfo,
-			fmt.Sprintf("Approved by %s", caller))
-		writeResponse(w, http.StatusOK, federationServerWire{ServerID: serverID, Connected: true})
+		return
 	}
+	if attempt == nil {
+		writeResponse(w, http.StatusNotFound, "Attempt not found")
+		return
+	}
+	writeResponse(w, http.StatusOK, federationAttemptRowToWire(*attempt))
 }
 
-// RejectFederationServer requires a non-empty reason (logged, then the row
-// is deleted — see RejectFederationServer's doc comment on why the log
-// doesn't outlive the deletion today).
-func (h *Handlers) RejectFederationServer(w http.ResponseWriter, r *http.Request) {
+// GetFederationAttemptLogs returns federation_log lines for one attempt as
+// plain text, one line per entry — see GetFederationServerLogs's doc
+// comment for why plain text.
+func (h *Handlers) GetFederationAttemptLogs(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
 		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
@@ -3260,8 +3372,87 @@ func (h *Handlers) RejectFederationServer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	serverID := strings.TrimSpace(mux.Vars(r)["id"])
-	if serverID == "" {
+	attemptID := strings.TrimSpace(mux.Vars(r)["id"])
+	if attemptID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		return
+	}
+
+	rows, err := h.services.db.ListFederationAttemptLogs(r.Context(), attemptID)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	var sb strings.Builder
+	writeFederationLogLines(&sb, rows)
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(sb.String()))
+}
+
+// ApproveFederationAttempt creates the servers row — see
+// ApproveFederationAttempt's (DataService) doc comment.
+func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	attemptID := strings.TrimSpace(mux.Vars(r)["id"])
+	if attemptID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		return
+	}
+
+	err = h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second))
+	switch {
+	case errors.Is(err, errFederationAttemptNotFound):
+		writeResponse(w, http.StatusNotFound, "Attempt not found")
+	case errors.Is(err, errFederationAttemptNotPending):
+		writeResponse(w, http.StatusConflict, "Attempt already decided")
+	case err != nil:
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("attemptId", attemptID).Msg("federation attempt approve failed")
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+	default:
+		h.logFederationAttemptAsync(attemptID, federationLogInfo,
+			fmt.Sprintf("Approved by %s", caller))
+		writeResponse(w, http.StatusOK, map[string]string{"attemptId": attemptID, "status": "approved"})
+	}
+}
+
+// RejectFederationAttempt requires a non-empty reason. Unlike the old
+// servers-row-based reject, the attempt row (and its logs) are never
+// deleted — status just flips to rejected.
+func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	attemptID := strings.TrimSpace(mux.Vars(r)["id"])
+	if attemptID == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
@@ -3279,15 +3470,19 @@ func (h *Handlers) RejectFederationServer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err = h.services.db.RejectFederationServer(r.Context(), serverID, fmt.Sprintf("%s (by %s)", reason, caller))
+	err = h.services.db.RejectFederationAttempt(r.Context(), attemptID, caller, reason, time.Now().UTC().Truncate(time.Second))
 	switch {
-	case errors.Is(err, errFederationServerNotFound):
-		writeResponse(w, http.StatusNotFound, "Server not found")
+	case errors.Is(err, errFederationAttemptNotFound):
+		writeResponse(w, http.StatusNotFound, "Attempt not found")
+	case errors.Is(err, errFederationAttemptNotPending):
+		writeResponse(w, http.StatusConflict, "Attempt already decided")
 	case err != nil:
-		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server reject failed")
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("attemptId", attemptID).Msg("federation attempt reject failed")
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
-		writeResponse(w, http.StatusOK, map[string]string{"serverId": serverID, "status": "rejected"})
+		h.logFederationAttemptAsync(attemptID, federationLogError,
+			fmt.Sprintf("Rejected by %s: %s", caller, reason))
+		writeResponse(w, http.StatusOK, map[string]string{"attemptId": attemptID, "status": "rejected"})
 	}
 }
 
@@ -3417,7 +3612,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	err = h.services.db.MarkFederationInvitationAccepted(r.Context(), inviteID, federationPeer{
+	attemptID, err := h.services.db.MarkFederationInvitationAccepted(r.Context(), inviteID, federationPeer{
 		ServerID:    req.ServerID,
 		ServerName:  req.ServerName,
 		BaseURL:     req.BaseURL,
@@ -3435,13 +3630,13 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		internalServerError(w)
 	default:
 		h.logFederationInvitationAsync(inviteID, federationLogInfo, "Connect attempt accepted; pending approval")
-		// MarkFederationInvitationAccepted just inserted/updated the peer's
-		// servers row (connected stays FALSE — see its doc comment), so
-		// federation_server_log's FK is satisfiable now — mirror the
-		// responder's logFederationServerAsync calls in
-		// OutgoingFederationAttempt so the initiator's mesh/peer view isn't
-		// empty for a connection it originated.
-		h.logFederationServerAsync(req.ServerID, federationLogInfo,
+		// MarkFederationInvitationAccepted just created a federation_attempt
+		// row (pending — no servers row yet, see ApproveFederationAttempt),
+		// so federation_attempt_log's FK is satisfiable now — mirror the
+		// responder's logFederationAttemptAsync calls in
+		// OutgoingFederationAttempt so the initiator's mesh/attempt view
+		// isn't empty for a connection it originated.
+		h.logFederationAttemptAsync(attemptID, federationLogInfo,
 			fmt.Sprintf("Handshake verified with %s (%s); awaiting approval", req.ServerID, req.BaseURL))
 		writeResponse(w, http.StatusOK, federationConnectResponse{Status: federationStatusAccepted, ServerID: req.ServerID})
 	}
@@ -3450,12 +3645,12 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 // OutgoingFederationAttempt is the responder-side action: an admin here
 // pastes a connection string they received out-of-band from the
 // initiator's admin. This decrypts it, verifies the initiator's signature,
-// records the peer server row (connected=FALSE — so there's somewhere to
-// log against even if the next step fails), and signs and posts our own
-// callback to the initiator's connect endpoint. connected stays FALSE even
-// once the initiator confirms — that only means the handshake verified,
-// not that a second admin has approved the connection (spec 03, not yet
-// built).
+// creates a pending federation_attempt row (so there's somewhere to log
+// against even if the next step fails), and signs and posts our own
+// callback to the initiator's connect endpoint. No servers row is created
+// here even once the initiator confirms — that only means the handshake
+// verified, not that a second admin has approved the connection; see
+// ApproveFederationAttempt for where servers actually gets a row.
 func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 
@@ -3528,7 +3723,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Record the peer (connected=FALSE) before attempting the handshake —
+	// Create a pending federation_attempt before attempting the handshake —
 	// so there's somewhere to log against even if the next steps fail,
 	// instead of writing nothing until success.
 	now := time.Now().UTC().Truncate(time.Second)
@@ -3539,12 +3734,13 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		Fingerprint: payload.Fingerprint,
 		PublicKey:   payload.PublicKeyArmor,
 	}
-	if err := h.services.db.RedeemFederationInvitation(r.Context(), peer, now); err != nil {
-		log.Error().Err(err).Msg("failed to record federation peer")
+	attemptID, err := h.services.db.CreateFederationAttempt(r.Context(), peer, now)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to record federation attempt")
 		internalServerError(w)
 		return
 	}
-	h.logFederationServerAsync(payload.ServerID, federationLogInfo,
+	h.logFederationAttemptAsync(attemptID, federationLogInfo,
 		fmt.Sprintf("Attempting to redeem invitation from %s (%s)", payload.ServerID, payload.BaseURL))
 
 	localBaseURL := h.federationBaseURL()
@@ -3580,7 +3776,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	resp, err := h.federationHTTPClient().Do(httpReq)
 	if err != nil {
 		log.Error().Err(err).Str("connectURL", connectURL).Msg("federation connect callback failed")
-		h.logFederationServerAsync(payload.ServerID, federationLogError,
+		h.logFederationAttemptAsync(attemptID, federationLogError,
 			fmt.Sprintf("Failed to reach %s (%s): %s", payload.ServerID, payload.BaseURL, err.Error()))
 		writeResponse(w, http.StatusBadGateway, "Failed to reach initiator server")
 		return
@@ -3589,7 +3785,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		log.Info().Int("status", resp.StatusCode).Str("connectURL", connectURL).Msg("federation connect callback rejected")
-		h.logFederationServerAsync(payload.ServerID, federationLogError,
+		h.logFederationAttemptAsync(attemptID, federationLogError,
 			fmt.Sprintf("Rejected by %s (%s): %s", payload.ServerID, payload.BaseURL, string(respBody)))
 		writeResponse(w, resp.StatusCode, string(respBody))
 		return
@@ -3600,10 +3796,10 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// connected stays FALSE: the handshake having verified is not the same
-	// as a second admin having approved the connection (spec 03, not yet
-	// built) — see RedeemFederationInvitation's insert above.
-	h.logFederationServerAsync(payload.ServerID, federationLogInfo,
+	// No servers row yet: the handshake having verified is not the same as
+	// a second admin having approved the connection — see
+	// ApproveFederationAttempt.
+	h.logFederationAttemptAsync(attemptID, federationLogInfo,
 		fmt.Sprintf("Handshake verified with %s (%s); awaiting approval", payload.ServerID, payload.BaseURL))
 
 	writeResponse(w, http.StatusOK, federationAttemptResponse{Status: federationStatusAccepted, ServerID: payload.ServerID})
