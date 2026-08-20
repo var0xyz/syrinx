@@ -3118,7 +3118,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		writeResponse(w, http.StatusBadRequest, "Missing required fields")
 		return
 	}
-	if !strings.HasPrefix(req.BaseURL, "https://") {
+	if !strings.HasPrefix(req.BaseURL, "https://") && !h.cfg.FederationAllowInsecureHTTP {
 		writeResponse(w, http.StatusBadRequest, "baseUrl must be https")
 		return
 	}
@@ -3252,7 +3252,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		writeResponse(w, http.StatusBadRequest, "Incomplete connection payload")
 		return
 	}
-	if !strings.HasPrefix(payload.BaseURL, "https://") {
+	if !strings.HasPrefix(payload.BaseURL, "https://") && !h.cfg.FederationAllowInsecureHTTP {
 		writeResponse(w, http.StatusBadRequest, "baseUrl must be https")
 		return
 	}

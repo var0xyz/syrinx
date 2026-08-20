@@ -46,6 +46,11 @@ type AppConfig struct {
 	// This server's own public URL, used for federation.
 	APIBaseURL env.HTTPURL `env:"name='API_BASE_URL'"`
 
+	// Dev-only escape hatch: lets federation baseUrls be plain http:// so two
+	// local instances can complete a handshake without TLS. Never set this in
+	// production — federation's threat model assumes TLS on baseUrl.
+	FederationAllowInsecureHTTP bool `env:"optional,default='false',name='FEDERATION_ALLOW_INSECURE_HTTP'"`
+
 	ServerKeyPassphrase string `env:"name='SERVER_KEY_PASSPHRASE'"`
 
 	RecoveryMode      bool   `env:"optional,default='false',name='RECOVERY_MODE'"`
