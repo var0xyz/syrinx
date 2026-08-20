@@ -982,7 +982,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		for _, t := range affectedTargets {
 			h.broadcastChan <- realtime.BroadcastMessage{
 				Type:   realtime.EchoCountChanged,
-				UserID: t.AuthorID,
+				UserID: t.CanonicalAuthorID(),
 				ReedID: t.ReedID,
 			}
 		}
@@ -995,7 +995,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		for _, t := range threadTargets {
 			h.broadcastChan <- realtime.BroadcastMessage{
 				Type:   realtime.ReplyCountChanged,
-				UserID: t.AuthorID,
+				UserID: t.CanonicalAuthorID(),
 				ReedID: t.ReedID,
 			}
 		}
@@ -1875,7 +1875,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		h.metrics.EchoTargeted(r.Context(), echoRef.AuthorID, echoRef.ReedID)
 		h.broadcastChan <- realtime.BroadcastMessage{
 			Type:   realtime.EchoCountChanged,
-			UserID: echoRef.AuthorID,
+			UserID: echoRef.CanonicalAuthorID(),
 			ReedID: echoRef.ReedID,
 		}
 	}
@@ -1893,7 +1893,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			for _, t := range targets {
 				h.broadcastChan <- realtime.BroadcastMessage{
 					Type:   realtime.ReplyCountChanged,
-					UserID: t.AuthorID,
+					UserID: t.CanonicalAuthorID(),
 					ReedID: t.ReedID,
 				}
 			}
@@ -2123,7 +2123,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		for _, t := range affectedTargets {
 			h.broadcastChan <- realtime.BroadcastMessage{
 				Type:   realtime.EchoCountChanged,
-				UserID: t.AuthorID,
+				UserID: t.CanonicalAuthorID(),
 				ReedID: t.ReedID,
 			}
 		}
@@ -2136,7 +2136,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		for _, t := range replyTargets {
 			h.broadcastChan <- realtime.BroadcastMessage{
 				Type:   realtime.ReplyCountChanged,
-				UserID: t.AuthorID,
+				UserID: t.CanonicalAuthorID(),
 				ReedID: t.ReedID,
 			}
 		}
