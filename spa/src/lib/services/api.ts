@@ -96,7 +96,10 @@ const UNAUTHENTICATED_ENDPOINTS = [
   '/invites/check',
 ];
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** Signs (if needed), sends, and validates the response — shared by request()
+ * (JSON body) and requestText() (plain text body); each only differs in how
+ * it reads the body once this returns an ok Response. */
+async function requestRaw(path: string, init?: RequestInit): Promise<Response> {
   let signedInit = init;
 
   // Check if this is an authenticated request
@@ -177,11 +180,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw err;
   }
 
+  return res;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await requestRaw(path, init);
   try {
     return (await res.json()) as T;
   } catch {
     return undefined as T;
   }
+}
+
+/** Like request(), but reads the body as plain text instead of JSON —
+ * for endpoints whose response is displayed verbatim, never parsed. */
+async function requestText(path: string, init?: RequestInit): Promise<string> {
+  const res = await requestRaw(path, init);
+  return res.text();
 }
 
 /** Shared by both username-availability checks: same request shape, same
@@ -401,6 +416,13 @@ export const apiService = {
 
   async listFederationServers(): Promise<api.FederationServer[]> {
     return request<api.FederationServer[]>('/federation/servers', { method: 'GET' });
+  },
+
+  /** Plain text, one log line per line — displayed verbatim, never parsed. */
+  async getFederationServerLogs(serverId: string): Promise<string> {
+    return requestText(`/federation/servers/${encodeURIComponent(serverId)}/logs`, {
+      method: 'GET',
+    });
   },
 
   async whoami() {
