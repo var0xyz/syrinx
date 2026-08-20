@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -40,6 +41,7 @@ func newFederationServer(t *testing.T, name string) *federationServer {
 	api.HandleFunc("/federation/invitations/{id}/revoke", h.RevokeFederationInvitation).Methods(http.MethodPost)
 	api.HandleFunc("/federation/attempt", h.OutgoingFederationAttempt).Methods(http.MethodPost)
 	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods(http.MethodPost)
+	api.HandleFunc("/federation/users/{userID}/identity", h.peerAuthMiddleware(h.GetFederationUserIdentity)).Methods(http.MethodGet)
 
 	// TLS: the connect/attempt handlers reject non-https baseUrls, so the
 	// initiator side must be served over TLS even in tests.
@@ -189,6 +191,61 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	}
 	if !aConnected || aPeerName != "Bravo" {
 		t.Fatalf("a's approved server: connected=%v name=%q", aConnected, aPeerName)
+	}
+
+	// Approve b's side too, so both instances have an established peer —
+	// mirrors a real bidirectional federation link.
+	if err := b.ds.ApproveFederationAttempt(context.Background(), bAttempt.ID, bAdmin, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+
+	// b resolves a's admin user through the peer-authenticated IdP endpoint
+	// (specs/federation/04) — proves peerAuthMiddleware end to end: correct
+	// signature + pinned fingerprint against a's own establishment.
+	identReq, err := http.NewRequest(http.MethodGet, a.srv.URL+"/api/federation/users/"+aAdmin+"/identity", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.h.setFederationPeerAuthHeaders(identReq); err != nil {
+		t.Fatal(err)
+	}
+	identResp, err := a.srv.Client().Do(identReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer identResp.Body.Close()
+	if identResp.StatusCode != http.StatusOK {
+		t.Fatalf("identity status=%d", identResp.StatusCode)
+	}
+
+	// Wrong fingerprint (claims to be b, signs with a throwaway key) is
+	// rejected, not just "signature invalid" — VerifyFederationPeer fails
+	// closed on any mismatch.
+	strangerKP, err := crypto.NewService().CreateKeyPair("stranger", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	badReq, err := http.NewRequest(http.MethodGet, a.srv.URL+"/api/federation/users/"+aAdmin+"/identity", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	badPayload := identity.BuildFederationPeerRequestPayload(bAttempt.RemoteServerID, http.MethodGet, badReq.URL.Path, timestamp)
+	badSigArmor, err := crypto.NewService().Sign(string(badPayload), strangerKP.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badReq.Header.Set("X-Syrinx-Federation-Server-Id", bAttempt.RemoteServerID)
+	badReq.Header.Set("X-Syrinx-Federation-Fingerprint", strangerKP.Fingerprint)
+	badReq.Header.Set("X-Syrinx-Federation-Signature", base64.StdEncoding.EncodeToString([]byte(badSigArmor)))
+	badReq.Header.Set("X-Syrinx-Federation-Timestamp", timestamp)
+	badResp, err := a.srv.Client().Do(badReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer badResp.Body.Close()
+	if badResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unpinned fingerprint, got %d", badResp.StatusCode)
 	}
 }
 

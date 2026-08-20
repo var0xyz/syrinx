@@ -2831,6 +2831,25 @@ func (h *Handlers) federationSignServer(message []byte) (string, error) {
 	return encoding.Base64Encode(sigArmor), nil
 }
 
+// setFederationPeerAuthHeaders signs req for peerAuthMiddleware on the
+// receiving end (specs/federation/04) — used for THIS server's own
+// outbound calls to an established peer (e.g. the future content-relay
+// step, 06). method/path must match req's own, since the signature binds
+// to them.
+func (h *Handlers) setFederationPeerAuthHeaders(req *http.Request) error {
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	payload := identity.BuildFederationPeerRequestPayload(h.services.db.GetServerID(), req.Method, req.URL.Path, timestamp)
+	sigB64, err := h.federationSignServer(payload)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Syrinx-Federation-Server-Id", h.services.db.GetServerID())
+	req.Header.Set("X-Syrinx-Federation-Fingerprint", h.signingKey.Fingerprint)
+	req.Header.Set("X-Syrinx-Federation-Signature", sigB64)
+	req.Header.Set("X-Syrinx-Federation-Timestamp", timestamp)
+	return nil
+}
+
 // federationHTTPClient returns the client used for server-to-server
 // federation callbacks (e.g. POST .../federation/connect/{inviteId}).
 // Bounded timeout: this call happens synchronously inside an admin's
@@ -3484,6 +3503,65 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 			fmt.Sprintf("Rejected by %s: %s", caller, reason))
 		writeResponse(w, http.StatusOK, map[string]string{"attemptId": attemptID, "status": "rejected"})
 	}
+}
+
+// GetFederationUserIdentity is the IdP endpoint an established peer calls
+// to resolve one of THIS server's users (specs/federation/04). Peer-
+// authenticated (see peerAuthMiddleware), not user-session-authenticated —
+// there is no local session for a remote server. userID must be local
+// (canonical userID@thisServerID); a peer has no business asking this
+// server to vouch for a third server's user.
+func (h *Handlers) GetFederationUserIdentity(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	userID := strings.TrimSpace(mux.Vars(r)["userID"])
+	if userID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		return
+	}
+	if !strings.HasSuffix(userID, "@"+h.services.db.GetServerID()) {
+		writeResponse(w, http.StatusBadRequest, "userID must be local to this server")
+		return
+	}
+
+	removal, err := h.services.db.GetAccountRemoval(r.Context(), userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
+		internalServerError(w)
+		return
+	}
+	if removal != nil {
+		writeResponse(w, http.StatusGone, h.accountRemovalWire(removal))
+		return
+	}
+
+	user, err := h.services.db.GetUserProfile(r.Context(), userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("peerServerId", peerServerID).Err(err).Msg("Error getting user profile for peer")
+		internalServerError(w)
+		return
+	}
+	if user == nil {
+		writeResponse(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	fingerprint, err := h.services.db.GetActiveKeyFingerprint(r.Context(), userID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, federationUserIdentityWire{
+		User:                 user,
+		ActiveKeyFingerprint: fingerprint,
+	})
 }
 
 func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Request) {

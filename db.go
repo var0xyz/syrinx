@@ -170,11 +170,18 @@ func InitDB(db *sql.DB) error {
 	// /////// //
 	//   API   //
 	// /////// //
-	// base_url/connected are federation fields: unset/false on the self
-	// row. A federated peer row is written by the RESPONDER before it even
-	// attempts the handshake (so there's somewhere to log against from the
-	// first moment), then connected flips to TRUE once the initiator's
-	// /connect callback confirms success.
+	// base_url/connected/fingerprint/revoked are federation fields: unset/
+	// false on the self row. A federated peer row is written ONLY by
+	// ApproveFederationAttempt (see services.go) — the handshake itself
+	// lives entirely on federation_attempt until a second admin approves;
+	// see specs/federation/03. fingerprint is the peer's pinned server
+	// signing key fingerprint from that approved attempt — the trust root
+	// for verifying peer-authenticated runtime requests (specs/federation/04);
+	// its armor lives in public_keys (same table CreateFederationAttempt/
+	// MarkFederationInvitationAccepted upsert into), not duplicated here.
+	// revoked is set by a future de-establish step (specs/federation/05);
+	// a revoked peer's incoming requests must be rejected even though the
+	// row (and its audit trail) stays.
 	createServersTable := `
 	CREATE TABLE IF NOT EXISTS servers (
 		id VARCHAR(16) UNIQUE,
@@ -184,7 +191,9 @@ func InitDB(db *sql.DB) error {
 		identity_backup_at TIMESTAMP,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		base_url TEXT,
-		connected BOOLEAN NOT NULL DEFAULT FALSE
+		connected BOOLEAN NOT NULL DEFAULT FALSE,
+		fingerprint VARCHAR(255),
+		revoked BOOLEAN NOT NULL DEFAULT FALSE
 	);`
 
 	// Normalized attestation rows (signatures proposal 01). Entities will
