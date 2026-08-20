@@ -435,6 +435,20 @@ export const apiService = {
     );
   },
 
+  async approveFederationServer(serverId: string): Promise<void> {
+    await request(`/federation/servers/${encodeURIComponent(serverId)}/approve`, {
+      method: 'POST',
+    });
+  },
+
+  async rejectFederationServer(serverId: string, reason: string): Promise<void> {
+    await request(`/federation/servers/${encodeURIComponent(serverId)}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+  },
+
   async whoami() {
     return request<{ id: string; username: string }>('/users/me', { method: 'GET' });
   },

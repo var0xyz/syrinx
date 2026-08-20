@@ -3202,6 +3202,95 @@ func (h *Handlers) GetFederationServerInvitation(w http.ResponseWriter, r *http.
 	writeResponse(w, http.StatusOK, federationInvitationRowToWire(*inv))
 }
 
+// ApproveFederationServer is the minimal "for now" approval action (no
+// federation_attempt table yet — see specs/federation/03): flips connected
+// to TRUE on the peer server row.
+func (h *Handlers) ApproveFederationServer(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	serverID := strings.TrimSpace(mux.Vars(r)["id"])
+	if serverID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		return
+	}
+
+	err = h.services.db.ApproveFederationServer(r.Context(), serverID)
+	switch {
+	case errors.Is(err, errFederationServerNotFound):
+		writeResponse(w, http.StatusNotFound, "Server not found")
+	case err != nil:
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server approve failed")
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+	default:
+		h.logFederationServerAsync(serverID, federationLogInfo,
+			fmt.Sprintf("Approved by %s", caller))
+		writeResponse(w, http.StatusOK, federationServerWire{ServerID: serverID, Connected: true})
+	}
+}
+
+// RejectFederationServer requires a non-empty reason (logged, then the row
+// is deleted — see RejectFederationServer's doc comment on why the log
+// doesn't outlive the deletion today).
+func (h *Handlers) RejectFederationServer(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	serverID := strings.TrimSpace(mux.Vars(r)["id"])
+	if serverID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		return
+	}
+
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	reason := strings.TrimSpace(body.Reason)
+	if reason == "" {
+		writeResponse(w, http.StatusBadRequest, "reason is required")
+		return
+	}
+
+	err = h.services.db.RejectFederationServer(r.Context(), serverID, fmt.Sprintf("%s (by %s)", reason, caller))
+	switch {
+	case errors.Is(err, errFederationServerNotFound):
+		writeResponse(w, http.StatusNotFound, "Server not found")
+	case err != nil:
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server reject failed")
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+	default:
+		writeResponse(w, http.StatusOK, map[string]string{"serverId": serverID, "status": "rejected"})
+	}
+}
+
 func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {

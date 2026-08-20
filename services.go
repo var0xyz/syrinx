@@ -3229,6 +3229,78 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 	return out, rows.Err()
 }
 
+// errFederationServerNotFound is returned by ApproveFederationServer and
+// RejectFederationServer when serverID doesn't match any peer row.
+var errFederationServerNotFound = errors.New("federation server not found")
+
+// ApproveFederationServer is the minimal "for now" approval action (no
+// federation_attempt table yet — see specs/federation/03): flips connected
+// to TRUE on an existing peer server row. A real second-admin-approval
+// workflow, and the distinction between "who created the attempt" vs "who
+// approved it," is future work; today any admin can approve.
+func (s *DataService) ApproveFederationServer(ctx context.Context, serverID string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE servers SET connected = TRUE WHERE id = $1 AND self = FALSE
+	`, serverID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return errFederationServerNotFound
+	}
+	return nil
+}
+
+// RejectFederationServer logs the rejection reason, then deletes the peer
+// server row — federation_server_log cascade-deletes with it (see db.go's
+// FK), so the reason line doesn't survive the reject. That's a known gap:
+// once federation_attempt exists (specs/federation), logs move there and
+// outlive the rejected attempt. For now, "eliminate the server entry" is
+// literal: no live row is left for a rejected peer.
+func (s *DataService) RejectFederationServer(ctx context.Context, serverID, reason string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM servers WHERE id = $1 AND self = FALSE)
+	`, serverID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errFederationServerNotFound
+	}
+
+	logID, err := crypto.NewID()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO federation_log (id, level, message) VALUES ($1, $2, $3)
+	`, logID, federationLogError, fmt.Sprintf("Rejected: %s", reason)); err != nil {
+		return fmt.Errorf("insert federation log: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO federation_server_log (server_id, log_id) VALUES ($1, $2)
+	`, serverID, logID); err != nil {
+		return fmt.Errorf("link federation server log: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM servers WHERE id = $1 AND self = FALSE
+	`, serverID); err != nil {
+		return fmt.Errorf("delete rejected server: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 type federationServerLogRow struct {
 	ID        string
 	Level     string
