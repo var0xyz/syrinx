@@ -214,6 +214,23 @@
     if (status === 'rejected') return 'rejected';
     return 'new';
   }
+
+  type PeerRow =
+    | { kind: 'attempt'; key: string; createdAt: string; item: api.FederationAttempt }
+    | { kind: 'server'; key: string; createdAt: string; item: api.FederationServer };
+
+  // Attempts and servers are the same lifecycle (pending/approved connection),
+  // just rendered as one list instead of two separately-headed sections.
+  $: peerRows = [
+    ...attempts.map((item): PeerRow => ({ kind: 'attempt', key: `att-${item.attemptId}`, createdAt: item.createdAt, item })),
+    ...servers.map((item): PeerRow => ({ kind: 'server', key: `srv-${item.serverId}`, createdAt: item.createdAt, item })),
+  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  function rowHref(row: PeerRow): string {
+    return row.kind === 'attempt'
+      ? `/mesh/attempt/${encodeURIComponent(row.item.attemptId)}`
+      : `/mesh/peer/${encodeURIComponent(row.item.serverId)}`;
+  }
 </script>
 
 <Auth>
@@ -291,55 +308,41 @@
           </ul>
         {/if}
 
-        {#if attempts.length > 0}
-          <h3 class="section-heading">Connection attempts</h3>
+        {#if peerRows.length > 0}
           <ul class="invite-list">
-            {#each attempts as attempt (attempt.attemptId)}
+            {#each peerRows as row (row.key)}
               <li
                 class="invite-row clickable"
                 role="button"
                 tabindex="0"
-                on:click={() => goto(`/mesh/attempt/${encodeURIComponent(attempt.attemptId)}`)}
-                on:keydown={(e) => e.key === 'Enter' && goto(`/mesh/attempt/${encodeURIComponent(attempt.attemptId)}`)}
+                on:click={() => goto(rowHref(row))}
+                on:keydown={(e) => e.key === 'Enter' && goto(rowHref(row))}
               >
-                <div class="invite-main">
-                  <span class="invite-name">{attempt.remoteServerName}</span>
-                  <span class="badge-row">
-                    <span class="badge" data-status={attemptBadgeStatus(attempt.status)}>
-                      {attemptStatusLabel(attempt.status)}
+                {#if row.kind === 'attempt'}
+                  <div class="invite-main">
+                    <span class="invite-name">{row.item.remoteServerName}</span>
+                    <span class="badge-row">
+                      <span class="badge" data-status={attemptBadgeStatus(row.item.status)}>
+                        {attemptStatusLabel(row.item.status)}
+                      </span>
                     </span>
-                  </span>
-                  <span class="meta">{attempt.baseUrl}</span>
-                  <span class="meta">Started {formatRelativeTime(attempt.createdAt)}</span>
-                </div>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-
-        {#if servers.length > 0}
-          <h3 class="section-heading">Peer servers</h3>
-          <ul class="invite-list">
-            {#each servers as srv (srv.serverId)}
-              <li
-                class="invite-row clickable"
-                role="button"
-                tabindex="0"
-                on:click={() => goto(`/mesh/peer/${encodeURIComponent(srv.serverId)}`)}
-                on:keydown={(e) => e.key === 'Enter' && goto(`/mesh/peer/${encodeURIComponent(srv.serverId)}`)}
-              >
-                <div class="invite-main">
-                  <span class="invite-name">{srv.name}</span>
-                  <span class="badge-row">
-                    <span class="badge" data-status={srv.connected ? 'approved' : 'accepted'}>
-                      {srv.connected ? 'Connected' : 'Awaiting confirmation'}
+                    <span class="meta">{row.item.baseUrl}</span>
+                    <span class="meta">Started {formatRelativeTime(row.item.createdAt)}</span>
+                  </div>
+                {:else}
+                  <div class="invite-main">
+                    <span class="invite-name">{row.item.name}</span>
+                    <span class="badge-row">
+                      <span class="badge" data-status={row.item.connected ? 'connected' : 'accepted'}>
+                        {row.item.connected ? 'Connected' : 'Awaiting confirmation'}
+                      </span>
                     </span>
-                  </span>
-                  {#if srv.baseUrl}
-                    <span class="meta">{srv.baseUrl}</span>
-                  {/if}
-                  <span class="meta">Added {formatRelativeTime(srv.createdAt)}</span>
-                </div>
+                    {#if row.item.baseUrl}
+                      <span class="meta">{row.item.baseUrl}</span>
+                    {/if}
+                    <span class="meta">Added {formatRelativeTime(row.item.createdAt)}</span>
+                  </div>
+                {/if}
               </li>
             {/each}
           </ul>
@@ -582,12 +585,6 @@
     border: 1px solid #c0392b;
   }
 
-  .section-heading {
-    margin: 1.5rem 0 0.75rem 0;
-    font-size: 0.95rem;
-    color: var(--fg);
-  }
-
   .invite-list {
     list-style: none;
     margin: 0;
@@ -655,6 +652,10 @@
   }
 
   .badge[data-status='approved'] {
+    color: #2980b9;
+  }
+
+  .badge[data-status='connected'] {
     color: #27ae60;
   }
 
