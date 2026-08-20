@@ -170,6 +170,11 @@ func InitDB(db *sql.DB) error {
 	// /////// //
 	//   API   //
 	// /////// //
+	// base_url/connected are federation fields: unset/false on the self
+	// row. A federated peer row is written by the RESPONDER before it even
+	// attempts the handshake (so there's somewhere to log against from the
+	// first moment), then connected flips to TRUE once the initiator's
+	// /connect callback confirms success.
 	createServersTable := `
 	CREATE TABLE IF NOT EXISTS servers (
 		id VARCHAR(16) UNIQUE,
@@ -177,7 +182,9 @@ func InitDB(db *sql.DB) error {
 		self BOOLEAN NOT NULL DEFAULT FALSE,
 		signing_key VARCHAR(255),
 		identity_backup_at TIMESTAMP,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		base_url TEXT,
+		connected BOOLEAN NOT NULL DEFAULT FALSE
 	);`
 
 	// Normalized attestation rows (signatures proposal 01). Entities will
@@ -741,6 +748,21 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (created_by, id)
 	);`
 
+	// federation_invitation covers the whole lifecycle of one federation
+	// handshake — there is no separate "attempt" table. status:
+	//   new -> accepted        (responder's /connect callback verifies)
+	//   new -> canceled        (revoked before anyone redeemed it)
+	//   accepted -> approved   (second local admin approves — see 03)
+	//   accepted -> rejected   (second local admin rejects — see 03)
+	//   approved -> revoked    (an established connection is torn down — see 05)
+	// reviewed_by/reviewed_at record whoever performed the terminal action
+	// for whichever status it ended up in (cancel, approve, reject, or
+	// revoke) — one pair of columns for all of them, since status already
+	// says which action reviewed_by refers to; no separate approved_by
+	// column duplicating the same fact under a different name.
+	// server_id is set once the responder's callback confirms it (FK to
+	// servers, not a bare string — base_url/fingerprint live there too,
+	// see servers table, so they're not duplicated here).
 	createFederationInvitationTable := `
 	CREATE TABLE IF NOT EXISTS federation_invitation (
 		id VARCHAR(255) PRIMARY KEY,
@@ -756,6 +778,48 @@ func InitDB(db *sql.DB) error {
 		reviewed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
 		reviewed_at TIMESTAMPTZ,
 		connection_ciphertext TEXT
+	);`
+
+	// federation_log: generic append-only log line, not itself tied to an
+	// invitation or server — two junction tables link a line to whichever
+	// it's about. Handshake steps happen asynchronously across two
+	// servers (connect callbacks, outbound POSTs that may fail or time
+	// out), so this is how an admin sees what actually happened instead
+	// of a link silently never progressing.
+	createFederationLogTable := `
+	CREATE TABLE IF NOT EXISTS federation_log (
+		id VARCHAR(255) PRIMARY KEY,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		level VARCHAR(16) NOT NULL
+			CHECK (level IN ('info', 'error')),
+		message TEXT NOT NULL
+	);`
+
+	// federation_invitation_log: the INITIATOR logs against its
+	// invitation from the moment a connect callback arrives (known
+	// immediately, regardless of accept/reject outcome) — the
+	// invitation's server_id isn't set until AFTER acceptance succeeds,
+	// so pre-acceptance rejections (bad secret, wrong status, bad
+	// signature) have nothing else to log against yet.
+	createFederationInvitationLogTable := `
+	CREATE TABLE IF NOT EXISTS federation_invitation_log (
+		invitation_id VARCHAR(255) NOT NULL REFERENCES federation_invitation(id) ON DELETE CASCADE,
+		log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
+
+		PRIMARY KEY (invitation_id, log_id)
+	);`
+
+	// federation_server_log: server-scoped log lines. The RESPONDER always
+	// uses this (it never has a local invitation row to log against) from
+	// the moment it records the peer server row, before attempting the
+	// handshake. The initiator also logs here for server-level events
+	// after a server_id exists (i.e. post-acceptance).
+	createFederationServerLogTable := `
+	CREATE TABLE IF NOT EXISTS federation_server_log (
+		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
+
+		PRIMARY KEY (server_id, log_id)
 	);`
 
 	// Device binding — append-only history; exactly one active row per user.
@@ -868,6 +932,9 @@ func InitDB(db *sql.DB) error {
 
 		// Federation
 		createFederationInvitationTable,
+		createFederationLogTable,
+		createFederationInvitationLogTable,
+		createFederationServerLogTable,
 	}
 
 	for i, query := range queries {

@@ -302,6 +302,7 @@ DB_SSLMODE=disable
 PORT=8080
 SERVER_NAME=$APP_NAME
 ALLOWED_ORIGIN=https://$APP_DOMAIN
+API_BASE_URL=https://$APP_DOMAIN
 SERVER_KEY_PASSPHRASE=$SERVER_KEY_PASSPHRASE
 SIGNUP_MODE=invite
 MAX_INVITES_PER_USER=3
@@ -318,6 +319,7 @@ else
     ensure_env_kv "PORT" "8080"
     ensure_env_kv "SERVER_NAME" "$APP_NAME"
     ensure_env_kv "ALLOWED_ORIGIN" "https://$APP_DOMAIN"
+    ensure_env_kv "API_BASE_URL" "https://$APP_DOMAIN"
     wire_observability_env
     if ! grep -q '^SERVER_KEY_PASSPHRASE=.\+' "$ENV_FILE"; then
         ensure_env_kv "SERVER_KEY_PASSPHRASE" "$(generate_secret)"

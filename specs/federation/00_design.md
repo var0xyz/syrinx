@@ -84,7 +84,9 @@ can verify `signature` after decrypt — no separate OOB key paste at accept.
    as locked in 01).
 5. Insert **`federation_invitation`** row (`status = new`, **`created_by`** =
    Admin A); show connection string to Admin A to copy/share OOB with Admin B.
-6. Any admin may **revoke** invites still in **`new`** (`status = revoked`).
+6. Any admin may **revoke** invites still in **`new`** (`status = canceled`
+   — distinct from `revoked`, which means an already-**`approved`**
+   connection was later torn down; see [01](01_invitation_create.md)).
 7. **All admins** can list every invite on the instance (not creator-scoped).
 
 ### Phase 2 — Admin B accepts invite (Server B)
@@ -120,9 +122,13 @@ Body (JSON):
 }
 ```
 
-6. On **2xx**, Server B inserts **`federation_attempt`** locally
-   (`status = pending_approval`, **`invite_id`** from payload for correlation,
-   **`responded_by`** = Admin B who pasted).
+6. On **2xx**, Server B records A as a peer in **`servers`**
+   (`self = FALSE`, `connected = TRUE` — B already recorded the row with
+   `connected = FALSE` *before* attempting this POST, so there's somewhere
+   to log against even on failure; see
+   [02](02_connect_handshake.md#implementation-notes) for why there's no
+   `federation_attempt` table at all, and no `invite_id`/`respondedByUserId`
+   correlation field — A never learns a remote user id it can't verify).
 
 ### Phase 3 — Server A validates callback
 
@@ -132,52 +138,62 @@ by **secret hash** + **signatures**):
 1. Load **`federation_invitation`** by `inviteId`; must be **`new`**.
 2. Compare `secret` to stored hash → else **403**.
 3. Verify B’s **`signature`** with B’s fingerprint from body (first pin).
-4. Insert **`federation_attempt`** on A (`invite_id` FK → invitation,
-   **`responded_by`** from connect body when B supplies paste-admin id).
-5. Set invitation **`status = accepted`** (row retained).
+4. Record B as a peer in **`servers`** (`self = FALSE`, `connected = TRUE`
+   immediately — A's own verification of the callback *is* the
+   confirmation).
+5. Set invitation **`status = accepted`**, `server_id` → the peer row
+   (row retained).
 
 ### Phase 4 — Second-admin approval (both servers)
 
 **UI:** Admin tab → **Mesh** → **Pending connections**.
 
-Each server holds a **`federation_attempt`** awaiting approval.
+*Not yet implemented — see [03](03_approval_established.md).* Once built,
+each server will hold an **`accepted`** invitation (initiator) or a
+`connected = TRUE` peer server with no local invitation row (responder)
+awaiting approval.
 
 Rules:
 
 - Approver must be **`admin` or `root`**.
 - Approver must **not** be the admin who created the invite (A) or pasted the
   string (B) **on that server** — “different admin than the two already
-  involved.”
+  involved.” On A this collapses to a single check
+  (`approver != federation_invitation.created_by`), since there's no
+  separate attempt-level actor to also exclude — see
+  [03](03_approval_established.md#approval-rules).
 - If the instance has **only one admin**, approval by that admin is allowed
   (degraded; log warning).
 
 On **Accept** (local):
 
-1. Verify attempt still `pending_approval`.
-2. Set **`approved_by`** on the attempt; attempt **`status = approved`**.
-3. Insert **`federation_established`** with **`attempt_id`** FK → attempt.
-4. Set linked invitation **`status = approved`**.
+1. Verify invitation still `accepted` (initiator) / peer still
+   `connected = TRUE` with no prior review (responder).
+2. Set **`reviewed_by`**/**`reviewed_at`**; invitation **`status = approved`**.
+3. Insert **`federation_established`** row for the peer.
 
 Both sides must approve **locally** before either treats the link as live for
-runtime verify (04). Rows are **not deleted** — audit chain:
-`federation_established` → `federation_attempt` → `federation_invitation`
-(creator on invite, responder on attempt, approver on attempt + established
-row). **Peering revoke** (`federation_established.revoked`) is separate from
-invite status — an **`approved`** invite stays **`approved`** even after the
-connection is revoked.
+runtime verify (04). Rows are **not deleted** — audit trail: `created_by` and
+`reviewed_by`/`reviewed_at` on the invitation (one pair of reviewer columns
+covers cancel/approve/reject/revoke — see [01](01_invitation_create.md)).
+**Peering revoke** (`federation_invitation.status = revoked`, see 05) is a
+distinct terminal state from `canceled` (never redeemed) — an **`approved`**
+invite that's later revoked is `revoked`, not `canceled`.
 
 ### Tables (each instance)
 
 | Table | Purpose |
 |-------|---------|
-| **`federation_invitation`** | Outbound invites; **`created_by`**; status **`new` \| `accepted` \| `approved` \| `revoked`** |
-| **`federation_attempt`** | Handshake + approval; **`invite_id`** FK; **`responded_by`**; **`approved_by`** |
-| **`federation_established`** | Live (or revoked) peers; **`attempt_id`** FK; **`revoked`** boolean |
+| **`federation_invitation`** | The whole handshake lifecycle — invite, redeem, accept, (later) approve/reject/revoke. No separate attempt table — see [02](02_connect_handshake.md#implementation-notes). **`created_by`**; **`server_id`** (set once accepted); status **`new` \| `accepted` \| `approved` \| `rejected` \| `canceled` \| `revoked`** |
+| **`servers`** | Extended with **`base_url`**/**`connected`** for federation — a row per peer (`self = FALSE`), written by whichever side observed the handshake, independently on each server |
+| **`federation_established`** | Live (or revoked) peers; **`revoked`** boolean — *not yet built, see [03](03_approval_established.md)* |
+| **`federation_log`** | Append-only log lines (not in the original design — see [02](02_connect_handshake.md#federation_log)), linked to an invitation or server via junction tables `federation_invitation_log` / `federation_server_log` |
 
-**Initiator (A)** owns the invitation row through the full lifecycle. **Responder
-(B)** stores a local **`federation_attempt`** keyed by the foreign **`invite_id`**
-from the decrypted payload (no local invitation row unless B also created an
-outbound invite separately).
+**Initiator (A)** owns the invitation row through the full lifecycle, and
+records the peer in **`servers`** once accepted. **Responder (B)** records
+the peer in **`servers`** from the moment it attempts the handshake — B
+never has a local invitation row (no local record was ever created; B just
+redeemed a string A produced).
 
 No long-lived copy of plaintext **`secret`** after handshake; established
 peers authenticate with **pinned remote fingerprint** + future peer-auth
@@ -198,18 +214,18 @@ sequenceDiagram
   OpA->>SA: Create invite encrypted to B pubkey
   SA-->>OpA: Connection string
   OpA->>OpB: OOB connection string
-  OpB->>SB: Paste string plus A pubkey
-  SB->>SB: Decrypt verify A signature
+  OpB->>SB: Paste string (decrypt, verify A signature)
+  SB->>SB: Record A as peer server (connected=false)
   SB->>SA: POST /api/federation/connect/inviteId
   SA->>SA: Verify secret plus B signature
+  SA->>SA: Record B as peer server (connected=true), invitation accepted
   SA-->>SB: 200 OK
-  SB->>SB: federation_attempt pending
-  SA->>SA: federation_attempt pending
+  SB->>SB: Mark peer server connected=true
 
-  OpA2->>SA: Approve pending
-  SA->>SA: invitation approved attempt approved peer row
-  OpB2->>SB: Approve pending
-  SB->>SB: attempt approved peer row
+  OpA2->>SA: Approve (not yet built, see 03)
+  SA->>SA: invitation approved, federation_established row
+  OpB2->>SB: Approve (not yet built, see 03)
+  SB->>SB: federation_established row
 ```
 
 ### Dual role after establishment

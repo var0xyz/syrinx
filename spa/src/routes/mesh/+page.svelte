@@ -21,6 +21,9 @@
   let freshConnectionString = '';
   let showConnectionModal = false;
   let showCreateModal = false;
+  let showAcceptModal = false;
+  let acceptConnectionString = '';
+  let accepting = false;
 
   onMount(async () => {
     user = await authService.getCurrentUser();
@@ -102,6 +105,43 @@
     return btoa(binary);
   }
 
+  function decodeConnectionString(encoded: string): string {
+    const binary = atob(encoded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new TextDecoder().decode(bytes);
+  }
+
+  function openAcceptModal() {
+    if (accepting) return;
+    showAcceptModal = true;
+  }
+
+  function dismissAcceptModal() {
+    if (accepting) return;
+    showAcceptModal = false;
+    acceptConnectionString = '';
+  }
+
+  async function acceptInvite() {
+    const encoded = acceptConnectionString.trim();
+    if (!encoded || accepting) return;
+    accepting = true;
+    try {
+      const connectionString = decodeConnectionString(encoded);
+      await apiService.attemptFederationConnection(connectionString);
+      showAcceptModal = false;
+      acceptConnectionString = '';
+      notificationStore.success('Connection accepted — awaiting a second admin’s approval.');
+    } catch (err) {
+      notificationStore.error(err instanceof Error ? err.message : 'Failed to accept connection');
+    } finally {
+      accepting = false;
+    }
+  }
+
   $: freshConnectionEncoded = freshConnectionString
     ? encodeConnectionString(freshConnectionString)
     : '';
@@ -125,12 +165,16 @@
   function statusLabel(status: api.FederationInvitation['status']) {
     if (status === 'accepted') return 'Accepted';
     if (status === 'approved') return 'Approved';
+    if (status === 'rejected') return 'Rejected';
+    if (status === 'canceled') return 'Canceled';
     if (status === 'revoked') return 'Revoked';
     return 'Pending';
   }
 
   function reviewActionLabel(status: api.FederationInvitation['status']) {
     if (status === 'approved') return 'Approved by';
+    if (status === 'rejected') return 'Rejected by';
+    if (status === 'canceled') return 'Canceled by';
     if (status === 'revoked') return 'Revoked by';
     return 'Reviewed by';
   }
@@ -203,6 +247,15 @@
         {/if}
 
         <button
+          class="floating-accept-btn"
+          disabled={accepting}
+          on:click={openAcceptModal}
+          aria-label={accepting ? 'Accepting connection' : 'Accept federation connection'}
+        >
+          <span class="icon">{accepting ? '…' : '📥'}</span>
+        </button>
+
+        <button
           class="floating-create-btn"
           disabled={creating}
           on:click={openCreateModal}
@@ -259,6 +312,46 @@
             on:click={createInvite}
           >
             {creating ? 'Creating…' : 'Create invite'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showAcceptModal}
+    <div
+      class="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="accept-connection-title"
+      tabindex="-1"
+      on:click={(e) => e.target === e.currentTarget && dismissAcceptModal()}
+      on:keydown={(e) => e.key === 'Escape' && dismissAcceptModal()}
+    >
+      <div class="modal">
+        <h2 id="accept-connection-title">Accept connection</h2>
+        <p class="modal-lead">
+          Paste the connection string another server&apos;s admin shared with you out of band.
+        </p>
+        <label class="field">
+          <span>Connection string</span>
+          <textarea
+            bind:value={acceptConnectionString}
+            rows="8"
+            spellcheck="false"
+            placeholder="Paste the share code here"
+          ></textarea>
+        </label>
+        <div class="modal-actions">
+          <button class="btn secondary" disabled={accepting} on:click={dismissAcceptModal}>
+            Cancel
+          </button>
+          <button
+            class="btn primary"
+            disabled={accepting || !acceptConnectionString.trim()}
+            on:click={acceptInvite}
+          >
+            {accepting ? 'Accepting…' : 'Accept'}
           </button>
         </div>
       </div>
@@ -441,6 +534,8 @@
     color: #27ae60;
   }
 
+  .badge[data-status='rejected'],
+  .badge[data-status='canceled'],
   .badge[data-status='revoked'] {
     color: var(--muted);
   }
@@ -463,7 +558,8 @@
     color: #b91c1c;
   }
 
-  .floating-create-btn {
+  .floating-create-btn,
+  .floating-accept-btn {
     position: fixed;
     bottom: 5rem;
     right: 1.5rem;
@@ -482,17 +578,27 @@
     justify-content: center;
   }
 
-  .floating-create-btn:hover:not(:disabled) {
+  .floating-accept-btn {
+    bottom: 9.5rem;
+    background: var(--surface);
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+
+  .floating-create-btn:hover:not(:disabled),
+  .floating-accept-btn:hover:not(:disabled) {
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(88, 166, 255, 0.4);
   }
 
-  .floating-create-btn:disabled {
+  .floating-create-btn:disabled,
+  .floating-accept-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
   }
 
-  .floating-create-btn .icon {
+  .floating-create-btn .icon,
+  .floating-accept-btn .icon {
     font-size: 1.5rem;
   }
 
