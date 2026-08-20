@@ -24,11 +24,32 @@ export function formatReedRef(authorId: string, serverId: string, reedId: string
   return `${authorId}@${serverId}/${reedId}`;
 }
 
+/**
+ * Build a ref from a userID that's already canonical (userID@serverID) —
+ * e.g. reed.userID. Just appends the reedId; does not touch serverId,
+ * because it's already embedded in userID.
+ */
+export function refForReed(userID: string, reedId: string): string {
+  return `${userID}/${reedId}`;
+}
+
+/**
+ * Re-key a canonical userID under a different serverId. Only needed for a
+ * removed reed/account: the removal cert's serverId is authoritative once
+ * the account is gone, and may not match the serverId already embedded in
+ * userID (e.g. stale local cache). Not for the general case — a live
+ * reed's own userID already has the right serverId; use refForReed there.
+ */
+export function refForRemoved(userID: string, serverId: string, reedId: string): string {
+  const at = userID.indexOf('@');
+  const authorId = at <= 0 ? userID : userID.slice(0, at);
+  return formatReedRef(authorId, serverId, reedId);
+}
+
 /** Thread id for a reply: inherit parent's threadId or parent ref when parent is the root. */
 export function resolveThreadId(
   parent: { userID: string; id: string; threadId?: string },
-  serverId: string,
 ): string {
   if (parent.threadId) return parent.threadId;
-  return formatReedRef(parent.userID, serverId, parent.id);
+  return refForReed(parent.userID, parent.id);
 }

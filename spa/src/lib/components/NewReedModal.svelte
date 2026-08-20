@@ -13,7 +13,7 @@
   } from '$lib/utils/reedContent';
   import { notificationStore } from '$lib/stores/notifications';
   import { Reed } from '$lib/types/reed';
-  import { formatReedRef, resolveThreadId } from '$lib/utils/reedRef';
+  import { refForReed, resolveThreadId } from '$lib/utils/reedRef';
   import { goto } from '$app/navigation';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -54,9 +54,7 @@
 
   /** @param {import('$lib/types/reed').ReedType} target */
   function refFor(target) {
-    const serverId = target.serverSignature?.serverID || localStorage.getItem('serverId') || '';
-    if (!serverId) throw new Error('Server ID not available');
-    return formatReedRef(target.userID, serverId, target.id);
+    return refForReed(target.userID, target.id);
   }
 
   let content = '';
@@ -166,9 +164,7 @@
       reed.content = content;
       if (pinnedReply) {
         reed.replying = refFor(pinnedReply);
-        const serverId = pinnedReply.serverSignature?.serverID || localStorage.getItem('serverId') || '';
-        if (!serverId) throw new Error('Server ID not available');
-        reed.threadId = resolveThreadId(pinnedReply, serverId);
+        reed.threadId = resolveThreadId(pinnedReply);
       }
       if (pinnedEcho) {
         reed.echoing = refFor(pinnedEcho);
