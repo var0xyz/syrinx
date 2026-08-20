@@ -8,6 +8,7 @@
   import { notificationStore } from '$lib/stores/notifications';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import Username from '$lib/components/Username.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
 
   $: serverId = $page.params.serverId;
@@ -16,7 +17,9 @@
   let isAdmin = false;
   let loading = true;
   let server: api.FederationServer | null = null;
-  /** Plain text, one log line per line — rendered verbatim, never parsed. */
+  /** null when this server was the responder (no local invitation row). */
+  let invitation: api.FederationInvitation | null = null;
+  /** Plain text, invite logs then server logs — rendered verbatim, never parsed. */
   let logsText = '';
 
   onMount(async () => {
@@ -33,16 +36,22 @@
 
   async function refresh() {
     try {
-      const [servers, serverLogs] = await Promise.all([
+      const [servers, inv, serverLogs] = await Promise.all([
         apiService.listFederationServers(),
+        apiService.getFederationServerInvitation(serverId),
         apiService.getFederationServerLogs(serverId),
       ]);
       server = servers.find((s) => s.serverId === serverId) ?? null;
+      invitation = inv;
       logsText = serverLogs;
     } catch (err) {
       console.error('[mesh/peer]', err);
       notificationStore.error(err instanceof Error ? err.message : 'Failed to load server logs');
     }
+  }
+
+  function reviewActionLabel(status: api.FederationInvitation['status']) {
+    return `${status.charAt(0).toUpperCase()}${status.slice(1)} by`;
   }
 
   /** Prefer history.back so the mesh list can restore scroll. */
@@ -78,6 +87,36 @@
           <p class="meta">Added {formatRelativeTime(server.createdAt)}</p>
         {:else}
           <p class="muted">Unknown server: {serverId}</p>
+        {/if}
+
+        {#if invitation}
+          <h3 class="section-heading">Invitation</h3>
+          <div class="invite-info">
+            <span class="meta"
+              >"{invitation.name}" created {formatRelativeTime(invitation.createdAt)} by <Username
+                userID={invitation.createdBy}
+                username={invitation.createdByUsername}
+                class="meta-link"
+                at
+                fire={false}
+              /></span
+            >
+            {#if invitation.reviewedBy && invitation.reviewedByUsername}
+              <span class="meta">
+                {reviewActionLabel(invitation.status)}
+                <Username
+                  userID={invitation.reviewedBy}
+                  username={invitation.reviewedByUsername}
+                  class="meta-link"
+                  at
+                  fire={false}
+                />
+                {#if invitation.reviewedAt}
+                  · {formatRelativeTime(invitation.reviewedAt)}
+                {/if}
+              </span>
+            {/if}
+          </div>
         {/if}
 
         <h3 class="section-heading">Logs</h3>
@@ -156,6 +195,21 @@
     font-size: 0.85rem;
     color: var(--muted);
     margin: 0.15rem 0;
+  }
+
+  .invite-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  :global(.invite-info .meta-link) {
+    color: var(--primary);
+    text-decoration: none;
   }
 
   .muted {

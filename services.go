@@ -3236,18 +3236,21 @@ type federationServerLogRow struct {
 	CreatedAt time.Time
 }
 
-// ListFederationServerLogs returns federation_log lines linked to serverID
-// via federation_server_log — see logFederationServer's doc comment for
-// which handshake steps write here (mainly the responder, which has no
-// local invitation row to log against).
-func (s *DataService) ListFederationServerLogs(ctx context.Context, serverID string) ([]federationServerLogRow, error) {
-	rows, err := s.db.QueryContext(ctx, `
+// listFederationLog reads federation_log lines through one of its two
+// junction tables — federation_server_log (junctionTable="federation_server_log",
+// junctionCol="server_id") or federation_invitation_log
+// (junctionCol="invitation_id") — see logFederationServer/
+// logFederationInvitation's doc comments for which handshake steps write to
+// which.
+func (s *DataService) listFederationLog(ctx context.Context, junctionTable, junctionCol, id string) ([]federationServerLogRow, error) {
+	query := fmt.Sprintf(`
 		SELECT fl.id, fl.level, fl.message, fl.created_at
-		FROM federation_server_log fsl
-		JOIN federation_log fl ON fl.id = fsl.log_id
-		WHERE fsl.server_id = $1
-		ORDER BY fl.created_at DESC
-	`, serverID)
+		FROM %s j
+		JOIN federation_log fl ON fl.id = j.log_id
+		WHERE j.%s = $1
+		ORDER BY fl.created_at ASC
+	`, junctionTable, junctionCol)
+	rows, err := s.db.QueryContext(ctx, query, id)
 	if err != nil {
 		return nil, err
 	}
@@ -3262,6 +3265,14 @@ func (s *DataService) ListFederationServerLogs(ctx context.Context, serverID str
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (s *DataService) ListFederationServerLogs(ctx context.Context, serverID string) ([]federationServerLogRow, error) {
+	return s.listFederationLog(ctx, "federation_server_log", "server_id", serverID)
+}
+
+func (s *DataService) ListFederationInvitationLogs(ctx context.Context, invitationID string) ([]federationServerLogRow, error) {
+	return s.listFederationLog(ctx, "federation_invitation_log", "invitation_id", invitationID)
 }
 
 type federationInvitationListRow struct {
@@ -3367,6 +3378,11 @@ func (s *DataService) GetFederationInvitation(ctx context.Context, id string) (*
 // ListFederationInvitations joins users twice for display names
 // (creator/reviewer), same pattern as GetUserProfile's invited_by
 // self-join. reviewed_by is nullable, COALESCE'd to "" in SQL.
+// ListFederationInvitations excludes accepted/approved invitations —
+// once accepted, an invitation can no longer change state (it's a
+// finished handshake, live or not), so it moves to living under the
+// resulting server's own page (see ListFederationInvitationForServer)
+// instead of cluttering the pending-invite list forever.
 func (s *DataService) ListFederationInvitations(ctx context.Context) ([]federationInvitationListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT fi.id, fi.name, fi.status, fi.created_by, COALESCE(creator.username, ''),
@@ -3376,8 +3392,9 @@ func (s *DataService) ListFederationInvitations(ctx context.Context) ([]federati
 		FROM federation_invitation fi
 		JOIN users creator ON creator.id = fi.created_by
 		LEFT JOIN users reviewer ON reviewer.id = fi.reviewed_by
+		WHERE fi.status NOT IN ($1, $2)
 		ORDER BY fi.created_at DESC
-	`)
+	`, federationStatusAccepted, federationStatusApproved)
 	if err != nil {
 		return nil, err
 	}
@@ -3415,6 +3432,55 @@ func (s *DataService) ListFederationInvitations(ctx context.Context) ([]federati
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+// GetFederationInvitationForServer returns the (accepted/approved)
+// invitation that produced serverID, or nil if this server was the
+// responder — the responder never has a local invitation row for a
+// connection it accepted (see OutgoingFederationAttempt's doc comment), so
+// nil is the expected, non-error result there, not a lookup failure.
+func (s *DataService) GetFederationInvitationForServer(ctx context.Context, serverID string) (*federationInvitationListRow, error) {
+	var row federationInvitationListRow
+	var acceptedAt, reviewedAt sql.NullTime
+	err := s.db.QueryRowContext(ctx, `
+		SELECT fi.id, fi.name, fi.status, fi.created_by, COALESCE(creator.username, ''),
+		       fi.fingerprint, fi.created_at, fi.accepted_at, COALESCE(fi.server_id, ''),
+		       COALESCE(fi.reviewed_by, ''), COALESCE(reviewer.username, ''), fi.reviewed_at,
+		       COALESCE(fi.connection_ciphertext, '')
+		FROM federation_invitation fi
+		JOIN users creator ON creator.id = fi.created_by
+		LEFT JOIN users reviewer ON reviewer.id = fi.reviewed_by
+		WHERE fi.server_id = $1
+	`, serverID).Scan(
+		&row.ID,
+		&row.Name,
+		&row.Status,
+		&row.CreatedBy,
+		&row.CreatedByUsername,
+		&row.Fingerprint,
+		&row.CreatedAt,
+		&acceptedAt,
+		&row.ServerID,
+		&row.ReviewedBy,
+		&row.ReviewedByUsername,
+		&reviewedAt,
+		&row.ConnectionCiphertext,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if acceptedAt.Valid {
+		t := acceptedAt.Time.UTC()
+		row.AcceptedAt = &t
+	}
+	if reviewedAt.Valid {
+		t := reviewedAt.Time.UTC()
+		row.ReviewedAt = &t
+	}
+	return &row, nil
 }
 
 // RevokeFederationInvitation's reviewedBy is the local admin revoking the

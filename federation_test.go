@@ -389,6 +389,9 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 		t.Fatalf("expected peer server marked connected")
 	}
 
+	// Accepted invitations no longer appear in the pending-invite list — the
+	// invitation can't change state anymore, so it now lives under the
+	// resulting server's own page (GetFederationInvitationForServer) instead.
 	rr := httptest.NewRecorder()
 	req := federationWithUID(httptest.NewRequest(http.MethodGet, "/api/federation/invitations", nil), admin1)
 	h.ListFederationInvitations(rr, req)
@@ -396,7 +399,15 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 1 || list[0].ConnectionString != nil {
-		t.Fatalf("list=%+v", list)
+	if len(list) != 0 {
+		t.Fatalf("list=%+v, want empty (accepted invitations are excluded)", list)
+	}
+
+	forServer, err := ds.GetFederationInvitationForServer(context.Background(), "server-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forServer == nil || forServer.ID != "inv1" || forServer.ConnectionCiphertext != "" {
+		t.Fatalf("forServer=%+v", forServer)
 	}
 }
