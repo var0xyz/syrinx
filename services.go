@@ -3554,17 +3554,6 @@ func (s *DataService) RedeemFederationInvitation(ctx context.Context, peer feder
 	return tx.Commit()
 }
 
-// AcceptFederationInvitation runs on the RESPONDER once the initiator's
-// /connect callback confirms success: it flips the peer server row to
-// connected = TRUE. Not to be confused with MarkFederationInvitationAccepted,
-// which runs on the INITIATOR.
-func (s *DataService) AcceptFederationInvitation(ctx context.Context, serverID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE servers SET connected = TRUE WHERE id = $1
-	`, serverID)
-	return err
-}
-
 // MarkFederationInvitationAccepted runs on the INITIATOR when a remote
 // server's connect callback verifies successfully: it records the peer
 // server (self=FALSE, connected=TRUE immediately — the initiator's own
@@ -3593,10 +3582,14 @@ func (s *DataService) MarkFederationInvitationAccepted(ctx context.Context, invi
 		return errFederationInvitationNotNew
 	}
 
+	// connected stays FALSE here: the handshake having verified (valid
+	// signatures, reachable peer) is not the same as a second admin having
+	// approved the connection (spec 03, not yet built) — connected must not
+	// go TRUE until that approval step exists and actually runs.
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO servers (id, name, self, base_url, connected, created_at)
-		VALUES ($1, $1, FALSE, $2, TRUE, $3)
-		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, connected = TRUE
+		VALUES ($1, $1, FALSE, $2, FALSE, $3)
+		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url
 	`, peer.ServerID, peer.BaseURL, acceptedAt.UTC()); err != nil {
 		return fmt.Errorf("insert federation peer: %w", err)
 	}

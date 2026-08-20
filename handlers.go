@@ -3345,12 +3345,13 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	default:
 		h.logFederationInvitationAsync(inviteID, federationLogInfo, "Connect attempt accepted; pending approval")
 		// MarkFederationInvitationAccepted just inserted/updated the peer's
-		// servers row (connected=TRUE), so federation_server_log's FK is
-		// satisfiable now — mirror the responder's logFederationServerAsync
-		// calls in OutgoingFederationAttempt so the initiator's mesh/peer
-		// view isn't empty for a connection it originated.
+		// servers row (connected stays FALSE — see its doc comment), so
+		// federation_server_log's FK is satisfiable now — mirror the
+		// responder's logFederationServerAsync calls in
+		// OutgoingFederationAttempt so the initiator's mesh/peer view isn't
+		// empty for a connection it originated.
 		h.logFederationServerAsync(req.ServerID, federationLogInfo,
-			fmt.Sprintf("Connected to %s (%s)", req.ServerID, req.BaseURL))
+			fmt.Sprintf("Handshake verified with %s (%s); awaiting approval", req.ServerID, req.BaseURL))
 		writeResponse(w, http.StatusOK, federationConnectResponse{Status: federationStatusAccepted, ServerID: req.ServerID})
 	}
 }
@@ -3359,9 +3360,11 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 // pastes a connection string they received out-of-band from the
 // initiator's admin. This decrypts it, verifies the initiator's signature,
 // records the peer server row (connected=FALSE — so there's somewhere to
-// log against even if the next step fails), signs and posts our own
-// callback to the initiator's connect endpoint, and marks the peer
-// connected once the initiator confirms.
+// log against even if the next step fails), and signs and posts our own
+// callback to the initiator's connect endpoint. connected stays FALSE even
+// once the initiator confirms — that only means the handshake verified,
+// not that a second admin has approved the connection (spec 03, not yet
+// built).
 func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 
@@ -3504,13 +3507,11 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := h.services.db.AcceptFederationInvitation(r.Context(), payload.ServerID); err != nil {
-		log.Error().Err(err).Msg("failed to mark federation peer connected")
-		internalServerError(w)
-		return
-	}
+	// connected stays FALSE: the handshake having verified is not the same
+	// as a second admin having approved the connection (spec 03, not yet
+	// built) — see RedeemFederationInvitation's insert above.
 	h.logFederationServerAsync(payload.ServerID, federationLogInfo,
-		fmt.Sprintf("Connected to %s (%s); pending approval", payload.ServerID, payload.BaseURL))
+		fmt.Sprintf("Handshake verified with %s (%s); awaiting approval", payload.ServerID, payload.BaseURL))
 
 	writeResponse(w, http.StatusOK, federationAttemptResponse{Status: federationStatusAccepted, ServerID: payload.ServerID})
 }

@@ -114,26 +114,28 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 		t.Fatalf("a invitation=%+v", inv)
 	}
 
-	// a should have recorded b as a connected peer server.
+	// a should have recorded b as a peer server — handshake verified, but
+	// connected stays FALSE until a second admin approves (spec 03, not
+	// yet built); the handshake alone must not flip it.
 	var aConnected bool
 	if err := a.ds.db.QueryRowContext(context.Background(),
 		`SELECT connected FROM servers WHERE id = $1`, inv.ServerID,
 	).Scan(&aConnected); err != nil {
 		t.Fatal(err)
 	}
-	if !aConnected {
-		t.Fatalf("expected peer server connected on a")
+	if aConnected {
+		t.Fatalf("expected peer server NOT connected on a (awaiting approval)")
 	}
 
-	// b should independently have a as a connected peer server too.
+	// b should independently have a as a peer server too, also unapproved.
 	var bServerCount int
 	if err := b.ds.db.QueryRowContext(context.Background(),
-		`SELECT COUNT(*) FROM servers WHERE self = FALSE AND connected = TRUE`,
+		`SELECT COUNT(*) FROM servers WHERE self = FALSE AND connected = FALSE`,
 	).Scan(&bServerCount); err != nil {
 		t.Fatal(err)
 	}
 	if bServerCount != 1 {
-		t.Fatalf("expected 1 connected peer server on b, got %d", bServerCount)
+		t.Fatalf("expected 1 unapproved peer server on b, got %d", bServerCount)
 	}
 }
 
