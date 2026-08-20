@@ -15,6 +15,7 @@
   let user: api.User | null = null;
   let isAdmin = false;
   let invitations: api.FederationInvitation[] = [];
+  let attempts: api.FederationAttempt[] = [];
   let servers: api.FederationServer[] = [];
   let loading = true;
   let remotePublicKey = '';
@@ -43,10 +44,10 @@
 
   async function refreshList() {
     try {
-      [invitations, servers] = await Promise.all([
-        apiService.listFederationInvitations(),
-        apiService.listFederationServers(),
-      ]);
+      const list = await apiService.listFederation();
+      invitations = list.invitations;
+      attempts = list.attempts;
+      servers = list.servers;
     } catch (err) {
       console.error('[mesh]', err);
       notificationStore.error(err instanceof Error ? err.message : 'Failed to load federation invites');
@@ -200,6 +201,19 @@
     if (status === 'revoked') return 'Revoked by';
     return 'Reviewed by';
   }
+
+  function attemptStatusLabel(status: api.FederationAttempt['status']) {
+    if (status === 'approved') return 'Approved';
+    if (status === 'rejected') return 'Rejected';
+    return 'Pending';
+  }
+
+  /** Reuses the invitation badge's color scheme (same status vocabulary). */
+  function attemptBadgeStatus(status: api.FederationAttempt['status']) {
+    if (status === 'approved') return 'approved';
+    if (status === 'rejected') return 'rejected';
+    return 'new';
+  }
 </script>
 
 <Auth>
@@ -221,7 +235,7 @@
           </button>
         </div>
 
-        {#if invitations.length === 0 && servers.length === 0}
+        {#if invitations.length === 0 && attempts.length === 0 && servers.length === 0}
           <div class="empty-state">
             <div class="empty-icon">🔗</div>
             <h3>No federation invites yet</h3>
@@ -271,6 +285,32 @@
                       {revokingId === inv.inviteId ? 'Revoking…' : 'Revoke'}
                     </button>
                   {/if}
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+
+        {#if attempts.length > 0}
+          <h3 class="section-heading">Connection attempts</h3>
+          <ul class="invite-list">
+            {#each attempts as attempt (attempt.attemptId)}
+              <li
+                class="invite-row clickable"
+                role="button"
+                tabindex="0"
+                on:click={() => goto(`/mesh/attempt/${encodeURIComponent(attempt.attemptId)}`)}
+                on:keydown={(e) => e.key === 'Enter' && goto(`/mesh/attempt/${encodeURIComponent(attempt.attemptId)}`)}
+              >
+                <div class="invite-main">
+                  <span class="invite-name">{attempt.remoteServerName}</span>
+                  <span class="badge-row">
+                    <span class="badge" data-status={attemptBadgeStatus(attempt.status)}>
+                      {attemptStatusLabel(attempt.status)}
+                    </span>
+                  </span>
+                  <span class="meta">{attempt.baseUrl}</span>
+                  <span class="meta">Started {formatRelativeTime(attempt.createdAt)}</span>
                 </div>
               </li>
             {/each}
