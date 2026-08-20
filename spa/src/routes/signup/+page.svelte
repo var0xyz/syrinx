@@ -248,6 +248,10 @@
         keyPair.fingerprint,
       );
       await publicKeyRepository.put(attestedKey);
+      // A stale backup timestamp from a previous account on this browser
+      // must not carry over — it would make Auth.svelte's welcome-page gate
+      // think this brand new key has already been backed up.
+      localStorage.removeItem('lastKeyBackupAt');
       await authService.saveUserToStorage(user);
 
       serverConnection.connect().then(() => serverConnection.syncRequest());
