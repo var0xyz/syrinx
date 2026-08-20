@@ -77,6 +77,11 @@ func createInvitationEncryptedTo(t *testing.T, fs *federationServer, adminID str
 func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	a := newFederationServer(t, "server-a")
 	b := newFederationServer(t, "server-b")
+	// Distinct display names so we can assert each side learns the OTHER's
+	// ServerName (not its own id, and not the other's id either) — see
+	// federationConnectionPayload/federationConnectRequest's ServerName field.
+	a.h.cfg.ServerName = "Alpha"
+	b.h.cfg.ServerName = "Bravo"
 
 	aAdmin := seedFederationUser(t, a.ds, "a-admin", "a-admin", roles.RoleAdmin)
 	bAdmin := seedFederationUser(t, b.ds, "b-admin", "b-admin", roles.RoleAdmin)
@@ -116,26 +121,36 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 
 	// a should have recorded b as a peer server — handshake verified, but
 	// connected stays FALSE until a second admin approves (spec 03, not
-	// yet built); the handshake alone must not flip it.
+	// yet built); the handshake alone must not flip it. name should be b's
+	// real display name ("Bravo"), not b's server id.
 	var aConnected bool
+	var aPeerName string
 	if err := a.ds.db.QueryRowContext(context.Background(),
-		`SELECT connected FROM servers WHERE id = $1`, inv.ServerID,
-	).Scan(&aConnected); err != nil {
+		`SELECT connected, name FROM servers WHERE id = $1`, inv.ServerID,
+	).Scan(&aConnected, &aPeerName); err != nil {
 		t.Fatal(err)
 	}
 	if aConnected {
 		t.Fatalf("expected peer server NOT connected on a (awaiting approval)")
 	}
+	if aPeerName != "Bravo" {
+		t.Fatalf("a's record of b: name=%q, want %q", aPeerName, "Bravo")
+	}
 
-	// b should independently have a as a peer server too, also unapproved.
+	// b should independently have a as a peer server too, also unapproved,
+	// with a's real display name ("Alpha").
 	var bServerCount int
+	var bPeerName string
 	if err := b.ds.db.QueryRowContext(context.Background(),
-		`SELECT COUNT(*) FROM servers WHERE self = FALSE AND connected = FALSE`,
-	).Scan(&bServerCount); err != nil {
+		`SELECT COUNT(*), MIN(name) FROM servers WHERE self = FALSE AND connected = FALSE`,
+	).Scan(&bServerCount, &bPeerName); err != nil {
 		t.Fatal(err)
 	}
 	if bServerCount != 1 {
 		t.Fatalf("expected 1 unapproved peer server on b, got %d", bServerCount)
+	}
+	if bPeerName != "Alpha" {
+		t.Fatalf("b's record of a: name=%q, want %q", bPeerName, "Alpha")
 	}
 }
 

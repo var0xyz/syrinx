@@ -50,10 +50,6 @@
     }
   }
 
-  function reviewActionLabel(status: api.FederationInvitation['status']) {
-    return `${status.charAt(0).toUpperCase()}${status.slice(1)} by`;
-  }
-
   /** Prefer history.back so the mesh list can restore scroll. */
   function goBack() {
     if (typeof history !== 'undefined' && history.length > 1) {
@@ -76,7 +72,7 @@
 
         {#if server}
           <div class="server-header">
-            <span class="server-name">{server.name}</span>
+            <span class="server-name">{server.name} ({serverId})</span>
             <span class="badge" data-status={server.connected ? 'approved' : 'accepted'}>
               {server.connected ? 'Connected' : 'Awaiting confirmation'}
             </span>
@@ -85,38 +81,19 @@
             <p class="meta">{server.baseUrl}</p>
           {/if}
           <p class="meta">Added {formatRelativeTime(server.createdAt)}</p>
-        {:else}
-          <p class="muted">Unknown server: {serverId}</p>
-        {/if}
-
-        {#if invitation}
-          <h3 class="section-heading">Invitation</h3>
-          <div class="invite-info">
-            <span class="meta"
-              >"{invitation.name}" created {formatRelativeTime(invitation.createdAt)} by <Username
+          {#if invitation}
+            <p class="meta"
+              >Invited by <Username
                 userID={invitation.createdBy}
                 username={invitation.createdByUsername}
                 class="meta-link"
                 at
                 fire={false}
-              /></span
+              /> {formatRelativeTime(invitation.createdAt)}</p
             >
-            {#if invitation.reviewedBy && invitation.reviewedByUsername}
-              <span class="meta">
-                {reviewActionLabel(invitation.status)}
-                <Username
-                  userID={invitation.reviewedBy}
-                  username={invitation.reviewedByUsername}
-                  class="meta-link"
-                  at
-                  fire={false}
-                />
-                {#if invitation.reviewedAt}
-                  · {formatRelativeTime(invitation.reviewedAt)}
-                {/if}
-              </span>
-            {/if}
-          </div>
+          {/if}
+        {:else}
+          <p class="muted">Unknown server: {serverId}</p>
         {/if}
 
         <h3 class="section-heading">Logs</h3>
@@ -197,17 +174,7 @@
     margin: 0.15rem 0;
   }
 
-  .invite-info {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    padding: 0.75rem 1rem;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--surface);
-  }
-
-  :global(.invite-info .meta-link) {
+  :global(.meta .meta-link) {
     color: var(--primary);
     text-decoration: none;
   }

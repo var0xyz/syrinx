@@ -3517,6 +3517,7 @@ func (s *DataService) RevokeFederationInvitation(ctx context.Context, id, review
 // handshake, as recorded into the shared servers table.
 type federationPeer struct {
 	ServerID    string
+	ServerName  string
 	BaseURL     string
 	Fingerprint string
 	PublicKey   string
@@ -3543,11 +3544,15 @@ func (s *DataService) RedeemFederationInvitation(ctx context.Context, peer feder
 		return fmt.Errorf("insert remote public key: %w", err)
 	}
 
+	name := peer.ServerName
+	if name == "" {
+		name = peer.ServerID
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO servers (id, name, self, base_url, connected, created_at)
-		VALUES ($1, $1, FALSE, $2, FALSE, $3)
+		VALUES ($1, $2, FALSE, $3, FALSE, $4)
 		ON CONFLICT (id) DO NOTHING
-	`, peer.ServerID, peer.BaseURL, createdAt.UTC()); err != nil {
+	`, peer.ServerID, name, peer.BaseURL, createdAt.UTC()); err != nil {
 		return fmt.Errorf("insert federation peer: %w", err)
 	}
 
@@ -3586,11 +3591,15 @@ func (s *DataService) MarkFederationInvitationAccepted(ctx context.Context, invi
 	// signatures, reachable peer) is not the same as a second admin having
 	// approved the connection (spec 03, not yet built) — connected must not
 	// go TRUE until that approval step exists and actually runs.
+	name := peer.ServerName
+	if name == "" {
+		name = peer.ServerID
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO servers (id, name, self, base_url, connected, created_at)
-		VALUES ($1, $1, FALSE, $2, FALSE, $3)
-		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url
-	`, peer.ServerID, peer.BaseURL, acceptedAt.UTC()); err != nil {
+		VALUES ($1, $2, FALSE, $3, FALSE, $4)
+		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, name = EXCLUDED.name
+	`, peer.ServerID, name, peer.BaseURL, acceptedAt.UTC()); err != nil {
 		return fmt.Errorf("insert federation peer: %w", err)
 	}
 
