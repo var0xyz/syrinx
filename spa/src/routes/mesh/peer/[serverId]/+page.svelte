@@ -19,7 +19,9 @@
   let server: api.FederationServer | null = null;
   /** null when this server was the responder (no local invitation row). */
   let invitation: api.FederationInvitation | null = null;
-  /** Plain text, invite logs then server logs — rendered verbatim, never parsed. */
+  /** The (approved) attempt that produced this server — approved-by/dates. */
+  let attempt: api.FederationAttempt | null = null;
+  /** Plain text, attempt logs then server logs — rendered verbatim, never parsed. */
   let logsText = '';
 
   onMount(async () => {
@@ -36,13 +38,15 @@
 
   async function refresh() {
     try {
-      const [servers, inv, serverLogs] = await Promise.all([
+      const [servers, inv, att, serverLogs] = await Promise.all([
         apiService.listFederationServers(),
         apiService.getFederationServerInvitation(serverId),
+        apiService.getFederationServerAttempt(serverId),
         apiService.getFederationServerLogs(serverId),
       ]);
       server = servers.find((s) => s.serverId === serverId) ?? null;
       invitation = inv;
+      attempt = att;
       logsText = serverLogs;
     } catch (err) {
       console.error('[mesh/peer]', err);
@@ -88,6 +92,17 @@
                 at
                 fire={false}
               /> {formatRelativeTime(invitation.createdAt)}</p
+            >
+          {/if}
+          {#if attempt?.approvedBy && attempt.approvedByUsername}
+            <p class="meta"
+              >Approved by <Username
+                userID={attempt.approvedBy}
+                username={attempt.approvedByUsername}
+                class="meta-link"
+                at
+                fire={false}
+              /> {#if attempt.approvedAt}{formatRelativeTime(attempt.approvedAt)}{/if}</p
             >
           {/if}
         {:else}

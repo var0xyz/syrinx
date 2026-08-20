@@ -3323,12 +3323,15 @@ func scanFederationAttemptRow(scanner interface {
 	return row, nil
 }
 
-// ListFederationAttempts returns every attempt (pending/approved/rejected),
-// newest first — federation_attempt rows are permanent, so this is the
-// full history, not just the pending queue.
+// ListFederationAttempts returns pending and rejected attempts, newest
+// first. Approved attempts are excluded — once approved, a servers row
+// exists (see ApproveFederationAttempt) and that's what the mesh list
+// shows instead; the attempt row itself is still kept forever for its
+// audit trail (see GetFederationAttemptForServer).
 func (s *DataService) ListFederationAttempts(ctx context.Context) ([]federationAttemptRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+federationAttemptSelectCols+federationAttemptFromJoin+`
+		WHERE fa.status != 'approved'
 		ORDER BY fa.created_at DESC
 	`)
 	if err != nil {
@@ -3711,6 +3714,25 @@ func (s *DataService) GetFederationInvitationForServer(ctx context.Context, serv
 	if reviewedAt.Valid {
 		t := reviewedAt.Time.UTC()
 		row.ReviewedAt = &t
+	}
+	return &row, nil
+}
+
+// GetFederationAttemptForServer returns the approved attempt that produced
+// serverID, or nil if none is found (shouldn't happen for a real servers
+// row, since ApproveFederationAttempt always backfills federation_attempt.
+// server_id, but the caller treats it as "no attempt info" rather than an
+// error either way).
+func (s *DataService) GetFederationAttemptForServer(ctx context.Context, serverID string) (*federationAttemptRow, error) {
+	row, err := scanFederationAttemptRow(s.db.QueryRowContext(ctx, `
+		SELECT `+federationAttemptSelectCols+federationAttemptFromJoin+`
+		WHERE fa.server_id = $1
+	`, serverID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	return &row, nil
 }
