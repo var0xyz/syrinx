@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"syrinx/crypto"
-	"syrinx/identity"
 	"syrinx/invites"
 	"syrinx/observability"
 	"syrinx/realtime"
@@ -220,8 +219,9 @@ func main() {
 	h.SetKickUserWS(realtimeService.DisconnectUser)
 	realtimeService.SetDeviceCheck(func(userID, deviceID string) error {
 		// userID arrives already in "userID@serverID" form (see
-		// realtime/auth.go); CheckActiveDevice is bare-in, so decode here.
-		return dataService.CheckActiveDevice(context.Background(), identity.IdentityID(userID).UserID(), deviceID)
+		// realtime/auth.go), and CheckActiveDevice expects that same
+		// composed form (see its doc comment) — pass through unmodified.
+		return dataService.CheckActiveDevice(context.Background(), userID, deviceID)
 	})
 	log.Info().Msg("[OK] Handlers initialized successfully")
 
@@ -238,8 +238,11 @@ func main() {
 	api.Use(h.signatureAuthMiddleware("/api"))
 	if cfg.RecoveryMode {
 		realtimeService.SetOngoingCheck(func(userID string) (bool, error) {
-			// Same boundary decode as SetDeviceCheck above.
-			return dataService.IsOngoing(context.Background(), identity.IdentityID(userID).UserID())
+			// userID arrives already in "userID@serverID" form (see
+			// realtime/auth.go), and IsOngoing expects that same composed
+			// form — pass through unmodified, same as the recovery.Middleware
+			// registration below.
+			return dataService.IsOngoing(context.Background(), userID)
 		})
 		api.Use(recovery.Middleware(userIDKey, func(ctx context.Context, userID string) (bool, error) { return dataService.IsOngoing(ctx, userID) }))
 	}

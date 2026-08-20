@@ -70,11 +70,12 @@ type Handlers struct {
 }
 
 type ServerInfo struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	RecoveryMode      bool   `json:"recoveryMode"`
-	SignupMode        string `json:"signupMode"`
-	MaxInvitesPerUser int    `json:"maxInvitesPerUser"` // -1 = infinite
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	RecoveryMode         bool   `json:"recoveryMode"`
+	SignupMode           string `json:"signupMode"`
+	MaxInvitesPerUser    int    `json:"maxInvitesPerUser"` // -1 = infinite
+	ServerKeyFingerprint string `json:"serverKeyFingerprint"`
 }
 
 // ///////////// //
@@ -159,11 +160,12 @@ func (h *Handlers) noop(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, ServerInfo{
-		ID:                h.services.db.GetServerID(),
-		Name:              h.cfg.ServerName,
-		RecoveryMode:      h.cfg.RecoveryMode,
-		SignupMode:        h.cfg.SignupMode,
-		MaxInvitesPerUser: h.cfg.MaxInvitesPerUser,
+		ID:                   h.services.db.GetServerID(),
+		Name:                 h.cfg.ServerName,
+		RecoveryMode:         h.cfg.RecoveryMode,
+		SignupMode:           h.cfg.SignupMode,
+		MaxInvitesPerUser:    h.cfg.MaxInvitesPerUser,
+		ServerKeyFingerprint: h.signingKey.Fingerprint,
 	})
 }
 

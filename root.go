@@ -149,8 +149,14 @@ func exportRootIdentity(
 
 	now := time.Now().UTC().Truncate(time.Second)
 
+	// GetUserProfile/GetPublicKey return root in userID@serverID form, so the
+	// signed payloads must sign that same form or client-side verification
+	// will rebuild different bytes than what was signed (same invariant as
+	// the regular signup handler in handlers.go).
+	canonicalRootID := identity.LocalID(roles.RootUserID, serverID).String()
+
 	profilePayload := identity.BuildNewProfilePayload(
-		roles.RootUserID,
+		canonicalRootID,
 		rootUsername,
 		keyMeta.Fingerprint,
 		serverID,
@@ -167,7 +173,7 @@ func exportRootIdentity(
 
 	keyPayload := identity.BuildPublicKeyPayload(
 		serverID,
-		roles.RootUserID,
+		canonicalRootID,
 		keyMeta.Fingerprint,
 		signingKey.Fingerprint,
 		kp.PublicKey,
@@ -194,7 +200,7 @@ func exportRootIdentity(
 	}
 
 	// GetPublicKey requires userID in "userID@serverID" form too.
-	wireKey, err := db.GetPublicKey(context.Background(), identity.LocalID(roles.RootUserID, serverID).String(), keyMeta.Fingerprint)
+	wireKey, err := db.GetPublicKey(context.Background(), canonicalRootID, keyMeta.Fingerprint)
 	if err != nil || wireKey == nil {
 		return "", fmt.Errorf("load root public key after signup: %w", err)
 	}
@@ -205,7 +211,10 @@ func exportRootIdentity(
 		Timestamp: ts,
 		Origin:    "",
 		LocalStorage: map[string]string{
-			"userId":         roles.RootUserID,
+			// users.id is stored canonical (userID@serverID) by Signup; the
+			// account-recovery bootstrap endpoint does a literal match against
+			// that column, so this must be the composed form, not bare "1".
+			"userId":         canonicalRootID,
 			"keyFingerprint": keyMeta.Fingerprint,
 			"keyPassphrase":  keyPassphrase,
 			"serverId":       serverID,
