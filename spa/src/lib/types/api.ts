@@ -266,13 +266,13 @@ export interface Invite extends Base {
 export interface FederationInvitation {
   inviteId: string;
   name: string;
-  status: 'new' | 'accepted' | 'approved' | 'revoked';
+  status: 'new' | 'accepted' | 'approved' | 'rejected' | 'canceled' | 'revoked';
   createdBy: string;
   createdByUsername: string;
   remoteFingerprint: string;
   createdAt: string;
   acceptedAt?: string | null;
-  approvedAt?: string | null;
+  serverId?: string | null;
   reviewedBy?: string | null;
   reviewedByUsername?: string | null;
   reviewedAt?: string | null;
@@ -283,4 +283,9 @@ export interface FederationInvitationCreateResponse {
   inviteId: string;
   connectionString: string;
   status: 'new';
+}
+
+export interface FederationAttemptResponse {
+  status: 'accepted';
+  serverId: string;
 }

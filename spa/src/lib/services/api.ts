@@ -382,9 +382,20 @@ export const apiService = {
     });
   },
 
-  async revokeFederationInvitation(inviteId: string): Promise<{ inviteId: string; status: 'revoked' }> {
+  async revokeFederationInvitation(inviteId: string): Promise<{ inviteId: string; status: 'canceled' }> {
     return request(`/federation/invitations/${encodeURIComponent(inviteId)}/revoke`, {
       method: 'POST',
+    });
+  },
+
+  // Named "attempt", not "accept" — pasting the string only starts an
+  // attempt at redeeming the invitation; nothing is confirmed until the
+  // initiator's connect callback verifies it.
+  async attemptFederationConnection(connectionString: string): Promise<api.FederationAttemptResponse> {
+    return request<api.FederationAttemptResponse>('/federation/attempt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connectionString }),
     });
   },
 

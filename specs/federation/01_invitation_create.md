@@ -2,7 +2,19 @@
 
 ## Status
 
-Implemented.
+Implemented, with deviations from the DDL below (see
+[02's implementation notes](02_connect_handshake.md#implementation-notes)
+for the reasoning):
+
+- `remote_fingerprint` is `fingerprint`, FKing into `public_keys(fingerprint)`
+  instead of being a bare unreferenced column — the armor itself is stored
+  once in `public_keys` rather than duplicated across federation tables.
+- There is no `federation_attempt` table, so `attempt_id` doesn't exist.
+  Instead `server_id` (nullable FK to `servers`) is set directly once a
+  callback confirms the invitation, and `approved_at` doesn't exist either
+  — `reviewed_by`/`reviewed_at` cover every terminal action (cancel,
+  approve, reject, revoke), since `status` already says which one.
+- `status` has more values than shown below — see the updated table.
 
 ## Depends on
 
@@ -35,25 +47,34 @@ CREATE TABLE federation_invitation (
     id VARCHAR(255) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     secret_hash BYTEA NOT NULL,
-    remote_fingerprint VARCHAR(255) NOT NULL,  -- B's key used for encryption
+    fingerprint VARCHAR(255) NOT NULL REFERENCES public_keys(fingerprint),  -- B's key used for encryption
     created_by VARCHAR(255) NOT NULL REFERENCES users(id),
-    status VARCHAR(16) NOT NULL DEFAULT 'new'
-        CHECK (status IN ('new', 'accepted', 'approved', 'revoked')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     accepted_at TIMESTAMP,
-    approved_at TIMESTAMP,
+    server_id VARCHAR(16) REFERENCES servers(id),  -- set in 02, once a callback confirms this invitation
+    status VARCHAR(16) NOT NULL DEFAULT 'new'
+        CHECK (status IN ('new', 'accepted', 'approved', 'rejected', 'canceled', 'revoked')),
     reviewed_by VARCHAR(255) REFERENCES users(id),
     reviewed_at TIMESTAMP,
     connection_ciphertext TEXT
 );
 ```
 
+There is no `federation_attempt` table and no `approved_at` column — see
+[02's implementation notes](02_connect_handshake.md#implementation-notes).
+`reviewed_by`/`reviewed_at` record whoever performed the terminal action,
+for whichever status it ended up in — one pair of columns for every
+terminal transition, since `status` already disambiguates which action it
+refers to.
+
 | Status | Meaning |
 |--------|---------|
 | **`new`** | Created; awaiting responder `connect` callback |
-| **`accepted`** | Handshake received; **`federation_attempt`** pending approval |
-| **`approved`** | Admin approved the link; **`federation_established`** row exists |
-| **`revoked`** | Cancelled while still **`new`**; **`reviewed_by`** / **`reviewed_at`** set |
+| **`accepted`** | Handshake received (see 02); pending second-admin approval (see 03) |
+| **`approved`** | Admin approved the link; **`federation_established`** row exists (see 03) |
+| **`rejected`** | Admin rejected the link after it was accepted (see 03); **`reviewed_by`**/**`reviewed_at`** set |
+| **`canceled`** | Revoked while still **`new`** — never redeemed; **`reviewed_by`**/**`reviewed_at`** set |
+| **`revoked`** | An established (**`approved`**) connection was later torn down (see 05); **`reviewed_by`**/**`reviewed_at`** set |
 
 Armored **connection string** (PGP ciphertext to remote public key) is stored in
 **`connection_ciphertext`** while status is **`new`**, so admins can retrieve it
@@ -137,5 +158,5 @@ Only visible to **`admin`/`root`**.
 - List → `connectionString` on **`new`** rows; omitted after accept/revoke
 - Accept (step 02) → ciphertext cleared
 - Any admin can list all invites; user role → 403
-- Revoke → `status=revoked`; connect rejects
+- Revoke → `status=canceled`; connect rejects
 - Non-admin → 403

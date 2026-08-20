@@ -28,7 +28,9 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			self BOOLEAN NOT NULL DEFAULT FALSE,
 			signing_key VARCHAR(255),
 			identity_backup_at TIMESTAMP,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			base_url TEXT,
+			connected BOOLEAN NOT NULL DEFAULT FALSE
 		)`,
 		`CREATE TABLE IF NOT EXISTS user_signatures (
 			id SERIAL PRIMARY KEY,

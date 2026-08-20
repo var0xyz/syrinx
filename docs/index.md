@@ -38,6 +38,7 @@ That is the *ish*: distribution and verification like a peer network, with a tra
 | [Trust model](/trust) | What we defend against, and what we don't pretend to |
 | [Cryptography](/cryptography) | Keys, canonical signing, user vs server signatures |
 | [Content distribution](/content) | Reeds, feeds, relay path, consent and abuse guardrails |
+| [Relay model](/relay-model) | Schema-level reference for the relay/allocation machinery — groundwork for federation |
 | [Invites](/invites) | Invite links, hash-only storage, redeem flow, hijack resistance |
 | [Identity, invites & recovery](/identity) | Accounts, signup modes, rebuilding after disaster |
 | [Deletion](/deletion) | Signed removal certificates instead of silent wipes |

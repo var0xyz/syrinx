@@ -294,8 +294,12 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			// Server signing public keys are public verification material —
 			// anyone validating a countersignature must be able to fetch them
 			// without being signed in (and without a non-revoked user key).
+			// /federation/connect/ is the initiator's callback route: the
+			// remote server calling it has no local session — the invitation
+			// secret and its own signature are what prove legitimacy there.
 			excludePrefixes := []string{
 				prefix + "/server/keys/",
+				prefix + "/federation/connect/",
 			}
 
 			for _, path := range excludePaths {
