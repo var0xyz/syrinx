@@ -28,14 +28,14 @@
       }
 
       if (!authService.isLoggedIn()) {
-        goto('/signup');
+        goto('/');
         return;
       }
 
       const user = get(page).data?.user ?? (await authService.getCurrentUser());
 
       if (!user) {
-        goto('/signup');
+        goto('/');
         return;
       }
 
@@ -47,7 +47,7 @@
           await requestSigner.initializeWorker(fingerprint, passphrase);
         } catch (error) {
           console.warn('Failed to auto-initialize request signer:', error);
-          goto('/signup');
+          goto('/');
           return;
         }
       }
@@ -68,7 +68,7 @@
       isChecking = false;
     } catch (error) {
       console.error('Authentication check failed:', error);
-      goto('/signup');
+      goto('/');
     }
   }
 </script>
