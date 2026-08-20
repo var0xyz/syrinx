@@ -3229,6 +3229,41 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 	return out, rows.Err()
 }
 
+type federationServerLogRow struct {
+	ID        string
+	Level     string
+	Message   string
+	CreatedAt time.Time
+}
+
+// ListFederationServerLogs returns federation_log lines linked to serverID
+// via federation_server_log — see logFederationServer's doc comment for
+// which handshake steps write here (mainly the responder, which has no
+// local invitation row to log against).
+func (s *DataService) ListFederationServerLogs(ctx context.Context, serverID string) ([]federationServerLogRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT fl.id, fl.level, fl.message, fl.created_at
+		FROM federation_server_log fsl
+		JOIN federation_log fl ON fl.id = fsl.log_id
+		WHERE fsl.server_id = $1
+		ORDER BY fl.created_at DESC
+	`, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []federationServerLogRow
+	for rows.Next() {
+		var row federationServerLogRow
+		if err := rows.Scan(&row.ID, &row.Level, &row.Message, &row.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 type federationInvitationListRow struct {
 	ID                   string
 	Name                 string

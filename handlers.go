@@ -3088,6 +3088,52 @@ func (h *Handlers) ListFederationServers(w http.ResponseWriter, r *http.Request)
 	writeResponse(w, http.StatusOK, out)
 }
 
+// GetFederationServerLogs returns federation_log lines for one peer server as
+// plain text, one line per entry — the mesh tab's per-server drill-down (tap
+// a server to see what actually happened during its handshake, since that
+// spans two servers and can fail or stall asynchronously; see
+// logFederationServer's doc comment). Plain text instead of a JSON array:
+// the client only ever displays these lines verbatim, so there's nothing to
+// parse on either side.
+func (h *Handlers) GetFederationServerLogs(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	serverID := mux.Vars(r)["id"]
+	if serverID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		return
+	}
+
+	rows, err := h.services.db.ListFederationServerLogs(r.Context(), serverID)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	var sb strings.Builder
+	for _, row := range rows {
+		fmt.Fprintf(&sb, "%s [%s] %s\n",
+			row.CreatedAt.UTC().Format(time.RFC3339), strings.ToUpper(row.Level), row.Message)
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(sb.String()))
+}
+
 func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {

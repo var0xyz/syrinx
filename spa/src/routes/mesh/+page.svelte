@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
   import type * as api from '$lib/types/api';
@@ -280,7 +281,13 @@
           <h3 class="section-heading">Peer servers</h3>
           <ul class="invite-list">
             {#each servers as srv (srv.serverId)}
-              <li class="invite-row">
+              <li
+                class="invite-row clickable"
+                role="button"
+                tabindex="0"
+                on:click={() => goto(`/mesh/peer/${encodeURIComponent(srv.serverId)}`)}
+                on:keydown={(e) => e.key === 'Enter' && goto(`/mesh/peer/${encodeURIComponent(srv.serverId)}`)}
+              >
                 <div class="invite-main">
                   <span class="invite-name">{srv.name}</span>
                   <span class="badge-row">
@@ -559,6 +566,10 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--surface);
+  }
+
+  .invite-row.clickable {
+    cursor: pointer;
   }
 
   .invite-main {
