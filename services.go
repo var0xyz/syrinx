@@ -1824,22 +1824,22 @@ func (s *DataService) CreateReedWithEcho(
 	}
 
 	// echoing_user_id is a direct FK to identities(id); p.UserID arrives in
-	// userID@serverID form already. echoed_user_id/echoed_reed_id have no
-	// FK (see db.go), so echoTarget.AuthorID stays bare.
+	// userID@serverID form already. echoed_user_id has no FK (see db.go),
+	// but CountEchoes/GetReedChorus filter on it in canonical form (it's
+	// the URL-path-identified reed author elsewhere), so compose it the
+	// same way here rather than storing echoTarget.AuthorID bare.
 	selfIdentity := identity.IdentityID(p.UserID)
+	echoedUserID := identity.LocalID(echoTarget.AuthorID, echoTarget.ServerID)
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, is_blank, signed_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (echoing_user_id, echoing_reed_id) DO NOTHING
-	`, selfIdentity, p.ReedID, echoTarget.AuthorID, echoTarget.ReedID, isBlank, ts)
+	`, selfIdentity, p.ReedID, echoedUserID, echoTarget.ReedID, isBlank, ts)
 	if err != nil {
 		return nil, false, fmt.Errorf("insert echo index: %w", err)
 	}
 	n, _ := res.RowsAffected()
-	// echoTarget.AuthorID is bare (ReedRef's shape); p.UserID is in
-	// userID@serverID form, so compare against the bare half of
-	// selfIdentity, not p.UserID directly.
-	echoIndexed = n > 0 && echoTarget.AuthorID != selfIdentity.UserID()
+	echoIndexed = n > 0 && echoedUserID != selfIdentity
 
 	if err := tx.Commit(); err != nil {
 		return nil, false, err
@@ -2175,9 +2175,9 @@ func (s *DataService) GetReedChorus(ctx context.Context, echoedUserID, echoedRee
 // the removed reed itself, which no longer has live tip subscribers).
 //
 // userID is the removed reed's own author, already in userID@serverID
-// form, matching echoing_user_id directly. echoed_user_id/echoed_reed_id
-// have no FK (see db.go) and are always stored bare, so the final DELETE
-// (matching this reed as an echo TARGET) needs userID.UserID() instead.
+// form, matching echoing_user_id directly. echoed_user_id has no FK (see
+// db.go) but is stored canonical too (see CreateReedWithEcho), so the
+// final DELETE (matching this reed as an echo TARGET) uses userID as-is.
 func (s *DataService) DeleteEchoIndexForReed(ctx context.Context, userID, reedID string) ([]ReedRef, error) {
 	selfIdentity := identity.IdentityID(userID)
 	rows, err := s.db.QueryContext(ctx, `
@@ -2209,7 +2209,7 @@ func (s *DataService) DeleteEchoIndexForReed(ctx context.Context, userID, reedID
 	}
 	if _, err := s.db.ExecContext(ctx, `
 		DELETE FROM reed_echoes WHERE echoed_user_id = $1 AND echoed_reed_id = $2
-	`, selfIdentity.UserID(), reedID); err != nil {
+	`, selfIdentity, reedID); err != nil {
 		return nil, err
 	}
 	return targets, nil
