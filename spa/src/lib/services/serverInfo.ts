@@ -78,6 +78,7 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
       recoveryMode: !!data.recoveryMode,
       signupMode: normalizeSignupMode(data.signupMode),
       maxInvitesPerUser: normalizeMaxInvites(data.maxInvitesPerUser),
+      serverKeyFingerprint: typeof data.serverKeyFingerprint === 'string' ? data.serverKeyFingerprint : '',
     };
 
     localStorage.setItem('serverId', info.id);

@@ -7,4 +7,5 @@ export interface ServerInfo {
   signupMode: SignupMode;
   /** -1 means unlimited. */
   maxInvitesPerUser: number;
+  serverKeyFingerprint: string;
 }

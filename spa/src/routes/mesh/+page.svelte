@@ -4,6 +4,7 @@
   import { apiService } from '$lib/services/api';
   import type * as api from '$lib/types/api';
   import { notificationStore } from '$lib/stores/notifications';
+  import { serverInfo } from '$lib/services/serverInfo';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
@@ -24,6 +25,7 @@
   let showAcceptModal = false;
   let acceptConnectionString = '';
   let accepting = false;
+  let copyingOwnKey = false;
 
   onMount(async () => {
     user = await authService.getCurrentUser();
@@ -151,6 +153,21 @@
     freshConnectionString = '';
   }
 
+  async function copyOwnPublicKey() {
+    const fingerprint = $serverInfo?.serverKeyFingerprint;
+    if (!fingerprint || copyingOwnKey) return;
+    copyingOwnKey = true;
+    try {
+      const { armor } = await apiService.getServerPublicKey(fingerprint);
+      await navigator.clipboard.writeText(armor);
+      notificationStore.success('Server public key copied');
+    } catch (err) {
+      notificationStore.error(err instanceof Error ? err.message : 'Could not copy server public key');
+    } finally {
+      copyingOwnKey = false;
+    }
+  }
+
   async function copyConnectionString(connectionString: string) {
     if (!connectionString) return;
     const encoded = encodeConnectionString(connectionString);
@@ -188,7 +205,16 @@
       {:else if !isAdmin}
         <p class="error" role="alert">Admin access required.</p>
       {:else}
-        <p class="lead">Federate with other Syrinx instances</p>
+        <div class="lead-row">
+          <p class="lead">Federate with other Syrinx instances</p>
+          <button
+            class="btn secondary own-key-btn"
+            disabled={!$serverInfo?.serverKeyFingerprint || copyingOwnKey}
+            on:click={copyOwnPublicKey}
+          >
+            {copyingOwnKey ? 'Copying…' : 'Copy this server’s public key'}
+          </button>
+        </div>
 
         {#if invitations.length === 0}
           <div class="empty-state">
@@ -412,9 +438,24 @@
   }
 
   .lead {
-    margin: 0 0 1rem 0;
+    margin: 0;
     color: var(--muted);
     font-size: 0.9rem;
+  }
+
+  .lead-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+
+  .own-key-btn {
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.75rem;
   }
 
   .empty-state {
