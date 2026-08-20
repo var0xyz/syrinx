@@ -16,8 +16,21 @@ const idSeparator = "@"
 // first, userID second — and formats it as the wire/DB form
 // "{userID}@{serverID}". Used both for "this server" (pass the caller's
 // own DataService.GetServerID()) and for remote/federated identities.
-func CanonicalID(serverID, userID string) IdentityID {
-	return IdentityID(userID + idSeparator + serverID)
+//
+// reedID is optional (variadic so existing two-arg call sites don't break;
+// pass zero or exactly one value — more than one panics). When given and
+// non-empty, it's appended as "/{reedID}", producing a reed ref
+// ("{userID}@{serverID}/{reedID}") rather than a bare user identity — not
+// used anywhere yet.
+func CanonicalID(serverID, userID string, reedID ...string) IdentityID {
+	if len(reedID) > 1 {
+		panic("identity.CanonicalID: at most one reedID may be passed")
+	}
+	id := userID + idSeparator + serverID
+	if len(reedID) == 1 && reedID[0] != "" {
+		id += "/" + reedID[0]
+	}
+	return IdentityID(id)
 }
 
 // ParseIdentityID splits an id back into its bare userID and serverID
