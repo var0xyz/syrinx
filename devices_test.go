@@ -64,7 +64,7 @@ func ensureDevicesSchema(db *sql.DB) error {
 }
 
 func insertDeviceTestUser(db *sql.DB, userID string) {
-	identityID := string(identity.LocalID(userID, devicesTestServerID))
+	identityID := string(identity.CanonicalID(devicesTestServerID, userID))
 	if _, err := db.Exec(
 		`INSERT INTO identities (id, remote_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE)`,
 		identityID, userID, devicesTestServerID,
@@ -198,7 +198,7 @@ func TestBindDevice_ConcurrentBind(t *testing.T) {
 	var activeCount int
 	if err := db.QueryRow(`
 		SELECT COUNT(*) FROM user_devices WHERE user_id = $1 AND revoked_at IS NULL
-	`, string(identity.LocalID("u1", devicesTestServerID))).Scan(&activeCount); err != nil {
+	`, string(identity.CanonicalID(devicesTestServerID, "u1"))).Scan(&activeCount); err != nil {
 		t.Fatal(err)
 	}
 	if activeCount != 1 {

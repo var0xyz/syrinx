@@ -86,7 +86,7 @@ func ensureReplyCountSchema(db *sql.DB) error {
 
 func seedReplyTestUser(t *testing.T, db *sql.DB, userID string) {
 	t.Helper()
-	identityID := string(identity.LocalID(userID, "testserver"))
+	identityID := string(identity.CanonicalID("testserver", userID))
 	if _, err := db.Exec(`INSERT INTO identities (id, remote_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE) ON CONFLICT DO NOTHING`,
 		identityID, userID, "testserver"); err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func seedReplyTestUser(t *testing.T, db *sql.DB, userID string) {
 // TestReplyCountsFromGraph's DataService.serverID.
 func seedReplyTestReed(t *testing.T, db *sql.DB, userID, reedID string) {
 	t.Helper()
-	identityID := string(identity.LocalID(userID, "testserver"))
+	identityID := string(identity.CanonicalID("testserver", userID))
 	var usID, ssID int
 	if err := db.QueryRow(`INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, 'sig') RETURNING id`, reedID+"fp").Scan(&usID); err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestReplyCountsFromGraph(t *testing.T) {
 
 	// root.ServerID must be set to "testserver", or insertReplyTx builds
 	// the malformed "alice@" instead of "alice@testserver".
-	aliceIdentity := identity.LocalID("alice", "testserver")
+	aliceIdentity := identity.CanonicalID("testserver", "alice")
 	threadID := "alice@testserver/root"
 	root := ReedRef{AuthorID: "alice", ServerID: "testserver", ReedID: "root"}
 

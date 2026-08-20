@@ -83,7 +83,7 @@ func (rs *RealtimeService) SetDeviceCheck(check func(userID, deviceID string) er
 // Its caller passes a bare userID, but connManager's registry is keyed by
 // the "userID@serverID" form (see auth.go) — convert here at the boundary.
 func (rs *RealtimeService) DisconnectUser(userID string) {
-	selfIdentity := identity.LocalID(userID, rs.dbService.serverID)
+	selfIdentity := identity.CanonicalID(rs.dbService.serverID, userID)
 	rs.connManager.DisconnectUser(string(selfIdentity))
 }
 

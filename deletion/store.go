@@ -37,7 +37,7 @@ type Cert struct {
 // reed_removals, which FKs to identities(id).
 func InsertCert(ctx context.Context, db *sql.DB, cert Cert, serverID string) error {
 	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
-	selfIdentity := identity.LocalID(cert.UserID, serverID)
+	selfIdentity := identity.CanonicalID(serverID, cert.UserID)
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -87,7 +87,7 @@ func InsertCert(ctx context.Context, db *sql.DB, cert Cert, serverID string) err
 // userID (the lookup param) is bare; the RETURNED cert's UserID field is
 // the full "userID@serverID" form — see Cert's doc comment.
 func GetCert(ctx context.Context, db *sql.DB, userID, reedID, serverID string) (*Cert, error) {
-	selfIdentity := identity.LocalID(userID, serverID)
+	selfIdentity := identity.CanonicalID(serverID, userID)
 	cert, err := loadReedCertTx(ctx, db, selfIdentity, reedID, false)
 	if err == sql.ErrNoRows {
 		return nil, nil

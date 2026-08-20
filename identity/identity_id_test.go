@@ -2,10 +2,10 @@ package identity
 
 import "testing"
 
-func TestLocalIDRoundTrip(t *testing.T) {
-	id := LocalID("abcd1234", "wxyz9876")
+func TestCanonicalIDRoundTrip(t *testing.T) {
+	id := CanonicalID("wxyz9876", "abcd1234")
 	if id != "abcd1234@wxyz9876" {
-		t.Fatalf("LocalID = %q, want %q", id, "abcd1234@wxyz9876")
+		t.Fatalf("CanonicalID = %q, want %q", id, "abcd1234@wxyz9876")
 	}
 
 	userID, serverID, ok := ParseIdentityID(id)
@@ -27,12 +27,6 @@ func TestLocalIDRoundTrip(t *testing.T) {
 	}
 	if got := id.String(); got != "abcd1234@wxyz9876" {
 		t.Errorf("String() = %q, want %q", got, "abcd1234@wxyz9876")
-	}
-}
-
-func TestRemoteIDMatchesLocalID(t *testing.T) {
-	if RemoteID("a", "b") != LocalID("a", "b") {
-		t.Fatal("RemoteID and LocalID must construct identically")
 	}
 }
 

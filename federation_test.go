@@ -108,7 +108,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 // so callers can build wire-facing values without recomputing it.
 func seedFederationUser(t *testing.T, ds *DataService, userID, username, role string) string {
 	t.Helper()
-	identityID := string(identity.LocalID(userID, ds.serverID))
+	identityID := string(identity.CanonicalID(ds.serverID, userID))
 	if _, err := ds.db.Exec(`
 		INSERT INTO identities (id, remote_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE)
 		ON CONFLICT (id) DO NOTHING

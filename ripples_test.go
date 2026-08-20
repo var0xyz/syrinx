@@ -156,7 +156,7 @@ func ensureRipplesSchema(db *sql.DB) error {
 // services.go's Signup.
 func insertRipplesTestUser(t *testing.T, db *sql.DB, userID, username string) {
 	t.Helper()
-	identityID := string(identity.LocalID(userID, ripplesTestServerID))
+	identityID := string(identity.CanonicalID(ripplesTestServerID, userID))
 	if _, err := db.Exec(
 		`INSERT INTO identities (id, remote_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE)`,
 		identityID, userID, ripplesTestServerID,
@@ -186,11 +186,11 @@ func insertRipplesTestUser(t *testing.T, db *sql.DB, userID, username string) {
 }
 
 // insertRipplesTestReed writes reeds.user_id in the same form PostRipple's
-// identity.LocalID(reedAuthorID, s.serverID) computes, since ripples
+// identity.CanonicalID(s.serverID, reedAuthorID) computes, since ripples
 // composite-FKs against reeds(user_id, id).
 func insertRipplesTestReed(t *testing.T, db *sql.DB, authorID, reedID string) {
 	t.Helper()
-	identityID := string(identity.LocalID(authorID, ripplesTestServerID))
+	identityID := string(identity.CanonicalID(ripplesTestServerID, authorID))
 	var userSigID, serverSigID int
 	if err := db.QueryRow(
 		`INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, 'sig') RETURNING id`,
@@ -219,7 +219,7 @@ func insertRipplesTestReed(t *testing.T, db *sql.DB, authorID, reedID string) {
 // has no FK.
 func markReedBlankEcho(t *testing.T, db *sql.DB, authorID, reedID string) {
 	t.Helper()
-	identityID := string(identity.LocalID(authorID, ripplesTestServerID))
+	identityID := string(identity.CanonicalID(ripplesTestServerID, authorID))
 	if _, err := db.Exec(
 		`INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, is_blank, signed_at)
 		 VALUES ($1, $2, $3, $4, TRUE, now())`,
@@ -234,7 +234,7 @@ func markReedBlankEcho(t *testing.T, db *sql.DB, authorID, reedID string) {
 // FKs identities(id) now.
 func insertReedRemoval(t *testing.T, db *sql.DB, authorID, reedID string) {
 	t.Helper()
-	identityID := string(identity.LocalID(authorID, ripplesTestServerID))
+	identityID := string(identity.CanonicalID(ripplesTestServerID, authorID))
 	var userSigID, serverSigID int
 	if err := db.QueryRow(
 		`INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, 'sig') RETURNING id`,
@@ -260,7 +260,7 @@ func insertReedRemoval(t *testing.T, db *sql.DB, authorID, reedID string) {
 // account_removals.user_id FKs identities(id) now.
 func insertAccountRemoval(t *testing.T, db *sql.DB, userID string) {
 	t.Helper()
-	identityID := string(identity.LocalID(userID, ripplesTestServerID))
+	identityID := string(identity.CanonicalID(ripplesTestServerID, userID))
 	var userSigID, serverSigID int
 	if err := db.QueryRow(
 		`INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, 'sig') RETURNING id`,
@@ -292,11 +292,11 @@ type rippleTestKey struct {
 	cryptoSvc *crypto.Service
 }
 
-// newRippleTestKey writes user_keys.owner as identity.LocalID(userID,
-// s.serverID), matching how DataService.GetPublicKey resolves it.
+// newRippleTestKey writes user_keys.owner as identity.CanonicalID(s.serverID,
+// userID), matching how DataService.GetPublicKey resolves it.
 func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 	t.Helper()
-	identityID := string(identity.LocalID(userID, ripplesTestServerID))
+	identityID := string(identity.CanonicalID(ripplesTestServerID, userID))
 	svc := crypto.NewService()
 	kp, err := svc.CreateKeyPair(userID, "", "")
 	if err != nil {
@@ -460,7 +460,7 @@ func TestPostRipple_CreatesBookkeepingRowLazily(t *testing.T) {
 	postTestRipple(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "first", nil, time.Now())
 	postTestRipple(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "second", nil, time.Now())
 
-	author1 := string(identity.LocalID("author1", ripplesTestServerID))
+	author1 := string(identity.CanonicalID(ripplesTestServerID, "author1"))
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM ripples WHERE reed_author_id = $1 AND reed_id = $2`, author1, "reed1").Scan(&count); err != nil {
 		t.Fatalf("count ripples rows: %v", err)
@@ -478,7 +478,7 @@ func TestPostRipple_BumpsSharedExpiryAcrossThreads(t *testing.T) {
 	key := newRippleTestKey(t, db, "commenter1")
 
 	svc := &DataService{db: db, serverID: ripplesTestServerID}
-	author1 := string(identity.LocalID("author1", ripplesTestServerID))
+	author1 := string(identity.CanonicalID(ripplesTestServerID, "author1"))
 	t1 := time.Now().Add(-2 * time.Hour)
 	postTestRipple(t, svc, key, canonicalAuthor1, "reed1", canonicalCommenter1, "threadA", nil, t1)
 
@@ -626,7 +626,7 @@ func TestSoftDeleteRipple_OwnerSucceeds(t *testing.T) {
 	// Querying with the bare "author1" would silently match zero rows,
 	// making the equality assertion below trivially pass regardless of
 	// what SoftDeleteRipple actually did.
-	author1 := string(identity.LocalID("author1", ripplesTestServerID))
+	author1 := string(identity.CanonicalID(ripplesTestServerID, "author1"))
 	var expiryBefore time.Time
 	if err := db.QueryRow(`SELECT expires_at FROM ripples WHERE reed_author_id = $1 AND reed_id = $2`, author1, "reed1").Scan(&expiryBefore); err != nil {
 		t.Fatalf("query expiryBefore: %v", err)

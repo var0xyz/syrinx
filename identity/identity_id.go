@@ -4,7 +4,7 @@ import "strings"
 
 // IdentityID is the server-qualified form of "a user": always
 // "{userID}@{serverID}", the FK value stored in every table that
-// references a user. Construct it via LocalID/RemoteID/ParseIdentityID.
+// references a user. Construct it via CanonicalID/ParseIdentityID.
 type IdentityID string
 
 // idSeparator joins userID and serverID inside an IdentityID. crypto.Alphabet
@@ -12,16 +12,12 @@ type IdentityID string
 // splitting is unambiguous.
 const idSeparator = "@"
 
-// LocalID builds the identity id for a user on serverID (pass the caller's
-// own DataService.GetServerID() for "this server").
-func LocalID(userID, serverID string) IdentityID {
+// CanonicalID builds the identity id for a user on serverID — serverID
+// first, userID second — and formats it as the wire/DB form
+// "{userID}@{serverID}". Used both for "this server" (pass the caller's
+// own DataService.GetServerID()) and for remote/federated identities.
+func CanonicalID(serverID, userID string) IdentityID {
 	return IdentityID(userID + idSeparator + serverID)
-}
-
-// RemoteID is an alias of LocalID for readability at remote-identity call
-// sites (recovery peer report, federation).
-func RemoteID(userID, serverID string) IdentityID {
-	return LocalID(userID, serverID)
 }
 
 // ParseIdentityID splits an id back into its bare userID and serverID

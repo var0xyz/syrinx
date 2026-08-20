@@ -107,7 +107,7 @@ func openMentionsTestDB(t *testing.T) *sql.DB {
 // the satellite users row, mirroring services.go's Signup.
 func seedMentionUser(t *testing.T, db *sql.DB, userID string) {
 	t.Helper()
-	identityID := string(identity.LocalID(userID, "testserver"))
+	identityID := string(identity.CanonicalID("testserver", userID))
 	if _, err := db.Exec(`INSERT INTO identities (id, remote_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE) ON CONFLICT DO NOTHING`,
 		identityID, userID, "testserver"); err != nil {
 		t.Fatal(err)
@@ -177,8 +177,8 @@ func TestCreateReed_MentionsIndexed(t *testing.T) {
 		}
 		got = append(got, u)
 	}
-	// reed_mentions.mentioned_user_id stores identity.RemoteID(m.AuthorID,
-	// m.ServerID), not the bare AuthorID.
+	// reed_mentions.mentioned_user_id stores identity.CanonicalID(m.ServerID,
+	// m.AuthorID), not the bare AuthorID.
 	if len(got) != 2 || got[0] != "bob@testserver" || got[1] != "carol@testserver" {
 		t.Fatalf("mentioned users = %v, want [bob@testserver carol@testserver]", got)
 	}

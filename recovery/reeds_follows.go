@@ -36,8 +36,8 @@ func SaveReed(ctx context.Context,
 	serverSignatureB64 string,
 ) error {
 	signedAt = signedAt.UTC().Truncate(time.Second)
-	authorIdentity := identity.LocalID(authorID, serverID)
-	reporterIdentity := identity.LocalID(reporterUserID, serverID)
+	authorIdentity := identity.CanonicalID(serverID, authorID)
+	reporterIdentity := identity.CanonicalID(serverID, reporterUserID)
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -133,7 +133,7 @@ func SaveFollowing(ctx context.Context, db *sql.DB, serverID string, followerUse
 	}
 	defer tx.Rollback()
 
-	followerIdentity := identity.LocalID(followerUserID, serverID)
+	followerIdentity := identity.CanonicalID(serverID, followerUserID)
 
 	// Check identities, not users, same reason as SaveReed above.
 	existing := make(map[string]bool, len(targetIDs))
@@ -143,7 +143,7 @@ func SaveFollowing(ctx context.Context, db *sql.DB, serverID string, followerUse
 		if targetID == "" {
 			continue
 		}
-		targetIdentity := identity.LocalID(targetID, serverID)
+		targetIdentity := identity.CanonicalID(serverID, targetID)
 		targetIdentities[targetID] = targetIdentity
 		canonicalTargets = append(canonicalTargets, string(targetIdentity))
 	}
