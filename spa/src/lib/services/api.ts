@@ -425,6 +425,16 @@ export const apiService = {
     });
   },
 
+  /** null when this server was the responder (no local invitation row). */
+  async getFederationServerInvitation(
+    serverId: string
+  ): Promise<api.FederationInvitation | null> {
+    return request<api.FederationInvitation | null>(
+      `/federation/servers/${encodeURIComponent(serverId)}/invitation`,
+      { method: 'GET' }
+    );
+  },
+
   async whoami() {
     return request<{ id: string; username: string }>('/users/me', { method: 'GET' });
   },

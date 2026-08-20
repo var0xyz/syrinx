@@ -3013,40 +3013,44 @@ func (h *Handlers) ListFederationInvitations(w http.ResponseWriter, r *http.Requ
 
 	out := make([]federationListItemWire, 0, len(rows))
 	for _, row := range rows {
-		item := federationListItemWire{
-			InviteID:          row.ID,
-			Name:              row.Name,
-			Status:            row.Status,
-			CreatedBy:         row.CreatedBy,
-			CreatedByUsername: row.CreatedByUsername,
-			RemoteFingerprint: row.Fingerprint,
-			CreatedAt:         row.CreatedAt.UTC().Format(time.RFC3339),
-		}
-		if row.AcceptedAt != nil {
-			s := row.AcceptedAt.UTC().Format(time.RFC3339)
-			item.AcceptedAt = &s
-		}
-		if row.ServerID != "" {
-			sid := row.ServerID
-			item.ServerID = &sid
-		}
-		if row.ReviewedBy != "" {
-			rb := row.ReviewedBy
-			item.ReviewedBy = &rb
-			ru := row.ReviewedByUsername
-			item.ReviewedByUsername = &ru
-		}
-		if row.ReviewedAt != nil {
-			s := row.ReviewedAt.UTC().Format(time.RFC3339)
-			item.ReviewedAt = &s
-		}
-		if row.Status == federationStatusNew && row.ConnectionCiphertext != "" {
-			cs := row.ConnectionCiphertext
-			item.ConnectionString = &cs
-		}
-		out = append(out, item)
+		out = append(out, federationInvitationRowToWire(row))
 	}
 	writeResponse(w, http.StatusOK, out)
+}
+
+func federationInvitationRowToWire(row federationInvitationListRow) federationListItemWire {
+	item := federationListItemWire{
+		InviteID:          row.ID,
+		Name:              row.Name,
+		Status:            row.Status,
+		CreatedBy:         row.CreatedBy,
+		CreatedByUsername: row.CreatedByUsername,
+		RemoteFingerprint: row.Fingerprint,
+		CreatedAt:         row.CreatedAt.UTC().Format(time.RFC3339),
+	}
+	if row.AcceptedAt != nil {
+		s := row.AcceptedAt.UTC().Format(time.RFC3339)
+		item.AcceptedAt = &s
+	}
+	if row.ServerID != "" {
+		sid := row.ServerID
+		item.ServerID = &sid
+	}
+	if row.ReviewedBy != "" {
+		rb := row.ReviewedBy
+		item.ReviewedBy = &rb
+		ru := row.ReviewedByUsername
+		item.ReviewedByUsername = &ru
+	}
+	if row.ReviewedAt != nil {
+		s := row.ReviewedAt.UTC().Format(time.RFC3339)
+		item.ReviewedAt = &s
+	}
+	if row.Status == federationStatusNew && row.ConnectionCiphertext != "" {
+		cs := row.ConnectionCiphertext
+		item.ConnectionString = &cs
+	}
+	return item
 }
 
 // ListFederationServers returns peer servers known to this instance —
@@ -3091,10 +3095,13 @@ func (h *Handlers) ListFederationServers(w http.ResponseWriter, r *http.Request)
 // GetFederationServerLogs returns federation_log lines for one peer server as
 // plain text, one line per entry — the mesh tab's per-server drill-down (tap
 // a server to see what actually happened during its handshake, since that
-// spans two servers and can fail or stall asynchronously; see
-// logFederationServer's doc comment). Plain text instead of a JSON array:
-// the client only ever displays these lines verbatim, so there's nothing to
-// parse on either side.
+// spans two servers and can fail or stall asynchronously). Invitation log
+// lines (pre-acceptance, written before a servers row existed — see
+// logFederationInvitation's doc comment) come first, then server log lines,
+// each section chronological — the invitation and the server together are
+// one continuous story for this connection. Plain text instead of a JSON
+// array: the client only ever displays these lines verbatim, so there's
+// nothing to parse on either side.
 func (h *Handlers) GetFederationServerLogs(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
@@ -3117,21 +3124,81 @@ func (h *Handlers) GetFederationServerLogs(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	rows, err := h.services.db.ListFederationServerLogs(r.Context(), serverID)
+	var sb strings.Builder
+
+	// Responder side has no local invitation row (nil, not an error — see
+	// GetFederationInvitationForServer's doc comment).
+	inv, err := h.services.db.GetFederationInvitationForServer(r.Context(), serverID)
 	if err != nil {
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
-
-	var sb strings.Builder
-	for _, row := range rows {
-		fmt.Fprintf(&sb, "%s [%s] %s\n",
-			row.CreatedAt.UTC().Format(time.RFC3339), strings.ToUpper(row.Level), row.Message)
+	if inv != nil {
+		invRows, err := h.services.db.ListFederationInvitationLogs(r.Context(), inv.ID)
+		if err != nil {
+			writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+		writeFederationLogLines(&sb, invRows)
 	}
+
+	serverRows, err := h.services.db.ListFederationServerLogs(r.Context(), serverID)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	writeFederationLogLines(&sb, serverRows)
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(sb.String()))
+}
+
+func writeFederationLogLines(sb *strings.Builder, rows []federationServerLogRow) {
+	for _, row := range rows {
+		fmt.Fprintf(sb, "%s [%s] %s\n",
+			row.CreatedAt.UTC().Format(time.RFC3339), strings.ToUpper(row.Level), row.Message)
+	}
+}
+
+// GetFederationServerInvitation returns the invitation that produced this
+// server connection (invited-by/approved-by/dates), for the mesh tab's
+// peer detail page. 200 with a JSON null body when this server was the
+// responder — it has no local invitation row (see
+// GetFederationInvitationForServer's doc comment), which is expected, not
+// an error.
+func (h *Handlers) GetFederationServerInvitation(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	serverID := mux.Vars(r)["id"]
+	if serverID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		return
+	}
+
+	inv, err := h.services.db.GetFederationInvitationForServer(r.Context(), serverID)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if inv == nil {
+		writeResponse(w, http.StatusOK, nil)
+		return
+	}
+	writeResponse(w, http.StatusOK, federationInvitationRowToWire(*inv))
 }
 
 func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Request) {
