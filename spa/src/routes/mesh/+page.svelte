@@ -14,6 +14,7 @@
   let user: api.User | null = null;
   let isAdmin = false;
   let invitations: api.FederationInvitation[] = [];
+  let servers: api.FederationServer[] = [];
   let loading = true;
   let remotePublicKey = '';
   let inviteName = '';
@@ -41,7 +42,10 @@
 
   async function refreshList() {
     try {
-      invitations = await apiService.listFederationInvitations();
+      [invitations, servers] = await Promise.all([
+        apiService.listFederationInvitations(),
+        apiService.listFederationServers(),
+      ]);
     } catch (err) {
       console.error('[mesh]', err);
       notificationStore.error(err instanceof Error ? err.message : 'Failed to load federation invites');
@@ -266,6 +270,28 @@
                       {revokingId === inv.inviteId ? 'Revoking…' : 'Revoke'}
                     </button>
                   {/if}
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+
+        {#if servers.length > 0}
+          <h3 class="section-heading">Peer servers</h3>
+          <ul class="invite-list">
+            {#each servers as srv (srv.serverId)}
+              <li class="invite-row">
+                <div class="invite-main">
+                  <span class="invite-name">{srv.name}</span>
+                  <span class="badge-row">
+                    <span class="badge" data-status={srv.connected ? 'approved' : 'accepted'}>
+                      {srv.connected ? 'Connected' : 'Awaiting confirmation'}
+                    </span>
+                  </span>
+                  {#if srv.baseUrl}
+                    <span class="meta">{srv.baseUrl}</span>
+                  {/if}
+                  <span class="meta">Added {formatRelativeTime(srv.createdAt)}</span>
                 </div>
               </li>
             {/each}
@@ -507,6 +533,12 @@
     background: transparent;
     color: #c0392b;
     border: 1px solid #c0392b;
+  }
+
+  .section-heading {
+    margin: 1.5rem 0 0.75rem 0;
+    font-size: 0.95rem;
+    color: var(--fg);
   }
 
   .invite-list {

@@ -3049,6 +3049,45 @@ func (h *Handlers) ListFederationInvitations(w http.ResponseWriter, r *http.Requ
 	writeResponse(w, http.StatusOK, out)
 }
 
+// ListFederationServers returns peer servers known to this instance —
+// the responder side has no federation_invitation row to list (see
+// OutgoingFederationAttempt's doc comment), so this is what surfaces a
+// pasted connection's status until 03's approval workflow lands.
+func (h *Handlers) ListFederationServers(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	rows, err := h.services.db.ListFederationServers(r.Context())
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	out := make([]federationServerWire, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, federationServerWire{
+			ServerID:  row.ID,
+			Name:      row.Name,
+			BaseURL:   row.BaseURL,
+			Connected: row.Connected,
+			CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	writeResponse(w, http.StatusOK, out)
+}
+
 func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {

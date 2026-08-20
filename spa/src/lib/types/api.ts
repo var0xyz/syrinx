@@ -289,3 +289,14 @@ export interface FederationAttemptResponse {
   status: 'accepted';
   serverId: string;
 }
+
+/** This server's view of a peer — the responder side has no invitation row
+ * to show (see FederationInvitation), so this surfaces pasted-connection
+ * status until second-admin approval (spec 03) is built. */
+export interface FederationServer {
+  serverId: string;
+  name: string;
+  baseUrl: string;
+  connected: boolean;
+  createdAt: string;
+}

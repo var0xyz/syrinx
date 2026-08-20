@@ -3178,6 +3178,48 @@ type federationInvitation struct {
 	ServerID    string
 }
 
+// federationServerListRow is a peer server row as seen from this server's
+// side — populated on the responder by OutgoingFederationAttempt (see its
+// doc comment); the initiator has no equivalent row until 03's approval
+// step lands (spec: specs/federation/03_approval_established.md).
+// No fingerprint field: peer.Fingerprint is never persisted to servers.signing_key
+// (that column means this server's OWN signing key, joined against
+// private_keys — see InitServerKey/GetServerSigningKeyArmor) or anywhere
+// else queryable today.
+type federationServerListRow struct {
+	ID        string
+	Name      string
+	BaseURL   string
+	Connected bool
+	CreatedAt time.Time
+}
+
+// ListFederationServers returns known peer servers (self excluded) — the
+// responder-side view of federation status while 03's approval workflow
+// (federation_established, /pending, approve/reject) is still unbuilt.
+func (s *DataService) ListFederationServers(ctx context.Context) ([]federationServerListRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, name, COALESCE(base_url, ''), connected, created_at
+		FROM servers
+		WHERE self = FALSE
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []federationServerListRow
+	for rows.Next() {
+		var row federationServerListRow
+		if err := rows.Scan(&row.ID, &row.Name, &row.BaseURL, &row.Connected, &row.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 type federationInvitationListRow struct {
 	ID                   string
 	Name                 string
