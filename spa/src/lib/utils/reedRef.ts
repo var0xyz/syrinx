@@ -1,4 +1,9 @@
-/** Reed reference: userID@serverID/reedID (echoing / replying). */
+/**
+ * Reed reference: userID@serverID/reedID (echoing / replying), where
+ * userID is already the canonical form. authorId below is that whole
+ * canonical userID (bare@serverId), not just the bare local part — every
+ * consumer (getReed, reed.userID comparisons, …) needs the canonical form.
+ */
 export type ReedRef = {
   authorId: string;
   serverId: string;
@@ -11,9 +16,9 @@ export function parseReedRef(raw: string | null | undefined): ReedRef | null {
   if (!trimmed) return null;
   const at = trimmed.indexOf('@');
   if (at <= 0) return null;
-  const slash = trimmed.indexOf('/', at + 1);
-  if (slash <= at + 1 || slash === trimmed.length - 1) return null;
-  const authorId = trimmed.slice(0, at).trim();
+  const slash = trimmed.lastIndexOf('/');
+  if (slash <= at || slash === trimmed.length - 1) return null;
+  const authorId = trimmed.slice(0, slash).trim();
   const serverId = trimmed.slice(at + 1, slash).trim();
   const reedId = trimmed.slice(slash + 1).trim();
   if (!authorId || !serverId || !reedId) return null;
