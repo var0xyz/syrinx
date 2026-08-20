@@ -653,6 +653,21 @@ func BuildFederationConnectPayload(inviteID, serverID, baseURL, fingerprint stri
 	}, "")
 }
 
+// BuildFederationPeerRequestPayload returns the canonical bytes an
+// established peer signs on every runtime, peer-authenticated request
+// (specs/federation/04) — e.g. GET /api/federation/users/{userID}/identity.
+// method+path bind the signature to this specific request (so a captured
+// signature can't be replayed against a different endpoint); timestamp is
+// the usual replay-window guard (see ValidateTimestamp).
+func BuildFederationPeerRequestPayload(serverID, method, path, timestamp string) []byte {
+	return signing.BytesToSign(map[string]string{
+		"method":    method,
+		"path":      path,
+		"serverId":  serverID,
+		"timestamp": timestamp,
+	}, "")
+}
+
 // rippleUserHeaders returns the header map covered by a ripple response's
 // userSignature. threadID is always present (client-minted, see
 // specs/ripples/00_design.md); replyingTo is omitted (and therefore

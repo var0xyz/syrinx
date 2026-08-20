@@ -42,6 +42,8 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS base_url TEXT`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS connected BOOLEAN NOT NULL DEFAULT FALSE`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS fingerprint VARCHAR(255)`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked BOOLEAN NOT NULL DEFAULT FALSE`,
 		`CREATE TABLE IF NOT EXISTS identities (
 			id VARCHAR(255) PRIMARY KEY,
 			remote_user_id VARCHAR(255) NOT NULL,
@@ -55,11 +57,45 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			username VARCHAR(255) NOT NULL,
-			role VARCHAR(16) NOT NULL DEFAULT 'user'
+			role VARCHAR(16) NOT NULL DEFAULT 'user',
+			bio TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			user_signature_id INT,
+			server_signature_id INT,
+			invited_by VARCHAR(255) REFERENCES identities(id)
 		)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_signature_id INT`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS server_signature_id INT`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by VARCHAR(255) REFERENCES identities(id)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_fingerprint VARCHAR(255)`,
 		`CREATE TABLE IF NOT EXISTS public_keys (
 			fingerprint VARCHAR(255) PRIMARY KEY,
 			armor TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS user_signatures (
+			id SERIAL PRIMARY KEY,
+			fingerprint VARCHAR(255) NOT NULL,
+			signature TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS server_signatures (
+			id SERIAL PRIMARY KEY,
+			fingerprint VARCHAR(255) NOT NULL,
+			signature TEXT NOT NULL,
+			signed_at TIMESTAMP NOT NULL
+		)`,
+		// Minimal shape: GetFederationUserIdentity's account-removal check
+		// only needs "does a row exist for this user_id" (see
+		// deletion.GetAccountCert / loadAccountCertTx) — no test here
+		// exercises an actual removed account through this path, so the
+		// signature-id FKs from the real schema are omitted.
+		`CREATE TABLE IF NOT EXISTS account_removals (
+			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
+			note VARCHAR(140) NOT NULL DEFAULT '',
+			user_fingerprint VARCHAR(255) NOT NULL DEFAULT '',
+			user_signature_id INT,
+			server_signature_id INT
 		)`,
 		// created_by/reviewed_by FK identities(id) now — ListFederationInvitations
 		// joins users through identity_id (see services.go).
@@ -137,10 +173,28 @@ func seedFederationUser(t *testing.T, ds *DataService, userID, username, role st
 	`, identityID, userID, ds.serverID); err != nil {
 		t.Fatal(err)
 	}
+	// user_signature_id/server_signature_id are NOT NULL-scanned by
+	// GetUserProfile (int64, not sql.NullInt64) and it resolves them
+	// through signing.GetUserSignature/GetServerSignature — placeholder
+	// rows, not real signatures; no test here verifies profile signature
+	// contents, only that GetUserProfile/the peer identity endpoint succeed.
+	placeholderSig := "placeholder-" + identityID
+	var userSigID, serverSigID int64
+	if err := ds.db.QueryRow(`
+		INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, $2) RETURNING id
+	`, placeholderSig, placeholderSig).Scan(&userSigID); err != nil {
+		t.Fatal(err)
+	}
+	if err := ds.db.QueryRow(`
+		INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, $2, NOW()) RETURNING id
+	`, placeholderSig, placeholderSig).Scan(&serverSigID); err != nil {
+		t.Fatal(err)
+	}
 	_, err := ds.db.Exec(`
-		INSERT INTO users (id, username, role) VALUES ($1, $2, $3)
+		INSERT INTO users (id, username, role, user_signature_id, server_signature_id)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, role = EXCLUDED.role
-	`, identityID, username, role)
+	`, identityID, username, role, userSigID, serverSigID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3229,6 +3229,31 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 	return out, rows.Err()
 }
 
+// VerifyFederationPeer is the runtime trust check for peer-authenticated
+// requests (specs/federation/04): serverID must be an established
+// (self=FALSE), non-revoked peer, and the caller's claimed fingerprint must
+// match the one pinned at approval (see ApproveFederationAttempt). Returns
+// ok=false — not an error — for "not peered," "revoked," or "fingerprint
+// doesn't match": callers should respond 401 in all three cases without
+// distinguishing why (don't help an attacker enumerate which check failed).
+func (s *DataService) VerifyFederationPeer(ctx context.Context, serverID, fingerprint string) (ok bool, err error) {
+	var pinnedFingerprint sql.NullString
+	var revoked bool
+	err = s.db.QueryRowContext(ctx, `
+		SELECT fingerprint, revoked FROM servers WHERE id = $1 AND self = FALSE
+	`, serverID).Scan(&pinnedFingerprint, &revoked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if revoked || !pinnedFingerprint.Valid || pinnedFingerprint.String != fingerprint {
+		return false, nil
+	}
+	return true, nil
+}
+
 // errFederationAttemptNotFound is returned by ApproveFederationAttempt and
 // RejectFederationAttempt when attemptID doesn't match any row, and by
 // GetFederationAttempt.
@@ -3352,12 +3377,12 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 	}
 	defer tx.Rollback()
 
-	var remoteServerID, remoteServerName, baseURL, invitationID string
+	var remoteServerID, remoteServerName, baseURL, fingerprint, invitationID string
 	var status string
 	if err := tx.QueryRowContext(ctx, `
-		SELECT remote_server_id, remote_server_name, base_url, COALESCE(invitation_id, ''), status
+		SELECT remote_server_id, remote_server_name, base_url, fingerprint, COALESCE(invitation_id, ''), status
 		FROM federation_attempt WHERE id = $1 FOR UPDATE
-	`, attemptID).Scan(&remoteServerID, &remoteServerName, &baseURL, &invitationID, &status); err != nil {
+	`, attemptID).Scan(&remoteServerID, &remoteServerName, &baseURL, &fingerprint, &invitationID, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return errFederationAttemptNotFound
 		}
@@ -3367,11 +3392,16 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 		return errFederationAttemptNotPending
 	}
 
+	// fingerprint pins the trust root for peer-authenticated runtime
+	// requests (specs/federation/04) — its armor is already in public_keys
+	// (upserted by CreateFederationAttempt/MarkFederationInvitationAccepted),
+	// not duplicated onto servers.
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO servers (id, name, self, base_url, connected, created_at)
-		VALUES ($1, $2, FALSE, $3, TRUE, $4)
-		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, name = EXCLUDED.name, connected = TRUE
-	`, remoteServerID, remoteServerName, baseURL, approvedAt.UTC()); err != nil {
+		INSERT INTO servers (id, name, self, base_url, connected, fingerprint, created_at)
+		VALUES ($1, $2, FALSE, $3, TRUE, $4, $5)
+		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, name = EXCLUDED.name,
+			connected = TRUE, fingerprint = EXCLUDED.fingerprint, revoked = FALSE
+	`, remoteServerID, remoteServerName, baseURL, fingerprint, approvedAt.UTC()); err != nil {
 		return fmt.Errorf("insert federation peer: %w", err)
 	}
 

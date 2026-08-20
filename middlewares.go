@@ -272,6 +272,64 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// peerAuthMiddleware authenticates a runtime request from an established
+// federation peer (specs/federation/04) — distinct from
+// signatureAuthMiddleware, which authenticates a local user session.
+// Headers: X-Syrinx-Federation-Server-Id, X-Syrinx-Federation-Fingerprint,
+// X-Syrinx-Federation-Signature (base64, detached, over
+// identity.BuildFederationPeerRequestPayload), X-Syrinx-Federation-Timestamp.
+// The caller must be a servers row (self=FALSE, revoked=FALSE) whose pinned
+// fingerprint (set at approval — see ApproveFederationAttempt) matches the
+// header; 401 for not-peered, revoked, or fingerprint-mismatch alike (never
+// distinguish which, so a prober can't tell "unknown server" from "revoked").
+func (h *Handlers) peerAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		serverID := r.Header.Get("X-Syrinx-Federation-Server-Id")
+		fingerprint := r.Header.Get("X-Syrinx-Federation-Fingerprint")
+		signatureB64 := r.Header.Get("X-Syrinx-Federation-Signature")
+		timestamp := r.Header.Get("X-Syrinx-Federation-Timestamp")
+		if serverID == "" || fingerprint == "" || signatureB64 == "" || timestamp == "" {
+			writeResponse(w, http.StatusUnauthorized, "Missing peer authentication headers")
+			return
+		}
+
+		if err := h.services.crypto.ValidateTimestamp(timestamp); err != nil {
+			writeResponse(w, http.StatusUnauthorized, "Invalid timestamp")
+			return
+		}
+
+		ok, err := h.services.db.VerifyFederationPeer(r.Context(), serverID, fingerprint)
+		if err != nil {
+			internalServerError(w)
+			return
+		}
+		if !ok {
+			writeResponse(w, http.StatusUnauthorized, "Not an established peer")
+			return
+		}
+
+		publicKeyArmor, err := h.services.db.GetServerPublicKeyByFingerprint(r.Context(), fingerprint)
+		if err != nil || publicKeyArmor == "" {
+			writeResponse(w, http.StatusUnauthorized, "Not an established peer")
+			return
+		}
+
+		signature, err := encoding.Base64Decode(signatureB64)
+		if err != nil {
+			writeResponse(w, http.StatusUnauthorized, "Invalid signature encoding")
+			return
+		}
+		payload := identity.BuildFederationPeerRequestPayload(serverID, r.Method, r.URL.Path, timestamp)
+		if err := h.services.crypto.VerifyDetachedSignature(string(payload), signature, publicKeyArmor); err != nil {
+			writeResponse(w, http.StatusUnauthorized, "Request signature verification failed")
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), peerServerIDKey, serverID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
 // Signature-based authentication middleware
 func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -297,9 +355,13 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			// /federation/connect/ is the initiator's callback route: the
 			// remote server calling it has no local session — the invitation
 			// secret and its own signature are what prove legitimacy there.
+			// /federation/users/ is peer-authenticated instead of user-
+			// authenticated — see peerAuthMiddleware, applied at its own
+			// route registration in main.go.
 			excludePrefixes := []string{
 				prefix + "/server/keys/",
 				prefix + "/federation/connect/",
+				prefix + "/federation/users/",
 			}
 
 			for _, path := range excludePaths {
