@@ -290,13 +290,42 @@ export interface FederationAttemptResponse {
   serverId: string;
 }
 
-/** This server's view of a peer — the responder side has no invitation row
- * to show (see FederationInvitation), so this surfaces pasted-connection
- * status until second-admin approval (spec 03) is built. */
+/** An approved peer — servers rows only exist once a FederationAttempt has
+ * been approved (see ApproveFederationAttempt). */
 export interface FederationServer {
   serverId: string;
   name: string;
   baseUrl: string;
   connected: boolean;
   createdAt: string;
+}
+
+/** A handshake attempt against a peer, at any stage — permanent audit
+ * trail, never deleted. RemoteServerId/RemoteServerName/BaseUrl/Fingerprint
+ * are the peer's own claims from its handshake payload. InvitationId is
+ * set on the initiator side only; ServerId once approved. */
+export interface FederationAttempt {
+  attemptId: string;
+  remoteServerId: string;
+  remoteServerName: string;
+  baseUrl: string;
+  fingerprint: string;
+  invitationId?: string | null;
+  serverId?: string | null;
+  createdAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  approvedBy?: string | null;
+  approvedByUsername?: string | null;
+  approvedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectedByUsername?: string | null;
+  rejectedAt?: string | null;
+  rejectedReason?: string | null;
+}
+
+/** The mesh tab's combined view: invitations + attempts + servers. */
+export interface FederationList {
+  invitations: FederationInvitation[];
+  attempts: FederationAttempt[];
+  servers: FederationServer[];
 }

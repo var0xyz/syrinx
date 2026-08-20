@@ -386,6 +386,11 @@ export const apiService = {
     return request<api.FederationInvitation[]>('/federation/invitations', { method: 'GET' });
   },
 
+  /** Invitations + attempts + servers together — the mesh tab's combined view. */
+  async listFederation(): Promise<api.FederationList> {
+    return request<api.FederationList>('/federation/list', { method: 'GET' });
+  },
+
   async createFederationInvitation(
     name: string,
     remotePublicKeyArmor: string,
@@ -435,14 +440,28 @@ export const apiService = {
     );
   },
 
-  async approveFederationServer(serverId: string): Promise<void> {
-    await request(`/federation/servers/${encodeURIComponent(serverId)}/approve`, {
+  async getFederationAttempt(attemptId: string): Promise<api.FederationAttempt> {
+    return request<api.FederationAttempt>(
+      `/federation/attempts/${encodeURIComponent(attemptId)}`,
+      { method: 'GET' }
+    );
+  },
+
+  /** Plain text, one log line per line — displayed verbatim, never parsed. */
+  async getFederationAttemptLogs(attemptId: string): Promise<string> {
+    return requestText(`/federation/attempts/${encodeURIComponent(attemptId)}/logs`, {
+      method: 'GET',
+    });
+  },
+
+  async approveFederationAttempt(attemptId: string): Promise<void> {
+    await request(`/federation/attempts/${encodeURIComponent(attemptId)}/approve`, {
       method: 'POST',
     });
   },
 
-  async rejectFederationServer(serverId: string, reason: string): Promise<void> {
-    await request(`/federation/servers/${encodeURIComponent(serverId)}/reject`, {
+  async rejectFederationAttempt(attemptId: string, reason: string): Promise<void> {
+    await request(`/federation/attempts/${encodeURIComponent(attemptId)}/reject`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason }),
