@@ -221,13 +221,13 @@
           </button>
         </div>
 
-        {#if invitations.length === 0}
+        {#if invitations.length === 0 && servers.length === 0}
           <div class="empty-state">
             <div class="empty-icon">🔗</div>
             <h3>No federation invites yet</h3>
             <p>Create an invite to share an encrypted connection string with another server&apos;s admin.</p>
           </div>
-        {:else}
+        {:else if invitations.length > 0}
           <ul class="invite-list">
             {#each invitations as inv (inv.inviteId)}
               <li class="invite-row">

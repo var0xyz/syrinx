@@ -2953,6 +2953,7 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 	payload := federationConnectionPayload{
 		InviteID:       inviteID,
 		ServerID:       h.services.db.GetServerID(),
+		ServerName:     h.cfg.ServerName,
 		BaseURL:        baseURL,
 		Fingerprint:    h.signingKey.Fingerprint,
 		PublicKeyArmor: serverPubArmor,
@@ -3329,6 +3330,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	now := time.Now().UTC().Truncate(time.Second)
 	err = h.services.db.MarkFederationInvitationAccepted(r.Context(), inviteID, federationPeer{
 		ServerID:    req.ServerID,
+		ServerName:  req.ServerName,
 		BaseURL:     req.BaseURL,
 		Fingerprint: req.Fingerprint,
 	}, now)
@@ -3443,6 +3445,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	now := time.Now().UTC().Truncate(time.Second)
 	peer := federationPeer{
 		ServerID:    payload.ServerID,
+		ServerName:  payload.ServerName,
 		BaseURL:     payload.BaseURL,
 		Fingerprint: payload.Fingerprint,
 		PublicKey:   payload.PublicKeyArmor,
@@ -3466,6 +3469,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 
 	connectReq := federationConnectRequest{
 		ServerID:    localServerID,
+		ServerName:  h.cfg.ServerName,
 		BaseURL:     localBaseURL,
 		Fingerprint: h.signingKey.Fingerprint,
 		Signature:   connectSigB64,
