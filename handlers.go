@@ -3277,6 +3277,13 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		internalServerError(w)
 	default:
 		h.logFederationInvitationAsync(inviteID, federationLogInfo, "Connect attempt accepted; pending approval")
+		// MarkFederationInvitationAccepted just inserted/updated the peer's
+		// servers row (connected=TRUE), so federation_server_log's FK is
+		// satisfiable now — mirror the responder's logFederationServerAsync
+		// calls in OutgoingFederationAttempt so the initiator's mesh/peer
+		// view isn't empty for a connection it originated.
+		h.logFederationServerAsync(req.ServerID, federationLogInfo,
+			fmt.Sprintf("Connected to %s (%s)", req.ServerID, req.BaseURL))
 		writeResponse(w, http.StatusOK, federationConnectResponse{Status: federationStatusAccepted, ServerID: req.ServerID})
 	}
 }
