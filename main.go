@@ -398,6 +398,8 @@ func main() {
 	api.HandleFunc("/federation/servers/{id}/logs", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/servers/{id}/invitation", h.GetFederationServerInvitation).Methods("GET")
 	api.HandleFunc("/federation/servers/{id}/invitation", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/servers/{id}/attempt", h.GetFederationServerAttempt).Methods("GET")
+	api.HandleFunc("/federation/servers/{id}/attempt", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/attempts/{id}", h.GetFederationAttempt).Methods("GET")
 	api.HandleFunc("/federation/attempts/{id}", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/attempts/{id}/logs", h.GetFederationAttemptLogs).Methods("GET")

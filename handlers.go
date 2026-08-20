@@ -3126,13 +3126,13 @@ func (h *Handlers) ListFederationServers(w http.ResponseWriter, r *http.Request)
 // GetFederationServerLogs returns federation_log lines for one peer server as
 // plain text, one line per entry — the mesh tab's per-server drill-down (tap
 // a server to see what actually happened during its handshake, since that
-// spans two servers and can fail or stall asynchronously). Invitation log
-// lines (pre-acceptance, written before a servers row existed — see
-// logFederationInvitation's doc comment) come first, then server log lines,
-// each section chronological — the invitation and the server together are
-// one continuous story for this connection. Plain text instead of a JSON
-// array: the client only ever displays these lines verbatim, so there's
-// nothing to parse on either side.
+// spans two servers and can fail or stall asynchronously). Attempt log lines
+// (pre-approval, written before a servers row existed — see
+// logFederationAttempt's doc comment) come first, then server log lines,
+// each section chronological — the attempt and the server together are one
+// continuous story for this connection. Plain text instead of a JSON array:
+// the client only ever displays these lines verbatim, so there's nothing to
+// parse on either side.
 func (h *Handlers) GetFederationServerLogs(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
@@ -3157,20 +3157,21 @@ func (h *Handlers) GetFederationServerLogs(w http.ResponseWriter, r *http.Reques
 
 	var sb strings.Builder
 
-	// Responder side has no local invitation row (nil, not an error — see
-	// GetFederationInvitationForServer's doc comment).
-	inv, err := h.services.db.GetFederationInvitationForServer(r.Context(), serverID)
+	// Every servers row has a backing attempt (ApproveFederationAttempt
+	// backfills federation_attempt.server_id), but treat a miss as "no
+	// attempt info" rather than an error.
+	attempt, err := h.services.db.GetFederationAttemptForServer(r.Context(), serverID)
 	if err != nil {
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
-	if inv != nil {
-		invRows, err := h.services.db.ListFederationInvitationLogs(r.Context(), inv.ID)
+	if attempt != nil {
+		attemptRows, err := h.services.db.ListFederationAttemptLogs(r.Context(), attempt.ID)
 		if err != nil {
 			writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 			return
 		}
-		writeFederationLogLines(&sb, invRows)
+		writeFederationLogLines(&sb, attemptRows)
 	}
 
 	serverRows, err := h.services.db.ListFederationServerLogs(r.Context(), serverID)
@@ -3230,6 +3231,46 @@ func (h *Handlers) GetFederationServerInvitation(w http.ResponseWriter, r *http.
 		return
 	}
 	writeResponse(w, http.StatusOK, federationInvitationRowToWire(*inv))
+}
+
+// GetFederationServerAttempt returns the (approved) attempt that produced
+// this server connection — approved-by/dates, for the mesh tab's peer
+// detail page. 200 with a JSON null body if no attempt row is found, which
+// shouldn't happen for a real servers row but is treated as "no attempt
+// info" rather than an error (see GetFederationAttemptForServer's doc
+// comment).
+func (h *Handlers) GetFederationServerAttempt(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	serverID := mux.Vars(r)["id"]
+	if serverID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		return
+	}
+
+	attempt, err := h.services.db.GetFederationAttemptForServer(r.Context(), serverID)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if attempt == nil {
+		writeResponse(w, http.StatusOK, nil)
+		return
+	}
+	writeResponse(w, http.StatusOK, federationAttemptRowToWire(*attempt))
 }
 
 func federationAttemptRowToWire(row federationAttemptRow) federationAttemptWire {

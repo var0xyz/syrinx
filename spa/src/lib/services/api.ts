@@ -440,6 +440,14 @@ export const apiService = {
     );
   },
 
+  /** null if no attempt row is found (shouldn't happen for a real server). */
+  async getFederationServerAttempt(serverId: string): Promise<api.FederationAttempt | null> {
+    return request<api.FederationAttempt | null>(
+      `/federation/servers/${encodeURIComponent(serverId)}/attempt`,
+      { method: 'GET' }
+    );
+  },
+
   async getFederationAttempt(attemptId: string): Promise<api.FederationAttempt> {
     return request<api.FederationAttempt>(
       `/federation/attempts/${encodeURIComponent(attemptId)}`,
