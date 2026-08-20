@@ -28,7 +28,7 @@
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
-  import { parseReedRef, resolveThreadId, formatReedRef } from '$lib/utils/reedRef';
+  import { parseReedRef, resolveThreadId, refForRemoved } from '$lib/utils/reedRef';
   import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
@@ -110,9 +110,9 @@
   // cached from before the removal still key correctly, same as a live
   // thread-root reed would.
   $: parentThreadId = reed && reedMatchesRoute
-    ? (reed.threadId || resolveThreadId(reed, reed.serverSignature?.serverID || localStorage.getItem('serverId') || ''))
+    ? (reed.threadId || resolveThreadId(reed))
     : (removedReedCert || removedAccountCert)
-      ? formatReedRef(
+      ? refForRemoved(
           userID,
           (removedReedCert || removedAccountCert).serverID || localStorage.getItem('serverId') || '',
           reedID,
