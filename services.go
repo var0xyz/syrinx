@@ -1324,6 +1324,15 @@ type ReedRef struct {
 	ReedID   string
 }
 
+// CanonicalAuthorID returns AuthorID@ServerID — the form every DB lookup,
+// WS subscription key, and broadcast UserID field actually needs. AuthorID
+// alone is bare; use this instead of AuthorID at any call site that isn't
+// itself recomposing a wire ref (FormatReedRef) or calling identity.LocalID/
+// RemoteID(AuthorID, ServerID) directly.
+func (r ReedRef) CanonicalAuthorID() string {
+	return string(identity.LocalID(r.AuthorID, r.ServerID))
+}
+
 // ParseReedRef parses "userID@serverID/reedID". Returns ok=false for empty or malformed input.
 func ParseReedRef(raw string) (ReedRef, bool) {
 	raw = strings.TrimSpace(raw)
