@@ -379,14 +379,16 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 	if ciphertext.Valid {
 		t.Fatalf("expected ciphertext cleared on accept, got %q", ciphertext.String)
 	}
+	// Handshake verified (accepted), but connected stays FALSE until a
+	// second admin approves (spec 03, not yet built).
 	var connected bool
 	if err := ds.db.QueryRowContext(context.Background(),
 		`SELECT connected FROM servers WHERE id = $1`, "server-b",
 	).Scan(&connected); err != nil {
 		t.Fatal(err)
 	}
-	if !connected {
-		t.Fatalf("expected peer server marked connected")
+	if connected {
+		t.Fatalf("expected peer server NOT connected (awaiting approval)")
 	}
 
 	// Accepted invitations no longer appear in the pending-invite list — the
