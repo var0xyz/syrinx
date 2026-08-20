@@ -74,3 +74,14 @@ type federationListItemWire struct {
 	ReviewedAt         *string `json:"reviewedAt,omitempty"`
 	ConnectionString   *string `json:"connectionString,omitempty"`
 }
+
+// federationServerWire is one row in GET /api/federation/servers — this
+// server's view of a connected peer (responder-side status; see
+// federationServerListRow's doc comment for why there's no fingerprint).
+type federationServerWire struct {
+	ServerID  string `json:"serverId"`
+	Name      string `json:"name"`
+	BaseURL   string `json:"baseUrl"`
+	Connected bool   `json:"connected"`
+	CreatedAt string `json:"createdAt"`
+}

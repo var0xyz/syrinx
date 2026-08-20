@@ -399,6 +399,10 @@ export const apiService = {
     });
   },
 
+  async listFederationServers(): Promise<api.FederationServer[]> {
+    return request<api.FederationServer[]>('/federation/servers', { method: 'GET' });
+  },
+
   async whoami() {
     return request<{ id: string; username: string }>('/users/me', { method: 'GET' });
   },

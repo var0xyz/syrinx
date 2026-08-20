@@ -390,6 +390,8 @@ func main() {
 	api.HandleFunc("/federation/invitations", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/invitations/{id}/revoke", h.RevokeFederationInvitation).Methods("POST")
 	api.HandleFunc("/federation/invitations/{id}/revoke", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/servers", h.ListFederationServers).Methods("GET")
+	api.HandleFunc("/federation/servers", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/attempt", h.OutgoingFederationAttempt).Methods("POST")
 	api.HandleFunc("/federation/attempt", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods("POST")
