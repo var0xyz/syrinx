@@ -119,7 +119,7 @@ export function buildKeyNest(
     // successorSignature field — that's /keys-API-only bookkeeping.
     const wireRevocation: api.RecoveryKeyRevocation | null = revocation
       ? {
-          fingerprint: bareFingerprint(revocation.revokedId),
+          fingerprint: bareFingerprint(revocation.id),
           userID: revocation.userID,
           reason: revocation.reason,
           successor: revocation.successor,

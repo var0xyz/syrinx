@@ -1,4 +1,4 @@
-import { apiService } from '$lib/services/api';
+import { apiService, canonicalKeyId } from '$lib/services/api';
 import { dbService } from '$lib/services/db';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
 import { allowUnsigned, verifyUser } from '$lib/verifiers';
@@ -57,7 +57,7 @@ export class UserRepository {
       !(await publicKeyRepository.hasPublicKey(user.userSignature.fingerprint))
     ) {
       try {
-        const key = await apiService.getPublicKey(userId, user.userSignature.fingerprint);
+        const key = await apiService.getPublicKey(canonicalKeyId(userId, user.userSignature.fingerprint));
         await publicKeyRepository.put(key);
       } catch (error) {
         console.error('Error fetching public key for user:', error);

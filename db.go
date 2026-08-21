@@ -112,7 +112,10 @@ type ServerSigningKey struct {
 }
 
 // KeyRevocation is the wire shape of a signed revocation attestation.
-// The user signature covers (userID, revokedId, reason); the server
+// ID is the revoked key's own id (public_key_revocations.revoked_id is
+// both this cert's primary key and its FK to public_keys.id — a key can
+// only be revoked once, so the two roles collapse onto one column/field).
+// The user signature covers (userID, id, reason); the server
 // countersignature binds that user attestation and supplies the
 // authoritative revoke time as serverSignature.timestamp.
 //
@@ -123,7 +126,7 @@ type ServerSigningKey struct {
 // rotation handoff proof); it and Successor are covered by neither the
 // user nor the server signature on this cert.
 type KeyRevocation struct {
-	RevokedID          string          `json:"revokedId"`
+	ID                 string          `json:"id"`
 	UserID             string          `json:"userID"`
 	Reason             string          `json:"reason"`
 	Successor          *string         `json:"successor"`

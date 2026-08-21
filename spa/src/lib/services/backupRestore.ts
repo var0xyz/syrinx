@@ -1,7 +1,7 @@
 import type * as api from '$lib/types/api';
 import { cryptoService } from './crypto';
 import { dbService } from './db';
-import { apiService } from './api';
+import { apiService, canonicalKeyId } from './api';
 import { authService } from './auth';
 import { ensureDeviceId } from './deviceId';
 import { localStorageService } from './localstorage';
@@ -175,7 +175,7 @@ export async function buildKeyBackupPayload(): Promise<BackupPayload> {
 
   let publicKey = await publicKeyRepository.getPublicKey(fingerprint);
   if (!publicKey) {
-    publicKey = await apiService.getPublicKey(userId, fingerprint);
+    publicKey = await apiService.getPublicKey(canonicalKeyId(userId, fingerprint));
   }
 
   return {

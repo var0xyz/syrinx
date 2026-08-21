@@ -3,7 +3,7 @@
  * Handles reed creation, storage, and retrieval
  */
 
-import { apiService as api } from '../services/api';
+import { apiService as api, canonicalKeyId } from '../services/api';
 import { dbService } from '../services/db';
 import { publicKeyRepository } from './publicKey';
 import { userRepository } from './user';
@@ -234,7 +234,7 @@ class ReedsService {
       const fp = reed.userSignature.fingerprint;
       if (!(await publicKeyRepository.hasPublicKey(fp))) {
         try {
-          const key = await api.getPublicKey(reed.userID, fp);
+          const key = await api.getPublicKey(canonicalKeyId(reed.userID, fp));
           await publicKeyRepository.put(key);
         } catch (error) {
           console.error('Failed to cache author public key before reed store:', error);

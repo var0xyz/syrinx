@@ -2,7 +2,7 @@ import type * as api from '$lib/types/api';
 import { deviceIdHeader } from './deviceId';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
-import { appendFingerprint, formatServerKeyId, parseKeyId } from '$lib/utils/keyId';
+import { appendFingerprint, parseKeyId } from '$lib/utils/keyId';
 import {
   handleDeviceMismatch,
   handleFinishRecoveryForbidden,
@@ -81,7 +81,7 @@ export type UsernameAvailabilityResult =
 
 /** userId must already be canonical (userID@serverID); fingerprint may be
  * bare or already a full canonical key id — passed through as-is either way. */
-function canonicalKeyId(userId: string, fingerprint: string): string {
+export function canonicalKeyId(userId: string, fingerprint: string): string {
   return parseKeyId(fingerprint) ? fingerprint : appendFingerprint(userId, fingerprint);
 }
 
@@ -840,40 +840,25 @@ export const apiService = {
     return request<void>(`/users/${targetUserId}/follow`, { method: 'DELETE' });
   },
 
-  async getPublicKey(userID: string, fingerprint: string): Promise<api.PublicKey> {
-    const id = canonicalKeyId(userID, fingerprint);
+  /** id must already be a full canonical key id — userID@serverID/fingerprint
+   * for a user key, fingerprint@serverID for a server's own key (build with
+   * canonicalKeyId/formatServerKeyId). Authenticated: GET /keys/{id} serves
+   * any key — local or, transparently via server-side proxying, a
+   * federated peer's — but requires a session, unlike getOwnServerKey. */
+  async getPublicKey(id: string): Promise<api.PublicKey> {
     const key = await request<api.PublicKey>(`/keys/${id}`, { method: 'GET' });
     return { ...key, armor: atob(key.armor) };
   },
 
   /**
-   * Fetch a server's own signing public key (local or, transparently via
-   * server-side proxying, a federated peer's — see GetKey/proxyIfForeign in
-   * handlers.go) by its bare fingerprint + serverID, cached in publicKeys
-   * under the bare fingerprint (server keys share the store with user keys,
-   * which are keyed by their canonical id — the two id shapes never
-   * collide). A server's own key has no owning user, so its canonical id
-   * for the fetch itself is "fingerprint@serverID", not
-   * "userID@serverID/fingerprint".
+   * Fetch THIS server's own current signing key armor — unauthenticated
+   * (GET /server/key takes no id, only ever returns this server's own key,
+   * see GetServerKey in handlers.go), unlike getPublicKey. Needed by flows
+   * that run before a session/private key exists yet (e.g. identity
+   * backup restore) and can't use the authenticated general lookup.
    */
-  async getServerPublicKey(fingerprint: string, serverID: string): Promise<{ fingerprint: string; armor: string }> {
-    const fp = fingerprint.trim();
-    const { dbService } = await import('./db');
-    const cached = await dbService.get<{ fingerprint: string; armor: string }>('publicKeys', fp);
-    if (cached?.armor) {
-      return { fingerprint: cached.fingerprint, armor: cached.armor };
-    }
-
-    const id = formatServerKeyId(fp, serverID);
-    const wireKey = await request<api.PublicKey>(`/keys/${id}`, { method: 'GET' });
-    const key = { fingerprint: fp, armor: atob(wireKey.armor) };
-    try {
-      const { allowUnsigned } = await import('$lib/verifiers');
-      await dbService.put('publicKeys', key, allowUnsigned);
-    } catch (error) {
-      console.error('Failed to cache server public key:', error);
-    }
-    return key;
+  async getOwnServerKey(): Promise<string> {
+    return requestText('/server/key', { method: 'GET' });
   },
 
   async addPublicKey(

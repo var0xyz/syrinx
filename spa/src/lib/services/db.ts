@@ -67,12 +67,23 @@ export class IndexedDbService implements DbService {
   // must NOT be cleared — see migratePrivateKeyFingerprintsV10 in
   // repositories/privateKey.ts and pendingRevocation.ts, called once from
   // app bootstrap after this store upgrade completes.
-  private readonly version = 10;
+  //
+  // v11: the wire types backing these two stores were renamed
+  // (PublicKey.fingerprint -> id; KeyRevocation.fingerprint -> id, the
+  // revoked key's own id — see the public_keys backend unification), so
+  // keyPath is dropped and recreated on the field the wire type actually
+  // carries now, instead of forcing every write site to fabricate a
+  // redundant `fingerprint` alias property just to satisfy the old
+  // keyPath. Both stores are pure server mirrors (same "no resync
+  // fallback" exemption as v10 above) — dropped and recreated rather than
+  // re-keying rows in place; they repopulate on next use via the existing
+  // fetch-on-miss paths.
+  private readonly version = 11;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
-    ['publicKeys',  'fingerprint'],
-    ['revocations', 'fingerprint'],
+    ['publicKeys',  'id'         ],
+    ['revocations', 'id'         ],
     ['tags',        'tagName'    ],
     ['users',       'id'         ],
     ['usersInfo',   'id'         ],
@@ -112,13 +123,26 @@ export class IndexedDbService implements DbService {
         const db = (event.target as IDBOpenDBRequest).result;
         const tx = (event.target as IDBOpenDBRequest).transaction!;
 
+        // v11: 'publicKeys'/'revocations' change keyPath ('fingerprint' ->
+        // 'id' on both — see the version comment above). keyPath is
+        // immutable on an existing store, so a clean drop-and-recreate is
+        // required here, not a plain ensureStore call with the new keyPath
+        // (which would silently keep the OLD keyPath on a store that
+        // already exists — see the NOTE below). Both are pure server
+        // mirrors, safe to drop outright; they repopulate on next use.
+        for (const storeName of ['publicKeys', 'revocations']) {
+          if (db.objectStoreNames.contains(storeName)) {
+            db.deleteObjectStore(storeName);
+          }
+        }
+
         // NOTE: keyPath is immutable on an existing store — IndexedDB has
         // no in-place "change the key" API. If a future change needs a
         // different keyPath for a store that already shipped (like v8's
-        // 'reeds' change once did), this helper's `contains(storeName)`
-        // branch will keep the OLD keyPath silently; that migration needs
-        // its own explicit read-all/delete/recreate/reinsert code here,
-        // not a plain ensureStore call with the new keyPath.
+        // 'reeds' change, or v11's 'publicKeys'/'revocations' change
+        // above), this helper's `contains(storeName)` branch will keep the
+        // OLD keyPath silently unless the store was explicitly dropped
+        // first.
         const ensureStore = (
           storeName: string,
           keyPath: string | string[],
@@ -142,14 +166,6 @@ export class IndexedDbService implements DbService {
         // and 'serverSignature.timestamp' as regular (non-key) indexes for
         // getReedsByAuthor / deleteReedsByAuthor / recency queries.
         ensureStore('reeds', ['userID', 'id'], ['userID', 'serverSignature.timestamp']);
-
-        // v10: see the version comment above. Only run for clients
-        // upgrading from an existing DB (oldVersion > 0) — a brand new
-        // client has nothing to clear.
-        if (event.oldVersion > 0 && event.oldVersion < 10) {
-          tx.objectStore('publicKeys').clear();
-          tx.objectStore('revocations').clear();
-        }
       };
     });
   }

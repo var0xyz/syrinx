@@ -43,10 +43,10 @@ func newFederationServer(t *testing.T, name string) *federationServer {
 	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods(http.MethodPost)
 	api.HandleFunc("/federation/users/{userID}/identity", h.peerAuthMiddleware(h.GetFederationUserIdentity)).Methods(http.MethodGet)
 	// peerAuthMiddleware live-fetches the caller's own signing key armor
-	// from the caller (fetchPeerServerKeyArmor) to verify its request
-	// signature, so both test servers need to be able to serve their own
-	// key back, exactly as main.go registers it.
-	api.HandleFunc("/keys/{id:.+}", h.GetKey).Methods(http.MethodGet)
+	// from the caller (fetchPeerServerKeyArmor, GET /server/key) to verify
+	// its request signature, so both test servers need to be able to serve
+	// their own key back, exactly as main.go registers it.
+	api.HandleFunc("/server/key", h.GetServerKey).Methods(http.MethodGet)
 
 	// TLS: the connect/attempt handlers reject non-https baseUrls, so the
 	// initiator side must be served over TLS even in tests.

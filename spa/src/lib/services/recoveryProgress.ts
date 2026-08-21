@@ -139,9 +139,9 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
   for (const key of input.publicKeys) {
     byFp.set(key.id.toLowerCase(), key);
   }
-  const byRevokedId = new Map<string, api.KeyRevocation>();
+  const byRevocationId = new Map<string, api.KeyRevocation>();
   for (const revocation of input.revocations) {
-    byRevokedId.set(revocation.revokedId.toLowerCase(), revocation);
+    byRevocationId.set(revocation.id.toLowerCase(), revocation);
   }
   const byUser = new Map<string, api.User>();
   for (const user of input.users) {
@@ -159,7 +159,7 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
       (byUser.get(id) as api.User & { activeKeyFingerprint?: string } | undefined)
         ?.activeKeyFingerprint,
     getPublicKey: (fp: string) => byFp.get(fp.toLowerCase()) ?? byFp.get(fp),
-    getRevocation: (fp: string) => byRevokedId.get(fp.toLowerCase()) ?? byRevokedId.get(fp),
+    getRevocation: (id: string) => byRevocationId.get(id.toLowerCase()) ?? byRevocationId.get(id),
   };
 
   for (const user of input.users) {

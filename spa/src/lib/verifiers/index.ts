@@ -13,6 +13,7 @@ import { serverConnection } from '$lib/services/serverConnection';
 import { reedContentWithinLimits } from '$lib/utils/reedContent';
 import { shouldRecheck, markChecked } from '$lib/utils/keyCheckThrottle';
 import { parseKeyId } from '$lib/utils/keyId';
+import { canonicalKeyId } from '$lib/services/api';
 import {
   buildAccountRemovalServerPayload,
   buildAccountRemovalUserPayload,
@@ -42,21 +43,15 @@ export async function allowUnsigned(_data: unknown): Promise<boolean> {
 
 /** Fetches, attests, and stores fresh key data. Reports genuine fetch
  * failures (anything but "key not found") since content already arrived
- * over an authenticated connection — the server was reachable.
- *
- * `fingerprint` is duplicated onto the stored record as an alias of `id` —
- * the IndexedDB store's keyPath is still the literal property name
- * `fingerprint` (see db.ts's v10 comment), while the wire type names that
- * same field `id`. */
+ * over an authenticated connection — the server was reachable. */
 async function fetchAndStorePublicKey(
   userID: string,
   fingerprint: string
 ): Promise<api.PublicKey | null> {
   try {
-    const key = await apiService.getPublicKey(userID, fingerprint);
+    const key = await apiService.getPublicKey(canonicalKeyId(userID, fingerprint));
     if (!key) return null;
-    const record = { ...key, fingerprint: key.id };
-    await dbService.put('publicKeys', record, verifyPublicKey);
+    await dbService.put('publicKeys', key, verifyPublicKey);
     markChecked(fingerprint);
     return key;
   } catch (err) {
@@ -97,11 +92,10 @@ async function resolvePredecessor(key: api.PublicKey): Promise<api.PublicKey | n
   const cached = await dbService.get<api.PublicKey>('publicKeys', predId);
   if (cached) return cached;
   try {
-    const pred = await apiService.getPublicKey(key.userID, predId);
+    const pred = await apiService.getPublicKey(canonicalKeyId(key.userID, predId));
     if (!pred) return null;
     try {
-      const record = { ...pred, fingerprint: pred.id };
-      await dbService.put('publicKeys', record, verifyPublicKey);
+      await dbService.put('publicKeys', pred, verifyPublicKey);
     } catch {
       // Still hand the fetched key to the current attestation pass.
     }
@@ -125,8 +119,7 @@ async function resolvePredecessorRevocation(predId: string): Promise<api.KeyRevo
     // re-deriving userId@serverID from the parsed id.
     const revocation = await apiService.getKeyRevocation(predId, predId);
     try {
-      const record = { ...revocation, fingerprint: revocation.revokedId };
-      await dbService.put('revocations', record, verifyKeyRevocation);
+      await dbService.put('revocations', revocation, verifyKeyRevocation);
     } catch {
       // Still hand the fetched revocation to the current attestation pass.
     }
@@ -249,20 +242,20 @@ async function isKeyValidAt(
 
 export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promise<boolean> {
   if (!revocation?.serverSignature || !revocation.userSignature?.armor) {
-    console.error('[verifyKeyRevocation] missing signatures', revocation?.revokedId);
+    console.error('[verifyKeyRevocation] missing signatures', revocation?.id);
     return false;
   }
 
   // User attestation is signed by the key being revoked.
-  const publicKeyArmor = await resolvePublicKeyArmor(revocation.userID, revocation.revokedId);
+  const publicKeyArmor = await resolvePublicKeyArmor(revocation.userID, revocation.id);
   if (!publicKeyArmor) {
-    console.error('[verifyKeyRevocation] public key armor unavailable', revocation.revokedId);
+    console.error('[verifyKeyRevocation] public key armor unavailable', revocation.id);
     return false;
   }
 
   const userPayload = buildUserRevocationPayload(
     revocation.userID,
-    revocation.revokedId,
+    revocation.id,
     revocation.reason
   );
   const userValid = await cryptoService.verifySignature(
@@ -271,13 +264,13 @@ export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promis
     publicKeyArmor
   );
   if (!userValid) {
-    console.error('[verifyKeyRevocation] user signature failed', revocation.revokedId);
+    console.error('[verifyKeyRevocation] user signature failed', revocation.id);
     return false;
   }
 
   const serverPayload = buildServerRevocationPayload(
     revocation.userID,
-    revocation.revokedId,
+    revocation.id,
     revocation.reason,
     revocation.serverSignature.serverID,
     revocation.serverSignature.fingerprint,

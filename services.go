@@ -1064,7 +1064,7 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, id string) (*KeyRevo
 		FROM public_key_revocations rv
 		WHERE rv.revoked_id = $1
 	`, id).Scan(
-		&rev.RevokedID, &reason, &successor,
+		&rev.ID, &reason, &successor,
 		&userSigID, &serverSigID, &successorSigID,
 	)
 	if err != nil {
@@ -1075,7 +1075,7 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, id string) (*KeyRevo
 	}
 	// owner isn't stored on this table — recover it from the canonical id
 	// itself (same derivation as GetPublicKey).
-	if ownerID, ownerServer, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(rev.RevokedID)); ok {
+	if ownerID, ownerServer, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(rev.ID)); ok {
 		rev.UserID = string(identity.CanonicalID(ownerServer, ownerID))
 	}
 	rev.Reason = reason.String

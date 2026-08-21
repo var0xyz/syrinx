@@ -43,7 +43,7 @@ export async function claimOwnIdentity(): Promise<api.User> {
     publicKeys.map((k) => [k.id.toLowerCase(), k])
   );
   const revocationsByFp = new Map(
-    revocations.map((r) => [r.revokedId.toLowerCase(), r])
+    revocations.map((r) => [r.id.toLowerCase(), r])
   );
 
   const profile = usersById.get(userId);

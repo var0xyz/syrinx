@@ -17,11 +17,6 @@ export class PublicKeyRepository {
    * Persist a server-attested public key. Verification runs inside
    * `dbService.put` via `verifyPublicKey`. If we already hold this id,
    * refuse to overwrite with different armor.
-   *
-   * `fingerprint` duplicates `id` (the canonical key id) on the stored
-   * record only — the IndexedDB store's keyPath is still the literal
-   * property name `fingerprint` (see db.ts's v10 comment), while the wire
-   * type names that same field `id`.
    */
   async put(key: api.PublicKey): Promise<void> {
     const existing = await this.getPublicKey(key.id);
@@ -32,20 +27,19 @@ export class PublicKeyRepository {
       );
     }
 
-    const record = { ...key, fingerprint: key.id };
-    await this.db.put('publicKeys', record, verifyPublicKey);
+    await this.db.put('publicKeys', key, verifyPublicKey);
   }
 
-  async getPublicKey(fingerprint: string): Promise<api.PublicKey | null> {
-    return await this.db.get<api.PublicKey>('publicKeys', fingerprint);
+  async getPublicKey(id: string): Promise<api.PublicKey | null> {
+    return await this.db.get<api.PublicKey>('publicKeys', id);
   }
 
-  async hasPublicKey(fingerprint: string): Promise<boolean> {
-    return !!(await this.getPublicKey(fingerprint));
+  async hasPublicKey(id: string): Promise<boolean> {
+    return !!(await this.getPublicKey(id));
   }
 
-  async deletePublicKey(fingerprint: string): Promise<void> {
-    return await this.db.delete('publicKeys', fingerprint);
+  async deletePublicKey(id: string): Promise<void> {
+    return await this.db.delete('publicKeys', id);
   }
 
   /**

@@ -1,6 +1,6 @@
 import { dbService, type DbService } from '../services/db';
 import type * as api from '$lib/types/api';
-import { apiService } from '$lib/services/api';
+import { apiService, canonicalKeyId } from '$lib/services/api';
 import { verifyRipple } from '$lib/verifiers';
 import { publicKeyRepository } from './publicKey';
 import { userRepository } from './user';
@@ -45,7 +45,7 @@ export class RipplesRepository {
       const fp = ripple.userSignature.fingerprint;
       if (!(await publicKeyRepository.hasPublicKey(fp))) {
         try {
-          const key = await apiService.getPublicKey(ripple.userID, fp);
+          const key = await apiService.getPublicKey(canonicalKeyId(ripple.userID, fp));
           await publicKeyRepository.put(key);
         } catch (error) {
           console.error('Failed to cache ripple author public key:', error);
