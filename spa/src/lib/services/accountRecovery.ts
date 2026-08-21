@@ -17,6 +17,7 @@ import { serverConnection } from './serverConnection';
 import { startReedRequestDrainer, clearReedRequestDispatched } from './reedRequestDrainer';
 import {
   assertIdentityBackupKeys,
+  backupKeyItemId,
   type BackupPayload,
   writeIdentityKeysBackup,
 } from './backupRestore';
@@ -94,7 +95,7 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
 
   const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
   const privateKeyEntry = (privateKeysTable?.items ?? []).find(
-    (k) => k && typeof k === 'object' && (k as { fingerprint?: string }).fingerprint === fingerprint
+    (k) => k && typeof k === 'object' && backupKeyItemId(k) === fingerprint
   ) as { armor?: string } | undefined;
 
   if (!privateKeyEntry?.armor) {
