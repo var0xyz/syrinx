@@ -291,12 +291,12 @@ export function assertIdentityBackupKeys(backup: BackupPayload): void {
 
   const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
   const privateKeyEntry = (privateKeysTable?.items ?? []).find(
-    (k) => k && typeof k === 'object' && (k as { fingerprint?: string }).fingerprint === keyFingerprint
+    (k) => k && typeof k === 'object' && backupKeyItemId(k) === keyFingerprint
   ) as { armor?: string } | undefined;
 
   const publicKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'publicKeys');
   const publicKeyEntry = (publicKeysTable?.items ?? []).find(
-    (k) => k && typeof k === 'object' && (k as { fingerprint?: string }).fingerprint === keyFingerprint
+    (k) => k && typeof k === 'object' && backupKeyItemId(k) === keyFingerprint
   );
 
   const usersTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'users');
@@ -361,12 +361,24 @@ export function assertBackupIdentity(backup: BackupPayload): void {
 
   const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
   const privateKeyEntry = (privateKeysTable?.items ?? []).find(
-    (k) => k && typeof k === 'object' && (k as { fingerprint?: string }).fingerprint === keyFingerprint
+    (k) => k && typeof k === 'object' && backupKeyItemId(k) === keyFingerprint
   ) as { armor?: string } | undefined;
 
   if (!userId || !keyFingerprint || !keyPassphrase || !privateKeyEntry?.armor) {
     throw new Error('Invalid backup file: missing required identity data.');
   }
+}
+
+/**
+ * A backup's privateKeys/publicKeys item can carry either `id` (the Go
+ * root-key exporter's identityPrivateKeyItem/Key wire shapes) or
+ * `fingerprint` (the SPA's own export, which spreads an IndexedDB-shaped
+ * record where `fingerprint` is a keyPath alias of `id` — see
+ * verifiers/index.ts's write path). Match either.
+ */
+export function backupKeyItemId(item: object): string | undefined {
+  return (item as { id?: string; fingerprint?: string }).id
+    ?? (item as { id?: string; fingerprint?: string }).fingerprint;
 }
 
 async function restoreItem(storeName: string, item: unknown): Promise<void> {
@@ -402,9 +414,10 @@ async function restoreItem(storeName: string, item: unknown): Promise<void> {
       return;
     case 'privateKeys': {
       const key = item as PrivateKey;
-      await privateKeyRepository.put(key.fingerprint, atob(key.armor));
+      const id = backupKeyItemId(key as unknown as object) ?? key.fingerprint;
+      await privateKeyRepository.put(id, atob(key.armor));
       if (key.revoked) {
-        await privateKeyRepository.setRevoked(key.fingerprint);
+        await privateKeyRepository.setRevoked(id);
       }
       return;
     }
