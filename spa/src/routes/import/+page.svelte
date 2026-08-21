@@ -139,6 +139,10 @@
           clearRecoveryRun();
         }
         await writeBackup(backup);
+        // Restoring from a backup file means the user already has one by
+        // definition — don't send them through the mandatory-backup nag on
+        // the very next <Auth> mount (see Auth.svelte's lastKeyBackupAt gate).
+        localStorage.setItem('lastKeyBackupAt', String(Date.now()));
         const fingerprint = authService.getActiveKeyFingerprint();
         const passphrase = authService.getPassphrase();
         if (!fingerprint || !passphrase) {
@@ -164,6 +168,8 @@
 
       if (needsRecovery) {
         await writeBackup(backup);
+        // Same reasoning as the complete-account branch above.
+        localStorage.setItem('lastKeyBackupAt', String(Date.now()));
         if (localRecovery) {
           resumeRecoveryRun();
         } else {

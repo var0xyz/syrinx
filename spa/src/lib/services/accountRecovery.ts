@@ -104,6 +104,10 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
   const bootstrap = await fetchBootstrap(userId, fingerprint, atob(privateKeyEntry.armor), passphrase);
 
   await writeIdentityKeysBackup(backup);
+  // Restoring from a backup means the user already has one by definition —
+  // don't send them through the mandatory-backup nag on the very next
+  // <Auth> mount (see Auth.svelte's lastKeyBackupAt gate).
+  localStorage.setItem('lastKeyBackupAt', String(Date.now()));
 
   await authService.saveUserToStorage(bootstrap.profile);
   authService.setActiveKey(fingerprint);
