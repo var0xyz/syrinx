@@ -39,3 +39,13 @@ export function formatKeyId(userId: string, serverId: string, fingerprint: strin
 export function appendFingerprint(canonicalUserId: string, fingerprint: string): string {
   return `${canonicalUserId}/${fingerprint}`;
 }
+
+/**
+ * Canonical id for a server's own signing key: "fingerprint@serverID" — no
+ * owning user, unlike a user key's "userID@serverID/fingerprint". Mirrors
+ * identity.CanonicalID(serverID, fingerprint) called with a key fingerprint
+ * standing in for userID on the Go side (see handlers.go's GetKey doc).
+ */
+export function formatServerKeyId(fingerprint: string, serverId: string): string {
+  return `${fingerprint}@${serverId}`;
+}

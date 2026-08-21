@@ -37,7 +37,7 @@ export async function verify(
   }
 
   try {
-    const serverPub = await apiService.getServerPublicKey(serverSignature.fingerprint);
+    const serverPub = await apiService.getServerPublicKey(serverSignature.fingerprint, serverSignature.serverID);
     if (!serverPub?.armor) {
       return { ok: false, reason: 'server_key_unavailable', detail: serverSignature.fingerprint };
     }

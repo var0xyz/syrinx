@@ -251,8 +251,9 @@
       await requestSigner.initializeWorker(canonicalFingerprint, password);
 
       currentStep = 7;
-      // getPublicKey's URL wants the bare fingerprint (userID is already a
-      // separate path segment) — see api.ts's getPublicKey.
+      // getPublicKey accepts a bare fingerprint and builds the canonical
+      // GET /keys/{id} id itself from userID + fingerprint — see api.ts's
+      // getPublicKey.
       const attestedKey = await apiService.getPublicKey(
         user.id,
         keyPair.fingerprint,

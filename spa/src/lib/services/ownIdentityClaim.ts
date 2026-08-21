@@ -40,10 +40,10 @@ export async function claimOwnIdentity(): Promise<api.User> {
   const usersById = new Map(users.map((u) => [u.id, u]));
   const infoByUserId = new Map(usersInfo.map((i) => [i.id, i]));
   const keysByFp = new Map(
-    publicKeys.map((k) => [k.fingerprint.toLowerCase(), k])
+    publicKeys.map((k) => [k.id.toLowerCase(), k])
   );
   const revocationsByFp = new Map(
-    revocations.map((r) => [r.fingerprint.toLowerCase(), r])
+    revocations.map((r) => [r.revokedId.toLowerCase(), r])
   );
 
   const profile = usersById.get(userId);

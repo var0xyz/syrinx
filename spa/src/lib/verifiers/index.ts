@@ -42,7 +42,12 @@ export async function allowUnsigned(_data: unknown): Promise<boolean> {
 
 /** Fetches, attests, and stores fresh key data. Reports genuine fetch
  * failures (anything but "key not found") since content already arrived
- * over an authenticated connection — the server was reachable. */
+ * over an authenticated connection — the server was reachable.
+ *
+ * `fingerprint` is duplicated onto the stored record as an alias of `id` —
+ * the IndexedDB store's keyPath is still the literal property name
+ * `fingerprint` (see db.ts's v10 comment), while the wire type names that
+ * same field `id`. */
 async function fetchAndStorePublicKey(
   userID: string,
   fingerprint: string
@@ -50,7 +55,8 @@ async function fetchAndStorePublicKey(
   try {
     const key = await apiService.getPublicKey(userID, fingerprint);
     if (!key) return null;
-    await dbService.put('publicKeys', key, verifyPublicKey);
+    const record = { ...key, fingerprint: key.id };
+    await dbService.put('publicKeys', record, verifyPublicKey);
     markChecked(fingerprint);
     return key;
   } catch (err) {
@@ -86,15 +92,16 @@ async function resolvePublicKey(
 }
 
 async function resolvePredecessor(key: api.PublicKey): Promise<api.PublicKey | null> {
-  const predFp = key.predecessor?.fingerprint;
-  if (!predFp) return null;
-  const cached = await dbService.get<api.PublicKey>('publicKeys', predFp);
+  const predId = key.predecessor?.id;
+  if (!predId) return null;
+  const cached = await dbService.get<api.PublicKey>('publicKeys', predId);
   if (cached) return cached;
   try {
-    const pred = await apiService.getPublicKey(key.userID, predFp);
+    const pred = await apiService.getPublicKey(key.userID, predId);
     if (!pred) return null;
     try {
-      await dbService.put('publicKeys', pred, verifyPublicKey);
+      const record = { ...pred, fingerprint: pred.id };
+      await dbService.put('publicKeys', record, verifyPublicKey);
     } catch {
       // Still hand the fetched key to the current attestation pass.
     }
@@ -104,17 +111,42 @@ async function resolvePredecessor(key: api.PublicKey): Promise<api.PublicKey | n
   }
 }
 
-/** Server attestation + armor↔fingerprint (+ optional predecessor handoff). */
+/** Fetch + cache the predecessor key's own revocation cert, needed for its
+ * `successorSignature` (the predecessor's proof it approved this rotation —
+ * see verifyPublicKey's predecessor handoff check). */
+async function resolvePredecessorRevocation(predId: string): Promise<api.KeyRevocation | null> {
+  const cached = await dbService.get<api.KeyRevocation>('revocations', predId);
+  if (cached) return cached;
+  if (!parseKeyId(predId)) return null;
+  try {
+    // predId is already canonical, so getKeyRevocation's userId arg is
+    // moot (canonicalKeyId in api.ts passes an already-canonical
+    // fingerprint straight through) — pass it again rather than
+    // re-deriving userId@serverID from the parsed id.
+    const revocation = await apiService.getKeyRevocation(predId, predId);
+    try {
+      const record = { ...revocation, fingerprint: revocation.revokedId };
+      await dbService.put('revocations', record, verifyKeyRevocation);
+    } catch {
+      // Still hand the fetched revocation to the current attestation pass.
+    }
+    return revocation;
+  } catch {
+    return null;
+  }
+}
+
+/** Server attestation + armor↔id (+ optional predecessor handoff). */
 export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
   if (!key?.serverSignature) {
-    console.error('[verifyPublicKey] missing serverSignature block', key?.fingerprint);
+    console.error('[verifyPublicKey] missing serverSignature block', key?.id);
     return false;
   }
   const result = await verify(
     key.serverSignature,
     buildPublicKeyPayload(
       key.userID,
-      key.fingerprint,
+      key.id,
       key.serverSignature.serverID,
       key.serverSignature.fingerprint,
       key.armor,
@@ -125,46 +157,63 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
     console.error('[verifyPublicKey] server signature failed', result);
     return false;
   }
-  // key.fingerprint is canonical (userID@serverID/fingerprint); the armor
-  // only lets us derive the bare fingerprint, so compare against the
-  // parsed suffix. Also cross-check the embedded userID matches key.userID
-  // (mirrors the equivalent check added server-side in
-  // recovery/nest.go's FlattenKeysNest) — closes a spoofing gap where a
-  // tampered fingerprint string could claim a different owner than the
-  // one the rest of the record asserts.
-  const parsedFp = parseKeyId(key.fingerprint);
-  if (!parsedFp) {
-    console.error('[verifyPublicKey] malformed fingerprint', key.fingerprint);
+  // key.id is canonical (userID@serverID/fingerprint); the armor only lets
+  // us derive the bare fingerprint, so compare against the parsed suffix.
+  // Also cross-check the embedded userID matches key.userID (mirrors the
+  // equivalent check added server-side in recovery/nest.go's
+  // FlattenKeysNest) — closes a spoofing gap where a tampered id string
+  // could claim a different owner than the one the rest of the record
+  // asserts.
+  const parsedId = parseKeyId(key.id);
+  if (!parsedId) {
+    console.error('[verifyPublicKey] malformed id', key.id);
     return false;
   }
-  const embeddedUserId = `${parsedFp.userId}@${parsedFp.serverId}`;
+  const embeddedUserId = `${parsedId.userId}@${parsedId.serverId}`;
   if (embeddedUserId !== key.userID) {
-    console.error('[verifyPublicKey] fingerprint owner mismatch', { fingerprint: key.fingerprint, userID: key.userID });
+    console.error('[verifyPublicKey] id owner mismatch', { id: key.id, userID: key.userID });
     return false;
   }
   const derived = await cryptoService.fingerprintFromArmor(key.armor);
-  if (derived.toLowerCase() !== parsedFp.fingerprint.toLowerCase()) {
-    console.error('[verifyPublicKey] fingerprint mismatch', { labeled: key.fingerprint, derived });
+  if (derived.toLowerCase() !== parsedId.fingerprint.toLowerCase()) {
+    console.error('[verifyPublicKey] fingerprint mismatch', { labeled: key.id, derived });
     return false;
   }
 
-  if (key.predecessor?.signature) {
-    if (!key.predecessor.fingerprint) {
-      console.error('[verifyPublicKey] predecessor block missing fingerprint');
-      return false;
-    }
+  // Rotation provenance is one hop away now: the predecessor no longer
+  // carries its own handoff signature (KeyPredecessor is just {id}) — that
+  // proof lives on the *predecessor's own* revocation cert, as
+  // successorSignature (see types/api.ts's KeyPredecessor doc comment).
+  if (key.predecessor?.id) {
     const predecessor = await resolvePredecessor(key);
     if (!predecessor?.armor) {
-      console.error('[verifyPublicKey] predecessor public key unavailable', key.predecessor.fingerprint);
+      console.error('[verifyPublicKey] predecessor public key unavailable', key.predecessor.id);
       return false;
     }
+    const predRevocation = await resolvePredecessorRevocation(key.predecessor.id);
+    if (!predRevocation?.successorSignature) {
+      console.error('[verifyPublicKey] predecessor revocation/successorSignature unavailable', key.predecessor.id);
+      return false;
+    }
+    if (predRevocation.successor !== key.id) {
+      console.error('[verifyPublicKey] predecessor revocation successor mismatch', {
+        expected: key.id,
+        actual: predRevocation.successor,
+      });
+      return false;
+    }
+    // successorSignature travels as raw armor, not base64 — it's written
+    // from the same already-decoded value the old predecessor.signature
+    // field used to carry (see AddPublicKeyInput.PredecessorSignature's
+    // doc comment in services.go), unlike userSignature.armor/
+    // serverSignature.armor elsewhere on this cert, which are base64.
     const handoffValid = await cryptoService.verifySignature(
       key.armor,
-      key.predecessor.signature,
+      predRevocation.successorSignature,
       predecessor.armor
     );
     if (!handoffValid) {
-      console.error('[verifyPublicKey] predecessor handoff signature failed', key.fingerprint);
+      console.error('[verifyPublicKey] predecessor handoff signature failed', key.id);
       return false;
     }
   }
@@ -200,20 +249,20 @@ async function isKeyValidAt(
 
 export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promise<boolean> {
   if (!revocation?.serverSignature || !revocation.userSignature?.armor) {
-    console.error('[verifyKeyRevocation] missing signatures', revocation?.fingerprint);
+    console.error('[verifyKeyRevocation] missing signatures', revocation?.revokedId);
     return false;
   }
 
   // User attestation is signed by the key being revoked.
-  const publicKeyArmor = await resolvePublicKeyArmor(revocation.userID, revocation.fingerprint);
+  const publicKeyArmor = await resolvePublicKeyArmor(revocation.userID, revocation.revokedId);
   if (!publicKeyArmor) {
-    console.error('[verifyKeyRevocation] public key armor unavailable', revocation.fingerprint);
+    console.error('[verifyKeyRevocation] public key armor unavailable', revocation.revokedId);
     return false;
   }
 
   const userPayload = buildUserRevocationPayload(
     revocation.userID,
-    revocation.fingerprint,
+    revocation.revokedId,
     revocation.reason
   );
   const userValid = await cryptoService.verifySignature(
@@ -222,13 +271,13 @@ export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promis
     publicKeyArmor
   );
   if (!userValid) {
-    console.error('[verifyKeyRevocation] user signature failed', revocation.fingerprint);
+    console.error('[verifyKeyRevocation] user signature failed', revocation.revokedId);
     return false;
   }
 
   const serverPayload = buildServerRevocationPayload(
     revocation.userID,
-    revocation.fingerprint,
+    revocation.revokedId,
     revocation.reason,
     revocation.serverSignature.serverID,
     revocation.serverSignature.fingerprint,
@@ -711,7 +760,7 @@ async function resolveAuthorArmorForRemoval(
     const fp =
       fingerprint ||
       info?.activeKeyFingerprint ||
-      forUser[0]?.fingerprint;
+      forUser[0]?.id;
     if (!fp) return forUser[0]?.armor ?? null;
     return resolvePublicKeyArmor(userID, fp);
   } catch (error) {
