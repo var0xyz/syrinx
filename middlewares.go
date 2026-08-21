@@ -289,7 +289,7 @@ func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, ne
 		return
 	}
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Not an established peer")
+		writeResponse(w, http.StatusForbidden, "Not an established peer")
 		return
 	}
 
@@ -299,12 +299,12 @@ func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, ne
 		return
 	}
 	if peer == nil {
-		writeResponse(w, http.StatusUnauthorized, "Not an established peer")
+		writeResponse(w, http.StatusForbidden, "Not an established peer")
 		return
 	}
 	publicKeyArmor, err := h.fetchPeerServerKeyArmor(r.Context(), peer.BaseURL, callerServerID, fingerprint)
 	if err != nil || publicKeyArmor == "" {
-		writeResponse(w, http.StatusUnauthorized, "Not an established peer")
+		writeResponse(w, http.StatusForbidden, "Not an established peer")
 		return
 	}
 
@@ -444,7 +444,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				log.Error().
 					Str("publicKeyId", publicKeyIDHeader).
 					Msg("Public key not found")
-				writeResponse(w, http.StatusBadRequest, "Can't validate request signature: Key not found for fingerprint")
+				writeResponse(w, http.StatusForbidden, "Key not found")
 				return
 			}
 

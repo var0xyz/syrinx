@@ -233,8 +233,9 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	}
 
 	// Wrong fingerprint (claims to be b, signs with a throwaway key) is
-	// rejected, not just "signature invalid" — VerifyFederationPeer fails
-	// closed on any mismatch.
+	// rejected as 403 (not-established-peer, same bucket as "key not
+	// found") — VerifyFederationPeer fails closed on any mismatch. 401 is
+	// reserved for "key found but signature doesn't match".
 	strangerKP, err := crypto.NewService().CreateKeyPair("stranger", "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -258,8 +259,8 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer badResp.Body.Close()
-	if badResp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for unpinned fingerprint, got %d", badResp.StatusCode)
+	if badResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for unpinned fingerprint, got %d", badResp.StatusCode)
 	}
 }
 
