@@ -70,12 +70,15 @@ type Handlers struct {
 }
 
 type ServerInfo struct {
-	ID                   string `json:"id"`
-	Name                 string `json:"name"`
-	RecoveryMode         bool   `json:"recoveryMode"`
-	SignupMode           string `json:"signupMode"`
-	MaxInvitesPerUser    int    `json:"maxInvitesPerUser"` // -1 = infinite
-	ServerKeyFingerprint string `json:"serverKeyFingerprint"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	RecoveryMode      bool   `json:"recoveryMode"`
+	SignupMode        string `json:"signupMode"`
+	MaxInvitesPerUser int    `json:"maxInvitesPerUser"` // -1 = infinite
+	// ServerKeyID is this server's own current signing key's canonical id
+	// (fingerprint@serverID) — clients check their local publicKeys cache
+	// for it and, on a miss, fetch it via GET /server/key.
+	ServerKeyID string `json:"serverKeyId"`
 }
 
 // ///////////// //
@@ -160,12 +163,12 @@ func (h *Handlers) noop(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, ServerInfo{
-		ID:                   h.services.db.GetServerID(),
-		Name:                 h.cfg.ServerName,
-		RecoveryMode:         h.cfg.RecoveryMode,
-		SignupMode:           h.cfg.SignupMode,
-		MaxInvitesPerUser:    h.cfg.MaxInvitesPerUser,
-		ServerKeyFingerprint: h.signingKey.Fingerprint,
+		ID:                h.services.db.GetServerID(),
+		Name:              h.cfg.ServerName,
+		RecoveryMode:      h.cfg.RecoveryMode,
+		SignupMode:        h.cfg.SignupMode,
+		MaxInvitesPerUser: h.cfg.MaxInvitesPerUser,
+		ServerKeyID:       string(identity.CanonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint)),
 	})
 }
 

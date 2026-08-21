@@ -244,7 +244,7 @@
           <p class="lead">Federate with other Syrinx instances</p>
           <button
             class="btn secondary own-key-btn"
-            disabled={!$serverInfo?.serverKeyFingerprint || copyingOwnKey}
+            disabled={!$serverInfo?.serverKeyId || copyingOwnKey}
             on:click={copyOwnPublicKey}
           >
             {copyingOwnKey ? 'Copying…' : 'Copy this server’s public key'}

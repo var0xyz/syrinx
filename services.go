@@ -301,7 +301,7 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 		// header just needs to bind SOME identity consistently between
 		// what's signed and what's later verified; there is no owner
 		// identity to bind instead.
-		keyID := keyPair.Fingerprint + "@" + s.serverID
+		keyID := string(identity.CanonicalID(s.serverID, keyPair.Fingerprint))
 		selfPayload := identity.BuildPublicKeyPayload(
 			s.serverID, keyID, keyID, keyPair.Fingerprint,
 			keyPair.PublicKey, now,
@@ -434,7 +434,7 @@ func (s *DataService) GetServerPublicKeyByFingerprint(ctx context.Context, finge
 	var armor string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT armor FROM public_keys WHERE id = $1`,
-		fingerprint+"@"+s.serverID,
+		string(identity.CanonicalID(s.serverID, fingerprint)),
 	).Scan(&armor)
 	if err == sql.ErrNoRows {
 		return "", nil

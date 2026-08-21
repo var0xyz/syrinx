@@ -7,5 +7,6 @@ export interface ServerInfo {
   signupMode: SignupMode;
   /** -1 means unlimited. */
   maxInvitesPerUser: number;
-  serverKeyFingerprint: string;
+  /** This server's own current signing key's canonical id (fingerprint@serverID). */
+  serverKeyId: string;
 }
