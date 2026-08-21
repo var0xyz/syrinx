@@ -48,45 +48,40 @@ func ensureMentionsSchema(db *sql.DB) error {
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id)
 		)`,
 		`CREATE TABLE reeds (
-			id VARCHAR(255) NOT NULL,
+			id VARCHAR(255) PRIMARY KEY,
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 			private_key_fingerprint VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			allocation_count INT NOT NULL DEFAULT 0,
-			PRIMARY KEY (user_id, id)
+			allocation_count INT NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE reed_allocations (
 			reed_id VARCHAR(255) NOT NULL,
 			holder_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-			author_user_id VARCHAR(255) NOT NULL,
 			delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (holder_user_id, author_user_id, reed_id),
-			FOREIGN KEY (author_user_id, reed_id) REFERENCES reeds(user_id, id) ON DELETE CASCADE
+			PRIMARY KEY (holder_user_id, reed_id),
+			FOREIGN KEY (reed_id) REFERENCES reeds(id) ON DELETE CASCADE
 		)`,
 		`CREATE TABLE pending_fanout (
-			user_id VARCHAR(255) NOT NULL,
 			reed_id VARCHAR(255) NOT NULL,
 			tags TEXT[] NOT NULL DEFAULT '{}',
-			PRIMARY KEY (user_id, reed_id)
+			PRIMARY KEY (reed_id),
+			FOREIGN KEY (reed_id) REFERENCES reeds(id) ON DELETE CASCADE
 		)`,
 		// mentioned_user_id FKs identities(id) — backstops "only local
 		// users can be indexed" (see db.go).
 		`CREATE TABLE reed_mentions (
-			mentioning_user_id VARCHAR(255) NOT NULL,
 			mentioning_reed_id VARCHAR(255) NOT NULL,
 			mentioned_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 			mentioned_server_id VARCHAR(255) NOT NULL,
 			PRIMARY KEY (mentioning_reed_id, mentioned_server_id, mentioned_user_id),
-			FOREIGN KEY (mentioning_user_id, mentioning_reed_id)
-				REFERENCES reeds(user_id, id) ON DELETE CASCADE
+			FOREIGN KEY (mentioning_reed_id)
+				REFERENCES reeds(id) ON DELETE CASCADE
 		)`,
 		`DROP TABLE IF EXISTS reed_removals CASCADE`,
 		`CREATE TABLE reed_removals (
-			reed_id VARCHAR(255) NOT NULL,
-			user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-			PRIMARY KEY (user_id, reed_id)
+			reed_id VARCHAR(255) PRIMARY KEY
 		)`,
 	}
 	for _, s := range stmts {
@@ -221,7 +216,8 @@ func TestDeleteMentionsForReed_ClearsRows(t *testing.T) {
 	seedMentionUser(t, db, "alice")
 	seedMentionUser(t, db, "bob")
 
-	reedID := newTestReedID(t)
+	bareReedID := newTestReedID(t)
+	reedID := string(identity.AppendEntity(identity.IdentityID("alice@testserver"), bareReedID))
 	ts := time.Now().UTC().Truncate(time.Second)
 	_, err := svc.CreateReed(ctx, createReedParams{
 		ReedID:             reedID,
@@ -237,7 +233,7 @@ func TestDeleteMentionsForReed_ClearsRows(t *testing.T) {
 		t.Fatalf("CreateReed: %v", err)
 	}
 
-	if err := svc.DeleteMentionsForReed(ctx, "alice@testserver", reedID); err != nil {
+	if err := svc.DeleteMentionsForReed(ctx, reedID); err != nil {
 		t.Fatalf("DeleteMentionsForReed: %v", err)
 	}
 

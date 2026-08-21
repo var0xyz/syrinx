@@ -139,12 +139,10 @@ func ensureTestSchema(db *sql.DB) error {
 			predecessor_id VARCHAR(255) REFERENCES public_keys(id)
 		)`,
 		`CREATE TABLE reed_removals (
-			reed_id VARCHAR(255) NOT NULL,
-			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+			reed_id VARCHAR(255) PRIMARY KEY,
 			public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			PRIMARY KEY (user_id, reed_id)
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id),
@@ -230,15 +228,16 @@ func seedUserKey(t *testing.T, db *sql.DB, userID, fingerprint string) {
 func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 	db := openTestDB(t)
 	userID := fmt.Sprintf("rm-user-%d", time.Now().UnixNano())
-	reedID := fmt.Sprintf("rm-reed-%d", time.Now().UnixNano())
+	bareReedID := fmt.Sprintf("rm-reed-%d", time.Now().UnixNano())
 	bareFP := fmt.Sprintf("rm-fp-%d", time.Now().UnixNano())
 	identityID := string(identity.CanonicalID(testServerID, userID))
+	reedID := string(identity.AppendEntity(identity.IdentityID(identityID), bareReedID))
 	fp := string(identity.AppendEntity(identity.IdentityID(identityID), bareFP))
 
 	seedUser(t, db, userID, "u-"+userID)
 	seedUserKey(t, db, userID, bareFP)
 	t.Cleanup(func() {
-		_, _ = db.Exec(`DELETE FROM reed_removals WHERE user_id = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM reed_removals WHERE reed_id = $1`, reedID)
 		_, _ = db.Exec(`DELETE FROM public_keys WHERE owner = $1`, identityID)
 		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, identityID)
 		_, _ = db.Exec(`DELETE FROM identities WHERE id = $1`, identityID)
@@ -260,7 +259,7 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 		t.Fatalf("identical replay: %v", err)
 	}
 
-	got, err := GetCert(context.Background(), db, userID, reedID, testServerID)
+	got, err := GetCert(context.Background(), db, reedID, testServerID)
 	if err != nil || got == nil {
 		t.Fatalf("get: got=%v err=%v", got, err)
 	}

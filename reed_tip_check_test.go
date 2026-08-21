@@ -178,8 +178,9 @@ func TestCreateReed_AfterDeleteNamingNewTipSucceeds(t *testing.T) {
 		t.Fatalf("second create: %v", err)
 	}
 
-	// Remove the tip (second). reed_removals.user_id FKs identities(id) now.
-	if _, err := db.Exec(`INSERT INTO reed_removals (reed_id, user_id) VALUES ($1, 'alice@testserver')`, second); err != nil {
+	// Remove the tip (second). reed_id is canonical (embeds the author) —
+	// no separate user_id column.
+	if _, err := db.Exec(`INSERT INTO reed_removals (reed_id) VALUES ($1)`, second); err != nil {
 		t.Fatal(err)
 	}
 

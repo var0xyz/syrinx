@@ -670,10 +670,9 @@ func TestFederationInvitationPayloadCanonicalShape(t *testing.T) {
 }
 
 func TestRippleUserPayloadCanonicalShape(t *testing.T) {
-	got := BuildRippleUserPayload("authorABC", "0v4reed", "commenterXYZ", "AA11BB", "3fa85f64-5717-4562-b3fc-2c963f66afa6", "", "nice post!")
+	got := BuildRippleUserPayload("0v4reed", "commenterXYZ", "AA11BB", "3fa85f64-5717-4562-b3fc-2c963f66afa6", "", "nice post!")
 	want := "---\n" +
 		"fingerprint: AA11BB\n" +
-		"reedAuthorID: authorABC\n" +
 		"reedID: 0v4reed\n" +
 		"rippleAuthorID: commenterXYZ\n" +
 		"threadID: 3fa85f64-5717-4562-b3fc-2c963f66afa6\n" +
@@ -685,10 +684,9 @@ func TestRippleUserPayloadCanonicalShape(t *testing.T) {
 }
 
 func TestRippleUserPayloadWithReplyingTo(t *testing.T) {
-	got := BuildRippleUserPayload("authorABC", "0v4reed", "commenterXYZ", "AA11BB", "3fa85f64-5717-4562-b3fc-2c963f66afa6", "abc123hash", "agreed")
+	got := BuildRippleUserPayload("0v4reed", "commenterXYZ", "AA11BB", "3fa85f64-5717-4562-b3fc-2c963f66afa6", "abc123hash", "agreed")
 	want := "---\n" +
 		"fingerprint: AA11BB\n" +
-		"reedAuthorID: authorABC\n" +
 		"reedID: 0v4reed\n" +
 		"replyingTo: abc123hash\n" +
 		"rippleAuthorID: commenterXYZ\n" +
@@ -703,13 +701,12 @@ func TestRippleUserPayloadWithReplyingTo(t *testing.T) {
 func TestRippleServerPayloadCanonicalShape(t *testing.T) {
 	signedAt := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	got := BuildRippleServerPayload(
-		"Server01", "authorABC", "0v4reed", "commenterXYZ",
+		"Server01", "0v4reed", "commenterXYZ",
 		"0011FF", "3fa85f64-5717-4562-b3fc-2c963f66afa6", "",
 		"dXNlcnNpZw==", signedAt,
 	)
 	want := "---\n" +
 		"fingerprint: 0011FF\n" +
-		"reedAuthorID: authorABC\n" +
 		"reedID: 0v4reed\n" +
 		"rippleAuthorID: commenterXYZ\n" +
 		"serverID: Server01\n" +
@@ -727,13 +724,12 @@ func TestRippleRoundTrip(t *testing.T) {
 	serverKP, _ := newTestKeyPair(t, "server")
 
 	serverID := "srv_xyz"
-	reedAuthorID := "user_reed_author"
-	reedID := "0k2n1p0000000000000ReedA"
+	reedID := "user_reed_author@srv_xyz/0k2n1p0000000000000ReedA"
 	rippleAuthorID := "user_commenter"
 	threadID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 	content := "nice post!"
 
-	userPayload := BuildRippleUserPayload(reedAuthorID, reedID, rippleAuthorID, authorKP.Fingerprint, threadID, "", content)
+	userPayload := BuildRippleUserPayload(reedID, rippleAuthorID, authorKP.Fingerprint, threadID, "", content)
 	userSigB64 := signB64(t, cryptoSvc, authorKP.PrivateKey, userPayload)
 	if err := verifyB64(t, cryptoSvc, authorKP.PublicKey, userSigB64, userPayload); err != nil {
 		t.Fatalf("userSignature verify: %v", err)
@@ -741,18 +737,18 @@ func TestRippleRoundTrip(t *testing.T) {
 
 	signedAt := time.Now().UTC().Truncate(time.Second)
 	serverPayload := BuildRippleServerPayload(
-		serverID, reedAuthorID, reedID, rippleAuthorID,
+		serverID, reedID, rippleAuthorID,
 		serverKP.Fingerprint, threadID, "",
 		userSigB64, signedAt,
 	)
 	serverSigB64 := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
 
-	rebuiltUser := BuildRippleUserPayload(reedAuthorID, reedID, rippleAuthorID, authorKP.Fingerprint, threadID, "", content)
+	rebuiltUser := BuildRippleUserPayload(reedID, rippleAuthorID, authorKP.Fingerprint, threadID, "", content)
 	if err := verifyB64(t, cryptoSvc, authorKP.PublicKey, userSigB64, rebuiltUser); err != nil {
 		t.Errorf("rebuilt userSignature verify: %v", err)
 	}
 	rebuiltServer := BuildRippleServerPayload(
-		serverID, reedAuthorID, reedID, rippleAuthorID,
+		serverID, reedID, rippleAuthorID,
 		serverKP.Fingerprint, threadID, "",
 		userSigB64, signedAt,
 	)
@@ -773,45 +769,44 @@ func TestRippleTamperFails(t *testing.T) {
 	serverKP, _ := newTestKeyPair(t, "server")
 
 	serverID := "srv_xyz"
-	reedAuthorID := "user_reed_author"
-	reedID := "0k2n1p0000000000000ReedA"
+	reedID := "user_reed_author@srv_xyz/0k2n1p0000000000000ReedA"
 	rippleAuthorID := "user_commenter"
 	threadID := "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 	content := "nice post!"
 	signedAt := time.Now().UTC().Truncate(time.Second)
 
-	userPayload := BuildRippleUserPayload(reedAuthorID, reedID, rippleAuthorID, authorKP.Fingerprint, threadID, "", content)
+	userPayload := BuildRippleUserPayload(reedID, rippleAuthorID, authorKP.Fingerprint, threadID, "", content)
 	userSigB64 := signB64(t, cryptoSvc, authorKP.PrivateKey, userPayload)
 	serverPayload := BuildRippleServerPayload(
-		serverID, reedAuthorID, reedID, rippleAuthorID,
+		serverID, reedID, rippleAuthorID,
 		serverKP.Fingerprint, threadID, "",
 		userSigB64, signedAt,
 	)
 	serverSigB64 := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
 
 	if err := verifyB64(t, cryptoSvc, authorKP.PublicKey, userSigB64,
-		BuildRippleUserPayload(reedAuthorID, reedID, rippleAuthorID, authorKP.Fingerprint, threadID, "", "different content")); err == nil {
+		BuildRippleUserPayload(reedID, rippleAuthorID, authorKP.Fingerprint, threadID, "", "different content")); err == nil {
 		t.Fatal("user signature must not verify with swapped content")
 	}
 	if err := verifyB64(t, cryptoSvc, authorKP.PublicKey, userSigB64,
-		BuildRippleUserPayload(reedAuthorID, reedID, rippleAuthorID, authorKP.Fingerprint, "aaaaaaaa-5717-4562-b3fc-2c963f66afa6", "", content)); err == nil {
+		BuildRippleUserPayload(reedID, rippleAuthorID, authorKP.Fingerprint, "aaaaaaaa-5717-4562-b3fc-2c963f66afa6", "", content)); err == nil {
 		t.Fatal("user signature must not verify with swapped threadID")
 	}
 	if err := verifyB64(t, cryptoSvc, authorKP.PublicKey, userSigB64,
-		BuildRippleUserPayload(reedAuthorID, "otherReed", rippleAuthorID, authorKP.Fingerprint, threadID, "", content)); err == nil {
+		BuildRippleUserPayload("otherReed", rippleAuthorID, authorKP.Fingerprint, threadID, "", content)); err == nil {
 		t.Fatal("user signature must not verify with swapped reedID")
 	}
 	if err := verifyB64(t, cryptoSvc, serverKP.PublicKey, serverSigB64,
-		BuildRippleServerPayload(serverID, reedAuthorID, "otherReed", rippleAuthorID,
+		BuildRippleServerPayload(serverID, "otherReed", rippleAuthorID,
 			serverKP.Fingerprint, threadID, "", userSigB64, signedAt)); err == nil {
 		t.Fatal("server signature must not verify with swapped reedID")
 	}
 
 	// Re-pair a genuine userSignature with a different thread in the server payload.
-	otherUserPayload := BuildRippleUserPayload(reedAuthorID, reedID, rippleAuthorID, authorKP.Fingerprint, "bbbbbbbb-5717-4562-b3fc-2c963f66afa6", "", content)
+	otherUserPayload := BuildRippleUserPayload(reedID, rippleAuthorID, authorKP.Fingerprint, "bbbbbbbb-5717-4562-b3fc-2c963f66afa6", "", content)
 	otherUserSig := signB64(t, cryptoSvc, authorKP.PrivateKey, otherUserPayload)
 	tamperedServer := BuildRippleServerPayload(
-		serverID, reedAuthorID, reedID, rippleAuthorID,
+		serverID, reedID, rippleAuthorID,
 		serverKP.Fingerprint, threadID, "",
 		otherUserSig, signedAt,
 	)
