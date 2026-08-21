@@ -241,17 +241,15 @@ export function buildServerRevocationPayload(
   );
 }
 
-/** Mirror of BuildReedRemovalUserPayload in identity.go (`type: reed`). */
+/** Mirror of BuildReedRemovalUserPayload in identity.go (`type: reed`). reedID is the full canonical id. */
 export function buildReedRemovalUserPayload(
   serverID: string,
-  userID: string,
   reedID: string
 ): string {
   return stringToSign(
     {
       type: 'reed',
       serverID,
-      userID,
       reedID
     },
     ''
@@ -261,7 +259,6 @@ export function buildReedRemovalUserPayload(
 /** Mirror of BuildReedRemovalServerPayload in identity.go. */
 export function buildReedRemovalServerPayload(
   serverID: string,
-  userID: string,
   reedID: string,
   serverKeyFingerprint: string,
   userSignatureB64: string,
@@ -271,7 +268,6 @@ export function buildReedRemovalServerPayload(
     {
       type: 'reed',
       serverID,
-      userID,
       reedID,
       signedAt,
       serverKeyFingerprint,
@@ -281,10 +277,9 @@ export function buildReedRemovalServerPayload(
   );
 }
 
-/** Mirror of BuildReedLikeUserPayload in identity.go (`type: reed_like`). */
+/** Mirror of BuildReedLikeUserPayload in identity.go (`type: reed_like`). reedID is the full canonical id. */
 export function buildReedLikeUserPayload(
   serverID: string,
-  authorID: string,
   reedID: string,
   fingerprint: string
 ): string {
@@ -292,7 +287,6 @@ export function buildReedLikeUserPayload(
     {
       type: 'reed_like',
       serverID,
-      authorID,
       reedID,
       fingerprint
     },
@@ -303,7 +297,6 @@ export function buildReedLikeUserPayload(
 /** Mirror of BuildReedLikeServerPayload in identity.go. */
 export function buildReedLikeServerPayload(
   serverID: string,
-  authorID: string,
   reedID: string,
   serverKeyFingerprint: string,
   userSignatureB64: string,
@@ -313,7 +306,6 @@ export function buildReedLikeServerPayload(
     {
       type: 'reed_like',
       serverID,
-      authorID,
       reedID,
       signedAt,
       serverKeyFingerprint,

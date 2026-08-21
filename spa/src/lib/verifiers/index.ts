@@ -530,7 +530,7 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
     return false;
   }
 
-  const userPayload = buildReedRemovalUserPayload(cert.serverID, cert.userID, cert.reedID);
+  const userPayload = buildReedRemovalUserPayload(cert.serverID, cert.reedID);
   const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, armor);
   if (!userValid) {
     console.error('[verifyReedRemoval] user signature failed', cert.reedID);
@@ -539,7 +539,6 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
 
   const serverPayload = buildReedRemovalServerPayload(
     cert.serverID,
-    cert.userID,
     cert.reedID,
     cert.serverSignature.fingerprint,
     cert.userSignature.armor,
@@ -583,7 +582,6 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
 
   const userPayload = buildReedLikeUserPayload(
     cert.serverID,
-    cert.authorID,
     cert.reedID,
     cert.userSignature.fingerprint
   );
@@ -595,7 +593,6 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
 
   const serverPayload = buildReedLikeServerPayload(
     cert.serverID,
-    cert.authorID,
     cert.reedID,
     cert.serverSignature.fingerprint,
     cert.userSignature.armor,

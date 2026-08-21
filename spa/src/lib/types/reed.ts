@@ -55,11 +55,12 @@ export class Reed {
   private _tags: string[] = [];
 
   constructor() {
-    // Client-minted UUID v7; author lists sort by id.
-    this._id = generateReedId();
-
-    // Auto-populate userID
+    // Auto-populate userID (already canonical: userID@serverID).
     this._userID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';
+
+    // Canonical id (userID/uuid) — same composition as everywhere else in
+    // the app; author lists sort by the UUIDv7 suffix.
+    this._id = canonicalReedId({ userID: this._userID, id: generateReedId() });
   }
 
   get userID(): string {
@@ -68,11 +69,6 @@ export class Reed {
 
   get id(): string {
     return this._id;
-  }
-
-  /** This reed's canonical id (userID/id) — see canonicalReedId in reedRef.ts. */
-  get canonicalId(): string {
-    return canonicalReedId(this);
   }
 
   get userSignature(): UserSignature | undefined {

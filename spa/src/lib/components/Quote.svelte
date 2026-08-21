@@ -54,23 +54,22 @@
   // Even a locally-unavailable reed should still be reachable: its detail
   // page shows the conversation (replies/echoes) around it independent of
   // whether the reed body itself resolved on this device.
-  $: unavailableTarget = reed
-    ? { authorId: reed.userID, reedId: reed.id }
-    : parseReedRef(reedRef);
+  $: unavailableTarget = reed ? parseReedRef(reed.id) : parseReedRef(reedRef);
 
   async function resolveGone(authorId, targetReedId) {
+    const canonicalReedId = refForReed(authorId, targetReedId);
     const accountCert = await removedAccountsRepository.get(authorId);
     if (accountCert) {
       return {
         userID: authorId,
-        reedID: targetReedId,
+        reedID: canonicalReedId,
         kind: 'account',
         serverID: accountCert.serverID,
         timestamp: accountCert.serverSignature?.timestamp,
       };
     }
 
-    const reedCert = await removedReedsRepository.get(refForReed(authorId, targetReedId));
+    const reedCert = await removedReedsRepository.get(canonicalReedId);
     if (reedCert && reedCert.userID === authorId) {
       return {
         userID: reedCert.userID,
@@ -82,13 +81,13 @@
 
     if (!get(isOnline)) return null;
     try {
-      const result = await apiService.getReedOrRemoval(refForReed(authorId, targetReedId));
+      const result = await apiService.getReedOrRemoval(canonicalReedId);
       if (result.kind !== 'gone' || !result.removal) return null;
       if (result.removal.type === 'account') {
         await verifyAndCommitAccountRemoval(result.removal);
         return {
           userID: authorId,
-          reedID: targetReedId,
+          reedID: canonicalReedId,
           kind: 'account',
           serverID: result.removal.serverID,
           timestamp: result.removal.serverSignature?.timestamp,
@@ -202,15 +201,15 @@
     if (!linked) return;
     event.stopPropagation();
     if (displayReed) {
-      goto(`/reed/${displayReed.userID}/${displayReed.id}`);
+      goto(`/reed/${displayReed.id}`);
       return;
     }
     if (removedTarget) {
-      goto(`/reed/${removedTarget.userID}/${removedTarget.reedID}`);
+      goto(`/reed/${removedTarget.reedID}`);
       return;
     }
     if (unavailableTarget) {
-      goto(`/reed/${unavailableTarget.authorId}/${unavailableTarget.reedId}`);
+      goto(`/reed/${refForReed(unavailableTarget.authorId, unavailableTarget.reedId)}`);
     }
   }
 </script>

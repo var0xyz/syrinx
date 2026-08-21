@@ -222,7 +222,7 @@
   }
 
   function navigateToReply(row) {
-    goto(`/reed/${row.userID}/${row.reedID}`);
+    goto(`/reed/${row.reedID}`);
   }
 
   $: visible = !loading;

@@ -296,7 +296,7 @@
         await reedsService.discardUnsignedReed(reedId);
         pendingReeds = pendingReeds.filter((reed) => reed.id !== reedId);
       } else {
-        await removeReedAsAuthor(authorId, reedId);
+        await removeReedAsAuthor(reedId);
         reeds = reeds.filter(reed => reed.id !== reedId);
       }
     } catch (error) {
@@ -305,7 +305,7 @@
   }
 
   function navigateToReed(reed) {
-    goto(`/reed/${reed.userID}/${reed.id}`);
+    goto(`/reed/${reed.id}`);
   }
 </script>
 

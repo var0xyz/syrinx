@@ -44,7 +44,7 @@ export async function verifyAndCommitReedRemoval(cert: api.ReedRemoval): Promise
  * Author path: queue pending → DELETE → verify countersig →
  * removedReeds → delete reed → clear pending.
  */
-export async function removeReedAsAuthor(userID: string, reedID: string): Promise<api.ReedRemoval> {
+export async function removeReedAsAuthor(reedID: string): Promise<api.ReedRemoval> {
   const info = get(serverInfo);
   const serverID = info?.id || localStorage.getItem('serverId');
   if (!serverID) {
@@ -62,18 +62,17 @@ export async function removeReedAsAuthor(userID: string, reedID: string): Promis
     throw new Error('Private key not found');
   }
 
-  const userPayload = buildReedRemovalUserPayload(serverID, userID, reedID);
+  const userPayload = buildReedRemovalUserPayload(serverID, reedID);
   const sigArmor = await cryptoService.signMessage(userPayload, privateKey.armor, passphrase);
   const signature = btoa(sigArmor);
 
   await pendingRemovalRepository.put({
     reedID,
     serverID,
-    userID,
     signature,
   });
 
-  const cert = await apiService.deleteReed(refForReed(userID, reedID), signature);
+  const cert = await apiService.deleteReed(reedID, signature);
   if (!(await verifyAndCommitReedRemoval(cert))) {
     throw new Error('Server reed-removal countersignature failed verification');
   }

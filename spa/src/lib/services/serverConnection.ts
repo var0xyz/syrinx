@@ -301,8 +301,7 @@ class ServerConnection {
       type: 'REQUEST_REED',
       data: {
         request_id: record.requestId,
-        reed_id: record.reedId,
-        author_id: record.authorId,
+        reed_id: refForReed(record.authorId, record.reedId),
       },
     });
   }
