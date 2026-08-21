@@ -467,12 +467,12 @@ func InitDB(db *sql.DB) error {
 
 	// Signed reed-removal certificates. Source of truth for “gone”; no FK to
 	// reeds(id) so the live row may be dropped after the cert is stored.
-	// PK is reed_id. public_key_id binds the signing key (canonical,
-	// self-scoping — single-column FK to public_keys); signatures via FKs.
+	// PK is reed_id, which embeds the author — no separate user_id column.
+	// public_key_id binds the signing key (canonical, self-scoping —
+	// single-column FK to public_keys); signatures via FKs.
 	createReedRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS reed_removals (
 		reed_id VARCHAR(255) PRIMARY KEY,
-		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id)

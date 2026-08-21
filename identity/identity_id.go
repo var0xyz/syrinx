@@ -21,8 +21,7 @@ const idSeparator = "@"
 // break; pass zero or exactly one value — more than one panics). When
 // given and non-empty, it's appended as "/{entityID}", producing a ref to
 // something the user owns ("{userID}@{serverID}/{entityID}") rather than
-// a bare user identity — e.g. a user key fingerprint. Reed refs use their
-// own FormatReedRef, not this path.
+// a bare user identity — e.g. a user key fingerprint or a reed id.
 func CanonicalID(serverID, userID string, entityID ...string) IdentityID {
 	if len(entityID) > 1 {
 		panic("identity.CanonicalID: at most one entityID may be passed")

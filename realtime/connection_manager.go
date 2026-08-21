@@ -274,11 +274,11 @@ func (cm *ConnectionManager) GetConnectionCount() int {
 }
 
 // SubscribeReed adds a reed-scoped subscription for the client.
-func (cm *ConnectionManager) SubscribeReed(client *Client, authorUserID, reedID string) {
+func (cm *ConnectionManager) SubscribeReed(client *Client, reedID string) {
 	cm.mutex.Lock()
 	defer cm.mutex.Unlock()
 
-	key := makeReedKey(authorUserID, reedID)
+	key := ReedKey(reedID)
 	client.reedSubscriptions[key] = struct{}{}
 	if cm.reedSubscribers[key] == nil {
 		cm.reedSubscribers[key] = make(map[*Client]struct{})
@@ -287,11 +287,11 @@ func (cm *ConnectionManager) SubscribeReed(client *Client, authorUserID, reedID 
 }
 
 // UnsubscribeReed removes a reed-scoped subscription for the client.
-func (cm *ConnectionManager) UnsubscribeReed(client *Client, authorUserID, reedID string) {
+func (cm *ConnectionManager) UnsubscribeReed(client *Client, reedID string) {
 	cm.mutex.Lock()
 	defer cm.mutex.Unlock()
 
-	key := makeReedKey(authorUserID, reedID)
+	key := ReedKey(reedID)
 	delete(client.reedSubscriptions, key)
 	if subs, ok := cm.reedSubscribers[key]; ok {
 		delete(subs, client)
@@ -424,13 +424,13 @@ func (cm *ConnectionManager) PipeListenerUserIDs(tags []string, excludeUserID st
 }
 
 // ReedSubscriberUserIDs returns the distinct user IDs currently subscribed
-// to (authorUserID, reedID), excluding excludeUserID (typically the reply's
-// own author, who doesn't need it relayed back to themselves).
-func (cm *ConnectionManager) ReedSubscriberUserIDs(authorUserID, reedID, excludeUserID string) []string {
+// to reedID, excluding excludeUserID (typically the reply's own author, who
+// doesn't need it relayed back to themselves).
+func (cm *ConnectionManager) ReedSubscriberUserIDs(reedID, excludeUserID string) []string {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
 
-	subs := cm.reedSubscribers[makeReedKey(authorUserID, reedID)]
+	subs := cm.reedSubscribers[ReedKey(reedID)]
 	if len(subs) == 0 {
 		return nil
 	}
@@ -460,11 +460,11 @@ func (cm *ConnectionManager) SendToClient(client *Client, payload any) error {
 }
 
 // SendToReedSubscribers sends a JSON payload to all subscribers of a reed.
-func (cm *ConnectionManager) SendToReedSubscribers(authorUserID, reedID string, payload any) error {
+func (cm *ConnectionManager) SendToReedSubscribers(reedID string, payload any) error {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
 
-	subs := cm.reedSubscribers[makeReedKey(authorUserID, reedID)]
+	subs := cm.reedSubscribers[ReedKey(reedID)]
 	if len(subs) == 0 {
 		return nil
 	}
@@ -487,11 +487,11 @@ func (cm *ConnectionManager) SendToReedSubscribers(authorUserID, reedID string, 
 // pushes, whose author already has the content from their own synchronous
 // HTTP response — unlike echo/reply/like count refreshes, which the actor
 // also wants delivered back to themselves.
-func (cm *ConnectionManager) sendToReedSubscribersExceptAuthor(authorUserID, reedID, excludeUserID string, payload any) error {
+func (cm *ConnectionManager) sendToReedSubscribersExceptAuthor(reedID, excludeUserID string, payload any) error {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
 
-	subs := cm.reedSubscribers[makeReedKey(authorUserID, reedID)]
+	subs := cm.reedSubscribers[ReedKey(reedID)]
 	if len(subs) == 0 {
 		return nil
 	}
@@ -517,5 +517,5 @@ func (cm *ConnectionManager) BroadcastReedCoverage(msg ReedCoverageMsg) error {
 	if msg.UserID == "" || msg.ReedID == "" {
 		return fmt.Errorf("reed coverage payload missing userID or reedID")
 	}
-	return cm.SendToReedSubscribers(msg.UserID, msg.ReedID, msg)
+	return cm.SendToReedSubscribers(msg.ReedID, msg)
 }

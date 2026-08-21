@@ -28,12 +28,12 @@ func BumpActiveUsers(ctx context.Context, tx *sql.Tx, delta int) error {
 }
 
 // BumpAllocationCount adjusts per-reed holder count in the same TX.
-func BumpAllocationCount(ctx context.Context, tx *sql.Tx, authorUserID, reedID string, delta int) error {
+func BumpAllocationCount(ctx context.Context, tx *sql.Tx, reedID string, delta int) error {
 	_, err := tx.ExecContext(ctx, `
 		UPDATE reeds
 		SET allocation_count = GREATEST(0, allocation_count + $1)
-		WHERE user_id = $2 AND id = $3
-	`, delta, authorUserID, reedID)
+		WHERE id = $2
+	`, delta, reedID)
 	return err
 }
 
