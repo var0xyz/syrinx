@@ -2930,6 +2930,36 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, baseURL s
 	}
 }
 
+// fetchPeerServerKeyArmor live-fetches a peer's own signing key armor over
+// GET /api/keys/{fingerprint}@{serverID} — peer server keys are never
+// persisted locally (see proxyIfForeign's doc comment), so verifying a
+// peer-authenticated request (peerAuthMiddleware) requires asking the peer
+// for its own key every time.
+func (h *Handlers) fetchPeerServerKeyArmor(ctx context.Context, baseURL, serverID, fingerprint string) (string, error) {
+	target := strings.TrimRight(baseURL, "/") + "/api/keys/" + fingerprint + "@" + serverID
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := h.federationHTTPClient().Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("fetch peer server key: status %d", resp.StatusCode)
+	}
+	var key Key
+	if err := json.NewDecoder(resp.Body).Decode(&key); err != nil {
+		return "", err
+	}
+	armor, err := encoding.Base64Decode(key.Armor)
+	if err != nil {
+		return "", err
+	}
+	return string(armor), nil
+}
+
 // logFederationInvitationAsync records a federation_log line for
 // invitationID without blocking the caller or affecting its response — a
 // failure to write a log line must never turn a successful (or already

@@ -2011,7 +2011,7 @@ func (s *DataService) GetReedAttestation(ctx context.Context, userID, reedID str
 	var owner string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT r.id, r.user_id, r.private_key_fingerprint, r.signed_at,
-			us.fingerprint, us.signature,
+			us.public_key_id, us.signature,
 			ss.fingerprint, ss.signature, ss.signed_at
 		FROM reeds r
 		JOIN user_signatures us ON us.id = r.user_signature_id
