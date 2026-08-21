@@ -1129,16 +1129,19 @@ type AddPublicKeyInput struct {
 // On success it inserts the key, points users.user_fingerprint at it, and
 // writes the successor pointer on the predecessor's revocation row.
 //
-// userID is converted to identities.id form once, up front, and used
-// everywhere an FK'd column (user_keys.owner, user_key_revocations.owner)
-// is touched. The existence lock at the top locks the identities row
-// (the actual FK target), not users(id), which is a satellite of it.
+// in.UserID arrives already in userID@serverID form (handlers.go passes
+// the form value straight through, same convention as GetUserProfile/
+// GetActiveKeyFingerprint/UpdateUser elsewhere in this file) and is used
+// directly everywhere an FK'd column (user_keys.owner,
+// user_key_revocations.owner) is touched. The existence lock at the top
+// locks the identities row (the actual FK target), not users(id), which
+// is a satellite of it.
 func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*Key, error) {
 	if in.PredecessorFingerprint == "" {
 		return nil, ErrPredecessorRequired
 	}
 	fingerprint := in.Fingerprint
-	selfIdentity := identity.CanonicalID(s.serverID, in.UserID)
+	selfIdentity := identity.IdentityID(in.UserID)
 	createdAt := in.CreatedAt
 	expiresAt := in.ExpiresAt
 	armor := in.Armor
