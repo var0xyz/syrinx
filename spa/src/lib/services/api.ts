@@ -2,6 +2,7 @@ import type * as api from '$lib/types/api';
 import { deviceIdHeader } from './deviceId';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
+import { parseKeyId } from '$lib/utils/keyId';
 import {
   handleDeviceMismatch,
   handleFinishRecoveryForbidden,
@@ -673,6 +674,9 @@ export const apiService = {
    * reed as listing them — see listRipples and the server's
    * checkReedPossession. `proof` is the reed's base64 server-signature
    * armor. */
+  // fields.fingerprint travels bare over the wire — the server joins it
+  // with the authenticated caller's userID itself (see handlers.go's
+  // PostRipple).
   async postRipple(
     userId: string,
     reedId: string,
@@ -773,9 +777,12 @@ export const apiService = {
     signature: string,
     fingerprint: string
   ): Promise<api.ReedLike> {
+    // fingerprint travels bare over the wire — the server joins it with the
+    // authenticated caller's userID itself (see handlers.go's LikeReed).
+    const bareFingerprint = parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
     const formData = new URLSearchParams();
     formData.append('signature', signature);
-    formData.append('fingerprint', fingerprint);
+    formData.append('fingerprint', bareFingerprint);
     return request<api.ReedLike>(`/reeds/${authorId}/${reedId}/like`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -787,17 +794,23 @@ export const apiService = {
     return request<void>(`/reeds/${authorId}/${reedId}/like`, { method: 'DELETE' });
   },
 
+  // revokeKey/getKeyRevocation/getPublicKey accept the canonical fingerprint
+  // (userID@serverID/fingerprint) and extract the bare suffix for the URL —
+  // {userID} is already a separate path segment carrying that same prefix,
+  // and a canonical fingerprint's "/" would break the route. See main.go's
+  // route registration comment for the server-side half of this.
   async revokeKey(
     userId: string,
     fingerprint: string,
     reason: string,
     userSignature: string
   ): Promise<api.PublicKey> {
+    const bareFingerprint = parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
     const formData = new URLSearchParams();
     formData.append('reason', reason);
     formData.append('userSignature', userSignature);
 
-    const key = await request<api.PublicKey>(`/users/${userId}/keys/${fingerprint}/revoke`, {
+    const key = await request<api.PublicKey>(`/users/${userId}/keys/${bareFingerprint}/revoke`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()
@@ -806,8 +819,9 @@ export const apiService = {
   },
 
   async getKeyRevocation(userId: string, fingerprint: string): Promise<api.KeyRevocation> {
+    const bareFingerprint = parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
     return request<api.KeyRevocation>(
-      `/users/${userId}/keys/${fingerprint}/revocation`,
+      `/users/${userId}/keys/${bareFingerprint}/revocation`,
       { method: 'GET' }
     );
   },
@@ -821,7 +835,8 @@ export const apiService = {
   },
 
   async getPublicKey(userID: string, fingerprint: string): Promise<api.PublicKey> {
-    const key = await request<api.PublicKey>(`/users/${userID}/keys/${fingerprint}`, { method: 'GET' });
+    const bareFingerprint = parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
+    const key = await request<api.PublicKey>(`/users/${userID}/keys/${bareFingerprint}`, { method: 'GET' });
     return { ...key, armor: atob(key.armor) };
   },
 
@@ -855,10 +870,13 @@ export const apiService = {
     revokedKeySignature: string,
     newKeySignature: string
   ): Promise<api.PublicKey> {
+    // revokedKeyFingerprint travels bare over the wire (form field) — the
+    // server joins it with userID itself (see handlers.go's AddPublicKey).
+    const bareRevokedKeyFingerprint = parseKeyId(revokedKeyFingerprint)?.fingerprint ?? revokedKeyFingerprint;
     const formData = new URLSearchParams();
     formData.append('userID', userID);
     formData.append('publicKey', publicKey);
-    formData.append('revokedKeyFingerprint', revokedKeyFingerprint);
+    formData.append('revokedKeyFingerprint', bareRevokedKeyFingerprint);
     formData.append('revokedKeySignature', revokedKeySignature);
     formData.append('newKeySignature', newKeySignature);
 

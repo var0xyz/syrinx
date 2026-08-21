@@ -95,14 +95,18 @@ export class AuthService {
   }
 
   /**
-   * Set the active key fingerprint
+   * Set the active key fingerprint. Callers must pass the canonical form
+   * (userID@serverID/fingerprint, see $lib/utils/keyId) — this matches the
+   * privateKeys/publicKeys IndexedDB keyPath and what signed payloads
+   * embed. Extract to bare only at the specific boundaries that need it
+   * (the X-Syrinx-Fingerprint header, URL path segments).
    */
   setActiveKey(fingerprint: string): void {
     localStorage.setItem('keyFingerprint', fingerprint);
   }
 
   /**
-   * Get the active key fingerprint
+   * Get the active key fingerprint (canonical — see setActiveKey).
    */
   getActiveKeyFingerprint(): string | null {
     return localStorage.getItem('keyFingerprint');

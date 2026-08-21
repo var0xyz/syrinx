@@ -5,6 +5,7 @@
   import { authService } from "$lib/services/auth";
   import { cryptoService } from "$lib/services/crypto";
   import { buildNewUserIdentityPayload } from "$lib/services/signing";
+  import { appendFingerprint } from "$lib/utils/keyId";
   import { trimInvisibleChars } from "$lib/utils/text";
   import UsernameChecker from "$lib/components/UsernameChecker.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
@@ -192,11 +193,18 @@
         comment: serverName || undefined,
         password,
       });
-      fingerprint = keyPair.fingerprint;
+      // The signed identity payload and IndexedDB storage both want the
+      // canonical form; reserved.userID@serverId is this user's own
+      // canonical id (not yet server-confirmed, but it's the exact value
+      // Signup will mint — see handlers.go's Signup for the server side of
+      // this same construction).
+      const canonicalUserId = `${reserved.userID}@${serverId}`;
+      const canonicalFingerprint = appendFingerprint(canonicalUserId, keyPair.fingerprint);
+      fingerprint = canonicalFingerprint;
       authService.setPassphrase(password);
 
       currentStep = 3;
-      await privateKeyRepository.put(keyPair.fingerprint, keyPair.privateKey);
+      await privateKeyRepository.put(canonicalFingerprint, keyPair.privateKey);
 
       currentStep = 4;
       const signature = btoa(await cryptoService.signMessage(
@@ -211,7 +219,7 @@
       const trimmedUsername = trimInvisibleChars(username);
       const identityPayload = buildNewUserIdentityPayload(
         trimmedUsername,
-        keyPair.fingerprint,
+        canonicalFingerprint,
       );
       const identitySigArmor = await cryptoService.signMessage(
         identityPayload,
@@ -239,10 +247,12 @@
       // authenticated. Cache the attested public key before the verified
       // user put — verifyUser resolves armor from IndexedDB.
       currentStep = 6;
-      authService.setActiveKey(keyPair.fingerprint);
-      await requestSigner.initializeWorker(keyPair.fingerprint, password);
+      authService.setActiveKey(canonicalFingerprint);
+      await requestSigner.initializeWorker(canonicalFingerprint, password);
 
       currentStep = 7;
+      // getPublicKey's URL wants the bare fingerprint (userID is already a
+      // separate path segment) — see api.ts's getPublicKey.
       const attestedKey = await apiService.getPublicKey(
         user.id,
         keyPair.fingerprint,

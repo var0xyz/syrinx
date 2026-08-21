@@ -12,6 +12,7 @@ import { dbService } from '$lib/services/db';
 import { serverConnection } from '$lib/services/serverConnection';
 import { reedContentWithinLimits } from '$lib/utils/reedContent';
 import { shouldRecheck, markChecked } from '$lib/utils/keyCheckThrottle';
+import { parseKeyId } from '$lib/utils/keyId';
 import {
   buildAccountRemovalServerPayload,
   buildAccountRemovalUserPayload,
@@ -124,8 +125,24 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
     console.error('[verifyPublicKey] server signature failed', result);
     return false;
   }
+  // key.fingerprint is canonical (userID@serverID/fingerprint); the armor
+  // only lets us derive the bare fingerprint, so compare against the
+  // parsed suffix. Also cross-check the embedded userID matches key.userID
+  // (mirrors the equivalent check added server-side in
+  // recovery/nest.go's FlattenKeysNest) — closes a spoofing gap where a
+  // tampered fingerprint string could claim a different owner than the
+  // one the rest of the record asserts.
+  const parsedFp = parseKeyId(key.fingerprint);
+  if (!parsedFp) {
+    console.error('[verifyPublicKey] malformed fingerprint', key.fingerprint);
+    return false;
+  }
+  if (parsedFp.userId !== key.userID) {
+    console.error('[verifyPublicKey] fingerprint owner mismatch', { fingerprint: key.fingerprint, userID: key.userID });
+    return false;
+  }
   const derived = await cryptoService.fingerprintFromArmor(key.armor);
-  if (derived.toLowerCase() !== key.fingerprint.toLowerCase()) {
+  if (derived.toLowerCase() !== parsedFp.fingerprint.toLowerCase()) {
     console.error('[verifyPublicKey] fingerprint mismatch', { labeled: key.fingerprint, derived });
     return false;
   }
