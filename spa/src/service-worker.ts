@@ -166,11 +166,10 @@ registerRoute(
   ({ url }) => url.pathname.startsWith('/api/'),
   async ({ request }) => {
     try {
-      const userId = request.headers.get('X-Syrinx-User-Id');
-      const fingerprint = request.headers.get('X-Syrinx-Fingerprint');
+      const publicKeyId = request.headers.get('X-Syrinx-Public-Key-Id');
       const alreadySigned = request.headers.get('X-Syrinx-Signature');
 
-      if (userId && fingerprint && !alreadySigned) {
+      if (publicKeyId && !alreadySigned) {
         return fetch(await signRequest(request));
       }
       return fetch(request);
