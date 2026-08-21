@@ -41,15 +41,15 @@ type identityBackupTbl struct {
 }
 
 type identityPrivateKeyItem struct {
-	Fingerprint string    `json:"fingerprint"`
-	Armor       string    `json:"armor"`
-	CreatedAt   time.Time `json:"createdAt"`
-	Revoked     bool      `json:"revoked"`
+	ID        string    `json:"id"`
+	Armor     string    `json:"armor"`
+	CreatedAt time.Time `json:"createdAt"`
+	Revoked   bool      `json:"revoked"`
 }
 
 // maybeExportRootKey mints root when ROOT_KEY_EXPORT_PASSPHRASE is set.
 // Returns exit=true after writing .sxi.gpg; otherwise normal startup continues.
-func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *crypto.Service, signingKey *Key) (exit bool, err error) {
+func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *crypto.Service, signingKey *ServerSigningKey) (exit bool, err error) {
 	if cfg.RecoveryMode {
 		return false, nil
 	}
@@ -107,7 +107,7 @@ func requireRootUser(cfg AppConfig, db *DataService) error {
 func exportRootIdentity(
 	db *DataService,
 	cryptoSvc *crypto.Service,
-	signingKey *Key,
+	signingKey *ServerSigningKey,
 	exportPassphrase string,
 	outDir string,
 	serverName string,
@@ -192,7 +192,6 @@ func exportRootIdentity(
 		PublicKeyArmor:     kp.PublicKey,
 		Fingerprint:        canonicalFingerprint,
 		KeyCreatedAt:       keyMeta.CreatedAt,
-		KeyExpiresAt:       keyMeta.ExpiresAt,
 		UserSignatureB64:   userSigB64,
 		MemberSince:        now,
 		ProfileSignature:   profileSig,
@@ -230,10 +229,10 @@ func exportRootIdentity(
 			Name: "privateKeys",
 			Items: []interface{}{
 				identityPrivateKeyItem{
-					Fingerprint: canonicalFingerprint,
-					Armor:       encoding.Base64Encode(encryptedPrivate),
-					CreatedAt:   now,
-					Revoked:     false,
+					ID:        canonicalFingerprint,
+					Armor:     encoding.Base64Encode(encryptedPrivate),
+					CreatedAt: now,
+					Revoked:   false,
 				},
 			},
 		},
@@ -275,7 +274,7 @@ func exportRootIdentity(
 	return outPath, nil
 }
 
-func rootCountersign(cryptoSvc *crypto.Service, db *DataService, signingKey *Key, payload []byte, ts time.Time) (ServerSignature, error) {
+func rootCountersign(cryptoSvc *crypto.Service, db *DataService, signingKey *ServerSigningKey, payload []byte, ts time.Time) (ServerSignature, error) {
 	sigArmor, err := cryptoSvc.Sign(string(payload), signingKey.Armor)
 	if err != nil {
 		return ServerSignature{}, err

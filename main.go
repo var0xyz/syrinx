@@ -257,9 +257,6 @@ func main() {
 	api.HandleFunc("/server/info", h.GetServerInfo).Methods("GET")
 	api.HandleFunc("/server/info", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/server/keys/{fingerprint}", h.GetServerPublicKey).Methods("GET")
-	api.HandleFunc("/server/keys/{fingerprint}", h.noop).Methods("OPTIONS")
-
 	api.HandleFunc("/check-username", h.CheckUsername).Methods("POST")
 	api.HandleFunc("/check-username", h.noop).Methods("OPTIONS")
 
@@ -304,20 +301,26 @@ func main() {
 	api.HandleFunc("/users/{userID}/followers", h.GetUserFollowers).Methods("GET")
 	api.HandleFunc("/users/{userID}/followers", h.noop).Methods("OPTIONS")
 
-	// {fingerprint} below is deliberately the BARE key fingerprint, not the
-	// canonical userID@serverID/fingerprint form: {userID} is already a
-	// separate required path segment carrying that same prefix, and a
-	// canonical fingerprint contains "/" which would break gorilla/mux's
-	// single-segment matching. Handlers reconstruct the canonical value via
-	// identity.AppendEntity right after extracting both vars.
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.GetPublicKey).Methods("GET")
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.noop).Methods("OPTIONS")
+	// {id} is the full canonical key id — "userID@serverID/fingerprint" for
+	// a user key, "fingerprint@serverID" for a server's own key — and
+	// carries a "/", so it needs a greedy path variable ({id:.+}), not a
+	// plain {id} which would stop at the first "/". One route serves every
+	// key: local or (via handlers.go's proxyToPeer) foreign, user-owned or
+	// server-owned, since the id shape alone determines both ownership and
+	// which server to ask.
+	//
+	// /revoke and /revocation are registered BEFORE the bare /keys/{id:.+}:
+	// gorilla/mux matches in registration order, and a greedy {id:.+} can
+	// otherwise swallow a longer path like ".../revocation" as part of id
+	// before the more specific route ever gets a chance.
+	api.HandleFunc("/keys/{id:.+}/revoke", h.RevokeKey).Methods("POST")
+	api.HandleFunc("/keys/{id:.+}/revoke", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revoke", h.RevokeKey).Methods("POST")
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revoke", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/keys/{id:.+}/revocation", h.GetKeyRevocation).Methods("GET")
+	api.HandleFunc("/keys/{id:.+}/revocation", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revocation", h.GetKeyRevocation).Methods("GET")
-	api.HandleFunc("/users/{userID}/keys/{fingerprint}/revocation", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/keys/{id:.+}", h.GetKey).Methods("GET")
+	api.HandleFunc("/keys/{id:.+}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/keys", h.AddPublicKey).Methods("POST")
 	api.HandleFunc("/keys", h.noop).Methods("OPTIONS")

@@ -13,14 +13,20 @@ type DBTX interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// UserSignature is one row in user_signatures.
+// UserSignature is one row in user_signatures. PublicKeyID names which key
+// (public_keys.id) produced the signature — the wire shape still calls this
+// "fingerprint" (see WireUserSignature/UserWire below), since on the wire
+// it's identifying a signer, an orthogonal concept to a canonical key id.
 type UserSignature struct {
 	ID          int64
-	Fingerprint string
+	PublicKeyID string
 	Signature   string
 }
 
-// ServerSignature is one row in server_signatures.
+// ServerSignature is one row in server_signatures. Fingerprint is
+// deliberately unrenamed (server_signatures.fingerprint is out of scope for
+// the public_keys unification — it identifies the server signing key that
+// produced the countersignature, not a public_keys.id).
 type ServerSignature struct {
 	ID          int64
 	Fingerprint string
@@ -43,13 +49,13 @@ type WireServerSignature struct {
 }
 
 // InsertUserSignature inserts a user attestation row and returns its id.
-func InsertUserSignature(ctx context.Context, db DBTX, fingerprint, signature string) (int64, error) {
+func InsertUserSignature(ctx context.Context, db DBTX, publicKeyID, signature string) (int64, error) {
 	var id int64
 	err := db.QueryRowContext(ctx, `
-		INSERT INTO user_signatures (fingerprint, signature)
+		INSERT INTO user_signatures (public_key_id, signature)
 		VALUES ($1, $2)
 		RETURNING id
-	`, fingerprint, signature).Scan(&id)
+	`, publicKeyID, signature).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert user_signatures: %w", err)
 	}
@@ -76,12 +82,12 @@ func InsertServerSignature(ctx context.Context, db DBTX, fingerprint, signature 
 func GetUserSignature(ctx context.Context, db DBTX, id int64) (*UserSignature, error) {
 	var row UserSignature
 	err := db.QueryRowContext(ctx, `
-		SELECT id, fingerprint, signature
+		SELECT id, public_key_id, signature
 		FROM user_signatures
 		WHERE id = $1
 	`, id).Scan(
 		&row.ID,
-		&row.Fingerprint,
+		&row.PublicKeyID,
 		&row.Signature,
 	)
 	if err != nil {
@@ -113,7 +119,7 @@ func GetServerSignature(ctx context.Context, db DBTX, id int64) (*ServerSignatur
 // UserWire assembles the nested userSignature block from a row.
 func UserWire(row *UserSignature) WireUserSignature {
 	return WireUserSignature{
-		Fingerprint: row.Fingerprint,
+		Fingerprint: row.PublicKeyID,
 		Armor:       row.Signature,
 	}
 }

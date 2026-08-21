@@ -261,7 +261,7 @@ func (s *DataService) ProcessRevocations(ctx context.Context) error {
 // InitServerKey ensures an active (non-revoked) server signing key exists.
 // If the current signing key is revoked or missing, a new one is created.
 // Returns the decrypted Key (armor + fingerprint) for use by the signing middleware.
-func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Service, passphrase string) (*Key, error) {
+func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Service, passphrase string) (*ServerSigningKey, error) {
 	var fingerprint string
 	var encryptedArmor string
 	var createdAt time.Time
@@ -289,7 +289,29 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 			return nil, fmt.Errorf("failed to encrypt server private key: %w", err)
 		}
 
-		if err := s.SaveServerKeyPair(ctx, keyPair.Fingerprint, encryptedPrivate, keyPair.PublicKey); err != nil {
+		now := time.Now().UTC().Truncate(time.Second)
+
+		// The server's own public half becomes a normal public_keys row —
+		// every row in that table carries a countersignature, so the
+		// server countersigns its own key with itself. Same payload shape
+		// as any user key's countersignature (identity.BuildPublicKeyPayload).
+		// This key has no owner (it's the trust anchor itself, distinct
+		// from the root USER account, which gets its own separate key via
+		// normal signup) — pass its own id as "userID" too, since the
+		// header just needs to bind SOME identity consistently between
+		// what's signed and what's later verified; there is no owner
+		// identity to bind instead.
+		keyID := keyPair.Fingerprint + "@" + s.serverID
+		selfPayload := identity.BuildPublicKeyPayload(
+			s.serverID, keyID, keyID, keyPair.Fingerprint,
+			keyPair.PublicKey, now,
+		)
+		selfSigArmor, err := cryptoSvc.Sign(string(selfPayload), keyPair.PrivateKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to self-countersign server public key: %w", err)
+		}
+
+		if err := s.SaveServerKeyPair(ctx, keyID, keyPair.Fingerprint, encryptedPrivate, keyPair.PublicKey, selfSigArmor, now); err != nil {
 			return nil, fmt.Errorf("failed to save server key pair: %w", err)
 		}
 
@@ -301,7 +323,7 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 			Str("fingerprint", keyPair.Fingerprint).
 			Msg("Generated new server signing key")
 
-		return &Key{Fingerprint: keyPair.Fingerprint, Armor: keyPair.PrivateKey, CreatedAt: time.Now()}, nil
+		return &ServerSigningKey{Fingerprint: keyPair.Fingerprint, Armor: keyPair.PrivateKey, CreatedAt: time.Now()}, nil
 	}
 
 	// Active key found — decrypt it
@@ -337,10 +359,16 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 		Str("fingerprint", fingerprint).
 		Msg("Loaded existing server signing key")
 
-	return &Key{Fingerprint: fingerprint, Armor: decryptedArmor, CreatedAt: createdAt}, nil
+	return &ServerSigningKey{Fingerprint: fingerprint, Armor: decryptedArmor, CreatedAt: createdAt}, nil
 }
 
-func (s *DataService) SaveServerKeyPair(ctx context.Context, fingerprint, privateArmor, publicArmor string) error {
+// SaveServerKeyPair persists a freshly generated server signing key: the
+// encrypted private half into private_keys (unaffected by the public_keys
+// unification), and the public half into the unified public_keys table as
+// an ownerless row, countersigned by itself (selfSigArmor, produced by the
+// caller — InitServerKey — since only it holds the decrypted private key
+// needed to produce that signature).
+func (s *DataService) SaveServerKeyPair(ctx context.Context, keyID, fingerprint, privateArmor, publicArmor, selfSigArmor string, signedAt time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -355,9 +383,14 @@ func (s *DataService) SaveServerKeyPair(ctx context.Context, fingerprint, privat
 		return err
 	}
 
+	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, fingerprint, selfSigArmor, signedAt)
+	if err != nil {
+		return err
+	}
+
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO public_keys (fingerprint, armor) VALUES ($1, $2)`,
-		fingerprint, publicArmor,
+		`INSERT INTO public_keys (id, armor, server_signature_id) VALUES ($1, $2, $3)`,
+		keyID, publicArmor, serverSignatureID,
 	)
 	if err != nil {
 		return err
@@ -386,20 +419,22 @@ func (s *DataService) GetServerSigningKeyArmor(ctx context.Context) (string, err
 }
 
 // GetServerPublicKeyByFingerprint returns the armored PGP public key that
-// matches the given fingerprint, or "" if no such key exists.
+// matches the given bare fingerprint of this server's OWN (local, current
+// or historical) signing key, or "" if no such key exists.
 //
 // Verifiers use this to select the historical server signing key that
 // produced a given reed countersignature: reeds store the fingerprint of the
 // key used at signing time (`reeds.private_key_fingerprint`), which is a FK
-// into `private_keys`; the matching entry in `public_keys` is the verifier's
-// input. This is required because the reed server block binds the
-// fingerprint into the countersigned payload, and by any future recovery
-// import path that must verify against a restored historical key.
+// into `private_keys`; the matching entry in `public_keys` (id =
+// fingerprint@this-server's-own-serverID) is the verifier's input. This is
+// required because the reed server block binds the fingerprint into the
+// countersigned payload, and by any future recovery import path that must
+// verify against a restored historical key.
 func (s *DataService) GetServerPublicKeyByFingerprint(ctx context.Context, fingerprint string) (string, error) {
 	var armor string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT armor FROM public_keys WHERE fingerprint = $1`,
-		fingerprint,
+		`SELECT armor FROM public_keys WHERE id = $1`,
+		fingerprint+"@"+s.serverID,
 	).Scan(&armor)
 	if err == sql.ErrNoRows {
 		return "", nil
@@ -434,7 +469,6 @@ type SignupInput struct {
 	// value must appear in the signed bytes.
 	Fingerprint        string
 	KeyCreatedAt       time.Time
-	KeyExpiresAt       *time.Time
 	UserSignatureB64   string
 	MemberSince        time.Time
 	ProfileSignature   ServerSignature
@@ -555,11 +589,11 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	}
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO user_keys (
-			fingerprint, owner, armor, created_at, expires_at,
+		INSERT INTO public_keys (
+			id, owner, armor, created_at,
 			server_signature_id
-		) VALUES ($1, $2, $3, $4, $5, $6)
-	`, in.Fingerprint, selfIdentity, in.PublicKeyArmor, in.KeyCreatedAt, in.KeyExpiresAt,
+		) VALUES ($1, $2, $3, $4, $5)
+	`, in.Fingerprint, selfIdentity, in.PublicKeyArmor, in.KeyCreatedAt,
 		keyServerSigID); err != nil {
 		return nil, err
 	}
@@ -956,29 +990,27 @@ func (s *DataService) SetDefaultIdentity(ctx context.Context, userID string, ide
 	return nil
 }
 
-// fingerprint arrives canonical ("userID@serverID/fingerprint") and is
-// self-scoping — it is the sole lookup key.
-func (s *DataService) GetPublicKey(ctx context.Context, fingerprint string) (*Key, error) {
+// id arrives canonical ("userID@serverID/fingerprint" or
+// "fingerprint@serverID") and is self-scoping — it is the sole lookup key.
+func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error) {
 	var key Key
 	var owner sql.NullString
 	var revoked bool
 	var serverSignatureID int64
-	var predSig, predFP sql.NullString
+	var predID sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT uk.fingerprint, uk.owner, uk.armor, uk.created_at,
-		       uk.server_signature_id,
-		       uk.predecessor_signature, uk.predecessor_fingerprint,
+		SELECT pk.id, pk.owner, pk.armor, pk.created_at,
+		       pk.server_signature_id, pk.predecessor_id,
 		       EXISTS(
-			SELECT 1 FROM user_key_revocations rv
-			WHERE rv.user_fingerprint = uk.fingerprint
+			SELECT 1 FROM public_key_revocations rv
+			WHERE rv.revoked_id = pk.id
 		       )
-		FROM user_keys uk
-		WHERE uk.fingerprint = $1
-	`, fingerprint).Scan(
-		&key.Fingerprint, &owner, &key.Armor, &key.CreatedAt,
-		&serverSignatureID,
-		&predSig, &predFP,
+		FROM public_keys pk
+		WHERE pk.id = $1
+	`, id).Scan(
+		&key.ID, &owner, &key.Armor, &key.CreatedAt,
+		&serverSignatureID, &predID,
 		&revoked,
 	)
 	if err != nil {
@@ -989,10 +1021,10 @@ func (s *DataService) GetPublicKey(ctx context.Context, fingerprint string) (*Ke
 	}
 	// owner is populated for local identities (userID@serverID directly);
 	// for remote/federated ones it's NULL, so recover the owner from the
-	// canonical fingerprint itself instead.
+	// canonical id itself instead.
 	if owner.Valid {
 		key.UserID = owner.String
-	} else if ownerID, ownerServer, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(key.Fingerprint)); ok {
+	} else if ownerID, ownerServer, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(key.ID)); ok {
 		key.UserID = string(identity.CanonicalID(ownerServer, ownerID))
 	}
 	serverRow, err := signing.GetServerSignature(ctx, s.db, serverSignatureID)
@@ -1007,11 +1039,8 @@ func (s *DataService) GetPublicKey(ctx context.Context, fingerprint string) (*Ke
 		SignedAt:    sw.Timestamp,
 	}
 	key.Revoked = revoked
-	if predSig.Valid && predFP.Valid {
-		key.Predecessor = &KeyPredecessor{
-			Fingerprint: predFP.String,
-			Signature:   predSig.String,
-		}
+	if predID.Valid {
+		key.Predecessor = &KeyPredecessor{ID: predID.String}
 	}
 
 	return &key, nil
@@ -1021,22 +1050,22 @@ func (s *DataService) IsPublicKeyRevoked(ctx context.Context, key *Key) (bool, e
 	return key.Revoked, nil
 }
 
-// fingerprint arrives canonical and is self-scoping — the sole lookup key.
-func (s *DataService) GetKeyRevocation(ctx context.Context, fingerprint string) (*KeyRevocation, error) {
+// id arrives canonical and is self-scoping — the sole lookup key.
+func (s *DataService) GetKeyRevocation(ctx context.Context, id string) (*KeyRevocation, error) {
 	var rev KeyRevocation
-	var owner sql.NullString
 	var successor sql.NullString
 	var reason sql.NullString
 	var userSigID, serverSigID int64
+	var successorSigID sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT rv.user_fingerprint, rv.owner, rv.reason, rv.successor,
-		       rv.user_signature_id, rv.server_signature_id
-		FROM user_key_revocations rv
-		WHERE rv.user_fingerprint = $1
-	`, fingerprint).Scan(
-		&rev.Fingerprint, &owner, &reason, &successor,
-		&userSigID, &serverSigID,
+		SELECT rv.revoked_id, rv.reason, rv.successor,
+		       rv.user_signature_id, rv.server_signature_id, rv.successor_signature_id
+		FROM public_key_revocations rv
+		WHERE rv.revoked_id = $1
+	`, id).Scan(
+		&rev.RevokedID, &reason, &successor,
+		&userSigID, &serverSigID, &successorSigID,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1044,17 +1073,23 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, fingerprint string) 
 		}
 		return nil, err
 	}
-	// owner is populated for local identities; NULL for remote ones, in
-	// which case recover it from the canonical fingerprint itself.
-	if owner.Valid {
-		rev.UserID = owner.String
-	} else if ownerID, ownerServer, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(rev.Fingerprint)); ok {
+	// owner isn't stored on this table — recover it from the canonical id
+	// itself (same derivation as GetPublicKey).
+	if ownerID, ownerServer, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(rev.RevokedID)); ok {
 		rev.UserID = string(identity.CanonicalID(ownerServer, ownerID))
 	}
 	rev.Reason = reason.String
 	if successor.Valid && successor.String != "" {
 		s := successor.String
 		rev.Successor = &s
+	}
+	if successorSigID.Valid {
+		successorSigRow, err := signing.GetUserSignature(ctx, s.db, successorSigID.Int64)
+		if err != nil {
+			return nil, err
+		}
+		armor := successorSigRow.Signature
+		rev.SuccessorSignature = &armor
 	}
 
 	userRow, err := signing.GetUserSignature(ctx, s.db, userSigID)
@@ -1081,16 +1116,16 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, fingerprint string) 
 	return &rev, nil
 }
 
-// fingerprint arrives canonical and is self-scoping.
-func (s *DataService) PublicKeyExists(ctx context.Context, fingerprint string) (bool, error) {
+// id arrives canonical and is self-scoping.
+func (s *DataService) PublicKeyExists(ctx context.Context, id string) (bool, error) {
 	var exists bool
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
-			SELECT 1 FROM user_keys
-			WHERE fingerprint = $1
+			SELECT 1 FROM public_keys
+			WHERE id = $1
 		)
-	`, fingerprint).Scan(&exists)
+	`, id).Scan(&exists)
 	if err != nil {
 		return false, err
 	}
@@ -1105,47 +1140,51 @@ func (s *DataService) PublicKeyExists(ctx context.Context, fingerprint string) (
 // Integrity checks (all inside one transaction, with row locks):
 //  1. predecessor is required
 //  2. owner exists
-//  3. the new fingerprint is not already registered to anyone
+//  3. the new id is not already registered to anyone
 //  4. predecessor exists under this owner and is revoked
 //  5. predecessor does not already have a successor
 //  6. the user has no other active (non-revoked) key
 type AddPublicKeyInput struct {
-	// Fingerprint and PredecessorFingerprint arrive canonical
-	// ("userID@serverID/fingerprint") already — callers build them via
-	// identity.AppendEntity(selfIdentity, bareFingerprint) before this is
-	// called, since the same canonical value must also appear in the
-	// signed payloads built ahead of this call.
-	Fingerprint string
-	UserID      string
-	CreatedAt   time.Time
-	ExpiresAt   *time.Time
-	Armor       string
-	Server      ServerSignature
+	// ID and PredecessorID arrive canonical ("userID@serverID/fingerprint")
+	// already — callers build them via identity.AppendEntity(selfIdentity,
+	// bareFingerprint) before this is called, since the same canonical
+	// value must also appear in the signed payloads built ahead of this
+	// call.
+	ID        string
+	UserID    string
+	CreatedAt time.Time
+	Armor     string
+	Server    ServerSignature
 
-	PredecessorFingerprint string
-	PredecessorSignature   string
+	PredecessorID string
+	// PredecessorSignature is the OLD (predecessor) key's detached
+	// signature over this new key's armor — the rotation handoff proof.
+	// It's written onto the PREDECESSOR's revocation row as
+	// successor_signature_id, not onto this new key's own row (that's
+	// revocation-certificate data, see public_key_revocations' schema
+	// comment in db.go).
+	PredecessorSignature string
 }
 
 // On success it inserts the key, points users.user_fingerprint at it, and
-// writes the successor pointer on the predecessor's revocation row.
+// writes the successor pointer + successor signature on the predecessor's
+// revocation row.
 //
 // in.UserID arrives already in userID@serverID form (handlers.go passes
 // the form value straight through, same convention as GetUserProfile/
 // GetActiveKeyFingerprint/UpdateUser elsewhere in this file) and is used
-// directly everywhere an FK'd column (user_keys.owner,
-// user_key_revocations.owner) is touched. The existence lock at the top
-// locks the identities row (the actual FK target), not users(id), which
-// is a satellite of it.
+// directly everywhere an FK'd column (public_keys.owner) is touched. The
+// existence lock at the top locks the identities row (the actual FK
+// target), not users(id), which is a satellite of it.
 func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*Key, error) {
-	if in.PredecessorFingerprint == "" {
+	if in.PredecessorID == "" {
 		return nil, ErrPredecessorRequired
 	}
-	fingerprint := in.Fingerprint
+	id := in.ID
 	selfIdentity := identity.IdentityID(in.UserID)
 	createdAt := in.CreatedAt
-	expiresAt := in.ExpiresAt
 	armor := in.Armor
-	predecessor := in.PredecessorFingerprint
+	predecessor := in.PredecessorID
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1165,11 +1204,11 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 		return nil, err
 	}
 
-	// Global uniqueness: fingerprints identify key material, so two
-	// users must never register the same one.
+	// Global uniqueness: ids identify key material, so two users must
+	// never register the same one.
 	err = tx.QueryRowContext(ctx, `
-		SELECT 1 FROM user_keys WHERE fingerprint = $1
-	`, fingerprint).Scan(new(int))
+		SELECT 1 FROM public_keys WHERE id = $1
+	`, id).Scan(new(int))
 	if err == nil {
 		return nil, ErrKeyAlreadyExists
 	}
@@ -1178,13 +1217,13 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	}
 
 	// Lock the predecessor key row. Rotation is only allowed against a
-	// key this owner already holds (fingerprint is canonical and
-	// self-scoping, so owner doesn't need to appear in the WHERE);
-	// revocation is confirmed via the revocations table next.
+	// key this owner already holds (id is canonical and self-scoping, so
+	// owner doesn't need to appear in the WHERE); revocation is confirmed
+	// via the revocations table next.
 	err = tx.QueryRowContext(ctx, `
 		SELECT 1
-		FROM user_keys
-		WHERE fingerprint = $1
+		FROM public_keys
+		WHERE id = $1
 		FOR UPDATE
 	`, predecessor).Scan(new(int))
 	if err == sql.ErrNoRows {
@@ -1200,8 +1239,8 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	var successor sql.NullString
 	err = tx.QueryRowContext(ctx, `
 		SELECT successor
-		FROM user_key_revocations
-		WHERE user_fingerprint = $1
+		FROM public_key_revocations
+		WHERE revoked_id = $1
 		FOR UPDATE
 	`, predecessor).Scan(&successor)
 	if err == sql.ErrNoRows {
@@ -1216,18 +1255,18 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 
 	// Even with a correctly revoked predecessor, refuse if any other
 	// active key is still present for this user. Active = no row in
-	// user_key_revocations. owner is still the right scoping column here
-	// (this check is local-user-only — AddPublicKey is a local rotation
-	// endpoint), not derivable from a single fingerprint the way the
+	// public_key_revocations. owner is still the right scoping column
+	// here (this check is local-user-only — AddPublicKey is a local
+	// rotation endpoint), not derivable from a single id the way the
 	// lookups above are.
 	var hasActive bool
 	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS(
-			SELECT 1 FROM user_keys uk
-			WHERE uk.owner = $1
+			SELECT 1 FROM public_keys pk
+			WHERE pk.owner = $1
 			  AND NOT EXISTS (
-				SELECT 1 FROM user_key_revocations rv
-				WHERE rv.user_fingerprint = uk.fingerprint
+				SELECT 1 FROM public_key_revocations rv
+				WHERE rv.revoked_id = pk.id
 			  )
 		)
 	`, selfIdentity).Scan(&hasActive)
@@ -1250,16 +1289,14 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	var key Key
 	var owner string
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO user_keys (
-			fingerprint, owner, armor, created_at, expires_at,
-			server_signature_id,
-			predecessor_signature, predecessor_fingerprint
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING fingerprint, owner, armor, created_at
-	`, fingerprint, selfIdentity, armor, createdAt, expiresAt,
-		serverSignatureID,
-		in.PredecessorSignature, predecessor,
-	).Scan(&key.Fingerprint, &owner, &key.Armor, &key.CreatedAt)
+		INSERT INTO public_keys (
+			id, owner, armor, created_at,
+			server_signature_id, predecessor_id
+		) VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, owner, armor, created_at
+	`, id, selfIdentity, armor, createdAt,
+		serverSignatureID, predecessor,
+	).Scan(&key.ID, &owner, &key.Armor, &key.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1270,24 +1307,32 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 		key.ServerSignature.ServerID = s.serverID
 	}
 	if in.PredecessorSignature != "" {
-		key.Predecessor = &KeyPredecessor{
-			Fingerprint: predecessor,
-			Signature:   in.PredecessorSignature,
-		}
+		key.Predecessor = &KeyPredecessor{ID: predecessor}
 	}
 
 	// users.id is identities.id now — use the already-computed selfIdentity,
 	// not the bare in.UserID.
-	_, err = tx.ExecContext(ctx, `UPDATE users SET user_fingerprint = $1 WHERE id = $2`, fingerprint, selfIdentity)
+	_, err = tx.ExecContext(ctx, `UPDATE users SET user_fingerprint = $1 WHERE id = $2`, id, selfIdentity)
 	if err != nil {
 		return nil, err
 	}
 
+	// The handoff proof (predecessor's signature over this new key's
+	// armor) is stored as a user_signatures row, then referenced from the
+	// PREDECESSOR's revocation row — not this new key's own row.
+	var successorSigID any
+	if in.PredecessorSignature != "" {
+		sigID, err := signing.InsertUserSignature(ctx, tx, predecessor, in.PredecessorSignature)
+		if err != nil {
+			return nil, err
+		}
+		successorSigID = sigID
+	}
 	_, err = tx.ExecContext(ctx, `
-		UPDATE user_key_revocations
-		SET successor = $1
-		WHERE user_fingerprint = $2
-	`, fingerprint, predecessor)
+		UPDATE public_key_revocations
+		SET successor = $1, successor_signature_id = $2
+		WHERE revoked_id = $3
+	`, id, successorSigID, predecessor)
 	if err != nil {
 		return nil, err
 	}
@@ -1296,11 +1341,11 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 }
 
 // RevokeKeyInput bundles a signed revocation attestation for persistence.
-// Fingerprint arrives canonical already — the caller builds it via
+// ID arrives canonical already — the caller builds it via
 // identity.AppendEntity before signing the revocation payload, since the
 // same canonical value must appear in the signed bytes.
 type RevokeKeyInput struct {
-	Fingerprint      string
+	ID               string
 	UserID           string
 	Reason           string
 	UserSignatureB64 string
@@ -1314,7 +1359,7 @@ func (s *DataService) RevokeKey(ctx context.Context, in RevokeKeyInput) error {
 	}
 	defer tx.Rollback()
 
-	userSigID, err := signing.InsertUserSignature(ctx, tx, in.Fingerprint, in.UserSignatureB64)
+	userSigID, err := signing.InsertUserSignature(ctx, tx, in.ID, in.UserSignatureB64)
 	if err != nil {
 		return err
 	}
@@ -1327,15 +1372,14 @@ func (s *DataService) RevokeKey(ctx context.Context, in RevokeKeyInput) error {
 		return err
 	}
 
-	// A key is revoked iff a row exists in user_key_revocations. UserID
-	// arrives in userID@serverID form already.
-	selfIdentity := in.UserID
+	// A key is revoked iff a row exists in public_key_revocations. owner
+	// isn't stored on this table anymore — it's derivable from revoked_id.
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO user_key_revocations (
-			user_fingerprint, owner, reason,
+		INSERT INTO public_key_revocations (
+			revoked_id, reason,
 			user_signature_id, server_signature_id
-		) VALUES ($1, $2, $3, $4, $5)
-	`, in.Fingerprint, selfIdentity, in.Reason, userSigID, serverSigID)
+		) VALUES ($1, $2, $3, $4)
+	`, in.ID, in.Reason, userSigID, serverSigID)
 	if err != nil {
 		return err
 	}
@@ -2726,7 +2770,7 @@ func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerId
 		AuthorID: authorIdentity.String(),
 		ReedID:   reedID,
 		UserSignature: UserSignature{
-			Fingerprint: userRow.Fingerprint,
+			Fingerprint: userRow.PublicKeyID,
 			Armor:       userRow.Signature,
 		},
 		ServerSignature: ServerSignature{
@@ -3280,6 +3324,33 @@ func (s *DataService) VerifyFederationPeer(ctx context.Context, serverID, finger
 	return true, nil
 }
 
+// PeerServer is a known, approved, non-revoked federation peer, resolved
+// for the profile/key proxy (handlers.go's proxyToPeer). serverID must
+// have a servers row created by ApproveFederationAttempt — this is
+// deliberately NOT federation_attempt/federation_invitation, which are
+// pre-approval staging tables.
+type PeerServer struct {
+	ID      string
+	BaseURL string
+}
+
+// GetServerByID resolves an approved peer's base URL for proxying, or nil
+// if serverID is unknown, not yet approved, or revoked — the caller's
+// signal to 404 rather than proxy.
+func (s *DataService) GetServerByID(ctx context.Context, serverID string) (*PeerServer, error) {
+	var peer PeerServer
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, base_url FROM servers WHERE id = $1 AND self = FALSE AND revoked = FALSE
+	`, serverID).Scan(&peer.ID, &peer.BaseURL)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &peer, nil
+}
+
 // errFederationAttemptNotFound is returned by ApproveFederationAttempt and
 // RejectFederationAttempt when attemptID doesn't match any row, and by
 // GetFederationAttempt.
@@ -3422,9 +3493,10 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 	}
 
 	// fingerprint pins the trust root for peer-authenticated runtime
-	// requests (specs/federation/04) — its armor is already in public_keys
-	// (upserted by CreateFederationAttempt/MarkFederationInvitationAccepted),
-	// not duplicated onto servers.
+	// requests (specs/federation/04). Its armor is never stored anywhere
+	// past this point — public_keys only ever holds local keys; any future
+	// need to verify against this peer's key proxies live to them (main.go's
+	// GET /keys/{id}).
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO servers (id, name, self, base_url, connected, fingerprint, created_at)
 		VALUES ($1, $2, FALSE, $3, TRUE, $4, $5)
@@ -3552,10 +3624,11 @@ type federationInvitationListRow struct {
 	ConnectionCiphertext string
 }
 
-// InsertFederationInvitation records publicKey into public_keys (upserted,
-// since the same peer key may already be on file) and inserts the
-// invitation row referencing it by fingerprint, atomically. createdBy
-// arrives in userID@serverID form already.
+// InsertFederationInvitation inserts the invitation row. fingerprint and
+// publicKey are the peer's claimed key, supplied out-of-band by the admin
+// — unverified bootstrap material that stays on this row (see db.go's
+// federation_invitation schema comment), not in public_keys, until
+// approval promotes it. createdBy arrives in userID@serverID form already.
 func (s *DataService) InsertFederationInvitation(
 	ctx context.Context,
 	id, name, createdBy, fingerprint, publicKey string,
@@ -3572,18 +3645,11 @@ func (s *DataService) InsertFederationInvitation(
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO public_keys (fingerprint, armor) VALUES ($1, $2)
-		ON CONFLICT (fingerprint) DO NOTHING
-	`, fingerprint, publicKey); err != nil {
-		return fmt.Errorf("insert remote public key: %w", err)
-	}
-
-	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO federation_invitation (
-			id, name, secret_hash, fingerprint, created_by, status, created_at,
-			connection_ciphertext
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, id, name, secretHash, fingerprint, createdByIdentity, federationStatusNew, createdAt.UTC(), connectionCiphertext); err != nil {
+			id, name, secret_hash, fingerprint, public_key_armor, created_by,
+			status, created_at, connection_ciphertext
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, id, name, secretHash, fingerprint, publicKey, createdByIdentity, federationStatusNew, createdAt.UTC(), connectionCiphertext); err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
 			return errFederationInvitationExists
@@ -3602,10 +3668,9 @@ func (s *DataService) GetFederationInvitation(ctx context.Context, id string) (*
 	var acceptedAt sql.NullTime
 	var serverID sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT fi.id, fi.name, fi.secret_hash, fi.fingerprint, pk.armor, fi.created_by, fi.status,
+		SELECT fi.id, fi.name, fi.secret_hash, fi.fingerprint, fi.public_key_armor, fi.created_by, fi.status,
 		       fi.created_at, fi.accepted_at, fi.server_id
 		FROM federation_invitation fi
-		JOIN public_keys pk ON pk.fingerprint = fi.fingerprint
 		WHERE fi.id = $1
 	`, id).Scan(
 		&inv.ID,
@@ -3796,34 +3861,29 @@ func (s *DataService) RevokeFederationInvitation(ctx context.Context, id, review
 // federationPeer describes the remote server on the other end of a
 // handshake, as claimed in its handshake payload — captured onto
 // federation_attempt, not servers (which doesn't get a row until the
-// attempt is approved — see ApproveFederationAttempt).
+// attempt is approved — see ApproveFederationAttempt). Fingerprint is the
+// peer's pinned trust root; the peer's key ARMOR is never stored locally
+// — public_keys only ever holds local keys now, any future need to verify
+// against a peer's key proxies live to them (main.go's GET /keys/{id}).
 type federationPeer struct {
 	ServerID    string
 	ServerName  string
 	BaseURL     string
 	Fingerprint string
-	PublicKey   string
 }
 
 // CreateFederationAttempt runs on the RESPONDER, before it even attempts
-// the handshake: it upserts peer.PublicKey into public_keys and inserts a
-// pending federation_attempt row (invitation_id NULL — the responder never
-// has a local invitation row) so there's somewhere to log against from the
-// first moment, rather than only writing anything once the handshake
-// already succeeded. Returns the new attempt id.
+// the handshake: it inserts a pending federation_attempt row
+// (invitation_id NULL — the responder never has a local invitation row)
+// so there's somewhere to log against from the first moment, rather than
+// only writing anything once the handshake already succeeded. Returns the
+// new attempt id.
 func (s *DataService) CreateFederationAttempt(ctx context.Context, peer federationPeer, createdAt time.Time) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback()
-
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO public_keys (fingerprint, armor) VALUES ($1, $2)
-		ON CONFLICT (fingerprint) DO NOTHING
-	`, peer.Fingerprint, peer.PublicKey); err != nil {
-		return "", fmt.Errorf("insert remote public key: %w", err)
-	}
 
 	name := peer.ServerName
 	if name == "" {
