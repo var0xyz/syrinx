@@ -286,22 +286,27 @@ func insertAccountRemoval(t *testing.T, db *sql.DB, userID string) {
 // rippleTestKey is a real PGP keypair registered as userID's active key in
 // user_keys, so DataService.GetPublicKey (used by the handler-level
 // signature check, and by store tests that verify round-trip signing)
-// resolves it.
+// resolves it. KeyPair.Fingerprint stays bare (what a client derives from
+// armor, and what travels over the wire); CanonicalFingerprint is the
+// userID@serverID/fingerprint form used as the user_keys PK and inside
+// signed payloads.
 type rippleTestKey struct {
 	*crypto.KeyPair
-	cryptoSvc *crypto.Service
+	CanonicalFingerprint string
+	cryptoSvc            *crypto.Service
 }
 
 // newRippleTestKey writes user_keys.owner as identity.CanonicalID(s.serverID,
 // userID), matching how DataService.GetPublicKey resolves it.
 func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 	t.Helper()
-	identityID := string(identity.CanonicalID(ripplesTestServerID, userID))
+	identityID := identity.CanonicalID(ripplesTestServerID, userID)
 	svc := crypto.NewService()
 	kp, err := svc.CreateKeyPair(userID, "", "")
 	if err != nil {
 		t.Fatalf("CreateKeyPair for %s: %v", userID, err)
 	}
+	canonicalFP := string(identity.AppendEntity(identityID, kp.Fingerprint))
 	var serverSigID int
 	if err := db.QueryRow(
 		`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
@@ -312,11 +317,11 @@ func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 	if _, err := db.Exec(
 		`INSERT INTO user_keys (fingerprint, owner, armor, created_at, server_signature_id)
 		 VALUES ($1, $2, $3, now(), $4)`,
-		kp.Fingerprint, identityID, kp.PublicKey, serverSigID,
+		canonicalFP, string(identityID), kp.PublicKey, serverSigID,
 	); err != nil {
 		t.Fatalf("insert user_keys for %s: %v", userID, err)
 	}
-	return rippleTestKey{KeyPair: kp, cryptoSvc: svc}
+	return rippleTestKey{KeyPair: kp, CanonicalFingerprint: canonicalFP, cryptoSvc: svc}
 }
 
 // signRippleUserPayload builds and signs a ripple's user payload exactly
@@ -324,7 +329,7 @@ func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 // DataService.PostRipple / the HTTP handler's `userSignature` field.
 func signRippleUserPayload(t *testing.T, key rippleTestKey, reedAuthorID, reedID, rippleAuthorID, threadID, replyingTo, content string) string {
 	t.Helper()
-	payload := identity.BuildRippleUserPayload(reedAuthorID, reedID, rippleAuthorID, key.Fingerprint, threadID, replyingTo, content)
+	payload := identity.BuildRippleUserPayload(reedAuthorID, reedID, rippleAuthorID, key.CanonicalFingerprint, threadID, replyingTo, content)
 	armor, err := key.cryptoSvc.Sign(string(payload), key.PrivateKey)
 	if err != nil {
 		t.Fatalf("sign ripple user payload: %v", err)
@@ -369,7 +374,7 @@ func postTestRipple(t *testing.T, svc *DataService, key rippleTestKey, reedAutho
 	}
 	userSig := signRippleUserPayload(t, key, reedAuthorID, reedID, rippleAuthorID, threadID, replyingToVal, content)
 	countersign, _ := testCountersign(t)
-	resp, err := svc.PostRipple(context.Background(), reedAuthorID, reedID, rippleAuthorID, content, threadID, replyingTo, key.Fingerprint, userSig, countersign, now)
+	resp, err := svc.PostRipple(context.Background(), reedAuthorID, reedID, rippleAuthorID, content, threadID, replyingTo, key.CanonicalFingerprint, userSig, countersign, now)
 	if err != nil {
 		t.Fatalf("PostRipple: %v", err)
 	}
@@ -403,8 +408,8 @@ func TestPostRipple_TopLevel_MintsNewThreadID(t *testing.T) {
 	if resp.ID == "" {
 		t.Error("expected a non-empty id/hash")
 	}
-	if resp.UserSignature.Fingerprint != key.Fingerprint {
-		t.Errorf("UserSignature.Fingerprint = %q, want %q", resp.UserSignature.Fingerprint, key.Fingerprint)
+	if resp.UserSignature.Fingerprint != key.CanonicalFingerprint {
+		t.Errorf("UserSignature.Fingerprint = %q, want %q", resp.UserSignature.Fingerprint, key.CanonicalFingerprint)
 	}
 }
 
@@ -443,7 +448,7 @@ func TestPostRipple_ThreadMismatchRejected(t *testing.T) {
 	wrongThreadID := uuid.NewString()
 	userSig := signRippleUserPayload(t, key, canonicalAuthor1, "reed1", canonicalCommenter1, wrongThreadID, root.ID, "reply")
 	countersign, _ := testCountersign(t)
-	_, err := svc.PostRipple(context.Background(), canonicalAuthor1, "reed1", canonicalCommenter1, "reply", wrongThreadID, &root.ID, key.Fingerprint, userSig, countersign, time.Now())
+	_, err := svc.PostRipple(context.Background(), canonicalAuthor1, "reed1", canonicalCommenter1, "reply", wrongThreadID, &root.ID, key.CanonicalFingerprint, userSig, countersign, time.Now())
 	if err != ErrRippleThreadMismatch {
 		t.Fatalf("err = %v, want ErrRippleThreadMismatch", err)
 	}
