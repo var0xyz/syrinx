@@ -38,7 +38,10 @@ func NewAuthService(db *sql.DB, crypto *crypto.Service, serverID string) *AuthSe
 func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	// Extract required authentication parameters from query string
 	// (WebSocket doesn't support custom headers in all browsers). userID is
-	// already in "userID@serverID" form — see doc comment above.
+	// already in "userID@serverID" form — see doc comment above. fingerprint
+	// is deliberately bare (symmetric with the HTTP path's
+	// X-Syrinx-Fingerprint header and URL {fingerprint} path vars — userID
+	// already carries the full canonical prefix), joined below.
 	userID := r.URL.Query().Get("userID")
 	fingerprint := r.URL.Query().Get("fingerprint")
 	signature := r.URL.Query().Get("signature")
@@ -63,9 +66,11 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 		return "", fmt.Errorf("invalid timestamp: %w", err)
 	}
 
+	canonicalFingerprint := string(identity.AppendEntity(identity.IdentityID(userID), fingerprint))
+
 	// Get public key for the user and fingerprint, along with its
 	// revocation state.
-	publicKey, revoked, err := as.getPublicKey(r.Context(), userID, fingerprint)
+	publicKey, revoked, err := as.getPublicKey(r.Context(), canonicalFingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -144,23 +149,21 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 
 // getPublicKey retrieves a public key from the database along with its
 // revocation state. A key is revoked iff a matching row exists in
-// user_key_revocations. userID is already in userID@serverID form (see
-// AuthenticateWebSocket's doc comment), used directly against the FK'd
-// user_keys.owner/user_key_revocations.owner columns.
-func (as *AuthService) getPublicKey(ctx context.Context, userID, fingerprint string) (string, bool, error) {
-	selfIdentity := identity.IdentityID(userID)
-
+// user_key_revocations. fingerprint arrives canonical and is self-scoping —
+// the sole lookup key, same shape as DataService.GetPublicKey in the main
+// package.
+func (as *AuthService) getPublicKey(ctx context.Context, fingerprint string) (string, bool, error) {
 	var armor string
 	var revoked bool
 	err := as.db.QueryRowContext(ctx, `
 		SELECT uk.armor,
 		       EXISTS(
 			SELECT 1 FROM user_key_revocations rv
-			WHERE rv.user_fingerprint = uk.fingerprint AND rv.owner = uk.owner
+			WHERE rv.user_fingerprint = uk.fingerprint
 		)
 		FROM user_keys uk
-		WHERE uk.owner = $1 AND uk.fingerprint = $2
-	`, selfIdentity, fingerprint).Scan(&armor, &revoked)
+		WHERE uk.fingerprint = $1
+	`, fingerprint).Scan(&armor, &revoked)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -171,4 +174,3 @@ func (as *AuthService) getPublicKey(ctx context.Context, userID, fingerprint str
 
 	return armor, revoked, nil
 }
-
