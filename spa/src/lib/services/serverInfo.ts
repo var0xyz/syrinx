@@ -1,5 +1,6 @@
 import { derived, writable } from 'svelte/store';
 import type { ServerInfo, SignupMode } from '$lib/types/server';
+import type { PublicKey } from '$lib/types/api';
 import { isOnline } from './pwa';
 
 export const serverInfo = writable<ServerInfo | null>(null);
@@ -37,6 +38,47 @@ function normalizeSignupMode(value: unknown): SignupMode {
     return value;
   }
   return 'open';
+}
+
+/**
+ * Fetch + cache this server's own signing key if it's not already in
+ * publicKeys. Trust is established by the connection itself (same origin
+ * this app was served from) — verifyPublicKey's serverSignature check
+ * would be circular for the server's own key (it self-countersigns, so
+ * "verifying" it here just means checking a key against itself over the
+ * same channel it arrived on: no protection against a swapped key, which
+ * could just as easily carry a forged self-signature).
+ */
+async function ensureServerKeyCached(serverId: string, serverKeyId: string): Promise<void> {
+  if (!serverId || !serverKeyId) return;
+  try {
+    const { publicKeyRepository } = await import('$lib/repositories/publicKey');
+    if (await publicKeyRepository.hasPublicKey(serverKeyId)) return;
+
+    const { apiService } = await import('./api');
+    const { cryptoService } = await import('./crypto');
+    const { dbService } = await import('./db');
+    const { allowUnsigned } = await import('$lib/verifiers');
+    const { formatServerKeyId } = await import('$lib/utils/keyId');
+
+    const armor = await apiService.getOwnServerKey();
+    const fingerprint = await cryptoService.fingerprintFromArmor(armor);
+    if (formatServerKeyId(fingerprint, serverId) !== serverKeyId) {
+      throw new Error('server key armor does not match serverKeyId');
+    }
+
+    const key: PublicKey = {
+      id: serverKeyId,
+      userID: '',
+      armor,
+      revoked: false,
+      predecessor: null,
+      serverSignature: { serverID: '', fingerprint: '', armor: '', timestamp: '' },
+    };
+    await dbService.put('publicKeys', key, allowUnsigned);
+  } catch (error) {
+    console.error('serverInfo: failed to cache own server key', error);
+  }
 }
 
 function normalizeMaxInvites(value: unknown): number {
@@ -78,13 +120,14 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
       recoveryMode: !!data.recoveryMode,
       signupMode: normalizeSignupMode(data.signupMode),
       maxInvitesPerUser: normalizeMaxInvites(data.maxInvitesPerUser),
-      serverKeyFingerprint: typeof data.serverKeyFingerprint === 'string' ? data.serverKeyFingerprint : '',
+      serverKeyId: typeof data.serverKeyId === 'string' ? data.serverKeyId : '',
     };
 
     localStorage.setItem('serverId', info.id);
     localStorage.setItem('serverName', info.name);
     serverInfo.set(info);
     serverInfoFetchFailed.set(false);
+    await ensureServerKeyCached(info.id, info.serverKeyId);
     return info;
   } catch (error) {
     console.error('serverInfo: failed to fetch /api/server/info', error);
