@@ -159,12 +159,11 @@ export function buildProfilePayload(
 
 /**
  * Mirror of BuildReedPayload / ReedCountersignHeaders in identity.go.
- * Content is the author userSignature wire value (base64 armor), same as
- * POST /reeds `signature` form field.
+ * reedID is the full canonical id. Content is the author userSignature
+ * wire value (base64 armor), same as POST /reeds `signature` form field.
  */
 export function buildReedPayload(
   serverID: string,
-  authorID: string,
   reedID: string,
   serverKeyFingerprint: string,
   userSignatureB64: string,
@@ -172,7 +171,6 @@ export function buildReedPayload(
 ): string {
   return stringToSign(
     {
-      authorID,
       fingerprint: serverKeyFingerprint,
       serverID,
       reedID,
@@ -415,13 +413,13 @@ export function buildInviteServerPayload(
 
 /**
  * Mirror of BuildRippleUserPayload / rippleUserHeaders in identity.go. The
- * exact bytes a ripple's author signs. threadID is always present
- * (client-minted, see specs/ripples/00_design.md); replyingTo is omitted
- * for a top-level post (empty string is dropped by bytesToSign). No
- * timestamp — client clocks are never signed over.
+ * exact bytes a ripple's author signs. reedID is the full canonical id of
+ * the parent reed. threadID is always present (client-minted, see
+ * specs/ripples/00_design.md); replyingTo is omitted for a top-level post
+ * (empty string is dropped by bytesToSign). No timestamp — client clocks
+ * are never signed over.
  */
 export function buildRippleUserPayload(
-  reedAuthorID: string,
   reedID: string,
   rippleAuthorID: string,
   fingerprint: string,
@@ -431,7 +429,6 @@ export function buildRippleUserPayload(
 ): string {
   return stringToSign(
     {
-      reedAuthorID,
       reedID,
       rippleAuthorID,
       fingerprint,
@@ -452,7 +449,6 @@ export function buildRippleUserPayload(
  */
 export function buildRippleServerPayload(
   serverID: string,
-  reedAuthorID: string,
   reedID: string,
   rippleAuthorID: string,
   fingerprint: string,
@@ -464,7 +460,6 @@ export function buildRippleServerPayload(
   return stringToSign(
     {
       serverID,
-      reedAuthorID,
       reedID,
       rippleAuthorID,
       fingerprint,

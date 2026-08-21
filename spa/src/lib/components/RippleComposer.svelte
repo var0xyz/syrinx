@@ -13,8 +13,7 @@
   import { apiService } from '$lib/services/api';
   import { parseKeyId } from '$lib/utils/keyId';
 
-  /** @type {string} */
-  export let userID;
+  /** The parent reed's canonical id (authorID@serverID/uuid). */
   /** @type {string} */
   export let reedID;
   /** The parent reed's base64 server-signature armor — proof of
@@ -72,7 +71,6 @@
       const replyingToHash = replyingTo?.hash;
 
       const userPayload = buildRippleUserPayload(
-        userID,
         reedID,
         user.id,
         fingerprint,
@@ -88,7 +86,7 @@
       // below is bare, matching handlers.go's PostRipple joining it with
       // the caller's own userID server-side.
       const bareFingerprint = parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
-      const posted = await apiService.postRipple(userID, reedID, {
+      const posted = await apiService.postRipple(reedID, {
         content,
         threadID,
         replyingTo: replyingToHash,

@@ -85,6 +85,17 @@ export function canonicalKeyId(userId: string, fingerprint: string): string {
   return parseKeyId(fingerprint) ? fingerprint : appendFingerprint(userId, fingerprint);
 }
 
+/**
+ * Splits a canonical reed id (authorID@serverID/uuid) into the two URL
+ * segments the server's /reeds/{userID}/{reedID} route expects. Mirrors
+ * handlers.go's route-boundary reconstruction in reverse.
+ */
+function splitReedId(reedId: string): { userId: string; bareId: string } {
+  const parsed = parseKeyId(reedId);
+  if (!parsed) throw new Error(`Invalid canonical reed id: ${reedId}`);
+  return { userId: `${parsed.userId}@${parsed.serverId}`, bareId: parsed.fingerprint };
+}
+
 // Unauthenticated endpoints that don't need signing.
 // `/keys` (exact) is POST AddPublicKey — unauthenticated because a brand
 // new signup key has no session yet. Every other /keys/{id}... route
@@ -620,37 +631,39 @@ export const apiService = {
     });
   },
 
-  async getReedEchoCount(userId: string, reedId: string): Promise<number> {
-    return request(`/reeds/${userId}/${reedId}/echoes`, { method: 'GET' });
+  async getReedEchoCount(reedId: string): Promise<number> {
+    const { userId, bareId } = splitReedId(reedId);
+    return request(`/reeds/${userId}/${bareId}/echoes`, { method: 'GET' });
   },
 
   async listReplies(
-    userId: string,
     reedId: string,
     opts?: { limit?: number; before?: string },
   ): Promise<api.ReplyListResponse> {
+    const { userId, bareId } = splitReedId(reedId);
     const params = new URLSearchParams();
     if (opts?.limit != null) params.set('limit', String(opts.limit));
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
-    const path = `/reeds/${userId}/${reedId}/replies${qs ? `?${qs}` : ''}`;
+    const path = `/reeds/${userId}/${bareId}/replies${qs ? `?${qs}` : ''}`;
     return request<api.ReplyListResponse>(path, { method: 'GET' });
   },
 
-  async getReed(userId: string, reedId: string): Promise<any> {
-    return request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
+  async getReed(reedId: string): Promise<any> {
+    const { userId, bareId } = splitReedId(reedId);
+    return request(`/reeds/${userId}/${bareId}`, { method: 'GET' });
   },
 
   async listEchoers(
-    userId: string,
     reedId: string,
     opts?: { limit?: number; before?: string },
   ): Promise<api.EchoerListResponse> {
+    const { userId, bareId } = splitReedId(reedId);
     const params = new URLSearchParams();
     if (opts?.limit != null) params.set('limit', String(opts.limit));
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
-    const path = `/reeds/${userId}/${reedId}/chorus${qs ? `?${qs}` : ''}`;
+    const path = `/reeds/${userId}/${bareId}/chorus${qs ? `?${qs}` : ''}`;
     return request<api.EchoerListResponse>(path, { method: 'GET' });
   },
 
@@ -664,19 +677,19 @@ export const apiService = {
    * fallback (kept in sync with main.go's route registration).
    */
   async listRipples(
-    userId: string,
     reedId: string,
     serverSignatureArmor: string,
     opts?: { limit?: number; before?: string },
   ): Promise<api.RippleListResponse> {
+    const { userId, bareId } = splitReedId(reedId);
     const params = new URLSearchParams();
     if (opts?.limit != null) params.set('limit', String(opts.limit));
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
-    const path = `/reeds/${userId}/${reedId}/ripples${qs ? `?${qs}` : ''}`;
+    const path = `/reeds/${userId}/${bareId}/ripples${qs ? `?${qs}` : ''}`;
     return request<api.RippleListResponse>(path, { method: 'QUERY', body: serverSignatureArmor });
     // Fallback if QUERY isn't supported end-to-end:
-    // const path = `/reeds/${userId}/${reedId}/ripples/proof${qs ? `?${qs}` : ''}`;
+    // const path = `/reeds/${userId}/${bareId}/ripples/proof${qs ? `?${qs}` : ''}`;
     // return request<api.RippleListResponse>(path, { method: 'POST', body: serverSignatureArmor });
   },
 
@@ -688,7 +701,6 @@ export const apiService = {
   // with the authenticated caller's userID itself (see handlers.go's
   // PostRipple).
   async postRipple(
-    userId: string,
     reedId: string,
     fields: {
       content: string;
@@ -699,7 +711,8 @@ export const apiService = {
       userSignature: string;
     }
   ): Promise<api.Ripple> {
-    return request<api.Ripple>(`/reeds/${userId}/${reedId}/ripples`, {
+    const { userId, bareId } = splitReedId(reedId);
+    return request<api.Ripple>(`/reeds/${userId}/${bareId}/ripples`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -746,15 +759,15 @@ export const apiService = {
    * callers must switch on `removal.type` and not treat account as reed.
    */
   async getReedOrRemoval(
-    userId: string,
     reedId: string
   ): Promise<
     | { kind: 'reed'; reed: any }
     | { kind: 'gone'; removal: api.ReedRemoval | { type: string } }
     | { kind: 'not_found' }
   > {
+    const { userId, bareId } = splitReedId(reedId);
     try {
-      const reed = await request(`/reeds/${userId}/${reedId}`, { method: 'GET' });
+      const reed = await request(`/reeds/${userId}/${bareId}`, { method: 'GET' });
       return { kind: 'reed', reed };
     } catch (err: any) {
       if (err?.status === 404) {
@@ -768,13 +781,13 @@ export const apiService = {
   },
 
   async deleteReed(
-    userId: string,
     reedId: string,
     signature: string
   ): Promise<api.ReedRemoval> {
+    const { userId, bareId } = splitReedId(reedId);
     const formData = new URLSearchParams();
     formData.append('signature', signature);
-    return request<api.ReedRemoval>(`/reeds/${userId}/${reedId}`, {
+    return request<api.ReedRemoval>(`/reeds/${userId}/${bareId}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString(),
@@ -782,26 +795,27 @@ export const apiService = {
   },
 
   async likeReed(
-    authorId: string,
     reedId: string,
     signature: string,
     fingerprint: string
   ): Promise<api.ReedLike> {
+    const { userId, bareId } = splitReedId(reedId);
     // fingerprint travels bare over the wire — the server joins it with the
     // authenticated caller's userID itself (see handlers.go's LikeReed).
     const bareFingerprint = parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
     const formData = new URLSearchParams();
     formData.append('signature', signature);
     formData.append('fingerprint', bareFingerprint);
-    return request<api.ReedLike>(`/reeds/${authorId}/${reedId}/like`, {
+    return request<api.ReedLike>(`/reeds/${userId}/${bareId}/like`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString(),
     });
   },
 
-  async unlikeReed(authorId: string, reedId: string): Promise<void> {
-    return request<void>(`/reeds/${authorId}/${reedId}/like`, { method: 'DELETE' });
+  async unlikeReed(reedId: string): Promise<void> {
+    const { userId, bareId } = splitReedId(reedId);
+    return request<void>(`/reeds/${userId}/${bareId}/like`, { method: 'DELETE' });
   },
 
   // revokeKey/getKeyRevocation/getPublicKey accept either a bare fingerprint

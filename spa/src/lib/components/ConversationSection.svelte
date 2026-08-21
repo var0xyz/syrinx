@@ -8,7 +8,7 @@
   import { serverConnection } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
   import { formatRelativeTime } from '$lib/utils/time';
-  import { parseReedRef } from '$lib/utils/reedRef';
+  import { parseReedRef, refForReed } from '$lib/utils/reedRef';
   import { get } from 'svelte/store';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -62,7 +62,7 @@
     if (!$isOnline || !parentUserID || !parentReedID) return;
     if (showLoading) loading = true;
     try {
-      const res = await apiService.listReplies(parentUserID, parentReedID);
+      const res = await apiService.listReplies(refForReed(parentUserID, parentReedID));
       if (threadId) {
         await reedRepliesRepository.syncFromServerList(
           parentUserID,
@@ -175,7 +175,7 @@
     if (!oldest?.timestamp) return;
     loadingMore = true;
     try {
-      const res = await apiService.listReplies(parentUserID, parentReedID, {
+      const res = await apiService.listReplies(refForReed(parentUserID, parentReedID), {
         before: oldest.timestamp,
       });
       if (threadId) {

@@ -397,7 +397,6 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
 
   const serverPayload = buildReedPayload(
     reed.serverSignature.serverID,
-    reed.userID,
     reed.id,
     reed.serverSignature.fingerprint,
     reed.userSignature.armor,
@@ -426,9 +425,9 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
 
 /**
  * Verify a ripple response: author signature + server countersignature,
- * modeled on verifyReed. `reedAuthorID`/`reedID` identify the parent reed
+ * modeled on verifyReed. `reedID` (canonical) identifies the parent reed
  * this ripple is attached to — not part of the wire object itself, so the
- * caller (which already knows which reed's list it fetched) supplies them.
+ * caller (which already knows which reed's list it fetched) supplies it.
  * A tombstoned (soft-deleted) response is trusted on its `deleted` flag
  * alone — its stored signatures describe the original pre-delete content,
  * which this client does not have and cannot re-verify against (see
@@ -436,7 +435,6 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
  */
 export async function verifyRipple(
   ripple: api.Ripple,
-  reedAuthorID: string,
   reedID: string
 ): Promise<boolean> {
   if (ripple?.deleted) {
@@ -464,7 +462,6 @@ export async function verifyRipple(
   }
 
   const userPayload = buildRippleUserPayload(
-    reedAuthorID,
     reedID,
     ripple.userID,
     ripple.userSignature.fingerprint,
@@ -484,7 +481,6 @@ export async function verifyRipple(
 
   const serverPayload = buildRippleServerPayload(
     ripple.serverSignature.serverID,
-    reedAuthorID,
     reedID,
     ripple.userID,
     ripple.userSignature.fingerprint,
