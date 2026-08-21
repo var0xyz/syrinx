@@ -57,7 +57,7 @@ type Handlers struct {
 	services      *Services
 	cfg           AppConfig
 	broadcastChan chan<- realtime.BroadcastMessage
-	signingKey    Key
+	signingKey    ServerSigningKey
 	metrics       metrics.Recorder
 	// filterPipeTags keeps only tags with current pipe listeners (SignReed stash).
 	// Nil means stash all extracted tags (tests / no realtime).
@@ -82,7 +82,7 @@ type ServerInfo struct {
 //   Utilities  //
 // ///////////// //
 
-func NewHandlers(services *Services, cfg AppConfig, broadcastChan chan<- realtime.BroadcastMessage, signingKey Key) *Handlers {
+func NewHandlers(services *Services, cfg AppConfig, broadcastChan chan<- realtime.BroadcastMessage, signingKey ServerSigningKey) *Handlers {
 	return &Handlers{
 		services:      services,
 		cfg:           cfg,
@@ -172,30 +172,38 @@ func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 // GetServerPublicKey returns the armored public half of a server signing
 // key by fingerprint. Clients use this to select the historical key that
 // produced a countersignature (keys, reeds, identity records).
-func (h *Handlers) GetServerPublicKey(w http.ResponseWriter, r *http.Request) {
+// GetKey handles GET /keys/{id}: the single fetch-any-key route. id is the
+// full canonical key id — "userID@serverID/fingerprint" for a user key,
+// "fingerprint@serverID" for a server's own key — for any server, local or
+// federated. A foreign id (embedded serverID != this server's own) is
+// proxied live to that peer (see proxyToPeer) rather than looked up
+// locally, since public_keys only ever holds local keys.
+func (h *Handlers) GetKey(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 
-	fingerprint := mux.Vars(r)["fingerprint"]
-	if fingerprint == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `fingerprint` is required")
+	id := mux.Vars(r)["id"]
+	if id == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
-	armor, err := h.services.db.GetServerPublicKeyByFingerprint(r.Context(), fingerprint)
+	if h.proxyIfForeign(w, r, id) {
+		return
+	}
+
+	key, err := h.services.db.GetPublicKey(r.Context(), id)
 	if err != nil {
-		log.Error().Str("fingerprint", fingerprint).Err(err).Msg("Error loading server public key")
+		log.Error().Str("id", id).Err(err).Msg("Error loading public key")
 		internalServerError(w)
 		return
 	}
-	if armor == "" {
-		writeResponse(w, http.StatusNotFound, "Server public key not found")
+	if key == nil {
+		writeResponse(w, http.StatusNotFound, "Key not found")
 		return
 	}
 
-	writeResponse(w, http.StatusOK, map[string]string{
-		"fingerprint": fingerprint,
-		"armor":       encoding.Base64Encode(armor),
-	})
+	key.Armor = encoding.Base64Encode(key.Armor)
+	writeResponse(w, http.StatusOK, key)
 }
 
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
@@ -449,7 +457,6 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		PublicKeyArmor:     publicKey,
 		Fingerprint:        string(canonicalFingerprint),
 		KeyCreatedAt:       key.CreatedAt,
-		KeyExpiresAt:       key.ExpiresAt,
 		UserSignatureB64:   userSignatureB64,
 		MemberSince:        now,
 		ProfileSignature:   profileSignature,
@@ -723,6 +730,10 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.proxyIfForeign(w, r, userID) {
+		return
+	}
+
 	removal, err := h.services.db.GetAccountRemoval(r.Context(), userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error loading account removal")
@@ -757,6 +768,10 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 	userID := mux.Vars(r)["userID"]
 	if userID == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		return
+	}
+
+	if h.proxyIfForeign(w, r, userID) {
 		return
 	}
 
@@ -1409,15 +1424,14 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	publicKey, err := h.services.db.AddPublicKey(r.Context(), AddPublicKeyInput{
-		Fingerprint: newKeyFingerprint,
-		UserID:      userID,
-		CreatedAt:   newKey.CreatedAt,
-		ExpiresAt:   newKey.ExpiresAt,
-		Armor:       armoredPublicKey,
-		Server:      keySignature,
+		ID:        newKeyFingerprint,
+		UserID:    userID,
+		CreatedAt: newKey.CreatedAt,
+		Armor:     armoredPublicKey,
+		Server:    keySignature,
 
-		PredecessorFingerprint: revokedKeyFingerprint,
-		PredecessorSignature:   revokedKeySigArmor,
+		PredecessorID:        revokedKeyFingerprint,
+		PredecessorSignature: revokedKeySigArmor,
 	})
 	if err != nil {
 		switch {
@@ -1452,57 +1466,25 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, publicKey)
 }
 
-// {fingerprint} in the URL is deliberately bare, not canonical: {userID} is
-// already a separate required path segment carrying the same
-// userID@serverID prefix, and a canonical fingerprint contains "/" which
-// would break gorilla/mux's single-segment matching. Handlers join the two
-// via identity.AppendEntity right after extracting them.
-func (h *Handlers) GetPublicKey(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("GetPublicKey request received")
-
-	bareFingerprint := mux.Vars(r)["fingerprint"]
-	if bareFingerprint == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `fingerprint` is required")
-		return
-	}
-
-	userID := mux.Vars(r)["userID"]
-	if userID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
-		return
-	}
-	fingerprint := string(identity.AppendEntity(identity.IdentityID(userID), bareFingerprint))
-
-	key, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
-			Err(err).Msg("Error loading public key")
-		internalServerError(w)
-		return
-	}
-	if key == nil {
-		writeResponse(w, http.StatusNotFound, "Key not found")
-		return
-	}
-
-	key.Armor = encoding.Base64Encode(key.Armor)
-	writeResponse(w, http.StatusOK, key)
-}
-
 func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("RevokeKey request received")
 
 	userID := h.getUserID(r)
-	bareFingerprint := mux.Vars(r)["fingerprint"]
-	if bareFingerprint == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `fingerprint` is required")
+	fingerprint := mux.Vars(r)["id"]
+	if fingerprint == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
-	fingerprint := string(identity.AppendEntity(identity.IdentityID(userID), bareFingerprint))
+	// A key can only be revoked by its own owner — a foreign id (or one
+	// belonging to a different local user) is rejected outright, never
+	// proxied: revoking a key you don't own is nonsensical, and only the
+	// owning server can produce a valid server countersignature for it.
+	embeddedUserID, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(fingerprint))
+	if !ok || string(identity.CanonicalID(embeddedServerID, embeddedUserID)) != userID {
+		writeResponse(w, http.StatusNotFound, "Key not found")
+		return
+	}
 
 	err := r.ParseForm()
 	if err != nil {
@@ -1570,7 +1552,7 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = h.services.db.RevokeKey(r.Context(), RevokeKeyInput{
-		Fingerprint:      fingerprint,
+		ID:               fingerprint,
 		UserID:           userID,
 		Reason:           reason,
 		UserSignatureB64: userSignatureB64,
@@ -1610,18 +1592,19 @@ func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("GetKeyRevocation request received")
 
-	userID := mux.Vars(r)["userID"]
-	bareFingerprint := mux.Vars(r)["fingerprint"]
-	if userID == "" || bareFingerprint == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `fingerprint` are required")
+	fingerprint := mux.Vars(r)["id"]
+	if fingerprint == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
-	fingerprint := string(identity.AppendEntity(identity.IdentityID(userID), bareFingerprint))
+
+	if h.proxyIfForeign(w, r, fingerprint) {
+		return
+	}
 
 	revocation, err := h.services.db.GetKeyRevocation(r.Context(), fingerprint)
 	if err != nil {
 		log.Error().
-			Str("userID", userID).
 			Str("fingerprint", fingerprint).
 			Err(err).Msg("Error fetching key revocation")
 		internalServerError(w)
@@ -2879,6 +2862,74 @@ func (h *Handlers) federationHTTPClient() *http.Client {
 	return &http.Client{Timeout: 15 * time.Second}
 }
 
+// proxyIfForeign checks whether id's embedded serverID is a server other
+// than this one; if so, it resolves that server as an approved peer and
+// proxies the current request to it (writing the response directly and
+// returning true), or writes 404 for an unknown/unapproved/revoked peer
+// (also returning true). Returns false — do nothing, caller continues with
+// its normal local lookup — when id is local or malformed. id may be a
+// 2-part (userID@serverID) or 3-part (userID@serverID/fingerprint or
+// fingerprint@serverID) canonical form; both are handled by trying the
+// 3-part parse first and falling back to the 2-part one.
+func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id string) bool {
+	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(id))
+	if !ok {
+		_, embeddedServerID, ok = identity.ParseIdentityID(identity.IdentityID(id))
+	}
+	if !ok || embeddedServerID == h.services.db.GetServerID() {
+		return false
+	}
+
+	peer, err := h.services.db.GetServerByID(r.Context(), embeddedServerID)
+	if err != nil {
+		internalServerError(w)
+		return true
+	}
+	if peer == nil {
+		writeResponse(w, http.StatusNotFound, "Not found")
+		return true
+	}
+
+	h.proxyToPeer(w, r, peer.BaseURL)
+	return true
+}
+
+// proxyToPeer forwards the current request verbatim (method, path, query
+// string) to baseURL and relays the response byte-for-byte — no
+// re-parsing or re-marshaling, so response shape drift on the peer's side
+// doesn't need handling here. Used only for read-only, already-public,
+// unauthenticated GET routes (profile, info, key fetch) — same trust
+// level as a client hitting the peer directly, so no request signing is
+// added.
+func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, baseURL string) {
+	log := h.services.log.GetLogger(r.Context())
+
+	target := strings.TrimRight(baseURL, "/") + "/api" + r.URL.Path
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	httpReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, nil)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	resp, err := h.federationHTTPClient().Do(httpReq)
+	if err != nil {
+		log.Error().Err(err).Str("target", target).Msg("proxy to peer server failed")
+		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
+		return
+	}
+	defer resp.Body.Close()
+
+	if contentType := resp.Header.Get("Content-Type"); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	w.WriteHeader(resp.StatusCode)
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		log.Error().Err(err).Str("target", target).Msg("failed to relay proxied response body")
+	}
+}
+
 // logFederationInvitationAsync records a federation_log line for
 // invitationID without blocking the caller or affecting its response — a
 // failure to write a log line must never turn a successful (or already
@@ -3869,7 +3920,6 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		ServerName:  payload.ServerName,
 		BaseURL:     payload.BaseURL,
 		Fingerprint: payload.Fingerprint,
-		PublicKey:   payload.PublicKeyArmor,
 	}
 	attemptID, err := h.services.db.CreateFederationAttempt(r.Context(), peer, now)
 	if err != nil {

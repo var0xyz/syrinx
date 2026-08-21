@@ -71,22 +71,25 @@ type ServerSignature struct {
 	SignedAt    time.Time `json:"timestamp"`
 }
 
-// KeyPredecessor is the rotation handoff proof bundled on keys uploaded
-// via AddPublicKey: the revoked predecessor's detached signature over
-// this key's armor, and which key produced it.
+// KeyPredecessor identifies the key this one replaced (rotation only).
+// The predecessor's detached signature over this key's armor — proof the
+// old key approved the handoff — is NOT here: that's revocation-certificate
+// data, it lives on the predecessor's own KeyRevocation.SuccessorSignature.
 type KeyPredecessor struct {
-	Fingerprint string `json:"fingerprint"`
-	Signature   string `json:"signature"`
+	ID string `json:"id"`
 }
 
-// Key is the wire shape of a distributed user public key.
+// Key is the wire shape of a public key — a local user's or this server's
+// own (peer servers' keys are never stored; every foreign id proxies live
+// to that peer instead, see main.go's GET /keys/{id}).
 // `ServerSignature` is required: the countersignature over
-// (userID, fingerprint, armor). `Revoked` is computed on read from
-// user_key_revocations — never stored on user_keys.
+// (userID, id, armor). `Revoked` is computed on read from
+// public_key_revocations — never stored on public_keys.
 //
-// `Predecessor` is set for rotation keys only; signup keys return null.
+// `Predecessor` is set for rotation keys only; signup/bootstrap keys
+// return null.
 type Key struct {
-	Fingerprint     string          `json:"fingerprint"`
+	ID              string          `json:"id"`
 	UserID          string          `json:"userID"`
 	Armor           string          `json:"armor"`
 	CreatedAt       time.Time       `json:"createdAt"`
@@ -95,21 +98,38 @@ type Key struct {
 	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
+// ServerSigningKey is the server's own active signing key, held in memory
+// for use by countersign operations (h.signingKey) — never serialized as
+// wire JSON itself, so it's a dedicated internal type rather than reusing
+// Key: Fingerprint here is deliberately the bare fingerprint (what every
+// ServerSignature.Fingerprint / X-Syrinx-* header wants), not a Key.ID
+// canonical public_keys row id. Armor is the DECRYPTED PRIVATE key armor
+// (used to produce signatures), never exposed over the wire.
+type ServerSigningKey struct {
+	Fingerprint string
+	Armor       string
+	CreatedAt   time.Time
+}
+
 // KeyRevocation is the wire shape of a signed revocation attestation.
-// The user signature covers (userID, fingerprint, reason); the server
+// The user signature covers (userID, revokedId, reason); the server
 // countersignature binds that user attestation and supplies the
 // authoritative revoke time as serverSignature.timestamp.
 //
-// Successor is bookkeeping written later by AddPublicKey when the
-// replacement key is uploaded. It is returned on GET when present but
-// is not covered by either signature — it is unknown at revoke time.
+// Successor and SuccessorSignature are bookkeeping written later by
+// AddPublicKey when the replacement key is uploaded — both are unknown at
+// revoke time, so both are nil until then. SuccessorSignature is the
+// revoked key's own detached signature over the successor's armor (the
+// rotation handoff proof); it and Successor are covered by neither the
+// user nor the server signature on this cert.
 type KeyRevocation struct {
-	Fingerprint     string          `json:"fingerprint"`
-	UserID          string          `json:"userID"`
-	Reason          string          `json:"reason"`
-	Successor       *string         `json:"successor"`
-	UserSignature   UserSignature   `json:"userSignature"`
-	ServerSignature ServerSignature `json:"serverSignature"`
+	RevokedID          string          `json:"revokedId"`
+	UserID             string          `json:"userID"`
+	Reason             string          `json:"reason"`
+	Successor          *string         `json:"successor"`
+	SuccessorSignature *string         `json:"successorSignature"`
+	UserSignature      UserSignature   `json:"userSignature"`
+	ServerSignature    ServerSignature `json:"serverSignature"`
 }
 
 type Reed struct {
@@ -176,9 +196,12 @@ func InitDB(db *sql.DB) error {
 	// lives entirely on federation_attempt until a second admin approves;
 	// see specs/federation/03. fingerprint is the peer's pinned server
 	// signing key fingerprint from that approved attempt — the trust root
-	// for verifying peer-authenticated runtime requests (specs/federation/04);
-	// its armor lives in public_keys (same table CreateFederationAttempt/
-	// MarkFederationInvitationAccepted upsert into), not duplicated here.
+	// for verifying peer-authenticated runtime requests (specs/federation/04).
+	// Its armor is NEVER stored locally: every fetch of a peer's key (or
+	// any of that peer's users' keys, or profile) proxies live to base_url
+	// and relays the response — see main.go's GET /keys/{id} route and
+	// handlers.go's proxyToPeer. public_keys only ever holds LOCAL keys
+	// (this server's own + its local users').
 	// revoked is set by a future de-establish step (specs/federation/05);
 	// a revoked peer's incoming requests must be rejected even though the
 	// row (and its audit trail) stays.
@@ -197,12 +220,13 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// Normalized attestation rows (signatures proposal 01). Entities will
-	// FK here in later migrate steps; fingerprint is not FK'd to key
-	// tables (historical / rotated keys).
+	// FK here in later migrate steps; public_key_id is not FK'd to
+	// public_keys (historical / rotated keys — a signature can reference a
+	// since-superseded key id).
 	createUserSignaturesTable := `
 	CREATE TABLE IF NOT EXISTS user_signatures (
 		id SERIAL PRIMARY KEY,
-		fingerprint VARCHAR(255) NOT NULL,
+		public_key_id VARCHAR(255) NOT NULL,
 		signature TEXT NOT NULL
 	);`
 
@@ -269,7 +293,9 @@ func InitDB(db *sql.DB) error {
 	   OR i.verified = TRUE;
 	`
 
-	// Server-owned private keys
+	// Server-owned private keys. Unaffected by the public_keys unification
+	// below — private key material never leaves this table, regardless of
+	// whose key it is (a user's private key never touches the server at all).
 	createPrivateKeysTable := `
 	CREATE TABLE IF NOT EXISTS private_keys (
 		fingerprint VARCHAR(255) PRIMARY KEY,
@@ -279,69 +305,71 @@ func InitDB(db *sql.DB) error {
 		revoke_reason TEXT
 	);`
 
-	// Server-owned public keys
+	// Unified public key storage — every key this server holds the public
+	// half of, whether a user's or this server's own. id is canonical:
+	// "{userID}@{serverID}/{fingerprint}" for a user key,
+	// "{fingerprint}@{serverID}" for this server's own signing key.
+	// Peer (non-self) servers' keys are NEVER stored here — every request
+	// for a foreign id is proxied live to that peer (see main.go's /keys
+	// route and handlers.go's proxyToPeer), so this table only ever holds
+	// local users' keys plus this server's own.
+	//
+	// owner is a real FK to identities for local users; NULL for this
+	// server's own key (no identities row) and for remote/federated users'
+	// keys (no local identities row to reference) — the canonical id itself
+	// remains the source of truth for ownership either way (recover it via
+	// identity.ParseKeyFingerprint).
+	//
+	// server_signature_id is NOT NULL and UNIQUE: every key carries exactly
+	// one countersignature, including this server's own key, which is
+	// countersigned by itself at boot (see InitServerKey) — redundant for
+	// that one row, but keeps every row in this table uniformly verifiable
+	// the same way, no special-casing in read paths.
+	//
+	// predecessor_id points at the key this one replaced (rotation only,
+	// NULL for a signup/bootstrap key). The predecessor's SIGNATURE over
+	// this row's armor — proof the old key approved the handoff — lives on
+	// the predecessor's OWN revocation row (successor_signature_id in
+	// public_key_revocations below), not here: that's revocation-certificate
+	// data, not a property of the new key itself.
 	createPublicKeysTable := `
 	CREATE TABLE IF NOT EXISTS public_keys (
-		fingerprint VARCHAR(255) PRIMARY KEY,
-		armor TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);`
-
-	// Client-managed public keys. fingerprint is canonical
-	// ("{userID}@{serverID}/{fingerprint}"), self-scoping and globally
-	// unique, so it's the PK directly. owner mirrors the userID@serverID
-	// prefix as a real FK to identities for local users; it's NULL for
-	// keys belonging to remote/federated identities, which have no local
-	// identities row to reference — the canonical fingerprint itself
-	// remains the source of truth for ownership either way (recover it via
-	// identity.ParseKeyFingerprint). Server countersignature is via
-	// server_signature_id. predecessor_signature and
-	// predecessor_fingerprint are set together for rotation keys only
-	// (AddPublicKey): the old key's detached signature over this row's
-	// armor, and which key produced it. Signup keys leave both NULL.
-	createUserKeysTable := `
-	CREATE TABLE IF NOT EXISTS user_keys (
-		fingerprint VARCHAR(255) PRIMARY KEY,
+		id VARCHAR(255) PRIMARY KEY,
 		owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		expires_at TIMESTAMP,
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-		predecessor_signature TEXT,
-		predecessor_fingerprint VARCHAR(255) REFERENCES user_keys(fingerprint)
+		server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
+		predecessor_id VARCHAR(255) REFERENCES public_keys(id)
 	);`
 
-	createUserKeyIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_user_keys_owner
-		ON user_keys(owner) WHERE owner IS NOT NULL;
+	createPublicKeyIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_public_keys_owner
+		ON public_keys(owner) WHERE owner IS NOT NULL;
 	`
 
-	// Revocation attestation for a user key. A row's existence means the
-	// key is revoked. user_fingerprint identifies which key was revoked
-	// (PK + FK to user_keys, canonical + self-scoping — see user_keys
-	// above). Signatures live in user_signatures / server_signatures;
-	// revoke time is server_signatures.signed_at. owner follows the same
-	// local/NULL-for-remote rule as user_keys.owner.
+	// Revocation attestation for a public key. A row's existence means the
+	// key is revoked. revoked_id identifies which key (PK + FK to
+	// public_keys, canonical + self-scoping). user_signature_id signs the
+	// certificate itself (revoked_id + reason); server_signature_id
+	// countersigns it; revoke time is server_signatures.signed_at.
 	//
-	// successor is written when the replacement key is uploaded via
-	// AddPublicKey, not at revocation time — the client revokes first
-	// and adds the new key second, so at RevokeKey we do not yet know
-	// the successor.
-	createUserKeyRevocationsTable := `
-	CREATE TABLE IF NOT EXISTS user_key_revocations (
-		user_fingerprint VARCHAR(255) PRIMARY KEY
-			REFERENCES user_keys(fingerprint) ON DELETE CASCADE,
-		owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
+	// successor and successor_signature_id are both written later, when the
+	// replacement key is uploaded via AddPublicKey (the client revokes
+	// first and adds the new key second, so at RevokeKey time neither is
+	// known yet): successor is the plain forward pointer to the new key;
+	// successor_signature_id is this (the OLD, revoked) key's detached
+	// signature over the NEW key's armor — the rotation handoff proof a
+	// verifier walks back through when following a predecessor_id chain.
+	createPublicKeyRevocationsTable := `
+	CREATE TABLE IF NOT EXISTS public_key_revocations (
+		revoked_id VARCHAR(255) PRIMARY KEY
+			REFERENCES public_keys(id) ON DELETE CASCADE,
 		reason TEXT,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-		successor VARCHAR(255) REFERENCES user_keys(fingerprint)
+		successor VARCHAR(255) REFERENCES public_keys(id),
+		successor_signature_id INT REFERENCES user_signatures(id)
 	);`
-
-	createUserKeyRevocationsIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_user_key_revocations_owner
-		ON user_key_revocations(owner) WHERE owner IS NOT NULL;
-	`
 
 	// Tip reed metadata. private_key_fingerprint is the server key used
 	// for the countersignature. user_signature_id / server_signature_id
@@ -442,14 +470,14 @@ func InitDB(db *sql.DB) error {
 
 	// Signed reed-removal certificates. Source of truth for “gone”; no FK to
 	// reeds(id) so the live row may be dropped after the cert is stored.
-	// PK is (user_id, reed_id). user_fingerprint binds the signing key
-	// (canonical, self-scoping — single-column FK to user_keys); signatures
+	// PK is (user_id, reed_id). public_key_id binds the signing key
+	// (canonical, self-scoping — single-column FK to public_keys); signatures
 	// via FKs.
 	createReedRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS reed_removals (
 		reed_id VARCHAR(255) NOT NULL,
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		user_fingerprint VARCHAR(255) NOT NULL REFERENCES user_keys(fingerprint) ON DELETE CASCADE,
+		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
@@ -457,13 +485,13 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// Signed account-removal certificates. One cert per user; public keys
-	// remain. user_fingerprint binds the signing key (same class as reed
+	// remain. public_key_id binds the signing key (same class as reed
 	// removals). note ≤140 enforced by CHECK + API.
 	createAccountRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS account_removals (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		note VARCHAR(140) NOT NULL DEFAULT '',
-		user_fingerprint VARCHAR(255) NOT NULL REFERENCES user_keys(fingerprint) ON DELETE CASCADE,
+		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
@@ -471,14 +499,14 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// Signed like certificates, one row per currently-liked (liker, reed)
-	// pair; unliking hard-deletes the row. liker_fingerprint binds the
+	// pair; unliking hard-deletes the row. liker_public_key_id binds the
 	// signing key (same class as reed removals).
 	createReedsLikedTable := `
 	CREATE TABLE IF NOT EXISTS reeds_liked (
 		liker_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		author_user_id VARCHAR(255) NOT NULL,
 		reed_id VARCHAR(255) NOT NULL,
-		liker_fingerprint VARCHAR(255) NOT NULL REFERENCES user_keys(fingerprint) ON DELETE CASCADE,
+		liker_public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
@@ -764,12 +792,20 @@ func InitDB(db *sql.DB) error {
 	// this invitation is APPROVED (a servers row only exists past that
 	// point — see federation_attempt below); it is not set at handshake
 	// acceptance time.
+	// fingerprint/public_key_armor are the PEER's claimed key, supplied
+	// out-of-band by the admin creating the invitation — unverified,
+	// pre-trust bootstrap material. It stays here, NOT in public_keys
+	// (which only ever holds verified/approved local or promoted keys),
+	// until the handshake is accepted and a second admin approves the
+	// resulting federation_attempt — only then does anything get promoted
+	// into public_keys/servers.
 	createFederationInvitationTable := `
 	CREATE TABLE IF NOT EXISTS federation_invitation (
 		id VARCHAR(255) PRIMARY KEY,
 		name VARCHAR(255) NOT NULL,
 		secret_hash BYTEA NOT NULL,
-		fingerprint VARCHAR(255) NOT NULL REFERENCES public_keys(fingerprint),
+		fingerprint VARCHAR(255) NOT NULL,
+		public_key_armor TEXT NOT NULL,
 		created_by VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		accepted_at TIMESTAMPTZ,
@@ -902,13 +938,11 @@ func InitDB(db *sql.DB) error {
 		createVerifiedIdentitiesView,
 
 		createPrivateKeysTable,
+
 		createPublicKeysTable,
+		createPublicKeyIndexes,
 
-		createUserKeysTable,
-		createUserKeyIndexes,
-
-		createUserKeyRevocationsTable,
-		createUserKeyRevocationsIndexes,
+		createPublicKeyRevocationsTable,
 
 		createReedsTable,
 		createReedIndexes,
