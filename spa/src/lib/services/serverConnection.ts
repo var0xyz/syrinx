@@ -1,6 +1,7 @@
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
 import { ensureDeviceId } from './deviceId';
+import { parseKeyId } from '$lib/utils/keyId';
 import {
   computeReedRequestId,
   reedRequestsRepository,
@@ -178,7 +179,11 @@ class ServerConnection {
 
       const timestamp = Math.floor(Date.now() / 1000).toString();
       const signature = await requestSigner.sign(timestamp);
-      const fingerprint = authService.getActiveKeyFingerprint()!;
+      const canonicalFingerprint = authService.getActiveKeyFingerprint()!;
+      // ?fingerprint= travels bare — symmetric with the HTTP path's
+      // X-Syrinx-Fingerprint header (see realtime/auth.go's
+      // AuthenticateWebSocket).
+      const fingerprint = parseKeyId(canonicalFingerprint)?.fingerprint ?? canonicalFingerprint;
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const url = new URL(`${protocol}//${window.location.host}/ws/`);

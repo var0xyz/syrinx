@@ -24,6 +24,7 @@
   import { revocationRepository } from '$lib/repositories/revocation';
   import { loadProfileKeyInfo, type ProfileKeyInfo } from './keyInfo';
   import { mergeUserView, type UserView } from '$lib/utils/userView';
+  import { appendFingerprint } from '$lib/utils/keyId';
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -177,10 +178,13 @@
         password: passphrase
       });
       console.log("new key fingerprint:", newKeyPair.fingerprint);
+      // user.id is already canonical (userID@serverID); newKeyPair.fingerprint
+      // is bare, fresh from generateKeyPair — canonicalize once, up front.
+      const newCanonicalFingerprint = appendFingerprint(user.id, newKeyPair.fingerprint);
 
       // Store the new private key locally. The public key is cached only
       // after AddPublicKey returns the server countersignature.
-      await privateKeyRepository.put(newKeyPair.fingerprint, newKeyPair.privateKey);
+      await privateKeyRepository.put(newCanonicalFingerprint, newKeyPair.privateKey);
 
       // Get old key's private key from IndexedDB
       const oldPrivateKey = await privateKeyRepository.getPrivateKey(oldFingerprint);
@@ -216,7 +220,7 @@
         fingerprint: oldFingerprint,
         reason,
         userId: user.id,
-        newFingerprint: newKeyPair.fingerprint,
+        newFingerprint: newCanonicalFingerprint,
         newPublicKey: newKeyPair.publicKey,
         userRevocationSignature,
         revokedKeySignature,
@@ -253,8 +257,8 @@
         await publicKeyRepository.put(newPublicKey);
 
         // Switch to the new key, then fetch the countersigned revocation proof.
-        authService.setActiveKey(newKeyPair.fingerprint);
-        await requestSigner.initializeWorker(newKeyPair.fingerprint, passphrase);
+        authService.setActiveKey(newCanonicalFingerprint);
+        await requestSigner.initializeWorker(newCanonicalFingerprint, passphrase);
 
         const revocation = await apiService.getKeyRevocation(user.id, oldFingerprint);
         await revocationRepository.put(revocation);
