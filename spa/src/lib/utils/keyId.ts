@@ -1,28 +1,50 @@
 /**
- * Canonical key id: userID@serverID/fingerprint, mirroring identity.CanonicalID
- * / identity.ParseKeyFingerprint on the Go side (identity/identity_id.go).
- * Splits on the LAST "@" and the LAST "/" — the key alphabet never contains
- * either character, so this is unambiguous even if userID/serverID/fingerprint
- * themselves happened to contain one.
+ * Canonical id: entityId@serverId[/subEntityId], mirroring identity.CanonicalID
+ * / identity.ParseIdentityID / identity.ParseKeyFingerprint on the Go side
+ * (identity/identity_id.go). Splits on the LAST "@" and the LAST "/" — the
+ * id alphabet never contains either character, so this is unambiguous even
+ * if entityId/serverId/subEntityId themselves happened to contain one.
+ *
+ * Two shapes share this parser: a user key ("userID@serverID/fingerprint",
+ * entityId = userID, subEntityId = fingerprint) and a server's own key
+ * ("fingerprint@serverID", entityId = fingerprint, subEntityId absent).
  */
-export type CanonicalKeyId = {
-  userId: string;
-  serverId: string;
-  fingerprint: string;
-};
+/** [entityId, serverId, subEntityId] — subEntityId is null for a 2-part id. */
+export type CanonicalIdParts = [entityId: string, serverId: string, subEntityId: string | null];
 
-export function parseKeyId(raw: string | null | undefined): CanonicalKeyId | null {
+export function parseCanonicalId(raw: string | null | undefined): CanonicalIdParts | null {
   if (!raw) return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
+
   const slash = trimmed.lastIndexOf('/');
-  if (slash <= 0 || slash === trimmed.length - 1) return null;
-  const at = trimmed.lastIndexOf('@', slash - 1);
-  if (at <= 0 || at === slash - 1) return null;
-  const userId = trimmed.slice(0, at).trim();
+  const atSearchEnd = slash >= 0 ? slash : trimmed.length;
+  const at = trimmed.lastIndexOf('@', atSearchEnd - 1);
+  if (at <= 0 || at === atSearchEnd - 1) return null;
+
+  const entityId = trimmed.slice(0, at).trim();
+  if (!entityId) return null;
+
+  if (slash < 0) {
+    const serverId = trimmed.slice(at + 1).trim();
+    if (!serverId) return null;
+    return [entityId, serverId, null];
+  }
+
+  if (slash === trimmed.length - 1) return null;
   const serverId = trimmed.slice(at + 1, slash).trim();
-  const fingerprint = trimmed.slice(slash + 1).trim();
-  if (!userId || !serverId || !fingerprint) return null;
+  const subEntityId = trimmed.slice(slash + 1).trim();
+  if (!serverId || !subEntityId) return null;
+  return [entityId, serverId, subEntityId];
+}
+
+/** Parses the 3-part user-key shape specifically — null if subEntityId is absent. */
+export function parseKeyId(
+  raw: string | null | undefined
+): { userId: string; serverId: string; fingerprint: string } | null {
+  const parsed = parseCanonicalId(raw);
+  if (!parsed || parsed[2] === null) return null;
+  const [userId, serverId, fingerprint] = parsed;
   return { userId, serverId, fingerprint };
 }
 
