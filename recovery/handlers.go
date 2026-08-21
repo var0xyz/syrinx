@@ -40,6 +40,12 @@ func (d Deps) ReportReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// req.UserSignature.Fingerprint is bare (the author's key, not part of
+	// the verified reed countersignature — see verifyReedCountersig above,
+	// which only binds the server key fingerprint); canonicalize it for the
+	// attestation row, same as every other DB-write boundary in this
+	// package.
+	authorFingerprint := string(identity.AppendEntity(identity.CanonicalID(d.ServerID, req.AuthorID), req.UserSignature.Fingerprint))
 	err := SaveReed(r.Context(), d.DB,
 		d.ServerID,
 		req.ReedID,
@@ -47,7 +53,7 @@ func (d Deps) ReportReed(w http.ResponseWriter, r *http.Request) {
 		req.ServerSignature.Fingerprint,
 		req.ServerSignature.Timestamp,
 		caller,
-		req.UserSignature.Fingerprint,
+		authorFingerprint,
 		req.UserSignature.Armor,
 		req.ServerSignature.Armor,
 	)
