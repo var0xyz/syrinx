@@ -137,7 +137,8 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
     console.error('[verifyPublicKey] malformed fingerprint', key.fingerprint);
     return false;
   }
-  if (parsedFp.userId !== key.userID) {
+  const embeddedUserId = `${parsedFp.userId}@${parsedFp.serverId}`;
+  if (embeddedUserId !== key.userID) {
     console.error('[verifyPublicKey] fingerprint owner mismatch', { fingerprint: key.fingerprint, userID: key.userID });
     return false;
   }
