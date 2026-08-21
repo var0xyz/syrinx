@@ -4102,12 +4102,6 @@ type RippleListResult struct {
 // clock reading for the whole request, no client-supplied timestamp
 // anywhere in this flow.
 // reedID and userID arrive already canonical/userID@serverID form.
-// reedAuthorID (needed separately by identity.BuildRippleServerPayload,
-// which keeps its own two-param shape — see identity.go) is recovered
-// from reedID via identity.ParseKeyFingerprint.
-// identity.BuildRippleServerPayload still expects bare, so
-// reedAuthorIdentity.UserID()/selfIdentity.UserID() decode just for that
-// call; the returned Ripple struct holds the wire form directly instead.
 func (s *DataService) PostRipple(
 	ctx context.Context,
 	reedID, userID, content, threadID string,
@@ -4147,10 +4141,8 @@ func (s *DataService) PostRipple(
 		replyingToVal = *replyingTo
 	}
 	serverID := s.GetServerID()
-	// Decode back to bare specifically for the signed payload builder —
-	// see the function doc comment above.
 	serverPayload := identity.BuildRippleServerPayload(
-		serverID, reedAuthorBare, reedID, selfIdentity.UserID(),
+		serverID, reedID, selfIdentity.UserID(),
 		userFingerprint, threadID, replyingToVal,
 		userSigArmor, now,
 	)

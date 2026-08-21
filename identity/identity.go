@@ -144,14 +144,12 @@ func BuildProfilePayload(
 // signing.BytesToSign; that single source of truth is what keeps the two
 // sides in lockstep.
 //
-// The header set binds `serverID`, `timestamp`, `reedID`, `authorID`, and
-// the server signing-key `fingerprint`. Binding reedID/authorID kills the
-// cross-reed and cross-author replay classes; binding the fingerprint lets
-// a verifier with multiple historical server keys pick the right one and
-// keeps the signer's own identity covered by the signature.
-func ReedCountersignHeaders(serverID, reedID, authorID, fingerprint string, ts time.Time) map[string]string {
+// reedID is the full canonical id (authorID@serverID/uuid) — it alone binds
+// the reed's identity, so there's no separate authorID header. Binding the
+// fingerprint lets a verifier with multiple historical server keys pick the
+// right one and keeps the signer's own identity covered by the signature.
+func ReedCountersignHeaders(serverID, reedID, fingerprint string, ts time.Time) map[string]string {
 	return map[string]string{
-		"authorID":    authorID,
 		"fingerprint": fingerprint,
 		"serverID":    serverID,
 		"reedID":      reedID,
@@ -160,17 +158,15 @@ func ReedCountersignHeaders(serverID, reedID, authorID, fingerprint string, ts t
 }
 
 // BuildReedPayload returns the exact bytes the server countersigns for a
-// reed. Headers bind the reed's identity (serverID, reedID, authorID,
-// server-key fingerprint, timestamp); content is the author's detached
-// signature, so the countersignature covers both where the reed lives
-// and the user's attestation of its body.
+// reed. reedID is the full canonical id; content is the author's detached
+// signature, so the countersignature covers both where the reed lives and
+// the user's attestation of its body.
 //
 // `timestamp` must already be truncated to whole seconds so that what
 // is signed matches what Postgres stores after any timestamp
 // round-trip.
 func BuildReedPayload(
 	serverID,
-	userID,
 	reedID,
 	fingerprint,
 	signature string,
@@ -180,7 +176,6 @@ func BuildReedPayload(
 		ReedCountersignHeaders(
 			serverID,
 			reedID,
-			userID,
 			fingerprint,
 			timestamp,
 		),
@@ -654,14 +649,13 @@ func BuildFederationConnectPayload(inviteID, serverID, baseURL, fingerprint stri
 }
 
 // rippleUserHeaders returns the header map covered by a ripple response's
-// userSignature. threadID is always present (client-minted, see
-// specs/ripples/00_design.md); replyingTo is omitted (and therefore
-// dropped by BytesToSign) for a top-level post. No timestamp — client
-// clocks are never signed over, same as every other user payload in this
-// package.
-func rippleUserHeaders(reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo string) map[string]string {
+// userSignature. reedID is the full canonical id of the parent reed.
+// threadID is always present (client-minted, see specs/ripples/00_design.md);
+// replyingTo is omitted (and therefore dropped by BytesToSign) for a
+// top-level post. No timestamp — client clocks are never signed over,
+// same as every other user payload in this package.
+func rippleUserHeaders(reedID, rippleAuthorID, fingerprint, threadID, replyingTo string) map[string]string {
 	return map[string]string{
-		"reedAuthorID":   reedAuthorID,
 		"reedID":         reedID,
 		"rippleAuthorID": rippleAuthorID,
 		"fingerprint":    fingerprint,
@@ -673,23 +667,22 @@ func rippleUserHeaders(reedAuthorID, reedID, rippleAuthorID, fingerprint, thread
 // BuildRippleUserPayload returns the exact bytes a ripple's author signs.
 // `content` is the ripple text, placed in the envelope's content section
 // verbatim, unescaped. `replyingTo` may be empty for a top-level post.
-func BuildRippleUserPayload(reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo, content string) []byte {
+func BuildRippleUserPayload(reedID, rippleAuthorID, fingerprint, threadID, replyingTo, content string) []byte {
 	return signing.BytesToSign(
-		rippleUserHeaders(reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo),
+		rippleUserHeaders(reedID, rippleAuthorID, fingerprint, threadID, replyingTo),
 		content,
 	)
 }
 
 // rippleServerHeaders returns the header map covered by a ripple
 // response's serverSignature: the same fields the user signed, plus
-// serverID and a server-supplied timestamp. Binding reedAuthorID/reedID/
-// rippleAuthorID/threadID/replyingTo kills cross-reed, cross-author, and
-// cross-thread replay; binding the server-key fingerprint lets a
-// verifier with multiple historical server keys pick the right one.
-func rippleServerHeaders(serverID, reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo string, ts time.Time) map[string]string {
+// serverID and a server-supplied timestamp. Binding reedID/rippleAuthorID/
+// threadID/replyingTo kills cross-reed, cross-author, and cross-thread
+// replay; binding the server-key fingerprint lets a verifier with
+// multiple historical server keys pick the right one.
+func rippleServerHeaders(serverID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo string, ts time.Time) map[string]string {
 	return map[string]string{
 		"serverID":       serverID,
-		"reedAuthorID":   reedAuthorID,
 		"reedID":         reedID,
 		"rippleAuthorID": rippleAuthorID,
 		"fingerprint":    fingerprint,
@@ -709,9 +702,9 @@ func rippleServerHeaders(serverID, reedAuthorID, reedID, rippleAuthorID, fingerp
 //
 // `timestamp` must already be truncated to whole seconds so that what is
 // signed matches what Postgres stores after any timestamp round-trip.
-func BuildRippleServerPayload(serverID, reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo, userSignatureB64 string, timestamp time.Time) []byte {
+func BuildRippleServerPayload(serverID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo, userSignatureB64 string, timestamp time.Time) []byte {
 	return signing.BytesToSign(
-		rippleServerHeaders(serverID, reedAuthorID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo, timestamp),
+		rippleServerHeaders(serverID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo, timestamp),
 		userSignatureB64,
 	)
 }
