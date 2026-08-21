@@ -353,14 +353,20 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				prefix + "/check-username",
 				prefix + "/keys",
 				prefix + "/server/info",
+				// This server's own signing key is public verification
+				// material — anyone validating a countersignature must be
+				// able to fetch it without being signed in (and without a
+				// non-revoked user key). GetServerKey takes no {id} param
+				// and only ever returns this server's own key, so there's
+				// nothing an unauthenticated caller can manipulate here —
+				// unlike GET /keys/{id}, which also serves user keys and
+				// stays authenticated.
+				prefix + "/server/key",
 				prefix + "/recovery/identity/claim",
 				prefix + "/account-recovery/challenge",
 				prefix + "/account-recovery/bootstrap",
 				prefix + "/invites/check",
 			}
-			// Server signing public keys are public verification material —
-			// anyone validating a countersignature must be able to fetch them
-			// without being signed in (and without a non-revoked user key).
 			// /federation/connect/ is the initiator's callback route: the
 			// remote server calling it has no local session — the invitation
 			// secret and its own signature are what prove legitimacy there.
@@ -368,7 +374,6 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			// authenticated — see peerAuthMiddleware, applied at its own
 			// route registration in main.go.
 			excludePrefixes := []string{
-				prefix + "/server/keys/",
 				prefix + "/federation/connect/",
 				prefix + "/federation/users/",
 			}

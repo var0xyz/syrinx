@@ -8,6 +8,7 @@
 import type { ServerSignature } from '$lib/types/api';
 import { apiService } from './api';
 import { cryptoService } from './crypto';
+import { formatServerKeyId } from '$lib/utils/keyId';
 
 export type VerifyResult =
   | { ok: true }
@@ -37,7 +38,8 @@ export async function verify(
   }
 
   try {
-    const serverPub = await apiService.getServerPublicKey(serverSignature.fingerprint, serverSignature.serverID);
+    const id = formatServerKeyId(serverSignature.fingerprint, serverSignature.serverID);
+    const serverPub = await apiService.getPublicKey(id);
     if (!serverPub?.armor) {
       return { ok: false, reason: 'server_key_unavailable', detail: serverSignature.fingerprint };
     }

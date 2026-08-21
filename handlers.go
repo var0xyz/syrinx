@@ -206,6 +206,31 @@ func (h *Handlers) GetKey(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, key)
 }
 
+// GetServerKey returns THIS server's own current signing key armor as
+// plain text — the only key that's public verification material (anyone
+// validating a countersignature must be able to fetch it without being
+// signed in, even mid-rotation with a revoked user key of their own; see
+// signatureAuthMiddleware's excludePaths). Deliberately takes no {id} path
+// param and never resolves anything else, so there's no id/URL shape for
+// an unauthenticated caller to manipulate — unlike GetKey, which serves
+// both user keys and (via proxying) peer server keys and stays
+// authenticated. Served straight from the in-memory signing key (no DB
+// round-trip, no base64/JSON envelope) since this route only ever returns
+// the one thing.
+func (h *Handlers) GetServerKey(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("GetServerKey request received")
+	if h.signingKey.Armor == "" {
+		log.Error().Msg("GetServerKey: no signing key loaded")
+		internalServerError(w)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(h.signingKey.Armor))
+}
+
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("Signup request received")
@@ -2931,12 +2956,16 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, baseURL s
 }
 
 // fetchPeerServerKeyArmor live-fetches a peer's own signing key armor over
-// GET /api/keys/{fingerprint}@{serverID} — peer server keys are never
-// persisted locally (see proxyIfForeign's doc comment), so verifying a
-// peer-authenticated request (peerAuthMiddleware) requires asking the peer
-// for its own key every time.
+// GET /api/server/key — peer server keys are never persisted locally (see
+// proxyIfForeign's doc comment), so verifying a peer-authenticated request
+// (peerAuthMiddleware) requires asking the peer for its own key every
+// time. serverID/fingerprint are the caller's PINNED expectation (from
+// servers.fingerprint, set at ApproveFederationAttempt) — /server/key
+// takes no id param, so the returned armor's own fingerprint is checked
+// against it here rather than trusting whatever the peer happened to
+// answer with.
 func (h *Handlers) fetchPeerServerKeyArmor(ctx context.Context, baseURL, serverID, fingerprint string) (string, error) {
-	target := strings.TrimRight(baseURL, "/") + "/api/keys/" + fingerprint + "@" + serverID
+	target := strings.TrimRight(baseURL, "/") + "/api/server/key"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return "", err
@@ -2949,15 +2978,19 @@ func (h *Handlers) fetchPeerServerKeyArmor(ctx context.Context, baseURL, serverI
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("fetch peer server key: status %d", resp.StatusCode)
 	}
-	var key Key
-	if err := json.NewDecoder(resp.Body).Decode(&key); err != nil {
-		return "", err
-	}
-	armor, err := encoding.Base64Decode(key.Armor)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
-	return string(armor), nil
+	armor := string(body)
+	actualFingerprint, err := h.services.crypto.ExtractFingerprintFromArmor(armor)
+	if err != nil {
+		return "", fmt.Errorf("parse peer server key: %w", err)
+	}
+	if actualFingerprint != fingerprint {
+		return "", fmt.Errorf("peer %s returned a key not matching pinned fingerprint", serverID)
+	}
+	return armor, nil
 }
 
 // logFederationInvitationAsync records a federation_log line for

@@ -178,7 +178,7 @@
       const { publicKeyRepository } = await import(
         "$lib/repositories/publicKey"
       );
-      const { apiService } = await import("$lib/services/api");
+      const { apiService, canonicalKeyId } = await import("$lib/services/api");
 
       currentStep = 1;
       const reserved = await apiService.getUserID();
@@ -251,12 +251,10 @@
       await requestSigner.initializeWorker(canonicalFingerprint, password);
 
       currentStep = 7;
-      // getPublicKey accepts a bare fingerprint and builds the canonical
-      // GET /keys/{id} id itself from userID + fingerprint — see api.ts's
-      // getPublicKey.
+      // getPublicKey takes an already-canonical GET /keys/{id} id — see
+      // api.ts's canonicalKeyId.
       const attestedKey = await apiService.getPublicKey(
-        user.id,
-        keyPair.fingerprint,
+        canonicalKeyId(user.id, keyPair.fingerprint),
       );
       await publicKeyRepository.put(attestedKey);
       // A stale backup timestamp from a previous account on this browser

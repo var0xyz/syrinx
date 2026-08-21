@@ -68,11 +68,12 @@ export interface PublicKey extends Base {
 };
 
 // KeyRevocation is the wire shape of a signed revocation attestation.
-// Revoke time is serverSignature.timestamp. successor/successorSignature are
-// bookkeeping written later by AddPublicKey (proof the *old* key approved
-// the new one) and are not covered by either of this cert's own signatures.
+// id is the revoked key's own id. Revoke time is serverSignature.timestamp.
+// successor/successorSignature are bookkeeping written later by
+// AddPublicKey (proof the *old* key approved the new one) and are not
+// covered by either of this cert's own signatures.
 export interface KeyRevocation extends Base {
-  revokedId: string;
+  id: string;
   userID: string;
   reason: string;
   successor: string | null;

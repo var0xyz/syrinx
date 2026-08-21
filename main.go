@@ -325,6 +325,13 @@ func main() {
 	api.HandleFunc("/keys", h.AddPublicKey).Methods("POST")
 	api.HandleFunc("/keys", h.noop).Methods("OPTIONS")
 
+	// /server/key is the one exception to /keys requiring auth: it takes no
+	// {id} param and only ever returns this server's own signing key, so
+	// there's nothing an unauthenticated caller can manipulate. See
+	// GetServerKey's doc comment and signatureAuthMiddleware's excludePaths.
+	api.HandleFunc("/server/key", h.GetServerKey).Methods("GET")
+	api.HandleFunc("/server/key", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/reeds", h.SignReed).Methods("POST")
 	api.HandleFunc("/reeds", h.noop).Methods("OPTIONS")
 

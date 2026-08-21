@@ -160,12 +160,10 @@
   }
 
   async function copyOwnPublicKey() {
-    const fingerprint = $serverInfo?.serverKeyFingerprint;
-    const serverId = $serverInfo?.id;
-    if (!fingerprint || !serverId || copyingOwnKey) return;
+    if (copyingOwnKey) return;
     copyingOwnKey = true;
     try {
-      const { armor } = await apiService.getServerPublicKey(fingerprint, serverId);
+      const armor = await apiService.getOwnServerKey();
       await navigator.clipboard.writeText(armor);
       notificationStore.success('Server public key copied');
     } catch (err) {
