@@ -32,12 +32,10 @@ type Cert struct {
 }
 
 // InsertCert stores a reed-removal cert once. Same signatures → no-op;
-// different signatures for the same (userID, reedID) → ErrConflict.
-// cert.UserID stays bare and is converted internally before touching
-// reed_removals, which FKs to identities(id).
+// different signatures for the same reedID → ErrConflict. cert.ReedID is
+// canonical (embeds the author), so no separate user_id column is needed.
 func InsertCert(ctx context.Context, db *sql.DB, cert Cert, serverID string) error {
 	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
-	selfIdentity := identity.CanonicalID(serverID, cert.UserID)
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -45,7 +43,7 @@ func InsertCert(ctx context.Context, db *sql.DB, cert Cert, serverID string) err
 	}
 	defer tx.Rollback()
 
-	existing, err := loadReedCertTx(ctx, tx, selfIdentity, cert.ReedID, true)
+	existing, err := loadReedCertTx(ctx, tx, cert.ReedID, true)
 	switch {
 	case err == sql.ErrNoRows:
 		userSigID, err := signing.InsertUserSignature(
@@ -62,10 +60,10 @@ func InsertCert(ctx context.Context, db *sql.DB, cert Cert, serverID string) err
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reed_removals (
-				reed_id, user_id, public_key_id,
+				reed_id, public_key_id,
 				user_signature_id, server_signature_id
-			) VALUES ($1, $2, $3, $4, $5)
-		`, cert.ReedID, selfIdentity, cert.UserFingerprint, userSigID, serverSigID); err != nil {
+			) VALUES ($1, $2, $3, $4)
+		`, cert.ReedID, cert.UserFingerprint, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert reed removal: %w", err)
 		}
 	case err != nil:
@@ -83,12 +81,9 @@ func InsertCert(ctx context.Context, db *sql.DB, cert Cert, serverID string) err
 	return tx.Commit()
 }
 
-// GetCert returns the stored cert for (userID, reedID), or nil if none.
-// userID (the lookup param) is bare; the RETURNED cert's UserID field is
-// the full "userID@serverID" form — see Cert's doc comment.
-func GetCert(ctx context.Context, db *sql.DB, userID, reedID, serverID string) (*Cert, error) {
-	selfIdentity := identity.CanonicalID(serverID, userID)
-	cert, err := loadReedCertTx(ctx, db, selfIdentity, reedID, false)
+// GetCert returns the stored cert for reedID (canonical), or nil if none.
+func GetCert(ctx context.Context, db *sql.DB, reedID, serverID string) (*Cert, error) {
+	cert, err := loadReedCertTx(ctx, db, reedID, false)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -102,21 +97,25 @@ type reedQuerier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-func loadReedCertTx(ctx context.Context, q reedQuerier, selfIdentity identity.IdentityID, reedID string, forUpdate bool) (*Cert, error) {
+func loadReedCertTx(ctx context.Context, q reedQuerier, reedID string, forUpdate bool) (*Cert, error) {
 	query := `
 		SELECT public_key_id, user_signature_id, server_signature_id
 		FROM reed_removals
-		WHERE user_id = $1 AND reed_id = $2`
+		WHERE reed_id = $1`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
 	var userFP string
 	var userSigID, serverSigID int64
-	err := q.QueryRowContext(ctx, query, selfIdentity, reedID).Scan(&userFP, &userSigID, &serverSigID)
+	err := q.QueryRowContext(ctx, query, reedID).Scan(&userFP, &userSigID, &serverSigID)
 	if err != nil {
 		return nil, err
 	}
-	return assembleReedCert(ctx, q, reedID, string(selfIdentity), userFP, userSigID, serverSigID)
+	userID, _, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok {
+		return nil, fmt.Errorf("malformed reed id: %s", reedID)
+	}
+	return assembleReedCert(ctx, q, reedID, userID, userFP, userSigID, serverSigID)
 }
 
 func assembleReedCert(ctx context.Context, q reedQuerier, reedID, userID, userFP string, userSigID, serverSigID int64) (*Cert, error) {

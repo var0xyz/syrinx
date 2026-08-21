@@ -45,11 +45,12 @@ func (d Deps) ReportReed(w http.ResponseWriter, r *http.Request) {
 	// which only binds the server key fingerprint); canonicalize it for the
 	// attestation row, same as every other DB-write boundary in this
 	// package.
-	authorFingerprint := string(identity.AppendEntity(identity.CanonicalID(d.ServerID, req.AuthorID), req.UserSignature.Fingerprint))
+	authorIdentity := identity.CanonicalID(d.ServerID, req.AuthorID)
+	authorFingerprint := string(identity.AppendEntity(authorIdentity, req.UserSignature.Fingerprint))
+	canonicalReedID := string(identity.AppendEntity(authorIdentity, req.ReedID))
 	err := SaveReed(r.Context(), d.DB,
 		d.ServerID,
-		req.ReedID,
-		req.AuthorID,
+		canonicalReedID,
 		req.ServerSignature.Fingerprint,
 		req.ServerSignature.Timestamp,
 		caller,

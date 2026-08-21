@@ -1782,6 +1782,9 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
 		return
 	}
+	// canonicalReedID is used for every DB call; reedID stays bare for the
+	// signed markdown/payload builders below, which sign the bare id.
+	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(userID), reedID))
 
 	// Content may be empty (e.g. bare echo). Echoing/replying are optional reed refs.
 	contentBody := r.FormValue("content")
@@ -1804,7 +1807,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Invalid echoing reference")
 			return
 		}
-		blank, err := h.services.db.IsBlankEcho(r.Context(), ref.AuthorID, ref.ReedID)
+		blank, err := h.services.db.IsBlankEcho(r.Context(), FormatReedRef(ref))
 		if errors.Is(err, ErrReedNotFound) {
 			writeResponse(w, http.StatusBadRequest, "Target reed not found")
 			return
@@ -1826,7 +1829,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Invalid replying reference")
 			return
 		}
-		blank, err := h.services.db.IsBlankEcho(r.Context(), ref.AuthorID, ref.ReedID)
+		blank, err := h.services.db.IsBlankEcho(r.Context(), FormatReedRef(ref))
 		if errors.Is(err, ErrReedNotFound) {
 			writeResponse(w, http.StatusBadRequest, "Target reed not found")
 			return
@@ -1926,7 +1929,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing, err := h.services.db.GetReedAttestation(r.Context(), userID, reedID)
+	existing, err := h.services.db.GetReedAttestation(r.Context(), canonicalReedID)
 	if err != nil {
 		log.Error().Str("reedID", reedID).Str("userID", userID).Err(err).Msg("Error loading reed")
 		internalServerError(w)
@@ -1961,7 +1964,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		tags = h.filterPipeTags(tags)
 	}
 	createParams := createReedParams{
-		ReedID:             reedID,
+		ReedID:             canonicalReedID,
 		UserID:             userID,
 		UserFingerprint:    userFingerprint,
 		UserSignatureB64:   userSignature,
@@ -1990,7 +1993,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		// violation and must return the winner's stored countersignature.
 		// (Lost-response retries are already handled by the check above.)
 		if isReedUniqueViolation(err) {
-			existing, getErr := h.services.db.GetReedAttestation(r.Context(), userID, reedID)
+			existing, getErr := h.services.db.GetReedAttestation(r.Context(), canonicalReedID)
 			if getErr == nil && existing != nil {
 				h.respondSignReedReplay(w, r, existing, userSignature, userID, reedID)
 				return
@@ -2024,7 +2027,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		// PUBLISH_READY (see handlePublishReady). Firing it this early races
 		// PUBLISH_READY: the resulting relay miss deletes the author's
 		// allocation for their own reed, orphaning it from relay entirely.
-		targets, err := h.services.db.ReplyCountNotifyTargets(r.Context(), replyRef.AuthorID, replyRef.ReedID)
+		targets, err := h.services.db.ReplyCountNotifyTargets(r.Context(), FormatReedRef(*replyRef))
 		if err != nil {
 			log.Error().Err(err).Msg("Error resolving reply count notify targets")
 		} else {
@@ -2111,8 +2114,8 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("DeleteReed request received")
 
 	pathUserID := mux.Vars(r)["userID"]
-	reedID := mux.Vars(r)["reedID"]
-	if pathUserID == "" || reedID == "" {
+	bareReedID := mux.Vars(r)["reedID"]
+	if pathUserID == "" || bareReedID == "" {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
@@ -2122,6 +2125,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusForbidden, "You can only delete your own reeds")
 		return
 	}
+	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
 
 	values, err := parseFormData(r)
 	if err != nil {
@@ -2137,7 +2141,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 	serverID := h.services.db.GetServerID()
 
-	existing, err := h.services.db.GetReedRemoval(r.Context(), userID, reedID)
+	existing, err := h.services.db.GetReedRemoval(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed removal")
 		internalServerError(w)
@@ -2152,7 +2156,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reed, err := h.services.db.GetReed(r.Context(), userID, reedID)
+	reed, err := h.services.db.GetReed(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error getting reed")
 		internalServerError(w)
@@ -2184,7 +2188,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	userPayload := identity.BuildReedRemovalUserPayload(serverID, userID, reedID)
+	userPayload := identity.BuildReedRemovalUserPayload(serverID, userID, bareReedID)
 	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
@@ -2212,7 +2216,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	serverPayload := identity.BuildReedRemovalServerPayload(
-		serverID, userID, reedID,
+		serverID, userID, bareReedID,
 		h.signingKey.Fingerprint, userSignatureB64, now,
 	)
 	serverSignature, err := h.countersign(serverPayload, now)
@@ -2235,7 +2239,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, deletion.ErrConflict) {
 			// Concurrent first accept: return the stored cert if the user
 			// signature matches; otherwise a true conflicting attestation.
-			existing, getErr := h.services.db.GetReedRemoval(r.Context(), userID, reedID)
+			existing, getErr := h.services.db.GetReedRemoval(r.Context(), reedID)
 			if getErr == nil && existing != nil && existing.UserSignature == userSignatureB64 {
 				writeResponse(w, http.StatusOK, h.reedRemovalWire(existing))
 				return
@@ -2250,11 +2254,11 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 	h.metrics.ReedDeleted(r.Context(), userID, reedID)
 
-	if err := h.services.db.DeleteMentionsForReed(r.Context(), userID, reedID); err != nil {
+	if err := h.services.db.DeleteMentionsForReed(r.Context(), reedID); err != nil {
 		log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing mention index for removed reed")
 	}
 
-	affectedTargets, err := h.services.db.DeleteEchoIndexForReed(r.Context(), userID, reedID)
+	affectedTargets, err := h.services.db.DeleteEchoIndexForReed(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing echo index for removed reed")
 	} else {
@@ -2267,7 +2271,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	replyTargets, err := h.services.db.ReplyCountNotifyTargetsForRemovedReply(r.Context(), userID, reedID)
+	replyTargets, err := h.services.db.ReplyCountNotifyTargetsForRemovedReply(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error resolving reply count targets for removed reed")
 	} else {
@@ -2287,7 +2291,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		Type:        realtime.ReedRemoved,
 		ServerID:    serverID,
 		UserID:      userID,
-		ReedID:      reedID,
+		ReedID:      bareReedID,
 		ReedRemoval: &wire,
 	}
 
@@ -2304,11 +2308,12 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("LikeReed request received")
 
 	authorID := mux.Vars(r)["userID"]
-	reedID := mux.Vars(r)["reedID"]
-	if authorID == "" || reedID == "" {
+	bareReedID := mux.Vars(r)["reedID"]
+	if authorID == "" || bareReedID == "" {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
+	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
 
 	likerID := h.getUserID(r)
 
@@ -2332,7 +2337,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 
 	serverID := h.services.db.GetServerID()
 
-	existing, err := h.services.db.GetReedLike(r.Context(), likerID, authorID, reedID)
+	existing, err := h.services.db.GetReedLike(r.Context(), likerID, reedID)
 	if err != nil {
 		log.Error().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Err(err).Msg("Error loading reed like")
 		internalServerError(w)
@@ -2347,7 +2352,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reed, err := h.services.db.GetReed(r.Context(), authorID, reedID)
+	reed, err := h.services.db.GetReed(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("authorID", authorID).Str("reedID", reedID).Err(err).Msg("Error getting reed")
 		internalServerError(w)
@@ -2358,7 +2363,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userPayload := identity.BuildReedLikeUserPayload(serverID, authorID, reedID, fingerprint)
+	userPayload := identity.BuildReedLikeUserPayload(serverID, authorID, bareReedID, fingerprint)
 	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
@@ -2387,7 +2392,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	serverPayload := identity.BuildReedLikeServerPayload(
-		serverID, authorID, reedID,
+		serverID, authorID, bareReedID,
 		h.signingKey.Fingerprint, userSignatureB64, now,
 	)
 	serverSignature, err := h.countersign(serverPayload, now)
@@ -2409,7 +2414,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.services.db.InsertReedLike(r.Context(), likerID, fingerprint, cert); err != nil {
 		if errors.Is(err, ErrLikeConflict) {
-			existing, getErr := h.services.db.GetReedLike(r.Context(), likerID, authorID, reedID)
+			existing, getErr := h.services.db.GetReedLike(r.Context(), likerID, reedID)
 			if getErr == nil && existing != nil && existing.UserSignature.Armor == userSignatureB64 {
 				writeResponse(w, http.StatusOK, existing)
 				return
@@ -2425,7 +2430,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	h.broadcastChan <- realtime.BroadcastMessage{
 		Type:   realtime.LikeCountChanged,
 		UserID: authorID,
-		ReedID: reedID,
+		ReedID: bareReedID,
 	}
 
 	log.Info().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Msg("Reed like accepted")
@@ -2442,15 +2447,16 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("UnlikeReed request received")
 
 	authorID := mux.Vars(r)["userID"]
-	reedID := mux.Vars(r)["reedID"]
-	if authorID == "" || reedID == "" {
+	bareReedID := mux.Vars(r)["reedID"]
+	if authorID == "" || bareReedID == "" {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
+	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
 
 	likerID := h.getUserID(r)
 
-	deleted, err := h.services.db.DeleteReedLike(r.Context(), likerID, authorID, reedID)
+	deleted, err := h.services.db.DeleteReedLike(r.Context(), likerID, reedID)
 	if err != nil {
 		log.Error().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Err(err).Msg("Error deleting reed like")
 		internalServerError(w)
@@ -2461,7 +2467,7 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 		h.broadcastChan <- realtime.BroadcastMessage{
 			Type:   realtime.LikeCountChanged,
 			UserID: authorID,
-			ReedID: reedID,
+			ReedID: bareReedID,
 		}
 	}
 
@@ -2492,14 +2498,15 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("GetReed request received")
 
-	reedID := mux.Vars(r)["reedID"]
+	bareReedID := mux.Vars(r)["reedID"]
 	userID := mux.Vars(r)["userID"]
-	if userID == "" || reedID == "" {
+	if userID == "" || bareReedID == "" {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
+	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
 
-	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
+	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed")
 		internalServerError(w)
@@ -2530,14 +2537,15 @@ func (h *Handlers) GetReedEchoCount(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("GetReedEchoCount request received")
 
-	reedID := mux.Vars(r)["reedID"]
+	bareReedID := mux.Vars(r)["reedID"]
 	userID := mux.Vars(r)["userID"]
-	if userID == "" || reedID == "" {
+	if userID == "" || bareReedID == "" {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
+	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
 
-	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
+	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed")
 		internalServerError(w)
@@ -2556,7 +2564,7 @@ func (h *Handlers) GetReedEchoCount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	count, err := h.services.db.CountEchoes(r.Context(), userID, reedID)
+	count, err := h.services.db.CountEchoes(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error counting echoes")
 		internalServerError(w)
@@ -2571,14 +2579,15 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("GetReedChorus request received")
 
-	reedID := mux.Vars(r)["reedID"]
+	bareReedID := mux.Vars(r)["reedID"]
 	userID := mux.Vars(r)["userID"]
-	if userID == "" || reedID == "" {
+	if userID == "" || bareReedID == "" {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
+	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
 
-	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
+	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed")
 		internalServerError(w)
@@ -2610,7 +2619,7 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 		before = &t
 	}
 
-	list, err := h.services.db.GetReedChorus(r.Context(), userID, reedID, limit, before)
+	list, err := h.services.db.GetReedChorus(r.Context(), reedID, limit, before)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error listing echoers")
 		internalServerError(w)
@@ -2624,14 +2633,15 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("GetReedReplies request received")
 
-	reedID := mux.Vars(r)["reedID"]
+	bareReedID := mux.Vars(r)["reedID"]
 	userID := mux.Vars(r)["userID"]
-	if userID == "" || reedID == "" {
+	if userID == "" || bareReedID == "" {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
+	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
 
-	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
+	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed")
 		internalServerError(w)
@@ -2663,7 +2673,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 		before = &t
 	}
 
-	list, err := h.services.db.ListReplies(r.Context(), userID, reedID, limit, before)
+	list, err := h.services.db.ListReplies(r.Context(), reedID, limit, before)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error listing replies")
 		internalServerError(w)
@@ -4261,9 +4271,9 @@ func rippleWire(r *Ripple) RippleWire {
 // checkRippleParentReed validates the parent reed for a ripples request,
 // writing the appropriate 404/410 response and returning ok=false if the
 // caller should stop. Mirrors GetReed/GetReedEchoCount's convention (not
-// GetReedReplies, which omits the removal checks).
-func (h *Handlers) checkRippleParentReed(w http.ResponseWriter, r *http.Request, userID, reedID string) (ok bool) {
-	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), userID, reedID)
+// GetReedReplies, which omits the removal checks). reedID is canonical.
+func (h *Handlers) checkRippleParentReed(w http.ResponseWriter, r *http.Request, reedID string) (ok bool) {
+	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), reedID)
 	if err != nil {
 		internalServerError(w)
 		return false
@@ -4280,7 +4290,7 @@ func (h *Handlers) checkRippleParentReed(w http.ResponseWriter, r *http.Request,
 		writeResponse(w, http.StatusNotFound, "Post not found")
 		return false
 	}
-	blank, err := h.services.db.IsBlankEcho(r.Context(), userID, reedID)
+	blank, err := h.services.db.IsBlankEcho(r.Context(), reedID)
 	if err != nil && !errors.Is(err, ErrReedNotFound) {
 		internalServerError(w)
 		return false
@@ -4319,6 +4329,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
+	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(reedUserID), reedID))
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	if err != nil {
@@ -4336,11 +4347,11 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	// att == nil either way. Running it first would collapse that 410 into
 	// a 400 (no live reed to prove possession against), losing both the
 	// correct status code and the removal-cert payload callers may depend on.
-	if !h.checkRippleParentReed(w, r, reedUserID, reedID) {
+	if !h.checkRippleParentReed(w, r, canonicalReedID) {
 		return
 	}
 
-	if !h.checkReedPossession(w, r.Context(), reedUserID, reedID, req.Proof) {
+	if !h.checkReedPossession(w, r.Context(), canonicalReedID, req.Proof) {
 		return
 	}
 
@@ -4369,7 +4380,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 			internalServerError(w)
 			return
 		}
-		if target.ReedAuthorID != reedUserID || target.ReedID != reedID {
+		if target.ReedID != canonicalReedID {
 			writeResponse(w, http.StatusBadRequest, "Cannot reply to a comment on a different post")
 			return
 		}
@@ -4415,7 +4426,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := h.services.db.PostRipple(
-		r.Context(), reedUserID, reedID, callerID, content, req.ThreadID, req.ReplyingTo,
+		r.Context(), canonicalReedID, callerID, content, req.ThreadID, req.ReplyingTo,
 		req.Fingerprint, req.UserSignature, h.countersign, time.Now(),
 	)
 	if errors.Is(err, ErrRippleThreadMismatch) {
@@ -4489,14 +4500,14 @@ type rippleListResponse struct {
 // server-signature armor — something only visible on a copy of the reed
 // itself — echoed back by the caller (proof extracts it: the raw request
 // body for GetRipples, a JSON field for PostRipple).
-func (h *Handlers) checkReedPossession(w http.ResponseWriter, ctx context.Context, userID, reedID, proof string) (ok bool) {
+func (h *Handlers) checkReedPossession(w http.ResponseWriter, ctx context.Context, reedID, proof string) (ok bool) {
 	proof = strings.TrimSpace(proof)
 	if proof == "" {
 		writeResponse(w, http.StatusBadRequest, "Proof of posession required")
 		return false
 	}
 
-	att, err := h.services.db.GetReedAttestation(ctx, userID, reedID)
+	att, err := h.services.db.GetReedAttestation(ctx, reedID)
 	if err != nil {
 		internalServerError(w)
 		return false
@@ -4526,13 +4537,14 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
+	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(reedUserID), reedID))
 
 	// Why `checkRippleParentReed` should run before `checkReedPossession`:
 	// it's the only way to tell a removed reed (410 + cert body) apart from
 	// one that never existed (404), which checkReedPossession's
 	// live-row-only lookup can't distinguish. See the ordering note above
 	// PostRipple's equivalent pair of checks.
-	if !h.checkRippleParentReed(w, r, reedUserID, reedID) {
+	if !h.checkRippleParentReed(w, r, canonicalReedID) {
 		return
 	}
 
@@ -4541,7 +4553,7 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if !h.checkReedPossession(w, r.Context(), reedUserID, reedID, string(proofBody)) {
+	if !h.checkReedPossession(w, r.Context(), canonicalReedID, string(proofBody)) {
 		return
 	}
 
@@ -4563,14 +4575,14 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	list, err := h.services.db.ListRipples(r.Context(), reedUserID, reedID, limit, before)
+	list, err := h.services.db.ListRipples(r.Context(), canonicalReedID, limit, before)
 	if err != nil {
 		log.Error().Str("userID", reedUserID).Str("reedID", reedID).Err(err).Msg("Error listing ripples")
 		internalServerError(w)
 		return
 	}
 
-	expiresAt, err := h.services.db.GetRipplesExpiresAt(r.Context(), reedUserID, reedID)
+	expiresAt, err := h.services.db.GetRipplesExpiresAt(r.Context(), canonicalReedID)
 	if err != nil {
 		internalServerError(w)
 		return
@@ -4625,10 +4637,15 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wire := rippleWire(tombstoned)
+	_, _, bareReedID, ok := identity.ParseKeyFingerprint(identity.IdentityID(tombstoned.ReedID))
+	if !ok {
+		h.services.log.GetLogger(r.Context()).Error().Str("reedID", tombstoned.ReedID).Msg("Malformed reed id on tombstoned ripple")
+		return
+	}
 	h.broadcastChan <- realtime.BroadcastMessage{
 		Type:   realtime.RippleUpdated,
 		UserID: tombstoned.ReedAuthorID,
-		ReedID: tombstoned.ReedID,
+		ReedID: bareReedID,
 		Ripple: realtimeRippleWire(&wire),
 	}
 }

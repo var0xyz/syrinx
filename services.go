@@ -1455,26 +1455,8 @@ func (r ReedRef) CanonicalAuthorID() string {
 
 // ParseReedRef parses "userID@serverID/reedID". Returns ok=false for empty or malformed input.
 func ParseReedRef(raw string) (ReedRef, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ReedRef{}, false
-	}
-	at := strings.Index(raw, "@")
-	if at <= 0 {
-		return ReedRef{}, false
-	}
-	slash := strings.Index(raw[at+1:], "/")
-	if slash <= 0 {
-		return ReedRef{}, false
-	}
-	slash += at + 1
-	if slash >= len(raw)-1 {
-		return ReedRef{}, false
-	}
-	author := strings.TrimSpace(raw[:at])
-	serverID := strings.TrimSpace(raw[at+1 : slash])
-	reedID := strings.TrimSpace(raw[slash+1:])
-	if author == "" || serverID == "" || reedID == "" {
+	author, serverID, reedID, ok := identity.ParseKeyFingerprint(identity.IdentityID(strings.TrimSpace(raw)))
+	if !ok {
 		return ReedRef{}, false
 	}
 	return ReedRef{AuthorID: author, ServerID: serverID, ReedID: reedID}, true
@@ -1482,7 +1464,7 @@ func ParseReedRef(raw string) (ReedRef, bool) {
 
 // FormatReedRef returns the canonical wire form userID@serverID/reedID.
 func FormatReedRef(ref ReedRef) string {
-	return ref.AuthorID + "@" + ref.ServerID + "/" + ref.ReedID
+	return string(identity.CanonicalID(ref.ServerID, ref.AuthorID, ref.ReedID))
 }
 
 // ReedAttestation is tip reed metadata plus stored user/server signatures.
@@ -1514,17 +1496,12 @@ type createReedParams struct {
 // ResolveThreadIDForParent returns the canonical thread id for a reply to parent P.
 // When P is the thread root (no reed_replies row for P), thread id = ref(P).
 // Otherwise thread id is inherited from P's reply row.
-//
-// reed_replies.user_id composite-FKs to reeds(user_id, id) (see db.go), so
-// it must carry the same value reeds.user_id does. parent is a full
-// ReedRef, so parent.ServerID is used rather than assuming local.
 func (s *DataService) ResolveThreadIDForParent(ctx context.Context, parent ReedRef) (string, error) {
-	parentIdentity := identity.CanonicalID(parent.ServerID, parent.AuthorID)
 	var threadID string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT thread_id FROM reed_replies
-		WHERE user_id = $1 AND reed_id = $2
-	`, parentIdentity, parent.ReedID).Scan(&threadID)
+		WHERE reed_id = $1
+	`, FormatReedRef(parent)).Scan(&threadID)
 	if err == sql.ErrNoRows {
 		return FormatReedRef(parent), nil
 	}
@@ -1534,18 +1511,15 @@ func (s *DataService) ResolveThreadIDForParent(ctx context.Context, parent ReedR
 	return threadID, nil
 }
 
-// InsertReply records a direct reply in reed_replies. replyUserID is the
-// local, session-authenticated reply author, converted to userID@serverID
-// form here, once, before delegating to insertReplyTx.
+// InsertReply records a direct reply in reed_replies. replyReedID is canonical.
 func (s *DataService) InsertReply(
 	ctx context.Context,
 	threadID string,
 	parent ReedRef,
-	replyUserID, replyReedID string,
+	replyReedID string,
 	ts time.Time,
 ) (replyIndexed bool, err error) {
 	ts = ts.UTC().Truncate(time.Second)
-	replyIdentity := identity.CanonicalID(s.serverID, replyUserID)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1553,7 +1527,7 @@ func (s *DataService) InsertReply(
 	}
 	defer tx.Rollback()
 
-	if err = s.insertReplyTx(ctx, tx, threadID, parent, replyIdentity, replyReedID, ts); err != nil {
+	if err = s.insertReplyTx(ctx, tx, threadID, parent, replyReedID, ts); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1571,20 +1545,18 @@ func (s *DataService) insertReplyTx(
 	tx *sql.Tx,
 	threadID string,
 	parent ReedRef,
-	replyIdentity identity.IdentityID,
 	replyReedID string,
 	ts time.Time,
 ) error {
-	parentIdentity := identity.CanonicalID(parent.ServerID, parent.AuthorID)
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_replies (
-			thread_id, user_id, reed_id,
-			parent_user_id, parent_reed_id,
+			thread_id, reed_id,
+			parent_reed_id,
 			timestamp
 		)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, threadID, replyIdentity, replyReedID,
-		parentIdentity, parent.ReedID,
+		VALUES ($1, $2, $3, $4)
+	`, threadID, replyReedID,
+		FormatReedRef(parent),
 		ts)
 	if err != nil {
 		return fmt.Errorf("insert reply index: %w", err)
@@ -1604,13 +1576,12 @@ type ReplyListResponse struct {
 	HasMore bool            `json:"hasMore"`
 }
 
-// ListReplies returns visible direct replies to parentUser/parentReed, oldest first.
+// ListReplies returns visible direct replies to parentReedID, oldest first.
 //
-// parentUserID is the URL-path-identified reed author, already in
-// userID@serverID form. reed_replies.user_id (scanned into ReplyListItem
-// below) carries that same form, so the wire item's UserID field holds it
-// directly with no decode step.
-func (s *DataService) ListReplies(ctx context.Context, parentUserID, parentReedID string, limit int, before *time.Time) (*ReplyListResponse, error) {
+// parentReedID is canonical (authorID@serverID/uuid); each reply's own
+// author is recovered from its reed_id via identity.ParseKeyFingerprint
+// for the wire item's UserID field.
+func (s *DataService) ListReplies(ctx context.Context, parentReedID string, limit int, before *time.Time) (*ReplyListResponse, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -1618,18 +1589,18 @@ func (s *DataService) ListReplies(ctx context.Context, parentUserID, parentReedI
 		limit = 100
 	}
 
-	parentIdentity := parentUserID
-	args := []any{parentIdentity, parentReedID}
+	args := []any{parentReedID}
 	query := `
-		SELECT user_id, reed_id, timestamp
+		SELECT rr2.reed_id, rr2.timestamp
 		FROM reed_replies rr2
-		WHERE rr2.parent_user_id = $1 AND rr2.parent_reed_id = $2
+		JOIN reeds r ON r.id = rr2.reed_id
+		WHERE rr2.parent_reed_id = $1
 		AND NOT EXISTS (
 			SELECT 1 FROM reed_removals rr
-			WHERE rr.user_id = rr2.user_id AND rr.reed_id = rr2.reed_id
+			WHERE rr.reed_id = rr2.reed_id
 		)
 		AND NOT EXISTS (
-			SELECT 1 FROM account_removals ar WHERE ar.user_id = rr2.user_id
+			SELECT 1 FROM account_removals ar WHERE ar.user_id = r.user_id
 		)
 	`
 	if before != nil {
@@ -1652,12 +1623,12 @@ func (s *DataService) ListReplies(ctx context.Context, parentUserID, parentReedI
 
 	var items []ReplyListItem
 	for rows.Next() {
-		var userID string
 		var reedID string
 		var _ts time.Time
-		if err := rows.Scan(&userID, &reedID, &_ts); err != nil {
+		if err := rows.Scan(&reedID, &_ts); err != nil {
 			return nil, err
 		}
+		userID, _, _, _ := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
 		items = append(items, ReplyListItem{
 			UserID: userID,
 			ReedID: reedID,
@@ -1790,7 +1761,7 @@ func checkReedTipTx(ctx context.Context, tx *sql.Tx, selfIdentity identity.Ident
 		WHERE r.user_id = $1
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_removals rm
-		      WHERE rm.user_id = r.user_id AND rm.reed_id = r.id
+		      WHERE rm.reed_id = r.id
 		  )
 		ORDER BY r.signed_at DESC, r.id DESC
 		LIMIT 1
@@ -1813,15 +1784,22 @@ func checkReedTipTx(ctx context.Context, tx *sql.Tx, selfIdentity identity.Ident
 
 // insertReedCoreTx converts p.UserID to identities.id form once, up
 // front, and uses it for every column that FKs to identities(id) (see
-// db.go's FOREIGN KEY clauses for reeds, reed_allocations, pending_fanout,
-// reed_mentions). Mention targets (p.Mentions) are converted the same way,
-// via identity.CanonicalID, since only local mentions are inserted today.
+// db.go's FOREIGN KEY clauses for reeds, reed_allocations, reed_mentions).
+// Mention targets (p.Mentions) are converted the same way, via
+// identity.CanonicalID, since only local mentions are inserted today.
+//
+// p.ReedID is already canonical (authorID@serverID/uuid) — callers build
+// it via identity.AppendEntity before constructing createReedParams.
 func (s *DataService) insertReedCoreTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	p createReedParams,
 ) (Reed, error) {
-	if !crypto.IsValidUUIDv7(p.ReedID) {
+	bareReedID := p.ReedID
+	if _, _, suffix, ok := identity.ParseKeyFingerprint(identity.IdentityID(p.ReedID)); ok {
+		bareReedID = suffix
+	}
+	if !crypto.IsValidUUIDv7(bareReedID) {
 		return Reed{}, fmt.Errorf("invalid reed ID")
 	}
 
@@ -1871,9 +1849,9 @@ func (s *DataService) insertReedCoreTx(
 	created.UserID = createdOwner
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
-		VALUES ($1, $2, $3)
-	`, p.ReedID, selfIdentity, selfIdentity); err != nil {
+		INSERT INTO reed_allocations (reed_id, holder_user_id)
+		VALUES ($1, $2)
+	`, p.ReedID, selfIdentity); err != nil {
 		return Reed{}, fmt.Errorf("allocate reed to author: %w", err)
 	}
 
@@ -1882,9 +1860,9 @@ func (s *DataService) insertReedCoreTx(
 		tags = []string{}
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO pending_fanout (user_id, reed_id, tags)
-		VALUES ($1, $2, $3)
-	`, selfIdentity, p.ReedID, pq.Array(tags)); err != nil {
+		INSERT INTO pending_fanout (reed_id, tags)
+		VALUES ($1, $2)
+	`, p.ReedID, pq.Array(tags)); err != nil {
 		return Reed{}, fmt.Errorf("insert pending fanout: %w", err)
 	}
 
@@ -1894,11 +1872,11 @@ func (s *DataService) insertReedCoreTx(
 		mentionTarget := identity.CanonicalID(m.ServerID, m.AuthorID)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reed_mentions (
-				mentioning_user_id, mentioning_reed_id,
+				mentioning_reed_id,
 				mentioned_user_id, mentioned_server_id
-			) VALUES ($1, $2, $3, $4)
+			) VALUES ($1, $2, $3)
 			ON CONFLICT (mentioning_reed_id, mentioned_server_id, mentioned_user_id) DO NOTHING
-		`, selfIdentity, p.ReedID, mentionTarget, m.ServerID); err != nil {
+		`, p.ReedID, mentionTarget, m.ServerID); err != nil {
 			return Reed{}, fmt.Errorf("insert mention index: %w", err)
 		}
 	}
@@ -1952,23 +1930,19 @@ func (s *DataService) CreateReedWithEcho(
 		return nil, false, err
 	}
 
-	// echoing_user_id is a direct FK to identities(id); p.UserID arrives in
-	// userID@serverID form already. echoed_user_id has no FK (see db.go),
-	// but CountEchoes/GetReedChorus filter on it in canonical form (it's
-	// the URL-path-identified reed author elsewhere), so compose it the
-	// same way here rather than storing echoTarget.AuthorID bare.
-	selfIdentity := identity.IdentityID(p.UserID)
-	echoedUserID := identity.CanonicalID(echoTarget.ServerID, echoTarget.AuthorID)
+	// echoing_reed_id is a direct FK to reeds(id); echoed_reed_id has no FK
+	// (see db.go), stored canonical regardless via FormatReedRef.
+	echoedReedID := FormatReedRef(echoTarget)
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO reed_echoes (echoing_user_id, echoing_reed_id, echoed_user_id, echoed_reed_id, is_blank, signed_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (echoing_user_id, echoing_reed_id) DO NOTHING
-	`, selfIdentity, p.ReedID, echoedUserID, echoTarget.ReedID, isBlank, ts)
+		INSERT INTO reed_echoes (echoing_reed_id, echoed_reed_id, is_blank, signed_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (echoing_reed_id) DO NOTHING
+	`, p.ReedID, echoedReedID, isBlank, ts)
 	if err != nil {
 		return nil, false, fmt.Errorf("insert echo index: %w", err)
 	}
 	n, _ := res.RowsAffected()
-	echoIndexed = n > 0 && echoedUserID != selfIdentity
+	echoIndexed = n > 0 && echoedReedID != p.ReedID
 
 	if err := tx.Commit(); err != nil {
 		return nil, false, err
@@ -1976,22 +1950,16 @@ func (s *DataService) CreateReedWithEcho(
 	return &created, echoIndexed, nil
 }
 
-// ErrReedNotFound is returned by IsBlankEcho when (authorID, reedID) is not
-// a live tip reed.
+// ErrReedNotFound is returned by IsBlankEcho when reedID is not a live tip reed.
 var ErrReedNotFound = errors.New("reed not found")
 
-// IsBlankEcho reports whether reed (authorID, reedID) is itself a
-// content-less echo — used to reject a reply/echo aimed at it instead of
-// the underlying original. Returns false (not an error) when the reed
-// exists but isn't an echo. Returns ErrReedNotFound when the reed doesn't
-// exist — a missing reed is not the same as "not blank" and callers must
-// not conflate the two.
-//
-// authorID accepts either shape: bare (ReedRef.AuthorID) or already in
-// userID@serverID form (checkRippleParentReed's URL-sourced userID) —
-// same dual-shape acceptance pattern as BindDevice.
-func (s *DataService) IsBlankEcho(ctx context.Context, authorID, reedID string) (bool, error) {
-	exists, err := s.ReedExists(ctx, authorID, reedID)
+// IsBlankEcho reports whether reedID is itself a content-less echo — used
+// to reject a reply/echo aimed at it instead of the underlying original.
+// Returns false (not an error) when the reed exists but isn't an echo.
+// Returns ErrReedNotFound when the reed doesn't exist — a missing reed is
+// not the same as "not blank" and callers must not conflate the two.
+func (s *DataService) IsBlankEcho(ctx context.Context, reedID string) (bool, error) {
+	exists, err := s.ReedExists(ctx, reedID)
 	if err != nil {
 		return false, err
 	}
@@ -1999,16 +1967,11 @@ func (s *DataService) IsBlankEcho(ctx context.Context, authorID, reedID string) 
 		return false, ErrReedNotFound
 	}
 
-	// echoing_user_id is a direct FK to identities(id).
-	selfIdentity := identity.CanonicalID(s.serverID, authorID)
-	if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(authorID)); ok {
-		selfIdentity = identity.CanonicalID(s.serverID, bare)
-	}
 	var isBlank bool
 	err = s.db.QueryRowContext(ctx, `
 		SELECT is_blank FROM reed_echoes
-		WHERE echoing_user_id = $1 AND echoing_reed_id = $2
-	`, selfIdentity, reedID).Scan(&isBlank)
+		WHERE echoing_reed_id = $1
+	`, reedID).Scan(&isBlank)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -2039,10 +2002,7 @@ func (s *DataService) CreateReedWithReply(
 		return nil, err
 	}
 
-	// p.UserID arrives in userID@serverID form already; insertReplyTx
-	// requires identity.IdentityID, so this is a plain type conversion.
-	selfIdentity := identity.IdentityID(p.UserID)
-	if err = s.insertReplyTx(ctx, tx, threadID, parent, selfIdentity, p.ReedID, ts); err != nil {
+	if err = s.insertReplyTx(ctx, tx, threadID, parent, p.ReedID, ts); err != nil {
 		return nil, err
 	}
 
@@ -2052,11 +2012,8 @@ func (s *DataService) CreateReedWithReply(
 	return &created, nil
 }
 
-// GetReedAttestation loads a tip reed and its stored signatures. userID
-// arrives in userID@serverID form already, matching reeds.user_id.
-func (s *DataService) GetReedAttestation(ctx context.Context, userID, reedID string) (*ReedAttestation, error) {
-	selfIdentity := userID
-
+// GetReedAttestation loads a tip reed and its stored signatures. reedID is canonical.
+func (s *DataService) GetReedAttestation(ctx context.Context, reedID string) (*ReedAttestation, error) {
 	var att ReedAttestation
 	var owner string
 	err := s.db.QueryRowContext(ctx, `
@@ -2066,8 +2023,8 @@ func (s *DataService) GetReedAttestation(ctx context.Context, userID, reedID str
 		FROM reeds r
 		JOIN user_signatures us ON us.id = r.user_signature_id
 		JOIN server_signatures ss ON ss.id = r.server_signature_id
-		WHERE r.id = $1 AND r.user_id = $2
-	`, reedID, selfIdentity).Scan(
+		WHERE r.id = $1
+	`, reedID).Scan(
 		&att.ID,
 		&owner,
 		&att.Fingerprint,
@@ -2090,16 +2047,12 @@ func (s *DataService) GetReedAttestation(ctx context.Context, userID, reedID str
 	return &att, nil
 }
 
-// Reed ids are scoped to (user_id, id); there is no global author lookup by reed id alone.
-
-// DeleteReed's userID is the local, session-authenticated author deleting
-// their own reed, already in userID@serverID form.
-func (s *DataService) DeleteReed(ctx context.Context, userID, reedID string) error {
-	selfIdentity := userID
+// DeleteReed's reedID is canonical; the caller has already checked the
+// session-authenticated user owns it.
+func (s *DataService) DeleteReed(ctx context.Context, reedID string) error {
 	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM reeds
-		WHERE user_id = $1 AND id = $2
-	`, selfIdentity, reedID)
+		DELETE FROM reeds WHERE id = $1
+	`, reedID)
 	if err != nil {
 		return err
 	}
@@ -2107,28 +2060,22 @@ func (s *DataService) DeleteReed(ctx context.Context, userID, reedID string) err
 	return nil
 }
 
-// ReedExists reports whether (userID, reedID) is a live tip reed. userID
-// accepts either shape (bare or userID@serverID), same as IsBlankEcho,
-// since its only caller forwards whatever shape it itself received.
-func (s *DataService) ReedExists(ctx context.Context, userID, reedID string) (bool, error) {
-	selfIdentity := identity.CanonicalID(s.serverID, userID)
-	if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(userID)); ok {
-		selfIdentity = identity.CanonicalID(s.serverID, bare)
-	}
+// ReedExists reports whether reedID is a live tip reed.
+func (s *DataService) ReedExists(ctx context.Context, reedID string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM reeds r
-			WHERE r.user_id = $1 AND r.id = $2
+			WHERE r.id = $1
 			  AND NOT EXISTS (
 			      SELECT 1 FROM reed_removals rr
-			      WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
+			      WHERE rr.reed_id = r.id
 			  )
 			  AND NOT EXISTS (
 			      SELECT 1 FROM account_removals ar WHERE ar.user_id = r.user_id
 			  )
 		)
-	`, selfIdentity, reedID).Scan(&exists)
+	`, reedID).Scan(&exists)
 	return exists, err
 }
 
@@ -2203,17 +2150,16 @@ func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) 
 }
 
 // CountEchoes returns how many echoes point at the given reed. Self-echoes
-// (a user echoing their own reed) are excluded.
-//
-// echoedUserID is the URL-path-identified reed author, already in
-// userID@serverID form.
-func (s *DataService) CountEchoes(ctx context.Context, echoedUserID, echoedReedID string) (int, error) {
+// (a user echoing their own reed) are excluded. Echoer identity is the
+// author embedded in echoing_reed_id, recovered via the reeds join.
+func (s *DataService) CountEchoes(ctx context.Context, echoedReedID string) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT echoing_user_id) FROM reed_echoes
-		WHERE echoed_user_id = $1 AND echoed_reed_id = $2
-		AND echoing_user_id != echoed_user_id
-	`, echoedUserID, echoedReedID).Scan(&n)
+		SELECT COUNT(DISTINCT r.user_id) FROM reed_echoes re
+		JOIN reeds r ON r.id = re.echoing_reed_id
+		WHERE re.echoed_reed_id = $1
+		AND re.echoing_reed_id != re.echoed_reed_id
+	`, echoedReedID).Scan(&n)
 	return n, err
 }
 
@@ -2231,10 +2177,7 @@ type EchoerListResponse struct {
 
 // GetReedChorus returns the users who echoed the given reed, oldest first.
 // Self-echoes (a user echoing their own reed) are excluded.
-//
-// echoedUserID is the URL-path-identified reed author, already in
-// userID@serverID form.
-func (s *DataService) GetReedChorus(ctx context.Context, echoedUserID, echoedReedID string, limit int, before *time.Time) (*EchoerListResponse, error) {
+func (s *DataService) GetReedChorus(ctx context.Context, echoedReedID string, limit int, before *time.Time) (*EchoerListResponse, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -2243,28 +2186,29 @@ func (s *DataService) GetReedChorus(ctx context.Context, echoedUserID, echoedRee
 	}
 
 	// A user can echo the same target more than once (separate echoing
-	// reeds), so group by echoing_user_id and take their earliest echo as
-	// the row's timestamp — the chorus lists each person once.
-	args := []any{echoedUserID, echoedReedID}
+	// reeds), so group by echoer identity (r.user_id) and take their
+	// earliest echo as the row's timestamp — the chorus lists each person once.
+	args := []any{echoedReedID}
 	query := `
-		SELECT re.echoing_user_id, MIN(re.signed_at) AS first_echoed_at
+		SELECT r.user_id, MIN(re.signed_at) AS first_echoed_at
 		FROM reed_echoes re
-		WHERE re.echoed_user_id = $1 AND re.echoed_reed_id = $2
-		AND re.echoing_user_id != re.echoed_user_id
+		JOIN reeds r ON r.id = re.echoing_reed_id
+		WHERE re.echoed_reed_id = $1
+		AND re.echoing_reed_id != re.echoed_reed_id
 		AND NOT EXISTS (
-			SELECT 1 FROM account_removals ar WHERE ar.user_id = re.echoing_user_id
+			SELECT 1 FROM account_removals ar WHERE ar.user_id = r.user_id
 		)
-		GROUP BY re.echoing_user_id
+		GROUP BY r.user_id
 	`
 	if before != nil {
 		args = append(args, before.UTC().Truncate(time.Second))
 		query += fmt.Sprintf(`
-			HAVING (MIN(re.signed_at), re.echoing_user_id) > ($%d, '')
+			HAVING (MIN(re.signed_at), r.user_id) > ($%d, '')
 		`, len(args))
 	}
 	args = append(args, limit+1)
 	query += fmt.Sprintf(`
-		ORDER BY first_echoed_at ASC, re.echoing_user_id ASC
+		ORDER BY first_echoed_at ASC, r.user_id ASC
 		LIMIT $%d
 	`, len(args))
 
@@ -2274,8 +2218,6 @@ func (s *DataService) GetReedChorus(ctx context.Context, echoedUserID, echoedRee
 	}
 	defer rows.Close()
 
-	// re.echoing_user_id is a direct FK to identities(id); the wire item's
-	// UserID field holds that value directly, same as ListReplies.
 	var items []EchoerListItem
 	for rows.Next() {
 		var userID string
@@ -2302,18 +2244,13 @@ func (s *DataService) GetReedChorus(ctx context.Context, echoedUserID, echoedRee
 // DeleteEchoIndexForReed clears echo index rows when a reed is removed.
 // Returns distinct echoed targets whose counts may have changed (excluding
 // the removed reed itself, which no longer has live tip subscribers).
-//
-// userID is the removed reed's own author, already in userID@serverID
-// form, matching echoing_user_id directly. echoed_user_id has no FK (see
-// db.go) but is stored canonical too (see CreateReedWithEcho), so the
-// final DELETE (matching this reed as an echo TARGET) uses userID as-is.
-func (s *DataService) DeleteEchoIndexForReed(ctx context.Context, userID, reedID string) ([]ReedRef, error) {
-	selfIdentity := identity.IdentityID(userID)
+// reedID is the removed reed's own canonical id, matching echoing_reed_id.
+func (s *DataService) DeleteEchoIndexForReed(ctx context.Context, reedID string) ([]ReedRef, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT DISTINCT echoed_user_id, echoed_reed_id
+		SELECT DISTINCT echoed_reed_id
 		FROM reed_echoes
-		WHERE echoing_user_id = $1 AND echoing_reed_id = $2
-	`, selfIdentity, reedID)
+		WHERE echoing_reed_id = $1
+	`, reedID)
 	if err != nil {
 		return nil, err
 	}
@@ -2321,24 +2258,28 @@ func (s *DataService) DeleteEchoIndexForReed(ctx context.Context, userID, reedID
 
 	var targets []ReedRef
 	for rows.Next() {
-		var t ReedRef
-		if err := rows.Scan(&t.AuthorID, &t.ReedID); err != nil {
+		var echoedReedID string
+		if err := rows.Scan(&echoedReedID); err != nil {
 			return nil, err
 		}
-		targets = append(targets, t)
+		ref, ok := ParseReedRef(echoedReedID)
+		if !ok {
+			continue
+		}
+		targets = append(targets, ref)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
 	if _, err := s.db.ExecContext(ctx, `
-		DELETE FROM reed_echoes WHERE echoing_user_id = $1 AND echoing_reed_id = $2
-	`, selfIdentity, reedID); err != nil {
+		DELETE FROM reed_echoes WHERE echoing_reed_id = $1
+	`, reedID); err != nil {
 		return nil, err
 	}
 	if _, err := s.db.ExecContext(ctx, `
-		DELETE FROM reed_echoes WHERE echoed_user_id = $1 AND echoed_reed_id = $2
-	`, selfIdentity, reedID); err != nil {
+		DELETE FROM reed_echoes WHERE echoed_reed_id = $1
+	`, reedID); err != nil {
 		return nil, err
 	}
 	return targets, nil
@@ -2346,14 +2287,15 @@ func (s *DataService) DeleteEchoIndexForReed(ctx context.Context, userID, reedID
 
 // DeleteEchoesByAuthor drops echo index rows created by userID (the echoing
 // author). Returns distinct echoed targets whose counts may have changed.
-// userID arrives in userID@serverID form already.
+// userID arrives in userID@serverID form already; echoing_reed_id rows
+// authored by userID are matched by canonical id prefix.
 func (s *DataService) DeleteEchoesByAuthor(ctx context.Context, userID string) ([]ReedRef, error) {
-	selfIdentity := identity.IdentityID(userID)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT DISTINCT echoed_user_id, echoed_reed_id
-		FROM reed_echoes
-		WHERE echoing_user_id = $1
-	`, selfIdentity)
+		SELECT DISTINCT re.echoed_reed_id
+		FROM reed_echoes re
+		JOIN reeds r ON r.id = re.echoing_reed_id
+		WHERE r.user_id = $1
+	`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -2361,108 +2303,109 @@ func (s *DataService) DeleteEchoesByAuthor(ctx context.Context, userID string) (
 
 	var targets []ReedRef
 	for rows.Next() {
-		var t ReedRef
-		if err := rows.Scan(&t.AuthorID, &t.ReedID); err != nil {
+		var echoedReedID string
+		if err := rows.Scan(&echoedReedID); err != nil {
 			return nil, err
 		}
-		targets = append(targets, t)
+		ref, ok := ParseReedRef(echoedReedID)
+		if !ok {
+			continue
+		}
+		targets = append(targets, ref)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM reed_echoes WHERE echoing_user_id = $1`, selfIdentity); err != nil {
+	if _, err := s.db.ExecContext(ctx, `
+		DELETE FROM reed_echoes WHERE echoing_reed_id IN (
+			SELECT id FROM reeds WHERE user_id = $1
+		)
+	`, userID); err != nil {
 		return nil, err
 	}
 	return targets, nil
 }
 
 // DeleteMentionsForReed clears mention index rows contained in a removed
-// reed. mentioning_user_id composite-FKs to reeds(user_id, id), same as
-// reed_replies.user_id; userID arrives in userID@serverID form already.
-func (s *DataService) DeleteMentionsForReed(ctx context.Context, userID, reedID string) error {
-	selfIdentity := userID
+// reed. reedID is canonical, matching mentioning_reed_id directly.
+func (s *DataService) DeleteMentionsForReed(ctx context.Context, reedID string) error {
 	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM reed_mentions
-		WHERE mentioning_user_id = $1 AND mentioning_reed_id = $2
-	`, selfIdentity, reedID)
+		DELETE FROM reed_mentions WHERE mentioning_reed_id = $1
+	`, reedID)
 	return err
 }
 
 // DeleteMentionsByAuthor clears mention index rows on account removal: rows
 // the removed user authored (mentioning), and rows mentioning the removed
 // user on this server (mentioned) — both sides. userID arrives in
-// userID@serverID form already, so selfIdentity is correct on both sides
-// of the OR.
+// userID@serverID form already. Mentioning rows are matched by canonical
+// id prefix via the reeds join (mentioning_reed_id has no user_id column
+// of its own anymore).
 func (s *DataService) DeleteMentionsByAuthor(ctx context.Context, userID string) error {
-	selfIdentity := userID
 	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM reed_mentions
-		WHERE mentioning_user_id = $1
+		WHERE mentioning_reed_id IN (SELECT id FROM reeds WHERE user_id = $1)
 		   OR (mentioned_server_id = $2 AND mentioned_user_id = $1)
-	`, selfIdentity, s.serverID)
+	`, userID, s.serverID)
 	return err
 }
 
-// ReplyCountNotifyTargets returns every ancestor of parent (inclusive) whose
-// subtree reply count changes when a direct reply to parent is added or removed.
-//
-// parentUserID is always local today. The walk stays in userID@serverID
-// form internally and only decodes back to bare when building each
-// ReedRef, to match every other ReedRef construction in this file
-// (AuthorID holds the bare userID, ServerID is separate).
-func (s *DataService) ReplyCountNotifyTargets(ctx context.Context, parentUserID, parentReedID string) ([]ReedRef, error) {
+// ReplyCountNotifyTargets returns every ancestor of parentReedID (inclusive)
+// whose subtree reply count changes when a direct reply to it is added or removed.
+func (s *DataService) ReplyCountNotifyTargets(ctx context.Context, parentReedID string) ([]ReedRef, error) {
 	var targets []ReedRef
-	selfIdentity, reedID := identity.CanonicalID(s.serverID, parentUserID), parentReedID
+	reedID := parentReedID
 	for {
-		targets = append(targets, ReedRef{AuthorID: selfIdentity.UserID(), ServerID: selfIdentity.ServerID(), ReedID: reedID})
-		var nextIdentity identity.IdentityID
+		ref, ok := ParseReedRef(reedID)
+		if !ok {
+			return nil, fmt.Errorf("malformed reed id: %s", reedID)
+		}
+		targets = append(targets, ref)
 		var nextReedID string
 		err := s.db.QueryRowContext(ctx, `
-			SELECT parent_user_id, parent_reed_id
+			SELECT parent_reed_id
 			FROM reed_replies
-			WHERE user_id = $1 AND reed_id = $2
-		`, selfIdentity, reedID).Scan(&nextIdentity, &nextReedID)
+			WHERE reed_id = $1
+		`, reedID).Scan(&nextReedID)
 		if err == sql.ErrNoRows {
 			break
 		}
 		if err != nil {
 			return nil, err
 		}
-		selfIdentity, reedID = nextIdentity, nextReedID
+		reedID = nextReedID
 	}
 	return targets, nil
 }
 
 // ReplyCountNotifyTargetsForRemovedReply returns ancestors whose subtree count
-// drops when replyUserID/replyReedID is removed. nil when not indexed as a reply.
-func (s *DataService) ReplyCountNotifyTargetsForRemovedReply(ctx context.Context, replyUserID, replyReedID string) ([]ReedRef, error) {
-	replyIdentity := identity.CanonicalID(s.serverID, replyUserID)
-	var parentIdentity identity.IdentityID
+// drops when replyReedID is removed. nil when not indexed as a reply.
+func (s *DataService) ReplyCountNotifyTargetsForRemovedReply(ctx context.Context, replyReedID string) ([]ReedRef, error) {
 	var parentReedID string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT parent_user_id, parent_reed_id
+		SELECT parent_reed_id
 		FROM reed_replies
-		WHERE user_id = $1 AND reed_id = $2
-	`, replyIdentity, replyReedID).Scan(&parentIdentity, &parentReedID)
+		WHERE reed_id = $1
+	`, replyReedID).Scan(&parentReedID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return s.ReplyCountNotifyTargets(ctx, parentIdentity.UserID(), parentReedID)
+	return s.ReplyCountNotifyTargets(ctx, parentReedID)
 }
 
 // ReplyCountNotifyTargetsForAuthor returns distinct ancestors whose subtree
 // counts may change when all of userID's indexed replies are treated as removed.
 func (s *DataService) ReplyCountNotifyTargetsForAuthor(ctx context.Context, userID string) ([]ReedRef, error) {
-	selfIdentity := identity.CanonicalID(s.serverID, userID)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT parent_user_id, parent_reed_id
-		FROM reed_replies
-		WHERE user_id = $1
-	`, selfIdentity)
+		SELECT rr.parent_reed_id
+		FROM reed_replies rr
+		JOIN reeds r ON r.id = rr.reed_id
+		WHERE r.user_id = $1
+	`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -2471,12 +2414,11 @@ func (s *DataService) ReplyCountNotifyTargetsForAuthor(ctx context.Context, user
 	seen := make(map[string]struct{})
 	var targets []ReedRef
 	for rows.Next() {
-		var parentIdentity identity.IdentityID
 		var parentReedID string
-		if err := rows.Scan(&parentIdentity, &parentReedID); err != nil {
+		if err := rows.Scan(&parentReedID); err != nil {
 			return nil, err
 		}
-		ancestors, err := s.ReplyCountNotifyTargets(ctx, parentIdentity.UserID(), parentReedID)
+		ancestors, err := s.ReplyCountNotifyTargets(ctx, parentReedID)
 		if err != nil {
 			return nil, err
 		}
@@ -2492,37 +2434,40 @@ func (s *DataService) ReplyCountNotifyTargetsForAuthor(ctx context.Context, user
 	return targets, rows.Err()
 }
 
-// GetSubtreeReplyCount returns live descendant reply count beneath userID/reedID.
-func (s *DataService) GetSubtreeReplyCount(ctx context.Context, userID, reedID string) (int, error) {
-	selfIdentity := identity.CanonicalID(s.serverID, userID)
+// GetSubtreeReplyCount returns live descendant reply count beneath reedID.
+func (s *DataService) GetSubtreeReplyCount(ctx context.Context, reedID string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
 		WITH RECURSIVE descendants AS (
-			SELECT rr.user_id, rr.reed_id
+			SELECT rr.reed_id
 			FROM reed_replies rr
-			WHERE rr.parent_user_id = $1 AND rr.parent_reed_id = $2
+			WHERE rr.parent_reed_id = $1
 			AND NOT EXISTS (
 				SELECT 1 FROM reed_removals rm
-				WHERE rm.user_id = rr.user_id AND rm.reed_id = rr.reed_id
+				WHERE rm.reed_id = rr.reed_id
 			)
 			AND NOT EXISTS (
-				SELECT 1 FROM account_removals ar WHERE ar.user_id = rr.user_id
+				SELECT 1 FROM account_removals ar
+				JOIN reeds r ON r.id = rr.reed_id
+				WHERE ar.user_id = r.user_id
 			)
 			UNION ALL
-			SELECT rr.user_id, rr.reed_id
+			SELECT rr.reed_id
 			FROM reed_replies rr
 			INNER JOIN descendants d
-				ON rr.parent_user_id = d.user_id AND rr.parent_reed_id = d.reed_id
+				ON rr.parent_reed_id = d.reed_id
 			WHERE NOT EXISTS (
 				SELECT 1 FROM reed_removals rm
-				WHERE rm.user_id = rr.user_id AND rm.reed_id = rr.reed_id
+				WHERE rm.reed_id = rr.reed_id
 			)
 			AND NOT EXISTS (
-				SELECT 1 FROM account_removals ar WHERE ar.user_id = rr.user_id
+				SELECT 1 FROM account_removals ar
+				JOIN reeds r ON r.id = rr.reed_id
+				WHERE ar.user_id = r.user_id
 			)
 		)
 		SELECT COUNT(*) FROM descendants
-	`, selfIdentity, reedID).Scan(&count)
+	`, reedID).Scan(&count)
 	return count, err
 }
 
@@ -2535,17 +2480,15 @@ type ReedOrRemovalResult struct {
 	ReedRemoval    *deletion.Cert
 }
 
-// userID is the URL-path-identified reed author, already in
-// userID@serverID form.
-func (s *DataService) GetReed(ctx context.Context, userID string, reedID string) (*Reed, error) {
-	selfIdentity := userID
+// GetReed loads a live tip reed by its canonical id.
+func (s *DataService) GetReed(ctx context.Context, reedID string) (*Reed, error) {
 	var reed Reed
 	var owner string
 	err := s.db.QueryRowContext(ctx, `
 	SELECT id, user_id, private_key_fingerprint, signed_at
 		FROM reeds
-		WHERE id = $1 AND user_id = $2
-	`, reedID, selfIdentity,
+		WHERE id = $1
+	`, reedID,
 	).Scan(
 		&reed.ID,
 		&owner,
@@ -2565,9 +2508,15 @@ func (s *DataService) GetReed(ctx context.Context, userID string, reedID string)
 
 // GetReedOrRemovalCert loads tip reed metadata when neither the account nor the
 // reed has a removal cert. Tombstones are returned in the result instead of
-// the reed row.
-func (s *DataService) GetReedOrRemovalCert(ctx context.Context, userID, reedID string) (ReedOrRemovalResult, error) {
+// the reed row. reedID is canonical; its embedded author is used for the
+// account-removal check.
+func (s *DataService) GetReedOrRemovalCert(ctx context.Context, reedID string) (ReedOrRemovalResult, error) {
 	var out ReedOrRemovalResult
+
+	userID, _, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok {
+		return out, fmt.Errorf("malformed reed id: %s", reedID)
+	}
 
 	accountRemoval, err := s.GetAccountRemoval(ctx, userID)
 	if err != nil {
@@ -2578,7 +2527,7 @@ func (s *DataService) GetReedOrRemovalCert(ctx context.Context, userID, reedID s
 		return out, nil
 	}
 
-	removal, err := s.GetReedRemoval(ctx, userID, reedID)
+	removal, err := s.GetReedRemoval(ctx, reedID)
 	if err != nil {
 		return out, err
 	}
@@ -2587,7 +2536,7 @@ func (s *DataService) GetReedOrRemovalCert(ctx context.Context, userID, reedID s
 		return out, nil
 	}
 
-	reed, err := s.GetReed(ctx, userID, reedID)
+	reed, err := s.GetReed(ctx, reedID)
 	if err != nil {
 		return out, err
 	}
@@ -2595,24 +2544,13 @@ func (s *DataService) GetReedOrRemovalCert(ctx context.Context, userID, reedID s
 	return out, nil
 }
 
-// GetReedRemoval returns the stored reed-removal cert for (userID, reedID).
-// userID arrives in userID@serverID form; deletion.GetCert's lookup param
-// is bare, so decode before delegating.
-func (s *DataService) GetReedRemoval(ctx context.Context, userID, reedID string) (*deletion.Cert, error) {
-	bareUserID := userID
-	if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(userID)); ok {
-		bareUserID = bare
-	}
-	return deletion.GetCert(ctx, s.db, bareUserID, reedID, s.serverID)
+// GetReedRemoval returns the stored reed-removal cert for reedID (canonical).
+func (s *DataService) GetReedRemoval(ctx context.Context, reedID string) (*deletion.Cert, error) {
+	return deletion.GetCert(ctx, s.db, reedID, s.serverID)
 }
 
 // InsertReedRemoval persists a reed-removal cert (idempotent / conflict).
-// cert.UserID arrives in userID@serverID form; deletion.InsertCert's
-// cert.UserID is bare, so decode before delegating.
 func (s *DataService) InsertReedRemoval(ctx context.Context, cert deletion.Cert) error {
-	if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(cert.UserID)); ok {
-		cert.UserID = bare
-	}
 	return deletion.InsertCert(ctx, s.db, cert, s.serverID)
 }
 
@@ -2652,14 +2590,13 @@ func (s *DataService) HasAccountRemoval(ctx context.Context, userID string) (boo
 // cert being inserted (identical replay succeeds).
 var ErrLikeConflict = errors.New("like conflict")
 
-// GetReedLike returns the stored like cert for (likerID, authorID, reedID),
-// or nil if the reed is not liked by that user. Both likerID and authorID
-// arrive in userID@serverID form; loadLikeCertTx requires
-// identity.IdentityID, so this is a plain type conversion.
-func (s *DataService) GetReedLike(ctx context.Context, likerID, authorID, reedID string) (*LikeCert, error) {
+// GetReedLike returns the stored like cert for (likerID, reedID), or nil if
+// the reed is not liked by that user. likerID arrives in userID@serverID
+// form; loadLikeCertTx requires identity.IdentityID, so this is a plain
+// type conversion. reedID is canonical.
+func (s *DataService) GetReedLike(ctx context.Context, likerID, reedID string) (*LikeCert, error) {
 	likerIdentity := identity.IdentityID(likerID)
-	authorIdentity := identity.IdentityID(authorID)
-	cert, err := s.loadLikeCertTx(ctx, s.db, likerIdentity, authorIdentity, reedID, false)
+	cert, err := s.loadLikeCertTx(ctx, s.db, likerIdentity, reedID, false)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -2671,14 +2608,11 @@ func (s *DataService) GetReedLike(ctx context.Context, likerID, authorID, reedID
 
 // InsertReedLike stores a like cert once and bumps reeds.like_count in
 // the same TX. Same signatures → no-op (idempotent replay); different
-// signatures for the same (likerID, authorID, reedID) → ErrLikeConflict.
-// likerID and likerFingerprint key the reeds_liked row. Both likerID and
-// cert.AuthorID arrive in userID@serverID form already; see GetReedLike's
-// comment for the type-conversion reasoning.
+// signatures for the same (likerID, reedID) → ErrLikeConflict. likerID and
+// likerFingerprint key the reeds_liked row; cert.ReedID is canonical.
 func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerprint string, cert LikeCert) error {
 	cert.ServerSignature.SignedAt = cert.ServerSignature.SignedAt.UTC().Truncate(time.Second)
 	likerIdentity := identity.IdentityID(likerID)
-	authorIdentity := identity.IdentityID(cert.AuthorID)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -2686,7 +2620,7 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 	}
 	defer tx.Rollback()
 
-	existing, err := s.loadLikeCertTx(ctx, tx, likerIdentity, authorIdentity, cert.ReedID, true)
+	existing, err := s.loadLikeCertTx(ctx, tx, likerIdentity, cert.ReedID, true)
 	switch {
 	case err == sql.ErrNoRows:
 		userSigID, err := signing.InsertUserSignature(ctx, tx, cert.UserSignature.Fingerprint, cert.UserSignature.Armor)
@@ -2699,16 +2633,16 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reeds_liked (
-				liker_user_id, author_user_id, reed_id, liker_public_key_id,
+				liker_user_id, reed_id, liker_public_key_id,
 				user_signature_id, server_signature_id
-			) VALUES ($1, $2, $3, $4, $5, $6)
-		`, likerIdentity, authorIdentity, cert.ReedID, likerFingerprint, userSigID, serverSigID); err != nil {
+			) VALUES ($1, $2, $3, $4, $5)
+		`, likerIdentity, cert.ReedID, likerFingerprint, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert reed like: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE reeds SET like_count = like_count + 1
-			WHERE user_id = $1 AND id = $2
-		`, authorIdentity, cert.ReedID); err != nil {
+			WHERE id = $1
+		`, cert.ReedID); err != nil {
 			return fmt.Errorf("bump like_count: %w", err)
 		}
 	case err != nil:
@@ -2726,13 +2660,12 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 	return tx.Commit()
 }
 
-// DeleteReedLike hard-deletes the like row for (likerID, authorID, reedID)
-// if present and decrements reeds.like_count in the same TX. Deleting a
-// nonexistent row is a no-op, returning deleted=false with no error.
-// Both likerID and authorID arrive in userID@serverID form already.
-func (s *DataService) DeleteReedLike(ctx context.Context, likerID, authorID, reedID string) (deleted bool, err error) {
+// DeleteReedLike hard-deletes the like row for (likerID, reedID) if present
+// and decrements reeds.like_count in the same TX. Deleting a nonexistent
+// row is a no-op, returning deleted=false with no error. likerID arrives in
+// userID@serverID form already; reedID is canonical.
+func (s *DataService) DeleteReedLike(ctx context.Context, likerID, reedID string) (deleted bool, err error) {
 	likerIdentity := identity.IdentityID(likerID)
-	authorIdentity := identity.IdentityID(authorID)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -2742,8 +2675,8 @@ func (s *DataService) DeleteReedLike(ctx context.Context, likerID, authorID, ree
 
 	res, err := tx.ExecContext(ctx, `
 		DELETE FROM reeds_liked
-		WHERE liker_user_id = $1 AND author_user_id = $2 AND reed_id = $3
-	`, likerIdentity, authorIdentity, reedID)
+		WHERE liker_user_id = $1 AND reed_id = $2
+	`, likerIdentity, reedID)
 	if err != nil {
 		return false, fmt.Errorf("delete reed like: %w", err)
 	}
@@ -2757,8 +2690,8 @@ func (s *DataService) DeleteReedLike(ctx context.Context, likerID, authorID, ree
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE reeds SET like_count = GREATEST(0, like_count - 1)
-		WHERE user_id = $1 AND id = $2
-	`, authorIdentity, reedID); err != nil {
+		WHERE id = $1
+	`, reedID); err != nil {
 		return false, fmt.Errorf("decrement like_count: %w", err)
 	}
 
@@ -2767,13 +2700,12 @@ func (s *DataService) DeleteReedLike(ctx context.Context, likerID, authorID, ree
 
 // CountLikes returns the current like count for a reed, read from the
 // denormalized reeds.like_count column (never COUNT(*) on a hot path).
-// authorID names the reed's author, local today.
-func (s *DataService) CountLikes(ctx context.Context, authorID, reedID string) (int, error) {
-	authorIdentity := identity.CanonicalID(s.serverID, authorID)
+// reedID is canonical.
+func (s *DataService) CountLikes(ctx context.Context, reedID string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
-		SELECT like_count FROM reeds WHERE user_id = $1 AND id = $2
-	`, authorIdentity, reedID).Scan(&count)
+		SELECT like_count FROM reeds WHERE id = $1
+	`, reedID).Scan(&count)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -2784,20 +2716,20 @@ type likeQuerier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// loadLikeCertTx takes likerID/authorID already in userID@serverID form —
-// see callers (GetReedLike, InsertReedLike, DeleteReedLike), which convert
-// once at their own boundary before calling in.
-func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerIdentity, authorIdentity identity.IdentityID, reedID string, forUpdate bool) (*LikeCert, error) {
+// loadLikeCertTx takes likerID already in userID@serverID form — see
+// callers (GetReedLike, InsertReedLike, DeleteReedLike), which convert
+// once at their own boundary before calling in. reedID is canonical.
+func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerIdentity identity.IdentityID, reedID string, forUpdate bool) (*LikeCert, error) {
 	query := `
 		SELECT liker_public_key_id, user_signature_id, server_signature_id
 		FROM reeds_liked
-		WHERE liker_user_id = $1 AND author_user_id = $2 AND reed_id = $3`
+		WHERE liker_user_id = $1 AND reed_id = $2`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
 	var likerFP string
 	var userSigID, serverSigID int64
-	err := q.QueryRowContext(ctx, query, likerIdentity, authorIdentity, reedID).Scan(&likerFP, &userSigID, &serverSigID)
+	err := q.QueryRowContext(ctx, query, likerIdentity, reedID).Scan(&likerFP, &userSigID, &serverSigID)
 	if err != nil {
 		return nil, err
 	}
@@ -2815,9 +2747,12 @@ func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerId
 	if err != nil {
 		return nil, err
 	}
+	authorUserID, authorServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok {
+		return nil, fmt.Errorf("malformed reed id: %s", reedID)
+	}
 	return &LikeCert{
-		// AuthorID holds this value directly — no decode step.
-		AuthorID: authorIdentity.String(),
+		AuthorID: string(identity.CanonicalID(authorServerID, authorUserID)),
 		ReedID:   reedID,
 		UserSignature: UserSignature{
 			Fingerprint: userRow.PublicKeyID,
@@ -2866,17 +2801,16 @@ func (s *DataService) ListUserFollowing(ctx context.Context, userID string) ([]s
 // is the same local, session-recovering account owner as ListUserFollowing,
 // already in userID@serverID form.
 func (s *DataService) ListUserReeds(ctx context.Context, userID string) (tipReedID *string, reedIDs []string, err error) {
-	selfIdentity := userID
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.id
 		FROM reeds r
 		WHERE r.user_id = $1
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_removals rr
-		      WHERE rr.user_id = r.user_id AND rr.reed_id = r.id
+		      WHERE rr.reed_id = r.id
 		  )
 		ORDER BY r.signed_at DESC, r.id DESC
-	`, selfIdentity)
+	`, userID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list own reeds: %w", err)
 	}
@@ -4167,20 +4101,27 @@ type RippleListResult struct {
 // `timestamp` header, posted_at, and expires_at (= now + 7 days) — one
 // clock reading for the whole request, no client-supplied timestamp
 // anywhere in this flow.
-// reedAuthorID and userID arrive already in userID@serverID form.
+// reedID and userID arrive already canonical/userID@serverID form.
+// reedAuthorID (needed separately by identity.BuildRippleServerPayload,
+// which keeps its own two-param shape — see identity.go) is recovered
+// from reedID via identity.ParseKeyFingerprint.
 // identity.BuildRippleServerPayload still expects bare, so
 // reedAuthorIdentity.UserID()/selfIdentity.UserID() decode just for that
 // call; the returned Ripple struct holds the wire form directly instead.
 func (s *DataService) PostRipple(
 	ctx context.Context,
-	reedAuthorID, reedID, userID, content, threadID string,
+	reedID, userID, content, threadID string,
 	replyingTo *string,
 	userFingerprint, userSigArmor string,
 	countersign func(payload []byte, ts time.Time) (ServerSignature, error),
 	now time.Time,
 ) (*Ripple, error) {
 	now = now.UTC().Truncate(time.Second)
-	reedAuthorIdentity := identity.IdentityID(reedAuthorID)
+	reedAuthorBare, reedAuthorServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok {
+		return nil, fmt.Errorf("malformed reed id: %s", reedID)
+	}
+	reedAuthorIdentity := identity.CanonicalID(reedAuthorServerID, reedAuthorBare)
 	selfIdentity := identity.IdentityID(userID)
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -4209,7 +4150,7 @@ func (s *DataService) PostRipple(
 	// Decode back to bare specifically for the signed payload builder —
 	// see the function doc comment above.
 	serverPayload := identity.BuildRippleServerPayload(
-		serverID, reedAuthorIdentity.UserID(), reedID, selfIdentity.UserID(),
+		serverID, reedAuthorBare, reedID, selfIdentity.UserID(),
 		userFingerprint, threadID, replyingToVal,
 		userSigArmor, now,
 	)
@@ -4231,21 +4172,21 @@ func (s *DataService) PostRipple(
 
 	expiresAt := now.Add(7 * 24 * time.Hour)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO ripples (reed_author_id, reed_id, expires_at)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (reed_author_id, reed_id) DO UPDATE
+		INSERT INTO ripples (reed_id, expires_at)
+		VALUES ($1, $2)
+		ON CONFLICT (reed_id) DO UPDATE
 		SET expires_at = EXCLUDED.expires_at
-	`, reedAuthorIdentity, reedID, expiresAt); err != nil {
+	`, reedID, expiresAt); err != nil {
 		return nil, fmt.Errorf("upsert ripples bookkeeping: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ripple_responses (
-			id, reed_author_id, reed_id, thread_id, user_id,
+			id, reed_id, thread_id, user_id,
 			content, replying_to, deleted, posted_at,
 			user_fingerprint, user_signature_id, server_signature_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8, $9, $10, $11)
-	`, id, reedAuthorIdentity, reedID, threadID, selfIdentity, content, replyingTo, now,
+		) VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8, $9, $10)
+	`, id, reedID, threadID, selfIdentity, content, replyingTo, now,
 		userFingerprint, userSigID, serverSigID); err != nil {
 		return nil, fmt.Errorf("insert ripple response: %w", err)
 	}
@@ -4278,7 +4219,7 @@ func (s *DataService) PostRipple(
 // parent-reed check in the HTTP handler, not here.
 func (s *DataService) GetRipple(ctx context.Context, id string) (*Ripple, error) {
 	r, err := scanRipple(s.db.QueryRowContext(ctx, `
-		SELECT rr.id, rr.reed_author_id, rr.reed_id, rr.thread_id, rr.user_id,
+		SELECT rr.id, rr.reed_id, rr.thread_id, rr.user_id,
 		       rr.content, rr.replying_to, rr.deleted, rr.posted_at,
 		       rr.user_fingerprint, us.signature, ss.fingerprint, ss.signature, ss.signed_at
 		FROM ripple_responses rr
@@ -4323,15 +4264,15 @@ func (r rippleListRow) Scan(dest ...any) error {
 // server's own) — callers set it from DataService.GetServerID() after
 // scanning.
 //
-// rr.reed_author_id and rr.user_id are both FK'd (transitively and
-// directly, respectively — see PostRipple's comment); Ripple's
-// ReedAuthorID/UserID wire fields hold that same value directly,
-// scanned as plain strings with no decode step.
+// rr.reed_id and rr.user_id are both FK'd (transitively and directly,
+// respectively — see PostRipple's comment); Ripple's ReedID/UserID wire
+// fields hold that same value directly, scanned as plain strings with no
+// decode step. ReedAuthorID is derived from ReedID after scanning.
 func scanRipple(row rippleRowScanner) (*Ripple, error) {
 	var r Ripple
 	var replyingTo sql.NullString
 	err := row.Scan(
-		&r.ID, &r.ReedAuthorID, &r.ReedID, &r.ThreadID, &r.UserID, &r.Content,
+		&r.ID, &r.ReedID, &r.ThreadID, &r.UserID, &r.Content,
 		&replyingTo, &r.Deleted, &r.PostedAt,
 		&r.UserFingerprint, &r.UserSignature.Armor,
 		&r.ServerSignature.Fingerprint, &r.ServerSignature.Armor, &r.ServerSignature.SignedAt,
@@ -4341,6 +4282,9 @@ func scanRipple(row rippleRowScanner) (*Ripple, error) {
 	}
 	if replyingTo.Valid {
 		r.ReplyingTo = &replyingTo.String
+	}
+	if authorUserID, authorServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(r.ReedID)); ok {
+		r.ReedAuthorID = string(identity.CanonicalID(authorServerID, authorUserID))
 	}
 	r.UserSignature.Fingerprint = r.UserFingerprint
 	r.ServerSignature.SignedAt = r.ServerSignature.SignedAt.UTC().Truncate(time.Second)
@@ -4375,17 +4319,14 @@ func decodeRippleCursor(s string) (*rippleCursor, error) {
 	return &c, nil
 }
 
-// ListRipples returns ripple responses for (reedAuthorID, reedID) as a
-// flat, already-ordered slice: threads ordered by the thread's own
-// creation time (MIN(posted_at) for that thread_id) oldest first,
-// responses within a thread ordered posted_at ASC. Includes soft-deleted
-// rows and rows from removed-account authors unfiltered — both render
-// as-is one layer up.
-// reedAuthorID is the URL-path-identified reed author, already in
-// userID@serverID form.
+// ListRipples returns ripple responses for reedID as a flat, already-ordered
+// slice: threads ordered by the thread's own creation time (MIN(posted_at)
+// for that thread_id) oldest first, responses within a thread ordered
+// posted_at ASC. Includes soft-deleted rows and rows from removed-account
+// authors unfiltered — both render as-is one layer up. reedID is canonical.
 func (s *DataService) ListRipples(
 	ctx context.Context,
-	reedAuthorID, reedID string,
+	reedID string,
 	limit int,
 	before string,
 ) (*RippleListResult, error) {
@@ -4396,15 +4337,14 @@ func (s *DataService) ListRipples(
 		limit = 100
 	}
 
-	reedAuthorIdentity := reedAuthorID
-	args := []any{reedAuthorIdentity, reedID}
+	args := []any{reedID}
 	query := `
-		SELECT id, reed_author_id, reed_id, thread_id, user_id, content,
+		SELECT id, reed_id, thread_id, user_id, content,
 		       replying_to, deleted, posted_at,
 		       user_fingerprint, user_sig, server_fingerprint, server_sig, server_signed_at,
 		       thread_created_at
 		FROM (
-			SELECT rr.id, rr.reed_author_id, rr.reed_id, rr.thread_id, rr.user_id,
+			SELECT rr.id, rr.reed_id, rr.thread_id, rr.user_id,
 			       rr.content, rr.replying_to, rr.deleted, rr.posted_at,
 			       rr.user_fingerprint, us.signature AS user_sig,
 			       ss.fingerprint AS server_fingerprint, ss.signature AS server_sig,
@@ -4413,7 +4353,7 @@ func (s *DataService) ListRipples(
 			FROM ripple_responses rr
 			JOIN user_signatures us ON us.id = rr.user_signature_id
 			JOIN server_signatures ss ON ss.id = rr.server_signature_id
-			WHERE rr.reed_author_id = $1 AND rr.reed_id = $2
+			WHERE rr.reed_id = $1
 		) t
 	`
 	if before != "" {
@@ -4480,13 +4420,12 @@ func (s *DataService) ListRipples(
 
 // GetRipplesExpiresAt returns the reed's shared expires_at from the
 // ripples bookkeeping row, or the zero time if no ripple has ever been
-// posted to this reed. reedAuthorID is already in userID@serverID form.
-func (s *DataService) GetRipplesExpiresAt(ctx context.Context, reedAuthorID, reedID string) (time.Time, error) {
-	reedAuthorIdentity := reedAuthorID
+// posted to this reed. reedID is canonical.
+func (s *DataService) GetRipplesExpiresAt(ctx context.Context, reedID string) (time.Time, error) {
 	var expiresAt time.Time
 	err := s.db.QueryRowContext(ctx, `
-		SELECT expires_at FROM ripples WHERE reed_author_id = $1 AND reed_id = $2
-	`, reedAuthorIdentity, reedID).Scan(&expiresAt)
+		SELECT expires_at FROM ripples WHERE reed_id = $1
+	`, reedID).Scan(&expiresAt)
 	if err == sql.ErrNoRows {
 		return time.Time{}, nil
 	}

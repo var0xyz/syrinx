@@ -25,18 +25,23 @@ var ErrAuthorNotFound = errors.New("reed author not found")
 // SaveReed inserts reed metadata if missing; rejects conflicting metadata;
 // always upserts an allocation for reporterUserID. Caller must have
 // verified the countersignature. Checks identities, not users, so a
-// provisional row still works for a remote author.
+// provisional row still works for a remote author. reedID is canonical
+// (authorID@serverID/uuid); the author identity is recovered from it.
 func SaveReed(ctx context.Context,
 	db *sql.DB,
 	serverID string,
-	reedID, authorID, fingerprint string,
+	reedID, fingerprint string,
 	signedAt time.Time,
 	reporterUserID string,
 	userFingerprint, userSignatureB64 string,
 	serverSignatureB64 string,
 ) error {
 	signedAt = signedAt.UTC().Truncate(time.Second)
-	authorIdentity := identity.CanonicalID(serverID, authorID)
+	authorBare, authorServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok {
+		return fmt.Errorf("malformed reed id: %s", reedID)
+	}
+	authorIdentity := identity.CanonicalID(authorServerID, authorBare)
 	reporterIdentity := identity.CanonicalID(serverID, reporterUserID)
 
 	tx, err := db.BeginTx(ctx, nil)
@@ -57,9 +62,9 @@ func SaveReed(ctx context.Context,
 	var existingAt time.Time
 	err = tx.QueryRowContext(ctx, `
 		SELECT user_id, private_key_fingerprint, signed_at
-		FROM reeds WHERE user_id = $1 AND id = $2
+		FROM reeds WHERE id = $1
 		FOR UPDATE
-	`, authorIdentity, reedID).Scan(&existingAuthor, &existingFP, &existingAt)
+	`, reedID).Scan(&existingAuthor, &existingFP, &existingAt)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -95,12 +100,12 @@ func SaveReed(ctx context.Context,
 	}
 
 	// reed_allocations.holder_user_id is a direct FK to identities(id);
-	// author_user_id is composite-FK'd via reeds(user_id, id).
+	// reed_id FKs to reeds(id).
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO reed_allocations (reed_id, holder_user_id, author_user_id)
-		VALUES ($1, $2, $3)
+		INSERT INTO reed_allocations (reed_id, holder_user_id)
+		VALUES ($1, $2)
 		ON CONFLICT DO NOTHING
-	`, reedID, reporterIdentity, authorIdentity)
+	`, reedID, reporterIdentity)
 	if err != nil {
 		return fmt.Errorf("insert reed allocation: %w", err)
 	}
@@ -109,8 +114,7 @@ func SaveReed(ctx context.Context,
 		return err
 	}
 	if n > 0 {
-		// reeds.user_id is the same FK'd column as above.
-		if err := coverage.BumpAllocationCount(ctx, tx, string(authorIdentity), reedID, 1); err != nil {
+		if err := coverage.BumpAllocationCount(ctx, tx, reedID, 1); err != nil {
 			return err
 		}
 	}
