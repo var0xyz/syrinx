@@ -2,7 +2,7 @@ import type * as api from '$lib/types/api';
 import { deviceIdHeader } from './deviceId';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
-import { parseKeyId } from '$lib/utils/keyId';
+import { appendFingerprint, formatServerKeyId, parseKeyId } from '$lib/utils/keyId';
 import {
   handleDeviceMismatch,
   handleFinishRecoveryForbidden,
@@ -79,23 +79,30 @@ export type UsernameAvailabilityResult =
   | { available: false; taken: true; message: string }
   | { available: false; taken: false; message: string; status: number };
 
+/** userId must already be canonical (userID@serverID); fingerprint may be
+ * bare or already a full canonical key id — passed through as-is either way. */
+function canonicalKeyId(userId: string, fingerprint: string): string {
+  return parseKeyId(fingerprint) ? fingerprint : appendFingerprint(userId, fingerprint);
+}
+
 // Unauthenticated endpoints that don't need signing.
-// `/server/keys` is public verification material — required so clients can
-// verify countersignatures even when their active user key is revoked
-// (e.g. mid-rotation, right after RevokeKey).
+// `/keys` (exact) is POST AddPublicKey — unauthenticated because a brand
+// new signup key has no session yet. Every other /keys/{id}... route
+// (GetKey, revoke, revocation) requires the caller's signature, mirroring
+// signatureAuthMiddleware's excludePaths in middlewares.go: only the bare
+// path is excluded, not the whole prefix.
 const UNAUTHENTICATED_ENDPOINTS = [
   '/users/id',
   '/users/signup',
   '/users/status',
   '/check-username',
-  '/keys',
   '/server/info',
-  '/server/keys',
   '/recovery/identity/claim',
   '/account-recovery/challenge',
   '/account-recovery/bootstrap',
   '/invites/check',
 ];
+const UNAUTHENTICATED_EXACT_PATHS = ['/keys'];
 
 /** Signs (if needed), sends, and validates the response — shared by request()
  * (JSON body) and requestText() (plain text body); each only differs in how
@@ -104,7 +111,9 @@ async function requestRaw(path: string, init?: RequestInit): Promise<Response> {
   let signedInit = init;
 
   // Check if this is an authenticated request
-  const isAuthenticated = !UNAUTHENTICATED_ENDPOINTS.some(endpoint => path.startsWith(endpoint));
+  const isAuthenticated =
+    !UNAUTHENTICATED_ENDPOINTS.some(endpoint => path.startsWith(endpoint)) &&
+    !UNAUTHENTICATED_EXACT_PATHS.some(endpoint => path === endpoint);
 
   if (isAuthenticated) {
     try {
@@ -794,23 +803,23 @@ export const apiService = {
     return request<void>(`/reeds/${authorId}/${reedId}/like`, { method: 'DELETE' });
   },
 
-  // revokeKey/getKeyRevocation/getPublicKey accept the canonical fingerprint
-  // (userID@serverID/fingerprint) and extract the bare suffix for the URL —
-  // {userID} is already a separate path segment carrying that same prefix,
-  // and a canonical fingerprint's "/" would break the route. See main.go's
-  // route registration comment for the server-side half of this.
+  // revokeKey/getKeyRevocation/getPublicKey accept either a bare fingerprint
+  // or an already-canonical key id and build the full canonical id
+  // (userID@serverID/fingerprint) for the URL — GET/POST /keys/{id:.+} takes
+  // the whole id as one greedy path segment now, not a separate {userID}
+  // plus a bare {fingerprint}. See main.go's route registration comment.
   async revokeKey(
     userId: string,
     fingerprint: string,
     reason: string,
     userSignature: string
   ): Promise<api.PublicKey> {
-    const bareFingerprint = parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
+    const id = canonicalKeyId(userId, fingerprint);
     const formData = new URLSearchParams();
     formData.append('reason', reason);
     formData.append('userSignature', userSignature);
 
-    const key = await request<api.PublicKey>(`/users/${userId}/keys/${bareFingerprint}/revoke`, {
+    const key = await request<api.PublicKey>(`/keys/${id}/revoke`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()
@@ -819,11 +828,8 @@ export const apiService = {
   },
 
   async getKeyRevocation(userId: string, fingerprint: string): Promise<api.KeyRevocation> {
-    const bareFingerprint = parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
-    return request<api.KeyRevocation>(
-      `/users/${userId}/keys/${bareFingerprint}/revocation`,
-      { method: 'GET' }
-    );
+    const id = canonicalKeyId(userId, fingerprint);
+    return request<api.KeyRevocation>(`/keys/${id}/revocation`, { method: 'GET' });
   },
 
   async followUser(targetUserId: string): Promise<void> {
@@ -835,13 +841,22 @@ export const apiService = {
   },
 
   async getPublicKey(userID: string, fingerprint: string): Promise<api.PublicKey> {
-    const bareFingerprint = parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
-    const key = await request<api.PublicKey>(`/users/${userID}/keys/${bareFingerprint}`, { method: 'GET' });
+    const id = canonicalKeyId(userID, fingerprint);
+    const key = await request<api.PublicKey>(`/keys/${id}`, { method: 'GET' });
     return { ...key, armor: atob(key.armor) };
   },
 
-  /** Fetch a historical server signing public key by fingerprint (cached in publicKeys). */
-  async getServerPublicKey(fingerprint: string): Promise<{ fingerprint: string; armor: string }> {
+  /**
+   * Fetch a server's own signing public key (local or, transparently via
+   * server-side proxying, a federated peer's — see GetKey/proxyIfForeign in
+   * handlers.go) by its bare fingerprint + serverID, cached in publicKeys
+   * under the bare fingerprint (server keys share the store with user keys,
+   * which are keyed by their canonical id — the two id shapes never
+   * collide). A server's own key has no owning user, so its canonical id
+   * for the fetch itself is "fingerprint@serverID", not
+   * "userID@serverID/fingerprint".
+   */
+  async getServerPublicKey(fingerprint: string, serverID: string): Promise<{ fingerprint: string; armor: string }> {
     const fp = fingerprint.trim();
     const { dbService } = await import('./db');
     const cached = await dbService.get<{ fingerprint: string; armor: string }>('publicKeys', fp);
@@ -849,11 +864,9 @@ export const apiService = {
       return { fingerprint: cached.fingerprint, armor: cached.armor };
     }
 
-    const wireKey = await request<{ fingerprint: string; armor: string }>(
-      `/server/keys/${fp}`,
-      { method: 'GET' }
-    );
-    const key = { fingerprint: wireKey.fingerprint, armor: atob(wireKey.armor) };
+    const id = formatServerKeyId(fp, serverID);
+    const wireKey = await request<api.PublicKey>(`/keys/${id}`, { method: 'GET' });
+    const key = { fingerprint: fp, armor: atob(wireKey.armor) };
     try {
       const { allowUnsigned } = await import('$lib/verifiers');
       await dbService.put('publicKeys', key, allowUnsigned);

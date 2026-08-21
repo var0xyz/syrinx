@@ -13,8 +13,15 @@ export class RevocationRepository {
     this.db = db;
   }
 
+  /**
+   * `fingerprint` duplicates `revokedId` (the revoked key's canonical id)
+   * on the stored record only — the IndexedDB store's keyPath is still the
+   * literal property name `fingerprint` (see db.ts's v10 comment), while
+   * the wire type names that same field `revokedId`.
+   */
   async put(revocation: api.KeyRevocation): Promise<void> {
-    await this.db.put('revocations', revocation, verifyKeyRevocation);
+    const record = { ...revocation, fingerprint: revocation.revokedId };
+    await this.db.put('revocations', record, verifyKeyRevocation);
   }
 
   async get(fingerprint: string): Promise<api.KeyRevocation | null> {

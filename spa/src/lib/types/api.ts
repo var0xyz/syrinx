@@ -46,42 +46,37 @@ export interface UserInfo extends Base {
   profileTimestamp: string;
 }
 
-export interface PublicKeyIdentity extends Base {
-  id: string;
-  value: string;
-};
-
-// KeyPredecessor is the rotation handoff proof on keys uploaded via
-// AddPublicKey: predecessor fingerprint + detached signature over armor.
+// KeyPredecessor is a plain forward-pointer to the key this one replaced —
+// no signature here; the predecessor's *own* revocation row carries the
+// proof it approved the rotation (KeyRevocation.successorSignature).
 export interface KeyPredecessor extends Base {
-  fingerprint: string;
-  signature: string;
+  id: string;
 };
 
-// PublicKey is the wire shape of a distributed user public key.
-// `serverSignature` is required (countersignature over userID/fingerprint/armor).
+// PublicKey is the wire shape of a distributed user or server public key.
+// `serverSignature` is required (countersignature over userID/id/armor).
 // `revoked` is computed on read — revocation details live in KeyRevocation.
 // `predecessor` is null for signup keys; set for rotation keys.
 export interface PublicKey extends Base {
-  fingerprint: string;
+  id: string;
   userID: string;
   armor: string;
   createdAt?: string;
-  expiresAt?: string | null;
-  identities?: PublicKeyIdentity[];
   revoked: boolean;
   predecessor: KeyPredecessor | null;
   serverSignature: ServerSignature;
 };
 
 // KeyRevocation is the wire shape of a signed revocation attestation.
-// Revoke time is serverSignature.timestamp. successor is bookkeeping written
-// later by AddPublicKey and is not covered by either signature.
+// Revoke time is serverSignature.timestamp. successor/successorSignature are
+// bookkeeping written later by AddPublicKey (proof the *old* key approved
+// the new one) and are not covered by either of this cert's own signatures.
 export interface KeyRevocation extends Base {
-  fingerprint: string;
+  revokedId: string;
   userID: string;
   reason: string;
   successor: string | null;
+  successorSignature: string | null;
   userSignature: UserSignature;
   serverSignature: ServerSignature;
 };
@@ -91,6 +86,20 @@ export interface KeyRevocation extends Base {
 // active key; predecessor walks back to the signup key (null). `signature`
 // is set only on predecessor links: the older key's detached sig over the
 // newer (parent) key's armor.
+//
+// This bundle format is deliberately bare-everything (recovery/wire.go's
+// signed-payload exception — see recovery/nest.go) and predates the
+// /keys unification, so it keeps its own `fingerprint`-named revocation
+// shape rather than reusing KeyRevocation.
+export interface RecoveryKeyRevocation extends Base {
+  fingerprint: string;
+  userID: string;
+  reason: string;
+  successor: string | null;
+  userSignature: UserSignature;
+  serverSignature: ServerSignature;
+};
+
 export interface RecoveryKeyNode extends Base {
   fingerprint: string;
   userID: string;
@@ -100,7 +109,7 @@ export interface RecoveryKeyNode extends Base {
   revoked: boolean;
   serverSignature: ServerSignature;
   signature?: string;
-  revocation: KeyRevocation | null;
+  revocation: RecoveryKeyRevocation | null;
   predecessor: RecoveryKeyNode | null;
 };
 

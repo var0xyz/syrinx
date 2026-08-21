@@ -161,10 +161,11 @@
 
   async function copyOwnPublicKey() {
     const fingerprint = $serverInfo?.serverKeyFingerprint;
-    if (!fingerprint || copyingOwnKey) return;
+    const serverId = $serverInfo?.id;
+    if (!fingerprint || !serverId || copyingOwnKey) return;
     copyingOwnKey = true;
     try {
-      const { armor } = await apiService.getServerPublicKey(fingerprint);
+      const { armor } = await apiService.getServerPublicKey(fingerprint, serverId);
       await navigator.clipboard.writeText(armor);
       notificationStore.success('Server public key copied');
     } catch (err) {

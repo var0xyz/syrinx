@@ -2,15 +2,19 @@
  * Local key-nest assemble-ability check and wire KeyNode construction for
  * claim / peer identity POST bodies.
  *
- * Fingerprints on this wire (KeyNode.fingerprint, PublicKey.predecessor.fingerprint,
- * KeyRevocation.fingerprint) travel BARE — recovery/wire.go's server-side
- * "DELIBERATE EXCEPTION" comment covers this too, not just userIDs:
- * verifyKeyCountersig/verifyRevocation pair a bare fingerprint with a bare
- * userID inside the exact bytes the server reconstructs to verify, so a
- * canonical fingerprint here would produce bytes that don't match what was
- * actually signed. Local lookups (publicKeys/revocations IndexedDB) are
- * keyed canonically though, so every fingerprint pulled from a lookup is
- * extracted back to bare before landing on the wire node.
+ * Fingerprints on this wire (KeyNode.fingerprint, KeyRevocation.fingerprint)
+ * travel BARE — recovery/wire.go's server-side "DELIBERATE EXCEPTION"
+ * comment covers this too, not just userIDs: verifyKeyCountersig/
+ * verifyRevocation pair a bare fingerprint with a bare userID inside the
+ * exact bytes the server reconstructs to verify, so a canonical fingerprint
+ * here would produce bytes that don't match what was actually signed.
+ * Local lookups (publicKeys/revocations IndexedDB) are keyed canonically
+ * though, so every fingerprint pulled from a lookup is extracted back to
+ * bare before landing on the wire node.
+ *
+ * The predecessor handoff signature (KeyNode.signature) no longer lives on
+ * PublicKey.predecessor (now just {id}, see types/api.ts) — it's one hop
+ * away, on the predecessor's own KeyRevocation.successorSignature.
  */
 
 import type * as api from '$lib/types/api';
@@ -43,15 +47,17 @@ export type NestBuildResult =
  * Walk activeKeyFingerprint → predecessor using only local IndexedDB-shaped
  * lookups. No network. Buildable iff every hop has armor + server and the
  * chain ends at a signup key (predecessor == null), without gaps or cycles.
+ *
+ * Needs a real getRevocation (not a null stub): a rotation hop's handoff
+ * proof lives on the predecessor's own revocation.successorSignature, not
+ * on PublicKey.predecessor itself (see this file's header comment) — so
+ * assembling any nest with a rotation requires revocation data.
  */
 export function canAssembleKeyNest(
   userId: string,
-  lookups: KeyNestLookups
+  lookups: KeyNestBuildLookups
 ): NestAssembleResult {
-  const built = buildKeyNest(userId, {
-    ...lookups,
-    getRevocation: () => null,
-  });
+  const built = buildKeyNest(userId, lookups);
   if (built.ok === false) {
     return { ok: false, reason: built.reason };
   }
@@ -60,9 +66,11 @@ export function canAssembleKeyNest(
 
 /**
  * Build the recursive wire nest for claim / peer identity from local stores.
- * Puts PublicKey.predecessor.signature on the child node's `signature`
- * (older key's sig over parent armor). Attaches revocation by fingerprint
- * or null.
+ * Puts the predecessor's own revocation.successorSignature on the child
+ * node's `signature` (older key's sig over parent armor) — that's where
+ * the rotation handoff proof lives now, one hop from PublicKey.predecessor
+ * (now just {id}; see types/api.ts). Attaches each node's own revocation
+ * by fingerprint or null.
  */
 export function buildKeyNest(
   userId: string,
@@ -105,36 +113,47 @@ export function buildKeyNest(
       };
     }
 
+    const revocation = lookups.getRevocation(fingerprint) ?? null;
+    // Built explicitly, not spread: RecoveryKeyRevocation is a narrower,
+    // deliberately bare-fingerprint shape (recovery/wire.go) and has no
+    // successorSignature field — that's /keys-API-only bookkeeping.
+    const wireRevocation: api.RecoveryKeyRevocation | null = revocation
+      ? {
+          fingerprint: bareFingerprint(revocation.revokedId),
+          userID: revocation.userID,
+          reason: revocation.reason,
+          successor: revocation.successor,
+          userSignature: revocation.userSignature,
+          serverSignature: revocation.serverSignature,
+        }
+      : null;
+
     let predecessor: api.RecoveryKeyNode | null = null;
     if (key.predecessor != null) {
-      if (!key.predecessor.fingerprint) {
+      if (!key.predecessor.id) {
         return {
           ok: false,
           reason: `incomplete predecessor on ${fingerprint}`,
         };
       }
-      if (!key.predecessor.signature) {
+      // The handoff proof (predecessor's sig over this key's armor) lives
+      // on the PREDECESSOR's own revocation row, not this key's.
+      const predRevocation = lookups.getRevocation(key.predecessor.id) ?? null;
+      if (!predRevocation?.successorSignature) {
         return {
           ok: false,
-          reason: `missing predecessor signature on ${fingerprint}`,
+          reason: `missing predecessor handoff signature on ${fingerprint}`,
         };
       }
-      const child = buildNode(
-        key.predecessor.fingerprint,
-        key.predecessor.signature
-      );
+      const child = buildNode(key.predecessor.id, predRevocation.successorSignature);
       if (child.ok === false) {
         return child;
       }
       predecessor = child.key;
     }
 
-    const revocation = lookups.getRevocation(fingerprint) ?? null;
-    const wireRevocation = revocation
-      ? { ...revocation, fingerprint: bareFingerprint(revocation.fingerprint) }
-      : null;
     const node: api.RecoveryKeyNode = {
-      fingerprint: bareFingerprint(key.fingerprint),
+      fingerprint: bareFingerprint(key.id),
       userID: key.userID,
       armor: btoa(key.armor),
       revoked: key.revoked,
@@ -144,9 +163,6 @@ export function buildKeyNest(
     };
     if (key.createdAt !== undefined) {
       node.createdAt = key.createdAt;
-    }
-    if (key.expiresAt !== undefined) {
-      node.expiresAt = key.expiresAt;
     }
     if (linkSignature) {
       node.signature = linkSignature;
