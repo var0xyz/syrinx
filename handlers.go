@@ -2916,7 +2916,10 @@ func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id str
 func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServerID, baseURL string) {
 	log := h.services.log.GetLogger(r.Context())
 
-	target := strings.TrimRight(baseURL, "/") + "/api" + r.URL.Path
+	// r.URL.Path already carries the "/api" prefix — gorilla/mux's
+	// PathPrefix("/api").Subrouter() matches on it but does not strip it
+	// from the request, unlike some other routers' subrouter semantics.
+	target := strings.TrimRight(baseURL, "/") + r.URL.Path
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
