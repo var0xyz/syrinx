@@ -189,7 +189,11 @@ func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint,
 }
 
 // signedUpUser creates a user with a real keypair (needed to sign requests
-// against authenticated endpoints in tests) and returns its keypair.
+// against authenticated endpoints in tests) and returns its keypair. The
+// returned KeyPair.Fingerprint stays bare (matching what
+// h.services.crypto.CreateKeyPair produces) since callers use it to build
+// the bare X-Syrinx-Fingerprint header via signedRequest — DataService.Signup
+// itself is given the canonical form, matching what handlers.go now does.
 func signedUpUser(t *testing.T, h *Handlers, userID, username string) crypto.KeyPair {
 	t.Helper()
 	kp, err := h.services.crypto.CreateKeyPair(userID, "", "")
@@ -197,7 +201,9 @@ func signedUpUser(t *testing.T, h *Handlers, userID, username string) crypto.Key
 		t.Fatal(err)
 	}
 	in := signupInput(userID, username, nil)
-	in.Fingerprint = kp.Fingerprint
+	in.Fingerprint = string(identity.AppendEntity(
+		identity.CanonicalID(h.services.db.GetServerID(), userID), kp.Fingerprint,
+	))
 	in.PublicKeyArmor = kp.PublicKey
 	in.KeyCreatedAt = time.Now().UTC().Truncate(time.Second)
 	if _, err := h.services.db.Signup(t.Context(), in); err != nil {
@@ -317,7 +323,10 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	identityPayload := identity.BuildUserIdentityPayload("bob", kp.Fingerprint, "")
+	canonicalFingerprint := string(identity.AppendEntity(
+		identity.CanonicalID(h.services.db.GetServerID(), userID), kp.Fingerprint,
+	))
+	identityPayload := identity.BuildUserIdentityPayload("bob", canonicalFingerprint, "")
 	userSigArmor, err := h.services.crypto.Sign(string(identityPayload), kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
@@ -349,7 +358,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		t.Fatalf("signup response id = %q, want %q", user.ID, wantID)
 	}
 
-	key, err := h.services.db.GetPublicKey(t.Context(), user.ID, kp.Fingerprint)
+	key, err := h.services.db.GetPublicKey(t.Context(), canonicalFingerprint)
 	if err != nil || key == nil {
 		t.Fatalf("GetPublicKey: key=%v err=%v", key, err)
 	}
