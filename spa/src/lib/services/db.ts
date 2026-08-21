@@ -54,7 +54,20 @@ export class IndexedDbService implements DbService {
   // collision.
   // v9: added 'ripples', keyed by hash (content-addressed, globally
   // unique — see specs/ripples/00_design.md's Signing section).
-  private readonly version = 9;
+  // v10: user-key fingerprints became canonical (userID@serverID/fingerprint,
+  // was bare) on 'privateKeys', 'publicKeys', 'revocations', and
+  // 'pendingRevocation'. keyPath stays 'fingerprint' on all four — only the
+  // VALUE shape changed, not the key structure — but an existing bare-keyed
+  // row can never match a canonical-keyed lookup again, so it's dead weight.
+  // 'publicKeys'/'revocations' are pure server mirrors (the "no resync
+  // fallback" warning above does NOT apply to them — only to
+  // privateKeys/unsignedReeds); they're cleared here and repopulate on next
+  // use via the existing fetch-on-miss paths. 'privateKeys' (irreplaceable
+  // local-only key material) and 'pendingRevocation' (unsynced local intent)
+  // must NOT be cleared — see migratePrivateKeyFingerprintsV10 in
+  // repositories/privateKey.ts and pendingRevocation.ts, called once from
+  // app bootstrap after this store upgrade completes.
+  private readonly version = 10;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -129,6 +142,14 @@ export class IndexedDbService implements DbService {
         // and 'serverSignature.timestamp' as regular (non-key) indexes for
         // getReedsByAuthor / deleteReedsByAuthor / recency queries.
         ensureStore('reeds', ['userID', 'id'], ['userID', 'serverSignature.timestamp']);
+
+        // v10: see the version comment above. Only run for clients
+        // upgrading from an existing DB (oldVersion > 0) — a brand new
+        // client has nothing to clear.
+        if (event.oldVersion > 0 && event.oldVersion < 10) {
+          tx.objectStore('publicKeys').clear();
+          tx.objectStore('revocations').clear();
+        }
       };
     });
   }
