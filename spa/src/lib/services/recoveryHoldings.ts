@@ -5,13 +5,13 @@
 import type { ReedType } from '$lib/types/reed';
 import { apiService } from './api';
 import { dbService } from './db';
+import { parseKeyId } from '$lib/utils/keyId';
 
 /** POST one reed from IndexedDB (must have server block + user signature).
  * Recovery only ever reports the current device's own account's reeds. */
 export async function reportRecoveryReed(reedId: string): Promise<void> {
   await dbService.init();
-  const ownUserId = localStorage.getItem('userId') ?? '';
-  const reed = await dbService.get<ReedType>('reeds', [ownUserId, reedId]);
+  const reed = await dbService.get<ReedType>('reeds', reedId);
   if (!reed) {
     throw new Error(`Missing reed ${reedId}`);
   }
@@ -25,8 +25,12 @@ export async function reportRecoveryReed(reedId: string): Promise<void> {
     throw new Error(`Reed ${reedId} missing userID`);
   }
 
+  // recovery/wire.go's ReedRequest is a deliberate bare-everything
+  // exception (recoveryKeyNest.ts signs bare payloads) — send the bare
+  // suffix, not the canonical reed.id.
+  const bareReedID = parseKeyId(reed.id)?.fingerprint ?? reed.id;
   await apiService.reportRecoveryReed({
-    reedID: reed.id,
+    reedID: bareReedID,
     authorID: reed.userID,
     userSignature: reed.userSignature,
     serverSignature: reed.serverSignature,

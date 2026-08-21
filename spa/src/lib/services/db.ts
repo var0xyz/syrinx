@@ -17,8 +17,7 @@ export function payloadByteLength(data: unknown): number {
 }
 
 /** A store's primary key: a single string for most stores, or an array for
- * a store whose keyPath is a compound key (currently just 'reeds':
- * [userID, id] — see storeNames below). */
+ * a store whose keyPath is a compound key. */
 export type DbKey = string | string[];
 
 export interface DbService {
@@ -78,7 +77,15 @@ export class IndexedDbService implements DbService {
   // fallback" exemption as v10 above) — dropped and recreated rather than
   // re-keying rows in place; they repopulate on next use via the existing
   // fetch-on-miss paths.
-  private readonly version = 11;
+  //
+  // v12: reed ids are now globally canonical (authorID@serverID/uuid, was
+  // author-scoped-only), so 'reeds' collapses from compound [userID, id]
+  // to a single-string keyPath 'id' — same shape as 'ripples'. Unlike
+  // v10/v11's server-mirror stores, 'reeds' holds real user-authored
+  // content and cannot be cleared; existing rows are re-keyed in place
+  // (each row already has both userID and id, so the new key is
+  // computable without any external session state).
+  private readonly version = 12;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -136,6 +143,30 @@ export class IndexedDbService implements DbService {
           }
         }
 
+        // v12: 'reeds' changes keyPath (compound [userID, id] -> single
+        // 'id' — see the version comment above). Unlike publicKeys/
+        // revocations, rows here are real content and must be re-keyed,
+        // not dropped: read everything out under the old compound key,
+        // delete the store, recreate it with the new keyPath (below), then
+        // reinsert — all within this same versionchange transaction (each
+        // row already carries both userID and id, so the new key is just
+        // row.id).
+        let needsReedsRekey = false;
+        if (db.objectStoreNames.contains('reeds')) {
+          const oldStore = tx.objectStore('reeds');
+          needsReedsRekey = Array.isArray(oldStore.keyPath) && oldStore.keyPath.join(',') === 'userID,id';
+          if (needsReedsRekey) {
+            oldStore.getAll().onsuccess = (e) => {
+              const rows = (e.target as IDBRequest<unknown[]>).result;
+              db.deleteObjectStore('reeds');
+              const newStore = db.createObjectStore('reeds', { keyPath: 'id' });
+              newStore.createIndex('userID', 'userID', { unique: false });
+              newStore.createIndex('serverSignature.timestamp', 'serverSignature.timestamp', { unique: false });
+              for (const row of rows) newStore.put(row);
+            };
+          }
+        }
+
         // NOTE: keyPath is immutable on an existing store — IndexedDB has
         // no in-place "change the key" API. If a future change needs a
         // different keyPath for a store that already shipped (like v8's
@@ -162,10 +193,11 @@ export class IndexedDbService implements DbService {
           ensureStore(storeName, keyPath, indexes);
         }
 
-        // Compound key: a reed ID is only unique per author. Keeps 'userID'
-        // and 'serverSignature.timestamp' as regular (non-key) indexes for
-        // getReedsByAuthor / deleteReedsByAuthor / recency queries.
-        ensureStore('reeds', ['userID', 'id'], ['userID', 'serverSignature.timestamp']);
+        // Reed ids are canonical (globally unique) as of v12; skip when the
+        // async re-key above already recreated the store with this keyPath.
+        if (!needsReedsRekey) {
+          ensureStore('reeds', 'id', ['userID', 'serverSignature.timestamp']);
+        }
       };
     });
   }

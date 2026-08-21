@@ -70,7 +70,7 @@
       };
     }
 
-    const reedCert = await removedReedsRepository.get(targetReedId);
+    const reedCert = await removedReedsRepository.get(refForReed(authorId, targetReedId));
     if (reedCert && reedCert.userID === authorId) {
       return {
         userID: reedCert.userID,
@@ -150,7 +150,7 @@
           loading = false;
           return;
         }
-        source = await reedsService.getReed(parsed.authorId, parsed.reedId);
+        source = await reedsService.getReed(ref);
         if (seq !== loadSeq) return;
         if (!source) {
           const gone = await resolveGone(parsed.authorId, parsed.reedId);
@@ -176,8 +176,8 @@
         return;
       }
 
-      const resolved = await resolveBlankEchoChain(source, (authorId, targetReedId) =>
-        reedsService.getReed(authorId, targetReedId)
+      const resolved = await resolveBlankEchoChain(source, (canonicalRef) =>
+        reedsService.getReed(canonicalRef)
       );
       if (seq !== loadSeq) return;
       const resolvedUsername = await loadUsername(resolved.userID);

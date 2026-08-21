@@ -300,7 +300,7 @@
       reed = null;
       return;
     }
-    const reedCert = await removedReedsRepository.get(reedID);
+    const reedCert = await removedReedsRepository.get(refForReed(userID, reedID));
     if (reedCert && reedCert.userID === userID) {
       removedReedCert = reedCert;
       reed = null;
@@ -345,7 +345,7 @@
     if (!user || !userID || !reedID) return;
     const requestedUserID = userID;
     const requestedReedID = reedID;
-    let found = await reedsService.getReed(requestedUserID, requestedReedID);
+    let found = await reedsService.getReed(refForReed(requestedUserID, requestedReedID));
     if (!found && user.id === requestedUserID) {
       const pending = await reedsService.getUnsignedReed(requestedReedID);
       if (pending?.userID === requestedUserID) found = pending;
@@ -486,9 +486,7 @@
   // Action button handlers
   async function resolveReplyEchoTarget() {
     if (!reed) return reed;
-    return resolveBlankEchoChain(reed, (authorId, targetReedId) =>
-      reedsService.getReed(authorId, targetReedId)
-    );
+    return resolveBlankEchoChain(reed, (canonicalRef) => reedsService.getReed(canonicalRef));
   }
 
   async function handleEcho() {
