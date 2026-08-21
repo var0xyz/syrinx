@@ -26,7 +26,7 @@ func ensureFollowCountSchema(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS servers (id VARCHAR(255) PRIMARY KEY, self BOOLEAN NOT NULL DEFAULT FALSE)`,
 		`INSERT INTO servers (id, self) VALUES ('testserver', TRUE) ON CONFLICT (id) DO UPDATE SET self = EXCLUDED.self`,
-		`CREATE TABLE IF NOT EXISTS user_signatures (id SERIAL PRIMARY KEY, fingerprint VARCHAR(255) NOT NULL, signature TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS user_signatures (id SERIAL PRIMARY KEY, public_key_id VARCHAR(255) NOT NULL, signature TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (id SERIAL PRIMARY KEY, fingerprint VARCHAR(255) NOT NULL, signature TEXT NOT NULL, signed_at TIMESTAMP NOT NULL)`,
 		`DROP TABLE IF EXISTS user_followers CASCADE`,
 		`DROP TABLE IF EXISTS user_following CASCADE`,
@@ -103,7 +103,7 @@ func insertFollowCountTestUser(t *testing.T, db *sql.DB, userID, username string
 	}
 	var userSigID, serverSigID int
 	if err := db.QueryRow(
-		`INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, 'sig') RETURNING id`,
+		`INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, 'sig') RETURNING id`,
 		"fp-"+userID,
 	).Scan(&userSigID); err != nil {
 		t.Fatalf("insert user_signatures for %s: %v", userID, err)

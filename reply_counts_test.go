@@ -22,7 +22,7 @@ func ensureReplyCountSchema(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS servers (id VARCHAR(255) PRIMARY KEY, self BOOLEAN NOT NULL DEFAULT FALSE)`,
 		`INSERT INTO servers (id, self) VALUES ('testserver', TRUE) ON CONFLICT (id) DO UPDATE SET self = EXCLUDED.self`,
-		`CREATE TABLE IF NOT EXISTS user_signatures (id SERIAL PRIMARY KEY, fingerprint VARCHAR(255) NOT NULL, signature TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS user_signatures (id SERIAL PRIMARY KEY, public_key_id VARCHAR(255) NOT NULL, signature TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (id SERIAL PRIMARY KEY, fingerprint VARCHAR(255) NOT NULL, signature TEXT NOT NULL, signed_at TIMESTAMP NOT NULL)`,
 		`DROP TABLE IF EXISTS reed_replies CASCADE`,
 		`DROP TABLE IF EXISTS reeds CASCADE`,
@@ -92,7 +92,7 @@ func seedReplyTestUser(t *testing.T, db *sql.DB, userID string) {
 		t.Fatal(err)
 	}
 	var usID, ssID int
-	if err := db.QueryRow(`INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, 'sig') RETURNING id`, userID+"fp").Scan(&usID); err != nil {
+	if err := db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, 'sig') RETURNING id`, userID+"fp").Scan(&usID); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "srvfp").Scan(&ssID); err != nil {
@@ -110,7 +110,7 @@ func seedReplyTestReed(t *testing.T, db *sql.DB, userID, reedID string) {
 	t.Helper()
 	identityID := string(identity.CanonicalID("testserver", userID))
 	var usID, ssID int
-	if err := db.QueryRow(`INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, 'sig') RETURNING id`, reedID+"fp").Scan(&usID); err != nil {
+	if err := db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, 'sig') RETURNING id`, reedID+"fp").Scan(&usID); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "srvfp2").Scan(&ssID); err != nil {

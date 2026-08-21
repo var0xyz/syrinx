@@ -2649,7 +2649,7 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reeds_liked (
-				liker_user_id, author_user_id, reed_id, liker_fingerprint,
+				liker_user_id, author_user_id, reed_id, liker_public_key_id,
 				user_signature_id, server_signature_id
 			) VALUES ($1, $2, $3, $4, $5, $6)
 		`, likerIdentity, authorIdentity, cert.ReedID, likerFingerprint, userSigID, serverSigID); err != nil {
@@ -2739,7 +2739,7 @@ type likeQuerier interface {
 // once at their own boundary before calling in.
 func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerIdentity, authorIdentity identity.IdentityID, reedID string, forUpdate bool) (*LikeCert, error) {
 	query := `
-		SELECT liker_fingerprint, user_signature_id, server_signature_id
+		SELECT liker_public_key_id, user_signature_id, server_signature_id
 		FROM reeds_liked
 		WHERE liker_user_id = $1 AND author_user_id = $2 AND reed_id = $3`
 	if forUpdate {

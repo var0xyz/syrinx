@@ -70,13 +70,9 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS server_signature_id INT`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by VARCHAR(255) REFERENCES identities(id)`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_fingerprint VARCHAR(255)`,
-		`CREATE TABLE IF NOT EXISTS public_keys (
-			fingerprint VARCHAR(255) PRIMARY KEY,
-			armor TEXT NOT NULL
-		)`,
 		`CREATE TABLE IF NOT EXISTS user_signatures (
 			id SERIAL PRIMARY KEY,
-			fingerprint VARCHAR(255) NOT NULL,
+			public_key_id VARCHAR(255) NOT NULL,
 			signature TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (
@@ -84,6 +80,16 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			fingerprint VARCHAR(255) NOT NULL,
 			signature TEXT NOT NULL,
 			signed_at TIMESTAMP NOT NULL
+		)`,
+		// GetServerPublicKeyByFingerprint reads this server's own key
+		// (id = fingerprint@serverID, owner NULL) from the unified table.
+		`CREATE TABLE IF NOT EXISTS public_keys (
+			id VARCHAR(255) PRIMARY KEY,
+			owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
+			armor TEXT NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
+			predecessor_id VARCHAR(255) REFERENCES public_keys(id)
 		)`,
 		// Minimal shape: GetFederationUserIdentity's account-removal check
 		// only needs "does a row exist for this user_id" (see
@@ -103,7 +109,8 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			id VARCHAR(255) PRIMARY KEY,
 			name VARCHAR(255) NOT NULL DEFAULT '',
 			secret_hash BYTEA NOT NULL,
-			fingerprint VARCHAR(255) NOT NULL REFERENCES public_keys(fingerprint),
+			fingerprint VARCHAR(255) NOT NULL,
+			public_key_armor TEXT NOT NULL DEFAULT '',
 			created_by VARCHAR(255) NOT NULL REFERENCES identities(id),
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			accepted_at TIMESTAMPTZ,
@@ -181,7 +188,7 @@ func seedFederationUser(t *testing.T, ds *DataService, userID, username, role st
 	placeholderSig := "placeholder-" + identityID
 	var userSigID, serverSigID int64
 	if err := ds.db.QueryRow(`
-		INSERT INTO user_signatures (fingerprint, signature) VALUES ($1, $2) RETURNING id
+		INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, $2) RETURNING id
 	`, placeholderSig, placeholderSig).Scan(&userSigID); err != nil {
 		t.Fatal(err)
 	}
@@ -232,19 +239,31 @@ func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *crypto.KeyP
 		t.Fatal(err)
 	}
 
+	// GetServerPublicKeyByFingerprint reads from public_keys by id =
+	// fingerprint@serverID; InitServer registers its own generated key
+	// there, not this test's separately-created serverKP, so it needs
+	// its own row here (mirrors handlers_signup_gate_test.go).
+	var serverSigID int64
+	if err := db.QueryRow(
+		`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		serverKP.Fingerprint,
+	).Scan(&serverSigID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO public_keys (id, armor, created_at, server_signature_id) VALUES ($1, $2, now(), $3)`,
+		serverKP.Fingerprint+"@"+dataService.GetServerID(), serverKP.PublicKey, serverSigID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
 	services := &Services{
 		db:     dataService,
 		crypto: cryptoSvc,
 		log:    NewLoggingService(),
 		md:     NewMarkdownService(),
 	}
-	if _, err := db.Exec(`
-		INSERT INTO public_keys (fingerprint, armor) VALUES ($1, $2)
-		ON CONFLICT (fingerprint) DO UPDATE SET armor = EXCLUDED.armor
-	`, serverKP.Fingerprint, serverKP.PublicKey); err != nil {
-		t.Fatal(err)
-	}
-	h := NewHandlers(services, AppConfig{ServerName: "test", APIBaseURL: "https://test.example"}, make(chan realtime.BroadcastMessage, 1), Key{
+	h := NewHandlers(services, AppConfig{ServerName: "test", APIBaseURL: "https://test.example"}, make(chan realtime.BroadcastMessage, 1), ServerSigningKey{
 		Fingerprint: serverKP.Fingerprint,
 		Armor:       serverKP.PrivateKey,
 	})

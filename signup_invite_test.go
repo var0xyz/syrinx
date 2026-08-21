@@ -34,7 +34,7 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 		)`,
 		`CREATE TABLE IF NOT EXISTS user_signatures (
 			id SERIAL PRIMARY KEY,
-			fingerprint VARCHAR(255) NOT NULL,
+			public_key_id VARCHAR(255) NOT NULL,
 			signature TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (
@@ -43,16 +43,12 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			signature TEXT NOT NULL,
 			signed_at TIMESTAMP NOT NULL
 		)`,
-		`CREATE TABLE IF NOT EXISTS public_keys (
-			fingerprint VARCHAR(255) PRIMARY KEY,
-			armor TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		)`,
 		`DROP TABLE IF EXISTS user_devices CASCADE`,
 		`DROP TABLE IF EXISTS user_following CASCADE`,
 		`DROP TABLE IF EXISTS user_followers CASCADE`,
 		`DROP TABLE IF EXISTS invites CASCADE`,
-		`DROP TABLE IF EXISTS user_keys CASCADE`,
+		`DROP TABLE IF EXISTS public_key_revocations CASCADE`,
+		`DROP TABLE IF EXISTS public_keys CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
 		`DROP TABLE IF EXISTS identities CASCADE`,
 		// identities is the FK target for "a user" (see db.go) — Signup
@@ -78,20 +74,22 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			invited_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL
 		)`,
-		`CREATE TABLE user_keys (
-			fingerprint VARCHAR(255) PRIMARY KEY,
-			owner VARCHAR(255) NOT NULL REFERENCES identities(id),
+		`CREATE TABLE public_keys (
+			id VARCHAR(255) PRIMARY KEY,
+			owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
 			armor TEXT NOT NULL,
 			created_at TIMESTAMP NOT NULL,
-			expires_at TIMESTAMP,
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			predecessor_signature TEXT,
-			predecessor_fingerprint VARCHAR(255)
+			server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
+			predecessor_id VARCHAR(255) REFERENCES public_keys(id)
 		)`,
-		`CREATE TABLE user_key_revocations (
-			user_fingerprint VARCHAR(255) NOT NULL REFERENCES user_keys(fingerprint),
-			owner VARCHAR(255) NOT NULL REFERENCES identities(id),
-			PRIMARY KEY (owner, user_fingerprint)
+		`CREATE TABLE public_key_revocations (
+			revoked_id VARCHAR(255) PRIMARY KEY REFERENCES public_keys(id),
+			owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
+			reason TEXT,
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+			successor VARCHAR(255) REFERENCES public_keys(id),
+			successor_signature_id INT REFERENCES user_signatures(id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id)

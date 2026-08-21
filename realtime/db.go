@@ -97,8 +97,8 @@ func (ds *DBService) GetUserPublicKey(ctx context.Context, fingerprint string) (
 	var armor string
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT armor
-		FROM user_keys
-		WHERE fingerprint = $1
+		FROM public_keys
+		WHERE id = $1
 	`, fingerprint).Scan(&armor)
 
 	if err != nil {
