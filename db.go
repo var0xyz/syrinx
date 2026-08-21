@@ -287,36 +287,41 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	// Client-managed public keys. Server countersignature is via
+	// Client-managed public keys. fingerprint is canonical
+	// ("{userID}@{serverID}/{fingerprint}"), self-scoping and globally
+	// unique, so it's the PK directly. owner mirrors the userID@serverID
+	// prefix as a real FK to identities for local users; it's NULL for
+	// keys belonging to remote/federated identities, which have no local
+	// identities row to reference — the canonical fingerprint itself
+	// remains the source of truth for ownership either way (recover it via
+	// identity.ParseKeyFingerprint). Server countersignature is via
 	// server_signature_id. predecessor_signature and
 	// predecessor_fingerprint are set together for rotation keys only
 	// (AddPublicKey): the old key's detached signature over this row's
 	// armor, and which key produced it. Signup keys leave both NULL.
 	createUserKeysTable := `
 	CREATE TABLE IF NOT EXISTS user_keys (
-		fingerprint VARCHAR(255) UNIQUE NOT NULL,
-		owner VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		fingerprint VARCHAR(255) PRIMARY KEY,
+		owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		expires_at TIMESTAMP,
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		predecessor_signature TEXT,
-		predecessor_fingerprint VARCHAR(255) REFERENCES user_keys(fingerprint),
-
-		PRIMARY KEY (owner, fingerprint)
+		predecessor_fingerprint VARCHAR(255) REFERENCES user_keys(fingerprint)
 	);`
 
-	// We only need one index on `fingerprint` here because `owner` is covered
-	// by being the first field in the `PRIMARY KEY` clause.
 	createUserKeyIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_user_keys_fingerprint
-		ON user_keys(fingerprint);
+	CREATE INDEX IF NOT EXISTS idx_user_keys_owner
+		ON user_keys(owner) WHERE owner IS NOT NULL;
 	`
 
 	// Revocation attestation for a user key. A row's existence means the
 	// key is revoked. user_fingerprint identifies which key was revoked
-	// (PK + FK to user_keys). Signatures live in user_signatures /
-	// server_signatures; revoke time is server_signatures.signed_at.
+	// (PK + FK to user_keys, canonical + self-scoping — see user_keys
+	// above). Signatures live in user_signatures / server_signatures;
+	// revoke time is server_signatures.signed_at. owner follows the same
+	// local/NULL-for-remote rule as user_keys.owner.
 	//
 	// successor is written when the replacement key is uploaded via
 	// AddPublicKey, not at revocation time — the client revokes first
@@ -324,24 +329,18 @@ func InitDB(db *sql.DB) error {
 	// the successor.
 	createUserKeyRevocationsTable := `
 	CREATE TABLE IF NOT EXISTS user_key_revocations (
-		user_fingerprint VARCHAR(255) NOT NULL,
-		owner VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		user_fingerprint VARCHAR(255) PRIMARY KEY
+			REFERENCES user_keys(fingerprint) ON DELETE CASCADE,
+		owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
 		reason TEXT,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-		successor VARCHAR(255) REFERENCES user_keys(fingerprint),
-
-		PRIMARY KEY (owner, user_fingerprint),
-		FOREIGN KEY (owner, user_fingerprint)
-			REFERENCES user_keys(owner, fingerprint)
-			ON DELETE CASCADE
+		successor VARCHAR(255) REFERENCES user_keys(fingerprint)
 	);`
 
-	// We only need one index on `user_fingerprint` here because `owner` is
-	// covered by being the first field in the `PRIMARY KEY` clause.
 	createUserKeyRevocationsIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_user_key_revocations_user_fingerprint
-		ON user_key_revocations(user_fingerprint);
+	CREATE INDEX IF NOT EXISTS idx_user_key_revocations_owner
+		ON user_key_revocations(owner) WHERE owner IS NOT NULL;
 	`
 
 	// Tip reed metadata. private_key_fingerprint is the server key used
@@ -443,20 +442,18 @@ func InitDB(db *sql.DB) error {
 
 	// Signed reed-removal certificates. Source of truth for “gone”; no FK to
 	// reeds(id) so the live row may be dropped after the cert is stored.
-	// PK is (user_id, reed_id). user_fingerprint binds the signing key;
-	// signatures via FKs.
+	// PK is (user_id, reed_id). user_fingerprint binds the signing key
+	// (canonical, self-scoping — single-column FK to user_keys); signatures
+	// via FKs.
 	createReedRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS reed_removals (
 		reed_id VARCHAR(255) NOT NULL,
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		user_fingerprint VARCHAR(255) NOT NULL,
+		user_fingerprint VARCHAR(255) NOT NULL REFERENCES user_keys(fingerprint) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
-		PRIMARY KEY (user_id, reed_id),
-		FOREIGN KEY (user_id, user_fingerprint)
-			REFERENCES user_keys(owner, fingerprint)
-			ON DELETE CASCADE
+		PRIMARY KEY (user_id, reed_id)
 	);`
 
 	// Signed account-removal certificates. One cert per user; public keys
@@ -466,13 +463,10 @@ func InitDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS account_removals (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		note VARCHAR(140) NOT NULL DEFAULT '',
-		user_fingerprint VARCHAR(255) NOT NULL,
+		user_fingerprint VARCHAR(255) NOT NULL REFERENCES user_keys(fingerprint) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
-		FOREIGN KEY (user_id, user_fingerprint)
-			REFERENCES user_keys(owner, fingerprint)
-			ON DELETE CASCADE,
 		CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140)
 	);`
 
@@ -484,15 +478,12 @@ func InitDB(db *sql.DB) error {
 		liker_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		author_user_id VARCHAR(255) NOT NULL,
 		reed_id VARCHAR(255) NOT NULL,
-		liker_fingerprint VARCHAR(255) NOT NULL,
+		liker_fingerprint VARCHAR(255) NOT NULL REFERENCES user_keys(fingerprint) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
 		PRIMARY KEY (liker_user_id, author_user_id, reed_id),
-		FOREIGN KEY (author_user_id, reed_id) REFERENCES reeds(user_id, id),
-		FOREIGN KEY (liker_user_id, liker_fingerprint)
-			REFERENCES user_keys(owner, fingerprint)
-			ON DELETE CASCADE
+		FOREIGN KEY (author_user_id, reed_id) REFERENCES reeds(user_id, id)
 	);`
 
 	createReedsLikedIndexes := `
