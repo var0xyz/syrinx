@@ -380,21 +380,19 @@ func InitDB(db *sql.DB) error {
 	// countersignature (idempotent).
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
-		id VARCHAR(255) NOT NULL,
+		id VARCHAR(255) PRIMARY KEY,
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		private_key_fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
 		signed_at TIMESTAMP NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		allocation_count INT NOT NULL DEFAULT 0,
-		like_count INT NOT NULL DEFAULT 0,
-
-		PRIMARY KEY (user_id, id)
+		like_count INT NOT NULL DEFAULT 0
 	);`
 
 	createReedIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_reeds_id
-		ON reeds(id);
+	CREATE INDEX IF NOT EXISTS idx_reeds_user_id
+		ON reeds(user_id);
 	CREATE INDEX IF NOT EXISTS idx_reeds_signed_at
 		ON reeds(signed_at);
 	`
@@ -410,57 +408,53 @@ func InitDB(db *sql.DB) error {
 	// re-derive content.
 	createReedEchoesTable := `
 	CREATE TABLE IF NOT EXISTS reed_echoes (
-		echoing_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		echoing_reed_id VARCHAR(255) NOT NULL,
-		echoed_user_id VARCHAR(255) NOT NULL,
 		echoed_reed_id VARCHAR(255) NOT NULL,
 		is_blank BOOLEAN NOT NULL DEFAULT FALSE,
 		signed_at TIMESTAMP NOT NULL,
 
-		PRIMARY KEY (echoing_user_id, echoing_reed_id)
+		PRIMARY KEY (echoing_reed_id),
+		FOREIGN KEY (echoing_reed_id) REFERENCES reeds(id)
 	);`
 
 	createReedEchoesIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_echoes_echoed_signed
-		ON reed_echoes (echoed_user_id, echoed_reed_id, signed_at);
+		ON reed_echoes (echoed_reed_id, signed_at);
 	`
 
 	// id is the root reed ref (user@server/reed); one row per thread (created on first reply).
 	createReedRepliesTable := `
 	CREATE TABLE IF NOT EXISTS reed_replies (
 		thread_id VARCHAR(255) NOT NULL,
-		user_id VARCHAR(255) NOT NULL,
-		reed_id VARCHAR(255) NOT NULL UNIQUE,
-		parent_user_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL,
 		parent_reed_id VARCHAR(255) NOT NULL,
 		timestamp TIMESTAMP NOT NULL,
 
-		PRIMARY KEY (user_id, reed_id),
-		FOREIGN KEY (user_id, reed_id) REFERENCES reeds(user_id, id),
-		FOREIGN KEY (parent_user_id, parent_reed_id) REFERENCES reeds(user_id, id)
+		PRIMARY KEY (reed_id),
+		FOREIGN KEY (reed_id) REFERENCES reeds(id),
+		FOREIGN KEY (parent_reed_id) REFERENCES reeds(id)
 	);`
 
 	createReedRepliesIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_replies_parent_timestamp
-		ON reed_replies (parent_user_id, parent_reed_id, timestamp);
+		ON reed_replies (parent_reed_id, timestamp);
 
 	CREATE INDEX IF NOT EXISTS idx_reed_replies_thread
 		ON reed_replies (thread_id, timestamp);
 	`
 
-	// One row per (reed, mentioned user). mentioning_* = reed that contains
-	// the @. mentioned_user_id FKs to identities(id), which can hold a
-	// provisional remote identity, but only LOCAL mentions are inserted today.
+	// One row per (reed, mentioned user). mentioning_reed_id = reed that
+	// contains the @. mentioned_user_id FKs to identities(id), which can hold
+	// a provisional remote identity, but only LOCAL mentions are inserted today.
 	createReedMentionsTable := `
 	CREATE TABLE IF NOT EXISTS reed_mentions (
-		mentioning_user_id VARCHAR(255) NOT NULL,
 		mentioning_reed_id VARCHAR(255) NOT NULL,
 		mentioned_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		mentioned_server_id VARCHAR(255) NOT NULL,
 
 		PRIMARY KEY (mentioning_reed_id, mentioned_server_id, mentioned_user_id),
-		FOREIGN KEY (mentioning_user_id, mentioning_reed_id)
-			REFERENCES reeds(user_id, id) ON DELETE CASCADE
+		FOREIGN KEY (mentioning_reed_id)
+			REFERENCES reeds(id) ON DELETE CASCADE
 	);`
 
 	createReedMentionsIndexes := `
@@ -473,18 +467,15 @@ func InitDB(db *sql.DB) error {
 
 	// Signed reed-removal certificates. Source of truth for “gone”; no FK to
 	// reeds(id) so the live row may be dropped after the cert is stored.
-	// PK is (user_id, reed_id). public_key_id binds the signing key
-	// (canonical, self-scoping — single-column FK to public_keys); signatures
-	// via FKs.
+	// PK is reed_id. public_key_id binds the signing key (canonical,
+	// self-scoping — single-column FK to public_keys); signatures via FKs.
 	createReedRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS reed_removals (
-		reed_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) PRIMARY KEY,
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-
-		PRIMARY KEY (user_id, reed_id)
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
 
 	// Signed account-removal certificates. One cert per user; public keys
@@ -507,21 +498,20 @@ func InitDB(db *sql.DB) error {
 	createReedsLikedTable := `
 	CREATE TABLE IF NOT EXISTS reeds_liked (
 		liker_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		author_user_id VARCHAR(255) NOT NULL,
 		reed_id VARCHAR(255) NOT NULL,
 		liker_public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
-		PRIMARY KEY (liker_user_id, author_user_id, reed_id),
-		FOREIGN KEY (author_user_id, reed_id) REFERENCES reeds(user_id, id)
+		PRIMARY KEY (liker_user_id, reed_id),
+		FOREIGN KEY (reed_id) REFERENCES reeds(id)
 	);`
 
 	createReedsLikedIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reeds_liked_liker_created
 		ON reeds_liked (liker_user_id, user_signature_id DESC);
 	CREATE INDEX IF NOT EXISTS idx_reeds_liked_reed
-		ON reeds_liked (author_user_id, reed_id);
+		ON reeds_liked (reed_id);
 	`
 
 	// //////////// //
@@ -530,12 +520,10 @@ func InitDB(db *sql.DB) error {
 
 	createRipplesTable := `
 	CREATE TABLE IF NOT EXISTS ripples (
-		reed_author_id VARCHAR(255) NOT NULL,
-		reed_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) PRIMARY KEY,
 		expires_at TIMESTAMP NOT NULL,
 
-		PRIMARY KEY (reed_author_id, reed_id),
-		FOREIGN KEY (reed_author_id, reed_id) REFERENCES reeds(user_id, id)
+		FOREIGN KEY (reed_id) REFERENCES reeds(id)
 			ON DELETE CASCADE
 	);`
 
@@ -547,7 +535,6 @@ func InitDB(db *sql.DB) error {
 	createRippleResponsesTable := `
 	CREATE TABLE IF NOT EXISTS ripple_responses (
 		id VARCHAR(64) PRIMARY KEY,
-		reed_author_id VARCHAR(255) NOT NULL,
 		reed_id VARCHAR(255) NOT NULL,
 		thread_id UUID NOT NULL,
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
@@ -560,13 +547,13 @@ func InitDB(db *sql.DB) error {
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
-		FOREIGN KEY (reed_author_id, reed_id) REFERENCES ripples(reed_author_id, reed_id)
+		FOREIGN KEY (reed_id) REFERENCES ripples(reed_id)
 			ON DELETE CASCADE
 	);`
 
 	createRippleResponsesIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_ripple_responses_reed_thread_posted
-		ON ripple_responses (reed_author_id, reed_id, thread_id, posted_at);
+		ON ripple_responses (reed_id, thread_id, posted_at);
 	CREATE INDEX IF NOT EXISTS idx_ripple_responses_thread_posted
 		ON ripple_responses (thread_id, posted_at);
 	`
@@ -630,36 +617,34 @@ func InitDB(db *sql.DB) error {
 		ON broadcast_subscriptions(user_id);
 	`
 
-	// holder_user_id is who holds the reed; author_user_id + reed_id FK to reeds.
+	// holder_user_id is who holds the reed; reed_id FKs to reeds.
 	createReedAllocationsTable := `
 	CREATE TABLE IF NOT EXISTS reed_allocations (
 		reed_id VARCHAR(255) NOT NULL,
 		holder_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		author_user_id VARCHAR(255) NOT NULL,
 		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-		PRIMARY KEY (holder_user_id, author_user_id, reed_id),
-		FOREIGN KEY (author_user_id, reed_id)
-			REFERENCES reeds(user_id, id) ON DELETE CASCADE
+		PRIMARY KEY (holder_user_id, reed_id),
+		FOREIGN KEY (reed_id)
+			REFERENCES reeds(id) ON DELETE CASCADE
 	);`
 
-	// Composite lookups by reed use author_user_id + reed_id; holder is in the PK.
+	// Lookups by reed use reed_id; holder is in the PK.
 	createReedAllocationIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_allocations_reed
-		ON reed_allocations(author_user_id, reed_id);
+		ON reed_allocations(reed_id);
 	`
 
 	// tags are normalized hashtag names extracted at SignReed for pipe
 	// fanout at PUBLISH_READY (pipes 01). Empty until claim deletes the row.
 	createPendingFanoutTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_fanout (
-		user_id VARCHAR(255) NOT NULL,
 		reed_id VARCHAR(255) NOT NULL,
 		tags    TEXT[] NOT NULL DEFAULT '{}',
 
-		PRIMARY KEY (user_id, reed_id),
-		FOREIGN KEY (user_id, reed_id)
-			REFERENCES reeds(user_id, id) ON DELETE CASCADE
+		PRIMARY KEY (reed_id),
+		FOREIGN KEY (reed_id)
+			REFERENCES reeds(id) ON DELETE CASCADE
 	);`
 
 	createNetworkStatsTable := `
@@ -695,11 +680,10 @@ func InitDB(db *sql.DB) error {
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_reed_events (
 		event_id VARCHAR(255) PRIMARY KEY
 			REFERENCES pending_events(event_id) ON DELETE CASCADE,
-		user_id VARCHAR(255) NOT NULL,
 		reed_id VARCHAR(255) NOT NULL,
 
-		FOREIGN KEY (user_id, reed_id)
-			REFERENCES reeds(user_id, id) ON DELETE CASCADE
+		FOREIGN KEY (reed_id)
+			REFERENCES reeds(id) ON DELETE CASCADE
 	);`
 
 	createPendingReedEventsIndexes := `
