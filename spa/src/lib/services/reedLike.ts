@@ -69,7 +69,7 @@ export async function likeReed(authorID: string, reedID: string): Promise<api.Re
     throw new Error('Private key not found');
   }
 
-  const userPayload = buildReedLikeUserPayload(serverID, authorID, reedID, fingerprint);
+  const userPayload = buildReedLikeUserPayload(serverID, refForReed(authorID, reedID), fingerprint);
   const sigArmor = await cryptoService.signMessage(userPayload, privateKey.armor, passphrase);
   const signature = btoa(sigArmor);
 

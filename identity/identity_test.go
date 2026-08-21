@@ -317,12 +317,11 @@ func TestUserPayloadRejectsCrossTypeConfusion(t *testing.T) {
 }
 
 func TestReedRemovalUserPayloadCanonicalShape(t *testing.T) {
-	got := BuildReedRemovalUserPayload("Server01", "abc123", "0v4reed")
+	got := BuildReedRemovalUserPayload("Server01", "abc123@Server01/0v4reed")
 	want := "---\n" +
-		"reedID: 0v4reed\n" +
+		"reedID: abc123@Server01/0v4reed\n" +
 		"serverID: Server01\n" +
 		"type: reed\n" +
-		"userID: abc123\n" +
 		"---\n"
 	if string(got) != want {
 		t.Errorf("reed-removal user payload mismatch:\n got=%q\nwant=%q", got, want)
@@ -372,17 +371,16 @@ func TestAccountRemovalServerPayloadCanonicalShape(t *testing.T) {
 func TestReedRemovalServerPayloadCanonicalShape(t *testing.T) {
 	signedAt := time.Date(2026, 7, 22, 17, 2, 5, 0, time.UTC)
 	got := BuildReedRemovalServerPayload(
-		"Server01", "abc123", "0v4reed",
+		"Server01", "abc123@Server01/0v4reed",
 		"0011FF", "dXNlcnNpZw==",
 		signedAt,
 	)
 	want := "---\n" +
-		"reedID: 0v4reed\n" +
+		"reedID: abc123@Server01/0v4reed\n" +
 		"serverID: Server01\n" +
 		"serverKeyFingerprint: 0011FF\n" +
 		"signedAt: 2026-07-22T17:02:05Z\n" +
 		"type: reed\n" +
-		"userID: abc123\n" +
 		"userSignature: dXNlcnNpZw==\n" +
 		"---\n"
 	if string(got) != want {
@@ -395,10 +393,9 @@ func TestReedRemovalRoundTrip(t *testing.T) {
 	serverKP, _ := newTestKeyPair(t, "server")
 
 	serverID := "srv_xyz"
-	userID := "user_abc"
-	reedID := "0k2n1p0000000000000ReedA"
+	reedID := "user_abc@srv_xyz/0k2n1p0000000000000ReedA"
 
-	userPayload := BuildReedRemovalUserPayload(serverID, userID, reedID)
+	userPayload := BuildReedRemovalUserPayload(serverID, reedID)
 	userSigB64 := signB64(t, cryptoSvc, userKP.PrivateKey, userPayload)
 	if err := verifyB64(t, cryptoSvc, userKP.PublicKey, userSigB64, userPayload); err != nil {
 		t.Fatalf("userSignature verify: %v", err)
@@ -406,17 +403,17 @@ func TestReedRemovalRoundTrip(t *testing.T) {
 
 	signedAt := time.Now().UTC().Truncate(time.Second)
 	serverPayload := BuildReedRemovalServerPayload(
-		serverID, userID, reedID,
+		serverID, reedID,
 		serverKP.Fingerprint, userSigB64, signedAt,
 	)
 	serverSigB64 := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
 
-	rebuiltUser := BuildReedRemovalUserPayload(serverID, userID, reedID)
+	rebuiltUser := BuildReedRemovalUserPayload(serverID, reedID)
 	if err := verifyB64(t, cryptoSvc, userKP.PublicKey, userSigB64, rebuiltUser); err != nil {
 		t.Errorf("rebuilt userSignature verify: %v", err)
 	}
 	rebuiltServer := BuildReedRemovalServerPayload(
-		serverID, userID, reedID,
+		serverID, reedID,
 		serverKP.Fingerprint, userSigB64, signedAt,
 	)
 	if err := verifyB64(t, cryptoSvc, serverKP.PublicKey, serverSigB64, rebuiltServer); err != nil {
@@ -429,42 +426,32 @@ func TestReedRemovalTamperFails(t *testing.T) {
 	serverKP, _ := newTestKeyPair(t, "server")
 
 	serverID := "srv_xyz"
-	userID := "user_abc"
-	reedID := "0k2n1p0000000000000ReedA"
+	reedID := "user_abc@srv_xyz/0k2n1p0000000000000ReedA"
 	signedAt := time.Now().UTC().Truncate(time.Second)
 
-	userPayload := BuildReedRemovalUserPayload(serverID, userID, reedID)
+	userPayload := BuildReedRemovalUserPayload(serverID, reedID)
 	userSigB64 := signB64(t, cryptoSvc, userKP.PrivateKey, userPayload)
 	serverPayload := BuildReedRemovalServerPayload(
-		serverID, userID, reedID,
+		serverID, reedID,
 		serverKP.Fingerprint, userSigB64, signedAt,
 	)
 	serverSigB64 := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
 
 	if err := verifyB64(t, cryptoSvc, userKP.PublicKey, userSigB64,
-		BuildReedRemovalUserPayload(serverID, userID, "otherReed")); err == nil {
+		BuildReedRemovalUserPayload(serverID, "other_user@srv_xyz/otherReed")); err == nil {
 		t.Fatal("user signature must not verify with swapped reedID")
 	}
-	if err := verifyB64(t, cryptoSvc, userKP.PublicKey, userSigB64,
-		BuildReedRemovalUserPayload(serverID, "otherUser", reedID)); err == nil {
-		t.Fatal("user signature must not verify with swapped userID")
-	}
 	if err := verifyB64(t, cryptoSvc, serverKP.PublicKey, serverSigB64,
-		BuildReedRemovalServerPayload(serverID, userID, "otherReed",
+		BuildReedRemovalServerPayload(serverID, "other_user@srv_xyz/otherReed",
 			serverKP.Fingerprint, userSigB64, signedAt)); err == nil {
 		t.Fatal("server signature must not verify with swapped reedID")
 	}
-	if err := verifyB64(t, cryptoSvc, serverKP.PublicKey, serverSigB64,
-		BuildReedRemovalServerPayload(serverID, "otherUser", reedID,
-			serverKP.Fingerprint, userSigB64, signedAt)); err == nil {
-		t.Fatal("server signature must not verify with swapped userID")
-	}
 
 	// Re-pair a genuine userSignature with a different reed in the server payload.
-	otherUserPayload := BuildReedRemovalUserPayload(serverID, userID, "otherReed")
+	otherUserPayload := BuildReedRemovalUserPayload(serverID, "other_user@srv_xyz/otherReed")
 	otherUserSig := signB64(t, cryptoSvc, userKP.PrivateKey, otherUserPayload)
 	tamperedServer := BuildReedRemovalServerPayload(
-		serverID, userID, reedID,
+		serverID, reedID,
 		serverKP.Fingerprint, otherUserSig, signedAt,
 	)
 	if err := verifyB64(t, cryptoSvc, serverKP.PublicKey, serverSigB64, tamperedServer); err == nil {
@@ -473,11 +460,10 @@ func TestReedRemovalTamperFails(t *testing.T) {
 }
 
 func TestReedLikeUserPayloadCanonicalShape(t *testing.T) {
-	got := BuildReedLikeUserPayload("Server01", "authorABC", "0v4reed", "AA11BB")
+	got := BuildReedLikeUserPayload("Server01", "authorABC@Server01/0v4reed", "AA11BB")
 	want := "---\n" +
-		"authorID: authorABC\n" +
 		"fingerprint: AA11BB\n" +
-		"reedID: 0v4reed\n" +
+		"reedID: authorABC@Server01/0v4reed\n" +
 		"serverID: Server01\n" +
 		"type: reed_like\n" +
 		"---\n"
@@ -492,13 +478,12 @@ func TestReedLikeUserPayloadCanonicalShape(t *testing.T) {
 func TestReedLikeServerPayloadCanonicalShape(t *testing.T) {
 	signedAt := time.Date(2026, 7, 22, 17, 2, 5, 0, time.UTC)
 	got := BuildReedLikeServerPayload(
-		"Server01", "authorABC", "0v4reed",
+		"Server01", "authorABC@Server01/0v4reed",
 		"0011FF", "dXNlcnNpZw==",
 		signedAt,
 	)
 	want := "---\n" +
-		"authorID: authorABC\n" +
-		"reedID: 0v4reed\n" +
+		"reedID: authorABC@Server01/0v4reed\n" +
 		"serverID: Server01\n" +
 		"serverKeyFingerprint: 0011FF\n" +
 		"signedAt: 2026-07-22T17:02:05Z\n" +
@@ -515,10 +500,9 @@ func TestReedLikeRoundTrip(t *testing.T) {
 	serverKP, _ := newTestKeyPair(t, "server")
 
 	serverID := "srv_xyz"
-	authorID := "user_author"
-	reedID := "0k2n1p0000000000000ReedA"
+	reedID := "user_author@srv_xyz/0k2n1p0000000000000ReedA"
 
-	userPayload := BuildReedLikeUserPayload(serverID, authorID, reedID, likerKP.Fingerprint)
+	userPayload := BuildReedLikeUserPayload(serverID, reedID, likerKP.Fingerprint)
 	userSigB64 := signB64(t, cryptoSvc, likerKP.PrivateKey, userPayload)
 	if err := verifyB64(t, cryptoSvc, likerKP.PublicKey, userSigB64, userPayload); err != nil {
 		t.Fatalf("userSignature verify: %v", err)
@@ -526,17 +510,17 @@ func TestReedLikeRoundTrip(t *testing.T) {
 
 	signedAt := time.Now().UTC().Truncate(time.Second)
 	serverPayload := BuildReedLikeServerPayload(
-		serverID, authorID, reedID,
+		serverID, reedID,
 		serverKP.Fingerprint, userSigB64, signedAt,
 	)
 	serverSigB64 := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
 
-	rebuiltUser := BuildReedLikeUserPayload(serverID, authorID, reedID, likerKP.Fingerprint)
+	rebuiltUser := BuildReedLikeUserPayload(serverID, reedID, likerKP.Fingerprint)
 	if err := verifyB64(t, cryptoSvc, likerKP.PublicKey, userSigB64, rebuiltUser); err != nil {
 		t.Errorf("rebuilt userSignature verify: %v", err)
 	}
 	rebuiltServer := BuildReedLikeServerPayload(
-		serverID, authorID, reedID,
+		serverID, reedID,
 		serverKP.Fingerprint, userSigB64, signedAt,
 	)
 	if err := verifyB64(t, cryptoSvc, serverKP.PublicKey, serverSigB64, rebuiltServer); err != nil {
@@ -549,41 +533,36 @@ func TestReedLikeTamperFails(t *testing.T) {
 	serverKP, _ := newTestKeyPair(t, "server")
 
 	serverID := "srv_xyz"
-	authorID := "user_author"
-	reedID := "0k2n1p0000000000000ReedA"
+	reedID := "user_author@srv_xyz/0k2n1p0000000000000ReedA"
 	signedAt := time.Now().UTC().Truncate(time.Second)
 
-	userPayload := BuildReedLikeUserPayload(serverID, authorID, reedID, likerKP.Fingerprint)
+	userPayload := BuildReedLikeUserPayload(serverID, reedID, likerKP.Fingerprint)
 	userSigB64 := signB64(t, cryptoSvc, likerKP.PrivateKey, userPayload)
 	serverPayload := BuildReedLikeServerPayload(
-		serverID, authorID, reedID,
+		serverID, reedID,
 		serverKP.Fingerprint, userSigB64, signedAt,
 	)
 	serverSigB64 := signB64(t, cryptoSvc, serverKP.PrivateKey, serverPayload)
 
 	if err := verifyB64(t, cryptoSvc, likerKP.PublicKey, userSigB64,
-		BuildReedLikeUserPayload(serverID, authorID, "otherReed", likerKP.Fingerprint)); err == nil {
+		BuildReedLikeUserPayload(serverID, "other_author@srv_xyz/otherReed", likerKP.Fingerprint)); err == nil {
 		t.Fatal("user signature must not verify with swapped reedID")
 	}
 	if err := verifyB64(t, cryptoSvc, likerKP.PublicKey, userSigB64,
-		BuildReedLikeUserPayload(serverID, "otherAuthor", reedID, likerKP.Fingerprint)); err == nil {
-		t.Fatal("user signature must not verify with swapped authorID")
-	}
-	if err := verifyB64(t, cryptoSvc, likerKP.PublicKey, userSigB64,
-		BuildReedLikeUserPayload(serverID, authorID, reedID, "otherFingerprint")); err == nil {
+		BuildReedLikeUserPayload(serverID, reedID, "otherFingerprint")); err == nil {
 		t.Fatal("user signature must not verify with swapped fingerprint")
 	}
 	if err := verifyB64(t, cryptoSvc, serverKP.PublicKey, serverSigB64,
-		BuildReedLikeServerPayload(serverID, authorID, "otherReed",
+		BuildReedLikeServerPayload(serverID, "other_author@srv_xyz/otherReed",
 			serverKP.Fingerprint, userSigB64, signedAt)); err == nil {
 		t.Fatal("server signature must not verify with swapped reedID")
 	}
 
 	// Re-pair a genuine userSignature with a different reed in the server payload.
-	otherUserPayload := BuildReedLikeUserPayload(serverID, authorID, "otherReed", likerKP.Fingerprint)
+	otherUserPayload := BuildReedLikeUserPayload(serverID, "other_author@srv_xyz/otherReed", likerKP.Fingerprint)
 	otherUserSig := signB64(t, cryptoSvc, likerKP.PrivateKey, otherUserPayload)
 	tamperedServer := BuildReedLikeServerPayload(
-		serverID, authorID, reedID,
+		serverID, reedID,
 		serverKP.Fingerprint, otherUserSig, signedAt,
 	)
 	if err := verifyB64(t, cryptoSvc, serverKP.PublicKey, serverSigB64, tamperedServer); err == nil {

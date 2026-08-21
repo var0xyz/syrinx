@@ -300,30 +300,30 @@ const TypeReed = "reed"
 
 // reedRemovalUserHeaders returns the header map the reed author signs when
 // requesting removal. Content is empty.
-func reedRemovalUserHeaders(serverID, userID, reedID string) map[string]string {
+func reedRemovalUserHeaders(serverID, reedID string) map[string]string {
 	return map[string]string{
 		"type":     TypeReed,
 		"serverID": serverID,
-		"userID":   userID,
 		"reedID":   reedID,
 	}
 }
 
 // BuildReedRemovalUserPayload returns the exact bytes the reed author signs
-// to produce the wire `signature` field on a reed-removal cert.
-func BuildReedRemovalUserPayload(serverID, userID, reedID string) []byte {
+// to produce the wire `signature` field on a reed-removal cert. reedID is
+// the full canonical id.
+func BuildReedRemovalUserPayload(serverID, reedID string) []byte {
 	return signing.BytesToSign(
-		reedRemovalUserHeaders(serverID, userID, reedID),
+		reedRemovalUserHeaders(serverID, reedID),
 		"",
 	)
 }
 
 // reedRemovalServerHeaders returns the header map the server countersigns.
 // userSignatureB64 binds the author's attestation into the server-signed
-// bytes (same class as identity / revocation countersign).
+// bytes (same class as identity / revocation countersign). reedID is the
+// full canonical id.
 func reedRemovalServerHeaders(
 	serverID,
-	userID,
 	reedID,
 	serverKeyFingerprint,
 	userSignatureB64 string,
@@ -332,7 +332,6 @@ func reedRemovalServerHeaders(
 	return map[string]string{
 		"type":                 TypeReed,
 		"serverID":             serverID,
-		"userID":               userID,
 		"reedID":               reedID,
 		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
 		"serverKeyFingerprint": serverKeyFingerprint,
@@ -348,7 +347,6 @@ func reedRemovalServerHeaders(
 // signed matches what Postgres stores after any timestamp round-trip.
 func BuildReedRemovalServerPayload(
 	serverID,
-	userID,
 	reedID,
 	serverKeyFingerprint,
 	userSignatureB64 string,
@@ -357,7 +355,6 @@ func BuildReedRemovalServerPayload(
 	return signing.BytesToSign(
 		reedRemovalServerHeaders(
 			serverID,
-			userID,
 			reedID,
 			serverKeyFingerprint,
 			userSignatureB64,
@@ -371,18 +368,15 @@ func BuildReedRemovalServerPayload(
 // certificate (JSON `"type": "reed_like"`).
 const TypeReedLike = "reed_like"
 
-// reedLikeUserHeaders returns the header map the liker signs. authorID
-// and reedID identify the target reed (same composite reference shape as
-// every other reed reference in this codebase). fingerprint names the
-// liker's own signing key, so the server verifies against that exact key
-// — avoids a spurious verification failure if the liker rotates keys
-// between signing and the server processing the request. Content is
-// empty.
-func reedLikeUserHeaders(serverID, authorID, reedID, fingerprint string) map[string]string {
+// reedLikeUserHeaders returns the header map the liker signs. reedID is
+// the target reed's full canonical id. fingerprint names the liker's own
+// signing key, so the server verifies against that exact key — avoids a
+// spurious verification failure if the liker rotates keys between signing
+// and the server processing the request. Content is empty.
+func reedLikeUserHeaders(serverID, reedID, fingerprint string) map[string]string {
 	return map[string]string{
 		"type":        TypeReedLike,
 		"serverID":    serverID,
-		"authorID":    authorID,
 		"reedID":      reedID,
 		"fingerprint": fingerprint,
 	}
@@ -390,9 +384,9 @@ func reedLikeUserHeaders(serverID, authorID, reedID, fingerprint string) map[str
 
 // BuildReedLikeUserPayload returns the exact bytes the liker signs to
 // produce the wire `signature` field on a reed-like cert.
-func BuildReedLikeUserPayload(serverID, authorID, reedID, fingerprint string) []byte {
+func BuildReedLikeUserPayload(serverID, reedID, fingerprint string) []byte {
 	return signing.BytesToSign(
-		reedLikeUserHeaders(serverID, authorID, reedID, fingerprint),
+		reedLikeUserHeaders(serverID, reedID, fingerprint),
 		"",
 	)
 }
@@ -402,7 +396,6 @@ func BuildReedLikeUserPayload(serverID, authorID, reedID, fingerprint string) []
 // bytes (same class as identity / revocation / reed-removal countersign).
 func reedLikeServerHeaders(
 	serverID,
-	authorID,
 	reedID,
 	serverKeyFingerprint,
 	userSignatureB64 string,
@@ -411,7 +404,6 @@ func reedLikeServerHeaders(
 	return map[string]string{
 		"type":                 TypeReedLike,
 		"serverID":             serverID,
-		"authorID":             authorID,
 		"reedID":               reedID,
 		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
 		"serverKeyFingerprint": serverKeyFingerprint,
@@ -427,7 +419,6 @@ func reedLikeServerHeaders(
 // signed matches what Postgres stores after any timestamp round-trip.
 func BuildReedLikeServerPayload(
 	serverID,
-	authorID,
 	reedID,
 	serverKeyFingerprint,
 	userSignatureB64 string,
@@ -436,7 +427,6 @@ func BuildReedLikeServerPayload(
 	return signing.BytesToSign(
 		reedLikeServerHeaders(
 			serverID,
-			authorID,
 			reedID,
 			serverKeyFingerprint,
 			userSignatureB64,

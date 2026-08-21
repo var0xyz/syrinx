@@ -112,7 +112,6 @@ type SubscribedMsg struct {
 type RequestReedData struct {
 	RequestID string `json:"request_id"`
 	ReedID    string `json:"reed_id"`
-	AuthorID  string `json:"author_id"`
 }
 
 // RelayResponseData is the payload of an incoming RELAY_RESPONSE message.

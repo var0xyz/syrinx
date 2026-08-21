@@ -1782,9 +1782,6 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
 		return
 	}
-	// canonicalReedID is used for every DB call; reedID stays bare for the
-	// signed markdown/payload builders below, which sign the bare id.
-	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(userID), reedID))
 
 	// Content may be empty (e.g. bare echo). Echoing/replying are optional reed refs.
 	contentBody := r.FormValue("content")
@@ -1929,7 +1926,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing, err := h.services.db.GetReedAttestation(r.Context(), canonicalReedID)
+	existing, err := h.services.db.GetReedAttestation(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("reedID", reedID).Str("userID", userID).Err(err).Msg("Error loading reed")
 		internalServerError(w)
@@ -1943,7 +1940,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	timestamp := time.Now().UTC().Truncate(time.Second)
 	reedPayload := identity.BuildReedPayload(
 		h.services.db.GetServerID(),
-		canonicalReedID,
+		reedID,
 		h.signingKey.Fingerprint,
 		userSignature,
 		timestamp,
@@ -1963,7 +1960,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		tags = h.filterPipeTags(tags)
 	}
 	createParams := createReedParams{
-		ReedID:             canonicalReedID,
+		ReedID:             reedID,
 		UserID:             userID,
 		UserFingerprint:    userFingerprint,
 		UserSignatureB64:   userSignature,
@@ -1992,7 +1989,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		// violation and must return the winner's stored countersignature.
 		// (Lost-response retries are already handled by the check above.)
 		if isReedUniqueViolation(err) {
-			existing, getErr := h.services.db.GetReedAttestation(r.Context(), canonicalReedID)
+			existing, getErr := h.services.db.GetReedAttestation(r.Context(), reedID)
 			if getErr == nil && existing != nil {
 				h.respondSignReedReplay(w, r, existing, userSignature, userID, reedID)
 				return
@@ -2187,7 +2184,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	userPayload := identity.BuildReedRemovalUserPayload(serverID, userID, bareReedID)
+	userPayload := identity.BuildReedRemovalUserPayload(serverID, reedID)
 	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
@@ -2215,7 +2212,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	serverPayload := identity.BuildReedRemovalServerPayload(
-		serverID, userID, bareReedID,
+		serverID, reedID,
 		h.signingKey.Fingerprint, userSignatureB64, now,
 	)
 	serverSignature, err := h.countersign(serverPayload, now)
@@ -2362,7 +2359,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userPayload := identity.BuildReedLikeUserPayload(serverID, authorID, bareReedID, fingerprint)
+	userPayload := identity.BuildReedLikeUserPayload(serverID, reedID, fingerprint)
 	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
@@ -2391,7 +2388,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	serverPayload := identity.BuildReedLikeServerPayload(
-		serverID, authorID, bareReedID,
+		serverID, reedID,
 		h.signingKey.Fingerprint, userSignatureB64, now,
 	)
 	serverSignature, err := h.countersign(serverPayload, now)

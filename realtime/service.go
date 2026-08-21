@@ -990,20 +990,19 @@ func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessag
 	if err := json.Unmarshal(data, &req); err != nil {
 		return
 	}
-	if req.RequestID == "" || req.ReedID == "" || req.AuthorID == "" {
+	if req.RequestID == "" || req.ReedID == "" {
 		return
 	}
-	requestID, authorID := req.RequestID, req.AuthorID
-	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), req.ReedID))
+	requestID, reedID := req.RequestID, req.ReedID
 
 	exists, err := rs.dbService.ReedExists(context.Background(), reedID)
 	if err != nil {
-		log.Error().Err(err).Str("reedID", reedID).Str("authorID", authorID).Msg("Failed to check reed existence")
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to check reed existence")
 		return
 	}
 	if !exists {
-		log.Debug().Str("reedID", reedID).Str("authorID", authorID).Msg("Requested reed does not exist, notifying requester")
-		rs.connManager.SendToUser(client.userID, NewReedNotFoundMsg(requestID, req.ReedID))
+		log.Debug().Str("reedID", reedID).Msg("Requested reed does not exist, notifying requester")
+		rs.connManager.SendToUser(client.userID, NewReedNotFoundMsg(requestID, reedID))
 		return
 	}
 
@@ -1011,7 +1010,6 @@ func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessag
 	// a reed the server thought they held — they clearly do not have the body locally.
 	if _, err = rs.dbService.DeleteReedAllocation(context.Background(), reedID, client.userID); err != nil {
 		log.Error().Err(err).
-			Str("authorID", authorID).
 			Str("reedID", reedID).
 			Str("requesterID", client.userID).
 			Msg("Failed to drop requester holder allocation")
@@ -1020,16 +1018,15 @@ func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessag
 
 	hasHolders, holder, err := rs.dbService.GetOnlineHolders(context.Background(), reedID)
 	if err != nil {
-		log.Error().Err(err).Str("reedID", reedID).Str("authorID", authorID).Msg("Failed to check reed holders")
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to check reed holders")
 		return
 	}
 	if !hasHolders {
 		log.Debug().
 			Str("reedID", reedID).
-			Str("authorID", authorID).
 			Str("requesterID", client.userID).
 			Msg("Requested reed is unheld, notifying requester")
-		rs.connManager.SendToUser(client.userID, NewReedNotHeldMsg(requestID, authorID, req.ReedID))
+		rs.connManager.SendToUser(client.userID, NewReedNotHeldMsg(requestID, reedID))
 		return
 	}
 
@@ -1039,7 +1036,7 @@ func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessag
 		return
 	}
 
-	rs.connManager.SendToUser(client.userID, NewRequestAckMsg(requestID, eventID, req.ReedID))
+	rs.connManager.SendToUser(client.userID, NewRequestAckMsg(requestID, eventID, reedID))
 
 	if holder != "" {
 		rs.dispatchNextIfConnected(holder)
@@ -1052,12 +1049,11 @@ func (rs *RealtimeService) handlePublishReady(client *Client, data json.RawMessa
 	if err := json.Unmarshal(data, &ready); err != nil {
 		return
 	}
-	bareReedID := ready.ReedID
-	if bareReedID == "" {
+	reedID := ready.ReedID
+	if reedID == "" {
 		return
 	}
 	authorUserID := client.userID
-	reedID := string(identity.AppendEntity(identity.IdentityID(authorUserID), bareReedID))
 
 	claimed, tags, err := rs.dbService.ClaimPendingFanout(context.Background(), reedID)
 	if err != nil {
@@ -1085,7 +1081,7 @@ func (rs *RealtimeService) handlePublishReady(client *Client, data json.RawMessa
 
 	ack := PublishReadyAckMsg{
 		Type: "PUBLISH_READY_ACK",
-		Data: PublishReadyAckData{ReedID: bareReedID},
+		Data: PublishReadyAckData{ReedID: reedID},
 	}
 	if jsonBytes, err := json.Marshal(ack); err == nil {
 		client.writeMessage(websocket.TextMessage, jsonBytes)
@@ -1209,7 +1205,7 @@ func (rs *RealtimeService) failReedNotHeld(pe *PendingReedEvent) {
 		Str("authorID", pe.UserID).
 		Str("reedID", pe.ReedID).
 		Msg("No reed holders remain; notifying requester")
-	if err := rs.connManager.SendToUser(pe.RequesterUserID, NewReedNotHeldMsg(pe.RequestID, pe.UserID, pe.ReedID)); err != nil {
+	if err := rs.connManager.SendToUser(pe.RequesterUserID, NewReedNotHeldMsg(pe.RequestID, pe.ReedID)); err != nil {
 		log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to send reed not held")
 	}
 	if err := rs.dbService.DeletePendingEvent(context.Background(), pe.EventID); err != nil {

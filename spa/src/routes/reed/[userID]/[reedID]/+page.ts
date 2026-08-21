@@ -18,7 +18,7 @@ export async function load({ params, parent }) {
 
   let reed = await reedsService.getReed(canonicalReedID);
   if (!reed && user.id === userID) {
-    const pending = await reedsService.getUnsignedReed(reedID);
+    const pending = await reedsService.getUnsignedReed(canonicalReedID);
     if (pending?.userID === userID) {
       reed = pending;
     }

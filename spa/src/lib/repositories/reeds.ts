@@ -126,8 +126,7 @@ class ReedsService {
     try {
       console.log('Getting signature from server...');
       const previousID = await previousIDForPublish();
-      const bareReedID = reed.id;
-      const response = await api.createReed(bareReedID, armor, {
+      const response = await api.createReed(reed.id, armor, {
         content: reed.content,
         echoing: reed.echoing,
         replying: reed.replying,
@@ -148,18 +147,13 @@ class ReedsService {
           },
         };
       }
-      // reed.id/published.id stay the bare client-minted UUID (needed for
-      // pendingPublication/PUBLISH_READY, both bare-scoped to the
-      // authenticated session) — the reeds store itself needs the
-      // canonical id, so store a canonicalized copy rather than mutating
-      // `published`.
-      await this.storeReed({ ...published, id: refForReed(published.userID, published.id) });
+      await this.storeReed(published);
       clearPublishTipOverride();
-      await pendingPublicationRepository.put(bareReedID);
+      await pendingPublicationRepository.put(published.id);
       await serverConnection.connect();
       const broadcast = !isBlankEcho(published);
-      await serverConnection.publishReady(bareReedID, { broadcast });
-      await dbService.delete('unsignedReeds', bareReedID);
+      await serverConnection.publishReady(published.id, { broadcast });
+      await dbService.delete('unsignedReeds', published.id);
       unsignedReedsProcessed.update((n) => n + 1);
       return true;
     } catch (error: any) {

@@ -345,9 +345,10 @@
     if (!user || !userID || !reedID) return;
     const requestedUserID = userID;
     const requestedReedID = reedID;
-    let found = await reedsService.getReed(refForReed(requestedUserID, requestedReedID));
+    const requestedCanonicalReedID = refForReed(requestedUserID, requestedReedID);
+    let found = await reedsService.getReed(requestedCanonicalReedID);
     if (!found && user.id === requestedUserID) {
-      const pending = await reedsService.getUnsignedReed(requestedReedID);
+      const pending = await reedsService.getUnsignedReed(requestedCanonicalReedID);
       if (pending?.userID === requestedUserID) found = pending;
     }
     // Drop stale completions after navigating to another reed.
@@ -463,9 +464,9 @@
   async function performDelete() {
     try {
       if (reed && !reed.serverSignature) {
-        await reedsService.discardUnsignedReed(reedID);
+        await reedsService.discardUnsignedReed(canonicalReedId(reed));
       } else {
-        await removeReedAsAuthor(userID, reedID);
+        await removeReedAsAuthor(canonicalReedID);
       }
       goto('/reeds');
     } catch (error) {

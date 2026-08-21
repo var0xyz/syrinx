@@ -69,7 +69,7 @@
   }
 
   function navigateToReed(reed) {
-    goto(`/reed/${reed.userID}/${reed.id}`);
+    goto(`/reed/${reed.id}`);
   }
 </script>
 

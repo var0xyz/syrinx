@@ -91,8 +91,8 @@
               class="feed-item"
               role="button"
               tabindex="0"
-              on:click={() => goto(`/reed/${reed.userID}/${reed.id}`)}
-              on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.userID}/${reed.id}`)}
+              on:click={() => goto(`/reed/${reed.id}`)}
+              on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.id}`)}
             >
               <div class="feed-header">
                 <ReedAuthorHeader

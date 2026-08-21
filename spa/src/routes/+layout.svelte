@@ -97,7 +97,7 @@
     });
     serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, author_id, reed_id }) => {
       console.log('ServerConnection: relay request received for reed:', author_id, reed_id, 'event:', event_id);
-      const reed = await dbService.get('reeds', refForReed(author_id, reed_id));
+      const reed = await dbService.get('reeds', reed_id);
       if (reed) {
         console.log('ServerConnection: reed found in IndexedDB, fulfilling relay:', reed_id);
         serverConnection.sendRelayResponse(event_id, reed);

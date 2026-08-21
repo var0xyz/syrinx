@@ -172,7 +172,7 @@
       const detachedArmor = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
       reed.setUserSignature(fingerprint, detachedArmor);
       const { publish } = await reedsService.createReed(reed);
-      const href = `/reed/${user.id}/${reed.id}`;
+      const href = `/reed/${reed.id}`;
       // Keep the modal open (covering the feed/detail page underneath) until
       // the new route is ready — on a slow connection, loading the detail
       // route's JS chunk can take a few seconds, and closing first flashes

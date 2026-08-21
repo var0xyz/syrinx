@@ -233,16 +233,14 @@ type ReedNotHeldMsg struct {
 type ReedNotHeldData struct {
 	RequestID string `json:"request_id"`
 	ReedID    string `json:"reed_id"`
-	AuthorID  string `json:"author_id"`
 }
 
-func NewReedNotHeldMsg(requestID, authorID, reedID string) ReedNotHeldMsg {
+func NewReedNotHeldMsg(requestID, reedID string) ReedNotHeldMsg {
 	return ReedNotHeldMsg{
 		Type: "REED_NOT_HELD",
 		Data: ReedNotHeldData{
 			RequestID: requestID,
 			ReedID:    reedID,
-			AuthorID:  authorID,
 		},
 	}
 }
