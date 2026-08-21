@@ -10,6 +10,7 @@
 import { privateKeyRepository } from '../repositories/privateKey';
 import { authService } from './auth';
 import { deviceIdHeader } from './deviceId';
+import { parseKeyId } from '../utils/keyId';
 
 class RequestSignerService {
   private initialized = false;
@@ -318,11 +319,15 @@ class RequestSignerService {
 
     // Get user info
     const user = await authService.getCurrentUser();
-    const fingerprint = authService.getActiveKeyFingerprint();
+    const canonicalFingerprint = authService.getActiveKeyFingerprint();
 
-    if (!user || !fingerprint) {
+    if (!user || !canonicalFingerprint) {
       throw new Error('User or active key not found');
     }
+    // X-Syrinx-Fingerprint travels bare on the wire — X-Syrinx-User-Id
+    // already carries the full canonical prefix (symmetric with URL
+    // {fingerprint} path vars on the server side).
+    const fingerprint = parseKeyId(canonicalFingerprint)?.fingerprint ?? canonicalFingerprint;
 
     // Build canonical request string
     const method = options.method || 'GET';
