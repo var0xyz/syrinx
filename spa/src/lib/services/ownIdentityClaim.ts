@@ -11,6 +11,7 @@ import { dbService } from './db';
 import { buildKeyNest } from './recoveryKeyNest';
 import { requestSigner } from './request-signer';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
+import { appendFingerprint } from '$lib/utils/keyId';
 
 /**
  * Claim the restored owner's identity on a recovery-mode server.
@@ -72,7 +73,11 @@ export async function claimOwnIdentity(): Promise<api.User> {
   }
 
   // Challenge must be signed by the nest outermost key (server verifies that).
-  const activeFingerprint = nest.key.fingerprint;
+  // nest.key.fingerprint is bare (recoveryKeyNest.ts builds wire nodes bare,
+  // matching the recovery package's wire/verification exception); the
+  // privateKeys lookup wants the canonical form.
+  const activeBareFingerprint = nest.key.fingerprint;
+  const activeFingerprint = appendFingerprint(userId, activeBareFingerprint);
   const privateKey = await privateKeyRepository.getPrivateKey(activeFingerprint);
   if (!privateKey?.armor) {
     throw new Error('Missing private key for active fingerprint.');

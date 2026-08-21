@@ -1,9 +1,24 @@
 /**
  * Local key-nest assemble-ability check and wire KeyNode construction for
  * claim / peer identity POST bodies.
+ *
+ * Fingerprints on this wire (KeyNode.fingerprint, PublicKey.predecessor.fingerprint,
+ * KeyRevocation.fingerprint) travel BARE — recovery/wire.go's server-side
+ * "DELIBERATE EXCEPTION" comment covers this too, not just userIDs:
+ * verifyKeyCountersig/verifyRevocation pair a bare fingerprint with a bare
+ * userID inside the exact bytes the server reconstructs to verify, so a
+ * canonical fingerprint here would produce bytes that don't match what was
+ * actually signed. Local lookups (publicKeys/revocations IndexedDB) are
+ * keyed canonically though, so every fingerprint pulled from a lookup is
+ * extracted back to bare before landing on the wire node.
  */
 
 import type * as api from '$lib/types/api';
+import { parseKeyId } from '$lib/utils/keyId';
+
+function bareFingerprint(fingerprint: string): string {
+  return parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
+}
 
 export type NestAssembleResult = { ok: true } | { ok: false; reason: string };
 
@@ -115,13 +130,16 @@ export function buildKeyNest(
     }
 
     const revocation = lookups.getRevocation(fingerprint) ?? null;
+    const wireRevocation = revocation
+      ? { ...revocation, fingerprint: bareFingerprint(revocation.fingerprint) }
+      : null;
     const node: api.RecoveryKeyNode = {
-      fingerprint: key.fingerprint,
+      fingerprint: bareFingerprint(key.fingerprint),
       userID: key.userID,
       armor: btoa(key.armor),
       revoked: key.revoked,
       serverSignature: key.serverSignature,
-      revocation,
+      revocation: wireRevocation,
       predecessor,
     };
     if (key.createdAt !== undefined) {
