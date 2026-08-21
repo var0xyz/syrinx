@@ -362,9 +362,9 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate the self-signature over the public key AND extract the
-	// canonical fingerprint / creation time / expiry from the armored
-	// key. This must happen before we can build the user identity
-	// payload, since the payload binds the fingerprint.
+	// bare fingerprint / creation time / expiry from the armored key.
+	// This must happen before we can build the user identity payload,
+	// since the payload binds the fingerprint.
 	key, err := h.services.crypto.ValidateAndExtractPublicKey(publicKey, signatureArmor)
 	if err != nil {
 		log.Error().Err(err).Msg("Error validating public key")
@@ -372,10 +372,18 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// GetUserProfile/GetPublicKey return this user in userID@serverID form,
+	// so the signed payloads must sign that same form or client-side
+	// verification will rebuild different bytes than what was signed.
+	// Computed up front (before verifying userSignature) because the
+	// canonical key fingerprint the client signed over is built from it.
+	selfIdentity := identity.CanonicalID(h.services.db.GetServerID(), userID)
+	canonicalFingerprint := identity.AppendEntity(selfIdentity, key.Fingerprint)
+
 	// Reconstruct the exact bytes the client claims to have signed. At
 	// signup bio is empty — a user cannot set it before their account
 	// exists.
-	userPayload := identity.BuildUserIdentityPayload(username, key.Fingerprint, "")
+	userPayload := identity.BuildUserIdentityPayload(username, string(canonicalFingerprint), "")
 
 	// userSignature travels as base64(armored PGP). Decode once and hand
 	// the armor to VerifySignature.
@@ -400,15 +408,10 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 	signupRole := roles.SignupRole(userID, inviteGrantedRole, hasInvite, h.services.db.GetServerID())
 
-	// GetUserProfile/GetPublicKey return this user in userID@serverID form,
-	// so the signed payloads must sign that same form or client-side
-	// verification will rebuild different bytes than what was signed.
-	selfIdentity := identity.CanonicalID(h.services.db.GetServerID(), userID)
-
 	profilePayload := identity.BuildNewProfilePayload(
 		string(selfIdentity),
 		username,
-		key.Fingerprint,
+		string(canonicalFingerprint),
 		h.services.db.GetServerID(),
 		h.signingKey.Fingerprint,
 		userSignatureB64,
@@ -428,7 +431,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	keyPayload := identity.BuildPublicKeyPayload(
 		h.services.db.GetServerID(),
 		string(selfIdentity),
-		key.Fingerprint,
+		string(canonicalFingerprint),
 		h.signingKey.Fingerprint,
 		publicKey,
 		now,
@@ -444,7 +447,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		UserID:             userID,
 		Username:           username,
 		PublicKeyArmor:     publicKey,
-		Fingerprint:        key.Fingerprint,
+		Fingerprint:        string(canonicalFingerprint),
 		KeyCreatedAt:       key.CreatedAt,
 		KeyExpiresAt:       key.ExpiresAt,
 		UserSignatureB64:   userSignatureB64,
@@ -474,7 +477,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	log.Info().
 		Str("userID", user.ID).
 		Str("username", username).
-		Str("fingerprint", key.Fingerprint).
+		Str("fingerprint", string(canonicalFingerprint)).
 		Msg("Identity record created")
 
 	h.metrics.UserCreated(r.Context(), h.cfg.SignupMode, user.ID)
@@ -913,7 +916,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("fingerprint", fingerprint).Err(err).Msg("Error loading public key")
 		internalServerError(w)
@@ -1154,7 +1157,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1325,18 +1328,21 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	revokedKeyFingerprint := strings.TrimSpace(r.FormValue("revokedKeyFingerprint"))
-	if revokedKeyFingerprint == "" {
+	// revokedKeyFingerprint travels bare over the wire (form field); join
+	// it with userID (already canonical) to get the DB/lookup key.
+	revokedKeyFingerprintBare := strings.TrimSpace(r.FormValue("revokedKeyFingerprint"))
+	if revokedKeyFingerprintBare == "" {
 		log.Error().Str("userID", userID).Msg("Argument `revokedKeyFingerprint` not found in request")
 		writeResponse(w, http.StatusBadRequest, "Argument `revokedKeyFingerprint` is required")
 		return
 	}
+	revokedKeyFingerprint := string(identity.AppendEntity(identity.IdentityID(userID), revokedKeyFingerprintBare))
 
 	// Retrieve old key — needed for cryptographic verification of the
 	// rotation proof below. DB integrity of the rotation itself (revoked,
 	// no successor yet, no other active key, …) is enforced inside
 	// DataService.AddPublicKey.
-	revokedKey, err := h.services.db.GetPublicKey(r.Context(), userID, revokedKeyFingerprint)
+	revokedKey, err := h.services.db.GetPublicKey(r.Context(), revokedKeyFingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1384,11 +1390,13 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", newKey.Fingerprint).
 		Msg("Public key signature verified successfully")
 
+	newKeyFingerprint := string(identity.AppendEntity(identity.IdentityID(userID), newKey.Fingerprint))
+
 	now := time.Now().UTC().Truncate(time.Second)
 	keyPayload := identity.BuildPublicKeyPayload(
 		h.services.db.GetServerID(),
 		userID,
-		newKey.Fingerprint,
+		newKeyFingerprint,
 		h.signingKey.Fingerprint,
 		armoredPublicKey,
 		now,
@@ -1401,7 +1409,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	publicKey, err := h.services.db.AddPublicKey(r.Context(), AddPublicKeyInput{
-		Fingerprint: newKey.Fingerprint,
+		Fingerprint: newKeyFingerprint,
 		UserID:      userID,
 		CreatedAt:   newKey.CreatedAt,
 		ExpiresAt:   newKey.ExpiresAt,
@@ -1437,18 +1445,24 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Info().
 		Str("userID", userID).
-		Str("fingerprint", newKey.Fingerprint).
+		Str("fingerprint", newKeyFingerprint).
 		Msg("Public key created")
 
 	publicKey.Armor = encoding.Base64Encode(publicKey.Armor)
 	writeResponse(w, http.StatusOK, publicKey)
 }
+
+// {fingerprint} in the URL is deliberately bare, not canonical: {userID} is
+// already a separate required path segment carrying the same
+// userID@serverID prefix, and a canonical fingerprint contains "/" which
+// would break gorilla/mux's single-segment matching. Handlers join the two
+// via identity.AppendEntity right after extracting them.
 func (h *Handlers) GetPublicKey(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("GetPublicKey request received")
 
-	fingerprint := mux.Vars(r)["fingerprint"]
-	if fingerprint == "" {
+	bareFingerprint := mux.Vars(r)["fingerprint"]
+	if bareFingerprint == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `fingerprint` is required")
 		return
 	}
@@ -1458,8 +1472,9 @@ func (h *Handlers) GetPublicKey(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
+	fingerprint := string(identity.AppendEntity(identity.IdentityID(userID), bareFingerprint))
 
-	key, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
+	key, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1482,11 +1497,12 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("RevokeKey request received")
 
 	userID := h.getUserID(r)
-	fingerprint := mux.Vars(r)["fingerprint"]
-	if fingerprint == "" {
+	bareFingerprint := mux.Vars(r)["fingerprint"]
+	if bareFingerprint == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `fingerprint` is required")
 		return
 	}
+	fingerprint := string(identity.AppendEntity(identity.IdentityID(userID), bareFingerprint))
 
 	err := r.ParseForm()
 	if err != nil {
@@ -1502,7 +1518,7 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1569,7 +1585,7 @@ func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
+	key, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1595,13 +1611,14 @@ func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("GetKeyRevocation request received")
 
 	userID := mux.Vars(r)["userID"]
-	fingerprint := mux.Vars(r)["fingerprint"]
-	if userID == "" || fingerprint == "" {
+	bareFingerprint := mux.Vars(r)["fingerprint"]
+	if userID == "" || bareFingerprint == "" {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `fingerprint` are required")
 		return
 	}
+	fingerprint := string(identity.AppendEntity(identity.IdentityID(userID), bareFingerprint))
 
-	revocation, err := h.services.db.GetKeyRevocation(r.Context(), userID, fingerprint)
+	revocation, err := h.services.db.GetKeyRevocation(r.Context(), fingerprint)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1768,7 +1785,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), userID, userFingerprint)
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), userFingerprint)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("userFingerprint", userFingerprint).Err(err).Msg("Error loading public key")
 		internalServerError(w)
@@ -2052,7 +2069,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprint)
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("fingerprint", fingerprint).Err(err).Msg("Error loading public key")
 		internalServerError(w)
@@ -2185,11 +2202,12 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
-	fingerprint := strings.TrimSpace(values.Get("fingerprint"))
-	if fingerprint == "" {
+	bareFingerprint := strings.TrimSpace(values.Get("fingerprint"))
+	if bareFingerprint == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `fingerprint` is required")
 		return
 	}
+	fingerprint := string(identity.AppendEntity(identity.IdentityID(likerID), bareFingerprint))
 
 	serverID := h.services.db.GetServerID()
 
@@ -2225,7 +2243,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), likerID, fingerprint)
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
 	if err != nil {
 		log.Error().Str("likerID", likerID).Str("fingerprint", fingerprint).Err(err).Msg("Error loading public key")
 		internalServerError(w)
@@ -2764,7 +2782,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	key, err := h.services.db.GetPublicKey(r.Context(), req.UserID, req.Fingerprint)
+	key, err := h.services.db.GetPublicKey(r.Context(), req.Fingerprint)
 	if err != nil {
 		internalServerError(w)
 		return
@@ -4087,7 +4105,10 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Arguments `fingerprint` and `userSignature` are required")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), callerID, req.Fingerprint)
+	// req.Fingerprint travels bare over the wire; join with callerID
+	// (already canonical) before any lookup or signed-payload use.
+	req.Fingerprint = string(identity.AppendEntity(identity.IdentityID(callerID), req.Fingerprint))
+	pubKey, err := h.services.db.GetPublicKey(r.Context(), req.Fingerprint)
 	if err != nil {
 		log.Error().Str("userID", callerID).Str("fingerprint", req.Fingerprint).Err(err).Msg("Error loading public key")
 		internalServerError(w)

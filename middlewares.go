@@ -377,7 +377,10 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				}
 			}
 
-			// Extract required authentication headers
+			// Extract required authentication headers. X-Syrinx-Fingerprint
+			// is deliberately bare (symmetric with URL {fingerprint} path
+			// vars — X-Syrinx-User-Id already carries the full canonical
+			// prefix), joined below before any lookup.
 			userID := r.Header.Get("X-Syrinx-User-Id")
 			fingerprintHeader := r.Header.Get("X-Syrinx-Fingerprint")
 			signatureHeader := r.Header.Get("X-Syrinx-Signature")
@@ -417,7 +420,8 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			}
 
 			// Get public key for the user and fingerprint
-			publicKey, err := h.services.db.GetPublicKey(r.Context(), userID, fingerprintHeader)
+			canonicalFingerprint := string(identity.AppendEntity(identity.IdentityID(userID), fingerprintHeader))
+			publicKey, err := h.services.db.GetPublicKey(r.Context(), canonicalFingerprint)
 			if err != nil {
 				log.Error().
 					Str("userID", userID).

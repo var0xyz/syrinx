@@ -304,6 +304,12 @@ func main() {
 	api.HandleFunc("/users/{userID}/followers", h.GetUserFollowers).Methods("GET")
 	api.HandleFunc("/users/{userID}/followers", h.noop).Methods("OPTIONS")
 
+	// {fingerprint} below is deliberately the BARE key fingerprint, not the
+	// canonical userID@serverID/fingerprint form: {userID} is already a
+	// separate required path segment carrying that same prefix, and a
+	// canonical fingerprint contains "/" which would break gorilla/mux's
+	// single-segment matching. Handlers reconstruct the canonical value via
+	// identity.AppendEntity right after extracting both vars.
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.GetPublicKey).Methods("GET")
 	api.HandleFunc("/users/{userID}/keys/{fingerprint}", h.noop).Methods("OPTIONS")
 
@@ -358,7 +364,7 @@ func main() {
 		ServerID:             dataService.GetServerID(),
 		ServerKeyFingerprint: signingKey.Fingerprint,
 		GetPublicKeyArmor: func(ctx context.Context, userID, fingerprint string) (string, error) {
-			key, err := dataService.GetPublicKey(ctx, userID, fingerprint)
+			key, err := dataService.GetPublicKey(ctx, fingerprint)
 			if err != nil {
 				return "", err
 			}

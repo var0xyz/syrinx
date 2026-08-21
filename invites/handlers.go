@@ -193,7 +193,10 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Invalid userSignature encoding")
 		return
 	}
-	pubArmor, err := d.GetPublicKeyArmor(r.Context(), caller, req.UserSignature.Fingerprint)
+	// req.UserSignature.Fingerprint travels bare over the wire; join with
+	// caller (already canonical) before the key lookup.
+	callerFingerprint := string(identity.AppendEntity(identity.IdentityID(caller), req.UserSignature.Fingerprint))
+	pubArmor, err := d.GetPublicKeyArmor(r.Context(), caller, callerFingerprint)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return

@@ -425,9 +425,13 @@ func (s *DataService) RevokeServerPrivateKey(ctx context.Context, fingerprint, r
 // payload, verified UserSignatureB64 against PublicKeyArmor, and
 // produced ProfileSignature / PublicKeySignature.
 type SignupInput struct {
-	UserID             string
-	Username           string
-	PublicKeyArmor     string
+	UserID         string
+	Username       string
+	PublicKeyArmor string
+	// Fingerprint arrives canonical ("userID@serverID/fingerprint")
+	// already — the handler builds it via identity.AppendEntity before
+	// signing the identity/public-key payloads, since the same canonical
+	// value must appear in the signed bytes.
 	Fingerprint        string
 	KeyCreatedAt       time.Time
 	KeyExpiresAt       *time.Time
@@ -757,9 +761,10 @@ func (s *DataService) GetUserRole(ctx context.Context, userID string) (string, e
 // on every accepted update — this is a full replacement of the signed
 // user-authored fields plus new attestation rows.
 type UpdateUserInput struct {
-	UserID           string
-	Username         string
-	Bio              string
+	UserID   string
+	Username string
+	Bio      string
+	// Fingerprint arrives canonical already — see SignupInput.Fingerprint.
 	Fingerprint      string
 	UserSignatureB64 string
 	ProfileSignature ServerSignature
@@ -951,12 +956,11 @@ func (s *DataService) SetDefaultIdentity(ctx context.Context, userID string, ide
 	return nil
 }
 
-// userID arrives in userID@serverID form already.
-func (s *DataService) GetPublicKey(ctx context.Context, userID string, fingerprint string) (*Key, error) {
-	selfIdentity := userID
-
+// fingerprint arrives canonical ("userID@serverID/fingerprint") and is
+// self-scoping — it is the sole lookup key.
+func (s *DataService) GetPublicKey(ctx context.Context, fingerprint string) (*Key, error) {
 	var key Key
-	var owner string
+	var owner sql.NullString
 	var revoked bool
 	var serverSignatureID int64
 	var predSig, predFP sql.NullString
@@ -967,11 +971,11 @@ func (s *DataService) GetPublicKey(ctx context.Context, userID string, fingerpri
 		       uk.predecessor_signature, uk.predecessor_fingerprint,
 		       EXISTS(
 			SELECT 1 FROM user_key_revocations rv
-			WHERE rv.user_fingerprint = uk.fingerprint AND rv.owner = uk.owner
+			WHERE rv.user_fingerprint = uk.fingerprint
 		       )
 		FROM user_keys uk
-		WHERE uk.owner = $1 AND uk.fingerprint = $2
-	`, selfIdentity, fingerprint).Scan(
+		WHERE uk.fingerprint = $1
+	`, fingerprint).Scan(
 		&key.Fingerprint, &owner, &key.Armor, &key.CreatedAt,
 		&serverSignatureID,
 		&predSig, &predFP,
@@ -983,9 +987,14 @@ func (s *DataService) GetPublicKey(ctx context.Context, userID string, fingerpri
 		}
 		return nil, err
 	}
-	// owner is already identities.id (userID@serverID); the wire shape's
-	// UserID field holds that form directly, no bare-decode step.
-	key.UserID = owner
+	// owner is populated for local identities (userID@serverID directly);
+	// for remote/federated ones it's NULL, so recover the owner from the
+	// canonical fingerprint itself instead.
+	if owner.Valid {
+		key.UserID = owner.String
+	} else if ownerID, ownerServer, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(key.Fingerprint)); ok {
+		key.UserID = string(identity.CanonicalID(ownerServer, ownerID))
+	}
 	serverRow, err := signing.GetServerSignature(ctx, s.db, serverSignatureID)
 	if err != nil {
 		return nil, err
@@ -1012,12 +1021,10 @@ func (s *DataService) IsPublicKeyRevoked(ctx context.Context, key *Key) (bool, e
 	return key.Revoked, nil
 }
 
-// userID is the URL-path-identified subject, already in userID@serverID form.
-func (s *DataService) GetKeyRevocation(ctx context.Context, userID, fingerprint string) (*KeyRevocation, error) {
-	selfIdentity := userID
-
+// fingerprint arrives canonical and is self-scoping — the sole lookup key.
+func (s *DataService) GetKeyRevocation(ctx context.Context, fingerprint string) (*KeyRevocation, error) {
 	var rev KeyRevocation
-	var owner string
+	var owner sql.NullString
 	var successor sql.NullString
 	var reason sql.NullString
 	var userSigID, serverSigID int64
@@ -1026,8 +1033,8 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, userID, fingerprint 
 		SELECT rv.user_fingerprint, rv.owner, rv.reason, rv.successor,
 		       rv.user_signature_id, rv.server_signature_id
 		FROM user_key_revocations rv
-		WHERE rv.owner = $1 AND rv.user_fingerprint = $2
-	`, selfIdentity, fingerprint).Scan(
+		WHERE rv.user_fingerprint = $1
+	`, fingerprint).Scan(
 		&rev.Fingerprint, &owner, &reason, &successor,
 		&userSigID, &serverSigID,
 	)
@@ -1037,8 +1044,13 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, userID, fingerprint 
 		}
 		return nil, err
 	}
-	// owner is already in userID@serverID form — hold it as-is.
-	rev.UserID = owner
+	// owner is populated for local identities; NULL for remote ones, in
+	// which case recover it from the canonical fingerprint itself.
+	if owner.Valid {
+		rev.UserID = owner.String
+	} else if ownerID, ownerServer, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(rev.Fingerprint)); ok {
+		rev.UserID = string(identity.CanonicalID(ownerServer, ownerID))
+	}
 	rev.Reason = reason.String
 	if successor.Valid && successor.String != "" {
 		s := successor.String
@@ -1069,17 +1081,16 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, userID, fingerprint 
 	return &rev, nil
 }
 
-func (s *DataService) PublicKeyExists(ctx context.Context, fingerprint string, userID string) (bool, error) {
-	selfIdentity := identity.CanonicalID(s.serverID, userID)
-
+// fingerprint arrives canonical and is self-scoping.
+func (s *DataService) PublicKeyExists(ctx context.Context, fingerprint string) (bool, error) {
 	var exists bool
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM user_keys
-			WHERE owner = $1 AND fingerprint = $2
+			WHERE fingerprint = $1
 		)
-	`, selfIdentity, fingerprint).Scan(&exists)
+	`, fingerprint).Scan(&exists)
 	if err != nil {
 		return false, err
 	}
@@ -1099,6 +1110,11 @@ func (s *DataService) PublicKeyExists(ctx context.Context, fingerprint string, u
 //  5. predecessor does not already have a successor
 //  6. the user has no other active (non-revoked) key
 type AddPublicKeyInput struct {
+	// Fingerprint and PredecessorFingerprint arrive canonical
+	// ("userID@serverID/fingerprint") already — callers build them via
+	// identity.AppendEntity(selfIdentity, bareFingerprint) before this is
+	// called, since the same canonical value must also appear in the
+	// signed payloads built ahead of this call.
 	Fingerprint string
 	UserID      string
 	CreatedAt   time.Time
@@ -1159,14 +1175,15 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	}
 
 	// Lock the predecessor key row. Rotation is only allowed against a
-	// key this owner already holds; revocation is confirmed via the
-	// revocations table next.
+	// key this owner already holds (fingerprint is canonical and
+	// self-scoping, so owner doesn't need to appear in the WHERE);
+	// revocation is confirmed via the revocations table next.
 	err = tx.QueryRowContext(ctx, `
 		SELECT 1
 		FROM user_keys
-		WHERE owner = $1 AND fingerprint = $2
+		WHERE fingerprint = $1
 		FOR UPDATE
-	`, selfIdentity, predecessor).Scan(new(int))
+	`, predecessor).Scan(new(int))
 	if err == sql.ErrNoRows {
 		return nil, ErrPredecessorNotFound
 	}
@@ -1181,9 +1198,9 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	err = tx.QueryRowContext(ctx, `
 		SELECT successor
 		FROM user_key_revocations
-		WHERE user_fingerprint = $1 AND owner = $2
+		WHERE user_fingerprint = $1
 		FOR UPDATE
-	`, predecessor, selfIdentity).Scan(&successor)
+	`, predecessor).Scan(&successor)
 	if err == sql.ErrNoRows {
 		return nil, ErrPredecessorNotRevoked
 	}
@@ -1196,7 +1213,10 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 
 	// Even with a correctly revoked predecessor, refuse if any other
 	// active key is still present for this user. Active = no row in
-	// user_key_revocations.
+	// user_key_revocations. owner is still the right scoping column here
+	// (this check is local-user-only — AddPublicKey is a local rotation
+	// endpoint), not derivable from a single fingerprint the way the
+	// lookups above are.
 	var hasActive bool
 	err = tx.QueryRowContext(ctx, `
 		SELECT EXISTS(
@@ -1204,7 +1224,7 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 			WHERE uk.owner = $1
 			  AND NOT EXISTS (
 				SELECT 1 FROM user_key_revocations rv
-				WHERE rv.user_fingerprint = uk.fingerprint AND rv.owner = uk.owner
+				WHERE rv.user_fingerprint = uk.fingerprint
 			  )
 		)
 	`, selfIdentity).Scan(&hasActive)
@@ -1263,8 +1283,8 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	_, err = tx.ExecContext(ctx, `
 		UPDATE user_key_revocations
 		SET successor = $1
-		WHERE user_fingerprint = $2 AND owner = $3
-	`, fingerprint, predecessor, selfIdentity)
+		WHERE user_fingerprint = $2
+	`, fingerprint, predecessor)
 	if err != nil {
 		return nil, err
 	}
@@ -1273,6 +1293,9 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 }
 
 // RevokeKeyInput bundles a signed revocation attestation for persistence.
+// Fingerprint arrives canonical already — the caller builds it via
+// identity.AppendEntity before signing the revocation payload, since the
+// same canonical value must appear in the signed bytes.
 type RevokeKeyInput struct {
 	Fingerprint      string
 	UserID           string
