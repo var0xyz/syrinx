@@ -42,6 +42,11 @@ func newFederationServer(t *testing.T, name string) *federationServer {
 	api.HandleFunc("/federation/attempt", h.OutgoingFederationAttempt).Methods(http.MethodPost)
 	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods(http.MethodPost)
 	api.HandleFunc("/federation/users/{userID}/identity", h.peerAuthMiddleware(h.GetFederationUserIdentity)).Methods(http.MethodGet)
+	// peerAuthMiddleware live-fetches the caller's own signing key armor
+	// from the caller (fetchPeerServerKeyArmor) to verify its request
+	// signature, so both test servers need to be able to serve their own
+	// key back, exactly as main.go registers it.
+	api.HandleFunc("/keys/{id:.+}", h.GetKey).Methods(http.MethodGet)
 
 	// TLS: the connect/attempt handlers reject non-https baseUrls, so the
 	// initiator side must be served over TLS even in tests.
@@ -87,9 +92,13 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 
 	aAdmin := seedFederationUser(t, a.ds, "a-admin", "a-admin", roles.RoleAdmin)
 	bAdmin := seedFederationUser(t, b.ds, "b-admin", "b-admin", roles.RoleAdmin)
-	// b's outbound call to a's httptest.NewTLSServer must trust its
-	// self-signed cert — a real deployment would have a valid public cert.
+	// Each side's outbound calls to the other's httptest.NewTLSServer must
+	// trust its self-signed cert — a real deployment would have a valid
+	// public cert. a needs this too: peerAuthMiddleware now live-fetches
+	// the peer's own signing key armor (fetchPeerServerKeyArmor) rather
+	// than reading a locally-cached copy.
 	b.h.federationHTTPClientOverride = a.srv.Client()
+	a.h.federationHTTPClientOverride = b.srv.Client()
 
 	// a's admin creates an invitation addressed to b's real key; the
 	// connection payload's signed baseUrl points at a's actual test server

@@ -308,7 +308,16 @@ func (h *Handlers) peerAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		publicKeyArmor, err := h.services.db.GetServerPublicKeyByFingerprint(r.Context(), fingerprint)
+		peer, err := h.services.db.GetServerByID(r.Context(), serverID)
+		if err != nil {
+			internalServerError(w)
+			return
+		}
+		if peer == nil {
+			writeResponse(w, http.StatusUnauthorized, "Not an established peer")
+			return
+		}
+		publicKeyArmor, err := h.fetchPeerServerKeyArmor(r.Context(), peer.BaseURL, serverID, fingerprint)
 		if err != nil || publicKeyArmor == "" {
 			writeResponse(w, http.StatusUnauthorized, "Not an established peer")
 			return

@@ -91,6 +91,16 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
 			predecessor_id VARCHAR(255) REFERENCES public_keys(id)
 		)`,
+		// GetPublicKey's revocation EXISTS subquery needs this table even
+		// when nothing in a given test ever revokes a key.
+		`CREATE TABLE IF NOT EXISTS public_key_revocations (
+			revoked_id VARCHAR(255) PRIMARY KEY REFERENCES public_keys(id) ON DELETE CASCADE,
+			reason TEXT,
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+			successor VARCHAR(255) REFERENCES public_keys(id),
+			successor_signature_id INT REFERENCES user_signatures(id)
+		)`,
 		// Minimal shape: GetFederationUserIdentity's account-removal check
 		// only needs "does a row exist for this user_id" (see
 		// deletion.GetAccountCert / loadAccountCertTx) — no test here
@@ -99,7 +109,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			note VARCHAR(140) NOT NULL DEFAULT '',
-			user_fingerprint VARCHAR(255) NOT NULL DEFAULT '',
+			public_key_id VARCHAR(255) NOT NULL DEFAULT '',
 			user_signature_id INT,
 			server_signature_id INT
 		)`,
