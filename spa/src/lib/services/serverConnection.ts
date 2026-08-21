@@ -8,6 +8,7 @@ import {
 } from '$lib/repositories/reedRequests';
 import { reedsService } from '$lib/repositories/reeds';
 import { startReedRequestDrainer } from './reedRequestDrainer';
+import { refForReed } from '$lib/utils/reedRef';
 
 export type ServerEventHandler = (data: any) => void;
 
@@ -325,7 +326,7 @@ class ServerConnection {
 
   async requestReedContent(reedId: string, authorId: string, serverId: string): Promise<any> {
     const requestId = computeReedRequestId(serverId, authorId, reedId);
-    const held = await reedsService.getReed(authorId, reedId);
+    const held = await reedsService.getReed(refForReed(authorId, reedId));
     if (held) return held;
 
     await reedRequestsRepository.enqueue({ requestId, serverId, authorId, reedId });

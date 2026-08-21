@@ -12,7 +12,7 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import { goto } from '$app/navigation';
-  import { parseReedRef } from '$lib/utils/reedRef';
+  import { parseReedRef, refForReed } from '$lib/utils/reedRef';
   import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
   import { serverConnection } from '$lib/services/serverConnection';
   import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';
@@ -55,7 +55,7 @@
    */
   async function locallyKnownRemovalReason(authorId, reedId) {
     if (await removedAccountsRepository.get(authorId)) return 'account';
-    const reedCert = await removedReedsRepository.get(reedId);
+    const reedCert = await removedReedsRepository.get(refForReed(authorId, reedId));
     if (reedCert && reedCert.userID === authorId) return 'reed';
     return null;
   }
@@ -114,7 +114,7 @@
       }
       const parsed = parseReedRef(walk.echoing);
       if (!parsed) break;
-      const nested = await reedsService.getReed(parsed.authorId, parsed.reedId);
+      const nested = await reedsService.getReed(walk.echoing);
       if (nested) {
         echoMap.set(walk.echoing, nested);
         walk = nested;
@@ -204,7 +204,7 @@
         const batch = echoFrontier;
         echoFrontier = [];
         const echoResults = await Promise.allSettled(
-          batch.map(({ author, reedId }) => reedsService.getReed(author, reedId))
+          batch.map(({ key }) => reedsService.getReed(key))
         );
         batch.forEach(({ key, author, reedId }, i) => {
           if (echoResults[i].status === 'fulfilled' && echoResults[i].value) {
@@ -260,15 +260,11 @@
         if (display.replying) replyKeys.add(display.replying);
       }
       const replyEntries = [...replyKeys]
-        .map((key) => {
-          const parsed = parseReedRef(key);
-          if (!parsed) return null;
-          return { key, author: parsed.authorId, reedId: parsed.reedId };
-        })
+        .map((key) => (parseReedRef(key) ? { key } : null))
         .filter(Boolean);
 
       const replyResults = await Promise.allSettled(
-        replyEntries.map(({ author, reedId }) => reedsService.getReed(author, reedId))
+        replyEntries.map(({ key }) => reedsService.getReed(key))
       );
 
       const replyMap = new Map();

@@ -113,7 +113,7 @@
     const serverId = relayServerId();
     if (!serverId) return;
 
-    const held = await reedsService.getReed(ref.userID, ref.reedID);
+    const held = await reedsService.getReed(refForReed(ref.userID, ref.reedID));
     if (held) {
       await applyReplyBody(ref.reedID, held);
       return;
@@ -145,8 +145,8 @@
     /** @type {typeof rows} */
     const out = [];
     for (const ref of refs) {
-      if (await removedReedsRepository.has(ref.reedID)) continue;
-      const reed = await reedsService.getReed(ref.userID, ref.reedID);
+      if (await removedReedsRepository.has(refForReed(ref.userID, ref.reedID))) continue;
+      const reed = await reedsService.getReed(refForReed(ref.userID, ref.reedID));
       const username = reed
         ? (await userRepository.getByUserId(ref.userID).catch(() => null))?.username ?? ref.userID
         : ref.userID;
