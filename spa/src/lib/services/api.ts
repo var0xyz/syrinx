@@ -97,6 +97,7 @@ const UNAUTHENTICATED_ENDPOINTS = [
   '/users/status',
   '/check-username',
   '/server/info',
+  '/server/key',
   '/recovery/identity/claim',
   '/account-recovery/challenge',
   '/account-recovery/bootstrap',
