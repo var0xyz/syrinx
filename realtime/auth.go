@@ -31,12 +31,8 @@ func NewAuthService(db *sql.DB, crypto *crypto.Service, serverID string) *AuthSe
 	}
 }
 
-// AuthenticateWebSocket authenticates a WebSocket connection using PGP
-// signature. Parallel implementation of the HTTP path's
-// signatureAuthMiddleware: publicKeyId is the canonical id of the key that
-// signed the request (userID@serverID/fingerprint); userID is recovered
-// from the verified key itself (identity.ParseKeyFingerprint), never
-// trusted from a client-supplied query param.
+// AuthenticateWebSocket authenticates a WebSocket connection. userID is
+// recovered from the verified publicKeyId, never a client-supplied param.
 func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	// Extract required authentication parameters from query string
 	// (WebSocket doesn't support custom headers in all browsers).
@@ -141,11 +137,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	return string(selfIdentity), nil
 }
 
-// getPublicKey retrieves a public key from the database along with its
-// revocation state. A key is revoked iff a matching row exists in
-// public_key_revocations. fingerprint arrives canonical and is self-scoping —
-// the sole lookup key, same shape as DataService.GetPublicKey in the main
-// package.
+// getPublicKey retrieves a key's armor and revocation state by canonical id.
 func (as *AuthService) getPublicKey(ctx context.Context, fingerprint string) (string, bool, error) {
 	var armor string
 	var revoked bool

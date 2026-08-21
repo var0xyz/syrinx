@@ -220,7 +220,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.h.setPeerProxyAuthHeaders(identReq); err != nil {
+	if err := b.h.setPeerProxyAuthHeaders(identReq, ""); err != nil {
 		t.Fatal(err)
 	}
 	identResp, err := a.srv.Client().Do(identReq)
