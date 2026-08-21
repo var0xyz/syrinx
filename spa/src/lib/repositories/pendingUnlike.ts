@@ -3,6 +3,7 @@ import { dbService } from '$lib/services/db';
 import { apiService } from '$lib/services/api';
 import { likedReedsRepository } from '$lib/repositories/likedReeds';
 import { allowUnsigned } from '$lib/verifiers';
+import { refForReed } from '$lib/utils/reedRef';
 
 export interface PendingUnlikeRecord {
   compositeKey: string; // `${authorID}:${reedID}`
@@ -39,7 +40,7 @@ export const pendingUnlikeRepository = {
     const pending = await pendingUnlikeRepository.getAll();
     for (const record of pending) {
       try {
-        await apiService.unlikeReed(record.authorID, record.reedID);
+        await apiService.unlikeReed(refForReed(record.authorID, record.reedID));
         await likedReedsRepository.delete(record.authorID, record.reedID);
         await pendingUnlikeRepository.delete(record.authorID, record.reedID);
         pendingUnlikeSynced.update((n) => n + 1);

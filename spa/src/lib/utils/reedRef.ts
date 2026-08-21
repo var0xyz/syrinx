@@ -1,8 +1,12 @@
+import { parseKeyId, formatKeyId } from './keyId';
+
 /**
  * Reed reference: userID@serverID/reedID (echoing / replying), where
  * userID is already the canonical form. authorId below is that whole
  * canonical userID (bare@serverId), not just the bare local part — every
  * consumer (getReed, reed.userID comparisons, …) needs the canonical form.
+ * Same 3-part shape as a key id, so this is a thin wrapper over
+ * parseKeyId/formatKeyId (see keyId.ts).
  */
 export type ReedRef = {
   authorId: string;
@@ -11,22 +15,13 @@ export type ReedRef = {
 };
 
 export function parseReedRef(raw: string | null | undefined): ReedRef | null {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const at = trimmed.indexOf('@');
-  if (at <= 0) return null;
-  const slash = trimmed.lastIndexOf('/');
-  if (slash <= at || slash === trimmed.length - 1) return null;
-  const authorId = trimmed.slice(0, slash).trim();
-  const serverId = trimmed.slice(at + 1, slash).trim();
-  const reedId = trimmed.slice(slash + 1).trim();
-  if (!authorId || !serverId || !reedId) return null;
-  return { authorId, serverId, reedId };
+  const parsed = parseKeyId(raw);
+  if (!parsed) return null;
+  return { authorId: parsed.userId, serverId: parsed.serverId, reedId: parsed.fingerprint };
 }
 
 export function formatReedRef(authorId: string, serverId: string, reedId: string): string {
-  return `${authorId}@${serverId}/${reedId}`;
+  return formatKeyId(authorId, serverId, reedId);
 }
 
 /**
@@ -36,6 +31,18 @@ export function formatReedRef(authorId: string, serverId: string, reedId: string
  */
 export function refForReed(userID: string, reedId: string): string {
   return `${userID}/${reedId}`;
+}
+
+/**
+ * A reed's own canonical id (authorID@serverID/uuid) — same composition
+ * the server uses for canonicalReedID (handlers.go), and the value every
+ * downstream consumer (ripples, likes, IndexedDB keys, realtime
+ * subscriptions) should use to refer to this reed. reed.id itself stays
+ * the bare client-minted UUID — required as-is for the signed markdown
+ * envelope and the /reeds/{userID}/{reedID} URL segment.
+ */
+export function canonicalReedId(reed: { userID: string; id: string }): string {
+  return refForReed(reed.userID, reed.id);
 }
 
 /**

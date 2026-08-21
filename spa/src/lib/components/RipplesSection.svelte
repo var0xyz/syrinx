@@ -14,8 +14,7 @@
   import { formatRelativeTime } from '$lib/utils/time';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
 
-  /** @type {string} */
-  export let userID;
+  /** The parent reed's canonical id (authorID@serverID/uuid). */
   /** @type {string} */
   export let reedID;
   /** The parent reed's base64 server-signature armor — proof of
@@ -164,7 +163,7 @@
   }
 
   async function loadPage(before) {
-    const res = await apiService.listRipples(userID, reedID, serverSignatureArmor, { limit: 50, before });
+    const res = await apiService.listRipples(reedID, serverSignatureArmor, { limit: 50, before });
 
     // Defensive: if the server itself reports expiresAt as already in
     // the past (a fetch landing in the race window right before the
@@ -179,7 +178,7 @@
 
     const kept = [];
     for (const ripple of res.responses) {
-      const ok = await ripplesRepository.storeRipple(ripple, userID, reedID);
+      const ok = await ripplesRepository.storeRipple(ripple, reedID);
       if (ok) kept.push(ripple);
     }
     for (const ripple of kept) {
@@ -244,10 +243,10 @@
    * insert if not already present — guards against the optimistic-insert-
    * then-echo double-add for the poster's own just-submitted ripple. */
   async function handleRipplePosted(msg) {
-    if (expired || msg?.userID !== userID || msg?.reedID !== reedID || !msg?.ripple) return;
+    if (expired || msg?.reedID !== reedID || !msg?.ripple) return;
     const ripple = msg.ripple;
     if (ripples.some((r) => r.hash === ripple.hash)) return;
-    const ok = await ripplesRepository.storeRipple(ripple, userID, reedID);
+    const ok = await ripplesRepository.storeRipple(ripple, reedID);
     if (!ok) return;
     await resolveUsername(ripple.userID);
     insertRipple(ripple);
@@ -257,9 +256,9 @@
    * never remove it. Does not re-verify (verifyRipple's tombstone
    * short-circuit already trusts the deleted flag). */
   async function handleRippleUpdated(msg) {
-    if (expired || msg?.userID !== userID || msg?.reedID !== reedID || !msg?.ripple) return;
+    if (expired || msg?.reedID !== reedID || !msg?.ripple) return;
     const ripple = msg.ripple;
-    await ripplesRepository.storeRipple(ripple, userID, reedID);
+    await ripplesRepository.storeRipple(ripple, reedID);
     ripples = ripples.map((r) => (r.hash === ripple.hash ? ripple : r));
   }
 
@@ -308,7 +307,7 @@
     expired = false;
     burning = false;
     expiresAtMonotonic = performance.now() + WEEK;
-    const ok = await ripplesRepository.storeRipple(posted, userID, reedID);
+    const ok = await ripplesRepository.storeRipple(posted, reedID);
     if (ok) {
       await resolveUsername(posted.userID);
       insertRipple(posted);
@@ -406,7 +405,6 @@
         {#if replyingTo?.hash === ripple.hash}
           <li class="ripple-composer-row">
             <RippleComposer
-              {userID}
               {reedID}
               {serverSignatureArmor}
               {replyingTo}
@@ -428,7 +426,6 @@
 
   {#if !replyingTo}
     <RippleComposer
-      {userID}
       {reedID}
       {serverSignatureArmor}
       on:posted={handleComposerPosted}

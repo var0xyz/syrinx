@@ -3,7 +3,7 @@ import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
 import { removedReedsRepository } from '$lib/repositories/removedReeds';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
-import { parseReedRef } from '$lib/utils/reedRef';
+import { parseReedRef, canonicalReedId } from '$lib/utils/reedRef';
 
 /** @type {import('./$types').PageLoad} */
 export async function load({ params, parent }) {
@@ -28,6 +28,7 @@ export async function load({ params, parent }) {
       user,
       userID,
       reedID,
+      canonicalReedID: null,
       reed: null,
       authorUser: null,
       echoedReed: null,
@@ -85,6 +86,10 @@ export async function load({ params, parent }) {
     user,
     userID,
     reedID,
+    // Canonical id (authorID@serverID/uuid) — the single value every
+    // reed-scoped API call/subscription below the route boundary should
+    // use instead of the separate userID/reedID URL segments above.
+    canonicalReedID: reed ? canonicalReedId(reed) : null,
     reed,
     authorUser,
     echoedReed,

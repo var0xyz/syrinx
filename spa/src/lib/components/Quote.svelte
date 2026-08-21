@@ -10,7 +10,7 @@
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { formatRelativeTime } from '$lib/utils/time';
-  import { parseReedRef } from '$lib/utils/reedRef';
+  import { parseReedRef, refForReed } from '$lib/utils/reedRef';
   import { resolveBlankEchoChain } from '$lib/utils/emptyEcho';
   import MarkdownParser from './MarkdownParser.svelte';
   import Username from './Username.svelte';
@@ -82,7 +82,7 @@
 
     if (!get(isOnline)) return null;
     try {
-      const result = await apiService.getReedOrRemoval(authorId, targetReedId);
+      const result = await apiService.getReedOrRemoval(refForReed(authorId, targetReedId));
       if (result.kind !== 'gone' || !result.removal) return null;
       if (result.removal.type === 'account') {
         await verifyAndCommitAccountRemoval(result.removal);

@@ -3,6 +3,7 @@ import { dbService } from '$lib/services/db';
 import { apiService } from '$lib/services/api';
 import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
 import { allowUnsigned } from '$lib/verifiers';
+import { refForReed } from '$lib/utils/reedRef';
 
 export interface PendingRemovalRecord {
   reedID: string;
@@ -37,8 +38,7 @@ export const pendingRemovalRepository = {
     for (const record of pending) {
       try {
         const cert = await apiService.deleteReed(
-          record.userID,
-          record.reedID,
+          refForReed(record.userID, record.reedID),
           record.signature
         );
         if (!(await verifyAndCommitReedRemoval(cert))) {

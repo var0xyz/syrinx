@@ -28,7 +28,7 @@
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
-  import { parseReedRef, resolveThreadId, refForRemoved } from '$lib/utils/reedRef';
+  import { parseReedRef, resolveThreadId, refForRemoved, refForReed, canonicalReedId } from '$lib/utils/reedRef';
   import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
@@ -142,6 +142,10 @@
 
   $: userID = $page.params.userID;
   $: reedID = $page.params.reedID;
+  // The single canonical id (authorID@serverID/uuid) every reed-scoped API
+  // call/subscription below this point should use, composed as soon as the
+  // reed object (with its own userID/id) is available — see canonicalReedId.
+  $: canonicalReedID = reed ? canonicalReedId(reed) : null;
   $: isPending = !!(reed && !reed.serverSignature);
   // Blank echoes (a bare re-share with no commentary) carry no
   // interactions of their own — no stats, no conversation/ripples, no live
@@ -383,7 +387,7 @@
       }
 
       try {
-        const result = await apiService.getReedOrRemoval(userID, reedID);
+        const result = await apiService.getReedOrRemoval(refForReed(userID, reedID));
         if (seq !== loadSeq) return;
         if (result.kind === 'not_found') {
           reedNotFound = true;
@@ -778,10 +782,10 @@
               />
             </div>
             <div class="discussion-panel" class:hidden={discussionTab !== 'ripples'}>
-              <RipplesSection {userID} {reedID} serverSignatureArmor={reed.serverSignature?.armor ?? ''} bind:count={ripplesCount} />
+              <RipplesSection reedID={canonicalReedID} serverSignatureArmor={reed.serverSignature?.armor ?? ''} bind:count={ripplesCount} />
             </div>
             <div class="discussion-panel" class:hidden={discussionTab !== 'chorus'}>
-              <ChorusSection {userID} {reedID} bind:count={chorusCount} />
+              <ChorusSection reedID={canonicalReedID} bind:count={chorusCount} />
             </div>
           {/if}
         {/if}

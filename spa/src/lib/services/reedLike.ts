@@ -11,6 +11,7 @@ import { likedReedsRepository } from '$lib/repositories/likedReeds';
 import { verifyReedLike } from '$lib/verifiers';
 import { get } from 'svelte/store';
 import { serverInfo } from './serverInfo';
+import { refForReed } from '$lib/utils/reedRef';
 
 export { verifyReedLike };
 
@@ -82,7 +83,7 @@ export async function likeReed(authorID: string, reedID: string): Promise<api.Re
     signature,
   });
 
-  const cert = await apiService.likeReed(authorID, reedID, signature, fingerprint);
+  const cert = await apiService.likeReed(refForReed(authorID, reedID), signature, fingerprint);
   if (!(await verifyAndCommitReedLike(cert))) {
     throw new Error('Server like countersignature failed verification');
   }
@@ -102,7 +103,7 @@ export async function unlikeReed(authorID: string, reedID: string): Promise<void
     reedID,
   });
 
-  await apiService.unlikeReed(authorID, reedID);
+  await apiService.unlikeReed(refForReed(authorID, reedID));
   await likedReedsRepository.delete(authorID, reedID);
   await pendingUnlikeRepository.delete(authorID, reedID);
 }

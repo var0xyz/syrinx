@@ -30,13 +30,13 @@ export class RipplesRepository {
   /**
    * Verify (unless already cached) and store a ripple. Also ensures the
    * author's public key and profile are cached, same as storeReed does
-   * for a reed's author. reedAuthorID/reedID identify the parent reed
+   * for a reed's author. reedID (canonical) identifies the parent reed
    * (needed to rebuild the signed payload — not part of the wire object).
    * Returns false (and does not store) if verification fails; callers
    * must treat that as "discard, do not render" per 00's Client-side
    * verification section, not as an error to surface to the user.
    */
-  async storeRipple(ripple: api.Ripple, reedAuthorID: string, reedID: string): Promise<boolean> {
+  async storeRipple(ripple: api.Ripple, reedID: string): Promise<boolean> {
     if (await this.hasRipple(ripple.hash)) {
       return true;
     }
@@ -54,7 +54,7 @@ export class RipplesRepository {
     }
 
     try {
-      await this.db.put('ripples', ripple, (r) => verifyRipple(r, reedAuthorID, reedID));
+      await this.db.put('ripples', ripple, (r) => verifyRipple(r, reedID));
     } catch (error) {
       console.error('Ripple failed verification, discarding:', ripple.hash, error);
       return false;

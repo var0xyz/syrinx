@@ -10,6 +10,7 @@ import { removedReedsRepository } from '$lib/repositories/removedReeds';
 import { verifyReedRemoval } from '$lib/verifiers';
 import { get, writable } from 'svelte/store';
 import { serverInfo } from './serverInfo';
+import { refForReed } from '$lib/utils/reedRef';
 
 export { verifyReedRemoval };
 
@@ -72,7 +73,7 @@ export async function removeReedAsAuthor(userID: string, reedID: string): Promis
     signature,
   });
 
-  const cert = await apiService.deleteReed(userID, reedID, signature);
+  const cert = await apiService.deleteReed(refForReed(userID, reedID), signature);
   if (!(await verifyAndCommitReedRemoval(cert))) {
     throw new Error('Server reed-removal countersignature failed verification');
   }
