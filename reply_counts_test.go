@@ -46,30 +46,25 @@ func ensureReplyCountSchema(db *sql.DB) error {
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE reeds (
-			id VARCHAR(255) NOT NULL,
+			id VARCHAR(255) PRIMARY KEY,
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 			private_key_fingerprint VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			PRIMARY KEY (user_id, id)
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
-		// reed_replies.user_id/parent_user_id have no direct FK, mirroring
-		// db.go (composite-FK'd to reeds(user_id, id) transitively).
+		// reed_id is canonical (embeds author) — no separate user_id column,
+		// mirroring db.go.
 		`CREATE TABLE reed_replies (
 			thread_id VARCHAR(255) NOT NULL,
-			user_id VARCHAR(255) NOT NULL,
-			reed_id VARCHAR(255) NOT NULL UNIQUE,
-			parent_user_id VARCHAR(255) NOT NULL,
+			reed_id VARCHAR(255) NOT NULL,
 			parent_reed_id VARCHAR(255) NOT NULL,
 			timestamp TIMESTAMP NOT NULL,
-			PRIMARY KEY (user_id, reed_id)
+			PRIMARY KEY (reed_id)
 		)`,
 		`DROP TABLE IF EXISTS reed_removals CASCADE`,
 		`CREATE TABLE reed_removals (
-			reed_id VARCHAR(255) NOT NULL,
-			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
-			PRIMARY KEY (user_id, reed_id)
+			reed_id VARCHAR(255) PRIMARY KEY
 		)`,
 		`DROP TABLE IF EXISTS account_removals CASCADE`,
 		`CREATE TABLE account_removals (
@@ -129,14 +124,17 @@ func TestReplyCountsFromGraph(t *testing.T) {
 	ctx := context.Background()
 	ts := time.Now().UTC().Truncate(time.Second)
 
+	rootID := "alice@testserver/root"
+	midID := "alice@testserver/mid"
+	leafID := "alice@testserver/leaf"
+
 	seedReplyTestUser(t, db, "alice")
-	seedReplyTestReed(t, db, "alice", "root")
-	seedReplyTestReed(t, db, "alice", "mid")
-	seedReplyTestReed(t, db, "alice", "leaf")
+	seedReplyTestReed(t, db, "alice", rootID)
+	seedReplyTestReed(t, db, "alice", midID)
+	seedReplyTestReed(t, db, "alice", leafID)
 
 	// root.ServerID must be set to "testserver", or insertReplyTx builds
 	// the malformed "alice@" instead of "alice@testserver".
-	aliceIdentity := identity.CanonicalID("testserver", "alice")
 	threadID := "alice@testserver/root"
 	root := ReedRef{AuthorID: "alice", ServerID: "testserver", ReedID: "root"}
 
@@ -144,7 +142,7 @@ func TestReplyCountsFromGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ds.insertReplyTx(ctx, tx1, threadID, root, aliceIdentity, "mid", ts); err != nil {
+	if err := ds.insertReplyTx(ctx, tx1, threadID, root, midID, ts); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx1.Commit(); err != nil {
@@ -156,14 +154,14 @@ func TestReplyCountsFromGraph(t *testing.T) {
 		t.Fatal(err)
 	}
 	mid := ReedRef{AuthorID: "alice", ServerID: "testserver", ReedID: "mid"}
-	if err := ds.insertReplyTx(ctx, tx2, threadID, mid, aliceIdentity, "leaf", ts.Add(time.Second)); err != nil {
+	if err := ds.insertReplyTx(ctx, tx2, threadID, mid, leafID, ts.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx2.Commit(); err != nil {
 		t.Fatal(err)
 	}
 
-	threadTotal, err := ds.GetSubtreeReplyCount(context.Background(), "alice", "root")
+	threadTotal, err := ds.GetSubtreeReplyCount(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,9 +169,9 @@ func TestReplyCountsFromGraph(t *testing.T) {
 		t.Fatalf("root subtree (= thread total) = %d want 2", threadTotal)
 	}
 
-	rootSub, _ := ds.GetSubtreeReplyCount(context.Background(), "alice", "root")
-	midSub, _ := ds.GetSubtreeReplyCount(context.Background(), "alice", "mid")
-	leafSub, _ := ds.GetSubtreeReplyCount(context.Background(), "alice", "leaf")
+	rootSub, _ := ds.GetSubtreeReplyCount(context.Background(), rootID)
+	midSub, _ := ds.GetSubtreeReplyCount(context.Background(), midID)
+	leafSub, _ := ds.GetSubtreeReplyCount(context.Background(), leafID)
 	if rootSub != 2 || midSub != 1 || leafSub != 0 {
 		t.Fatalf("subtree counts root=%d mid=%d leaf=%d want 2/1/0", rootSub, midSub, leafSub)
 	}

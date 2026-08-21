@@ -27,7 +27,7 @@ func TestVerifyReedCountersig_OK(t *testing.T) {
 		UserSignature:   testReedUserSig(),
 		ServerSignature: testServerSig(serverID, ts),
 	}
-	payload := identity.BuildReedPayload(serverID, "author1", "reed1", "SKEY", "dXNlclNpZw==", ts)
+	payload := identity.BuildReedPayload(serverID, "author1@srv1/reed1", "SKEY", "dXNlclNpZw==", ts)
 	v := &fakeVerifier{}
 	err := verifyReedCountersig(context.Background(), req, serverID, func(ctx context.Context, fp string) (string, error) {
 		if fp == "SKEY" {
@@ -50,7 +50,7 @@ func TestVerifyReedCountersig_BadSig(t *testing.T) {
 		UserSignature:   testReedUserSig(),
 		ServerSignature: testServerSig(serverID, ts),
 	}
-	payload := string(identity.BuildReedPayload(serverID, "author1", "reed1", "SKEY", "dXNlclNpZw==", ts))
+	payload := string(identity.BuildReedPayload(serverID, "author1@srv1/reed1", "SKEY", "dXNlclNpZw==", ts))
 	v := &fakeVerifier{failSig: map[string]bool{payload: true}}
 	err := verifyReedCountersig(context.Background(), req, serverID, func(ctx context.Context, _ string) (string, error) {
 		return "server-pub", nil
@@ -88,7 +88,7 @@ func TestReportReed_BadCountersig(t *testing.T) {
 		ReedID: "reed1", AuthorID: "author1", UserSignature: testReedUserSig(),
 		ServerSignature: testServerSig(serverID, ts),
 	}
-	payload := string(identity.BuildReedPayload(serverID, "author1", "reed1", "SKEY", "dXNlclNpZw==", ts))
+	payload := string(identity.BuildReedPayload(serverID, "author1@srv1/reed1", "SKEY", "dXNlclNpZw==", ts))
 	body, _ := json.Marshal(req)
 	deps := Deps{
 		ServerID:  serverID,
