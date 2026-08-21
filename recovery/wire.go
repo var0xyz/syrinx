@@ -108,7 +108,7 @@ type FollowingRequest struct {
 }
 
 // FlatKey is one key in oldest→newest order after nest verification.
-// Oldest-first matches user_keys.predecessor_fingerprint FK insert order.
+// Oldest-first matches public_keys.predecessor_id FK insert order.
 type FlatKey struct {
 	Key                    KeyWire
 	Revocation             *Revocation

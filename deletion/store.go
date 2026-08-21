@@ -62,7 +62,7 @@ func InsertCert(ctx context.Context, db *sql.DB, cert Cert, serverID string) err
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reed_removals (
-				reed_id, user_id, user_fingerprint,
+				reed_id, user_id, public_key_id,
 				user_signature_id, server_signature_id
 			) VALUES ($1, $2, $3, $4, $5)
 		`, cert.ReedID, selfIdentity, cert.UserFingerprint, userSigID, serverSigID); err != nil {
@@ -104,7 +104,7 @@ type reedQuerier interface {
 
 func loadReedCertTx(ctx context.Context, q reedQuerier, selfIdentity identity.IdentityID, reedID string, forUpdate bool) (*Cert, error) {
 	query := `
-		SELECT user_fingerprint, user_signature_id, server_signature_id
+		SELECT public_key_id, user_signature_id, server_signature_id
 		FROM reed_removals
 		WHERE user_id = $1 AND reed_id = $2`
 	if forUpdate {

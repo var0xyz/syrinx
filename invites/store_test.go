@@ -96,7 +96,7 @@ func ensureInviteSchema(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS user_signatures (
 			id SERIAL PRIMARY KEY,
-			fingerprint VARCHAR(255) NOT NULL,
+			public_key_id VARCHAR(255) NOT NULL,
 			signature TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (
@@ -166,7 +166,7 @@ func seedUserWithRole(t *testing.T, db *sql.DB, userID, username, role string) {
 	t.Helper()
 	var userSigID, serverSigID int64
 	err := db.QueryRow(`
-		INSERT INTO user_signatures (fingerprint, signature)
+		INSERT INTO user_signatures (public_key_id, signature)
 		VALUES ('seed-ufp', 'u') RETURNING id
 	`).Scan(&userSigID)
 	if err != nil {

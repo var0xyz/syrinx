@@ -41,7 +41,7 @@ func ripplesTestHandlers(db *DataService) *Handlers {
 	return &Handlers{
 		services:      &Services{db: db, crypto: svc, log: NewLoggingService()},
 		broadcastChan: make(chan realtime.BroadcastMessage, 100),
-		signingKey: Key{
+		signingKey: ServerSigningKey{
 			Fingerprint: kp.Fingerprint,
 			Armor:       kp.PrivateKey,
 		},

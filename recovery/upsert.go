@@ -288,24 +288,25 @@ func updateUserIfNewer(
 	return true, nil
 }
 
-// insertKeys writes flat's keys/revocations to user_keys/user_key_revocations.
-// flat's fingerprints arrive BARE — verifyKeyCountersig/verifyRevocation
-// checked them against bytes the SPA's recoveryKeyNest.ts actually signed,
-// which (per this package's deliberate bare-userID exception) pairs a bare
-// fingerprint with a bare userID, so the wire/verification layer must stay
-// bare here too. DB storage still wants the canonical form like every other
-// table, so canonicalize against owner right at this boundary, after
-// verification and before any INSERT.
+// insertKeys writes flat's keys/revocations to public_keys/
+// public_key_revocations. flat's fingerprints arrive BARE —
+// verifyKeyCountersig/verifyRevocation checked them against bytes the
+// SPA's recoveryKeyNest.ts actually signed, which (per this package's
+// deliberate bare-userID exception) pairs a bare fingerprint with a bare
+// userID, so the wire/verification layer must stay bare here too. DB
+// storage still wants the canonical form like every other table, so
+// canonicalize against owner right at this boundary, after verification
+// and before any INSERT. owner is always a real, local identity here —
+// this package handles only local subjects (see its own package doc).
 func insertKeys(ctx context.Context, tx *sql.Tx, owner identity.IdentityID, flat []FlatKey) error {
 	canonicalFP := func(bare string) string {
 		return string(identity.AppendEntity(owner, bare))
 	}
 	for i, fk := range flat {
 		fingerprint := canonicalFP(fk.Key.Fingerprint)
-		var predFP, predSig interface{}
+		var predID interface{}
 		if fk.PredecessorFingerprint != "" {
-			predFP = canonicalFP(fk.PredecessorFingerprint)
-			predSig = fk.PredecessorSignature
+			predID = canonicalFP(fk.PredecessorFingerprint)
 		}
 		serverSigID, err := signing.InsertServerSignature(ctx, tx,
 			fk.Key.ServerSignature.Fingerprint,
@@ -316,17 +317,15 @@ func insertKeys(ctx context.Context, tx *sql.Tx, owner identity.IdentityID, flat
 			return fmt.Errorf("insert key server signature %s: %w", fk.Key.Fingerprint, err)
 		}
 		_, err = tx.ExecContext(ctx, `
-			INSERT INTO user_keys (
-				fingerprint, owner, armor, created_at, expires_at,
-				server_signature_id,
-				predecessor_signature, predecessor_fingerprint
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (fingerprint) DO NOTHING
+			INSERT INTO public_keys (
+				id, owner, armor, created_at,
+				server_signature_id, predecessor_id
+			) VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (id) DO NOTHING
 		`,
 			fingerprint, owner, fk.Key.Armor,
-			fk.Key.CreatedAt.UTC().Truncate(time.Second), fk.Key.ExpiresAt,
-			serverSigID,
-			predSig, predFP,
+			fk.Key.CreatedAt.UTC().Truncate(time.Second),
+			serverSigID, predID,
 		)
 		if err != nil {
 			return fmt.Errorf("insert key %s: %w", fk.Key.Fingerprint, err)
@@ -347,11 +346,11 @@ func insertKeys(ctx context.Context, tx *sql.Tx, owner identity.IdentityID, flat
 				return fmt.Errorf("insert revocation server signature %s: %w", fk.Key.Fingerprint, err)
 			}
 			_, err = tx.ExecContext(ctx, `
-				INSERT INTO user_key_revocations (
-					user_fingerprint, owner, reason,
+				INSERT INTO public_key_revocations (
+					revoked_id, owner, reason,
 					user_signature_id, server_signature_id
 				) VALUES ($1, $2, $3, $4, $5)
-				ON CONFLICT (user_fingerprint) DO NOTHING
+				ON CONFLICT (revoked_id) DO NOTHING
 			`,
 				revocationFP, owner, fk.Revocation.Reason,
 				userSigID, serverSigID,
@@ -361,14 +360,23 @@ func insertKeys(ctx context.Context, tx *sql.Tx, owner identity.IdentityID, flat
 			}
 		}
 
-		// After inserting a newer key, point the predecessor revocation's successor.
+		// After inserting a newer key, point the predecessor revocation's
+		// successor + the handoff signature proof onto that same row.
 		if i > 0 {
+			var successorSigID interface{}
+			if fk.PredecessorSignature != "" {
+				sigID, err := signing.InsertUserSignature(ctx, tx, canonicalFP(flat[i-1].Key.Fingerprint), fk.PredecessorSignature)
+				if err != nil {
+					return fmt.Errorf("insert successor signature for %s: %w", flat[i-1].Key.Fingerprint, err)
+				}
+				successorSigID = sigID
+			}
 			_, err := tx.ExecContext(ctx, `
-				UPDATE user_key_revocations
-				SET successor = $1
-				WHERE user_fingerprint = $2
+				UPDATE public_key_revocations
+				SET successor = $1, successor_signature_id = $2
+				WHERE revoked_id = $3
 				  AND (successor IS NULL OR successor = '')
-			`, fingerprint, canonicalFP(flat[i-1].Key.Fingerprint))
+			`, fingerprint, successorSigID, canonicalFP(flat[i-1].Key.Fingerprint))
 			if err != nil {
 				return fmt.Errorf("set successor for %s: %w", flat[i-1].Key.Fingerprint, err)
 			}

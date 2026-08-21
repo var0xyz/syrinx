@@ -21,21 +21,10 @@ func ensureRecoveryCollisionSchema(db *sql.DB) error {
 		`DROP TABLE IF EXISTS ongoing_recoveries CASCADE`,
 		`DROP TABLE IF EXISTS unclaimed_accounts CASCADE`,
 		`DROP TABLE IF EXISTS network_stats CASCADE`,
-		// Recreate user_keys with the columns/cascade behavior
-		// insertKeys/claimUsername rely on. owner FKs identities(id),
-		// the target insertUser/upsertIdentity write/lock against.
-		`DROP TABLE IF EXISTS user_keys CASCADE`,
-		`CREATE TABLE user_keys (
-			fingerprint VARCHAR(255) UNIQUE NOT NULL,
-			owner VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-			armor TEXT NOT NULL,
-			created_at TIMESTAMP NOT NULL,
-			expires_at TIMESTAMP,
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			predecessor_signature TEXT,
-			predecessor_fingerprint VARCHAR(255) REFERENCES user_keys(fingerprint),
-			PRIMARY KEY (owner, fingerprint)
-		)`,
+		// public_keys/public_key_revocations are already created by
+		// openSignupTestDB with the shape insertKeys/claimUsername rely
+		// on (owner FKs identities(id) ON DELETE CASCADE), so no
+		// recreation needed here.
 		`CREATE TABLE network_stats (
 			id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
 			active_users INT NOT NULL DEFAULT 0
@@ -192,7 +181,7 @@ func TestSavePeerIdentity_UsernameCollision_IncomingWins(t *testing.T) {
 	}
 
 	var keyCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE owner = $1`, "holder2@test").Scan(&keyCount); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM public_keys WHERE owner = $1`, "holder2@test").Scan(&keyCount); err != nil {
 		t.Fatal(err)
 	}
 	if keyCount != 0 {

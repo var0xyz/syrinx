@@ -51,7 +51,7 @@ func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
 		services,
 		cfg,
 		make(chan realtime.BroadcastMessage, 1),
-		Key{Fingerprint: serverKP.Fingerprint, Armor: serverKP.PrivateKey},
+		ServerSigningKey{Fingerprint: serverKP.Fingerprint, Armor: serverKP.PrivateKey},
 	)
 }
 
@@ -294,13 +294,25 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		&Services{db: dataService, crypto: cryptoSvc, log: NewLoggingService(), md: NewMarkdownService()},
 		AppConfig{ServerName: "test", SignupMode: "open"},
 		make(chan realtime.BroadcastMessage, 1),
-		Key{Fingerprint: serverKP.Fingerprint, Armor: serverKP.PrivateKey},
+		ServerSigningKey{Fingerprint: serverKP.Fingerprint, Armor: serverKP.PrivateKey},
 	)
 	// GetServerPublicKeyByFingerprint (used to verify the userID reservation
-	// signature) reads from public_keys; InitServer registers its own
-	// generated key there, not this test's separately-created serverKP.
-	if _, err := db.Exec(`INSERT INTO public_keys (fingerprint, armor) VALUES ($1, $2)`,
-		serverKP.Fingerprint, serverKP.PublicKey); err != nil {
+	// signature) reads from public_keys by id = fingerprint@serverID;
+	// InitServer registers its own generated key there, not this test's
+	// separately-created serverKP, so it needs its own row here. Every
+	// public_keys row needs a server_signature_id (NOT NULL); the content
+	// doesn't matter for this test's purposes, only that the row exists.
+	var serverSigID int64
+	if err := db.QueryRow(
+		`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		serverKP.Fingerprint,
+	).Scan(&serverSigID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO public_keys (id, armor, created_at, server_signature_id) VALUES ($1, $2, now(), $3)`,
+		serverKP.Fingerprint+"@"+dataService.GetServerID(), serverKP.PublicKey, serverSigID,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -372,7 +384,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	rebuiltKey := identity.BuildPublicKeyPayload(
 		key.ServerSignature.ServerID,
 		key.UserID,
-		key.Fingerprint,
+		key.ID,
 		key.ServerSignature.Fingerprint,
 		key.Armor,
 		key.ServerSignature.SignedAt,

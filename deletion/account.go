@@ -70,7 +70,7 @@ func InsertAccountCert(ctx context.Context, db *sql.DB, cert AccountCert, server
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO account_removals (
-				user_id, note, user_fingerprint,
+				user_id, note, public_key_id,
 				user_signature_id, server_signature_id
 			) VALUES ($1, $2, $3, $4, $5)
 		`, selfIdentity, cert.Note, cert.UserFingerprint, userSigID, serverSigID); err != nil {
@@ -155,7 +155,7 @@ func HasAccountRemoval(ctx context.Context, db *sql.DB, userID, serverID string)
 
 func loadAccountCertTx(ctx context.Context, q reedQuerier, selfIdentity identity.IdentityID, forUpdate bool) (*AccountCert, error) {
 	query := `
-		SELECT note, user_fingerprint, user_signature_id, server_signature_id
+		SELECT note, public_key_id, user_signature_id, server_signature_id
 		FROM account_removals
 		WHERE user_id = $1`
 	if forUpdate {

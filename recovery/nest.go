@@ -116,7 +116,7 @@ func FlattenKeysNest(
 		return FlatKey{}, nil, err
 	}
 
-	// Oldest → newest for user_keys.predecessor_fingerprint inserts.
+	// Oldest → newest for public_keys.predecessor_id inserts.
 	flat = make([]FlatKey, 0, len(newestFirst))
 	for i := len(newestFirst) - 1; i >= 0; i-- {
 		flat = append(flat, newestFirst[i])

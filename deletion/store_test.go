@@ -95,7 +95,7 @@ func ensureTestSchema(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS user_signatures (
 			id             SERIAL PRIMARY KEY,
-			fingerprint    VARCHAR(255) NOT NULL,
+			public_key_id  VARCHAR(255) NOT NULL,
 			signature      TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (
@@ -108,8 +108,8 @@ func ensureTestSchema(db *sql.DB) error {
 		// current DDL (IF NOT EXISTS would leave a stale inline-column table).
 		`DROP TABLE IF EXISTS account_removals`,
 		`DROP TABLE IF EXISTS reed_removals`,
-		`DROP TABLE IF EXISTS user_key_revocations`,
-		`DROP TABLE IF EXISTS user_keys CASCADE`,
+		`DROP TABLE IF EXISTS public_key_revocations`,
+		`DROP TABLE IF EXISTS public_keys CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
 		`DROP TABLE IF EXISTS identities CASCADE`,
 		// identities is the FK target for "a user" (see db.go).
@@ -130,34 +130,28 @@ func ensureTestSchema(db *sql.DB) error {
 			user_signature_id INT REFERENCES user_signatures(id),
 			server_signature_id INT REFERENCES server_signatures(id)
 		)`,
-		`CREATE TABLE user_keys (
-			fingerprint VARCHAR(255) UNIQUE NOT NULL,
-			owner VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		`CREATE TABLE public_keys (
+			id VARCHAR(255) PRIMARY KEY,
+			owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
 			armor TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			PRIMARY KEY (owner, fingerprint)
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
+			predecessor_id VARCHAR(255) REFERENCES public_keys(id)
 		)`,
 		`CREATE TABLE reed_removals (
 			reed_id VARCHAR(255) NOT NULL,
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
-			user_fingerprint VARCHAR(255) NOT NULL,
+			public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			PRIMARY KEY (user_id, reed_id),
-			FOREIGN KEY (user_id, user_fingerprint)
-				REFERENCES user_keys(owner, fingerprint)
-				ON DELETE CASCADE
+			PRIMARY KEY (user_id, reed_id)
 		)`,
 		`CREATE TABLE account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id),
 			note VARCHAR(140) NOT NULL DEFAULT '',
-			user_fingerprint VARCHAR(255) NOT NULL,
+			public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			FOREIGN KEY (user_id, user_fingerprint)
-				REFERENCES user_keys(owner, fingerprint)
-				ON DELETE CASCADE,
 			CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140)
 		)`,
 		`CREATE TABLE IF NOT EXISTS network_stats (
@@ -190,7 +184,7 @@ func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 	}
 	var userSigID, serverSigID int64
 	err := db.QueryRow(`
-		INSERT INTO user_signatures (fingerprint, signature)
+		INSERT INTO user_signatures (public_key_id, signature)
 		VALUES ('seed-ufp', 'u') RETURNING id
 	`).Scan(&userSigID)
 	if err != nil {
@@ -215,6 +209,7 @@ func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 func seedUserKey(t *testing.T, db *sql.DB, userID, fingerprint string) {
 	t.Helper()
 	identityID := string(identity.CanonicalID(testServerID, userID))
+	canonicalFP := string(identity.AppendEntity(identity.IdentityID(identityID), fingerprint))
 	var serverSigID int64
 	err := db.QueryRow(`
 		INSERT INTO server_signatures (fingerprint, signature, signed_at)
@@ -224,9 +219,9 @@ func seedUserKey(t *testing.T, db *sql.DB, userID, fingerprint string) {
 		t.Fatalf("seed key server_signatures: %v", err)
 	}
 	_, err = db.Exec(`
-		INSERT INTO user_keys (fingerprint, owner, armor, server_signature_id)
+		INSERT INTO public_keys (id, owner, armor, server_signature_id)
 		VALUES ($1, $2, 'armor', $3)
-	`, fingerprint, identityID, serverSigID)
+	`, canonicalFP, identityID, serverSigID)
 	if err != nil {
 		t.Fatalf("seed key: %v", err)
 	}
@@ -236,14 +231,15 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 	db := openTestDB(t)
 	userID := fmt.Sprintf("rm-user-%d", time.Now().UnixNano())
 	reedID := fmt.Sprintf("rm-reed-%d", time.Now().UnixNano())
-	fp := fmt.Sprintf("rm-fp-%d", time.Now().UnixNano())
+	bareFP := fmt.Sprintf("rm-fp-%d", time.Now().UnixNano())
 	identityID := string(identity.CanonicalID(testServerID, userID))
+	fp := string(identity.AppendEntity(identity.IdentityID(identityID), bareFP))
 
 	seedUser(t, db, userID, "u-"+userID)
-	seedUserKey(t, db, userID, fp)
+	seedUserKey(t, db, userID, bareFP)
 	t.Cleanup(func() {
 		_, _ = db.Exec(`DELETE FROM reed_removals WHERE user_id = $1`, identityID)
-		_, _ = db.Exec(`DELETE FROM user_keys WHERE owner = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM public_keys WHERE owner = $1`, identityID)
 		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, identityID)
 		_, _ = db.Exec(`DELETE FROM identities WHERE id = $1`, identityID)
 	})
@@ -282,14 +278,15 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 func TestInsertAccountCert_IdempotentConflictAndNote(t *testing.T) {
 	db := openTestDB(t)
 	userID := fmt.Sprintf("ar-user-%d", time.Now().UnixNano())
-	fp := fmt.Sprintf("ar-fp-%d", time.Now().UnixNano())
+	bareFP := fmt.Sprintf("ar-fp-%d", time.Now().UnixNano())
 	identityID := string(identity.CanonicalID(testServerID, userID))
+	fp := string(identity.AppendEntity(identity.IdentityID(identityID), bareFP))
 
 	seedUser(t, db, userID, "u-"+userID)
-	seedUserKey(t, db, userID, fp)
+	seedUserKey(t, db, userID, bareFP)
 	t.Cleanup(func() {
 		_, _ = db.Exec(`DELETE FROM account_removals WHERE user_id = $1`, identityID)
-		_, _ = db.Exec(`DELETE FROM user_keys WHERE owner = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM public_keys WHERE owner = $1`, identityID)
 		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, identityID)
 		_, _ = db.Exec(`DELETE FROM identities WHERE id = $1`, identityID)
 	})
