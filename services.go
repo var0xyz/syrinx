@@ -913,9 +913,13 @@ func (s *DataService) DeleteUser(ctx context.Context, userID string) error {
 	return tx.Commit()
 }
 
-// FollowUser takes followerID and userID already in userID@serverID form
-// (cross-server follows aren't wired up yet, so both are always this
-// server's own accounts). user_following/user_followers FK to identities(id).
+// ErrFollowTargetNotFound is returned by FollowUser when userID has no
+// identities row yet (see UpsertRemoteIdentity).
+var ErrFollowTargetNotFound = errors.New("follow target not found")
+
+// FollowUser takes followerID/userID already in userID@serverID form.
+// user_followers is only written when userID is local — see
+// RecordRemoteFollower for the remote case.
 func (s *DataService) FollowUser(ctx context.Context, followerID, userID string) error {
 	followerIdentity := followerID
 	targetIdentity := userID
@@ -926,6 +930,16 @@ func (s *DataService) FollowUser(ctx context.Context, followerID, userID string)
 	}
 	defer tx.Rollback()
 
+	var targetExists bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM identities WHERE id = $1)
+	`, targetIdentity).Scan(&targetExists); err != nil {
+		return err
+	}
+	if !targetExists {
+		return ErrFollowTargetNotFound
+	}
+
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO user_following (user_id, following_user_id)
 		VALUES ($1, $2)
@@ -935,11 +949,35 @@ func (s *DataService) FollowUser(ctx context.Context, followerID, userID string)
 		return err
 	}
 
+	if _, embeddedServerID, ok := identity.ParseIdentityID(identity.IdentityID(targetIdentity)); ok && embeddedServerID == s.serverID {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO user_followers (user_id, follower_user_id)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, targetIdentity, followerIdentity)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// RecordRemoteFollower is FollowUser's mirror on the receiving end of a
+// federated follow: only user_followers is written (userID isn't this
+// server's user, so it has no user_following of its own to maintain).
+func (s *DataService) RecordRemoteFollower(ctx context.Context, userID, followerID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO user_followers (user_id, follower_user_id)
 		VALUES ($1, $2)
 		ON CONFLICT DO NOTHING
-	`, targetIdentity, followerIdentity)
+	`, userID, followerID)
 	if err != nil {
 		return err
 	}
@@ -966,15 +1004,27 @@ func (s *DataService) UnfollowUser(ctx context.Context, followerID, userID strin
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, `
-		DELETE FROM user_followers
-		WHERE user_id = $1 AND follower_user_id = $2
-	`, targetIdentity, followerIdentity)
-	if err != nil {
-		return err
+	if _, embeddedServerID, ok := identity.ParseIdentityID(identity.IdentityID(targetIdentity)); ok && embeddedServerID == s.serverID {
+		_, err = tx.ExecContext(ctx, `
+			DELETE FROM user_followers
+			WHERE user_id = $1 AND follower_user_id = $2
+		`, targetIdentity, followerIdentity)
+		if err != nil {
+			return err
+		}
 	}
 
 	return tx.Commit()
+}
+
+// RemoveRemoteFollower is UnfollowUser's mirror on the receiving end of a
+// federated unfollow — see RecordRemoteFollower.
+func (s *DataService) RemoveRemoteFollower(ctx context.Context, userID, followerID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM user_followers
+		WHERE user_id = $1 AND follower_user_id = $2
+	`, userID, followerID)
+	return err
 }
 
 func (s *DataService) SetDefaultIdentity(ctx context.Context, userID string, identityID uuid.UUID) error {
@@ -3349,6 +3399,18 @@ func (s *DataService) GetServerByID(ctx context.Context, serverID string) (*Peer
 		return nil, err
 	}
 	return &peer, nil
+}
+
+// UpsertRemoteIdentity records a minimal, unverified identities row for a
+// foreign user after a successful proxied profile/info fetch, so a later
+// FollowUser has something to reference. Idempotent.
+func (s *DataService) UpsertRemoteIdentity(ctx context.Context, canonicalID, remoteUserID, remoteServerID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO identities (id, remote_user_id, server_id, verified)
+		VALUES ($1, $2, $3, FALSE)
+		ON CONFLICT (id) DO NOTHING
+	`, canonicalID, remoteUserID, remoteServerID)
+	return err
 }
 
 // errFederationAttemptNotFound is returned by ApproveFederationAttempt and

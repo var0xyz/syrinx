@@ -190,7 +190,7 @@ func (h *Handlers) GetKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.proxyIfForeign(w, r, id) {
+	if handled, _ := h.proxyIfForeign(w, r, id); handled {
 		return
 	}
 
@@ -758,7 +758,8 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.proxyIfForeign(w, r, userID) {
+	if handled, status := h.proxyIfForeign(w, r, userID); handled {
+		h.rememberRemoteIdentityOnSuccess(r.Context(), log, userID, status)
 		return
 	}
 
@@ -799,7 +800,8 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.proxyIfForeign(w, r, userID) {
+	if handled, status := h.proxyIfForeign(w, r, userID); handled {
+		h.rememberRemoteIdentityOnSuccess(r.Context(), log, userID, status)
 		return
 	}
 
@@ -859,17 +861,106 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, map[string]any{"users": results})
 }
 
+// proxyFollowIfForeign forwards a local end-user's follow/unfollow to the
+// peer owning userID, if foreign, waiting for confirmation.
+func (h *Handlers) proxyFollowIfForeign(w http.ResponseWriter, r *http.Request, method, userID string) (handled bool, status int) {
+	followerID, isUser := r.Context().Value(userIDKey).(string)
+	if !isUser {
+		return false, 0
+	}
+	_, embeddedServerID, ok := identity.ParseIdentityID(identity.IdentityID(userID))
+	if !ok || embeddedServerID == h.services.db.GetServerID() {
+		return false, 0
+	}
+
+	log := h.services.log.GetLogger(r.Context())
+	peer, err := h.services.db.GetServerByID(r.Context(), embeddedServerID)
+	if err != nil {
+		internalServerError(w)
+		return true, 0
+	}
+	if peer == nil {
+		writeResponse(w, http.StatusNotFound, "Not found")
+		return true, 0
+	}
+
+	if err := h.forwardFollowToPeer(r.Context(), method, peer.BaseURL, userID, followerID); err != nil {
+		log.Error().Str("userID", userID).Str("followerID", followerID).Err(err).Msg("Failed to forward follow to peer")
+		h.logFederationServerAsync(peer.ID, "error", fmt.Sprintf("Follow forward to %s failed: %s", peer.BaseURL, err.Error()))
+		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
+		return true, 0
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	return true, http.StatusNoContent
+}
+
+// resolveFollower returns who's following: an end-user's own session, or
+// a peer vouching for one of its users via a followerID form field. Reads
+// the body directly since r.FormValue skips DELETE.
+func (h *Handlers) resolveFollower(r *http.Request) (followerID string, ok bool) {
+	if userID, isUser := r.Context().Value(userIDKey).(string); isUser {
+		return userID, true
+	}
+	peerServerID, isPeer := r.Context().Value(peerServerIDKey).(string)
+	if !isPeer {
+		return "", false
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		return "", false
+	}
+	followerID = strings.TrimSpace(values.Get("followerID"))
+	_, embeddedServerID, parseOK := identity.ParseIdentityID(identity.IdentityID(followerID))
+	if !parseOK || embeddedServerID != peerServerID {
+		return "", false
+	}
+	return followerID, true
+}
+
 func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
-	followerID := h.getUserID(r)
 	userID := mux.Vars(r)["userID"]
 
+	if handled, status := h.proxyFollowIfForeign(w, r, http.MethodPost, userID); handled {
+		if status == http.StatusNoContent {
+			followerID, _ := h.resolveFollower(r)
+			h.rememberRemoteIdentityAndFollowLocally(r.Context(), log, followerID, userID)
+		}
+		return
+	}
+
+	followerID, ok := h.resolveFollower(r)
+	if !ok {
+		writeResponse(w, http.StatusBadRequest, "Argument `followerID` is required")
+		return
+	}
 	if followerID == userID {
 		writeResponse(w, http.StatusBadRequest, "Cannot follow yourself")
 		return
 	}
 
+	if _, isPeer := r.Context().Value(peerServerIDKey).(string); isPeer {
+		h.upsertRemoteIdentity(r.Context(), log, followerID)
+		if err := h.services.db.RecordRemoteFollower(r.Context(), userID, followerID); err != nil {
+			log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error recording remote follower")
+			internalServerError(w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	if err := h.services.db.FollowUser(r.Context(), followerID, userID); err != nil {
+		if errors.Is(err, ErrFollowTargetNotFound) {
+			writeResponse(w, http.StatusNotFound, "User not found")
+			return
+		}
 		log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error following user")
 		internalServerError(w)
 		return
@@ -880,8 +971,27 @@ func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) UnfollowUser(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
-	followerID := h.getUserID(r)
 	userID := mux.Vars(r)["userID"]
+
+	if handled, _ := h.proxyFollowIfForeign(w, r, http.MethodDelete, userID); handled {
+		return
+	}
+
+	followerID, ok := h.resolveFollower(r)
+	if !ok {
+		writeResponse(w, http.StatusBadRequest, "Argument `followerID` is required")
+		return
+	}
+
+	if _, isPeer := r.Context().Value(peerServerIDKey).(string); isPeer {
+		if err := h.services.db.RemoveRemoteFollower(r.Context(), userID, followerID); err != nil {
+			log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error removing remote follower")
+			internalServerError(w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 
 	if err := h.services.db.UnfollowUser(r.Context(), followerID, userID); err != nil {
 		log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error unfollowing user")
@@ -1626,7 +1736,7 @@ func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.proxyIfForeign(w, r, fingerprint) {
+	if handled, _ := h.proxyIfForeign(w, r, fingerprint); handled {
 		return
 	}
 
@@ -2871,49 +2981,63 @@ func (h *Handlers) federationHTTPClient() *http.Client {
 	return &http.Client{Timeout: 15 * time.Second}
 }
 
-// proxyIfForeign checks whether id's embedded serverID is a server other
-// than this one; if so, it resolves that server as an approved peer and
-// proxies the current request to it (writing the response directly and
-// returning true), or writes 404 for an unknown/unapproved/revoked peer
-// (also returning true). Returns false — do nothing, caller continues with
-// its normal local lookup — when id is local or malformed. id may be a
-// 2-part (userID@serverID) or 3-part (userID@serverID/fingerprint or
-// fingerprint@serverID) canonical form; both are handled by trying the
-// 3-part parse first and falling back to the 2-part one.
-func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id string) bool {
+// rememberRemoteIdentityOnSuccess upserts a local identities row for a
+// foreign user after a successful profile/info proxy fetch. Best-effort.
+func (h *Handlers) rememberRemoteIdentityOnSuccess(ctx context.Context, log *zerolog.Logger, canonicalID string, status int) {
+	if status != http.StatusOK {
+		return
+	}
+	h.upsertRemoteIdentity(ctx, log, canonicalID)
+}
+
+func (h *Handlers) upsertRemoteIdentity(ctx context.Context, log *zerolog.Logger, canonicalID string) {
+	userID, serverID, ok := identity.ParseIdentityID(identity.IdentityID(canonicalID))
+	if !ok {
+		return
+	}
+	if err := h.services.db.UpsertRemoteIdentity(ctx, canonicalID, userID, serverID); err != nil {
+		log.Error().Str("userID", canonicalID).Err(err).Msg("Failed to remember remote identity")
+	}
+}
+
+// rememberRemoteIdentityAndFollowLocally writes this server's own
+// user_following row after a remote follow was confirmed by the peer —
+// the target's identities row must exist first for the FK.
+func (h *Handlers) rememberRemoteIdentityAndFollowLocally(ctx context.Context, log *zerolog.Logger, followerID, userID string) {
+	h.upsertRemoteIdentity(ctx, log, userID)
+	if err := h.services.db.FollowUser(ctx, followerID, userID); err != nil {
+		log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Failed to record confirmed remote follow locally")
+	}
+}
+
+// proxyIfForeign proxies to the peer owning id's embedded serverID if
+// foreign (handled=true, plus the peer's status code), or does nothing
+// (handled=false) when id is local or malformed.
+func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id string) (handled bool, status int) {
 	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(id))
 	if !ok {
 		_, embeddedServerID, ok = identity.ParseIdentityID(identity.IdentityID(id))
 	}
 	if !ok || embeddedServerID == h.services.db.GetServerID() {
-		return false
+		return false, 0
 	}
 
 	peer, err := h.services.db.GetServerByID(r.Context(), embeddedServerID)
 	if err != nil {
 		internalServerError(w)
-		return true
+		return true, 0
 	}
 	if peer == nil {
 		writeResponse(w, http.StatusNotFound, "Not found")
-		return true
+		return true, 0
 	}
 
-	h.proxyToPeer(w, r, peer.ID, peer.BaseURL)
-	return true
+	return true, h.proxyToPeer(w, r, peer.ID, peer.BaseURL)
 }
 
-// proxyToPeer forwards the current request (method, path, query string) to
-// baseURL and relays the response byte-for-byte — no re-parsing or
-// re-marshaling, so response shape drift on the peer's side doesn't need
-// handling here. The peer has no way to validate a signature made with the
-// ORIGINAL caller's key (that key belongs to this server's own user
-// registry, not the peer's), so this server re-signs the outgoing request
-// as itself — the peer's signatureAuthMiddleware authenticates it exactly
-// like an end-user request, just against a public_keys row with no owner
-// (see that middleware's doc comment). Used only for read-only routes
-// (profile, info, key fetch, revocation) — GET, no body.
-func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServerID, baseURL string) {
+// proxyToPeer forwards the request to baseURL, re-signed as this server's
+// own key, and relays the response. Returns the peer's status (0 if none).
+func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServerID, baseURL string) int {
 	log := h.services.log.GetLogger(r.Context())
 
 	// r.URL.Path already carries the "/api" prefix — gorilla/mux's
@@ -2926,19 +3050,19 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServe
 	httpReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, nil)
 	if err != nil {
 		internalServerError(w)
-		return
+		return 0
 	}
-	if err := h.setPeerProxyAuthHeaders(httpReq); err != nil {
+	if err := h.setPeerProxyAuthHeaders(httpReq, ""); err != nil {
 		log.Error().Err(err).Str("target", target).Msg("failed to sign proxied peer request")
 		internalServerError(w)
-		return
+		return 0
 	}
 	resp, err := h.federationHTTPClient().Do(httpReq)
 	if err != nil {
 		log.Error().Err(err).Str("target", target).Msg("proxy to peer server failed")
 		h.logFederationServerAsync(peerServerID, "error", fmt.Sprintf("Proxy request to %s failed: %s", target, err.Error()))
 		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
-		return
+		return 0
 	}
 	defer resp.Body.Close()
 
@@ -2954,20 +3078,43 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServe
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		log.Error().Err(err).Str("target", target).Msg("failed to relay proxied response body")
 	}
+	return resp.StatusCode
 }
 
-// setPeerProxyAuthHeaders signs an outgoing proxied request as THIS
-// server's own signing key, using the exact same canonical-string shape
-// signatureAuthMiddleware/buildCanonicalRequestString verifies on the
-// receiving end (method + path?query, blank line, body, blank line,
-// timestamp) — proxied requests are always GET with no body.
-func (h *Handlers) setPeerProxyAuthHeaders(req *http.Request) error {
+// forwardFollowToPeer tells a peer that followerID follows/unfollows
+// userID (local to the peer). Blocks until the peer confirms.
+func (h *Handlers) forwardFollowToPeer(ctx context.Context, method, peerBaseURL, userID, followerID string) error {
+	target := strings.TrimRight(peerBaseURL, "/") + "/api/users/" + userID + "/follow"
+	body := "followerID=" + url.QueryEscape(followerID)
+	httpReq, err := http.NewRequestWithContext(ctx, method, target, strings.NewReader(body))
+	if err != nil {
+		return err
+	}
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if err := h.setPeerProxyAuthHeaders(httpReq, body); err != nil {
+		return err
+	}
+	resp, err := h.federationHTTPClient().Do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("peer responded %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// setPeerProxyAuthHeaders signs an outgoing peer request (with the given
+// body, "" for none) as this server's own key, matching
+// buildCanonicalRequestString's shape.
+func (h *Handlers) setPeerProxyAuthHeaders(req *http.Request, body string) error {
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 	canonical := req.Method + " " + req.URL.Path
 	if req.URL.RawQuery != "" {
 		canonical += "?" + req.URL.RawQuery
 	}
-	canonical += "\n\n\n\n" + timestamp
+	canonical += "\n\n" + body + "\n\n" + timestamp
 
 	sigArmor, err := h.services.crypto.Sign(canonical, h.signingKey.Armor)
 	if err != nil {
@@ -2982,15 +3129,9 @@ func (h *Handlers) setPeerProxyAuthHeaders(req *http.Request) error {
 }
 
 // fetchPeerServerKeyArmor live-fetches a peer's own signing key armor over
-// GET /api/server/key — peer server keys are never persisted locally (see
-// proxyIfForeign's doc comment), so verifying a peer-authenticated request
-// (signatureAuthMiddleware's authenticateAsPeer branch) requires asking the
-// peer for its own key every time. serverID/fingerprint are the caller's
-// PINNED expectation (from
-// servers.fingerprint, set at ApproveFederationAttempt) — /server/key
-// takes no id param, so the returned armor's own fingerprint is checked
-// against it here rather than trusting whatever the peer happened to
-// answer with.
+// GET /api/server/key — peer keys are never persisted locally. The
+// returned armor's fingerprint is checked against the caller's pinned
+// expectation rather than trusted outright.
 func (h *Handlers) fetchPeerServerKeyArmor(ctx context.Context, baseURL, serverID, fingerprint string) (string, error) {
 	target := strings.TrimRight(baseURL, "/") + "/api/server/key"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
@@ -3706,11 +3847,8 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 }
 
 // GetFederationUserIdentity is the IdP endpoint an established peer calls
-// to resolve one of THIS server's users (specs/federation/04). Peer-
-// authenticated (see signatureAuthMiddleware's authenticateAsPeer branch),
-// not user-session-authenticated — there is no local session for a remote
-// server. userID must be local (canonical userID@thisServerID); a peer has
-// no business asking this server to vouch for a third server's user.
+// to resolve one of THIS server's users. Peer-authenticated; userID must
+// be local — a peer can't vouch for a third server's user.
 func (h *Handlers) GetFederationUserIdentity(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 

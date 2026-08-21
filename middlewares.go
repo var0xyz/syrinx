@@ -272,16 +272,8 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// authenticateAsPeer verifies a request signed by a federated peer's own
-// key rather than a local user's — reached from signatureAuthMiddleware
-// when X-Syrinx-Public-Key-Id has no matching public_keys row (see that
-// middleware's fallback). callerServerID must be a servers row (self=FALSE,
-// revoked=FALSE) whose pinned fingerprint (set at approval — see
-// ApproveFederationAttempt) matches fingerprint; 401 for not-peered,
-// revoked, or fingerprint-mismatch alike (never distinguish which, so a
-// prober can't tell "unknown server" from "revoked"). Peer server keys are
-// never stored locally, so the armor is fetched live from the peer itself
-// (fetchPeerServerKeyArmor) rather than looked up.
+// authenticateAsPeer verifies a request signed by a peer's own key,
+// fetched live since peer keys aren't stored locally.
 func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, next http.Handler, fingerprint, callerServerID, signatureHeader string) {
 	ok, err := h.services.db.VerifyFederationPeer(r.Context(), callerServerID, fingerprint)
 	if err != nil {
@@ -331,27 +323,16 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				prefix + "/check-username",
 				prefix + "/keys",
 				prefix + "/server/info",
-				// This server's own signing key is public verification
-				// material — anyone validating a countersignature must be
-				// able to fetch it without being signed in (and without a
-				// non-revoked user key). GetServerKey takes no {id} param
-				// and only ever returns this server's own key, so there's
-				// nothing an unauthenticated caller can manipulate here —
-				// unlike GET /keys/{id}, which also serves user keys and
-				// stays authenticated.
+				// GetServerKey only ever returns this server's own key, so
+				// it's safe to leave unauthenticated.
 				prefix + "/server/key",
 				prefix + "/recovery/identity/claim",
 				prefix + "/account-recovery/challenge",
 				prefix + "/account-recovery/bootstrap",
 				prefix + "/invites/check",
 			}
-			// /federation/connect/ is the initiator's callback route: the
-			// remote server calling it has no local session — the invitation
-			// secret and its own signature are what prove legitimacy there.
-			// /federation/users/{userID}/identity is NOT excluded here — it
-			// goes through the normal auth path below, which recognizes a
-			// foreign-server X-Syrinx-Public-Key-Id and routes to
-			// authenticateAsPeer.
+			// /federation/connect/ is the initiator's callback route — no
+			// local session, the invitation secret proves legitimacy.
 			excludePrefixes := []string{
 				prefix + "/federation/connect/",
 			}
@@ -369,16 +350,8 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				}
 			}
 
-			// Extract required authentication headers. X-Syrinx-Public-Key-Id
-			// is the canonical id of the key that signed the request — either
-			// a local end-user's own key (userID@serverID/fingerprint) or a
-			// federated peer server's own key (fingerprint@serverID, used
-			// when a peer re-signs a proxied read on a caller's behalf — see
-			// proxyToPeer). The id is self-describing: whoever it names is
-			// who's asking, so there's no separate user-vs-peer header pair
-			// to keep in sync — one verification path covers both, and the
-			// caller's ownership is recovered from the verified key itself,
-			// never trusted from a client-supplied identity claim.
+			// Canonical id of the key that signed the request — local
+			// user's own key or a federated peer's own key (see proxyToPeer).
 			publicKeyIDHeader := r.Header.Get("X-Syrinx-Public-Key-Id")
 			signatureHeader := r.Header.Get("X-Syrinx-Signature")
 			signatureScopeHeader := r.Header.Get("X-Syrinx-Signature-Scope")
@@ -424,17 +397,8 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				internalServerError(w)
 				return
 			}
-			// No local row for this id — the only other legitimate case is
-			// a federated peer's own key, which is never stored locally
-			// (public_keys only ever holds this server's own key, owner
-			// NULL — a peer's key is always fetched live; see
-			// proxyIfForeign's doc comment). authenticateAsPeer verifies it
-			// against the pinned trust root (servers.fingerprint, set at
-			// ApproveFederationAttempt) instead, fetching the peer's current
-			// armor live to check the signature. Same rejection either way
-			// if the id doesn't parse as a 2-part server-key id, or isn't an
-			// established peer: 400 "key not found", so a prober can't tell
-			// "no local key by that id" from "not a known peer".
+			// No local row — could be a foreign peer's own key (never
+			// stored locally), so try authenticateAsPeer before giving up.
 			if publicKey == nil {
 				fingerprint, callerServerID, ok := identity.ParseIdentityID(identity.IdentityID(publicKeyIDHeader))
 				if ok && !strings.Contains(publicKeyIDHeader, "/") {
@@ -475,13 +439,9 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				return
 			}
 
-			// publicKey.UserID is empty for THIS server's own key (owner is
-			// NULL in public_keys, and a 2-part fingerprint@serverID id has
-			// no userID to parse back out — see GetPublicKey's doc comment).
-			// That only happens here if some local caller is (unusually)
-			// signing with the server's own key rather than a user key —
-			// account removal is a per-user-account concept and doesn't
-			// apply, so skip it in that case.
+			// publicKey.UserID is empty when the caller signed with this
+			// server's own key rather than a user key — skip the
+			// account-removal check in that case.
 			userID := publicKey.UserID
 			if userID != "" {
 				// Account-removed users may only replay DELETE /users/me
