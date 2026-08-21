@@ -17,25 +17,29 @@ const idSeparator = "@"
 // "{userID}@{serverID}". Used both for "this server" (pass the caller's
 // own DataService.GetServerID()) and for remote/federated identities.
 //
-// reedID is optional (variadic so existing two-arg call sites don't break;
-// pass zero or exactly one value — more than one panics). When given and
-// non-empty, it's appended as "/{reedID}", producing a reed ref
-// ("{userID}@{serverID}/{reedID}") rather than a bare user identity — not
-// used anywhere yet.
-func CanonicalID(serverID, userID string, reedID ...string) IdentityID {
-	if len(reedID) > 1 {
-		panic("identity.CanonicalID: at most one reedID may be passed")
+// entityID is optional (variadic so existing two-arg call sites don't
+// break; pass zero or exactly one value — more than one panics). When
+// given and non-empty, it's appended as "/{entityID}", producing a ref to
+// something the user owns ("{userID}@{serverID}/{entityID}") rather than
+// a bare user identity — e.g. a user key fingerprint. Reed refs use their
+// own FormatReedRef, not this path.
+func CanonicalID(serverID, userID string, entityID ...string) IdentityID {
+	if len(entityID) > 1 {
+		panic("identity.CanonicalID: at most one entityID may be passed")
 	}
 	id := userID + idSeparator + serverID
-	if len(reedID) == 1 && reedID[0] != "" {
-		id += "/" + reedID[0]
+	if len(entityID) == 1 && entityID[0] != "" {
+		id += "/" + entityID[0]
 	}
 	return IdentityID(id)
 }
 
 // ParseIdentityID splits an id back into its bare userID and serverID
 // parts — needed wherever the bare userID must be recovered, most
-// importantly this package's own wire payload builders.
+// importantly this package's own wire payload builders. It only
+// understands the 2-part "{userID}@{serverID}" form; use
+// ParseKeyFingerprint for the 3-part "{userID}@{serverID}/{fingerprint}"
+// form.
 func ParseIdentityID(id IdentityID) (userID, serverID string, ok bool) {
 	s := string(id)
 	i := strings.LastIndex(s, idSeparator)
@@ -43,6 +47,29 @@ func ParseIdentityID(id IdentityID) (userID, serverID string, ok bool) {
 		return "", "", false
 	}
 	return s[:i], s[i+1:], true
+}
+
+// ParseKeyFingerprint splits a canonical key id
+// "{userID}@{serverID}/{fingerprint}" into its three parts. Fingerprints
+// never contain "/", so splitting on the last "/" is unambiguous.
+func ParseKeyFingerprint(id IdentityID) (userID, serverID, fingerprint string, ok bool) {
+	s := string(id)
+	i := strings.LastIndex(s, "/")
+	if i < 0 || i == len(s)-1 {
+		return "", "", "", false
+	}
+	userID, serverID, ok = ParseIdentityID(IdentityID(s[:i]))
+	if !ok {
+		return "", "", "", false
+	}
+	return userID, serverID, s[i+1:], true
+}
+
+// AppendEntity returns userIdentity + "/" + entityID, for building a
+// canonical key/reed ref from an already-canonical user identity without
+// a parse-then-reassemble round trip.
+func AppendEntity(userIdentity IdentityID, entityID string) IdentityID {
+	return IdentityID(string(userIdentity) + "/" + entityID)
 }
 
 // UserID returns the bare userID half of id, discarding serverID. Panics
