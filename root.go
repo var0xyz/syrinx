@@ -140,7 +140,15 @@ func exportRootIdentity(
 		return "", fmt.Errorf("validate root public key: %w", err)
 	}
 
-	userPayload := identity.BuildUserIdentityPayload(rootUsername, keyMeta.Fingerprint, "")
+	// GetUserProfile/GetPublicKey return root in userID@serverID form, so the
+	// signed payloads must sign that same form or client-side verification
+	// will rebuild different bytes than what was signed (same invariant as
+	// the regular signup handler in handlers.go). Computed up front since
+	// the canonical key fingerprint the payloads sign is built from it.
+	canonicalRootID := identity.CanonicalID(serverID, roles.RootUserID).String()
+	canonicalFingerprint := string(identity.AppendEntity(identity.IdentityID(canonicalRootID), keyMeta.Fingerprint))
+
+	userPayload := identity.BuildUserIdentityPayload(rootUsername, canonicalFingerprint, "")
 	userSigArmor, err := cryptoSvc.Sign(string(userPayload), kp.PrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("sign root identity: %w", err)
@@ -149,16 +157,10 @@ func exportRootIdentity(
 
 	now := time.Now().UTC().Truncate(time.Second)
 
-	// GetUserProfile/GetPublicKey return root in userID@serverID form, so the
-	// signed payloads must sign that same form or client-side verification
-	// will rebuild different bytes than what was signed (same invariant as
-	// the regular signup handler in handlers.go).
-	canonicalRootID := identity.CanonicalID(serverID, roles.RootUserID).String()
-
 	profilePayload := identity.BuildNewProfilePayload(
 		canonicalRootID,
 		rootUsername,
-		keyMeta.Fingerprint,
+		canonicalFingerprint,
 		serverID,
 		signingKey.Fingerprint,
 		userSigB64,
@@ -174,7 +176,7 @@ func exportRootIdentity(
 	keyPayload := identity.BuildPublicKeyPayload(
 		serverID,
 		canonicalRootID,
-		keyMeta.Fingerprint,
+		canonicalFingerprint,
 		signingKey.Fingerprint,
 		kp.PublicKey,
 		now,
@@ -188,7 +190,7 @@ func exportRootIdentity(
 		UserID:             roles.RootUserID,
 		Username:           rootUsername,
 		PublicKeyArmor:     kp.PublicKey,
-		Fingerprint:        keyMeta.Fingerprint,
+		Fingerprint:        canonicalFingerprint,
 		KeyCreatedAt:       keyMeta.CreatedAt,
 		KeyExpiresAt:       keyMeta.ExpiresAt,
 		UserSignatureB64:   userSigB64,
@@ -199,8 +201,7 @@ func exportRootIdentity(
 		return "", fmt.Errorf("persist root identity: %w", err)
 	}
 
-	// GetPublicKey requires userID in "userID@serverID" form too.
-	wireKey, err := db.GetPublicKey(context.Background(), canonicalRootID, keyMeta.Fingerprint)
+	wireKey, err := db.GetPublicKey(context.Background(), canonicalFingerprint)
 	if err != nil || wireKey == nil {
 		return "", fmt.Errorf("load root public key after signup: %w", err)
 	}
@@ -214,8 +215,10 @@ func exportRootIdentity(
 			// users.id is stored canonical (userID@serverID) by Signup; the
 			// account-recovery bootstrap endpoint does a literal match against
 			// that column, so this must be the composed form, not bare "1".
+			// keyFingerprint is likewise canonical — it's the SPA IndexedDB
+			// privateKeys/publicKeys primary key.
 			"userId":         canonicalRootID,
-			"keyFingerprint": keyMeta.Fingerprint,
+			"keyFingerprint": canonicalFingerprint,
 			"keyPassphrase":  keyPassphrase,
 			"serverId":       serverID,
 			"serverName":     serverName,
@@ -227,7 +230,7 @@ func exportRootIdentity(
 			Name: "privateKeys",
 			Items: []interface{}{
 				identityPrivateKeyItem{
-					Fingerprint: keyMeta.Fingerprint,
+					Fingerprint: canonicalFingerprint,
 					Armor:       encoding.Base64Encode(encryptedPrivate),
 					CreatedAt:   now,
 					Revoked:     false,
