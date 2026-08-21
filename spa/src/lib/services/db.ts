@@ -80,11 +80,10 @@ export class IndexedDbService implements DbService {
   //
   // v12: reed ids are now globally canonical (authorID@serverID/uuid, was
   // author-scoped-only), so 'reeds' collapses from compound [userID, id]
-  // to a single-string keyPath 'id' — same shape as 'ripples'. Unlike
-  // v10/v11's server-mirror stores, 'reeds' holds real user-authored
-  // content and cannot be cleared; existing rows are re-keyed in place
-  // (each row already has both userID and id, so the new key is
-  // computable without any external session state).
+  // to a single-string keyPath 'id' — same shape as 'ripples'. Pre-launch,
+  // no production data to preserve, so like publicKeys/revocations it's
+  // dropped and recreated rather than migrated in place; it repopulates
+  // from the server on next use via the existing fetch paths.
   private readonly version = 12;
   private readonly storeNames = [
     ['following',   'userId'     ],
@@ -130,40 +129,16 @@ export class IndexedDbService implements DbService {
         const db = (event.target as IDBOpenDBRequest).result;
         const tx = (event.target as IDBOpenDBRequest).transaction!;
 
-        // v11: 'publicKeys'/'revocations' change keyPath ('fingerprint' ->
-        // 'id' on both — see the version comment above). keyPath is
-        // immutable on an existing store, so a clean drop-and-recreate is
-        // required here, not a plain ensureStore call with the new keyPath
-        // (which would silently keep the OLD keyPath on a store that
-        // already exists — see the NOTE below). Both are pure server
-        // mirrors, safe to drop outright; they repopulate on next use.
-        for (const storeName of ['publicKeys', 'revocations']) {
+        // keyPath is immutable on an existing store, so a version bump that
+        // changes a store's keyPath must drop and recreate it — a plain
+        // ensureStore call would silently keep the OLD keyPath on a store
+        // that already exists (see the NOTE below). Pre-launch project, no
+        // production data to preserve: every store is a cache that
+        // repopulates on next use, so dropped stores are just cleared, not
+        // migrated in place.
+        for (const storeName of ['publicKeys', 'revocations', 'reeds']) {
           if (db.objectStoreNames.contains(storeName)) {
             db.deleteObjectStore(storeName);
-          }
-        }
-
-        // v12: 'reeds' changes keyPath (compound [userID, id] -> single
-        // 'id' — see the version comment above). Unlike publicKeys/
-        // revocations, rows here are real content and must be re-keyed,
-        // not dropped: read everything out under the old compound key,
-        // delete the store, recreate it with the new keyPath (below), then
-        // reinsert — all within this same versionchange transaction (each
-        // row already carries both userID and id, so the new key is just
-        // row.id).
-        let needsReedsRekey = false;
-        if (db.objectStoreNames.contains('reeds')) {
-          const oldStore = tx.objectStore('reeds');
-          needsReedsRekey = Array.isArray(oldStore.keyPath) && oldStore.keyPath.join(',') === 'userID,id';
-          if (needsReedsRekey) {
-            oldStore.getAll().onsuccess = (e) => {
-              const rows = (e.target as IDBRequest<unknown[]>).result;
-              db.deleteObjectStore('reeds');
-              const newStore = db.createObjectStore('reeds', { keyPath: 'id' });
-              newStore.createIndex('userID', 'userID', { unique: false });
-              newStore.createIndex('serverSignature.timestamp', 'serverSignature.timestamp', { unique: false });
-              for (const row of rows) newStore.put(row);
-            };
           }
         }
 
@@ -193,11 +168,8 @@ export class IndexedDbService implements DbService {
           ensureStore(storeName, keyPath, indexes);
         }
 
-        // Reed ids are canonical (globally unique) as of v12; skip when the
-        // async re-key above already recreated the store with this keyPath.
-        if (!needsReedsRekey) {
-          ensureStore('reeds', 'id', ['userID', 'serverSignature.timestamp']);
-        }
+        // Reed ids are canonical (globally unique) as of v12 — dropped above.
+        ensureStore('reeds', 'id', ['userID', 'serverSignature.timestamp']);
       };
     });
   }
