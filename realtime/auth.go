@@ -33,24 +33,20 @@ func NewAuthService(db *sql.DB, crypto *crypto.Service, serverID string) *AuthSe
 
 // AuthenticateWebSocket authenticates a WebSocket connection using PGP
 // signature. Parallel implementation of the HTTP path's
-// signatureAuthMiddleware; the userID query param already arrives in
-// "userID@serverID" form — do not re-compose it via identity.CanonicalID.
+// signatureAuthMiddleware: publicKeyId is the canonical id of the key that
+// signed the request (userID@serverID/fingerprint); userID is recovered
+// from the verified key itself (identity.ParseKeyFingerprint), never
+// trusted from a client-supplied query param.
 func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	// Extract required authentication parameters from query string
-	// (WebSocket doesn't support custom headers in all browsers). userID is
-	// already in "userID@serverID" form — see doc comment above. fingerprint
-	// is deliberately bare (symmetric with the HTTP path's
-	// X-Syrinx-Fingerprint header and URL {fingerprint} path vars — userID
-	// already carries the full canonical prefix), joined below.
-	userID := r.URL.Query().Get("userID")
-	fingerprint := r.URL.Query().Get("fingerprint")
+	// (WebSocket doesn't support custom headers in all browsers).
+	publicKeyID := r.URL.Query().Get("publicKeyId")
 	signature := r.URL.Query().Get("signature")
 	timestamp := r.URL.Query().Get("timestamp")
 
-	if userID == "" || fingerprint == "" || signature == "" || timestamp == "" {
+	if publicKeyID == "" || signature == "" || timestamp == "" {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Bool("hasSignature", signature != "").
 			Str("timestamp", timestamp).
 			Msg("Missing authentication parameters")
@@ -66,15 +62,11 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 		return "", fmt.Errorf("invalid timestamp: %w", err)
 	}
 
-	canonicalFingerprint := string(identity.AppendEntity(identity.IdentityID(userID), fingerprint))
-
-	// Get public key for the user and fingerprint, along with its
-	// revocation state.
-	publicKey, revoked, err := as.getPublicKey(r.Context(), canonicalFingerprint)
+	// Get public key for the fingerprint, along with its revocation state.
+	publicKey, revoked, err := as.getPublicKey(r.Context(), publicKeyID)
 	if err != nil {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Err(err).
 			Msg("Error retrieving public key")
 		return "", fmt.Errorf("error retrieving public key: %w", err)
@@ -82,8 +74,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 
 	if publicKey == "" {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Msg("Public key not found")
 		return "", fmt.Errorf("public key not found")
 	}
@@ -97,15 +88,20 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	// a revoked key is what we forbid.
 	if revoked {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Msg("WebSocket auth rejected: key is revoked")
 		return "", fmt.Errorf("key is revoked")
 	}
 
-	// userID is already in identities.id form (see doc comment above) —
-	// used directly, not composed via identity.CanonicalID.
-	selfIdentity := identity.IdentityID(userID)
+	// WebSocket sessions are always per-end-user (no peer-server use case
+	// today, unlike the HTTP proxy path) — a 2-part server-key id has no
+	// userID to recover and is rejected here.
+	userID, _, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(publicKeyID))
+	if !ok {
+		log.Error().Str("publicKeyId", publicKeyID).Msg("WebSocket auth rejected: not a user key")
+		return "", fmt.Errorf("not a user key")
+	}
+	selfIdentity := identity.CanonicalID(as.serverID, userID)
 	var removed bool
 	if err := as.db.QueryRowContext(r.Context(), `
 		SELECT EXISTS(SELECT 1 FROM account_removals WHERE user_id = $1)
@@ -113,7 +109,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 		return "", fmt.Errorf("error checking account removal: %w", err)
 	}
 	if removed {
-		log.Error().Str("userID", userID).Msg("WebSocket auth rejected: account removed")
+		log.Error().Str("userID", string(selfIdentity)).Msg("WebSocket auth rejected: account removed")
 		return "", fmt.Errorf("account removed")
 	}
 
@@ -121,8 +117,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	decodedSignature, err := encoding.Base64Decode(signature)
 	if err != nil {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Err(err).
 			Msg("Failed to decode base64 signature")
 		return "", fmt.Errorf("failed to decode base64 signature: %w", err)
@@ -131,8 +126,7 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	// Verify signature against timestamp directly
 	if err := as.crypto.VerifySignature(timestamp, decodedSignature, publicKey); err != nil {
 		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
+			Str("publicKeyId", publicKeyID).
 			Str("timestamp", timestamp).
 			Err(err).
 			Msg("Signature verification failed")
@@ -140,11 +134,11 @@ func (as *AuthService) AuthenticateWebSocket(r *http.Request) (string, error) {
 	}
 
 	log.Info().
-		Str("userID", userID).
-		Str("fingerprint", fingerprint).
+		Str("userID", string(selfIdentity)).
+		Str("publicKeyId", publicKeyID).
 		Msg("WebSocket authentication successful")
 
-	return userID, nil
+	return string(selfIdentity), nil
 }
 
 // getPublicKey retrieves a public key from the database along with its

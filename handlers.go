@@ -2860,25 +2860,6 @@ func (h *Handlers) federationSignServer(message []byte) (string, error) {
 	return encoding.Base64Encode(sigArmor), nil
 }
 
-// setFederationPeerAuthHeaders signs req for peerAuthMiddleware on the
-// receiving end (specs/federation/04) — used for THIS server's own
-// outbound calls to an established peer (e.g. the future content-relay
-// step, 06). method/path must match req's own, since the signature binds
-// to them.
-func (h *Handlers) setFederationPeerAuthHeaders(req *http.Request) error {
-	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-	payload := identity.BuildFederationPeerRequestPayload(h.services.db.GetServerID(), req.Method, req.URL.Path, timestamp)
-	sigB64, err := h.federationSignServer(payload)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-Syrinx-Federation-Server-Id", h.services.db.GetServerID())
-	req.Header.Set("X-Syrinx-Federation-Fingerprint", h.signingKey.Fingerprint)
-	req.Header.Set("X-Syrinx-Federation-Signature", sigB64)
-	req.Header.Set("X-Syrinx-Federation-Timestamp", timestamp)
-	return nil
-}
-
 // federationHTTPClient returns the client used for server-to-server
 // federation callbacks (e.g. POST .../federation/connect/{inviteId}).
 // Bounded timeout: this call happens synchronously inside an admin's
@@ -2918,18 +2899,21 @@ func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id str
 		return true
 	}
 
-	h.proxyToPeer(w, r, peer.BaseURL)
+	h.proxyToPeer(w, r, peer.ID, peer.BaseURL)
 	return true
 }
 
-// proxyToPeer forwards the current request verbatim (method, path, query
-// string) to baseURL and relays the response byte-for-byte — no
-// re-parsing or re-marshaling, so response shape drift on the peer's side
-// doesn't need handling here. Used only for read-only, already-public,
-// unauthenticated GET routes (profile, info, key fetch) — same trust
-// level as a client hitting the peer directly, so no request signing is
-// added.
-func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, baseURL string) {
+// proxyToPeer forwards the current request (method, path, query string) to
+// baseURL and relays the response byte-for-byte — no re-parsing or
+// re-marshaling, so response shape drift on the peer's side doesn't need
+// handling here. The peer has no way to validate a signature made with the
+// ORIGINAL caller's key (that key belongs to this server's own user
+// registry, not the peer's), so this server re-signs the outgoing request
+// as itself — the peer's signatureAuthMiddleware authenticates it exactly
+// like an end-user request, just against a public_keys row with no owner
+// (see that middleware's doc comment). Used only for read-only routes
+// (profile, info, key fetch, revocation) — GET, no body.
+func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServerID, baseURL string) {
 	log := h.services.log.GetLogger(r.Context())
 
 	target := strings.TrimRight(baseURL, "/") + "/api" + r.URL.Path
@@ -2941,13 +2925,24 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, baseURL s
 		internalServerError(w)
 		return
 	}
+	if err := h.setPeerProxyAuthHeaders(httpReq); err != nil {
+		log.Error().Err(err).Str("target", target).Msg("failed to sign proxied peer request")
+		internalServerError(w)
+		return
+	}
 	resp, err := h.federationHTTPClient().Do(httpReq)
 	if err != nil {
 		log.Error().Err(err).Str("target", target).Msg("proxy to peer server failed")
+		h.logFederationServerAsync(peerServerID, "error", fmt.Sprintf("Proxy request to %s failed: %s", target, err.Error()))
 		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
 		return
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusBadRequest {
+		log.Error().Int("status", resp.StatusCode).Str("target", target).Msg("peer server rejected proxied request")
+		h.logFederationServerAsync(peerServerID, "error", fmt.Sprintf("Proxy request to %s rejected: status %d", target, resp.StatusCode))
+	}
 
 	if contentType := resp.Header.Get("Content-Type"); contentType != "" {
 		w.Header().Set("Content-Type", contentType)
@@ -2958,11 +2953,37 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, baseURL s
 	}
 }
 
+// setPeerProxyAuthHeaders signs an outgoing proxied request as THIS
+// server's own signing key, using the exact same canonical-string shape
+// signatureAuthMiddleware/buildCanonicalRequestString verifies on the
+// receiving end (method + path?query, blank line, body, blank line,
+// timestamp) — proxied requests are always GET with no body.
+func (h *Handlers) setPeerProxyAuthHeaders(req *http.Request) error {
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	canonical := req.Method + " " + req.URL.Path
+	if req.URL.RawQuery != "" {
+		canonical += "?" + req.URL.RawQuery
+	}
+	canonical += "\n\n\n\n" + timestamp
+
+	sigArmor, err := h.services.crypto.Sign(canonical, h.signingKey.Armor)
+	if err != nil {
+		return err
+	}
+	publicKeyID := string(identity.CanonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint))
+	req.Header.Set("X-Syrinx-Public-Key-Id", publicKeyID)
+	req.Header.Set("X-Syrinx-Signature", encoding.Base64Encode(sigArmor))
+	req.Header.Set("X-Syrinx-Signature-Scope", "body")
+	req.Header.Set("X-Syrinx-Timestamp", timestamp)
+	return nil
+}
+
 // fetchPeerServerKeyArmor live-fetches a peer's own signing key armor over
 // GET /api/server/key — peer server keys are never persisted locally (see
 // proxyIfForeign's doc comment), so verifying a peer-authenticated request
-// (peerAuthMiddleware) requires asking the peer for its own key every
-// time. serverID/fingerprint are the caller's PINNED expectation (from
+// (signatureAuthMiddleware's authenticateAsPeer branch) requires asking the
+// peer for its own key every time. serverID/fingerprint are the caller's
+// PINNED expectation (from
 // servers.fingerprint, set at ApproveFederationAttempt) — /server/key
 // takes no id param, so the returned armor's own fingerprint is checked
 // against it here rather than trusting whatever the peer happened to
@@ -3683,10 +3704,10 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 
 // GetFederationUserIdentity is the IdP endpoint an established peer calls
 // to resolve one of THIS server's users (specs/federation/04). Peer-
-// authenticated (see peerAuthMiddleware), not user-session-authenticated —
-// there is no local session for a remote server. userID must be local
-// (canonical userID@thisServerID); a peer has no business asking this
-// server to vouch for a third server's user.
+// authenticated (see signatureAuthMiddleware's authenticateAsPeer branch),
+// not user-session-authenticated — there is no local session for a remote
+// server. userID must be local (canonical userID@thisServerID); a peer has
+// no business asking this server to vouch for a third server's user.
 func (h *Handlers) GetFederationUserIdentity(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 

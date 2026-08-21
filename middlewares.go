@@ -272,71 +272,49 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// peerAuthMiddleware authenticates a runtime request from an established
-// federation peer (specs/federation/04) — distinct from
-// signatureAuthMiddleware, which authenticates a local user session.
-// Headers: X-Syrinx-Federation-Server-Id, X-Syrinx-Federation-Fingerprint,
-// X-Syrinx-Federation-Signature (base64, detached, over
-// identity.BuildFederationPeerRequestPayload), X-Syrinx-Federation-Timestamp.
-// The caller must be a servers row (self=FALSE, revoked=FALSE) whose pinned
-// fingerprint (set at approval — see ApproveFederationAttempt) matches the
-// header; 401 for not-peered, revoked, or fingerprint-mismatch alike (never
-// distinguish which, so a prober can't tell "unknown server" from "revoked").
-func (h *Handlers) peerAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		serverID := r.Header.Get("X-Syrinx-Federation-Server-Id")
-		fingerprint := r.Header.Get("X-Syrinx-Federation-Fingerprint")
-		signatureB64 := r.Header.Get("X-Syrinx-Federation-Signature")
-		timestamp := r.Header.Get("X-Syrinx-Federation-Timestamp")
-		if serverID == "" || fingerprint == "" || signatureB64 == "" || timestamp == "" {
-			writeResponse(w, http.StatusUnauthorized, "Missing peer authentication headers")
-			return
-		}
-
-		if err := h.services.crypto.ValidateTimestamp(timestamp); err != nil {
-			writeResponse(w, http.StatusUnauthorized, "Invalid timestamp")
-			return
-		}
-
-		ok, err := h.services.db.VerifyFederationPeer(r.Context(), serverID, fingerprint)
-		if err != nil {
-			internalServerError(w)
-			return
-		}
-		if !ok {
-			writeResponse(w, http.StatusUnauthorized, "Not an established peer")
-			return
-		}
-
-		peer, err := h.services.db.GetServerByID(r.Context(), serverID)
-		if err != nil {
-			internalServerError(w)
-			return
-		}
-		if peer == nil {
-			writeResponse(w, http.StatusUnauthorized, "Not an established peer")
-			return
-		}
-		publicKeyArmor, err := h.fetchPeerServerKeyArmor(r.Context(), peer.BaseURL, serverID, fingerprint)
-		if err != nil || publicKeyArmor == "" {
-			writeResponse(w, http.StatusUnauthorized, "Not an established peer")
-			return
-		}
-
-		signature, err := encoding.Base64Decode(signatureB64)
-		if err != nil {
-			writeResponse(w, http.StatusUnauthorized, "Invalid signature encoding")
-			return
-		}
-		payload := identity.BuildFederationPeerRequestPayload(serverID, r.Method, r.URL.Path, timestamp)
-		if err := h.services.crypto.VerifyDetachedSignature(string(payload), signature, publicKeyArmor); err != nil {
-			writeResponse(w, http.StatusUnauthorized, "Request signature verification failed")
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), peerServerIDKey, serverID)
-		next.ServeHTTP(w, r.WithContext(ctx))
+// authenticateAsPeer verifies a request signed by a federated peer's own
+// key rather than a local user's — reached from signatureAuthMiddleware
+// when X-Syrinx-Public-Key-Id has no matching public_keys row (see that
+// middleware's fallback). callerServerID must be a servers row (self=FALSE,
+// revoked=FALSE) whose pinned fingerprint (set at approval — see
+// ApproveFederationAttempt) matches fingerprint; 401 for not-peered,
+// revoked, or fingerprint-mismatch alike (never distinguish which, so a
+// prober can't tell "unknown server" from "revoked"). Peer server keys are
+// never stored locally, so the armor is fetched live from the peer itself
+// (fetchPeerServerKeyArmor) rather than looked up.
+func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, next http.Handler, fingerprint, callerServerID, signatureHeader string) {
+	ok, err := h.services.db.VerifyFederationPeer(r.Context(), callerServerID, fingerprint)
+	if err != nil {
+		internalServerError(w)
+		return
 	}
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Not an established peer")
+		return
+	}
+
+	peer, err := h.services.db.GetServerByID(r.Context(), callerServerID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if peer == nil {
+		writeResponse(w, http.StatusUnauthorized, "Not an established peer")
+		return
+	}
+	publicKeyArmor, err := h.fetchPeerServerKeyArmor(r.Context(), peer.BaseURL, callerServerID, fingerprint)
+	if err != nil || publicKeyArmor == "" {
+		writeResponse(w, http.StatusUnauthorized, "Not an established peer")
+		return
+	}
+
+	if err := h.verifyRequestSignature(r, signatureHeader, publicKeyArmor); err != nil {
+		writeResponse(w, http.StatusUnauthorized, "Request signature verification failed")
+		return
+	}
+
+	ctx := context.WithValue(r.Context(), peerServerIDKey, callerServerID)
+	next.ServeHTTP(w, r.WithContext(ctx))
 }
 
 // Signature-based authentication middleware
@@ -370,12 +348,12 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			// /federation/connect/ is the initiator's callback route: the
 			// remote server calling it has no local session — the invitation
 			// secret and its own signature are what prove legitimacy there.
-			// /federation/users/ is peer-authenticated instead of user-
-			// authenticated — see peerAuthMiddleware, applied at its own
-			// route registration in main.go.
+			// /federation/users/{userID}/identity is NOT excluded here — it
+			// goes through the normal auth path below, which recognizes a
+			// foreign-server X-Syrinx-Public-Key-Id and routes to
+			// authenticateAsPeer.
 			excludePrefixes := []string{
 				prefix + "/federation/connect/",
-				prefix + "/federation/users/",
 			}
 
 			for _, path := range excludePaths {
@@ -391,20 +369,24 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				}
 			}
 
-			// Extract required authentication headers. X-Syrinx-Fingerprint
-			// is deliberately bare (symmetric with URL {fingerprint} path
-			// vars — X-Syrinx-User-Id already carries the full canonical
-			// prefix), joined below before any lookup.
-			userID := r.Header.Get("X-Syrinx-User-Id")
-			fingerprintHeader := r.Header.Get("X-Syrinx-Fingerprint")
+			// Extract required authentication headers. X-Syrinx-Public-Key-Id
+			// is the canonical id of the key that signed the request — either
+			// a local end-user's own key (userID@serverID/fingerprint) or a
+			// federated peer server's own key (fingerprint@serverID, used
+			// when a peer re-signs a proxied read on a caller's behalf — see
+			// proxyToPeer). The id is self-describing: whoever it names is
+			// who's asking, so there's no separate user-vs-peer header pair
+			// to keep in sync — one verification path covers both, and the
+			// caller's ownership is recovered from the verified key itself,
+			// never trusted from a client-supplied identity claim.
+			publicKeyIDHeader := r.Header.Get("X-Syrinx-Public-Key-Id")
 			signatureHeader := r.Header.Get("X-Syrinx-Signature")
 			signatureScopeHeader := r.Header.Get("X-Syrinx-Signature-Scope")
 			timestampHeader := r.Header.Get("X-Syrinx-Timestamp")
 
-			if userID == "" || fingerprintHeader == "" || signatureHeader == "" || signatureScopeHeader == "" || timestampHeader == "" {
+			if publicKeyIDHeader == "" || signatureHeader == "" || signatureScopeHeader == "" || timestampHeader == "" {
 				log.Error().
-					Str("userID", userID).
-					Str("fingerprint", fingerprintHeader).
+					Str("publicKeyId", publicKeyIDHeader).
 					Bool("hasSignature", signatureHeader != "").
 					Str("signatureScope", signatureScopeHeader).
 					Str("timestamp", timestampHeader).
@@ -433,22 +415,34 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				return
 			}
 
-			// Get public key for the user and fingerprint
-			canonicalFingerprint := string(identity.AppendEntity(identity.IdentityID(userID), fingerprintHeader))
-			publicKey, err := h.services.db.GetPublicKey(r.Context(), canonicalFingerprint)
+			publicKey, err := h.services.db.GetPublicKey(r.Context(), publicKeyIDHeader)
 			if err != nil {
 				log.Error().
-					Str("userID", userID).
-					Str("fingerprint", fingerprintHeader).
+					Str("publicKeyId", publicKeyIDHeader).
 					Err(err).
 					Msg("Error retrieving public key")
 				internalServerError(w)
 				return
 			}
+			// No local row for this id — the only other legitimate case is
+			// a federated peer's own key, which is never stored locally
+			// (public_keys only ever holds this server's own key, owner
+			// NULL — a peer's key is always fetched live; see
+			// proxyIfForeign's doc comment). authenticateAsPeer verifies it
+			// against the pinned trust root (servers.fingerprint, set at
+			// ApproveFederationAttempt) instead, fetching the peer's current
+			// armor live to check the signature. Same rejection either way
+			// if the id doesn't parse as a 2-part server-key id, or isn't an
+			// established peer: 400 "key not found", so a prober can't tell
+			// "no local key by that id" from "not a known peer".
 			if publicKey == nil {
+				fingerprint, callerServerID, ok := identity.ParseIdentityID(identity.IdentityID(publicKeyIDHeader))
+				if ok && !strings.Contains(publicKeyIDHeader, "/") {
+					h.authenticateAsPeer(w, r, next, fingerprint, callerServerID, signatureHeader)
+					return
+				}
 				log.Error().
-					Str("userID", userID).
-					Str("fingerprint", fingerprintHeader).
+					Str("publicKeyId", publicKeyIDHeader).
 					Msg("Public key not found")
 				writeResponse(w, http.StatusBadRequest, "Can't validate request signature: Key not found for fingerprint")
 				return
@@ -475,43 +469,56 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			// active.
 			if publicKey.Revoked {
 				log.Error().
-					Str("userID", userID).
-					Str("fingerprint", fingerprintHeader).
+					Str("publicKeyId", publicKeyIDHeader).
 					Msg("Request signed by revoked key rejected")
 				writeResponse(w, http.StatusUnauthorized, "Key is revoked")
 				return
 			}
 
-			// Account-removed users may only replay DELETE /users/me (idempotent
-			// cert fetch). All other authenticated actions are forbidden.
-			removed, remErr := h.services.db.HasAccountRemoval(r.Context(), userID)
-			if remErr != nil {
-				log.Error().Str("userID", userID).Err(remErr).Msg("Error checking account removal")
-				internalServerError(w)
-				return
-			}
-			if removed {
-				path := r.URL.Path
-				if !(r.Method == http.MethodDelete && (path == prefix+"/users/me" || strings.HasSuffix(path, "/users/me"))) {
-					log.Info().Str("userID", userID).Str("path", path).Msg("Rejected auth for removed account")
-					writeResponse(w, http.StatusGone, "Account removed")
+			// publicKey.UserID is empty for THIS server's own key (owner is
+			// NULL in public_keys, and a 2-part fingerprint@serverID id has
+			// no userID to parse back out — see GetPublicKey's doc comment).
+			// That only happens here if some local caller is (unusually)
+			// signing with the server's own key rather than a user key —
+			// account removal is a per-user-account concept and doesn't
+			// apply, so skip it in that case.
+			userID := publicKey.UserID
+			if userID != "" {
+				// Account-removed users may only replay DELETE /users/me
+				// (idempotent cert fetch). All other authenticated actions
+				// are forbidden.
+				removed, remErr := h.services.db.HasAccountRemoval(r.Context(), userID)
+				if remErr != nil {
+					log.Error().Str("userID", userID).Err(remErr).Msg("Error checking account removal")
+					internalServerError(w)
 					return
+				}
+				if removed {
+					path := r.URL.Path
+					if !(r.Method == http.MethodDelete && (path == prefix+"/users/me" || strings.HasSuffix(path, "/users/me"))) {
+						log.Info().Str("userID", userID).Str("path", path).Msg("Rejected auth for removed account")
+						writeResponse(w, http.StatusGone, "Account removed")
+						return
+					}
 				}
 			}
 
 			// Verify signature
 			if err := h.verifyRequestSignature(r, signatureHeader, publicKey.Armor); err != nil {
 				log.Error().
-					Str("userID", userID).
-					Str("fingerprint", fingerprintHeader).
+					Str("publicKeyId", publicKeyIDHeader).
 					Err(err).
 					Msg("Request signature verification failed")
 				writeResponse(w, http.StatusUnauthorized, "Request signature verification failed")
 				return
 			}
 
-			// Add user ID to request context for downstream handlers
-			ctx := context.WithValue(r.Context(), userIDKey, userID)
+			ctx := r.Context()
+			if userID != "" {
+				ctx = context.WithValue(ctx, userIDKey, userID)
+			} else {
+				ctx = context.WithValue(ctx, peerServerIDKey, h.services.db.GetServerID())
+			}
 			r = r.WithContext(ctx)
 
 			next.ServeHTTP(w, r)
@@ -611,11 +618,10 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 			"hx-trigger-value",
 			"X-Requested-With",
 			"X-Syrinx-Device-Id",
-			"X-Syrinx-Fingerprint",
+			"X-Syrinx-Public-Key-Id",
 			"X-Syrinx-Signature",
 			"X-Syrinx-Signature-Scope",
 			"X-Syrinx-Timestamp",
-			"X-Syrinx-User-Id",
 		}
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
