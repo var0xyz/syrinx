@@ -91,16 +91,15 @@ func (ds *DBService) MarkUserOffline(ctx context.Context, userID string) error {
 	return nil
 }
 
-// GetUserPublicKey retrieves a user's public key by fingerprint. user_keys.owner
-// is FK'd to identities(id); userID here is always local.
-func (ds *DBService) GetUserPublicKey(ctx context.Context, userID, fingerprint string) (string, error) {
-	selfIdentity := identity.IdentityID(userID)
+// GetUserPublicKey retrieves a user's public key by canonical, self-scoping
+// fingerprint — same shape as DataService.GetPublicKey in the main package.
+func (ds *DBService) GetUserPublicKey(ctx context.Context, fingerprint string) (string, error) {
 	var armor string
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT armor
 		FROM user_keys
-		WHERE owner = $1 AND fingerprint = $2
-	`, selfIdentity, fingerprint).Scan(&armor)
+		WHERE fingerprint = $1
+	`, fingerprint).Scan(&armor)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -168,7 +167,6 @@ func (ds *DBService) UnsubscribeFromBroadcast(ctx context.Context, userID string
 
 	return nil
 }
-
 
 // GetOnlineFollowers returns the IDs of online users who follow the given author.
 // online_users.user_id and user_followers.user_id/follower_user_id are all
