@@ -28,7 +28,7 @@
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
-  import { parseReedRef, resolveThreadId, refForRemoved, refForReed, canonicalReedId } from '$lib/utils/reedRef';
+  import { parseReedRef, resolveThreadId, refForRemoved, refForReed } from '$lib/utils/reedRef';
   import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
@@ -143,9 +143,9 @@
   $: userID = $page.params.userID;
   $: reedID = $page.params.reedID;
   // The single canonical id (authorID@serverID/uuid) every reed-scoped API
-  // call/subscription below this point should use, composed as soon as the
-  // reed object (with its own userID/id) is available — see canonicalReedId.
-  $: canonicalReedID = reed ? canonicalReedId(reed) : null;
+  // call/subscription below this point should use. reed.id is already
+  // canonical (see types/reed.ts), so no further composition is needed.
+  $: canonicalReedID = reed ? reed.id : (userID && reedID ? refForReed(userID, reedID) : null);
   $: isPending = !!(reed && !reed.serverSignature);
   // Blank echoes (a bare re-share with no commentary) carry no
   // interactions of their own — no stats, no conversation/ripples, no live
@@ -232,7 +232,7 @@
   }
 
   function handleReedStats(msg) {
-    if (msg?.userID === userID && msg?.reedID === reedID) {
+    if (msg?.reedID === refForReed(userID, reedID)) {
       clearStatsTimeout();
       statsStatus = 'loaded';
       echoCount = msg.echoes ?? echoCount;
@@ -247,7 +247,7 @@
   }
 
   function handleReedEchoes(msg) {
-    if (msg?.userID === userID && msg?.reedID === reedID) {
+    if (msg?.reedID === refForReed(userID, reedID)) {
       if (typeof msg.echoes === 'number') {
         echoCount = msg.echoes;
       }
@@ -255,7 +255,7 @@
   }
 
   function handleReedReplies(msg) {
-    if (msg?.userID === userID && msg?.reedID === reedID) {
+    if (msg?.reedID === refForReed(userID, reedID)) {
       if (typeof msg.replies === 'number') {
         replyCount = msg.replies;
       }
@@ -263,7 +263,7 @@
   }
 
   function handleReedLikes(msg) {
-    if (msg?.userID === userID && msg?.reedID === reedID) {
+    if (msg?.reedID === refForReed(userID, reedID)) {
       if (typeof msg.likes === 'number') {
         likeCount = msg.likes;
       }
@@ -308,7 +308,7 @@
   }
 
   function handleReedCoverage(msg) {
-    if (msg?.userID === userID && msg?.reedID === reedID) {
+    if (msg?.reedID === refForReed(userID, reedID)) {
       coveragePercent = msg.coveragePercent ?? coveragePercent;
     }
   }
@@ -464,7 +464,7 @@
   async function performDelete() {
     try {
       if (reed && !reed.serverSignature) {
-        await reedsService.discardUnsignedReed(canonicalReedId(reed));
+        await reedsService.discardUnsignedReed(reed.id);
       } else {
         await removeReedAsAuthor(canonicalReedID);
       }
