@@ -180,8 +180,7 @@ func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint,
 
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("X-Syrinx-User-Id", userID)
-	req.Header.Set("X-Syrinx-Fingerprint", fingerprint)
+	req.Header.Set("X-Syrinx-Public-Key-Id", string(identity.AppendEntity(identity.IdentityID(userID), fingerprint)))
 	req.Header.Set("X-Syrinx-Signature", sigB64)
 	req.Header.Set("X-Syrinx-Signature-Scope", "body")
 	req.Header.Set("X-Syrinx-Timestamp", timestamp)
@@ -192,8 +191,9 @@ func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint,
 // against authenticated endpoints in tests) and returns its keypair. The
 // returned KeyPair.Fingerprint stays bare (matching what
 // h.services.crypto.CreateKeyPair produces) since callers use it to build
-// the bare X-Syrinx-Fingerprint header via signedRequest — DataService.Signup
-// itself is given the canonical form, matching what handlers.go now does.
+// the canonical X-Syrinx-Public-Key-Id header via signedRequest —
+// DataService.Signup itself is given the canonical form, matching what
+// handlers.go now does.
 func signedUpUser(t *testing.T, h *Handlers, userID, username string) crypto.KeyPair {
 	t.Helper()
 	kp, err := h.services.crypto.CreateKeyPair(userID, "", "")

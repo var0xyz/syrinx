@@ -41,12 +41,16 @@ func newFederationServer(t *testing.T, name string) *federationServer {
 	api.HandleFunc("/federation/invitations/{id}/revoke", h.RevokeFederationInvitation).Methods(http.MethodPost)
 	api.HandleFunc("/federation/attempt", h.OutgoingFederationAttempt).Methods(http.MethodPost)
 	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods(http.MethodPost)
-	api.HandleFunc("/federation/users/{userID}/identity", h.peerAuthMiddleware(h.GetFederationUserIdentity)).Methods(http.MethodGet)
-	// peerAuthMiddleware live-fetches the caller's own signing key armor
-	// from the caller (fetchPeerServerKeyArmor, GET /server/key) to verify
-	// its request signature, so both test servers need to be able to serve
-	// their own key back, exactly as main.go registers it.
+	api.HandleFunc("/federation/users/{userID}/identity", h.GetFederationUserIdentity).Methods(http.MethodGet)
+	// signatureAuthMiddleware's authenticateAsPeer branch live-fetches the
+	// caller's own signing key armor from the caller (fetchPeerServerKeyArmor,
+	// GET /server/key) to verify its request signature, so both test servers
+	// need to be able to serve their own key back, exactly as main.go
+	// registers it. The identity route needs the middleware wrapped around
+	// it (unlike main.go's global api.Use, this test router registers
+	// handlers directly) since that's where peer-vs-user auth is decided.
 	api.HandleFunc("/server/key", h.GetServerKey).Methods(http.MethodGet)
+	api.Use(h.signatureAuthMiddleware("/api"))
 
 	// TLS: the connect/attempt handlers reject non-https baseUrls, so the
 	// initiator side must be served over TLS even in tests.
@@ -209,13 +213,14 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	}
 
 	// b resolves a's admin user through the peer-authenticated IdP endpoint
-	// (specs/federation/04) — proves peerAuthMiddleware end to end: correct
-	// signature + pinned fingerprint against a's own establishment.
+	// (specs/federation/04) — proves signatureAuthMiddleware's
+	// authenticateAsPeer branch end to end: correct signature + pinned
+	// fingerprint against a's own establishment.
 	identReq, err := http.NewRequest(http.MethodGet, a.srv.URL+"/api/federation/users/"+aAdmin+"/identity", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.h.setFederationPeerAuthHeaders(identReq); err != nil {
+	if err := b.h.setPeerProxyAuthHeaders(identReq); err != nil {
 		t.Fatal(err)
 	}
 	identResp, err := a.srv.Client().Do(identReq)
@@ -239,15 +244,15 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-	badPayload := identity.BuildFederationPeerRequestPayload(bAttempt.RemoteServerID, http.MethodGet, badReq.URL.Path, timestamp)
-	badSigArmor, err := crypto.NewService().Sign(string(badPayload), strangerKP.PrivateKey)
+	badCanonical := http.MethodGet + " " + badReq.URL.Path + "\n\n\n\n" + timestamp
+	badSigArmor, err := crypto.NewService().Sign(badCanonical, strangerKP.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	badReq.Header.Set("X-Syrinx-Federation-Server-Id", bAttempt.RemoteServerID)
-	badReq.Header.Set("X-Syrinx-Federation-Fingerprint", strangerKP.Fingerprint)
-	badReq.Header.Set("X-Syrinx-Federation-Signature", base64.StdEncoding.EncodeToString([]byte(badSigArmor)))
-	badReq.Header.Set("X-Syrinx-Federation-Timestamp", timestamp)
+	badReq.Header.Set("X-Syrinx-Public-Key-Id", strangerKP.Fingerprint+"@"+bAttempt.RemoteServerID)
+	badReq.Header.Set("X-Syrinx-Signature", base64.StdEncoding.EncodeToString([]byte(badSigArmor)))
+	badReq.Header.Set("X-Syrinx-Signature-Scope", "body")
+	badReq.Header.Set("X-Syrinx-Timestamp", timestamp)
 	badResp, err := a.srv.Client().Do(badReq)
 	if err != nil {
 		t.Fatal(err)

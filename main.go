@@ -428,9 +428,10 @@ func main() {
 	api.HandleFunc("/federation/attempt", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods("POST")
 	api.HandleFunc("/federation/connect/{id}", h.noop).Methods("OPTIONS")
-	// Peer-authenticated (specs/federation/04), not user-session-authenticated
-	// — see peerAuthMiddleware and signatureAuthMiddleware's exclude list.
-	api.HandleFunc("/federation/users/{userID}/identity", h.peerAuthMiddleware(h.GetFederationUserIdentity)).Methods("GET")
+	// Peer-authenticated (specs/federation/04): signatureAuthMiddleware
+	// recognizes a foreign-server X-Syrinx-Public-Key-Id and routes to
+	// authenticateAsPeer automatically — no separate wrapper needed here.
+	api.HandleFunc("/federation/users/{userID}/identity", h.GetFederationUserIdentity).Methods("GET")
 	api.HandleFunc("/federation/users/{userID}/identity", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
