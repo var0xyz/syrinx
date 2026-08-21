@@ -128,11 +128,14 @@ func verifyReedCountersig(ctx context.Context, req ReedRequest, serverID string,
 		return fmt.Errorf("unknown server key %s", req.ServerSignature.Fingerprint)
 	}
 
+	// req.ReedID/AuthorID are bare on this file's wire (deliberate exception,
+	// see wire.go); the original countersignature was computed over the
+	// canonical id, so rebuild it here before verifying.
+	canonicalReedID := string(identity.AppendEntity(identity.CanonicalID(serverID, req.AuthorID), req.ReedID))
 	ts := req.ServerSignature.Timestamp.UTC().Truncate(time.Second)
 	payload := identity.BuildReedPayload(
 		serverID,
-		req.AuthorID,
-		req.ReedID,
+		canonicalReedID,
 		req.ServerSignature.Fingerprint,
 		req.UserSignature.Armor,
 		ts,

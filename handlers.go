@@ -1943,8 +1943,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	timestamp := time.Now().UTC().Truncate(time.Second)
 	reedPayload := identity.BuildReedPayload(
 		h.services.db.GetServerID(),
-		userID,
-		reedID,
+		canonicalReedID,
 		h.signingKey.Fingerprint,
 		userSignature,
 		timestamp,
@@ -4417,10 +4416,10 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		replyingToVal = *req.ReplyingTo
 	}
 	userPayload := identity.BuildRippleUserPayload(
-		reedUserID, reedID, callerID, req.Fingerprint, req.ThreadID, replyingToVal, content,
+		canonicalReedID, callerID, req.Fingerprint, req.ThreadID, replyingToVal, content,
 	)
 	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
-		log.Error().Str("userID", callerID).Str("reedID", reedID).Err(err).Msg("ripple signature verification failed")
+		log.Error().Str("userID", callerID).Str("reedID", canonicalReedID).Err(err).Msg("ripple signature verification failed")
 		writeResponse(w, http.StatusBadRequest, "Invalid signature.")
 		return
 	}
