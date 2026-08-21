@@ -154,7 +154,7 @@
   $: isBlankEchoView = isBlankEcho(reed);
   // Params can update before `data` on same-route navigations; never show a
   // reed that doesn't match the URL (e.g. parent body under the new author).
-  $: reedMatchesRoute = !!(reed && reed.id === reedID && reed.userID === userID);
+  $: reedMatchesRoute = !!(reed && reed.id === refForReed(userID, reedID));
 
   // Apply fresh load() results when navigating between reeds.
   $: applyPageData(data);
@@ -369,7 +369,7 @@
 
   async function loadReedFromNetwork() {
     if (!user || !userID || !reedID) return;
-    if (reed && reed.id === reedID) return;
+    if (reed && reed.id === refForReed(userID, reedID)) return;
     if (!$isOnline) {
       loadingReed = false;
       return;
