@@ -60,8 +60,8 @@ export function refForRemoved(userID: string, serverId: string, reedId: string):
 
 /** Thread id for a reply: inherit parent's threadId or parent ref when parent is the root. */
 export function resolveThreadId(
-  parent: { userID: string; id: string; threadId?: string },
+  parent: { id: string; threadId?: string },
 ): string {
   if (parent.threadId) return parent.threadId;
-  return refForReed(parent.userID, parent.id);
+  return parent.id;
 }
