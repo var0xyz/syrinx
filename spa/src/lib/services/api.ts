@@ -722,6 +722,10 @@ export const apiService = {
         proof: fields.proof,
         fingerprint: fields.fingerprint,
         userSignature: fields.userSignature,
+        // Only used server-side when this request is relayed to the
+        // reed's home server (see handlers.go's resolveActingUser) — a
+        // local caller's own session already provides this.
+        userID: localStorage.getItem('userId') ?? '',
       }),
     });
   },
@@ -806,6 +810,10 @@ export const apiService = {
     const formData = new URLSearchParams();
     formData.append('signature', signature);
     formData.append('fingerprint', bareFingerprint);
+    // Only used server-side when this request is relayed to the reed's
+    // home server (see handlers.go's resolveActingUser) — a local
+    // caller's own session already provides this.
+    formData.append('likerID', localStorage.getItem('userId') ?? '');
     return request<api.ReedLike>(`/reeds/${userId}/${bareId}/like`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -815,7 +823,16 @@ export const apiService = {
 
   async unlikeReed(reedId: string): Promise<void> {
     const { userId, bareId } = splitReedId(reedId);
-    return request<void>(`/reeds/${userId}/${bareId}/like`, { method: 'DELETE' });
+    // likerID is only used server-side when relayed to the reed's home
+    // server (see handlers.go's resolveActingUser); a local caller's own
+    // session already provides this.
+    const formData = new URLSearchParams();
+    formData.append('likerID', localStorage.getItem('userId') ?? '');
+    return request<void>(`/reeds/${userId}/${bareId}/like`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString(),
+    });
   },
 
   // revokeKey/getKeyRevocation/getPublicKey accept either a bare fingerprint

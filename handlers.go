@@ -923,6 +923,27 @@ func (h *Handlers) resolveFollower(r *http.Request) (followerID string, ok bool)
 	return followerID, true
 }
 
+// resolveActingUser returns who's acting: an end-user's own session, or a
+// peer vouching for one of its users via candidateID (already extracted
+// from the request body by the caller — LikeReed's form field / PostRipple's
+// JSON field, whose parsing differs per handler, unlike resolveFollower's
+// single form-encoded shape).
+func (h *Handlers) resolveActingUser(r *http.Request, candidateID string) (userID string, ok bool) {
+	if userID, isUser := r.Context().Value(userIDKey).(string); isUser {
+		return userID, true
+	}
+	peerServerID, isPeer := r.Context().Value(peerServerIDKey).(string)
+	if !isPeer {
+		return "", false
+	}
+	candidateID = strings.TrimSpace(candidateID)
+	_, embeddedServerID, parseOK := identity.ParseIdentityID(identity.IdentityID(candidateID))
+	if !parseOK || embeddedServerID != peerServerID {
+		return "", false
+	}
+	return candidateID, true
+}
+
 func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	userID := mux.Vars(r)["userID"]
@@ -2311,12 +2332,19 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
 
-	likerID := h.getUserID(r)
+	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
+		return
+	}
 
 	values, err := parseFormData(r)
 	if err != nil {
 		log.Error().Err(err).Msg("Error parsing form")
 		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		return
+	}
+	likerID, ok := h.resolveActingUser(r, values.Get("likerID"))
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
 	userSignatureB64 := strings.TrimSpace(values.Get("signature"))
@@ -2450,7 +2478,23 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
 
-	likerID := h.getUserID(r)
+	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
+		return
+	}
+
+	// r.FormValue skips DELETE bodies, same as resolveFollower's UNFOLLOW
+	// case — read directly.
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	values, _ := url.ParseQuery(string(body))
+	likerID, ok := h.resolveActingUser(r, values.Get("likerID"))
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		return
+	}
 
 	deleted, err := h.services.db.DeleteReedLike(r.Context(), likerID, reedID)
 	if err != nil {
@@ -2502,6 +2546,10 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 	}
 	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
 
+	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
+		return
+	}
+
 	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error loading reed")
@@ -2540,6 +2588,10 @@ func (h *Handlers) GetReedEchoCount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
+
+	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
+		return
+	}
 
 	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), reedID)
 	if err != nil {
@@ -2582,6 +2634,10 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
+
+	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
+		return
+	}
 
 	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), reedID)
 	if err != nil {
@@ -2636,6 +2692,10 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
+
+	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
+		return
+	}
 
 	result, err := h.services.db.GetReedOrRemovalCert(r.Context(), reedID)
 	if err != nil {
@@ -3041,10 +3101,17 @@ func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id str
 	return true, h.proxyToPeer(w, r, peer.ID, peer.BaseURL)
 }
 
-// proxyToPeer forwards the request to baseURL, re-signed as this server's
-// own key, and relays the response. Returns the peer's status (0 if none).
+// proxyToPeer forwards the request (including its body, if any) to
+// baseURL, re-signed as this server's own key, and relays the response.
+// Returns the peer's status (0 if none).
 func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServerID, baseURL string) int {
 	log := h.services.log.GetLogger(r.Context())
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		internalServerError(w)
+		return 0
+	}
 
 	// r.URL.Path already carries the "/api" prefix — gorilla/mux's
 	// PathPrefix("/api").Subrouter() matches on it but does not strip it
@@ -3053,12 +3120,15 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServe
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
-	httpReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, nil)
+	httpReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, bytes.NewReader(body))
 	if err != nil {
 		internalServerError(w)
 		return 0
 	}
-	if err := h.setPeerProxyAuthHeaders(httpReq, ""); err != nil {
+	if contentType := r.Header.Get("Content-Type"); contentType != "" {
+		httpReq.Header.Set("Content-Type", contentType)
+	}
+	if err := h.setPeerProxyAuthHeaders(httpReq, string(body)); err != nil {
 		log.Error().Err(err).Str("target", target).Msg("failed to sign proxied peer request")
 		internalServerError(w)
 		return 0
@@ -4304,6 +4374,10 @@ type postRippleRequest struct {
 	ReplyingTo    *string `json:"replyingTo"`
 	Fingerprint   string  `json:"fingerprint"`
 	UserSignature string  `json:"userSignature"`
+	// UserID is the acting user's canonical id — only read when the
+	// request arrives via peer relay (see resolveActingUser); a local
+	// caller's own session already provides this.
+	UserID string `json:"userID"`
 
 	// Proof is the parent reed's base64 server-signature armor — proof of
 	// possession, see checkReedPossession.
@@ -4317,7 +4391,6 @@ type postRippleRequest struct {
 // and hashes the server payload via DataService.PostRipple.
 func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
-	callerID := h.getUserID(r)
 
 	reedUserID := mux.Vars(r)["userID"]
 	reedID := mux.Vars(r)["reedID"]
@@ -4327,6 +4400,10 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	}
 	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(reedUserID), reedID))
 
+	if handled, _ := h.proxyIfForeign(w, r, canonicalReedID); handled {
+		return
+	}
+
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
@@ -4335,6 +4412,11 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	var req postRippleRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	callerID, ok := h.resolveActingUser(r, req.UserID)
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
 
@@ -4534,6 +4616,10 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(reedUserID), reedID))
+
+	if handled, _ := h.proxyIfForeign(w, r, canonicalReedID); handled {
+		return
+	}
 
 	// Why `checkRippleParentReed` should run before `checkReedPossession`:
 	// it's the only way to tell a removed reed (410 + cert body) apart from
