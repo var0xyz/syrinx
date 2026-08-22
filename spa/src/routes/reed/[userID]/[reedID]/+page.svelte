@@ -411,6 +411,12 @@
           }
           return;
         }
+        // result.kind === 'reed' confirms the reed exists (and isn't
+        // removed) but carries only tip metadata, not full signed
+        // content -- the server never stores reed bodies (see db.go's
+        // "server never stores reed content" comment). Fall through to
+        // requestReedContent below, which relays the real, fully-signed
+        // body from a peer that holds it.
       } catch {
         if (seq !== loadSeq) return;
         reedNotFound = true;

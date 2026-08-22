@@ -348,6 +348,14 @@ func (ds *DBService) GetPendingSubject(ctx context.Context, eventID string) (*Pe
 		err = ds.db.QueryRowContext(ctx, `
 			SELECT reed_id FROM pending_reed_events WHERE event_id = $1
 		`, eventID).Scan(&pe.ReedID)
+		if err == sql.ErrNoRows {
+			// No pending_reed_events row: this may be a foreign event, whose
+			// subject lives in foreign_pending_events instead (see
+			// CreatePendingEventOnly's doc comment).
+			err = ds.db.QueryRowContext(ctx, `
+				SELECT reed_id FROM foreign_pending_events WHERE event_id = $1
+			`, eventID).Scan(&pe.ReedID)
+		}
 		if err == nil {
 			pe.UserID = reedAuthorIdentity(pe.ReedID)
 		}
@@ -1242,4 +1250,198 @@ func (ds *DBService) ClearPeerStateForRemovedAccount(ctx context.Context, viewer
 		return nil, err
 	}
 	return targets, nil
+}
+
+// peerRelaySentinelUserID is the reserved bare userID minted for a
+// per-peer sentinel identity representing "peer server X, proxying a
+// REQUEST_REED on behalf of one of its users." Underscores never appear
+// in a real userID (see crypto.Alphabet), so this can never collide with
+// a genuine local or remote user.
+const peerRelaySentinelUserID = "__peer_relay__"
+
+// ForeignPendingEvent is an originating-server foreign_pending_events row:
+// the mapping from a local pending_events.event_id to the outstanding
+// registration on reedID's home server. ReedID is carried directly here
+// (not via pending_reed_events, which real local rows always go through)
+// since the originating server never has, and must never fabricate, a
+// local reeds row for foreign-authored content.
+type ForeignPendingEvent struct {
+	EventID      string
+	HomeServerID string
+	PeerEventID  string
+	ReedID       string
+}
+
+// CreateForeignPendingEvent records, on the originating server, that
+// eventID's local pending_events row corresponds to peerEventID on
+// homeServerID, for reedID. eventID must already exist in pending_events
+// (FK) — created via CreatePendingEventOnly, not CreatePendingReedEvent,
+// since the latter's pending_reed_events insert would fail reedID's
+// FK-to-local-reeds for foreign content.
+func (ds *DBService) CreateForeignPendingEvent(ctx context.Context, eventID, homeServerID, peerEventID, reedID string) error {
+	_, err := ds.db.ExecContext(ctx, `
+		INSERT INTO foreign_pending_events (event_id, home_server_id, peer_event_id, reed_id)
+		VALUES ($1, $2, $3, $4)
+	`, eventID, homeServerID, peerEventID, reedID)
+	return err
+}
+
+// CreatePendingEventOnly inserts just the pending_events row (no
+// pending_reed_events/pending_account_events child) — used for foreign
+// events, whose subject is tracked in foreign_pending_events.reed_id
+// instead, since a real pending_reed_events row would need a local reeds
+// FK this server can never satisfy for foreign-authored content.
+// subscriptionID is optional ("" for a bare REQUEST_REED) — set for a
+// foreign profile-subscription backfill event so UNSUBSCRIBE_PROFILE's
+// existing cascade-by-subscription_id delete still reaches it.
+func (ds *DBService) CreatePendingEventOnly(ctx context.Context, eventID, requestID, requesterUserID string, eventName EventName, subscriptionID string) error {
+	requesterIdentity := identity.IdentityID(requesterUserID)
+	var subscriptionIDArg any
+	if subscriptionID != "" {
+		subscriptionIDArg = subscriptionID
+	}
+	_, err := ds.db.ExecContext(ctx, `
+		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name, subscription_id)
+		VALUES ($1, $2, $3, $4, $5)
+	`, eventID, requestID, requesterIdentity, eventName, subscriptionIDArg)
+	return err
+}
+
+// GetForeignPendingEventByPeerEventID resolves a home server's callback
+// (deliver/cancel) back to the originating server's local event. The
+// homeServerID filter doubles as an ownership check: only the peer that
+// was actually registered as home_server_id for this row may resolve it.
+func (ds *DBService) GetForeignPendingEventByPeerEventID(ctx context.Context, peerEventID, homeServerID string) (*ForeignPendingEvent, error) {
+	var fpe ForeignPendingEvent
+	err := ds.db.QueryRowContext(ctx, `
+		SELECT event_id, home_server_id, peer_event_id, reed_id
+		FROM foreign_pending_events
+		WHERE peer_event_id = $1 AND home_server_id = $2
+	`, peerEventID, homeServerID).Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID, &fpe.ReedID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &fpe, nil
+}
+
+// GetForeignPendingEventsByRequester lists a requester's outstanding
+// cross-server relay requests, for disconnect-cleanup to notify each home
+// server before the requester's pending_events rows cascade-delete.
+func (ds *DBService) GetForeignPendingEventsByRequester(ctx context.Context, requesterUserID string) ([]ForeignPendingEvent, error) {
+	requesterIdentity := identity.IdentityID(requesterUserID)
+	rows, err := ds.db.QueryContext(ctx, `
+		SELECT fpe.event_id, fpe.home_server_id, fpe.peer_event_id, fpe.reed_id
+		FROM foreign_pending_events fpe
+		JOIN pending_events pe ON pe.event_id = fpe.event_id
+		WHERE pe.requester_user_id = $1
+	`, requesterIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ForeignPendingEvent
+	for rows.Next() {
+		var fpe ForeignPendingEvent
+		if err := rows.Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID, &fpe.ReedID); err != nil {
+			return nil, err
+		}
+		out = append(out, fpe)
+	}
+	return out, rows.Err()
+}
+
+// GetPendingRequesterOnly resolves just requester_user_id/request_id for
+// a bare pending_events row (no pending_reed_events/pending_account_events
+// join) — used for foreign events on the originating server, whose
+// subject lives in foreign_pending_events instead.
+func (ds *DBService) GetPendingRequesterOnly(ctx context.Context, eventID string) (requesterUserID, requestID string, err error) {
+	var requester identity.IdentityID
+	err = ds.db.QueryRowContext(ctx, `
+		SELECT requester_user_id, request_id FROM pending_events WHERE event_id = $1
+	`, eventID).Scan(&requester, &requestID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", nil
+		}
+		return "", "", err
+	}
+	return string(requester), requestID, nil
+}
+
+// EnsurePeerSentinelUser idempotently mints (or reuses) a per-peer
+// sentinel identity + online_users row on the home server, satisfying
+// pending_events.requester_user_id's FK without representing a genuine
+// local session. Mirrors DataService.UpsertRemoteIdentity's insert shape
+// in the main package (id/remote_user_id/server_id/verified), and is
+// permanently "online" — ON CONFLICT DO NOTHING, not a session refresh.
+func (ds *DBService) EnsurePeerSentinelUser(ctx context.Context, peerServerID string) (string, error) {
+	sentinelIdentity := identity.CanonicalID(peerServerID, peerRelaySentinelUserID)
+
+	tx, err := ds.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO identities (id, remote_user_id, server_id, verified)
+		VALUES ($1, $2, $3, TRUE)
+		ON CONFLICT (id) DO NOTHING
+	`, sentinelIdentity, peerRelaySentinelUserID, peerServerID); err != nil {
+		return "", err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO online_users (user_id)
+		VALUES ($1)
+		ON CONFLICT (user_id) DO NOTHING
+	`, sentinelIdentity); err != nil {
+		return "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return string(sentinelIdentity), nil
+}
+
+// ForeignRelayRequest is a home-server foreign_relay_requests row: which
+// peer+user a sentinel-attributed pending_events row was really
+// registered on behalf of.
+type ForeignRelayRequest struct {
+	EventID            string
+	RequestingServerID string
+	RequestingUserID   string
+}
+
+// CreateForeignRelayRequest records, on the home server, which peer+user
+// eventID's sentinel-attributed pending_events row represents.
+func (ds *DBService) CreateForeignRelayRequest(ctx context.Context, eventID, requestingServerID, requestingUserID string) error {
+	_, err := ds.db.ExecContext(ctx, `
+		INSERT INTO foreign_relay_requests (event_id, requesting_server_id, requesting_user_id)
+		VALUES ($1, $2, $3)
+	`, eventID, requestingServerID, requestingUserID)
+	return err
+}
+
+// GetForeignRelayRequest returns nil if eventID is an ordinary local
+// event (no cross-server registration exists for it).
+func (ds *DBService) GetForeignRelayRequest(ctx context.Context, eventID string) (*ForeignRelayRequest, error) {
+	var frr ForeignRelayRequest
+	err := ds.db.QueryRowContext(ctx, `
+		SELECT event_id, requesting_server_id, requesting_user_id
+		FROM foreign_relay_requests
+		WHERE event_id = $1
+	`, eventID).Scan(&frr.EventID, &frr.RequestingServerID, &frr.RequestingUserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &frr, nil
 }

@@ -67,6 +67,11 @@ type Handlers struct {
 	// trusts an httptest.NewTLSServer's certificate. Nil means production
 	// default (see federationHTTPClient).
 	federationHTTPClientOverride *http.Client
+	// realtimeRelay backs the cross-server REQUEST_REED relay's HTTP
+	// endpoints (federation_relay.go) — they need to touch pending_events/
+	// reed_allocations/the WS connection registry, which only exists in
+	// the realtime package.
+	realtimeRelay *realtime.RealtimeService
 }
 
 type ServerInfo struct {
@@ -112,6 +117,12 @@ func (h *Handlers) SetPipeTagFilter(filter func([]string) []string) {
 
 func (h *Handlers) SetKickUserWS(kick func(userID string)) {
 	h.kickUserWS = kick
+}
+
+// SetRealtimeRelay installs the RealtimeService the cross-server
+// REQUEST_REED relay endpoints (federation_relay.go) call into.
+func (h *Handlers) SetRealtimeRelay(rs *realtime.RealtimeService) {
+	h.realtimeRelay = rs
 }
 
 func writeResponse(w http.ResponseWriter, statusCode int, message any) {
