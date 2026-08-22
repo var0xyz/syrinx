@@ -1382,7 +1382,7 @@ func (rs *RealtimeService) handleSubscribeReed(client *Client, msg InboundJSONMs
 	stats := ReedStatsMsg{
 		Type:            "REED_STATS",
 		UserID:          authorID,
-		ReedID:          bareReedID,
+		ReedID:          reedID,
 		Echoes:          echoes,
 		CoveragePercent: coveragePercent,
 		Replies:         replies,

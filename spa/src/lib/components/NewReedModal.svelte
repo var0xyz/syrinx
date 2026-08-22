@@ -13,7 +13,7 @@
   } from '$lib/utils/reedContent';
   import { notificationStore } from '$lib/stores/notifications';
   import { Reed } from '$lib/types/reed';
-  import { refForReed, resolveThreadId } from '$lib/utils/reedRef';
+  import { resolveThreadId } from '$lib/utils/reedRef';
   import { goto } from '$app/navigation';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -54,7 +54,7 @@
 
   /** @param {import('$lib/types/reed').ReedType} target */
   function refFor(target) {
-    return refForReed(target.userID, target.id);
+    return target.id;
   }
 
   let content = '';
