@@ -302,6 +302,7 @@
 
   .reply-row {
     display: flex;
+    flex-direction: column;
     gap: 0.5rem;
     width: 100%;
     text-align: left;
@@ -323,7 +324,6 @@
   }
 
   .reply-body {
-    flex: 1;
     min-width: 0;
   }
 
