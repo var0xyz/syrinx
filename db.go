@@ -698,6 +698,44 @@ func InitDB(db *sql.DB) error {
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE
 	);`
 
+	// Originating-server bookkeeping: maps a local REQUEST_REED/profile
+	// subscription's pending event to the outstanding peer registration on
+	// the reed's home server. reed_id is NOT a pending_reed_events row and
+	// has no FK to reeds(id) — the originating server never has (and must
+	// never fabricate) a local reeds row for foreign-authored content, so
+	// this table carries the reed identity itself rather than depending on
+	// pending_reed_events, which real local rows always go through.
+	createForeignPendingEventsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS foreign_pending_events (
+		event_id VARCHAR(255) PRIMARY KEY
+			REFERENCES pending_events(event_id) ON DELETE CASCADE,
+		home_server_id VARCHAR(16) NOT NULL REFERENCES servers(id),
+		peer_event_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createForeignPendingEventsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_foreign_pending_events_home_server
+		ON foreign_pending_events(home_server_id);
+	`
+
+	// Home-server bookkeeping: records which peer+user a sentinel-attributed
+	// pending_events row was actually registered on behalf of.
+	createForeignRelayRequestsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS foreign_relay_requests (
+		event_id VARCHAR(255) PRIMARY KEY
+			REFERENCES pending_events(event_id) ON DELETE CASCADE,
+		requesting_server_id VARCHAR(16) NOT NULL REFERENCES servers(id),
+		requesting_user_id VARCHAR(255) NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createForeignRelayRequestsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_foreign_relay_requests_server
+		ON foreign_relay_requests(requesting_server_id);
+	`
+
 	createProfileSubscriptionsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS profile_subscriptions (
 		subscription_id VARCHAR(255) PRIMARY KEY,
@@ -991,6 +1029,12 @@ func InitDB(db *sql.DB) error {
 		createPendingReedEventsIndexes,
 
 		createPendingAccountEventsTable,
+
+		createForeignPendingEventsTable,
+		createForeignPendingEventsIndexes,
+
+		createForeignRelayRequestsTable,
+		createForeignRelayRequestsIndexes,
 
 		// Recovery
 		createUnclaimedAccountsTable,

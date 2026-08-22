@@ -222,6 +222,11 @@ func main() {
 	h.SetMetrics(obs.Metrics())
 	h.SetPipeTagFilter(realtimeService.FilterSubscribedPipeTags)
 	h.SetKickUserWS(realtimeService.DisconnectUser)
+	h.SetRealtimeRelay(realtimeService)
+	realtimeService.SetForeignRequestReedHook(h.relayRequestToPeer)
+	realtimeService.SetForeignSubscribeProfileHook(h.subscribeProfileToPeer)
+	realtimeService.SetForeignDeliverHook(h.deliverRelayResponseToPeer)
+	realtimeService.SetForeignCancelHook(h.cancelRelayRequestWithPeer)
 	realtimeService.SetDeviceCheck(func(userID, deviceID string) error {
 		// userID arrives already in "userID@serverID" form (see
 		// realtime/auth.go), and CheckActiveDevice expects that same
@@ -433,6 +438,16 @@ func main() {
 	// authenticateAsPeer automatically — no separate wrapper needed here.
 	api.HandleFunc("/federation/users/{userID}/identity", h.GetFederationUserIdentity).Methods("GET")
 	api.HandleFunc("/federation/users/{userID}/identity", h.noop).Methods("OPTIONS")
+	// Cross-server REQUEST_REED relay (federation_relay.go): also
+	// peer-authenticated only, never end-user-callable.
+	api.HandleFunc("/federation/relay/request", h.RelayRequestFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/request", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/relay/subscribe", h.RelaySubscribeProfileFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/subscribe", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/relay/deliver", h.DeliverRelayResponseFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/deliver", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/relay/cancel", h.CancelRelayRequestFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/cancel", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")

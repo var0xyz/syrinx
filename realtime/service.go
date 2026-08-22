@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"syrinx/crypto"
@@ -38,6 +39,15 @@ type RealtimeService struct {
 	metrics       metrics.Recorder
 	ongoingCheck  func(userID string) (bool, error)
 	deviceCheck   func(userID, deviceID string) error
+
+	// Cross-server REQUEST_REED relay hooks: RealtimeService has no signing
+	// key, HTTP client, or federation-table access of its own, so the
+	// actual peer HTTP calls are injected from the main package (mirrors
+	// SetDeviceCheck/SetOngoingCheck's existing injection direction).
+	foreignRequestReedHook      ForeignRequestReedHook
+	foreignDeliverHook          ForeignDeliverHook
+	foreignCancelHook           ForeignCancelHook
+	foreignSubscribeProfileHook ForeignSubscribeProfileHook
 }
 
 // NewService creates a new realtime service. serverID is this server's own
@@ -77,6 +87,46 @@ func (rs *RealtimeService) SetOngoingCheck(check func(userID string) (bool, erro
 // SetDeviceCheck installs the active-device check used after WebSocket auth succeeds.
 func (rs *RealtimeService) SetDeviceCheck(check func(userID, deviceID string) error) {
 	rs.deviceCheck = check
+}
+
+// ForeignRequestResult reports the outcome of registering a REQUEST_REED
+// with a reed's home server.
+type ForeignRequestResult int
+
+const (
+	ForeignRequestOK ForeignRequestResult = iota
+	ForeignRequestReedNotFound
+	ForeignRequestReedNotHeld
+)
+
+// ForeignRequestReedHook registers requesterUserID's interest in reedID
+// with reedID's home server over peer HTTP (leg 1), returning the home
+// server's own event id on success.
+type ForeignRequestReedHook func(ctx context.Context, reedID, requesterUserID, localRequestID string) (result ForeignRequestResult, peerEventID string, err error)
+
+// SetForeignRequestReedHook installs the leg-1 (register-request) hook.
+func (rs *RealtimeService) SetForeignRequestReedHook(hook ForeignRequestReedHook) {
+	rs.foreignRequestReedHook = hook
+}
+
+// ForeignDeliverHook delivers relayed data for peerEventID back to
+// requestingServerID over peer HTTP (leg 2), called on the home server
+// once a local holder relays content for a peer-registered request.
+type ForeignDeliverHook func(ctx context.Context, requestingServerID, peerEventID string, data json.RawMessage) error
+
+// SetForeignDeliverHook installs the leg-2 (deliver-response) hook.
+func (rs *RealtimeService) SetForeignDeliverHook(hook ForeignDeliverHook) {
+	rs.foreignDeliverHook = hook
+}
+
+// ForeignCancelHook notifies homeServerID over peer HTTP (leg 4) that
+// peerEventID's originating requester disconnected and its pending event
+// should be dropped.
+type ForeignCancelHook func(ctx context.Context, homeServerID, peerEventID string) error
+
+// SetForeignCancelHook installs the leg-4 (cancel-request) hook.
+func (rs *RealtimeService) SetForeignCancelHook(hook ForeignCancelHook) {
+	rs.foreignCancelHook = hook
 }
 
 // DisconnectUser closes all WebSocket connections for a user (device rebind kick).
@@ -585,6 +635,23 @@ func (rs *RealtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 			Msg("Failed to remove broadcast subscription on disconnect")
 	}
 
+	// Notify any home servers this user had outstanding cross-server relay
+	// requests with, so they stop tracking them — must run BEFORE the
+	// cascade delete below removes the correlating foreign_pending_events
+	// rows. Best-effort: an HTTP failure here must not block local cleanup.
+	if rs.foreignCancelHook != nil {
+		foreignPending, err := rs.dbService.GetForeignPendingEventsByRequester(context.Background(), userID)
+		if err != nil {
+			log.Error().Err(err).Str("userID", userID).Msg("Failed to load foreign pending events on disconnect")
+		} else {
+			for _, fpe := range foreignPending {
+				if err := rs.foreignCancelHook(context.Background(), fpe.HomeServerID, fpe.PeerEventID); err != nil {
+					log.Error().Err(err).Str("eventID", fpe.EventID).Str("homeServerID", fpe.HomeServerID).Msg("Failed to notify home server of cancelled relay request")
+				}
+			}
+		}
+	}
+
 	// Discard all pending relay events for this requester (cascades from profile_subscriptions too)
 	if err := rs.dbService.DeletePendingEventsByUser(context.Background(), userID); err != nil {
 		log.Error().
@@ -995,30 +1062,19 @@ func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessag
 	}
 	requestID, reedID := req.RequestID, req.ReedID
 
-	exists, err := rs.dbService.ReedExists(context.Background(), reedID)
+	if foreign, homeServerID := rs.isForeignReed(reedID); foreign {
+		rs.handleForeignRequestReedFromClient(client, requestID, reedID, homeServerID)
+		return
+	}
+
+	exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), reedID, client.userID, requestID, true)
 	if err != nil {
-		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to check reed existence")
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed request")
 		return
 	}
 	if !exists {
 		log.Debug().Str("reedID", reedID).Msg("Requested reed does not exist, notifying requester")
 		rs.connManager.SendToUser(client.userID, NewReedNotFoundMsg(requestID, reedID))
-		return
-	}
-
-	// dropRequesterAllocation removes a stale holder row when the requester asks for
-	// a reed the server thought they held — they clearly do not have the body locally.
-	if _, err = rs.dbService.DeleteReedAllocation(context.Background(), reedID, client.userID); err != nil {
-		log.Error().Err(err).
-			Str("reedID", reedID).
-			Str("requesterID", client.userID).
-			Msg("Failed to drop requester holder allocation")
-		return
-	}
-
-	hasHolders, holder, err := rs.dbService.GetOnlineHolders(context.Background(), reedID)
-	if err != nil {
-		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to check reed holders")
 		return
 	}
 	if !hasHolders {
@@ -1030,17 +1086,253 @@ func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessag
 		return
 	}
 
-	eventID := generateEventID()
-	if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, client.userID, RequestReedEvent, reedID); err != nil {
-		log.Error().Err(err).Msg("Failed to create pending event")
-		return
+	rs.connManager.SendToUser(client.userID, NewRequestAckMsg(requestID, eventID, reedID))
+}
+
+// isForeignReed parses reedID's embedded serverID and reports whether it
+// differs from this server's own — mirrors handlers.go's proxyIfForeign
+// parse exactly, since realtime has no access to that main-package helper.
+func (rs *RealtimeService) isForeignReed(reedID string) (foreign bool, homeServerID string) {
+	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok {
+		_, embeddedServerID, ok = identity.ParseIdentityID(identity.IdentityID(reedID))
+	}
+	if !ok || embeddedServerID == rs.dbService.serverID {
+		return false, ""
+	}
+	return true, embeddedServerID
+}
+
+// registerReedRequest runs the ReedExists -> (optionally drop requester's
+// stale allocation) -> GetOnlineHolders -> CreatePendingReedEvent ->
+// dispatch-to-holder sequence shared by a local REQUEST_REED and a
+// foreign one registered on this server's behalf via HandleForeignRequestReed.
+// dropRequesterAllocation should be true only for a genuine local
+// requester — a sentinel peer-relay "requester" never legitimately holds
+// a stale allocation, so that DELETE is skipped for it.
+func (rs *RealtimeService) registerReedRequest(ctx context.Context, reedID, requesterUserID, requestID string, dropRequesterAllocation bool) (exists, hasHolders bool, eventID string, err error) {
+	exists, err = rs.dbService.ReedExists(ctx, reedID)
+	if err != nil {
+		return false, false, "", err
+	}
+	if !exists {
+		return false, false, "", nil
 	}
 
-	rs.connManager.SendToUser(client.userID, NewRequestAckMsg(requestID, eventID, reedID))
+	if dropRequesterAllocation {
+		// Removes a stale holder row when the requester asks for a reed the
+		// server thought they held — they clearly do not have the body locally.
+		if _, err = rs.dbService.DeleteReedAllocation(ctx, reedID, requesterUserID); err != nil {
+			return false, false, "", err
+		}
+	}
+
+	var holder string
+	hasHolders, holder, err = rs.dbService.GetOnlineHolders(ctx, reedID)
+	if err != nil {
+		return false, false, "", err
+	}
+	if !hasHolders {
+		return true, false, "", nil
+	}
+
+	eventID = generateEventID()
+	if err = rs.dbService.CreatePendingReedEvent(ctx, eventID, requestID, requesterUserID, RequestReedEvent, reedID); err != nil {
+		return false, false, "", err
+	}
 
 	if holder != "" {
 		rs.dispatchNextIfConnected(holder)
 	}
+
+	return true, true, eventID, nil
+}
+
+// handleForeignRequestReedFromClient is handleRequestReed's foreign
+// branch: register the request with reedID's home server over peer HTTP
+// (via the injected hook) instead of running registerReedRequest locally.
+func (rs *RealtimeService) handleForeignRequestReedFromClient(client *Client, requestID, reedID, homeServerID string) {
+	if rs.foreignRequestReedHook == nil {
+		rs.connManager.SendToUser(client.userID, NewReedNotFoundMsg(requestID, reedID))
+		return
+	}
+
+	eventID := generateEventID()
+	// CreatePendingEventOnly, not CreatePendingReedEvent: a real
+	// pending_reed_events row would FK against local reeds(id), which this
+	// server never has for foreign-authored content. The subject (reedID)
+	// is tracked in foreign_pending_events instead (see CreateForeignPendingEvent below).
+	if err := rs.dbService.CreatePendingEventOnly(context.Background(), eventID, requestID, client.userID, RequestReedEvent, ""); err != nil {
+		log.Error().Err(err).Msg("Failed to create local pending event for foreign relay request")
+		return
+	}
+
+	result, peerEventID, err := rs.foreignRequestReedHook(context.Background(), reedID, client.userID, requestID)
+	if err != nil || result != ForeignRequestOK {
+		if err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Str("homeServerID", homeServerID).Msg("Failed to register foreign reed request with home server")
+		}
+		if delErr := rs.dbService.DeletePendingEvent(context.Background(), eventID); delErr != nil {
+			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete speculative pending event after foreign request failure")
+		}
+		if result == ForeignRequestReedNotFound {
+			rs.connManager.SendToUser(client.userID, NewReedNotFoundMsg(requestID, reedID))
+		} else {
+			rs.connManager.SendToUser(client.userID, NewReedNotHeldMsg(requestID, reedID))
+		}
+		return
+	}
+
+	if err := rs.dbService.CreateForeignPendingEvent(context.Background(), eventID, homeServerID, peerEventID, reedID); err != nil {
+		log.Error().Err(err).Msg("Failed to record foreign pending event mapping")
+		if delErr := rs.dbService.DeletePendingEvent(context.Background(), eventID); delErr != nil {
+			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")
+		}
+		return
+	}
+
+	rs.connManager.SendToUser(client.userID, NewRequestAckMsg(requestID, eventID, reedID))
+}
+
+// HandleForeignRequestReed is leg 1's home-server-side logic: a peer is
+// registering a REQUEST_REED on behalf of one of its own users. Runs the
+// same registerReedRequest sequence a local requester would, using a
+// per-peer sentinel identity as the "requester" so the rest of the local
+// relay-holder machinery (dispatchNext, handleRelayResponse, etc.) needs
+// no special-casing to handle it.
+func (rs *RealtimeService) HandleForeignRequestReed(ctx context.Context, canonicalReedID, requestingServerID, requestingUserID, peerRequestID string) (result ForeignRequestResult, peerEventID string, err error) {
+	sentinelUserID, err := rs.dbService.EnsurePeerSentinelUser(ctx, requestingServerID)
+	if err != nil {
+		return ForeignRequestReedNotFound, "", err
+	}
+
+	requestID := generateEventID()
+	exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, canonicalReedID, sentinelUserID, requestID, false)
+	if err != nil {
+		return ForeignRequestReedNotFound, "", err
+	}
+	if !exists {
+		return ForeignRequestReedNotFound, "", nil
+	}
+	if !hasHolders {
+		return ForeignRequestReedNotHeld, "", nil
+	}
+
+	if err := rs.recordForeignRelayRequest(ctx, eventID, requestingServerID, requestingUserID); err != nil {
+		return ForeignRequestReedNotFound, "", err
+	}
+
+	return ForeignRequestOK, eventID, nil
+}
+
+// recordForeignRelayRequest inserts eventID's foreign_relay_requests row,
+// rolling back the speculative pending_events row on failure — shared by
+// HandleForeignRequestReed and HandleForeignSubscribeProfile.
+func (rs *RealtimeService) recordForeignRelayRequest(ctx context.Context, eventID, requestingServerID, requestingUserID string) error {
+	if err := rs.dbService.CreateForeignRelayRequest(ctx, eventID, requestingServerID, requestingUserID); err != nil {
+		if delErr := rs.dbService.DeletePendingEvent(ctx, eventID); delErr != nil {
+			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_relay_requests insert failure")
+		}
+		return err
+	}
+	return nil
+}
+
+// HandleForeignSubscribeProfile is the profile-level sibling of
+// HandleForeignRequestReed: a peer is registering interest in every one
+// of authorID's reeds this requester doesn't already hold, on behalf of
+// one of its own users. authorID must be local to this server (checked
+// by the caller, same loop-prevention as leg 1). Returns one
+// (peerEventID, reedID) pair per reed successfully registered — reeds
+// this server has no online holder for are silently skipped (not an
+// error; matches the local SUBSCRIBE_PROFILE path's own
+// best-effort-per-reed behavior).
+func (rs *RealtimeService) HandleForeignSubscribeProfile(ctx context.Context, authorID, requestingServerID, requestingUserID string) (results []ForeignSubscribeProfileResult, err error) {
+	sentinelUserID, err := rs.dbService.EnsurePeerSentinelUser(ctx, requestingServerID)
+	if err != nil {
+		return nil, err
+	}
+
+	reedIDs, err := rs.dbService.GetUnallocatedReeds(ctx, authorID, sentinelUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, reedID := range reedIDs {
+		requestID := generateEventID()
+		exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, reedID, sentinelUserID, requestID, false)
+		if err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed for foreign profile subscription")
+			continue
+		}
+		if !exists || !hasHolders {
+			continue
+		}
+		if err := rs.recordForeignRelayRequest(ctx, eventID, requestingServerID, requestingUserID); err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to record foreign relay request for profile subscription")
+			continue
+		}
+		results = append(results, ForeignSubscribeProfileResult{PeerEventID: eventID, ReedID: reedID})
+	}
+
+	return results, nil
+}
+
+// HandleForeignRelayResponse runs on the originating server (O): a home
+// server (H) has delivered relayed content for a request O registered via
+// leg 1. Resolves peerEventID back to O's own local pending_events row
+// and delivers to the local requester exactly as a local RELAY_RESPONSE
+// would, but does not touch dispatchNext/DeletePendingEvent — O has no
+// holder queue for this event; allocation/deletion stays deferred until
+// the requester's own DATA_ACK/DATA_INVALID.
+func (rs *RealtimeService) HandleForeignRelayResponse(ctx context.Context, peerEventID, callerServerID string, data json.RawMessage) (found bool, err error) {
+	fpe, err := rs.dbService.GetForeignPendingEventByPeerEventID(ctx, peerEventID, callerServerID)
+	if err != nil {
+		return false, err
+	}
+	if fpe == nil {
+		return false, nil
+	}
+
+	// GetPendingRequesterOnly, not GetPendingReedEvent: this event has no
+	// pending_reed_events row (see CreatePendingEventOnly's doc comment) —
+	// its subject is fpe.ReedID, tracked in foreign_pending_events instead.
+	requesterUserID, requestID, err := rs.dbService.GetPendingRequesterOnly(ctx, fpe.EventID)
+	if err != nil {
+		return false, err
+	}
+	if requesterUserID == "" {
+		// Local requester's row already gone (e.g. raced with disconnect) -- not an error.
+		return true, nil
+	}
+
+	if err := rs.connManager.SendToUser(requesterUserID, NewDataResponseMsg(fpe.EventID, requestID, fpe.ReedID, data)); err != nil {
+		log.Error().Err(err).Str("requesterID", requesterUserID).Msg("Failed to deliver foreign-relayed data response")
+	}
+	return true, nil
+}
+
+// errForeignRelayOwnershipMismatch is returned by CancelForeignPendingEvent
+// when callerServerID doesn't match the peer that originally registered
+// peerEventID — the HTTP handler maps this to 403.
+var errForeignRelayOwnershipMismatch = errors.New("foreign relay request belongs to a different peer")
+
+// CancelForeignPendingEvent runs on the home server (H): the originating
+// server's local requester disconnected before delivery completed, so H
+// should drop its half of the pending state. Idempotent — an unknown
+// peerEventID is a no-op, not an error.
+func (rs *RealtimeService) CancelForeignPendingEvent(ctx context.Context, peerEventID, callerServerID string) error {
+	frr, err := rs.dbService.GetForeignRelayRequest(ctx, peerEventID)
+	if err != nil {
+		return err
+	}
+	if frr == nil {
+		return nil
+	}
+	if frr.RequestingServerID != callerServerID {
+		return errForeignRelayOwnershipMismatch
+	}
+	return rs.dbService.DeletePendingEvent(ctx, peerEventID)
 }
 
 // handlePublishReady runs new-reed fanout when a pending_fanout row exists.
@@ -1145,8 +1437,21 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMess
 		}
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else {
-		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Data)); err != nil {
-			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver data response")
+		frr, ferr := rs.dbService.GetForeignRelayRequest(context.Background(), eventID)
+		if ferr != nil {
+			log.Error().Err(ferr).Str("eventID", eventID).Msg("Failed to check foreign relay request")
+		} else if frr != nil {
+			// pe.RequesterUserID is a per-peer sentinel identity with no real
+			// WS connection — deliver over HTTP to the requesting peer instead.
+			if rs.foreignDeliverHook != nil {
+				if err := rs.foreignDeliverHook(context.Background(), frr.RequestingServerID, eventID, relay.Data); err != nil {
+					log.Error().Err(err).Str("eventID", eventID).Msg("Failed to deliver relayed data to requesting peer")
+				}
+			}
+		} else {
+			if err := rs.connManager.SendToUser(pe.RequesterUserID, NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Data)); err != nil {
+				log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver data response")
+			}
 		}
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	}
@@ -1246,7 +1551,10 @@ func (rs *RealtimeService) handleDataAck(client *Client, data DataAckData) {
 				rs.notifyReedCoverage(t.ReedID)
 			}
 		}
-	} else {
+	} else if foreign, _ := rs.isForeignReed(pe.ReedID); !foreign {
+		// A server never becomes a holder for foreign-authored content —
+		// every future REQUEST_REED for it re-bridges to the true home
+		// server instead of being served from a cached copy here.
 		changed, err := rs.dbService.AllocateReed(context.Background(), pe.ReedID, client.userID)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to allocate reed on data ack")
@@ -1315,6 +1623,11 @@ func (rs *RealtimeService) handleSubscribeProfile(client *Client, data json.RawM
 		return
 	}
 
+	if foreign, homeServerID := rs.isForeignReed(profile.UserID); foreign {
+		rs.handleForeignSubscribeProfileFromClient(client, profile.UserID, homeServerID, subscriptionID)
+		return
+	}
+
 	missingIDs, err := rs.dbService.GetUnallocatedReeds(context.Background(), profile.UserID, client.userID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get unallocated reeds for viewer")
@@ -1333,6 +1646,61 @@ func (rs *RealtimeService) handleSubscribeProfile(client *Client, data json.RawM
 			continue
 		}
 		rs.dispatchNextIfConnected(holder)
+	}
+}
+
+// ForeignSubscribeProfileResult is one reed of a foreign author's
+// unallocated-reeds backfill, registered with the home server (leg 1's
+// profile-level sibling).
+type ForeignSubscribeProfileResult struct {
+	PeerEventID string
+	ReedID      string
+}
+
+// ForeignSubscribeProfileHook registers requesterUserID's interest in
+// every one of authorID's (foreign) reeds it doesn't already hold, with
+// authorID's home server over peer HTTP — the profile-level counterpart
+// of ForeignRequestReedHook, since a profile backfill needs H to
+// enumerate an unknown number of reeds rather than resolve one.
+type ForeignSubscribeProfileHook func(ctx context.Context, authorID, requesterUserID string) ([]ForeignSubscribeProfileResult, error)
+
+// SetForeignSubscribeProfileHook installs the profile-backfill registration hook.
+func (rs *RealtimeService) SetForeignSubscribeProfileHook(hook ForeignSubscribeProfileHook) {
+	rs.foreignSubscribeProfileHook = hook
+}
+
+// handleForeignSubscribeProfileFromClient is handleSubscribeProfile's
+// foreign branch: ask authorID's home server for every reed of theirs
+// this viewer doesn't hold, and register a local pending event (plus its
+// foreign_pending_events mapping) for each one returned, exactly as
+// handleForeignRequestReedFromClient does for a single reed.
+func (rs *RealtimeService) handleForeignSubscribeProfileFromClient(client *Client, authorID, homeServerID, subscriptionID string) {
+	if rs.foreignSubscribeProfileHook == nil {
+		return
+	}
+
+	results, err := rs.foreignSubscribeProfileHook(context.Background(), authorID, client.userID)
+	if err != nil {
+		log.Error().Err(err).Str("authorID", authorID).Str("homeServerID", homeServerID).Msg("Failed to register foreign profile subscription")
+		return
+	}
+
+	for _, result := range results {
+		eventID := generateEventID()
+		requestID := generateEventID()
+		// CreatePendingEventOnly, not CreateProfileSubscriptionEvent: a real
+		// pending_reed_events row would FK against local reeds(id), which
+		// this server never has for foreign-authored content.
+		if err := rs.dbService.CreatePendingEventOnly(context.Background(), eventID, requestID, client.userID, ProfileSubscriptionEvent, subscriptionID); err != nil {
+			log.Error().Err(err).Str("peerEventID", result.PeerEventID).Msg("Failed to create local pending event for foreign profile subscription")
+			continue
+		}
+		if err := rs.dbService.CreateForeignPendingEvent(context.Background(), eventID, homeServerID, result.PeerEventID, result.ReedID); err != nil {
+			log.Error().Err(err).Msg("Failed to record foreign pending event mapping for profile subscription")
+			if delErr := rs.dbService.DeletePendingEvent(context.Background(), eventID); delErr != nil {
+				log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")
+			}
+		}
 	}
 }
 
