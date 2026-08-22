@@ -1628,9 +1628,9 @@ func (s *DataService) ListReplies(ctx context.Context, parentReedID string, limi
 		if err := rows.Scan(&reedID, &_ts); err != nil {
 			return nil, err
 		}
-		userID, _, _, _ := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+		userID, serverID, _, _ := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
 		items = append(items, ReplyListItem{
-			UserID: userID,
+			UserID: string(identity.CanonicalID(serverID, userID)),
 			ReedID: reedID,
 		})
 	}
