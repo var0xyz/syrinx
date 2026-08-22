@@ -1,5 +1,4 @@
 <script>
-  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
 
   /** `userID@serverID` id — callers already have this form, so this
@@ -27,28 +26,18 @@
   let extraClass = '';
   export { extraClass as class };
 
-  let localServerID = '';
-
   // Split "userID@serverID" on the LAST '@' — matches the Go side's
-  // identity.ParseIdentityID convention. Only the bare userID part is
-  // compared below; the frontend only ever reasons about its own account.
+  // identity.ParseIdentityID convention.
   $: atIndex = userID ? userID.lastIndexOf('@') : -1;
   $: bareUserID = atIndex > 0 ? userID.slice(0, atIndex) : userID;
-  $: userServerID = atIndex > 0 ? userID.slice(atIndex + 1) : '';
-  $: isLocal = !!localServerID && userServerID === localServerID;
   $: isAdmin = bareUserID === '1';
   // Inline, not class-based: callers embed this in contexts with their own
   // `.inline-link`/etc color rules (e.g. MarkdownParser's link styling) that
   // would otherwise win on specificity/source order over a scoped class.
   $: resolvedColor = isAdmin ? 'var(--error)' : color;
 
-  onMount(() => {
-    localServerID = localStorage.getItem('serverId') || '';
-  });
-
   function activate(event) {
     if (stopPropagation) event.stopPropagation();
-    if (!isLocal) return;
     goto(`/profile/${userID}`);
   }
 </script>
@@ -57,7 +46,7 @@
   {#if isAdmin && fire}
     <img class="username-fire" src="/icons/fire.gif" alt="" width="16" height="16" />
   {/if}
-  {#if isLocal && linked}
+  {#if linked}
     <a
       href="/profile/{userID}"
       class="username {extraClass}"
