@@ -4142,7 +4142,7 @@ func (s *DataService) PostRipple(
 	}
 	serverID := s.GetServerID()
 	serverPayload := identity.BuildRippleServerPayload(
-		serverID, reedID, selfIdentity.UserID(),
+		serverID, reedID, userID,
 		userFingerprint, threadID, replyingToVal,
 		userSigArmor, now,
 	)
