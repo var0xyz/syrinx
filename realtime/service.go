@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	"syrinx/crypto"
 	"syrinx/identity"
@@ -53,6 +55,7 @@ type RealtimeService struct {
 	foreignSubscribeReedHook      ForeignSubscribeReedHook
 	foreignUnsubscribeReedHook    ForeignUnsubscribeReedHook
 	foreignReedStatsHook          ForeignReedStatsHook
+	foreignReplyNotifyHook        ForeignReplyNotifyHook
 }
 
 // NewService creates a new realtime service. serverID is this server's own
@@ -155,6 +158,19 @@ type ForeignUnsubscribeReedHook func(ctx context.Context, reedID, requestingUser
 // SetForeignUnsubscribeReedHook installs the leg-9 (unsubscribe-reed) hook.
 func (rs *RealtimeService) SetForeignUnsubscribeReedHook(hook ForeignUnsubscribeReedHook) {
 	rs.foreignUnsubscribeReedHook = hook
+}
+
+// ForeignReplyNotifyHook tells parentReedID's home server over peer HTTP
+// that replyReedID (authored on this server) replies to it — the write
+// side of cross-server replying. Without this, a reply to a foreign reed
+// is created successfully but never surfaces on the parent's home server
+// at all: no reed_replies row there means its reply-count/thread queries
+// never find it.
+type ForeignReplyNotifyHook func(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error
+
+// SetForeignReplyNotifyHook installs the leg-11 (reply-notify) hook.
+func (rs *RealtimeService) SetForeignReplyNotifyHook(hook ForeignReplyNotifyHook) {
+	rs.foreignReplyNotifyHook = hook
 }
 
 // ForeignReedStatsHook pushes a pre-built WS message (REED_COVERAGE,
@@ -584,6 +600,11 @@ func (rs *RealtimeService) deliverReedRemoved(eventID, requestID, recipientID, r
 // relay dispatch to the reed's author (also the holder for published-reed
 // fanout). reedID is canonical.
 func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName, reedID string) {
+	if foreign, homeServerID := rs.isForeignReed(reedID); foreign {
+		rs.dispatchManyForeign(recipients, eventName, reedID, homeServerID)
+		return
+	}
+
 	authorUserID := reedAuthorIdentity(reedID)
 	for _, recipientID := range recipients {
 		requestID, err := rs.dbService.GetSyncRequestID(context.Background(), recipientID)
@@ -609,6 +630,49 @@ func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName
 			Str("holderUserID", authorUserID).
 			Msg("Pending event created, dispatching to holder")
 		rs.dispatchNextIfConnected(authorUserID)
+	}
+}
+
+// dispatchManyForeign is dispatchMany's branch for a foreign-authored
+// reedID: the recipient's own holder-dispatch never fires, since reedID's
+// real holder (its author) is connected to reedID's home server, not this
+// one — the exact gap that left foreign-authored FOLLOW_REED/PIPE_REED/
+// REED_REPLY fanout silently undelivered. Every recipient — whether local
+// to this server or (via notifyForeignReedSubscribersOfReply-style
+// callers) itself foreign — needs the same cross-server relay-holder
+// bridge already used for a client's own foreign REQUEST_REED, registered
+// once per recipient against reedID's true home server.
+func (rs *RealtimeService) dispatchManyForeign(recipients []string, eventName EventName, reedID, homeServerID string) {
+	if rs.foreignRequestReedHook == nil {
+		return
+	}
+	if err := rs.dbService.UpsertReedIdentity(context.Background(), reedID); err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to upsert reed identity for foreign dispatch")
+		return
+	}
+	for _, recipientID := range recipients {
+		requestID := generateEventID(recipientID)
+		eventID := generateEventID(recipientID)
+		if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, recipientID, eventName, reedID); err != nil {
+			log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create local pending event for foreign dispatch")
+			continue
+		}
+		result, peerEventID, err := rs.foreignRequestReedHook(context.Background(), reedID, recipientID, requestID)
+		if err != nil || result != ForeignRequestOK {
+			if err != nil {
+				log.Error().Err(err).Str("reedID", reedID).Str("homeServerID", homeServerID).Msg("Failed to register foreign dispatch with home server")
+			}
+			if delErr := rs.dbService.DeletePendingEvent(context.Background(), eventID); delErr != nil {
+				log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete speculative pending event after foreign dispatch failure")
+			}
+			continue
+		}
+		if err := rs.dbService.CreateForeignPendingEvent(context.Background(), eventID, homeServerID, peerEventID); err != nil {
+			log.Error().Err(err).Msg("Failed to record foreign pending event mapping for foreign dispatch")
+			if delErr := rs.dbService.DeletePendingEvent(context.Background(), eventID); delErr != nil {
+				log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")
+			}
+		}
 	}
 }
 
@@ -1587,6 +1651,7 @@ func (rs *RealtimeService) handlePublishReady(client *Client, data json.RawMessa
 			go rs.fanoutNewReedNoBroadcast(reedID, tags)
 		}
 		go rs.notifyReplyAncestorsOfReply(reedID)
+		go rs.notifyForeignParentOfReply(reedID)
 	} else {
 		exists, err := rs.dbService.ReedExists(context.Background(), reedID)
 		if err != nil {
@@ -2057,6 +2122,42 @@ func (rs *RealtimeService) HandleForeignUnsubscribeReed(ctx context.Context, ree
 	return rs.dbService.DeleteReedSubscription(ctx, subscriptionID)
 }
 
+// HandleForeignReplyNotify is leg 11's home-server logic: a peer is
+// telling us replyReedID (authored on their server) replies to
+// parentReedID, one of our own reeds. Records the reference and runs the
+// exact same local fanout a purely-local reply already gets — reply-count
+// updates up the ancestor chain, plus content delivery to anyone
+// subscribed to the thread (which, per notifyReedSubscribersOfReply's own
+// foreign-aware branch, may itself reach further peers).
+func (rs *RealtimeService) HandleForeignReplyNotify(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error {
+	exists, err := rs.dbService.ReedExists(ctx, parentReedID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("parent reed not found: %s", parentReedID)
+	}
+
+	if err := rs.dbService.InsertForeignReply(ctx, parentReedID, replyReedID, threadID, ts); err != nil {
+		return err
+	}
+
+	reedID := parentReedID
+	for {
+		rs.notifyReedReplies(reedID)
+		rs.notifyReedSubscribersOfReply(reedID, replyReedID)
+		nextReedID, ok, err := rs.dbService.ReplyParent(ctx, reedID)
+		if err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to resolve reply ancestor for foreign reply notify")
+			return nil
+		}
+		if !ok {
+			return nil
+		}
+		reedID = nextReedID
+	}
+}
+
 // DeliverForeignReedStats runs on the originating server (O): the home
 // server for a reed O's viewer subscribed to (leg 8) is pushing a live
 // stats update (leg 10). requesterUserID must already be a genuine local
@@ -2363,6 +2464,35 @@ func (rs *RealtimeService) notifyReplyAncestorsOfReply(replyReedID string) {
 		}
 		rs.notifyReedSubscribersOfReply(parentReedID, replyReedID)
 		reedID = parentReedID
+	}
+}
+
+// notifyForeignParentOfReply tells replyReedID's immediate parent's home
+// server about the reply, if that parent is foreign — the write side of
+// cross-server replying (see ForeignReplyNotifyHook). Only the immediate
+// parent needs notifying: that server's own reed_replies table already
+// lets it walk further up its own ancestor chain the same way this
+// server's notifyReplyAncestorsOfReply does. Runs alongside (not gating)
+// notifyReplyAncestorsOfReply's own local-ancestor walk above — a purely
+// local reply chain has nothing foreign to notify and this is a no-op.
+func (rs *RealtimeService) notifyForeignParentOfReply(replyReedID string) {
+	if rs.foreignReplyNotifyHook == nil {
+		return
+	}
+	rec, err := rs.dbService.GetReplyRecord(context.Background(), replyReedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", replyReedID).Msg("Failed to load reply record for foreign parent notify")
+		return
+	}
+	if rec == nil {
+		return
+	}
+	foreign, _ := rs.isForeignReed(rec.ParentReedID)
+	if !foreign {
+		return
+	}
+	if err := rs.foreignReplyNotifyHook(context.Background(), rec.ParentReedID, replyReedID, rec.ThreadID, rec.Timestamp); err != nil {
+		log.Error().Err(err).Str("reedID", replyReedID).Str("parentReedID", rec.ParentReedID).Msg("Failed to notify foreign parent's home server of reply")
 	}
 }
 

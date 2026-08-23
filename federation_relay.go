@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"syrinx/identity"
 	"syrinx/realtime"
@@ -828,4 +829,96 @@ func (h *Handlers) PushReedStatsFromPeer(w http.ResponseWriter, r *http.Request)
 		log.Error().Err(err).Str("requesterUserID", req.RequesterUserID).Str("peerServerID", peerServerID).Msg("Failed to deliver foreign reed stats push")
 	}
 	writeResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// /////////////////////////////////// //
+//   Leg 11: reply-notify (O -> H)     //
+// /////////////////////////////////// //
+//
+// Write side of cross-server replying: a reply to a foreign reed is
+// created entirely on O (the replier's own server) — H never receives or
+// stores its content. Without this leg H has no way to know the reply
+// exists at all, so every reply-count/thread query it answers comes up
+// empty even though the reply itself was created successfully.
+
+type relayReplyNotifyPayload struct {
+	ParentReedID string    `json:"parent_reed_id"`
+	ReplyReedID  string    `json:"reply_reed_id"`
+	ThreadID     string    `json:"thread_id"`
+	Timestamp    time.Time `json:"timestamp"`
+}
+
+// notifyForeignReplyToPeer is the ForeignReplyNotifyHook implementation
+// (leg 11, O's side): tells parentReedID's home server that replyReedID
+// (authored here) replies to it.
+func (h *Handlers) notifyForeignReplyToPeer(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error {
+	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(parentReedID))
+	if !ok {
+		return nil
+	}
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayReplyNotifyPayload{
+		ParentReedID: parentReedID,
+		ReplyReedID:  replyReedID,
+		ThreadID:     threadID,
+		Timestamp:    ts,
+	}
+	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/reply-notify", payload, nil)
+	return err
+}
+
+// ReplyNotifyFromPeer is leg 11's home-server handler: an established
+// peer is telling us one of its reeds replies to one of ours.
+func (h *Handlers) ReplyNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayReplyNotifyPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.ParentReedID = strings.TrimSpace(req.ParentReedID)
+	req.ReplyReedID = strings.TrimSpace(req.ReplyReedID)
+	req.ThreadID = strings.TrimSpace(req.ThreadID)
+	if req.ParentReedID == "" || req.ReplyReedID == "" || req.ThreadID == "" {
+		writeResponse(w, http.StatusBadRequest, "parent_reed_id, reply_reed_id, and thread_id are required")
+		return
+	}
+
+	// Loop-prevention: this server can only be "home" for reeds it hosts
+	// locally, and a peer may only notify us of replies IT actually
+	// authors — never claim a reply on behalf of a third server.
+	_, parentServerID, _, parentOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ParentReedID))
+	if !parentOK || parentServerID != h.services.db.GetServerID() {
+		writeResponse(w, http.StatusBadRequest, "parent_reed_id is not local to this server")
+		return
+	}
+	_, replyServerID, _, replyOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ReplyReedID))
+	if !replyOK || replyServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "reply_reed_id does not belong to the calling peer")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		internalServerError(w)
+		return
+	}
+	if err := h.realtimeRelay.HandleForeignReplyNotify(r.Context(), req.ParentReedID, req.ReplyReedID, req.ThreadID, req.Timestamp); err != nil {
+		log.Error().Err(err).Str("parentReedID", req.ParentReedID).Str("replyReedID", req.ReplyReedID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign reply notify")
+		internalServerError(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

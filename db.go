@@ -451,6 +451,10 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// id is the root reed ref (user@server/reed); one row per thread (created on first reply).
+	// reed_id FKs to reed_identities, not reeds directly — a reply to one
+	// of THIS server's reeds may itself be authored on a peer (the reply's
+	// home server relays us a reference, not the content, so we can index
+	// it for stats/thread-listing without holding a copy).
 	createReedRepliesTable := `
 	CREATE TABLE IF NOT EXISTS reed_replies (
 		thread_id VARCHAR(255) NOT NULL,
@@ -459,7 +463,7 @@ func InitDB(db *sql.DB) error {
 		timestamp TIMESTAMP NOT NULL,
 
 		PRIMARY KEY (reed_id),
-		FOREIGN KEY (reed_id) REFERENCES reeds(id),
+		FOREIGN KEY (reed_id) REFERENCES reed_identities(id),
 		FOREIGN KEY (parent_reed_id) REFERENCES reed_identities(id)
 	);`
 
