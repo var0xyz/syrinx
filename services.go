@@ -3360,6 +3360,69 @@ func (s *DataService) UpsertRemoteIdentity(ctx context.Context, canonicalID, rem
 	return err
 }
 
+// UpsertReedIdentity idempotently records that reedID exists, without
+// claiming its content has been verified — the same low bar a locally
+// authored reed clears just by being signed (see insertReedCoreTx). Used
+// when this server needs to reference a foreign reed (e.g. mirroring a
+// like) without holding a copy of the reed itself.
+func (s *DataService) UpsertReedIdentity(ctx context.Context, reedID string) error {
+	_, serverID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok {
+		return fmt.Errorf("malformed reed id: %s", reedID)
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO reed_identities (id, server_id)
+		VALUES ($1, $2)
+		ON CONFLICT (id) DO NOTHING
+	`, reedID, serverID)
+	return err
+}
+
+// CachePeerUserKey persists a foreign user key this server fetched and
+// verified live from its owning peer (see Handlers.fetchAndCachePeerUserKey)
+// so a future peer-relayed like/ripple from the same user doesn't need
+// another round trip. Caller is responsible for verifying sig before
+// calling this — it trusts everything passed in. Idempotent: a second
+// fetch of the same key (e.g. a racing concurrent like) is a harmless
+// no-op, matching UpsertRemoteIdentity's own ON CONFLICT DO NOTHING bar.
+func (s *DataService) CachePeerUserKey(ctx context.Context, keyID, ownerCanonicalID, ownerUserID, ownerServerID, armor string, serverSig ServerSignature) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO identities (id, remote_user_id, server_id, verified)
+		VALUES ($1, $2, $3, FALSE)
+		ON CONFLICT (id) DO NOTHING
+	`, ownerCanonicalID, ownerUserID, ownerServerID); err != nil {
+		return err
+	}
+
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM public_keys WHERE id = $1)`, keyID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return tx.Commit()
+	}
+
+	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, serverSig.Fingerprint, serverSig.Armor, serverSig.SignedAt)
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO public_keys (id, owner, armor, server_signature_id) VALUES ($1, $2, $3, $4)`,
+		keyID, ownerCanonicalID, armor, serverSignatureID,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // errFederationAttemptNotFound is returned by ApproveFederationAttempt and
 // RejectFederationAttempt when attemptID doesn't match any row, and by
 // GetFederationAttempt.

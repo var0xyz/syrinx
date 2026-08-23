@@ -2343,7 +2343,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
 
-	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
+	if h.proxyLikeToForeignReed(w, r, reedID) {
 		return
 	}
 
@@ -2404,7 +2404,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
+	pubKey, err := h.resolvePublicKey(r.Context(), fingerprint)
 	if err != nil {
 		log.Error().Str("likerID", likerID).Str("fingerprint", fingerprint).Err(err).Msg("Error loading public key")
 		internalServerError(w)
@@ -2489,7 +2489,7 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
 
-	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
+	if h.proxyUnlikeToForeignReed(w, r, reedID) {
 		return
 	}
 
@@ -3112,6 +3112,172 @@ func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id str
 	return true, h.proxyToPeer(w, r, peer.ID, peer.BaseURL)
 }
 
+// proxyLikeToForeignReed forwards a LikeReed request to reedID's true
+// home server (returns handled=false, doing nothing, if reedID is local)
+// and — unlike the generic proxyIfForeign, which streams the peer's
+// response straight through unread — parses a successful LikeCert back
+// out so this server can mirror the like into its own reeds_liked table.
+// Without this, only the reed's home server would ever know the local
+// user liked it: every read of "did I like this" against this server's
+// own DB would incorrectly say no.
+func (h *Handlers) proxyLikeToForeignReed(w http.ResponseWriter, r *http.Request, reedID string) (handled bool) {
+	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok || embeddedServerID == h.services.db.GetServerID() {
+		return false
+	}
+	log := h.services.log.GetLogger(r.Context())
+
+	peer, err := h.services.db.GetServerByID(r.Context(), embeddedServerID)
+	if err != nil {
+		internalServerError(w)
+		return true
+	}
+	if peer == nil {
+		writeResponse(w, http.StatusNotFound, "Not found")
+		return true
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		internalServerError(w)
+		return true
+	}
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		return true
+	}
+	likerID, ok := h.resolveActingUser(r, values.Get("likerID"))
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		return true
+	}
+
+	respBody, status, err := h.forwardToPeer(r, peer.BaseURL, string(body))
+	if err != nil {
+		log.Error().Err(err).Str("target", peer.BaseURL).Msg("proxy like to peer server failed")
+		h.logFederationServerAsync(peer.ID, "error", fmt.Sprintf("Proxy like to %s failed: %s", peer.BaseURL, err.Error()))
+		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
+		return true
+	}
+
+	if status == http.StatusOK {
+		var cert LikeCert
+		if err := json.Unmarshal(respBody, &cert); err != nil {
+			log.Error().Err(err).Str("likerID", likerID).Str("reedID", reedID).Msg("Failed to parse peer like cert")
+		} else if err := h.mirrorForeignLike(r.Context(), likerID, cert); err != nil {
+			log.Error().Err(err).Str("likerID", likerID).Str("reedID", reedID).Msg("Failed to mirror foreign like locally")
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(respBody)
+	return true
+}
+
+// mirrorForeignLike stores a like cert this server's own user received
+// back from the reed's true home server, so a local read of "did I like
+// this" is answered from this server's own DB without a round trip.
+// likerID's own public key must already be cached locally — true for a
+// local liker liking foreign content, which is the only case this is
+// ever called for (a foreign liker's like never reaches this server at
+// all; it's persisted directly by the reed's home server).
+func (h *Handlers) mirrorForeignLike(ctx context.Context, likerID string, cert LikeCert) error {
+	if err := h.services.db.UpsertReedIdentity(ctx, cert.ReedID); err != nil {
+		return fmt.Errorf("upsert reed identity: %w", err)
+	}
+	if err := h.services.db.InsertReedLike(ctx, likerID, cert.UserSignature.Fingerprint, cert); err != nil {
+		return fmt.Errorf("insert reed like: %w", err)
+	}
+	return nil
+}
+
+// proxyUnlikeToForeignReed mirrors proxyLikeToForeignReed for the
+// DELETE/unlike direction: forwards to the home server, and on success
+// removes the locally mirrored like row (if any) so both servers agree.
+func (h *Handlers) proxyUnlikeToForeignReed(w http.ResponseWriter, r *http.Request, reedID string) (handled bool) {
+	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok || embeddedServerID == h.services.db.GetServerID() {
+		return false
+	}
+	log := h.services.log.GetLogger(r.Context())
+
+	peer, err := h.services.db.GetServerByID(r.Context(), embeddedServerID)
+	if err != nil {
+		internalServerError(w)
+		return true
+	}
+	if peer == nil {
+		writeResponse(w, http.StatusNotFound, "Not found")
+		return true
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return true
+	}
+	values, _ := url.ParseQuery(string(body))
+	likerID, ok := h.resolveActingUser(r, values.Get("likerID"))
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		return true
+	}
+
+	respBody, status, err := h.forwardToPeer(r, peer.BaseURL, string(body))
+	if err != nil {
+		log.Error().Err(err).Str("target", peer.BaseURL).Msg("proxy unlike to peer server failed")
+		h.logFederationServerAsync(peer.ID, "error", fmt.Sprintf("Proxy unlike to %s failed: %s", peer.BaseURL, err.Error()))
+		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
+		return true
+	}
+
+	if status == http.StatusNoContent {
+		if _, err := h.services.db.DeleteReedLike(r.Context(), likerID, reedID); err != nil {
+			log.Error().Err(err).Str("likerID", likerID).Str("reedID", reedID).Msg("Failed to mirror foreign unlike locally")
+		}
+	}
+
+	w.WriteHeader(status)
+	if len(respBody) > 0 {
+		_, _ = w.Write(respBody)
+	}
+	return true
+}
+
+// forwardToPeer signs and sends r (with body substituted for the
+// already-read bytes) to baseURL, returning the peer's response body and
+// status. Unlike proxyToPeer, it does not write to w itself — callers
+// need to inspect the response before deciding what (if anything) to
+// mirror locally.
+func (h *Handlers) forwardToPeer(r *http.Request, baseURL, body string) (respBody []byte, status int, err error) {
+	target := strings.TrimRight(baseURL, "/") + r.URL.Path
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	httpReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, strings.NewReader(body))
+	if err != nil {
+		return nil, 0, err
+	}
+	if contentType := r.Header.Get("Content-Type"); contentType != "" {
+		httpReq.Header.Set("Content-Type", contentType)
+	}
+	if err := h.setPeerProxyAuthHeaders(httpReq, body); err != nil {
+		return nil, 0, fmt.Errorf("sign proxied peer request: %w", err)
+	}
+	resp, err := h.federationHTTPClient().Do(httpReq)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	respBody, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, err
+	}
+	return respBody, resp.StatusCode, nil
+}
+
 // proxyToPeer forwards the request (including its body, if any) to
 // baseURL, re-signed as this server's own key, and relays the response.
 // Returns the peer's status (0 if none).
@@ -3246,6 +3412,114 @@ func (h *Handlers) fetchPeerServerKeyArmor(ctx context.Context, baseURL, serverI
 		return "", fmt.Errorf("peer %s returned a key not matching pinned fingerprint", serverID)
 	}
 	return armor, nil
+}
+
+// resolvePublicKey returns fingerprint's key, fetching and caching it
+// live from the owning peer first if this server has no local copy —
+// the home-server-side counterpart of LikeReed/PostRipple's write-proxy:
+// a peer-relayed like/ripple carries the ACTING USER's own signature,
+// verified against THEIR key, which this server (the reed's home) may
+// never have seen before if it's the first time that user has done
+// anything this server needed their key for. Falls straight through to
+// the ordinary local lookup for a local fingerprint (embeddedServerID ==
+// this server's own) — no network call in that case.
+func (h *Handlers) resolvePublicKey(ctx context.Context, fingerprint string) (*Key, error) {
+	key, err := h.services.db.GetPublicKey(ctx, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+	if key != nil {
+		return key, nil
+	}
+
+	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(fingerprint))
+	if !ok || embeddedServerID == h.services.db.GetServerID() {
+		// Malformed, or genuinely local and simply doesn't exist —
+		// no peer to ask, and asking ourselves again would be pointless.
+		return nil, nil
+	}
+
+	peer, err := h.services.db.GetServerByID(ctx, embeddedServerID)
+	if err != nil {
+		return nil, err
+	}
+	if peer == nil {
+		return nil, nil
+	}
+
+	return h.fetchAndCachePeerUserKey(ctx, peer.BaseURL, embeddedServerID, fingerprint)
+}
+
+// fetchAndCachePeerUserKey live-fetches a user key from its owning peer
+// over the existing GET /api/keys/{id} route (already peer-callable —
+// no new endpoint needed), verifies the peer's own countersignature over
+// it before trusting anything in the response, and caches a minimal
+// local copy so future likes/ripples from the same user don't need
+// another round trip. Returns (nil, nil) — not an error — for any
+// response the peer itself reports as absent/invalid, mirroring
+// GetPublicKey's own nil-means-not-found convention.
+func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerServerID, fingerprint string) (*Key, error) {
+	target := strings.TrimRight(baseURL, "/") + "/api/keys/" + fingerprint
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.setPeerProxyAuthHeaders(httpReq, ""); err != nil {
+		return nil, err
+	}
+	resp, err := h.federationHTTPClient().Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch peer user key: status %d", resp.StatusCode)
+	}
+
+	var key Key
+	if err := json.NewDecoder(resp.Body).Decode(&key); err != nil {
+		return nil, fmt.Errorf("decode peer user key: %w", err)
+	}
+	armor, err := encoding.Base64Decode(key.Armor)
+	if err != nil {
+		return nil, fmt.Errorf("decode peer user key armor: %w", err)
+	}
+
+	// The peer's own signing key, live-fetched and pinned against what
+	// the response itself claims signed it — never trusted from a local
+	// cache (peer keys are never persisted, same rule fetchPeerServerKeyArmor
+	// already follows for the transport-auth case).
+	serverKeyArmor, err := h.fetchPeerServerKeyArmor(ctx, baseURL, peerServerID, key.ServerSignature.Fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("fetch peer server key for verification: %w", err)
+	}
+
+	// Reject anything whose embedded identity doesn't match what we
+	// asked for, and verify the peer's countersignature actually covers
+	// this exact key material — a peer must not be able to hand back
+	// content for a different user, or unsigned/tampered key bytes.
+	ownerUserID, ownerServerID, ok := identity.ParseIdentityID(identity.IdentityID(key.UserID))
+	if !ok || ownerServerID != peerServerID {
+		return nil, fmt.Errorf("peer %s returned a key for a different server", peerServerID)
+	}
+	keyPayload := identity.BuildPublicKeyPayload(
+		peerServerID, key.UserID, key.ID,
+		key.ServerSignature.Fingerprint, armor,
+		key.ServerSignature.SignedAt,
+	)
+	if err := h.services.crypto.VerifySignature(string(keyPayload), key.ServerSignature.Armor, serverKeyArmor); err != nil {
+		return nil, fmt.Errorf("peer %s key countersignature verification failed: %w", peerServerID, err)
+	}
+
+	if err := h.services.db.CachePeerUserKey(ctx, key.ID, key.UserID, ownerUserID, ownerServerID, armor, key.ServerSignature); err != nil {
+		return nil, fmt.Errorf("cache peer user key: %w", err)
+	}
+
+	key.Armor = armor
+	return &key, nil
 }
 
 // logFederationInvitationAsync records a federation_log line for
@@ -4486,7 +4760,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	// req.Fingerprint travels bare over the wire; join with callerID
 	// (already canonical) before any lookup or signed-payload use.
 	req.Fingerprint = string(identity.AppendEntity(identity.IdentityID(callerID), req.Fingerprint))
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), req.Fingerprint)
+	pubKey, err := h.resolvePublicKey(r.Context(), req.Fingerprint)
 	if err != nil {
 		log.Error().Str("userID", callerID).Str("fingerprint", req.Fingerprint).Err(err).Msg("Error loading public key")
 		internalServerError(w)
