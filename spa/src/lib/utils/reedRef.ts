@@ -17,7 +17,11 @@ export type ReedRef = {
 export function parseReedRef(raw: string | null | undefined): ReedRef | null {
   const parsed = parseKeyId(raw);
   if (!parsed) return null;
-  return { authorId: parsed.userId, serverId: parsed.serverId, reedId: parsed.fingerprint };
+  return {
+    authorId: `${parsed.userId}@${parsed.serverId}`,
+    serverId: parsed.serverId,
+    reedId: parsed.fingerprint,
+  };
 }
 
 export function formatReedRef(authorId: string, serverId: string, reedId: string): string {

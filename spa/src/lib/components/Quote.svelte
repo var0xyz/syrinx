@@ -215,9 +215,22 @@
 </script>
 
 {#if missing || loadFailed}
-  <div class="quote quote--missing" style="--border-color: {borderColor}">
-    <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> Original reed unavailable</div>
-  </div>
+  {#if linked && unavailableTarget}
+    <div
+      class="quote quote--missing quote--linked"
+      style="--border-color: {borderColor}"
+      role="link"
+      tabindex="0"
+      on:click={handleClick}
+      on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
+    >
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> Original reed unavailable</div>
+    </div>
+  {:else}
+    <div class="quote quote--missing" style="--border-color: {borderColor}">
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> Original reed unavailable</div>
+    </div>
+  {/if}
 {:else if loading}
   <div class="quote" style="--border-color: {borderColor}">
     <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span> Loading...</div>
