@@ -319,8 +319,12 @@
   }
 
   async function subscribeToProfile(uid: string) {
-    await serverConnection.subscribeProfile(uid);
+    // applyPageData's fromCache branch calls this directly and also kicks
+    // off refreshFromNetwork, which calls it again on completion — without
+    // this guard both calls race and send SUBSCRIBE_PROFILE twice.
+    if (profileSubscriptionActive) return;
     profileSubscriptionActive = true;
+    await serverConnection.subscribeProfile(uid);
   }
 
   function cleanupProfileSubscription() {
