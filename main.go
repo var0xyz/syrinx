@@ -414,67 +414,94 @@ func main() {
 
 	api.HandleFunc("/federation/list", h.GetFederationList).Methods("GET")
 	api.HandleFunc("/federation/list", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/invitations", h.CreateFederationInvitation).Methods("POST")
 	api.HandleFunc("/federation/invitations", h.ListFederationInvitations).Methods("GET")
 	api.HandleFunc("/federation/invitations", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/invitations/{id}/revoke", h.RevokeFederationInvitation).Methods("POST")
 	api.HandleFunc("/federation/invitations/{id}/revoke", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/servers", h.ListFederationServers).Methods("GET")
 	api.HandleFunc("/federation/servers", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/servers/{id}/logs", h.GetFederationServerLogs).Methods("GET")
 	api.HandleFunc("/federation/servers/{id}/logs", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/servers/{id}/invitation", h.GetFederationServerInvitation).Methods("GET")
 	api.HandleFunc("/federation/servers/{id}/invitation", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/servers/{id}/attempt", h.GetFederationServerAttempt).Methods("GET")
 	api.HandleFunc("/federation/servers/{id}/attempt", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/attempts/{id}", h.GetFederationAttempt).Methods("GET")
 	api.HandleFunc("/federation/attempts/{id}", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/attempts/{id}/logs", h.GetFederationAttemptLogs).Methods("GET")
 	api.HandleFunc("/federation/attempts/{id}/logs", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/attempts/{id}/approve", h.ApproveFederationAttempt).Methods("POST")
 	api.HandleFunc("/federation/attempts/{id}/approve", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/attempts/{id}/reject", h.RejectFederationAttempt).Methods("POST")
 	api.HandleFunc("/federation/attempts/{id}/reject", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/attempt", h.OutgoingFederationAttempt).Methods("POST")
 	api.HandleFunc("/federation/attempt", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods("POST")
 	api.HandleFunc("/federation/connect/{id}", h.noop).Methods("OPTIONS")
+
 	// Peer-authenticated (specs/federation/04): signatureAuthMiddleware
 	// recognizes a foreign-server X-Syrinx-Public-Key-Id and routes to
 	// authenticateAsPeer automatically — no separate wrapper needed here.
 	api.HandleFunc("/federation/users/{userID}/identity", h.GetFederationUserIdentity).Methods("GET")
 	api.HandleFunc("/federation/users/{userID}/identity", h.noop).Methods("OPTIONS")
+
 	// Cross-server REQUEST_REED relay (federation_relay.go): also
 	// peer-authenticated only, never end-user-callable.
 	api.HandleFunc("/federation/relay/request", h.RelayRequestFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/request", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/subscribe", h.RelaySubscribeProfileFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/subscribe", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/deliver", h.DeliverRelayResponseFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/deliver", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/cancel", h.CancelRelayRequestFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/cancel", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/ack", h.AckRelayDeliveryFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/ack", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/unsubscribe", h.RelayUnsubscribeProfileFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/unsubscribe", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/subscribe-reed", h.RelaySubscribeReedFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/subscribe-reed", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/unsubscribe-reed", h.RelayUnsubscribeReedFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/unsubscribe-reed", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/reed-stats", h.PushReedStatsFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reed-stats", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/reply-notify", h.ReplyNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reply-notify", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/echo-notify", h.EchoNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/echo-notify", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/reply-removal-notify", h.ReplyRemovalNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reply-removal-notify", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/echo-removal-notify", h.EchoRemovalNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/echo-removal-notify", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/account-recovery/bootstrap", h.BootstrapAccountRecovery).Methods("POST")
 	api.HandleFunc("/account-recovery/bootstrap", h.noop).Methods("OPTIONS")
 
