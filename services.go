@@ -522,7 +522,7 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	// always verified — no handshake needed to trust this server's own signup.
 	selfIdentity := identity.CanonicalID(s.serverID, in.UserID)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO identities (id, remote_user_id, server_id, verified)
+		INSERT INTO identities (id, bare_user_id, server_id, verified)
 		VALUES ($1, $2, $3, TRUE)
 	`, selfIdentity, in.UserID, s.serverID); err != nil {
 		return nil, err
@@ -1972,11 +1972,11 @@ func (s *DataService) CreateReedWithEcho(
 		return nil, false, err
 	}
 
-	// echoing_reed_id is a direct FK to reeds(id) (always local — this is
-	// the reed just created above); echoed_reed_id FKs to reed_identities,
-	// which may need a row minted here for a foreign target no one on this
-	// server has referenced before (a local target already has one, minted
-	// at its own creation time).
+	// echoing_reed_id's reed_identities row already exists (minted by
+	// insertReedCoreTx above, same as every local reed); echoed_reed_id's
+	// may need one minted here for a foreign target no one on this server
+	// has referenced before (a local target already has one, minted at
+	// its own creation time).
 	echoedReedID := FormatReedRef(echoTarget)
 	if echoTarget.ServerID != s.serverID {
 		if _, err := tx.ExecContext(ctx, `
@@ -1987,11 +1987,32 @@ func (s *DataService) CreateReedWithEcho(
 			return nil, false, fmt.Errorf("insert echo target reed identity: %w", err)
 		}
 	}
+
+	// echoing_author_id is p.UserID itself — always local, this account is
+	// signed in on this server to call SignReed at all. echoed_author_id
+	// may be foreign, in which case it needs an identities row (same
+	// UpsertRemoteIdentity-style lazy creation used everywhere else a
+	// foreign identity is first referenced) before the FK below can hold.
+	echoedAuthorID := echoTarget.CanonicalAuthorID()
+	if echoTarget.ServerID != s.serverID {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO identities (id, bare_user_id, server_id, verified)
+			VALUES ($1, $2, $3, FALSE)
+			ON CONFLICT (id) DO NOTHING
+		`, echoedAuthorID, echoTarget.AuthorID, echoTarget.ServerID); err != nil {
+			return nil, false, fmt.Errorf("insert echo target author identity: %w", err)
+		}
+	}
+
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO reed_echoes (echoing_reed_id, echoed_reed_id, is_blank, signed_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO reed_echoes (
+			echoing_reed_id, echoed_reed_id,
+			echoing_author_id, echoed_author_id,
+			is_blank, signed_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (echoing_reed_id) DO NOTHING
-	`, p.ReedID, echoedReedID, isBlank, ts)
+	`, p.ReedID, echoedReedID, p.UserID, echoedAuthorID, isBlank, ts)
 	if err != nil {
 		return nil, false, fmt.Errorf("insert echo index: %w", err)
 	}
@@ -2002,6 +2023,62 @@ func (s *DataService) CreateReedWithEcho(
 		return nil, false, err
 	}
 	return &created, echoIndexed, nil
+}
+
+// InsertForeignEcho records that echoingReedID (authored on a peer)
+// echoes echoedReedID, one of THIS server's own reeds — the home-server
+// side of the echo-notify peer leg. echoedReedID/echoedAuthorID are
+// already local (this server's own reed and its author, both already
+// have identities/reed_identities rows from the reed's own creation);
+// echoingReedID/echoingAuthorID are foreign and get theirs minted here,
+// same low "legitimate reference" bar used everywhere else a foreign
+// identity is first referenced by this server. Idempotent: a retried
+// notify is a harmless no-op (ON CONFLICT on reed_echoes' PK).
+func (s *DataService) InsertForeignEcho(ctx context.Context, echoingReedID, echoedReedID, echoingAuthorID, echoedAuthorID string, isBlank bool, ts time.Time) error {
+	_, echoingServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(echoingReedID))
+	if !ok {
+		return fmt.Errorf("malformed echoing reed id: %s", echoingReedID)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO reed_identities (id, server_id)
+		VALUES ($1, $2)
+		ON CONFLICT (id) DO NOTHING
+	`, echoingReedID, echoingServerID); err != nil {
+		return fmt.Errorf("insert echoing reed identity: %w", err)
+	}
+
+	echoingBareUserID, echoingIdentityServerID, ok := identity.ParseIdentityID(identity.IdentityID(echoingAuthorID))
+	if !ok {
+		return fmt.Errorf("malformed echoing author id: %s", echoingAuthorID)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO identities (id, bare_user_id, server_id, verified)
+		VALUES ($1, $2, $3, FALSE)
+		ON CONFLICT (id) DO NOTHING
+	`, echoingAuthorID, echoingBareUserID, echoingIdentityServerID); err != nil {
+		return fmt.Errorf("insert echoing author identity: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO reed_echoes (
+			echoing_reed_id, echoed_reed_id,
+			echoing_author_id, echoed_author_id,
+			is_blank, signed_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (echoing_reed_id) DO NOTHING
+	`, echoingReedID, echoedReedID, echoingAuthorID, echoedAuthorID, isBlank, ts.UTC().Truncate(time.Second)); err != nil {
+		return fmt.Errorf("insert foreign echo: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // ErrReedNotFound is returned by IsBlankEcho when reedID is not a live tip reed.
@@ -2209,10 +2286,9 @@ func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) 
 func (s *DataService) CountEchoes(ctx context.Context, echoedReedID string) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT r.user_id) FROM reed_echoes re
-		JOIN reeds r ON r.id = re.echoing_reed_id
-		WHERE re.echoed_reed_id = $1
-		AND re.echoing_reed_id != re.echoed_reed_id
+		SELECT COUNT(DISTINCT echoing_author_id) FROM reed_echoes
+		WHERE echoed_reed_id = $1
+		AND echoing_reed_id != echoed_reed_id
 	`, echoedReedID).Scan(&n)
 	return n, err
 }
@@ -2240,29 +2316,32 @@ func (s *DataService) GetReedChorus(ctx context.Context, echoedReedID string, li
 	}
 
 	// A user can echo the same target more than once (separate echoing
-	// reeds), so group by echoer identity (r.user_id) and take their
-	// earliest echo as the row's timestamp — the chorus lists each person once.
+	// reeds), so group by echoing_author_id and take their earliest echo
+	// as the row's timestamp — the chorus lists each person once.
+	// echoing_author_id is stored directly on reed_echoes (not derived via
+	// a reeds join, which would only match a local echoer). Local-only
+	// account_removals rows still filter fine against it since it's the
+	// same canonical id form identities.id/users.id share.
 	args := []any{echoedReedID}
 	query := `
-		SELECT r.user_id, MIN(re.signed_at) AS first_echoed_at
-		FROM reed_echoes re
-		JOIN reeds r ON r.id = re.echoing_reed_id
-		WHERE re.echoed_reed_id = $1
-		AND re.echoing_reed_id != re.echoed_reed_id
+		SELECT echoing_author_id, MIN(signed_at) AS first_echoed_at
+		FROM reed_echoes
+		WHERE echoed_reed_id = $1
+		AND echoing_reed_id != echoed_reed_id
 		AND NOT EXISTS (
-			SELECT 1 FROM account_removals ar WHERE ar.user_id = r.user_id
+			SELECT 1 FROM account_removals ar WHERE ar.user_id = echoing_author_id
 		)
-		GROUP BY r.user_id
+		GROUP BY echoing_author_id
 	`
 	if before != nil {
 		args = append(args, before.UTC().Truncate(time.Second))
 		query += fmt.Sprintf(`
-			HAVING (MIN(re.signed_at), r.user_id) > ($%d, '')
+			HAVING (MIN(signed_at), echoing_author_id) > ($%d, '')
 		`, len(args))
 	}
 	args = append(args, limit+1)
 	query += fmt.Sprintf(`
-		ORDER BY first_echoed_at ASC, r.user_id ASC
+		ORDER BY first_echoed_at ASC, echoing_author_id ASC
 		LIMIT $%d
 	`, len(args))
 
@@ -3395,7 +3474,7 @@ func (s *DataService) GetServerByID(ctx context.Context, serverID string) (*Peer
 // FollowUser has something to reference. Idempotent.
 func (s *DataService) UpsertRemoteIdentity(ctx context.Context, canonicalID, remoteUserID, remoteServerID string) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO identities (id, remote_user_id, server_id, verified)
+		INSERT INTO identities (id, bare_user_id, server_id, verified)
 		VALUES ($1, $2, $3, FALSE)
 		ON CONFLICT (id) DO NOTHING
 	`, canonicalID, remoteUserID, remoteServerID)
@@ -3435,7 +3514,7 @@ func (s *DataService) CachePeerUserKey(ctx context.Context, keyID, ownerCanonica
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO identities (id, remote_user_id, server_id, verified)
+		INSERT INTO identities (id, bare_user_id, server_id, verified)
 		VALUES ($1, $2, $3, FALSE)
 		ON CONFLICT (id) DO NOTHING
 	`, ownerCanonicalID, ownerUserID, ownerServerID); err != nil {

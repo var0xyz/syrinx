@@ -31,12 +31,12 @@ func ensureMentionsSchema(db *sql.DB) error {
 		// CreateReed/MentionTargetValid/SearchUsers all resolve through it.
 		`CREATE TABLE identities (
 			id VARCHAR(255) PRIMARY KEY,
-			remote_user_id VARCHAR(255) NOT NULL,
+			bare_user_id VARCHAR(255) NOT NULL,
 			server_id VARCHAR(16),
 			public_key_fingerprint VARCHAR(255),
 			verified BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE (remote_user_id, server_id)
+			UNIQUE (bare_user_id, server_id)
 		)`,
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -107,7 +107,7 @@ func openMentionsTestDB(t *testing.T) *sql.DB {
 func seedMentionUser(t *testing.T, db *sql.DB, userID string) {
 	t.Helper()
 	identityID := string(identity.CanonicalID("testserver", userID))
-	if _, err := db.Exec(`INSERT INTO identities (id, remote_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE) ON CONFLICT DO NOTHING`,
+	if _, err := db.Exec(`INSERT INTO identities (id, bare_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE) ON CONFLICT DO NOTHING`,
 		identityID, userID, "testserver"); err != nil {
 		t.Fatal(err)
 	}

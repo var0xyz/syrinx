@@ -46,12 +46,12 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked BOOLEAN NOT NULL DEFAULT FALSE`,
 		`CREATE TABLE IF NOT EXISTS identities (
 			id VARCHAR(255) PRIMARY KEY,
-			remote_user_id VARCHAR(255) NOT NULL,
+			bare_user_id VARCHAR(255) NOT NULL,
 			server_id VARCHAR(16),
 			public_key_fingerprint VARCHAR(255),
 			verified BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE (remote_user_id, server_id)
+			UNIQUE (bare_user_id, server_id)
 		)`,
 		// users.id IS identities.id now (no separate identity_id column).
 		`CREATE TABLE IF NOT EXISTS users (
@@ -185,7 +185,7 @@ func seedFederationUser(t *testing.T, ds *DataService, userID, username, role st
 	t.Helper()
 	identityID := string(identity.CanonicalID(ds.serverID, userID))
 	if _, err := ds.db.Exec(`
-		INSERT INTO identities (id, remote_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE)
+		INSERT INTO identities (id, bare_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE)
 		ON CONFLICT (id) DO NOTHING
 	`, identityID, userID, ds.serverID); err != nil {
 		t.Fatal(err)

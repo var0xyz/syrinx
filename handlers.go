@@ -2056,10 +2056,18 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	if echoIndexed && echoRef != nil {
 		h.metrics.EchoTargeted(r.Context(), echoRef.AuthorID, echoRef.ReedID)
-		h.broadcastChan <- realtime.BroadcastMessage{
-			Type:   realtime.EchoCountChanged,
-			UserID: echoRef.CanonicalAuthorID(),
-			ReedID: echoRef.ReedID,
+		if echoRef.ServerID == localServerID {
+			h.broadcastChan <- realtime.BroadcastMessage{
+				Type:   realtime.EchoCountChanged,
+				UserID: echoRef.CanonicalAuthorID(),
+				ReedID: echoRef.ReedID,
+			}
+		} else {
+			go func() {
+				if err := h.notifyForeignEchoToPeer(context.Background(), FormatReedRef(*echoRef), reedID, userID, strings.TrimSpace(contentBody) == "", serverSignature.SignedAt); err != nil {
+					log.Error().Err(err).Str("echoedReedID", FormatReedRef(*echoRef)).Str("echoingReedID", reedID).Msg("Failed to notify foreign echo target's home server")
+				}
+			}()
 		}
 	}
 

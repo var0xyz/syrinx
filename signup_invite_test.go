@@ -55,12 +55,12 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 		// mints a row here before the users row, same transaction.
 		`CREATE TABLE identities (
 			id VARCHAR(255) PRIMARY KEY,
-			remote_user_id VARCHAR(255) NOT NULL,
+			bare_user_id VARCHAR(255) NOT NULL,
 			server_id VARCHAR(16),
 			public_key_fingerprint VARCHAR(255),
 			verified BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE (remote_user_id, server_id)
+			UNIQUE (bare_user_id, server_id)
 		)`,
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,

@@ -922,3 +922,113 @@ func (h *Handlers) ReplyNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// //////////////////////////////////// //
+//   Leg 12: echo-notify (O -> H)       //
+// //////////////////////////////////// //
+//
+// Write side of cross-server echoing: an echo of a foreign reed is
+// created entirely on O (the echoer's own server) — H never receives or
+// stores its content. Without this leg H has no way to know the echo
+// exists at all, so every echo-count/chorus query it answers comes up
+// empty even though the echo itself was created successfully. Unlike a
+// reply, an echo carries no content-relay dependency on the echoer's own
+// PUBLISH_READY, so this fires immediately at SignReed time, same as the
+// existing local EchoCountChanged broadcast.
+
+type relayEchoNotifyPayload struct {
+	EchoedReedID    string    `json:"echoed_reed_id"`
+	EchoingReedID   string    `json:"echoing_reed_id"`
+	EchoingAuthorID string    `json:"echoing_author_id"`
+	IsBlank         bool      `json:"is_blank"`
+	Timestamp       time.Time `json:"timestamp"`
+}
+
+// notifyForeignEchoToPeer tells echoedReedID's home server that
+// echoingReedID (authored here, by echoingAuthorID) echoes it.
+func (h *Handlers) notifyForeignEchoToPeer(ctx context.Context, echoedReedID, echoingReedID, echoingAuthorID string, isBlank bool, ts time.Time) error {
+	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(echoedReedID))
+	if !ok {
+		return nil
+	}
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayEchoNotifyPayload{
+		EchoedReedID:    echoedReedID,
+		EchoingReedID:   echoingReedID,
+		EchoingAuthorID: echoingAuthorID,
+		IsBlank:         isBlank,
+		Timestamp:       ts,
+	}
+	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/echo-notify", payload, nil)
+	return err
+}
+
+// EchoNotifyFromPeer is leg 12's home-server handler: an established peer
+// is telling us one of its reeds echoes one of ours.
+func (h *Handlers) EchoNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayEchoNotifyPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.EchoedReedID = strings.TrimSpace(req.EchoedReedID)
+	req.EchoingReedID = strings.TrimSpace(req.EchoingReedID)
+	req.EchoingAuthorID = strings.TrimSpace(req.EchoingAuthorID)
+	if req.EchoedReedID == "" || req.EchoingReedID == "" || req.EchoingAuthorID == "" {
+		writeResponse(w, http.StatusBadRequest, "echoed_reed_id, echoing_reed_id, and echoing_author_id are required")
+		return
+	}
+
+	// Loop-prevention: this server can only be "home" for reeds it hosts
+	// locally, and a peer may only notify us of echoes IT actually
+	// authors — never claim an echo on behalf of a third server.
+	_, echoedServerID, _, echoedOK := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoedReedID))
+	if !echoedOK || echoedServerID != h.services.db.GetServerID() {
+		writeResponse(w, http.StatusBadRequest, "echoed_reed_id is not local to this server")
+		return
+	}
+	_, echoingServerID, _, echoingOK := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoingReedID))
+	if !echoingOK || echoingServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "echoing_reed_id does not belong to the calling peer")
+		return
+	}
+	_, echoingAuthorServerID, echoingAuthorOK := identity.ParseIdentityID(identity.IdentityID(req.EchoingAuthorID))
+	if !echoingAuthorOK || echoingAuthorServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "echoing_author_id does not belong to the calling peer")
+		return
+	}
+
+	// echoedAuthorID/bareEchoedReedID: this reed is local, so its author
+	// and bare id are recoverable directly from its own canonical id — H
+	// doesn't need O to assert either.
+	echoedAuthorBareID, _, bareEchoedReedID, _ := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoedReedID))
+	echoedAuthorID := string(identity.CanonicalID(echoedServerID, echoedAuthorBareID))
+
+	if err := h.services.db.InsertForeignEcho(r.Context(), req.EchoingReedID, req.EchoedReedID, req.EchoingAuthorID, echoedAuthorID, req.IsBlank, req.Timestamp); err != nil {
+		log.Error().Err(err).Str("echoedReedID", req.EchoedReedID).Str("echoingReedID", req.EchoingReedID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign echo notify")
+		internalServerError(w)
+		return
+	}
+
+	h.broadcastChan <- realtime.BroadcastMessage{
+		Type:   realtime.EchoCountChanged,
+		UserID: echoedAuthorID,
+		ReedID: bareEchoedReedID,
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

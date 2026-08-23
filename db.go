@@ -247,13 +247,13 @@ func InitDB(db *sql.DB) error {
 	createIdentitiesTable := `
 	CREATE TABLE IF NOT EXISTS identities (
 		id VARCHAR(255) PRIMARY KEY,
-		remote_user_id VARCHAR(255) NOT NULL,
+		bare_user_id VARCHAR(255) NOT NULL,
 		server_id VARCHAR(16) REFERENCES servers(id),
 		public_key_fingerprint VARCHAR(255),
 		verified BOOLEAN NOT NULL DEFAULT FALSE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-		UNIQUE (remote_user_id, server_id)
+		UNIQUE (bare_user_id, server_id)
 	);`
 
 	createIdentitiesIndexes := `
@@ -433,15 +433,28 @@ func InitDB(db *sql.DB) error {
 	// it's what lets SignReed reject a reply/echo aimed at a blank echo
 	// instead of the underlying original, without having to store or
 	// re-derive content.
+	// echoing_author_id/echoed_author_id are the canonical userID@serverID
+	// of the echoing reed's author and the echoed reed's author, stored
+	// directly at insert time — echoing_reed_id/echoed_reed_id are reed
+	// ids, not user ids, and either side may be foreign to whichever
+	// server stores a given row (this server's own echo of a foreign
+	// target, or a foreign echo of one of this server's own reeds relayed
+	// in via the echo-notify peer leg), so the identity is never
+	// re-derived by parsing or by joining reeds, which only ever holds a
+	// LOCAL row. Both reed columns FK to reed_identities for the same
+	// reason — echoing_reed_id is not guaranteed local once a peer can
+	// notify this server of its own echo.
 	createReedEchoesTable := `
 	CREATE TABLE IF NOT EXISTS reed_echoes (
 		echoing_reed_id VARCHAR(255) NOT NULL,
 		echoed_reed_id VARCHAR(255) NOT NULL,
+		echoing_author_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+		echoed_author_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 		is_blank BOOLEAN NOT NULL DEFAULT FALSE,
 		signed_at TIMESTAMP NOT NULL,
 
 		PRIMARY KEY (echoing_reed_id),
-		FOREIGN KEY (echoing_reed_id) REFERENCES reeds(id),
+		FOREIGN KEY (echoing_reed_id) REFERENCES reed_identities(id),
 		FOREIGN KEY (echoed_reed_id) REFERENCES reed_identities(id)
 	);`
 

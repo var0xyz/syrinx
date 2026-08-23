@@ -568,15 +568,15 @@ func (ds *DBService) GetReedCoveragePercent(ctx context.Context, reedID string) 
 }
 
 // CountEchoes returns how many non-removed echoes point at the given reed.
-// Echoer identity is the author embedded in echoing_reed_id, recovered via
-// the reeds join (same shape as services.go's CountEchoes).
+// echoing_author_id is stored directly on reed_echoes (same shape as
+// services.go's CountEchoes) — no join against reeds, which would only
+// ever match a local echoer and silently exclude a foreign one.
 func (ds *DBService) CountEchoes(ctx context.Context, echoedReedID string) (int, error) {
 	var n int
 	err := ds.db.QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT r.user_id) FROM reed_echoes re
-		JOIN reeds r ON r.id = re.echoing_reed_id
-		WHERE re.echoed_reed_id = $1
-		AND re.echoing_reed_id != re.echoed_reed_id
+		SELECT COUNT(DISTINCT echoing_author_id) FROM reed_echoes
+		WHERE echoed_reed_id = $1
+		AND echoing_reed_id != echoed_reed_id
 	`, echoedReedID).Scan(&n)
 	return n, err
 }
@@ -1551,7 +1551,7 @@ func (ds *DBService) GetForeignPendingEventsByRequester(ctx context.Context, req
 // sentinel identity + online_users row on the home server, satisfying
 // pending_events.requester_user_id's FK without representing a genuine
 // local session. Mirrors DataService.UpsertRemoteIdentity's insert shape
-// in the main package (id/remote_user_id/server_id/verified), and is
+// in the main package (id/bare_user_id/server_id/verified), and is
 // permanently "online" — ON CONFLICT DO NOTHING, not a session refresh.
 func (ds *DBService) EnsurePeerSentinelUser(ctx context.Context, peerServerID string) (string, error) {
 	sentinelIdentity := identity.CanonicalID(peerServerID, peerRelaySentinelUserID)
@@ -1563,7 +1563,7 @@ func (ds *DBService) EnsurePeerSentinelUser(ctx context.Context, peerServerID st
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO identities (id, remote_user_id, server_id, verified)
+		INSERT INTO identities (id, bare_user_id, server_id, verified)
 		VALUES ($1, $2, $3, TRUE)
 		ON CONFLICT (id) DO NOTHING
 	`, sentinelIdentity, peerRelaySentinelUserID, peerServerID); err != nil {
@@ -1619,7 +1619,7 @@ func (ds *DBService) UpsertRemoteIdentity(ctx context.Context, canonicalID, remo
 		return fmt.Errorf("malformed identity id: %s", canonicalID)
 	}
 	_, err := ds.db.ExecContext(ctx, `
-		INSERT INTO identities (id, remote_user_id, server_id, verified)
+		INSERT INTO identities (id, bare_user_id, server_id, verified)
 		VALUES ($1, $2, $3, FALSE)
 		ON CONFLICT (id) DO NOTHING
 	`, canonicalID, bareUserID, remoteServerID)
