@@ -23,6 +23,7 @@ func ensureMentionsSchema(db *sql.DB) error {
 		`DROP TABLE IF EXISTS reed_allocations CASCADE`,
 		`DROP TABLE IF EXISTS pending_fanout CASCADE`,
 		`DROP TABLE IF EXISTS reeds CASCADE`,
+		`DROP TABLE IF EXISTS reed_identities CASCADE`,
 		`DROP TABLE IF EXISTS account_removals CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
 		`DROP TABLE IF EXISTS identities CASCADE`,
@@ -47,8 +48,12 @@ func ensureMentionsSchema(db *sql.DB) error {
 		`CREATE TABLE account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id)
 		)`,
-		`CREATE TABLE reeds (
+		`CREATE TABLE reed_identities (
 			id VARCHAR(255) PRIMARY KEY,
+			server_id VARCHAR(16) NOT NULL
+		)`,
+		`CREATE TABLE reeds (
+			id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 			private_key_fingerprint VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
@@ -70,14 +75,13 @@ func ensureMentionsSchema(db *sql.DB) error {
 			FOREIGN KEY (reed_id) REFERENCES reeds(id) ON DELETE CASCADE
 		)`,
 		// mentioned_user_id FKs identities(id) — backstops "only local
-		// users can be indexed" (see db.go).
+		// users can be indexed" (see db.go). mentioning_reed_id FKs
+		// reed_identities, not reeds, so a foreign mentioning reed can be
+		// represented too.
 		`CREATE TABLE reed_mentions (
-			mentioning_reed_id VARCHAR(255) NOT NULL,
+			mentioning_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 			mentioned_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-			mentioned_server_id VARCHAR(255) NOT NULL,
-			PRIMARY KEY (mentioning_reed_id, mentioned_server_id, mentioned_user_id),
-			FOREIGN KEY (mentioning_reed_id)
-				REFERENCES reeds(id) ON DELETE CASCADE
+			PRIMARY KEY (mentioning_reed_id, mentioned_user_id)
 		)`,
 		`DROP TABLE IF EXISTS reed_removals CASCADE`,
 		`CREATE TABLE reed_removals (

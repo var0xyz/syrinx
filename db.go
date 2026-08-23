@@ -374,13 +374,40 @@ func InitDB(db *sql.DB) error {
 		successor_signature_id INT REFERENCES user_signatures(id)
 	);`
 
+	// reed_identities is to reeds what identities is to users: a thin
+	// pointer row (canonical id + home server) that other tables can
+	// reference regardless of whether this server has ever signed the
+	// reed's actual content. A row exists here for every LOCAL reed (see
+	// createReedsTable's FK below) and for every FOREIGN reed this server
+	// has learned about via the cross-server relay bridge (REQUEST_REED/
+	// SUBSCRIBE_PROFILE — see realtime/service.go). Whether a given id is
+	// local is answered by checking for a matching reeds row (same
+	// pattern ReedExists already uses), not a separate column here —
+	// reeds.id and reed_identities.id are the same value for local
+	// content, so a redundant link column could only ever disagree with
+	// the join, never add information.
+	createReedIdentitiesTable := `
+	CREATE TABLE IF NOT EXISTS reed_identities (
+		id VARCHAR(255) PRIMARY KEY,
+		server_id VARCHAR(16) NOT NULL REFERENCES servers(id),
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createReedIdentitiesIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_reed_identities_server_id
+		ON reed_identities(server_id);
+	`
+
 	// Tip reed metadata. private_key_fingerprint is the server key used
 	// for the countersignature. user_signature_id / server_signature_id
 	// store the attestations so SignReed retries can return the same
-	// countersignature (idempotent).
+	// countersignature (idempotent). id FKs to reed_identities the same
+	// way users.id FKs to identities — reeds is always the local-only,
+	// heavyweight satellite; reed_identities is the reference layer other
+	// tables should point at when the reed itself might be foreign.
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
-		id VARCHAR(255) PRIMARY KEY,
+		id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		private_key_fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
 		signed_at TIMESTAMP NOT NULL,
@@ -414,7 +441,8 @@ func InitDB(db *sql.DB) error {
 		signed_at TIMESTAMP NOT NULL,
 
 		PRIMARY KEY (echoing_reed_id),
-		FOREIGN KEY (echoing_reed_id) REFERENCES reeds(id)
+		FOREIGN KEY (echoing_reed_id) REFERENCES reeds(id),
+		FOREIGN KEY (echoed_reed_id) REFERENCES reed_identities(id)
 	);`
 
 	createReedEchoesIndexes := `
@@ -432,7 +460,7 @@ func InitDB(db *sql.DB) error {
 
 		PRIMARY KEY (reed_id),
 		FOREIGN KEY (reed_id) REFERENCES reeds(id),
-		FOREIGN KEY (parent_reed_id) REFERENCES reeds(id)
+		FOREIGN KEY (parent_reed_id) REFERENCES reed_identities(id)
 	);`
 
 	createReedRepliesIndexes := `
@@ -444,22 +472,26 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// One row per (reed, mentioned user). mentioning_reed_id = reed that
-	// contains the @. mentioned_user_id FKs to identities(id), which can hold
-	// a provisional remote identity, but only LOCAL mentions are inserted today.
+	// contains the @ — FKs to reed_identities, not reeds directly, since a
+	// FOREIGN reed (authored on a peer) can mention a local user; this
+	// server needs a row to represent that once cross-server mention
+	// notification exists (mentioning_reed_id may not be one of this
+	// server's own reeds). mentioned_user_id FKs to identities(id), which
+	// can hold a provisional remote identity, and already carries the
+	// mentioned server in its own canonical userID@serverID form — no
+	// separate mentioned_server_id column needed, it was always
+	// redundant with that.
 	createReedMentionsTable := `
 	CREATE TABLE IF NOT EXISTS reed_mentions (
-		mentioning_reed_id VARCHAR(255) NOT NULL,
+		mentioning_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		mentioned_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		mentioned_server_id VARCHAR(255) NOT NULL,
 
-		PRIMARY KEY (mentioning_reed_id, mentioned_server_id, mentioned_user_id),
-		FOREIGN KEY (mentioning_reed_id)
-			REFERENCES reeds(id) ON DELETE CASCADE
+		PRIMARY KEY (mentioning_reed_id, mentioned_user_id)
 	);`
 
 	createReedMentionsIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_mentions_mentioned
-		ON reed_mentions (mentioned_server_id, mentioned_user_id);
+		ON reed_mentions (mentioned_user_id);
 
 	CREATE INDEX IF NOT EXISTS idx_reed_mentions_reed
 		ON reed_mentions (mentioning_reed_id);
@@ -494,7 +526,11 @@ func InitDB(db *sql.DB) error {
 
 	// Signed like certificates, one row per currently-liked (liker, reed)
 	// pair; unliking hard-deletes the row. liker_public_key_id binds the
-	// signing key (same class as reed removals).
+	// signing key (same class as reed removals). reed_id FKs to
+	// reed_identities, not reeds, so a local user's like on a FOREIGN
+	// reed has a row to represent it here too (the home server verifies
+	// and countersigns the like; this server mirrors it locally once
+	// that's confirmed).
 	createReedsLikedTable := `
 	CREATE TABLE IF NOT EXISTS reeds_liked (
 		liker_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
@@ -504,7 +540,7 @@ func InitDB(db *sql.DB) error {
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
 		PRIMARY KEY (liker_user_id, reed_id),
-		FOREIGN KEY (reed_id) REFERENCES reeds(id)
+		FOREIGN KEY (reed_id) REFERENCES reed_identities(id)
 	);`
 
 	createReedsLikedIndexes := `
@@ -617,7 +653,10 @@ func InitDB(db *sql.DB) error {
 		ON broadcast_subscriptions(user_id);
 	`
 
-	// holder_user_id is who holds the reed; reed_id FKs to reeds.
+	// holder_user_id is who holds the reed; reed_id FKs to reed_identities
+	// (not reeds directly) since a holder can be caching a FOREIGN reed's
+	// verified content — this is the original motivating case for
+	// reed_identities existing at all.
 	createReedAllocationsTable := `
 	CREATE TABLE IF NOT EXISTS reed_allocations (
 		reed_id VARCHAR(255) NOT NULL,
@@ -626,7 +665,7 @@ func InitDB(db *sql.DB) error {
 
 		PRIMARY KEY (holder_user_id, reed_id),
 		FOREIGN KEY (reed_id)
-			REFERENCES reeds(id) ON DELETE CASCADE
+			REFERENCES reed_identities(id) ON DELETE CASCADE
 	);`
 
 	// Lookups by reed use reed_id; holder is in the PK.
@@ -676,6 +715,11 @@ func InitDB(db *sql.DB) error {
 		ON pending_events(subscription_id);
 	`
 
+	// reed_id FKs to reed_identities, not reeds directly — a pending event
+	// can be about a FOREIGN reed (a viewer on this server relaying
+	// content from a peer's author), so this table now uniformly
+	// represents both local and foreign subjects the same way. This is
+	// what let foreign_pending_events (below) drop its own reed_id column.
 	createPendingReedEventsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_reed_events (
 		event_id VARCHAR(255) PRIMARY KEY
@@ -683,7 +727,7 @@ func InitDB(db *sql.DB) error {
 		reed_id VARCHAR(255) NOT NULL,
 
 		FOREIGN KEY (reed_id)
-			REFERENCES reeds(id) ON DELETE CASCADE
+			REFERENCES reed_identities(id) ON DELETE CASCADE
 	);`
 
 	createPendingReedEventsIndexes := `
@@ -700,18 +744,17 @@ func InitDB(db *sql.DB) error {
 
 	// Originating-server bookkeeping: maps a local REQUEST_REED/profile
 	// subscription's pending event to the outstanding peer registration on
-	// the reed's home server. reed_id is NOT a pending_reed_events row and
-	// has no FK to reeds(id) — the originating server never has (and must
-	// never fabricate) a local reeds row for foreign-authored content, so
-	// this table carries the reed identity itself rather than depending on
-	// pending_reed_events, which real local rows always go through.
+	// the reed's home server (which peer to call back, and what id THEY
+	// know this event by). No reed_id column here anymore — the subject
+	// is a normal pending_reed_events row now that reed_id can name a
+	// foreign reed directly; this table only carries what
+	// pending_reed_events structurally can't (the peer-relay mapping).
 	createForeignPendingEventsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS foreign_pending_events (
 		event_id VARCHAR(255) PRIMARY KEY
 			REFERENCES pending_events(event_id) ON DELETE CASCADE,
 		home_server_id VARCHAR(16) NOT NULL REFERENCES servers(id),
 		peer_event_id VARCHAR(255) NOT NULL,
-		reed_id VARCHAR(255) NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
@@ -968,6 +1011,9 @@ func InitDB(db *sql.DB) error {
 		createPublicKeyIndexes,
 
 		createPublicKeyRevocationsTable,
+
+		createReedIdentitiesTable,
+		createReedIdentitiesIndexes,
 
 		createReedsTable,
 		createReedIndexes,

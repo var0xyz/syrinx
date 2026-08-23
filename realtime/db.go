@@ -3,6 +3,7 @@ package realtime
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"syrinx/coverage"
 	"syrinx/deletion"
@@ -348,14 +349,6 @@ func (ds *DBService) GetPendingSubject(ctx context.Context, eventID string) (*Pe
 		err = ds.db.QueryRowContext(ctx, `
 			SELECT reed_id FROM pending_reed_events WHERE event_id = $1
 		`, eventID).Scan(&pe.ReedID)
-		if err == sql.ErrNoRows {
-			// No pending_reed_events row: this may be a foreign event, whose
-			// subject lives in foreign_pending_events instead (see
-			// CreatePendingEventOnly's doc comment).
-			err = ds.db.QueryRowContext(ctx, `
-				SELECT reed_id FROM foreign_pending_events WHERE event_id = $1
-			`, eventID).Scan(&pe.ReedID)
-		}
 		if err == nil {
 			pe.UserID = reedAuthorIdentity(pe.ReedID)
 		}
@@ -1261,49 +1254,26 @@ const peerRelaySentinelUserID = "__peer_relay__"
 
 // ForeignPendingEvent is an originating-server foreign_pending_events row:
 // the mapping from a local pending_events.event_id to the outstanding
-// registration on reedID's home server. ReedID is carried directly here
-// (not via pending_reed_events, which real local rows always go through)
-// since the originating server never has, and must never fabricate, a
-// local reeds row for foreign-authored content.
+// registration on the reed's home server (which peer to call back, and
+// what id THEY know this event by). The event's subject (reed_id) lives
+// in the normal pending_reed_events row now — reed_identities lets that
+// table hold a foreign reed_id directly, so this table only carries what
+// pending_reed_events structurally can't.
 type ForeignPendingEvent struct {
 	EventID      string
 	HomeServerID string
 	PeerEventID  string
-	ReedID       string
 }
 
 // CreateForeignPendingEvent records, on the originating server, that
 // eventID's local pending_events row corresponds to peerEventID on
-// homeServerID, for reedID. eventID must already exist in pending_events
-// (FK) — created via CreatePendingEventOnly, not CreatePendingReedEvent,
-// since the latter's pending_reed_events insert would fail reedID's
-// FK-to-local-reeds for foreign content.
-func (ds *DBService) CreateForeignPendingEvent(ctx context.Context, eventID, homeServerID, peerEventID, reedID string) error {
+// homeServerID. eventID must already exist in pending_events (FK) —
+// created via the normal CreatePendingReedEvent, same as any local event.
+func (ds *DBService) CreateForeignPendingEvent(ctx context.Context, eventID, homeServerID, peerEventID string) error {
 	_, err := ds.db.ExecContext(ctx, `
-		INSERT INTO foreign_pending_events (event_id, home_server_id, peer_event_id, reed_id)
-		VALUES ($1, $2, $3, $4)
-	`, eventID, homeServerID, peerEventID, reedID)
-	return err
-}
-
-// CreatePendingEventOnly inserts just the pending_events row (no
-// pending_reed_events/pending_account_events child) — used for foreign
-// events, whose subject is tracked in foreign_pending_events.reed_id
-// instead, since a real pending_reed_events row would need a local reeds
-// FK this server can never satisfy for foreign-authored content.
-// subscriptionID is optional ("" for a bare REQUEST_REED) — set for a
-// foreign profile-subscription backfill event so UNSUBSCRIBE_PROFILE's
-// existing cascade-by-subscription_id delete still reaches it.
-func (ds *DBService) CreatePendingEventOnly(ctx context.Context, eventID, requestID, requesterUserID string, eventName EventName, subscriptionID string) error {
-	requesterIdentity := identity.IdentityID(requesterUserID)
-	var subscriptionIDArg any
-	if subscriptionID != "" {
-		subscriptionIDArg = subscriptionID
-	}
-	_, err := ds.db.ExecContext(ctx, `
-		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name, subscription_id)
-		VALUES ($1, $2, $3, $4, $5)
-	`, eventID, requestID, requesterIdentity, eventName, subscriptionIDArg)
+		INSERT INTO foreign_pending_events (event_id, home_server_id, peer_event_id)
+		VALUES ($1, $2, $3)
+	`, eventID, homeServerID, peerEventID)
 	return err
 }
 
@@ -1314,10 +1284,10 @@ func (ds *DBService) CreatePendingEventOnly(ctx context.Context, eventID, reques
 func (ds *DBService) GetForeignPendingEventByPeerEventID(ctx context.Context, peerEventID, homeServerID string) (*ForeignPendingEvent, error) {
 	var fpe ForeignPendingEvent
 	err := ds.db.QueryRowContext(ctx, `
-		SELECT event_id, home_server_id, peer_event_id, reed_id
+		SELECT event_id, home_server_id, peer_event_id
 		FROM foreign_pending_events
 		WHERE peer_event_id = $1 AND home_server_id = $2
-	`, peerEventID, homeServerID).Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID, &fpe.ReedID)
+	`, peerEventID, homeServerID).Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -1333,7 +1303,7 @@ func (ds *DBService) GetForeignPendingEventByPeerEventID(ctx context.Context, pe
 func (ds *DBService) GetForeignPendingEventsByRequester(ctx context.Context, requesterUserID string) ([]ForeignPendingEvent, error) {
 	requesterIdentity := identity.IdentityID(requesterUserID)
 	rows, err := ds.db.QueryContext(ctx, `
-		SELECT fpe.event_id, fpe.home_server_id, fpe.peer_event_id, fpe.reed_id
+		SELECT fpe.event_id, fpe.home_server_id, fpe.peer_event_id
 		FROM foreign_pending_events fpe
 		JOIN pending_events pe ON pe.event_id = fpe.event_id
 		WHERE pe.requester_user_id = $1
@@ -1346,30 +1316,12 @@ func (ds *DBService) GetForeignPendingEventsByRequester(ctx context.Context, req
 	var out []ForeignPendingEvent
 	for rows.Next() {
 		var fpe ForeignPendingEvent
-		if err := rows.Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID, &fpe.ReedID); err != nil {
+		if err := rows.Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID); err != nil {
 			return nil, err
 		}
 		out = append(out, fpe)
 	}
 	return out, rows.Err()
-}
-
-// GetPendingRequesterOnly resolves just requester_user_id/request_id for
-// a bare pending_events row (no pending_reed_events/pending_account_events
-// join) — used for foreign events on the originating server, whose
-// subject lives in foreign_pending_events instead.
-func (ds *DBService) GetPendingRequesterOnly(ctx context.Context, eventID string) (requesterUserID, requestID string, err error) {
-	var requester identity.IdentityID
-	err = ds.db.QueryRowContext(ctx, `
-		SELECT requester_user_id, request_id FROM pending_events WHERE event_id = $1
-	`, eventID).Scan(&requester, &requestID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", "", nil
-		}
-		return "", "", err
-	}
-	return string(requester), requestID, nil
 }
 
 // EnsurePeerSentinelUser idempotently mints (or reuses) a per-peer
@@ -1407,6 +1359,31 @@ func (ds *DBService) EnsurePeerSentinelUser(ctx context.Context, peerServerID st
 		return "", err
 	}
 	return string(sentinelIdentity), nil
+}
+
+// UpsertReedIdentity idempotently records that reedID is a well-formed
+// id worth tracking, keyed to its own embedded home serverID — the
+// "identities layer" for reeds (mirrors identities.id's relationship to
+// users.id). This is a low bar, matching what a LOCAL reed already
+// clears just by being signed (before anyone verifies/holds its
+// content): it does not claim the reed's content has been verified, only
+// that this server has legitimate reason to track pending state about
+// it (a REQUEST_REED/SUBSCRIBE_PROFILE registration for it exists).
+// Content-level trust (e.g. becoming a holder via reed_allocations)
+// still gates on the client's own DATA_ACK, same as before. Idempotent;
+// safe to call for a reed that already has a row (local reeds get theirs
+// at CreateReed time instead, see services.go's insertReedCoreTx).
+func (ds *DBService) UpsertReedIdentity(ctx context.Context, reedID string) error {
+	_, serverID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok {
+		return fmt.Errorf("malformed reed id: %s", reedID)
+	}
+	_, err := ds.db.ExecContext(ctx, `
+		INSERT INTO reed_identities (id, server_id)
+		VALUES ($1, $2)
+		ON CONFLICT (id) DO NOTHING
+	`, reedID, serverID)
+	return err
 }
 
 // ForeignRelayRequest is a home-server foreign_relay_requests row: which
