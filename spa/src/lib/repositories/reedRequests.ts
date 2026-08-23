@@ -11,12 +11,20 @@ export interface ReedRequestRecord {
   requestedAt: number;
 }
 
+/** Canonical request_id: requesterId/hash — requesterId is already
+ * userID@serverID, and the hash suffix stays deterministic per target
+ * (serverId/authorId/reedId) so repeated calls for the same reed collapse
+ * into the same pending record, exactly as before. The server validates
+ * the requesterId prefix against the identity this WebSocket
+ * authenticated as (realtime/service.go's validateRequestID) and rejects
+ * a mismatch with INVALID_REQUEST_ID_ERROR. */
 export function computeReedRequestId(
+  requesterId: string,
   serverId: string,
   authorId: string,
   reedId: string
 ): string {
-  return md5(`REQUEST_REED:${serverId}/${authorId}/${reedId}`);
+  return `${requesterId}/${md5(`REQUEST_REED:${serverId}/${authorId}/${reedId}`)}`;
 }
 
 export const reedRequestsRepository = {
@@ -58,11 +66,12 @@ export const reedRequestsRepository = {
     reedIDs: string[],
     skipReedIds: ReadonlySet<string>
   ): Promise<void> {
+    const requesterId = localStorage.getItem('userId') ?? '';
     let requestedAt = Date.now();
     for (const reedId of reedIDs) {
       if (skipReedIds.has(reedId)) continue;
       await this.enqueue({
-        requestId: computeReedRequestId(serverId, authorId, reedId),
+        requestId: computeReedRequestId(requesterId, serverId, authorId, reedId),
         serverId,
         authorId,
         reedId,

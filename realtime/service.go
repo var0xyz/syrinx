@@ -348,8 +348,8 @@ func (rs *RealtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 	}
 
 	for _, sub := range profileSubscribers {
-		eventID := generateEventID()
-		requestID := generateEventID()
+		eventID := generateEventID(sub.ViewerUserID)
+		requestID := generateEventID(sub.ViewerUserID)
 		if err := rs.dbService.CreateProfileSubscriptionEvent(context.Background(), eventID, requestID, sub.ViewerUserID, ProfileSubscriptionEvent, reedID, sub.SubscriptionID); err != nil {
 			log.Error().
 				Err(err).
@@ -418,7 +418,7 @@ func (rs *RealtimeService) dispatchRemovalTo(recipientID, reedID string, cert *R
 	if err != nil || requestID == "" {
 		return
 	}
-	eventID := generateEventID()
+	eventID := generateEventID(recipientID)
 	if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, recipientID, ReedRemovedEvent, reedID); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create reed_removed pending event")
 		return
@@ -437,7 +437,7 @@ func (rs *RealtimeService) dispatchAccountRemovalTo(recipientID, removedUserID s
 	if err != nil || requestID == "" {
 		return
 	}
-	eventID := generateEventID()
+	eventID := generateEventID(recipientID)
 	if err := rs.dbService.CreatePendingAccountEvent(context.Background(), eventID, requestID, recipientID, removedUserID); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create account_removed pending event")
 		return
@@ -510,7 +510,7 @@ func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName
 				Msg("Skipping recipient: no sync_request_id set")
 			continue
 		}
-		eventID := generateEventID()
+		eventID := generateEventID(recipientID)
 		if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, recipientID, eventName, reedID); err != nil {
 			log.Error().
 				Err(err).
@@ -1048,8 +1048,15 @@ func (rs *RealtimeService) dispatchNextIfConnected(holderUserID string) {
 	rs.dispatchNext(holderUserID)
 }
 
-func generateEventID() string {
-	return uuid.New().String()
+// generateEventID mints a canonical event_id (requesterUserID/uuid) —
+// requesterUserID is already userID@serverID, so the result is
+// userID@serverID/uuid, self-describing the same way reed/like/key ids
+// are. Every event_id inherits the REAL requester's identity: on a home
+// server's sentinel-bookkeeping path (HandleForeignRequestReed/
+// HandleForeignSubscribeProfile) callers must pass the original remote
+// requester's canonical id here, never the sentinel's.
+func generateEventID(requesterUserID string) string {
+	return string(identity.AppendEntity(identity.IdentityID(requesterUserID), uuid.New().String()))
 }
 
 func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessage) {
@@ -1062,12 +1069,17 @@ func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessag
 	}
 	requestID, reedID := req.RequestID, req.ReedID
 
+	if !rs.validateRequestID(requestID, client.userID) {
+		rs.connManager.SendToUser(client.userID, NewInvalidRequestIDErrorMsg(requestID))
+		return
+	}
+
 	if foreign, homeServerID := rs.isForeignReed(reedID); foreign {
 		rs.handleForeignRequestReedFromClient(client, requestID, reedID, homeServerID)
 		return
 	}
 
-	exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), reedID, client.userID, requestID, true)
+	exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), reedID, client.userID, client.userID, requestID, true)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed request")
 		return
@@ -1103,6 +1115,22 @@ func (rs *RealtimeService) isForeignReed(reedID string) (foreign bool, homeServe
 	return true, embeddedServerID
 }
 
+// validateRequestID parses id's embedded userID@serverID prefix (the
+// requesterID@serverID/suffix shape every client-minted request_id must
+// have) and reports whether it matches requesterUserID exactly — the
+// identity this WebSocket connection actually authenticated as. A client
+// cannot mint a request_id claiming to be a different user or server;
+// doing so (or sending a malformed id) is rejected outright rather than
+// silently accepted, since accepting it would let a connection register
+// pending state attributed to an identity it never proved.
+func (rs *RealtimeService) validateRequestID(id, requesterUserID string) bool {
+	userID, serverID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(id))
+	if !ok {
+		return false
+	}
+	return string(identity.CanonicalID(serverID, userID)) == requesterUserID
+}
+
 // registerReedRequest runs the ReedExists -> (optionally drop requester's
 // stale allocation) -> GetOnlineHolders -> CreatePendingReedEvent ->
 // dispatch-to-holder sequence shared by a local REQUEST_REED and a
@@ -1110,7 +1138,12 @@ func (rs *RealtimeService) isForeignReed(reedID string) (foreign bool, homeServe
 // dropRequesterAllocation should be true only for a genuine local
 // requester — a sentinel peer-relay "requester" never legitimately holds
 // a stale allocation, so that DELETE is skipped for it.
-func (rs *RealtimeService) registerReedRequest(ctx context.Context, reedID, requesterUserID, requestID string, dropRequesterAllocation bool) (exists, hasHolders bool, eventID string, err error) {
+// eventIdentity is who the minted event_id's canonical prefix names —
+// normally the same as requesterUserID, except on a home server's
+// sentinel-bookkeeping path, where requesterUserID is the sentinel (to
+// satisfy pending_events' FK) but eventIdentity is the ORIGINAL remote
+// requester, so the event_id still names who actually asked.
+func (rs *RealtimeService) registerReedRequest(ctx context.Context, reedID, requesterUserID, eventIdentity, requestID string, dropRequesterAllocation bool) (exists, hasHolders bool, eventID string, err error) {
 	exists, err = rs.dbService.ReedExists(ctx, reedID)
 	if err != nil {
 		return false, false, "", err
@@ -1136,7 +1169,7 @@ func (rs *RealtimeService) registerReedRequest(ctx context.Context, reedID, requ
 		return true, false, "", nil
 	}
 
-	eventID = generateEventID()
+	eventID = generateEventID(eventIdentity)
 	if err = rs.dbService.CreatePendingReedEvent(ctx, eventID, requestID, requesterUserID, RequestReedEvent, reedID); err != nil {
 		return false, false, "", err
 	}
@@ -1157,7 +1190,7 @@ func (rs *RealtimeService) handleForeignRequestReedFromClient(client *Client, re
 		return
 	}
 
-	eventID := generateEventID()
+	eventID := generateEventID(client.userID)
 	// CreatePendingEventOnly, not CreatePendingReedEvent: a real
 	// pending_reed_events row would FK against local reeds(id), which this
 	// server never has for foreign-authored content. The subject (reedID)
@@ -1206,8 +1239,14 @@ func (rs *RealtimeService) HandleForeignRequestReed(ctx context.Context, canonic
 		return ForeignRequestReedNotFound, "", err
 	}
 
-	requestID := generateEventID()
-	exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, canonicalReedID, sentinelUserID, requestID, false)
+	// requestID here is H's own local pending_events.request_id bookkeeping
+	// value, not O's peerRequestID (that's the original client's own id,
+	// recorded separately below) — but it still inherits the ORIGINAL
+	// remote requester's identity, not the sentinel's, so any downstream
+	// code that ever surfaces it (logging, future features) reflects who
+	// actually asked, not this server's internal bookkeeping stand-in.
+	requestID := generateEventID(requestingUserID)
+	exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, canonicalReedID, sentinelUserID, requestingUserID, requestID, false)
 	if err != nil {
 		return ForeignRequestReedNotFound, "", err
 	}
@@ -1259,8 +1298,8 @@ func (rs *RealtimeService) HandleForeignSubscribeProfile(ctx context.Context, au
 	}
 
 	for _, reedID := range reedIDs {
-		requestID := generateEventID()
-		exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, reedID, sentinelUserID, requestID, false)
+		requestID := generateEventID(requestingUserID)
+		exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, reedID, sentinelUserID, requestingUserID, requestID, false)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed for foreign profile subscription")
 			continue
@@ -1617,7 +1656,7 @@ func (rs *RealtimeService) handleSubscribeProfile(client *Client, data json.RawM
 		return
 	}
 
-	subscriptionID := generateEventID()
+	subscriptionID := generateEventID(client.userID)
 	if err := rs.dbService.CreateProfileSubscription(context.Background(), subscriptionID, client.userID, profile.UserID); err != nil {
 		log.Error().Err(err).Msg("Failed to create profile subscription")
 		return
@@ -1635,8 +1674,8 @@ func (rs *RealtimeService) handleSubscribeProfile(client *Client, data json.RawM
 	}
 
 	for _, reedID := range missingIDs {
-		eventID := generateEventID()
-		requestID := generateEventID()
+		eventID := generateEventID(client.userID)
+		requestID := generateEventID(client.userID)
 		if err := rs.dbService.CreateProfileSubscriptionEvent(context.Background(), eventID, requestID, client.userID, ProfileSubscriptionEvent, reedID, subscriptionID); err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to create profile subscription event")
 			continue
@@ -1686,8 +1725,8 @@ func (rs *RealtimeService) handleForeignSubscribeProfileFromClient(client *Clien
 	}
 
 	for _, result := range results {
-		eventID := generateEventID()
-		requestID := generateEventID()
+		eventID := generateEventID(client.userID)
+		requestID := generateEventID(client.userID)
 		// CreatePendingEventOnly, not CreateProfileSubscriptionEvent: a real
 		// pending_reed_events row would FK against local reeds(id), which
 		// this server never has for foreign-authored content.
@@ -2008,6 +2047,10 @@ func (rs *RealtimeService) handleSyncRequest(client *Client, data SyncRequestDat
 	if data.RequestID == "" {
 		return
 	}
+	if !rs.validateRequestID(data.RequestID, client.userID) {
+		rs.connManager.SendToUser(client.userID, NewInvalidRequestIDErrorMsg(data.RequestID))
+		return
+	}
 	if err := rs.dbService.SetSyncRequestID(context.Background(), client.userID, data.RequestID); err != nil {
 		log.Error().Err(err).Msg("Failed to store sync request ID")
 		return
@@ -2054,7 +2097,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 	}
 
 	for _, reed := range unallocated {
-		eventID := generateEventID()
+		eventID := generateEventID(userID)
 		if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, userID, FollowReedEvent, reed.ReedID); err != nil {
 			log.Error().
 				Err(err).
@@ -2081,7 +2124,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 		return
 	}
 	for _, rem := range removals {
-		eventID := generateEventID()
+		eventID := generateEventID(userID)
 		if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, userID, ReedRemovedEvent, rem.ReedID); err != nil {
 			log.Error().Err(err).Str("reedID", rem.ReedID).Msg("Failed to create catch-up reed_removed event")
 			continue
@@ -2095,7 +2138,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 		return
 	}
 	for _, rem := range accountRemovals {
-		eventID := generateEventID()
+		eventID := generateEventID(userID)
 		if err := rs.dbService.CreatePendingAccountEvent(context.Background(), eventID, requestID, userID, rem.UserID); err != nil {
 			log.Error().Err(err).Str("removedUserID", rem.UserID).Msg("Failed to create catch-up account_removed event")
 			continue

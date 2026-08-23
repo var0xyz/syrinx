@@ -28,6 +28,21 @@ import (
 // signed request with its own JSON body and real two-sided business
 // logic, so they're modeled on forwardFollowToPeer's shape instead.
 
+// peerRequestIDMatchesPeer checks that id's embedded serverID (the
+// requesterID@serverID/suffix shape every canonical request_id/event_id
+// has) equals callerServerID — the peer this HTTP request was
+// authenticated as. H has no way to verify WHICH user on O this
+// represents (that identity is O's own business, proven to O's own
+// client, not to H), so only the server half is checked: an established
+// peer can only ever vouch for request ids naming its own server.
+func peerRequestIDMatchesPeer(id, callerServerID string) bool {
+	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(id))
+	if !ok {
+		return false
+	}
+	return embeddedServerID == callerServerID
+}
+
 // callPeerRelayEndpoint POSTs a JSON body to a peer's relay RPC path,
 // signed as this server's own key, and decodes a JSON response into out
 // (nil to ignore the body). Returns the peer's HTTP status.
@@ -144,6 +159,10 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 	authorUserID, embeddedServerID, parseOK := identity.ParseIdentityID(identity.IdentityID(req.AuthorID))
 	if !parseOK || embeddedServerID != h.services.db.GetServerID() {
 		writeResponse(w, http.StatusBadRequest, "author_id is not local to this server")
+		return
+	}
+	if !peerRequestIDMatchesPeer(req.PeerRequestID, peerServerID) {
+		writeResponse(w, http.StatusBadRequest, "peer_request_id does not belong to the calling peer")
 		return
 	}
 	canonicalReedID := string(identity.AppendEntity(identity.CanonicalID(h.services.db.GetServerID(), authorUserID), req.ReedID))

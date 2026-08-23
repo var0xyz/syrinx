@@ -244,3 +244,24 @@ func NewReedNotHeldMsg(requestID, reedID string) ReedNotHeldMsg {
 		},
 	}
 }
+
+// InvalidRequestIDErrorMsg is sent when an inbound message's request_id
+// doesn't embed the identity of the connection that sent it (malformed,
+// or claiming a different user/server than this WebSocket authenticated
+// as) — the client should discard the offending local record rather than
+// retry it, since the server never created any pending state for it.
+type InvalidRequestIDErrorMsg struct {
+	Type string                `json:"type"`
+	Data InvalidRequestIDError `json:"data"`
+}
+
+type InvalidRequestIDError struct {
+	RequestID string `json:"request_id"`
+}
+
+func NewInvalidRequestIDErrorMsg(requestID string) InvalidRequestIDErrorMsg {
+	return InvalidRequestIDErrorMsg{
+		Type: "INVALID_REQUEST_ID_ERROR",
+		Data: InvalidRequestIDError{RequestID: requestID},
+	}
+}
