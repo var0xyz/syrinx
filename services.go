@@ -2531,6 +2531,21 @@ func (s *DataService) ReplyCountNotifyTargetsForRemovedReply(ctx context.Context
 	return s.ReplyCountNotifyTargets(ctx, parentReedID)
 }
 
+// DeleteForeignReplyReference removes a foreign reply's reed_replies row —
+// the home-server side of the reply-removal-notify peer leg. Returns
+// false (not an error) if no such row exists, matching DeleteReedLike's
+// own "already gone is a no-op" convention.
+func (s *DataService) DeleteForeignReplyReference(ctx context.Context, replyReedID string) (deleted bool, err error) {
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM reed_replies WHERE reed_id = $1
+	`, replyReedID)
+	if err != nil {
+		return false, fmt.Errorf("delete foreign reply reference: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // ReplyCountNotifyTargetsForAuthor returns distinct ancestors whose subtree
 // counts may change when all of userID's indexed replies are treated as removed.
 func (s *DataService) ReplyCountNotifyTargetsForAuthor(ctx context.Context, userID string) ([]ReedRef, error) {

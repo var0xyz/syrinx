@@ -1032,3 +1032,99 @@ func (h *Handlers) EchoNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// //////////////////////////////////////// //
+//   Leg 13: reply-removal-notify (O -> H)  //
+// //////////////////////////////////////// //
+//
+// Removal-side counterpart of leg 11: a reply to a foreign reed removed
+// on O leaves a stale reference on H forever without this — H's
+// reed_replies row lingers, so its reply-count and thread listing both
+// keep counting/showing content that no longer exists.
+
+type relayReplyRemovalNotifyPayload struct {
+	ParentReedID string `json:"parent_reed_id"`
+	ReplyReedID  string `json:"reply_reed_id"`
+}
+
+// notifyForeignReplyRemovalToPeer tells parentReedID's home server that
+// replyReedID (removed here) no longer replies to it.
+func (h *Handlers) notifyForeignReplyRemovalToPeer(ctx context.Context, parentReedID, replyReedID string) error {
+	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(parentReedID))
+	if !ok {
+		return nil
+	}
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayReplyRemovalNotifyPayload{ParentReedID: parentReedID, ReplyReedID: replyReedID}
+	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/reply-removal-notify", payload, nil)
+	return err
+}
+
+// ReplyRemovalNotifyFromPeer is leg 13's home-server handler: an
+// established peer is telling us a reply of theirs to one of our reeds
+// was removed.
+func (h *Handlers) ReplyRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayReplyRemovalNotifyPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.ParentReedID = strings.TrimSpace(req.ParentReedID)
+	req.ReplyReedID = strings.TrimSpace(req.ReplyReedID)
+	if req.ParentReedID == "" || req.ReplyReedID == "" {
+		writeResponse(w, http.StatusBadRequest, "parent_reed_id and reply_reed_id are required")
+		return
+	}
+
+	// Loop-prevention: this server can only be "home" for reeds it hosts
+	// locally, and a peer may only notify us about removal of a reply IT
+	// actually authors — never claim removal on behalf of a third server.
+	_, parentServerID, _, parentOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ParentReedID))
+	if !parentOK || parentServerID != h.services.db.GetServerID() {
+		writeResponse(w, http.StatusBadRequest, "parent_reed_id is not local to this server")
+		return
+	}
+	_, replyServerID, _, replyOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ReplyReedID))
+	if !replyOK || replyServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "reply_reed_id does not belong to the calling peer")
+		return
+	}
+
+	deleted, err := h.services.db.DeleteForeignReplyReference(r.Context(), req.ReplyReedID)
+	if err != nil {
+		log.Error().Err(err).Str("parentReedID", req.ParentReedID).Str("replyReedID", req.ReplyReedID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign reply removal notify")
+		internalServerError(w)
+		return
+	}
+
+	if deleted {
+		replyTargets, err := h.services.db.ReplyCountNotifyTargets(r.Context(), req.ParentReedID)
+		if err != nil {
+			log.Error().Err(err).Str("parentReedID", req.ParentReedID).Msg("Failed to resolve reply count targets after foreign reply removal")
+		} else {
+			for _, t := range replyTargets {
+				h.broadcastChan <- realtime.BroadcastMessage{
+					Type:   realtime.ReplyCountChanged,
+					UserID: t.CanonicalAuthorID(),
+					ReedID: t.ReedID,
+				}
+			}
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

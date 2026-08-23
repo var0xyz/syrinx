@@ -2321,7 +2321,21 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error resolving reply count targets for removed reed")
 	} else {
-		for _, t := range replyTargets {
+		for i, t := range replyTargets {
+			if i == 0 && t.ServerID != serverID {
+				// Immediate parent is foreign — this server's own
+				// reply-count fanout above only covers ancestors it can
+				// see via its own reed_replies table, which stops at this
+				// foreign parent. Without this notify, the parent's home
+				// server never learns the reply was removed and keeps
+				// counting/showing it forever.
+				go func(parentReedID, replyReedID string) {
+					if err := h.notifyForeignReplyRemovalToPeer(context.Background(), parentReedID, replyReedID); err != nil {
+						log.Error().Err(err).Str("parentReedID", parentReedID).Str("replyReedID", replyReedID).Msg("Failed to notify foreign parent's home server of reply removal")
+					}
+				}(FormatReedRef(t), reedID)
+				continue
+			}
 			h.broadcastChan <- realtime.BroadcastMessage{
 				Type:   realtime.ReplyCountChanged,
 				UserID: t.CanonicalAuthorID(),
