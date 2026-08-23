@@ -28,7 +28,7 @@
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
-  import { parseReedRef, resolveThreadId, refForRemoved, refForReed } from '$lib/utils/reedRef';
+  import { resolveThreadId, refForRemoved, refForReed } from '$lib/utils/reedRef';
   import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
@@ -314,8 +314,7 @@
   }
 
   async function onFollowReedArrived(incoming) {
-    const parentRef = parseReedRef(incoming.replying);
-    if (parentRef?.authorId === userID && parentRef?.reedId === reedID) {
+    if (incoming?.replying && incoming.replying === canonicalReedID) {
       if (statsStatus === 'loaded') replyCount += 1;
       await conversationSection?.onReplyArrived(incoming);
     }

@@ -1556,8 +1556,8 @@ func (rs *RealtimeService) HandleForeignRelayResponse(ctx context.Context, peerE
 	}
 
 	var msg DataResponseMsg
-	if pe.EventName == string(NewReplyEvent) {
-		msg = NewNewReplyMsg(pe.EventID, pe.RequestID, pe.ReedID, data)
+	if pe.EventName == string(ReedReplyEvent) {
+		msg = NewReedReplyMsg(pe.EventID, pe.RequestID, pe.ReedID, data)
 	} else {
 		msg = NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, data)
 	}
@@ -2566,7 +2566,7 @@ func (rs *RealtimeService) notifyForeignReedSubscribersOfReply(ancestorReedID, r
 			continue
 		}
 		requestID := generateEventID(sub.ViewerUserID)
-		exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), replyReedID, sentinelUserID, sub.ViewerUserID, requestID, false, NewReplyEvent)
+		exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), replyReedID, sentinelUserID, sub.ViewerUserID, requestID, false, ReedReplyEvent)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", replyReedID).Str("viewerUserID", sub.ViewerUserID).Msg("Failed to register foreign reed reply notify")
 			continue

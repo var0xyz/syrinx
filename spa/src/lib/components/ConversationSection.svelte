@@ -124,7 +124,8 @@
 
     try {
       await serverConnection.connect();
-      const reed = await serverConnection.requestReedContent(ref.reedID, ref.userID, serverId);
+      const bareReedId = parseReedRef(ref.reedID)?.reedId ?? ref.reedID;
+      const reed = await serverConnection.requestReedContent(bareReedId, ref.userID, serverId);
       await applyReplyBody(ref.reedID, reed);
     } catch (err) {
       console.warn('ConversationSection: relay failed for reply', ref.reedID, err);
@@ -197,28 +198,27 @@
     }
   }
 
-  /** Called from parent when a new direct reply arrives via FOLLOW_REED. */
+  /** Called from parent when a new direct reply arrives via REED_REPLY.
+   * Appends at the end without re-sorting or reloading — existing rows must
+   * keep their identity so the list doesn't jump/reset the viewer's scroll
+   * position. */
   export async function onReplyArrived(reed) {
     if (!reed?.replying || !reed.threadId) return;
     await reedRepliesRepository.upsertFromReed(reed);
-    pendingBodies.delete(reed.id);
+    const reedID = refForReed(reed.userID, reed.id);
+    pendingBodies.delete(reedID);
     const username =
       (await userRepository.getByUserId(reed.userID).catch(() => null))?.username ?? reed.userID;
     const row = {
       userID: reed.userID,
-      reedID: reed.id,
+      reedID,
       reed,
       username,
       timestamp: reed.serverSignature?.timestamp,
       loading: false,
     };
-    if (rows.some((r) => r.reedID === reed.id)) return;
-    rows = [...rows, row].sort((a, b) => {
-      const ta = a.timestamp ? Date.parse(a.timestamp) : 0;
-      const tb = b.timestamp ? Date.parse(b.timestamp) : 0;
-      if (ta !== tb) return ta - tb;
-      return a.reedID.localeCompare(b.reedID);
-    });
+    if (rows.some((r) => r.reedID === reedID)) return;
+    rows = [...rows, row];
   }
 
   function navigateToReply(row) {
