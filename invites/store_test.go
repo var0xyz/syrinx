@@ -119,7 +119,7 @@ func ensureInviteSchema(db *sql.DB) error {
 		)`,
 		`CREATE TABLE identities (
 			id VARCHAR(255) PRIMARY KEY,
-			remote_user_id VARCHAR(255) NOT NULL,
+			bare_user_id VARCHAR(255) NOT NULL,
 			server_id VARCHAR(16) REFERENCES servers(id),
 			verified BOOLEAN NOT NULL DEFAULT FALSE
 		)`,
@@ -181,7 +181,7 @@ func seedUserWithRole(t *testing.T, db *sql.DB, userID, username, role string) {
 	}
 	identityID := userID + "@" + testServerID
 	if _, err := db.Exec(`
-		INSERT INTO identities (id, remote_user_id, server_id, verified)
+		INSERT INTO identities (id, bare_user_id, server_id, verified)
 		VALUES ($1, $2, $3, TRUE)
 	`, identityID, userID, testServerID); err != nil {
 		t.Fatalf("identity: %v", err)

@@ -466,6 +466,8 @@ func main() {
 	api.HandleFunc("/federation/relay/reed-stats", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/relay/reply-notify", h.ReplyNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reply-notify", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/relay/echo-notify", h.EchoNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/echo-notify", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")
