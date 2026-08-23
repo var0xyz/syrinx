@@ -2,16 +2,14 @@ import type * as api from '$lib/types/api';
 import { apiService } from './api';
 import { authService } from './auth';
 import { cryptoService } from './crypto';
-import { dbService } from './db';
 import { buildReedLikeUserPayload } from './signing';
 import { pendingLikeRepository } from '$lib/repositories/pendingLike';
 import { pendingUnlikeRepository } from '$lib/repositories/pendingUnlike';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { likedReedsRepository } from '$lib/repositories/likedReeds';
 import { verifyReedLike } from '$lib/verifiers';
-import { get } from 'svelte/store';
-import { serverInfo } from './serverInfo';
 import { refForReed } from '$lib/utils/reedRef';
+import { parseCanonicalId } from '$lib/utils/keyId';
 
 export { verifyReedLike };
 
@@ -52,8 +50,11 @@ export async function verifyAndCommitReedLike(cert: api.ReedLike): Promise<boole
  * clear pending.
  */
 export async function likeReed(authorID: string, reedID: string): Promise<api.ReedLike> {
-  const info = get(serverInfo);
-  const serverID = info?.id || localStorage.getItem('serverId');
+  // The countersignature server is always the REED's home server (write-proxy
+  // target), not this client's own — those coincide for a local reed, but
+  // diverge for a foreign one, which is the case this must get right.
+  const parsed = parseCanonicalId(authorID);
+  const serverID = parsed?.[1];
   if (!serverID) {
     throw new Error('Server ID not available');
   }
