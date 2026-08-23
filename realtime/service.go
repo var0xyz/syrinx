@@ -1190,12 +1190,18 @@ func (rs *RealtimeService) handleForeignRequestReedFromClient(client *Client, re
 		return
 	}
 
+	// reed_identities row must exist before pending_reed_events.reed_id
+	// can FK to it — this only claims reedID is a well-formed id worth
+	// tracking (the same bar a local reed already clears just by being
+	// signed, before anyone verifies/holds its content), not that this
+	// server has verified anything about it.
+	if err := rs.dbService.UpsertReedIdentity(context.Background(), reedID); err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to upsert reed identity for foreign relay request")
+		return
+	}
+
 	eventID := generateEventID(client.userID)
-	// CreatePendingEventOnly, not CreatePendingReedEvent: a real
-	// pending_reed_events row would FK against local reeds(id), which this
-	// server never has for foreign-authored content. The subject (reedID)
-	// is tracked in foreign_pending_events instead (see CreateForeignPendingEvent below).
-	if err := rs.dbService.CreatePendingEventOnly(context.Background(), eventID, requestID, client.userID, RequestReedEvent, ""); err != nil {
+	if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, client.userID, RequestReedEvent, reedID); err != nil {
 		log.Error().Err(err).Msg("Failed to create local pending event for foreign relay request")
 		return
 	}
@@ -1216,7 +1222,7 @@ func (rs *RealtimeService) handleForeignRequestReedFromClient(client *Client, re
 		return
 	}
 
-	if err := rs.dbService.CreateForeignPendingEvent(context.Background(), eventID, homeServerID, peerEventID, reedID); err != nil {
+	if err := rs.dbService.CreateForeignPendingEvent(context.Background(), eventID, homeServerID, peerEventID); err != nil {
 		log.Error().Err(err).Msg("Failed to record foreign pending event mapping")
 		if delErr := rs.dbService.DeletePendingEvent(context.Background(), eventID); delErr != nil {
 			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")
@@ -1333,20 +1339,17 @@ func (rs *RealtimeService) HandleForeignRelayResponse(ctx context.Context, peerE
 		return false, nil
 	}
 
-	// GetPendingRequesterOnly, not GetPendingReedEvent: this event has no
-	// pending_reed_events row (see CreatePendingEventOnly's doc comment) —
-	// its subject is fpe.ReedID, tracked in foreign_pending_events instead.
-	requesterUserID, requestID, err := rs.dbService.GetPendingRequesterOnly(ctx, fpe.EventID)
+	pe, err := rs.dbService.GetPendingReedEvent(ctx, fpe.EventID)
 	if err != nil {
 		return false, err
 	}
-	if requesterUserID == "" {
+	if pe == nil {
 		// Local requester's row already gone (e.g. raced with disconnect) -- not an error.
 		return true, nil
 	}
 
-	if err := rs.connManager.SendToUser(requesterUserID, NewDataResponseMsg(fpe.EventID, requestID, fpe.ReedID, data)); err != nil {
-		log.Error().Err(err).Str("requesterID", requesterUserID).Msg("Failed to deliver foreign-relayed data response")
+	if err := rs.connManager.SendToUser(pe.RequesterUserID, NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, data)); err != nil {
+		log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver foreign-relayed data response")
 	}
 	return true, nil
 }
@@ -1590,15 +1593,29 @@ func (rs *RealtimeService) handleDataAck(client *Client, data DataAckData) {
 				rs.notifyReedCoverage(t.ReedID)
 			}
 		}
-	} else if foreign, _ := rs.isForeignReed(pe.ReedID); !foreign {
-		// A server never becomes a holder for foreign-authored content —
-		// every future REQUEST_REED for it re-bridges to the true home
-		// server instead of being served from a cached copy here.
-		changed, err := rs.dbService.AllocateReed(context.Background(), pe.ReedID, client.userID)
-		if err != nil {
-			log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to allocate reed on data ack")
-		} else if changed {
-			rs.notifyReedCoverage(pe.ReedID)
+	} else {
+		// reed_identities normally already has a row for a foreign reed
+		// by request time (handleForeignRequestReedFromClient/
+		// handleForeignSubscribeProfileFromClient upsert it before
+		// registering the request) — this is a defensive idempotent
+		// upsert, not the primary mint site, in case some other path
+		// ever reaches an ack without going through those first.
+		// AllocateReed's FK to reed_identities(id) needs the row to
+		// exist; skip the allocation (not the whole ack) if this fails.
+		identityOK := true
+		if foreign, _ := rs.isForeignReed(pe.ReedID); foreign {
+			if err := rs.dbService.UpsertReedIdentity(context.Background(), pe.ReedID); err != nil {
+				log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to upsert reed identity on data ack")
+				identityOK = false
+			}
+		}
+		if identityOK {
+			changed, err := rs.dbService.AllocateReed(context.Background(), pe.ReedID, client.userID)
+			if err != nil {
+				log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to allocate reed on data ack")
+			} else if changed {
+				rs.notifyReedCoverage(pe.ReedID)
+			}
 		}
 	}
 
@@ -1725,16 +1742,17 @@ func (rs *RealtimeService) handleForeignSubscribeProfileFromClient(client *Clien
 	}
 
 	for _, result := range results {
+		if err := rs.dbService.UpsertReedIdentity(context.Background(), result.ReedID); err != nil {
+			log.Error().Err(err).Str("reedID", result.ReedID).Msg("Failed to upsert reed identity for foreign profile subscription")
+			continue
+		}
 		eventID := generateEventID(client.userID)
 		requestID := generateEventID(client.userID)
-		// CreatePendingEventOnly, not CreateProfileSubscriptionEvent: a real
-		// pending_reed_events row would FK against local reeds(id), which
-		// this server never has for foreign-authored content.
-		if err := rs.dbService.CreatePendingEventOnly(context.Background(), eventID, requestID, client.userID, ProfileSubscriptionEvent, subscriptionID); err != nil {
+		if err := rs.dbService.CreateProfileSubscriptionEvent(context.Background(), eventID, requestID, client.userID, ProfileSubscriptionEvent, result.ReedID, subscriptionID); err != nil {
 			log.Error().Err(err).Str("peerEventID", result.PeerEventID).Msg("Failed to create local pending event for foreign profile subscription")
 			continue
 		}
-		if err := rs.dbService.CreateForeignPendingEvent(context.Background(), eventID, homeServerID, result.PeerEventID, result.ReedID); err != nil {
+		if err := rs.dbService.CreateForeignPendingEvent(context.Background(), eventID, homeServerID, result.PeerEventID); err != nil {
 			log.Error().Err(err).Msg("Failed to record foreign pending event mapping for profile subscription")
 			if delErr := rs.dbService.DeletePendingEvent(context.Background(), eventID); delErr != nil {
 				log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")

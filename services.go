@@ -1826,6 +1826,18 @@ func (s *DataService) insertReedCoreTx(
 		return Reed{}, err
 	}
 
+	// reed_identities row must exist before reeds.id can FK to it — this
+	// is the "identities layer" for reeds (mirrors how users.id FKs
+	// identities.id). Every local reed gets one here; a foreign reed gets
+	// one via the cross-server relay bridge instead (realtime package).
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO reed_identities (id, server_id)
+		VALUES ($1, $2)
+		ON CONFLICT (id) DO NOTHING
+	`, p.ReedID, s.serverID); err != nil {
+		return Reed{}, fmt.Errorf("insert reed identity: %w", err)
+	}
+
 	var created Reed
 	var createdOwner string
 	err = tx.QueryRowContext(ctx, `
@@ -1868,15 +1880,15 @@ func (s *DataService) insertReedCoreTx(
 
 	for _, m := range p.Mentions {
 		// m.ServerID names whatever server the mention syntax pointed at,
-		// which in principle could be foreign.
+		// which in principle could be foreign — carried entirely inside
+		// mentionTarget's canonical userID@serverID form, no separate
+		// column needed.
 		mentionTarget := identity.CanonicalID(m.ServerID, m.AuthorID)
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO reed_mentions (
-				mentioning_reed_id,
-				mentioned_user_id, mentioned_server_id
-			) VALUES ($1, $2, $3)
-			ON CONFLICT (mentioning_reed_id, mentioned_server_id, mentioned_user_id) DO NOTHING
-		`, p.ReedID, mentionTarget, m.ServerID); err != nil {
+			INSERT INTO reed_mentions (mentioning_reed_id, mentioned_user_id)
+			VALUES ($1, $2)
+			ON CONFLICT (mentioning_reed_id, mentioned_user_id) DO NOTHING
+		`, p.ReedID, mentionTarget); err != nil {
 			return Reed{}, fmt.Errorf("insert mention index: %w", err)
 		}
 	}
@@ -2338,16 +2350,17 @@ func (s *DataService) DeleteMentionsForReed(ctx context.Context, reedID string) 
 
 // DeleteMentionsByAuthor clears mention index rows on account removal: rows
 // the removed user authored (mentioning), and rows mentioning the removed
-// user on this server (mentioned) — both sides. userID arrives in
-// userID@serverID form already. Mentioning rows are matched by canonical
+// user (mentioned) — both sides. userID arrives in userID@serverID form
+// already, so it's a direct match against mentioned_user_id with no
+// separate server check needed. Mentioning rows are matched by canonical
 // id prefix via the reeds join (mentioning_reed_id has no user_id column
 // of its own anymore).
 func (s *DataService) DeleteMentionsByAuthor(ctx context.Context, userID string) error {
 	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM reed_mentions
 		WHERE mentioning_reed_id IN (SELECT id FROM reeds WHERE user_id = $1)
-		   OR (mentioned_server_id = $2 AND mentioned_user_id = $1)
-	`, userID, s.serverID)
+		   OR mentioned_user_id = $1
+	`, userID)
 	return err
 }
 
