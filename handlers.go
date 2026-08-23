@@ -1836,19 +1836,31 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Invalid echoing reference")
 			return
 		}
-		blank, err := h.services.db.IsBlankEcho(r.Context(), FormatReedRef(ref))
-		if errors.Is(err, ErrReedNotFound) {
-			writeResponse(w, http.StatusBadRequest, "Target reed not found")
-			return
-		}
-		if err != nil {
-			log.Error().Err(err).Msg("Error checking echo target blankness")
-			internalServerError(w)
-			return
-		}
-		if blank {
-			writeResponse(w, http.StatusBadRequest, "Cannot echo an empty echo — echo the original reed instead")
-			return
+		// Blankness/existence can only be checked against this server's own
+		// DB, so a foreign target skips it entirely — the client already has
+		// the target rendered locally (that's how it's being echoed at all),
+		// and this check was weak trust theater even for local targets (any
+		// client could already misreport blank status). Real authenticity is
+		// enforced downstream, when a viewer actually resolves the target
+		// through the existing read-proxy/signature-verification path — not
+		// here. TODO: most of these server-side "sanity" checks predate
+		// federation and made limited sense even then; reconsider dropping
+		// them outright rather than patching each one for the foreign case.
+		if ref.ServerID == localServerID {
+			blank, err := h.services.db.IsBlankEcho(r.Context(), FormatReedRef(ref))
+			if errors.Is(err, ErrReedNotFound) {
+				writeResponse(w, http.StatusBadRequest, "Target reed not found")
+				return
+			}
+			if err != nil {
+				log.Error().Err(err).Msg("Error checking echo target blankness")
+				internalServerError(w)
+				return
+			}
+			if blank {
+				writeResponse(w, http.StatusBadRequest, "Cannot echo an empty echo — echo the original reed instead")
+				return
+			}
 		}
 		echoRef = &ref
 	}
@@ -1858,19 +1870,21 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Invalid replying reference")
 			return
 		}
-		blank, err := h.services.db.IsBlankEcho(r.Context(), FormatReedRef(ref))
-		if errors.Is(err, ErrReedNotFound) {
-			writeResponse(w, http.StatusBadRequest, "Target reed not found")
-			return
-		}
-		if err != nil {
-			log.Error().Err(err).Msg("Error checking reply target blankness")
-			internalServerError(w)
-			return
-		}
-		if blank {
-			writeResponse(w, http.StatusBadRequest, "Cannot reply to an empty echo — reply to the original reed instead")
-			return
+		if ref.ServerID == localServerID {
+			blank, err := h.services.db.IsBlankEcho(r.Context(), FormatReedRef(ref))
+			if errors.Is(err, ErrReedNotFound) {
+				writeResponse(w, http.StatusBadRequest, "Target reed not found")
+				return
+			}
+			if err != nil {
+				log.Error().Err(err).Msg("Error checking reply target blankness")
+				internalServerError(w)
+				return
+			}
+			if blank {
+				writeResponse(w, http.StatusBadRequest, "Cannot reply to an empty echo — reply to the original reed instead")
+				return
+			}
 		}
 		replyRef = &ref
 	}
@@ -2128,10 +2142,6 @@ func (h *Handlers) parseReedRef(raw, localServerID string) (ReedRef, bool) {
 		return ReedRef{}, false
 	}
 	if !crypto.IsValidUUIDv7(ref.ReedID) {
-		return ReedRef{}, false
-	}
-	// Targets on other instances are not supported yet.
-	if ref.ServerID != localServerID {
 		return ReedRef{}, false
 	}
 	return ref, true

@@ -1548,6 +1548,19 @@ func (s *DataService) insertReplyTx(
 	replyReedID string,
 	ts time.Time,
 ) error {
+	// parent_reed_id FKs to reed_identities, which may need a row minted
+	// here for a foreign parent no one on this server has referenced
+	// before — same reasoning as CreateReedWithEcho's echo target.
+	parentReedID := FormatReedRef(parent)
+	if parent.ServerID != s.serverID {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reed_identities (id, server_id)
+			VALUES ($1, $2)
+			ON CONFLICT (id) DO NOTHING
+		`, parentReedID, parent.ServerID); err != nil {
+			return fmt.Errorf("insert reply parent reed identity: %w", err)
+		}
+	}
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_replies (
 			thread_id, reed_id,
@@ -1556,7 +1569,7 @@ func (s *DataService) insertReplyTx(
 		)
 		VALUES ($1, $2, $3, $4)
 	`, threadID, replyReedID,
-		FormatReedRef(parent),
+		parentReedID,
 		ts)
 	if err != nil {
 		return fmt.Errorf("insert reply index: %w", err)
@@ -1942,9 +1955,21 @@ func (s *DataService) CreateReedWithEcho(
 		return nil, false, err
 	}
 
-	// echoing_reed_id is a direct FK to reeds(id); echoed_reed_id has no FK
-	// (see db.go), stored canonical regardless via FormatReedRef.
+	// echoing_reed_id is a direct FK to reeds(id) (always local — this is
+	// the reed just created above); echoed_reed_id FKs to reed_identities,
+	// which may need a row minted here for a foreign target no one on this
+	// server has referenced before (a local target already has one, minted
+	// at its own creation time).
 	echoedReedID := FormatReedRef(echoTarget)
+	if echoTarget.ServerID != s.serverID {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reed_identities (id, server_id)
+			VALUES ($1, $2)
+			ON CONFLICT (id) DO NOTHING
+		`, echoedReedID, echoTarget.ServerID); err != nil {
+			return nil, false, fmt.Errorf("insert echo target reed identity: %w", err)
+		}
+	}
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_echoes (echoing_reed_id, echoed_reed_id, is_blank, signed_at)
 		VALUES ($1, $2, $3, $4)
