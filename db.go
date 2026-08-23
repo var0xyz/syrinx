@@ -794,6 +794,24 @@ func InitDB(db *sql.DB) error {
 		ON profile_subscriptions(author_user_id);
 	`
 
+	// reed_id FKs to reed_identities (not reeds directly) so a viewer can
+	// durably subscribe to a foreign reed's stats too — mirrors
+	// profile_subscriptions' own local-vs-foreign-agnostic shape.
+	createReedSubscriptionsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS reed_subscriptions (
+		subscription_id VARCHAR(255) PRIMARY KEY,
+		viewer_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	createReedSubscriptionsIndex := `
+	CREATE INDEX IF NOT EXISTS idx_reed_subscriptions_viewer
+		ON reed_subscriptions(viewer_user_id);
+	CREATE INDEX IF NOT EXISTS idx_reed_subscriptions_reed
+		ON reed_subscriptions(reed_id);
+	`
+
 	// //////////// //
 	//   Recovery   //
 	// //////////// //
@@ -1067,6 +1085,9 @@ func InitDB(db *sql.DB) error {
 
 		createProfileSubscriptionsTable,
 		createProfileSubscriptionsIndex,
+
+		createReedSubscriptionsTable,
+		createReedSubscriptionsIndex,
 
 		createPendingEventsTable,
 		createPendingEventsIndexes,

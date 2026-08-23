@@ -573,3 +573,259 @@ func (h *Handlers) RelayUnsubscribeProfileFromPeer(w http.ResponseWriter, r *htt
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// ///////////////////////////////////// //
+//   Leg 8: subscribe-reed (O -> H)      //
+// ///////////////////////////////////// //
+//
+// Live counterpart of the read-proxied GetReed/GetRipples paths: a viewer
+// on O wants ongoing stat pushes for one of H's reeds, not just a
+// one-time snapshot.
+
+type relaySubscribeReedPayload struct {
+	ReedID          string `json:"reed_id"`
+	RequesterUserID string `json:"requester_user_id"`
+}
+
+type relaySubscribeReedResponse struct {
+	Found           bool `json:"found"`
+	Echoes          int  `json:"echoes"`
+	CoveragePercent int  `json:"coverage_percent"`
+	Replies         int  `json:"replies"`
+	Likes           int  `json:"likes"`
+}
+
+// subscribeReedToPeer is ForeignSubscribeReedHook's implementation (leg
+// 8, O's side): registers requesterUserID's interest in reedID's live
+// stats with reedID's home server, returning the current snapshot.
+func (h *Handlers) subscribeReedToPeer(ctx context.Context, reedID, requesterUserID string) (realtime.ForeignReedStatsSnapshot, bool, error) {
+	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok {
+		return realtime.ForeignReedStatsSnapshot{}, false, nil
+	}
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil {
+		return realtime.ForeignReedStatsSnapshot{}, false, err
+	}
+	if peer == nil {
+		return realtime.ForeignReedStatsSnapshot{}, false, nil
+	}
+
+	payload := relaySubscribeReedPayload{ReedID: reedID, RequesterUserID: requesterUserID}
+	var respBody relaySubscribeReedResponse
+	status, err := h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/subscribe-reed", payload, &respBody)
+	if err != nil {
+		return realtime.ForeignReedStatsSnapshot{}, false, err
+	}
+	if status != http.StatusOK || !respBody.Found {
+		return realtime.ForeignReedStatsSnapshot{}, false, nil
+	}
+
+	return realtime.ForeignReedStatsSnapshot{
+		Echoes:          respBody.Echoes,
+		CoveragePercent: respBody.CoveragePercent,
+		Replies:         respBody.Replies,
+		Likes:           respBody.Likes,
+	}, true, nil
+}
+
+// RelaySubscribeReedFromPeer is leg 8's home-server handler: an
+// established peer's viewer wants live stats for one of this server's reeds.
+func (h *Handlers) RelaySubscribeReedFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relaySubscribeReedPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.ReedID = strings.TrimSpace(req.ReedID)
+	req.RequesterUserID = strings.TrimSpace(req.RequesterUserID)
+	if req.ReedID == "" || req.RequesterUserID == "" {
+		writeResponse(w, http.StatusBadRequest, "reed_id and requester_user_id are required")
+		return
+	}
+
+	// Loop-prevention/spoof guard: this server can only be "home" for
+	// reeds it hosts locally, and a peer may only register its own users.
+	_, reedServerID, _, reedOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ReedID))
+	if !reedOK || reedServerID != h.services.db.GetServerID() {
+		writeResponse(w, http.StatusBadRequest, "reed_id is not local to this server")
+		return
+	}
+	_, requesterServerID, requesterOK := identity.ParseIdentityID(identity.IdentityID(req.RequesterUserID))
+	if !requesterOK || requesterServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		internalServerError(w)
+		return
+	}
+	snapshot, found, err := h.realtimeRelay.HandleForeignSubscribeReed(r.Context(), req.ReedID, peerServerID, req.RequesterUserID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign reed stats subscription")
+		internalServerError(w)
+		return
+	}
+	writeResponse(w, http.StatusOK, relaySubscribeReedResponse{
+		Found:           found,
+		Echoes:          snapshot.Echoes,
+		CoveragePercent: snapshot.CoveragePercent,
+		Replies:         snapshot.Replies,
+		Likes:           snapshot.Likes,
+	})
+}
+
+// ///////////////////////////////////////// //
+//   Leg 9: unsubscribe-reed (O -> H)        //
+// ///////////////////////////////////////// //
+
+type relayUnsubscribeReedPayload struct {
+	ReedID          string `json:"reed_id"`
+	RequesterUserID string `json:"requester_user_id"`
+}
+
+// unsubscribeReedWithPeer is the foreignUnsubscribeReedHook
+// implementation (leg 9, O's side): tells reedID's home server that
+// requesterUserID no longer wants live stats.
+func (h *Handlers) unsubscribeReedWithPeer(ctx context.Context, reedID, requesterUserID string) error {
+	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	if !ok {
+		return nil
+	}
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayUnsubscribeReedPayload{ReedID: reedID, RequesterUserID: requesterUserID}
+	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/unsubscribe-reed", payload, nil)
+	return err
+}
+
+// RelayUnsubscribeReedFromPeer is leg 9's home-server handler.
+func (h *Handlers) RelayUnsubscribeReedFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayUnsubscribeReedPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.ReedID = strings.TrimSpace(req.ReedID)
+	req.RequesterUserID = strings.TrimSpace(req.RequesterUserID)
+	if req.ReedID == "" || req.RequesterUserID == "" {
+		writeResponse(w, http.StatusBadRequest, "reed_id and requester_user_id are required")
+		return
+	}
+
+	_, reedServerID, _, reedOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ReedID))
+	if !reedOK || reedServerID != h.services.db.GetServerID() {
+		writeResponse(w, http.StatusBadRequest, "reed_id is not local to this server")
+		return
+	}
+	_, requesterServerID, requesterOK := identity.ParseIdentityID(identity.IdentityID(req.RequesterUserID))
+	if !requesterOK || requesterServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		internalServerError(w)
+		return
+	}
+	if err := h.realtimeRelay.HandleForeignUnsubscribeReed(r.Context(), req.ReedID, req.RequesterUserID); err != nil {
+		log.Error().Err(err).Str("reedID", req.ReedID).Str("requesterUserID", req.RequesterUserID).Msg("Failed to handle foreign reed stats unsubscribe")
+		internalServerError(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ///////////////////////////////////// //
+//   Leg 10: reed-stats push (H -> O)    //
+// ///////////////////////////////////// //
+//
+// Delivery half of the live reed-stats bridge: H pushes an already-built
+// WS message (coverage/echoes/replies/likes/ripple-posted/ripple-updated)
+// straight to O, which relays it unmodified to its own local client —
+// same "server just delivers, client verifies whatever needs verifying"
+// split used everywhere else in this file.
+
+type relayReedStatsPayload struct {
+	RequesterUserID string          `json:"requester_user_id"`
+	Payload         json.RawMessage `json:"payload"`
+}
+
+// pushReedStatsToPeer is the ForeignReedStatsHook implementation (leg 10,
+// H's side): pushes payload to requestingServerID for delivery to requestingUserID.
+func (h *Handlers) pushReedStatsToPeer(ctx context.Context, requestingServerID, requestingUserID string, payload json.RawMessage) error {
+	peer, err := h.services.db.GetServerByID(ctx, requestingServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	body := relayReedStatsPayload{RequesterUserID: requestingUserID, Payload: payload}
+	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/reed-stats", body, nil)
+	return err
+}
+
+// PushReedStatsFromPeer is leg 10's originating-server handler: a peer is
+// delivering a live reed-stats update for one of its viewers, registered
+// earlier via leg 8.
+func (h *Handlers) PushReedStatsFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayReedStatsPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.RequesterUserID = strings.TrimSpace(req.RequesterUserID)
+	if req.RequesterUserID == "" || len(req.Payload) == 0 {
+		writeResponse(w, http.StatusBadRequest, "requester_user_id and payload are required")
+		return
+	}
+
+	// The viewer this push claims to be for must actually be one of this
+	// peer's own users — a peer must not be able to push content to a
+	// third server's user by spoofing requester_user_id.
+	_, requesterServerID, requesterOK := identity.ParseIdentityID(identity.IdentityID(req.RequesterUserID))
+	if !requesterOK || requesterServerID != h.services.db.GetServerID() {
+		writeResponse(w, http.StatusBadRequest, "requester_user_id is not local to this server")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		internalServerError(w)
+		return
+	}
+	if err := h.realtimeRelay.DeliverForeignReedStats(r.Context(), req.RequesterUserID, req.Payload); err != nil {
+		log.Error().Err(err).Str("requesterUserID", req.RequesterUserID).Str("peerServerID", peerServerID).Msg("Failed to deliver foreign reed stats push")
+	}
+	writeResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
