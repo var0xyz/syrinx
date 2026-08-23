@@ -207,6 +207,7 @@ type relaySubscribePayload struct {
 
 type relaySubscribeResponseItem struct {
 	PeerEventID string `json:"peer_event_id"`
+	ReedID      string `json:"reed_id"`
 }
 
 type relaySubscribeResponse struct {
@@ -241,7 +242,7 @@ func (h *Handlers) subscribeProfileToPeer(ctx context.Context, authorID, request
 
 	results := make([]realtime.ForeignSubscribeProfileResult, 0, len(respBody.Events))
 	for _, ev := range respBody.Events {
-		results = append(results, realtime.ForeignSubscribeProfileResult{PeerEventID: ev.PeerEventID})
+		results = append(results, realtime.ForeignSubscribeProfileResult{PeerEventID: ev.PeerEventID, ReedID: ev.ReedID})
 	}
 	return results, nil
 }
@@ -291,7 +292,7 @@ func (h *Handlers) RelaySubscribeProfileFromPeer(w http.ResponseWriter, r *http.
 
 	resp := relaySubscribeResponse{Events: make([]relaySubscribeResponseItem, 0, len(results))}
 	for _, r := range results {
-		resp.Events = append(resp.Events, relaySubscribeResponseItem{PeerEventID: r.PeerEventID})
+		resp.Events = append(resp.Events, relaySubscribeResponseItem{PeerEventID: r.PeerEventID, ReedID: r.ReedID})
 	}
 	writeResponse(w, http.StatusOK, resp)
 }
@@ -1123,6 +1124,96 @@ func (h *Handlers) ReplyRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Req
 					ReedID: t.ReedID,
 				}
 			}
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ///////////////////////////////////////// //
+//   Leg 14: echo-removal-notify (O -> H)    //
+// ///////////////////////////////////////// //
+//
+// Removal-side counterpart of leg 12, same reasoning as leg 13 for
+// replies: without this, H's reed_echoes row for a removed foreign echo
+// lingers forever, so its echo count and chorus both keep counting/
+// showing content the echoing server has already removed.
+
+type relayEchoRemovalNotifyPayload struct {
+	EchoedReedID  string `json:"echoed_reed_id"`
+	EchoingReedID string `json:"echoing_reed_id"`
+}
+
+// notifyForeignEchoRemovalToPeer tells echoedReedID's home server that
+// echoingReedID (removed here) no longer echoes it.
+func (h *Handlers) notifyForeignEchoRemovalToPeer(ctx context.Context, echoedReedID, echoingReedID string) error {
+	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(echoedReedID))
+	if !ok {
+		return nil
+	}
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayEchoRemovalNotifyPayload{EchoedReedID: echoedReedID, EchoingReedID: echoingReedID}
+	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/echo-removal-notify", payload, nil)
+	return err
+}
+
+// EchoRemovalNotifyFromPeer is leg 14's home-server handler: an
+// established peer is telling us an echo of theirs, of one of our reeds,
+// was removed.
+func (h *Handlers) EchoRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayEchoRemovalNotifyPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.EchoedReedID = strings.TrimSpace(req.EchoedReedID)
+	req.EchoingReedID = strings.TrimSpace(req.EchoingReedID)
+	if req.EchoedReedID == "" || req.EchoingReedID == "" {
+		writeResponse(w, http.StatusBadRequest, "echoed_reed_id and echoing_reed_id are required")
+		return
+	}
+
+	// Loop-prevention: this server can only be "home" for reeds it hosts
+	// locally, and a peer may only notify us about removal of an echo IT
+	// actually authors — never claim removal on behalf of a third server.
+	_, echoedServerID, _, echoedOK := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoedReedID))
+	if !echoedOK || echoedServerID != h.services.db.GetServerID() {
+		writeResponse(w, http.StatusBadRequest, "echoed_reed_id is not local to this server")
+		return
+	}
+	_, echoingServerID, _, echoingOK := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoingReedID))
+	if !echoingOK || echoingServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "echoing_reed_id does not belong to the calling peer")
+		return
+	}
+
+	deleted, err := h.services.db.DeleteForeignEchoReference(r.Context(), req.EchoingReedID)
+	if err != nil {
+		log.Error().Err(err).Str("echoedReedID", req.EchoedReedID).Str("echoingReedID", req.EchoingReedID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign echo removal notify")
+		internalServerError(w)
+		return
+	}
+
+	if deleted {
+		echoedAuthorBareID, _, bareEchoedReedID, _ := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoedReedID))
+		h.broadcastChan <- realtime.BroadcastMessage{
+			Type:   realtime.EchoCountChanged,
+			UserID: string(identity.CanonicalID(echoedServerID, echoedAuthorBareID)),
+			ReedID: bareEchoedReedID,
 		}
 	}
 
