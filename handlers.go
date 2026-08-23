@@ -2309,6 +2309,19 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing echo index for removed reed")
 	} else {
 		for _, t := range affectedTargets {
+			if t.ServerID != serverID {
+				// Target is foreign — this server's own EchoCountChanged
+				// broadcast below only reaches its own local subscribers;
+				// without this notify the target's home server never
+				// learns the echo is gone and keeps counting/showing it,
+				// same gap as the reply-removal case (leg 13).
+				go func(echoedReedID, echoingReedID string) {
+					if err := h.notifyForeignEchoRemovalToPeer(context.Background(), echoedReedID, echoingReedID); err != nil {
+						log.Error().Err(err).Str("echoedReedID", echoedReedID).Str("echoingReedID", echoingReedID).Msg("Failed to notify foreign echo target's home server of removal")
+					}
+				}(FormatReedRef(t), reedID)
+				continue
+			}
 			h.broadcastChan <- realtime.BroadcastMessage{
 				Type:   realtime.EchoCountChanged,
 				UserID: t.CanonicalAuthorID(),

@@ -2546,6 +2546,21 @@ func (s *DataService) DeleteForeignReplyReference(ctx context.Context, replyReed
 	return n > 0, nil
 }
 
+// DeleteForeignEchoReference removes a foreign echo's reed_echoes row —
+// the home-server side of the echo-removal-notify peer leg. Returns
+// false (not an error) if no such row exists, same "already gone is a
+// no-op" convention as DeleteForeignReplyReference/DeleteReedLike.
+func (s *DataService) DeleteForeignEchoReference(ctx context.Context, echoingReedID string) (deleted bool, err error) {
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM reed_echoes WHERE echoing_reed_id = $1
+	`, echoingReedID)
+	if err != nil {
+		return false, fmt.Errorf("delete foreign echo reference: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // ReplyCountNotifyTargetsForAuthor returns distinct ancestors whose subtree
 // counts may change when all of userID's indexed replies are treated as removed.
 func (s *DataService) ReplyCountNotifyTargetsForAuthor(ctx context.Context, userID string) ([]ReedRef, error) {

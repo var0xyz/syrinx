@@ -470,6 +470,8 @@ func main() {
 	api.HandleFunc("/federation/relay/echo-notify", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/relay/reply-removal-notify", h.ReplyRemovalNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reply-removal-notify", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/relay/echo-removal-notify", h.EchoRemovalNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/echo-removal-notify", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")
