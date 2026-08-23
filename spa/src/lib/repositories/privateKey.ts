@@ -1,6 +1,5 @@
 import { dbService } from '$lib/services/db';
 import { allowUnsigned } from '$lib/verifiers';
-import { appendFingerprint, parseKeyId } from '$lib/utils/keyId';
 
 /**
  * Local private-key material. Revocation *attestation* (reason, timestamp,
@@ -63,26 +62,3 @@ export class PrivateKeyRepository {
 }
 
 export const privateKeyRepository = new PrivateKeyRepository();
-
-/**
- * One-time v10 migration: re-key every 'privateKeys' row from a bare
- * fingerprint to the canonical userID@serverID/fingerprint form (see db.ts's
- * v10 comment). Must run once per client, after dbService.init()'s store
- * upgrade has completed — called from the app bootstrap load function.
- *
- * A privateKeys row doesn't carry its own owning userID (unlike, say,
- * publicKeys' wire shape), so this assumes every row on this client belongs
- * to the currently signed-in user (localStorage 'userId', already
- * canonical) — true today since there's no multi-account switching in this
- * app. Rows whose keyPath already looks canonical (a prior run, or a fresh
- * v10+ client) are left untouched.
- */
-export async function migratePrivateKeyFingerprintsV10(canonicalUserId: string): Promise<void> {
-  const rows = await dbService.getAll<PrivateKey>('privateKeys');
-  for (const row of rows) {
-    if (parseKeyId(row.fingerprint)) continue; // already canonical
-    const canonicalFingerprint = appendFingerprint(canonicalUserId, row.fingerprint);
-    await dbService.delete('privateKeys', row.fingerprint);
-    await dbService.put('privateKeys', { ...row, fingerprint: canonicalFingerprint }, allowUnsigned);
-  }
-}

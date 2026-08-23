@@ -38,52 +38,14 @@ export class IndexedDbService implements DbService {
   private readonly dbName = 'Syrinx';
   // Bumping `version` must NOT wipe existing stores — see onupgradeneeded
   // below, which is additive: it only creates stores/indexes that don't
-  // exist yet on this client, never deletes anything. A prior version of
-  // this file deleted every object store on every bump (even when only
-  // one new store was added), unconditionally wiping privateKeys,
-  // unsignedReeds, and everything else on every client on every feature
-  // deploy that touched IndexedDB. There is no "clients resync from the
-  // server" fallback for privateKeys/unsignedReeds — the server never
-  // holds a copy of either — so that was outright, permanent data loss
-  // for every user on every such deploy, not a cache-miss.
-  //
-  // v8: 'reeds' keyPath became [userID, id] (was 'id' alone) — a reed ID
-  // is only unique per author, not globally, so a single-string key let
-  // one author's cached reed silently overwrite another's on an ID
-  // collision.
-  // v9: added 'ripples', keyed by hash (content-addressed, globally
-  // unique — see specs/ripples/00_design.md's Signing section).
-  // v10: user-key fingerprints became canonical (userID@serverID/fingerprint,
-  // was bare) on 'privateKeys', 'publicKeys', 'revocations', and
-  // 'pendingRevocation'. keyPath stays 'fingerprint' on all four — only the
-  // VALUE shape changed, not the key structure — but an existing bare-keyed
-  // row can never match a canonical-keyed lookup again, so it's dead weight.
-  // 'publicKeys'/'revocations' are pure server mirrors (the "no resync
-  // fallback" warning above does NOT apply to them — only to
-  // privateKeys/unsignedReeds); they're cleared here and repopulate on next
-  // use via the existing fetch-on-miss paths. 'privateKeys' (irreplaceable
-  // local-only key material) and 'pendingRevocation' (unsynced local intent)
-  // must NOT be cleared — see migratePrivateKeyFingerprintsV10 in
-  // repositories/privateKey.ts and pendingRevocation.ts, called once from
-  // app bootstrap after this store upgrade completes.
-  //
-  // v11: the wire types backing these two stores were renamed
-  // (PublicKey.fingerprint -> id; KeyRevocation.fingerprint -> id, the
-  // revoked key's own id — see the public_keys backend unification), so
-  // keyPath is dropped and recreated on the field the wire type actually
-  // carries now, instead of forcing every write site to fabricate a
-  // redundant `fingerprint` alias property just to satisfy the old
-  // keyPath. Both stores are pure server mirrors (same "no resync
-  // fallback" exemption as v10 above) — dropped and recreated rather than
-  // re-keying rows in place; they repopulate on next use via the existing
-  // fetch-on-miss paths.
-  //
-  // v12: reed ids are now globally canonical (authorID@serverID/uuid, was
-  // author-scoped-only), so 'reeds' collapses from compound [userID, id]
-  // to a single-string keyPath 'id' — same shape as 'ripples'. Pre-launch,
-  // no production data to preserve, so like publicKeys/revocations it's
-  // dropped and recreated rather than migrated in place; it repopulates
-  // from the server on next use via the existing fetch paths.
+  // exist yet on this client, never deletes anything, except for
+  // 'publicKeys'/'revocations'/'reeds' (pure server mirrors, dropped and
+  // recreated on a keyPath change since IndexedDB keyPaths are immutable —
+  // they repopulate on next use via the existing fetch-on-miss paths).
+  // privateKeys (irreplaceable local-only key material) and
+  // unsignedReeds/pendingRevocation/etc (unsynced local intent) are never
+  // dropped — there is no "clients resync from the server" fallback for
+  // them, the server never holds a copy.
   private readonly version = 12;
   private readonly storeNames = [
     ['following',   'userId'     ],
