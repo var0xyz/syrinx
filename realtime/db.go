@@ -1277,6 +1277,26 @@ func (ds *DBService) CreateForeignPendingEvent(ctx context.Context, eventID, hom
 	return err
 }
 
+// GetForeignPendingEvent resolves the originating server's own event_id
+// to its foreign_pending_events row — used when O needs to notify H that
+// delivery was verified and acked (the peer_event_id and home server to
+// call), the reverse direction of GetForeignPendingEventByPeerEventID.
+func (ds *DBService) GetForeignPendingEvent(ctx context.Context, eventID string) (*ForeignPendingEvent, error) {
+	var fpe ForeignPendingEvent
+	err := ds.db.QueryRowContext(ctx, `
+		SELECT event_id, home_server_id, peer_event_id
+		FROM foreign_pending_events
+		WHERE event_id = $1
+	`, eventID).Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &fpe, nil
+}
+
 // GetForeignPendingEventByPeerEventID resolves a home server's callback
 // (deliver/cancel) back to the originating server's local event. The
 // homeServerID filter doubles as an ownership check: only the peer that

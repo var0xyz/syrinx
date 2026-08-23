@@ -227,6 +227,7 @@ func main() {
 	realtimeService.SetForeignSubscribeProfileHook(h.subscribeProfileToPeer)
 	realtimeService.SetForeignDeliverHook(h.deliverRelayResponseToPeer)
 	realtimeService.SetForeignCancelHook(h.cancelRelayRequestWithPeer)
+	realtimeService.SetForeignAckHook(h.ackRelayDeliveryWithPeer)
 	realtimeService.SetDeviceCheck(func(userID, deviceID string) error {
 		// userID arrives already in "userID@serverID" form (see
 		// realtime/auth.go), and CheckActiveDevice expects that same
@@ -448,6 +449,8 @@ func main() {
 	api.HandleFunc("/federation/relay/deliver", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/relay/cancel", h.CancelRelayRequestFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/cancel", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/relay/ack", h.AckRelayDeliveryFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/ack", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")

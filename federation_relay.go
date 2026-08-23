@@ -418,3 +418,75 @@ func (h *Handlers) CancelRelayRequestFromPeer(w http.ResponseWriter, r *http.Req
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// ///////////////////////////////////// //
+//   Leg 5: ack-delivered (O -> H)       //
+// ///////////////////////////////////// //
+//
+// Closes the loop left open by legs 1-4: once O's viewer verifies
+// delivered content and O persists its own local allocation, O tells H
+// so H can mirror that allocation against its per-peer sentinel. Without
+// this, H has no way to know a relay actually landed, so every future
+// profile-subscribe backfill re-offers content the peer already holds —
+// this is what makes SUBSCRIBE_PROFILE's cross-server bridge behave like
+// the local case (skip what's already held) instead of resending
+// everything on every visit.
+
+type relayAckPayload struct {
+	PeerEventID string `json:"peer_event_id"`
+}
+
+// ackRelayDeliveryWithPeer is the foreignAckHook implementation (leg 5,
+// O's side): tells homeServerID that peerEventID's delivered content was
+// verified and locally allocated. O has already persisted its own
+// allocation before this call — a failure here only leaves H's
+// bookkeeping stale, never loses O's own record of what its viewer holds.
+func (h *Handlers) ackRelayDeliveryWithPeer(ctx context.Context, homeServerID, peerEventID string) error {
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayAckPayload{PeerEventID: peerEventID}
+	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/ack", payload, nil)
+	return err
+}
+
+// AckRelayDeliveryFromPeer is leg 5's home-server handler: the
+// originating server's local viewer verified and allocated the delivered
+// content; mirror that allocation against this peer's sentinel identity
+// so future GetUnallocatedReeds-style queries for it stop re-offering
+// content already successfully relayed.
+func (h *Handlers) AckRelayDeliveryFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayAckPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.PeerEventID = strings.TrimSpace(req.PeerEventID)
+	if req.PeerEventID == "" {
+		writeResponse(w, http.StatusBadRequest, "peer_event_id is required")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		internalServerError(w)
+		return
+	}
+	if err := h.realtimeRelay.HandleForeignAck(r.Context(), req.PeerEventID, peerServerID); err != nil {
+		log.Error().Err(err).Str("peerEventID", req.PeerEventID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign ack")
+		writeResponse(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
