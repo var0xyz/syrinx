@@ -48,6 +48,7 @@ type RealtimeService struct {
 	foreignDeliverHook          ForeignDeliverHook
 	foreignCancelHook           ForeignCancelHook
 	foreignSubscribeProfileHook ForeignSubscribeProfileHook
+	foreignAckHook              ForeignAckHook
 }
 
 // NewService creates a new realtime service. serverID is this server's own
@@ -127,6 +128,24 @@ type ForeignCancelHook func(ctx context.Context, homeServerID, peerEventID strin
 // SetForeignCancelHook installs the leg-4 (cancel-request) hook.
 func (rs *RealtimeService) SetForeignCancelHook(hook ForeignCancelHook) {
 	rs.foreignCancelHook = hook
+}
+
+// ForeignAckHook notifies homeServerID over peer HTTP (leg 5) that
+// peerEventID's delivered content was verified and locally allocated on
+// the originating server — the home server should mirror that
+// allocation on its own side (against its per-peer sentinel) so a
+// future GetUnallocatedReeds-style query for this peer excludes it,
+// instead of re-offering content the peer already has on every
+// subscribe. Fire-and-forget: the originating server has already
+// persisted its own allocation before calling this (the client's
+// verified content is never lost even if this notification fails —
+// only the home server's bookkeeping goes stale, the same pre-existing
+// class of gap as an unacked local pending event).
+type ForeignAckHook func(ctx context.Context, homeServerID, peerEventID string) error
+
+// SetForeignAckHook installs the leg-5 (ack-delivered) hook.
+func (rs *RealtimeService) SetForeignAckHook(hook ForeignAckHook) {
+	rs.foreignAckHook = hook
 }
 
 // DisconnectUser closes all WebSocket connections for a user (device rebind kick).
@@ -1377,6 +1396,42 @@ func (rs *RealtimeService) CancelForeignPendingEvent(ctx context.Context, peerEv
 	return rs.dbService.DeletePendingEvent(ctx, peerEventID)
 }
 
+// HandleForeignAck runs on the home server (H): the originating server's
+// local viewer verified and locally allocated the delivered content, so
+// H mirrors that allocation against its own per-peer sentinel identity —
+// this is what makes a future GetUnallocatedReeds-style query for that
+// peer stop re-offering content it already relayed successfully, closing
+// the loop that previously made every profile subscribe resend
+// everything regardless of what the peer already held. Idempotent (same
+// ON CONFLICT DO NOTHING as a real client's AllocateReed) and, like
+// CancelForeignPendingEvent, drops the now-fully-resolved pending_events
+// row — there is no further use for it once the ack lands.
+func (rs *RealtimeService) HandleForeignAck(ctx context.Context, peerEventID, callerServerID string) error {
+	frr, err := rs.dbService.GetForeignRelayRequest(ctx, peerEventID)
+	if err != nil {
+		return err
+	}
+	if frr == nil {
+		return nil
+	}
+	if frr.RequestingServerID != callerServerID {
+		return errForeignRelayOwnershipMismatch
+	}
+
+	pe, err := rs.dbService.GetPendingReedEvent(ctx, peerEventID)
+	if err != nil {
+		return err
+	}
+	if pe == nil {
+		return nil
+	}
+
+	if _, err := rs.dbService.AllocateReed(ctx, pe.ReedID, pe.RequesterUserID); err != nil {
+		return err
+	}
+	return rs.dbService.DeletePendingEvent(ctx, peerEventID)
+}
+
 // handlePublishReady runs new-reed fanout when a pending_fanout row exists.
 func (rs *RealtimeService) handlePublishReady(client *Client, data json.RawMessage) {
 	var ready PublishReadyData
@@ -1613,8 +1668,25 @@ func (rs *RealtimeService) handleDataAck(client *Client, data DataAckData) {
 			changed, err := rs.dbService.AllocateReed(context.Background(), pe.ReedID, client.userID)
 			if err != nil {
 				log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to allocate reed on data ack")
-			} else if changed {
-				rs.notifyReedCoverage(pe.ReedID)
+			} else {
+				if changed {
+					rs.notifyReedCoverage(pe.ReedID)
+				}
+				// Notify the home server AFTER our own allocation is
+				// persisted, never before — the viewer already verified
+				// and holds this content regardless of whether this
+				// notification succeeds, so a failed/lost call here only
+				// makes the home server's bookkeeping stale, not this
+				// server's. See ForeignAckHook's doc comment.
+				if rs.foreignAckHook != nil {
+					if fpe, ferr := rs.dbService.GetForeignPendingEvent(context.Background(), eventID); ferr != nil {
+						log.Error().Err(ferr).Str("eventID", eventID).Msg("Failed to look up foreign pending event for ack notify")
+					} else if fpe != nil {
+						if err := rs.foreignAckHook(context.Background(), fpe.HomeServerID, fpe.PeerEventID); err != nil {
+							log.Error().Err(err).Str("eventID", eventID).Str("homeServerID", fpe.HomeServerID).Msg("Failed to notify home server of delivered ack")
+						}
+					}
+				}
 			}
 		}
 	}
