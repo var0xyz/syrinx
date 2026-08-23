@@ -7,7 +7,6 @@ import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
 import { revocationRepository } from '$lib/repositories/revocation';
 import { allowUnsigned } from '$lib/verifiers';
-import { appendFingerprint, parseKeyId } from '$lib/utils/keyId';
 
 export interface PendingRevocationRecord {
   fingerprint: string;          // old key — keyPath
@@ -90,29 +89,3 @@ export const pendingRevocationRepository = {
     }
   },
 };
-
-/**
- * One-time v10 migration: re-key every 'pendingRevocation' row from bare
- * fingerprint/newFingerprint to the canonical userID@serverID/fingerprint
- * form (see db.ts's v10 comment). Unlike privateKeys, each row already
- * carries its own owning userId, so no session-state assumption is needed
- * here. Must run once per client, after dbService.init()'s store upgrade
- * has completed — called from the app bootstrap load function. This is an
- * unsynced local outbox entry (the user already submitted intent to
- * revoke), so rows are re-keyed in place, never cleared.
- */
-export async function migratePendingRevocationFingerprintsV10(): Promise<void> {
-  const rows = await dbService.getAll<PendingRevocationRecord>('pendingRevocation');
-  for (const row of rows) {
-    if (parseKeyId(row.fingerprint)) continue; // already canonical
-    const canonicalUserId = row.userId;
-    const canonicalFingerprint = appendFingerprint(canonicalUserId, row.fingerprint);
-    const canonicalNewFingerprint = appendFingerprint(canonicalUserId, row.newFingerprint);
-    await dbService.delete('pendingRevocation', row.fingerprint);
-    await dbService.put(
-      'pendingRevocation',
-      { ...row, fingerprint: canonicalFingerprint, newFingerprint: canonicalNewFingerprint },
-      allowUnsigned
-    );
-  }
-}
