@@ -3515,12 +3515,20 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 	if !ok || ownerServerID != peerServerID {
 		return nil, fmt.Errorf("peer %s returned a key for a different server", peerServerID)
 	}
+	// serverSignature.armor travels base64-encoded on the wire, same as
+	// key.Armor above (see GetKey/verifyPublicKey's own base64 handling of
+	// this same field) — only successorSignature on a revocation cert is
+	// raw armor.
+	serverSigArmor, err := encoding.Base64Decode(key.ServerSignature.Armor)
+	if err != nil {
+		return nil, fmt.Errorf("decode peer key server signature: %w", err)
+	}
 	keyPayload := identity.BuildPublicKeyPayload(
 		peerServerID, key.UserID, key.ID,
 		key.ServerSignature.Fingerprint, armor,
 		key.ServerSignature.SignedAt,
 	)
-	if err := h.services.crypto.VerifySignature(string(keyPayload), key.ServerSignature.Armor, serverKeyArmor); err != nil {
+	if err := h.services.crypto.VerifySignature(string(keyPayload), serverSigArmor, serverKeyArmor); err != nil {
 		return nil, fmt.Errorf("peer %s key countersignature verification failed: %w", peerServerID, err)
 	}
 
