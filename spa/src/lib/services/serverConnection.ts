@@ -15,27 +15,28 @@ export type ServerEventHandler = (data: any) => void;
 type PendingRequest = { resolve: (data: any) => void; reject: (err: any) => void };
 
 export enum ServerEvent {
-  AccountRemoved   = 'ACCOUNT_REMOVED',
-  BroadcastReed    = 'BROADCAST_REED',
-  DataResponse     = 'DATA_RESPONSE',
-  FollowReed       = 'FOLLOW_REED',
-  PipeReed         = 'PIPE_REED',
-  PublishReadyAck  = 'PUBLISH_READY_ACK',
-  ReedCoverage     = 'REED_COVERAGE',
-  ReedEchoes       = 'REED_ECHOES',
-  ReedLikes        = 'REED_LIKES',
-  ReedNotFound     = 'REED_NOT_FOUND',
-  ReedNotHeld      = 'REED_NOT_HELD',
-  ReedNotification = 'reed_notification',
-  ReedRemoved      = 'REED_REMOVED',
-  ReedReplies      = 'REED_REPLIES',
-  ReedReply        = 'REED_REPLY',
-  ReedStats        = 'REED_STATS',
-  RelayRequest     = 'RELAY_REQUEST',
-  RequestAck       = 'REQUEST_ACK',
-  RipplePosted     = 'RIPPLE_POSTED',
-  RippleUpdated    = 'RIPPLE_UPDATED',
-  Sigterm          = 'SIGTERM',
+  AccountRemoved       = 'ACCOUNT_REMOVED',
+  BroadcastReed        = 'BROADCAST_REED',
+  DataResponse         = 'DATA_RESPONSE',
+  FollowReed           = 'FOLLOW_REED',
+  InvalidRequestIdError = 'INVALID_REQUEST_ID_ERROR',
+  PipeReed             = 'PIPE_REED',
+  PublishReadyAck      = 'PUBLISH_READY_ACK',
+  ReedCoverage         = 'REED_COVERAGE',
+  ReedEchoes           = 'REED_ECHOES',
+  ReedLikes            = 'REED_LIKES',
+  ReedNotFound         = 'REED_NOT_FOUND',
+  ReedNotHeld          = 'REED_NOT_HELD',
+  ReedNotification     = 'reed_notification',
+  ReedRemoved          = 'REED_REMOVED',
+  ReedReplies          = 'REED_REPLIES',
+  ReedReply            = 'REED_REPLY',
+  ReedStats            = 'REED_STATS',
+  RelayRequest         = 'RELAY_REQUEST',
+  RequestAck           = 'REQUEST_ACK',
+  RipplePosted         = 'RIPPLE_POSTED',
+  RippleUpdated        = 'RIPPLE_UPDATED',
+  Sigterm              = 'SIGTERM',
 }
 
 class ServerConnection {
@@ -227,6 +228,20 @@ class ServerConnection {
               pending.reject(new Error(message.type === ServerEvent.ReedNotHeld ? 'reed_not_held' : 'reed_not_found'));
               this.pendingRequests.delete(requestId);
             }
+          } else if (message.type === ServerEvent.InvalidRequestIdError) {
+            // The server rejected a request_id we minted (malformed, or
+            // its identity doesn't match this connection) — the server
+            // never created any pending state for it, so just discard our
+            // own local record rather than retry it.
+            const requestId = message.data.request_id;
+            console.warn('ServerConnection: request_id rejected by server, discarding:', requestId);
+            this.dispatchedReedRequests.delete(requestId);
+            void reedRequestsRepository.delete(requestId);
+            const pending = this.pendingRequests.get(requestId);
+            if (pending) {
+              pending.reject(new Error('invalid_request_id'));
+              this.pendingRequests.delete(requestId);
+            }
           }
 
           this.emit(message.type, message.data ?? message);
@@ -324,7 +339,8 @@ class ServerConnection {
   }
 
   async requestReedContent(reedId: string, authorId: string, serverId: string): Promise<any> {
-    const requestId = computeReedRequestId(serverId, authorId, reedId);
+    const requesterId = localStorage.getItem('userId') ?? '';
+    const requestId = computeReedRequestId(requesterId, serverId, authorId, reedId);
     const held = await reedsService.getReed(refForReed(authorId, reedId));
     if (held) return held;
 
@@ -384,7 +400,8 @@ class ServerConnection {
   }
 
   syncRequest(): void {
-    const requestId = crypto.randomUUID();
+    const requesterId = localStorage.getItem('userId') ?? '';
+    const requestId = `${requesterId}/${crypto.randomUUID()}`;
     sessionStorage.setItem('syncRequestId', requestId);
     this.send({ type: 'SYNC_REQUEST', data: { request_id: requestId } });
     startReedRequestDrainer();

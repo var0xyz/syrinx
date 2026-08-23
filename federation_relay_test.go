@@ -76,7 +76,7 @@ func TestRelayRequestFromPeer_RejectsMissingFields(t *testing.T) {
 
 func TestRelayRequestFromPeer_AcceptsAuthorLocalToThisServer(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
-	body := `{"reed_id":"01a026d4","author_id":"alice@home1234","requester_user_id":"bob@peer5678","peer_request_id":"r1"}`
+	body := `{"reed_id":"01a026d4","author_id":"alice@home1234","requester_user_id":"bob@peer5678","peer_request_id":"bob@peer5678/r1"}`
 	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/request", strings.NewReader(body)), "peer5678")
 	rr := httptest.NewRecorder()
 
