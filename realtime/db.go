@@ -416,6 +416,41 @@ func (ds *DBService) DeleteProfileSubscriptionsByViewer(ctx context.Context, use
 	return err
 }
 
+// ViewerSubscription is one of a viewer's own active profile subscriptions
+// (the reverse of ProfileSubscriber, which is keyed by author instead).
+type ViewerSubscription struct {
+	SubscriptionID string
+	AuthorUserID   string
+}
+
+// GetProfileSubscriptionsByViewer lists a viewer's active subscriptions —
+// used on disconnect to notify any foreign authors' home servers before
+// DeleteProfileSubscriptionsByViewer removes the local rows.
+func (ds *DBService) GetProfileSubscriptionsByViewer(ctx context.Context, userID string) ([]ViewerSubscription, error) {
+	selfIdentity := identity.IdentityID(userID)
+	rows, err := ds.db.QueryContext(ctx, `
+		SELECT subscription_id, author_user_id
+		FROM profile_subscriptions
+		WHERE viewer_user_id = $1
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []ViewerSubscription
+	for rows.Next() {
+		var sub ViewerSubscription
+		var author identity.IdentityID
+		if err := rows.Scan(&sub.SubscriptionID, &author); err != nil {
+			return nil, err
+		}
+		sub.AuthorUserID = string(author)
+		subs = append(subs, sub)
+	}
+	return subs, rows.Err()
+}
+
 // ReedCoverageTarget identifies a reed whose holder count changed.
 type ReedCoverageTarget struct {
 	AuthorUserID string
@@ -1403,6 +1438,23 @@ func (ds *DBService) UpsertReedIdentity(ctx context.Context, reedID string) erro
 		VALUES ($1, $2)
 		ON CONFLICT (id) DO NOTHING
 	`, reedID, serverID)
+	return err
+}
+
+// UpsertRemoteIdentity lazily creates a minimal, unverified identities row
+// for a foreign user this server needs to reference (e.g. as a
+// profile_subscriptions.viewer_user_id) but has no local users row for.
+// Mirrors the root package's DataService.UpsertRemoteIdentity exactly.
+func (ds *DBService) UpsertRemoteIdentity(ctx context.Context, canonicalID, remoteServerID string) error {
+	bareUserID, _, ok := identity.ParseIdentityID(identity.IdentityID(canonicalID))
+	if !ok {
+		return fmt.Errorf("malformed identity id: %s", canonicalID)
+	}
+	_, err := ds.db.ExecContext(ctx, `
+		INSERT INTO identities (id, remote_user_id, server_id, verified)
+		VALUES ($1, $2, $3, FALSE)
+		ON CONFLICT (id) DO NOTHING
+	`, canonicalID, bareUserID, remoteServerID)
 	return err
 }
 

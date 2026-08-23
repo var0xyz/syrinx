@@ -490,3 +490,86 @@ func (h *Handlers) AckRelayDeliveryFromPeer(w http.ResponseWriter, r *http.Reque
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// ///////////////////////////////////////// //
+//   Leg 7: unsubscribe-profile (O -> H)     //
+// ///////////////////////////////////////// //
+//
+// Teardown counterpart of leg 1b: without this, UNSUBSCRIBE_PROFILE only
+// ever updated O's own bookkeeping, so H kept fanning out to a departed
+// viewer's sentinel-attributed pending events forever.
+
+type relayUnsubscribePayload struct {
+	AuthorID        string `json:"author_id"`
+	RequesterUserID string `json:"requester_user_id"`
+}
+
+// unsubscribeProfileWithPeer is the foreignUnsubscribeProfileHook
+// implementation (leg 7, O's side): tells authorID's home server that
+// requesterUserID no longer wants live fanout.
+func (h *Handlers) unsubscribeProfileWithPeer(ctx context.Context, authorID, requesterUserID string) error {
+	_, homeServerID, ok := identity.ParseIdentityID(identity.IdentityID(authorID))
+	if !ok {
+		return nil
+	}
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayUnsubscribePayload{AuthorID: authorID, RequesterUserID: requesterUserID}
+	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/unsubscribe", payload, nil)
+	return err
+}
+
+// RelayUnsubscribeProfileFromPeer is leg 7's home-server handler: an
+// established peer's viewer no longer wants live fanout for one of this
+// server's authors.
+func (h *Handlers) RelayUnsubscribeProfileFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayUnsubscribePayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.AuthorID = strings.TrimSpace(req.AuthorID)
+	req.RequesterUserID = strings.TrimSpace(req.RequesterUserID)
+	if req.AuthorID == "" || req.RequesterUserID == "" {
+		writeResponse(w, http.StatusBadRequest, "author_id and requester_user_id are required")
+		return
+	}
+
+	// Loop-prevention/spoof guard: this server can only ever be "home" for
+	// authors it hosts locally, and a peer may only unsubscribe its own
+	// users — never claim to act on behalf of a third server's user.
+	_, authorServerID, authorOK := identity.ParseIdentityID(identity.IdentityID(req.AuthorID))
+	if !authorOK || authorServerID != h.services.db.GetServerID() {
+		writeResponse(w, http.StatusBadRequest, "author_id is not local to this server")
+		return
+	}
+	_, requesterServerID, requesterOK := identity.ParseIdentityID(identity.IdentityID(req.RequesterUserID))
+	if !requesterOK || requesterServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		internalServerError(w)
+		return
+	}
+	if err := h.realtimeRelay.HandleForeignUnsubscribeProfile(r.Context(), req.AuthorID, req.RequesterUserID); err != nil {
+		log.Error().Err(err).Str("authorID", req.AuthorID).Str("requesterUserID", req.RequesterUserID).Msg("Failed to handle foreign profile unsubscribe")
+		internalServerError(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
