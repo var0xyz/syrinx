@@ -50,6 +50,9 @@ type RealtimeService struct {
 	foreignSubscribeProfileHook   ForeignSubscribeProfileHook
 	foreignAckHook                ForeignAckHook
 	foreignUnsubscribeProfileHook ForeignUnsubscribeProfileHook
+	foreignSubscribeReedHook      ForeignSubscribeReedHook
+	foreignUnsubscribeReedHook    ForeignUnsubscribeReedHook
+	foreignReedStatsHook          ForeignReedStatsHook
 }
 
 // NewService creates a new realtime service. serverID is this server's own
@@ -142,6 +145,31 @@ type ForeignUnsubscribeProfileHook func(ctx context.Context, authorID, requestin
 // SetForeignUnsubscribeProfileHook installs the leg-7 (unsubscribe-profile) hook.
 func (rs *RealtimeService) SetForeignUnsubscribeProfileHook(hook ForeignUnsubscribeProfileHook) {
 	rs.foreignUnsubscribeProfileHook = hook
+}
+
+// ForeignUnsubscribeReedHook notifies reedID's home server over peer HTTP
+// that requestingUserID no longer wants live stats for it — the teardown
+// counterpart of ForeignSubscribeReedHook's registration (leg 8).
+type ForeignUnsubscribeReedHook func(ctx context.Context, reedID, requestingUserID string) error
+
+// SetForeignUnsubscribeReedHook installs the leg-9 (unsubscribe-reed) hook.
+func (rs *RealtimeService) SetForeignUnsubscribeReedHook(hook ForeignUnsubscribeReedHook) {
+	rs.foreignUnsubscribeReedHook = hook
+}
+
+// ForeignReedStatsHook pushes a pre-built WS message (REED_COVERAGE,
+// REED_ECHOES, REED_REPLIES, REED_LIKES, RIPPLE_POSTED, or
+// RIPPLE_UPDATED — already JSON-marshaled) to requestingServerID over
+// peer HTTP (leg 10), for one reed-stats subscriber on that peer. Opaque
+// payload, not a typed snapshot: the receiving server relays it to its
+// own local client unmodified, exactly like every other relayed-content
+// path in this file — the client independently verifies whatever needs
+// verifying (a ripple's signature; a bare count needs none).
+type ForeignReedStatsHook func(ctx context.Context, requestingServerID, requestingUserID string, payload json.RawMessage) error
+
+// SetForeignReedStatsHook installs the leg-10 (reed-stats push) hook.
+func (rs *RealtimeService) SetForeignReedStatsHook(hook ForeignReedStatsHook) {
+	rs.foreignReedStatsHook = hook
 }
 
 // ForeignAckHook notifies homeServerID over peer HTTP (leg 5) that
@@ -744,6 +772,31 @@ func (rs *RealtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 			Msg("Failed to delete profile subscriptions on disconnect")
 	}
 
+	// Same treatment for reed-stats subscriptions: notify foreign reeds'
+	// home servers before the local rows are deleted below.
+	if rs.foreignUnsubscribeReedHook != nil {
+		reedSubs, err := rs.dbService.GetReedSubscriptionsByViewer(context.Background(), userID)
+		if err != nil {
+			log.Error().Err(err).Str("userID", userID).Msg("Failed to load reed subscriptions on disconnect")
+		} else {
+			for _, sub := range reedSubs {
+				if foreign, _ := rs.isForeignReed(sub.ReedID); foreign {
+					if err := rs.foreignUnsubscribeReedHook(context.Background(), sub.ReedID, userID); err != nil {
+						log.Error().Err(err).Str("reedID", sub.ReedID).Msg("Failed to notify home server of reed stats unsubscribe on disconnect")
+					}
+				}
+			}
+		}
+	}
+
+	// Clean up any active reed-stats subscriptions for this viewer
+	if err := rs.dbService.DeleteReedSubscriptionsByViewer(context.Background(), userID); err != nil {
+		log.Error().
+			Str("userID", userID).
+			Err(err).
+			Msg("Failed to delete reed subscriptions on disconnect")
+	}
+
 	log.Info().
 		Str("userID", userID).
 		Msg("WebSocket client disconnected")
@@ -1155,7 +1208,7 @@ func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessag
 		return
 	}
 
-	exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), reedID, client.userID, client.userID, requestID, true)
+	exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), reedID, client.userID, client.userID, requestID, true, RequestReedEvent)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed request")
 		return
@@ -1219,7 +1272,7 @@ func (rs *RealtimeService) validateRequestID(id, requesterUserID string) bool {
 // sentinel-bookkeeping path, where requesterUserID is the sentinel (to
 // satisfy pending_events' FK) but eventIdentity is the ORIGINAL remote
 // requester, so the event_id still names who actually asked.
-func (rs *RealtimeService) registerReedRequest(ctx context.Context, reedID, requesterUserID, eventIdentity, requestID string, dropRequesterAllocation bool) (exists, hasHolders bool, eventID string, err error) {
+func (rs *RealtimeService) registerReedRequest(ctx context.Context, reedID, requesterUserID, eventIdentity, requestID string, dropRequesterAllocation bool, eventName EventName) (exists, hasHolders bool, eventID string, err error) {
 	exists, err = rs.dbService.ReedExists(ctx, reedID)
 	if err != nil {
 		return false, false, "", err
@@ -1246,7 +1299,7 @@ func (rs *RealtimeService) registerReedRequest(ctx context.Context, reedID, requ
 	}
 
 	eventID = generateEventID(eventIdentity)
-	if err = rs.dbService.CreatePendingReedEvent(ctx, eventID, requestID, requesterUserID, RequestReedEvent, reedID); err != nil {
+	if err = rs.dbService.CreatePendingReedEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID); err != nil {
 		return false, false, "", err
 	}
 
@@ -1328,7 +1381,7 @@ func (rs *RealtimeService) HandleForeignRequestReed(ctx context.Context, canonic
 	// code that ever surfaces it (logging, future features) reflects who
 	// actually asked, not this server's internal bookkeeping stand-in.
 	requestID := generateEventID(requestingUserID)
-	exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, canonicalReedID, sentinelUserID, requestingUserID, requestID, false)
+	exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, canonicalReedID, sentinelUserID, requestingUserID, requestID, false, RequestReedEvent)
 	if err != nil {
 		return ForeignRequestReedNotFound, "", err
 	}
@@ -1395,7 +1448,7 @@ func (rs *RealtimeService) HandleForeignSubscribeProfile(ctx context.Context, au
 
 	for _, reedID := range reedIDs {
 		requestID := generateEventID(requestingUserID)
-		exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, reedID, sentinelUserID, requestingUserID, requestID, false)
+		exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, reedID, sentinelUserID, requestingUserID, requestID, false, RequestReedEvent)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed for foreign profile subscription")
 			continue
@@ -1438,7 +1491,13 @@ func (rs *RealtimeService) HandleForeignRelayResponse(ctx context.Context, peerE
 		return true, nil
 	}
 
-	if err := rs.connManager.SendToUser(pe.RequesterUserID, NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, data)); err != nil {
+	var msg DataResponseMsg
+	if pe.EventName == string(NewReplyEvent) {
+		msg = NewNewReplyMsg(pe.EventID, pe.RequestID, pe.ReedID, data)
+	} else {
+		msg = NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, data)
+	}
+	if err := rs.connManager.SendToUser(pe.RequesterUserID, msg); err != nil {
 		log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver foreign-relayed data response")
 	}
 	return true, nil
@@ -1948,12 +2007,88 @@ func (rs *RealtimeService) HandleForeignUnsubscribeProfile(ctx context.Context, 
 	return rs.dbService.DeleteProfileSubscription(ctx, subscriptionID)
 }
 
+// HandleForeignSubscribeReed is leg 8's home-server logic: a peer's
+// viewer wants live stats for one of this server's reeds. Registers a
+// durable reed_subscriptions row keyed by the real remote viewer (so
+// future stat-change fanout finds them, mirroring
+// HandleForeignSubscribeProfile's own durable registration) and returns
+// the current snapshot to seed the peer's initial REED_STATS. ok=false
+// means the reed doesn't exist (mirrors the local ReedExists guard in
+// handleSubscribeReed).
+func (rs *RealtimeService) HandleForeignSubscribeReed(ctx context.Context, reedID, requestingServerID, requestingUserID string) (snapshot ForeignReedStatsSnapshot, ok bool, err error) {
+	exists, err := rs.dbService.ReedExists(ctx, reedID)
+	if err != nil {
+		return ForeignReedStatsSnapshot{}, false, err
+	}
+	if !exists {
+		return ForeignReedStatsSnapshot{}, false, nil
+	}
+
+	if err := rs.dbService.UpsertRemoteIdentity(ctx, requestingUserID, requestingServerID); err != nil {
+		return ForeignReedStatsSnapshot{}, false, err
+	}
+	if err := rs.dbService.CreateReedSubscription(ctx, generateEventID(requestingUserID), requestingUserID, reedID); err != nil {
+		return ForeignReedStatsSnapshot{}, false, err
+	}
+
+	echoes, coveragePercent, replies, likes, err := rs.dbService.GetReedStatsSnapshot(ctx, reedID)
+	if err != nil {
+		return ForeignReedStatsSnapshot{}, false, err
+	}
+	return ForeignReedStatsSnapshot{
+		Echoes:          echoes,
+		CoveragePercent: coveragePercent,
+		Replies:         replies,
+		Likes:           likes,
+	}, true, nil
+}
+
+// HandleForeignUnsubscribeReed is leg 9's home-server logic: a peer's
+// viewer no longer wants live stats for reedID. Deletes this server's own
+// reed_subscriptions row for that (viewer, reed) pair.
+func (rs *RealtimeService) HandleForeignUnsubscribeReed(ctx context.Context, reedID, requestingUserID string) error {
+	subscriptionID, err := rs.dbService.GetReedSubscription(ctx, requestingUserID, reedID)
+	if err != nil {
+		return err
+	}
+	if subscriptionID == "" {
+		return nil
+	}
+	return rs.dbService.DeleteReedSubscription(ctx, subscriptionID)
+}
+
+// DeliverForeignReedStats runs on the originating server (O): the home
+// server for a reed O's viewer subscribed to (leg 8) is pushing a live
+// stats update (leg 10). requesterUserID must already be a genuine local
+// user — enforced by the HTTP handler before this is called — so this
+// simply relays the opaque, already-typed payload straight to their
+// socket, exactly as it would have arrived from a local
+// SendToReedSubscribers call.
+func (rs *RealtimeService) DeliverForeignReedStats(ctx context.Context, requesterUserID string, payload json.RawMessage) error {
+	return rs.connManager.SendToUser(requesterUserID, json.RawMessage(payload))
+}
+
 func (rs *RealtimeService) handleSubscribeReed(client *Client, msg InboundJSONMsg) {
 	authorID, bareReedID := msg.UserID, msg.ReedID
 	if authorID == "" || bareReedID == "" {
 		return
 	}
 	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
+
+	// Durable registration first (mirrors handleSubscribeProfile): survives
+	// a reconnect and, for a foreign reed, is what lets the home server's
+	// fanout find this viewer at all — connManager's map is in-memory only
+	// and never leaves this process.
+	subscriptionID := generateEventID(client.userID)
+	if err := rs.dbService.CreateReedSubscription(context.Background(), subscriptionID, client.userID, reedID); err != nil {
+		log.Error().Err(err).Str("userID", authorID).Str("reedID", reedID).Msg("Failed to create reed subscription")
+		return
+	}
+
+	if foreign, homeServerID := rs.isForeignReed(reedID); foreign {
+		rs.handleForeignSubscribeReedFromClient(client, authorID, reedID, homeServerID)
+		return
+	}
 
 	exists, err := rs.dbService.ReedExists(context.Background(), reedID)
 	if err != nil {
@@ -1985,6 +2120,60 @@ func (rs *RealtimeService) handleSubscribeReed(client *Client, msg InboundJSONMs
 	}
 }
 
+// ForeignReedStatsSnapshot is the initial stats snapshot returned by a
+// foreign reed's home server when a peer registers a live stats
+// subscription (leg 8).
+type ForeignReedStatsSnapshot struct {
+	Echoes          int
+	CoveragePercent int
+	Replies         int
+	Likes           int
+}
+
+// ForeignSubscribeReedHook registers requesterUserID's interest in
+// reedID's live stats with reedID's home server, returning the current
+// snapshot to seed the initial REED_STATS the same way a local subscribe
+// would. ok=false means the home server reports the reed doesn't exist
+// (mirrors the local ReedExists guard).
+type ForeignSubscribeReedHook func(ctx context.Context, reedID, requesterUserID string) (snapshot ForeignReedStatsSnapshot, ok bool, err error)
+
+// SetForeignSubscribeReedHook installs the leg-8 (subscribe-reed) hook.
+func (rs *RealtimeService) SetForeignSubscribeReedHook(hook ForeignSubscribeReedHook) {
+	rs.foreignSubscribeReedHook = hook
+}
+
+// handleForeignSubscribeReedFromClient is handleSubscribeReed's foreign
+// branch: register live-stats interest with reedID's home server and
+// relay back the initial snapshot. The local reed_subscriptions row was
+// already created by the caller — this only handles the peer round trip
+// and the client's initial REED_STATS.
+func (rs *RealtimeService) handleForeignSubscribeReedFromClient(client *Client, authorID, reedID, homeServerID string) {
+	if rs.foreignSubscribeReedHook == nil {
+		return
+	}
+	snapshot, ok, err := rs.foreignSubscribeReedHook(context.Background(), reedID, client.userID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Str("homeServerID", homeServerID).Msg("Failed to register foreign reed stats subscription")
+		return
+	}
+	if !ok {
+		return
+	}
+
+	stats := ReedStatsMsg{
+		Type:            "REED_STATS",
+		UserID:          authorID,
+		ReedID:          reedID,
+		Echoes:          snapshot.Echoes,
+		CoveragePercent: snapshot.CoveragePercent,
+		Replies:         snapshot.Replies,
+		Likes:           snapshot.Likes,
+	}
+	if err := rs.connManager.SendToClient(client, stats); err != nil {
+		log.Error().Err(err).Str("userID", client.userID).Str("reedID", reedID).Msg("Failed to send REED_STATS for foreign reed")
+	}
+}
+
 func (rs *RealtimeService) handleUnsubscribeReed(client *Client, msg InboundJSONMsg) {
 	authorID, bareReedID := msg.UserID, msg.ReedID
 	if authorID == "" || bareReedID == "" {
@@ -1992,6 +2181,24 @@ func (rs *RealtimeService) handleUnsubscribeReed(client *Client, msg InboundJSON
 	}
 	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
 	rs.connManager.UnsubscribeReed(client, reedID)
+
+	subscriptionID, err := rs.dbService.GetReedSubscription(context.Background(), client.userID, reedID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", authorID).Str("reedID", reedID).Msg("Failed to get reed subscription")
+		return
+	}
+	if subscriptionID == "" {
+		return
+	}
+	if err := rs.dbService.DeleteReedSubscription(context.Background(), subscriptionID); err != nil {
+		log.Error().Err(err).Str("subscriptionID", subscriptionID).Msg("Failed to delete reed subscription")
+	}
+
+	if foreign, homeServerID := rs.isForeignReed(reedID); foreign && rs.foreignUnsubscribeReedHook != nil {
+		if err := rs.foreignUnsubscribeReedHook(context.Background(), reedID, client.userID); err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Str("homeServerID", homeServerID).Msg("Failed to notify home server of reed stats unsubscribe")
+		}
+	}
 }
 
 func (rs *RealtimeService) handleSubscribePipe(client *Client, data json.RawMessage) {
@@ -2026,6 +2233,54 @@ func (rs *RealtimeService) FilterSubscribedPipeTags(tags []string) []string {
 	return rs.connManager.FilterTagsWithListeners(tags)
 }
 
+// notifyForeignReedSubscribers pushes msg (already carrying its own Type
+// field, matching whatever a local reed-stat subscriber would receive
+// over WS) to every foreign viewer durably registered in
+// reed_subscriptions for reedID. Local delivery is unaffected — this only
+// covers the gap connManager's in-memory reedSubscribers map can never
+// close, since it holds no cross-server state at all. Best-effort: a
+// failed peer push only means one viewer misses one update, never
+// retried — same tolerance every other live WS fanout already has for a
+// client that's simply offline.
+func (rs *RealtimeService) notifyForeignReedSubscribers(reedID string, msg any) {
+	rs.notifyForeignReedSubscribersExcept(reedID, "", msg)
+}
+
+// notifyForeignReedSubscribersExcept is notifyForeignReedSubscribers with
+// one viewer skipped — mirrors sendToReedSubscribersExceptAuthor's own
+// exclude param, used by the ripple-push sites so a ripple's own author
+// doesn't get their own content echoed back to another of their devices.
+func (rs *RealtimeService) notifyForeignReedSubscribersExcept(reedID, excludeUserID string, msg any) {
+	if rs.foreignReedStatsHook == nil {
+		return
+	}
+	subs, err := rs.dbService.GetReedSubscribers(context.Background(), reedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load reed subscribers for foreign stats push")
+		return
+	}
+	if len(subs) == 0 {
+		return
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to marshal reed stats push payload")
+		return
+	}
+	for _, sub := range subs {
+		if excludeUserID != "" && sub.ViewerUserID == excludeUserID {
+			continue
+		}
+		foreign, viewerServerID := rs.isForeignReed(sub.ViewerUserID)
+		if !foreign {
+			continue
+		}
+		if err := rs.foreignReedStatsHook(context.Background(), viewerServerID, sub.ViewerUserID, payload); err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Str("viewerUserID", sub.ViewerUserID).Msg("Failed to push reed stats to foreign subscriber")
+		}
+	}
+}
+
 func (rs *RealtimeService) notifyReedCoverage(reedID string) {
 	authorUserID := reedAuthorIdentity(reedID)
 	exists, err := rs.dbService.ReedExists(context.Background(), reedID)
@@ -2052,14 +2307,16 @@ func (rs *RealtimeService) notifyReedCoverage(reedID string) {
 
 	rs.metrics.ReedCoverage(context.Background(), authorUserID, reedID, holders, percent)
 
-	if err := rs.connManager.BroadcastReedCoverage(ReedCoverageMsg{
+	msg := ReedCoverageMsg{
 		Type:            "REED_COVERAGE",
 		UserID:          authorUserID,
 		ReedID:          reedID,
 		CoveragePercent: percent,
-	}); err != nil {
+	}
+	if err := rs.connManager.BroadcastReedCoverage(msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_COVERAGE")
 	}
+	rs.notifyForeignReedSubscribers(reedID, msg)
 }
 
 func (rs *RealtimeService) notifyReedEchoes(reedID string) {
@@ -2074,14 +2331,16 @@ func (rs *RealtimeService) notifyReedEchoes(reedID string) {
 		return
 	}
 
-	if err := rs.connManager.SendToReedSubscribers(reedID, ReedEchoesMsg{
+	msg := ReedEchoesMsg{
 		Type:   "REED_ECHOES",
 		UserID: authorUserID,
 		ReedID: reedID,
 		Echoes: echoes,
-	}); err != nil {
+	}
+	if err := rs.connManager.SendToReedSubscribers(reedID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_ECHOES")
 	}
+	rs.notifyForeignReedSubscribers(reedID, msg)
 }
 
 // notifyReplyAncestorsOfReply walks replyReedID's ancestor chain and relays
@@ -2139,10 +2398,56 @@ func (rs *RealtimeService) notifyReplyAncestorsOfRemoval(removedReedID string, c
 func (rs *RealtimeService) notifyReedSubscribersOfReply(ancestorReedID, replyReedID string) {
 	replyUserID := reedAuthorIdentity(replyReedID)
 	recipients := rs.connManager.ReedSubscriberUserIDs(ancestorReedID, replyUserID)
-	if len(recipients) == 0 {
+	if len(recipients) > 0 {
+		rs.dispatchMany(recipients, ReedReplyEvent, replyReedID)
+	}
+	rs.notifyForeignReedSubscribersOfReply(ancestorReedID, replyReedID, replyUserID)
+}
+
+// notifyForeignReedSubscribersOfReply is notifyReedSubscribersOfReply's
+// foreign-viewer half: reed_subscriptions (durable, cross-server-visible)
+// may hold viewers connManager's in-memory map never sees. A reply is a
+// full new reed going through the real holder-relay system (not a
+// counter), so unlike the lightweight stat push this reuses
+// registerReedRequest + recordForeignRelayRequest — the same
+// registered-pending-event pattern HandleForeignSubscribeProfile and
+// fanoutNewReedCore's foreign branch already use — instead of
+// notifyForeignReedSubscribers.
+func (rs *RealtimeService) notifyForeignReedSubscribersOfReply(ancestorReedID, replyReedID, excludeUserID string) {
+	if rs.foreignDeliverHook == nil {
 		return
 	}
-	rs.dispatchMany(recipients, ReedReplyEvent, replyReedID)
+	subs, err := rs.dbService.GetReedSubscribers(context.Background(), ancestorReedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", ancestorReedID).Msg("Failed to load reed subscribers for foreign reply notify")
+		return
+	}
+	for _, sub := range subs {
+		if sub.ViewerUserID == excludeUserID {
+			continue
+		}
+		foreign, viewerServerID := rs.isForeignReed(sub.ViewerUserID)
+		if !foreign {
+			continue
+		}
+		sentinelUserID, err := rs.dbService.EnsurePeerSentinelUser(context.Background(), viewerServerID)
+		if err != nil {
+			log.Error().Err(err).Str("viewerUserID", sub.ViewerUserID).Msg("Failed to ensure peer sentinel for foreign reed reply notify")
+			continue
+		}
+		requestID := generateEventID(sub.ViewerUserID)
+		exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), replyReedID, sentinelUserID, sub.ViewerUserID, requestID, false, NewReplyEvent)
+		if err != nil {
+			log.Error().Err(err).Str("reedID", replyReedID).Str("viewerUserID", sub.ViewerUserID).Msg("Failed to register foreign reed reply notify")
+			continue
+		}
+		if !exists || !hasHolders {
+			continue
+		}
+		if err := rs.recordForeignRelayRequest(context.Background(), eventID, viewerServerID, sub.ViewerUserID); err != nil {
+			log.Error().Err(err).Str("viewerUserID", sub.ViewerUserID).Msg("Failed to record foreign relay request for reed reply notify")
+		}
+	}
 }
 
 func (rs *RealtimeService) notifyReedReplies(reedID string) {
@@ -2157,14 +2462,16 @@ func (rs *RealtimeService) notifyReedReplies(reedID string) {
 		return
 	}
 
-	if err := rs.connManager.SendToReedSubscribers(reedID, ReedRepliesMsg{
+	msg := ReedRepliesMsg{
 		Type:    "REED_REPLIES",
 		UserID:  authorUserID,
 		ReedID:  reedID,
 		Replies: replies,
-	}); err != nil {
+	}
+	if err := rs.connManager.SendToReedSubscribers(reedID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_REPLIES")
 	}
+	rs.notifyForeignReedSubscribers(reedID, msg)
 }
 
 // notifyRipplePosted pushes a newly posted ripple response to everyone
@@ -2177,14 +2484,16 @@ func (rs *RealtimeService) notifyReedReplies(reedID string) {
 // specs/ripples/00_design.md's Client-side verification section.
 func (rs *RealtimeService) notifyRipplePosted(reedID, rippleAuthorID string, ripple RippleWire) {
 	authorUserID := reedAuthorIdentity(reedID)
-	if err := rs.connManager.sendToReedSubscribersExceptAuthor(reedID, rippleAuthorID, RipplePostedMsg{
+	msg := RipplePostedMsg{
 		Type:   "RIPPLE_POSTED",
 		UserID: authorUserID,
 		ReedID: reedID,
 		Ripple: ripple,
-	}); err != nil {
+	}
+	if err := rs.connManager.sendToReedSubscribersExceptAuthor(reedID, rippleAuthorID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_POSTED")
 	}
+	rs.notifyForeignReedSubscribersExcept(reedID, rippleAuthorID, msg)
 }
 
 // notifyRippleUpdated pushes a soft-deleted ripple response to everyone
@@ -2196,14 +2505,16 @@ func (rs *RealtimeService) notifyRipplePosted(reedID, rippleAuthorID string, rip
 // tombstone short-circuit.
 func (rs *RealtimeService) notifyRippleUpdated(reedID, rippleAuthorID string, ripple RippleWire) {
 	authorUserID := reedAuthorIdentity(reedID)
-	if err := rs.connManager.sendToReedSubscribersExceptAuthor(reedID, rippleAuthorID, RippleUpdatedMsg{
+	msg := RippleUpdatedMsg{
 		Type:   "RIPPLE_UPDATED",
 		UserID: authorUserID,
 		ReedID: reedID,
 		Ripple: ripple,
-	}); err != nil {
+	}
+	if err := rs.connManager.sendToReedSubscribersExceptAuthor(reedID, rippleAuthorID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_UPDATED")
 	}
+	rs.notifyForeignReedSubscribersExcept(reedID, rippleAuthorID, msg)
 }
 
 func (rs *RealtimeService) notifyReedLikes(reedID string) {
@@ -2218,14 +2529,16 @@ func (rs *RealtimeService) notifyReedLikes(reedID string) {
 		return
 	}
 
-	if err := rs.connManager.SendToReedSubscribers(reedID, ReedLikesMsg{
+	msg := ReedLikesMsg{
 		Type:   "REED_LIKES",
 		UserID: authorUserID,
 		ReedID: reedID,
 		Likes:  likes,
-	}); err != nil {
+	}
+	if err := rs.connManager.SendToReedSubscribers(reedID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_LIKES")
 	}
+	rs.notifyForeignReedSubscribers(reedID, msg)
 }
 
 func (rs *RealtimeService) handleSyncRequest(client *Client, data SyncRequestData) {

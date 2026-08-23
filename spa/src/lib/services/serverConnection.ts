@@ -20,6 +20,7 @@ export enum ServerEvent {
   DataResponse         = 'DATA_RESPONSE',
   FollowReed           = 'FOLLOW_REED',
   InvalidRequestIdError = 'INVALID_REQUEST_ID_ERROR',
+  NewReply             = 'NEW_REPLY',
   PipeReed             = 'PIPE_REED',
   PublishReadyAck      = 'PUBLISH_READY_ACK',
   ReedCoverage         = 'REED_COVERAGE',

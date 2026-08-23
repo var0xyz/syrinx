@@ -14,6 +14,7 @@ const (
 	ReedRemovedEvent         EventName = "reed_removed"
 	AccountRemovedEvent      EventName = "account_removed"
 	ReedReplyEvent           EventName = "reed_reply"
+	NewReplyEvent            EventName = "new_reply"
 )
 
 // RelayRequestMsg is sent from the server to a holder to request reed content.
@@ -116,6 +117,26 @@ func NewFollowReedMsg(eventID, requestID, reedID string, data json.RawMessage) D
 func NewReedReplyMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "REED_REPLY",
+		Data: DataResponseData{
+			EventID:   eventID,
+			RequestID: requestID,
+			ReedID:    reedID,
+			Data:      data,
+		},
+	}
+}
+
+// NewNewReplyMsg builds a NEW_REPLY delivery: REED_REPLY's cross-server
+// counterpart, used when the reply's home server relayed it to us on
+// behalf of one of our own users subscribed to the thread (see
+// notifyForeignReedSubscribersOfReply). Kept as a distinct wire type from
+// both REED_REPLY (same-server subscriber push) and DATA_RESPONSE
+// (generic relay delivery) so the client never has to guess which queue
+// an ambiguous delivery belongs in — see reedReplyQueue's own doc comment
+// in the SPA about why reed replies must not be folded into other feeds.
+func NewNewReplyMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
+	return DataResponseMsg{
+		Type: "NEW_REPLY",
 		Data: DataResponseData{
 			EventID:   eventID,
 			RequestID: requestID,

@@ -998,6 +998,112 @@ func (ds *DBService) DeleteProfileSubscription(ctx context.Context, subscription
 	return err
 }
 
+// CreateReedSubscription records an active reed-stats subscription for a
+// viewer. reed_subscriptions.reed_id FKs to reed_identities (not reeds
+// directly), so the subscribed reed may be local or foreign.
+func (ds *DBService) CreateReedSubscription(ctx context.Context, subscriptionID, viewerUserID, reedID string) error {
+	viewerIdentity := identity.IdentityID(viewerUserID)
+	_, err := ds.db.ExecContext(ctx, `
+		INSERT INTO reed_subscriptions (subscription_id, viewer_user_id, reed_id)
+		VALUES ($1, $2, $3)
+	`, subscriptionID, viewerIdentity, reedID)
+	return err
+}
+
+// GetReedSubscription returns the subscription ID for an active (viewer,
+// reed) pair. Returns an empty string when no subscription exists.
+func (ds *DBService) GetReedSubscription(ctx context.Context, viewerUserID, reedID string) (string, error) {
+	viewerIdentity := identity.IdentityID(viewerUserID)
+	var id string
+	err := ds.db.QueryRowContext(ctx, `
+		SELECT subscription_id FROM reed_subscriptions
+		WHERE viewer_user_id = $1 AND reed_id = $2
+	`, viewerIdentity, reedID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
+// DeleteReedSubscription deletes a reed-stats subscription by ID.
+func (ds *DBService) DeleteReedSubscription(ctx context.Context, subscriptionID string) error {
+	_, err := ds.db.ExecContext(ctx, `
+		DELETE FROM reed_subscriptions WHERE subscription_id = $1
+	`, subscriptionID)
+	return err
+}
+
+// DeleteReedSubscriptionsByViewer deletes all reed-stats subscriptions for a given viewer.
+func (ds *DBService) DeleteReedSubscriptionsByViewer(ctx context.Context, userID string) error {
+	selfIdentity := identity.IdentityID(userID)
+	_, err := ds.db.ExecContext(ctx, `DELETE FROM reed_subscriptions WHERE viewer_user_id = $1`, selfIdentity)
+	return err
+}
+
+// ReedSubscriber represents an active reed-stats subscription.
+type ReedSubscriber struct {
+	SubscriptionID string
+	ViewerUserID   string
+}
+
+// GetReedSubscribers returns all active reed-stats subscriptions for the given reed.
+func (ds *DBService) GetReedSubscribers(ctx context.Context, reedID string) ([]ReedSubscriber, error) {
+	rows, err := ds.db.QueryContext(ctx, `
+		SELECT subscription_id, viewer_user_id
+		FROM reed_subscriptions
+		WHERE reed_id = $1
+	`, reedID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subscribers []ReedSubscriber
+	for rows.Next() {
+		var sub ReedSubscriber
+		var viewer identity.IdentityID
+		if err := rows.Scan(&sub.SubscriptionID, &viewer); err != nil {
+			return nil, err
+		}
+		sub.ViewerUserID = string(viewer)
+		subscribers = append(subscribers, sub)
+	}
+	return subscribers, rows.Err()
+}
+
+// ViewerReedSubscription is one of a viewer's own active reed-stats
+// subscriptions (the reverse of ReedSubscriber, which is keyed by reed).
+type ViewerReedSubscription struct {
+	SubscriptionID string
+	ReedID         string
+}
+
+// GetReedSubscriptionsByViewer lists a viewer's active reed-stats
+// subscriptions — used on disconnect to notify any foreign reeds' home
+// servers before DeleteReedSubscriptionsByViewer removes the local rows.
+func (ds *DBService) GetReedSubscriptionsByViewer(ctx context.Context, userID string) ([]ViewerReedSubscription, error) {
+	selfIdentity := identity.IdentityID(userID)
+	rows, err := ds.db.QueryContext(ctx, `
+		SELECT subscription_id, reed_id
+		FROM reed_subscriptions
+		WHERE viewer_user_id = $1
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []ViewerReedSubscription
+	for rows.Next() {
+		var sub ViewerReedSubscription
+		if err := rows.Scan(&sub.SubscriptionID, &sub.ReedID); err != nil {
+			return nil, err
+		}
+		subs = append(subs, sub)
+	}
+	return subs, rows.Err()
+}
+
 // ProfileSubscriber represents an active profile feed subscription.
 type ProfileSubscriber struct {
 	SubscriptionID string

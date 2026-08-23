@@ -179,6 +179,28 @@
         if (eventId) serverConnection.sendDataInvalid(eventId);
       }
     });
+    // NEW_REPLY is REED_REPLY's cross-server counterpart: same content
+    // shape and same reedReplyQueue destination, but delivered via the
+    // federation relay bridge (the reed's home server relayed it through
+    // our own server) instead of a same-server subscriber push. Kept as a
+    // distinct wire type — not reused REED_REPLY or DATA_RESPONSE — so the
+    // client never needs to guess which queue an ambiguous delivery
+    // belongs in.
+    serverConnection.on(ServerEvent.NewReply, async (data) => {
+      const reed = data.data;
+      const eventId = data.event_id;
+
+      try {
+        await reedsService.storeReed(reed);
+        if (eventId) serverConnection.sendDataAck(eventId);
+        removeBroadcastReed(reed.id);
+        dispatchReedToQueue(reed, 'reed_reply');
+        await requestReferencedReeds(reed);
+      } catch (error) {
+        console.warn('ServerConnection: invalid new reply signature, rejecting:', reed?.id, error);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+      }
+    });
     serverConnection.on(ServerEvent.BroadcastReed, async (data) => {
       // Broadcast reeds are ephemeral: never stored in IndexedDB.
       // Followed authors belong in the follow feed only — ignore if we follow them.
