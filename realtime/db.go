@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"syrinx/coverage"
 	"syrinx/deletion"
@@ -627,6 +628,67 @@ func (ds *DBService) ReplyParent(ctx context.Context, reedID string) (parentReed
 		return "", false, err
 	}
 	return parentReedID, true, nil
+}
+
+// ReplyRecord is one reed's full reed_replies row.
+type ReplyRecord struct {
+	ParentReedID string
+	ThreadID     string
+	Timestamp    time.Time
+}
+
+// GetReplyRecord loads reedID's own reed_replies row (parent + thread +
+// timestamp in one query) — used to notify a foreign parent's home
+// server of the reply once, rather than three separate lookups.
+func (ds *DBService) GetReplyRecord(ctx context.Context, reedID string) (*ReplyRecord, error) {
+	var rec ReplyRecord
+	err := ds.db.QueryRowContext(ctx, `
+		SELECT parent_reed_id, thread_id, timestamp
+		FROM reed_replies
+		WHERE reed_id = $1
+	`, reedID).Scan(&rec.ParentReedID, &rec.ThreadID, &rec.Timestamp)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+// InsertForeignReply records that a peer-authored reedID replies to
+// parentReedID (local to this server) — the home-server side of the
+// reply-notify leg. Idempotent (ON CONFLICT DO NOTHING on reed_id, the
+// table's PK): a retried notify is a harmless no-op, not a duplicate.
+// Upserts a reed_identities row for the foreign reply reedID first, the
+// same "legitimate reference" bar every other foreign-reed reference in
+// this server uses.
+func (ds *DBService) InsertForeignReply(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error {
+	_, replyServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(replyReedID))
+	if !ok {
+		return fmt.Errorf("malformed reply reed id: %s", replyReedID)
+	}
+	tx, err := ds.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO reed_identities (id, server_id)
+		VALUES ($1, $2)
+		ON CONFLICT (id) DO NOTHING
+	`, replyReedID, replyServerID); err != nil {
+		return fmt.Errorf("insert foreign reply reed identity: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO reed_replies (thread_id, reed_id, parent_reed_id, timestamp)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (reed_id) DO NOTHING
+	`, threadID, replyReedID, parentReedID, ts.UTC().Truncate(time.Second)); err != nil {
+		return fmt.Errorf("insert foreign reply: %w", err)
+	}
+	return tx.Commit()
 }
 
 // GetSubtreeReplyCount returns live descendant reply count beneath reedID.

@@ -1548,9 +1548,12 @@ func (s *DataService) insertReplyTx(
 	replyReedID string,
 	ts time.Time,
 ) error {
-	// parent_reed_id FKs to reed_identities, which may need a row minted
-	// here for a foreign parent no one on this server has referenced
-	// before — same reasoning as CreateReedWithEcho's echo target.
+	// parent_reed_id and reed_id both FK to reed_identities, which may need
+	// a row minted here for whichever side is foreign to this server:
+	// parent_reed_id when a local reed replies to a foreign one
+	// (CreateReedWithReply's case); reed_id when a foreign server is
+	// telling us about a reply to one of OUR reeds (the peer-notify leg's
+	// case) — a local reed already has its row from its own creation.
 	parentReedID := FormatReedRef(parent)
 	if parent.ServerID != s.serverID {
 		if _, err := tx.ExecContext(ctx, `
@@ -1559,6 +1562,15 @@ func (s *DataService) insertReplyTx(
 			ON CONFLICT (id) DO NOTHING
 		`, parentReedID, parent.ServerID); err != nil {
 			return fmt.Errorf("insert reply parent reed identity: %w", err)
+		}
+	}
+	if _, replyServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(replyReedID)); ok && replyServerID != s.serverID {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reed_identities (id, server_id)
+			VALUES ($1, $2)
+			ON CONFLICT (id) DO NOTHING
+		`, replyReedID, replyServerID); err != nil {
+			return fmt.Errorf("insert reply reed identity: %w", err)
 		}
 	}
 	_, err := tx.ExecContext(ctx, `
@@ -1603,10 +1615,15 @@ func (s *DataService) ListReplies(ctx context.Context, parentReedID string, limi
 	}
 
 	args := []any{parentReedID}
+	// LEFT JOIN, not JOIN: a reply may itself be foreign (reed_id has no
+	// local reeds row), in which case r.user_id is NULL and the
+	// account_removals check below is trivially satisfied — this server
+	// has no way to know a foreign author's removal status anyway, so
+	// "can't tell" correctly falls through to "don't filter it out".
 	query := `
 		SELECT rr2.reed_id, rr2.timestamp
 		FROM reed_replies rr2
-		JOIN reeds r ON r.id = rr2.reed_id
+		LEFT JOIN reeds r ON r.id = rr2.reed_id
 		WHERE rr2.parent_reed_id = $1
 		AND NOT EXISTS (
 			SELECT 1 FROM reed_removals rr
