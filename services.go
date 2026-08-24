@@ -2233,10 +2233,13 @@ func (s *DataService) MentionTargetValid(ctx context.Context, userID, serverID s
 }
 
 // UserSearchResult is one row in a GET /users/search response — minimal
-// fields only, no keys, no bio.
+// fields only, no keys, no bio. ServerName is the servers.name a viewer can
+// read to disambiguate two identically-named usernames on different
+// servers (servers.id is an opaque short id, not meant for display).
 type UserSearchResult struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
+	ID         string `json:"id"`
+	Username   string `json:"username"`
+	ServerName string `json:"serverName"`
 }
 
 // SearchUsers returns users whose username contains query (case-insensitive
@@ -2250,10 +2253,13 @@ func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) 
 	}
 	// account_removals.user_id FKs to identities(id), and u.id is that same
 	// form directly now (identity_id no longer exists as a separate
-	// column) — join against u.id on both sides.
+	// column) — join against u.id on both sides. identities.server_id FKs
+	// to servers.id, so join through it to servers.name for display.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT u.id, u.username
+		SELECT u.id, u.username, s.name
 		FROM users u
+		JOIN identities i ON i.id = u.id
+		JOIN servers s ON s.id = i.server_id
 		WHERE u.username ILIKE '%' || $1 || '%'
 		  AND NOT EXISTS (
 		      SELECT 1 FROM account_removals ar WHERE ar.user_id = u.id
@@ -2269,7 +2275,7 @@ func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) 
 	results := []UserSearchResult{}
 	for rows.Next() {
 		var r UserSearchResult
-		if err := rows.Scan(&r.ID, &r.Username); err != nil {
+		if err := rows.Scan(&r.ID, &r.Username, &r.ServerName); err != nil {
 			return nil, err
 		}
 		results = append(results, r)

@@ -15,8 +15,8 @@ import (
 
 func ensureMentionsSchema(db *sql.DB) error {
 	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS servers (id VARCHAR(255) PRIMARY KEY, self BOOLEAN NOT NULL DEFAULT FALSE)`,
-		`INSERT INTO servers (id, self) VALUES ('testserver', TRUE) ON CONFLICT (id) DO UPDATE SET self = EXCLUDED.self`,
+		`CREATE TABLE IF NOT EXISTS servers (id VARCHAR(255) PRIMARY KEY, name VARCHAR(255), self BOOLEAN NOT NULL DEFAULT FALSE)`,
+		`INSERT INTO servers (id, name, self) VALUES ('testserver', 'Test Server', TRUE) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, self = EXCLUDED.self`,
 		`CREATE TABLE IF NOT EXISTS user_signatures (id SERIAL PRIMARY KEY, public_key_id VARCHAR(255) NOT NULL, signature TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (id SERIAL PRIMARY KEY, fingerprint VARCHAR(255) NOT NULL, signature TEXT NOT NULL, signed_at TIMESTAMP NOT NULL)`,
 		`DROP TABLE IF EXISTS reed_mentions CASCADE`,
@@ -356,7 +356,7 @@ func TestSearchUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 	// UserSearchResult.ID holds u.id directly (which IS identities.id).
-	if len(results) != 1 || results[0].ID != "alice@testserver" {
+	if len(results) != 1 || results[0].ID != "alice@testserver" || results[0].ServerName != "Test Server" {
 		t.Fatalf("results = %+v", results)
 	}
 
