@@ -670,14 +670,16 @@ func InitDB(db *sql.DB) error {
 		ON broadcast_subscriptions(user_id);
 	`
 
-	// holder_user_id is who holds the reed; reed_id FKs to reed_identities
-	// (not reeds directly) since a holder can be caching a FOREIGN reed's
-	// verified content — this is the original motivating case for
-	// reed_identities existing at all.
+	// holder_user_id is who holds the reed — always a genuine LOCAL user
+	// (FKs to users, not identities): a foreign/sentinel identity never
+	// belongs here, see reed_server_allocations below for that. reed_id
+	// FKs to reed_identities (not reeds directly) since a local user can
+	// be caching a FOREIGN reed's verified content — this is the original
+	// motivating case for reed_identities existing at all.
 	createReedAllocationsTable := `
 	CREATE TABLE IF NOT EXISTS reed_allocations (
 		reed_id VARCHAR(255) NOT NULL,
-		holder_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		holder_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
 		PRIMARY KEY (holder_user_id, reed_id),
@@ -689,6 +691,27 @@ func InitDB(db *sql.DB) error {
 	createReedAllocationIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_allocations_reed
 		ON reed_allocations(reed_id);
+	`
+
+	// reed_server_allocations records that a PEER SERVER (not a specific
+	// user) has told us, via direct federation notification, that one of
+	// its own users holds a verified copy of reed_id. This is the fallback
+	// target when no local holder is online for a reed we're home to — we
+	// always delegate to the peer server as a whole, never address a
+	// specific foreign user, so there's no user/identity indirection here.
+	createReedServerAllocationsTable := `
+	CREATE TABLE IF NOT EXISTS reed_server_allocations (
+		reed_id VARCHAR(255) NOT NULL
+			REFERENCES reed_identities(id) ON DELETE CASCADE,
+		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (reed_id, server_id)
+	);`
+
+	createReedServerAllocationIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_reed_server_allocations_reed
+		ON reed_server_allocations(reed_id);
 	`
 
 	// tags are normalized hashtag names extracted at SignReed for pipe
@@ -1094,6 +1117,9 @@ func InitDB(db *sql.DB) error {
 
 		createReedAllocationsTable,
 		createReedAllocationIndexes,
+
+		createReedServerAllocationsTable,
+		createReedServerAllocationIndexes,
 
 		createPendingFanoutTable,
 
