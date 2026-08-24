@@ -459,8 +459,10 @@ type ReedCoverageTarget struct {
 }
 
 // AllocateReed records that holderUserID now holds reedID. Returns true
-// when a new allocation row was inserted. reed_allocations.holder_user_id
-// is a direct FK to identities(id); reed_id FKs to reeds(id).
+// when a new allocation row was inserted. holderUserID must be a genuine
+// local user — reed_allocations.holder_user_id is a direct FK to users(id).
+// For a peer server (not a specific user) reporting it holds a copy, see
+// RecordServerHolder instead.
 func (ds *DBService) AllocateReed(ctx context.Context, reedID, holderUserID string) (bool, error) {
 	holderIdentity := identity.IdentityID(holderUserID)
 
@@ -823,6 +825,46 @@ func (ds *DBService) GetOnlineReedHolder(ctx context.Context, reedID string) (st
 	return string(userID), nil
 }
 
+// RecordServerHolder upserts "peer server serverID holds a copy of
+// reedID," idempotent per (reed_id, server_id) — multiple users on the
+// same peer holding the same reed collapse to one row, since the fallback
+// only ever delegates to the peer server as a whole, never a specific
+// foreign user.
+func (ds *DBService) RecordServerHolder(ctx context.Context, reedID, serverID string) error {
+	_, err := ds.db.ExecContext(ctx, `
+		INSERT INTO reed_server_allocations (reed_id, server_id)
+		VALUES ($1, $2)
+		ON CONFLICT (reed_id, server_id) DO NOTHING
+	`, reedID, serverID)
+	return err
+}
+
+// GetForeignHolderServers returns peer server IDs known to hold a copy of
+// reedID, oldest-recorded-first, capped so a widely-relayed reed can't
+// blow up a sequential fallback loop's latency.
+func (ds *DBService) GetForeignHolderServers(ctx context.Context, reedID string) ([]string, error) {
+	rows, err := ds.db.QueryContext(ctx, `
+		SELECT server_id FROM reed_server_allocations
+		WHERE reed_id = $1
+		ORDER BY delivered_at ASC
+		LIMIT 5
+	`, reedID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var serverIDs []string
+	for rows.Next() {
+		var serverID string
+		if err := rows.Scan(&serverID); err != nil {
+			return nil, err
+		}
+		serverIDs = append(serverIDs, serverID)
+	}
+	return serverIDs, rows.Err()
+}
+
 // ClaimPendingFanout removes the pending_fanout row if present. Returns true when
 // this call claimed fanout (row deleted), plus any pipe tags stashed at SignReed.
 // Concurrent READY messages only claim once. pending_fanout.reed_id FKs to reeds(id).
@@ -1008,6 +1050,41 @@ func (ds *DBService) GetUnallocatedReeds(ctx context.Context, authorID, viewerID
 		      WHERE rr.reed_id = r.id
 		  )
 	`, authorIdentity, viewerIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// GetUnallocatedReedsForServer is GetUnallocatedReeds' server-scoped
+// counterpart: used where the "viewer" is a whole peer server rather than
+// a genuine local user, since reed_server_allocations has no per-user
+// granularity — a peer's sentinel identity is never a valid holder_user_id
+// in reed_allocations.
+func (ds *DBService) GetUnallocatedReedsForServer(ctx context.Context, authorID, serverID string) ([]string, error) {
+	authorIdentity := identity.IdentityID(authorID)
+	rows, err := ds.db.QueryContext(ctx, `
+		SELECT r.id FROM reeds r
+		WHERE r.user_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_server_allocations rsa
+		      WHERE rsa.reed_id = r.id AND rsa.server_id = $2
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals rr
+		      WHERE rr.reed_id = r.id
+		  )
+	`, authorIdentity, serverID)
 	if err != nil {
 		return nil, err
 	}

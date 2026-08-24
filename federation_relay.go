@@ -427,12 +427,14 @@ func (h *Handlers) CancelRelayRequestFromPeer(w http.ResponseWriter, r *http.Req
 //
 // Closes the loop left open by legs 1-4: once O's viewer verifies
 // delivered content and O persists its own local allocation, O tells H
-// so H can mirror that allocation against its per-peer sentinel. Without
-// this, H has no way to know a relay actually landed, so every future
+// so H can record that O's server now holds a copy. Without this, H has
+// no way to know a relay actually landed, so every future
 // profile-subscribe backfill re-offers content the peer already holds —
 // this is what makes SUBSCRIBE_PROFILE's cross-server bridge behave like
 // the local case (skip what's already held) instead of resending
-// everything on every visit.
+// everything on every visit. See the holder-notify leg below for the
+// distinct, independently-firing notification used by the fallback-fetch
+// path.
 
 type relayAckPayload struct {
 	PeerEventID string `json:"peer_event_id"`
@@ -1217,5 +1219,301 @@ func (h *Handlers) EchoRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ///////////////////////////////////////// //
+//   Leg 15: holder-notify (H' -> H)         //
+// ///////////////////////////////////////// //
+//
+// H' (a cache-holder, not reedID's home) tells reedID's actual home server
+// H that H' now holds a verified copy — fired whenever a local client acks
+// a foreign reed, regardless of which delivery path brought it. This is
+// the fact leg 16 (fallback-fetch) later relies on: without it, H has no
+// way to learn any peer holds a copy of one of its own reeds, so a local
+// requester with no online local holder has nothing to fall back to.
+// Fire-and-forget: H''s own allocation is already persisted before this
+// call, so a lost/failed notification only leaves H's fallback-routing
+// table stale, never loses H''s record of what it holds.
+
+type relayHolderNotifyPayload struct {
+	ReedID string `json:"reed_id"`
+}
+
+// notifyHolderToPeer is the ForeignHolderNotifyHook implementation: tells
+// homeServerID that this server now holds a copy of reedID.
+func (h *Handlers) notifyHolderToPeer(ctx context.Context, homeServerID, reedID string) error {
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayHolderNotifyPayload{ReedID: reedID}
+	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/holder-notify", payload, nil)
+	return err
+}
+
+// HolderNotifyFromPeer is leg 15's home-server handler: an established
+// peer is telling us it holds a copy of one of our reeds. No ownership
+// check beyond "caller is an authenticated peer" is needed — recording
+// "peer X holds reed R" doesn't require R to be owned by X, unlike leg 16
+// below, which does.
+func (h *Handlers) HolderNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayHolderNotifyPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.ReedID = strings.TrimSpace(req.ReedID)
+	if req.ReedID == "" {
+		writeResponse(w, http.StatusBadRequest, "reed_id is required")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		internalServerError(w)
+		return
+	}
+	if err := h.realtimeRelay.HandleHolderNotify(r.Context(), req.ReedID, peerServerID); err != nil {
+		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Failed to handle holder notify")
+		internalServerError(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ///////////////////////////////////////// //
+//   Leg 16: fallback-request (H -> H')      //
+// ///////////////////////////////////////// //
+//
+// H (reedID's actual home) found no online local holder, but knows —
+// via leg 15 — that peer H' previously held a copy, and asks H' to relay
+// it back for one of H's own local users. Same two-step register/deliver
+// shape as leg 1/2, because H''s own delivery to its holder is inherently
+// asynchronous (H' must RELAY_REQUEST its own online holder over
+// WebSocket and wait for a separate RELAY_RESPONSE) — H' can only
+// synchronously accept or reject the registration here; the actual
+// content arrives via the existing, unmodified leg-2 deliver callback
+// once H''s holder responds. The ownership check here is the INVERSE of
+// leg 1's: leg 1 requires the callee to be reedID's home; this requires
+// the CALLER to be, since H' is being asked to hand back content on
+// behalf of a reed it doesn't own.
+
+type relayFallbackRequestPayload struct {
+	ReedID          string `json:"reed_id"`
+	RequesterUserID string `json:"requester_user_id"`
+	PeerRequestID   string `json:"peer_request_id"`
+}
+
+type relayFallbackRequestResponse struct {
+	PeerEventID string `json:"peer_event_id"`
+	Status      string `json:"status"`
+}
+
+// relayFallbackRequestToPeer is the ForeignFallbackRequestHook
+// implementation: asks peerServerID — a server previously notified (leg
+// 15) that it holds a copy of reedID — to relay that copy back to
+// requesterUserID, one of this server's own local users.
+func (h *Handlers) relayFallbackRequestToPeer(ctx context.Context, peerServerID, reedID, requesterUserID, localRequestID string) (realtime.ForeignRequestResult, string, error) {
+	peer, err := h.services.db.GetServerByID(ctx, peerServerID)
+	if err != nil {
+		return realtime.ForeignRequestReedNotFound, "", err
+	}
+	if peer == nil {
+		return realtime.ForeignRequestReedNotFound, "", nil
+	}
+
+	payload := relayFallbackRequestPayload{
+		ReedID:          reedID,
+		RequesterUserID: requesterUserID,
+		PeerRequestID:   localRequestID,
+	}
+	var respBody relayFallbackRequestResponse
+	status, err := h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/fallback-request", payload, &respBody)
+	if err != nil {
+		return realtime.ForeignRequestReedNotFound, "", err
+	}
+	switch {
+	case status == http.StatusOK:
+		return realtime.ForeignRequestOK, respBody.PeerEventID, nil
+	case status == http.StatusNotFound:
+		return realtime.ForeignRequestReedNotFound, "", nil
+	case status == http.StatusConflict:
+		return realtime.ForeignRequestReedNotHeld, "", nil
+	default:
+		return realtime.ForeignRequestReedNotFound, "", nil
+	}
+}
+
+// RelayFallbackRequestFromPeer is leg 16's handler, run on the server
+// previously notified (leg 15) that it holds a cached copy: an
+// established peer — reedID's actual home — is asking for that copy back
+// on behalf of one of its own local users.
+func (h *Handlers) RelayFallbackRequestFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayFallbackRequestPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.ReedID = strings.TrimSpace(req.ReedID)
+	req.RequesterUserID = strings.TrimSpace(req.RequesterUserID)
+	if req.ReedID == "" || req.RequesterUserID == "" {
+		writeResponse(w, http.StatusBadRequest, "reed_id and requester_user_id are required")
+		return
+	}
+
+	// Inverse of leg 1's loop-prevention: the CALLER must own reedID —
+	// this stops any peer from asking us to hand back content on behalf
+	// of a reed it doesn't actually author.
+	_, embeddedServerID, _, parseOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ReedID))
+	if !parseOK || embeddedServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "reed_id is not owned by the calling peer")
+		return
+	}
+	if !peerRequestIDMatchesPeer(req.PeerRequestID, peerServerID) {
+		writeResponse(w, http.StatusBadRequest, "peer_request_id does not belong to the calling peer")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		internalServerError(w)
+		return
+	}
+	result, peerEventID, err := h.realtimeRelay.HandleForeignFallbackRequest(r.Context(), req.ReedID, peerServerID, req.RequesterUserID, req.PeerRequestID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Failed to handle fallback request")
+		internalServerError(w)
+		return
+	}
+	switch result {
+	case realtime.ForeignRequestReedNotFound:
+		writeResponse(w, http.StatusNotFound, "Reed not found")
+	case realtime.ForeignRequestReedNotHeld:
+		writeResponse(w, http.StatusConflict, "Reed is not currently held")
+	default:
+		writeResponse(w, http.StatusOK, relayFallbackRequestResponse{PeerEventID: peerEventID, Status: "ack"})
+	}
+}
+
+// ///////////////////////////////////////// //
+//   Leg 17: new-reed-notify (H -> O)        //
+// ///////////////////////////////////////// //
+//
+// H (authorID's home server) just fanned out a newly-published reed to a
+// foreign profile subscriber and, alongside recording foreign_relay_requests
+// as usual, pushes this single (reed_id, peer_event_id) pair to O — the
+// viewer's own server — so O can register it against the durable profile
+// subscription it already holds for that viewer (created back when
+// SUBSCRIBE_PROFILE first ran leg 1b's backfill). Without this push, O only
+// ever learns about reeds that existed at that original subscribe time;
+// anything published afterward has no foreign_pending_events row on O, so
+// leg 2's eventual deliver call has nothing to resolve peer_event_id
+// against and 404s. Fire-and-forget, same as leg 15: a lost notification
+// just means this one viewer misses the live push and picks the reed up on
+// their next resubscribe or reload, same as if this leg didn't exist.
+
+type relayNewReedNotifyPayload struct {
+	AuthorID        string `json:"author_id"`
+	RequesterUserID string `json:"requester_user_id"`
+	ReedID          string `json:"reed_id"`
+	PeerEventID     string `json:"peer_event_id"`
+}
+
+// notifyNewReedToPeer is the ForeignNewReedNotifyHook implementation (leg
+// 17, H's side): pushes one newly-published reed's event to
+// requestingServerID for one of its own users, requesterUserID, who holds a
+// durable profile subscription to authorID (local to this server).
+func (h *Handlers) notifyNewReedToPeer(ctx context.Context, requestingServerID, authorID, requesterUserID, reedID, peerEventID string) error {
+	peer, err := h.services.db.GetServerByID(ctx, requestingServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayNewReedNotifyPayload{
+		AuthorID:        authorID,
+		RequesterUserID: requesterUserID,
+		ReedID:          reedID,
+		PeerEventID:     peerEventID,
+	}
+	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/new-reed-notify", payload, nil)
+	return err
+}
+
+// RelayNewReedNotifyFromPeer is leg 17's viewer-server handler: an
+// established peer — one of our own local users' followed/viewed author's
+// home server — is pushing a single new reed's event for us to register.
+// No ownership check on authorID beyond "caller is an authenticated peer"
+// is needed (mirrors leg 15's HolderNotifyFromPeer): recording this mapping
+// doesn't require authorID to belong to the caller in any stronger sense
+// than "the caller is the one home server able to answer the reed's live
+// fanout for it", which HandleForeignNewReedNotify itself further narrows
+// by only registering against a subscription requesterUserID (a real local
+// user) already holds for authorID.
+func (h *Handlers) RelayNewReedNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayNewReedNotifyPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.AuthorID = strings.TrimSpace(req.AuthorID)
+	req.RequesterUserID = strings.TrimSpace(req.RequesterUserID)
+	req.ReedID = strings.TrimSpace(req.ReedID)
+	req.PeerEventID = strings.TrimSpace(req.PeerEventID)
+	if req.AuthorID == "" || req.RequesterUserID == "" || req.ReedID == "" || req.PeerEventID == "" {
+		writeResponse(w, http.StatusBadRequest, "author_id, requester_user_id, reed_id, and peer_event_id are required")
+		return
+	}
+
+	// requester_user_id must belong to the calling peer — same guard as
+	// leg 1b/8's requester checks — so a peer can only ever register
+	// events on behalf of its own local users, never someone else's.
+	_, requesterServerID, requesterOK := identity.ParseIdentityID(identity.IdentityID(req.RequesterUserID))
+	if !requesterOK || requesterServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		internalServerError(w)
+		return
+	}
+	found, err := h.realtimeRelay.HandleForeignNewReedNotify(r.Context(), req.AuthorID, peerServerID, req.RequesterUserID, req.ReedID, req.PeerEventID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Failed to handle new reed notify")
+		internalServerError(w)
+		return
+	}
+	if !found {
+		writeResponse(w, http.StatusNotFound, "No active subscription for this author/requester pair")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
