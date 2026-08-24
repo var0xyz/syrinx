@@ -272,20 +272,27 @@
     serverConnection.off(ServerEvent.RippleUpdated, handleRippleUpdated);
   });
 
-  /** The ripple being replied to, or null while the composer sits at the
-   * bottom for a top-level post. Set by clicking "reply" on a row; moves
-   * the composer to render right after that row instead of at the list's
-   * end, so the reply target stays visible while typing — see the
-   * component's own header comment for why this replaced the old
-   * always-at-the-bottom layout. */
-  let replyingTo = /** @type {import('$lib/types/api').Ripple | null} */ (null);
+  /** Ripples currently showing an inline reply composer, keyed by hash.
+   * Multiple threads can have their composer open at once — clicking
+   * "reply" on one row must not close another row's already-open composer,
+   * so this is a set rather than a single value. Each stays open until the
+   * user explicitly cancels it. */
+  let replyingToHashes = /** @type {Set<string>} */ (new Set());
+
+  /** Whether the top-level (non-reply) composer is open. Starts closed and
+   * sits behind the "post ripple" button at the top of the section — an
+   * always-rendered composer at the bottom of the list would otherwise keep
+   * getting pushed down by every new incoming ripple (whack-a-mole). */
+  let topComposerOpen = false;
 
   function startReply(ripple) {
-    replyingTo = ripple;
+    replyingToHashes = new Set(replyingToHashes).add(ripple.hash);
   }
 
-  function cancelReply() {
-    replyingTo = null;
+  function cancelReply(hash) {
+    const next = new Set(replyingToHashes);
+    next.delete(hash);
+    replyingToHashes = next;
   }
 
   /** RippleComposer's `posted` event: insert at the same position the
@@ -302,7 +309,7 @@
    * few seconds, which is irrelevant at a week's granularity — and the
    * next natural fetch (reload, pagination) reconciles with whatever
    * the server actually has anyway. */
-  async function handleComposerPosted(event) {
+  async function handleComposerPosted(event, replyHash) {
     const { ripple: posted } = event.detail;
     expired = false;
     burning = false;
@@ -312,7 +319,11 @@
       await resolveUsername(posted.userID);
       insertRipple(posted);
     }
-    replyingTo = null;
+    if (replyHash) {
+      cancelReply(replyHash);
+    } else {
+      topComposerOpen = false;
+    }
   }
 
   async function deleteRipple(hash) {
@@ -402,16 +413,16 @@
             {/if}
           </div>
         </li>
-        {#if replyingTo?.hash === ripple.hash}
+        {#if replyingToHashes.has(ripple.hash)}
           <li class="ripple-composer-row">
             <RippleComposer
               {reedID}
               {serverSignatureArmor}
-              {replyingTo}
-              replyingToUsername={usernames[replyingTo.userID] ?? null}
+              replyingTo={ripple}
+              replyingToUsername={usernames[ripple.userID] ?? null}
               autofocus
-              on:posted={handleComposerPosted}
-              on:cancel={cancelReply}
+              on:posted={(e) => handleComposerPosted(e, ripple.hash)}
+              on:cancel={() => cancelReply(ripple.hash)}
             />
           </li>
         {/if}
@@ -424,12 +435,22 @@
     {/if}
   {/if}
 
-  {#if !replyingTo}
+  {#if topComposerOpen}
     <RippleComposer
       {reedID}
       {serverSignatureArmor}
-      on:posted={handleComposerPosted}
+      autofocus
+      on:posted={(e) => handleComposerPosted(e, null)}
+      on:cancel={() => (topComposerOpen = false)}
     />
+  {:else}
+    <button
+      type="button"
+      class="ripple-action post-ripple-trigger"
+      on:click={() => (topComposerOpen = true)}
+    >
+      Post ripple
+    </button>
   {/if}
 
   <p class="ripples-why-explainer">
@@ -694,6 +715,26 @@
   .load-more-btn {
     margin: 0 0.75rem 1rem;
     font-size: 0.8rem;
+  }
+
+  .post-ripple-trigger {
+    display: block;
+    width: calc(100% - 1.5rem);
+    margin: 0 0.75rem 1rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .post-ripple-trigger:hover {
+    color: var(--fg);
+    text-decoration: none;
+    background: var(--input-bg, rgba(127, 127, 127, 0.08));
   }
 
   /* No list-item box model needed — this <li> only exists so the inline
