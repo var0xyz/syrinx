@@ -1,10 +1,11 @@
 <script>
-  // The ripple composer, rendered in exactly one of two places by the
-  // parent RipplesSection: at the bottom of the list (top-level post, no
-  // replyingTo) or inline right after the ripple being replied to. Owns
-  // its own draft/signing/post state; tells the parent what happened via
-  // events rather than reaching back into the parent's ripple list itself
-  // — where the newly-posted ripple gets inserted is the parent's call.
+  // The ripple composer, rendered by the parent RipplesSection either as
+  // the top-level composer (behind the "post ripple" button, no
+  // replyingTo) or inline right after any ripple being replied to — several
+  // reply instances can be mounted at once, each independent. Owns its own
+  // draft/signing/post state; tells the parent what happened via events
+  // rather than reaching back into the parent's ripple list itself — where
+  // the newly-posted ripple gets inserted is the parent's call.
   import { createEventDispatcher, onMount } from 'svelte';
   import { authService } from '$lib/services/auth';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
@@ -127,9 +128,14 @@
   {/if}
   <div class="composer-footer">
     <span class="char-counter" class:over={overLimit}>{remaining}</span>
-    <button type="button" class="post-btn" disabled={!draft.trim() || overLimit || posting} on:click={submit}>
-      {posting ? 'Posting…' : 'Post'}
-    </button>
+    <div class="composer-footer-actions">
+      {#if !replyingTo}
+        <button type="button" class="ripple-action" on:click={cancel}>Cancel</button>
+      {/if}
+      <button type="button" class="post-btn" disabled={!draft.trim() || overLimit || posting} on:click={submit}>
+        {posting ? 'Posting…' : 'Post'}
+      </button>
+    </div>
   </div>
 </div>
 
@@ -191,6 +197,30 @@
     align-items: center;
     justify-content: space-between;
     margin-top: 0.4rem;
+  }
+
+  .composer-footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .ripple-action {
+    display: inline;
+    width: auto;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .ripple-action:hover {
+    color: var(--fg);
+    text-decoration: underline;
   }
 
   .char-counter {
