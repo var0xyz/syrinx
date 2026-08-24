@@ -2,11 +2,15 @@
   import { onMount } from 'svelte';
   import { userRepository } from '$lib/repositories/user';
   import Username from '$lib/components/Username.svelte';
+  import { parseCanonicalId } from '$lib/utils/keyId';
 
+  /** `userID@serverID` id — same convention as Username.svelte, which this
+   * renders through. Callers already have this form (reedMarkdown.ts's
+   * parser for signed mention content, MentionPicker.svelte's confirm() for
+   * a fresh pick), so it's taken as a single value, never split props to
+   * rejoin here. */
   /** @type {string} */
   export let userID;
-  /** @type {string} */
-  export let serverID;
   /** Inert rendering (composer preview) — no click navigation. */
   export let preview = false;
   /**
@@ -15,6 +19,9 @@
    * below resolves and overwrites it — never a substitute for that fetch.
    */
   export let hintUsername = undefined;
+
+  // Only needed here for the isLocal comparison below.
+  $: serverID = parseCanonicalId(userID)?.[1] ?? '';
 
   let username = hintUsername || null;
   let localServerID = '';
@@ -64,11 +71,10 @@
 </script>
 
 {#if unresolved}
-  {`~${userID}@${serverID}`}
+  {`~${userID}`}
 {:else}
   <Username
     {userID}
-    {serverID}
     {username}
     class="inline-link mention-link"
     at

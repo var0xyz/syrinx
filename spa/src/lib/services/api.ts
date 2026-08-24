@@ -510,10 +510,10 @@ export const apiService = {
     return request<api.UserInfo>(`/users/${userId}/info`, { method: 'GET' });
   },
 
-  async searchUsers(query: string, limit?: number): Promise<{ users: { id: string; username: string }[] }> {
+  async searchUsers(query: string, limit?: number): Promise<{ users: { id: string; username: string; serverName: string }[] }> {
     const params = new URLSearchParams({ q: query });
     if (limit != null) params.set('limit', String(limit));
-    return request<{ users: { id: string; username: string }[] }>(
+    return request<{ users: { id: string; username: string; serverName: string }[] }>(
       `/users/search?${params}`,
       { method: 'GET' },
     );
