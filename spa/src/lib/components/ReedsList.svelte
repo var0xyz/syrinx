@@ -93,7 +93,7 @@
   $: followArrived = $followReedQueue?.reed;
   $: if (followArrived?.userID === authorId && followArrived.id !== lastHandledFollowReedId) {
     lastHandledFollowReedId = followArrived.id;
-    showNewReedBanner = true;
+    void onFollowReedArrived(followArrived);
   }
 
   onMount(async () => {
@@ -171,10 +171,31 @@
     }
   }
 
+  /** FOLLOW_REED delivery for this profile's author — same scroll-gated
+   * choice as onProfileReedArrived (live-append at the top vs. banner while
+   * scrolled away), so the two delivery paths can't disagree about whether
+   * the banner is warranted for content that's already on screen. */
+  async function onFollowReedArrived(arrived) {
+    if (window.scrollY === 0) {
+      await loadReeds();
+    } else {
+      showNewReedBanner = true;
+    }
+  }
+
   async function loadReeds() {
     try {
       loadingReeds = true;
       errorLoadingReeds = '';
+      // Whatever raised the banner is about to be superseded by a full
+      // reload of this author's reeds — any previously-flagged "new
+      // content" is now either already rendered or stale, so the banner
+      // must not survive this call. Without this reset, a banner raised
+      // while scrolled down (or before a navigation away and back reused
+      // this same mounted component for a different/same author) could
+      // otherwise linger even once the content it was pointing at is on
+      // screen, only clearing via its own manual dismiss/show buttons.
+      showNewReedBanner = false;
       reeds = await reedsService.getReedsByAuthor(authorId);
       pendingReeds = isOwner
         ? await reedsService.getUnsignedReedsByAuthor(authorId)
