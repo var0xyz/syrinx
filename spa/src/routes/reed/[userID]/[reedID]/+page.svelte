@@ -74,6 +74,12 @@
   let conversationSection = null;
   let lastHandledFollowReedId = '';
   let lastHandledReedReplyId = '';
+  /** Reed ids already counted into replyCount — FOLLOW_REED and REED_REPLY
+   * can both be delivered for the same reply (e.g. viewer follows the
+   * author and also has this reed's stats subscribed), so the per-queue
+   * lastHandled* guards above aren't enough on their own to stop a double
+   * increment; this set catches the cross-queue duplicate. */
+  let countedReplyIds = new Set();
 
   // Which discussion tab is active lives in the URL hash (#ripples), not
   // plain component state — same reasoning as the follow-list modal on
@@ -208,6 +214,7 @@
   function resetStatsState() {
     echoCount = 0;
     replyCount = 0;
+    countedReplyIds = new Set();
     coveragePercent = 0;
     likeCount = 0;
     statsStatus = 'loading';
@@ -315,7 +322,10 @@
 
   async function onFollowReedArrived(incoming) {
     if (incoming?.replying && incoming.replying === canonicalReedID) {
-      if (statsStatus === 'loaded') replyCount += 1;
+      if (statsStatus === 'loaded' && !countedReplyIds.has(incoming.id)) {
+        countedReplyIds.add(incoming.id);
+        replyCount += 1;
+      }
       await conversationSection?.onReplyArrived(incoming);
     }
   }
