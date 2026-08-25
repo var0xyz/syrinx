@@ -140,3 +140,14 @@ with no leftover local increment to conflict with.
 Fix #1 is necessary and sufficient to resolve the bug from the client's
 perspective and should be done first. Fix #2 is optional cleanup to reduce
 redundant server fanout once #1 is confirmed working.
+
+## Status: both fixed
+
+1. Client dedup landed in `ec887d7` — `+page.svelte` now tracks
+   `countedReplyIds` across both `followReedQueue` and `reedReplyQueue`, so
+   a reply is only ever counted once regardless of how many wire events
+   describe it.
+2. Server-side exclusion landed in `2f40e5c` — `handlePublishReady` now
+   looks up the direct parent reed's subscribers before fanning out and
+   excludes them from the `FOLLOW_REED` follower set when the new reed is a
+   reply, since they're already getting `REED_REPLY` for it.
