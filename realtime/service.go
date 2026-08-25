@@ -412,7 +412,9 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 
 // fanoutNewReed dispatches a newly published reed to followers, broadcast subs,
 // profile subs, and pipe listeners for the claimed tags. reedID is canonical.
-func (rs *RealtimeService) fanoutNewReed(reedID string, tags []string) {
+// excludeFromFollowers drops recipients who are already getting REED_REPLY
+// for this same reed via notifyReplyAncestorsOfReply (see handlePublishReady).
+func (rs *RealtimeService) fanoutNewReed(reedID string, tags []string, excludeFromFollowers []string) {
 	authorUserID := reedAuthorIdentity(reedID)
 	log.Info().
 		Str("userID", authorUserID).
@@ -427,22 +429,22 @@ func (rs *RealtimeService) fanoutNewReed(reedID string, tags []string) {
 			Msg("Failed to get broadcast subscribers from database")
 	}
 
-	rs.fanoutNewReedCore(reedID, broadcastRecipients, tags)
+	rs.fanoutNewReedCore(reedID, broadcastRecipients, tags, excludeFromFollowers)
 }
 
 // fanoutNewReedNoBroadcast dispatches to followers, profile subs, and pipe
 // listeners only (no broadcast stream). reedID is canonical.
-func (rs *RealtimeService) fanoutNewReedNoBroadcast(reedID string, tags []string) {
+func (rs *RealtimeService) fanoutNewReedNoBroadcast(reedID string, tags []string, excludeFromFollowers []string) {
 	log.Info().
 		Str("userID", reedAuthorIdentity(reedID)).
 		Str("reedID", reedID).
 		Int("tags", len(tags)).
 		Msg("Fanning out new reed (no broadcast)")
 
-	rs.fanoutNewReedCore(reedID, nil, tags)
+	rs.fanoutNewReedCore(reedID, nil, tags, excludeFromFollowers)
 }
 
-func (rs *RealtimeService) fanoutNewReedCore(reedID string, broadcastRecipients, tags []string) {
+func (rs *RealtimeService) fanoutNewReedCore(reedID string, broadcastRecipients, tags, excludeFromFollowers []string) {
 	authorUserID := reedAuthorIdentity(reedID)
 	followers, err := rs.dbService.GetOnlineFollowers(context.Background(), authorUserID)
 	if err != nil {
@@ -455,6 +457,11 @@ func (rs *RealtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 	// Pipe listeners always get PIPE_REED (push). Followers who are not on the
 	// pipe get FOLLOW_REED. Overlap prefers PIPE_REED (one event).
 	followersOnly := subtractUserIDs(followers, pipeListeners)
+	// Followers who are also subscribed to the reed this reply is replying to
+	// are about to get REED_REPLY for it from notifyReplyAncestorsOfReply —
+	// drop them here so they don't get a redundant FOLLOW_REED for the same
+	// reply too.
+	followersOnly = subtractUserIDs(followersOnly, excludeFromFollowers)
 
 	durable := unionUserIDs(followersOnly, pipeListeners)
 	broadcastOnly := subtractUserIDs(broadcastRecipients, durable)
@@ -1803,10 +1810,22 @@ func (rs *RealtimeService) handlePublishReady(client *Client, data json.RawMessa
 	}
 
 	if claimed {
+		// If this reed is a reply, its direct parent's reed subscribers are
+		// about to get REED_REPLY from notifyReplyAncestorsOfReply below —
+		// exclude them from the FOLLOW_REED follower fanout so a viewer who's
+		// both a follower and has the reed open doesn't get both events for
+		// the same reply.
+		var excludeFromFollowers []string
+		if parentReedID, ok, err := rs.dbService.ReplyParent(context.Background(), reedID); err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to resolve reply parent for follower exclusion")
+		} else if ok {
+			excludeFromFollowers = rs.connManager.ReedSubscriberUserIDs(parentReedID, authorUserID)
+		}
+
 		if shouldBroadcast(ready) {
-			go rs.fanoutNewReed(reedID, tags)
+			go rs.fanoutNewReed(reedID, tags, excludeFromFollowers)
 		} else {
-			go rs.fanoutNewReedNoBroadcast(reedID, tags)
+			go rs.fanoutNewReedNoBroadcast(reedID, tags, excludeFromFollowers)
 		}
 		go rs.notifyReplyAncestorsOfReply(reedID)
 		go rs.notifyForeignParentOfReply(reedID)
