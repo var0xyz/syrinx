@@ -222,21 +222,41 @@
    * from jumping across the whole list on the next reload. A genuinely
    * concurrent reply to the same target can still land in a slightly
    * different spot than the server's final thread-grouped order;
-   * accepted tradeoff, not worth a full resort against a partial page. */
+   * accepted tradeoff, not worth a full resort against a partial page.
+   *
+   * Exception: if the target currently has its reply composer open
+   * (replyingToHashes), a strict "right after target" insert would land
+   * the new reply between the target and its composer's <li> — pushing
+   * the composer (and the textarea the user may be actively typing into)
+   * down and potentially out of the viewport. Instead it's inserted after
+   * the *last* existing reply to that target, i.e. still above the
+   * composer but below every reply already rendered above it — new
+   * replies grow the list live without ever displacing the open composer.
+   * Once the composer closes, insertRipple goes back to strict
+   * right-after-target and the reply-run reads as one contiguous block
+   * either way. */
   function insertRipple(ripple) {
     // The section already burned away locally — don't resurrect it for a
     // straggling WS event or a just-completed post whose response arrived
     // after the countdown hit zero.
     if (expired) return;
     if (ripples.some((r) => r.hash === ripple.hash)) return;
-    const targetIndex = ripple.replyingTo
-      ? ripples.findIndex((r) => r.hash === ripple.replyingTo)
-      : -1;
+    if (!ripple.replyingTo) {
+      ripples = [...ripples, ripple];
+      return;
+    }
+    const targetIndex = ripples.findIndex((r) => r.hash === ripple.replyingTo);
     if (targetIndex === -1) {
       ripples = [...ripples, ripple];
-    } else {
-      ripples = [...ripples.slice(0, targetIndex + 1), ripple, ...ripples.slice(targetIndex + 1)];
+      return;
     }
+    let insertAt = targetIndex + 1;
+    if (replyingToHashes.has(ripple.replyingTo)) {
+      while (insertAt < ripples.length && ripples[insertAt].replyingTo === ripple.replyingTo) {
+        insertAt += 1;
+      }
+    }
+    ripples = [...ripples.slice(0, insertAt), ripple, ...ripples.slice(insertAt)];
   }
 
   /** RIPPLE_POSTED: verify-or-discard (same path a list fetch uses), then
