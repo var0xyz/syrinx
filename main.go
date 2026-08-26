@@ -499,6 +499,9 @@ func main() {
 	api.HandleFunc("/federation/relay/echo-notify", h.withFederationRelayMetric("echo-notify", h.EchoNotifyFromPeer)).Methods("POST")
 	api.HandleFunc("/federation/relay/echo-notify", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/relay/mention-notify", h.withFederationRelayMetric("mention-notify", h.MentionNotifyFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/mention-notify", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/reply-removal-notify", h.withFederationRelayMetric("reply-removal-notify", h.ReplyRemovalNotifyFromPeer)).Methods("POST")
 	api.HandleFunc("/federation/relay/reply-removal-notify", h.noop).Methods("OPTIONS")
 

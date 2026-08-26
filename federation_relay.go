@@ -1081,6 +1081,116 @@ func (h *Handlers) EchoNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 }
 
 // //////////////////////////////////////// //
+//   Leg 18: mention-notify (O -> H)         //
+// //////////////////////////////////////// //
+//
+// Write side of cross-server mentions: a mention of a foreign user is
+// extracted and recorded entirely on O (the mentioning reed's own
+// server) — H never receives or stores the reed's content, only the
+// fact that a mention happened. Like echo (and unlike reply), a mention
+// carries no content-relay dependency on the mentioning author's own
+// PUBLISH_READY, so this fires immediately at SignReed time.
+
+type relayMentionNotifyPayload struct {
+	MentioningReedID string    `json:"mentioning_reed_id"`
+	MentionedUserID  string    `json:"mentioned_user_id"`
+	Timestamp        time.Time `json:"timestamp"`
+}
+
+// notifyForeignMentionToPeer tells mentionedUserID's home server that
+// mentioningReedID (authored here) mentions them.
+func (h *Handlers) notifyForeignMentionToPeer(ctx context.Context, mentioningReedID, mentionedUserID string, ts time.Time) error {
+	_, homeServerID, ok := identity.ParseIdentityID(identity.IdentityID(mentionedUserID))
+	if !ok {
+		return nil
+	}
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayMentionNotifyPayload{
+		MentioningReedID: mentioningReedID,
+		MentionedUserID:  mentionedUserID,
+		Timestamp:        ts,
+	}
+	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/mention-notify", payload, nil)
+	return err
+}
+
+// MentionNotifyFromPeer is leg 18's home-server handler: an established
+// peer is telling us one of its reeds mentions one of our local users.
+func (h *Handlers) MentionNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayMentionNotifyPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.MentioningReedID = strings.TrimSpace(req.MentioningReedID)
+	req.MentionedUserID = strings.TrimSpace(req.MentionedUserID)
+	if req.MentioningReedID == "" || req.MentionedUserID == "" {
+		writeResponse(w, http.StatusBadRequest, "mentioning_reed_id and mentioned_user_id are required")
+		return
+	}
+
+	// Loop-prevention: a peer may only notify us of mentions in reeds IT
+	// actually authors — never claim a mention on behalf of a third
+	// server. This server can only be "home" for users it hosts locally.
+	_, mentioningServerID, _, mentioningOK := identity.ParseKeyFingerprint(identity.IdentityID(req.MentioningReedID))
+	if !mentioningOK || mentioningServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "mentioning_reed_id does not belong to the calling peer")
+		return
+	}
+	mentionedBareUserID, mentionedServerID, mentionedOK := identity.ParseIdentityID(identity.IdentityID(req.MentionedUserID))
+	if !mentionedOK || mentionedServerID != h.services.db.GetServerID() {
+		writeResponse(w, http.StatusBadRequest, "mentioned_user_id is not local to this server")
+		return
+	}
+
+	// Defense-in-depth: same "is this a real, live local user" gate
+	// SignReed applies to a local mention target — self-mention filtering
+	// already happened on O's side (ExtractMentions). This server's own
+	// row in `servers` (seeded at boot, self=TRUE) is what makes
+	// MentionTargetValid's servers-EXISTS check pass here.
+	valid, err := h.services.db.MentionTargetValid(r.Context(), mentionedBareUserID, mentionedServerID)
+	if err != nil {
+		log.Error().Err(err).Str("mentionedUserID", req.MentionedUserID).Msg("Error validating foreign mention target")
+		internalServerError(w)
+		return
+	}
+	if !valid {
+		writeResponse(w, http.StatusBadRequest, "Mentioned user not found")
+		return
+	}
+
+	// Foreign mentioning reed needs a reed_identities row before the FK'd
+	// insert below can succeed — same low "legitimate reference" bar
+	// UpsertReedIdentity already applies for foreign echoes/relay requests.
+	if err := h.services.db.UpsertReedIdentity(r.Context(), req.MentioningReedID); err != nil {
+		log.Error().Err(err).Str("mentioningReedID", req.MentioningReedID).Msg("Failed to upsert mentioning reed identity")
+		internalServerError(w)
+		return
+	}
+	if err := h.services.db.InsertMentionRow(r.Context(), req.MentioningReedID, req.MentionedUserID); err != nil {
+		log.Error().Err(err).Str("mentioningReedID", req.MentioningReedID).Str("mentionedUserID", req.MentionedUserID).Str("peerServerID", peerServerID).Msg("Failed to insert foreign mention")
+		internalServerError(w)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// //////////////////////////////////////// //
 //   Leg 13: reply-removal-notify (O -> H)  //
 // //////////////////////////////////////// //
 //

@@ -39,10 +39,13 @@ Authors want to address other users inside reed content. Mentions must:
 - Delivering mention notifications (in-app store, badge, push, email). Out of
   scope; table is the producer substrate for the mentions tab
   ([`notifications/02`](../notifications/02_mentions_tab.md)).
-- Mentions of users on foreign instances beyond recording `server_id` in the
-  href / index (no federation routing in v1).
 - Editing already-published reeds to refresh display names.
 - Autocomplete for reeds, hashtags, or arbitrary URLs.
+
+**Update:** cross-server mention propagation is now implemented — see the
+"Federation" section below. This was the "revisit once foreign mentions are
+wired up" item flagged in the original design; the schema below already
+anticipated it and needed no change.
 
 ## Design
 
@@ -128,20 +131,17 @@ transaction (same pattern as echoes):
 
 1. Scan `content` for the `~userID@serverID` mention form (see above).
 2. Deduplicate by `(mentioned_server_id, mentioned_user_id)` per reed.
-3. **Only local mentions are indexed.** For each mention whose `serverID`
-   equals this instance: `MentionTargetValid(userID, serverID)` requires the
-   user exists, is not account-removed, **and** `serverID` is a known row in
-   `servers` (self or a federated peer) — else 400 `unknown_mentioned_user`.
-   Mentions of a foreign `serverID` are silently **not stored** — `content`
-   still carries the token either way, but no `reed_mentions` row is
-   written for them.
-   **Revised lock:** this reverses the original "accept into index, skip
-   existence check" call — `mentioned_user_id` is now a hard FK to
-   `users(id)`, which only foreign-mention exclusion makes possible. When
-   cross-server mention notification is built, foreign mentions will need
-   their own handling (a different table, or a relaxed constraint) rather
-   than reusing this row shape as-is.
-4. Insert rows; never store `content`.
+3. For each mention whose `serverID` equals this instance:
+   `MentionTargetValid(userID, serverID)` requires the user exists, is not
+   account-removed, **and** `serverID` is a known row in `servers` — else
+   400 `unknown_mentioned_user`. Indexed locally and immediately.
+   For each mention whose `serverID` is a peer: not validated here (only
+   that peer can confirm the user exists) — indexed via the mention-notify
+   federation leg instead, once create succeeds (see "Federation" below).
+   `content` carries the token either way; only what gets recorded/notified
+   server-side differs by whether the target is local or foreign.
+4. Insert local rows in the same create transaction; foreign mentions
+   dispatch a federation call after create succeeds. Never store `content`.
 
 Self-mentions: allowed in content; **do not** insert an index row for self
 (skip when `mentioned_user_id == author`) — no notification target either.
@@ -187,6 +187,43 @@ column — nothing currently orders by mention recency.
 | Account removed | `DELETE FROM reed_mentions WHERE mentioning_user_id = $userID OR (mentioned_server_id = local AND mentioned_user_id = $userID)` |
 
 Same transaction / call sites as echo-index cleanup.
+
+**Known gap:** account-removal cleanup (`DeleteMentionsByAuthor`) only
+matches `mentioning_reed_id IN (SELECT id FROM reeds WHERE user_id = ...)`
+— reeds this server hosts. A foreign mentioning-reed row recorded via the
+federation leg below is not cleaned up if that reed's author's account is
+later removed on their own server (this server has no visibility into
+that removal). Not fixed as part of landing federation; flagged for a
+follow-up.
+
+### Federation
+
+Implemented (mirrors the reply-notify/echo-notify legs — see
+[`federation/`](../federation/) specs for the shared peer-HTTP pattern).
+
+The mentioning reed is always authored locally (`SignReed` only ever
+processes this server's own publishes), so only one direction is needed:
+this server (O) tells the mentioned user's home server (H) about the
+mention — there's no inbound "someone else told us about a mention in
+their content" case to handle, since O already knows about its own
+mention without being told.
+
+- **O's side** (`notifyForeignMentionToPeer`, `federation_relay.go`):
+  fires synchronously at `SignReed` time (no content-relay dependency,
+  same timing as echo-notify, unlike reply-notify which waits for
+  `PUBLISH_READY`), POSTing `{mentioning_reed_id, mentioned_user_id,
+  timestamp}` to H's `/federation/relay/mention-notify`.
+- **H's side** (`MentionNotifyFromPeer`): loop-prevention (mentioning reed
+  must belong to the calling peer; mentioned user must be local to this
+  server), re-validates the mentioned user via `MentionTargetValid`, lazily
+  creates a `reed_identities` row for the foreign mentioning reed
+  (`UpsertReedIdentity` — the only new row needed, since `reed_mentions`
+  has no author column), then inserts the `reed_mentions` row.
+
+No schema change was needed — `mentioning_reed_id` already FKs
+`reed_identities` (accepts a foreign reed) and `mentioned_user_id` already
+FKs `identities` (accepts a provisional remote row), unlike the schema
+sketch further up this doc which predates that shape.
 
 ### APIs
 

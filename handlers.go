@@ -1904,15 +1904,18 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Only local mentions are indexed — reed_mentions.mentioned_user_id is a
-	// hard FK to users(id), so a mention of a user on a foreign server has
-	// nothing to reference and is never stored. The content itself still
-	// carries the ~userID@serverID token either way; this only affects what
-	// gets recorded server-side (and, later, who gets notified).
+	// Local mentions are validated + indexed immediately here; foreign
+	// mentions (mentioned user lives on a peer) get no local validation —
+	// only that peer's own server can confirm the user exists — and are
+	// instead queued for the mention-notify federation leg below, once
+	// create succeeds.
 	allMentions := ExtractMentions(contentBody, userID)
-	localMentions := make([]ReedRef, 0, len(allMentions))
+	localMentions := make([]string, 0, len(allMentions))
+	foreignMentions := make([]string, 0, len(allMentions))
 	for _, m := range allMentions {
+		mentionedUserID := m.CanonicalAuthorID()
 		if m.ServerID != localServerID {
+			foreignMentions = append(foreignMentions, mentionedUserID)
 			continue
 		}
 		valid, err := h.services.db.MentionTargetValid(r.Context(), m.AuthorID, m.ServerID)
@@ -1925,7 +1928,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			writeResponse(w, http.StatusBadRequest, "Mentioned user not found")
 			return
 		}
-		localMentions = append(localMentions, m)
+		localMentions = append(localMentions, mentionedUserID)
 	}
 
 	markdown := ReedAsMarkdown(reedID, userID, contentBody, echoing, replying, threadID)
@@ -2069,6 +2072,16 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 				}
 			}()
 		}
+	}
+
+	if len(foreignMentions) > 0 {
+		go func() {
+			for _, mentionedUserID := range foreignMentions {
+				if err := h.notifyForeignMentionToPeer(context.Background(), reedID, mentionedUserID, serverSignature.SignedAt); err != nil {
+					log.Error().Err(err).Str("mentioningReedID", reedID).Str("mentionedUserID", mentionedUserID).Msg("Failed to notify foreign mention target's home server")
+				}
+			}
+		}()
 	}
 
 	if replyRef != nil {

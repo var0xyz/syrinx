@@ -1487,7 +1487,7 @@ type createReedParams struct {
 	ServerSignatureB64 string
 	Timestamp          time.Time
 	Tags               []string
-	Mentions           []ReedRef
+	Mentions           []string
 	// PreviousID is the reed the client believes is the author's current
 	// tip. Empty means "author has zero reeds" — see checkReedTip.
 	PreviousID string
@@ -1908,17 +1908,8 @@ func (s *DataService) insertReedCoreTx(
 		return Reed{}, fmt.Errorf("insert pending fanout: %w", err)
 	}
 
-	for _, m := range p.Mentions {
-		// m.ServerID names whatever server the mention syntax pointed at,
-		// which in principle could be foreign — carried entirely inside
-		// mentionTarget's canonical userID@serverID form, no separate
-		// column needed.
-		mentionTarget := identity.CanonicalID(m.ServerID, m.AuthorID)
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO reed_mentions (mentioning_reed_id, mentioned_user_id)
-			VALUES ($1, $2)
-			ON CONFLICT (mentioning_reed_id, mentioned_user_id) DO NOTHING
-		`, p.ReedID, mentionTarget); err != nil {
+	for _, mentionedUserID := range p.Mentions {
+		if err := insertMentionRow(ctx, tx, p.ReedID, mentionedUserID); err != nil {
 			return Reed{}, fmt.Errorf("insert mention index: %w", err)
 		}
 	}
@@ -2230,6 +2221,27 @@ func (s *DataService) MentionTargetValid(ctx context.Context, userID, serverID s
 		)
 	`, targetIdentity, serverID).Scan(&exists)
 	return exists, err
+}
+
+// insertMentionRow records one (mentioningReedID, mentionedUserID) row.
+// q is signing.DBTX (satisfied by both *sql.Tx and *sql.DB — the same
+// interface already used for the reed-like loader below) so the same
+// statement serves insertReedCoreTx's in-transaction local insert and the
+// mention-notify federation handler's standalone insert.
+func insertMentionRow(ctx context.Context, q signing.DBTX, mentioningReedID, mentionedUserID string) error {
+	_, err := q.ExecContext(ctx, `
+		INSERT INTO reed_mentions (mentioning_reed_id, mentioned_user_id)
+		VALUES ($1, $2)
+		ON CONFLICT (mentioning_reed_id, mentioned_user_id) DO NOTHING
+	`, mentioningReedID, mentionedUserID)
+	return err
+}
+
+// InsertMentionRow is insertMentionRow against this service's own *sql.DB —
+// the mention-notify federation handler's entry point (no transaction of
+// its own to join, unlike a local publish).
+func (s *DataService) InsertMentionRow(ctx context.Context, mentioningReedID, mentionedUserID string) error {
+	return insertMentionRow(ctx, s.db, mentioningReedID, mentionedUserID)
 }
 
 // UserSearchResult is one row in a GET /users/search response — minimal
