@@ -397,17 +397,49 @@ func reedAuthorIdentity(reedID string) string {
 	return string(identity.CanonicalID(serverID, userID))
 }
 
-// DeletePendingEvent deletes a pending event by event ID (cascades to child subject tables).
-func (ds *DBService) DeletePendingEvent(ctx context.Context, eventID string) error {
-	_, err := ds.db.ExecContext(ctx, `DELETE FROM pending_events WHERE event_id = $1`, eventID)
-	return err
+// DeletePendingEvent deletes a pending event by event ID (cascades to child
+// subject tables) and reports its event_name for telemetry — empty string
+// if no such row existed (already deleted by a concurrent caller).
+func (ds *DBService) DeletePendingEvent(ctx context.Context, eventID string) (eventName string, err error) {
+	err = ds.db.QueryRowContext(ctx, `
+		DELETE FROM pending_events WHERE event_id = $1
+		RETURNING event_name
+	`, eventID).Scan(&eventName)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return eventName, err
 }
 
-// DeletePendingEventsByUser deletes all pending events for a given requester user ID
-func (ds *DBService) DeletePendingEventsByUser(ctx context.Context, userID string) error {
+// DeletedPendingEvent identifies one row DeletePendingEventsByUser removed,
+// for per-event telemetry (see RealtimeService.deletePendingEventsByUser).
+type DeletedPendingEvent struct {
+	EventID   string
+	EventName string
+}
+
+// DeletePendingEventsByUser deletes all pending events for a given requester
+// user ID (e.g. the user went offline) and reports which ones were removed.
+func (ds *DBService) DeletePendingEventsByUser(ctx context.Context, userID string) ([]DeletedPendingEvent, error) {
 	selfIdentity := identity.IdentityID(userID)
-	_, err := ds.db.ExecContext(ctx, `DELETE FROM pending_events WHERE requester_user_id = $1`, selfIdentity)
-	return err
+	rows, err := ds.db.QueryContext(ctx, `
+		DELETE FROM pending_events WHERE requester_user_id = $1
+		RETURNING event_id, event_name
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var deleted []DeletedPendingEvent
+	for rows.Next() {
+		var d DeletedPendingEvent
+		if err := rows.Scan(&d.EventID, &d.EventName); err != nil {
+			return nil, err
+		}
+		deleted = append(deleted, d)
+	}
+	return deleted, rows.Err()
 }
 
 // DeleteProfileSubscriptionsByViewer deletes all profile subscriptions for a given viewer.

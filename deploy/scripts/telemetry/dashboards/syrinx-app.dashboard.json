@@ -4007,6 +4007,767 @@
           }
         }
       ]
+    },
+    {
+      "tabId": "relay",
+      "name": "Relay",
+      "panels": [
+        {
+          "id": "syrinx_relay_lifecycle",
+          "type": "line",
+          "title": "Pending relay events by lifecycle stage",
+          "description": "created/fulfilled/deleted samples for pending_events rows (syrinx.relay.event). created without a matching fulfilled or deleted for the same event.id_hash means the request leaked \u2014 no holder ever answered and nothing ever cleaned it up.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_relay_event{relay_lifecycle=\"created\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "created",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_relay_event{relay_lifecycle=\"fulfilled\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "fulfilled",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_relay_event{relay_lifecycle=\"deleted\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "deleted",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 60
+          }
+        },
+        {
+          "id": "syrinx_relay_lifecycle_by_kind",
+          "type": "line",
+          "title": "Relay events by kind",
+          "description": "All lifecycle stages summed together, split by event.kind",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_relay_event{event_kind=\"request_reed\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "request_reed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_relay_event{event_kind=\"profile_subscription\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "profile_subscription",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_relay_event{event_kind=\"follow_reed\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "follow_reed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_relay_event{event_kind=\"broadcast_reed\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "broadcast_reed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_relay_event{event_kind=\"pipe_reed\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "pipe_reed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_relay_event{event_kind=\"reed_removed\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "reed_removed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_relay_event{event_kind=\"account_removed\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "account_removed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_relay_event{event_kind=\"reed_reply\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "reed_reply",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 61
+          }
+        },
+        {
+          "id": "syrinx_relay_leaked",
+          "type": "table",
+          "title": "Leaked requests (created, never fulfilled or deleted)",
+          "description": "Per event.id_hash: created but never followed by a fulfilled or deleted sample in the selected window. A wide window is needed for this to be meaningful \u2014 a request created seconds ago just hasn't had time to resolve yet, that isn't necessarily a leak.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT event_kind, count(*) AS leaked FROM ( SELECT event_id_hash, max(event_kind) AS event_kind, sum(CASE WHEN relay_lifecycle = 'created' THEN 1 ELSE 0 END) AS created, sum(CASE WHEN relay_lifecycle IN ('fulfilled', 'deleted') THEN 1 ELSE 0 END) AS resolved FROM syrinx_relay_event WHERE event_id_hash IS NOT NULL GROUP BY event_id_hash ) WHERE created > 0 AND resolved = 0 GROUP BY event_kind ORDER BY leaked DESC",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Event kind",
+                    "alias": "event_kind",
+                    "column": "event_kind",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "event_kind",
+                        "function": null,
+                        "alias": "event_kind"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Leaked",
+                    "alias": "leaked",
+                    "column": "leaked",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "leaked",
+                        "function": null,
+                        "alias": "leaked"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 62
+          }
+        },
+        {
+          "id": "syrinx_relay_duplicate_fulfilled",
+          "type": "table",
+          "title": "Duplicate/wasted responses (fulfilled more than once)",
+          "description": "Same event.id_hash fulfilled more than once \u2014 a holder retransmitted a RELAY_RESPONSE after the first one already satisfied the request. wasted_responses = extra deliveries beyond the one actually needed.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT event_kind, count(*) AS duplicate_events, sum(fulfilled_count) - count(*) AS wasted_responses FROM ( SELECT event_id_hash, max(event_kind) AS event_kind, count(*) AS fulfilled_count FROM syrinx_relay_event WHERE relay_lifecycle = 'fulfilled' AND event_id_hash IS NOT NULL GROUP BY event_id_hash HAVING count(*) > 1 ) GROUP BY event_kind ORDER BY wasted_responses DESC",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_event",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Event kind",
+                    "alias": "event_kind",
+                    "column": "event_kind",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "event_kind",
+                        "function": null,
+                        "alias": "event_kind"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Duplicate events",
+                    "alias": "duplicate_events",
+                    "column": "duplicate_events",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "duplicate_events",
+                        "function": null,
+                        "alias": "duplicate_events"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Wasted responses",
+                    "alias": "wasted_responses",
+                    "column": "wasted_responses",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "wasted_responses",
+                        "function": null,
+                        "alias": "wasted_responses"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 63
+          }
+        },
+        {
+          "id": "syrinx_federation_relay_volume",
+          "type": "line",
+          "title": "Federation relay traffic",
+          "description": "Every federation relay leg handled or called, either direction",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_federation_relay",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_federation_relay",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "total",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_federation_relay{federation_direction=\"in\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_federation_relay",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "in (from peers)",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "syrinx_federation_relay{federation_direction=\"out\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_federation_relay",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "out (to peers)",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 28,
+            "w": 96,
+            "h": 14,
+            "i": 64
+          }
+        },
+        {
+          "id": "syrinx_federation_relay_errors",
+          "type": "line",
+          "title": "Federation relay error rate",
+          "description": "ok=false: non-2xx response either handling or calling a peer leg",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "syrinx_federation_relay{ok=\"false\"}",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_federation_relay",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "errors",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 28,
+            "w": 96,
+            "h": 14,
+            "i": 65
+          }
+        },
+        {
+          "id": "syrinx_federation_relay_by_peer",
+          "type": "table",
+          "title": "Relay traffic by peer server",
+          "description": "How much relay traffic each foreign server is generating (in) or receiving from us (out), broken down by leg. peer.server_id is this server's own DB id for the peer, not a raw domain/URL.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT peer_server_id, federation_direction, federation_leg, count(*) AS calls FROM syrinx_federation_relay WHERE peer_server_id IS NOT NULL GROUP BY peer_server_id, federation_direction, federation_leg ORDER BY calls DESC LIMIT 50",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_federation_relay",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Peer server",
+                    "alias": "peer_server_id",
+                    "column": "peer_server_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "peer_server_id",
+                        "function": null,
+                        "alias": "peer_server_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Direction",
+                    "alias": "federation_direction",
+                    "column": "federation_direction",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "federation_direction",
+                        "function": null,
+                        "alias": "federation_direction"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Leg",
+                    "alias": "federation_leg",
+                    "column": "federation_leg",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "federation_leg",
+                        "function": null,
+                        "alias": "federation_leg"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Calls",
+                    "alias": "calls",
+                    "column": "calls",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "calls",
+                        "function": null,
+                        "alias": "calls"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 42,
+            "w": 192,
+            "h": 16,
+            "i": 66
+          }
+        }
+      ]
     }
   ],
   "variables": {
