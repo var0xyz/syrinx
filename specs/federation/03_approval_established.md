@@ -2,11 +2,43 @@
 
 ## Status
 
-Proposed. **Note:** this doc predates the removal of the `federation_attempt`
-table (see [02's implementation notes](02_connect_handshake.md#implementation-notes))
-— it has been updated to reflect that the handshake state now lives
-entirely on `federation_invitation`/`servers`, but nothing in this step has
-been built yet.
+**The approval gate is real and implemented — on `federation_attempt`,
+not a separate `federation_established` table — but the "second admin"
+rule this doc's title promises is never enforced.** A peer's `servers`
+row (and with it, `connected = TRUE`/the fingerprint pin) is created
+only when an admin calls `POST /api/federation/attempts/{id}/approve`
+(`ApproveFederationAttempt`, `handlers.go`/`services.go`) — not
+automatically at handshake time (see [02](02_connect_handshake.md)'s
+corrected status). So this doc's core idea — "the handshake completing
+is not enough; a deliberate admin action is required before the link is
+live" — did ship. What didn't:
+
+- **No `federation_established` table.** Approval state lives on
+  `federation_attempt` (`approved_by`/`approved_at`/`rejected_by`/
+  `rejected_at`/`rejected_reason` columns) plus the peer's own `servers`
+  row (`connected`, `revoked`) — see [05](05_revoke_established.md) for
+  why `revoked` here is currently a dead column.
+- **No second-admin check.** `ApproveFederationAttempt`'s only
+  authorization check is "caller is an admin" — there is no comparison
+  against `federation_invitation.created_by` or against who initiated
+  the responder's side. Any single admin, including the one who set up
+  the invite/pasted the connection string, can approve their own
+  handshake. The rule this doc names in its title, and that code
+  comments elsewhere describe as the intent (`services.go`,
+  `handlers.go`), was never actually written into the approve handler.
+- **No single-admin-instance carve-out** (moot, since there's no
+  multi-admin check to carve an exception out of).
+- **API paths differ**: the real endpoints are `POST
+  /api/federation/attempts/{id}/approve` and `.../reject` (one pair,
+  each side approves its own local `federation_attempt` row
+  independently) — not the `/api/federation/pending` +
+  `/api/federation/servers/{id}/approve` pair this doc designs. The SPA
+  action lives on a per-attempt detail page
+  (`/mesh/attempt/{attemptId}`), not inline on the Mesh list.
+
+Treat this doc's *intent* (a deliberate gate before trust) as validated;
+treat its schema/API/second-admin sections as historical design, not
+current behavior.
 
 ## Depends on
 

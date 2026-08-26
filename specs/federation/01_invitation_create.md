@@ -9,11 +9,18 @@ for the reasoning):
 - `remote_fingerprint` is `fingerprint`, FKing into `public_keys(fingerprint)`
   instead of being a bare unreferenced column — the armor itself is stored
   once in `public_keys` rather than duplicated across federation tables.
-- There is no `federation_attempt` table, so `attempt_id` doesn't exist.
-  Instead `server_id` (nullable FK to `servers`) is set directly once a
-  callback confirms the invitation, and `approved_at` doesn't exist either
-  — `reviewed_by`/`reviewed_at` cover every terminal action (cancel,
-  approve, reject, revoke), since `status` already says which one.
+- **Correction to a claim previously made here:** this used to say no
+  `federation_attempt` table exists — wrong, see
+  [02](02_connect_handshake.md)'s status note. `federation_invitation`
+  itself doesn't have an `attempt_id` column, though — the initiator's
+  own `federation_attempt` row (created once the handshake callback
+  arrives) links back via `federation_attempt.invitation_id`, not the
+  other way around. `federation_invitation.server_id` (nullable FK to
+  `servers`) is set once approval (see 03) actually creates that
+  `servers` row — not merely once the callback confirms the invitation.
+  `approved_at` doesn't exist on this table either — `reviewed_by`/
+  `reviewed_at` cover every terminal action (cancel, approve, reject,
+  revoke), since `status` already says which one.
 - `status` has more values than shown below — see the updated table.
 
 ## Depends on
@@ -71,7 +78,7 @@ refers to.
 |--------|---------|
 | **`new`** | Created; awaiting responder `connect` callback |
 | **`accepted`** | Handshake received (see 02); pending second-admin approval (see 03) |
-| **`approved`** | Admin approved the link; **`federation_established`** row exists (see 03) |
+| **`approved`** | Admin approved the link; a `servers` row for the peer now exists with `connected = TRUE` (see [03](03_approval_established.md)'s status note — approval lives on `federation_attempt`, not a `federation_established` table) |
 | **`rejected`** | Admin rejected the link after it was accepted (see 03); **`reviewed_by`**/**`reviewed_at`** set |
 | **`canceled`** | Revoked while still **`new`** — never redeemed; **`reviewed_by`**/**`reviewed_at`** set |
 | **`revoked`** | An established (**`approved`**) connection was later torn down (see 05); **`reviewed_by`**/**`reviewed_at`** set |

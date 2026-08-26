@@ -285,8 +285,12 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// verified_identities is the single safe-to-display/safe-to-trust
-	// surface. Until federation_established lands, this view is equivalent
-	// to "local OR identities.verified" — MUST be tightened once it ships.
+	// surface. This view is equivalent to "local OR identities.verified" —
+	// it does NOT exclude a revoked peer (s.revoked = TRUE), because
+	// nothing in the codebase ever sets that column true today (see
+	// specs/federation/05_revoke_established.md's status note: the check
+	// exists everywhere else, but there's no revoke action at all yet).
+	// Add "AND s.revoked = FALSE" to the WHERE clause once that ships.
 	createVerifiedIdentitiesView := `
 	CREATE OR REPLACE VIEW verified_identities AS
 	SELECT i.*

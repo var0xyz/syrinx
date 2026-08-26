@@ -2,7 +2,27 @@
 
 ## Status
 
-Proposed. Not yet implemented.
+**Implemented, via a different mechanism than this doc designs.** The
+goal here — a peer can fetch a reed authored on this server, and this
+server can fetch one authored on a peer — shipped in
+`federation_relay.go`. The actual design does NOT add `server_id` to
+`pending_events`/`pending_reed_events` or use a generic
+`relay/reed`+`relay/reed/{eventId}/response` pair; instead each
+federation-visible operation is its own small, purpose-built "leg"
+(`relayRequestToPeer`/`RelayRequestFromPeer` for fetch,
+`deliverRelayResponseToPeer`/`DeliverRelayResponseFromPeer` for the
+callback, plus 16 more legs covering subscribe/cancel/ack/stats/reply/
+echo/mention/holder/fallback/search — see `federation_relay.go`'s
+`// Leg N:` headers for the full list). Peer auth is signed-request +
+pinned fingerprint exactly as designed (see [04](04_runtime_verify_display.md)'s
+status), checked against `servers.revoked = false` rather than a
+`federation_established` row. Fast refuse shipped with a small shape
+difference from this doc: unknown reed → `404`, reed known but not
+currently held by anyone → `409 Conflict` (not `404` as designed here).
+"No forced timeout, waits like an offline local holder" behavior shipped
+as designed. Read this doc for the *problem* it solves and the
+constraints it identifies (still accurate); do not use its
+schema/endpoint-shape sections as the actual implementation.
 
 ## Depends on
 
