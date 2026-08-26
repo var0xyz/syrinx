@@ -3517,6 +3517,33 @@ func (s *DataService) GetServerByID(ctx context.Context, serverID string) (*Peer
 	return &peer, nil
 }
 
+// ListConnectedPeers returns every approved, non-revoked, currently
+// connected peer with a base URL — the fanout target list for cross-server
+// user search. Excludes revoked or never-connected/disconnected peers,
+// unlike ListFederationServers (the admin Mesh UI's broader listing, which
+// includes those so an operator can see them).
+func (s *DataService) ListConnectedPeers(ctx context.Context) ([]PeerServer, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, base_url FROM servers
+		WHERE self = FALSE AND revoked = FALSE AND connected = TRUE
+		  AND base_url IS NOT NULL AND base_url != ''
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var peers []PeerServer
+	for rows.Next() {
+		var p PeerServer
+		if err := rows.Scan(&p.ID, &p.BaseURL); err != nil {
+			return nil, err
+		}
+		peers = append(peers, p)
+	}
+	return peers, rows.Err()
+}
+
 // UpsertRemoteIdentity records a minimal, unverified identities row for a
 // foreign user after a successful proxied profile/info fetch, so a later
 // FollowUser has something to reference. Idempotent.

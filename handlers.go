@@ -843,9 +843,18 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, info)
 }
 
+// searchUsersFanoutTimeout bounds each peer's search-users call — this
+// runs on a live user's typing path (composer @ picker), so a slow or
+// unreachable peer must never make the whole search feel broken. A peer
+// that doesn't answer in time is just dropped from that request's results.
+const searchUsersFanoutTimeout = 2 * time.Second
+
 // SearchUsers handles GET /users/search?q=&limit= — the composer @-mention
 // picker's backing search. Auth required (not in signatureAuthMiddleware's
-// excludePaths); minimal fields only, no keys.
+// excludePaths); minimal fields only, no keys. Fans out to every connected
+// peer (leg 19, search-users) in parallel and merges their results with
+// this server's own local matches, so the picker can find users on any
+// server in the mesh, not just this one.
 func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 
@@ -862,14 +871,50 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	results, err := h.services.db.SearchUsers(r.Context(), query, limit)
+	localResults, err := h.services.db.SearchUsers(r.Context(), query, limit)
 	if err != nil {
 		log.Error().Str("query", query).Err(err).Msg("Error searching users")
 		internalServerError(w)
 		return
 	}
 
+	foreignResults := h.fanoutUserSearchToPeers(r.Context(), query, limit, searchUsersFanoutTimeout)
+	results := mergeUserSearchResults(query, localResults, foreignResults)
+
 	writeResponse(w, http.StatusOK, map[string]any{"users": results})
+}
+
+// mergeUserSearchResults combines local and fanned-out foreign results.
+// If no LOCAL result is an exact (case-insensitive) username match, any
+// foreign exact matches are moved to the front — the assumption being
+// that a searcher typing a full, exact username most likely means the
+// specific person they're already looking for, and that intent shouldn't
+// get buried under partial local matches when the actual target lives on
+// another server. When a local exact match already exists, no reordering
+// happens at all — local-then-foreign order is left as-is.
+func mergeUserSearchResults(query string, local, foreign []UserSearchResult) []UserSearchResult {
+	for _, r := range local {
+		if strings.EqualFold(r.Username, query) {
+			merged := make([]UserSearchResult, 0, len(local)+len(foreign))
+			merged = append(merged, local...)
+			merged = append(merged, foreign...)
+			return merged
+		}
+	}
+
+	var exact, rest []UserSearchResult
+	for _, r := range foreign {
+		if strings.EqualFold(r.Username, query) {
+			exact = append(exact, r)
+		} else {
+			rest = append(rest, r)
+		}
+	}
+	merged := make([]UserSearchResult, 0, len(local)+len(foreign))
+	merged = append(merged, exact...)
+	merged = append(merged, local...)
+	merged = append(merged, rest...)
+	return merged
 }
 
 // proxyFollowIfForeign forwards a local end-user's follow/unfollow to the
