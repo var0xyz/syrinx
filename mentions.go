@@ -21,6 +21,14 @@ var mentionTokenPattern = regexp.MustCompile(`~([a-zA-Z0-9]+)@([a-zA-Z0-9]+)`)
 // of reed content. Deduplicates by (ServerID, AuthorID) per reed and drops
 // self-mentions (authorID == the reed's own author). Never returns a
 // mention whose fields are empty.
+//
+// This runs server-side today because the server still receives reed
+// content at SignReed. That is expected to change: content is headed
+// toward never being sent to the server at all, with extraction moving to
+// the client and peers that actually receive the content verifying the
+// author's claims (e.g. that a mention token really appears in what was
+// signed) themselves, rather than trusting a server-parsed index. When
+// that lands, this function's server-side role goes away.
 func ExtractMentions(content, authorID string) []ReedRef {
 	if content == "" {
 		return nil

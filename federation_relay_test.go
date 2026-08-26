@@ -158,3 +158,62 @@ func TestRelayRequestCanonicalReedIDReconstruction(t *testing.T) {
 		t.Fatalf("canonical reedID = %q, want %q", got, want)
 	}
 }
+
+func TestMentionNotifyFromPeer_RejectsNonPeerCaller(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	body := `{"mentioning_reed_id":"alice@peer5678/01a026d4","mentioned_user_id":"bob@home1234"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/federation/relay/mention-notify", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	h.MentionNotifyFromPeer(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d (no peerServerIDKey in context)", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestMentionNotifyFromPeer_RejectsMissingFields(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	body := `{"mentioning_reed_id":"","mentioned_user_id":""}`
+	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/mention-notify", strings.NewReader(body)), "peer5678")
+	rr := httptest.NewRecorder()
+
+	h.MentionNotifyFromPeer(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestMentionNotifyFromPeer_RejectsForeignMentioningReedID(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	// mentioning_reed_id's embedded serverID ("thirdparty") is neither the
+	// calling peer's own id -- this is exactly the chained/multi-hop
+	// relay the loop-prevention guard must reject: a peer may only notify
+	// us about mentions in reeds it actually authors.
+	body := `{"mentioning_reed_id":"alice@thirdparty/01a026d4","mentioned_user_id":"bob@home1234"}`
+	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/mention-notify", strings.NewReader(body)), "peer5678")
+	rr := httptest.NewRecorder()
+
+	h.MentionNotifyFromPeer(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (mentioning_reed_id does not belong to the calling peer)", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestMentionNotifyFromPeer_RejectsMentionedUserNotLocal(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	// mentioned_user_id's embedded serverID ("elsewhere") is not this
+	// server's own id -- this server can only be told about mentions of
+	// users who actually live here.
+	body := `{"mentioning_reed_id":"alice@peer5678/01a026d4","mentioned_user_id":"bob@elsewhere"}`
+	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/mention-notify", strings.NewReader(body)), "peer5678")
+	rr := httptest.NewRecorder()
+
+	h.MentionNotifyFromPeer(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (mentioned_user_id is not local to this server)", rr.Code, http.StatusBadRequest)
+	}
+}

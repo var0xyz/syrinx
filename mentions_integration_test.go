@@ -144,10 +144,7 @@ func TestCreateReed_MentionsIndexed(t *testing.T) {
 
 	reedID := newTestReedID(t)
 	ts := time.Now().UTC().Truncate(time.Second)
-	mentions := []ReedRef{
-		{ServerID: "testserver", AuthorID: "bob"},
-		{ServerID: "testserver", AuthorID: "carol"},
-	}
+	mentions := []string{"bob@testserver", "carol@testserver"}
 
 	_, err := svc.CreateReed(ctx, createReedParams{
 		ReedID:             reedID,
@@ -205,9 +202,88 @@ func TestCreateReed_MentionOfNonexistentUserRejected(t *testing.T) {
 		ServerFingerprint:  "srvfp-alice",
 		ServerSignatureB64: "serversig",
 		Timestamp:          ts,
-		Mentions:           []ReedRef{{ServerID: "foreignsrv", AuthorID: "nobody-on-this-server"}},
+		Mentions:           []string{"nobody-on-this-server@foreignsrv"},
 	})
 	if err == nil {
+		t.Fatal("expected FK violation for a mention of a nonexistent local user")
+	}
+}
+
+// TestInsertMentionRow_ForeignMentioningReed covers the mention-notify
+// federation handler's path: the mentioning reed is authored on a peer
+// (no reeds row here at all, only a reed_identities row from
+// UpsertReedIdentity), and the mentioned user is local. This is the
+// scenario RelayRequestFromPeer-style tests can't reach (no live DB), so
+// it's exercised against the real schema instead.
+func TestInsertMentionRow_ForeignMentioningReed(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	seedMentionUser(t, db, "bob")
+
+	foreignReedID := "alice@peerserver/" + newTestReedID(t)
+	if err := svc.UpsertReedIdentity(ctx, foreignReedID); err != nil {
+		t.Fatalf("UpsertReedIdentity: %v", err)
+	}
+	if err := svc.InsertMentionRow(ctx, foreignReedID, "bob@testserver"); err != nil {
+		t.Fatalf("InsertMentionRow: %v", err)
+	}
+
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM reed_mentions WHERE mentioning_reed_id = $1 AND mentioned_user_id = 'bob@testserver'`, foreignReedID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("reed_mentions rows = %d, want 1", n)
+	}
+}
+
+// TestInsertMentionRow_IdempotentOnRetry confirms a retried mention-notify
+// delivery (e.g. after a timeout on the caller's side, retried) doesn't
+// create a duplicate row.
+func TestInsertMentionRow_IdempotentOnRetry(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	seedMentionUser(t, db, "bob")
+
+	foreignReedID := "alice@peerserver/" + newTestReedID(t)
+	if err := svc.UpsertReedIdentity(ctx, foreignReedID); err != nil {
+		t.Fatalf("UpsertReedIdentity: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := svc.InsertMentionRow(ctx, foreignReedID, "bob@testserver"); err != nil {
+			t.Fatalf("InsertMentionRow attempt %d: %v", i, err)
+		}
+	}
+
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM reed_mentions WHERE mentioning_reed_id = $1`, foreignReedID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("reed_mentions rows after two inserts = %d, want 1", n)
+	}
+}
+
+// TestInsertMentionRow_RejectsUnknownMentionedUser confirms the FK backstop
+// on mentioned_user_id still holds when inserting via this path directly
+// (not just through CreateReed's transaction) — MentionNotifyFromPeer's own
+// MentionTargetValid check is the primary guard, but this is the same
+// belt-and-suspenders property TestCreateReed_MentionOfNonexistentUserRejected
+// verifies for the local insert path.
+func TestInsertMentionRow_RejectsUnknownMentionedUser(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	foreignReedID := "alice@peerserver/" + newTestReedID(t)
+	if err := svc.UpsertReedIdentity(ctx, foreignReedID); err != nil {
+		t.Fatalf("UpsertReedIdentity: %v", err)
+	}
+	if err := svc.InsertMentionRow(ctx, foreignReedID, "nobody@testserver"); err == nil {
 		t.Fatal("expected FK violation for a mention of a nonexistent local user")
 	}
 }
@@ -231,7 +307,7 @@ func TestDeleteMentionsForReed_ClearsRows(t *testing.T) {
 		ServerFingerprint:  "srvfp-alice",
 		ServerSignatureB64: "serversig",
 		Timestamp:          ts,
-		Mentions:           []ReedRef{{ServerID: "testserver", AuthorID: "bob"}},
+		Mentions:           []string{"bob@testserver"},
 	})
 	if err != nil {
 		t.Fatalf("CreateReed: %v", err)
@@ -265,7 +341,7 @@ func TestDeleteMentionsByAuthor_ClearsBothSides(t *testing.T) {
 	if _, err := svc.CreateReed(ctx, createReedParams{
 		ReedID: reed1, UserID: "alice@testserver", UserFingerprint: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
-		Timestamp: ts, Mentions: []ReedRef{{ServerID: "testserver", AuthorID: "bob"}},
+		Timestamp: ts, Mentions: []string{"bob@testserver"},
 	}); err != nil {
 		t.Fatalf("CreateReed 1: %v", err)
 	}
@@ -276,7 +352,7 @@ func TestDeleteMentionsByAuthor_ClearsBothSides(t *testing.T) {
 	if _, err := svc.CreateReed(ctx, createReedParams{
 		ReedID: reed2, UserID: "carol@testserver", UserFingerprint: "carolfp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-carol", ServerSignatureB64: "sig",
-		Timestamp: ts, Mentions: []ReedRef{{ServerID: "testserver", AuthorID: "bob"}},
+		Timestamp: ts, Mentions: []string{"bob@testserver"},
 	}); err != nil {
 		t.Fatalf("CreateReed 2: %v", err)
 	}
