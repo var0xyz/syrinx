@@ -503,7 +503,7 @@ func (rs *RealtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 
 		eventID := generateEventID(requesterUserID)
 		requestID := generateEventID(requesterUserID)
-		if err := rs.dbService.CreateProfileSubscriptionEvent(context.Background(), eventID, requestID, requesterUserID, ProfileSubscriptionEvent, reedID, sub.SubscriptionID); err != nil {
+		if err := rs.createProfileSubscriptionEvent(context.Background(), eventID, requestID, requesterUserID, ProfileSubscriptionEvent, reedID, sub.SubscriptionID); err != nil {
 			log.Error().
 				Err(err).
 				Str("viewerUserID", sub.ViewerUserID).
@@ -591,7 +591,7 @@ func (rs *RealtimeService) dispatchRemovalTo(recipientID, reedID string, cert *R
 		return
 	}
 	eventID := generateEventID(recipientID)
-	if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, recipientID, ReedRemovedEvent, reedID); err != nil {
+	if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, recipientID, ReedRemovedEvent, reedID); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create reed_removed pending event")
 		return
 	}
@@ -610,7 +610,7 @@ func (rs *RealtimeService) dispatchAccountRemovalTo(recipientID, removedUserID s
 		return
 	}
 	eventID := generateEventID(recipientID)
-	if err := rs.dbService.CreatePendingAccountEvent(context.Background(), eventID, requestID, recipientID, removedUserID); err != nil {
+	if err := rs.createPendingAccountEvent(context.Background(), eventID, requestID, recipientID, removedUserID); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create account_removed pending event")
 		return
 	}
@@ -688,7 +688,7 @@ func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName
 			continue
 		}
 		eventID := generateEventID(recipientID)
-		if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, recipientID, eventName, reedID); err != nil {
+		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, recipientID, eventName, reedID); err != nil {
 			log.Error().
 				Err(err).
 				Str("recipientID", recipientID).
@@ -724,7 +724,7 @@ func (rs *RealtimeService) dispatchManyForeign(recipients []string, eventName Ev
 	for _, recipientID := range recipients {
 		requestID := generateEventID(recipientID)
 		eventID := generateEventID(recipientID)
-		if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, recipientID, eventName, reedID); err != nil {
+		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, recipientID, eventName, reedID); err != nil {
 			log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create local pending event for foreign dispatch")
 			continue
 		}
@@ -733,14 +733,14 @@ func (rs *RealtimeService) dispatchManyForeign(recipients []string, eventName Ev
 			if err != nil {
 				log.Error().Err(err).Str("reedID", reedID).Str("homeServerID", homeServerID).Msg("Failed to register foreign dispatch with home server")
 			}
-			if delErr := rs.dbService.DeletePendingEvent(context.Background(), eventID); delErr != nil {
+			if delErr := rs.deletePendingEvent(context.Background(), eventID); delErr != nil {
 				log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete speculative pending event after foreign dispatch failure")
 			}
 			continue
 		}
 		if err := rs.dbService.CreateForeignPendingEvent(context.Background(), eventID, homeServerID, peerEventID); err != nil {
 			log.Error().Err(err).Msg("Failed to record foreign pending event mapping for foreign dispatch")
-			if delErr := rs.dbService.DeletePendingEvent(context.Background(), eventID); delErr != nil {
+			if delErr := rs.deletePendingEvent(context.Background(), eventID); delErr != nil {
 				log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")
 			}
 		}
@@ -873,11 +873,15 @@ func (rs *RealtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Discard all pending relay events for this requester (cascades from profile_subscriptions too)
-	if err := rs.dbService.DeletePendingEventsByUser(context.Background(), userID); err != nil {
+	if deleted, err := rs.dbService.DeletePendingEventsByUser(context.Background(), userID); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Err(err).
 			Msg("Failed to delete pending events on disconnect")
+	} else {
+		for _, d := range deleted {
+			rs.metrics.RelayEvent(context.Background(), metrics.RelayEventDeleted, d.EventName, d.EventID)
+		}
 	}
 
 	// Notify any foreign authors' home servers that this viewer's live
@@ -1323,6 +1327,52 @@ func generateEventID(requesterUserID string) string {
 	return string(identity.AppendEntity(identity.IdentityID(requesterUserID), uuid.New().String()))
 }
 
+// createPendingReedEvent wraps dbService.CreatePendingReedEvent, additionally
+// recording a "created" RelayEvent lifecycle sample — the counterpart to
+// deletePendingEvent's "deleted"/"fulfilled" so wasted-bandwidth analysis
+// (created with no matching fulfilled/deleted) can correlate by event.id_hash.
+func (rs *RealtimeService) createPendingReedEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName EventName, reedID string) error {
+	if err := rs.dbService.CreatePendingReedEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID); err != nil {
+		return err
+	}
+	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(eventName), eventID)
+	return nil
+}
+
+// createPendingAccountEvent mirrors createPendingReedEvent for account-removal events.
+func (rs *RealtimeService) createPendingAccountEvent(ctx context.Context, eventID, requestID, requesterUserID, removedUserID string) error {
+	if err := rs.dbService.CreatePendingAccountEvent(ctx, eventID, requestID, requesterUserID, removedUserID); err != nil {
+		return err
+	}
+	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(AccountRemovedEvent), eventID)
+	return nil
+}
+
+// createProfileSubscriptionEvent mirrors createPendingReedEvent for profile-subscription events.
+func (rs *RealtimeService) createProfileSubscriptionEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName EventName, reedID, subscriptionID string) error {
+	if err := rs.dbService.CreateProfileSubscriptionEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID, subscriptionID); err != nil {
+		return err
+	}
+	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(eventName), eventID)
+	return nil
+}
+
+// deletePendingEvent wraps dbService.DeletePendingEvent, additionally
+// recording a "deleted" RelayEvent lifecycle sample when a row was actually
+// removed (eventName is empty if it was already gone — nothing to record).
+// Use this for a delete that's cleanup/cancellation; use recordRelayEventFulfilled
+// alongside a delivery instead when the event was actually answered.
+func (rs *RealtimeService) deletePendingEvent(ctx context.Context, eventID string) error {
+	eventName, err := rs.dbService.DeletePendingEvent(ctx, eventID)
+	if err != nil {
+		return err
+	}
+	if eventName != "" {
+		rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, eventName, eventID)
+	}
+	return nil
+}
+
 func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessage) {
 	var req RequestReedData
 	if err := json.Unmarshal(data, &req); err != nil {
@@ -1393,7 +1443,7 @@ func (rs *RealtimeService) tryPeerFallback(ctx context.Context, reedID, requeste
 	}
 
 	eventID = generateEventID(requesterUserID)
-	if err := rs.dbService.CreatePendingReedEvent(ctx, eventID, requestID, requesterUserID, RequestReedEvent, reedID); err != nil {
+	if err := rs.createPendingReedEvent(ctx, eventID, requestID, requesterUserID, RequestReedEvent, reedID); err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to create speculative pending event for peer fallback")
 		return "", false
 	}
@@ -1414,7 +1464,7 @@ func (rs *RealtimeService) tryPeerFallback(ctx context.Context, reedID, requeste
 		return eventID, true
 	}
 
-	if delErr := rs.dbService.DeletePendingEvent(ctx, eventID); delErr != nil {
+	if delErr := rs.deletePendingEvent(ctx, eventID); delErr != nil {
 		log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete speculative pending event after exhausting peer fallback candidates")
 	}
 	return "", false
@@ -1494,7 +1544,7 @@ func (rs *RealtimeService) registerReedRequest(ctx context.Context, reedID, requ
 	}
 
 	eventID = generateEventID(eventIdentity)
-	if err = rs.dbService.CreatePendingReedEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID); err != nil {
+	if err = rs.createPendingReedEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID); err != nil {
 		return false, false, "", err
 	}
 
@@ -1523,7 +1573,7 @@ func (rs *RealtimeService) handleForeignRequestReedFromClient(client *Client, re
 	}
 
 	eventID := generateEventID(client.userID)
-	if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, client.userID, RequestReedEvent, reedID); err != nil {
+	if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, client.userID, RequestReedEvent, reedID); err != nil {
 		log.Error().Err(err).Msg("Failed to create local pending event for foreign relay request")
 		return
 	}
@@ -1533,7 +1583,7 @@ func (rs *RealtimeService) handleForeignRequestReedFromClient(client *Client, re
 		if err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Str("homeServerID", homeServerID).Msg("Failed to register foreign reed request with home server")
 		}
-		if delErr := rs.dbService.DeletePendingEvent(context.Background(), eventID); delErr != nil {
+		if delErr := rs.deletePendingEvent(context.Background(), eventID); delErr != nil {
 			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete speculative pending event after foreign request failure")
 		}
 		if result == ForeignRequestReedNotFound {
@@ -1546,7 +1596,7 @@ func (rs *RealtimeService) handleForeignRequestReedFromClient(client *Client, re
 
 	if err := rs.dbService.CreateForeignPendingEvent(context.Background(), eventID, homeServerID, peerEventID); err != nil {
 		log.Error().Err(err).Msg("Failed to record foreign pending event mapping")
-		if delErr := rs.dbService.DeletePendingEvent(context.Background(), eventID); delErr != nil {
+		if delErr := rs.deletePendingEvent(context.Background(), eventID); delErr != nil {
 			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")
 		}
 		return
@@ -1631,7 +1681,7 @@ func (rs *RealtimeService) HandleHolderNotify(ctx context.Context, reedID, notif
 // HandleForeignRequestReed and HandleForeignSubscribeProfile.
 func (rs *RealtimeService) recordForeignRelayRequest(ctx context.Context, eventID, requestingServerID, requestingUserID string) error {
 	if err := rs.dbService.CreateForeignRelayRequest(ctx, eventID, requestingServerID, requestingUserID); err != nil {
-		if delErr := rs.dbService.DeletePendingEvent(ctx, eventID); delErr != nil {
+		if delErr := rs.deletePendingEvent(ctx, eventID); delErr != nil {
 			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_relay_requests insert failure")
 		}
 		return err
@@ -1750,7 +1800,7 @@ func (rs *RealtimeService) CancelForeignPendingEvent(ctx context.Context, peerEv
 	if frr.RequestingServerID != callerServerID {
 		return errForeignRelayOwnershipMismatch
 	}
-	return rs.dbService.DeletePendingEvent(ctx, peerEventID)
+	return rs.deletePendingEvent(ctx, peerEventID)
 }
 
 // HandleForeignAck runs on the home server (H): the originating server's
@@ -1788,7 +1838,7 @@ func (rs *RealtimeService) HandleForeignAck(ctx context.Context, peerEventID, ca
 	if err := rs.dbService.RecordServerHolder(ctx, pe.ReedID, callerServerID); err != nil {
 		return err
 	}
-	return rs.dbService.DeletePendingEvent(ctx, peerEventID)
+	return rs.deletePendingEvent(ctx, peerEventID)
 }
 
 // handlePublishReady runs new-reed fanout when a pending_fanout row exists.
@@ -1866,10 +1916,20 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMess
 		return
 	}
 	if pe == nil {
-		// Event was cancelled (e.g. UNSUBSCRIBE_PROFILE) — still advance the holder's queue.
+		// Event was cancelled/already resolved (e.g. UNSUBSCRIBE_PROFILE, or
+		// a same-holder retransmit arriving after the first response already
+		// deleted this row) — still advance the holder's queue. Recording
+		// nothing here (rather than a second "fulfilled") is what keeps a
+		// genuine duplicate response from inflating the fulfilled count for
+		// event types that delete immediately (BroadcastReedEvent); for the
+		// deferred-delete types below, a retransmit instead falls through
+		// to a real second "fulfilled" sample for the same event.id_hash —
+		// exactly the wasted-bandwidth signal this metric exists to catch.
 		rs.dispatchNext(client.userID)
 		return
 	}
+
+	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventFulfilled, pe.EventName, eventID)
 
 	if pe.EventName == string(BroadcastReedEvent) {
 		username, err := rs.dbService.GetUsername(context.Background(), pe.UserID)
@@ -1884,7 +1944,7 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMess
 				log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver broadcast reed")
 			}
 		}
-		if err := rs.dbService.DeletePendingEvent(context.Background(), eventID); err != nil {
+		if err := rs.deletePendingEvent(context.Background(), eventID); err != nil {
 			log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event")
 		}
 	} else if pe.EventName == string(PipeReedEvent) {
@@ -1998,7 +2058,7 @@ func (rs *RealtimeService) failReedNotHeld(pe *PendingReedEvent) {
 	if err := rs.connManager.SendToUser(pe.RequesterUserID, NewReedNotHeldMsg(pe.RequestID, pe.ReedID)); err != nil {
 		log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to send reed not held")
 	}
-	if err := rs.dbService.DeletePendingEvent(context.Background(), pe.EventID); err != nil {
+	if err := rs.deletePendingEvent(context.Background(), pe.EventID); err != nil {
 		log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to delete pending event on reed not held")
 	}
 }
@@ -2095,7 +2155,7 @@ func (rs *RealtimeService) handleDataAck(client *Client, data DataAckData) {
 		}
 	}
 
-	if err := rs.dbService.DeletePendingEvent(context.Background(), eventID); err != nil {
+	if err := rs.deletePendingEvent(context.Background(), eventID); err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event on data ack")
 	}
 }
@@ -2107,7 +2167,7 @@ func (rs *RealtimeService) handleDataInvalid(client *Client, data DataInvalidDat
 		return
 	}
 
-	if err := rs.dbService.DeletePendingEvent(context.Background(), data.EventID); err != nil {
+	if err := rs.deletePendingEvent(context.Background(), data.EventID); err != nil {
 		log.Error().Err(err).Str("eventID", data.EventID).Msg("Failed to delete pending event on data invalid")
 	}
 }
@@ -2169,7 +2229,7 @@ func (rs *RealtimeService) handleSubscribeProfile(client *Client, data json.RawM
 	for _, reedID := range missingIDs {
 		eventID := generateEventID(client.userID)
 		requestID := generateEventID(client.userID)
-		if err := rs.dbService.CreateProfileSubscriptionEvent(context.Background(), eventID, requestID, client.userID, ProfileSubscriptionEvent, reedID, subscriptionID); err != nil {
+		if err := rs.createProfileSubscriptionEvent(context.Background(), eventID, requestID, client.userID, ProfileSubscriptionEvent, reedID, subscriptionID); err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to create profile subscription event")
 			continue
 		}
@@ -2237,13 +2297,13 @@ func (rs *RealtimeService) registerForeignProfileSubscriptionEvent(ctx context.C
 	}
 	eventID := generateEventID(requesterUserID)
 	requestID := generateEventID(requesterUserID)
-	if err := rs.dbService.CreateProfileSubscriptionEvent(ctx, eventID, requestID, requesterUserID, ProfileSubscriptionEvent, reedID, subscriptionID); err != nil {
+	if err := rs.createProfileSubscriptionEvent(ctx, eventID, requestID, requesterUserID, ProfileSubscriptionEvent, reedID, subscriptionID); err != nil {
 		log.Error().Err(err).Str("peerEventID", peerEventID).Msg("Failed to create local pending event for foreign profile subscription")
 		return
 	}
 	if err := rs.dbService.CreateForeignPendingEvent(ctx, eventID, homeServerID, peerEventID); err != nil {
 		log.Error().Err(err).Msg("Failed to record foreign pending event mapping for profile subscription")
-		if delErr := rs.dbService.DeletePendingEvent(ctx, eventID); delErr != nil {
+		if delErr := rs.deletePendingEvent(ctx, eventID); delErr != nil {
 			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")
 		}
 	}
@@ -2970,7 +3030,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 
 	for _, reed := range unallocated {
 		eventID := generateEventID(userID)
-		if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, userID, FollowReedEvent, reed.ReedID); err != nil {
+		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, userID, FollowReedEvent, reed.ReedID); err != nil {
 			log.Error().
 				Err(err).
 				Str("reedID", reed.ReedID).
@@ -2997,7 +3057,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 	}
 	for _, rem := range removals {
 		eventID := generateEventID(userID)
-		if err := rs.dbService.CreatePendingReedEvent(context.Background(), eventID, requestID, userID, ReedRemovedEvent, rem.ReedID); err != nil {
+		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, userID, ReedRemovedEvent, rem.ReedID); err != nil {
 			log.Error().Err(err).Str("reedID", rem.ReedID).Msg("Failed to create catch-up reed_removed event")
 			continue
 		}
@@ -3011,7 +3071,7 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 	}
 	for _, rem := range accountRemovals {
 		eventID := generateEventID(userID)
-		if err := rs.dbService.CreatePendingAccountEvent(context.Background(), eventID, requestID, userID, rem.UserID); err != nil {
+		if err := rs.createPendingAccountEvent(context.Background(), eventID, requestID, userID, rem.UserID); err != nil {
 			log.Error().Err(err).Str("removedUserID", rem.UserID).Msg("Failed to create catch-up account_removed event")
 			continue
 		}

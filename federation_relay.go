@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"syrinx/identity"
+	"syrinx/observability/metrics"
 	"syrinx/realtime"
 )
 
@@ -44,10 +45,27 @@ func peerRequestIDMatchesPeer(id, callerServerID string) bool {
 	return embeddedServerID == callerServerID
 }
 
+// relayLeg extracts the trailing path segment ("request", "subscribe", ...)
+// from a "/api/federation/relay/..." path, for use as a metric attribute —
+// every leg name is a literal in this file, never influenced by request data.
+func relayLeg(path string) string {
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		return path[i+1:]
+	}
+	return path
+}
+
 // callPeerRelayEndpoint POSTs a JSON body to a peer's relay RPC path,
 // signed as this server's own key, and decodes a JSON response into out
-// (nil to ignore the body). Returns the peer's HTTP status.
-func (h *Handlers) callPeerRelayEndpoint(ctx context.Context, baseURL, path string, body, out any) (status int, err error) {
+// (nil to ignore the body). Returns the peer's HTTP status. peerServerID
+// is this server's own DB id for the peer (already resolved by the
+// caller from the reed/author identity) — recorded on the outbound
+// federation-relay metric so traffic can be broken down per peer.
+func (h *Handlers) callPeerRelayEndpoint(ctx context.Context, peerServerID, baseURL, path string, body, out any) (status int, err error) {
+	leg := relayLeg(path)
+	ok := false
+	defer func() { h.metrics.FederationRelay(ctx, metrics.DirectionOut, peerServerID, leg, ok) }()
+
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return 0, err
@@ -72,7 +90,33 @@ func (h *Handlers) callPeerRelayEndpoint(ctx context.Context, baseURL, path stri
 			return resp.StatusCode, err
 		}
 	}
+	ok = resp.StatusCode >= 200 && resp.StatusCode < 300
 	return resp.StatusCode, nil
+}
+
+// withFederationRelayMetric wraps one of the RelayFromPeer handlers below
+// to record the inbound side of syrinx.federation.relay — every registration
+// in main.go for a /federation/relay/... route goes through this rather
+// than each of the 16 handlers recording it individually. leg matches
+// relayLeg's derivation from the matching outbound call's path, e.g.
+// "request" for /api/federation/relay/request. peerServerID comes from
+// authenticateAsPeer's context value; a request that never got that far
+// (auth middleware rejected it before reaching here) isn't counted — it's
+// not federation traffic this server actually processed.
+func (h *Handlers) withFederationRelayMetric(leg string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rw := &responseWriter{ResponseWriter: w}
+		next(rw, r)
+		peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+		if !ok || peerServerID == "" {
+			return
+		}
+		status := rw.statusCode
+		if status == 0 {
+			status = http.StatusOK
+		}
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, leg, status >= 200 && status < 300)
+	}
 }
 
 // ///////////////////////////////////// //
@@ -114,7 +158,7 @@ func (h *Handlers) relayRequestToPeer(ctx context.Context, reedID, requesterUser
 		PeerRequestID:   localRequestID,
 	}
 	var respBody relayRequestResponse
-	status, err := h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/request", payload, &respBody)
+	status, err := h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/request", payload, &respBody)
 	if err != nil {
 		return realtime.ForeignRequestReedNotFound, "", err
 	}
@@ -232,7 +276,7 @@ func (h *Handlers) subscribeProfileToPeer(ctx context.Context, authorID, request
 
 	payload := relaySubscribePayload{AuthorID: authorID, RequesterUserID: requesterUserID}
 	var respBody relaySubscribeResponse
-	status, err := h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/subscribe", payload, &respBody)
+	status, err := h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/subscribe", payload, &respBody)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +362,7 @@ func (h *Handlers) deliverRelayResponseToPeer(ctx context.Context, requestingSer
 		return nil
 	}
 	payload := relayDeliverPayload{PeerEventID: peerEventID, Data: data}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/deliver", payload, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, requestingServerID, peer.BaseURL, "/api/federation/relay/deliver", payload, nil)
 	return err
 }
 
@@ -382,7 +426,7 @@ func (h *Handlers) cancelRelayRequestWithPeer(ctx context.Context, homeServerID,
 		return nil
 	}
 	payload := relayCancelPayload{PeerEventID: peerEventID}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/cancel", payload, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/cancel", payload, nil)
 	return err
 }
 
@@ -454,7 +498,7 @@ func (h *Handlers) ackRelayDeliveryWithPeer(ctx context.Context, homeServerID, p
 		return nil
 	}
 	payload := relayAckPayload{PeerEventID: peerEventID}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/ack", payload, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/ack", payload, nil)
 	return err
 }
 
@@ -524,7 +568,7 @@ func (h *Handlers) unsubscribeProfileWithPeer(ctx context.Context, authorID, req
 		return nil
 	}
 	payload := relayUnsubscribePayload{AuthorID: authorID, RequesterUserID: requesterUserID}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/unsubscribe", payload, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/unsubscribe", payload, nil)
 	return err
 }
 
@@ -617,7 +661,7 @@ func (h *Handlers) subscribeReedToPeer(ctx context.Context, reedID, requesterUse
 
 	payload := relaySubscribeReedPayload{ReedID: reedID, RequesterUserID: requesterUserID}
 	var respBody relaySubscribeReedResponse
-	status, err := h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/subscribe-reed", payload, &respBody)
+	status, err := h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/subscribe-reed", payload, &respBody)
 	if err != nil {
 		return realtime.ForeignReedStatsSnapshot{}, false, err
 	}
@@ -713,7 +757,7 @@ func (h *Handlers) unsubscribeReedWithPeer(ctx context.Context, reedID, requeste
 		return nil
 	}
 	payload := relayUnsubscribeReedPayload{ReedID: reedID, RequesterUserID: requesterUserID}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/unsubscribe-reed", payload, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/unsubscribe-reed", payload, nil)
 	return err
 }
 
@@ -788,7 +832,7 @@ func (h *Handlers) pushReedStatsToPeer(ctx context.Context, requestingServerID, 
 		return nil
 	}
 	body := relayReedStatsPayload{RequesterUserID: requestingUserID, Payload: payload}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/reed-stats", body, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, requestingServerID, peer.BaseURL, "/api/federation/relay/reed-stats", body, nil)
 	return err
 }
 
@@ -872,7 +916,7 @@ func (h *Handlers) notifyForeignReplyToPeer(ctx context.Context, parentReedID, r
 		ThreadID:     threadID,
 		Timestamp:    ts,
 	}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/reply-notify", payload, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/reply-notify", payload, nil)
 	return err
 }
 
@@ -968,7 +1012,7 @@ func (h *Handlers) notifyForeignEchoToPeer(ctx context.Context, echoedReedID, ec
 		IsBlank:         isBlank,
 		Timestamp:       ts,
 	}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/echo-notify", payload, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/echo-notify", payload, nil)
 	return err
 }
 
@@ -1065,7 +1109,7 @@ func (h *Handlers) notifyForeignReplyRemovalToPeer(ctx context.Context, parentRe
 		return nil
 	}
 	payload := relayReplyRemovalNotifyPayload{ParentReedID: parentReedID, ReplyReedID: replyReedID}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/reply-removal-notify", payload, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/reply-removal-notify", payload, nil)
 	return err
 }
 
@@ -1161,7 +1205,7 @@ func (h *Handlers) notifyForeignEchoRemovalToPeer(ctx context.Context, echoedRee
 		return nil
 	}
 	payload := relayEchoRemovalNotifyPayload{EchoedReedID: echoedReedID, EchoingReedID: echoingReedID}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/echo-removal-notify", payload, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/echo-removal-notify", payload, nil)
 	return err
 }
 
@@ -1251,7 +1295,7 @@ func (h *Handlers) notifyHolderToPeer(ctx context.Context, homeServerID, reedID 
 		return nil
 	}
 	payload := relayHolderNotifyPayload{ReedID: reedID}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/holder-notify", payload, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/holder-notify", payload, nil)
 	return err
 }
 
@@ -1339,7 +1383,7 @@ func (h *Handlers) relayFallbackRequestToPeer(ctx context.Context, peerServerID,
 		PeerRequestID:   localRequestID,
 	}
 	var respBody relayFallbackRequestResponse
-	status, err := h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/fallback-request", payload, &respBody)
+	status, err := h.callPeerRelayEndpoint(ctx, peerServerID, peer.BaseURL, "/api/federation/relay/fallback-request", payload, &respBody)
 	if err != nil {
 		return realtime.ForeignRequestReedNotFound, "", err
 	}
@@ -1455,7 +1499,7 @@ func (h *Handlers) notifyNewReedToPeer(ctx context.Context, requestingServerID, 
 		ReedID:          reedID,
 		PeerEventID:     peerEventID,
 	}
-	_, err = h.callPeerRelayEndpoint(ctx, peer.BaseURL, "/api/federation/relay/new-reed-notify", payload, nil)
+	_, err = h.callPeerRelayEndpoint(ctx, requestingServerID, peer.BaseURL, "/api/federation/relay/new-reed-notify", payload, nil)
 	return err
 }
 

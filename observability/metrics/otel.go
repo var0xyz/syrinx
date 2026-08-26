@@ -23,6 +23,8 @@ type OTEL struct {
 	revokedKeysUsed     metric.Int64Counter
 	usersBackup         metric.Int64Counter
 	wsMessages          metric.Int64Counter
+	relayEvents         metric.Int64Counter
+	federationRelay     metric.Int64Counter
 	rawChars            metric.Int64Histogram
 	visibleChars        metric.Int64Histogram
 	holders             metric.Int64Histogram
@@ -64,6 +66,8 @@ func New(m metric.Meter) *OTEL {
 	r.revokedKeysUsed = counter("syrinx.keys.revoked_used")
 	r.usersBackup = counter("syrinx.users.backup")
 	r.wsMessages = counter("syrinx.ws.messages")
+	r.relayEvents = counter("syrinx.relay.event")
+	r.federationRelay = counter("syrinx.federation.relay")
 	r.rawChars = histogram("syrinx.reed.content.raw_chars")
 	r.visibleChars = histogram("syrinx.reed.content.visible_chars")
 	r.holders = histogram("syrinx.reed.holders")
@@ -213,6 +217,39 @@ func (r *OTEL) WSMessage(ctx context.Context, direction Direction, msgType strin
 	r.wsMessages.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("ws.direction", string(direction)),
 		attribute.String("ws.message.type", msgType),
+	))
+}
+
+// RelayEvent records one stage of a pending relay event's life. Comparing
+// created vs. fulfilled+deleted counts (grouped by event.kind) surfaces
+// wasted bandwidth: created-with-no-matching-fulfilled/deleted means the
+// request leaked (no holder ever answered); more than one fulfilled for
+// the same event.id_hash means a duplicate/redundant response was
+// processed for a request that had already been satisfied.
+func (r *OTEL) RelayEvent(ctx context.Context, lifecycle RelayLifecycle, eventKind, eventID string) {
+	if r.relayEvents == nil {
+		return
+	}
+	r.relayEvents.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("relay.lifecycle", string(lifecycle)),
+		attribute.String("event.kind", eventKind),
+		attribute.String("event.id_hash", EventIDHash(eventID)),
+	))
+}
+
+// FederationRelay records one federation relay HTTP call, either side:
+// this server handling an inbound leg from peerServerID, or this server
+// calling out to peerServerID for that leg. Grouping by peer.server_id
+// answers "how much relay traffic is server X generating us."
+func (r *OTEL) FederationRelay(ctx context.Context, direction Direction, peerServerID, leg string, ok bool) {
+	if r.federationRelay == nil {
+		return
+	}
+	r.federationRelay.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("federation.direction", string(direction)),
+		attribute.String("peer.server_id", peerServerID),
+		attribute.String("federation.leg", leg),
+		attribute.Bool("ok", ok),
 	))
 }
 

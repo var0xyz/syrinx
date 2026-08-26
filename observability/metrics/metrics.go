@@ -32,6 +32,18 @@ const (
 	ReedKindReply ReedKind = "reply"
 )
 
+// RelayLifecycle is a pending relay event's stage, for wasted-bandwidth
+// analysis: created-but-never-fulfilled-or-deleted means it leaked (no
+// holder ever answered); fulfilled more than once for the same
+// event.id_hash means a duplicate/redundant relay response was processed.
+type RelayLifecycle string
+
+const (
+	RelayEventCreated   RelayLifecycle = "created"
+	RelayEventFulfilled RelayLifecycle = "fulfilled"
+	RelayEventDeleted   RelayLifecycle = "deleted"
+)
+
 // ReedPublishedAttrs carries structural publish metadata (no content or tag text).
 type ReedPublishedAttrs struct {
 	Kind         ReedKind
@@ -56,23 +68,27 @@ type Recorder interface {
 	UserBackup(ctx context.Context, userID string, kind BackupKind)
 	ReedCoverage(ctx context.Context, authorID, reedID string, holders, coveragePercent int)
 	WSMessage(ctx context.Context, direction Direction, msgType string)
+	RelayEvent(ctx context.Context, lifecycle RelayLifecycle, eventKind, eventID string)
+	FederationRelay(ctx context.Context, direction Direction, peerServerID, leg string, ok bool)
 }
 
 // Noop is an inert Recorder.
 type Noop struct{}
 
-func (Noop) UserCreated(context.Context, string, string)            {}
-func (Noop) UserDeleted(context.Context, string, bool)              {}
-func (Noop) ReedPublished(context.Context, ReedPublishedAttrs)      {}
-func (Noop) ReedDeleted(context.Context, string, string)            {}
-func (Noop) EchoTargeted(context.Context, string, string)           {}
-func (Noop) ReedRejectedLength(context.Context, int, int)           {}
-func (Noop) KeyRevoked(context.Context, string)                     {}
-func (Noop) KeyFetchError(context.Context, string, string, string)  {}
-func (Noop) RevokedKeyUsed(context.Context, string, string, string) {}
-func (Noop) UserBackup(context.Context, string, BackupKind)         {}
-func (Noop) ReedCoverage(context.Context, string, string, int, int) {}
-func (Noop) WSMessage(context.Context, Direction, string)           {}
+func (Noop) UserCreated(context.Context, string, string)                      {}
+func (Noop) UserDeleted(context.Context, string, bool)                        {}
+func (Noop) ReedPublished(context.Context, ReedPublishedAttrs)                {}
+func (Noop) ReedDeleted(context.Context, string, string)                      {}
+func (Noop) EchoTargeted(context.Context, string, string)                     {}
+func (Noop) ReedRejectedLength(context.Context, int, int)                     {}
+func (Noop) KeyRevoked(context.Context, string)                               {}
+func (Noop) KeyFetchError(context.Context, string, string, string)            {}
+func (Noop) RevokedKeyUsed(context.Context, string, string, string)           {}
+func (Noop) UserBackup(context.Context, string, BackupKind)                   {}
+func (Noop) ReedCoverage(context.Context, string, string, int, int)           {}
+func (Noop) WSMessage(context.Context, Direction, string)                     {}
+func (Noop) RelayEvent(context.Context, RelayLifecycle, string, string)       {}
+func (Noop) FederationRelay(context.Context, Direction, string, string, bool) {}
 
 // TagCountAttr buckets tag counts for metric attributes (exact 0–3, then 4+).
 func TagCountAttr(n int) int {
