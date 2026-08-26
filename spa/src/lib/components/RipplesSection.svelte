@@ -498,24 +498,6 @@
     </button>
   {/if}
 
-  {#if pendingRipples.length > 0}
-    <!-- Held to avoid pushing an open composer down; merges into the main
-         list once every blocking composer closes. -->
-    <ul class="ripple-list ripple-list--pending">
-      {#each pendingRipples as ripple (ripple.hash)}
-        <RippleRow
-          {ripple}
-          username={usernames[ripple.userID] ?? null}
-          replyingToLoaded={!!findByHash(ripple.replyingTo)}
-          replyingToUsername={ripple.replyingTo ? (usernames[findByHash(ripple.replyingTo)?.userID] ?? null) : undefined}
-          {ownUserID}
-          replyable={false}
-          on:delete={(e) => deleteRipple(e.detail)}
-        />
-      {/each}
-    </ul>
-  {/if}
-
   <p class="ripples-why-explainer">
     Ripples aren't saved permanently — this thread disappears 7 days after
     its last reply, and posting a new one resets the countdown. Plain text
