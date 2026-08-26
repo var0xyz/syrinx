@@ -23,6 +23,7 @@
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
   import { mergeUserView, profileNeedsRefresh } from '$lib/utils/userView';
   import { countMarkdownCharacters, MAX_REED_VISIBLE_CHARS } from '$lib/utils/reedContent';
+  import { parseCanonicalId } from '$lib/utils/keyId';
   import type * as api from '$lib/types/api';
 
   /** @type {import('./$types').PageData} */
@@ -312,9 +313,17 @@
     }
   }
 
+  /** Foreign-author FOLLOW_REED fanout never reaches a remote follower (it
+   * only notifies followers with an active connection on the author's own
+   * server) — SUBSCRIBE_PROFILE is the only delivery path that actually
+   * works cross-server, so foreign profiles must always use it, following
+   * or not. For a local author, following already gets live delivery via
+   * FOLLOW_REED, so subscribing too would just be redundant. */
   async function subscribeToProfileIfNotFollowing(uid: string) {
     if (isOwner) return;
-    if (await followingRepository.isFollowing(uid)) return;
+    const localServerID = localStorage.getItem('serverId') || '';
+    const isForeign = parseCanonicalId(uid)?.[1] !== localServerID;
+    if (!isForeign && (await followingRepository.isFollowing(uid))) return;
     await subscribeToProfile(uid);
   }
 
