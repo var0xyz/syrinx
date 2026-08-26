@@ -1664,7 +1664,7 @@ func (rs *RealtimeService) HandleForeignSubscribeProfile(ctx context.Context, au
 	if err := rs.dbService.UpsertRemoteIdentity(ctx, requestingUserID, requestingServerID); err != nil {
 		return nil, err
 	}
-	if err := rs.dbService.CreateProfileSubscription(ctx, generateEventID(requestingUserID), requestingUserID, authorID); err != nil {
+	if _, err := rs.dbService.CreateProfileSubscription(ctx, generateEventID(requestingUserID), requestingUserID, authorID); err != nil {
 		return nil, err
 	}
 
@@ -2149,8 +2149,8 @@ func (rs *RealtimeService) handleSubscribeProfile(client *Client, data json.RawM
 		return
 	}
 
-	subscriptionID := generateEventID(client.userID)
-	if err := rs.dbService.CreateProfileSubscription(context.Background(), subscriptionID, client.userID, profile.UserID); err != nil {
+	subscriptionID, err := rs.dbService.CreateProfileSubscription(context.Background(), generateEventID(client.userID), client.userID, profile.UserID)
+	if err != nil {
 		log.Error().Err(err).Msg("Failed to create profile subscription")
 		return
 	}

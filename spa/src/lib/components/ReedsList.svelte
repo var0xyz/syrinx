@@ -4,7 +4,7 @@
   import { formatRelativeTime } from '$lib/utils/time';
   import { dbService } from '$lib/services/db';
   import { userRepository } from '$lib/repositories/user';
-  import { removeReedAsAuthor } from '$lib/services/reedRemoval';
+  import { removeReedAsAuthor, reedRemovalCommitted } from '$lib/services/reedRemoval';
   import { pendingRemovalSynced } from '$lib/repositories/pendingRemoval';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import Quote from '$lib/components/Quote.svelte';
@@ -81,6 +81,11 @@
 
   $: if ($unsignedReedsProcessed > 0) loadReeds();
   $: if ($pendingRemovalSynced > 0) loadReeds();
+  /** A reed removal cert (this author's own, or one relayed for a reed
+   * shown here as an echo/reply target) can arrive over WS while this list
+   * is mounted — reload so the deleted item actually disappears instead of
+   * lingering until a manual reload remounts the component. */
+  $: if ($reedRemovalCommitted > 0) loadReeds();
 
   // Only depend on the queue store — never read reeds/pendingReeds here or
   // loadReeds() will retrigger this block and flash the loading screen.

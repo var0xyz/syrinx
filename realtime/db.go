@@ -1101,16 +1101,28 @@ func (ds *DBService) GetUnallocatedReedsForServer(ctx context.Context, authorID,
 	return ids, nil
 }
 
-// CreateProfileSubscription records an active profile feed subscription for a viewer.
+// CreateProfileSubscription records an active profile feed subscription for
+// a viewer, returning the effective subscription_id. Idempotent per
+// (viewer_user_id, author_user_id): a repeat subscribe for a pair that's
+// already active (e.g. revisiting the same profile page) reuses the
+// existing subscription_id instead of inserting a second row —
+// GetProfileSubscribers has no DISTINCT, so duplicate rows for the same
+// viewer would otherwise fan out the same new-reed event to them more than
+// once. Callers must use the returned id (not the one they passed in) since
+// a conflict discards the caller's candidate in favor of the existing row.
 // profile_subscriptions.viewer_user_id/author_user_id are both direct FKs to identities(id).
-func (ds *DBService) CreateProfileSubscription(ctx context.Context, subscriptionID, viewerUserID, authorUserID string) error {
+func (ds *DBService) CreateProfileSubscription(ctx context.Context, subscriptionID, viewerUserID, authorUserID string) (string, error) {
 	viewerIdentity := identity.IdentityID(viewerUserID)
 	authorIdentity := identity.IdentityID(authorUserID)
-	_, err := ds.db.ExecContext(ctx, `
+	var effectiveID string
+	err := ds.db.QueryRowContext(ctx, `
 		INSERT INTO profile_subscriptions (subscription_id, viewer_user_id, author_user_id)
 		VALUES ($1, $2, $3)
-	`, subscriptionID, viewerIdentity, authorIdentity)
-	return err
+		ON CONFLICT (viewer_user_id, author_user_id)
+			DO UPDATE SET viewer_user_id = EXCLUDED.viewer_user_id
+		RETURNING subscription_id
+	`, subscriptionID, viewerIdentity, authorIdentity).Scan(&effectiveID)
+	return effectiveID, err
 }
 
 // GetProfileSubscription returns the subscription ID for an active (viewer, author) pair.

@@ -824,7 +824,8 @@ func InitDB(db *sql.DB) error {
 		subscription_id VARCHAR(255) PRIMARY KEY,
 		viewer_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		author_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE (viewer_user_id, author_user_id)
 	);`
 
 	createProfileSubscriptionsIndex := `
