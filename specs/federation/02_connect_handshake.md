@@ -2,19 +2,31 @@
 
 ## Status
 
-**Implemented**, with substantial deviations from the original design below
-(see [Implementation notes](#implementation-notes) for the reasoning behind
-each):
+**Implemented**, with deviations from the original design below (see
+[Implementation notes](#implementation-notes) for the reasoning behind
+each). **Correction to a claim previously made here:** point 1 below
+used to say no `federation_attempt` table exists — that was wrong.
+`federation_attempt` (`db.go`) is real and load-bearing: both sides of
+a handshake get their own row (the initiator's has `invitation_id` set;
+the responder's, which never created an invitation, has it `NULL`), and
+it is specifically what [03](03_approval_established.md)'s manual
+approval step operates on — see that doc's Status for the full
+approval-gate picture, since it turned out to be implemented too, just
+not exactly as 03 originally designed it.
 
-1. **No `federation_attempt` table at all.** The whole handshake lifecycle
-   — invite, redeem, accept, (later) approve/reject/revoke — lives on
-   `federation_invitation`. What the original design called "the attempt"
-   is just `federation_invitation.status` moving through more states.
-2. **`servers` gained `base_url` and `connected`.** The responder writes a
-   peer row here (`self = FALSE`) *before* attempting the handshake — not
-   only after it succeeds — so there's somewhere to log against from the
-   first moment. `connected` flips to `TRUE` once the handshake actually
-   succeeds on that side.
+1. **`federation_invitation` still exists and is real** (`created_by`,
+   `secret_hash`, `status` machine below) — `federation_attempt` doesn't
+   replace it, the two coexist: `federation_invitation` is the
+   initiator's "I sent an invite" record, `federation_attempt` is each
+   side's own "a handshake happened" record, linked by
+   `federation_attempt.invitation_id` on the initiator's row only.
+2. **`servers` gained `base_url` and `connected`, but neither is written
+   at connect-callback time.** Both the responder's `OutgoingFederationAttempt`
+   and the initiator's `IncomingFederationAttempt` handlers only touch
+   `federation_attempt`/`federation_invitation` — no `servers` row for the
+   peer exists yet at that point. The peer's `servers` row (and
+   `connected = TRUE`) is only created later, at
+   [03](03_approval_established.md)'s manual approval step.
 3. **The responder's public key lives in `public_keys`**, keyed by
    fingerprint, not duplicated onto `federation_invitation`.
    `federation_invitation.fingerprint` FKs into it. No `remote_` prefix on
@@ -32,7 +44,9 @@ each):
    (`new → accepted → approved|rejected`, `new → canceled`,
    `approved → revoked`) — `canceled` (never redeemed) and `revoked` (was
    working, torn down) are now distinct, where the original design used
-   one `revoked` value for both.
+   one `revoked` value for both. Note this is `federation_invitation`'s
+   status machine; `federation_attempt.status` is separately
+   `pending`/`approved`/`rejected`.
 
 ## Depends on
 

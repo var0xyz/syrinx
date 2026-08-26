@@ -2,7 +2,20 @@
 
 ## Status
 
-Proposed.
+**Implemented, with the trust store simplified.** Peer authentication
+(signed request, fingerprint verified against a pinned value) shipped
+exactly as designed — `authenticateAsPeer`/`VerifyFederationPeer`
+(`middlewares.go`/`services.go`), pinning against `servers.fingerprint`
+directly rather than a separate `federation_established` row (see
+[03](03_approval_established.md)'s status note — no such table exists,
+but the approval gate it names does, on `federation_attempt`).
+`GetFederationUserIdentity` (`handlers.go`) is the shipped IdP endpoint.
+The display rule ("foreign, peered → resolve; foreign, not peered →
+opaque ref") also shipped, in `MentionLink.svelte`/`proxyIfForeign`
+(`handlers.go`) — "peered" here means an admin-approved `servers` row
+(`connected = TRUE`, `revoked = FALSE`), matching this doc's original
+intent: a completed handshake alone is not enough, approval is required
+first (see 03).
 
 ## Depends on
 

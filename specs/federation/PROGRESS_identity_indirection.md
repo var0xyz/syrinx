@@ -84,12 +84,15 @@ What changed:
    WHERE s.self = TRUE
       OR i.verified = TRUE;
    ```
-   **Known limitation, by design for now:** this does NOT yet exclude
-   revoked peers — `federation_established` (federation proposal 03/05)
-   doesn't exist in the codebase yet. Once 03/05 land, this view MUST be
-   tightened to also require a `federation_established` row with
-   `revoked = false`. Flagged in the DDL comment in `db.go` — search for
-   `MUST be tightened` if resuming that work.
+   **Known limitation, still live:** this does NOT exclude a revoked
+   peer — there's no `federation_established` table (see
+   [03](03_approval_established.md)'s status note; trust actually lives
+   on `servers.revoked`), and moreover nothing in the codebase ever sets
+   `servers.revoked = TRUE` at all (see
+   [05](05_revoke_established.md)'s status note — peer revocation was
+   never actually built). Once revocation exists, this view needs
+   `AND s.revoked = FALSE` added to its WHERE clause. Flagged in the DDL
+   comment in `db.go`.
 
 4. **All 28 FKs that referenced `users(id)` now reference `identities(id)`**
    (mechanical `sed 's/REFERENCES users(id)/REFERENCES identities(id)/g'`,

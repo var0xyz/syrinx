@@ -2,7 +2,24 @@
 
 ## Status
 
-Proposed. Not yet implemented.
+**The problem this doc solves shipped a fire-and-forget version, with no
+durability.** `servers.online`, `pending_mention_events`, the
+online/offline/ping endpoints, and the entire drain-on-reconnect
+mechanism described below were never built. What actually ships for
+"this server has something to tell a peer" (mention-notify, reply-notify,
+echo-notify, reply/echo-removal-notify — `federation_relay.go`) is a
+direct synchronous signed HTTP `POST`, fired from a detached goroutine
+at the moment of the local event (e.g. `handlers.go`'s `SignReed`
+dispatching `notifyForeignMentionToPeer`), with a short timeout and a
+logged-but-swallowed error on failure. **There is no fallback path**: if
+the peer is unreachable at that instant, the notification is simply
+lost — no backlog row, no retry, no re-delivery when the peer comes
+back. This is a real gap this doc anticipated and explicitly designed
+around (`servers.online` + backlog drain), but the shipped
+implementation does not have it. If durable delivery to a
+currently-unreachable peer is ever needed, this doc's design (or
+something like it) is still the right starting point — it was never
+disproven, just not built.
 
 ## Depends on
 

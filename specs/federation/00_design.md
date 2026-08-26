@@ -2,7 +2,17 @@
 
 ## Status
 
-Proposed.
+**Superseded by the shipped design.** This is the original whole-system
+sketch; every table/endpoint name below (`federation_established`, the
+three-table split, etc.) was refined or replaced by the time 01-06
+actually shipped. See each numbered doc's own Status header for what's
+real — in short: the invite/handshake ceremony this doc describes did
+ship (specs 01-02), and a manual approval gate before trust does exist
+(spec 03), but on `federation_attempt`/`servers` rather than a
+`federation_established` table, and without the "second admin" check
+this doc assumes. Read this doc for the original problem statement and
+locked decisions (still the right ones); don't treat its schema/sequence
+diagrams as accurate.
 
 ## Depends on
 

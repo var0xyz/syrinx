@@ -2,7 +2,19 @@
 
 ## Status
 
-Proposed.
+**The check exists; nothing can ever trigger it.** `servers.revoked`
+(no separate `federation_established` table — see
+[03](03_approval_established.md)'s status note) is read everywhere it
+should be: `VerifyFederationPeer` (`services.go`) rejects incoming
+peer-authenticated calls from a revoked peer, and
+`GetServerByID`/`ListConnectedPeers` (`services.go`) exclude revoked
+peers from outbound calls and the search-fanout target list. But grep
+confirms `revoked` is never written as `TRUE` anywhere in the codebase —
+no admin API, no SPA button, no code path of any kind sets it. This is a
+**real gap, not just a missing UI**: today there is no way to actually
+revoke a peer at all; a compromised or untrusted server, once
+federated, stays trusted forever. `/api/federation/established/{serverId}/revoke`
+and everything else in this doc's Design section is unbuilt.
 
 ## Depends on
 
