@@ -517,6 +517,9 @@ func main() {
 	api.HandleFunc("/federation/relay/new-reed-notify", h.withFederationRelayMetric("new-reed-notify", h.RelayNewReedNotifyFromPeer)).Methods("POST")
 	api.HandleFunc("/federation/relay/new-reed-notify", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/relay/search-users", h.withFederationRelayMetric("search-users", h.SearchUsersFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/search-users", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")
 

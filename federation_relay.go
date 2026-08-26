@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"syrinx/identity"
@@ -1670,4 +1672,111 @@ func (h *Handlers) RelayNewReedNotifyFromPeer(w http.ResponseWriter, r *http.Req
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// //////////////////////////////////////// //
+//   Leg 19: search-users (O -> H)           //
+// //////////////////////////////////////// //
+//
+// Read side of federated @-mention search: the composer's picker only
+// ever searched this server's own users, since GET /users/search's query
+// only reaches the local `users` table. This leg asks every connected
+// peer to run that same local search against ITS users, so results merge
+// across the whole known mesh — a peer only ever answers for its own
+// local users, same trust boundary as every other leg here. Unlike the
+// notify legs above, this is synchronous request/response on the
+// caller's critical path (a live user typing into a search box), so the
+// caller (SearchUsers in handlers.go) fans out to all peers in parallel
+// with a short per-peer timeout and returns whatever answered in time —
+// a slow or unreachable peer is dropped for that request, never blocks
+// or fails the local results.
+
+type relaySearchUsersPayload struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit"`
+}
+
+type relaySearchUsersResponse struct {
+	Users []UserSearchResult `json:"users"`
+}
+
+// searchUsersFromPeer asks one peer to run its own local user search —
+// the single-peer primitive fanoutUserSearchToPeers calls concurrently
+// for every connected peer.
+func (h *Handlers) searchUsersFromPeer(ctx context.Context, peer PeerServer, query string, limit int) ([]UserSearchResult, error) {
+	payload := relaySearchUsersPayload{Query: query, Limit: limit}
+	var respBody relaySearchUsersResponse
+	status, err := h.callPeerRelayEndpoint(ctx, peer.ID, peer.BaseURL, "/api/federation/relay/search-users", payload, &respBody)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("peer returned status %d", status)
+	}
+	return respBody.Users, nil
+}
+
+// fanoutUserSearchToPeers queries every connected peer in parallel, each
+// bounded by perPeerTimeout, and returns the concatenation of whatever
+// answered in time. A peer that errors or times out is silently dropped —
+// this is a best-effort widening of local search results, not a
+// completeness guarantee, so one flaky peer must never hold up or fail
+// the request.
+func (h *Handlers) fanoutUserSearchToPeers(ctx context.Context, query string, limit int, perPeerTimeout time.Duration) []UserSearchResult {
+	peers, err := h.services.db.ListConnectedPeers(ctx)
+	if err != nil || len(peers) == 0 {
+		return nil
+	}
+
+	var mu sync.Mutex
+	var results []UserSearchResult
+	var wg sync.WaitGroup
+	for _, peer := range peers {
+		wg.Add(1)
+		go func(peer PeerServer) {
+			defer wg.Done()
+			peerCtx, cancel := context.WithTimeout(ctx, perPeerTimeout)
+			defer cancel()
+			peerResults, err := h.searchUsersFromPeer(peerCtx, peer, query, limit)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			results = append(results, peerResults...)
+			mu.Unlock()
+		}(peer)
+	}
+	wg.Wait()
+	return results
+}
+
+// SearchUsersFromPeer is leg 19's home-server handler: an established
+// peer is asking us to search our own local users on its behalf.
+func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relaySearchUsersPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.Query = strings.TrimSpace(req.Query)
+	if req.Query == "" {
+		writeResponse(w, http.StatusOK, relaySearchUsersResponse{Users: []UserSearchResult{}})
+		return
+	}
+
+	results, err := h.services.db.SearchUsers(r.Context(), req.Query, req.Limit)
+	if err != nil {
+		log.Error().Err(err).Str("query", req.Query).Str("peerServerID", peerServerID).Msg("Failed to handle foreign search-users request")
+		internalServerError(w)
+		return
+	}
+	writeResponse(w, http.StatusOK, relaySearchUsersResponse{Users: results})
 }
