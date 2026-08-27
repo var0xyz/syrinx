@@ -3144,6 +3144,14 @@ func (h *Handlers) isAdmin(ctx context.Context, userID string) (bool, error) {
 	return roles.RequireAdmin(role) == nil, nil
 }
 
+func (h *Handlers) isRoot(ctx context.Context, userID string) (bool, error) {
+	role, err := h.services.db.GetUserRole(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return roles.IsRoot(userID, role, h.services.db.GetServerID()), nil
+}
+
 func (h *Handlers) federationSignServer(message []byte) (string, error) {
 	sigArmor, err := h.services.crypto.Sign(string(message), h.signingKey.Armor)
 	if err != nil {
@@ -3886,15 +3894,38 @@ func (h *Handlers) ListFederationServers(w http.ResponseWriter, r *http.Request)
 
 	out := make([]federationServerWire, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, federationServerWire{
-			ServerID:  row.ID,
-			Name:      row.Name,
-			BaseURL:   row.BaseURL,
-			Connected: row.Connected,
-			CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
-		})
+		out = append(out, federationServerRowToWire(row))
 	}
 	writeResponse(w, http.StatusOK, out)
+}
+
+// federationServerRowToWire converts one servers row to its wire shape,
+// shared by ListFederationServers and GetFederationList.
+func federationServerRowToWire(row federationServerListRow) federationServerWire {
+	wire := federationServerWire{
+		ServerID:  row.ID,
+		Name:      row.Name,
+		BaseURL:   row.BaseURL,
+		Connected: row.Connected,
+		CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
+		Revoked:   row.Revoked,
+	}
+	if row.Revoked {
+		if row.RevokedAt != nil {
+			t := row.RevokedAt.UTC().Format(time.RFC3339)
+			wire.RevokedAt = &t
+		}
+		if row.RevokedBy != "" {
+			wire.RevokedBy = &row.RevokedBy
+		}
+		if row.RevokedByUsername != "" {
+			wire.RevokedByUsername = &row.RevokedByUsername
+		}
+		if row.RevokedReason != "" {
+			wire.RevokedReason = &row.RevokedReason
+		}
+	}
+	return wire
 }
 
 // GetFederationServerLogs returns federation_log lines for one peer server as
@@ -4140,13 +4171,7 @@ func (h *Handlers) GetFederationList(w http.ResponseWriter, r *http.Request) {
 		out.Attempts = append(out.Attempts, federationAttemptRowToWire(row))
 	}
 	for _, row := range serverRows {
-		out.Servers = append(out.Servers, federationServerWire{
-			ServerID:  row.ID,
-			Name:      row.Name,
-			BaseURL:   row.BaseURL,
-			Connected: row.Connected,
-			CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
-		})
+		out.Servers = append(out.Servers, federationServerRowToWire(row))
 	}
 	writeResponse(w, http.StatusOK, out)
 }
@@ -4317,6 +4342,106 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 		h.logFederationAttemptAsync(attemptID, federationLogError,
 			fmt.Sprintf("Rejected by %s: %s", caller, reason))
 		writeResponse(w, http.StatusOK, map[string]string{"attemptId": attemptID, "status": "rejected"})
+	}
+}
+
+// RevokeFederationServer disconnects an established peer. Any admin may
+// do this (same visibility as the invite list); a reason is required.
+// After this, every read-gate that already checks servers.revoked
+// starts treating the peer as unknown rather than trusted.
+func (h *Handlers) RevokeFederationServer(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	serverID := strings.TrimSpace(mux.Vars(r)["id"])
+	if serverID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		return
+	}
+
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	reason := strings.TrimSpace(body.Reason)
+	if reason == "" {
+		writeResponse(w, http.StatusBadRequest, "reason is required")
+		return
+	}
+
+	revokedBy := caller
+	err = h.services.db.RevokeFederationServer(r.Context(), serverID, &revokedBy, reason, time.Now().UTC().Truncate(time.Second))
+	switch {
+	case errors.Is(err, errFederationServerNotFound):
+		writeResponse(w, http.StatusNotFound, "Server not found")
+	case errors.Is(err, errFederationServerAlreadyRevoked):
+		writeResponse(w, http.StatusConflict, "Server already revoked")
+	case err != nil:
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server revoke failed")
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+	default:
+		h.logFederationServerAsync(serverID, federationLogError,
+			fmt.Sprintf("Disconnected by %s: %s", caller, reason))
+		go func() {
+			if err := h.notifyPeerOfDisconnect(context.Background(), serverID, reason); err != nil {
+				h.services.log.GetLogger(context.Background()).Warn().Err(err).Str("serverId", serverID).Msg("failed to notify peer of disconnect")
+			}
+		}()
+		writeResponse(w, http.StatusOK, map[string]string{"serverId": serverID, "status": "revoked"})
+	}
+}
+
+// PurgeFederationServer permanently deletes a disconnected peer's row
+// and every local reed/identity it owns. Root only — this is
+// irreversible and goes further than a normal admin disconnect.
+func (h *Handlers) PurgeFederationServer(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	root, err := h.isRoot(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !root {
+		writeResponse(w, http.StatusForbidden, "Root required")
+		return
+	}
+
+	serverID := strings.TrimSpace(mux.Vars(r)["id"])
+	if serverID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		return
+	}
+
+	err = h.services.db.PurgeFederationServer(r.Context(), serverID)
+	switch {
+	case errors.Is(err, errFederationServerNotFound):
+		writeResponse(w, http.StatusNotFound, "Server not found")
+	case errors.Is(err, errFederationServerNotRevoked):
+		writeResponse(w, http.StatusConflict, "Server must be disconnected before it can be deleted")
+	case err != nil:
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server purge failed")
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+	default:
+		writeResponse(w, http.StatusOK, map[string]string{"serverId": serverID, "status": "purged"})
 	}
 }
 

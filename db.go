@@ -205,9 +205,10 @@ func InitDB(db *sql.DB) error {
 	// and relays the response — see main.go's GET /keys/{id} route and
 	// handlers.go's proxyToPeer. public_keys only ever holds LOCAL keys
 	// (this server's own + its local users').
-	// revoked is set by a future de-establish step (specs/federation/05);
-	// a revoked peer's incoming requests must be rejected even though the
-	// row (and its audit trail) stays.
+	// revoked means this peer has been disconnected: incoming requests
+	// from it are rejected and outbound calls to it are never made, even
+	// though the row (and its audit trail) stays. revoked_by is nullable
+	// for a peer-initiated disconnect notify, where no local admin acted.
 	createServersTable := `
 	CREATE TABLE IF NOT EXISTS servers (
 		id VARCHAR(16) UNIQUE,
@@ -219,7 +220,10 @@ func InitDB(db *sql.DB) error {
 		base_url TEXT,
 		connected BOOLEAN NOT NULL DEFAULT FALSE,
 		fingerprint VARCHAR(255),
-		revoked BOOLEAN NOT NULL DEFAULT FALSE
+		revoked BOOLEAN NOT NULL DEFAULT FALSE,
+		revoked_at TIMESTAMP,
+		revoked_by VARCHAR(255),
+		revoked_reason TEXT
 	);`
 
 	// Normalized attestation rows (signatures proposal 01). Entities will
@@ -248,7 +252,7 @@ func InitDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS identities (
 		id VARCHAR(255) PRIMARY KEY,
 		bare_user_id VARCHAR(255) NOT NULL,
-		server_id VARCHAR(16) REFERENCES servers(id),
+		server_id VARCHAR(16) REFERENCES servers(id) ON DELETE CASCADE,
 		public_key_fingerprint VARCHAR(255),
 		verified BOOLEAN NOT NULL DEFAULT FALSE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -393,7 +397,7 @@ func InitDB(db *sql.DB) error {
 	createReedIdentitiesTable := `
 	CREATE TABLE IF NOT EXISTS reed_identities (
 		id VARCHAR(255) PRIMARY KEY,
-		server_id VARCHAR(16) NOT NULL REFERENCES servers(id),
+		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
@@ -452,14 +456,14 @@ func InitDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS reed_echoes (
 		echoing_reed_id VARCHAR(255) NOT NULL,
 		echoed_reed_id VARCHAR(255) NOT NULL,
-		echoing_author_id VARCHAR(255) NOT NULL REFERENCES identities(id),
-		echoed_author_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+		echoing_author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		echoed_author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		is_blank BOOLEAN NOT NULL DEFAULT FALSE,
 		signed_at TIMESTAMP NOT NULL,
 
 		PRIMARY KEY (echoing_reed_id),
-		FOREIGN KEY (echoing_reed_id) REFERENCES reed_identities(id),
-		FOREIGN KEY (echoed_reed_id) REFERENCES reed_identities(id)
+		FOREIGN KEY (echoing_reed_id) REFERENCES reed_identities(id) ON DELETE CASCADE,
+		FOREIGN KEY (echoed_reed_id) REFERENCES reed_identities(id) ON DELETE CASCADE
 	);`
 
 	createReedEchoesIndexes := `
@@ -480,8 +484,8 @@ func InitDB(db *sql.DB) error {
 		timestamp TIMESTAMP NOT NULL,
 
 		PRIMARY KEY (reed_id),
-		FOREIGN KEY (reed_id) REFERENCES reed_identities(id),
-		FOREIGN KEY (parent_reed_id) REFERENCES reed_identities(id)
+		FOREIGN KEY (reed_id) REFERENCES reed_identities(id) ON DELETE CASCADE,
+		FOREIGN KEY (parent_reed_id) REFERENCES reed_identities(id) ON DELETE CASCADE
 	);`
 
 	createReedRepliesIndexes := `
@@ -561,7 +565,7 @@ func InitDB(db *sql.DB) error {
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
 		PRIMARY KEY (liker_user_id, reed_id),
-		FOREIGN KEY (reed_id) REFERENCES reed_identities(id)
+		FOREIGN KEY (reed_id) REFERENCES reed_identities(id) ON DELETE CASCADE
 	);`
 
 	createReedsLikedIndexes := `
@@ -797,7 +801,7 @@ func InitDB(db *sql.DB) error {
 	CREATE UNLOGGED TABLE IF NOT EXISTS foreign_pending_events (
 		event_id VARCHAR(255) PRIMARY KEY
 			REFERENCES pending_events(event_id) ON DELETE CASCADE,
-		home_server_id VARCHAR(16) NOT NULL REFERENCES servers(id),
+		home_server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
 		peer_event_id VARCHAR(255) NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
@@ -813,7 +817,7 @@ func InitDB(db *sql.DB) error {
 	CREATE UNLOGGED TABLE IF NOT EXISTS foreign_relay_requests (
 		event_id VARCHAR(255) PRIMARY KEY
 			REFERENCES pending_events(event_id) ON DELETE CASCADE,
-		requesting_server_id VARCHAR(16) NOT NULL REFERENCES servers(id),
+		requesting_server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
 		requesting_user_id VARCHAR(255) NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
@@ -940,7 +944,7 @@ func InitDB(db *sql.DB) error {
 		created_by VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		accepted_at TIMESTAMPTZ,
-		server_id VARCHAR(16) REFERENCES servers(id),
+		server_id VARCHAR(16) REFERENCES servers(id) ON DELETE SET NULL,
 		status VARCHAR(16) NOT NULL DEFAULT 'new'
 			CHECK (status IN ('new', 'accepted', 'approved', 'rejected', 'canceled', 'revoked')),
 		reviewed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
@@ -972,7 +976,7 @@ func InitDB(db *sql.DB) error {
 		base_url TEXT NOT NULL,
 		fingerprint VARCHAR(255) NOT NULL,
 		invitation_id VARCHAR(255) REFERENCES federation_invitation(id),
-		server_id VARCHAR(16) REFERENCES servers(id),
+		server_id VARCHAR(16) REFERENCES servers(id) ON DELETE SET NULL,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		status VARCHAR(16) NOT NULL DEFAULT 'pending'
 			CHECK (status IN ('pending', 'approved', 'rejected')),
