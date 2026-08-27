@@ -2871,6 +2871,33 @@ func (rs *RealtimeService) notifyForeignReplyAncestorsOfRemoval(parentReedID, re
 	}
 }
 
+// HandleForeignReplyRemovalAtParent is leg 13's home-server logic (H, the
+// parentReedID's home server): a peer already deleted its own copy of
+// removedReedID and its local reed_replies row; the durable subscriber data
+// for parentReedID's thread only ever lives here on H (reed_subscriptions
+// rows are created by HandleForeignSubscribeReed, which only runs on a
+// reed's own home server), so H — not the removing peer — is the only
+// server that can find and notify parentReedID's viewers, local or foreign.
+// Mirrors notifyReplyAncestorsOfRemoval's own body, just starting one level
+// up since removedReedID itself isn't hosted here.
+func (rs *RealtimeService) HandleForeignReplyRemovalAtParent(parentReedID, removedReedID string, cert *ReedRemovalWire) {
+	reedID := parentReedID
+	for {
+		recipients := rs.connManager.ReedSubscriberUserIDs(reedID, "")
+		rs.dispatchRemovalMany(recipients, removedReedID, cert)
+		rs.notifyForeignReplyAncestorsOfRemoval(reedID, removedReedID, cert)
+		nextReedID, ok, err := rs.dbService.ReplyParent(context.Background(), reedID)
+		if err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to resolve reply ancestor for foreign reply removal")
+			return
+		}
+		if !ok {
+			return
+		}
+		reedID = nextReedID
+	}
+}
+
 // notifyReedSubscribersOfReply relays a newly posted reply's content to
 // everyone subscribed to ancestorReedID — someone viewing that reed's
 // thread, not necessarily following the reply's author. The reply's own

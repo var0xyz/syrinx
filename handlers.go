@@ -2388,6 +2388,10 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Keep the reeds row for allocation catch-up (04): reed_allocations FK
+	// cascades on reed delete. Tip/list already exclude reed_removals.
+	wire := realtime.NewReedRemovalWire(serverID, &cert)
+
 	replyTargets, err := h.services.db.ReplyCountNotifyTargetsForRemovedReply(r.Context(), reedID)
 	if err != nil {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error resolving reply count targets for removed reed")
@@ -2399,9 +2403,10 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 				// see via its own reed_replies table, which stops at this
 				// foreign parent. Without this notify, the parent's home
 				// server never learns the reply was removed and keeps
-				// counting/showing it forever.
+				// counting/showing it forever, and never delivers the
+				// removal notice to that thread's own viewers either.
 				go func(parentReedID, replyReedID string) {
-					if err := h.notifyForeignReplyRemovalToPeer(context.Background(), parentReedID, replyReedID); err != nil {
+					if err := h.notifyForeignReplyRemovalToPeer(context.Background(), parentReedID, replyReedID, &wire); err != nil {
 						log.Error().Err(err).Str("parentReedID", parentReedID).Str("replyReedID", replyReedID).Msg("Failed to notify foreign parent's home server of reply removal")
 					}
 				}(FormatReedRef(t), reedID)
@@ -2415,9 +2420,6 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Keep the reeds row for allocation catch-up (04): reed_allocations FK
-	// cascades on reed delete. Tip/list already exclude reed_removals.
-	wire := realtime.NewReedRemovalWire(serverID, &cert)
 	h.broadcastChan <- realtime.BroadcastMessage{
 		Type:        realtime.ReedRemoved,
 		ServerID:    serverID,
