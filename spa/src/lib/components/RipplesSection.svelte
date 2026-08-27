@@ -78,6 +78,7 @@
   $: count =
     ripples.length +
     pendingRipples.length +
+    topLevelLiveExtras.length +
     Object.values(liveExtras).reduce((sum, list) => sum + list.length, 0);
 
   let nowTick = performance.now();
@@ -223,6 +224,14 @@
    * they're what the user is actively looking at. */
   let liveExtras = /** @type {Record<string, import('$lib/types/api').Ripple[]>} */ ({});
 
+  /** New top-level ripples arriving while the top-level composer is open.
+   * Rendered live, right below that composer — same idea as liveExtras,
+   * but for the composer with no single target ripple to key by. Only a
+   * NEW top-level ripple ever lands here; a reply to some ripple above the
+   * composer still goes to pendingRipples (that ripple's own row would
+   * move if inserted now — see blockedByOpenComposer). */
+  let topLevelLiveExtras = /** @type {import('$lib/types/api').Ripple[]} */ ([]);
+
   /** Everything that would push an open composer down if inserted now: a
    * new top-level ripple while the top-level composer is open, or a reply
    * to some ripple OTHER than the one(s) being replied to. Held until the
@@ -253,12 +262,11 @@
     return insertAt;
   }
 
-  /** Would ripple's natural insertion point land at or before any
-   * currently-open composer's row? topComposerOpen sits after the whole
-   * list, so it blocks everything. Same-target replies never reach here
-   * (routeIncomingRipple sends those to liveExtras instead). */
+  /** Top-level ripples skip topComposerOpen (they get their own live area
+   * below it). Only a reply to a ripple already in the list is blocked,
+   * since that row sits above the bottom-anchored top composer. */
   function blockedByOpenComposer(ripple) {
-    if (topComposerOpen) return true;
+    if (topComposerOpen && ripple.replyingTo) return true;
     if (replyingToHashes.size === 0) return false;
     const insertAt = insertionIndexFor(ripple);
     for (const hash of replyingToHashes) {
@@ -277,10 +285,10 @@
     ripples = [...ripples.slice(0, insertAt), ripple, ...ripples.slice(insertAt)];
   }
 
-  /** Single entry point for a ripple that just showed up. A reply to a
-   * currently-open composer's own target goes to liveExtras (rendered
-   * live below that composer); anything that would push a composer down
-   * goes to pendingRipples; otherwise it inserts immediately. */
+  /** Single entry point for a ripple that just showed up. Same-target
+   * inline replies and new top-level ripples (while the top composer is
+   * open) render live below their composer; anything else that would
+   * push a composer down is held; otherwise it inserts immediately. */
   function routeIncomingRipple(ripple) {
     if (expired) return;
     if (ripples.some((r) => r.hash === ripple.hash)) return;
@@ -289,6 +297,11 @@
       const existing = liveExtras[ripple.replyingTo] ?? [];
       if (existing.some((r) => r.hash === ripple.hash)) return;
       liveExtras = { ...liveExtras, [ripple.replyingTo]: [...existing, ripple] };
+      return;
+    }
+    if (!ripple.replyingTo && topComposerOpen) {
+      if (topLevelLiveExtras.some((r) => r.hash === ripple.hash)) return;
+      topLevelLiveExtras = [...topLevelLiveExtras, ripple];
       return;
     }
     if (blockedByOpenComposer(ripple)) {
@@ -321,6 +334,7 @@
     ripples = ripples.map((r) => (r.hash === ripple.hash ? ripple : r));
     // Also patch it wherever it might be held, not yet in `ripples`.
     pendingRipples = pendingRipples.map((r) => (r.hash === ripple.hash ? ripple : r));
+    topLevelLiveExtras = topLevelLiveExtras.map((r) => (r.hash === ripple.hash ? ripple : r));
     if (ripple.replyingTo && liveExtras[ripple.replyingTo]) {
       liveExtras = {
         ...liveExtras,
@@ -374,6 +388,14 @@
     }
   }
 
+  /** Closes the top composer and flushes topLevelLiveExtras into ripples. */
+  function closeTopComposer() {
+    topComposerOpen = false;
+    const extras = topLevelLiveExtras;
+    topLevelLiveExtras = [];
+    for (const ripple of extras) insertRipple(ripple);
+  }
+
   /** RippleComposer's `posted` event. A post always means the section is
    * alive again with a fresh 7-day countdown (see PostRipple in
    * services.go) — reset locally rather than round-tripping the server. */
@@ -388,7 +410,7 @@
     if (replyHash) {
       cancelReply(replyHash);
     } else {
-      topComposerOpen = false;
+      closeTopComposer();
     }
     if (ok) {
       await resolveUsername(posted.userID);
@@ -486,8 +508,22 @@
       {serverSignatureArmor}
       autofocus
       on:posted={(e) => handleComposerPosted(e, null)}
-      on:cancel={() => (topComposerOpen = false)}
+      on:cancel={closeTopComposer}
     />
+    {#if topLevelLiveExtras.length > 0}
+      <ul class="ripple-list">
+        {#each topLevelLiveExtras as ripple (ripple.hash)}
+          <RippleRow
+            {ripple}
+            username={usernames[ripple.userID] ?? null}
+            replyingToLoaded={false}
+            {ownUserID}
+            replyable={false}
+            on:delete={(e) => deleteRipple(e.detail)}
+          />
+        {/each}
+      </ul>
+    {/if}
   {:else}
     <button
       type="button"
