@@ -332,8 +332,19 @@
                   <div class="invite-main">
                     <span class="invite-name">{row.item.name}</span>
                     <span class="badge-row">
-                      <span class="badge" data-status={row.item.connected ? 'connected' : 'accepted'}>
-                        {row.item.connected ? 'Connected' : 'Awaiting confirmation'}
+                      <span
+                        class="badge"
+                        data-status={row.item.revoked
+                          ? 'revoked'
+                          : row.item.connected
+                            ? 'connected'
+                            : 'accepted'}
+                      >
+                        {row.item.revoked
+                          ? 'Disconnected'
+                          : row.item.connected
+                            ? 'Connected'
+                            : 'Awaiting confirmation'}
                       </span>
                     </span>
                     {#if row.item.baseUrl}

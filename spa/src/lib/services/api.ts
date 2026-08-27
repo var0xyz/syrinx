@@ -498,6 +498,20 @@ export const apiService = {
     });
   },
 
+  async revokeFederationServer(serverId: string, reason: string): Promise<void> {
+    await request(`/federation/servers/${encodeURIComponent(serverId)}/revoke`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async purgeFederationServer(serverId: string): Promise<void> {
+    await request(`/federation/servers/${encodeURIComponent(serverId)}/purge`, {
+      method: 'POST',
+    });
+  },
+
   async whoami() {
     return request<{ id: string; username: string }>('/users/me', { method: 'GET' });
   },

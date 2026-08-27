@@ -308,6 +308,11 @@ export interface FederationServer {
   baseUrl: string;
   connected: boolean;
   createdAt: string;
+  revoked: boolean;
+  revokedAt?: string;
+  revokedBy?: string;
+  revokedByUsername?: string;
+  revokedReason?: string;
 }
 
 /** A handshake attempt against a peer, at any stage — permanent audit
