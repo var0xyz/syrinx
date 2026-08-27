@@ -1202,13 +1202,14 @@ func (h *Handlers) MentionNotifyFromPeer(w http.ResponseWriter, r *http.Request)
 // keep counting/showing content that no longer exists.
 
 type relayReplyRemovalNotifyPayload struct {
-	ParentReedID string `json:"parent_reed_id"`
-	ReplyReedID  string `json:"reply_reed_id"`
+	ParentReedID string                    `json:"parent_reed_id"`
+	ReplyReedID  string                    `json:"reply_reed_id"`
+	Cert         *realtime.ReedRemovalWire `json:"cert"`
 }
 
 // notifyForeignReplyRemovalToPeer tells parentReedID's home server that
 // replyReedID (removed here) no longer replies to it.
-func (h *Handlers) notifyForeignReplyRemovalToPeer(ctx context.Context, parentReedID, replyReedID string) error {
+func (h *Handlers) notifyForeignReplyRemovalToPeer(ctx context.Context, parentReedID, replyReedID string, cert *realtime.ReedRemovalWire) error {
 	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(parentReedID))
 	if !ok {
 		return nil
@@ -1220,7 +1221,7 @@ func (h *Handlers) notifyForeignReplyRemovalToPeer(ctx context.Context, parentRe
 	if peer == nil {
 		return nil
 	}
-	payload := relayReplyRemovalNotifyPayload{ParentReedID: parentReedID, ReplyReedID: replyReedID}
+	payload := relayReplyRemovalNotifyPayload{ParentReedID: parentReedID, ReplyReedID: replyReedID, Cert: cert}
 	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/reply-removal-notify", payload, nil)
 	return err
 }
@@ -1282,6 +1283,13 @@ func (h *Handlers) ReplyRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Req
 					ReedID: t.ReedID,
 				}
 			}
+		}
+
+		// Deliver the actual removal notice to parentReedID's thread
+		// viewers — durable subscriber data for this thread only lives
+		// here on H, never on the peer that removed the reply.
+		if h.realtimeRelay != nil && req.Cert != nil {
+			h.realtimeRelay.HandleForeignReplyRemovalAtParent(req.ParentReedID, req.ReplyReedID, req.Cert)
 		}
 	}
 
