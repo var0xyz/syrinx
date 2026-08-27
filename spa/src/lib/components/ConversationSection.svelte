@@ -228,6 +228,13 @@
     rows = [...rows, row];
   }
 
+  /** Called from parent when a reply's removal cert commits locally (own
+   * delete, or a live REED_REMOVED push). Splices the row out in place —
+   * a full reload here would reset the viewer's scroll position. */
+  export function onReplyRemoved(reedID) {
+    rows = rows.filter((r) => r.reedID !== reedID);
+  }
+
   function navigateToReply(row) {
     goto(`/reed/${row.reedID}`);
   }

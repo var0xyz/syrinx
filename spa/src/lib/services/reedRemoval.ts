@@ -19,6 +19,10 @@ export { verifyReedRemoval };
  * reload rather than keep showing a reply that just got deleted. */
 export const reedRemovalCommitted = writable(0);
 
+/** The reedID of the most recently committed removal — lets a view splice
+ * out just that one row instead of reloading (which would reset scroll). */
+export const reedRemovalCommittedID = writable('');
+
 /**
  * Persist cert then drop the local reed. Verification runs inside
  * `removedReedsRepository.put`.
@@ -32,6 +36,7 @@ export async function commitReedRemovalLocally(cert: api.ReedRemoval): Promise<v
 export async function verifyAndCommitReedRemoval(cert: api.ReedRemoval): Promise<boolean> {
   try {
     await commitReedRemovalLocally(cert);
+    reedRemovalCommittedID.set(cert.reedID);
     reedRemovalCommitted.update((n) => n + 1);
     return true;
   } catch (error) {

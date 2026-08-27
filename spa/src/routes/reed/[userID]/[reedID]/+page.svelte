@@ -4,7 +4,7 @@
   import { reedsService, stripMarkdown, unsignedReedsProcessed } from '$lib/repositories/reeds';
   import { formatAbsoluteDateTime } from '$lib/utils/time';
   import { apiService } from '$lib/services/api';
-  import { removeReedAsAuthor, verifyAndCommitReedRemoval, reedRemovalCommitted } from '$lib/services/reedRemoval';
+  import { removeReedAsAuthor, verifyAndCommitReedRemoval, reedRemovalCommitted, reedRemovalCommittedID } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval, accountRemovalCommitted } from '$lib/services/accountRemoval';
   import { removedReedsRepository } from '$lib/repositories/removedReeds';
   import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
@@ -69,7 +69,6 @@
    * real original instead. */
   let replyEchoTarget = reed;
   let isStatsInfoModalOpen = false;
-  let conversationRefresh = 0;
   /** @type {import('$lib/components/ConversationSection.svelte').default | null} */
   let conversationSection = null;
   let lastHandledFollowReedId = '';
@@ -273,12 +272,12 @@
   /**
    * Fires after ANY reed removal cert is committed locally (see
    * reedRemoval.ts) — could be a reply anywhere in this thread, not just
-   * the reed this page itself is subscribed to. Reloading the conversation
-   * is what makes a deleted reply actually disappear (ConversationSection
-   * only checks removedReedsRepository at load time, not reactively). A
-   * redundant reload for an unrelated removal is harmless.
+   * the reed this page itself is subscribed to. Splices the row out in
+   * place instead of reloading the whole conversation, which would reset
+   * the viewer's scroll position. A miss for an unrelated removal is a
+   * harmless no-op filter.
    */
-  $: if ($reedRemovalCommitted > 0) conversationRefresh += 1;
+  $: if ($reedRemovalCommittedID) conversationSection?.onReplyRemoved($reedRemovalCommittedID);
 
   /**
    * A removal cert (reed or account) can arrive over WS while this exact
@@ -644,7 +643,6 @@
               parentUserID={userID}
               parentReedID={reedID}
               threadId={parentThreadId}
-              refreshToken={conversationRefresh}
               bind:count={conversationCount}
             />
           </div>
@@ -784,7 +782,6 @@
                 parentUserID={userID}
                 parentReedID={reedID}
                 threadId={parentThreadId}
-                refreshToken={conversationRefresh}
                 bind:count={conversationCount}
               />
             </div>
