@@ -438,6 +438,12 @@ func main() {
 	api.HandleFunc("/federation/servers/{id}/attempt", h.GetFederationServerAttempt).Methods("GET")
 	api.HandleFunc("/federation/servers/{id}/attempt", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/servers/{id}/revoke", h.RevokeFederationServer).Methods("POST")
+	api.HandleFunc("/federation/servers/{id}/revoke", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/servers/{id}/purge", h.PurgeFederationServer).Methods("POST")
+	api.HandleFunc("/federation/servers/{id}/purge", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/attempts/{id}", h.GetFederationAttempt).Methods("GET")
 	api.HandleFunc("/federation/attempts/{id}", h.noop).Methods("OPTIONS")
 
@@ -523,6 +529,9 @@ func main() {
 
 	api.HandleFunc("/federation/relay/reply-removal-to-viewer", h.withFederationRelayMetric("reply-removal-to-viewer", h.ReplyRemovalToViewerFromPeer)).Methods("POST")
 	api.HandleFunc("/federation/relay/reply-removal-to-viewer", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/disconnect-notify", h.withFederationRelayMetric("disconnect-notify", h.DisconnectNotifyFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/disconnect-notify", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -1871,5 +1872,54 @@ func (h *Handlers) ReplyRemovalToViewerFromPeer(w http.ResponseWriter, r *http.R
 	}
 	h.realtimeRelay.HandleForeignReplyRemovalNotify(r.Context(), req.ViewerUserID, req.RemovedReedID, req.Cert)
 	log.Info().Str("viewerUserID", req.ViewerUserID).Str("removedReedID", req.RemovedReedID).Str("peerServerID", peerServerID).Msg("Delivered foreign reply removal notice")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type relayDisconnectNotifyPayload struct {
+	Reason string `json:"reason"`
+}
+
+// notifyPeerOfDisconnect tells serverID's own server that this server
+// just revoked it locally, so it can revoke this server back instead of
+// continuing to trust a peer that already cut ties. Best-effort: the
+// caller's own revoke has already committed before this runs, and a
+// failure here (peer offline, hostile, unreachable) must not undo it.
+func (h *Handlers) notifyPeerOfDisconnect(ctx context.Context, serverID, reason string) error {
+	baseURL, err := h.services.db.GetServerBaseURLAnyState(ctx, serverID)
+	if err != nil {
+		return err
+	}
+	if baseURL == "" {
+		return nil
+	}
+	payload := relayDisconnectNotifyPayload{Reason: reason}
+	_, err = h.callPeerRelayEndpoint(ctx, serverID, baseURL, "/api/federation/relay/disconnect-notify", payload, nil)
+	return err
+}
+
+// DisconnectNotifyFromPeer handles an established peer telling us it just
+// revoked us on its side. Revoke it back here too — no human on this
+// server made this call, so revoked_by stays NULL.
+func (h *Handlers) DisconnectNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayDisconnectNotifyPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	reason := fmt.Sprintf("Peer-initiated disconnect: %s", strings.TrimSpace(req.Reason))
+	err := h.services.db.RevokeFederationServer(r.Context(), peerServerID, nil, reason, time.Now().UTC().Truncate(time.Second))
+	if err != nil && !errors.Is(err, errFederationServerAlreadyRevoked) {
+		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("failed to auto-revoke peer on disconnect notify")
+		internalServerError(w)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

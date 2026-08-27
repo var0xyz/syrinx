@@ -3434,20 +3434,28 @@ type federationInvitation struct {
 // private_keys — see InitServerKey/GetServerSigningKeyArmor) or anywhere
 // else queryable today.
 type federationServerListRow struct {
-	ID        string
-	Name      string
-	BaseURL   string
-	Connected bool
-	CreatedAt time.Time
+	ID                string
+	Name              string
+	BaseURL           string
+	Connected         bool
+	CreatedAt         time.Time
+	Revoked           bool
+	RevokedAt         *time.Time
+	RevokedBy         string
+	RevokedByUsername string
+	RevokedReason     string
 }
 
-// ListFederationServers returns approved peer servers (self excluded).
+// ListFederationServers returns all peer servers, revoked or not (self excluded).
 func (s *DataService) ListFederationServers(ctx context.Context) ([]federationServerListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, COALESCE(base_url, ''), connected, created_at
-		FROM servers
-		WHERE self = FALSE
-		ORDER BY created_at DESC
+		SELECT s.id, s.name, COALESCE(s.base_url, ''), s.connected, s.created_at,
+			s.revoked, s.revoked_at, COALESCE(s.revoked_by, ''), COALESCE(revoker.username, ''),
+			COALESCE(s.revoked_reason, '')
+		FROM servers s
+		LEFT JOIN users revoker ON revoker.id = s.revoked_by
+		WHERE s.self = FALSE
+		ORDER BY s.created_at DESC
 	`)
 	if err != nil {
 		return nil, err
@@ -3457,8 +3465,14 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 	var out []federationServerListRow
 	for rows.Next() {
 		var row federationServerListRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.BaseURL, &row.Connected, &row.CreatedAt); err != nil {
+		var revokedAt sql.NullTime
+		if err := rows.Scan(&row.ID, &row.Name, &row.BaseURL, &row.Connected, &row.CreatedAt,
+			&row.Revoked, &revokedAt, &row.RevokedBy, &row.RevokedByUsername, &row.RevokedReason); err != nil {
 			return nil, err
+		}
+		if revokedAt.Valid {
+			t := revokedAt.Time.UTC()
+			row.RevokedAt = &t
 		}
 		out = append(out, row)
 	}
@@ -3515,6 +3529,24 @@ func (s *DataService) GetServerByID(ctx context.Context, serverID string) (*Peer
 		return nil, err
 	}
 	return &peer, nil
+}
+
+// GetServerBaseURLAnyState resolves a peer's base URL regardless of
+// revoked state — unlike GetServerByID, which deliberately excludes
+// revoked peers as the outbound trust gate. Used only to reach a peer
+// we've just revoked, to tell it we're disconnecting.
+func (s *DataService) GetServerBaseURLAnyState(ctx context.Context, serverID string) (string, error) {
+	var baseURL string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(base_url, '') FROM servers WHERE id = $1 AND self = FALSE
+	`, serverID).Scan(&baseURL)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return baseURL, nil
 }
 
 // ListConnectedPeers returns every approved, non-revoked, currently
@@ -3628,6 +3660,18 @@ var errFederationAttemptNotFound = errors.New("federation attempt not found")
 // RejectFederationAttempt when the attempt has already been decided —
 // approve/reject are one-shot, not idempotent re-decisions.
 var errFederationAttemptNotPending = errors.New("federation attempt is not pending")
+
+// errFederationServerNotFound is returned by RevokeFederationServer and
+// PurgeFederationServer when serverID doesn't match any peer row.
+var errFederationServerNotFound = errors.New("federation server not found")
+
+// errFederationServerAlreadyRevoked is returned by RevokeFederationServer
+// when the peer is already revoked — revoke is one-shot, not idempotent.
+var errFederationServerAlreadyRevoked = errors.New("federation server already revoked")
+
+// errFederationServerNotRevoked is returned by PurgeFederationServer when
+// the peer hasn't been revoked yet — a purge must be preceded by revoke.
+var errFederationServerNotRevoked = errors.New("federation server must be disconnected before it can be deleted")
 
 type federationAttemptRow struct {
 	ID                 string
@@ -3790,6 +3834,77 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 		`, invitationID, federationStatusApproved, remoteServerID); err != nil {
 			return fmt.Errorf("update federation invitation: %w", err)
 		}
+	}
+
+	return tx.Commit()
+}
+
+// RevokeFederationServer disconnects an established peer: incoming
+// requests from it get rejected and outbound calls are never made,
+// though the row (and its audit trail) stays. revokedBy is nil when the
+// peer itself notified us it disconnected first — no local admin acted.
+func (s *DataService) RevokeFederationServer(ctx context.Context, serverID string, revokedBy *string, reason string, revokedAt time.Time) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE servers
+		SET revoked = TRUE, revoked_at = $2, revoked_by = $3, revoked_reason = $4
+		WHERE id = $1 AND self = FALSE AND revoked = FALSE
+	`, serverID, revokedAt.UTC(), revokedBy, reason)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		var exists bool
+		if err := s.db.QueryRowContext(ctx, `
+			SELECT EXISTS(SELECT 1 FROM servers WHERE id = $1 AND self = FALSE)
+		`, serverID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return errFederationServerNotFound
+		}
+		return errFederationServerAlreadyRevoked
+	}
+	return nil
+}
+
+// PurgeFederationServer permanently deletes a revoked peer's row and
+// every identity/reed it owns — everything cascades from
+// reed_identities/identities, which cascade from servers itself.
+// federation_attempt/federation_invitation/federation_log rows referencing
+// this server are untouched (audit trail, kept forever like account
+// removals keep their own record).
+func (s *DataService) PurgeFederationServer(ctx context.Context, serverID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var revoked bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT revoked FROM servers WHERE id = $1 AND self = FALSE FOR UPDATE
+	`, serverID).Scan(&revoked); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errFederationServerNotFound
+		}
+		return err
+	}
+	if !revoked {
+		return errFederationServerNotRevoked
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM reed_identities WHERE server_id = $1`, serverID); err != nil {
+		return fmt.Errorf("purge reed_identities: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM identities WHERE server_id = $1`, serverID); err != nil {
+		return fmt.Errorf("purge identities: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM servers WHERE id = $1`, serverID); err != nil {
+		return fmt.Errorf("purge servers row: %w", err)
 	}
 
 	return tx.Commit()
