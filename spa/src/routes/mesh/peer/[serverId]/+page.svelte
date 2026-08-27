@@ -15,6 +15,7 @@
 
   let user: api.User | null = null;
   let isAdmin = false;
+  let isRoot = false;
   let loading = true;
   let server: api.FederationServer | null = null;
   /** null when this server was the responder (no local invitation row). */
@@ -24,10 +25,19 @@
   /** Plain text, attempt logs then server logs — rendered verbatim, never parsed. */
   let logsText = '';
 
+  let revoking = false;
+  let showRevokeModal = false;
+  let revokeReason = '';
+
+  let purging = false;
+  let showPurgeModal = false;
+  let purgeConfirmText = '';
+
   onMount(async () => {
     user = await authService.getCurrentUser();
     if (!user) return;
     isAdmin = user.role === 'admin' || user.role === 'root';
+    isRoot = user.role === 'root';
     if (!isAdmin) {
       loading = false;
       return;
@@ -62,6 +72,59 @@
     }
     goto('/mesh');
   }
+
+  function openRevokeModal() {
+    if (revoking) return;
+    revokeReason = '';
+    showRevokeModal = true;
+  }
+
+  function dismissRevokeModal() {
+    if (revoking) return;
+    showRevokeModal = false;
+    revokeReason = '';
+  }
+
+  async function revoke() {
+    const reason = revokeReason.trim();
+    if (!reason || revoking) return;
+    revoking = true;
+    try {
+      await apiService.revokeFederationServer(serverId, reason);
+      showRevokeModal = false;
+      notificationStore.success('Server disconnected');
+      await refresh();
+    } catch (err) {
+      notificationStore.error(err instanceof Error ? err.message : 'Failed to disconnect server');
+    } finally {
+      revoking = false;
+    }
+  }
+
+  function openPurgeModal() {
+    if (purging) return;
+    purgeConfirmText = '';
+    showPurgeModal = true;
+  }
+
+  function dismissPurgeModal() {
+    if (purging) return;
+    showPurgeModal = false;
+    purgeConfirmText = '';
+  }
+
+  async function purge() {
+    if (purgeConfirmText.trim() !== 'DELETE' || purging) return;
+    purging = true;
+    try {
+      await apiService.purgeFederationServer(serverId);
+      notificationStore.success('Server and all associated data deleted');
+      goto('/mesh');
+    } catch (err) {
+      notificationStore.error(err instanceof Error ? err.message : 'Failed to delete server');
+      purging = false;
+    }
+  }
 </script>
 
 <Auth>
@@ -77,7 +140,9 @@
         {#if server}
           <div class="server-header">
             <span class="server-name">{server.name} ({serverId})</span>
-            <span class="badge" data-status="approved">Connected</span>
+            <span class="badge" data-status={server.revoked ? 'revoked' : 'approved'}
+              >{server.revoked ? 'Disconnected' : 'Connected'}</span
+            >
           </div>
           {#if server.baseUrl}
             <p class="meta">{server.baseUrl}</p>
@@ -105,6 +170,39 @@
               /> {#if attempt.approvedAt}{formatRelativeTime(attempt.approvedAt)}{/if}</p
             >
           {/if}
+          {#if server.revoked}
+            <p class="meta">
+              {#if server.revokedBy && server.revokedByUsername}
+                Disconnected by <Username
+                  userID={server.revokedBy}
+                  username={server.revokedByUsername}
+                  class="meta-link"
+                  at
+                  fire={false}
+                />
+                {#if server.revokedAt}· {formatRelativeTime(server.revokedAt)}{/if}
+              {:else if server.revokedAt}
+                Disconnected {formatRelativeTime(server.revokedAt)}
+              {/if}
+            </p>
+            {#if server.revokedReason}
+              <p class="meta reason">&ldquo;{server.revokedReason}&rdquo;</p>
+            {/if}
+          {/if}
+
+          {#if !server.revoked}
+            <div class="approval-actions">
+              <button class="btn danger" disabled={revoking} on:click={openRevokeModal}>
+                Disconnect
+              </button>
+            </div>
+          {:else if isRoot}
+            <div class="approval-actions">
+              <button class="btn danger" disabled={purging} on:click={openPurgeModal}>
+                Delete server and all data
+              </button>
+            </div>
+          {/if}
         {:else}
           <p class="muted">Unknown server: {serverId}</p>
         {/if}
@@ -124,6 +222,79 @@
 
     <BottomToolbar currentPage="mesh" />
   </div>
+
+  {#if showRevokeModal}
+    <div
+      class="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="revoke-server-title"
+      tabindex="-1"
+      on:click={(e) => e.target === e.currentTarget && dismissRevokeModal()}
+      on:keydown={(e) => e.key === 'Escape' && dismissRevokeModal()}
+    >
+      <div class="modal">
+        <h2 id="revoke-server-title">Disconnect server</h2>
+        <p class="modal-lead"
+          >Explain why this peer is being disconnected. This is recorded in the server's log, and
+          the peer is notified so it can disconnect on its side too.</p
+        >
+        <label class="field">
+          <span>Reason</span>
+          <textarea
+            bind:value={revokeReason}
+            rows="4"
+            spellcheck="true"
+            placeholder="e.g. No longer an active partner"
+          ></textarea>
+        </label>
+        <div class="modal-actions">
+          <button class="btn secondary" disabled={revoking} on:click={dismissRevokeModal}>
+            Cancel
+          </button>
+          <button class="btn danger" disabled={revoking || !revokeReason.trim()} on:click={revoke}>
+            {revoking ? 'Disconnecting…' : 'Disconnect'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showPurgeModal}
+    <div
+      class="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="purge-server-title"
+      tabindex="-1"
+      on:click={(e) => e.target === e.currentTarget && dismissPurgeModal()}
+      on:keydown={(e) => e.key === 'Escape' && dismissPurgeModal()}
+    >
+      <div class="modal">
+        <h2 id="purge-server-title">Delete server and all data</h2>
+        <p class="modal-lead"
+          >This permanently deletes this server's row and every local reed, reply, echo, and
+          identity record associated with it. This cannot be undone.</p
+        >
+        <label class="field">
+          <span>Type DELETE to confirm</span>
+          <input type="text" bind:value={purgeConfirmText} autocomplete="off" spellcheck="false" />
+        </label>
+        <div class="modal-actions">
+          <button class="btn secondary" disabled={purging} on:click={dismissPurgeModal}>
+            Cancel
+          </button>
+          <button
+            class="btn danger"
+            disabled={purging || purgeConfirmText.trim() !== 'DELETE'}
+            on:click={purge}
+          >
+            {purging ? 'Deleting…' : 'Delete permanently'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </Auth>
 
 <style>
@@ -177,10 +348,18 @@
     color: #27ae60;
   }
 
+  .badge[data-status='revoked'] {
+    color: #c0392b;
+  }
+
   .meta {
     font-size: 0.85rem;
     color: var(--muted);
     margin: 0.15rem 0;
+  }
+
+  .meta.reason {
+    font-style: italic;
   }
 
   :global(.meta .meta-link) {
@@ -236,6 +415,103 @@
     white-space: pre-wrap;
     word-break: break-word;
     overflow-x: auto;
+  }
+
+  .approval-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  .btn {
+    border: none;
+    border-radius: 8px;
+    padding: 0.6rem 1rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn.secondary {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+
+  .btn.danger {
+    background: transparent;
+    color: #c0392b;
+    border: 1px solid #c0392b;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    padding: 1rem;
+  }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    max-width: 480px;
+    width: 100%;
+  }
+
+  .modal h2 {
+    margin: 0 0 0.75rem 0;
+    font-size: 1.2rem;
+  }
+
+  .modal-lead {
+    margin: 0 0 1rem 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+  }
+
+  .field textarea,
+  .field input[type='text'] {
+    font-family: inherit;
+    font-size: 0.9rem;
+    padding: 0.5rem;
+    border-radius: 0.35rem;
+    border: 1px solid var(--border);
+    background: var(--input-bg);
+    color: var(--fg);
+  }
+
+  .field textarea {
+    resize: vertical;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .modal-actions .btn {
+    width: auto;
+    min-width: 5.5rem;
   }
 
   @media (max-width: 768px) {
