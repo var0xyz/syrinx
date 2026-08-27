@@ -1780,3 +1780,88 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 	}
 	writeResponse(w, http.StatusOK, relaySearchUsersResponse{Users: results})
 }
+
+// //////////////////////////////////////// //
+//   Leg 20: reply-removal-to-viewer (O -> H) //
+// //////////////////////////////////////// //
+//
+// A reply was removed in a thread this server hosts; a foreign viewer
+// with that thread open live needs to know, same as a local viewer gets
+// via dispatchRemovalTo. This is a different direction from leg 13
+// (which tells the PARENT'S home server about a removal on the replying
+// server) — here O is the parent's home server, H is the viewer's own.
+
+type relayReplyRemovalToViewerPayload struct {
+	ViewerUserID  string                    `json:"viewer_user_id"`
+	RemovedReedID string                    `json:"removed_reed_id"`
+	Cert          *realtime.ReedRemovalWire `json:"cert"`
+}
+
+// notifyForeignReplyRemovalToViewer is leg 20's O-side implementation.
+func (h *Handlers) notifyForeignReplyRemovalToViewer(ctx context.Context, viewerUserID, removedReedID string, cert *realtime.ReedRemovalWire) error {
+	_, homeServerID, ok := identity.ParseIdentityID(identity.IdentityID(viewerUserID))
+	if !ok {
+		return nil
+	}
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayReplyRemovalToViewerPayload{
+		ViewerUserID:  viewerUserID,
+		RemovedReedID: removedReedID,
+		Cert:          cert,
+	}
+	_, err = h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/reply-removal-to-viewer", payload, nil)
+	return err
+}
+
+// ReplyRemovalToViewerFromPeer is leg 20's H-side handler: a peer is
+// telling us to deliver a reply-removal notice to one of our own users.
+func (h *Handlers) ReplyRemovalToViewerFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayReplyRemovalToViewerPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.ViewerUserID = strings.TrimSpace(req.ViewerUserID)
+	req.RemovedReedID = strings.TrimSpace(req.RemovedReedID)
+	if req.ViewerUserID == "" || req.RemovedReedID == "" {
+		writeResponse(w, http.StatusBadRequest, "viewer_user_id and removed_reed_id are required")
+		return
+	}
+
+	// Loop-prevention: this server can only be told to deliver to a user
+	// it actually hosts locally, and a peer may only notify us about a
+	// removal on a reed IT actually hosts — never claim removal on
+	// behalf of a third server.
+	_, viewerServerID, viewerOK := identity.ParseIdentityID(identity.IdentityID(req.ViewerUserID))
+	if !viewerOK || viewerServerID != h.services.db.GetServerID() {
+		writeResponse(w, http.StatusBadRequest, "viewer_user_id is not local to this server")
+		return
+	}
+	_, removedServerID, _, removedOK := identity.ParseKeyFingerprint(identity.IdentityID(req.RemovedReedID))
+	if !removedOK || removedServerID != peerServerID {
+		writeResponse(w, http.StatusBadRequest, "removed_reed_id does not belong to the calling peer")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		internalServerError(w)
+		return
+	}
+	h.realtimeRelay.HandleForeignReplyRemovalNotify(r.Context(), req.ViewerUserID, req.RemovedReedID, req.Cert)
+	log.Info().Str("viewerUserID", req.ViewerUserID).Str("removedReedID", req.RemovedReedID).Str("peerServerID", peerServerID).Msg("Delivered foreign reply removal notice")
+	w.WriteHeader(http.StatusNoContent)
+}

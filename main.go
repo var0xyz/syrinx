@@ -236,6 +236,7 @@ func main() {
 	realtimeService.SetForeignHolderNotifyHook(h.notifyHolderToPeer)
 	realtimeService.SetForeignFallbackRequestHook(h.relayFallbackRequestToPeer)
 	realtimeService.SetForeignNewReedNotifyHook(h.notifyNewReedToPeer)
+	realtimeService.SetForeignReplyRemovalToViewerHook(h.notifyForeignReplyRemovalToViewer)
 	realtimeService.SetDeviceCheck(func(userID, deviceID string) error {
 		// userID arrives already in "userID@serverID" form (see
 		// realtime/auth.go), and CheckActiveDevice expects that same
@@ -519,6 +520,9 @@ func main() {
 
 	api.HandleFunc("/federation/relay/search-users", h.withFederationRelayMetric("search-users", h.SearchUsersFromPeer)).Methods("POST")
 	api.HandleFunc("/federation/relay/search-users", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/reply-removal-to-viewer", h.withFederationRelayMetric("reply-removal-to-viewer", h.ReplyRemovalToViewerFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/reply-removal-to-viewer", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")

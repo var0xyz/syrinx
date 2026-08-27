@@ -46,19 +46,20 @@ type RealtimeService struct {
 	// key, HTTP client, or federation-table access of its own, so the
 	// actual peer HTTP calls are injected from the main package (mirrors
 	// SetDeviceCheck/SetOngoingCheck's existing injection direction).
-	foreignRequestReedHook        ForeignRequestReedHook
-	foreignDeliverHook            ForeignDeliverHook
-	foreignCancelHook             ForeignCancelHook
-	foreignSubscribeProfileHook   ForeignSubscribeProfileHook
-	foreignAckHook                ForeignAckHook
-	foreignUnsubscribeProfileHook ForeignUnsubscribeProfileHook
-	foreignSubscribeReedHook      ForeignSubscribeReedHook
-	foreignUnsubscribeReedHook    ForeignUnsubscribeReedHook
-	foreignReedStatsHook          ForeignReedStatsHook
-	foreignReplyNotifyHook        ForeignReplyNotifyHook
-	foreignHolderNotifyHook       ForeignHolderNotifyHook
-	foreignFallbackHook           ForeignFallbackRequestHook
-	foreignNewReedNotifyHook      ForeignNewReedNotifyHook
+	foreignRequestReedHook          ForeignRequestReedHook
+	foreignDeliverHook              ForeignDeliverHook
+	foreignCancelHook               ForeignCancelHook
+	foreignSubscribeProfileHook     ForeignSubscribeProfileHook
+	foreignAckHook                  ForeignAckHook
+	foreignUnsubscribeProfileHook   ForeignUnsubscribeProfileHook
+	foreignSubscribeReedHook        ForeignSubscribeReedHook
+	foreignUnsubscribeReedHook      ForeignUnsubscribeReedHook
+	foreignReedStatsHook            ForeignReedStatsHook
+	foreignReplyNotifyHook          ForeignReplyNotifyHook
+	foreignReplyRemovalToViewerHook ForeignReplyRemovalToViewerHook
+	foreignHolderNotifyHook         ForeignHolderNotifyHook
+	foreignFallbackHook             ForeignFallbackRequestHook
+	foreignNewReedNotifyHook        ForeignNewReedNotifyHook
 }
 
 // NewService creates a new realtime service. serverID is this server's own
@@ -174,6 +175,18 @@ type ForeignReplyNotifyHook func(ctx context.Context, parentReedID, replyReedID,
 // SetForeignReplyNotifyHook installs the leg-11 (reply-notify) hook.
 func (rs *RealtimeService) SetForeignReplyNotifyHook(hook ForeignReplyNotifyHook) {
 	rs.foreignReplyNotifyHook = hook
+}
+
+// ForeignReplyRemovalToViewerHook tells viewerUserID's home server that
+// removedReedID (a reply) is gone, so a foreign viewer with the parent
+// reed's thread open live gets the same removal notice a local viewer
+// already gets from dispatchRemovalTo — this is the counterpart to
+// notifyForeignReedSubscribersOfReply, for removal instead of posting.
+type ForeignReplyRemovalToViewerHook func(ctx context.Context, viewerUserID, removedReedID string, cert *ReedRemovalWire) error
+
+// SetForeignReplyRemovalToViewerHook installs the leg-20 hook.
+func (rs *RealtimeService) SetForeignReplyRemovalToViewerHook(hook ForeignReplyRemovalToViewerHook) {
+	rs.foreignReplyRemovalToViewerHook = hook
 }
 
 // ForeignReedStatsHook pushes a pre-built WS message (REED_COVERAGE,
@@ -2332,6 +2345,15 @@ func (rs *RealtimeService) HandleForeignNewReedNotify(ctx context.Context, autho
 	return true, nil
 }
 
+// HandleForeignReplyRemovalNotify runs on the viewer's own server: a peer
+// (the parent reed's home server) is telling us one of our local users had
+// a reply removed from a thread they're watching. Delivers exactly like a
+// local removal via the existing dispatchRemovalTo — the viewer's client
+// can't tell the difference.
+func (rs *RealtimeService) HandleForeignReplyRemovalNotify(ctx context.Context, viewerUserID, removedReedID string, cert *ReedRemovalWire) {
+	rs.dispatchRemovalTo(viewerUserID, removedReedID, cert)
+}
+
 func (rs *RealtimeService) handleUnsubscribeProfile(client *Client, data json.RawMessage) {
 	var profile UnsubscribeProfileData
 	if err := json.Unmarshal(data, &profile); err != nil || profile.UserID == "" {
@@ -2820,7 +2842,32 @@ func (rs *RealtimeService) notifyReplyAncestorsOfRemoval(removedReedID string, c
 		}
 		recipients := rs.connManager.ReedSubscriberUserIDs(parentReedID, "")
 		rs.dispatchRemovalMany(recipients, removedReedID, cert)
+		rs.notifyForeignReplyAncestorsOfRemoval(parentReedID, removedReedID, cert)
 		reedID = parentReedID
+	}
+}
+
+// notifyForeignReplyAncestorsOfRemoval is notifyReplyAncestorsOfRemoval's
+// foreign-viewer half — connManager only sees this server's own live
+// connections, so a viewer on a peer server with parentReedID's thread
+// open needs a separate signed notify to their home server.
+func (rs *RealtimeService) notifyForeignReplyAncestorsOfRemoval(parentReedID, removedReedID string, cert *ReedRemovalWire) {
+	if rs.foreignReplyRemovalToViewerHook == nil {
+		return
+	}
+	subs, err := rs.dbService.GetReedSubscribers(context.Background(), parentReedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", parentReedID).Msg("Failed to load reed subscribers for foreign removal notify")
+		return
+	}
+	for _, sub := range subs {
+		foreign, _ := rs.isForeignReed(sub.ViewerUserID)
+		if !foreign {
+			continue
+		}
+		if err := rs.foreignReplyRemovalToViewerHook(context.Background(), sub.ViewerUserID, removedReedID, cert); err != nil {
+			log.Error().Err(err).Str("viewerUserID", sub.ViewerUserID).Str("removedReedID", removedReedID).Msg("Failed to notify foreign viewer of reply removal")
+		}
 	}
 }
 
