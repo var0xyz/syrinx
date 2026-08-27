@@ -17,9 +17,17 @@ export async function load({ parent }) {
     userInfoRepository.get(user.id).catch(() => null),
   ]);
 
+  // Read ahead of render so the "last backup" line has its answer the
+  // moment the page paints, instead of the onMount-driven flash of
+  // "no backup info yet" that showed on every navigation here before.
+  const storedBackupAt = localStorage.getItem('lastBackupAt');
+  const storedKeyBackupAt = localStorage.getItem('lastKeyBackupAt');
+
   return {
     user: mergeUserView(user, cachedInfo) ?? user,
     storage,
     keyInfo,
+    lastBackupAt: storedBackupAt ? parseInt(storedBackupAt) : null,
+    lastKeyBackupAt: storedKeyBackupAt ? parseInt(storedKeyBackupAt) : null,
   };
 }
