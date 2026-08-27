@@ -48,14 +48,14 @@ step's own Status header for the precise shipped-vs-designed diff.
 
 | Step | Status |
 |------|--------|
-| 00 | Superseded by the shipped design (02) |
-| 01 | **Implemented** |
-| 02 | **Implemented** (deviated — see doc for the exact `federation_attempt`/`federation_invitation` split) |
-| 03 | **Implemented as a single-admin gate**, not the second-admin one this doc names — approval is real (on `federation_attempt`), but never checks the approver differs from the invite's creator |
-| 04 | **Implemented** (trust store simplified, see 03) |
-| 05 | **Gap** — the revoke check exists and is enforced everywhere, but nothing ever sets `revoked = true`; there is no way to actually revoke an approved peer today |
-| 06 | **Implemented**, via a per-operation "leg" pattern (`federation_relay.go`) rather than this doc's generic relay endpoints |
-| 07 | **Gap** — shipped fire-and-forget (signed HTTP, short timeout, swallowed-on-failure), not the durable `servers.online`+backlog design here; an event to an unreachable peer is silently lost |
+| 00   | Superseded by the shipped design (02) |
+| 01   | **Implemented** |
+| 02   | **Implemented** (deviated — see doc for the exact `federation_attempt`/`federation_invitation` split) |
+| 03   | **Implemented as a single-admin gate**, not the second-admin one this doc names — approval is real (on `federation_attempt`), but never checks the approver differs from the invite's creator |
+| 04   | **Implemented** (trust store simplified, see 03) |
+| 05   | **Implemented**, with two deviations: revocation is active rather than purely local (the disconnecting server notifies the peer, which auto-revokes back), and a root-only hard purge (delete the server row and all its local data) was added beyond this doc's scope |
+| 06   | **Implemented**, via a per-operation "leg" pattern (`federation_relay.go`) rather than this doc's generic relay endpoints |
+| 07   | **Gap** — shipped fire-and-forget (signed HTTP, short timeout, swallowed-on-failure), not the durable `servers.online`+backlog design here; an event to an unreachable peer is silently lost |
 
 Beyond this doc set, `federation_relay.go` also implements mentions,
 federated user search, and reed-stats/like propagation (18 legs total —

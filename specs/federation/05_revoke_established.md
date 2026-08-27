@@ -2,19 +2,25 @@
 
 ## Status
 
-**The check exists; nothing can ever trigger it.** `servers.revoked`
-(no separate `federation_established` table — see
-[03](03_approval_established.md)'s status note) is read everywhere it
-should be: `VerifyFederationPeer` (`services.go`) rejects incoming
-peer-authenticated calls from a revoked peer, and
-`GetServerByID`/`ListConnectedPeers` (`services.go`) exclude revoked
-peers from outbound calls and the search-fanout target list. But grep
-confirms `revoked` is never written as `TRUE` anywhere in the codebase —
-no admin API, no SPA button, no code path of any kind sets it. This is a
-**real gap, not just a missing UI**: today there is no way to actually
-revoke a peer at all; a compromised or untrusted server, once
-federated, stays trusted forever. `/api/federation/established/{serverId}/revoke`
-and everything else in this doc's Design section is unbuilt.
+**Implemented, with two deviations from this doc's original design.**
+`servers.revoked` (no separate `federation_established` table — see
+[03](03_approval_established.md)'s status note) is read everywhere this
+doc calls for: `VerifyFederationPeer` rejects incoming peer-authenticated
+calls from a revoked peer, and `GetServerByID`/`ListConnectedPeers`
+exclude revoked peers from outbound calls and the search-fanout target
+list. `POST /api/federation/servers/{id}/revoke` (admin, reason
+required) sets it.
+
+Deviations: (1) revocation is **not** purely local/asymmetric as
+originally scoped — the disconnecting server sends a best-effort signed
+notify to the peer, which auto-revokes the caller back on receipt
+(`revoked_by = NULL`, reason records it was peer-initiated); (2) a
+root-only `POST /api/federation/servers/{id}/purge` was added beyond
+this doc's non-goals — once a peer is revoked, root can permanently
+delete the `servers` row and every local reed/identity it owns (schema
+now cascades fully from `servers` down through `reed_identities`/
+`identities`). No signal is sent to any client to delete anything
+locally; the purge is a local DB cleanup only.
 
 ## Depends on
 
