@@ -50,16 +50,19 @@
   // Export state
   let exporting: boolean = false;
   let showExportWarningModal: boolean = false;
-  let lastBackupAt: number | null = null;
+  let lastBackupAt: number | null = data.lastBackupAt;
 
   // Key backup state
   let backingUpKeys: boolean = false;
   let showBackupKeysModal: boolean = false;
-  let lastKeyBackupAt: number | null = null;
+  // Always set by the time this page is reachable — <Auth> redirects to
+  // /welcome for mandatory backup before any authenticated route
+  // (including this one) will render otherwise.
+  let lastKeyBackupAt: number | null = data.lastKeyBackupAt;
   let activeKeyMintedAt: number | null = null;
-  // Never backed up, or backed up before the currently active key was minted
-  // (e.g. after a revoke) — the existing backup no longer covers this key.
-  $: keyBackupStale = !lastKeyBackupAt || (activeKeyMintedAt != null && lastKeyBackupAt < activeKeyMintedAt);
+  // Backed up before the currently active key was minted (e.g. after a
+  // revoke) — the existing backup no longer covers this key.
+  $: keyBackupStale = activeKeyMintedAt != null && !!lastKeyBackupAt && lastKeyBackupAt < activeKeyMintedAt;
 
   // Helper function to format bytes into human-readable format
   function formatBytes(bytes: number): string {
@@ -98,12 +101,6 @@
     } catch (error) {
       console.error('Failed to refresh profile:', error);
     }
-
-    const storedBackupAt = localStorage.getItem('lastBackupAt');
-    if (storedBackupAt) lastBackupAt = parseInt(storedBackupAt);
-
-    const storedKeyBackupAt = localStorage.getItem('lastKeyBackupAt');
-    if (storedKeyBackupAt) lastKeyBackupAt = parseInt(storedKeyBackupAt);
 
     await refreshActiveKeyMintedAt();
   });
@@ -450,9 +447,7 @@
               <div class="key-backup">
                 {#if keyBackupStale}
                   <span class="key-backup-warning">
-                    ⚠️ {lastKeyBackupAt
-                      ? 'Your key backup is outdated — back up again to protect your current key.'
-                      : 'Your keys have never been backed up.'}
+                    ⚠️ Your key backup is outdated — back up again to protect your current key.
                   </span>
                 {:else}
                   <span class="last-backup">Last key backup {formatRelativeTime(lastKeyBackupAt)}</span>
