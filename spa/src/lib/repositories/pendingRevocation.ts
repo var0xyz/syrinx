@@ -65,24 +65,51 @@ export const pendingRevocationRepository = {
           await privateKeyRepository.setRevoked(record.fingerprint);
           await pendingRevocationRepository.markRevoked(record.fingerprint);
         }
-        const newPublicKey = await apiService.addPublicKey(
-          record.userId,
-          btoa(record.newPublicKey),
-          record.fingerprint,
-          record.revokedKeySignature,
-          record.newKeySignature
-        );
+
+        // addPublicKey isn't safely repeatable — a prior sync attempt may
+        // have already registered the new key before failing on a LATER
+        // step (e.g. fetching the revocation certificate below used to be
+        // able to fail this whole record, from before this fix). Treat a
+        // 409 here as "already done", not an error: fetch the
+        // already-registered key instead of retrying the write.
+        let newPublicKey;
+        try {
+          newPublicKey = await apiService.addPublicKey(
+            record.userId,
+            btoa(record.newPublicKey),
+            record.fingerprint,
+            record.revokedKeySignature,
+            record.newKeySignature
+          );
+        } catch (addKeyError) {
+          const status = (addKeyError as { status?: number })?.status;
+          if (status !== 409) throw addKeyError;
+          newPublicKey = await apiService.getPublicKey(record.newFingerprint);
+        }
         await publicKeyRepository.put(newPublicKey);
+
+        // The rotation is fully done server-side at this point — clear the
+        // pending record now, before touching the active key or fetching
+        // the revocation certificate below. Neither of those can safely
+        // re-trigger revokeKey/addPublicKey on a later retry (they already
+        // succeeded), so this record must not still exist to be retried
+        // from scratch if either step below fails.
+        await dbService.delete('pendingRevocation', record.fingerprint);
+        pendingRevocationSynced.update(n => n + 1);
 
         authService.setActiveKey(record.newFingerprint);
         const passphrase = authService.getPassphrase();
         if (passphrase) await requestSigner.initializeWorker(record.newFingerprint, passphrase);
 
-        const revocation = await apiService.getKeyRevocation(record.userId, record.fingerprint);
-        await revocationRepository.put(revocation);
-
-        await dbService.delete('pendingRevocation', record.fingerprint);
-        pendingRevocationSynced.update(n => n + 1);
+        // Best-effort: fetch the server-countersigned revocation proof for
+        // local caching. Failure here is not retried via this record — the
+        // rotation already succeeded — so it's logged, not rethrown.
+        try {
+          const revocation = await apiService.getKeyRevocation(record.userId, record.fingerprint);
+          await revocationRepository.put(revocation);
+        } catch (revocationFetchError) {
+          console.error('Failed to fetch revocation certificate (rotation already complete):', record.fingerprint, revocationFetchError);
+        }
       } catch (error) {
         console.error('Failed to sync pending revocation:', record.fingerprint, error);
       }

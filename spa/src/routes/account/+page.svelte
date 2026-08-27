@@ -199,15 +199,18 @@
       const userRevocationSignature = btoa(userRevocationSigArmor);
 
       // Sign the new public key with old private key (rotation proof).
+      // newKeyPair.publicKey is already trimmed by generateKeyPair — sign,
+      // store, and transmit this exact same string everywhere below, or
+      // the server's byte-for-byte signature check fails.
       const revokedKeySignature = btoa(await cryptoService.signMessage(
-        newKeyPair.publicKey.trim(),
+        newKeyPair.publicKey,
         oldPrivateKey.armor,
         passphrase
       ));
 
       // Sign the new public key with new private key
       const newKeySignature = btoa(await cryptoService.signMessage(
-        newKeyPair.publicKey.trim(),
+        newKeyPair.publicKey,
         newKeyPair.privateKey,
         passphrase
       ));
@@ -253,18 +256,34 @@
         );
         await publicKeyRepository.put(newPublicKey);
 
-        // Switch to the new key, then fetch the countersigned revocation proof.
+        // The rotation itself is now fully done server-side (old key
+        // revoked, new key registered) — clear the pending record and
+        // switch the active key here, BEFORE fetching the revocation
+        // certificate below. Fetching that certificate is just retrieving
+        // a receipt for something that already happened; it must not be
+        // able to re-trigger revokeKey/addPublicKey on a later retry (they
+        // already succeeded and addPublicKey isn't safely repeatable — a
+        // second call 409s). This also means a request-signer that hasn't
+        // picked up the new key yet (e.g. no passphrase available for an
+        // unattended retry) can no longer cause the whole rotation to be
+        // retried from scratch; it only affects fetching the receipt.
+        await pendingRevocationRepository.delete(oldFingerprint);
         authService.setActiveKey(newCanonicalFingerprint);
         await requestSigner.initializeWorker(newCanonicalFingerprint, passphrase);
-
-        const revocation = await apiService.getKeyRevocation(user.id, oldFingerprint);
-        await revocationRepository.put(revocation);
-
-        await pendingRevocationRepository.delete(oldFingerprint);
         notificationStore.dismiss(progressNotificationId);
         isPendingRevocation = false;
         await loadKeyInfo();
         notificationStore.success('Key revoked and new key generated successfully');
+
+        // Best-effort: fetch the server-countersigned revocation proof for
+        // local caching. Failure here is not the user's problem to retry —
+        // the rotation already succeeded — so it's logged, not surfaced.
+        try {
+          const revocation = await apiService.getKeyRevocation(user.id, oldFingerprint);
+          await revocationRepository.put(revocation);
+        } catch (revocationFetchError) {
+          console.error('Failed to fetch revocation certificate (rotation already complete):', revocationFetchError);
+        }
       } catch (serverError) {
         // Leave pending record in place; syncPending() will retry on reconnect
         console.error('Server revocation failed, will retry on reconnect:', serverError);
