@@ -70,6 +70,13 @@
           threadId,
           res.replies,
         );
+        if (!res.hasMore) {
+          await reedRepliesRepository.pruneStale(
+            parentUserID,
+            parentReedID,
+            new Set(res.replies.map((r) => r.reedID)),
+          );
+        }
       }
       hasMore = res.hasMore;
       rows = await hydrateRows(res.replies);
