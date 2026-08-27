@@ -74,6 +74,23 @@ export const reedRepliesRepository = {
     }
   },
 
+  // Prunes locally cached rows for replies the server no longer lists
+  // (e.g. removed on a federated server before this client ever saw a
+  // live removal notice) — without this, a stale row flashes on load
+  // before the server refresh corrects the count.
+  async pruneStale(
+    parentUserID: string,
+    parentReedID: string,
+    liveReedIDs: Set<string>,
+  ): Promise<void> {
+    const cached = await reedRepliesRepository.listByParent(parentUserID, parentReedID);
+    for (const row of cached) {
+      if (!liveReedIDs.has(row.reedID)) {
+        await reedRepliesRepository.remove(row.reedID);
+      }
+    }
+  },
+
   async listByParent(parentUserID: string, parentReedID: string): Promise<ReedReplyRow[]> {
     return dbService.getAllByIndex<ReedReplyRow>('reedReplies', 'parentKey', parentKey(parentUserID, parentReedID));
   },
