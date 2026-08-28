@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"syrinx/crypto"
+	"syrinx/identity"
 	"syrinx/invites"
 	"syrinx/observability"
 	"syrinx/realtime"
@@ -404,9 +405,13 @@ func main() {
 			if err != nil {
 				return invites.ServerSignatureWire{}, err
 			}
+			sigFingerprint, sigServerID, ok := identity.ParseIdentityID(identity.IdentityID(sig.ID))
+			if !ok {
+				return invites.ServerSignatureWire{}, fmt.Errorf("malformed server signature id: %s", sig.ID)
+			}
 			return invites.ServerSignatureWire{
-				ServerID:    sig.ServerID,
-				Fingerprint: sig.Fingerprint,
+				ServerID:    sigServerID,
+				Fingerprint: sigFingerprint,
 				Armor:       sig.Armor,
 				Timestamp:   sig.SignedAt.UTC().Format(time.RFC3339),
 			}, nil

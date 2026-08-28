@@ -12,7 +12,7 @@ import { dbService } from '$lib/services/db';
 import { serverConnection } from '$lib/services/serverConnection';
 import { reedContentWithinLimits } from '$lib/utils/reedContent';
 import { shouldRecheck, markChecked } from '$lib/utils/keyCheckThrottle';
-import { parseKeyId } from '$lib/utils/identityRef';
+import { parseKeyId, parseCanonicalId } from '$lib/utils/identityRef';
 import { canonicalKeyId } from '$lib/services/api';
 import {
   buildAccountRemovalServerPayload,
@@ -35,6 +35,16 @@ import {
 import { signedAtHeader, verify } from '$lib/services/verify';
 
 export type Verifier<T = unknown> = (data: T) => Promise<boolean>;
+
+/** Splits a ServerSignature.id ("fingerprint@serverID") back into the raw
+ * parts payload builders sign as separate headers. Falls back to empty
+ * strings on a malformed id — callers already require serverSignature.id
+ * to be present, so verify() will fail closed on the resulting mismatch. */
+function splitServerSignatureId(id: string): { fingerprint: string; serverID: string } {
+  const parsed = parseCanonicalId(id);
+  if (!parsed) return { fingerprint: '', serverID: '' };
+  return { fingerprint: parsed[0], serverID: parsed[1] };
+}
 
 /** Explicit no-op for stores that are not signed resources. */
 export async function allowUnsigned(_data: unknown): Promise<boolean> {
@@ -135,13 +145,16 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
     console.error('[verifyPublicKey] missing serverSignature block', key?.id);
     return false;
   }
+  const { fingerprint: keySignerFingerprint, serverID: keySignerServerID } = splitServerSignatureId(
+    key.serverSignature.id
+  );
   const result = await verify(
     key.serverSignature,
     buildPublicKeyPayload(
       key.userID,
       key.id,
-      key.serverSignature.serverID,
-      key.serverSignature.fingerprint,
+      keySignerServerID,
+      keySignerFingerprint,
       key.armor,
       signedAtHeader(key.serverSignature.timestamp)
     )
@@ -260,12 +273,14 @@ export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promis
     return false;
   }
 
+  const { fingerprint: revocationServerFingerprint, serverID: revocationServerID } =
+    splitServerSignatureId(revocation.serverSignature.id);
   const serverPayload = buildServerRevocationPayload(
     revocation.userID,
     revocation.id,
     revocation.reason,
-    revocation.serverSignature.serverID,
-    revocation.serverSignature.fingerprint,
+    revocationServerID,
+    revocationServerFingerprint,
     revocation.userSignature.armor,
     signedAtHeader(revocation.serverSignature.timestamp)
   );
@@ -311,12 +326,15 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     return false;
   }
 
+  const { fingerprint: profileServerFingerprint, serverID: profileServerID } = splitServerSignatureId(
+    user.serverSignature.id
+  );
   const serverPayload = buildProfilePayload(
     user.id,
     user.username,
     user.userSignature.fingerprint,
-    user.serverSignature.serverID,
-    user.serverSignature.fingerprint,
+    profileServerID,
+    profileServerFingerprint,
     user.userSignature.armor,
     user.invitedBy?.id ?? '',
     user.role,
@@ -387,10 +405,13 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     return false;
   }
 
+  const { fingerprint: reedServerFingerprint, serverID: reedServerID } = splitServerSignatureId(
+    reed.serverSignature.id
+  );
   const serverPayload = buildReedPayload(
-    reed.serverSignature.serverID,
+    reedServerID,
     reed.id,
-    reed.serverSignature.fingerprint,
+    reedServerFingerprint,
     reed.userSignature.armor,
     signedAtHeader(reed.serverSignature.timestamp)
   );
@@ -471,8 +492,9 @@ export async function verifyRipple(
     return false;
   }
 
+  const { serverID: rippleServerID } = splitServerSignatureId(ripple.serverSignature.id);
   const serverPayload = buildRippleServerPayload(
-    ripple.serverSignature.serverID,
+    rippleServerID,
     reedID,
     ripple.userID,
     ripple.userSignature.fingerprint,
@@ -529,10 +551,11 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
     return false;
   }
 
+  const { fingerprint: removalServerFingerprint } = splitServerSignatureId(cert.serverSignature.id);
   const serverPayload = buildReedRemovalServerPayload(
     cert.serverID,
     cert.reedID,
-    cert.serverSignature.fingerprint,
+    removalServerFingerprint,
     cert.userSignature.armor,
     signedAtHeader(cert.serverSignature.timestamp)
   );
@@ -582,9 +605,10 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
     return false;
   }
 
+  const { fingerprint: likeServerFingerprint } = splitServerSignatureId(cert.serverSignature.id);
   const serverPayload = buildReedLikeServerPayload(
     cert.reedID,
-    cert.serverSignature.fingerprint,
+    likeServerFingerprint,
     cert.userSignature.armor,
     signedAtHeader(cert.serverSignature.timestamp)
   );
@@ -633,11 +657,12 @@ export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<bo
     return false;
   }
 
+  const { fingerprint: accountServerFingerprint } = splitServerSignatureId(cert.serverSignature.id);
   const serverPayload = buildAccountRemovalServerPayload(
     cert.serverID,
     cert.userID,
     cert.note ?? '',
-    cert.serverSignature.fingerprint,
+    accountServerFingerprint,
     cert.userSignature.armor,
     signedAtHeader(cert.serverSignature.timestamp)
   );
@@ -686,8 +711,11 @@ export async function verifyInvite(invite: api.Invite): Promise<boolean> {
     console.error('[verifyInvite] missing tokenHash', invite.id);
     return false;
   }
+  const { fingerprint: inviteServerFingerprint, serverID: inviteServerID } = splitServerSignatureId(
+    invite.serverSignature.id
+  );
   const userPayload = buildInviteUserPayload(
-    invite.serverSignature.serverID,
+    inviteServerID,
     userID,
     invite.id,
     invite.tokenHash,
@@ -701,11 +729,11 @@ export async function verifyInvite(invite: api.Invite): Promise<boolean> {
   }
 
   const serverPayload = buildInviteServerPayload(
-    invite.serverSignature.serverID,
+    inviteServerID,
     userID,
     invite.id,
     invite.tokenHash,
-    invite.serverSignature.fingerprint,
+    inviteServerFingerprint,
     invite.userSignature.armor,
     createdAt,
     signedAtHeader(invite.serverSignature.timestamp)

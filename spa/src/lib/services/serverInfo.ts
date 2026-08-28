@@ -73,7 +73,7 @@ async function ensureServerKeyCached(serverId: string, serverKeyId: string): Pro
       armor,
       revoked: false,
       predecessor: null,
-      serverSignature: { serverID: '', fingerprint: '', armor: '', timestamp: '' },
+      serverSignature: { id: '', armor: '', timestamp: '' },
     };
     await dbService.put('publicKeys', key, allowUnsigned);
   } catch (error) {

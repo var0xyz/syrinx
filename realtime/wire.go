@@ -16,10 +16,9 @@ type UserSignatureWire struct {
 
 // ServerSignatureWire is the nested server countersignature block on removal certs.
 type ServerSignatureWire struct {
-	ServerID    string    `json:"serverID"`
-	Fingerprint string    `json:"fingerprint"`
-	Armor       string    `json:"armor"`
-	Timestamp   time.Time `json:"timestamp"`
+	ID        string    `json:"id"`
+	Armor     string    `json:"armor"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // ReedRemovalWire is the wire shape of a signed reed-removal certificate.
@@ -54,10 +53,9 @@ func NewReedRemovalWire(serverID string, cert *deletion.Cert) ReedRemovalWire {
 			Armor:       cert.UserSignature,
 		},
 		ServerSignature: ServerSignatureWire{
-			ServerID:    serverID,
-			Fingerprint: cert.ServerFingerprint,
-			Armor:       cert.ServerSignature,
-			Timestamp:   cert.ServerSignedAt.UTC(),
+			ID:        string(identity.CanonicalID(serverID, cert.ServerFingerprint)),
+			Armor:     cert.ServerSignature,
+			Timestamp: cert.ServerSignedAt.UTC(),
 		},
 	}
 }
@@ -74,10 +72,9 @@ func NewAccountRemovalWire(serverID string, cert *deletion.AccountCert) AccountR
 			Armor:       cert.UserSignature,
 		},
 		ServerSignature: ServerSignatureWire{
-			ServerID:    serverID,
-			Fingerprint: cert.ServerFingerprint,
-			Armor:       cert.ServerSignature,
-			Timestamp:   cert.ServerSignedAt.UTC(),
+			ID:        string(identity.CanonicalID(serverID, cert.ServerFingerprint)),
+			Armor:     cert.ServerSignature,
+			Timestamp: cert.ServerSignedAt.UTC(),
 		},
 	}
 }

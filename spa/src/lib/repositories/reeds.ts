@@ -139,8 +139,7 @@ class ReedsService {
         published = {
           ...reed,
           serverSignature: {
-            serverID: response.serverID,
-            fingerprint: response.fingerprint,
+            id: response.id,
             armor: response.armor,
             timestamp: response.timestamp,
           },

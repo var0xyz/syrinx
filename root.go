@@ -280,9 +280,8 @@ func rootCountersign(cryptoSvc *crypto.Service, db *DataService, signingKey *Ser
 		return ServerSignature{}, err
 	}
 	return ServerSignature{
-		ServerID:    db.GetServerID(),
-		Fingerprint: signingKey.Fingerprint,
-		Armor:       encoding.Base64Encode(sigArmor),
-		SignedAt:    ts,
+		ID:       string(identity.CanonicalID(db.GetServerID(), signingKey.Fingerprint)),
+		Armor:    encoding.Base64Encode(sigArmor),
+		SignedAt: ts,
 	}, nil
 }

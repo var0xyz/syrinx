@@ -531,8 +531,12 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	if err != nil {
 		return nil, err
 	}
+	profileServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(in.ProfileSignature.ID))
+	if !ok {
+		return nil, fmt.Errorf("malformed profile server signature id: %s", in.ProfileSignature.ID)
+	}
 	serverSignatureID, err := signing.InsertServerSignature(ctx, tx,
-		in.ProfileSignature.Fingerprint,
+		profileServerFingerprint,
 		in.ProfileSignature.Armor,
 		in.ProfileSignature.SignedAt,
 	)
@@ -578,8 +582,12 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 		return nil, err
 	}
 
+	keyServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(in.PublicKeySignature.ID))
+	if !ok {
+		return nil, fmt.Errorf("malformed public key server signature id: %s", in.PublicKeySignature.ID)
+	}
 	keyServerSigID, err := signing.InsertServerSignature(ctx, tx,
-		in.PublicKeySignature.Fingerprint,
+		keyServerFingerprint,
 		in.PublicKeySignature.Armor,
 		in.PublicKeySignature.SignedAt,
 	)
@@ -689,10 +697,9 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 	}
 	sw := signing.ServerWire(serverRow, s.serverID)
 	user.ServerSignature = ServerSignature{
-		ServerID:    sw.ServerID,
-		Fingerprint: sw.Fingerprint,
-		Armor:       sw.Armor,
-		SignedAt:    sw.Timestamp,
+		ID:       string(identity.CanonicalID(sw.ServerID, sw.Fingerprint)),
+		Armor:    sw.Armor,
+		SignedAt: sw.Timestamp,
 	}
 
 	return &user, nil
@@ -831,8 +838,12 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 	if err != nil {
 		return err
 	}
+	profileServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(in.ProfileSignature.ID))
+	if !ok {
+		return fmt.Errorf("malformed profile server signature id: %s", in.ProfileSignature.ID)
+	}
 	serverSignatureID, err := signing.InsertServerSignature(ctx, tx,
-		in.ProfileSignature.Fingerprint,
+		profileServerFingerprint,
 		in.ProfileSignature.Armor,
 		in.ProfileSignature.SignedAt,
 	)
@@ -1082,10 +1093,9 @@ func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error)
 	}
 	sw := signing.ServerWire(serverRow, s.serverID)
 	key.ServerSignature = ServerSignature{
-		ServerID:    sw.ServerID,
-		Fingerprint: sw.Fingerprint,
-		Armor:       sw.Armor,
-		SignedAt:    sw.Timestamp,
+		ID:       string(identity.CanonicalID(sw.ServerID, sw.Fingerprint)),
+		Armor:    sw.Armor,
+		SignedAt: sw.Timestamp,
 	}
 	key.Revoked = revoked
 	if predID.Valid {
@@ -1157,10 +1167,9 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, id string) (*KeyRevo
 	}
 	sw := signing.ServerWire(serverRow, s.serverID)
 	rev.ServerSignature = ServerSignature{
-		ServerID:    sw.ServerID,
-		Fingerprint: sw.Fingerprint,
-		Armor:       sw.Armor,
-		SignedAt:    sw.Timestamp,
+		ID:       string(identity.CanonicalID(sw.ServerID, sw.Fingerprint)),
+		Armor:    sw.Armor,
+		SignedAt: sw.Timestamp,
 	}
 	return &rev, nil
 }
@@ -1310,8 +1319,12 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 		if err != nil {
 			return nil, err
 		}
+		revocationServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(in.RevocationServer.ID))
+		if !ok {
+			return nil, fmt.Errorf("malformed revocation server signature id: %s", in.RevocationServer.ID)
+		}
 		revServerSigID, err := signing.InsertServerSignature(ctx, tx,
-			in.RevocationServer.Fingerprint,
+			revocationServerFingerprint,
 			in.RevocationServer.Armor,
 			in.RevocationServer.SignedAt,
 		)
@@ -1358,8 +1371,12 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 		return nil, ErrActiveKeyExists
 	}
 
+	serverFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(in.Server.ID))
+	if !ok {
+		return nil, fmt.Errorf("malformed server signature id: %s", in.Server.ID)
+	}
 	serverSignatureID, err := signing.InsertServerSignature(ctx, tx,
-		in.Server.Fingerprint,
+		serverFingerprint,
 		in.Server.Armor,
 		in.Server.SignedAt,
 	)
@@ -1384,9 +1401,6 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	// owner is already in userID@serverID form — hold it as-is.
 	key.UserID = owner
 	key.ServerSignature = in.Server
-	if key.ServerSignature.ServerID == "" {
-		key.ServerSignature.ServerID = s.serverID
-	}
 	if in.PredecessorSignature != "" {
 		key.Predecessor = &KeyPredecessor{ID: predecessor}
 	}
@@ -2827,7 +2841,11 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 		if err != nil {
 			return err
 		}
-		serverSigID, err := signing.InsertServerSignature(ctx, tx, cert.ServerSignature.Fingerprint, cert.ServerSignature.Armor, cert.ServerSignature.SignedAt)
+		serverFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(cert.ServerSignature.ID))
+		if !ok {
+			return fmt.Errorf("malformed server signature id: %s", cert.ServerSignature.ID)
+		}
+		serverSigID, err := signing.InsertServerSignature(ctx, tx, serverFingerprint, cert.ServerSignature.Armor, cert.ServerSignature.SignedAt)
 		if err != nil {
 			return err
 		}
@@ -2845,7 +2863,7 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 		if existing.UserSignature.Armor != cert.UserSignature.Armor ||
 			existing.UserSignature.Fingerprint != cert.UserSignature.Fingerprint ||
 			existing.ServerSignature.Armor != cert.ServerSignature.Armor ||
-			existing.ServerSignature.Fingerprint != cert.ServerSignature.Fingerprint ||
+			existing.ServerSignature.ID != cert.ServerSignature.ID ||
 			!existing.ServerSignature.SignedAt.Equal(cert.ServerSignature.SignedAt) {
 			return ErrLikeConflict
 		}
@@ -2930,9 +2948,9 @@ func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerId
 			Armor:       userRow.Signature,
 		},
 		ServerSignature: ServerSignature{
-			Fingerprint: serverRow.Fingerprint,
-			Armor:       serverRow.Signature,
-			SignedAt:    serverRow.SignedAt,
+			ID:       string(identity.CanonicalID(s.serverID, serverRow.Fingerprint)),
+			Armor:    serverRow.Signature,
+			SignedAt: serverRow.SignedAt,
 		},
 	}, nil
 }
@@ -3636,7 +3654,11 @@ func (s *DataService) CachePeerUserKey(ctx context.Context, keyID, ownerCanonica
 		return tx.Commit()
 	}
 
-	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, serverSig.Fingerprint, serverSig.Armor, serverSig.SignedAt)
+	cachedServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(serverSig.ID))
+	if !ok {
+		return fmt.Errorf("malformed peer key server signature id: %s", serverSig.ID)
+	}
+	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, cachedServerFingerprint, serverSig.Armor, serverSig.SignedAt)
 	if err != nil {
 		return err
 	}
@@ -4561,6 +4583,10 @@ type Ripple struct {
 	UserFingerprint string
 	UserSignature   UserSignature
 	ServerSignature ServerSignature
+	// serverFingerprint holds the bare countersigning fingerprint between
+	// scanRipple and the caller, which combines it with the server's own
+	// id into ServerSignature.ID (see scanRipple's comment).
+	serverFingerprint string
 }
 
 // RippleListResult is the paginated output of ListRipples.
@@ -4641,7 +4667,11 @@ func (s *DataService) PostRipple(
 	if err != nil {
 		return nil, err
 	}
-	serverSigID, err := signing.InsertServerSignature(ctx, tx, serverSig.Fingerprint, serverSig.Armor, serverSig.SignedAt)
+	rippleServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(serverSig.ID))
+	if !ok {
+		return nil, fmt.Errorf("malformed ripple server signature id: %s", serverSig.ID)
+	}
+	serverSigID, err := signing.InsertServerSignature(ctx, tx, rippleServerFingerprint, serverSig.Armor, serverSig.SignedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -4709,7 +4739,7 @@ func (s *DataService) GetRipple(ctx context.Context, id string) (*Ripple, error)
 	if err != nil {
 		return nil, err
 	}
-	r.ServerSignature.ServerID = s.GetServerID()
+	r.ServerSignature.ID = string(identity.CanonicalID(s.GetServerID(), r.serverFingerprint))
 	return r, nil
 }
 
@@ -4735,10 +4765,11 @@ func (r rippleListRow) Scan(dest ...any) error {
 
 // scanRipple scans one ripple_responses row joined against its
 // user_signatures/server_signatures rows, in the exact column order
-// GetRipple and ListRipples both select in. ServerSignature.ServerID is
-// not a stored column (a ripple's countersignature is always this
-// server's own) — callers set it from DataService.GetServerID() after
-// scanning.
+// GetRipple and ListRipples both select in. The server signature's
+// fingerprint is not a stored column of Ripple itself (a ripple's
+// countersignature is always this server's own) — callers combine the
+// returned bare fingerprint with DataService.GetServerID() into
+// ServerSignature.ID after scanning.
 //
 // rr.reed_id and rr.user_id are both FK'd (transitively and directly,
 // respectively — see PostRipple's comment); Ripple's ReedID/UserID wire
@@ -4751,7 +4782,7 @@ func scanRipple(row rippleRowScanner) (*Ripple, error) {
 		&r.ID, &r.ReedID, &r.ThreadID, &r.UserID, &r.Content,
 		&replyingTo, &r.Deleted, &r.PostedAt,
 		&r.UserFingerprint, &r.UserSignature.Armor,
-		&r.ServerSignature.Fingerprint, &r.ServerSignature.Armor, &r.ServerSignature.SignedAt,
+		&r.serverFingerprint, &r.ServerSignature.Armor, &r.ServerSignature.SignedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -4863,7 +4894,7 @@ func (s *DataService) ListRipples(
 		if err != nil {
 			return nil, err
 		}
-		r.ServerSignature.ServerID = serverID
+		r.ServerSignature.ID = string(identity.CanonicalID(serverID, r.serverFingerprint))
 		items = append(items, *r)
 		threadCreatedAts = append(threadCreatedAts, threadCreatedAt)
 	}

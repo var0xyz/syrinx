@@ -42,10 +42,9 @@ func (h *Handlers) countersign(payload []byte, ts time.Time) (ServerSignature, e
 		return ServerSignature{}, err
 	}
 	return ServerSignature{
-		ServerID:    h.services.db.GetServerID(),
-		Fingerprint: h.signingKey.Fingerprint,
-		Armor:       encoding.Base64Encode(sigArmor),
-		SignedAt:    ts,
+		ID:       string(identity.CanonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint)),
+		Armor:    encoding.Base64Encode(sigArmor),
+		SignedAt: ts,
 	}, nil
 }
 
@@ -1186,13 +1185,18 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	accountServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(serverSignature.ID))
+	if !ok {
+		internalServerError(w)
+		return
+	}
 	cert := deletion.AccountCert{
 		UserID:            userID,
 		Note:              note,
 		UserSignature:     userSignatureB64,
 		UserFingerprint:   fingerprint,
 		ServerSignature:   serverSignature.Armor,
-		ServerFingerprint: serverSignature.Fingerprint,
+		ServerFingerprint: accountServerFingerprint,
 		ServerSignedAt:    serverSignature.SignedAt,
 	}
 	if err := h.services.db.InsertAccountRemoval(r.Context(), cert); err != nil {
@@ -1268,10 +1272,9 @@ func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval
 			Armor:       cert.UserSignature,
 		},
 		ServerSignature: ServerSignature{
-			ServerID:    h.services.db.GetServerID(),
-			Fingerprint: cert.ServerFingerprint,
-			Armor:       cert.ServerSignature,
-			SignedAt:    cert.ServerSignedAt,
+			ID:       string(identity.CanonicalID(h.services.db.GetServerID(), cert.ServerFingerprint)),
+			Armor:    cert.ServerSignature,
+			SignedAt: cert.ServerSignedAt,
 		},
 	}
 }
@@ -1997,12 +2000,17 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	if h.filterPipeTags != nil {
 		tags = h.filterPipeTags(tags)
 	}
+	reedServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(serverSignature.ID))
+	if !ok {
+		internalServerError(w)
+		return
+	}
 	createParams := createReedParams{
 		ReedID:             reedID,
 		UserID:             userID,
 		UserFingerprint:    userFingerprint,
 		UserSignatureB64:   userSignature,
-		ServerFingerprint:  serverSignature.Fingerprint,
+		ServerFingerprint:  reedServerFingerprint,
 		ServerSignatureB64: serverSignature.Armor,
 		Timestamp:          serverSignature.SignedAt,
 		Tags:               tags,
@@ -2040,7 +2048,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		log.Error().
 			Str("reedID", reedID).
 			Str("userID", userID).
-			Str("serverFingerprint", serverSignature.Fingerprint).
+			Str("serverFingerprint", reedServerFingerprint).
 			Err(err).Msg("Error creating reed")
 		internalServerError(w)
 		return
@@ -2138,10 +2146,9 @@ func (h *Handlers) respondSignReedReplay(
 		Str("userID", userID).
 		Msg("SignReed replay: returning stored countersignature")
 	writeResponse(w, http.StatusOK, ServerSignature{
-		ServerID:    h.services.db.GetServerID(),
-		Fingerprint: existing.ServerFingerprint,
-		Armor:       existing.ServerSignature,
-		SignedAt:    existing.ServerSignedAt,
+		ID:       string(identity.CanonicalID(h.services.db.GetServerID(), existing.ServerFingerprint)),
+		Armor:    existing.ServerSignature,
+		SignedAt: existing.ServerSignedAt,
 	})
 }
 
@@ -2274,13 +2281,18 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	removalServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(serverSignature.ID))
+	if !ok {
+		internalServerError(w)
+		return
+	}
 	cert := deletion.Cert{
 		ReedID:            reedID,
 		UserID:            userID,
 		UserSignature:     userSignatureB64,
 		UserFingerprint:   fingerprint,
 		ServerSignature:   serverSignature.Armor,
-		ServerFingerprint: serverSignature.Fingerprint,
+		ServerFingerprint: removalServerFingerprint,
 		ServerSignedAt:    serverSignature.SignedAt,
 	}
 	if err := h.services.db.InsertReedRemoval(r.Context(), cert); err != nil {
@@ -2586,10 +2598,9 @@ func (h *Handlers) reedRemovalWire(cert *deletion.Cert) ReedRemoval {
 			Armor:       cert.UserSignature,
 		},
 		ServerSignature: ServerSignature{
-			ServerID:    h.services.db.GetServerID(),
-			Fingerprint: cert.ServerFingerprint,
-			Armor:       cert.ServerSignature,
-			SignedAt:    cert.ServerSignedAt,
+			ID:       string(identity.CanonicalID(h.services.db.GetServerID(), cert.ServerFingerprint)),
+			Armor:    cert.ServerSignature,
+			SignedAt: cert.ServerSignedAt,
 		},
 	}
 }
@@ -3545,11 +3556,15 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 		return nil, fmt.Errorf("decode peer user key armor: %w", err)
 	}
 
+	peerKeyServerFingerprint, _, parseOK := identity.ParseIdentityID(identity.IdentityID(key.ServerSignature.ID))
+	if !parseOK {
+		return nil, fmt.Errorf("malformed peer key server signature id: %s", key.ServerSignature.ID)
+	}
 	// The peer's own signing key, live-fetched and pinned against what
 	// the response itself claims signed it — never trusted from a local
 	// cache (peer keys are never persisted, same rule fetchPeerServerKeyArmor
 	// already follows for the transport-auth case).
-	serverKeyArmor, err := h.fetchPeerServerKeyArmor(ctx, baseURL, peerServerID, key.ServerSignature.Fingerprint)
+	serverKeyArmor, err := h.fetchPeerServerKeyArmor(ctx, baseURL, peerServerID, peerKeyServerFingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("fetch peer server key for verification: %w", err)
 	}
@@ -3572,7 +3587,7 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 	}
 	keyPayload := identity.BuildPublicKeyPayload(
 		peerServerID, key.UserID, key.ID,
-		key.ServerSignature.Fingerprint, armor,
+		peerKeyServerFingerprint, armor,
 		key.ServerSignature.SignedAt,
 	)
 	if err := h.services.crypto.VerifySignature(string(keyPayload), serverSigArmor, serverKeyArmor); err != nil {
@@ -5109,10 +5124,9 @@ func realtimeRippleWire(w *RippleWire) *realtime.RippleWire {
 			Armor:       w.UserSignature.Armor,
 		},
 		ServerSignature: realtime.ServerSignatureWire{
-			ServerID:    w.ServerSignature.ServerID,
-			Fingerprint: w.ServerSignature.Fingerprint,
-			Armor:       w.ServerSignature.Armor,
-			Timestamp:   w.ServerSignature.SignedAt,
+			ID:        w.ServerSignature.ID,
+			Armor:     w.ServerSignature.Armor,
+			Timestamp: w.ServerSignature.SignedAt,
 		},
 	}
 }
