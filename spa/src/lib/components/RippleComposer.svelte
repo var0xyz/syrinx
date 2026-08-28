@@ -12,7 +12,7 @@
   import { cryptoService } from '$lib/services/crypto';
   import { buildRippleUserPayload } from '$lib/services/signing';
   import { apiService } from '$lib/services/api';
-  import { parseKeyId } from '$lib/utils/keyId';
+  import { parseKeyId } from '$lib/utils/identityRef';
 
   /** The parent reed's canonical id (authorID@serverID/uuid). */
   /** @type {string} */

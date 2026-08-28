@@ -52,7 +52,7 @@ class ServerConnection {
   // always unsubscribe on unmount before subscribing elsewhere), so one
   // slot covers all three. Broadcast is independent and can coexist.
   private activeSubscription:
-    | { kind: 'reed'; authorId: string; reedId: string }
+    | { kind: 'reed'; reedId: string }
     | { kind: 'profile'; userId: string }
     | { kind: 'pipe'; tag: string }
     | null = null;
@@ -337,13 +337,13 @@ class ServerConnection {
     }
   }
 
-  async requestReedContent(reedId: string, serverId: string): Promise<any> {
+  async requestReedContent(reedId: string): Promise<any> {
     const requesterId = localStorage.getItem('userId') ?? '';
-    const requestId = computeReedRequestId(requesterId, serverId, reedId);
+    const requestId = computeReedRequestId(requesterId, reedId);
     const held = await reedsService.getReed(reedId);
     if (held) return held;
 
-    await reedRequestsRepository.enqueue({ requestId, serverId, reedId });
+    await reedRequestsRepository.enqueue({ requestId, reedId });
 
     let promise = this.pendingReedPromises.get(requestId);
     if (!promise) {
@@ -419,25 +419,21 @@ class ServerConnection {
     this.send({ type: 'UNSUBSCRIBE_PROFILE', data: { user_id: userId } });
   }
 
-  async subscribeReed(authorId: string, reedId: string): Promise<boolean> {
+  async subscribeReed(reedId: string): Promise<boolean> {
     await this.connect();
     if (!this.isConnected()) {
       return false;
     }
-    this.activeSubscription = { kind: 'reed', authorId, reedId };
-    this.send({ type: 'SUBSCRIBE_REED', userID: authorId, reedID: reedId });
+    this.activeSubscription = { kind: 'reed', reedId };
+    this.send({ type: 'SUBSCRIBE_REED', reedID: reedId });
     return true;
   }
 
-  unsubscribeReed(authorId: string, reedId: string): void {
-    if (
-      this.activeSubscription?.kind === 'reed' &&
-      this.activeSubscription.authorId === authorId &&
-      this.activeSubscription.reedId === reedId
-    ) {
+  unsubscribeReed(reedId: string): void {
+    if (this.activeSubscription?.kind === 'reed' && this.activeSubscription.reedId === reedId) {
       this.activeSubscription = null;
     }
-    this.send({ type: 'UNSUBSCRIBE_REED', userID: authorId, reedID: reedId });
+    this.send({ type: 'UNSUBSCRIBE_REED', reedID: reedId });
   }
 
   subscribeToBroadcast(): void {
@@ -471,11 +467,7 @@ class ServerConnection {
   private resubscribeAll(): void {
     switch (this.activeSubscription?.kind) {
       case 'reed':
-        this.send({
-          type: 'SUBSCRIBE_REED',
-          userID: this.activeSubscription.authorId,
-          reedID: this.activeSubscription.reedId,
-        });
+        this.send({ type: 'SUBSCRIBE_REED', reedID: this.activeSubscription.reedId });
         break;
       case 'profile':
         this.send({ type: 'SUBSCRIBE_PROFILE', data: { user_id: this.activeSubscription.userId } });

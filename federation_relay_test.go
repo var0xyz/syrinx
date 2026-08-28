@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"syrinx/identity"
+	"syrinx/observability/metrics"
 )
 
 // newBareRelayTestHandlers builds a *Handlers with just enough wired up to
@@ -25,6 +26,7 @@ func newBareRelayTestHandlers(serverID string) *Handlers {
 			db:  &DataService{serverID: serverID},
 			log: NewLoggingService(),
 		},
+		metrics: metrics.Noop{},
 	}
 }
 

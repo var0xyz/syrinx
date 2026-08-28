@@ -2496,11 +2496,10 @@ func (rs *RealtimeService) DeliverForeignReedStats(ctx context.Context, requeste
 }
 
 func (rs *RealtimeService) handleSubscribeReed(client *Client, msg InboundJSONMsg) {
-	authorID, bareReedID := msg.UserID, msg.ReedID
-	if authorID == "" || bareReedID == "" {
+	reedID := msg.ReedID
+	if reedID == "" {
 		return
 	}
-	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
 
 	// Durable registration first (mirrors handleSubscribeProfile): survives
 	// a reconnect and, for a foreign reed, is what lets the home server's
@@ -2508,18 +2507,18 @@ func (rs *RealtimeService) handleSubscribeReed(client *Client, msg InboundJSONMs
 	// and never leaves this process.
 	subscriptionID := generateEventID(client.userID)
 	if err := rs.dbService.CreateReedSubscription(context.Background(), subscriptionID, client.userID, reedID); err != nil {
-		log.Error().Err(err).Str("userID", authorID).Str("reedID", reedID).Msg("Failed to create reed subscription")
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to create reed subscription")
 		return
 	}
 
 	if foreign, homeServerID := rs.isForeignReed(reedID); foreign {
-		rs.handleForeignSubscribeReedFromClient(client, authorID, reedID, homeServerID)
+		rs.handleForeignSubscribeReedFromClient(client, reedID, homeServerID)
 		return
 	}
 
 	exists, err := rs.dbService.ReedExists(context.Background(), reedID)
 	if err != nil {
-		log.Error().Err(err).Str("userID", authorID).Str("reedID", reedID).Msg("Failed to check reed for subscribe")
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to check reed for subscribe")
 		return
 	}
 	if !exists {
@@ -2528,14 +2527,13 @@ func (rs *RealtimeService) handleSubscribeReed(client *Client, msg InboundJSONMs
 
 	echoes, coveragePercent, replies, likes, err := rs.dbService.GetReedStatsSnapshot(context.Background(), reedID)
 	if err != nil {
-		log.Error().Err(err).Str("userID", authorID).Str("reedID", reedID).Msg("Failed to load reed stats for subscribe")
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load reed stats for subscribe")
 		return
 	}
 
 	rs.connManager.SubscribeReed(client, reedID)
 	stats := ReedStatsMsg{
 		Type:            "REED_STATS",
-		UserID:          authorID,
 		ReedID:          reedID,
 		Echoes:          echoes,
 		CoveragePercent: coveragePercent,
@@ -2574,7 +2572,7 @@ func (rs *RealtimeService) SetForeignSubscribeReedHook(hook ForeignSubscribeReed
 // relay back the initial snapshot. The local reed_subscriptions row was
 // already created by the caller — this only handles the peer round trip
 // and the client's initial REED_STATS.
-func (rs *RealtimeService) handleForeignSubscribeReedFromClient(client *Client, authorID, reedID, homeServerID string) {
+func (rs *RealtimeService) handleForeignSubscribeReedFromClient(client *Client, reedID, homeServerID string) {
 	if rs.foreignSubscribeReedHook == nil {
 		return
 	}
@@ -2589,7 +2587,6 @@ func (rs *RealtimeService) handleForeignSubscribeReedFromClient(client *Client, 
 
 	stats := ReedStatsMsg{
 		Type:            "REED_STATS",
-		UserID:          authorID,
 		ReedID:          reedID,
 		Echoes:          snapshot.Echoes,
 		CoveragePercent: snapshot.CoveragePercent,
@@ -2602,16 +2599,15 @@ func (rs *RealtimeService) handleForeignSubscribeReedFromClient(client *Client, 
 }
 
 func (rs *RealtimeService) handleUnsubscribeReed(client *Client, msg InboundJSONMsg) {
-	authorID, bareReedID := msg.UserID, msg.ReedID
-	if authorID == "" || bareReedID == "" {
+	reedID := msg.ReedID
+	if reedID == "" {
 		return
 	}
-	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
 	rs.connManager.UnsubscribeReed(client, reedID)
 
 	subscriptionID, err := rs.dbService.GetReedSubscription(context.Background(), client.userID, reedID)
 	if err != nil {
-		log.Error().Err(err).Str("userID", authorID).Str("reedID", reedID).Msg("Failed to get reed subscription")
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to get reed subscription")
 		return
 	}
 	if subscriptionID == "" {
@@ -2736,7 +2732,6 @@ func (rs *RealtimeService) notifyReedCoverage(reedID string) {
 
 	msg := ReedCoverageMsg{
 		Type:            "REED_COVERAGE",
-		UserID:          authorUserID,
 		ReedID:          reedID,
 		CoveragePercent: percent,
 	}
@@ -2760,7 +2755,6 @@ func (rs *RealtimeService) notifyReedEchoes(reedID string) {
 
 	msg := ReedEchoesMsg{
 		Type:   "REED_ECHOES",
-		UserID: authorUserID,
 		ReedID: reedID,
 		Echoes: echoes,
 	}
@@ -2972,7 +2966,6 @@ func (rs *RealtimeService) notifyReedReplies(reedID string) {
 
 	msg := ReedRepliesMsg{
 		Type:    "REED_REPLIES",
-		UserID:  authorUserID,
 		ReedID:  reedID,
 		Replies: replies,
 	}
@@ -3039,7 +3032,6 @@ func (rs *RealtimeService) notifyReedLikes(reedID string) {
 
 	msg := ReedLikesMsg{
 		Type:   "REED_LIKES",
-		UserID: authorUserID,
 		ReedID: reedID,
 		Likes:  likes,
 	}

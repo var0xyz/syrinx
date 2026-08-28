@@ -8,7 +8,6 @@
   import { serverConnection } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
   import { formatRelativeTime } from '$lib/utils/time';
-  import { parseReedRef } from '$lib/utils/identityRef';
   import { get } from 'svelte/store';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -83,12 +82,6 @@
     }
   }
 
-  function relayServerId() {
-    const parsed = parseReedRef(threadId);
-    if (parsed?.serverId) return parsed.serverId;
-    return localStorage.getItem('serverId') || '';
-  }
-
   async function applyReplyBody(reedID, reed) {
     if (!reed) return;
     const username =
@@ -109,8 +102,7 @@
   /** Issue REQUEST_REED relay for one reply and refresh the row when content arrives. */
   async function relayReply(ref) {
     if (!get(isOnline)) return;
-    const serverId = relayServerId();
-    if (!serverId) return;
+    if (!localStorage.getItem('serverId')) return;
 
     const held = await reedsService.getReed(ref.reedID);
     if (held) {
@@ -123,7 +115,7 @@
 
     try {
       await serverConnection.connect();
-      const reed = await serverConnection.requestReedContent(ref.reedID, serverId);
+      const reed = await serverConnection.requestReedContent(ref.reedID);
       await applyReplyBody(ref.reedID, reed);
     } catch (err) {
       console.warn('ConversationSection: relay failed for reply', ref.reedID, err);

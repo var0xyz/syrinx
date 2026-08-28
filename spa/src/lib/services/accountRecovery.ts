@@ -125,15 +125,14 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
 
   await requestSigner.initializeWorker(fingerprint, passphrase);
 
-  const serverId = get(serverInfo)?.id ?? localStorage.getItem('serverId') ?? '';
-  if (serverId) {
+  if (get(serverInfo)?.id ?? localStorage.getItem('serverId')) {
     const skip = new Set<string>();
     for (const reedId of bootstrap.reedIDs) {
       if (await reedsService.getReed(reedId)) {
         skip.add(reedId);
       }
     }
-    await reedRequestsRepository.seedReedIDs(serverId, bootstrap.reedIDs, skip);
+    await reedRequestsRepository.seedReedIDs(bootstrap.reedIDs, skip);
   }
 
   await serverConnection.connect();

@@ -16,7 +16,7 @@ import type { ServerSignature } from '$lib/types/api';
 import { apiService } from './api';
 import { cryptoService } from './crypto';
 import { dbService } from './db';
-import { formatServerKeyId } from '$lib/utils/keyId';
+import { formatServerKeyId } from '$lib/utils/identityRef';
 import type { PublicKey } from '$lib/types/api';
 
 export type VerifyResult =

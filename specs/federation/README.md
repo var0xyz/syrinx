@@ -55,15 +55,24 @@ step's own Status header for the precise shipped-vs-designed diff.
 | 04   | **Implemented** (trust store simplified, see 03) |
 | 05   | **Implemented**, with two deviations: revocation is active rather than purely local (the disconnecting server notifies the peer, which auto-revokes back), and a root-only hard purge (delete the server row and all its local data) was added beyond this doc's scope |
 | 06   | **Implemented**, via a per-operation "leg" pattern (`federation_relay.go`) rather than this doc's generic relay endpoints |
-| 07   | **Gap** — shipped fire-and-forget (signed HTTP, short timeout, swallowed-on-failure), not the durable `servers.online`+backlog design here; an event to an unreachable peer is silently lost |
+| 07   | **Out of scope for v1, by design.** Fire-and-forget (signed HTTP, short timeout, swallowed-on-failure) is the accepted permanent v1 behavior, not a gap to close later — no `servers.online`, no ping, no backlog/replay planned. |
 
 Beyond this doc set, `federation_relay.go` also implements mentions,
 federated user search, and reed-stats/like propagation (18 legs total —
 see the `// Leg N:` headers in that file) — none of these had a numbered
-spec when built. Two feature areas still have **no** federation story at
-all: account/plain-reed deletion (removal-notify only exists for
-replies/echoes) and key revocation (no propagation to peers holding
-content signed by a since-revoked key).
+spec when built.
+
+**Account/plain-reed deletion propagation — in scope, not yet built.**
+Removal-notify only exists for replies/echoes (`notifyForeignReplyRemovalToPeer`,
+`notifyForeignEchoRemovalToPeer`, `notifyForeignReplyRemovalToViewer` in
+`federation_relay.go`); a peer holding cached content from a removed
+account or a removed plain (non-reply) reed never finds out. This is
+real, wanted work — see a future numbered spec for the design.
+
+**Key revocation propagation — explicitly out of scope, not an oversight.**
+Keys are never broadcast/pushed to peers. When a peer encounters a key
+it doesn't recognize, it requests it (pull-based), same as any other
+content. There is no plan to notify peers when a key is revoked.
 
 ## Locked decisions (as designed — see each step's Status for what actually shipped)
 

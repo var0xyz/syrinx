@@ -9,7 +9,7 @@ import { signedAtHeader } from './verify';
 import { get } from 'svelte/store';
 import { serverInfo } from './serverInfo';
 import { generateId } from '$lib/utils/id';
-import { parseKeyId } from '$lib/utils/keyId';
+import { parseKeyId } from '$lib/utils/identityRef';
 
 function newInviteSecret(): string {
   const buf = new Uint8Array(32);

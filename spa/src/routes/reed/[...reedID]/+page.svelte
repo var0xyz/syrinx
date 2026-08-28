@@ -28,7 +28,7 @@
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
-  import { resolveThreadId, parseReedRef, parseUserRef } from '$lib/utils/identityRef';
+  import { resolveThreadId, getUserId } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
@@ -138,12 +138,10 @@
   }
 
   // The URL's one param IS the canonical reed ref — never split, never
-  // reassembled. userID/reedID below are read from it only where a
-  // narrower value (author id, bare uuid) is genuinely needed.
+  // reassembled. userID below is read from it only where a narrower
+  // value (the author) is genuinely needed.
   $: routeReedRef = $page.params.reedID;
-  $: routeParsed = parseReedRef(routeReedRef);
-  $: userID = routeParsed?.authorId ?? '';
-  $: reedID = routeParsed?.reedId ?? '';
+  $: userID = getUserId(routeReedRef) ?? '';
   // The single canonical id (authorID@serverID/uuid) every reed-scoped API
   // call/subscription below this point should use. reed.id is already
   // canonical (see types/reed.ts), so no further composition is needed.
@@ -391,7 +389,6 @@
   }
 
   async function loadReedFromNetwork() {
-    if (!user || !userID || !reedID) return;
     if (reed && reed.id === routeReedRef) return;
     if (!$isOnline) {
       loadingReed = false;
@@ -451,8 +448,7 @@
       loadingReed = false;
       fetchingReed = true;
       try {
-        const serverId = parseUserRef(userID)?.serverId ?? '';
-        const networkReed = await serverConnection.requestReedContent(routeReedRef, serverId);
+        const networkReed = await serverConnection.requestReedContent(routeReedRef);
         if (seq !== loadSeq) return;
         reed = networkReed;
         await loadAuthorProfile();
@@ -598,8 +594,7 @@
       {#key routeReedRef}
         {#if !isBlankEchoView && reedMatchesRoute && reed?.serverSignature && !removedReedCert && !removedAccountCert}
           <ReedStatsSubscription
-            authorId={userID}
-            reedId={reedID}
+            reedId={canonicalReedID}
             onSubscribeOk={onStatsSubscribeOk}
             onSubscribeFailed={onStatsSubscribeFailed}
           />

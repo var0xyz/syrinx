@@ -33,18 +33,17 @@
   import { syncPendingBackupEvents } from '$lib/services/backupMetrics';
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
-  import { parseReedRef } from '$lib/utils/identityRef';
+  import { isValidRef } from '$lib/utils/identityRef';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
 
   // Prefetch reeds referenced by echoing/replying (userID@serverID/reedID).
   async function requestReferencedReeds(reed: any) {
     const refs = [reed.echoing, reed.replying].filter(Boolean);
     for (const ref of refs) {
-      const parsed = parseReedRef(ref);
-      if (!parsed) continue;
+      if (!isValidRef(ref)) continue;
       const existing = await reedsService.getReed(ref);
       if (!existing) {
-        serverConnection.requestReedContent(ref, parsed.serverId);
+        serverConnection.requestReedContent(ref);
       }
     }
   }

@@ -10,7 +10,7 @@
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { formatRelativeTime } from '$lib/utils/time';
-  import { parseReedRef } from '$lib/utils/identityRef';
+  import { getUserId } from '$lib/utils/identityRef';
   import { resolveBlankEchoChain } from '$lib/utils/emptyEcho';
   import MarkdownParser from './MarkdownParser.svelte';
   import Username from './Username.svelte';
@@ -57,7 +57,7 @@
   $: unavailableTarget = reed?.id || reedRef || null;
 
   async function resolveGone(reedRef) {
-    const authorId = parseReedRef(reedRef)?.authorId;
+    const authorId = getUserId(reedRef);
     if (!authorId) return null;
 
     const accountCert = await removedAccountsRepository.get(authorId);

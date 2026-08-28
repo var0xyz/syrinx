@@ -2,7 +2,7 @@ import type * as api from '$lib/types/api';
 import { deviceIdHeader } from './deviceId';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
-import { appendFingerprint, parseKeyId } from '$lib/utils/keyId';
+import { appendFingerprint, parseKeyId } from '$lib/utils/identityRef';
 import {
   handleDeviceMismatch,
   handleFinishRecoveryForbidden,
