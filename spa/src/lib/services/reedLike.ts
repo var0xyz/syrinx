@@ -8,7 +8,7 @@ import { pendingUnlikeRepository } from '$lib/repositories/pendingUnlike';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { likedReedsRepository } from '$lib/repositories/likedReeds';
 import { verifyReedLike } from '$lib/verifiers';
-import { refForReed } from '$lib/utils/reedRef';
+import { refForReed } from '$lib/utils/identityRef';
 import { parseCanonicalId } from '$lib/utils/keyId';
 
 export { verifyReedLike };

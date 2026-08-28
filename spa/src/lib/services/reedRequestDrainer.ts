@@ -1,7 +1,7 @@
 import { reedRequestsRepository } from '$lib/repositories/reedRequests';
 import { reedsService } from '$lib/repositories/reeds';
 import { serverConnection } from './serverConnection';
-import { refForReed } from '$lib/utils/reedRef';
+import { refForReed } from '$lib/utils/identityRef';
 
 const TICK_MS = 1000;
 

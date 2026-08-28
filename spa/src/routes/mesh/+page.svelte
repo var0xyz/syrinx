@@ -269,16 +269,15 @@
                   <span class="meta"
                     >Created {formatRelativeTime(inv.createdAt)} by <Username
                       userID={inv.createdBy}
-                      username={inv.createdByUsername}
                       class="meta-link"
                       at
                       fire={false}
                     /></span
                   >
-                  {#if inv.reviewedBy && inv.reviewedByUsername}
+                  {#if inv.reviewedBy}
                     <span class="meta">
                       {reviewActionLabel(inv.status)}
-                      <Username userID={inv.reviewedBy} username={inv.reviewedByUsername} class="meta-link" at fire={false} />
+                      <Username userID={inv.reviewedBy} class="meta-link" at fire={false} />
                       {#if inv.reviewedAt}
                         · {formatRelativeTime(inv.reviewedAt)}
                       {/if}

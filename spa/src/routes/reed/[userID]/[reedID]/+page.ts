@@ -3,7 +3,7 @@ import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
 import { removedReedsRepository } from '$lib/repositories/removedReeds';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
-import { parseReedRef, refForReed } from '$lib/utils/reedRef';
+import { parseReedRef, refForReed } from '$lib/utils/identityRef';
 
 /** @type {import('./$types').PageLoad} */
 export async function load({ params, parent }) {

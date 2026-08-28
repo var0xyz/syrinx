@@ -10,7 +10,7 @@ import { removedReedsRepository } from '$lib/repositories/removedReeds';
 import { verifyReedRemoval } from '$lib/verifiers';
 import { get, writable } from 'svelte/store';
 import { serverInfo } from './serverInfo';
-import { refForReed } from '$lib/utils/reedRef';
+import { refForReed } from '$lib/utils/identityRef';
 
 export { verifyReedRemoval };
 

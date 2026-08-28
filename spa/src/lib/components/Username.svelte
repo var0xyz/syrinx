@@ -1,12 +1,16 @@
 <script>
   import { goto } from '$app/navigation';
+  import { userRepository } from '$lib/repositories/user';
+  import { parseUserRef } from '$lib/utils/identityRef';
 
   /** `userID@serverID` id — callers already have this form, so this
    * component takes it as a single value rather than composing it. */
   /** @type {string} */
   export let userID;
-  /** @type {string} */
-  export let username;
+  /** Display name. Omit to resolve it from local cache or the server —
+   * shows the bare id until that resolves. */
+  /** @type {string | undefined} */
+  export let username = undefined;
   /** Set when nesting inside another clickable element (e.g. a reed row/quote)
    * that navigates elsewhere on click. */
   export let stopPropagation = false;
@@ -26,11 +30,17 @@
   let extraClass = '';
   export { extraClass as class };
 
-  // Split "userID@serverID" on the LAST '@' — matches the Go side's
-  // identity.ParseIdentityID convention.
-  $: atIndex = userID ? userID.lastIndexOf('@') : -1;
-  $: bareUserID = atIndex > 0 ? userID.slice(0, atIndex) : userID;
-  $: isAdmin = bareUserID === '1';
+  let resolvedUsername = username;
+  $: resolvedUsername = username;
+  $: if (!username && userID) resolveUsername(userID);
+
+  async function resolveUsername(id) {
+    const user = await userRepository.getByUserId(id);
+    if (id === userID && user?.username) resolvedUsername = user.username;
+  }
+
+  $: displayName = resolvedUsername ?? userID;
+  $: isAdmin = parseUserRef(userID)?.userId === '1';
   // Inline, not class-based: callers embed this in contexts with their own
   // `.inline-link`/etc color rules (e.g. MarkdownParser's link styling) that
   // would otherwise win on specificity/source order over a scoped class.
@@ -53,14 +63,14 @@
       class:admin={isAdmin}
       style={resolvedColor ? `color: ${resolvedColor}` : ''}
       on:click|preventDefault={activate}
-      >{at ? '@' : ''}{username}</a
+      >{at ? '@' : ''}{displayName}</a
     >
   {:else}
     <span
       class="username {extraClass}"
       class:admin={isAdmin}
       style={resolvedColor ? `color: ${resolvedColor}` : ''}
-      >{at ? '@' : ''}{username}</span
+      >{at ? '@' : ''}{displayName}</span
     >
   {/if}
 </span>

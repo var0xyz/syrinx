@@ -6,7 +6,7 @@ import { dbService } from '$lib/services/db';
 import { allowUnsigned } from '$lib/verifiers';
 import type { ReedType } from '$lib/types/reed';
 import type * as api from '$lib/types/api';
-import { parseReedRef, refForReed } from '$lib/utils/reedRef';
+import { parseReedRef, refForReed } from '$lib/utils/identityRef';
 
 export type ReedReplyRow = {
   reedID: string;

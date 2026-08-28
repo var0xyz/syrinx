@@ -33,7 +33,7 @@
   import { syncPendingBackupEvents } from '$lib/services/backupMetrics';
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
-  import { parseReedRef, refForReed } from '$lib/utils/reedRef';
+  import { parseReedRef, refForReed } from '$lib/utils/identityRef';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
 
   // Prefetch reeds referenced by echoing/replying (userID@serverID/reedID).

@@ -13,7 +13,7 @@
   } from '$lib/utils/reedContent';
   import { notificationStore } from '$lib/stores/notifications';
   import { Reed } from '$lib/types/reed';
-  import { resolveThreadId } from '$lib/utils/reedRef';
+  import { resolveThreadId } from '$lib/utils/identityRef';
   import { goto } from '$app/navigation';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';

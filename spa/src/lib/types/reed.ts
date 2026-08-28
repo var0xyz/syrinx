@@ -5,7 +5,7 @@
 
 import type { ServerSignature, UserSignature } from '$lib/types/api';
 import { generateReedId } from '$lib/utils/id';
-import { canonicalReedId } from '$lib/utils/reedRef';
+import { canonicalReedId } from '$lib/utils/identityRef';
 
 // Reed markdown frontmatter fields. Note: there is intentionally no client-side
 // `timestamp` field. The canonical publication date is the server's

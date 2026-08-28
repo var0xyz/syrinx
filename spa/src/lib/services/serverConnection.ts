@@ -8,7 +8,7 @@ import {
 } from '$lib/repositories/reedRequests';
 import { reedsService } from '$lib/repositories/reeds';
 import { startReedRequestDrainer } from './reedRequestDrainer';
-import { refForReed } from '$lib/utils/reedRef';
+import { refForReed } from '$lib/utils/identityRef';
 
 export type ServerEventHandler = (data: any) => void;
 

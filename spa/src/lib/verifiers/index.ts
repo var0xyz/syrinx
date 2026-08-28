@@ -150,25 +150,17 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
     console.error('[verifyPublicKey] server signature failed', result);
     return false;
   }
-  // key.id is canonical (userID@serverID/fingerprint); the armor only lets
-  // us derive the bare fingerprint, so compare against the parsed suffix.
-  // Also cross-check the embedded userID matches key.userID (mirrors the
-  // equivalent check added server-side in recovery/nest.go's
-  // FlattenKeysNest) — closes a spoofing gap where a tampered id string
-  // could claim a different owner than the one the rest of the record
-  // asserts.
-  const parsedId = parseKeyId(key.id);
-  if (!parsedId) {
-    console.error('[verifyPublicKey] malformed id', key.id);
-    return false;
-  }
-  const embeddedUserId = `${parsedId.userId}@${parsedId.serverId}`;
-  if (embeddedUserId !== key.userID) {
+  // key.id must start with key.userID + "/" — a substring check on two
+  // already-whole values, not a parse-and-rebuild. Closes a spoofing gap
+  // (mirrors recovery/nest.go's FlattenKeysNest check server-side).
+  const ownerPrefix = `${key.userID}/`;
+  if (!key.id.startsWith(ownerPrefix)) {
     console.error('[verifyPublicKey] id owner mismatch', { id: key.id, userID: key.userID });
     return false;
   }
+  const labeledFingerprint = key.id.slice(ownerPrefix.length);
   const derived = await cryptoService.fingerprintFromArmor(key.armor);
-  if (derived.toLowerCase() !== parsedId.fingerprint.toLowerCase()) {
+  if (derived.toLowerCase() !== labeledFingerprint.toLowerCase()) {
     console.error('[verifyPublicKey] fingerprint mismatch', { labeled: key.id, derived });
     return false;
   }

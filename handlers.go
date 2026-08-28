@@ -3837,7 +3837,6 @@ func federationInvitationRowToWire(row federationInvitationListRow) federationLi
 		Name:              row.Name,
 		Status:            row.Status,
 		CreatedBy:         row.CreatedBy,
-		CreatedByUsername: row.CreatedByUsername,
 		RemoteFingerprint: row.Fingerprint,
 		CreatedAt:         row.CreatedAt.UTC().Format(time.RFC3339),
 	}
@@ -3852,8 +3851,6 @@ func federationInvitationRowToWire(row federationInvitationListRow) federationLi
 	if row.ReviewedBy != "" {
 		rb := row.ReviewedBy
 		item.ReviewedBy = &rb
-		ru := row.ReviewedByUsername
-		item.ReviewedByUsername = &ru
 	}
 	if row.ReviewedAt != nil {
 		s := row.ReviewedAt.UTC().Format(time.RFC3339)
@@ -3919,9 +3916,6 @@ func federationServerRowToWire(row federationServerListRow) federationServerWire
 		if row.RevokedBy != "" {
 			wire.RevokedBy = &row.RevokedBy
 		}
-		if row.RevokedByUsername != "" {
-			wire.RevokedByUsername = &row.RevokedByUsername
-		}
 		if row.RevokedReason != "" {
 			wire.RevokedReason = &row.RevokedReason
 		}
@@ -3933,9 +3927,6 @@ func federationServerRowToWire(row federationServerListRow) federationServerWire
 		}
 		if row.DisconnectRequestedBy != "" {
 			wire.DisconnectRequestedBy = &row.DisconnectRequestedBy
-		}
-		if row.DisconnectRequestedByUsername != "" {
-			wire.DisconnectRequestedByUsername = &row.DisconnectRequestedByUsername
 		}
 		if row.DisconnectReason != "" {
 			wire.DisconnectReason = &row.DisconnectReason
@@ -4115,8 +4106,6 @@ func federationAttemptRowToWire(row federationAttemptRow) federationAttemptWire 
 	if row.ApprovedBy != "" {
 		ab := row.ApprovedBy
 		item.ApprovedBy = &ab
-		au := row.ApprovedByUsername
-		item.ApprovedByUsername = &au
 	}
 	if row.ApprovedAt != nil {
 		s := row.ApprovedAt.UTC().Format(time.RFC3339)
@@ -4125,8 +4114,6 @@ func federationAttemptRowToWire(row federationAttemptRow) federationAttemptWire 
 	if row.RejectedBy != "" {
 		rb := row.RejectedBy
 		item.RejectedBy = &rb
-		ru := row.RejectedByUsername
-		item.RejectedByUsername = &ru
 	}
 	if row.RejectedAt != nil {
 		s := row.RejectedAt.UTC().Format(time.RFC3339)
@@ -4368,11 +4355,9 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// RequestFederationServerDisconnect stages a disconnect on an established
-// peer — any admin may request one (same visibility as the invite list); a
-// reason is required. The peer stays trusted/connected until a second,
-// different admin confirms via ConfirmFederationServerDisconnect (root
-// exempt — see that handler).
+// RequestFederationServerDisconnect stages a disconnect; any admin may
+// request one, with a required reason. The peer stays trusted until a
+// second admin confirms via ConfirmFederationServerDisconnect.
 func (h *Handlers) RequestFederationServerDisconnect(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
@@ -4426,10 +4411,9 @@ func (h *Handlers) RequestFederationServerDisconnect(w http.ResponseWriter, r *h
 	}
 }
 
-// ConfirmFederationServerDisconnect finalizes a staged disconnect, requiring
-// the confirming admin to differ from whoever requested it — root may
-// confirm its own request (single-operator servers have no second admin to
-// ask). This is the point the peer is actually revoked and notified.
+// ConfirmFederationServerDisconnect finalizes a staged disconnect,
+// requiring the confirming admin to differ from the requester (root
+// exempt). This is the point the peer is actually revoked and notified.
 func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {

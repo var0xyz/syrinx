@@ -12,7 +12,7 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import { goto } from '$app/navigation';
-  import { parseReedRef, refForReed } from '$lib/utils/reedRef';
+  import { parseReedRef, refForReed } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
   import { serverConnection } from '$lib/services/serverConnection';
   import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';

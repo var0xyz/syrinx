@@ -68,7 +68,9 @@ export function resolveLinkHref(raw: string): string | null {
   return null;
 }
 
-const MENTION_HREF = /^web\+syrinx:\/\/users\/([^/]+)\/([^/]+)\/?$/i;
+// The path segment IS the canonical userID (userID@serverID) — one opaque
+// id, not two fields to rejoin. Same shape parseUserRef accepts elsewhere.
+const MENTION_HREF = /^web\+syrinx:\/\/users\/([^/]+)\/?$/i;
 const PIPE_HREF = /^web\+syrinx:\/\/pipe\/(.+)$/i;
 
 /**
@@ -78,8 +80,8 @@ const PIPE_HREF = /^web\+syrinx:\/\/pipe\/(.+)$/i;
 export function internalPath(href: string): string | null {
   const raw = href.trim();
   const user = MENTION_HREF.exec(raw);
-  if (user?.[1] && user[2]) {
-    return `/profile/${user[2]}`;
+  if (user?.[1]) {
+    return `/profile/${user[1]}`;
   }
   const pipe = PIPE_HREF.exec(raw);
   if (pipe?.[1]) {
@@ -88,15 +90,13 @@ export function internalPath(href: string): string | null {
   return null;
 }
 
-/** Extracts { userID } (the userID@serverID form) from a mention-shaped
- * href, or null. Lets a hand-typed `[label](web+syrinx://users/...)` link
- * be rendered the same way as a `~mention` node — through Username —
- * instead of a raw label link. Joins the href's separate segments into the
- * one id string every other consumer takes, here and nowhere else. */
+/** Extracts { userID } from a mention-shaped href, or null. Lets a
+ * hand-typed link render through Username like a `~mention` node instead
+ * of a raw label link. */
 export function parseMentionHref(href: string): { userID: string } | null {
   const m = MENTION_HREF.exec(href.trim());
-  if (!m?.[1] || !m[2]) return null;
-  return { userID: `${m[2]}@${m[1]}` };
+  if (!m?.[1]) return null;
+  return { userID: m[1] };
 }
 
 export function parseReedMarkdown(input: string): Doc {

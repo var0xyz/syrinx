@@ -384,7 +384,7 @@ func TestListFederationInvitations_AllAdminsSeeAll(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 1 || list[0].CreatedBy != admin1 || list[0].CreatedByUsername != "admin" || list[0].Name != "Partner prod" {
+	if len(list) != 1 || list[0].CreatedBy != admin1 || list[0].Name != "Partner prod" {
 		t.Fatalf("list=%+v", list)
 	}
 	if list[0].ConnectionString == nil || *list[0].ConnectionString != "cipher-armor" {
@@ -453,7 +453,6 @@ func TestRevokeFederationInvitation_NewOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(list) != 1 || list[0].ReviewedBy == nil || *list[0].ReviewedBy != admin1 ||
-		list[0].ReviewedByUsername == nil || *list[0].ReviewedByUsername != "admin" ||
 		list[0].ReviewedAt == nil {
 		t.Fatalf("list=%+v", list)
 	}
