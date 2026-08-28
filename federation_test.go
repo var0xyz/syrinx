@@ -43,15 +43,17 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS base_url TEXT`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS connected BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS fingerprint VARCHAR(255)`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked BOOLEAN NOT NULL DEFAULT FALSE`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMP`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked_by VARCHAR(255)`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked_reason TEXT`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS disconnect_requested_at TIMESTAMP`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS disconnect_requested_by VARCHAR(255)`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS disconnect_reason TEXT`,
 		`CREATE TABLE IF NOT EXISTS identities (
 			id VARCHAR(255) PRIMARY KEY,
-			bare_user_id VARCHAR(255) NOT NULL,
 			server_id VARCHAR(16),
 			public_key_fingerprint VARCHAR(255),
-			verified BOOLEAN NOT NULL DEFAULT FALSE,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE (bare_user_id, server_id)
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 		// users.id IS identities.id now (no separate identity_id column).
 		`CREATE TABLE IF NOT EXISTS users (
@@ -185,9 +187,9 @@ func seedFederationUser(t *testing.T, ds *DataService, userID, username, role st
 	t.Helper()
 	identityID := string(identity.CanonicalID(ds.serverID, userID))
 	if _, err := ds.db.Exec(`
-		INSERT INTO identities (id, bare_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE)
+		INSERT INTO identities (id, server_id) VALUES ($1, $2)
 		ON CONFLICT (id) DO NOTHING
-	`, identityID, userID, ds.serverID); err != nil {
+	`, identityID, ds.serverID); err != nil {
 		t.Fatal(err)
 	}
 	// user_signature_id/server_signature_id are NOT NULL-scanned by
@@ -528,7 +530,7 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 
 	// Approve (by a different admin) creates the servers row and backfills
 	// both the attempt's and the invitation's server_id.
-	if err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed); err != nil {
+	if err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := ds.db.QueryRowContext(context.Background(),
@@ -546,5 +548,221 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 	}
 	if forServer == nil || forServer.ID != "inv1" || forServer.ConnectionCiphertext != "" {
 		t.Fatalf("forServer=%+v", forServer)
+	}
+}
+
+// pendingAttemptFromInvitation creates an invitation as createdBy and
+// accepts it, returning the resulting pending federation_attempt id — the
+// shared setup for the same-approver tests below.
+func pendingAttemptFromInvitation(t *testing.T, ds *DataService, invID, createdBy string, at time.Time) string {
+	t.Helper()
+	hash := crypto.Hash("s")
+	if err := ds.InsertFederationInvitation(context.Background(), invID, "Partner", createdBy, "fp-"+invID, "remote-armor", hash, "cipher-armor", at); err != nil {
+		t.Fatal(err)
+	}
+	attemptID, err := ds.MarkFederationInvitationAccepted(context.Background(), invID, federationPeer{
+		ServerID:    "server-" + invID,
+		ServerName:  "Server " + invID,
+		BaseURL:     "https://" + invID + ".example",
+		Fingerprint: "fp-" + invID,
+	}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return attemptID
+}
+
+func TestApproveFederationAttempt_SameAdminForbidden(t *testing.T) {
+	h, ds, _, _ := testFederationHandlers(t)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
+	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	attemptID := pendingAttemptFromInvitation(t, ds, "inv-same", admin1, fixed)
+
+	router := mux.NewRouter()
+	api := router.PathPrefix("/api").Subrouter()
+	api.HandleFunc("/federation/attempts/{id}/approve", h.ApproveFederationAttempt).Methods(http.MethodPost)
+
+	rr := httptest.NewRecorder()
+	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/attempts/"+attemptID+"/approve", nil), admin1)
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("approve by inviting admin status=%d body=%s, want 403", rr.Code, rr.Body.String())
+	}
+
+	var serverCount int
+	if err := ds.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM servers WHERE id = $1`, "server-inv-same",
+	).Scan(&serverCount); err != nil {
+		t.Fatal(err)
+	}
+	if serverCount != 0 {
+		t.Fatalf("expected no servers row after forbidden self-approve, got %d", serverCount)
+	}
+}
+
+func TestApproveFederationAttempt_DifferentAdminSucceeds(t *testing.T) {
+	h, ds, _, _ := testFederationHandlers(t)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	attemptID := pendingAttemptFromInvitation(t, ds, "inv-diff", admin1, fixed)
+
+	router := mux.NewRouter()
+	api := router.PathPrefix("/api").Subrouter()
+	api.HandleFunc("/federation/attempts/{id}/approve", h.ApproveFederationAttempt).Methods(http.MethodPost)
+
+	rr := httptest.NewRecorder()
+	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/attempts/"+attemptID+"/approve", nil), admin2)
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("approve by different admin status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestApproveFederationAttempt_RootBypassesSelfApprove(t *testing.T) {
+	h, ds, _, _ := testFederationHandlers(t)
+	root := seedFederationUser(t, ds, roles.RootUserID, "root", roles.RoleRoot)
+	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	attemptID := pendingAttemptFromInvitation(t, ds, "inv-root", root, fixed)
+
+	router := mux.NewRouter()
+	api := router.PathPrefix("/api").Subrouter()
+	api.HandleFunc("/federation/attempts/{id}/approve", h.ApproveFederationAttempt).Methods(http.MethodPost)
+
+	rr := httptest.NewRecorder()
+	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/attempts/"+attemptID+"/approve", nil), root)
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("root self-approve status=%d body=%s, want 200", rr.Code, rr.Body.String())
+	}
+}
+
+// establishedPeer approves a fresh invitation/attempt pair and returns the
+// resulting servers.id — shared setup for the disconnect tests below.
+func establishedPeer(t *testing.T, ds *DataService, invID, createdBy, approvedBy string, callerIsRoot bool, at time.Time) string {
+	t.Helper()
+	attemptID := pendingAttemptFromInvitation(t, ds, invID, createdBy, at)
+	if err := ds.ApproveFederationAttempt(context.Background(), attemptID, approvedBy, at, callerIsRoot); err != nil {
+		t.Fatal(err)
+	}
+	return "server-" + invID
+}
+
+func TestFederationServerDisconnect_SameAdminConfirmForbidden(t *testing.T) {
+	h, ds, _, _ := testFederationHandlers(t)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	serverID := establishedPeer(t, ds, "inv-dc1", admin1, admin2, false, fixed)
+
+	router := mux.NewRouter()
+	api := router.PathPrefix("/api").Subrouter()
+	api.HandleFunc("/federation/servers/{id}/revoke", h.RequestFederationServerDisconnect).Methods(http.MethodPost)
+	api.HandleFunc("/federation/servers/{id}/revoke/confirm", h.ConfirmFederationServerDisconnect).Methods(http.MethodPost)
+
+	body, _ := json.Marshal(map[string]string{"reason": "no longer needed"})
+	rr := httptest.NewRecorder()
+	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke", bytes.NewReader(body)), admin1)
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("request disconnect status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Same admin who requested it tries to confirm — forbidden.
+	rr2 := httptest.NewRecorder()
+	req2 := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke/confirm", nil), admin1)
+	router.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusForbidden {
+		t.Fatalf("confirm by requesting admin status=%d body=%s, want 403", rr2.Code, rr2.Body.String())
+	}
+
+	var revokedAt sql.NullTime
+	if err := ds.db.QueryRowContext(context.Background(),
+		`SELECT revoked_at FROM servers WHERE id = $1`, serverID,
+	).Scan(&revokedAt); err != nil {
+		t.Fatal(err)
+	}
+	if revokedAt.Valid {
+		t.Fatalf("expected server to remain connected after forbidden self-confirm, revoked_at=%v", revokedAt)
+	}
+
+	// A different admin CAN confirm the same pending request.
+	rr3 := httptest.NewRecorder()
+	req3 := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke/confirm", nil), admin2)
+	router.ServeHTTP(rr3, req3)
+	if rr3.Code != http.StatusOK {
+		t.Fatalf("confirm by different admin status=%d body=%s", rr3.Code, rr3.Body.String())
+	}
+	if err := ds.db.QueryRowContext(context.Background(),
+		`SELECT revoked_at FROM servers WHERE id = $1`, serverID,
+	).Scan(&revokedAt); err != nil {
+		t.Fatal(err)
+	}
+	if !revokedAt.Valid {
+		t.Fatal("expected server to be revoked after confirm by a different admin")
+	}
+}
+
+func TestFederationServerDisconnect_RootBypassesSelfConfirm(t *testing.T) {
+	h, ds, _, _ := testFederationHandlers(t)
+	root := seedFederationUser(t, ds, roles.RootUserID, "root", roles.RoleRoot)
+	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	serverID := establishedPeer(t, ds, "inv-dc2", root, root, true, fixed)
+
+	router := mux.NewRouter()
+	api := router.PathPrefix("/api").Subrouter()
+	api.HandleFunc("/federation/servers/{id}/revoke", h.RequestFederationServerDisconnect).Methods(http.MethodPost)
+	api.HandleFunc("/federation/servers/{id}/revoke/confirm", h.ConfirmFederationServerDisconnect).Methods(http.MethodPost)
+
+	body, _ := json.Marshal(map[string]string{"reason": "cleanup"})
+	rr := httptest.NewRecorder()
+	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke", bytes.NewReader(body)), root)
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("request disconnect status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr2 := httptest.NewRecorder()
+	req2 := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke/confirm", nil), root)
+	router.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("root self-confirm status=%d body=%s, want 200", rr2.Code, rr2.Body.String())
+	}
+}
+
+func TestFederationServerDisconnect_CancelClearsRequest(t *testing.T) {
+	h, ds, _, _ := testFederationHandlers(t)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	serverID := establishedPeer(t, ds, "inv-dc3", admin1, admin2, false, fixed)
+
+	router := mux.NewRouter()
+	api := router.PathPrefix("/api").Subrouter()
+	api.HandleFunc("/federation/servers/{id}/revoke", h.RequestFederationServerDisconnect).Methods(http.MethodPost)
+	api.HandleFunc("/federation/servers/{id}/revoke/cancel", h.CancelFederationServerDisconnect).Methods(http.MethodPost)
+	api.HandleFunc("/federation/servers/{id}/revoke/confirm", h.ConfirmFederationServerDisconnect).Methods(http.MethodPost)
+
+	body, _ := json.Marshal(map[string]string{"reason": "testing"})
+	rr := httptest.NewRecorder()
+	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke", bytes.NewReader(body)), admin1)
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("request disconnect status=%d", rr.Code)
+	}
+
+	rr2 := httptest.NewRecorder()
+	req2 := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke/cancel", nil), admin2)
+	router.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("cancel status=%d body=%s", rr2.Code, rr2.Body.String())
+	}
+
+	// Confirming after cancel fails — nothing pending anymore.
+	rr3 := httptest.NewRecorder()
+	req3 := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke/confirm", nil), admin2)
+	router.ServeHTTP(rr3, req3)
+	if rr3.Code != http.StatusConflict {
+		t.Fatalf("confirm after cancel status=%d body=%s, want 409", rr3.Code, rr3.Body.String())
 	}
 }

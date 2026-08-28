@@ -31,12 +31,9 @@ func ensureMentionsSchema(db *sql.DB) error {
 		// CreateReed/MentionTargetValid/SearchUsers all resolve through it.
 		`CREATE TABLE identities (
 			id VARCHAR(255) PRIMARY KEY,
-			bare_user_id VARCHAR(255) NOT NULL,
 			server_id VARCHAR(16),
 			public_key_fingerprint VARCHAR(255),
-			verified BOOLEAN NOT NULL DEFAULT FALSE,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE (bare_user_id, server_id)
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -58,8 +55,7 @@ func ensureMentionsSchema(db *sql.DB) error {
 			private_key_fingerprint VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			allocation_count INT NOT NULL DEFAULT 0
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE reed_allocations (
 			reed_id VARCHAR(255) NOT NULL,
@@ -107,8 +103,8 @@ func openMentionsTestDB(t *testing.T) *sql.DB {
 func seedMentionUser(t *testing.T, db *sql.DB, userID string) {
 	t.Helper()
 	identityID := string(identity.CanonicalID("testserver", userID))
-	if _, err := db.Exec(`INSERT INTO identities (id, bare_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE) ON CONFLICT DO NOTHING`,
-		identityID, userID, "testserver"); err != nil {
+	if _, err := db.Exec(`INSERT INTO identities (id, server_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		identityID, "testserver"); err != nil {
 		t.Fatal(err)
 	}
 	var usID, ssID int

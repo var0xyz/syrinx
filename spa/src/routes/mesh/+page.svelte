@@ -336,15 +336,19 @@
                         class="badge"
                         data-status={row.item.revoked
                           ? 'revoked'
-                          : row.item.connected
-                            ? 'connected'
-                            : 'accepted'}
+                          : row.item.disconnectPending
+                            ? 'pending'
+                            : row.item.connected
+                              ? 'connected'
+                              : 'accepted'}
                       >
                         {row.item.revoked
                           ? 'Disconnected'
-                          : row.item.connected
-                            ? 'Connected'
-                            : 'Awaiting confirmation'}
+                          : row.item.disconnectPending
+                            ? 'Pending disconnect'
+                            : row.item.connected
+                              ? 'Connected'
+                              : 'Awaiting confirmation'}
                       </span>
                     </span>
                     {#if row.item.baseUrl}
@@ -657,7 +661,8 @@
     color: var(--primary);
   }
 
-  .badge[data-status='accepted'] {
+  .badge[data-status='accepted'],
+  .badge[data-status='pending'] {
     color: #d68910;
   }
 

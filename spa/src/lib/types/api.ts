@@ -313,6 +313,12 @@ export interface FederationServer {
   revokedBy?: string;
   revokedByUsername?: string;
   revokedReason?: string;
+  /** A disconnect has been requested but not yet confirmed by a second admin. */
+  disconnectPending: boolean;
+  disconnectRequestedAt?: string;
+  disconnectRequestedBy?: string;
+  disconnectRequestedByUsername?: string;
+  disconnectReason?: string;
 }
 
 /** A handshake attempt against a peer, at any stage — permanent audit

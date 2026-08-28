@@ -25,13 +25,23 @@
   /** Plain text, attempt logs then server logs — rendered verbatim, never parsed. */
   let logsText = '';
 
-  let revoking = false;
+  let requesting = false;
   let showRevokeModal = false;
   let revokeReason = '';
+
+  let confirming = false;
+  let cancelling = false;
 
   let purging = false;
   let showPurgeModal = false;
   let purgeConfirmText = '';
+
+  // Root may confirm its own disconnect request (single-operator servers
+  // have no second admin to ask) — every other admin must have someone
+  // else confirm. Mirrors the server-side check in
+  // ConfirmFederationServerDisconnect.
+  $: isOwnDisconnectRequest = !!(server?.disconnectPending && server.disconnectRequestedBy === user?.id);
+  $: confirmBlocked = isOwnDisconnectRequest && !isRoot;
 
   onMount(async () => {
     user = await authService.getCurrentUser();
@@ -74,30 +84,58 @@
   }
 
   function openRevokeModal() {
-    if (revoking) return;
+    if (requesting) return;
     revokeReason = '';
     showRevokeModal = true;
   }
 
   function dismissRevokeModal() {
-    if (revoking) return;
+    if (requesting) return;
     showRevokeModal = false;
     revokeReason = '';
   }
 
-  async function revoke() {
+  async function requestDisconnect() {
     const reason = revokeReason.trim();
-    if (!reason || revoking) return;
-    revoking = true;
+    if (!reason || requesting) return;
+    requesting = true;
     try {
-      await apiService.revokeFederationServer(serverId, reason);
+      await apiService.requestFederationServerDisconnect(serverId, reason);
       showRevokeModal = false;
+      notificationStore.success('Disconnect requested — a different admin must confirm it');
+      await refresh();
+    } catch (err) {
+      notificationStore.error(err instanceof Error ? err.message : 'Failed to request disconnect');
+    } finally {
+      requesting = false;
+    }
+  }
+
+  async function confirmDisconnect() {
+    if (confirming) return;
+    confirming = true;
+    try {
+      await apiService.confirmFederationServerDisconnect(serverId);
       notificationStore.success('Server disconnected');
       await refresh();
     } catch (err) {
-      notificationStore.error(err instanceof Error ? err.message : 'Failed to disconnect server');
+      notificationStore.error(err instanceof Error ? err.message : 'Failed to confirm disconnect');
     } finally {
-      revoking = false;
+      confirming = false;
+    }
+  }
+
+  async function cancelDisconnect() {
+    if (cancelling) return;
+    cancelling = true;
+    try {
+      await apiService.cancelFederationServerDisconnect(serverId);
+      notificationStore.success('Disconnect request cancelled');
+      await refresh();
+    } catch (err) {
+      notificationStore.error(err instanceof Error ? err.message : 'Failed to cancel disconnect request');
+    } finally {
+      cancelling = false;
     }
   }
 
@@ -140,8 +178,10 @@
         {#if server}
           <div class="server-header">
             <span class="server-name">{server.name} ({serverId})</span>
-            <span class="badge" data-status={server.revoked ? 'revoked' : 'approved'}
-              >{server.revoked ? 'Disconnected' : 'Connected'}</span
+            <span
+              class="badge"
+              data-status={server.revoked ? 'revoked' : server.disconnectPending ? 'pending' : 'approved'}
+              >{server.revoked ? 'Disconnected' : server.disconnectPending ? 'Pending disconnect' : 'Connected'}</span
             >
           </div>
           {#if server.baseUrl}
@@ -190,9 +230,45 @@
             {/if}
           {/if}
 
-          {#if !server.revoked}
+          {#if server.disconnectPending && !server.revoked}
+            <p class="meta">
+              {#if server.disconnectRequestedBy && server.disconnectRequestedByUsername}
+                Disconnect requested by <Username
+                  userID={server.disconnectRequestedBy}
+                  username={server.disconnectRequestedByUsername}
+                  class="meta-link"
+                  at
+                  fire={false}
+                />
+                {#if server.disconnectRequestedAt}· {formatRelativeTime(server.disconnectRequestedAt)}{/if}
+              {:else if server.disconnectRequestedAt}
+                Disconnect requested {formatRelativeTime(server.disconnectRequestedAt)}
+              {/if}
+            </p>
+            {#if server.disconnectReason}
+              <p class="meta reason">&ldquo;{server.disconnectReason}&rdquo;</p>
+            {/if}
+            {#if confirmBlocked}
+              <p class="meta reason">A different admin must confirm this disconnect.</p>
+            {/if}
+          {/if}
+
+          {#if server.disconnectPending && !server.revoked}
             <div class="approval-actions">
-              <button class="btn danger" disabled={revoking} on:click={openRevokeModal}>
+              <button class="btn secondary" disabled={cancelling} on:click={cancelDisconnect}>
+                {cancelling ? 'Cancelling…' : 'Cancel request'}
+              </button>
+              <button
+                class="btn danger"
+                disabled={confirming || confirmBlocked}
+                on:click={confirmDisconnect}
+              >
+                {confirming ? 'Confirming…' : 'Confirm disconnect'}
+              </button>
+            </div>
+          {:else if !server.revoked}
+            <div class="approval-actions">
+              <button class="btn danger" disabled={requesting} on:click={openRevokeModal}>
                 Disconnect
               </button>
             </div>
@@ -234,10 +310,17 @@
       on:keydown={(e) => e.key === 'Escape' && dismissRevokeModal()}
     >
       <div class="modal">
-        <h2 id="revoke-server-title">Disconnect server</h2>
+        <h2 id="revoke-server-title">Request disconnect</h2>
         <p class="modal-lead"
-          >Explain why this peer is being disconnected. This is recorded in the server's log, and
-          the peer is notified so it can disconnect on its side too.</p
+          >Explain why this peer should be disconnected. This is recorded in the server's log. A
+          different admin must confirm this request before the peer is actually disconnected and
+          notified — root may confirm its own request.</p
+        >
+        <p class="modal-warning"
+          ><strong>This cannot be undone.</strong> There is no reconnect — restoring the connection
+          later means a brand new handshake, which this server will treat as a different peer.
+          Every client that cached reeds, replies, or profiles from this server will be left with
+          permanently broken local references to it.</p
         >
         <label class="field">
           <span>Reason</span>
@@ -249,11 +332,11 @@
           ></textarea>
         </label>
         <div class="modal-actions">
-          <button class="btn secondary" disabled={revoking} on:click={dismissRevokeModal}>
+          <button class="btn secondary" disabled={requesting} on:click={dismissRevokeModal}>
             Cancel
           </button>
-          <button class="btn danger" disabled={revoking || !revokeReason.trim()} on:click={revoke}>
-            {revoking ? 'Disconnecting…' : 'Disconnect'}
+          <button class="btn danger" disabled={requesting || !revokeReason.trim()} on:click={requestDisconnect}>
+            {requesting ? 'Requesting…' : 'Request disconnect'}
           </button>
         </div>
       </div>
@@ -350,6 +433,10 @@
 
   .badge[data-status='revoked'] {
     color: #c0392b;
+  }
+
+  .badge[data-status='pending'] {
+    color: #b7791f;
   }
 
   .meta {
@@ -478,6 +565,17 @@
     margin: 0 0 1rem 0;
     color: var(--muted);
     font-size: 0.9rem;
+    line-height: 1.4;
+  }
+
+  .modal-warning {
+    margin: 0 0 1rem 0;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid #c0392b;
+    border-radius: 8px;
+    background: rgba(192, 57, 43, 0.08);
+    color: #c0392b;
+    font-size: 0.85rem;
     line-height: 1.4;
   }
 

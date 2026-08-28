@@ -498,11 +498,28 @@ export const apiService = {
     });
   },
 
-  async revokeFederationServer(serverId: string, reason: string): Promise<void> {
+  /** Stages a disconnect — the peer stays connected until a second,
+   * different admin calls confirmFederationServerDisconnect. */
+  async requestFederationServerDisconnect(serverId: string, reason: string): Promise<void> {
     await request(`/federation/servers/${encodeURIComponent(serverId)}/revoke`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason }),
+    });
+  },
+
+  /** Finalizes a staged disconnect request. Server 403s if the confirming
+   * admin is the same one who requested it (root exempt). */
+  async confirmFederationServerDisconnect(serverId: string): Promise<void> {
+    await request(`/federation/servers/${encodeURIComponent(serverId)}/revoke/confirm`, {
+      method: 'POST',
+    });
+  },
+
+  /** Withdraws a staged disconnect request before it's confirmed. */
+  async cancelFederationServerDisconnect(serverId: string): Promise<void> {
+    await request(`/federation/servers/${encodeURIComponent(serverId)}/revoke/cancel`, {
+      method: 'POST',
     });
   },
 

@@ -8,7 +8,6 @@ import (
 	"log"
 	"time"
 
-	"syrinx/coverage"
 	"syrinx/identity"
 	"syrinx/signing"
 
@@ -101,22 +100,12 @@ func SaveReed(ctx context.Context,
 
 	// reed_allocations.holder_user_id is a direct FK to identities(id);
 	// reed_id FKs to reeds(id).
-	res, err := tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_allocations (reed_id, holder_user_id)
 		VALUES ($1, $2)
 		ON CONFLICT DO NOTHING
-	`, reedID, reporterIdentity)
-	if err != nil {
+	`, reedID, reporterIdentity); err != nil {
 		return fmt.Errorf("insert reed allocation: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n > 0 {
-		if err := coverage.BumpAllocationCount(ctx, tx, reedID, 1); err != nil {
-			return err
-		}
 	}
 
 	return tx.Commit()

@@ -51,7 +51,7 @@
       ? 'No invite limit on this server.'
       : invitesRemaining === 0
         ? `You’ve used all ${maxInvites} invite${maxInvites === 1 ? '' : 's'}. Revoking unused invites does not free quota.`
-        : `You can create ${maxInvites} invite${maxInvites === 1 ? '' : 's'} — ${invitesRemaining} left.`;
+        : `You can create ${maxInvites} invite${maxInvites === 1 ? '' : 's'} (including revoked) — ${invitesRemaining} left.`;
 
   onMount(async () => {
     user = await authService.getCurrentUser();

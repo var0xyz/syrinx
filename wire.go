@@ -86,16 +86,21 @@ type federationListItemWire struct {
 // ApproveFederationAttempt). No fingerprint field: see
 // federationServerListRow's doc comment for why.
 type federationServerWire struct {
-	ServerID          string  `json:"serverId"`
-	Name              string  `json:"name"`
-	BaseURL           string  `json:"baseUrl"`
-	Connected         bool    `json:"connected"`
-	CreatedAt         string  `json:"createdAt"`
-	Revoked           bool    `json:"revoked"`
-	RevokedAt         *string `json:"revokedAt,omitempty"`
-	RevokedBy         *string `json:"revokedBy,omitempty"`
-	RevokedByUsername *string `json:"revokedByUsername,omitempty"`
-	RevokedReason     *string `json:"revokedReason,omitempty"`
+	ServerID                      string  `json:"serverId"`
+	Name                          string  `json:"name"`
+	BaseURL                       string  `json:"baseUrl"`
+	Connected                     bool    `json:"connected"`
+	CreatedAt                     string  `json:"createdAt"`
+	Revoked                       bool    `json:"revoked"`
+	RevokedAt                     *string `json:"revokedAt,omitempty"`
+	RevokedBy                     *string `json:"revokedBy,omitempty"`
+	RevokedByUsername             *string `json:"revokedByUsername,omitempty"`
+	RevokedReason                 *string `json:"revokedReason,omitempty"`
+	DisconnectPending             bool    `json:"disconnectPending"`
+	DisconnectRequestedAt         *string `json:"disconnectRequestedAt,omitempty"`
+	DisconnectRequestedBy         *string `json:"disconnectRequestedBy,omitempty"`
+	DisconnectRequestedByUsername *string `json:"disconnectRequestedByUsername,omitempty"`
+	DisconnectReason              *string `json:"disconnectReason,omitempty"`
 }
 
 // federationAttemptWire is one row in GET /api/federation/attempts — a

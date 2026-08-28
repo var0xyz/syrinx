@@ -46,7 +46,7 @@ export class IndexedDbService implements DbService {
   // unsignedReeds/pendingRevocation/etc (unsynced local intent) are never
   // dropped — there is no "clients resync from the server" fallback for
   // them, the server never holds a copy.
-  private readonly version = 12;
+  private readonly version = 13;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'fingerprint'],
@@ -56,7 +56,7 @@ export class IndexedDbService implements DbService {
     ['users',       'id'         ],
     ['usersInfo',   'id'         ],
     ['invites',     'id'         ],
-    ['reedReplies', 'reedID', 'parentKey'],
+    ['reedReplies', 'reedID', 'parentReedID'],
     ['ripples',     'hash', 'threadID'],
 
     // Offline-first

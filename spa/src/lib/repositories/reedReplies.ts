@@ -6,20 +6,15 @@ import { dbService } from '$lib/services/db';
 import { allowUnsigned } from '$lib/verifiers';
 import type { ReedType } from '$lib/types/reed';
 import type * as api from '$lib/types/api';
-import { parseReedRef } from '$lib/utils/reedRef';
+import { parseReedRef, refForReed } from '$lib/utils/reedRef';
 
 export type ReedReplyRow = {
   reedID: string;
   userID: string;
-  parentUserID: string;
+  /** Canonical ref (authorID/reedID) of the reed this one replies to. */
   parentReedID: string;
-  parentKey: string;
   threadId: string;
 };
-
-export function parentKey(parentUserID: string, parentReedID: string): string {
-  return `${parentUserID}/${parentReedID}`;
-}
 
 function rowFromFields(
   replyUserID: string,
@@ -31,9 +26,7 @@ function rowFromFields(
   return {
     reedID: replyReedID,
     userID: replyUserID,
-    parentUserID,
-    parentReedID,
-    parentKey: parentKey(parentUserID, parentReedID),
+    parentReedID: refForReed(parentUserID, parentReedID),
     threadId,
   };
 }
@@ -92,7 +85,7 @@ export const reedRepliesRepository = {
   },
 
   async listByParent(parentUserID: string, parentReedID: string): Promise<ReedReplyRow[]> {
-    return dbService.getAllByIndex<ReedReplyRow>('reedReplies', 'parentKey', parentKey(parentUserID, parentReedID));
+    return dbService.getAllByIndex<ReedReplyRow>('reedReplies', 'parentReedID', refForReed(parentUserID, parentReedID));
   },
 
   async remove(reedID: string): Promise<void> {

@@ -113,9 +113,7 @@ func (ds *DBService) GetUserPublicKey(ctx context.Context, fingerprint string) (
 	return armor, nil
 }
 
-// GetUsername returns the current username for display on ephemeral deliveries
-// (e.g. broadcast reeds). Empty string when the user row is missing.
-//
+// GetUsername returns the current username for display on ephemeral deliveries.
 // users.id IS identities.id directly, and userID here already arrives in
 // that form, so this queries users.id directly, no join needed.
 func (ds *DBService) GetUsername(ctx context.Context, userID string) (string, error) {
@@ -227,9 +225,8 @@ type PendingSubject struct {
 }
 
 // CreatePendingReedEvent inserts pending_events + pending_reed_events (FK to reeds).
-// requesterUserID is the viewer; authorUserID + reedID identify the reed subject.
-// Every caller here already holds the userID@serverID form (see NewDBService's
-// doc comment).
+// requesterUserID is the viewer; authorUserID + reedID identify the reed subject,
+// already in userID@serverID form.
 func (ds *DBService) CreatePendingReedEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName EventName, reedID string) error {
 	requesterIdentity := identity.IdentityID(requesterUserID)
 
@@ -319,9 +316,8 @@ func (ds *DBService) CreateProfileSubscriptionEvent(ctx context.Context, eventID
 }
 
 // GetPendingSubject loads a pending event and its typed child subject by event ID.
-// requester_user_id / pending_reed_events.user_id / pending_account_events.user_id
-// are scanned into identity.IdentityID and kept in that form (cast to
-// string, no .UserID() decode) — see NewDBService's doc comment.
+// The user-id columns are scanned into identity.IdentityID and kept in that
+// form (cast to string, no .UserID() decode).
 func (ds *DBService) GetPendingSubject(ctx context.Context, eventID string) (*PendingSubject, error) {
 	var pe PendingSubject
 	var requester identity.IdentityID
@@ -364,9 +360,8 @@ func (ds *DBService) GetPendingSubject(ctx context.Context, eventID string) (*Pe
 }
 
 // GetPendingReedEvent loads a reed-subject pending event (nil if missing or account event).
-// requester_user_id is kept in userID@serverID form on return (see
-// GetPendingSubject's comment); pe.UserID (author) is derived from the
-// canonical reed_id.
+// requester_user_id is kept in userID@serverID form on return; pe.UserID
+// (author) is derived from the canonical reed_id.
 func (ds *DBService) GetPendingReedEvent(ctx context.Context, eventID string) (*PendingReedEvent, error) {
 	var pe PendingReedEvent
 	var requester identity.IdentityID
@@ -493,8 +488,6 @@ type ReedCoverageTarget struct {
 // AllocateReed records that holderUserID now holds reedID. Returns true
 // when a new allocation row was inserted. holderUserID must be a genuine
 // local user — reed_allocations.holder_user_id is a direct FK to users(id).
-// For a peer server (not a specific user) reporting it holds a copy, see
-// RecordServerHolder instead.
 func (ds *DBService) AllocateReed(ctx context.Context, reedID, holderUserID string) (bool, error) {
 	holderIdentity := identity.IdentityID(holderUserID)
 
@@ -515,11 +508,6 @@ func (ds *DBService) AllocateReed(ctx context.Context, reedID, holderUserID stri
 	n, err := res.RowsAffected()
 	if err != nil {
 		return false, err
-	}
-	if n > 0 {
-		if err := coverage.BumpAllocationCount(ctx, tx, reedID, 1); err != nil {
-			return false, err
-		}
 	}
 	if err := tx.Commit(); err != nil {
 		return false, err
@@ -548,11 +536,6 @@ func (ds *DBService) DeleteReedAllocation(ctx context.Context, reedID, holderUse
 	n, err := res.RowsAffected()
 	if err != nil {
 		return false, err
-	}
-	if n > 0 {
-		if err := coverage.BumpAllocationCount(ctx, tx, reedID, -1); err != nil {
-			return false, err
-		}
 	}
 	if err := tx.Commit(); err != nil {
 		return false, err
@@ -583,7 +566,7 @@ func (ds *DBService) ReedExists(ctx context.Context, reedID string) (bool, error
 // GetReedCoverage returns holder count and network coverage percent for a tip reed.
 func (ds *DBService) GetReedCoverage(ctx context.Context, reedID string) (holders, percent int, err error) {
 	err = ds.db.QueryRowContext(ctx, `
-		SELECT allocation_count FROM reeds WHERE id = $1
+		SELECT COUNT(*) FROM reed_allocations WHERE reed_id = $1
 	`, reedID).Scan(&holders)
 	if err != nil {
 		return 0, 0, err
@@ -602,9 +585,8 @@ func (ds *DBService) GetReedCoveragePercent(ctx context.Context, reedID string) 
 }
 
 // CountEchoes returns how many non-removed echoes point at the given reed.
-// echoing_author_id is stored directly on reed_echoes (same shape as
-// services.go's CountEchoes) — no join against reeds, which would only
-// ever match a local echoer and silently exclude a foreign one.
+// echoing_author_id is stored directly on reed_echoes — no join against
+// reeds, which would only ever match a local echoer and exclude a foreign one.
 func (ds *DBService) CountEchoes(ctx context.Context, echoedReedID string) (int, error) {
 	var n int
 	err := ds.db.QueryRowContext(ctx, `
@@ -615,12 +597,11 @@ func (ds *DBService) CountEchoes(ctx context.Context, echoedReedID string) (int,
 	return n, err
 }
 
-// CountLikes returns the current like count for a reed, read from the
-// denormalized reeds.like_count column.
+// CountLikes returns the current like count for a reed.
 func (ds *DBService) CountLikes(ctx context.Context, reedID string) (int, error) {
 	var n int
 	err := ds.db.QueryRowContext(ctx, `
-		SELECT like_count FROM reeds WHERE id = $1
+		SELECT COUNT(*) FROM reeds_liked WHERE reed_id = $1
 	`, reedID).Scan(&n)
 	return n, err
 }
@@ -691,12 +672,8 @@ func (ds *DBService) GetReplyRecord(ctx context.Context, reedID string) (*ReplyR
 }
 
 // InsertForeignReply records that a peer-authored reedID replies to
-// parentReedID (local to this server) — the home-server side of the
-// reply-notify leg. Idempotent (ON CONFLICT DO NOTHING on reed_id, the
-// table's PK): a retried notify is a harmless no-op, not a duplicate.
-// Upserts a reed_identities row for the foreign reply reedID first, the
-// same "legitimate reference" bar every other foreign-reed reference in
-// this server uses.
+// parentReedID (local to this server). Idempotent (ON CONFLICT DO NOTHING
+// on reed_id, the PK). Upserts a reed_identities row for the reply reedID first.
 func (ds *DBService) InsertForeignReply(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error {
 	_, replyServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(replyReedID))
 	if !ok {
@@ -859,9 +836,7 @@ func (ds *DBService) GetOnlineReedHolder(ctx context.Context, reedID string) (st
 
 // RecordServerHolder upserts "peer server serverID holds a copy of
 // reedID," idempotent per (reed_id, server_id) — multiple users on the
-// same peer holding the same reed collapse to one row, since the fallback
-// only ever delegates to the peer server as a whole, never a specific
-// foreign user.
+// same peer collapse to one row, since the fallback delegates to the peer as a whole.
 func (ds *DBService) RecordServerHolder(ctx context.Context, reedID, serverID string) error {
 	_, err := ds.db.ExecContext(ctx, `
 		INSERT INTO reed_server_allocations (reed_id, server_id)
@@ -1100,9 +1075,7 @@ func (ds *DBService) GetUnallocatedReeds(ctx context.Context, authorID, viewerID
 
 // GetUnallocatedReedsForServer is GetUnallocatedReeds' server-scoped
 // counterpart: used where the "viewer" is a whole peer server rather than
-// a genuine local user, since reed_server_allocations has no per-user
-// granularity — a peer's sentinel identity is never a valid holder_user_id
-// in reed_allocations.
+// a genuine local user, since reed_server_allocations has no per-user granularity.
 func (ds *DBService) GetUnallocatedReedsForServer(ctx context.Context, authorID, serverID string) ([]string, error) {
 	authorIdentity := identity.IdentityID(authorID)
 	rows, err := ds.db.QueryContext(ctx, `
@@ -1135,14 +1108,7 @@ func (ds *DBService) GetUnallocatedReedsForServer(ctx context.Context, authorID,
 
 // CreateProfileSubscription records an active profile feed subscription for
 // a viewer, returning the effective subscription_id. Idempotent per
-// (viewer_user_id, author_user_id): a repeat subscribe for a pair that's
-// already active (e.g. revisiting the same profile page) reuses the
-// existing subscription_id instead of inserting a second row —
-// GetProfileSubscribers has no DISTINCT, so duplicate rows for the same
-// viewer would otherwise fan out the same new-reed event to them more than
-// once. Callers must use the returned id (not the one they passed in) since
-// a conflict discards the caller's candidate in favor of the existing row.
-// profile_subscriptions.viewer_user_id/author_user_id are both direct FKs to identities(id).
+// (viewer_user_id, author_user_id) — reuses the existing id on conflict, so callers must use the returned id, not the one they passed in.
 func (ds *DBService) CreateProfileSubscription(ctx context.Context, subscriptionID, viewerUserID, authorUserID string) (string, error) {
 	viewerIdentity := identity.IdentityID(viewerUserID)
 	authorIdentity := identity.IdentityID(authorUserID)
@@ -1319,20 +1285,9 @@ func (ds *DBService) GetProfileSubscribers(ctx context.Context, authorID string)
 	return subscribers, nil
 }
 
-// GetBroadcastSubscribers returns up to 100 broadcast subscribers for the given author,
-// throttled to one delivery per second per subscriber.
-// Followers of the author are excluded — they receive the reed via the follow
-// path (follow_reed → followcast), not as ephemeral broadcast.
-// Subscribers are selected in order of oldest last_delivery (NULLS FIRST) and their
-// last_delivery timestamp is updated atomically.
-//
-// NOTE: This UPDATE is not serialised across replicas. Two concurrent replicas could select
-// the same batch before either writes last_delivery, causing up to 100 users to receive a
-// duplicate. At our current replica count this is acceptable — duplicates are harmless (the
-// client deduplicates by reed ID) and the race window is tiny.
-//
-// authorID is converted once, up front, and reused everywhere $1 appears
-// so the != and = comparisons agree.
+// GetBroadcastSubscribers returns up to 100 broadcast subscribers for the
+// given author, throttled to one delivery/second and excluding followers.
+// NOTE: the last_delivery UPDATE is not serialised across replicas — concurrent replicas can double-deliver to up to 100 users; acceptable, harmless.
 func (ds *DBService) GetBroadcastSubscribers(ctx context.Context, authorID string) ([]string, error) {
 	authorIdentity := identity.IdentityID(authorID)
 	rows, err := ds.db.QueryContext(ctx, `
@@ -1431,13 +1386,9 @@ type MissingAccountRemoval struct {
 	Cert   AccountRemovalWire
 }
 
-// GetMissingAccountRemovals returns account_removals that still apply to viewer
-// (follow ∪ allocations for that author's reeds).
-//
-// uf.user_id/uf.following_user_id and ra.holder_user_id are direct FKs to
-// identities(id); the $1 bind param (viewerUserID) is converted.
-// deletion.InsertAccountCert now writes account_removals.user_id in the
-// same form, so the EXISTS subqueries above match real removal rows.
+// GetMissingAccountRemovals returns account_removals that still apply to
+// viewer (follow ∪ allocations for that author's reeds). account_removals.user_id
+// is written in the same userID@serverID form the EXISTS subqueries expect.
 func (ds *DBService) GetMissingAccountRemovals(ctx context.Context, viewerUserID string) ([]MissingAccountRemoval, error) {
 	selfIdentity := identity.IdentityID(viewerUserID)
 	serverID := ds.serverID
@@ -1465,8 +1416,7 @@ func (ds *DBService) GetMissingAccountRemovals(ctx context.Context, viewerUserID
 			return nil, err
 		}
 		// deletion.GetAccountCert takes a bare userID + serverID — decode
-		// only for this call; MissingAccountRemoval.UserID stays in
-		// userID@serverID form, sourced from cert.UserID.
+		// only for this call; UserID stays in userID@serverID form.
 		cert, err := deletion.GetAccountCert(ctx, ds.db, removedIdentity.UserID(), serverID)
 		if err != nil || cert == nil {
 			return nil, err
@@ -1491,12 +1441,8 @@ func (ds *DBService) GetAccountRemovalWire(ctx context.Context, userID string) (
 }
 
 // ClearPeerStateForRemovedAccount drops follow edges and allocations so
-// catch-up no longer re-delivers the account cert to this viewer.
-// Returns reeds whose holder counts changed.
-//
-// All 6 tables touched here are FK'd, directly or transitively, to
-// identities(id); viewerUserID and removedUserID are converted once, up
-// front, and used consistently across every statement in the transaction.
+// catch-up no longer re-delivers the account cert to this viewer. Returns
+// reeds whose holder counts changed.
 func (ds *DBService) ClearPeerStateForRemovedAccount(ctx context.Context, viewerUserID, removedUserID string) ([]ReedCoverageTarget, error) {
 	viewerIdentity := identity.IdentityID(viewerUserID)
 	removedIdentity := identity.IdentityID(removedUserID)
@@ -1524,25 +1470,10 @@ func (ds *DBService) ClearPeerStateForRemovedAccount(ctx context.Context, viewer
 	}
 
 	rows, err := tx.QueryContext(ctx, `
-		WITH deleted AS (
-			DELETE FROM reed_allocations ra
-			USING reeds r
-			WHERE ra.reed_id = r.id AND ra.holder_user_id = $1 AND r.user_id = $2
-			RETURNING ra.reed_id
-		),
-		counts AS (
-			SELECT reed_id, COUNT(*) AS cnt
-			FROM deleted
-			GROUP BY reed_id
-		),
-		updated AS (
-			UPDATE reeds r
-			SET allocation_count = GREATEST(0, r.allocation_count - c.cnt)
-			FROM counts c
-			WHERE r.id = c.reed_id
-			RETURNING r.user_id, c.reed_id
-		)
-		SELECT user_id, reed_id FROM updated
+		DELETE FROM reed_allocations ra
+		USING reeds r
+		WHERE ra.reed_id = r.id AND ra.holder_user_id = $1 AND r.user_id = $2
+		RETURNING r.user_id, ra.reed_id
 	`, viewerIdentity, removedIdentity)
 	if err != nil {
 		return nil, err
@@ -1571,18 +1502,12 @@ func (ds *DBService) ClearPeerStateForRemovedAccount(ctx context.Context, viewer
 
 // peerRelaySentinelUserID is the reserved bare userID minted for a
 // per-peer sentinel identity representing "peer server X, proxying a
-// REQUEST_REED on behalf of one of its users." Underscores never appear
-// in a real userID (see crypto.Alphabet), so this can never collide with
-// a genuine local or remote user.
+// REQUEST_REED on behalf of one of its users." Underscores never appear in a real userID, so this can never collide.
 const peerRelaySentinelUserID = "__peer_relay__"
 
 // ForeignPendingEvent is an originating-server foreign_pending_events row:
 // the mapping from a local pending_events.event_id to the outstanding
-// registration on the reed's home server (which peer to call back, and
-// what id THEY know this event by). The event's subject (reed_id) lives
-// in the normal pending_reed_events row now — reed_identities lets that
-// table hold a foreign reed_id directly, so this table only carries what
-// pending_reed_events structurally can't.
+// registration on the reed's home server (which peer to call back, and what id THEY know this event by).
 type ForeignPendingEvent struct {
 	EventID      string
 	HomeServerID string
@@ -1591,8 +1516,7 @@ type ForeignPendingEvent struct {
 
 // CreateForeignPendingEvent records, on the originating server, that
 // eventID's local pending_events row corresponds to peerEventID on
-// homeServerID. eventID must already exist in pending_events (FK) —
-// created via the normal CreatePendingReedEvent, same as any local event.
+// homeServerID. eventID must already exist in pending_events (FK).
 func (ds *DBService) CreateForeignPendingEvent(ctx context.Context, eventID, homeServerID, peerEventID string) error {
 	_, err := ds.db.ExecContext(ctx, `
 		INSERT INTO foreign_pending_events (event_id, home_server_id, peer_event_id)
@@ -1601,10 +1525,9 @@ func (ds *DBService) CreateForeignPendingEvent(ctx context.Context, eventID, hom
 	return err
 }
 
-// GetForeignPendingEvent resolves the originating server's own event_id
-// to its foreign_pending_events row — used when O needs to notify H that
-// delivery was verified and acked (the peer_event_id and home server to
-// call), the reverse direction of GetForeignPendingEventByPeerEventID.
+// GetForeignPendingEvent resolves the originating server's own event_id to
+// its foreign_pending_events row — the reverse direction of
+// GetForeignPendingEventByPeerEventID.
 func (ds *DBService) GetForeignPendingEvent(ctx context.Context, eventID string) (*ForeignPendingEvent, error) {
 	var fpe ForeignPendingEvent
 	err := ds.db.QueryRowContext(ctx, `
@@ -1622,9 +1545,8 @@ func (ds *DBService) GetForeignPendingEvent(ctx context.Context, eventID string)
 }
 
 // GetForeignPendingEventByPeerEventID resolves a home server's callback
-// (deliver/cancel) back to the originating server's local event. The
-// homeServerID filter doubles as an ownership check: only the peer that
-// was actually registered as home_server_id for this row may resolve it.
+// back to the originating server's local event. The homeServerID filter
+// doubles as an ownership check that only the registered peer may resolve it.
 func (ds *DBService) GetForeignPendingEventByPeerEventID(ctx context.Context, peerEventID, homeServerID string) (*ForeignPendingEvent, error) {
 	var fpe ForeignPendingEvent
 	err := ds.db.QueryRowContext(ctx, `
@@ -1669,11 +1591,8 @@ func (ds *DBService) GetForeignPendingEventsByRequester(ctx context.Context, req
 }
 
 // EnsurePeerSentinelUser idempotently mints (or reuses) a per-peer
-// sentinel identity + online_users row on the home server, satisfying
-// pending_events.requester_user_id's FK without representing a genuine
-// local session. Mirrors DataService.UpsertRemoteIdentity's insert shape
-// in the main package (id/bare_user_id/server_id/verified), and is
-// permanently "online" — ON CONFLICT DO NOTHING, not a session refresh.
+// sentinel identity + online_users row, satisfying pending_events.requester_user_id's
+// FK without a genuine local session — permanently "online", not a session refresh.
 func (ds *DBService) EnsurePeerSentinelUser(ctx context.Context, peerServerID string) (string, error) {
 	sentinelIdentity := identity.CanonicalID(peerServerID, peerRelaySentinelUserID)
 
@@ -1684,10 +1603,10 @@ func (ds *DBService) EnsurePeerSentinelUser(ctx context.Context, peerServerID st
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO identities (id, bare_user_id, server_id, verified)
-		VALUES ($1, $2, $3, TRUE)
+		INSERT INTO identities (id, server_id)
+		VALUES ($1, $2)
 		ON CONFLICT (id) DO NOTHING
-	`, sentinelIdentity, peerRelaySentinelUserID, peerServerID); err != nil {
+	`, sentinelIdentity, peerServerID); err != nil {
 		return "", err
 	}
 
@@ -1705,18 +1624,9 @@ func (ds *DBService) EnsurePeerSentinelUser(ctx context.Context, peerServerID st
 	return string(sentinelIdentity), nil
 }
 
-// UpsertReedIdentity idempotently records that reedID is a well-formed
-// id worth tracking, keyed to its own embedded home serverID — the
-// "identities layer" for reeds (mirrors identities.id's relationship to
-// users.id). This is a low bar, matching what a LOCAL reed already
-// clears just by being signed (before anyone verifies/holds its
-// content): it does not claim the reed's content has been verified, only
-// that this server has legitimate reason to track pending state about
-// it (a REQUEST_REED/SUBSCRIBE_PROFILE registration for it exists).
-// Content-level trust (e.g. becoming a holder via reed_allocations)
-// still gates on the client's own DATA_ACK, same as before. Idempotent;
-// safe to call for a reed that already has a row (local reeds get theirs
-// at CreateReed time instead, see services.go's insertReedCoreTx).
+// UpsertReedIdentity idempotently records that reedID is a well-formed id
+// worth tracking, keyed to its embedded home serverID. It does not claim
+// the content is verified — content-level trust still gates on the client's own DATA_ACK.
 func (ds *DBService) UpsertReedIdentity(ctx context.Context, reedID string) error {
 	_, serverID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
 	if !ok {
@@ -1730,20 +1640,19 @@ func (ds *DBService) UpsertReedIdentity(ctx context.Context, reedID string) erro
 	return err
 }
 
-// UpsertRemoteIdentity lazily creates a minimal, unverified identities row
-// for a foreign user this server needs to reference (e.g. as a
-// profile_subscriptions.viewer_user_id) but has no local users row for.
-// Mirrors the root package's DataService.UpsertRemoteIdentity exactly.
+// UpsertRemoteIdentity lazily creates a minimal identities row for a
+// foreign user this server needs to reference but has no local users row
+// for. Mirrors the root package's version exactly.
 func (ds *DBService) UpsertRemoteIdentity(ctx context.Context, canonicalID, remoteServerID string) error {
-	bareUserID, _, ok := identity.ParseIdentityID(identity.IdentityID(canonicalID))
+	_, _, ok := identity.ParseIdentityID(identity.IdentityID(canonicalID))
 	if !ok {
 		return fmt.Errorf("malformed identity id: %s", canonicalID)
 	}
 	_, err := ds.db.ExecContext(ctx, `
-		INSERT INTO identities (id, bare_user_id, server_id, verified)
-		VALUES ($1, $2, $3, FALSE)
+		INSERT INTO identities (id, server_id)
+		VALUES ($1, $2)
 		ON CONFLICT (id) DO NOTHING
-	`, canonicalID, bareUserID, remoteServerID)
+	`, canonicalID, remoteServerID)
 	return err
 }
 

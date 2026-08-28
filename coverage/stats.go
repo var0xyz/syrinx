@@ -27,16 +27,6 @@ func BumpActiveUsers(ctx context.Context, tx *sql.Tx, delta int) error {
 	return err
 }
 
-// BumpAllocationCount adjusts per-reed holder count in the same TX.
-func BumpAllocationCount(ctx context.Context, tx *sql.Tx, reedID string, delta int) error {
-	_, err := tx.ExecContext(ctx, `
-		UPDATE reeds
-		SET allocation_count = GREATEST(0, allocation_count + $1)
-		WHERE id = $2
-	`, delta, reedID)
-	return err
-}
-
 // ActiveUsers reads the network-wide active user count.
 func ActiveUsers(ctx context.Context, db *sql.DB) (int, error) {
 	var n int
