@@ -14,8 +14,9 @@
   /** Set when nesting inside another clickable element (e.g. a reed row/quote)
    * that navigates elsewhere on click. */
   export let stopPropagation = false;
-  /** Render a leading "@" as part of the link/text itself, instead of the
-   * caller prefixing a plain "@" outside it. */
+  /** Render a leading "@" (resolved username) or "~" (raw unresolved id)
+   * as part of the link/text itself, instead of the caller prefixing a
+   * plain "@" outside it. */
   export let at = false;
   /** Render as a profile link. Set false when an ancestor element already
    * handles navigation (e.g. a whole Quote block linking to the reed) so this
@@ -40,6 +41,7 @@
   }
 
   $: displayName = resolvedUsername ?? userID;
+  $: atPrefix = at ? (displayName !== userID ? '@' : '~') : '';
   $: isAdmin = isRoot(userID);
   // Inline, not class-based: callers embed this in contexts with their own
   // `.inline-link`/etc color rules (e.g. MarkdownParser's link styling) that
@@ -63,14 +65,14 @@
       class:admin={isAdmin}
       style={resolvedColor ? `color: ${resolvedColor}` : ''}
       on:click|preventDefault={activate}
-      >{at ? '@' : ''}{displayName}</a
+      >{atPrefix}{displayName}</a
     >
   {:else}
     <span
       class="username {extraClass}"
       class:admin={isAdmin}
       style={resolvedColor ? `color: ${resolvedColor}` : ''}
-      >{at ? '@' : ''}{displayName}</span
+      >{atPrefix}{displayName}</span
     >
   {/if}
 </span>
