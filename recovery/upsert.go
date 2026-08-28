@@ -174,7 +174,7 @@ func upsertIdentity(ctx context.Context, tx *sql.Tx, serverID string, profile Pr
 
 // insertUser mints both the identities row and its satellite users row.
 // Every subject in this package is local, so the identities row is minted
-// verified=TRUE with server_id=serverID (self) — mirroring services.go's Signup.
+// with server_id=serverID (self) — mirroring services.go's Signup.
 func insertUser(ctx context.Context, tx *sql.Tx, serverID string, profile Profile, activeFP string, signedAt time.Time) error {
 	selfIdentity := identity.CanonicalID(serverID, profile.ID)
 
@@ -191,10 +191,10 @@ func insertUser(ctx context.Context, tx *sql.Tx, serverID string, profile Profil
 	// ON CONFLICT DO NOTHING: a stale identities row surviving an earlier
 	// partial run is safe to leave in place.
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO identities (id, bare_user_id, server_id, verified)
-		VALUES ($1, $2, $3, TRUE)
+		INSERT INTO identities (id, server_id)
+		VALUES ($1, $2)
 		ON CONFLICT (id) DO NOTHING
-	`, selfIdentity, profile.ID, serverID); err != nil {
+	`, selfIdentity, serverID); err != nil {
 		return fmt.Errorf("insert identity: %w", err)
 	}
 

@@ -3181,11 +3181,11 @@ func (h *Handlers) rememberRemoteIdentityOnSuccess(ctx context.Context, log *zer
 }
 
 func (h *Handlers) upsertRemoteIdentity(ctx context.Context, log *zerolog.Logger, canonicalID string) {
-	userID, serverID, ok := identity.ParseIdentityID(identity.IdentityID(canonicalID))
+	_, serverID, ok := identity.ParseIdentityID(identity.IdentityID(canonicalID))
 	if !ok {
 		return
 	}
-	if err := h.services.db.UpsertRemoteIdentity(ctx, canonicalID, userID, serverID); err != nil {
+	if err := h.services.db.UpsertRemoteIdentity(ctx, canonicalID, serverID); err != nil {
 		log.Error().Str("userID", canonicalID).Err(err).Msg("Failed to remember remote identity")
 	}
 }
@@ -3614,7 +3614,7 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 	// asked for, and verify the peer's countersignature actually covers
 	// this exact key material — a peer must not be able to hand back
 	// content for a different user, or unsigned/tampered key bytes.
-	ownerUserID, ownerServerID, ok := identity.ParseIdentityID(identity.IdentityID(key.UserID))
+	_, ownerServerID, ok := identity.ParseIdentityID(identity.IdentityID(key.UserID))
 	if !ok || ownerServerID != peerServerID {
 		return nil, fmt.Errorf("peer %s returned a key for a different server", peerServerID)
 	}
@@ -3635,7 +3635,7 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 		return nil, fmt.Errorf("peer %s key countersignature verification failed: %w", peerServerID, err)
 	}
 
-	if err := h.services.db.CachePeerUserKey(ctx, key.ID, key.UserID, ownerUserID, ownerServerID, armor, key.ServerSignature); err != nil {
+	if err := h.services.db.CachePeerUserKey(ctx, key.ID, key.UserID, ownerServerID, armor, key.ServerSignature); err != nil {
 		return nil, fmt.Errorf("cache peer user key: %w", err)
 	}
 
@@ -3903,12 +3903,13 @@ func (h *Handlers) ListFederationServers(w http.ResponseWriter, r *http.Request)
 // shared by ListFederationServers and GetFederationList.
 func federationServerRowToWire(row federationServerListRow) federationServerWire {
 	wire := federationServerWire{
-		ServerID:  row.ID,
-		Name:      row.Name,
-		BaseURL:   row.BaseURL,
-		Connected: row.Connected,
-		CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
-		Revoked:   row.Revoked,
+		ServerID:          row.ID,
+		Name:              row.Name,
+		BaseURL:           row.BaseURL,
+		Connected:         row.Connected,
+		CreatedAt:         row.CreatedAt.UTC().Format(time.RFC3339),
+		Revoked:           row.Revoked,
+		DisconnectPending: row.DisconnectPending,
 	}
 	if row.Revoked {
 		if row.RevokedAt != nil {
@@ -3923,6 +3924,21 @@ func federationServerRowToWire(row federationServerListRow) federationServerWire
 		}
 		if row.RevokedReason != "" {
 			wire.RevokedReason = &row.RevokedReason
+		}
+	}
+	if row.DisconnectPending {
+		if row.DisconnectRequestedAt != nil {
+			t := row.DisconnectRequestedAt.UTC().Format(time.RFC3339)
+			wire.DisconnectRequestedAt = &t
+		}
+		if row.DisconnectRequestedBy != "" {
+			wire.DisconnectRequestedBy = &row.DisconnectRequestedBy
+		}
+		if row.DisconnectRequestedByUsername != "" {
+			wire.DisconnectRequestedByUsername = &row.DisconnectRequestedByUsername
+		}
+		if row.DisconnectReason != "" {
+			wire.DisconnectReason = &row.DisconnectReason
 		}
 	}
 	return wire
@@ -4268,6 +4284,11 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		writeResponse(w, http.StatusForbidden, "Admin required")
 		return
 	}
+	callerIsRoot, err := h.isRoot(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
 
 	attemptID := strings.TrimSpace(mux.Vars(r)["id"])
 	if attemptID == "" {
@@ -4275,12 +4296,14 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	err = h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second))
+	err = h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot)
 	switch {
 	case errors.Is(err, errFederationAttemptNotFound):
 		writeResponse(w, http.StatusNotFound, "Attempt not found")
 	case errors.Is(err, errFederationAttemptNotPending):
 		writeResponse(w, http.StatusConflict, "Attempt already decided")
+	case errors.Is(err, errFederationSameApprover):
+		writeResponse(w, http.StatusForbidden, "A different admin must approve this connection")
 	case err != nil:
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("attemptId", attemptID).Msg("federation attempt approve failed")
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
@@ -4345,11 +4368,12 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// RevokeFederationServer disconnects an established peer. Any admin may
-// do this (same visibility as the invite list); a reason is required.
-// After this, every read-gate that already checks servers.revoked
-// starts treating the peer as unknown rather than trusted.
-func (h *Handlers) RevokeFederationServer(w http.ResponseWriter, r *http.Request) {
+// RequestFederationServerDisconnect stages a disconnect on an established
+// peer — any admin may request one (same visibility as the invite list); a
+// reason is required. The peer stays trusted/connected until a second,
+// different admin confirms via ConfirmFederationServerDisconnect (root
+// exempt — see that handler).
+func (h *Handlers) RequestFederationServerDisconnect(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
 		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
@@ -4384,25 +4408,114 @@ func (h *Handlers) RevokeFederationServer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	revokedBy := caller
-	err = h.services.db.RevokeFederationServer(r.Context(), serverID, &revokedBy, reason, time.Now().UTC().Truncate(time.Second))
+	err = h.services.db.RequestFederationServerDisconnect(r.Context(), serverID, caller, reason, time.Now().UTC().Truncate(time.Second))
 	switch {
 	case errors.Is(err, errFederationServerNotFound):
 		writeResponse(w, http.StatusNotFound, "Server not found")
 	case errors.Is(err, errFederationServerAlreadyRevoked):
 		writeResponse(w, http.StatusConflict, "Server already revoked")
+	case errors.Is(err, errFederationDisconnectAlreadyRequested):
+		writeResponse(w, http.StatusConflict, "Disconnect already requested for this server")
 	case err != nil:
-		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server revoke failed")
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server disconnect request failed")
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+	default:
+		h.logFederationServerAsync(serverID, federationLogInfo,
+			fmt.Sprintf("Disconnect requested by %s: %s", caller, reason))
+		writeResponse(w, http.StatusOK, map[string]string{"serverId": serverID, "status": "disconnect_pending"})
+	}
+}
+
+// ConfirmFederationServerDisconnect finalizes a staged disconnect, requiring
+// the confirming admin to differ from whoever requested it — root may
+// confirm its own request (single-operator servers have no second admin to
+// ask). This is the point the peer is actually revoked and notified.
+func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+	callerIsRoot, err := h.isRoot(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	serverID := strings.TrimSpace(mux.Vars(r)["id"])
+	if serverID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		return
+	}
+
+	reason, err := h.services.db.ConfirmFederationServerDisconnect(r.Context(), serverID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot)
+	switch {
+	case errors.Is(err, errFederationServerNotFound):
+		writeResponse(w, http.StatusNotFound, "Server not found")
+	case errors.Is(err, errFederationDisconnectNotRequested):
+		writeResponse(w, http.StatusConflict, "No disconnect request is pending for this server")
+	case errors.Is(err, errFederationSameApprover):
+		writeResponse(w, http.StatusForbidden, "A different admin must confirm this disconnect")
+	case err != nil:
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server disconnect confirm failed")
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
 		h.logFederationServerAsync(serverID, federationLogError,
-			fmt.Sprintf("Disconnected by %s: %s", caller, reason))
+			fmt.Sprintf("Disconnected by %s (confirmed): %s", caller, reason))
 		go func() {
 			if err := h.notifyPeerOfDisconnect(context.Background(), serverID, reason); err != nil {
 				h.services.log.GetLogger(context.Background()).Warn().Err(err).Str("serverId", serverID).Msg("failed to notify peer of disconnect")
 			}
 		}()
 		writeResponse(w, http.StatusOK, map[string]string{"serverId": serverID, "status": "revoked"})
+	}
+}
+
+// CancelFederationServerDisconnect withdraws a staged disconnect request
+// before a second admin confirms it. Any admin may cancel — same
+// visibility as requesting.
+func (h *Handlers) CancelFederationServerDisconnect(w http.ResponseWriter, r *http.Request) {
+	caller, authed := r.Context().Value(userIDKey).(string)
+	if !authed || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	admin, err := h.isAdmin(r.Context(), caller)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if !admin {
+		writeResponse(w, http.StatusForbidden, "Admin required")
+		return
+	}
+
+	serverID := strings.TrimSpace(mux.Vars(r)["id"])
+	if serverID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		return
+	}
+
+	err = h.services.db.CancelFederationServerDisconnect(r.Context(), serverID)
+	switch {
+	case errors.Is(err, errFederationDisconnectNotRequested):
+		writeResponse(w, http.StatusConflict, "No disconnect request is pending for this server")
+	case err != nil:
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server disconnect cancel failed")
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+	default:
+		h.logFederationServerAsync(serverID, federationLogInfo,
+			fmt.Sprintf("Disconnect request cancelled by %s", caller))
+		writeResponse(w, http.StatusOK, map[string]string{"serverId": serverID, "status": "disconnect_cancelled"})
 	}
 }
 

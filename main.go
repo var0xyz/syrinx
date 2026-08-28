@@ -438,8 +438,14 @@ func main() {
 	api.HandleFunc("/federation/servers/{id}/attempt", h.GetFederationServerAttempt).Methods("GET")
 	api.HandleFunc("/federation/servers/{id}/attempt", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/servers/{id}/revoke", h.RevokeFederationServer).Methods("POST")
+	api.HandleFunc("/federation/servers/{id}/revoke", h.RequestFederationServerDisconnect).Methods("POST")
 	api.HandleFunc("/federation/servers/{id}/revoke", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/servers/{id}/revoke/confirm", h.ConfirmFederationServerDisconnect).Methods("POST")
+	api.HandleFunc("/federation/servers/{id}/revoke/confirm", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/servers/{id}/revoke/cancel", h.CancelFederationServerDisconnect).Methods("POST")
+	api.HandleFunc("/federation/servers/{id}/revoke/cancel", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/federation/servers/{id}/purge", h.PurgeFederationServer).Methods("POST")
 	api.HandleFunc("/federation/servers/{id}/purge", h.noop).Methods("OPTIONS")

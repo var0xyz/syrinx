@@ -115,12 +115,9 @@ func ensureTestSchema(db *sql.DB) error {
 		// identities is the FK target for "a user" (see db.go).
 		`CREATE TABLE identities (
 			id VARCHAR(255) PRIMARY KEY,
-			bare_user_id VARCHAR(255) NOT NULL,
 			server_id VARCHAR(16),
 			public_key_fingerprint VARCHAR(255),
-			verified BOOLEAN NOT NULL DEFAULT FALSE,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE (bare_user_id, server_id)
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -175,9 +172,9 @@ func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 	t.Helper()
 	identityID := string(identity.CanonicalID(testServerID, userID))
 	if _, err := db.Exec(`
-		INSERT INTO identities (id, bare_user_id, server_id, verified)
-		VALUES ($1, $2, $3, TRUE)
-	`, identityID, userID, testServerID); err != nil {
+		INSERT INTO identities (id, server_id)
+		VALUES ($1, $2)
+	`, identityID, testServerID); err != nil {
 		t.Fatalf("seed identities: %v", err)
 	}
 	var userSigID, serverSigID int64

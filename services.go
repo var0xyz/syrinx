@@ -518,13 +518,12 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	}
 
 	// identities.id for the new local user, minted here inside the signup
-	// transaction so it never exists half-committed. Local identities are
-	// always verified — no handshake needed to trust this server's own signup.
+	// transaction so it never exists half-committed.
 	selfIdentity := identity.CanonicalID(s.serverID, in.UserID)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO identities (id, bare_user_id, server_id, verified)
-		VALUES ($1, $2, $3, TRUE)
-	`, selfIdentity, in.UserID, s.serverID); err != nil {
+		INSERT INTO identities (id, server_id)
+		VALUES ($1, $2)
+	`, selfIdentity, s.serverID); err != nil {
 		return nil, err
 	}
 
@@ -1873,9 +1872,9 @@ func (s *DataService) insertReedCoreTx(
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO reeds (
 			id, user_id, private_key_fingerprint, signed_at,
-			user_signature_id, server_signature_id, allocation_count
+			user_signature_id, server_signature_id
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, 1)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, user_id, private_key_fingerprint, signed_at
 	`, p.ReedID, selfIdentity, p.ServerFingerprint, ts, userSigID, serverSigID).Scan(
 		&created.ID,
@@ -1987,10 +1986,10 @@ func (s *DataService) CreateReedWithEcho(
 	echoedAuthorID := echoTarget.CanonicalAuthorID()
 	if echoTarget.ServerID != s.serverID {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO identities (id, bare_user_id, server_id, verified)
-			VALUES ($1, $2, $3, FALSE)
+			INSERT INTO identities (id, server_id)
+			VALUES ($1, $2)
 			ON CONFLICT (id) DO NOTHING
-		`, echoedAuthorID, echoTarget.AuthorID, echoTarget.ServerID); err != nil {
+		`, echoedAuthorID, echoTarget.ServerID); err != nil {
 			return nil, false, fmt.Errorf("insert echo target author identity: %w", err)
 		}
 	}
@@ -2045,15 +2044,15 @@ func (s *DataService) InsertForeignEcho(ctx context.Context, echoingReedID, echo
 		return fmt.Errorf("insert echoing reed identity: %w", err)
 	}
 
-	echoingBareUserID, echoingIdentityServerID, ok := identity.ParseIdentityID(identity.IdentityID(echoingAuthorID))
+	_, echoingIdentityServerID, ok := identity.ParseIdentityID(identity.IdentityID(echoingAuthorID))
 	if !ok {
 		return fmt.Errorf("malformed echoing author id: %s", echoingAuthorID)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO identities (id, bare_user_id, server_id, verified)
-		VALUES ($1, $2, $3, FALSE)
+		INSERT INTO identities (id, server_id)
+		VALUES ($1, $2)
 		ON CONFLICT (id) DO NOTHING
-	`, echoingAuthorID, echoingBareUserID, echoingIdentityServerID); err != nil {
+	`, echoingAuthorID, echoingIdentityServerID); err != nil {
 		return fmt.Errorf("insert echoing author identity: %w", err)
 	}
 
@@ -2203,8 +2202,8 @@ func (s *DataService) ReedExists(ctx context.Context, reedID string) (bool, erro
 
 // MentionTargetValid reports whether userID exists, is not account-removed,
 // and serverID is a known row in servers — the gate for a mention to be
-// indexed. Checks `users`/`account_removals` directly rather than the
-// `verified_identities` view; revisit once foreign mentions are wired up.
+// indexed. Checks `users`/`account_removals` directly, so a foreign mention
+// target with no local `users` row is never valid yet.
 func (s *DataService) MentionTargetValid(ctx context.Context, userID, serverID string) (bool, error) {
 	targetIdentity := identity.CanonicalID(serverID, userID)
 	var exists bool
@@ -2788,10 +2787,10 @@ func (s *DataService) GetReedLike(ctx context.Context, likerID, reedID string) (
 	return cert, nil
 }
 
-// InsertReedLike stores a like cert once and bumps reeds.like_count in
-// the same TX. Same signatures → no-op (idempotent replay); different
-// signatures for the same (likerID, reedID) → ErrLikeConflict. likerID and
-// likerFingerprint key the reeds_liked row; cert.ReedID is canonical.
+// InsertReedLike stores a like cert once. Same signatures → no-op
+// (idempotent replay); different signatures for the same (likerID, reedID)
+// → ErrLikeConflict. likerID and likerFingerprint key the reeds_liked row;
+// cert.ReedID is canonical.
 func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerprint string, cert LikeCert) error {
 	cert.ServerSignature.SignedAt = cert.ServerSignature.SignedAt.UTC().Truncate(time.Second)
 	likerIdentity := identity.IdentityID(likerID)
@@ -2821,12 +2820,6 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 		`, likerIdentity, cert.ReedID, likerFingerprint, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert reed like: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE reeds SET like_count = like_count + 1
-			WHERE id = $1
-		`, cert.ReedID); err != nil {
-			return fmt.Errorf("bump like_count: %w", err)
-		}
 	case err != nil:
 		return err
 	default:
@@ -2842,20 +2835,13 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 	return tx.Commit()
 }
 
-// DeleteReedLike hard-deletes the like row for (likerID, reedID) if present
-// and decrements reeds.like_count in the same TX. Deleting a nonexistent
-// row is a no-op, returning deleted=false with no error. likerID arrives in
-// userID@serverID form already; reedID is canonical.
+// DeleteReedLike hard-deletes the like row for (likerID, reedID) if present.
+// Deleting a nonexistent row is a no-op, returning deleted=false with no
+// error. likerID arrives in userID@serverID form already; reedID is canonical.
 func (s *DataService) DeleteReedLike(ctx context.Context, likerID, reedID string) (deleted bool, err error) {
 	likerIdentity := identity.IdentityID(likerID)
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-
-	res, err := tx.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 		DELETE FROM reeds_liked
 		WHERE liker_user_id = $1 AND reed_id = $2
 	`, likerIdentity, reedID)
@@ -2866,31 +2852,15 @@ func (s *DataService) DeleteReedLike(ctx context.Context, likerID, reedID string
 	if err != nil {
 		return false, err
 	}
-	if n == 0 {
-		return false, tx.Commit()
-	}
-
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE reeds SET like_count = GREATEST(0, like_count - 1)
-		WHERE id = $1
-	`, reedID); err != nil {
-		return false, fmt.Errorf("decrement like_count: %w", err)
-	}
-
-	return true, tx.Commit()
+	return n > 0, nil
 }
 
-// CountLikes returns the current like count for a reed, read from the
-// denormalized reeds.like_count column (never COUNT(*) on a hot path).
-// reedID is canonical.
+// CountLikes returns the current like count for a reed. reedID is canonical.
 func (s *DataService) CountLikes(ctx context.Context, reedID string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
-		SELECT like_count FROM reeds WHERE id = $1
+		SELECT COUNT(*) FROM reeds_liked WHERE reed_id = $1
 	`, reedID).Scan(&count)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
 	return count, err
 }
 
@@ -3434,26 +3404,34 @@ type federationInvitation struct {
 // private_keys — see InitServerKey/GetServerSigningKeyArmor) or anywhere
 // else queryable today.
 type federationServerListRow struct {
-	ID                string
-	Name              string
-	BaseURL           string
-	Connected         bool
-	CreatedAt         time.Time
-	Revoked           bool
-	RevokedAt         *time.Time
-	RevokedBy         string
-	RevokedByUsername string
-	RevokedReason     string
+	ID                            string
+	Name                          string
+	BaseURL                       string
+	Connected                     bool
+	CreatedAt                     time.Time
+	Revoked                       bool
+	RevokedAt                     *time.Time
+	RevokedBy                     string
+	RevokedByUsername             string
+	RevokedReason                 string
+	DisconnectPending             bool
+	DisconnectRequestedAt         *time.Time
+	DisconnectRequestedBy         string
+	DisconnectRequestedByUsername string
+	DisconnectReason              string
 }
 
 // ListFederationServers returns all peer servers, revoked or not (self excluded).
 func (s *DataService) ListFederationServers(ctx context.Context) ([]federationServerListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT s.id, s.name, COALESCE(s.base_url, ''), s.connected, s.created_at,
-			s.revoked, s.revoked_at, COALESCE(s.revoked_by, ''), COALESCE(revoker.username, ''),
-			COALESCE(s.revoked_reason, '')
+			s.revoked_at, COALESCE(s.revoked_by, ''), COALESCE(revoker.username, ''),
+			COALESCE(s.revoked_reason, ''),
+			s.disconnect_requested_at, COALESCE(s.disconnect_requested_by, ''),
+			COALESCE(requester.username, ''), COALESCE(s.disconnect_reason, '')
 		FROM servers s
 		LEFT JOIN users revoker ON revoker.id = s.revoked_by
+		LEFT JOIN users requester ON requester.id = s.disconnect_requested_by
 		WHERE s.self = FALSE
 		ORDER BY s.created_at DESC
 	`)
@@ -3465,14 +3443,22 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 	var out []federationServerListRow
 	for rows.Next() {
 		var row federationServerListRow
-		var revokedAt sql.NullTime
+		var revokedAt, disconnectRequestedAt sql.NullTime
 		if err := rows.Scan(&row.ID, &row.Name, &row.BaseURL, &row.Connected, &row.CreatedAt,
-			&row.Revoked, &revokedAt, &row.RevokedBy, &row.RevokedByUsername, &row.RevokedReason); err != nil {
+			&revokedAt, &row.RevokedBy, &row.RevokedByUsername, &row.RevokedReason,
+			&disconnectRequestedAt, &row.DisconnectRequestedBy, &row.DisconnectRequestedByUsername,
+			&row.DisconnectReason); err != nil {
 			return nil, err
 		}
 		if revokedAt.Valid {
 			t := revokedAt.Time.UTC()
 			row.RevokedAt = &t
+			row.Revoked = true
+		}
+		if disconnectRequestedAt.Valid {
+			t := disconnectRequestedAt.Time.UTC()
+			row.DisconnectRequestedAt = &t
+			row.DisconnectPending = true
 		}
 		out = append(out, row)
 	}
@@ -3488,17 +3474,17 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 // distinguishing why (don't help an attacker enumerate which check failed).
 func (s *DataService) VerifyFederationPeer(ctx context.Context, serverID, fingerprint string) (ok bool, err error) {
 	var pinnedFingerprint sql.NullString
-	var revoked bool
+	var revokedAt sql.NullTime
 	err = s.db.QueryRowContext(ctx, `
-		SELECT fingerprint, revoked FROM servers WHERE id = $1 AND self = FALSE
-	`, serverID).Scan(&pinnedFingerprint, &revoked)
+		SELECT fingerprint, revoked_at FROM servers WHERE id = $1 AND self = FALSE
+	`, serverID).Scan(&pinnedFingerprint, &revokedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	if revoked || !pinnedFingerprint.Valid || pinnedFingerprint.String != fingerprint {
+	if revokedAt.Valid || !pinnedFingerprint.Valid || pinnedFingerprint.String != fingerprint {
 		return false, nil
 	}
 	return true, nil
@@ -3520,7 +3506,7 @@ type PeerServer struct {
 func (s *DataService) GetServerByID(ctx context.Context, serverID string) (*PeerServer, error) {
 	var peer PeerServer
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, base_url FROM servers WHERE id = $1 AND self = FALSE AND revoked = FALSE
+		SELECT id, base_url FROM servers WHERE id = $1 AND self = FALSE AND revoked_at IS NULL
 	`, serverID).Scan(&peer.ID, &peer.BaseURL)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -3557,7 +3543,7 @@ func (s *DataService) GetServerBaseURLAnyState(ctx context.Context, serverID str
 func (s *DataService) ListConnectedPeers(ctx context.Context) ([]PeerServer, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, base_url FROM servers
-		WHERE self = FALSE AND revoked = FALSE AND connected = TRUE
+		WHERE self = FALSE AND revoked_at IS NULL AND connected = TRUE
 		  AND base_url IS NOT NULL AND base_url != ''
 	`)
 	if err != nil {
@@ -3576,15 +3562,15 @@ func (s *DataService) ListConnectedPeers(ctx context.Context) ([]PeerServer, err
 	return peers, rows.Err()
 }
 
-// UpsertRemoteIdentity records a minimal, unverified identities row for a
-// foreign user after a successful proxied profile/info fetch, so a later
-// FollowUser has something to reference. Idempotent.
-func (s *DataService) UpsertRemoteIdentity(ctx context.Context, canonicalID, remoteUserID, remoteServerID string) error {
+// UpsertRemoteIdentity records a minimal identities row for a foreign user
+// after a successful proxied profile/info fetch, so a later FollowUser has
+// something to reference. Idempotent.
+func (s *DataService) UpsertRemoteIdentity(ctx context.Context, canonicalID, remoteServerID string) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO identities (id, bare_user_id, server_id, verified)
-		VALUES ($1, $2, $3, FALSE)
+		INSERT INTO identities (id, server_id)
+		VALUES ($1, $2)
 		ON CONFLICT (id) DO NOTHING
-	`, canonicalID, remoteUserID, remoteServerID)
+	`, canonicalID, remoteServerID)
 	return err
 }
 
@@ -3613,7 +3599,7 @@ func (s *DataService) UpsertReedIdentity(ctx context.Context, reedID string) err
 // calling this — it trusts everything passed in. Idempotent: a second
 // fetch of the same key (e.g. a racing concurrent like) is a harmless
 // no-op, matching UpsertRemoteIdentity's own ON CONFLICT DO NOTHING bar.
-func (s *DataService) CachePeerUserKey(ctx context.Context, keyID, ownerCanonicalID, ownerUserID, ownerServerID, armor string, serverSig ServerSignature) error {
+func (s *DataService) CachePeerUserKey(ctx context.Context, keyID, ownerCanonicalID, ownerServerID, armor string, serverSig ServerSignature) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -3621,10 +3607,10 @@ func (s *DataService) CachePeerUserKey(ctx context.Context, keyID, ownerCanonica
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO identities (id, bare_user_id, server_id, verified)
-		VALUES ($1, $2, $3, FALSE)
+		INSERT INTO identities (id, server_id)
+		VALUES ($1, $2)
 		ON CONFLICT (id) DO NOTHING
-	`, ownerCanonicalID, ownerUserID, ownerServerID); err != nil {
+	`, ownerCanonicalID, ownerServerID); err != nil {
 		return err
 	}
 
@@ -3672,6 +3658,23 @@ var errFederationServerAlreadyRevoked = errors.New("federation server already re
 // errFederationServerNotRevoked is returned by PurgeFederationServer when
 // the peer hasn't been revoked yet — a purge must be preceded by revoke.
 var errFederationServerNotRevoked = errors.New("federation server must be disconnected before it can be deleted")
+
+// errFederationSameApprover is returned by ApproveFederationAttempt when
+// the approving admin is the same one who created the invitation, and by
+// ConfirmFederationServerDisconnect when the confirming admin is the same
+// one who requested the disconnect — a second, different admin must act.
+// Root is exempt from both checks.
+var errFederationSameApprover = errors.New("a different admin must approve this")
+
+// errFederationDisconnectAlreadyRequested is returned by
+// RequestFederationServerDisconnect when a disconnect request is already
+// pending for this peer.
+var errFederationDisconnectAlreadyRequested = errors.New("disconnect already requested for this server")
+
+// errFederationDisconnectNotRequested is returned by
+// ConfirmFederationServerDisconnect when no disconnect request is pending
+// for this peer.
+var errFederationDisconnectNotRequested = errors.New("no disconnect request is pending for this server")
 
 type federationAttemptRow struct {
 	ID                 string
@@ -3782,7 +3785,11 @@ func (s *DataService) GetFederationAttempt(ctx context.Context, attemptID string
 // connected=FALSE), backfills federation_attempt.server_id and, if this
 // attempt has a local invitation (initiator side), federation_invitation's
 // server_id and status too.
-func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, approvedBy string, approvedAt time.Time) error {
+// isApproverRoot lets a caller with the root role bypass the "different
+// admin" checks below — root approving/confirming its own action is
+// intentional (see roles.IsRoot: a single-operator server has no second
+// admin to ask).
+func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, approvedBy string, approvedAt time.Time, callerIsRoot bool) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -3792,7 +3799,8 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 	var remoteServerID, remoteServerName, baseURL, fingerprint, invitationID string
 	var status string
 	if err := tx.QueryRowContext(ctx, `
-		SELECT remote_server_id, remote_server_name, base_url, fingerprint, COALESCE(invitation_id, ''), status
+		SELECT remote_server_id, remote_server_name, base_url, fingerprint,
+			COALESCE(invitation_id, ''), status
 		FROM federation_attempt WHERE id = $1 FOR UPDATE
 	`, attemptID).Scan(&remoteServerID, &remoteServerName, &baseURL, &fingerprint, &invitationID, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -3802,6 +3810,21 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 	}
 	if status != "pending" {
 		return errFederationAttemptNotPending
+	}
+	// Only the initiator side has a local federation_invitation row (and
+	// thus a created_by to compare against) — the responder side, which
+	// redeemed someone else's connection string, has no local "creator" to
+	// restrict against, so any local admin may approve it.
+	if !callerIsRoot && invitationID != "" {
+		var invitationCreatedBy string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT created_by FROM federation_invitation WHERE id = $1
+		`, invitationID).Scan(&invitationCreatedBy); err != nil {
+			return err
+		}
+		if invitationCreatedBy == approvedBy {
+			return errFederationSameApprover
+		}
 	}
 
 	// fingerprint pins the trust root for peer-authenticated runtime
@@ -3813,7 +3836,8 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 		INSERT INTO servers (id, name, self, base_url, connected, fingerprint, created_at)
 		VALUES ($1, $2, FALSE, $3, TRUE, $4, $5)
 		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, name = EXCLUDED.name,
-			connected = TRUE, fingerprint = EXCLUDED.fingerprint, revoked = FALSE
+			connected = TRUE, fingerprint = EXCLUDED.fingerprint,
+			revoked_at = NULL, revoked_by = NULL, revoked_reason = NULL
 	`, remoteServerID, remoteServerName, baseURL, fingerprint, approvedAt.UTC()); err != nil {
 		return fmt.Errorf("insert federation peer: %w", err)
 	}
@@ -3843,11 +3867,16 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 // requests from it get rejected and outbound calls are never made,
 // though the row (and its audit trail) stays. revokedBy is nil when the
 // peer itself notified us it disconnected first — no local admin acted.
+// Also clears any pending disconnect-request staging, so a peer-initiated
+// or root-finalized revoke doesn't leave a stale "pending disconnect" on
+// the row. Called directly (bypassing the request/confirm staging below)
+// by the peer-notify path and by ConfirmFederationServerDisconnect.
 func (s *DataService) RevokeFederationServer(ctx context.Context, serverID string, revokedBy *string, reason string, revokedAt time.Time) error {
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE servers
-		SET revoked = TRUE, revoked_at = $2, revoked_by = $3, revoked_reason = $4
-		WHERE id = $1 AND self = FALSE AND revoked = FALSE
+		SET revoked_at = $2, revoked_by = $3, revoked_reason = $4,
+			disconnect_requested_at = NULL, disconnect_requested_by = NULL, disconnect_reason = NULL
+		WHERE id = $1 AND self = FALSE AND revoked_at IS NULL
 	`, serverID, revokedAt.UTC(), revokedBy, reason)
 	if err != nil {
 		return err
@@ -3871,6 +3900,94 @@ func (s *DataService) RevokeFederationServer(ctx context.Context, serverID strin
 	return nil
 }
 
+// RequestFederationServerDisconnect stages a disconnect: it does not touch
+// revoked_at, so the peer stays trusted/connected until a second, different
+// admin calls ConfirmFederationServerDisconnect. Root may confirm its own
+// request (see ConfirmFederationServerDisconnect), but the request itself
+// is the same for every role.
+func (s *DataService) RequestFederationServerDisconnect(ctx context.Context, serverID, requestedBy, reason string, requestedAt time.Time) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE servers
+		SET disconnect_requested_at = $2, disconnect_requested_by = $3, disconnect_reason = $4
+		WHERE id = $1 AND self = FALSE AND revoked_at IS NULL AND disconnect_requested_at IS NULL
+	`, serverID, requestedAt.UTC(), requestedBy, reason)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		var revoked, pending bool
+		if err := s.db.QueryRowContext(ctx, `
+			SELECT revoked_at IS NOT NULL, disconnect_requested_at IS NOT NULL
+			FROM servers WHERE id = $1 AND self = FALSE
+		`, serverID).Scan(&revoked, &pending); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return errFederationServerNotFound
+			}
+			return err
+		}
+		if revoked {
+			return errFederationServerAlreadyRevoked
+		}
+		return errFederationDisconnectAlreadyRequested
+	}
+	return nil
+}
+
+// ConfirmFederationServerDisconnect finalizes a staged disconnect request,
+// requiring confirmedBy to differ from whoever requested it (root exempt —
+// see ApproveFederationAttempt's identical reasoning). The staged reason is
+// what's recorded as the revocation's reason (and returned, so the caller
+// can pass the same text on to the peer-disconnect notification);
+// confirmedBy becomes revoked_by.
+func (s *DataService) ConfirmFederationServerDisconnect(ctx context.Context, serverID, confirmedBy string, confirmedAt time.Time, callerIsRoot bool) (reason string, err error) {
+	var requestedBy string
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(disconnect_requested_by, ''), COALESCE(disconnect_reason, '')
+		FROM servers WHERE id = $1 AND self = FALSE
+	`, serverID).Scan(&requestedBy, &reason); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", errFederationServerNotFound
+		}
+		return "", err
+	}
+	if requestedBy == "" {
+		return "", errFederationDisconnectNotRequested
+	}
+	if !callerIsRoot && requestedBy == confirmedBy {
+		return "", errFederationSameApprover
+	}
+	if err := s.RevokeFederationServer(ctx, serverID, &confirmedBy, reason, confirmedAt); err != nil {
+		return "", err
+	}
+	return reason, nil
+}
+
+// CancelFederationServerDisconnect clears a staged disconnect request
+// without revoking anything — lets an admin back out before a second admin
+// confirms.
+func (s *DataService) CancelFederationServerDisconnect(ctx context.Context, serverID string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE servers
+		SET disconnect_requested_at = NULL, disconnect_requested_by = NULL, disconnect_reason = NULL
+		WHERE id = $1 AND self = FALSE AND disconnect_requested_at IS NOT NULL
+	`, serverID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return errFederationDisconnectNotRequested
+	}
+	return nil
+}
+
 // PurgeFederationServer permanently deletes a revoked peer's row and
 // every identity/reed it owns — everything cascades from
 // reed_identities/identities, which cascade from servers itself.
@@ -3884,16 +4001,16 @@ func (s *DataService) PurgeFederationServer(ctx context.Context, serverID string
 	}
 	defer tx.Rollback()
 
-	var revoked bool
+	var revokedAt sql.NullTime
 	if err := tx.QueryRowContext(ctx, `
-		SELECT revoked FROM servers WHERE id = $1 AND self = FALSE FOR UPDATE
-	`, serverID).Scan(&revoked); err != nil {
+		SELECT revoked_at FROM servers WHERE id = $1 AND self = FALSE FOR UPDATE
+	`, serverID).Scan(&revokedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return errFederationServerNotFound
 		}
 		return err
 	}
-	if !revoked {
+	if !revokedAt.Valid {
 		return errFederationServerNotRevoked
 	}
 

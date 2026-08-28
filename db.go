@@ -19,12 +19,8 @@ type Server struct {
 }
 
 // User is the wire shape of a signed identity record (GET /users/{id}/profile).
-//
-// Layout: user-authored fields live at the root; attestations nest under
+// User-authored fields live at the root; attestations nest under
 // `userSignature` and `serverSignature`.
-//
-// Mutable / unsigned hints (hasReeds, follow counts, activeKeyFingerprint)
-// live on UserInfo (GET /users/{id}/info), not here.
 type User struct {
 	ID              string          `json:"id"`
 	Username        string          `json:"username"`
@@ -38,8 +34,7 @@ type User struct {
 
 // UserInfo is the unsigned, frequently changing view of a user
 // (GET /users/{id}/info). ProfileTimestamp matches the user's current
-// profile serverSignature.timestamp so clients can invalidate a cached
-// signed profile.
+// profile serverSignature.timestamp so clients can invalidate a cached profile.
 type UserInfo struct {
 	ID                   string    `json:"id"`
 	HasReeds             bool      `json:"hasReeds"`
@@ -72,22 +67,15 @@ type ServerSignature struct {
 }
 
 // KeyPredecessor identifies the key this one replaced (rotation only).
-// The predecessor's detached signature over this key's armor — proof the
-// old key approved the handoff — is NOT here: that's revocation-certificate
-// data, it lives on the predecessor's own KeyRevocation.SuccessorSignature.
+// The predecessor's detached signature over this key's armor lives on
+// the predecessor's own KeyRevocation.SuccessorSignature instead.
 type KeyPredecessor struct {
 	ID string `json:"id"`
 }
 
 // Key is the wire shape of a public key — a local user's or this server's
-// own (peer servers' keys are never stored; every foreign id proxies live
-// to that peer instead, see main.go's GET /keys/{id}).
-// `ServerSignature` is required: the countersignature over
-// (userID, id, armor). `Revoked` is computed on read from
-// public_key_revocations — never stored on public_keys.
-//
-// `Predecessor` is set for rotation keys only; signup/bootstrap keys
-// return null.
+// own (peer servers' keys are never stored; foreign ids proxy live instead).
+// Revoked is computed on read; Predecessor is set for rotation keys only.
 type Key struct {
 	ID              string          `json:"id"`
 	UserID          string          `json:"userID"`
@@ -99,12 +87,8 @@ type Key struct {
 }
 
 // ServerSigningKey is the server's own active signing key, held in memory
-// for use by countersign operations (h.signingKey) — never serialized as
-// wire JSON itself, so it's a dedicated internal type rather than reusing
-// Key: Fingerprint here is deliberately the bare fingerprint (what every
-// ServerSignature.Fingerprint / X-Syrinx-* header wants), not a Key.ID
-// canonical public_keys row id. Armor is the DECRYPTED PRIVATE key armor
-// (used to produce signatures), never exposed over the wire.
+// for countersign operations — never serialized as wire JSON. Armor is the
+// DECRYPTED PRIVATE key armor, never exposed over the wire.
 type ServerSigningKey struct {
 	Fingerprint string
 	Armor       string
@@ -112,19 +96,8 @@ type ServerSigningKey struct {
 }
 
 // KeyRevocation is the wire shape of a signed revocation attestation.
-// ID is the revoked key's own id (public_key_revocations.revoked_id is
-// both this cert's primary key and its FK to public_keys.id — a key can
-// only be revoked once, so the two roles collapse onto one column/field).
-// The user signature covers (userID, id, reason); the server
-// countersignature binds that user attestation and supplies the
-// authoritative revoke time as serverSignature.timestamp.
-//
-// Successor and SuccessorSignature are bookkeeping written later by
-// AddPublicKey when the replacement key is uploaded — both are unknown at
-// revoke time, so both are nil until then. SuccessorSignature is the
-// revoked key's own detached signature over the successor's armor (the
-// rotation handoff proof); it and Successor are covered by neither the
-// user nor the server signature on this cert.
+// The user signature covers (userID, id, reason); the server countersignature
+// supplies the revoke time. Successor fields are nil until a replacement key is uploaded.
 type KeyRevocation struct {
 	ID                 string          `json:"id"`
 	UserID             string          `json:"userID"`
@@ -165,9 +138,8 @@ type AccountRemoval struct {
 }
 
 // LikeCert is both the stored and wire shape of a signed reed-like
-// certificate, returned only from POST .../like. Each field was actually
-// signed by the liker's key and countersigned by the server; the liker
-// is always the authenticated caller.
+// certificate, returned only from POST .../like. The liker is always
+// the authenticated caller.
 type LikeCert struct {
 	ServerID        string          `json:"serverID"`
 	AuthorID        string          `json:"authorID"`
@@ -193,22 +165,9 @@ func InitDB(db *sql.DB) error {
 	// /////// //
 	//   API   //
 	// /////// //
-	// base_url/connected/fingerprint/revoked are federation fields: unset/
-	// false on the self row. A federated peer row is written ONLY by
-	// ApproveFederationAttempt (see services.go) — the handshake itself
-	// lives entirely on federation_attempt until a second admin approves;
-	// see specs/federation/03. fingerprint is the peer's pinned server
-	// signing key fingerprint from that approved attempt — the trust root
-	// for verifying peer-authenticated runtime requests (specs/federation/04).
-	// Its armor is NEVER stored locally: every fetch of a peer's key (or
-	// any of that peer's users' keys, or profile) proxies live to base_url
-	// and relays the response — see main.go's GET /keys/{id} route and
-	// handlers.go's proxyToPeer. public_keys only ever holds LOCAL keys
-	// (this server's own + its local users').
-	// revoked means this peer has been disconnected: incoming requests
-	// from it are rejected and outbound calls to it are never made, even
-	// though the row (and its audit trail) stays. revoked_by is nullable
-	// for a peer-initiated disconnect notify, where no local admin acted.
+	// base_url/connected/fingerprint/revoked are federation fields, unset on
+	// the self row. fingerprint is the peer's pinned signing key fingerprint —
+	// its armor is NEVER stored locally; every key/profile fetch proxies live.
 	createServersTable := `
 	CREATE TABLE IF NOT EXISTS servers (
 		id VARCHAR(16) UNIQUE,
@@ -220,15 +179,16 @@ func InitDB(db *sql.DB) error {
 		base_url TEXT,
 		connected BOOLEAN NOT NULL DEFAULT FALSE,
 		fingerprint VARCHAR(255),
-		revoked BOOLEAN NOT NULL DEFAULT FALSE,
 		revoked_at TIMESTAMP,
 		revoked_by VARCHAR(255),
-		revoked_reason TEXT
+		revoked_reason TEXT,
+		disconnect_requested_at TIMESTAMP,
+		disconnect_requested_by VARCHAR(255),
+		disconnect_reason TEXT
 	);`
 
-	// Normalized attestation rows (signatures proposal 01). Entities will
-	// FK here in later migrate steps; public_key_id is not FK'd to
-	// public_keys (historical / rotated keys — a signature can reference a
+	// Normalized attestation rows. public_key_id is not FK'd to public_keys
+	// (historical / rotated keys — a signature can reference a
 	// since-superseded key id).
 	createUserSignaturesTable := `
 	CREATE TABLE IF NOT EXISTS user_signatures (
@@ -246,18 +206,13 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// identities is the FK target for "a user," local or federated. id is
-	// always "{userID}@{serverID}"; verified is a durability flag, not a
-	// revocation check — read paths should query verified_identities (below).
+	// always "{userID}@{serverID}".
 	createIdentitiesTable := `
 	CREATE TABLE IF NOT EXISTS identities (
 		id VARCHAR(255) PRIMARY KEY,
-		bare_user_id VARCHAR(255) NOT NULL,
 		server_id VARCHAR(16) REFERENCES servers(id) ON DELETE CASCADE,
 		public_key_fingerprint VARCHAR(255),
-		verified BOOLEAN NOT NULL DEFAULT FALSE,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-		UNIQUE (bare_user_id, server_id)
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	createIdentitiesIndexes := `
@@ -265,10 +220,9 @@ func InitDB(db *sql.DB) error {
 		ON identities(server_id);
 	`
 
-	// users is now a satellite of identities — profile fields only. id IS
-	// identities.id: "{userID}@{serverID}" directly, no separate bare column.
-	// user_fingerprint is the denormalized active-key hint (updated on key
-	// rotation); the signing key lives on user_signatures via user_signature_id.
+	// users is a satellite of identities — profile fields only. id IS
+	// identities.id directly. user_fingerprint is the denormalized
+	// active-key hint; the signing key lives on user_signatures.
 	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
 		id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -288,22 +242,6 @@ func InitDB(db *sql.DB) error {
 		ON users(LOWER(username));
 	`
 
-	// verified_identities is the single safe-to-display/safe-to-trust
-	// surface. This view is equivalent to "local OR identities.verified" —
-	// it does NOT exclude a revoked peer (s.revoked = TRUE), because
-	// nothing in the codebase ever sets that column true today (see
-	// specs/federation/05_revoke_established.md's status note: the check
-	// exists everywhere else, but there's no revoke action at all yet).
-	// Add "AND s.revoked = FALSE" to the WHERE clause once that ships.
-	createVerifiedIdentitiesView := `
-	CREATE OR REPLACE VIEW verified_identities AS
-	SELECT i.*
-	FROM identities i
-	JOIN servers s ON s.id = i.server_id
-	WHERE s.self = TRUE
-	   OR i.verified = TRUE;
-	`
-
 	// Server-owned private keys. Unaffected by the public_keys unification
 	// below — private key material never leaves this table, regardless of
 	// whose key it is (a user's private key never touches the server at all).
@@ -317,32 +255,8 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// Unified public key storage — every key this server holds the public
-	// half of, whether a user's or this server's own. id is canonical:
-	// "{userID}@{serverID}/{fingerprint}" for a user key,
-	// "{fingerprint}@{serverID}" for this server's own signing key.
-	// Peer (non-self) servers' keys are NEVER stored here — every request
-	// for a foreign id is proxied live to that peer (see main.go's /keys
-	// route and handlers.go's proxyToPeer), so this table only ever holds
-	// local users' keys plus this server's own.
-	//
-	// owner is a real FK to identities for local users; NULL for this
-	// server's own key (no identities row) and for remote/federated users'
-	// keys (no local identities row to reference) — the canonical id itself
-	// remains the source of truth for ownership either way (recover it via
-	// identity.ParseKeyFingerprint).
-	//
-	// server_signature_id is NOT NULL and UNIQUE: every key carries exactly
-	// one countersignature, including this server's own key, which is
-	// countersigned by itself at boot (see InitServerKey) — redundant for
-	// that one row, but keeps every row in this table uniformly verifiable
-	// the same way, no special-casing in read paths.
-	//
-	// predecessor_id points at the key this one replaced (rotation only,
-	// NULL for a signup/bootstrap key). The predecessor's SIGNATURE over
-	// this row's armor — proof the old key approved the handoff — lives on
-	// the predecessor's OWN revocation row (successor_signature_id in
-	// public_key_revocations below), not here: that's revocation-certificate
-	// data, not a property of the new key itself.
+	// half of. owner FKs to identities for local users, NULL otherwise.
+	// predecessor_id points at the key this one replaced (rotation only).
 	createPublicKeysTable := `
 	CREATE TABLE IF NOT EXISTS public_keys (
 		id VARCHAR(255) PRIMARY KEY,
@@ -358,19 +272,9 @@ func InitDB(db *sql.DB) error {
 		ON public_keys(owner) WHERE owner IS NOT NULL;
 	`
 
-	// Revocation attestation for a public key. A row's existence means the
-	// key is revoked. revoked_id identifies which key (PK + FK to
-	// public_keys, canonical + self-scoping). user_signature_id signs the
-	// certificate itself (revoked_id + reason); server_signature_id
-	// countersigns it; revoke time is server_signatures.signed_at.
-	//
-	// successor and successor_signature_id are both written later, when the
-	// replacement key is uploaded via AddPublicKey (the client revokes
-	// first and adds the new key second, so at RevokeKey time neither is
-	// known yet): successor is the plain forward pointer to the new key;
-	// successor_signature_id is this (the OLD, revoked) key's detached
-	// signature over the NEW key's armor — the rotation handoff proof a
-	// verifier walks back through when following a predecessor_id chain.
+	// A row's existence means the key is revoked. successor and
+	// successor_signature_id are written later, once a replacement key is
+	// uploaded — the latter is the OLD key's signature over the new one.
 	createPublicKeyRevocationsTable := `
 	CREATE TABLE IF NOT EXISTS public_key_revocations (
 		revoked_id VARCHAR(255) PRIMARY KEY
@@ -383,17 +287,8 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// reed_identities is to reeds what identities is to users: a thin
-	// pointer row (canonical id + home server) that other tables can
-	// reference regardless of whether this server has ever signed the
-	// reed's actual content. A row exists here for every LOCAL reed (see
-	// createReedsTable's FK below) and for every FOREIGN reed this server
-	// has learned about via the cross-server relay bridge (REQUEST_REED/
-	// SUBSCRIBE_PROFILE — see realtime/service.go). Whether a given id is
-	// local is answered by checking for a matching reeds row (same
-	// pattern ReedExists already uses), not a separate column here —
-	// reeds.id and reed_identities.id are the same value for local
-	// content, so a redundant link column could only ever disagree with
-	// the join, never add information.
+	// pointer row other tables reference whether or not this server holds
+	// the reed's actual content (local, or foreign learned via relay).
 	createReedIdentitiesTable := `
 	CREATE TABLE IF NOT EXISTS reed_identities (
 		id VARCHAR(255) PRIMARY KEY,
@@ -406,13 +301,9 @@ func InitDB(db *sql.DB) error {
 		ON reed_identities(server_id);
 	`
 
-	// Tip reed metadata. private_key_fingerprint is the server key used
-	// for the countersignature. user_signature_id / server_signature_id
-	// store the attestations so SignReed retries can return the same
-	// countersignature (idempotent). id FKs to reed_identities the same
-	// way users.id FKs to identities — reeds is always the local-only,
-	// heavyweight satellite; reed_identities is the reference layer other
-	// tables should point at when the reed itself might be foreign.
+	// Tip reed metadata. Signature ids store the attestations so SignReed
+	// retries can return the same countersignature (idempotent). reeds is
+	// always the local-only satellite of reed_identities.
 	createReedsTable := `
 	CREATE TABLE IF NOT EXISTS reeds (
 		id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
@@ -420,9 +311,7 @@ func InitDB(db *sql.DB) error {
 		private_key_fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
 		signed_at TIMESTAMP NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-		allocation_count INT NOT NULL DEFAULT 0,
-		like_count INT NOT NULL DEFAULT 0
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
 
 	createReedIndexes := `
@@ -432,38 +321,17 @@ func InitDB(db *sql.DB) error {
 		ON reeds(signed_at);
 	`
 
-	// echoing_* is the reed that does the echo
-	// echoed_* is the reed it points at.
-	// is_blank: the echoing reed carried no commentary (a bare re-share) —
-	// same "blank echo" concept as the client's isBlankEcho/
-	// resolveBlankEchoChain. The server never stores reed content, so this
-	// is captured once at insert time (SignReed has contentBody in scope) —
-	// it's what lets SignReed reject a reply/echo aimed at a blank echo
-	// instead of the underlying original, without having to store or
-	// re-derive content.
-	// echoing_author_id/echoed_author_id are the canonical userID@serverID
-	// of the echoing reed's author and the echoed reed's author, stored
-	// directly at insert time — echoing_reed_id/echoed_reed_id are reed
-	// ids, not user ids, and either side may be foreign to whichever
-	// server stores a given row (this server's own echo of a foreign
-	// target, or a foreign echo of one of this server's own reeds relayed
-	// in via the echo-notify peer leg), so the identity is never
-	// re-derived by parsing or by joining reeds, which only ever holds a
-	// LOCAL row. Both reed columns FK to reed_identities for the same
-	// reason — echoing_reed_id is not guaranteed local once a peer can
-	// notify this server of its own echo.
+	// echoing_* is the reed doing the echo; echoed_* is the reed it points at.
+	// is_blank marks a bare re-share, captured once at insert since the server never stores content.
+	// Author ids are stored directly since either side may be foreign to this server.
 	createReedEchoesTable := `
 	CREATE TABLE IF NOT EXISTS reed_echoes (
-		echoing_reed_id VARCHAR(255) NOT NULL,
-		echoed_reed_id VARCHAR(255) NOT NULL,
+		echoing_reed_id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
+		echoed_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		echoing_author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		echoed_author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		is_blank BOOLEAN NOT NULL DEFAULT FALSE,
-		signed_at TIMESTAMP NOT NULL,
-
-		PRIMARY KEY (echoing_reed_id),
-		FOREIGN KEY (echoing_reed_id) REFERENCES reed_identities(id) ON DELETE CASCADE,
-		FOREIGN KEY (echoed_reed_id) REFERENCES reed_identities(id) ON DELETE CASCADE
+		signed_at TIMESTAMP NOT NULL
 	);`
 
 	createReedEchoesIndexes := `
@@ -471,21 +339,15 @@ func InitDB(db *sql.DB) error {
 		ON reed_echoes (echoed_reed_id, signed_at);
 	`
 
-	// id is the root reed ref (user@server/reed); one row per thread (created on first reply).
-	// reed_id FKs to reed_identities, not reeds directly — a reply to one
-	// of THIS server's reeds may itself be authored on a peer (the reply's
-	// home server relays us a reference, not the content, so we can index
-	// it for stats/thread-listing without holding a copy).
+	// id is the root reed ref; one row per thread, created on first reply.
+	// reed_id FKs to reed_identities, not reeds directly, since a reply's
+	// home server may relay just a reference rather than the content itself.
 	createReedRepliesTable := `
 	CREATE TABLE IF NOT EXISTS reed_replies (
 		thread_id VARCHAR(255) NOT NULL,
-		reed_id VARCHAR(255) NOT NULL,
-		parent_reed_id VARCHAR(255) NOT NULL,
-		timestamp TIMESTAMP NOT NULL,
-
-		PRIMARY KEY (reed_id),
-		FOREIGN KEY (reed_id) REFERENCES reed_identities(id) ON DELETE CASCADE,
-		FOREIGN KEY (parent_reed_id) REFERENCES reed_identities(id) ON DELETE CASCADE
+		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
+		parent_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+		timestamp TIMESTAMP NOT NULL
 	);`
 
 	createReedRepliesIndexes := `
@@ -496,16 +358,9 @@ func InitDB(db *sql.DB) error {
 		ON reed_replies (thread_id, timestamp);
 	`
 
-	// One row per (reed, mentioned user). mentioning_reed_id = reed that
-	// contains the @ — FKs to reed_identities, not reeds directly, since a
-	// FOREIGN reed (authored on a peer) can mention a local user; this
-	// server needs a row to represent that once cross-server mention
-	// notification exists (mentioning_reed_id may not be one of this
-	// server's own reeds). mentioned_user_id FKs to identities(id), which
-	// can hold a provisional remote identity, and already carries the
-	// mentioned server in its own canonical userID@serverID form — no
-	// separate mentioned_server_id column needed, it was always
-	// redundant with that.
+	// One row per (reed, mentioned user). mentioning_reed_id FKs to
+	// reed_identities, not reeds, since a foreign reed can mention a local
+	// user. mentioned_user_id already carries the server in its canonical form, so no separate mentioned_server_id column is needed.
 	createReedMentionsTable := `
 	CREATE TABLE IF NOT EXISTS reed_mentions (
 		mentioning_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
@@ -522,11 +377,9 @@ func InitDB(db *sql.DB) error {
 		ON reed_mentions (mentioning_reed_id);
 	`
 
-	// Signed reed-removal certificates. Source of truth for “gone”; no FK to
+	// Signed reed-removal certificates. Source of truth for "gone"; no FK to
 	// reeds(id) so the live row may be dropped after the cert is stored.
 	// PK is reed_id, which embeds the author — no separate user_id column.
-	// public_key_id binds the signing key (canonical, self-scoping —
-	// single-column FK to public_keys); signatures via FKs.
 	createReedRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS reed_removals (
 		reed_id VARCHAR(255) PRIMARY KEY,
@@ -550,22 +403,17 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// Signed like certificates, one row per currently-liked (liker, reed)
-	// pair; unliking hard-deletes the row. liker_public_key_id binds the
-	// signing key (same class as reed removals). reed_id FKs to
-	// reed_identities, not reeds, so a local user's like on a FOREIGN
-	// reed has a row to represent it here too (the home server verifies
-	// and countersigns the like; this server mirrors it locally once
-	// that's confirmed).
+	// pair; unliking hard-deletes the row. reed_id FKs to reed_identities,
+	// not reeds, so a local user's like on a FOREIGN reed is represented here too.
 	createReedsLikedTable := `
 	CREATE TABLE IF NOT EXISTS reeds_liked (
 		liker_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		reed_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		liker_public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
-		PRIMARY KEY (liker_user_id, reed_id),
-		FOREIGN KEY (reed_id) REFERENCES reed_identities(id) ON DELETE CASCADE
+		PRIMARY KEY (liker_user_id, reed_id)
 	);`
 
 	createReedsLikedIndexes := `
@@ -581,11 +429,8 @@ func InitDB(db *sql.DB) error {
 
 	createRipplesTable := `
 	CREATE TABLE IF NOT EXISTS ripples (
-		reed_id VARCHAR(255) PRIMARY KEY,
-		expires_at TIMESTAMP NOT NULL,
-
-		FOREIGN KEY (reed_id) REFERENCES reeds(id)
-			ON DELETE CASCADE
+		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reeds(id) ON DELETE CASCADE,
+		expires_at TIMESTAMP NOT NULL
 	);`
 
 	createRipplesIndexes := `
@@ -596,7 +441,7 @@ func InitDB(db *sql.DB) error {
 	createRippleResponsesTable := `
 	CREATE TABLE IF NOT EXISTS ripple_responses (
 		id VARCHAR(64) PRIMARY KEY,
-		reed_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL REFERENCES ripples(reed_id) ON DELETE CASCADE,
 		thread_id UUID NOT NULL,
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		content VARCHAR(140) NOT NULL,
@@ -606,10 +451,7 @@ func InitDB(db *sql.DB) error {
 
 		user_fingerprint VARCHAR(255) NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-
-		FOREIGN KEY (reed_id) REFERENCES ripples(reed_id)
-			ON DELETE CASCADE
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
 
 	createRippleResponsesIndexes := `
@@ -679,20 +521,15 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// holder_user_id is who holds the reed — always a genuine LOCAL user
-	// (FKs to users, not identities): a foreign/sentinel identity never
-	// belongs here, see reed_server_allocations below for that. reed_id
-	// FKs to reed_identities (not reeds directly) since a local user can
-	// be caching a FOREIGN reed's verified content — this is the original
-	// motivating case for reed_identities existing at all.
+	// (FKs to users, not identities). reed_id FKs to reed_identities since
+	// a local user can be caching a FOREIGN reed's verified content.
 	createReedAllocationsTable := `
 	CREATE TABLE IF NOT EXISTS reed_allocations (
-		reed_id VARCHAR(255) NOT NULL,
+		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		holder_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-		PRIMARY KEY (holder_user_id, reed_id),
-		FOREIGN KEY (reed_id)
-			REFERENCES reed_identities(id) ON DELETE CASCADE
+		PRIMARY KEY (holder_user_id, reed_id)
 	);`
 
 	// Lookups by reed use reed_id; holder is in the PK.
@@ -701,12 +538,9 @@ func InitDB(db *sql.DB) error {
 		ON reed_allocations(reed_id);
 	`
 
-	// reed_server_allocations records that a PEER SERVER (not a specific
-	// user) has told us, via direct federation notification, that one of
-	// its own users holds a verified copy of reed_id. This is the fallback
-	// target when no local holder is online for a reed we're home to — we
-	// always delegate to the peer server as a whole, never address a
-	// specific foreign user, so there's no user/identity indirection here.
+	// Records that a PEER SERVER (not a specific user) has told us one of
+	// its own users holds a verified copy of reed_id — the fallback target
+	// when no local holder is online for a reed we're home to.
 	createReedServerAllocationsTable := `
 	CREATE TABLE IF NOT EXISTS reed_server_allocations (
 		reed_id VARCHAR(255) NOT NULL
@@ -726,12 +560,8 @@ func InitDB(db *sql.DB) error {
 	// fanout at PUBLISH_READY (pipes 01). Empty until claim deletes the row.
 	createPendingFanoutTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_fanout (
-		reed_id VARCHAR(255) NOT NULL,
-		tags    TEXT[] NOT NULL DEFAULT '{}',
-
-		PRIMARY KEY (reed_id),
-		FOREIGN KEY (reed_id)
-			REFERENCES reeds(id) ON DELETE CASCADE
+		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reeds(id) ON DELETE CASCADE,
+		tags TEXT[] NOT NULL DEFAULT '{}'
 	);`
 
 	createNetworkStatsTable := `
@@ -764,18 +594,13 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// reed_id FKs to reed_identities, not reeds directly — a pending event
-	// can be about a FOREIGN reed (a viewer on this server relaying
-	// content from a peer's author), so this table now uniformly
-	// represents both local and foreign subjects the same way. This is
-	// what let foreign_pending_events (below) drop its own reed_id column.
+	// can be about a FOREIGN reed, so this table uniformly represents both
+	// local and foreign subjects the same way.
 	createPendingReedEventsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_reed_events (
 		event_id VARCHAR(255) PRIMARY KEY
 			REFERENCES pending_events(event_id) ON DELETE CASCADE,
-		reed_id VARCHAR(255) NOT NULL,
-
-		FOREIGN KEY (reed_id)
-			REFERENCES reed_identities(id) ON DELETE CASCADE
+		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE
 	);`
 
 	createPendingReedEventsIndexes := `
@@ -790,13 +615,9 @@ func InitDB(db *sql.DB) error {
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE
 	);`
 
-	// Originating-server bookkeeping: maps a local REQUEST_REED/profile
-	// subscription's pending event to the outstanding peer registration on
-	// the reed's home server (which peer to call back, and what id THEY
-	// know this event by). No reed_id column here anymore — the subject
-	// is a normal pending_reed_events row now that reed_id can name a
-	// foreign reed directly; this table only carries what
-	// pending_reed_events structurally can't (the peer-relay mapping).
+	// Originating-server bookkeeping: maps a local pending event to the
+	// outstanding peer registration on the reed's home server (which peer
+	// to call back, and what id THEY know this event by).
 	createForeignPendingEventsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS foreign_pending_events (
 		event_id VARCHAR(255) PRIMARY KEY
@@ -911,29 +732,9 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (created_by, id)
 	);`
 
-	// federation_invitation covers the whole lifecycle of one federation
-	// handshake — there is no separate "attempt" table. status:
-	//   new -> accepted        (responder's /connect callback verifies)
-	//   new -> canceled        (revoked before anyone redeemed it)
-	//   accepted -> approved   (second local admin approves — see 03)
-	//   accepted -> rejected   (second local admin rejects — see 03)
-	//   approved -> revoked    (an established connection is torn down — see 05)
-	// reviewed_by/reviewed_at record whoever performed the terminal action
-	// for whichever status it ended up in (cancel, approve, reject, or
-	// revoke) — one pair of columns for all of them, since status already
-	// says which action reviewed_by refers to; no separate approved_by
-	// column duplicating the same fact under a different name.
-	// server_id is nullable and only set once a federation_attempt against
-	// this invitation is APPROVED (a servers row only exists past that
-	// point — see federation_attempt below); it is not set at handshake
-	// acceptance time.
-	// fingerprint/public_key_armor are the PEER's claimed key, supplied
-	// out-of-band by the admin creating the invitation — unverified,
-	// pre-trust bootstrap material. It stays here, NOT in public_keys
-	// (which only ever holds verified/approved local or promoted keys),
-	// until the handshake is accepted and a second admin approves the
-	// resulting federation_attempt — only then does anything get promoted
-	// into public_keys/servers.
+	// federation_invitation covers the whole handshake lifecycle: new ->
+	// accepted/canceled, accepted -> approved/rejected, approved -> revoked.
+	// fingerprint/public_key_armor are the peer's unverified key, promoted into public_keys/servers only once approved.
 	createFederationInvitationTable := `
 	CREATE TABLE IF NOT EXISTS federation_invitation (
 		id VARCHAR(255) PRIMARY KEY,
@@ -952,22 +753,9 @@ func InitDB(db *sql.DB) error {
 		connection_ciphertext TEXT
 	);`
 
-	// federation_attempt: one row per handshake attempt against a peer,
-	// permanent (never deleted on approve/reject — it's the audit trail:
-	// who created it, who approved/rejected it, and why). Created the
-	// moment a handshake verifies — on the RESPONDER when the connection
-	// string is redeemed, on the INITIATOR when the connect callback
-	// verifies — well before any approval. remote_server_id/
-	// remote_server_name/base_url/fingerprint are the peer's own claims
-	// from the handshake payload, captured here rather than on servers,
-	// because a servers row doesn't exist yet and may never (rejected) or
-	// may differ across multiple attempts from the same peer over time.
-	// server_id is nullable, set only once APPROVED, when the real servers
-	// row is created (see ApproveFederationAttempt) — same nullable-until-
-	// approved pattern as federation_invitation.server_id above.
-	// invitation_id is set on the INITIATOR side (it has a local invitation
-	// row); NULL on the RESPONDER (see OutgoingFederationAttempt — it never
-	// has one).
+	// One row per handshake attempt against a peer, permanent (never
+	// deleted on approve/reject — it's the audit trail). server_id is set
+	// only once APPROVED; invitation_id is set on the INITIATOR side only.
 	createFederationAttemptTable := `
 	CREATE TABLE IF NOT EXISTS federation_attempt (
 		id VARCHAR(255) PRIMARY KEY,
@@ -987,12 +775,9 @@ func InitDB(db *sql.DB) error {
 		rejected_reason TEXT
 	);`
 
-	// federation_log: generic append-only log line, not itself tied to an
-	// invitation, attempt, or server — three junction tables link a line
-	// to whichever it's about. Handshake steps happen asynchronously
-	// across two servers (connect callbacks, outbound POSTs that may fail
-	// or time out), so this is how an admin sees what actually happened
-	// instead of a link silently never progressing.
+	// Generic append-only log line, not itself tied to an invitation,
+	// attempt, or server — three junction tables link a line to whichever
+	// it's about, so an admin can see what actually happened.
 	createFederationLogTable := `
 	CREATE TABLE IF NOT EXISTS federation_log (
 		id VARCHAR(255) PRIMARY KEY,
@@ -1002,12 +787,9 @@ func InitDB(db *sql.DB) error {
 		message TEXT NOT NULL
 	);`
 
-	// federation_invitation_log: the INITIATOR logs against its
-	// invitation from the moment a connect callback arrives (known
-	// immediately, regardless of accept/reject outcome) — the
-	// invitation's server_id isn't set until approval, so pre-acceptance
-	// rejections (bad secret, wrong status, bad signature) have nothing
-	// else to log against yet.
+	// The INITIATOR logs against its invitation from the moment a connect
+	// callback arrives — invitation's server_id isn't set until approval,
+	// so pre-acceptance rejections have nothing else to log against yet.
 	createFederationInvitationLogTable := `
 	CREATE TABLE IF NOT EXISTS federation_invitation_log (
 		invitation_id VARCHAR(255) NOT NULL REFERENCES federation_invitation(id) ON DELETE CASCADE,
@@ -1016,13 +798,9 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (invitation_id, log_id)
 	);`
 
-	// federation_attempt_log: attempt-scoped log lines — handshake
-	// verification, approve/reject, everything before (and including) the
-	// approve/reject decision itself. Both initiator and responder log
-	// here once their federation_attempt row exists. Unlike
-	// federation_server_log, this survives rejection (federation_attempt
-	// is never deleted), so a rejection reason has somewhere permanent to
-	// live.
+	// Attempt-scoped log lines — handshake verification through the
+	// approve/reject decision. Unlike federation_server_log, this survives
+	// rejection, so a rejection reason has somewhere permanent to live.
 	createFederationAttemptLogTable := `
 	CREATE TABLE IF NOT EXISTS federation_attempt_log (
 		attempt_id VARCHAR(255) NOT NULL REFERENCES federation_attempt(id) ON DELETE CASCADE,
@@ -1069,8 +847,6 @@ func InitDB(db *sql.DB) error {
 
 		createUsersTable,
 		createUserIndexes,
-
-		createVerifiedIdentitiesView,
 
 		createPrivateKeysTable,
 

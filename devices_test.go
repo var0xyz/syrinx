@@ -34,12 +34,9 @@ func ensureDevicesSchema(db *sql.DB) error {
 		// identities is the FK target for "a user" (see db.go).
 		`CREATE TABLE identities (
 			id VARCHAR(255) PRIMARY KEY,
-			bare_user_id VARCHAR(255) NOT NULL,
 			server_id VARCHAR(16),
 			public_key_fingerprint VARCHAR(255),
-			verified BOOLEAN NOT NULL DEFAULT FALSE,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE (bare_user_id, server_id)
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -66,8 +63,8 @@ func ensureDevicesSchema(db *sql.DB) error {
 func insertDeviceTestUser(db *sql.DB, userID string) {
 	identityID := string(identity.CanonicalID(devicesTestServerID, userID))
 	if _, err := db.Exec(
-		`INSERT INTO identities (id, bare_user_id, server_id, verified) VALUES ($1, $2, $3, TRUE)`,
-		identityID, userID, devicesTestServerID,
+		`INSERT INTO identities (id, server_id) VALUES ($1, $2)`,
+		identityID, devicesTestServerID,
 	); err != nil {
 		panic(err)
 	}

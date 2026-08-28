@@ -53,6 +53,10 @@
   let loadingReed = !data.fromCache && !data.errorMessage;
   let fetchingReed = false;
   let reedNotFound = false;
+  /** Reed exists in local cache, but the server 404s it (e.g. its home
+   * server was disconnected from the mesh) — conversation stays visible,
+   * but nothing else about the reed can be trusted or interacted with. */
+  let reedNotRecognized = false;
   /** When set, show tombstone stub instead of full reed body. */
   let removedReedCert = null;
   /** When set, author deleted their account — tombstone + replies still shown. */
@@ -168,6 +172,7 @@
     repliedToReedMissing = next.repliedToReedMissing;
     errorMessage = next.errorMessage;
     reedNotFound = false;
+    reedNotRecognized = false;
     removedReedCert = next.removedReedCert ?? null;
     removedAccountCert = next.removedAccountCert ?? null;
     fetchingReed = false;
@@ -194,6 +199,31 @@
     }
     if (!authorUser) {
       await loadAuthorProfile();
+    }
+    if (next.reed?.serverSignature) {
+      void checkServerRecognizesReed(next.reed.id);
+    }
+  }
+
+  /**
+   * A reed can be cached locally (e.g. from a server later disconnected
+   * from the mesh) while the server itself now 404s it. loadReedFromNetwork
+   * never runs for a cache hit, so this is the only place that re-checks —
+   * fire-and-forget, best-effort, and dropped if the user has since
+   * navigated to a different reed.
+   */
+  async function checkServerRecognizesReed(reedRef) {
+    if (!$isOnline) return;
+    try {
+      await serverConnection.connect();
+      if (canonicalReedID !== reedRef) return;
+      const result = await apiService.getReedOrRemoval(reedRef);
+      if (canonicalReedID !== reedRef) return;
+      if (result.kind === 'not_found') {
+        reedNotRecognized = true;
+      }
+    } catch {
+      // Network/relay hiccup — not conclusive, so don't flag the reed.
     }
   }
 
@@ -498,13 +528,13 @@
   }
 
   async function handleEcho() {
-    if (isPending || isBlankEchoView) return;
+    if (isPending || isBlankEchoView || reedNotRecognized) return;
     replyEchoTarget = await resolveReplyEchoTarget();
     isEchoModalOpen = true;
   }
 
   async function handleReply() {
-    if (isPending || isBlankEchoView) return;
+    if (isPending || isBlankEchoView || reedNotRecognized) return;
     replyEchoTarget = await resolveReplyEchoTarget();
     isReplyModalOpen = true;
   }
@@ -515,7 +545,7 @@
   }
 
   async function handleShare() {
-    if (!reed || isPending || isBlankEchoView) return;
+    if (!reed || isPending || isBlankEchoView || reedNotRecognized) return;
 
     const reedUrl = `${window.location.origin}/reed/${userID}/${reedID}`;
     const reedText = stripMarkdown(reed.content);
@@ -549,7 +579,7 @@
   }
 
   async function handleLike() {
-    if (isPending || isBlankEchoView) return;
+    if (isPending || isBlankEchoView || reedNotRecognized) return;
     const wasLiked = isLiked;
     isLiked = !wasLiked;
     try {
@@ -725,25 +755,40 @@
             </div>
 
             <div class="reed-actions-bar">
-              <button class="action-btn" on:click={handleReply} aria-label="Reply" disabled={isPending || isBlankEchoView}>
+              <button class="action-btn" on:click={handleReply} aria-label="Reply" disabled={isPending || isBlankEchoView || reedNotRecognized}>
                 <span class="action-icon icon-reply"></span>
                 <span class="action-label">Reply</span>
               </button>
-              <button class="action-btn" on:click={handleEcho} aria-label="Echo" disabled={isPending || isBlankEchoView}>
+              <button class="action-btn" on:click={handleEcho} aria-label="Echo" disabled={isPending || isBlankEchoView || reedNotRecognized}>
                 <span class="action-icon icon-echo"></span>
                 <span class="action-label">Echo</span>
               </button>
-              <button class="action-btn" on:click={handleLike} aria-label={isLiked ? 'Unlike' : 'Like'} disabled={isPending || isBlankEchoView}>
+              <button class="action-btn" on:click={handleLike} aria-label={isLiked ? 'Unlike' : 'Like'} disabled={isPending || isBlankEchoView || reedNotRecognized}>
                 <span class="action-icon icon-like" class:filled={isLiked}></span>
                 <span class="action-label">Like</span>
               </button>
-              <button class="action-btn" on:click={handleShare} aria-label="Share" disabled={isPending || isBlankEchoView}>
+              <button class="action-btn" on:click={handleShare} aria-label="Share" disabled={isPending || isBlankEchoView || reedNotRecognized}>
                 <span class="action-icon icon-share"></span>
                 <span class="action-label">Share</span>
               </button>
             </div>
           </div>
-          {#if !isPending && !isBlankEchoView}
+          {#if reedNotRecognized}
+            <p class="not-recognized-notice">Reed not recognized by the server</p>
+            <!-- Ripples/Chorus lose meaning once the server won't vouch for
+                 the reed — same reasoning as the removed-reed branch above.
+                 Conversation stays: replies cached before disconnection are
+                 still real. -->
+            <div class="discussion-panel" class:hidden={conversationCount === 0}>
+              <ConversationSection
+                bind:this={conversationSection}
+                parentUserID={userID}
+                parentReedID={reedID}
+                threadId={parentThreadId}
+                bind:count={conversationCount}
+              />
+            </div>
+          {:else if !isPending && !isBlankEchoView}
             <div class="discussion-tabs" role="tablist">
               <button
                 type="button"
@@ -969,6 +1014,13 @@
   .reed-body {
     padding: 1rem;
     word-break: break-word;
+  }
+
+  .not-recognized-notice {
+    margin: 0;
+    padding: 1rem 1rem 0;
+    color: var(--error);
+    font-size: 0.85rem;
   }
 
   .quote-container {
