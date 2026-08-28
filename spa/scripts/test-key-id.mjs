@@ -8,7 +8,7 @@ import {
   formatServerKeyId,
   parseCanonicalId,
   parseKeyId,
-} from '../src/lib/utils/keyId.ts';
+} from '../src/lib/utils/identityRef.ts';
 
 // Round trip.
 const id = formatKeyId('abcd1234', 'wxyz9876', 'FPR1');

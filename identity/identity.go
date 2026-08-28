@@ -373,10 +373,9 @@ const TypeReedLike = "reed_like"
 // signing key, so the server verifies against that exact key — avoids a
 // spurious verification failure if the liker rotates keys between signing
 // and the server processing the request. Content is empty.
-func reedLikeUserHeaders(serverID, reedID, fingerprint string) map[string]string {
+func reedLikeUserHeaders(reedID, fingerprint string) map[string]string {
 	return map[string]string{
 		"type":        TypeReedLike,
-		"serverID":    serverID,
 		"reedID":      reedID,
 		"fingerprint": fingerprint,
 	}
@@ -384,9 +383,9 @@ func reedLikeUserHeaders(serverID, reedID, fingerprint string) map[string]string
 
 // BuildReedLikeUserPayload returns the exact bytes the liker signs to
 // produce the wire `signature` field on a reed-like cert.
-func BuildReedLikeUserPayload(serverID, reedID, fingerprint string) []byte {
+func BuildReedLikeUserPayload(reedID, fingerprint string) []byte {
 	return signing.BytesToSign(
-		reedLikeUserHeaders(serverID, reedID, fingerprint),
+		reedLikeUserHeaders(reedID, fingerprint),
 		"",
 	)
 }
@@ -395,7 +394,6 @@ func BuildReedLikeUserPayload(serverID, reedID, fingerprint string) []byte {
 // userSignatureB64 binds the liker's attestation into the server-signed
 // bytes (same class as identity / revocation / reed-removal countersign).
 func reedLikeServerHeaders(
-	serverID,
 	reedID,
 	serverKeyFingerprint,
 	userSignatureB64 string,
@@ -403,7 +401,6 @@ func reedLikeServerHeaders(
 ) map[string]string {
 	return map[string]string{
 		"type":                 TypeReedLike,
-		"serverID":             serverID,
 		"reedID":               reedID,
 		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
 		"serverKeyFingerprint": serverKeyFingerprint,
@@ -418,7 +415,6 @@ func reedLikeServerHeaders(
 // `signedAt` must already be truncated to whole seconds so that what is
 // signed matches what Postgres stores after any timestamp round-trip.
 func BuildReedLikeServerPayload(
-	serverID,
 	reedID,
 	serverKeyFingerprint,
 	userSignatureB64 string,
@@ -426,7 +422,6 @@ func BuildReedLikeServerPayload(
 ) []byte {
 	return signing.BytesToSign(
 		reedLikeServerHeaders(
-			serverID,
 			reedID,
 			serverKeyFingerprint,
 			userSignatureB64,

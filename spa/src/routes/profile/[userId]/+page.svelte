@@ -23,7 +23,7 @@
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
   import { mergeUserView, profileNeedsRefresh } from '$lib/utils/userView';
   import { countMarkdownCharacters, MAX_REED_VISIBLE_CHARS } from '$lib/utils/reedContent';
-  import { parseCanonicalId } from '$lib/utils/keyId';
+  import { parseCanonicalId } from '$lib/utils/identityRef';
   import type * as api from '$lib/types/api';
 
   /** @type {import('./$types').PageData} */

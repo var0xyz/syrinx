@@ -69,7 +69,7 @@ export function resolveLinkHref(raw: string): string | null {
 }
 
 // The path segment IS the canonical userID (userID@serverID) — one opaque
-// id, not two fields to rejoin. Same shape parseUserRef accepts elsewhere.
+// id, not two fields to rejoin.
 const MENTION_HREF = /^web\+syrinx:\/\/users\/([^/]+)\/?$/i;
 const PIPE_HREF = /^web\+syrinx:\/\/pipe\/(.+)$/i;
 

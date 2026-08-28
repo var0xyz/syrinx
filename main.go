@@ -475,68 +475,66 @@ func main() {
 	api.HandleFunc("/federation/users/{userID}/identity", h.noop).Methods("OPTIONS")
 
 	// Cross-server REQUEST_REED relay (federation_relay.go): also
-	// peer-authenticated only, never end-user-callable. Each is wrapped in
-	// withFederationRelayMetric to record inbound syrinx.federation.relay
-	// (leg name matches the path's last segment, same as the outbound side's
-	// relayLeg derivation) without touching the 16 handler bodies.
-	api.HandleFunc("/federation/relay/request", h.withFederationRelayMetric("request", h.RelayRequestFromPeer)).Methods("POST")
+	// peer-authenticated only, never end-user-callable. Each handler
+	// records its own syrinx.federation.relay metric inline.
+	api.HandleFunc("/federation/relay/request", h.RelayRequestFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/request", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/subscribe", h.withFederationRelayMetric("subscribe", h.RelaySubscribeProfileFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/subscribe", h.RelaySubscribeProfileFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/subscribe", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/deliver", h.withFederationRelayMetric("deliver", h.DeliverRelayResponseFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/deliver", h.DeliverRelayResponseFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/deliver", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/cancel", h.withFederationRelayMetric("cancel", h.CancelRelayRequestFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/cancel", h.CancelRelayRequestFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/cancel", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/ack", h.withFederationRelayMetric("ack", h.AckRelayDeliveryFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/ack", h.AckRelayDeliveryFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/ack", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/unsubscribe", h.withFederationRelayMetric("unsubscribe", h.RelayUnsubscribeProfileFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/unsubscribe", h.RelayUnsubscribeProfileFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/unsubscribe", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/subscribe-reed", h.withFederationRelayMetric("subscribe-reed", h.RelaySubscribeReedFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/subscribe-reed", h.RelaySubscribeReedFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/subscribe-reed", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/unsubscribe-reed", h.withFederationRelayMetric("unsubscribe-reed", h.RelayUnsubscribeReedFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/unsubscribe-reed", h.RelayUnsubscribeReedFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/unsubscribe-reed", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/reed-stats", h.withFederationRelayMetric("reed-stats", h.PushReedStatsFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/reed-stats", h.PushReedStatsFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reed-stats", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/reply-notify", h.withFederationRelayMetric("reply-notify", h.ReplyNotifyFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/reply-notify", h.ReplyNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reply-notify", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/echo-notify", h.withFederationRelayMetric("echo-notify", h.EchoNotifyFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/echo-notify", h.EchoNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/echo-notify", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/mention-notify", h.withFederationRelayMetric("mention-notify", h.MentionNotifyFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/mention-notify", h.MentionNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/mention-notify", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/reply-removal-notify", h.withFederationRelayMetric("reply-removal-notify", h.ReplyRemovalNotifyFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/reply-removal-notify", h.ReplyRemovalNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reply-removal-notify", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/echo-removal-notify", h.withFederationRelayMetric("echo-removal-notify", h.EchoRemovalNotifyFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/echo-removal-notify", h.EchoRemovalNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/echo-removal-notify", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/holder-notify", h.withFederationRelayMetric("holder-notify", h.HolderNotifyFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/holder-notify", h.HolderNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/holder-notify", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/fallback-request", h.withFederationRelayMetric("fallback-request", h.RelayFallbackRequestFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/fallback-request", h.RelayFallbackRequestFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/fallback-request", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/new-reed-notify", h.withFederationRelayMetric("new-reed-notify", h.RelayNewReedNotifyFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/new-reed-notify", h.RelayNewReedNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/new-reed-notify", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/search-users", h.withFederationRelayMetric("search-users", h.SearchUsersFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/search-users", h.SearchUsersFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/search-users", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/reply-removal-to-viewer", h.withFederationRelayMetric("reply-removal-to-viewer", h.ReplyRemovalToViewerFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/reply-removal-to-viewer", h.ReplyRemovalToViewerFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reply-removal-to-viewer", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/disconnect-notify", h.withFederationRelayMetric("disconnect-notify", h.DisconnectNotifyFromPeer)).Methods("POST")
+	api.HandleFunc("/federation/relay/disconnect-notify", h.DisconnectNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/disconnect-notify", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")

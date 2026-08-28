@@ -8,7 +8,7 @@ import { pendingUnlikeRepository } from '$lib/repositories/pendingUnlike';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { likedReedsRepository } from '$lib/repositories/likedReeds';
 import { verifyReedLike } from '$lib/verifiers';
-import { parseReedRef } from '$lib/utils/identityRef';
+import { parseKeyId } from '$lib/utils/identityRef';
 
 export { verifyReedLike };
 
@@ -49,10 +49,10 @@ export async function verifyAndCommitReedLike(cert: api.ReedLike): Promise<boole
  * clear pending.
  */
 export async function likeReed(reedRef: string): Promise<api.ReedLike> {
-  // The countersignature server is always the REED's home server (write-proxy
-  // target), not this client's own — those coincide for a local reed, but
-  // diverge for a foreign one, which is the case this must get right.
-  const serverID = parseReedRef(reedRef)?.serverId;
+  // serverID is stored on the pending record (a display/lookup field, not
+  // part of the signed payload) — derived from reedRef, the reed's home
+  // server, which is what the countersignature actually comes from.
+  const serverID = parseKeyId(reedRef)?.serverId;
   if (!serverID) {
     throw new Error('Server ID not available');
   }
@@ -68,7 +68,7 @@ export async function likeReed(reedRef: string): Promise<api.ReedLike> {
     throw new Error('Private key not found');
   }
 
-  const userPayload = buildReedLikeUserPayload(serverID, reedRef, fingerprint);
+  const userPayload = buildReedLikeUserPayload(reedRef, fingerprint);
   const sigArmor = await cryptoService.signMessage(userPayload, privateKey.armor, passphrase);
   const signature = btoa(sigArmor);
 

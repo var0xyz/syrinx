@@ -12,7 +12,7 @@ import { dbService } from '$lib/services/db';
 import { serverConnection } from '$lib/services/serverConnection';
 import { reedContentWithinLimits } from '$lib/utils/reedContent';
 import { shouldRecheck, markChecked } from '$lib/utils/keyCheckThrottle';
-import { parseKeyId } from '$lib/utils/keyId';
+import { parseKeyId } from '$lib/utils/identityRef';
 import { canonicalKeyId } from '$lib/services/api';
 import {
   buildAccountRemovalServerPayload,
@@ -573,7 +573,6 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
   }
 
   const userPayload = buildReedLikeUserPayload(
-    cert.serverID,
     cert.reedID,
     cert.userSignature.fingerprint
   );
@@ -584,7 +583,6 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
   }
 
   const serverPayload = buildReedLikeServerPayload(
-    cert.serverID,
     cert.reedID,
     cert.serverSignature.fingerprint,
     cert.userSignature.armor,

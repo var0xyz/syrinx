@@ -24,7 +24,7 @@
   import { revocationRepository } from '$lib/repositories/revocation';
   import { loadProfileKeyInfo, type ProfileKeyInfo } from './keyInfo';
   import { mergeUserView, type UserView } from '$lib/utils/userView';
-  import { appendFingerprint } from '$lib/utils/keyId';
+  import { appendFingerprint } from '$lib/utils/identityRef';
 
   /** @type {import('./$types').PageData} */
   export let data;

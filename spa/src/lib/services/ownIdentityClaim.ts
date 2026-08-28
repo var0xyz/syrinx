@@ -11,7 +11,7 @@ import { dbService } from './db';
 import { buildKeyNest } from './recoveryKeyNest';
 import { requestSigner } from './request-signer';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
-import { appendFingerprint } from '$lib/utils/keyId';
+import { appendFingerprint } from '$lib/utils/identityRef';
 
 /**
  * Claim the restored owner's identity on a recovery-mode server.

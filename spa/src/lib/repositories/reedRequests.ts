@@ -5,24 +5,20 @@ declare const md5: (str: string) => string;
 
 export interface ReedRequestRecord {
   requestId: string;
-  serverId: string;
   reedId: string;
   requestedAt: number;
 }
 
 /** Canonical request_id: requesterId/hash — requesterId is already
  * userID@serverID, and the hash suffix stays deterministic per target
- * (serverId/reedId) so repeated calls for the same reed collapse into
- * the same pending record. The server validates the requesterId prefix
- * against the identity this WebSocket authenticated as
- * (realtime/service.go's validateRequestID) and rejects a mismatch with
+ * reedId (already canonical, so it embeds its own home server) so
+ * repeated calls for the same reed collapse into the same pending
+ * record. The server validates the requesterId prefix against the
+ * identity this WebSocket authenticated as (realtime/service.go's
+ * validateRequestID) and rejects a mismatch with
  * INVALID_REQUEST_ID_ERROR. */
-export function computeReedRequestId(
-  requesterId: string,
-  serverId: string,
-  reedId: string
-): string {
-  return `${requesterId}/${md5(`REQUEST_REED:${serverId}/${reedId}`)}`;
+export function computeReedRequestId(requesterId: string, reedId: string): string {
+  return `${requesterId}/${md5(`REQUEST_REED:${reedId}`)}`;
 }
 
 export const reedRequestsRepository = {
@@ -35,7 +31,6 @@ export const reedRequestsRepository = {
       'reedRequests',
       {
         requestId: record.requestId,
-        serverId: record.serverId,
         reedId: record.reedId,
         requestedAt: record.requestedAt ?? Date.now(),
       },
@@ -57,18 +52,13 @@ export const reedRequestsRepository = {
     return all;
   },
 
-  async seedReedIDs(
-    serverId: string,
-    reedIDs: string[],
-    skipReedIds: ReadonlySet<string>
-  ): Promise<void> {
+  async seedReedIDs(reedIDs: string[], skipReedIds: ReadonlySet<string>): Promise<void> {
     const requesterId = localStorage.getItem('userId') ?? '';
     let requestedAt = Date.now();
     for (const reedId of reedIDs) {
       if (skipReedIds.has(reedId)) continue;
       await this.enqueue({
-        requestId: computeReedRequestId(requesterId, serverId, reedId),
-        serverId,
+        requestId: computeReedRequestId(requesterId, reedId),
         reedId,
         requestedAt: requestedAt++,
       });

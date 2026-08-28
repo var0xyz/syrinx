@@ -96,7 +96,7 @@ export class AuthService {
 
   /**
    * Set the active key fingerprint. Callers must pass the canonical form
-   * (userID@serverID/fingerprint, see $lib/utils/keyId) — this matches the
+   * (userID@serverID/fingerprint, see $lib/utils/identityRef) — this matches the
    * privateKeys/publicKeys IndexedDB keyPath, what signed payloads embed,
    * and the X-Syrinx-Public-Key-Id request header directly. Extract to
    * bare only at the specific boundaries that still need it (URL path

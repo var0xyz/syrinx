@@ -5,7 +5,7 @@
   import { authService } from "$lib/services/auth";
   import { cryptoService } from "$lib/services/crypto";
   import { buildNewUserIdentityPayload } from "$lib/services/signing";
-  import { appendFingerprint } from "$lib/utils/keyId";
+  import { appendFingerprint } from "$lib/utils/identityRef";
   import { trimInvisibleChars } from "$lib/utils/text";
   import UsernameChecker from "$lib/components/UsernameChecker.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";

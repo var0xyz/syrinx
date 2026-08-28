@@ -89,10 +89,10 @@ type UserUpdateBroadcast struct {
 }
 
 // InboundJSONMsg is the common envelope for client JSON WebSocket frames.
+// ReedID is the whole canonical reed ref (SUBSCRIBE_REED/UNSUBSCRIBE_REED).
 type InboundJSONMsg struct {
 	Type   string          `json:"type"`
 	Data   json.RawMessage `json:"data"`
-	UserID string          `json:"userID"`
 	ReedID string          `json:"reedID"`
 }
 
@@ -144,7 +144,6 @@ type SubscribePipeData struct {
 // ReedStatsMsg is pushed when a client subscribes to reed stats.
 type ReedStatsMsg struct {
 	Type            string `json:"type"`
-	UserID          string `json:"userID"`
 	ReedID          string `json:"reedID"`
 	Echoes          int    `json:"echoes"`
 	CoveragePercent int    `json:"coveragePercent"`
@@ -155,7 +154,6 @@ type ReedStatsMsg struct {
 // ReedCoverageMsg notifies reed subscribers of holder coverage changes.
 type ReedCoverageMsg struct {
 	Type            string `json:"type"`
-	UserID          string `json:"userID"`
 	ReedID          string `json:"reedID"`
 	CoveragePercent int    `json:"coveragePercent"`
 }
@@ -163,7 +161,6 @@ type ReedCoverageMsg struct {
 // ReedEchoesMsg notifies reed subscribers of echo count changes.
 type ReedEchoesMsg struct {
 	Type   string `json:"type"`
-	UserID string `json:"userID"`
 	ReedID string `json:"reedID"`
 	Echoes int    `json:"echoes"`
 }
@@ -171,7 +168,6 @@ type ReedEchoesMsg struct {
 // ReedRepliesMsg notifies reed subscribers of reply subtree count changes.
 type ReedRepliesMsg struct {
 	Type    string `json:"type"`
-	UserID  string `json:"userID"`
 	ReedID  string `json:"reedID"`
 	Replies int    `json:"replies"`
 }
@@ -179,7 +175,6 @@ type ReedRepliesMsg struct {
 // ReedLikesMsg notifies reed subscribers of like count changes.
 type ReedLikesMsg struct {
 	Type   string `json:"type"`
-	UserID string `json:"userID"`
 	ReedID string `json:"reedID"`
 	Likes  int    `json:"likes"`
 }

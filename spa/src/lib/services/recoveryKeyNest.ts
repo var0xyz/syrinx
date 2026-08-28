@@ -18,7 +18,7 @@
  */
 
 import type * as api from '$lib/types/api';
-import { parseKeyId } from '$lib/utils/keyId';
+import { parseKeyId } from '$lib/utils/identityRef';
 
 function bareFingerprint(fingerprint: string): string {
   return parseKeyId(fingerprint)?.fingerprint ?? fingerprint;

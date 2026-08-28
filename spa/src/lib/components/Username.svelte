@@ -1,7 +1,7 @@
 <script>
   import { goto } from '$app/navigation';
   import { userRepository } from '$lib/repositories/user';
-  import { parseUserRef } from '$lib/utils/identityRef';
+  import { isRoot } from '$lib/utils/identityRef';
 
   /** `userID@serverID` id — callers already have this form, so this
    * component takes it as a single value rather than composing it. */
@@ -40,7 +40,7 @@
   }
 
   $: displayName = resolvedUsername ?? userID;
-  $: isAdmin = parseUserRef(userID)?.userId === '1';
+  $: isAdmin = isRoot(userID);
   // Inline, not class-based: callers embed this in contexts with their own
   // `.inline-link`/etc color rules (e.g. MarkdownParser's link styling) that
   // would otherwise win on specificity/source order over a scoped class.

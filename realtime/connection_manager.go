@@ -514,8 +514,8 @@ func (cm *ConnectionManager) sendToReedSubscribersExceptAuthor(reedID, excludeUs
 
 // BroadcastReedCoverage sends a coverage update to all subscribers of a reed.
 func (cm *ConnectionManager) BroadcastReedCoverage(msg ReedCoverageMsg) error {
-	if msg.UserID == "" || msg.ReedID == "" {
-		return fmt.Errorf("reed coverage payload missing userID or reedID")
+	if msg.ReedID == "" {
+		return fmt.Errorf("reed coverage payload missing reedID")
 	}
 	return cm.SendToReedSubscribers(msg.ReedID, msg)
 }

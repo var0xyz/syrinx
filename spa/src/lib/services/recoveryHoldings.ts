@@ -5,7 +5,7 @@
 import type { ReedType } from '$lib/types/reed';
 import { apiService } from './api';
 import { dbService } from './db';
-import { parseKeyId } from '$lib/utils/keyId';
+import { parseKeyId } from '$lib/utils/identityRef';
 
 /** POST one reed from IndexedDB (must have server block + user signature).
  * Recovery only ever reports the current device's own account's reeds. */

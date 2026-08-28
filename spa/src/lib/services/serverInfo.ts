@@ -59,7 +59,7 @@ async function ensureServerKeyCached(serverId: string, serverKeyId: string): Pro
     const { cryptoService } = await import('./crypto');
     const { dbService } = await import('./db');
     const { allowUnsigned } = await import('$lib/verifiers');
-    const { formatServerKeyId } = await import('$lib/utils/keyId');
+    const { formatServerKeyId } = await import('$lib/utils/identityRef');
 
     const armor = await apiService.getOwnServerKey();
     const fingerprint = await cryptoService.fingerprintFromArmor(armor);

@@ -2503,7 +2503,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userPayload := identity.BuildReedLikeUserPayload(serverID, reedID, fingerprint)
+	userPayload := identity.BuildReedLikeUserPayload(reedID, fingerprint)
 	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
@@ -2532,7 +2532,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	serverPayload := identity.BuildReedLikeServerPayload(
-		serverID, reedID,
+		reedID,
 		h.signingKey.Fingerprint, userSignatureB64, now,
 	)
 	serverSignature, err := h.countersign(serverPayload, now)
