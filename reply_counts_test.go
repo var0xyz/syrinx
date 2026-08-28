@@ -45,7 +45,7 @@ func ensureReplyCountSchema(db *sql.DB) error {
 		`CREATE TABLE reeds (
 			id VARCHAR(255) PRIMARY KEY,
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
-			private_key_fingerprint VARCHAR(255) NOT NULL,
+			private_key_id VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
@@ -108,9 +108,9 @@ func seedReplyTestReed(t *testing.T, db *sql.DB, userID, reedID string) {
 	if err := db.QueryRow(`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "srvfp2").Scan(&ssID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO reeds (id, user_id, private_key_fingerprint, signed_at, user_signature_id, server_signature_id)
+	if _, err := db.Exec(`INSERT INTO reeds (id, user_id, private_key_id, signed_at, user_signature_id, server_signature_id)
 		VALUES ($1, $2, $3, NOW(), $4, $5)`,
-		reedID, identityID, userID+"fp", usID, ssID); err != nil {
+		reedID, identityID, userID+"fp@testserver", usID, ssID); err != nil {
 		t.Fatal(err)
 	}
 }

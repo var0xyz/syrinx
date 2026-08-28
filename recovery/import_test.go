@@ -13,30 +13,30 @@ func TestIdentityMatches(t *testing.T) {
 			{Fingerprint: "BBBB", PrivateKeyArmor: "priv-b", PublicKeyArmor: "pub-b"},
 		},
 	}
-	self := ExistingSelf{ID: "Ab3xY9pQ", Name: "syrinx.example", SigningKey: "AAAA"}
+	self := ExistingSelf{ID: "Ab3xY9pQ", Name: "syrinx.example", SigningKey: "AAAA@Ab3xY9pQ"}
 	keys := []ExistingKey{
-		{Fingerprint: "AAAA", Armor: "priv-a"},
-		{Fingerprint: "BBBB", Armor: "priv-b"},
+		{Fingerprint: "AAAA@Ab3xY9pQ", Armor: "priv-a"},
+		{Fingerprint: "BBBB@Ab3xY9pQ", Armor: "priv-b"},
 	}
 	if !IdentityMatches(b, self, keys) {
 		t.Fatal("expected match")
 	}
 
-	if IdentityMatches(b, ExistingSelf{ID: "other", Name: "syrinx.example", SigningKey: "AAAA"}, keys) {
+	if IdentityMatches(b, ExistingSelf{ID: "other", Name: "syrinx.example", SigningKey: "AAAA@Ab3xY9pQ"}, keys) {
 		t.Fatal("different id should not match")
 	}
-	if IdentityMatches(b, ExistingSelf{ID: "Ab3xY9pQ", Name: "other", SigningKey: "AAAA"}, keys) {
+	if IdentityMatches(b, ExistingSelf{ID: "Ab3xY9pQ", Name: "other", SigningKey: "AAAA@Ab3xY9pQ"}, keys) {
 		t.Fatal("different name should not match")
 	}
-	if IdentityMatches(b, ExistingSelf{ID: "Ab3xY9pQ", Name: "syrinx.example", SigningKey: "CCCC"}, keys) {
+	if IdentityMatches(b, ExistingSelf{ID: "Ab3xY9pQ", Name: "syrinx.example", SigningKey: "CCCC@Ab3xY9pQ"}, keys) {
 		t.Fatal("different signing key should not match")
 	}
-	if IdentityMatches(b, self, []ExistingKey{{Fingerprint: "AAAA", Armor: "priv-a"}}) {
+	if IdentityMatches(b, self, []ExistingKey{{Fingerprint: "AAAA@Ab3xY9pQ", Armor: "priv-a"}}) {
 		t.Fatal("missing key should not match")
 	}
 	if IdentityMatches(b, self, []ExistingKey{
-		{Fingerprint: "AAAA", Armor: "priv-a"},
-		{Fingerprint: "BBBB", Armor: "CHANGED"},
+		{Fingerprint: "AAAA@Ab3xY9pQ", Armor: "priv-a"},
+		{Fingerprint: "BBBB@Ab3xY9pQ", Armor: "CHANGED"},
 	}) {
 		t.Fatal("different armor should not match")
 	}

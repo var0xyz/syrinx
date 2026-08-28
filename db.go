@@ -108,10 +108,9 @@ type KeyRevocation struct {
 }
 
 type Reed struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"userID"`
-	Fingerprint string    `json:"fingerprint"`
-	Timestamp   time.Time `json:"timestamp"`
+	ID        string    `json:"id"`
+	UserID    string    `json:"userID"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // ReedRemoval is the wire shape of a signed reed-removal certificate
@@ -167,6 +166,10 @@ func InitDB(db *sql.DB) error {
 	// base_url/connected/fingerprint/revoked are federation fields, unset on
 	// the self row. fingerprint is the peer's pinned signing key fingerprint —
 	// its armor is NEVER stored locally; every key/profile fetch proxies live.
+	// signing_key is a soft reference to public_keys(id) (not FK'd — servers
+	// is created before public_keys to satisfy identities' own FK on
+	// servers(id)): the canonical id of this server's own current signing
+	// key, shared by its private_keys row and its public_keys row alike.
 	createServersTable := `
 	CREATE TABLE IF NOT EXISTS servers (
 		id VARCHAR(16) UNIQUE,
@@ -246,7 +249,7 @@ func InitDB(db *sql.DB) error {
 	// whose key it is (a user's private key never touches the server at all).
 	createPrivateKeysTable := `
 	CREATE TABLE IF NOT EXISTS private_keys (
-		fingerprint VARCHAR(255) PRIMARY KEY,
+		id VARCHAR(255) PRIMARY KEY,
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		revoked_at TIMESTAMP,
@@ -307,7 +310,7 @@ func InitDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS reeds (
 		id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		private_key_fingerprint VARCHAR(255) NOT NULL REFERENCES private_keys(fingerprint),
+		private_key_id VARCHAR(255) NOT NULL REFERENCES private_keys(id),
 		signed_at TIMESTAMP NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id)

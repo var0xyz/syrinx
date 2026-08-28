@@ -52,7 +52,7 @@ func ensureMentionsSchema(db *sql.DB) error {
 		`CREATE TABLE reeds (
 			id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
-			private_key_fingerprint VARCHAR(255) NOT NULL,
+			private_key_id VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)

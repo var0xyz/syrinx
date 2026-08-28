@@ -42,6 +42,7 @@ func SaveReed(ctx context.Context,
 	}
 	authorIdentity := identity.CanonicalID(authorServerID, authorBare)
 	reporterIdentity := identity.CanonicalID(serverID, reporterUserID)
+	keyID := string(identity.CanonicalID(serverID, fingerprint))
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -57,13 +58,13 @@ func SaveReed(ctx context.Context,
 		return ErrAuthorNotFound
 	}
 
-	var existingAuthor, existingFP string
+	var existingAuthor, existingKeyID string
 	var existingAt time.Time
 	err = tx.QueryRowContext(ctx, `
-		SELECT user_id, private_key_fingerprint, signed_at
+		SELECT user_id, private_key_id, signed_at
 		FROM reeds WHERE id = $1
 		FOR UPDATE
-	`, reedID).Scan(&existingAuthor, &existingFP, &existingAt)
+	`, reedID).Scan(&existingAuthor, &existingKeyID, &existingAt)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -77,22 +78,22 @@ func SaveReed(ctx context.Context,
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reeds (
-				id, user_id, private_key_fingerprint, signed_at,
+				id, user_id, private_key_id, signed_at,
 				user_signature_id, server_signature_id
 			)
 			VALUES ($1, $2, $3, $4, $5, $6)
-		`, reedID, authorIdentity, fingerprint, signedAt, userSigID, serverSigID); err != nil {
+		`, reedID, authorIdentity, keyID, signedAt, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert reed: %w", err)
 		}
 	case err != nil:
 		return err
 	default:
 		existingAt = existingAt.UTC().Truncate(time.Second)
-		if existingAuthor != string(authorIdentity) || existingFP != fingerprint || !existingAt.Equal(signedAt) {
+		if existingAuthor != string(authorIdentity) || existingKeyID != keyID || !existingAt.Equal(signedAt) {
 			log.Printf(
-				"[ERR] recovery reed conflict: reedID=%s existing=(author=%s fp=%s at=%s) incoming=(author=%s fp=%s at=%s)",
-				reedID, existingAuthor, existingFP, existingAt.Format(time.RFC3339),
-				authorIdentity, fingerprint, signedAt.Format(time.RFC3339),
+				"[ERR] recovery reed conflict: reedID=%s existing=(author=%s key=%s at=%s) incoming=(author=%s key=%s at=%s)",
+				reedID, existingAuthor, existingKeyID, existingAt.Format(time.RFC3339),
+				authorIdentity, keyID, signedAt.Format(time.RFC3339),
 			)
 			return ErrReedConflict
 		}

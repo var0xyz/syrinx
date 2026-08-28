@@ -63,10 +63,10 @@ func ExportFromDB(ctx context.Context, db *sql.DB, exportedAt time.Time) (*Bundl
 	}
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT pk.fingerprint, pk.armor, pub.armor, pk.created_at, pk.revoked_at, pk.revoke_reason
+		SELECT pk.id, pk.armor, pub.armor, pk.created_at, pk.revoked_at, pk.revoke_reason
 		FROM private_keys pk
-		JOIN public_keys pub ON pub.fingerprint = pk.fingerprint
-		ORDER BY pk.created_at ASC, pk.fingerprint ASC
+		JOIN public_keys pub ON pub.id = pk.id
+		ORDER BY pk.created_at ASC, pk.id ASC
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list keys: %w", err)
