@@ -1,7 +1,6 @@
 import { reedRequestsRepository } from '$lib/repositories/reedRequests';
 import { reedsService } from '$lib/repositories/reeds';
 import { serverConnection } from './serverConnection';
-import { refForReed } from '$lib/utils/identityRef';
 
 const TICK_MS = 1000;
 
@@ -32,7 +31,7 @@ async function drainTick(): Promise<void> {
     const pending = await reedRequestsRepository.getAllPending();
     for (const record of pending) {
       if (serverConnection.isReedRequestDispatched(record.requestId)) continue;
-      const held = await reedsService.getReed(refForReed(record.authorId, record.reedId));
+      const held = await reedsService.getReed(record.reedId);
       if (held) {
         await reedRequestsRepository.delete(record.requestId);
         continue;

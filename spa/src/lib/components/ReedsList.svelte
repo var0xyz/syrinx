@@ -12,7 +12,7 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import { goto } from '$app/navigation';
-  import { parseReedRef, refForReed } from '$lib/utils/identityRef';
+  import { parseReedRef } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
   import { serverConnection } from '$lib/services/serverConnection';
   import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';
@@ -53,9 +53,11 @@
    * multi-second delay for content we could've ruled out instantly.
    * Returns the known reason, or null if not locally known.
    */
-  async function locallyKnownRemovalReason(authorId, reedId) {
+  async function locallyKnownRemovalReason(reedRef) {
+    const authorId = parseReedRef(reedRef)?.authorId;
+    if (!authorId) return null;
     if (await removedAccountsRepository.get(authorId)) return 'account';
-    const reedCert = await removedReedsRepository.get(refForReed(authorId, reedId));
+    const reedCert = await removedReedsRepository.get(reedRef);
     if (reedCert && reedCert.userID === authorId) return 'reed';
     return null;
   }
@@ -127,10 +129,10 @@
       }
       if (!pendingEchoRequests.has(walk.echoing)) {
         pendingEchoRequests.add(walk.echoing);
-        const localReason = await locallyKnownRemovalReason(parsed.authorId, parsed.reedId);
+        const localReason = await locallyKnownRemovalReason(walk.echoing);
         if (!localReason) {
           serverConnection
-            .requestReedContent(parsed.reedId, parsed.authorId, parsed.serverId)
+            .requestReedContent(walk.echoing, parsed.serverId)
             .catch(() => {});
         }
       }
@@ -211,15 +213,14 @@
       // Fetch echoed reeds; walk blank-echo chains so unwrap can reach content.
       const echoMap = new Map();
       const seenEchoKeys = new Set();
-      /** @type {{ key: string, author: string, reedId: string }[]} */
+      /** @type {string[]} */
       let echoFrontier = [];
 
       function enqueueEchoKey(key) {
         if (!key || seenEchoKeys.has(key)) return;
-        const parsed = parseReedRef(key);
-        if (!parsed) return;
+        if (!parseReedRef(key)) return;
         seenEchoKeys.add(key);
-        echoFrontier.push({ key, author: parsed.authorId, reedId: parsed.reedId });
+        echoFrontier.push(key);
       }
 
       for (const r of allForQuotes) {
@@ -230,9 +231,9 @@
         const batch = echoFrontier;
         echoFrontier = [];
         const echoResults = await Promise.allSettled(
-          batch.map(({ key }) => reedsService.getReed(key))
+          batch.map((key) => reedsService.getReed(key))
         );
-        batch.forEach(({ key, author, reedId }, i) => {
+        batch.forEach((key, i) => {
           if (echoResults[i].status === 'fulfilled' && echoResults[i].value) {
             const original = echoResults[i].value;
             echoMap.set(key, original);
@@ -250,10 +251,10 @@
           ) {
             pendingEchoRequests.add(key);
             void (async () => {
-              const localReason = await locallyKnownRemovalReason(author, reedId);
+              const localReason = await locallyKnownRemovalReason(key);
               if (localReason) return;
               serverConnection
-                .requestReedContent(reedId, author, parsed.serverId)
+                .requestReedContent(key, parsed.serverId)
                 .catch(() => {});
             })();
           }

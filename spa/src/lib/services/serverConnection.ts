@@ -8,7 +8,6 @@ import {
 } from '$lib/repositories/reedRequests';
 import { reedsService } from '$lib/repositories/reeds';
 import { startReedRequestDrainer } from './reedRequestDrainer';
-import { refForReed } from '$lib/utils/identityRef';
 
 export type ServerEventHandler = (data: any) => void;
 
@@ -316,7 +315,7 @@ class ServerConnection {
       type: 'REQUEST_REED',
       data: {
         request_id: record.requestId,
-        reed_id: refForReed(record.authorId, record.reedId),
+        reed_id: record.reedId,
       },
     });
   }
@@ -338,13 +337,13 @@ class ServerConnection {
     }
   }
 
-  async requestReedContent(reedId: string, authorId: string, serverId: string): Promise<any> {
+  async requestReedContent(reedId: string, serverId: string): Promise<any> {
     const requesterId = localStorage.getItem('userId') ?? '';
-    const requestId = computeReedRequestId(requesterId, serverId, authorId, reedId);
-    const held = await reedsService.getReed(refForReed(authorId, reedId));
+    const requestId = computeReedRequestId(requesterId, serverId, reedId);
+    const held = await reedsService.getReed(reedId);
     if (held) return held;
 
-    await reedRequestsRepository.enqueue({ requestId, serverId, authorId, reedId });
+    await reedRequestsRepository.enqueue({ requestId, serverId, reedId });
 
     let promise = this.pendingReedPromises.get(requestId);
     if (!promise) {

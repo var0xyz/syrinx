@@ -15,7 +15,6 @@ import { reedsService } from '$lib/repositories/reeds';
 import { serverInfo, refreshServerInfo } from './serverInfo';
 import { serverConnection } from './serverConnection';
 import { startReedRequestDrainer, clearReedRequestDispatched } from './reedRequestDrainer';
-import { parseKeyId } from '$lib/utils/keyId';
 import {
   assertIdentityBackupKeys,
   backupKeyItemId,
@@ -129,19 +128,12 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
   const serverId = get(serverInfo)?.id ?? localStorage.getItem('serverId') ?? '';
   if (serverId) {
     const skip = new Set<string>();
-    const bareReedIds = [];
     for (const reedId of bootstrap.reedIDs) {
       if (await reedsService.getReed(reedId)) {
         skip.add(reedId);
       }
-      bareReedIds.push(parseKeyId(reedId)?.fingerprint ?? reedId);
     }
-    await reedRequestsRepository.seedReedIDs(
-      serverId,
-      userId,
-      bareReedIds,
-      new Set([...skip].map((id) => parseKeyId(id)?.fingerprint ?? id)),
-    );
+    await reedRequestsRepository.seedReedIDs(serverId, bootstrap.reedIDs, skip);
   }
 
   await serverConnection.connect();

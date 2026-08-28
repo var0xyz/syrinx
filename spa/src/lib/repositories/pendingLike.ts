@@ -3,19 +3,13 @@ import { dbService } from '$lib/services/db';
 import { apiService } from '$lib/services/api';
 import { verifyAndCommitReedLike } from '$lib/services/reedLike';
 import { allowUnsigned } from '$lib/verifiers';
-import { refForReed } from '$lib/utils/identityRef';
 
 export interface PendingLikeRecord {
-  compositeKey: string; // `${authorID}:${reedID}`
-  authorID: string;
+  compositeKey: string; // reedRef (authorID@serverID/uuid)
   reedID: string;
   serverID: string;
   fingerprint: string;
   signature: string; // base64 user detached sig
-}
-
-export function likeCompositeKey(authorID: string, reedID: string): string {
-  return `${authorID}:${reedID}`;
 }
 
 /** Incremented after each successful flush so UI can refresh. */
@@ -26,12 +20,12 @@ export const pendingLikeRepository = {
     await dbService.put('pendingLikes', record, allowUnsigned);
   },
 
-  async delete(authorID: string, reedID: string): Promise<void> {
-    await dbService.delete('pendingLikes', likeCompositeKey(authorID, reedID));
+  async delete(reedRef: string): Promise<void> {
+    await dbService.delete('pendingLikes', reedRef);
   },
 
-  async get(authorID: string, reedID: string): Promise<PendingLikeRecord | null> {
-    return dbService.get<PendingLikeRecord>('pendingLikes', likeCompositeKey(authorID, reedID));
+  async get(reedRef: string): Promise<PendingLikeRecord | null> {
+    return dbService.get<PendingLikeRecord>('pendingLikes', reedRef);
   },
 
   async getAll(): Promise<PendingLikeRecord[]> {
@@ -43,16 +37,12 @@ export const pendingLikeRepository = {
     const pending = await pendingLikeRepository.getAll();
     for (const record of pending) {
       try {
-        const cert = await apiService.likeReed(
-          refForReed(record.authorID, record.reedID),
-          record.signature,
-          record.fingerprint
-        );
+        const cert = await apiService.likeReed(record.reedID, record.signature, record.fingerprint);
         if (!(await verifyAndCommitReedLike(cert))) {
           console.error('Failed to verify reed like cert on flush:', record.reedID);
           continue;
         }
-        await pendingLikeRepository.delete(record.authorID, record.reedID);
+        await pendingLikeRepository.delete(record.reedID);
         pendingLikeSynced.update((n) => n + 1);
       } catch (error) {
         console.error('Failed to sync pending reed like:', record.reedID, error);

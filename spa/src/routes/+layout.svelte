@@ -33,7 +33,7 @@
   import { syncPendingBackupEvents } from '$lib/services/backupMetrics';
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
-  import { parseReedRef, refForReed } from '$lib/utils/identityRef';
+  import { parseReedRef } from '$lib/utils/identityRef';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
 
   // Prefetch reeds referenced by echoing/replying (userID@serverID/reedID).
@@ -44,7 +44,7 @@
       if (!parsed) continue;
       const existing = await reedsService.getReed(ref);
       if (!existing) {
-        serverConnection.requestReedContent(parsed.reedId, parsed.authorId, parsed.serverId);
+        serverConnection.requestReedContent(ref, parsed.serverId);
       }
     }
   }

@@ -6,25 +6,23 @@ declare const md5: (str: string) => string;
 export interface ReedRequestRecord {
   requestId: string;
   serverId: string;
-  authorId: string;
   reedId: string;
   requestedAt: number;
 }
 
 /** Canonical request_id: requesterId/hash — requesterId is already
  * userID@serverID, and the hash suffix stays deterministic per target
- * (serverId/authorId/reedId) so repeated calls for the same reed collapse
- * into the same pending record, exactly as before. The server validates
- * the requesterId prefix against the identity this WebSocket
- * authenticated as (realtime/service.go's validateRequestID) and rejects
- * a mismatch with INVALID_REQUEST_ID_ERROR. */
+ * (serverId/reedId) so repeated calls for the same reed collapse into
+ * the same pending record. The server validates the requesterId prefix
+ * against the identity this WebSocket authenticated as
+ * (realtime/service.go's validateRequestID) and rejects a mismatch with
+ * INVALID_REQUEST_ID_ERROR. */
 export function computeReedRequestId(
   requesterId: string,
   serverId: string,
-  authorId: string,
   reedId: string
 ): string {
-  return `${requesterId}/${md5(`REQUEST_REED:${serverId}/${authorId}/${reedId}`)}`;
+  return `${requesterId}/${md5(`REQUEST_REED:${serverId}/${reedId}`)}`;
 }
 
 export const reedRequestsRepository = {
@@ -38,7 +36,6 @@ export const reedRequestsRepository = {
       {
         requestId: record.requestId,
         serverId: record.serverId,
-        authorId: record.authorId,
         reedId: record.reedId,
         requestedAt: record.requestedAt ?? Date.now(),
       },
@@ -62,7 +59,6 @@ export const reedRequestsRepository = {
 
   async seedReedIDs(
     serverId: string,
-    authorId: string,
     reedIDs: string[],
     skipReedIds: ReadonlySet<string>
   ): Promise<void> {
@@ -71,9 +67,8 @@ export const reedRequestsRepository = {
     for (const reedId of reedIDs) {
       if (skipReedIds.has(reedId)) continue;
       await this.enqueue({
-        requestId: computeReedRequestId(requesterId, serverId, authorId, reedId),
+        requestId: computeReedRequestId(requesterId, serverId, reedId),
         serverId,
-        authorId,
         reedId,
         requestedAt: requestedAt++,
       });

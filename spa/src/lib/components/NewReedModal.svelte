@@ -52,11 +52,6 @@
     wasOpen = open;
   }
 
-  /** @param {import('$lib/types/reed').ReedType} target */
-  function refFor(target) {
-    return target.id;
-  }
-
   let content = '';
   let draftSaved = false;
   let saveDraftTimeout;
@@ -163,11 +158,11 @@
       const reed = new Reed();
       reed.content = content;
       if (pinnedReply) {
-        reed.replying = refFor(pinnedReply);
+        reed.replying = pinnedReply.id;
         reed.threadId = resolveThreadId(pinnedReply);
       }
       if (pinnedEcho) {
-        reed.echoing = refFor(pinnedEcho);
+        reed.echoing = pinnedEcho.id;
       }
       const detachedArmor = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
       reed.setUserSignature(fingerprint, detachedArmor);

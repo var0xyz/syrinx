@@ -28,7 +28,7 @@
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
-  import { resolveThreadId, refForReed } from '$lib/utils/identityRef';
+  import { resolveThreadId, parseReedRef, parseUserRef } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
@@ -95,7 +95,7 @@
   /** @param {'conversation' | 'ripples' | 'chorus'} tab */
   function setDiscussionTab(tab) {
     const hash = tab === 'conversation' ? '' : `#${tab}`;
-    void goto(`/reed/${userID}/${reedID}${hash}`, {
+    void goto(`/reed/${routeReedRef}${hash}`, {
       replaceState: true,
       noScroll: true,
       keepFocus: true,
@@ -113,9 +113,9 @@
   $: parentThreadId = reed && reedMatchesRoute
     ? (reed.threadId || resolveThreadId(reed))
     : removedReedCert
-      ? refForReed(removedReedCert.userID, removedReedCert.reedID)
+      ? removedReedCert.reedID
       : removedAccountCert
-        ? refForReed(removedAccountCert.userID, reedID)
+        ? routeReedRef
         : '';
 
   // Deleted accounts leave no username behind — show the raw identity.
@@ -137,12 +137,17 @@
     void onFollowReedArrived(reedReplyArrived);
   }
 
-  $: userID = $page.params.userID;
-  $: reedID = $page.params.reedID;
+  // The URL's one param IS the canonical reed ref — never split, never
+  // reassembled. userID/reedID below are read from it only where a
+  // narrower value (author id, bare uuid) is genuinely needed.
+  $: routeReedRef = $page.params.reedID;
+  $: routeParsed = parseReedRef(routeReedRef);
+  $: userID = routeParsed?.authorId ?? '';
+  $: reedID = routeParsed?.reedId ?? '';
   // The single canonical id (authorID@serverID/uuid) every reed-scoped API
   // call/subscription below this point should use. reed.id is already
   // canonical (see types/reed.ts), so no further composition is needed.
-  $: canonicalReedID = reed ? reed.id : (userID && reedID ? refForReed(userID, reedID) : null);
+  $: canonicalReedID = reed ? reed.id : routeReedRef;
   $: isPending = !!(reed && !reed.serverSignature);
   // Blank echoes (a bare re-share with no commentary) carry no
   // interactions of their own — no stats, no conversation/ripples, no live
@@ -151,7 +156,7 @@
   $: isBlankEchoView = isBlankEcho(reed);
   // Params can update before `data` on same-route navigations; never show a
   // reed that doesn't match the URL (e.g. parent body under the new author).
-  $: reedMatchesRoute = !!(reed && reed.id === refForReed(userID, reedID));
+  $: reedMatchesRoute = !!(reed && reed.id === routeReedRef);
 
   // Apply fresh load() results when navigating between reeds.
   $: applyPageData(data);
@@ -174,8 +179,8 @@
     lastHandledFollowReedId = '';
     lastHandledReedReplyId = '';
     isLiked = false;
-    if (next.reed?.userID && next.reed?.id) {
-      void isReedLiked(next.reed.userID, next.reed.id).then((liked) => {
+    if (next.reed?.id) {
+      void isReedLiked(next.reed.id).then((liked) => {
         if (reed?.id === next.reed.id) isLiked = liked;
       });
     }
@@ -250,7 +255,7 @@
   }
 
   function handleReedStats(msg) {
-    if (msg?.reedID === refForReed(userID, reedID)) {
+    if (msg?.reedID === routeReedRef) {
       clearStatsTimeout();
       statsStatus = 'loaded';
       echoCount = msg.echoes ?? echoCount;
@@ -265,7 +270,7 @@
   }
 
   function handleReedEchoes(msg) {
-    if (msg?.reedID === refForReed(userID, reedID)) {
+    if (msg?.reedID === routeReedRef) {
       if (typeof msg.echoes === 'number') {
         echoCount = msg.echoes;
       }
@@ -273,7 +278,7 @@
   }
 
   function handleReedReplies(msg) {
-    if (msg?.reedID === refForReed(userID, reedID)) {
+    if (msg?.reedID === routeReedRef) {
       if (typeof msg.replies === 'number') {
         replyCount = msg.replies;
       }
@@ -281,7 +286,7 @@
   }
 
   function handleReedLikes(msg) {
-    if (msg?.reedID === refForReed(userID, reedID)) {
+    if (msg?.reedID === routeReedRef) {
       if (typeof msg.likes === 'number') {
         likeCount = msg.likes;
       }
@@ -318,7 +323,7 @@
       reed = null;
       return;
     }
-    const reedCert = await removedReedsRepository.get(refForReed(userID, reedID));
+    const reedCert = await removedReedsRepository.get(routeReedRef);
     if (reedCert && reedCert.userID === userID) {
       removedReedCert = reedCert;
       reed = null;
@@ -326,7 +331,7 @@
   }
 
   function handleReedCoverage(msg) {
-    if (msg?.reedID === refForReed(userID, reedID)) {
+    if (msg?.reedID === routeReedRef) {
       coveragePercent = msg.coveragePercent ?? coveragePercent;
     }
   }
@@ -362,24 +367,22 @@
   });
 
   async function reloadFromCache() {
-    if (!user || !userID || !reedID) return;
+    if (!user || !routeReedRef) return;
+    const requestedReedRef = routeReedRef;
     const requestedUserID = userID;
-    const requestedReedID = reedID;
-    const requestedCanonicalReedID = refForReed(requestedUserID, requestedReedID);
-    let found = await reedsService.getReed(requestedCanonicalReedID);
+    let found = await reedsService.getReed(requestedReedRef);
     if (!found && user.id === requestedUserID) {
-      const pending = await reedsService.getUnsignedReed(requestedCanonicalReedID);
+      const pending = await reedsService.getUnsignedReed(requestedReedRef);
       if (pending?.userID === requestedUserID) found = pending;
     }
     // Drop stale completions after navigating to another reed.
-    if (requestedUserID !== userID || requestedReedID !== reedID) return;
+    if (requestedReedRef !== routeReedRef) return;
     if (found) {
       reed = found;
       loadingReed = false;
       await afterCacheHit({
         user,
         userID: requestedUserID,
-        reedID: requestedReedID,
         reed: found,
         authorUser,
         fromCache: true,
@@ -389,7 +392,7 @@
 
   async function loadReedFromNetwork() {
     if (!user || !userID || !reedID) return;
-    if (reed && reed.id === refForReed(userID, reedID)) return;
+    if (reed && reed.id === routeReedRef) return;
     if (!$isOnline) {
       loadingReed = false;
       return;
@@ -408,7 +411,7 @@
       }
 
       try {
-        const result = await apiService.getReedOrRemoval(refForReed(userID, reedID));
+        const result = await apiService.getReedOrRemoval(routeReedRef);
         if (seq !== loadSeq) return;
         if (result.kind === 'not_found') {
           reedNotFound = true;
@@ -448,7 +451,8 @@
       loadingReed = false;
       fetchingReed = true;
       try {
-        const networkReed = await serverConnection.requestReedContent(reedID, userID, userID);
+        const serverId = parseUserRef(userID)?.serverId ?? '';
+        const networkReed = await serverConnection.requestReedContent(routeReedRef, serverId);
         if (seq !== loadSeq) return;
         reed = networkReed;
         await loadAuthorProfile();
@@ -536,7 +540,7 @@
   async function handleShare() {
     if (!reed || isPending || isBlankEchoView || reedNotRecognized) return;
 
-    const reedUrl = `${window.location.origin}/reed/${userID}/${reedID}`;
+    const reedUrl = `${window.location.origin}/reed/${routeReedRef}`;
     const reedText = stripMarkdown(reed.content);
     const shareData = {
       title: `${authorUser?.username ?? userID}'s Reed`,
@@ -573,9 +577,9 @@
     isLiked = !wasLiked;
     try {
       if (wasLiked) {
-        await unlikeReed(userID, reedID);
+        await unlikeReed(canonicalReedID);
       } else {
-        await likeReed(userID, reedID);
+        await likeReed(canonicalReedID);
       }
     } catch (error) {
       console.error('Error toggling like:', error);
@@ -583,7 +587,7 @@
       // network call runs, so a network failure alone doesn't mean the
       // action was lost — re-check the effective state (which overlays
       // pending actions) rather than blindly reverting the optimistic flip.
-      isLiked = await isReedLiked(userID, reedID);
+      isLiked = await isReedLiked(canonicalReedID);
     }
   }
 
@@ -591,7 +595,7 @@
 
   <Auth>
     <div class="reed-detail-container">
-      {#key `${userID}/${reedID}`}
+      {#key routeReedRef}
         {#if !isBlankEchoView && reedMatchesRoute && reed?.serverSignature && !removedReedCert && !removedAccountCert}
           <ReedStatsSubscription
             authorId={userID}
@@ -659,8 +663,7 @@
           <div class="discussion-panel" class:hidden={conversationCount === 0}>
             <ConversationSection
               bind:this={conversationSection}
-              parentUserID={userID}
-              parentReedID={reedID}
+              parentReedRef={routeReedRef}
               threadId={parentThreadId}
               bind:count={conversationCount}
             />
@@ -769,8 +772,7 @@
             <div class="discussion-panel" class:hidden={conversationCount === 0}>
               <ConversationSection
                 bind:this={conversationSection}
-                parentUserID={userID}
-                parentReedID={reedID}
+                parentReedRef={routeReedRef}
                 threadId={parentThreadId}
                 bind:count={conversationCount}
               />
@@ -811,8 +813,7 @@
             <div class="discussion-panel" class:hidden={discussionTab !== 'conversation'}>
               <ConversationSection
                 bind:this={conversationSection}
-                parentUserID={userID}
-                parentReedID={reedID}
+                parentReedRef={routeReedRef}
                 threadId={parentThreadId}
                 bind:count={conversationCount}
               />
