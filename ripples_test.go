@@ -92,7 +92,7 @@ func ensureRipplesSchema(db *sql.DB) error {
 		`CREATE TABLE reeds (
 			id VARCHAR(255) PRIMARY KEY,
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
-			private_key_fingerprint VARCHAR(255) NOT NULL,
+			private_key_id VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
@@ -213,9 +213,9 @@ func insertRipplesTestReed(t *testing.T, db *sql.DB, authorID, bareReedID string
 		t.Fatalf("insert server_signatures for reed %s: %v", reedID, err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO reeds (id, user_id, private_key_fingerprint, signed_at, user_signature_id, server_signature_id)
+		`INSERT INTO reeds (id, user_id, private_key_id, signed_at, user_signature_id, server_signature_id)
 		 VALUES ($1, $2, $3, now(), $4, $5)`,
-		reedID, identityID, "fp-"+authorID, userSigID, serverSigID,
+		reedID, identityID, "fp-"+authorID+"@testserver", userSigID, serverSigID,
 	); err != nil {
 		t.Fatalf("insert reed %s: %v", reedID, err)
 	}

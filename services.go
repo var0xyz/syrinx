@@ -212,6 +212,7 @@ func (s *DataService) ProcessRevocations(ctx context.Context) error {
 		}
 
 		fingerprint := strings.TrimSuffix(entry.Name(), ".rvk")
+		keyID := string(identity.CanonicalID(s.serverID, fingerprint))
 		rvkPath := filepath.Join(revocationsDir, entry.Name())
 
 		reasonBytes, err := os.ReadFile(rvkPath)
@@ -229,8 +230,8 @@ func (s *DataService) ProcessRevocations(ctx context.Context) error {
 		// Verify the key exists
 		var exists bool
 		err = s.db.QueryRowContext(ctx,
-			`SELECT EXISTS(SELECT 1 FROM private_keys WHERE fingerprint = $1)`,
-			fingerprint,
+			`SELECT EXISTS(SELECT 1 FROM private_keys WHERE id = $1)`,
+			keyID,
 		).Scan(&exists)
 		if err != nil {
 			return fmt.Errorf("failed to check key existence: %w", err)
@@ -241,7 +242,7 @@ func (s *DataService) ProcessRevocations(ctx context.Context) error {
 				Msg("Revocation file references unknown key fingerprint")
 		}
 
-		if err := s.RevokeServerPrivateKey(ctx, fingerprint, reason); err != nil {
+		if err := s.RevokeServerPrivateKey(ctx, keyID, reason); err != nil {
 			return fmt.Errorf("failed to revoke key: %w", err)
 		}
 
@@ -266,12 +267,19 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 	var encryptedArmor string
 	var createdAt time.Time
 
+	var keyID string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT pk.fingerprint, pk.armor, pk.created_at
+		SELECT pk.id, pk.armor, pk.created_at
 		FROM servers sv
-		JOIN private_keys pk ON pk.fingerprint = sv.signing_key
+		JOIN public_keys pub ON pub.id = sv.signing_key
+		JOIN private_keys pk ON pk.id = pub.id
 		WHERE sv.self = TRUE AND pk.revoked_at IS NULL
-	`).Scan(&fingerprint, &encryptedArmor, &createdAt)
+	`).Scan(&keyID, &encryptedArmor, &createdAt)
+	if err == nil {
+		if _, _, fp, ok := identity.ParseKeyFingerprint(identity.IdentityID(keyID)); ok {
+			fingerprint = fp
+		}
+	}
 
 	if err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("failed to query server signing key: %w", err)
@@ -311,11 +319,11 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 			return nil, fmt.Errorf("failed to self-countersign server public key: %w", err)
 		}
 
-		if err := s.SaveServerKeyPair(ctx, keyID, keyPair.Fingerprint, encryptedPrivate, keyPair.PublicKey, selfSigArmor, now); err != nil {
+		if err := s.SaveServerKeyPair(ctx, keyID, encryptedPrivate, keyPair.PublicKey, selfSigArmor, now); err != nil {
 			return nil, fmt.Errorf("failed to save server key pair: %w", err)
 		}
 
-		if err := s.SetServerSigningKey(ctx, keyPair.Fingerprint); err != nil {
+		if err := s.SetServerSigningKey(ctx, keyID); err != nil {
 			return nil, fmt.Errorf("failed to set signing key: %w", err)
 		}
 
@@ -343,8 +351,8 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 			return nil, fmt.Errorf("failed to re-encrypt server signing key after identity update: %w", err)
 		}
 		if _, err = s.db.ExecContext(ctx,
-			`UPDATE private_keys SET armor = $1 WHERE fingerprint = $2`,
-			newEncrypted, fingerprint,
+			`UPDATE private_keys SET armor = $1 WHERE id = $2`,
+			newEncrypted, keyID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to persist updated server signing key: %w", err)
 		}
@@ -368,7 +376,7 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 // an ownerless row, countersigned by itself (selfSigArmor, produced by the
 // caller — InitServerKey — since only it holds the decrypted private key
 // needed to produce that signature).
-func (s *DataService) SaveServerKeyPair(ctx context.Context, keyID, fingerprint, privateArmor, publicArmor, selfSigArmor string, signedAt time.Time) error {
+func (s *DataService) SaveServerKeyPair(ctx context.Context, keyID, privateArmor, publicArmor, selfSigArmor string, signedAt time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -376,13 +384,17 @@ func (s *DataService) SaveServerKeyPair(ctx context.Context, keyID, fingerprint,
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO private_keys (fingerprint, armor) VALUES ($1, $2)`,
-		fingerprint, privateArmor,
+		`INSERT INTO private_keys (id, armor) VALUES ($1, $2)`,
+		keyID, privateArmor,
 	)
 	if err != nil {
 		return err
 	}
 
+	_, _, fingerprint, ok := identity.ParseKeyFingerprint(identity.IdentityID(keyID))
+	if !ok {
+		return fmt.Errorf("malformed server key id: %s", keyID)
+	}
 	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, fingerprint, selfSigArmor, signedAt)
 	if err != nil {
 		return err
@@ -399,8 +411,8 @@ func (s *DataService) SaveServerKeyPair(ctx context.Context, keyID, fingerprint,
 	return tx.Commit()
 }
 
-func (s *DataService) SetServerSigningKey(ctx context.Context, fingerprint string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE servers SET signing_key = $1 WHERE self = TRUE`, fingerprint)
+func (s *DataService) SetServerSigningKey(ctx context.Context, keyID string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE servers SET signing_key = $1 WHERE self = TRUE`, keyID)
 	return err
 }
 
@@ -409,7 +421,7 @@ func (s *DataService) GetServerSigningKeyArmor(ctx context.Context) (string, err
 	err := s.db.QueryRowContext(ctx, `
 		SELECT pk.armor
 		FROM private_keys pk
-		JOIN servers s ON s.signing_key = pk.fingerprint
+		JOIN servers s ON s.signing_key = pk.id
 		WHERE s.self = TRUE
 	`).Scan(&armor)
 	if err != nil {
@@ -423,13 +435,12 @@ func (s *DataService) GetServerSigningKeyArmor(ctx context.Context) (string, err
 // or historical) signing key, or "" if no such key exists.
 //
 // Verifiers use this to select the historical server signing key that
-// produced a given reed countersignature: reeds store the fingerprint of the
-// key used at signing time (`reeds.private_key_fingerprint`), which is a FK
-// into `private_keys`; the matching entry in `public_keys` (id =
-// fingerprint@this-server's-own-serverID) is the verifier's input. This is
-// required because the reed server block binds the fingerprint into the
-// countersigned payload, and by any future recovery import path that must
-// verify against a restored historical key.
+// produced a given reed countersignature: reeds store the id of the key
+// used at signing time (`reeds.private_key_id`), which is a FK into
+// `private_keys`; the matching entry in `public_keys` (same id) is the
+// verifier's input. This is required because the reed server block binds
+// the fingerprint into the countersigned payload, and by any future
+// recovery import path that must verify against a restored historical key.
 func (s *DataService) GetServerPublicKeyByFingerprint(ctx context.Context, fingerprint string) (string, error) {
 	var armor string
 	err := s.db.QueryRowContext(ctx,
@@ -445,12 +456,12 @@ func (s *DataService) GetServerPublicKeyByFingerprint(ctx context.Context, finge
 	return armor, nil
 }
 
-func (s *DataService) RevokeServerPrivateKey(ctx context.Context, fingerprint, reason string) error {
+func (s *DataService) RevokeServerPrivateKey(ctx context.Context, keyID, reason string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE private_keys
 		SET revoked_at = NOW(), revoke_reason = $2
-		WHERE fingerprint = $1
-	`, fingerprint, reason)
+		WHERE id = $1
+	`, keyID, reason)
 	return err
 }
 
@@ -1871,15 +1882,14 @@ func (s *DataService) insertReedCoreTx(
 	var createdOwner string
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO reeds (
-			id, user_id, private_key_fingerprint, signed_at,
+			id, user_id, private_key_id, signed_at,
 			user_signature_id, server_signature_id
 		)
 		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, user_id, private_key_fingerprint, signed_at
-	`, p.ReedID, selfIdentity, p.ServerFingerprint, ts, userSigID, serverSigID).Scan(
+		RETURNING id, user_id, signed_at
+	`, p.ReedID, selfIdentity, string(identity.CanonicalID(s.serverID, p.ServerFingerprint)), ts, userSigID, serverSigID).Scan(
 		&created.ID,
 		&createdOwner,
-		&created.Fingerprint,
 		&created.Timestamp,
 	)
 	if err != nil {
@@ -2138,7 +2148,7 @@ func (s *DataService) GetReedAttestation(ctx context.Context, reedID string) (*R
 	var att ReedAttestation
 	var owner string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT r.id, r.user_id, r.private_key_fingerprint, r.signed_at,
+		SELECT r.id, r.user_id, r.signed_at,
 			us.public_key_id, us.signature,
 			ss.fingerprint, ss.signature, ss.signed_at
 		FROM reeds r
@@ -2148,7 +2158,6 @@ func (s *DataService) GetReedAttestation(ctx context.Context, reedID string) (*R
 	`, reedID).Scan(
 		&att.ID,
 		&owner,
-		&att.Fingerprint,
 		&att.Timestamp,
 		&att.UserFingerprint,
 		&att.UserSignature,
@@ -2666,14 +2675,13 @@ func (s *DataService) GetReed(ctx context.Context, reedID string) (*Reed, error)
 	var reed Reed
 	var owner string
 	err := s.db.QueryRowContext(ctx, `
-	SELECT id, user_id, private_key_fingerprint, signed_at
+	SELECT id, user_id, signed_at
 		FROM reeds
 		WHERE id = $1
 	`, reedID,
 	).Scan(
 		&reed.ID,
 		&owner,
-		&reed.Fingerprint,
 		&reed.Timestamp,
 	)
 	if err != nil {
