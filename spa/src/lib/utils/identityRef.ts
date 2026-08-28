@@ -34,15 +34,6 @@ export function parseReedRef(raw: string | null | undefined): ReedRef | null {
 }
 
 /**
- * Build a ref from a userID that's already canonical (userID@serverID) —
- * e.g. reed.userID. Just appends the reedId; does not touch serverId,
- * because it's already embedded in userID.
- */
-export function refForReed(userID: string, reedId: string): string {
-  return `${userID}/${reedId}`;
-}
-
-/**
  * A reed's own canonical id (authorID@serverID/uuid) — same composition
  * the server uses for canonicalReedID (handlers.go), and the value every
  * downstream consumer (ripples, likes, IndexedDB keys, realtime
@@ -51,7 +42,7 @@ export function refForReed(userID: string, reedId: string): string {
  * envelope and the /reeds/{userID}/{reedID} URL segment.
  */
 export function canonicalReedId(reed: { userID: string; id: string }): string {
-  return refForReed(reed.userID, reed.id);
+  return `${reed.userID}/${reed.id}`;
 }
 
 /** Thread id for a reply: inherit parent's threadId or parent ref when parent is the root. */

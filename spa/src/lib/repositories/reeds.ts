@@ -21,7 +21,6 @@ import {
 import { isOnline, onReconnect } from '$lib/services/pwa';
 import { isBlankEcho } from '$lib/utils/emptyEcho';
 import { clearPublishTipOverride, previousIDForPublish } from '../services/publishTip';
-import { refForReed } from '$lib/utils/identityRef';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
@@ -342,14 +341,9 @@ class ReedsService {
     const pending = await pendingPublicationRepository.getAll();
     if (pending.length === 0) return;
 
-    // pendingPublication only ever tracks the current device's own user —
-    // publishing always goes through countersignReed() for a locally-signed
-    // reed, never another author's.
-    const ownUserId = localStorage.getItem('userId') ?? '';
-
     await serverConnection.connect();
     for (const { reedID } of pending) {
-      const reed = ownUserId ? await dbService.get<ReedType>('reeds', refForReed(ownUserId, reedID)) : null;
+      const reed = await dbService.get<ReedType>('reeds', reedID);
       const broadcast = reed ? !isBlankEcho(reed) : true;
       await serverConnection.publishReady(reedID, { broadcast });
     }

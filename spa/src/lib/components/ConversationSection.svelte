@@ -8,15 +8,13 @@
   import { serverConnection } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
   import { formatRelativeTime } from '$lib/utils/time';
-  import { parseReedRef, refForReed } from '$lib/utils/identityRef';
+  import { parseReedRef } from '$lib/utils/identityRef';
   import { get } from 'svelte/store';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
 
-  /** Parent reed author. */
-  export let parentUserID = '';
-  /** Parent reed id. */
-  export let parentReedID = '';
+  /** Parent reed's own canonical ref (authorID@serverID/reedID). */
+  export let parentReedRef = '';
   /** Thread wire ref for cache rows. */
   export let threadId = '';
   /** Bump to force reload (e.g. after FOLLOW_REED). */
@@ -35,7 +33,7 @@
 
   let lastLoadKey = '';
 
-  $: loadKey = `${parentUserID}/${parentReedID}:${refreshToken}`;
+  $: loadKey = `${parentReedRef}:${refreshToken}`;
   $: if (loadKey && loadKey !== lastLoadKey) {
     lastLoadKey = loadKey;
     void loadConversation();
@@ -45,7 +43,7 @@
     loading = true;
     errorMessage = '';
     try {
-      const cached = await reedRepliesRepository.listByParent(parentUserID, parentReedID);
+      const cached = await reedRepliesRepository.listByParent(parentReedRef);
       rows = await hydrateRows(cached.map((r) => ({ userID: r.userID, reedID: r.reedID })));
       if ($isOnline) {
         await refreshFromServer(false);
@@ -59,21 +57,15 @@
   }
 
   async function refreshFromServer(showLoading = true) {
-    if (!$isOnline || !parentUserID || !parentReedID) return;
+    if (!$isOnline || !parentReedRef) return;
     if (showLoading) loading = true;
     try {
-      const res = await apiService.listReplies(refForReed(parentUserID, parentReedID));
+      const res = await apiService.listReplies(parentReedRef);
       if (threadId) {
-        await reedRepliesRepository.syncFromServerList(
-          parentUserID,
-          parentReedID,
-          threadId,
-          res.replies,
-        );
+        await reedRepliesRepository.syncFromServerList(parentReedRef, threadId, res.replies);
         if (!res.hasMore) {
           await reedRepliesRepository.pruneStale(
-            parentUserID,
-            parentReedID,
+            parentReedRef,
             new Set(res.replies.map((r) => r.reedID)),
           );
         }
@@ -131,8 +123,7 @@
 
     try {
       await serverConnection.connect();
-      const bareReedId = parseReedRef(ref.reedID)?.reedId ?? ref.reedID;
-      const reed = await serverConnection.requestReedContent(bareReedId, ref.userID, serverId);
+      const reed = await serverConnection.requestReedContent(ref.reedID, serverId);
       await applyReplyBody(ref.reedID, reed);
     } catch (err) {
       console.warn('ConversationSection: relay failed for reply', ref.reedID, err);
@@ -183,16 +174,9 @@
     if (!oldest?.timestamp) return;
     loadingMore = true;
     try {
-      const res = await apiService.listReplies(refForReed(parentUserID, parentReedID), {
-        before: oldest.timestamp,
-      });
+      const res = await apiService.listReplies(parentReedRef, { before: oldest.timestamp });
       if (threadId) {
-        await reedRepliesRepository.syncFromServerList(
-          parentUserID,
-          parentReedID,
-          threadId,
-          res.replies,
-        );
+        await reedRepliesRepository.syncFromServerList(parentReedRef, threadId, res.replies);
       }
       hasMore = res.hasMore;
       const older = await hydrateRows(res.replies);
@@ -212,7 +196,7 @@
   export async function onReplyArrived(reed) {
     if (!reed?.replying || !reed.threadId) return;
     await reedRepliesRepository.upsertFromReed(reed);
-    const reedID = refForReed(reed.userID, reed.id);
+    const reedID = reed.id;
     pendingBodies.delete(reedID);
     const username =
       (await userRepository.getByUserId(reed.userID).catch(() => null))?.username ?? reed.userID;

@@ -8,8 +8,7 @@ import { pendingUnlikeRepository } from '$lib/repositories/pendingUnlike';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { likedReedsRepository } from '$lib/repositories/likedReeds';
 import { verifyReedLike } from '$lib/verifiers';
-import { refForReed } from '$lib/utils/identityRef';
-import { parseCanonicalId } from '$lib/utils/keyId';
+import { parseReedRef } from '$lib/utils/identityRef';
 
 export { verifyReedLike };
 
@@ -28,10 +27,10 @@ export async function commitReedLikeLocally(cert: api.ReedLike): Promise<void> {
  * countersigned it. Pending state wins over the confirmed record since it's
  * always more recent (queuing an action clears the opposite pending entry).
  */
-export async function isReedLiked(authorID: string, reedID: string): Promise<boolean> {
-  if (await pendingLikeRepository.get(authorID, reedID)) return true;
-  if (await pendingUnlikeRepository.get(authorID, reedID)) return false;
-  return likedReedsRepository.has(authorID, reedID);
+export async function isReedLiked(reedRef: string): Promise<boolean> {
+  if (await pendingLikeRepository.get(reedRef)) return true;
+  if (await pendingUnlikeRepository.get(reedRef)) return false;
+  return likedReedsRepository.has(reedRef);
 }
 
 /** Put-then-side-effects. Returns false if verification fails. */
@@ -49,12 +48,11 @@ export async function verifyAndCommitReedLike(cert: api.ReedLike): Promise<boole
  * Signed path: queue pending → POST → verify countersig → likedReeds →
  * clear pending.
  */
-export async function likeReed(authorID: string, reedID: string): Promise<api.ReedLike> {
+export async function likeReed(reedRef: string): Promise<api.ReedLike> {
   // The countersignature server is always the REED's home server (write-proxy
   // target), not this client's own — those coincide for a local reed, but
   // diverge for a foreign one, which is the case this must get right.
-  const parsed = parseCanonicalId(authorID);
-  const serverID = parsed?.[1];
+  const serverID = parseReedRef(reedRef)?.serverId;
   if (!serverID) {
     throw new Error('Server ID not available');
   }
@@ -70,25 +68,24 @@ export async function likeReed(authorID: string, reedID: string): Promise<api.Re
     throw new Error('Private key not found');
   }
 
-  const userPayload = buildReedLikeUserPayload(serverID, refForReed(authorID, reedID), fingerprint);
+  const userPayload = buildReedLikeUserPayload(serverID, reedRef, fingerprint);
   const sigArmor = await cryptoService.signMessage(userPayload, privateKey.armor, passphrase);
   const signature = btoa(sigArmor);
 
-  await pendingUnlikeRepository.delete(authorID, reedID);
+  await pendingUnlikeRepository.delete(reedRef);
   await pendingLikeRepository.put({
-    compositeKey: `${authorID}:${reedID}`,
-    authorID,
-    reedID,
+    compositeKey: reedRef,
+    reedID: reedRef,
     serverID,
     fingerprint,
     signature,
   });
 
-  const cert = await apiService.likeReed(refForReed(authorID, reedID), signature, fingerprint);
+  const cert = await apiService.likeReed(reedRef, signature, fingerprint);
   if (!(await verifyAndCommitReedLike(cert))) {
     throw new Error('Server like countersignature failed verification');
   }
-  await pendingLikeRepository.delete(authorID, reedID);
+  await pendingLikeRepository.delete(reedRef);
   return cert;
 }
 
@@ -96,15 +93,14 @@ export async function likeReed(authorID: string, reedID: string): Promise<api.Re
  * Unsigned path: queue pending → DELETE → clear local like state →
  * clear pending. No signature is ever built or checked.
  */
-export async function unlikeReed(authorID: string, reedID: string): Promise<void> {
-  await pendingLikeRepository.delete(authorID, reedID);
+export async function unlikeReed(reedRef: string): Promise<void> {
+  await pendingLikeRepository.delete(reedRef);
   await pendingUnlikeRepository.put({
-    compositeKey: `${authorID}:${reedID}`,
-    authorID,
-    reedID,
+    compositeKey: reedRef,
+    reedID: reedRef,
   });
 
-  await apiService.unlikeReed(refForReed(authorID, reedID));
-  await likedReedsRepository.delete(authorID, reedID);
-  await pendingUnlikeRepository.delete(authorID, reedID);
+  await apiService.unlikeReed(reedRef);
+  await likedReedsRepository.delete(reedRef);
+  await pendingUnlikeRepository.delete(reedRef);
 }

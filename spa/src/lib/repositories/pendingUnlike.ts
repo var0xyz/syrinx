@@ -3,16 +3,10 @@ import { dbService } from '$lib/services/db';
 import { apiService } from '$lib/services/api';
 import { likedReedsRepository } from '$lib/repositories/likedReeds';
 import { allowUnsigned } from '$lib/verifiers';
-import { refForReed } from '$lib/utils/identityRef';
 
 export interface PendingUnlikeRecord {
-  compositeKey: string; // `${authorID}:${reedID}`
-  authorID: string;
+  compositeKey: string; // reedRef (authorID@serverID/uuid)
   reedID: string;
-}
-
-export function unlikeCompositeKey(authorID: string, reedID: string): string {
-  return `${authorID}:${reedID}`;
 }
 
 /** Incremented after each successful flush so UI can refresh. */
@@ -23,12 +17,12 @@ export const pendingUnlikeRepository = {
     await dbService.put('pendingUnlike', record, allowUnsigned);
   },
 
-  async delete(authorID: string, reedID: string): Promise<void> {
-    await dbService.delete('pendingUnlike', unlikeCompositeKey(authorID, reedID));
+  async delete(reedRef: string): Promise<void> {
+    await dbService.delete('pendingUnlike', reedRef);
   },
 
-  async get(authorID: string, reedID: string): Promise<PendingUnlikeRecord | null> {
-    return dbService.get<PendingUnlikeRecord>('pendingUnlike', unlikeCompositeKey(authorID, reedID));
+  async get(reedRef: string): Promise<PendingUnlikeRecord | null> {
+    return dbService.get<PendingUnlikeRecord>('pendingUnlike', reedRef);
   },
 
   async getAll(): Promise<PendingUnlikeRecord[]> {
@@ -40,9 +34,9 @@ export const pendingUnlikeRepository = {
     const pending = await pendingUnlikeRepository.getAll();
     for (const record of pending) {
       try {
-        await apiService.unlikeReed(refForReed(record.authorID, record.reedID));
-        await likedReedsRepository.delete(record.authorID, record.reedID);
-        await pendingUnlikeRepository.delete(record.authorID, record.reedID);
+        await apiService.unlikeReed(record.reedID);
+        await likedReedsRepository.delete(record.reedID);
+        await pendingUnlikeRepository.delete(record.reedID);
         pendingUnlikeSynced.update((n) => n + 1);
       } catch (error) {
         console.error('Failed to sync pending reed unlike:', record.reedID, error);
