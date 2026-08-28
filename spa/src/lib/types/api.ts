@@ -7,8 +7,7 @@ export interface UserSignature extends Base {
 
 /** Nested server countersignature wire block shared by every signed resource. */
 export interface ServerSignature extends Base {
-  serverID: string;
-  fingerprint: string;
+  id: string;
   armor: string;
   timestamp: string;
 }

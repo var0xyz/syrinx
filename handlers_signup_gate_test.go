@@ -381,11 +381,15 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	// Exactly what verifyPublicKey does client-side: rebuild the payload
 	// using the userID this same response returned, then check the server
 	// signature against it.
+	keyServerFingerprint, keyServerID, ok := identity.ParseIdentityID(identity.IdentityID(key.ServerSignature.ID))
+	if !ok {
+		t.Fatalf("malformed key server signature id: %s", key.ServerSignature.ID)
+	}
 	rebuiltKey := identity.BuildPublicKeyPayload(
-		key.ServerSignature.ServerID,
+		keyServerID,
 		key.UserID,
 		key.ID,
-		key.ServerSignature.Fingerprint,
+		keyServerFingerprint,
 		key.Armor,
 		key.ServerSignature.SignedAt,
 	)
@@ -398,12 +402,16 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	}
 
 	// Same check for verifyUser's profile payload rebuild.
+	profileServerFingerprint, profileServerID, ok := identity.ParseIdentityID(identity.IdentityID(user.ServerSignature.ID))
+	if !ok {
+		t.Fatalf("malformed profile server signature id: %s", user.ServerSignature.ID)
+	}
 	rebuiltProfile := identity.BuildProfilePayload(
 		user.ID,
 		user.Username,
 		user.UserSignature.Fingerprint,
-		user.ServerSignature.ServerID,
-		user.ServerSignature.Fingerprint,
+		profileServerID,
+		profileServerFingerprint,
 		user.UserSignature.Armor,
 		"",
 		user.Role,

@@ -16,7 +16,6 @@ import type { ServerSignature } from '$lib/types/api';
 import { apiService } from './api';
 import { cryptoService } from './crypto';
 import { dbService } from './db';
-import { formatServerKeyId } from '$lib/utils/identityRef';
 import type { PublicKey } from '$lib/types/api';
 
 export type VerifyResult =
@@ -49,8 +48,7 @@ export async function verify(
   payload: string
 ): Promise<VerifyResult> {
   if (
-    !serverSignature?.serverID ||
-    !serverSignature.fingerprint ||
+    !serverSignature?.id ||
     !serverSignature.armor ||
     !serverSignature.timestamp
   ) {
@@ -61,10 +59,9 @@ export async function verify(
   }
 
   try {
-    const id = formatServerKeyId(serverSignature.fingerprint, serverSignature.serverID);
-    const armor = await resolveServerKeyArmor(id);
+    const armor = await resolveServerKeyArmor(serverSignature.id);
     if (!armor) {
-      return { ok: false, reason: 'server_key_unavailable', detail: serverSignature.fingerprint };
+      return { ok: false, reason: 'server_key_unavailable', detail: serverSignature.id };
     }
 
     const signedAt = signedAtHeader(serverSignature.timestamp);

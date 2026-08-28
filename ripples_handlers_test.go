@@ -122,7 +122,7 @@ func TestPostRipple_Handler_Success(t *testing.T) {
 	if w.UserSignature.Fingerprint != key.CanonicalFingerprint || w.UserSignature.Armor != body.UserSignature {
 		t.Errorf("userSignature not echoed correctly: %+v", w.UserSignature)
 	}
-	if w.ServerSignature.Armor == "" || w.ServerSignature.Fingerprint == "" {
+	if w.ServerSignature.Armor == "" || w.ServerSignature.ID == "" {
 		t.Errorf("serverSignature missing: %+v", w.ServerSignature)
 	}
 }

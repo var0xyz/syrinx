@@ -11,8 +11,7 @@ import {
 } from './restoreFlow';
 
 export type SignReedResponse = {
-  serverID: string;
-  fingerprint: string;
+  id: string;
   timestamp: string;
   armor: string;
 };

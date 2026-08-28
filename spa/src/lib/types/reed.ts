@@ -107,15 +107,9 @@ export class Reed {
     };
   }
 
-  applyServerResponse(r: {
-    serverID: string;
-    fingerprint: string;
-    timestamp: string;
-    armor: string;
-  }): void {
+  applyServerResponse(r: { id: string; timestamp: string; armor: string }): void {
     this._serverSignature = {
-      serverID: r.serverID,
-      fingerprint: r.fingerprint,
+      id: r.id,
       armor: r.armor,
       timestamp: r.timestamp,
     };

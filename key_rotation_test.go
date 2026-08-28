@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"syrinx/identity"
 	"syrinx/roles"
 )
 
@@ -45,14 +46,14 @@ func TestAddPublicKey_RotatesAtomically(t *testing.T) {
 		UserID:    user,
 		CreatedAt: time.Now().UTC(),
 		Armor:     "new-armor",
-		Server:    ServerSignature{Fingerprint: "new-key-sfp", Armor: "s", SignedAt: time.Now().UTC()},
+		Server:    ServerSignature{ID: string(identity.CanonicalID("test", "new-key-sfp")), Armor: "s", SignedAt: time.Now().UTC()},
 
 		PredecessorID:        oldKeyID,
 		PredecessorSignature: "predecessor-signs-new-armor",
 
 		RevocationReason:        "rotating",
 		RevocationUserSignature: "old-key-signs-revocation",
-		RevocationServer:        ServerSignature{Fingerprint: "rev-sfp", Armor: "s", SignedAt: time.Now().UTC()},
+		RevocationServer:        ServerSignature{ID: string(identity.CanonicalID("test", "rev-sfp")), Armor: "s", SignedAt: time.Now().UTC()},
 	})
 	if err != nil {
 		t.Fatalf("AddPublicKey: %v", err)
@@ -90,12 +91,12 @@ func TestAddPublicKey_DoubleRotationRejected(t *testing.T) {
 		UserID:                  user,
 		CreatedAt:               time.Now().UTC(),
 		Armor:                   "new-armor-a",
-		Server:                  ServerSignature{Fingerprint: "new-key-sfp-a", Armor: "s", SignedAt: time.Now().UTC()},
+		Server:                  ServerSignature{ID: string(identity.CanonicalID("test", "new-key-sfp-a")), Armor: "s", SignedAt: time.Now().UTC()},
 		PredecessorID:           oldKeyID,
 		PredecessorSignature:    "predecessor-signs-new-armor-a",
 		RevocationReason:        "rotating",
 		RevocationUserSignature: "old-key-signs-revocation",
-		RevocationServer:        ServerSignature{Fingerprint: "rev-sfp", Armor: "s", SignedAt: time.Now().UTC()},
+		RevocationServer:        ServerSignature{ID: string(identity.CanonicalID("test", "rev-sfp")), Armor: "s", SignedAt: time.Now().UTC()},
 	}); err != nil {
 		t.Fatalf("first rotation: %v", err)
 	}
@@ -108,12 +109,12 @@ func TestAddPublicKey_DoubleRotationRejected(t *testing.T) {
 		UserID:                  user,
 		CreatedAt:               time.Now().UTC(),
 		Armor:                   "new-armor-b",
-		Server:                  ServerSignature{Fingerprint: "new-key-sfp-b", Armor: "s", SignedAt: time.Now().UTC()},
+		Server:                  ServerSignature{ID: string(identity.CanonicalID("test", "new-key-sfp-b")), Armor: "s", SignedAt: time.Now().UTC()},
 		PredecessorID:           oldKeyID,
 		PredecessorSignature:    "predecessor-signs-new-armor-b",
 		RevocationReason:        "rotating again",
 		RevocationUserSignature: "old-key-signs-revocation-again",
-		RevocationServer:        ServerSignature{Fingerprint: "rev-sfp-2", Armor: "s", SignedAt: time.Now().UTC()},
+		RevocationServer:        ServerSignature{ID: string(identity.CanonicalID("test", "rev-sfp-2")), Armor: "s", SignedAt: time.Now().UTC()},
 	})
 	if err != ErrPredecessorAlreadyReplaced {
 		t.Fatalf("want ErrPredecessorAlreadyReplaced, got %v", err)

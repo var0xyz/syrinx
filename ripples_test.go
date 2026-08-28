@@ -360,10 +360,9 @@ func testCountersign(t *testing.T) (func(payload []byte, ts time.Time) (ServerSi
 			return ServerSignature{}, err
 		}
 		return ServerSignature{
-			ServerID:    "testserver",
-			Fingerprint: kp.Fingerprint,
-			Armor:       base64.StdEncoding.EncodeToString([]byte(armor)),
-			SignedAt:    ts,
+			ID:       string(identity.CanonicalID("testserver", kp.Fingerprint)),
+			Armor:    base64.StdEncoding.EncodeToString([]byte(armor)),
+			SignedAt: ts,
 		}, nil
 	}, kp.Fingerprint
 }

@@ -60,10 +60,9 @@ type UserSignature struct {
 // (identity, public key, reed, …): which server key signed it, when,
 // and the signature itself.
 type ServerSignature struct {
-	ServerID    string    `json:"serverID"`
-	Fingerprint string    `json:"fingerprint"`
-	Armor       string    `json:"armor"`
-	SignedAt    time.Time `json:"timestamp"`
+	ID       string    `json:"id"`
+	Armor    string    `json:"armor"`
+	SignedAt time.Time `json:"timestamp"`
 }
 
 // KeyPredecessor identifies the key this one replaced (rotation only).
