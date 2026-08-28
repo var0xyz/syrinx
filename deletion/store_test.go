@@ -331,3 +331,77 @@ func TestInsertAccountCert_IdempotentConflictAndNote(t *testing.T) {
 		t.Fatal("expected note length rejection")
 	}
 }
+
+// TestInsertForeignAccountCert_NoLocalSideEffects verifies the foreign
+// path only writes account_removals: no users row is touched (there is
+// none to touch — the account was never local), unlike InsertAccountCert.
+func TestInsertForeignAccountCert_NoLocalSideEffects(t *testing.T) {
+	db := openTestDB(t)
+	const foreignServerID = "foreign-srv"
+	userID := fmt.Sprintf("foreign-ar-user-%d", time.Now().UnixNano())
+	bareFP := fmt.Sprintf("foreign-ar-fp-%d", time.Now().UnixNano())
+	identityID := string(identity.CanonicalID(foreignServerID, userID))
+	fp := string(identity.AppendEntity(identity.IdentityID(identityID), bareFP))
+
+	if _, err := db.Exec(`
+		INSERT INTO identities (id, server_id) VALUES ($1, $2)
+	`, identityID, foreignServerID); err != nil {
+		t.Fatalf("seed foreign identity: %v", err)
+	}
+	var serverSigID int64
+	if err := db.QueryRow(`
+		INSERT INTO server_signatures (fingerprint, signature, signed_at)
+		VALUES ('foreign-key-sfp', 's', NOW()) RETURNING id
+	`).Scan(&serverSigID); err != nil {
+		t.Fatalf("seed key server_signatures: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO public_keys (id, owner, armor, server_signature_id)
+		VALUES ($1, $2, 'armor', $3)
+	`, fp, identityID, serverSigID); err != nil {
+		t.Fatalf("seed foreign public key: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM account_removals WHERE user_id = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM public_keys WHERE owner = $1`, identityID)
+		_, _ = db.Exec(`DELETE FROM identities WHERE id = $1`, identityID)
+	})
+
+	cert := AccountCert{
+		UserID:            identityID,
+		Note:              "gone",
+		UserSignature:     "user-sig",
+		UserFingerprint:   fp,
+		ServerSignature:   "server-sig",
+		ServerFingerprint: "server-fp",
+		ServerSignedAt:    time.Now().UTC(),
+	}
+	if err := InsertForeignAccountCert(context.Background(), db, cert); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	if err := InsertForeignAccountCert(context.Background(), db, cert); err != nil {
+		t.Fatalf("identical replay: %v", err)
+	}
+
+	got, err := GetAccountCert(context.Background(), db, userID, foreignServerID)
+	if err != nil || got == nil {
+		t.Fatalf("get: got=%v err=%v", got, err)
+	}
+	if got.Note != "gone" {
+		t.Fatalf("note=%q", got.Note)
+	}
+
+	var usersCount int
+	if err := db.QueryRow(`SELECT count(*) FROM users WHERE id = $1`, identityID).Scan(&usersCount); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if usersCount != 0 {
+		t.Fatalf("expected no users row for a foreign account removal, got %d", usersCount)
+	}
+
+	conflict := cert
+	conflict.UserSignature = "other"
+	if err := InsertForeignAccountCert(context.Background(), db, conflict); err != ErrConflict {
+		t.Fatalf("want ErrConflict, got %v", err)
+	}
+}

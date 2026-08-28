@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"syrinx/deletion"
 	"syrinx/identity"
 	"syrinx/observability/metrics"
 	"syrinx/realtime"
@@ -2025,5 +2026,135 @@ func (h *Handlers) DisconnectNotifyFromPeer(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "disconnect-notify", true)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// account-removal-notify: a removed user's own home server notifies every
+// peer known to hold a copy of that user's content — not followers or
+// subscribers, which are a peer-local concern resolved once it has the cert.
+
+type relayAccountRemovalNotifyPayload struct {
+	UserID            string    `json:"user_id"`
+	Note              string    `json:"note"`
+	UserSignature     string    `json:"user_signature"`
+	UserFingerprint   string    `json:"user_fingerprint"`
+	ServerSignature   string    `json:"server_signature"`
+	ServerFingerprint string    `json:"server_fingerprint"`
+	ServerSignedAt    time.Time `json:"server_signed_at"`
+}
+
+// notifyForeignAccountRemovalToPeers tells every peer holding a copy of
+// removedUserID's content that the account was removed, so each can store
+// the cert and fan it out to its own local followers/subscribers.
+// Best-effort per peer: one unreachable peer must not block the rest.
+func (h *Handlers) notifyForeignAccountRemovalToPeers(ctx context.Context, removedUserID string, cert deletion.AccountCert) {
+	log := h.services.log.GetLogger(ctx)
+	serverIDs, err := h.services.db.GetForeignHolderServersForAuthor(ctx, removedUserID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", removedUserID).Msg("Failed to resolve holder servers for account removal notify")
+		return
+	}
+	payload := relayAccountRemovalNotifyPayload{
+		UserID:            removedUserID,
+		Note:              cert.Note,
+		UserSignature:     cert.UserSignature,
+		UserFingerprint:   cert.UserFingerprint,
+		ServerSignature:   cert.ServerSignature,
+		ServerFingerprint: cert.ServerFingerprint,
+		ServerSignedAt:    cert.ServerSignedAt,
+	}
+	for _, serverID := range serverIDs {
+		peer, err := h.services.db.GetServerByID(ctx, serverID)
+		if err != nil || peer == nil {
+			continue
+		}
+		if _, err := h.callPeerRelayEndpoint(ctx, serverID, peer.BaseURL, "/api/federation/relay/account-removal-notify", payload, nil); err != nil {
+			log.Error().Err(err).Str("userID", removedUserID).Str("peerServerID", serverID).Msg("Failed to notify peer of account removal")
+		}
+	}
+}
+
+// AccountRemovalNotifyFromPeer: an established peer holding a copy of one
+// of its own users' content is telling us that user's account was
+// removed. Stores the cert (no local-account side effects — this user was
+// never ours) and fans it out to local followers/subscribers exactly like
+// a same-server removal would.
+func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayAccountRemovalNotifyPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.UserID = strings.TrimSpace(req.UserID)
+	if req.UserID == "" || req.UserSignature == "" || req.ServerSignature == "" {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		writeResponse(w, http.StatusBadRequest, "user_id, user_signature, and server_signature are required")
+		return
+	}
+
+	// Loop-prevention: a peer may only notify us about removal of one of
+	// its OWN users — never claim removal on behalf of a third server.
+	_, userServerID, userOK := identity.ParseIdentityID(identity.IdentityID(req.UserID))
+	if !userOK || userServerID != peerServerID {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		writeResponse(w, http.StatusBadRequest, "user_id does not belong to the calling peer")
+		return
+	}
+
+	if err := h.services.db.UpsertRemoteIdentity(r.Context(), req.UserID, peerServerID); err != nil {
+		log.Error().Err(err).Str("userID", req.UserID).Msg("Failed to upsert remote identity for account removal")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		internalServerError(w)
+		return
+	}
+
+	// account_removals.public_key_id is a hard FK — a foreign user's key
+	// is fetched and cached from its owning peer if we don't hold it yet
+	// (same resolvePublicKey path LikeReed uses for the same problem).
+	pubKey, err := h.resolvePublicKey(r.Context(), req.UserFingerprint)
+	if err != nil {
+		log.Error().Err(err).Str("userID", req.UserID).Str("fingerprint", req.UserFingerprint).Msg("Failed to resolve signing key for account removal")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		internalServerError(w)
+		return
+	}
+	if pubKey == nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		writeResponse(w, http.StatusBadRequest, "user_fingerprint could not be resolved")
+		return
+	}
+
+	cert := deletion.AccountCert{
+		UserID:            req.UserID,
+		Note:              req.Note,
+		UserSignature:     req.UserSignature,
+		UserFingerprint:   req.UserFingerprint,
+		ServerSignature:   req.ServerSignature,
+		ServerFingerprint: req.ServerFingerprint,
+		ServerSignedAt:    req.ServerSignedAt,
+	}
+	if err := h.services.db.InsertForeignAccountRemoval(r.Context(), cert); err != nil && !errors.Is(err, deletion.ErrConflict) {
+		log.Error().Err(err).Str("userID", req.UserID).Str("peerServerID", peerServerID).Msg("Failed to store foreign account removal")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		internalServerError(w)
+		return
+	}
+
+	if h.realtimeRelay != nil {
+		wire := realtime.NewAccountRemovalWire(peerServerID, &cert)
+		h.realtimeRelay.HandleForeignAccountRemoval(req.UserID, &wire)
+	}
+
+	log.Info().Str("userID", req.UserID).Str("peerServerID", peerServerID).Msg("Stored foreign account removal")
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", true)
 	w.WriteHeader(http.StatusNoContent)
 }

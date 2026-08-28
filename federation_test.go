@@ -171,6 +171,23 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
 			PRIMARY KEY (server_id, log_id)
 		)`,
+		// Minimal shape for GetForeignHolderServersForAuthor's join — no
+		// test here signs an actual reed, so the private-key-fingerprint
+		// FK from the real schema is omitted.
+		`CREATE TABLE IF NOT EXISTS reed_identities (
+			id VARCHAR(255) PRIMARY KEY,
+			server_id VARCHAR(255) NOT NULL REFERENCES servers(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS reeds (
+			id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS reed_server_allocations (
+			reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+			server_id VARCHAR(255) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+			delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (reed_id, server_id)
+		)`,
 	}
 	for _, q := range stmts {
 		if _, err := db.Exec(q); err != nil {
@@ -763,5 +780,64 @@ func TestFederationServerDisconnect_CancelClearsRequest(t *testing.T) {
 	router.ServeHTTP(rr3, req3)
 	if rr3.Code != http.StatusConflict {
 		t.Fatalf("confirm after cancel status=%d body=%s, want 409", rr3.Code, rr3.Body.String())
+	}
+}
+
+// TestGetForeignHolderServersForAuthor verifies the account-removal
+// peer-discovery query finds every distinct peer holding a copy of any
+// reed by the given author, and nothing else (no follower/subscriber
+// involvement, no cross-author leakage).
+func TestGetForeignHolderServersForAuthor(t *testing.T) {
+	_, ds, _, _ := testFederationHandlers(t)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	peerA := establishedPeer(t, ds, "inv-holder-a", admin1, admin2, false, fixed)
+	peerB := establishedPeer(t, ds, "inv-holder-b", admin1, admin2, false, fixed)
+
+	author := seedFederationUser(t, ds, "author1", "author1", roles.RoleUser)
+	other := seedFederationUser(t, ds, "author2", "author2", roles.RoleUser)
+
+	seedReed := func(reedID, userID string) {
+		if _, err := ds.db.Exec(
+			`INSERT INTO reed_identities (id, server_id) VALUES ($1, $2)`,
+			reedID, ds.serverID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ds.db.Exec(
+			`INSERT INTO reeds (id, user_id) VALUES ($1, $2)`,
+			reedID, userID,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reed1 := author + "/reed1"
+	reed2 := author + "/reed2"
+	otherReed := other + "/reed1"
+	seedReed(reed1, author)
+	seedReed(reed2, author)
+	seedReed(otherReed, other)
+
+	seedHolder := func(reedID, serverID string) {
+		if _, err := ds.db.Exec(
+			`INSERT INTO reed_server_allocations (reed_id, server_id) VALUES ($1, $2)`,
+			reedID, serverID,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// peerA holds both of author's reeds (should dedupe to one entry);
+	// peerB holds only otherReed (must not appear for author's lookup).
+	seedHolder(reed1, peerA)
+	seedHolder(reed2, peerA)
+	seedHolder(otherReed, peerB)
+
+	got, err := ds.GetForeignHolderServersForAuthor(context.Background(), author)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != peerA {
+		t.Fatalf("got %v, want exactly [%s]", got, peerA)
 	}
 }

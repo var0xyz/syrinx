@@ -1213,6 +1213,15 @@ type AddPublicKeyInput struct {
 	// revocation-certificate data, see public_key_revocations' schema
 	// comment in db.go).
 	PredecessorSignature string
+
+	// RevocationReason/RevocationUserSignature/RevocationServer revoke
+	// PredecessorID in the same transaction as the new key insert — a
+	// caller signed in the window between a separate revoke-then-add
+	// would have no valid key at all. RevocationUserSignature is the
+	// predecessor key's own detached signature over the revocation payload.
+	RevocationReason        string
+	RevocationUserSignature string
+	RevocationServer        ServerSignature
 }
 
 // On success it inserts the key, points users.user_fingerprint at it, and
@@ -1283,8 +1292,7 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	}
 
 	// A predecessor may be replaced at most once. Re-rotation against
-	// the same revoked key would fork the successor chain. A missing
-	// revocations row means the key was never revoked.
+	// the same revoked key would fork the successor chain.
 	var successor sql.NullString
 	err = tx.QueryRowContext(ctx, `
 		SELECT successor
@@ -1292,14 +1300,38 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 		WHERE revoked_id = $1
 		FOR UPDATE
 	`, predecessor).Scan(&successor)
-	if err == sql.ErrNoRows {
-		return nil, ErrPredecessorNotRevoked
-	}
-	if err != nil {
+	switch {
+	case err == sql.ErrNoRows:
+		// Not yet revoked — revoke it now, in this same transaction, so
+		// there is never a window where the predecessor is revoked but no
+		// successor exists yet (a request signed in that gap would have no
+		// valid key at all).
+		revUserSigID, err := signing.InsertUserSignature(ctx, tx, predecessor, in.RevocationUserSignature)
+		if err != nil {
+			return nil, err
+		}
+		revServerSigID, err := signing.InsertServerSignature(ctx, tx,
+			in.RevocationServer.Fingerprint,
+			in.RevocationServer.Armor,
+			in.RevocationServer.SignedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO public_key_revocations (
+				revoked_id, reason,
+				user_signature_id, server_signature_id
+			) VALUES ($1, $2, $3, $4)
+		`, predecessor, in.RevocationReason, revUserSigID, revServerSigID); err != nil {
+			return nil, err
+		}
+	case err != nil:
 		return nil, err
-	}
-	if successor.Valid && successor.String != "" {
-		return nil, ErrPredecessorAlreadyReplaced
+	default:
+		if successor.Valid && successor.String != "" {
+			return nil, ErrPredecessorAlreadyReplaced
+		}
 	}
 
 	// Even with a correctly revoked predecessor, refuse if any other
@@ -1389,52 +1421,6 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	return &key, tx.Commit()
 }
 
-// RevokeKeyInput bundles a signed revocation attestation for persistence.
-// ID arrives canonical already — the caller builds it via
-// identity.AppendEntity before signing the revocation payload, since the
-// same canonical value must appear in the signed bytes.
-type RevokeKeyInput struct {
-	ID               string
-	UserID           string
-	Reason           string
-	UserSignatureB64 string
-	Server           ServerSignature
-}
-
-func (s *DataService) RevokeKey(ctx context.Context, in RevokeKeyInput) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	userSigID, err := signing.InsertUserSignature(ctx, tx, in.ID, in.UserSignatureB64)
-	if err != nil {
-		return err
-	}
-	serverSigID, err := signing.InsertServerSignature(ctx, tx,
-		in.Server.Fingerprint,
-		in.Server.Armor,
-		in.Server.SignedAt,
-	)
-	if err != nil {
-		return err
-	}
-
-	// A key is revoked iff a row exists in public_key_revocations. owner
-	// isn't stored on this table anymore — it's derivable from revoked_id.
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO public_key_revocations (
-			revoked_id, reason,
-			user_signature_id, server_signature_id
-		) VALUES ($1, $2, $3, $4)
-	`, in.ID, in.Reason, userSigID, serverSigID)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
 
 // ReedRef is a parsed echoing/replying target: userID@serverID/reedID.
 type ReedRef struct {
@@ -2754,6 +2740,39 @@ func (s *DataService) InsertAccountRemoval(ctx context.Context, cert deletion.Ac
 		cert.UserID = bare
 	}
 	return deletion.InsertAccountCert(ctx, s.db, cert, s.serverID)
+}
+
+// InsertForeignAccountRemoval persists an account-removal cert for a user
+// this server doesn't host, told to us by a peer holding that author's
+// content. cert.UserID is already the full canonical form.
+func (s *DataService) InsertForeignAccountRemoval(ctx context.Context, cert deletion.AccountCert) error {
+	return deletion.InsertForeignAccountCert(ctx, s.db, cert)
+}
+
+// GetForeignHolderServersForAuthor returns distinct peer server IDs known
+// to hold a copy of any reed authored by userID — the set that needs to
+// hear about an account removal for that author.
+func (s *DataService) GetForeignHolderServersForAuthor(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT rsa.server_id
+		FROM reeds r
+		JOIN reed_server_allocations rsa ON rsa.reed_id = r.id
+		WHERE r.user_id = $1
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var serverIDs []string
+	for rows.Next() {
+		var serverID string
+		if err := rows.Scan(&serverID); err != nil {
+			return nil, err
+		}
+		serverIDs = append(serverIDs, serverID)
+	}
+	return serverIDs, rows.Err()
 }
 
 // HasAccountRemoval reports whether userID has an account-removal row.

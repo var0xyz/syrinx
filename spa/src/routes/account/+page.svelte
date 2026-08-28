@@ -24,7 +24,7 @@
   import { revocationRepository } from '$lib/repositories/revocation';
   import { loadProfileKeyInfo, type ProfileKeyInfo } from './keyInfo';
   import { mergeUserView, type UserView } from '$lib/utils/userView';
-  import { appendFingerprint } from '$lib/utils/identityRef';
+  import { appendFingerprint, isRoot } from '$lib/utils/identityRef';
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -233,52 +233,49 @@
       const progressNotificationId = notificationStore.info('Key revocation in progress...');
 
       try {
-        // Revoke the old key — server returns the key with revoked: true.
-        const revokedKey = await apiService.revokeKey(
-          user.id,
-          oldFingerprint,
-          reason,
-          userRevocationSignature
-        );
-        await publicKeyRepository.setRevoked(revokedKey);
-        await privateKeyRepository.setRevoked(oldFingerprint);
+        // Revoke the old key and register the new one atomically — a
+        // separate revoke-then-add round trip leaves a window where this
+        // account has no valid key at all to sign anything with.
+        let newPublicKey;
+        try {
+          newPublicKey = await apiService.addPublicKey(
+            user.id,
+            btoa(newKeyPair.publicKey),
+            oldFingerprint,
+            revokedKeySignature,
+            newKeySignature,
+            reason,
+            userRevocationSignature
+          );
+        } catch (addKeyError) {
+          const status = (addKeyError as { status?: number })?.status;
+          if (status !== 409) throw addKeyError;
+          newPublicKey = await apiService.getPublicKey(newCanonicalFingerprint);
+        }
 
-        // Mark revokeKey as done so a retry skips it and goes straight to addPublicKey
-        await pendingRevocationRepository.markRevoked(oldFingerprint);
-
-        // Upload new public key; response is the full wire PublicKey.
-        const newPublicKey = await apiService.addPublicKey(
-          user.id,
-          btoa(newKeyPair.publicKey),
-          oldFingerprint,
-          revokedKeySignature,
-          newKeySignature
-        );
-        await publicKeyRepository.put(newPublicKey);
-
-        // The rotation itself is now fully done server-side (old key
-        // revoked, new key registered) — clear the pending record and
-        // switch the active key here, BEFORE fetching the revocation
-        // certificate below. Fetching that certificate is just retrieving
-        // a receipt for something that already happened; it must not be
-        // able to re-trigger revokeKey/addPublicKey on a later retry (they
-        // already succeeded and addPublicKey isn't safely repeatable — a
-        // second call 409s). This also means a request-signer that hasn't
-        // picked up the new key yet (e.g. no passphrase available for an
-        // unattended retry) can no longer cause the whole rotation to be
-        // retried from scratch; it only affects fetching the receipt.
+        // The rotation is fully done server-side at this point — clear the
+        // pending record and switch the active key BEFORE storing/verifying
+        // the new key locally. Verifying it fetches the predecessor's
+        // revocation cert over a signed request; that request must be
+        // signed with the new key, not the now-revoked old one.
         await pendingRevocationRepository.delete(oldFingerprint);
+        await privateKeyRepository.setRevoked(oldFingerprint);
         authService.setActiveKey(newCanonicalFingerprint);
         await requestSigner.initializeWorker(newCanonicalFingerprint, passphrase);
+
+        await publicKeyRepository.put(newPublicKey);
         notificationStore.dismiss(progressNotificationId);
         isPendingRevocation = false;
         await loadKeyInfo();
         notificationStore.success('Key revoked and new key generated successfully');
 
-        // Best-effort: fetch the server-countersigned revocation proof for
-        // local caching. Failure here is not the user's problem to retry —
-        // the rotation already succeeded — so it's logged, not surfaced.
+        // Best-effort: fetch the now-revoked old key's updated record and
+        // the server-countersigned revocation proof for local caching.
+        // Failure here is not the user's problem to retry — the rotation
+        // already succeeded — so it's logged, not surfaced.
         try {
+          const revokedKey = await apiService.getPublicKey(oldFingerprint);
+          await publicKeyRepository.setRevoked(revokedKey);
           const revocation = await apiService.getKeyRevocation(user.id, oldFingerprint);
           await revocationRepository.put(revocation);
         } catch (revocationFetchError) {
@@ -576,7 +573,9 @@
                 {exporting ? 'Exporting...' : 'Export Data'}
               </button>
             </div>
-            <button class="action-btn danger" on:click={() => goto('/delete/confirm')}>Delete Account</button>
+            {#if !isRoot(user.id)}
+              <button class="action-btn danger" on:click={() => goto('/delete/confirm')}>Delete Account</button>
+            {/if}
           </div>
         </div>
       </div>
