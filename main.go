@@ -324,13 +324,10 @@ func main() {
 	// server-owned, since the id shape alone determines both ownership and
 	// which server to ask.
 	//
-	// /revoke and /revocation are registered BEFORE the bare /keys/{id:.+}:
-	// gorilla/mux matches in registration order, and a greedy {id:.+} can
-	// otherwise swallow a longer path like ".../revocation" as part of id
-	// before the more specific route ever gets a chance.
-	api.HandleFunc("/keys/{id:.+}/revoke", h.RevokeKey).Methods("POST")
-	api.HandleFunc("/keys/{id:.+}/revoke", h.noop).Methods("OPTIONS")
-
+	// /revocation is registered BEFORE the bare /keys/{id:.+}: gorilla/mux
+	// matches in registration order, and a greedy {id:.+} can otherwise
+	// swallow ".../revocation" as part of id before the more specific
+	// route ever gets a chance.
 	api.HandleFunc("/keys/{id:.+}/revocation", h.GetKeyRevocation).Methods("GET")
 	api.HandleFunc("/keys/{id:.+}/revocation", h.noop).Methods("OPTIONS")
 
@@ -536,6 +533,9 @@ func main() {
 
 	api.HandleFunc("/federation/relay/disconnect-notify", h.DisconnectNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/disconnect-notify", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/account-removal-notify", h.AccountRemovalNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/account-removal-notify", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")

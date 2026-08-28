@@ -399,27 +399,33 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 			log.Info().
 				Str("userID", message.UserID).
 				Msg("Account removed; fanout cert")
-
-			cert := message.AccountRemoval
-			followers, err := rs.dbService.GetOnlineFollowers(context.Background(), message.UserID)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to get online followers for account removal")
-			}
-			broadcastRecipients, err := rs.dbService.GetBroadcastSubscribers(context.Background(), message.UserID)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to get broadcast subscribers for account removal")
-			}
-			rs.dispatchAccountRemovalMany(followers, message.UserID, cert)
-			rs.dispatchAccountRemovalMany(broadcastRecipients, message.UserID, cert)
-
-			profileSubscribers, err := rs.dbService.GetProfileSubscribers(context.Background(), message.UserID)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to get profile subscribers for account removal")
-			}
-			for _, sub := range profileSubscribers {
-				rs.dispatchAccountRemovalTo(sub.ViewerUserID, message.UserID, cert)
-			}
+			rs.fanoutAccountRemoval(message.UserID, message.AccountRemoval)
 		}
+	}
+}
+
+// fanoutAccountRemoval delivers removedUserID's account-removal cert to
+// every local follower, broadcast subscriber, and profile subscriber —
+// shared by the local AccountRemoved broadcast and HandleForeignAccountRemoval
+// (a peer holding removedUserID's content telling us it happened).
+func (rs *RealtimeService) fanoutAccountRemoval(removedUserID string, cert *AccountRemovalWire) {
+	followers, err := rs.dbService.GetOnlineFollowers(context.Background(), removedUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get online followers for account removal")
+	}
+	broadcastRecipients, err := rs.dbService.GetBroadcastSubscribers(context.Background(), removedUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get broadcast subscribers for account removal")
+	}
+	rs.dispatchAccountRemovalMany(followers, removedUserID, cert)
+	rs.dispatchAccountRemovalMany(broadcastRecipients, removedUserID, cert)
+
+	profileSubscribers, err := rs.dbService.GetProfileSubscribers(context.Background(), removedUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get profile subscribers for account removal")
+	}
+	for _, sub := range profileSubscribers {
+		rs.dispatchAccountRemovalTo(sub.ViewerUserID, removedUserID, cert)
 	}
 }
 
@@ -2352,6 +2358,14 @@ func (rs *RealtimeService) HandleForeignNewReedNotify(ctx context.Context, autho
 // can't tell the difference.
 func (rs *RealtimeService) HandleForeignReplyRemovalNotify(ctx context.Context, viewerUserID, removedReedID string, cert *ReedRemovalWire) {
 	rs.dispatchRemovalTo(viewerUserID, removedReedID, cert)
+}
+
+// HandleForeignAccountRemoval runs on a peer holding removedUserID's
+// content: the cert is already stored, so just run the same local fanout
+// a same-server account removal gets (followers, broadcast, profile
+// subscribers) — a local recipient can't tell the difference.
+func (rs *RealtimeService) HandleForeignAccountRemoval(removedUserID string, cert *AccountRemovalWire) {
+	rs.fanoutAccountRemoval(removedUserID, cert)
 }
 
 func (rs *RealtimeService) handleUnsubscribeProfile(client *Client, data json.RawMessage) {

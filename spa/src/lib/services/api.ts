@@ -866,30 +866,11 @@ export const apiService = {
     });
   },
 
-  // revokeKey/getKeyRevocation/getPublicKey accept either a bare fingerprint
-  // or an already-canonical key id and build the full canonical id
-  // (userID@serverID/fingerprint) for the URL — GET/POST /keys/{id:.+} takes
+  // getKeyRevocation/getPublicKey accept either a bare fingerprint or an
+  // already-canonical key id and build the full canonical id
+  // (userID@serverID/fingerprint) for the URL — GET /keys/{id:.+} takes
   // the whole id as one greedy path segment now, not a separate {userID}
   // plus a bare {fingerprint}. See main.go's route registration comment.
-  async revokeKey(
-    userId: string,
-    fingerprint: string,
-    reason: string,
-    userSignature: string
-  ): Promise<api.PublicKey> {
-    const id = canonicalKeyId(userId, fingerprint);
-    const formData = new URLSearchParams();
-    formData.append('reason', reason);
-    formData.append('userSignature', userSignature);
-
-    const key = await request<api.PublicKey>(`/keys/${id}/revoke`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString()
-    });
-    return { ...key, armor: atob(key.armor) };
-  },
-
   async getKeyRevocation(userId: string, fingerprint: string): Promise<api.KeyRevocation> {
     const id = canonicalKeyId(userId, fingerprint);
     return request<api.KeyRevocation>(`/keys/${id}/revocation`, { method: 'GET' });
@@ -924,12 +905,17 @@ export const apiService = {
     return requestText('/server/key', { method: 'GET' });
   },
 
+  /** Atomically revokes the predecessor key and registers the new one —
+   * a separate revoke-then-add round trip leaves a window where the
+   * caller has no valid key at all to sign anything with. */
   async addPublicKey(
     userID: string,
     publicKey: string,
     revokedKeyFingerprint: string,
     revokedKeySignature: string,
-    newKeySignature: string
+    newKeySignature: string,
+    revocationReason: string,
+    revocationUserSignature: string
   ): Promise<api.PublicKey> {
     // revokedKeyFingerprint travels bare over the wire (form field) — the
     // server joins it with userID itself (see handlers.go's AddPublicKey).
@@ -940,6 +926,8 @@ export const apiService = {
     formData.append('revokedKeyFingerprint', bareRevokedKeyFingerprint);
     formData.append('revokedKeySignature', revokedKeySignature);
     formData.append('newKeySignature', newKeySignature);
+    formData.append('revocationReason', revocationReason);
+    formData.append('revocationUserSignature', revocationUserSignature);
 
     const key = await request<api.PublicKey>('/keys', {
       method: 'POST',

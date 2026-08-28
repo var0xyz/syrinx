@@ -121,6 +121,64 @@ func InsertAccountCert(ctx context.Context, db *sql.DB, cert AccountCert, server
 	return tx.Commit()
 }
 
+// InsertForeignAccountCert stores an account-removal cert for a user this
+// server doesn't host — a peer holding content from that author told us
+// about it. cert.UserID is already the full canonical form (unlike
+// InsertAccountCert's bare input). Only writes the account_removals row:
+// no username reclaim, no signature cleanup, no active-user count change,
+// since none of those apply to an account this server never owned.
+func InsertForeignAccountCert(ctx context.Context, db *sql.DB, cert AccountCert) error {
+	if err := ValidateAccountNote(cert.Note); err != nil {
+		return err
+	}
+	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
+	selfIdentity := identity.IdentityID(cert.UserID)
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	existing, err := loadAccountCertTx(ctx, tx, selfIdentity, true)
+	switch {
+	case err == sql.ErrNoRows:
+		userSigID, err := signing.InsertUserSignature(
+			ctx, tx, cert.UserFingerprint, cert.UserSignature,
+		)
+		if err != nil {
+			return err
+		}
+		serverSigID, err := signing.InsertServerSignature(
+			ctx, tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
+		)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO account_removals (
+				user_id, note, public_key_id,
+				user_signature_id, server_signature_id
+			) VALUES ($1, $2, $3, $4, $5)
+		`, selfIdentity, cert.Note, cert.UserFingerprint, userSigID, serverSigID); err != nil {
+			return fmt.Errorf("insert foreign account removal: %w", err)
+		}
+	case err != nil:
+		return err
+	default:
+		if existing.Note != cert.Note ||
+			existing.UserSignature != cert.UserSignature ||
+			existing.UserFingerprint != cert.UserFingerprint ||
+			existing.ServerSignature != cert.ServerSignature ||
+			existing.ServerFingerprint != cert.ServerFingerprint ||
+			!existing.ServerSignedAt.Equal(cert.ServerSignedAt) {
+			return ErrConflict
+		}
+	}
+
+	return tx.Commit()
+}
+
 // GetAccountCert returns the stored account-removal cert, or nil if none.
 // userID (the lookup param) is bare; the RETURNED cert's UserID field is
 // the full "userID@serverID" form — see AccountCert's doc comment.

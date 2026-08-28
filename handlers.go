@@ -1089,6 +1089,15 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isRoot, err := h.isRoot(r.Context(), userID); err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error checking root status for account removal")
+		internalServerError(w)
+		return
+	} else if isRoot {
+		writeResponse(w, http.StatusForbidden, "The root account cannot be deleted")
+		return
+	}
+
 	values, err := parseFormData(r)
 	if err != nil {
 		log.Error().Err(err).Msg("Error parsing form")
@@ -1241,6 +1250,8 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		UserID:         userID,
 		AccountRemoval: &wire,
 	}
+
+	go h.notifyForeignAccountRemovalToPeers(context.Background(), userID, cert)
 
 	log.Info().Str("userID", userID).Msg("Account removal accepted")
 	writeResponse(w, http.StatusOK, h.accountRemovalWire(&cert))
@@ -1546,6 +1557,26 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Revoking the predecessor happens in the same request/transaction as
+	// adding the new key — a separate revoke-then-add round trip leaves a
+	// window where the caller has no valid key at all, and any request
+	// signed in that window (even this server's own best-effort follow-ups)
+	// is rejected.
+	revocationReason := strings.TrimSpace(r.FormValue("revocationReason"))
+	revocationUserSignatureB64 := strings.TrimSpace(r.FormValue("revocationUserSignature"))
+	if revocationUserSignatureB64 == "" {
+		log.Error().
+			Str("userID", userID).
+			Msg("Argument `revocationUserSignature` not found in request")
+		writeResponse(w, http.StatusBadRequest, "Argument `revocationUserSignature` is required")
+		return
+	}
+	revocationUserSigArmor, err := encoding.Base64Decode(revocationUserSignatureB64)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid revocationUserSignature encoding")
+		return
+	}
+
 	publicKeyB64 := strings.TrimSpace(r.FormValue("publicKey"))
 	if publicKeyB64 == "" {
 		log.Error().Str("userID", userID).Msg("No public key found in request")
@@ -1606,6 +1637,18 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Str("revokedKeyFingerprint", revokedKeyFingerprint).
 		Msg("Revoked key signature verified successfully")
 
+	// Verify the revocation attestation itself, same check RevokeKey used
+	// to do standalone — the old key signing off on its own revocation.
+	revocationPayload := identity.BuildUserRevocationPayload(userID, revokedKeyFingerprint, revocationReason)
+	if err := h.services.crypto.VerifySignature(string(revocationPayload), revocationUserSigArmor, revokedKey.Armor); err != nil {
+		log.Error().
+			Str("userID", userID).
+			Str("revokedKeyFingerprint", revokedKeyFingerprint).
+			Err(err).Msg("revocationUserSignature verification failed")
+		writeResponse(w, http.StatusUnauthorized, "revocationUserSignature verification failed")
+		return
+	}
+
 	// Validate and verify the public newKey using crypto service
 	newKey, err := h.services.crypto.ValidateAndExtractPublicKey(armoredPublicKey, newKeySigArmor)
 	if err != nil {
@@ -1638,6 +1681,22 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	revocationServerPayload := identity.BuildServerRevocationPayload(
+		userID,
+		revokedKeyFingerprint,
+		revocationReason,
+		h.services.db.GetServerID(),
+		h.signingKey.Fingerprint,
+		revocationUserSignatureB64,
+		now,
+	)
+	revocationServerSignature, err := h.countersign(revocationServerPayload, now)
+	if err != nil {
+		log.Error().Err(err).Msg("Error signing key revocation")
+		internalServerError(w)
+		return
+	}
+
 	publicKey, err := h.services.db.AddPublicKey(r.Context(), AddPublicKeyInput{
 		ID:        newKeyFingerprint,
 		UserID:    userID,
@@ -1647,6 +1706,10 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 
 		PredecessorID:        revokedKeyFingerprint,
 		PredecessorSignature: revokedKeySigArmor,
+
+		RevocationReason:        revocationReason,
+		RevocationUserSignature: revocationUserSignatureB64,
+		RevocationServer:        revocationServerSignature,
 	})
 	if err != nil {
 		switch {
@@ -1677,131 +1740,12 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", newKeyFingerprint).
 		Msg("Public key created")
 
+	h.metrics.KeyRevoked(r.Context(), userID)
+
 	publicKey.Armor = encoding.Base64Encode(publicKey.Armor)
 	writeResponse(w, http.StatusOK, publicKey)
 }
 
-func (h *Handlers) RevokeKey(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("RevokeKey request received")
-
-	userID := h.getUserID(r)
-	fingerprint := mux.Vars(r)["id"]
-	if fingerprint == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
-		return
-	}
-	// A key can only be revoked by its own owner — a foreign id (or one
-	// belonging to a different local user) is rejected outright, never
-	// proxied: revoking a key you don't own is nonsensical, and only the
-	// owning server can produce a valid server countersignature for it.
-	embeddedUserID, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(fingerprint))
-	if !ok || string(identity.CanonicalID(embeddedServerID, embeddedUserID)) != userID {
-		writeResponse(w, http.StatusNotFound, "Key not found")
-		return
-	}
-
-	err := r.ParseForm()
-	if err != nil {
-		log.Error().Err(err).Msg("Error parsing form")
-		writeResponse(w, http.StatusBadRequest, "Invalid request format")
-		return
-	}
-
-	reason := strings.TrimSpace(r.FormValue("reason"))
-	userSignatureB64 := strings.TrimSpace(r.FormValue("userSignature"))
-	if userSignatureB64 == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userSignature` is required")
-		return
-	}
-
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
-			Err(err).Msg("Error loading public key")
-		internalServerError(w)
-		return
-	}
-	if pubKey == nil {
-		writeResponse(w, http.StatusNotFound, "Key not found")
-		return
-	}
-	if pubKey.Revoked {
-		writeResponse(w, http.StatusConflict, "Key is already revoked")
-		return
-	}
-
-	userPayload := identity.BuildUserRevocationPayload(userID, fingerprint, reason)
-	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
-	if err != nil {
-		log.Error().Err(err).Msg("Invalid userSignature encoding")
-		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
-		return
-	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
-			Err(err).Msg("userSignature verification failed")
-		writeResponse(w, http.StatusUnauthorized, "userSignature verification failed")
-		return
-	}
-
-	now := time.Now().UTC().Truncate(time.Second)
-	serverPayload := identity.BuildServerRevocationPayload(
-		userID,
-		fingerprint,
-		reason,
-		h.services.db.GetServerID(),
-		h.signingKey.Fingerprint,
-		userSignatureB64,
-		now,
-	)
-	serverSignature, err := h.countersign(serverPayload, now)
-	if err != nil {
-		log.Error().Err(err).Msg("Error producing server revocation signature")
-		internalServerError(w)
-		return
-	}
-
-	err = h.services.db.RevokeKey(r.Context(), RevokeKeyInput{
-		ID:               fingerprint,
-		UserID:           userID,
-		Reason:           reason,
-		UserSignatureB64: userSignatureB64,
-		Server:           serverSignature,
-	})
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
-			Err(err).Msg("Error revoking key")
-		internalServerError(w)
-		return
-	}
-
-	key, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
-	if err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("fingerprint", fingerprint).
-			Err(err).Msg("Error fetching revoked key")
-		internalServerError(w)
-		return
-	}
-
-	log.Info().
-		Str("userID", userID).
-		Str("fingerprint", fingerprint).
-		Msg("Key revoked successfully")
-
-	h.metrics.KeyRevoked(r.Context(), userID)
-
-	key.Armor = encoding.Base64Encode(key.Armor)
-	writeResponse(w, http.StatusOK, key)
-}
 
 func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
