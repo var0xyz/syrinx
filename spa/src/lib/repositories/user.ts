@@ -53,11 +53,11 @@ export class UserRepository {
     await this.put(user);
 
     if (
-      user.userSignature?.fingerprint &&
-      !(await publicKeyRepository.hasPublicKey(user.userSignature.fingerprint))
+      user.userSignature?.id &&
+      !(await publicKeyRepository.hasPublicKey(user.userSignature.id))
     ) {
       try {
-        const key = await apiService.getPublicKey(canonicalKeyId(userId, user.userSignature.fingerprint));
+        const key = await apiService.getPublicKey(canonicalKeyId(userId, user.userSignature.id));
         await publicKeyRepository.put(key);
       } catch (error) {
         console.error('Error fetching public key for user:', error);

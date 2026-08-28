@@ -409,7 +409,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	rebuiltProfile := identity.BuildProfilePayload(
 		user.ID,
 		user.Username,
-		user.UserSignature.Fingerprint,
+		user.UserSignature.ID,
 		profileServerID,
 		profileServerFingerprint,
 		user.UserSignature.Armor,

@@ -367,18 +367,21 @@ export const apiService = {
     });
   },
 
+  // userSignature.fingerprint here is genuinely bare (see
+  // invites/handlers.go's CreateInvite) — a different wire shape from
+  // every other userSignature block, which carries the canonical id.
   async createInvite(body: {
     id: string;
     tokenHash: string;
     createdAt: string;
     grantedRole?: 'user' | 'admin';
-    userSignature: api.UserSignature;
+    userSignature: { fingerprint: string; armor: string };
   }): Promise<{
     id: string;
     tokenHash: string;
     createdAt: string;
     grantedRole: 'user' | 'admin';
-    userSignature: api.UserSignature;
+    userSignature: { fingerprint: string; armor: string };
     serverSignature: api.ServerSignature;
   }> {
     return request('/invites', {

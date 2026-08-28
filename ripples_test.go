@@ -414,8 +414,8 @@ func TestPostRipple_TopLevel_MintsNewThreadID(t *testing.T) {
 	if resp.ID == "" {
 		t.Error("expected a non-empty id/hash")
 	}
-	if resp.UserSignature.Fingerprint != key.CanonicalFingerprint {
-		t.Errorf("UserSignature.Fingerprint = %q, want %q", resp.UserSignature.Fingerprint, key.CanonicalFingerprint)
+	if resp.UserSignature.ID != key.CanonicalFingerprint {
+		t.Errorf("UserSignature.ID = %q, want %q", resp.UserSignature.ID, key.CanonicalFingerprint)
 	}
 }
 

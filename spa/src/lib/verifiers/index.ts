@@ -293,7 +293,7 @@ export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promis
 }
 
 export async function verifyUser(user: api.User): Promise<boolean> {
-  if (!user?.userSignature?.armor || !user.userSignature?.fingerprint || !user.serverSignature) {
+  if (!user?.userSignature?.armor || !user.userSignature?.id || !user.serverSignature) {
     console.error('[verifyUser] missing signatures', user?.id);
     return false;
   }
@@ -302,15 +302,15 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     return false;
   }
 
-  const publicKeyData = await resolvePublicKey(user.id, user.userSignature.fingerprint);
+  const publicKeyData = await resolvePublicKey(user.id, user.userSignature.id);
   if (!publicKeyData?.armor) {
-    console.error('[verifyUser] public key unavailable', user.userSignature.fingerprint);
+    console.error('[verifyUser] public key unavailable', user.userSignature.id);
     return false;
   }
 
   const userPayload = buildUserIdentityPayload(
     user.username,
-    user.userSignature.fingerprint,
+    user.userSignature.id,
     user.bio ?? ''
   );
   let userSigArmor: string;
@@ -332,7 +332,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
   const serverPayload = buildProfilePayload(
     user.id,
     user.username,
-    user.userSignature.fingerprint,
+    user.userSignature.id,
     profileServerID,
     profileServerFingerprint,
     user.userSignature.armor,
@@ -351,7 +351,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
   if (
     !(await isKeyValidAt(
       user.id,
-      user.userSignature.fingerprint,
+      user.userSignature.id,
       publicKeyData.revoked,
       user.serverSignature.timestamp
     ))
@@ -366,7 +366,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
 export async function verifyReed(reed: ReedType): Promise<boolean> {
   if (
     !reed?.userSignature?.armor ||
-    !reed.userSignature?.fingerprint ||
+    !reed.userSignature?.id ||
     !reed.userID ||
     !reed.serverSignature
   ) {
@@ -385,7 +385,7 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     return false;
   }
 
-  const publicKeyData = await resolvePublicKey(reed.userID, reed.userSignature.fingerprint);
+  const publicKeyData = await resolvePublicKey(reed.userID, reed.userSignature.id);
   if (!publicKeyData) {
     console.error('[verifyReed] author public key unavailable', reed.id);
     return false;
@@ -424,7 +424,7 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
   if (
     !(await isKeyValidAt(
       reed.userID,
-      reed.userSignature.fingerprint,
+      reed.userSignature.id,
       publicKeyData.revoked,
       reed.serverSignature.timestamp
     ))
@@ -456,7 +456,7 @@ export async function verifyRipple(
 
   if (
     !ripple?.userSignature?.armor ||
-    !ripple.userSignature?.fingerprint ||
+    !ripple.userSignature?.id ||
     !ripple.userID ||
     !ripple.serverSignature
   ) {
@@ -464,7 +464,7 @@ export async function verifyRipple(
     return false;
   }
 
-  const publicKeyData = await resolvePublicKey(ripple.userID, ripple.userSignature.fingerprint);
+  const publicKeyData = await resolvePublicKey(ripple.userID, ripple.userSignature.id);
   if (!publicKeyData) {
     console.error('[verifyRipple] author public key unavailable', ripple.hash);
     return false;
@@ -477,7 +477,7 @@ export async function verifyRipple(
   const userPayload = buildRippleUserPayload(
     reedID,
     ripple.userID,
-    ripple.userSignature.fingerprint,
+    ripple.userSignature.id,
     ripple.threadID,
     ripple.replyingTo ?? '',
     ripple.content
@@ -497,7 +497,7 @@ export async function verifyRipple(
     rippleServerID,
     reedID,
     ripple.userID,
-    ripple.userSignature.fingerprint,
+    ripple.userSignature.id,
     ripple.threadID,
     ripple.replyingTo ?? '',
     ripple.userSignature.armor,
@@ -512,7 +512,7 @@ export async function verifyRipple(
   if (
     !(await isKeyValidAt(
       ripple.userID,
-      ripple.userSignature.fingerprint,
+      ripple.userSignature.id,
       publicKeyData.revoked,
       ripple.serverSignature.timestamp
     ))
@@ -530,7 +530,7 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
     return false;
   }
 
-  const armor = await resolveAuthorArmorForRemoval(cert.userID, cert.userSignature.fingerprint);
+  const armor = await resolveAuthorArmorForRemoval(cert.userID, cert.userSignature.id);
   if (!armor) {
     console.error('[verifyReedRemoval] no public key for author', cert.userID);
     return false;
@@ -581,7 +581,7 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
     return false;
   }
 
-  const armor = await resolvePublicKeyArmor(likerID, cert.userSignature.fingerprint);
+  const armor = await resolvePublicKeyArmor(likerID, cert.userSignature.id);
   if (!armor) {
     console.error('[verifyReedLike] no public key for liker', likerID);
     return false;
@@ -597,7 +597,7 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
 
   const userPayload = buildReedLikeUserPayload(
     cert.reedID,
-    cert.userSignature.fingerprint
+    cert.userSignature.id
   );
   const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, armor);
   if (!userValid) {
@@ -632,7 +632,7 @@ export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<bo
     return false;
   }
 
-  const armor = await resolveAuthorArmorForRemoval(cert.userID, cert.userSignature.fingerprint);
+  const armor = await resolveAuthorArmorForRemoval(cert.userID, cert.userSignature.id);
   if (!armor) {
     console.error('[verifyAccountRemoval] no public key for author', cert.userID);
     return false;

@@ -270,7 +270,7 @@ export function extractProfile(backup: BackupPayload): api.User {
   if (
     !profile?.id ||
     !profile.username ||
-    !profile.userSignature?.fingerprint ||
+    !profile.userSignature?.id ||
     !profile.serverSignature
   ) {
     throw new Error('Invalid backup file: missing countersigned profile.');

@@ -1268,8 +1268,8 @@ func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval
 		UserID:   cert.UserID,
 		Note:     cert.Note,
 		UserSignature: UserSignature{
-			Fingerprint: cert.UserFingerprint,
-			Armor:       cert.UserSignature,
+			ID:    cert.UserFingerprint,
+			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignature{
 			ID:       string(identity.CanonicalID(h.services.db.GetServerID(), cert.ServerFingerprint)),
@@ -2503,8 +2503,8 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		AuthorID: authorID,
 		ReedID:   reedID,
 		UserSignature: UserSignature{
-			Fingerprint: fingerprint,
-			Armor:       userSignatureB64,
+			ID:    fingerprint,
+			Armor: userSignatureB64,
 		},
 		ServerSignature: serverSignature,
 	}
@@ -2594,8 +2594,8 @@ func (h *Handlers) reedRemovalWire(cert *deletion.Cert) ReedRemoval {
 		UserID:   cert.UserID,
 		ReedID:   cert.ReedID,
 		UserSignature: UserSignature{
-			Fingerprint: cert.UserFingerprint,
-			Armor:       cert.UserSignature,
+			ID:    cert.UserFingerprint,
+			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignature{
 			ID:       string(identity.CanonicalID(h.services.db.GetServerID(), cert.ServerFingerprint)),
@@ -3255,7 +3255,7 @@ func (h *Handlers) mirrorForeignLike(ctx context.Context, likerID string, cert L
 	if err := h.services.db.UpsertReedIdentity(ctx, cert.ReedID); err != nil {
 		return fmt.Errorf("upsert reed identity: %w", err)
 	}
-	if err := h.services.db.InsertReedLike(ctx, likerID, cert.UserSignature.Fingerprint, cert); err != nil {
+	if err := h.services.db.InsertReedLike(ctx, likerID, cert.UserSignature.ID, cert); err != nil {
 		return fmt.Errorf("insert reed like: %w", err)
 	}
 	return nil
@@ -5120,7 +5120,7 @@ func realtimeRippleWire(w *RippleWire) *realtime.RippleWire {
 		Deleted:    w.Deleted,
 		PostedAt:   w.PostedAt,
 		UserSignature: realtime.UserSignatureWire{
-			Fingerprint: w.UserSignature.Fingerprint,
+			Fingerprint: w.UserSignature.ID,
 			Armor:       w.UserSignature.Armor,
 		},
 		ServerSignature: realtime.ServerSignatureWire{

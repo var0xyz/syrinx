@@ -52,8 +52,8 @@ type InvitedBy struct {
 
 // UserSignature is the nested user attestation wire block.
 type UserSignature struct {
-	Fingerprint string `json:"fingerprint"`
-	Armor       string `json:"armor"`
+	ID    string `json:"id"`
+	Armor string `json:"armor"`
 }
 
 // ServerSignature is the nested server countersignature wire block

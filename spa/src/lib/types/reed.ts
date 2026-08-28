@@ -102,7 +102,7 @@ export class Reed {
   /** Record the user's detached signature over asMarkdown(). */
   setUserSignature(fingerprint: string, detachedArmor: string): void {
     this._userSignature = {
-      fingerprint,
+      id: fingerprint,
       armor: btoa(detachedArmor.trim()).trim(),
     };
   }

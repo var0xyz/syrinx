@@ -1,7 +1,7 @@
 export type Base = {};
 
 export interface UserSignature extends Base {
-  fingerprint: string;
+  id: string;
   armor: string;
 }
 
@@ -268,7 +268,10 @@ export interface Invite extends Base {
   claimedAt?: string | null;
   claimedBy?: string | null;
   revokedAt?: string | null;
-  userSignature: UserSignature;
+  /** fingerprint is genuinely bare here (see invites/handlers.go's
+   * CreateInvite) — a different wire shape from every other
+   * userSignature block, which carries the canonical id. */
+  userSignature: { fingerprint: string; armor: string };
   serverSignature: ServerSignature;
 }
 
