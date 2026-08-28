@@ -66,19 +66,17 @@ type federationAttemptResponse struct {
 
 // federationListItemWire is one row in GET /api/federation/invitations.
 type federationListItemWire struct {
-	InviteID           string  `json:"inviteId"`
-	Name               string  `json:"name"`
-	Status             string  `json:"status"`
-	CreatedBy          string  `json:"createdBy"`
-	CreatedByUsername  string  `json:"createdByUsername"`
-	RemoteFingerprint  string  `json:"remoteFingerprint"`
-	CreatedAt          string  `json:"createdAt"`
-	AcceptedAt         *string `json:"acceptedAt,omitempty"`
-	ServerID           *string `json:"serverId,omitempty"`
-	ReviewedBy         *string `json:"reviewedBy,omitempty"`
-	ReviewedByUsername *string `json:"reviewedByUsername,omitempty"`
-	ReviewedAt         *string `json:"reviewedAt,omitempty"`
-	ConnectionString   *string `json:"connectionString,omitempty"`
+	InviteID          string  `json:"inviteId"`
+	Name              string  `json:"name"`
+	Status            string  `json:"status"`
+	CreatedBy         string  `json:"createdBy"`
+	RemoteFingerprint string  `json:"remoteFingerprint"`
+	CreatedAt         string  `json:"createdAt"`
+	AcceptedAt        *string `json:"acceptedAt,omitempty"`
+	ServerID          *string `json:"serverId,omitempty"`
+	ReviewedBy        *string `json:"reviewedBy,omitempty"`
+	ReviewedAt        *string `json:"reviewedAt,omitempty"`
+	ConnectionString  *string `json:"connectionString,omitempty"`
 }
 
 // federationServerWire is one row in GET /api/federation/servers — an
@@ -86,21 +84,19 @@ type federationListItemWire struct {
 // ApproveFederationAttempt). No fingerprint field: see
 // federationServerListRow's doc comment for why.
 type federationServerWire struct {
-	ServerID                      string  `json:"serverId"`
-	Name                          string  `json:"name"`
-	BaseURL                       string  `json:"baseUrl"`
-	Connected                     bool    `json:"connected"`
-	CreatedAt                     string  `json:"createdAt"`
-	Revoked                       bool    `json:"revoked"`
-	RevokedAt                     *string `json:"revokedAt,omitempty"`
-	RevokedBy                     *string `json:"revokedBy,omitempty"`
-	RevokedByUsername             *string `json:"revokedByUsername,omitempty"`
-	RevokedReason                 *string `json:"revokedReason,omitempty"`
-	DisconnectPending             bool    `json:"disconnectPending"`
-	DisconnectRequestedAt         *string `json:"disconnectRequestedAt,omitempty"`
-	DisconnectRequestedBy         *string `json:"disconnectRequestedBy,omitempty"`
-	DisconnectRequestedByUsername *string `json:"disconnectRequestedByUsername,omitempty"`
-	DisconnectReason              *string `json:"disconnectReason,omitempty"`
+	ServerID              string  `json:"serverId"`
+	Name                  string  `json:"name"`
+	BaseURL               string  `json:"baseUrl"`
+	Connected             bool    `json:"connected"`
+	CreatedAt             string  `json:"createdAt"`
+	Revoked               bool    `json:"revoked"`
+	RevokedAt             *string `json:"revokedAt,omitempty"`
+	RevokedBy             *string `json:"revokedBy,omitempty"`
+	RevokedReason         *string `json:"revokedReason,omitempty"`
+	DisconnectPending     bool    `json:"disconnectPending"`
+	DisconnectRequestedAt *string `json:"disconnectRequestedAt,omitempty"`
+	DisconnectRequestedBy *string `json:"disconnectRequestedBy,omitempty"`
+	DisconnectReason      *string `json:"disconnectReason,omitempty"`
 }
 
 // federationAttemptWire is one row in GET /api/federation/attempts — a
@@ -110,22 +106,20 @@ type federationServerWire struct {
 // handshake payload. InvitationID/ServerID are set only when applicable
 // (InvitationID on the initiator side; ServerID once approved).
 type federationAttemptWire struct {
-	AttemptID          string  `json:"attemptId"`
-	RemoteServerID     string  `json:"remoteServerId"`
-	RemoteServerName   string  `json:"remoteServerName"`
-	BaseURL            string  `json:"baseUrl"`
-	Fingerprint        string  `json:"fingerprint"`
-	InvitationID       *string `json:"invitationId,omitempty"`
-	ServerID           *string `json:"serverId,omitempty"`
-	CreatedAt          string  `json:"createdAt"`
-	Status             string  `json:"status"`
-	ApprovedBy         *string `json:"approvedBy,omitempty"`
-	ApprovedByUsername *string `json:"approvedByUsername,omitempty"`
-	ApprovedAt         *string `json:"approvedAt,omitempty"`
-	RejectedBy         *string `json:"rejectedBy,omitempty"`
-	RejectedByUsername *string `json:"rejectedByUsername,omitempty"`
-	RejectedAt         *string `json:"rejectedAt,omitempty"`
-	RejectedReason     *string `json:"rejectedReason,omitempty"`
+	AttemptID        string  `json:"attemptId"`
+	RemoteServerID   string  `json:"remoteServerId"`
+	RemoteServerName string  `json:"remoteServerName"`
+	BaseURL          string  `json:"baseUrl"`
+	Fingerprint      string  `json:"fingerprint"`
+	InvitationID     *string `json:"invitationId,omitempty"`
+	ServerID         *string `json:"serverId,omitempty"`
+	CreatedAt        string  `json:"createdAt"`
+	Status           string  `json:"status"`
+	ApprovedBy       *string `json:"approvedBy,omitempty"`
+	ApprovedAt       *string `json:"approvedAt,omitempty"`
+	RejectedBy       *string `json:"rejectedBy,omitempty"`
+	RejectedAt       *string `json:"rejectedAt,omitempty"`
+	RejectedReason   *string `json:"rejectedReason,omitempty"`
 }
 
 // federationListWire is the body of GET /api/federation/list — the mesh

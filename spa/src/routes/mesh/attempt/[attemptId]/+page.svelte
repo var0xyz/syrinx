@@ -129,11 +129,10 @@
         <p class="meta">{attempt.baseUrl}</p>
         <p class="meta">Started {formatRelativeTime(attempt.createdAt)}</p>
 
-        {#if attempt.status === 'approved' && attempt.approvedBy && attempt.approvedByUsername}
+        {#if attempt.status === 'approved' && attempt.approvedBy}
           <p class="meta"
             >Approved by <Username
               userID={attempt.approvedBy}
-              username={attempt.approvedByUsername}
               class="meta-link"
               at
               fire={false}
@@ -142,10 +141,9 @@
         {/if}
         {#if attempt.status === 'rejected'}
           <p class="meta">
-            {#if attempt.rejectedBy && attempt.rejectedByUsername}
+            {#if attempt.rejectedBy}
               Rejected by <Username
                 userID={attempt.rejectedBy}
-                username={attempt.rejectedByUsername}
                 class="meta-link"
                 at
                 fire={false}

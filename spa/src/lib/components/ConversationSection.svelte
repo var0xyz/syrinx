@@ -8,7 +8,7 @@
   import { serverConnection } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
   import { formatRelativeTime } from '$lib/utils/time';
-  import { parseReedRef, refForReed } from '$lib/utils/reedRef';
+  import { parseReedRef, refForReed } from '$lib/utils/identityRef';
   import { get } from 'svelte/store';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';

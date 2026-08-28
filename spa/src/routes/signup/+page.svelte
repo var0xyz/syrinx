@@ -187,18 +187,15 @@
       password = generatePassword();
       const serverId = localStorage.getItem('serverId') || '';
       const serverName = localStorage.getItem('serverName') || '';
+      // This user's own canonical id, minted here for the first time.
+      // Computed once; every use below passes it through as-is.
+      const canonicalUserId = `${reserved.userID}@${serverId}`;
       const keyPair = await cryptoService.generateKeyPair({
-        name: `${reserved.userID}@${serverId}`,
+        name: canonicalUserId,
         email,
         comment: serverName || undefined,
         password,
       });
-      // The signed identity payload and IndexedDB storage both want the
-      // canonical form; reserved.userID@serverId is this user's own
-      // canonical id (not yet server-confirmed, but it's the exact value
-      // Signup will mint — see handlers.go's Signup for the server side of
-      // this same construction).
-      const canonicalUserId = `${reserved.userID}@${serverId}`;
       const canonicalFingerprint = appendFingerprint(canonicalUserId, keyPair.fingerprint);
       fingerprint = canonicalFingerprint;
       authService.setPassphrase(password);

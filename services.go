@@ -3404,36 +3404,31 @@ type federationInvitation struct {
 // private_keys — see InitServerKey/GetServerSigningKeyArmor) or anywhere
 // else queryable today.
 type federationServerListRow struct {
-	ID                            string
-	Name                          string
-	BaseURL                       string
-	Connected                     bool
-	CreatedAt                     time.Time
-	Revoked                       bool
-	RevokedAt                     *time.Time
-	RevokedBy                     string
-	RevokedByUsername             string
-	RevokedReason                 string
-	DisconnectPending             bool
-	DisconnectRequestedAt         *time.Time
-	DisconnectRequestedBy         string
-	DisconnectRequestedByUsername string
-	DisconnectReason              string
+	ID                    string
+	Name                  string
+	BaseURL               string
+	Connected             bool
+	CreatedAt             time.Time
+	Revoked               bool
+	RevokedAt             *time.Time
+	RevokedBy             string
+	RevokedReason         string
+	DisconnectPending     bool
+	DisconnectRequestedAt *time.Time
+	DisconnectRequestedBy string
+	DisconnectReason      string
 }
 
 // ListFederationServers returns all peer servers, revoked or not (self excluded).
 func (s *DataService) ListFederationServers(ctx context.Context) ([]federationServerListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT s.id, s.name, COALESCE(s.base_url, ''), s.connected, s.created_at,
-			s.revoked_at, COALESCE(s.revoked_by, ''), COALESCE(revoker.username, ''),
-			COALESCE(s.revoked_reason, ''),
-			s.disconnect_requested_at, COALESCE(s.disconnect_requested_by, ''),
-			COALESCE(requester.username, ''), COALESCE(s.disconnect_reason, '')
-		FROM servers s
-		LEFT JOIN users revoker ON revoker.id = s.revoked_by
-		LEFT JOIN users requester ON requester.id = s.disconnect_requested_by
-		WHERE s.self = FALSE
-		ORDER BY s.created_at DESC
+		SELECT id, name, COALESCE(base_url, ''), connected, created_at,
+			revoked_at, COALESCE(revoked_by, ''), COALESCE(revoked_reason, ''),
+			disconnect_requested_at, COALESCE(disconnect_requested_by, ''),
+			COALESCE(disconnect_reason, '')
+		FROM servers
+		WHERE self = FALSE
+		ORDER BY created_at DESC
 	`)
 	if err != nil {
 		return nil, err
@@ -3445,8 +3440,8 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 		var row federationServerListRow
 		var revokedAt, disconnectRequestedAt sql.NullTime
 		if err := rows.Scan(&row.ID, &row.Name, &row.BaseURL, &row.Connected, &row.CreatedAt,
-			&revokedAt, &row.RevokedBy, &row.RevokedByUsername, &row.RevokedReason,
-			&disconnectRequestedAt, &row.DisconnectRequestedBy, &row.DisconnectRequestedByUsername,
+			&revokedAt, &row.RevokedBy, &row.RevokedReason,
+			&disconnectRequestedAt, &row.DisconnectRequestedBy,
 			&row.DisconnectReason); err != nil {
 			return nil, err
 		}
@@ -3659,11 +3654,9 @@ var errFederationServerAlreadyRevoked = errors.New("federation server already re
 // the peer hasn't been revoked yet — a purge must be preceded by revoke.
 var errFederationServerNotRevoked = errors.New("federation server must be disconnected before it can be deleted")
 
-// errFederationSameApprover is returned by ApproveFederationAttempt when
-// the approving admin is the same one who created the invitation, and by
-// ConfirmFederationServerDisconnect when the confirming admin is the same
-// one who requested the disconnect — a second, different admin must act.
-// Root is exempt from both checks.
+// errFederationSameApprover is returned when the acting admin is the same
+// one who initiated the action (invite creator approving, or requester
+// confirming their own disconnect). Root is exempt from both checks.
 var errFederationSameApprover = errors.New("a different admin must approve this")
 
 // errFederationDisconnectAlreadyRequested is returned by
@@ -3677,36 +3670,32 @@ var errFederationDisconnectAlreadyRequested = errors.New("disconnect already req
 var errFederationDisconnectNotRequested = errors.New("no disconnect request is pending for this server")
 
 type federationAttemptRow struct {
-	ID                 string
-	RemoteServerID     string
-	RemoteServerName   string
-	BaseURL            string
-	Fingerprint        string
-	InvitationID       string
-	ServerID           string
-	CreatedAt          time.Time
-	Status             string
-	ApprovedBy         string
-	ApprovedByUsername string
-	ApprovedAt         *time.Time
-	RejectedBy         string
-	RejectedByUsername string
-	RejectedAt         *time.Time
-	RejectedReason     string
+	ID               string
+	RemoteServerID   string
+	RemoteServerName string
+	BaseURL          string
+	Fingerprint      string
+	InvitationID     string
+	ServerID         string
+	CreatedAt        time.Time
+	Status           string
+	ApprovedBy       string
+	ApprovedAt       *time.Time
+	RejectedBy       string
+	RejectedAt       *time.Time
+	RejectedReason   string
 }
 
 const federationAttemptSelectCols = `
 	fa.id, fa.remote_server_id, fa.remote_server_name, fa.base_url, fa.fingerprint,
 	COALESCE(fa.invitation_id, ''), COALESCE(fa.server_id, ''), fa.created_at, fa.status,
-	COALESCE(fa.approved_by, ''), COALESCE(approver.username, ''), fa.approved_at,
-	COALESCE(fa.rejected_by, ''), COALESCE(rejecter.username, ''), fa.rejected_at,
+	COALESCE(fa.approved_by, ''), fa.approved_at,
+	COALESCE(fa.rejected_by, ''), fa.rejected_at,
 	COALESCE(fa.rejected_reason, '')
 `
 
 const federationAttemptFromJoin = `
 	FROM federation_attempt fa
-	LEFT JOIN users approver ON approver.id = fa.approved_by
-	LEFT JOIN users rejecter ON rejecter.id = fa.rejected_by
 `
 
 func scanFederationAttemptRow(scanner interface {
@@ -3717,8 +3706,8 @@ func scanFederationAttemptRow(scanner interface {
 	err := scanner.Scan(
 		&row.ID, &row.RemoteServerID, &row.RemoteServerName, &row.BaseURL, &row.Fingerprint,
 		&row.InvitationID, &row.ServerID, &row.CreatedAt, &row.Status,
-		&row.ApprovedBy, &row.ApprovedByUsername, &approvedAt,
-		&row.RejectedBy, &row.RejectedByUsername, &rejectedAt,
+		&row.ApprovedBy, &approvedAt,
+		&row.RejectedBy, &rejectedAt,
 		&row.RejectedReason,
 	)
 	if err != nil {
@@ -3784,11 +3773,7 @@ func (s *DataService) GetFederationAttempt(ctx context.Context, attemptID string
 // contrast the old model where a server row existed pre-approval with
 // connected=FALSE), backfills federation_attempt.server_id and, if this
 // attempt has a local invitation (initiator side), federation_invitation's
-// server_id and status too.
-// isApproverRoot lets a caller with the root role bypass the "different
-// admin" checks below — root approving/confirming its own action is
-// intentional (see roles.IsRoot: a single-operator server has no second
-// admin to ask).
+// server_id and status too. callerIsRoot bypasses the different-admin check.
 func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, approvedBy string, approvedAt time.Time, callerIsRoot bool) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -3811,10 +3796,9 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 	if status != "pending" {
 		return errFederationAttemptNotPending
 	}
-	// Only the initiator side has a local federation_invitation row (and
-	// thus a created_by to compare against) — the responder side, which
-	// redeemed someone else's connection string, has no local "creator" to
-	// restrict against, so any local admin may approve it.
+	// Only the initiator side has a local federation_invitation row to
+	// compare created_by against — the responder side has no local
+	// "creator" to restrict against, so any local admin may approve it.
 	if !callerIsRoot && invitationID != "" {
 		var invitationCreatedBy string
 		if err := tx.QueryRowContext(ctx, `
@@ -3863,14 +3847,9 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 	return tx.Commit()
 }
 
-// RevokeFederationServer disconnects an established peer: incoming
-// requests from it get rejected and outbound calls are never made,
-// though the row (and its audit trail) stays. revokedBy is nil when the
-// peer itself notified us it disconnected first — no local admin acted.
-// Also clears any pending disconnect-request staging, so a peer-initiated
-// or root-finalized revoke doesn't leave a stale "pending disconnect" on
-// the row. Called directly (bypassing the request/confirm staging below)
-// by the peer-notify path and by ConfirmFederationServerDisconnect.
+// RevokeFederationServer disconnects a peer and clears any pending
+// disconnect-request staging. revokedBy is nil when the peer notified us
+// first. Called by the peer-notify path and ConfirmFederationServerDisconnect.
 func (s *DataService) RevokeFederationServer(ctx context.Context, serverID string, revokedBy *string, reason string, revokedAt time.Time) error {
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE servers
@@ -3900,11 +3879,9 @@ func (s *DataService) RevokeFederationServer(ctx context.Context, serverID strin
 	return nil
 }
 
-// RequestFederationServerDisconnect stages a disconnect: it does not touch
-// revoked_at, so the peer stays trusted/connected until a second, different
-// admin calls ConfirmFederationServerDisconnect. Root may confirm its own
-// request (see ConfirmFederationServerDisconnect), but the request itself
-// is the same for every role.
+// RequestFederationServerDisconnect stages a disconnect — the peer stays
+// trusted until a second admin calls ConfirmFederationServerDisconnect.
+// The request itself is the same for every role, root included.
 func (s *DataService) RequestFederationServerDisconnect(ctx context.Context, serverID, requestedBy, reason string, requestedAt time.Time) error {
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE servers
@@ -3937,12 +3914,9 @@ func (s *DataService) RequestFederationServerDisconnect(ctx context.Context, ser
 	return nil
 }
 
-// ConfirmFederationServerDisconnect finalizes a staged disconnect request,
-// requiring confirmedBy to differ from whoever requested it (root exempt —
-// see ApproveFederationAttempt's identical reasoning). The staged reason is
-// what's recorded as the revocation's reason (and returned, so the caller
-// can pass the same text on to the peer-disconnect notification);
-// confirmedBy becomes revoked_by.
+// ConfirmFederationServerDisconnect finalizes a staged disconnect,
+// requiring confirmedBy to differ from the requester (root exempt). Returns
+// the staged reason so the caller can pass it to the peer notification.
 func (s *DataService) ConfirmFederationServerDisconnect(ctx context.Context, serverID, confirmedBy string, confirmedAt time.Time, callerIsRoot bool) (reason string, err error) {
 	var requestedBy string
 	if err := s.db.QueryRowContext(ctx, `
@@ -4113,13 +4087,11 @@ type federationInvitationListRow struct {
 	Name                 string
 	Status               string
 	CreatedBy            string
-	CreatedByUsername    string
 	Fingerprint          string
 	CreatedAt            time.Time
 	AcceptedAt           *time.Time
 	ServerID             string
 	ReviewedBy           string
-	ReviewedByUsername   string
 	ReviewedAt           *time.Time
 	ConnectionCiphertext string
 }
@@ -4201,9 +4173,6 @@ func (s *DataService) GetFederationInvitation(ctx context.Context, id string) (*
 	return &inv, nil
 }
 
-// ListFederationInvitations joins users twice for display names
-// (creator/reviewer), same pattern as GetUserProfile's invited_by
-// self-join. reviewed_by is nullable, COALESCE'd to "" in SQL.
 // ListFederationInvitations excludes accepted/approved invitations —
 // once accepted, an invitation can no longer change state (it's a
 // finished handshake, live or not), so it moves to living under the
@@ -4211,15 +4180,13 @@ func (s *DataService) GetFederationInvitation(ctx context.Context, id string) (*
 // instead of cluttering the pending-invite list forever.
 func (s *DataService) ListFederationInvitations(ctx context.Context) ([]federationInvitationListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT fi.id, fi.name, fi.status, fi.created_by, COALESCE(creator.username, ''),
-		       fi.fingerprint, fi.created_at, fi.accepted_at, COALESCE(fi.server_id, ''),
-		       COALESCE(fi.reviewed_by, ''), COALESCE(reviewer.username, ''), fi.reviewed_at,
-		       COALESCE(fi.connection_ciphertext, '')
-		FROM federation_invitation fi
-		JOIN users creator ON creator.id = fi.created_by
-		LEFT JOIN users reviewer ON reviewer.id = fi.reviewed_by
-		WHERE fi.status NOT IN ($1, $2)
-		ORDER BY fi.created_at DESC
+		SELECT id, name, status, created_by,
+		       fingerprint, created_at, accepted_at, COALESCE(server_id, ''),
+		       COALESCE(reviewed_by, ''), reviewed_at,
+		       COALESCE(connection_ciphertext, '')
+		FROM federation_invitation
+		WHERE status NOT IN ($1, $2)
+		ORDER BY created_at DESC
 	`, federationStatusAccepted, federationStatusApproved)
 	if err != nil {
 		return nil, err
@@ -4235,13 +4202,11 @@ func (s *DataService) ListFederationInvitations(ctx context.Context) ([]federati
 			&row.Name,
 			&row.Status,
 			&row.CreatedBy,
-			&row.CreatedByUsername,
 			&row.Fingerprint,
 			&row.CreatedAt,
 			&acceptedAt,
 			&row.ServerID,
 			&row.ReviewedBy,
-			&row.ReviewedByUsername,
 			&reviewedAt,
 			&row.ConnectionCiphertext,
 		); err != nil {
@@ -4269,26 +4234,22 @@ func (s *DataService) GetFederationInvitationForServer(ctx context.Context, serv
 	var row federationInvitationListRow
 	var acceptedAt, reviewedAt sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
-		SELECT fi.id, fi.name, fi.status, fi.created_by, COALESCE(creator.username, ''),
-		       fi.fingerprint, fi.created_at, fi.accepted_at, COALESCE(fi.server_id, ''),
-		       COALESCE(fi.reviewed_by, ''), COALESCE(reviewer.username, ''), fi.reviewed_at,
-		       COALESCE(fi.connection_ciphertext, '')
-		FROM federation_invitation fi
-		JOIN users creator ON creator.id = fi.created_by
-		LEFT JOIN users reviewer ON reviewer.id = fi.reviewed_by
-		WHERE fi.server_id = $1
+		SELECT id, name, status, created_by,
+		       fingerprint, created_at, accepted_at, COALESCE(server_id, ''),
+		       COALESCE(reviewed_by, ''), reviewed_at,
+		       COALESCE(connection_ciphertext, '')
+		FROM federation_invitation
+		WHERE server_id = $1
 	`, serverID).Scan(
 		&row.ID,
 		&row.Name,
 		&row.Status,
 		&row.CreatedBy,
-		&row.CreatedByUsername,
 		&row.Fingerprint,
 		&row.CreatedAt,
 		&acceptedAt,
 		&row.ServerID,
 		&row.ReviewedBy,
-		&row.ReviewedByUsername,
 		&reviewedAt,
 		&row.ConnectionCiphertext,
 	)

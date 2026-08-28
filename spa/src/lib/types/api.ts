@@ -278,13 +278,11 @@ export interface FederationInvitation {
   name: string;
   status: 'new' | 'accepted' | 'approved' | 'rejected' | 'canceled' | 'revoked';
   createdBy: string;
-  createdByUsername: string;
   remoteFingerprint: string;
   createdAt: string;
   acceptedAt?: string | null;
   serverId?: string | null;
   reviewedBy?: string | null;
-  reviewedByUsername?: string | null;
   reviewedAt?: string | null;
   connectionString?: string;
 }
@@ -311,13 +309,11 @@ export interface FederationServer {
   revoked: boolean;
   revokedAt?: string;
   revokedBy?: string;
-  revokedByUsername?: string;
   revokedReason?: string;
   /** A disconnect has been requested but not yet confirmed by a second admin. */
   disconnectPending: boolean;
   disconnectRequestedAt?: string;
   disconnectRequestedBy?: string;
-  disconnectRequestedByUsername?: string;
   disconnectReason?: string;
 }
 
@@ -336,10 +332,8 @@ export interface FederationAttempt {
   createdAt: string;
   status: 'pending' | 'approved' | 'rejected';
   approvedBy?: string | null;
-  approvedByUsername?: string | null;
   approvedAt?: string | null;
   rejectedBy?: string | null;
-  rejectedByUsername?: string | null;
   rejectedAt?: string | null;
   rejectedReason?: string | null;
 }

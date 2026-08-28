@@ -192,18 +192,16 @@
             <p class="meta"
               >Invited by <Username
                 userID={invitation.createdBy}
-                username={invitation.createdByUsername}
                 class="meta-link"
                 at
                 fire={false}
               /> {formatRelativeTime(invitation.createdAt)}</p
             >
           {/if}
-          {#if attempt?.approvedBy && attempt.approvedByUsername}
+          {#if attempt?.approvedBy}
             <p class="meta"
               >Approved by <Username
                 userID={attempt.approvedBy}
-                username={attempt.approvedByUsername}
                 class="meta-link"
                 at
                 fire={false}
@@ -212,10 +210,9 @@
           {/if}
           {#if server.revoked}
             <p class="meta">
-              {#if server.revokedBy && server.revokedByUsername}
+              {#if server.revokedBy}
                 Disconnected by <Username
                   userID={server.revokedBy}
-                  username={server.revokedByUsername}
                   class="meta-link"
                   at
                   fire={false}
@@ -232,10 +229,9 @@
 
           {#if server.disconnectPending && !server.revoked}
             <p class="meta">
-              {#if server.disconnectRequestedBy && server.disconnectRequestedByUsername}
+              {#if server.disconnectRequestedBy}
                 Disconnect requested by <Username
                   userID={server.disconnectRequestedBy}
-                  username={server.disconnectRequestedByUsername}
                   class="meta-link"
                   at
                   fire={false}

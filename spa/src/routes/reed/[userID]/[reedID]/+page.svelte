@@ -28,7 +28,7 @@
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
-  import { resolveThreadId, refForRemoved, refForReed } from '$lib/utils/reedRef';
+  import { resolveThreadId, refForReed } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
@@ -53,9 +53,7 @@
   let loadingReed = !data.fromCache && !data.errorMessage;
   let fetchingReed = false;
   let reedNotFound = false;
-  /** Reed exists in local cache, but the server 404s it (e.g. its home
-   * server was disconnected from the mesh) — conversation stays visible,
-   * but nothing else about the reed can be trusted or interacted with. */
+  /** Cached locally but the server 404s it — interactions disabled. */
   let reedNotRecognized = false;
   /** When set, show tombstone stub instead of full reed body. */
   let removedReedCert = null;
@@ -109,24 +107,20 @@
   let chorusCount = 0;
 
   // A removed reed's own body (and thus any threadId it inherited) is
-  // gone — self-reference using the removal cert's serverID so replies
+  // gone — self-reference using the removal cert's own fields so replies
   // cached from before the removal still key correctly, same as a live
   // thread-root reed would.
   $: parentThreadId = reed && reedMatchesRoute
     ? (reed.threadId || resolveThreadId(reed))
-    : (removedReedCert || removedAccountCert)
-      ? refForRemoved(
-          userID,
-          (removedReedCert || removedAccountCert).serverID || localStorage.getItem('serverId') || '',
-          reedID,
-        )
-      : '';
+    : removedReedCert
+      ? refForReed(removedReedCert.userID, removedReedCert.reedID)
+      : removedAccountCert
+        ? refForReed(removedAccountCert.userID, reedID)
+        : '';
 
-  // Deleted accounts leave no username behind (the local tombstone stub
-  // carries no `username` field) — show the raw identity instead of a
-  // name that no longer means anything.
+  // Deleted accounts leave no username behind — show the raw identity.
   $: authorDisplayName = removedAccountCert
-    ? (removedAccountCert.serverID ? `~${userID}@${removedAccountCert.serverID}` : `~${userID}`)
+    ? removedAccountCert.userID
     : (authorUser?.username ?? userID);
 
   $: followArrived = $followReedQueue?.reed;
@@ -205,13 +199,8 @@
     }
   }
 
-  /**
-   * A reed can be cached locally (e.g. from a server later disconnected
-   * from the mesh) while the server itself now 404s it. loadReedFromNetwork
-   * never runs for a cache hit, so this is the only place that re-checks —
-   * fire-and-forget, best-effort, and dropped if the user has since
-   * navigated to a different reed.
-   */
+  /** loadReedFromNetwork never runs for a cache hit, so this is the only
+   * re-check against the server — fire-and-forget, dropped on navigation. */
   async function checkServerRecognizesReed(reedRef) {
     if (!$isOnline) return;
     try {
@@ -775,10 +764,8 @@
           </div>
           {#if reedNotRecognized}
             <p class="not-recognized-notice">Reed not recognized by the server</p>
-            <!-- Ripples/Chorus lose meaning once the server won't vouch for
-                 the reed — same reasoning as the removed-reed branch above.
-                 Conversation stays: replies cached before disconnection are
-                 still real. -->
+            <!-- Ripples/Chorus lose meaning without server vouching for
+                 the reed; Conversation stays since cached replies are real. -->
             <div class="discussion-panel" class:hidden={conversationCount === 0}>
               <ConversationSection
                 bind:this={conversationSection}

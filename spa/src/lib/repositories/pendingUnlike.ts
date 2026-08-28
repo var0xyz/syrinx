@@ -3,7 +3,7 @@ import { dbService } from '$lib/services/db';
 import { apiService } from '$lib/services/api';
 import { likedReedsRepository } from '$lib/repositories/likedReeds';
 import { allowUnsigned } from '$lib/verifiers';
-import { refForReed } from '$lib/utils/reedRef';
+import { refForReed } from '$lib/utils/identityRef';
 
 export interface PendingUnlikeRecord {
   compositeKey: string; // `${authorID}:${reedID}`

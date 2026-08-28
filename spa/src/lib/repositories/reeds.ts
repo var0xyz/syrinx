@@ -21,7 +21,7 @@ import {
 import { isOnline, onReconnect } from '$lib/services/pwa';
 import { isBlankEcho } from '$lib/utils/emptyEcho';
 import { clearPublishTipOverride, previousIDForPublish } from '../services/publishTip';
-import { refForReed } from '$lib/utils/reedRef';
+import { refForReed } from '$lib/utils/identityRef';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
