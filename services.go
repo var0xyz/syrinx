@@ -687,8 +687,8 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 	}
 	uw := signing.UserWire(userRow)
 	user.UserSignature = UserSignature{
-		Fingerprint: uw.Fingerprint,
-		Armor:       uw.Armor,
+		ID:    uw.Fingerprint,
+		Armor: uw.Armor,
 	}
 
 	serverRow, err := signing.GetServerSignature(ctx, s.db, serverSignatureID)
@@ -1157,8 +1157,8 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, id string) (*KeyRevo
 	}
 	uw := signing.UserWire(userRow)
 	rev.UserSignature = UserSignature{
-		Fingerprint: uw.Fingerprint,
-		Armor:       uw.Armor,
+		ID:    uw.Fingerprint,
+		Armor: uw.Armor,
 	}
 
 	serverRow, err := signing.GetServerSignature(ctx, s.db, serverSigID)
@@ -2837,7 +2837,7 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 	existing, err := s.loadLikeCertTx(ctx, tx, likerIdentity, cert.ReedID, true)
 	switch {
 	case err == sql.ErrNoRows:
-		userSigID, err := signing.InsertUserSignature(ctx, tx, cert.UserSignature.Fingerprint, cert.UserSignature.Armor)
+		userSigID, err := signing.InsertUserSignature(ctx, tx, cert.UserSignature.ID, cert.UserSignature.Armor)
 		if err != nil {
 			return err
 		}
@@ -2861,7 +2861,7 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 		return err
 	default:
 		if existing.UserSignature.Armor != cert.UserSignature.Armor ||
-			existing.UserSignature.Fingerprint != cert.UserSignature.Fingerprint ||
+			existing.UserSignature.ID != cert.UserSignature.ID ||
 			existing.ServerSignature.Armor != cert.ServerSignature.Armor ||
 			existing.ServerSignature.ID != cert.ServerSignature.ID ||
 			!existing.ServerSignature.SignedAt.Equal(cert.ServerSignature.SignedAt) {
@@ -2944,8 +2944,8 @@ func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerId
 		AuthorID: string(identity.CanonicalID(authorServerID, authorUserID)),
 		ReedID:   reedID,
 		UserSignature: UserSignature{
-			Fingerprint: userRow.PublicKeyID,
-			Armor:       userRow.Signature,
+			ID:    userRow.PublicKeyID,
+			Armor: userRow.Signature,
 		},
 		ServerSignature: ServerSignature{
 			ID:       string(identity.CanonicalID(s.serverID, serverRow.Fingerprint)),
@@ -4712,7 +4712,7 @@ func (s *DataService) PostRipple(
 		Deleted:         false,
 		PostedAt:        now,
 		UserFingerprint: userFingerprint,
-		UserSignature:   UserSignature{Fingerprint: userFingerprint, Armor: userSigArmor},
+		UserSignature:   UserSignature{ID: userFingerprint, Armor: userSigArmor},
 		ServerSignature: serverSig,
 	}, nil
 }
@@ -4793,7 +4793,7 @@ func scanRipple(row rippleRowScanner) (*Ripple, error) {
 	if authorUserID, authorServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(r.ReedID)); ok {
 		r.ReedAuthorID = string(identity.CanonicalID(authorServerID, authorUserID))
 	}
-	r.UserSignature.Fingerprint = r.UserFingerprint
+	r.UserSignature.ID = r.UserFingerprint
 	r.ServerSignature.SignedAt = r.ServerSignature.SignedAt.UTC().Truncate(time.Second)
 	return &r, nil
 }

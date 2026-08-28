@@ -119,7 +119,7 @@ func TestPostRipple_Handler_Success(t *testing.T) {
 	if w.UserID != canonicalCommenter1 || w.Content != "hello" || w.Deleted {
 		t.Errorf("unexpected wire shape: %+v", w)
 	}
-	if w.UserSignature.Fingerprint != key.CanonicalFingerprint || w.UserSignature.Armor != body.UserSignature {
+	if w.UserSignature.ID != key.CanonicalFingerprint || w.UserSignature.Armor != body.UserSignature {
 		t.Errorf("userSignature not echoed correctly: %+v", w.UserSignature)
 	}
 	if w.ServerSignature.Armor == "" || w.ServerSignature.ID == "" {

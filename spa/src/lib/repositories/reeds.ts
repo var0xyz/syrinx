@@ -227,8 +227,8 @@ class ReedsService {
    */
   async storeReed(reed: ReedType): Promise<void> {
     // Ensure author key is cached (verifyReed needs armor; put attests).
-    if (reed.userSignature?.fingerprint && reed.userID) {
-      const fp = reed.userSignature.fingerprint;
+    if (reed.userSignature?.id && reed.userID) {
+      const fp = reed.userSignature.id;
       if (!(await publicKeyRepository.hasPublicKey(fp))) {
         try {
           const key = await api.getPublicKey(canonicalKeyId(reed.userID, fp));

@@ -41,8 +41,8 @@ export class RipplesRepository {
       return true;
     }
 
-    if (ripple.userSignature?.fingerprint && ripple.userID) {
-      const fp = ripple.userSignature.fingerprint;
+    if (ripple.userSignature?.id && ripple.userID) {
+      const fp = ripple.userSignature.id;
       if (!(await publicKeyRepository.hasPublicKey(fp))) {
         try {
           const key = await apiService.getPublicKey(canonicalKeyId(ripple.userID, fp));
