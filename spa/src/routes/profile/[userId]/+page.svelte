@@ -13,7 +13,8 @@
   import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { reedsService } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
-  import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
+  import { verifyAndCommitAccountRemoval, accountRemovalCommitted } from '$lib/services/accountRemoval';
+  import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
   import { notificationStore } from '$lib/stores/notifications';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -350,6 +351,28 @@
   beforeNavigate(() => {
     cleanupProfileSubscription();
   });
+
+  /**
+   * An account-removal cert can arrive over WS while this exact profile is
+   * on screen — e.g. the user deletes their account live in another tab.
+   * The commit already happened in +layout.svelte's handler; this just
+   * checks whether it was for the author we're currently viewing so the
+   * page tombstones immediately instead of continuing to show stale
+   * content until a reload.
+   */
+  $: if ($accountRemovalCommitted > 0) {
+    void checkLiveAccountRemoval();
+  }
+
+  async function checkLiveAccountRemoval() {
+    if (accountRemoved || status === 'tombstone') return;
+    const cert = await removedAccountsRepository.get(userId);
+    if (!cert) return;
+    tombstoneNote = cert.note ?? '';
+    accountRemoved = true;
+    profileUser = null;
+    status = 'tombstone';
+  }
 
   async function handleGone(removal) {
     if (removal?.type === 'account') {
