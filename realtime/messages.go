@@ -1,6 +1,10 @@
 package realtime
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"syrinx/identity"
+)
 
 // EventName identifies the reason a pending relay event was created.
 type EventName string
@@ -170,6 +174,32 @@ type DataAckData struct {
 // DataInvalidData is the parsed payload of an incoming DATA_INVALID message.
 type DataInvalidData struct {
 	EventID string `json:"event_id"`
+}
+
+// MailboxMsg delivers one pending user_mailbox row. The server never
+// decrypts or inspects Ciphertext — it's opaque bytes to everyone but the
+// recipient's own client. Sent both on live delivery and on catch-up.
+type MailboxMsg struct {
+	Type string         `json:"type"`
+	Data MailboxMsgData `json:"data"`
+}
+
+type MailboxMsgData struct {
+	ID         string `json:"id"`
+	Ciphertext string `json:"ciphertext"`
+}
+
+// NewMailboxMsg sends the canonical ref (userID@serverID/id), not the bare
+// row id — the client has no business reconstructing this itself, and
+// user_mailbox.id alone is only unique per-user, not globally.
+func NewMailboxMsg(userID, id, ciphertext string) MailboxMsg {
+	canonicalID := string(identity.AppendEntity(identity.IdentityID(userID), id))
+	return MailboxMsg{Type: "MAILBOX", Data: MailboxMsgData{ID: canonicalID, Ciphertext: ciphertext}}
+}
+
+// MailboxAckData is the parsed payload of an incoming MAILBOX_ACK message.
+type MailboxAckData struct {
+	ID string `json:"id"`
 }
 
 // KeyFetchErrorData is the parsed payload of an incoming KEY_FETCH_ERROR

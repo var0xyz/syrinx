@@ -1679,3 +1679,42 @@ func (ds *DBService) GetForeignRelayRequest(ctx context.Context, eventID string)
 	}
 	return &frr, nil
 }
+
+// MailboxRow is one pending (undelivered) mailbox message.
+type MailboxRow struct {
+	ID         string
+	Ciphertext string
+}
+
+// GetPendingMailbox returns every undelivered message for userID, oldest
+// first — every row present is undelivered by definition (there is no
+// separate pending_events bookkeeping for mailbox), so this doubles as
+// both the live-send source and the reconnect catch-up query.
+func (ds *DBService) GetPendingMailbox(ctx context.Context, userID string) ([]MailboxRow, error) {
+	rows, err := ds.db.QueryContext(ctx, `
+		SELECT id, ciphertext FROM user_mailbox WHERE user_id = $1 ORDER BY created_at
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []MailboxRow
+	for rows.Next() {
+		var m MailboxRow
+		if err := rows.Scan(&m.ID, &m.Ciphertext); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// DeleteMailboxMessage deletes one message, scoped to userID so a client
+// can only ack/delete its own mail.
+func (ds *DBService) DeleteMailboxMessage(ctx context.Context, id, userID string) error {
+	_, err := ds.db.ExecContext(ctx, `
+		DELETE FROM user_mailbox WHERE id = $1 AND user_id = $2
+	`, id, userID)
+	return err
+}
