@@ -71,7 +71,7 @@ func postRippleRequestBody(t *testing.T, db *DataService, key rippleTestKey, ree
 		ThreadID:      threadID,
 		ReplyingTo:    replyingTo,
 		Proof:         testReedServerSignature,
-		Fingerprint:   key.Fingerprint,
+		KeyID:         key.CanonicalFingerprint,
 		UserSignature: userSig,
 	}
 }
@@ -156,7 +156,7 @@ func TestPostRipple_Handler_UnknownFingerprint(t *testing.T) {
 		Content:       "hello",
 		ThreadID:      uuid.NewString(),
 		Proof:         testReedServerSignature,
-		Fingerprint:   "nonexistent-fingerprint",
+		KeyID:         "nonexistent-key-id",
 		UserSignature: "bm90LWEtcmVhbC1zaWc=",
 	})
 	if rr.Code != http.StatusUnauthorized {

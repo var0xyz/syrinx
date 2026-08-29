@@ -679,7 +679,7 @@ export async function verifyInvite(invite: api.Invite): Promise<boolean> {
     !invite?.id ||
     !invite.createdAt ||
     !invite.userSignature?.armor ||
-    !invite.userSignature?.fingerprint ||
+    !invite.userSignature?.id ||
     !invite.serverSignature
   ) {
     console.error('[verifyInvite] missing fields', invite?.id);
@@ -692,7 +692,7 @@ export async function verifyInvite(invite: api.Invite): Promise<boolean> {
     return false;
   }
 
-  const armor = await resolvePublicKeyArmor(userID, invite.userSignature.fingerprint);
+  const armor = await resolvePublicKeyArmor(userID, invite.userSignature.id);
   if (!armor) {
     console.error('[verifyInvite] no public key', userID);
     return false;

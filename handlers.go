@@ -4952,7 +4952,7 @@ type postRippleRequest struct {
 	Content       string  `json:"content"`
 	ThreadID      string  `json:"threadID"`
 	ReplyingTo    *string `json:"replyingTo"`
-	Fingerprint   string  `json:"fingerprint"`
+	KeyID         string  `json:"keyID"`
 	UserSignature string  `json:"userSignature"`
 	// UserID is the acting user's canonical id — only read when the
 	// request arrives via peer relay (see resolveActingUser); a local
@@ -5048,16 +5048,13 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if req.Fingerprint == "" || req.UserSignature == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `fingerprint` and `userSignature` are required")
+	if req.KeyID == "" || req.UserSignature == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `keyID` and `userSignature` are required")
 		return
 	}
-	// req.Fingerprint travels bare over the wire; join with callerID
-	// (already canonical) before any lookup or signed-payload use.
-	req.Fingerprint = string(identity.AppendEntity(identity.IdentityID(callerID), req.Fingerprint))
-	pubKey, err := h.resolvePublicKey(r.Context(), req.Fingerprint)
+	pubKey, err := h.resolvePublicKey(r.Context(), req.KeyID)
 	if err != nil {
-		log.Error().Str("userID", callerID).Str("fingerprint", req.Fingerprint).Err(err).Msg("Error loading public key")
+		log.Error().Str("userID", callerID).Str("keyID", req.KeyID).Err(err).Msg("Error loading public key")
 		internalServerError(w)
 		return
 	}
@@ -5075,7 +5072,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		replyingToVal = *req.ReplyingTo
 	}
 	userPayload := identity.BuildRippleUserPayload(
-		canonicalReedID, callerID, req.Fingerprint, req.ThreadID, replyingToVal, content,
+		canonicalReedID, callerID, req.KeyID, req.ThreadID, replyingToVal, content,
 	)
 	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().Str("userID", callerID).Str("reedID", canonicalReedID).Err(err).Msg("ripple signature verification failed")
@@ -5085,7 +5082,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.services.db.PostRipple(
 		r.Context(), canonicalReedID, callerID, content, req.ThreadID, req.ReplyingTo,
-		req.Fingerprint, req.UserSignature, h.countersign, time.Now(),
+		req.KeyID, req.UserSignature, h.countersign, time.Now(),
 	)
 	if errors.Is(err, ErrRippleThreadMismatch) {
 		writeResponse(w, http.StatusBadRequest, "Reply must use the same thread as the comment it replies to.")

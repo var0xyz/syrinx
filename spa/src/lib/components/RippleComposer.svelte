@@ -12,7 +12,6 @@
   import { cryptoService } from '$lib/services/crypto';
   import { buildRippleUserPayload } from '$lib/services/signing';
   import { apiService } from '$lib/services/api';
-  import { parseKeyId } from '$lib/utils/identityRef';
 
   /** The parent reed's canonical id (authorID@serverID/uuid). */
   /** @type {string} */
@@ -82,17 +81,12 @@
       const detachedArmor = await cryptoService.signMessage(userPayload, keyData.armor, passphrase);
       const userSignature = btoa(detachedArmor.trim()).trim();
 
-      // fields.fingerprint travels bare over the wire (see api.ts's
-      // postRipple) — the payload above signs canonical, the wire field
-      // below is bare, matching handlers.go's PostRipple joining it with
-      // the caller's own userID server-side.
-      const bareFingerprint = parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
       const posted = await apiService.postRipple(reedID, {
         content,
         threadID,
         replyingTo: replyingToHash,
         proof: serverSignatureArmor,
-        fingerprint: bareFingerprint,
+        keyID: fingerprint,
         userSignature,
       });
 

@@ -83,8 +83,8 @@ func createBody(t *testing.T, id, tokenHashHex string, createdAt time.Time, gran
 		CreatedAt:   createdAt,
 		GrantedRole: grantedRole,
 		UserSignature: UserSignatureWire{
-			Fingerprint: "user-fp",
-			Armor:       base64.StdEncoding.EncodeToString([]byte("user-sig")),
+			KeyID: "user-fp@" + testServerID,
+			Armor: base64.StdEncoding.EncodeToString([]byte("user-sig")),
 		},
 	})
 	if err != nil {
