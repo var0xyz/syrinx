@@ -188,7 +188,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	// aAdmin is also the invitation's own creator here — passing
 	// callerIsRoot bypasses the different-admin check so this test can
 	// focus on the handshake round-trip itself, not that rule.
-	if err := a.ds.ApproveFederationAttempt(context.Background(), aAttempt.ID, aAdmin, time.Now().UTC(), true); err != nil {
+	if _, err := a.ds.ApproveFederationAttempt(context.Background(), aAttempt.ID, aAdmin, time.Now().UTC(), true); err != nil {
 		t.Fatal(err)
 	}
 	approvedInv, err := a.ds.GetFederationInvitation(context.Background(), inviteID)
@@ -213,7 +213,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	// mirrors a real bidirectional federation link.
 	// b is the responder side — no local invitation row to compare bAdmin
 	// against, so this exercises the "unrestricted" branch, not root bypass.
-	if err := b.ds.ApproveFederationAttempt(context.Background(), bAttempt.ID, bAdmin, time.Now().UTC(), false); err != nil {
+	if _, err := b.ds.ApproveFederationAttempt(context.Background(), bAttempt.ID, bAdmin, time.Now().UTC(), false); err != nil {
 		t.Fatal(err)
 	}
 

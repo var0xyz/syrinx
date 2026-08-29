@@ -300,6 +300,12 @@ export interface FederationAttemptResponse {
   serverId: string;
 }
 
+export interface FederationAttemptApproveResponse {
+  attemptId: string;
+  serverId: string;
+  status: 'approved';
+}
+
 /** An approved peer — servers rows only exist once a FederationAttempt has
  * been approved (see ApproveFederationAttempt). */
 export interface FederationServer {

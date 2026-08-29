@@ -486,8 +486,8 @@ export const apiService = {
     });
   },
 
-  async approveFederationAttempt(attemptId: string): Promise<void> {
-    await request(`/federation/attempts/${encodeURIComponent(attemptId)}/approve`, {
+  async approveFederationAttempt(attemptId: string): Promise<api.FederationAttemptApproveResponse> {
+    return request<api.FederationAttemptApproveResponse>(`/federation/attempts/${encodeURIComponent(attemptId)}/approve`, {
       method: 'POST',
     });
   },

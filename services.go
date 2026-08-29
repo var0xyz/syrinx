@@ -3828,10 +3828,10 @@ func (s *DataService) GetFederationAttempt(ctx context.Context, attemptID string
 // connected=FALSE), backfills federation_attempt.server_id and, if this
 // attempt has a local invitation (initiator side), federation_invitation's
 // server_id and status too. callerIsRoot bypasses the different-admin check.
-func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, approvedBy string, approvedAt time.Time, callerIsRoot bool) error {
+func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, approvedBy string, approvedAt time.Time, callerIsRoot bool) (serverID string, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback()
 
@@ -3843,12 +3843,12 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 		FROM federation_attempt WHERE id = $1 FOR UPDATE
 	`, attemptID).Scan(&remoteServerID, &remoteServerName, &baseURL, &fingerprint, &invitationID, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return errFederationAttemptNotFound
+			return "", errFederationAttemptNotFound
 		}
-		return err
+		return "", err
 	}
 	if status != "pending" {
-		return errFederationAttemptNotPending
+		return "", errFederationAttemptNotPending
 	}
 	// Only the initiator side has a local federation_invitation row to
 	// compare created_by against — the responder side has no local
@@ -3858,10 +3858,10 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 		if err := tx.QueryRowContext(ctx, `
 			SELECT created_by FROM federation_invitation WHERE id = $1
 		`, invitationID).Scan(&invitationCreatedBy); err != nil {
-			return err
+			return "", err
 		}
 		if invitationCreatedBy == approvedBy {
-			return errFederationSameApprover
+			return "", errFederationSameApprover
 		}
 	}
 
@@ -3877,7 +3877,7 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 			connected = TRUE, fingerprint = EXCLUDED.fingerprint,
 			revoked_at = NULL, revoked_by = NULL, revoked_reason = NULL
 	`, remoteServerID, remoteServerName, baseURL, fingerprint, approvedAt.UTC()); err != nil {
-		return fmt.Errorf("insert federation peer: %w", err)
+		return "", fmt.Errorf("insert federation peer: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -3885,7 +3885,7 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 		SET status = 'approved', server_id = $2, approved_by = $3, approved_at = $4
 		WHERE id = $1
 	`, attemptID, remoteServerID, approvedBy, approvedAt.UTC()); err != nil {
-		return fmt.Errorf("update federation attempt: %w", err)
+		return "", fmt.Errorf("update federation attempt: %w", err)
 	}
 
 	if invitationID != "" {
@@ -3894,11 +3894,14 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 			SET status = $2, server_id = $3
 			WHERE id = $1
 		`, invitationID, federationStatusApproved, remoteServerID); err != nil {
-			return fmt.Errorf("update federation invitation: %w", err)
+			return "", fmt.Errorf("update federation invitation: %w", err)
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return remoteServerID, nil
 }
 
 // RevokeFederationServer disconnects a peer and clears any pending

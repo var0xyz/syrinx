@@ -69,13 +69,9 @@
     if (approving) return;
     approving = true;
     try {
-      await apiService.approveFederationAttempt(attemptId);
+      const result = await apiService.approveFederationAttempt(attemptId);
       notificationStore.success('Attempt approved');
-      if (attempt?.serverId) {
-        goto(`/mesh/peer/${encodeURIComponent(attempt.serverId)}`);
-      } else {
-        await refresh();
-      }
+      goto(`/mesh/peer/${encodeURIComponent(result.serverId)}`);
     } catch (err) {
       notificationStore.error(err instanceof Error ? err.message : 'Failed to approve attempt');
     } finally {
