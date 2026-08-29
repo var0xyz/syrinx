@@ -74,10 +74,8 @@ func seedReedStatsReply(t *testing.T, db *sql.DB, threadID, reedID, parentReedID
 	}
 }
 
-// TestReedStatsReplyTriggers verifies the reed_replies/reed_removals
-// insert triggers maintain reply_count exactly like the old recursive
-// GetSubtreeReplyCount CTE would have computed: a 3-level chain increments
-// every ancestor, and removing the leaf decrements them back down.
+// TestReedStatsReplyTriggers verifies a 3-level reply chain increments
+// every ancestor's reply_count, and removing the leaf decrements them back.
 func TestReedStatsReplyTriggers(t *testing.T) {
 	db := openReedStatsTestDB(t)
 	ds := &DataService{db: db, serverID: "testserver"}
@@ -137,12 +135,8 @@ func TestReedStatsReplyTriggers(t *testing.T) {
 	}
 }
 
-// TestReedStatsForeignReplyDeleteTrigger verifies the reed_replies AFTER
-// DELETE trigger — the path DeleteForeignReplyReference uses (a hard
-// DELETE, not an INSERT into reed_removals) when a peer notifies this
-// server that one of its replies to a locally-hosted reed was removed.
-// Regression test: this trigger was originally missing, so a foreign
-// reply removal never decremented the parent's reply_count at all.
+// TestReedStatsForeignReplyDeleteTrigger covers DeleteForeignReplyReference's
+// hard DELETE path — regression test, this trigger was originally missing.
 func TestReedStatsForeignReplyDeleteTrigger(t *testing.T) {
 	db := openReedStatsTestDB(t)
 	ds := &DataService{db: db, serverID: "testserver"}

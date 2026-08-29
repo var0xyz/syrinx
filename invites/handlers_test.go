@@ -53,10 +53,9 @@ func testDeps(t *testing.T, mode SignupMode, max MaxInvitesPerUser) Deps {
 		},
 		Countersign: func(payload []byte, ts time.Time) (ServerSignatureWire, error) {
 			return ServerSignatureWire{
-				ServerID:    "test-server",
-				Fingerprint: "server-fp",
-				Armor:       base64.StdEncoding.EncodeToString([]byte("server-sig")),
-				Timestamp:   ts.UTC().Format(time.RFC3339),
+				ID:        "server-fp@test-server",
+				Armor:     base64.StdEncoding.EncodeToString([]byte("server-sig")),
+				Timestamp: ts.UTC().Format(time.RFC3339),
 			}, nil
 		},
 	}
@@ -117,8 +116,11 @@ func TestCreate_Open(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.ID == "" || body.TokenHash == "" || body.ServerSignature.Armor == "" {
+	if body.ID == "" || body.TokenHash == "" || body.ServerSignature.Armor == "" || body.ServerSignature.ID == "" {
 		t.Fatalf("empty fields: %+v", body)
+	}
+	if body.ServerSignature.ID != "server-fp@test-server" {
+		t.Fatalf("serverSignature.id = %q, want canonical id unsplit", body.ServerSignature.ID)
 	}
 	if len(body.TokenHash) != crypto.HashSize*2 {
 		t.Fatalf("tokenHash len = %d", len(body.TokenHash))

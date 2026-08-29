@@ -578,10 +578,8 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// One row per reed, kept in sync by triggers below instead of
-	// recomputed live on every read (reply_count in particular used to be
-	// a WITH RECURSIVE subtree walk on every SUBSCRIBE_REED). Rows are
-	// created lazily by the trigger functions' upsert-increment, not
-	// seeded here.
+	// recomputed live on every read. Rows are created lazily by the
+	// trigger functions' upsert-increment, not seeded here.
 	createReedStatsTable := `
 	CREATE TABLE IF NOT EXISTS reed_stats (
 		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
@@ -695,10 +693,8 @@ func InitDB(db *sql.DB) error {
 		FOR EACH ROW EXECUTE FUNCTION reed_holder_count_trigger();
 	`
 
-	// bump_reply_ancestors walks parent_reed_id from start_reed_id up to
-	// the root, applying delta to reply_count at every level — the
-	// iterative equivalent of GetSubtreeReplyCount's recursive CTE, paid
-	// once per write instead of on every read.
+	// Walks parent_reed_id from start_reed_id up to the root, applying
+	// delta to reply_count at every level.
 	createBumpReplyAncestorsFunction := `
 	CREATE OR REPLACE FUNCTION bump_reply_ancestors(start_reed_id VARCHAR(255), delta INT)
 	RETURNS VOID AS $$
@@ -745,12 +741,9 @@ func InitDB(db *sql.DB) error {
 		FOR EACH ROW EXECUTE FUNCTION reed_reply_count_trigger();
 	`
 
-	// A hard delete of a reed_replies row (DeleteForeignReplyReference, the
-	// peer-relay cleanup leg) decrements every ancestor's reply_count.
-	// Must start the walk from OLD.parent_reed_id directly rather than
-	// bump_reply_ancestors(OLD.reed_id, ...) — by AFTER DELETE time OLD's
-	// own row is already gone, so a lookup keyed on OLD.reed_id would find
-	// nothing and the walk would silently do nothing.
+	// Starts from OLD.parent_reed_id, not OLD.reed_id — by AFTER DELETE
+	// time OLD's own row is gone, so bump_reply_ancestors(OLD.reed_id, ...)
+	// would find nothing and silently do nothing.
 	createReedReplyDeleteTriggerFunction := `
 	CREATE OR REPLACE FUNCTION reed_reply_delete_count_trigger() RETURNS TRIGGER AS $$
 	BEGIN
@@ -787,10 +780,8 @@ func InitDB(db *sql.DB) error {
 		FOR EACH ROW EXECUTE FUNCTION reed_removal_reply_count_trigger();
 	`
 
-	// An account removal decrements ancestor reply_count for every reply
-	// by that author that isn't already covered by its own reed_removals
-	// row — the one genuinely bulk trigger, O(replies by author × depth),
-	// accepted as a synchronous cost inside the (rare) removal transaction.
+	// Decrements every reply by this author not already covered by its
+	// own reed_removals row — O(replies × depth), the one bulk trigger.
 	createAccountRemovalReplyCountTriggerFunction := `
 	CREATE OR REPLACE FUNCTION account_removal_reply_count_trigger() RETURNS TRIGGER AS $$
 	DECLARE
