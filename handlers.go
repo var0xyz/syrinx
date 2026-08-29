@@ -2384,6 +2384,8 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		ReedRemoval: &wire,
 	}
 
+	go h.notifyForeignReedRemovalToPeers(context.Background(), reedID, cert)
+
 	log.Info().Str("userID", userID).Str("reedID", reedID).Msg("Reed removal accepted")
 	writeResponse(w, http.StatusOK, h.reedRemovalWire(&cert))
 }

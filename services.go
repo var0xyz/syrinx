@@ -2797,6 +2797,30 @@ func (s *DataService) GetForeignHolderServersForAuthor(ctx context.Context, user
 	return serverIDs, rows.Err()
 }
 
+// GetForeignHolderServersForReed returns distinct peer server IDs known to
+// hold a copy of reedID — the set that needs to hear about that reed's
+// removal. Unlike GetForeignHolderServersForAuthor (every reed by an
+// author), this is scoped to one reed.
+func (s *DataService) GetForeignHolderServersForReed(ctx context.Context, reedID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT server_id FROM reed_server_allocations WHERE reed_id = $1
+	`, reedID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var serverIDs []string
+	for rows.Next() {
+		var serverID string
+		if err := rows.Scan(&serverID); err != nil {
+			return nil, err
+		}
+		serverIDs = append(serverIDs, serverID)
+	}
+	return serverIDs, rows.Err()
+}
+
 // HasAccountRemoval reports whether userID has an account-removal row.
 // userID arrives in userID@serverID form; deletion.HasAccountRemoval's
 // lookup param is bare, so decode before delegating.

@@ -361,38 +361,7 @@ func (rs *RealtimeService) handleBroadcasts(broadcastChan <-chan BroadcastMessag
 				Str("userID", message.UserID).
 				Str("reedID", reedID).
 				Msg("Reed removed; fanout cert")
-
-			cert := message.ReedRemoval
-			followers, err := rs.dbService.GetOnlineFollowers(context.Background(), message.UserID)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to get online followers for reed removal")
-			}
-			broadcastRecipients, err := rs.dbService.GetBroadcastSubscribers(context.Background(), message.UserID)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to get broadcast subscribers for reed removal")
-			}
-			rs.dispatchRemovalMany(followers, reedID, cert)
-			rs.dispatchRemovalMany(broadcastRecipients, reedID, cert)
-
-			profileSubscribers, err := rs.dbService.GetProfileSubscribers(context.Background(), message.UserID)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to get profile subscribers for reed removal")
-			}
-			for _, sub := range profileSubscribers {
-				rs.dispatchRemovalTo(sub.ViewerUserID, reedID, cert)
-			}
-
-			// Anyone viewing this reed's thread (SUBSCRIBE_REED) needs to know
-			// it's gone too — same gap as ReplyPosted: a reed-stat subscriber
-			// isn't necessarily a follower/broadcast/profile subscriber.
-			reedSubscribers := rs.connManager.ReedSubscriberUserIDs(reedID, "")
-			rs.dispatchRemovalMany(reedSubscribers, reedID, cert)
-
-			// If the removed reed was itself a reply, everyone subscribed to
-			// an ancestor further up the thread also needs the removal notice
-			// — they were shown the reply and need to know it's gone, same as
-			// notifyReplyAncestorsOfReply for a newly posted reply.
-			rs.notifyReplyAncestorsOfRemoval(reedID, cert)
+			rs.fanoutReedRemoval(message.UserID, reedID, message.ReedRemoval)
 		}
 
 		if message.Type == AccountRemoved {
@@ -427,6 +396,43 @@ func (rs *RealtimeService) fanoutAccountRemoval(removedUserID string, cert *Acco
 	for _, sub := range profileSubscribers {
 		rs.dispatchAccountRemovalTo(sub.ViewerUserID, removedUserID, cert)
 	}
+}
+
+// fanoutReedRemoval delivers reedID's removal cert to every local follower,
+// broadcast subscriber, profile subscriber, and reed-thread subscriber of
+// authorUserID/reedID — shared by the local ReedRemoved broadcast and
+// HandleForeignReedRemoval (a peer holding this reed telling us it happened).
+func (rs *RealtimeService) fanoutReedRemoval(authorUserID, reedID string, cert *ReedRemovalWire) {
+	followers, err := rs.dbService.GetOnlineFollowers(context.Background(), authorUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get online followers for reed removal")
+	}
+	broadcastRecipients, err := rs.dbService.GetBroadcastSubscribers(context.Background(), authorUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get broadcast subscribers for reed removal")
+	}
+	rs.dispatchRemovalMany(followers, reedID, cert)
+	rs.dispatchRemovalMany(broadcastRecipients, reedID, cert)
+
+	profileSubscribers, err := rs.dbService.GetProfileSubscribers(context.Background(), authorUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get profile subscribers for reed removal")
+	}
+	for _, sub := range profileSubscribers {
+		rs.dispatchRemovalTo(sub.ViewerUserID, reedID, cert)
+	}
+
+	// Anyone viewing this reed's thread (SUBSCRIBE_REED) needs to know it's
+	// gone too — same gap as ReplyPosted: a reed-stat subscriber isn't
+	// necessarily a follower/broadcast/profile subscriber.
+	reedSubscribers := rs.connManager.ReedSubscriberUserIDs(reedID, "")
+	rs.dispatchRemovalMany(reedSubscribers, reedID, cert)
+
+	// If the removed reed was itself a reply, everyone subscribed to an
+	// ancestor further up the thread also needs the removal notice — they
+	// were shown the reply and need to know it's gone, same as
+	// notifyReplyAncestorsOfReply for a newly posted reply.
+	rs.notifyReplyAncestorsOfRemoval(reedID, cert)
 }
 
 // fanoutNewReed dispatches a newly published reed to followers, broadcast subs,
@@ -2366,6 +2372,13 @@ func (rs *RealtimeService) HandleForeignReplyRemovalNotify(ctx context.Context, 
 // subscribers) — a local recipient can't tell the difference.
 func (rs *RealtimeService) HandleForeignAccountRemoval(removedUserID string, cert *AccountRemovalWire) {
 	rs.fanoutAccountRemoval(removedUserID, cert)
+}
+
+// HandleForeignReedRemoval runs on a peer holding reedID's content: the
+// cert is already stored, so just run the same local fanout a same-server
+// reed removal gets — a local recipient can't tell the difference.
+func (rs *RealtimeService) HandleForeignReedRemoval(authorUserID, reedID string, cert *ReedRemovalWire) {
+	rs.fanoutReedRemoval(authorUserID, reedID, cert)
 }
 
 func (rs *RealtimeService) handleUnsubscribeProfile(client *Client, data json.RawMessage) {
