@@ -62,9 +62,13 @@ vocabulary alongside the other two.
   case.
 - No email/push/OS notifications — in-app only, same as the original
   proposal 11 scope.
-- No durable mailbox history or read/unread log — once delivered and
-  ACKed, the server's copy is gone. (The client may keep its own local
-  copy indefinitely; that's a client-side concern, not this proposal's.)
+- No **server-side** durable mailbox history or read/unread log — once
+  delivered and ACKed, the server's copy is gone and the server never
+  learns whether the client considers a message read. The client *does*
+  keep a local `isRead` flag once stored (see
+  [05](05_mailbox_message_spa_bell.md)) so the SPA can distinguish
+  read/unread and offer per-message delete — that's purely local state
+  that never round-trips to the server.
 - No implementation of the broadcast-retry mechanism sketched below — it
   is a documented design for future work.
 - No cross-server `@everyone` — see "Federation boundary" below.
@@ -129,7 +133,9 @@ is no separate delivered-log to diff against.
 
 **Client**: on receipt, decrypt with the user's own private key
 (client-side only — the server never has it), store the plaintext locally
-(new IndexedDB store), then ACK. A failed decrypt does **not** ACK — the
+(new IndexedDB store, with a local `isRead: false` default and the
+decrypted payload's optional `Link`), then ACK. A failed decrypt does
+**not** ACK — the
 server keeps the row and will redeliver it, and the client logs the
 failure. This mirrors the fail-closed-and-report pattern already used for
 revoked-key handling (see `specs/09_revocation_fanout.md`): never

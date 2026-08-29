@@ -63,6 +63,7 @@ export class IndexedDbService implements DbService {
     ['invites',     'id'         ],
     ['reedReplies', 'reedID', 'parentReedID'],
     ['ripples',     'hash', 'threadID'],
+    ['mailbox',     'id', 'createdAt'],
 
     // Offline-first
     ['unfollow',           'userId'     ],

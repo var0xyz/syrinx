@@ -5375,3 +5375,12 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) federationBaseURL() string {
 	return strings.TrimRight(string(h.cfg.APIBaseURL), "/")
 }
+
+func (h *Handlers) SendMailboxMessage(ctx context.Context, userID string, category MailboxCategory, kind, message, link, senderUserID string, meta any) error {
+	id, ciphertext, err := h.services.db.SendMailboxMessage(ctx, h.services.crypto, userID, category, kind, message, link, senderUserID, meta)
+	if err != nil {
+		return err
+	}
+	h.realtimeRelay.NotifyMailboxMessage(userID, id, ciphertext)
+	return nil
+}
