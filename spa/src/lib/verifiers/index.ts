@@ -763,7 +763,7 @@ async function resolveAuthorArmorForRemoval(
     const info = await apiService.getUserInfo(userID).catch(() => null);
     const fp =
       fingerprint ||
-      info?.activeKeyFingerprint ||
+      info?.activeKeyID ||
       forUser[0]?.id;
     if (!fp) return forUser[0]?.armor ?? null;
     return resolvePublicKeyArmor(userID, fp);

@@ -51,8 +51,8 @@ export async function claimOwnIdentity(): Promise<api.User> {
     throw new Error('Missing restored profile for claim.');
   }
   const infoFp =
-    infoByUserId.get(userId)?.activeKeyFingerprint ||
-    (profile as api.User & { activeKeyFingerprint?: string }).activeKeyFingerprint;
+    infoByUserId.get(userId)?.activeKeyID ||
+    (profile as api.User & { activeKeyID?: string }).activeKeyID;
   if (!infoFp || fingerprint.toLowerCase() !== infoFp.toLowerCase()) {
     throw new Error(
       'Active key fingerprint does not match the restored profile.'
@@ -62,9 +62,9 @@ export async function claimOwnIdentity(): Promise<api.User> {
   const nest = buildKeyNest(userId, {
     getUser: (id) => usersById.get(id),
     getActiveKeyFingerprint: (id) =>
-      infoByUserId.get(id)?.activeKeyFingerprint ||
-      (usersById.get(id) as api.User & { activeKeyFingerprint?: string } | undefined)
-        ?.activeKeyFingerprint,
+      infoByUserId.get(id)?.activeKeyID ||
+      (usersById.get(id) as api.User & { activeKeyID?: string } | undefined)
+        ?.activeKeyID,
     getPublicKey: (fp) => keysByFp.get(fp.toLowerCase()),
     getRevocation: (fp) => revocationsByFp.get(fp.toLowerCase()) ?? null,
   });

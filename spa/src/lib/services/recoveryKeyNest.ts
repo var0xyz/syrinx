@@ -44,7 +44,7 @@ export type NestBuildResult =
   | { ok: false; reason: string };
 
 /**
- * Walk activeKeyFingerprint → predecessor using only local IndexedDB-shaped
+ * Walk activeKeyID → predecessor using only local IndexedDB-shaped
  * lookups. No network. Buildable iff every hop has armor + server and the
  * chain ends at a signup key (predecessor == null), without gaps or cycles.
  *
@@ -82,9 +82,9 @@ export function buildKeyNest(
   }
   const startFp =
     lookups.getActiveKeyFingerprint(userId) ||
-    (user as api.User & { activeKeyFingerprint?: string }).activeKeyFingerprint;
+    (user as api.User & { activeKeyID?: string }).activeKeyID;
   if (!startFp) {
-    return { ok: false, reason: 'missing activeKeyFingerprint' };
+    return { ok: false, reason: 'missing activeKeyID' };
   }
 
   const visited = new Set<string>();

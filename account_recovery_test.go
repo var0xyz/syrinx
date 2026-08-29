@@ -33,10 +33,10 @@ func TestBootstrapAccountRecovery_staleChallenge(t *testing.T) {
 	h := &Handlers{services: &Services{}}
 	fixed := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	body, _ := json.Marshal(bootstrapAccountRecoveryRequest{
-		Challenge:   fixed.Unix() - 120,
-		UserID:      "u1",
-		Fingerprint: "AAA",
-		Signature:   "c2ln",
+		Challenge: fixed.Unix() - 120,
+		UserID:    "u1",
+		KeyID:     "AAA",
+		Signature: "c2ln",
 	})
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/account-recovery/bootstrap", bytes.NewReader(body))
@@ -50,10 +50,10 @@ func TestBootstrapAccountRecovery_staleChallenge(t *testing.T) {
 func TestBootstrapAccountRecovery_missingDeviceHeader(t *testing.T) {
 	h := &Handlers{services: &Services{}}
 	body, _ := json.Marshal(bootstrapAccountRecoveryRequest{
-		Challenge:   time.Now().Unix(),
-		UserID:      "u1",
-		Fingerprint: "AAA",
-		Signature:   "c2ln",
+		Challenge: time.Now().Unix(),
+		UserID:    "u1",
+		KeyID:     "AAA",
+		Signature: "c2ln",
 	})
 	rr := httptest.NewRecorder()
 	h.BootstrapAccountRecovery(rr, httptest.NewRequest(http.MethodPost, "/api/account-recovery/bootstrap", bytes.NewReader(body)))
