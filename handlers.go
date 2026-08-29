@@ -4244,7 +4244,7 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	err = h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot)
+	serverID, err := h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot)
 	switch {
 	case errors.Is(err, errFederationAttemptNotFound):
 		writeResponse(w, http.StatusNotFound, "Attempt not found")
@@ -4258,7 +4258,7 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 	default:
 		h.logFederationAttemptAsync(attemptID, federationLogInfo,
 			fmt.Sprintf("Approved by %s", caller))
-		writeResponse(w, http.StatusOK, map[string]string{"attemptId": attemptID, "status": "approved"})
+		writeResponse(w, http.StatusOK, map[string]string{"attemptId": attemptID, "serverId": serverID, "status": "approved"})
 	}
 }
 
