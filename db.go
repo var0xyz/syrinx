@@ -745,6 +745,29 @@ func InitDB(db *sql.DB) error {
 		FOR EACH ROW EXECUTE FUNCTION reed_reply_count_trigger();
 	`
 
+	// A hard delete of a reed_replies row (DeleteForeignReplyReference, the
+	// peer-relay cleanup leg) decrements every ancestor's reply_count.
+	// Must start the walk from OLD.parent_reed_id directly rather than
+	// bump_reply_ancestors(OLD.reed_id, ...) — by AFTER DELETE time OLD's
+	// own row is already gone, so a lookup keyed on OLD.reed_id would find
+	// nothing and the walk would silently do nothing.
+	createReedReplyDeleteTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_reply_delete_count_trigger() RETURNS TRIGGER AS $$
+	BEGIN
+		PERFORM bump_reed_stat(OLD.parent_reed_id, 'reply_count', -1);
+		PERFORM bump_reply_ancestors(OLD.parent_reed_id, -1);
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createReedReplyDeleteTrigger := `
+	DROP TRIGGER IF EXISTS reed_replies_count_delete ON reed_replies;
+	CREATE TRIGGER reed_replies_count_delete
+		AFTER DELETE ON reed_replies
+		FOR EACH ROW EXECUTE FUNCTION reed_reply_delete_count_trigger();
+	`
+
 	// A reed removal decrements every ancestor's reply_count, undoing what
 	// the insert trigger added — a no-op walk for a removed root reed
 	// (reed_replies has no row for it, so the loop exits immediately).
@@ -1150,6 +1173,9 @@ func InitDB(db *sql.DB) error {
 
 		createReplyCountTriggerFunction,
 		createReplyCountTrigger,
+
+		createReedReplyDeleteTriggerFunction,
+		createReedReplyDeleteTrigger,
 
 		createReedRemovalReplyCountTriggerFunction,
 		createReedRemovalReplyCountTrigger,

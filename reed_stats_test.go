@@ -137,6 +137,69 @@ func TestReedStatsReplyTriggers(t *testing.T) {
 	}
 }
 
+// TestReedStatsForeignReplyDeleteTrigger verifies the reed_replies AFTER
+// DELETE trigger — the path DeleteForeignReplyReference uses (a hard
+// DELETE, not an INSERT into reed_removals) when a peer notifies this
+// server that one of its replies to a locally-hosted reed was removed.
+// Regression test: this trigger was originally missing, so a foreign
+// reply removal never decremented the parent's reply_count at all.
+func TestReedStatsForeignReplyDeleteTrigger(t *testing.T) {
+	db := openReedStatsTestDB(t)
+	ds := &DataService{db: db, serverID: "testserver"}
+	ctx := context.Background()
+
+	userSigID, serverSigID, pubKeyID := seedReedStatsServer(t, db, "testserver")
+	seedReedStatsIdentity(t, db, "alice", "testserver")
+	seedReedStatsIdentity(t, db, "bob", "testserver")
+	seedReedStatsIdentity(t, db, "carol", "testserver")
+
+	root := "alice@testserver/root"
+	mid := "bob@testserver/mid"
+	leaf := "carol@testserver/leaf"
+
+	seedReedStatsReed(t, db, root, "alice@testserver", pubKeyID, userSigID, serverSigID)
+	seedReedStatsReed(t, db, mid, "bob@testserver", pubKeyID, userSigID, serverSigID)
+	seedReedStatsReed(t, db, leaf, "carol@testserver", pubKeyID, userSigID, serverSigID)
+
+	seedReedStatsReply(t, db, root, mid, root)
+	seedReedStatsReply(t, db, root, leaf, mid)
+
+	rootBefore, err := ds.GetSubtreeReplyCount(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	midBefore, err := ds.GetSubtreeReplyCount(ctx, mid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootBefore != 2 || midBefore != 1 {
+		t.Fatalf("before delete: root=%d mid=%d, want root=2 mid=1", rootBefore, midBefore)
+	}
+
+	deleted, err := ds.DeleteForeignReplyReference(ctx, leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !deleted {
+		t.Fatal("expected deleted=true")
+	}
+
+	rootAfter, err := ds.GetSubtreeReplyCount(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	midAfter, err := ds.GetSubtreeReplyCount(ctx, mid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootAfter != 1 {
+		t.Fatalf("root reply_count after foreign reply delete = %d, want 1", rootAfter)
+	}
+	if midAfter != 0 {
+		t.Fatalf("mid reply_count after foreign reply delete = %d, want 0", midAfter)
+	}
+}
+
 // TestReedStatsAccountRemovalTrigger verifies that removing an account
 // decrements ancestor reply_count for every reply by that author, walking
 // each one's ancestor chain — the one genuinely bulk trigger in this
