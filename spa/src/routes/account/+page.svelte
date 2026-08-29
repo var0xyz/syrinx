@@ -59,7 +59,7 @@
   // /welcome for mandatory backup before any authenticated route
   // (including this one) will render otherwise.
   let lastKeyBackupAt: number | null = data.lastKeyBackupAt;
-  let activeKeyMintedAt: number | null = null;
+  let activeKeyMintedAt: number | null = data.activeKeyMintedAt;
   // Backed up before the currently active key was minted (e.g. after a
   // revoke) — the existing backup no longer covers this key.
   $: keyBackupStale = activeKeyMintedAt != null && !!lastKeyBackupAt && lastKeyBackupAt < activeKeyMintedAt;
