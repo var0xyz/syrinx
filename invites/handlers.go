@@ -19,7 +19,7 @@ import (
 
 // UserSignatureWire is the nested user attestation on create/response.
 type UserSignatureWire struct {
-	KeyID string `json:"keyID"`
+	ID    string `json:"id"`
 	Armor string `json:"armor"`
 }
 
@@ -133,7 +133,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tokenHashHex := EncodeHashHex(tokenHash)
-	if req.UserSignature.KeyID == "" || req.UserSignature.Armor == "" {
+	if req.UserSignature.ID == "" || req.UserSignature.Armor == "" {
 		writeJSON(w, http.StatusBadRequest, "userSignature is required")
 		return
 	}
@@ -193,7 +193,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Invalid userSignature encoding")
 		return
 	}
-	pubArmor, err := d.GetPublicKeyArmor(r.Context(), caller, req.UserSignature.KeyID)
+	pubArmor, err := d.GetPublicKeyArmor(r.Context(), caller, req.UserSignature.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
