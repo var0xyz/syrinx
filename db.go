@@ -36,12 +36,12 @@ type User struct {
 // (GET /users/{id}/info). ProfileTimestamp matches the user's current
 // profile serverSignature.timestamp so clients can invalidate a cached profile.
 type UserInfo struct {
-	ID                   string    `json:"id"`
-	HasReeds             bool      `json:"hasReeds"`
-	FollowersCount       int       `json:"followersCount"`
-	FollowingCount       int       `json:"followingCount"`
-	ActiveKeyFingerprint string    `json:"activeKeyFingerprint"`
-	ProfileTimestamp     time.Time `json:"profileTimestamp"`
+	ID               string    `json:"id"`
+	HasReeds         bool      `json:"hasReeds"`
+	FollowersCount   int       `json:"followersCount"`
+	FollowingCount   int       `json:"followingCount"`
+	ActiveKeyID      string    `json:"activeKeyID"`
+	ProfileTimestamp time.Time `json:"profileTimestamp"`
 }
 
 // InvitedBy is the durable inviter binding nested on User wire when set.

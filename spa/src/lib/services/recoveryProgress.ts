@@ -155,9 +155,9 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
   const lookups = {
     getUser: (id: string) => byUser.get(id),
     getActiveKeyFingerprint: (id: string) =>
-      byInfo.get(id)?.activeKeyFingerprint ||
-      (byUser.get(id) as api.User & { activeKeyFingerprint?: string } | undefined)
-        ?.activeKeyFingerprint,
+      byInfo.get(id)?.activeKeyID ||
+      (byUser.get(id) as api.User & { activeKeyID?: string } | undefined)
+        ?.activeKeyID,
     getPublicKey: (fp: string) => byFp.get(fp.toLowerCase()) ?? byFp.get(fp),
     getRevocation: (id: string) => byRevocationId.get(id.toLowerCase()) ?? byRevocationId.get(id),
   };

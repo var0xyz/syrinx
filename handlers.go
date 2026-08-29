@@ -2969,10 +2969,10 @@ type accountRecoveryChallengeResponse struct {
 }
 
 type bootstrapAccountRecoveryRequest struct {
-	Challenge   int64  `json:"challenge"`
-	UserID      string `json:"userID"`
-	Fingerprint string `json:"fingerprint"`
-	Signature   string `json:"signature"`
+	Challenge int64  `json:"challenge"`
+	UserID    string `json:"userID"`
+	KeyID     string `json:"keyID"`
+	Signature string `json:"signature"`
 }
 
 type bootstrapAccountRecoveryResponse struct {
@@ -2994,7 +2994,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if req.UserID == "" || req.Fingerprint == "" || req.Signature == "" {
+	if req.UserID == "" || req.KeyID == "" || req.Signature == "" {
 		writeResponse(w, http.StatusBadRequest, "Missing required fields")
 		return
 	}
@@ -3036,12 +3036,12 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		internalServerError(w)
 		return
 	}
-	if activeFingerprint == "" || activeFingerprint != req.Fingerprint {
+	if activeFingerprint == "" || activeFingerprint != req.KeyID {
 		writeResponse(w, http.StatusUnauthorized, "Key is not the active key for this account")
 		return
 	}
 
-	key, err := h.services.db.GetPublicKey(r.Context(), req.Fingerprint)
+	key, err := h.services.db.GetPublicKey(r.Context(), req.KeyID)
 	if err != nil {
 		internalServerError(w)
 		return
@@ -4553,8 +4553,8 @@ func (h *Handlers) GetFederationUserIdentity(w http.ResponseWriter, r *http.Requ
 	}
 
 	writeResponse(w, http.StatusOK, federationUserIdentityWire{
-		User:                 user,
-		ActiveKeyFingerprint: fingerprint,
+		User:        user,
+		ActiveKeyID: fingerprint,
 	})
 }
 

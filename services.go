@@ -767,7 +767,7 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 		return nil, err
 	}
 	if activeFP.Valid {
-		info.ActiveKeyFingerprint = activeFP.String
+		info.ActiveKeyID = activeFP.String
 	}
 	return &info, nil
 }

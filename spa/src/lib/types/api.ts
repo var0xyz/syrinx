@@ -40,7 +40,7 @@ export interface UserInfo extends Base {
   hasReeds: boolean;
   followersCount: number;
   followingCount: number;
-  activeKeyFingerprint: string;
+  activeKeyID: string;
   /** Same instant as the user's profile serverSignature.timestamp. */
   profileTimestamp: string;
 }
@@ -120,7 +120,7 @@ export type AccountRecoveryChallenge = {
 export type AccountRecoveryBootstrapRequest = {
   challenge: number;
   userID: string;
-  fingerprint: string;
+  keyID: string;
   signature: string;
 };
 

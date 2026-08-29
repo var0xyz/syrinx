@@ -138,6 +138,6 @@ type federationListWire struct {
 // profile), which is the "server signature over wire map" the spec calls
 // for — no separate response-level signature needed.
 type federationUserIdentityWire struct {
-	User                 *User  `json:"user"`
-	ActiveKeyFingerprint string `json:"activeKeyFingerprint"`
+	User        *User  `json:"user"`
+	ActiveKeyID string `json:"activeKeyID"`
 }

@@ -71,7 +71,7 @@ async function fetchBootstrap(
     return await apiService.bootstrapAccountRecovery({
       challenge,
       userID: userId,
-      fingerprint,
+      keyID: fingerprint,
       signature,
     });
   } catch (err) {
