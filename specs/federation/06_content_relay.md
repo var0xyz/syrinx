@@ -8,12 +8,12 @@ server can fetch one authored on a peer — shipped in
 `federation_relay.go`. The actual design does NOT add `server_id` to
 `pending_events`/`pending_reed_events` or use a generic
 `relay/reed`+`relay/reed/{eventId}/response` pair; instead each
-federation-visible operation is its own small, purpose-built "leg"
+federation-visible operation is its own small, purpose-built endpoint
 (`relayRequestToPeer`/`RelayRequestFromPeer` for fetch,
 `deliverRelayResponseToPeer`/`DeliverRelayResponseFromPeer` for the
-callback, plus 16 more legs covering subscribe/cancel/ack/stats/reply/
-echo/mention/holder/fallback/search — see `federation_relay.go`'s
-`// Leg N:` headers for the full list). Peer auth is signed-request +
+callback, plus more covering subscribe/cancel/ack/stats/reply/echo/
+mention/holder/fallback/search/account-removal/reed-removal — see
+`federation_relay.go` for the full list). Peer auth is signed-request +
 pinned fingerprint exactly as designed (see [04](04_runtime_verify_display.md)'s
 status), checked against `servers.revoked = false` rather than a
 `federation_established` row. Fast refuse shipped with a small shape

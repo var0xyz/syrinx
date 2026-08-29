@@ -542,6 +542,9 @@ func main() {
 	api.HandleFunc("/federation/relay/account-removal-notify", h.AccountRemovalNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/account-removal-notify", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/relay/reed-removal-notify", h.ReedRemovalNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/reed-removal-notify", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")
 

@@ -58,16 +58,21 @@ step's own Status header for the precise shipped-vs-designed diff.
 | 07   | **Out of scope for v1, by design.** Fire-and-forget (signed HTTP, short timeout, swallowed-on-failure) is the accepted permanent v1 behavior, not a gap to close later — no `servers.online`, no ping, no backlog/replay planned. |
 
 Beyond this doc set, `federation_relay.go` also implements mentions,
-federated user search, and reed-stats/like propagation (18 legs total —
-see the `// Leg N:` headers in that file) — none of these had a numbered
-spec when built.
+federated user search, and reed-stats/like propagation — none of these
+had a numbered spec when built.
 
-**Account/plain-reed deletion propagation — in scope, not yet built.**
-Removal-notify only exists for replies/echoes (`notifyForeignReplyRemovalToPeer`,
-`notifyForeignEchoRemovalToPeer`, `notifyForeignReplyRemovalToViewer` in
-`federation_relay.go`); a peer holding cached content from a removed
-account or a removed plain (non-reply) reed never finds out. This is
-real, wanted work — see a future numbered spec for the design.
+**Account and reed deletion propagation — implemented.** Removal-notify
+covers replies/echoes (`notifyForeignReplyRemovalToPeer`,
+`notifyForeignEchoRemovalToPeer`, `notifyForeignReplyRemovalToViewer`),
+whole accounts (`notifyForeignAccountRemovalToPeers`/
+`AccountRemovalNotifyFromPeer`), and plain reeds
+(`notifyForeignReedRemovalToPeers`/`ReedRemovalNotifyFromPeer`) — all in
+`federation_relay.go`. Peer discovery for the account/reed legs is
+holder-based (`reed_server_allocations`, via
+`GetForeignHolderServersForAuthor`/`GetForeignHolderServersForReed`), not
+follower- or subscriber-based: subscriptions are a peer-local concern
+resolved once that peer has the cert, not the signal for who needs to be
+told in the first place.
 
 **Key revocation propagation — explicitly out of scope, not an oversight.**
 Keys are never broadcast/pushed to peers. When a peer encounters a key
@@ -88,7 +93,7 @@ content. There is no plan to notify peers when a key is revoked.
 | Visibility | **All admins** see **all** invites on the instance (not creator-only) |
 | Admin UI | **Admin → Mesh** (create invite, paste connection string, list attempts); approve/reject live on a per-attempt detail page (`/mesh/attempt/{attemptId}`), not inline on the list |
 | Revoke peering | *Designed but not shipped* — `servers.revoked` is checked everywhere (401s incoming peer traffic when true), but nothing ever sets it to `true`; there is no revoke action anywhere in the codebase |
-| Content relay | Shipped as 18 purpose-built peer-HTTP "legs" in `federation_relay.go` (fetch, subscribe, notify for replies/echoes/mentions, stats push, federated search, ...) rather than this doc's generic `POST /api/federation/relay/reed` — see [06](06_content_relay.md) |
+| Content relay | Shipped as purpose-built peer-HTTP endpoints in `federation_relay.go` (fetch, subscribe, notify for replies/echoes/mentions/account/reed removal, stats push, federated search, ...) rather than this doc's generic `POST /api/federation/relay/reed` — see [06](06_content_relay.md) |
 | Presence + durable delivery | *Designed but not shipped* — no `servers.online`, no online/offline/ping endpoints, no backlog. What ships instead is fire-and-forget: a signed HTTP call at event time, silently dropped if the peer doesn't answer — see [07](07_presence_delivery.md) |
 | Non-goals (v1) | Open federation/discovery, automated reciprocal revoke, live client notification of a mid-session peering revoke. **Since shipped despite being a v1 non-goal:** federated follow (`forwardFollowToPeer`/`RecordRemoteFollower`). **Not built at all, locally or federated:** blocking/muting, direct/private messages |
 

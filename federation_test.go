@@ -841,3 +841,67 @@ func TestGetForeignHolderServersForAuthor(t *testing.T) {
 		t.Fatalf("got %v, want exactly [%s]", got, peerA)
 	}
 }
+
+func TestGetForeignHolderServersForReed(t *testing.T) {
+	_, ds, _, _ := testFederationHandlers(t)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	peerA := establishedPeer(t, ds, "inv-reed-holder-a", admin1, admin2, false, fixed)
+	peerB := establishedPeer(t, ds, "inv-reed-holder-b", admin1, admin2, false, fixed)
+
+	author := seedFederationUser(t, ds, "reedauthor1", "reedauthor1", roles.RoleUser)
+
+	seedReed := func(reedID, userID string) {
+		if _, err := ds.db.Exec(
+			`INSERT INTO reed_identities (id, server_id) VALUES ($1, $2)`,
+			reedID, ds.serverID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ds.db.Exec(
+			`INSERT INTO reeds (id, user_id) VALUES ($1, $2)`,
+			reedID, userID,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reed1 := author + "/reed1"
+	reed2 := author + "/reed2"
+	seedReed(reed1, author)
+	seedReed(reed2, author)
+
+	seedHolder := func(reedID, serverID string) {
+		if _, err := ds.db.Exec(
+			`INSERT INTO reed_server_allocations (reed_id, server_id) VALUES ($1, $2)`,
+			reedID, serverID,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Both peers hold reed1; only peerB holds reed2 — a lookup scoped to
+	// reed1 must not pick up peerB's unrelated reed2 allocation.
+	seedHolder(reed1, peerA)
+	seedHolder(reed1, peerB)
+	seedHolder(reed2, peerB)
+
+	got, err := ds.GetForeignHolderServersForReed(context.Background(), reed1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotSet := map[string]bool{}
+	for _, s := range got {
+		gotSet[s] = true
+	}
+	if len(got) != 2 || !gotSet[peerA] || !gotSet[peerB] {
+		t.Fatalf("got %v, want exactly [%s %s]", got, peerA, peerB)
+	}
+
+	got2, err := ds.GetForeignHolderServersForReed(context.Background(), reed2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got2) != 1 || got2[0] != peerB {
+		t.Fatalf("got %v, want exactly [%s]", got2, peerB)
+	}
+}
