@@ -129,3 +129,16 @@ func TestAppendEntity(t *testing.T) {
 			userID, serverID, fingerprint, ok, "abcd1234", "wxyz9876", "FPR1")
 	}
 }
+
+func TestAuthorOf(t *testing.T) {
+	entityID := CanonicalID("wxyz9876", "abcd1234", "FPR1")
+	got, ok := AuthorOf(entityID)
+	want := CanonicalID("wxyz9876", "abcd1234")
+	if !ok || got != want {
+		t.Fatalf("AuthorOf(%q) = (%q, %v), want (%q, true)", entityID, got, ok, want)
+	}
+
+	if _, ok := AuthorOf(IdentityID("malformed")); ok {
+		t.Errorf("AuthorOf(malformed) ok = true, want false")
+	}
+}

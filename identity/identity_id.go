@@ -71,6 +71,18 @@ func AppendEntity(userIdentity IdentityID, entityID string) IdentityID {
 	return IdentityID(string(userIdentity) + "/" + entityID)
 }
 
+// AuthorOf strips the trailing "/{entityID}" from a 3-part canonical id
+// (a key fingerprint or reed id), returning the 2-part canonical user
+// identity that owns it. Unlike ParseKeyFingerprint, it never discards
+// serverID — the caller can't accidentally end up with a bare userID.
+func AuthorOf(id IdentityID) (IdentityID, bool) {
+	userID, serverID, _, ok := ParseKeyFingerprint(id)
+	if !ok {
+		return "", false
+	}
+	return CanonicalID(serverID, userID), true
+}
+
 // UserID returns the bare userID half of id, discarding serverID. Panics
 // on a malformed id — a panic here indicates a programming error, not bad input.
 func (id IdentityID) UserID() string {
