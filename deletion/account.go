@@ -23,7 +23,7 @@ type AccountCert struct {
 	UserID            string
 	Note              string
 	UserSignature     string
-	UserFingerprint   string
+	UserKeyID         string
 	ServerSignature   string
 	ServerFingerprint string
 	ServerSignedAt    time.Time
@@ -57,7 +57,7 @@ func InsertAccountCert(ctx context.Context, db *sql.DB, cert AccountCert, server
 	switch {
 	case err == sql.ErrNoRows:
 		userSigID, err := signing.InsertUserSignature(
-			ctx, tx, cert.UserFingerprint, cert.UserSignature,
+			ctx, tx, cert.UserKeyID, cert.UserSignature,
 		)
 		if err != nil {
 			return err
@@ -73,7 +73,7 @@ func InsertAccountCert(ctx context.Context, db *sql.DB, cert AccountCert, server
 				user_id, note, public_key_id,
 				user_signature_id, server_signature_id
 			) VALUES ($1, $2, $3, $4, $5)
-		`, selfIdentity, cert.Note, cert.UserFingerprint, userSigID, serverSigID); err != nil {
+		`, selfIdentity, cert.Note, cert.UserKeyID, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert account removal: %w", err)
 		}
 		// Clear the username so it becomes reclaimable by a future signup.
@@ -110,7 +110,7 @@ func InsertAccountCert(ctx context.Context, db *sql.DB, cert AccountCert, server
 	default:
 		if existing.Note != cert.Note ||
 			existing.UserSignature != cert.UserSignature ||
-			existing.UserFingerprint != cert.UserFingerprint ||
+			existing.UserKeyID != cert.UserKeyID ||
 			existing.ServerSignature != cert.ServerSignature ||
 			existing.ServerFingerprint != cert.ServerFingerprint ||
 			!existing.ServerSignedAt.Equal(cert.ServerSignedAt) {
@@ -144,7 +144,7 @@ func InsertForeignAccountCert(ctx context.Context, db *sql.DB, cert AccountCert)
 	switch {
 	case err == sql.ErrNoRows:
 		userSigID, err := signing.InsertUserSignature(
-			ctx, tx, cert.UserFingerprint, cert.UserSignature,
+			ctx, tx, cert.UserKeyID, cert.UserSignature,
 		)
 		if err != nil {
 			return err
@@ -160,7 +160,7 @@ func InsertForeignAccountCert(ctx context.Context, db *sql.DB, cert AccountCert)
 				user_id, note, public_key_id,
 				user_signature_id, server_signature_id
 			) VALUES ($1, $2, $3, $4, $5)
-		`, selfIdentity, cert.Note, cert.UserFingerprint, userSigID, serverSigID); err != nil {
+		`, selfIdentity, cert.Note, cert.UserKeyID, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert foreign account removal: %w", err)
 		}
 	case err != nil:
@@ -168,7 +168,7 @@ func InsertForeignAccountCert(ctx context.Context, db *sql.DB, cert AccountCert)
 	default:
 		if existing.Note != cert.Note ||
 			existing.UserSignature != cert.UserSignature ||
-			existing.UserFingerprint != cert.UserFingerprint ||
+			existing.UserKeyID != cert.UserKeyID ||
 			existing.ServerSignature != cert.ServerSignature ||
 			existing.ServerFingerprint != cert.ServerFingerprint ||
 			!existing.ServerSignedAt.Equal(cert.ServerSignedAt) {
@@ -240,7 +240,7 @@ func loadAccountCertTx(ctx context.Context, q reedQuerier, selfIdentity identity
 	return &AccountCert{
 		UserID:            string(selfIdentity),
 		Note:              note,
-		UserFingerprint:   userFP,
+		UserKeyID:         userFP,
 		UserSignature:     userRow.Signature,
 		ServerSignature:   serverRow.Signature,
 		ServerFingerprint: serverRow.Fingerprint,

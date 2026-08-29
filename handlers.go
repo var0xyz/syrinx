@@ -1194,7 +1194,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		UserID:            userID,
 		Note:              note,
 		UserSignature:     userSignatureB64,
-		UserFingerprint:   fingerprint,
+		UserKeyID:         fingerprint,
 		ServerSignature:   serverSignature.Armor,
 		ServerFingerprint: accountServerFingerprint,
 		ServerSignedAt:    serverSignature.SignedAt,
@@ -1268,7 +1268,7 @@ func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval
 		UserID:   cert.UserID,
 		Note:     cert.Note,
 		UserSignature: UserSignature{
-			ID:    cert.UserFingerprint,
+			ID:    cert.UserKeyID,
 			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignature{
@@ -1749,7 +1749,6 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, publicKey)
 }
 
-
 func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("GetKeyRevocation request received")
@@ -2008,7 +2007,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	createParams := createReedParams{
 		ReedID:             reedID,
 		UserID:             userID,
-		UserFingerprint:    userFingerprint,
+		UserKeyID:          userFingerprint,
 		UserSignatureB64:   userSignature,
 		ServerFingerprint:  reedServerFingerprint,
 		ServerSignatureB64: serverSignature.Armor,
@@ -2290,7 +2289,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		ReedID:            reedID,
 		UserID:            userID,
 		UserSignature:     userSignatureB64,
-		UserFingerprint:   fingerprint,
+		UserKeyID:         fingerprint,
 		ServerSignature:   serverSignature.Armor,
 		ServerFingerprint: removalServerFingerprint,
 		ServerSignedAt:    serverSignature.SignedAt,
@@ -2596,7 +2595,7 @@ func (h *Handlers) reedRemovalWire(cert *deletion.Cert) ReedRemoval {
 		UserID:   cert.UserID,
 		ReedID:   cert.ReedID,
 		UserSignature: UserSignature{
-			ID:    cert.UserFingerprint,
+			ID:    cert.UserKeyID,
 			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignature{
@@ -5122,8 +5121,8 @@ func realtimeRippleWire(w *RippleWire) *realtime.RippleWire {
 		Deleted:    w.Deleted,
 		PostedAt:   w.PostedAt,
 		UserSignature: realtime.UserSignatureWire{
-			Fingerprint: w.UserSignature.ID,
-			Armor:       w.UserSignature.Armor,
+			ID:    w.UserSignature.ID,
+			Armor: w.UserSignature.Armor,
 		},
 		ServerSignature: realtime.ServerSignatureWire{
 			ID:        w.ServerSignature.ID,

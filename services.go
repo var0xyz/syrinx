@@ -1446,7 +1446,6 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	return &key, tx.Commit()
 }
 
-
 // ReedRef is a parsed echoing/replying target: userID@serverID/reedID.
 type ReedRef struct {
 	AuthorID string
@@ -1480,7 +1479,7 @@ func FormatReedRef(ref ReedRef) string {
 // ReedAttestation is tip reed metadata plus stored user/server signatures.
 type ReedAttestation struct {
 	Reed
-	UserFingerprint   string
+	UserKeyID         string
 	UserSignature     string
 	ServerFingerprint string
 	ServerSignature   string
@@ -1491,7 +1490,7 @@ type ReedAttestation struct {
 type createReedParams struct {
 	ReedID             string
 	UserID             string
-	UserFingerprint    string
+	UserKeyID          string
 	UserSignatureB64   string
 	ServerFingerprint  string
 	ServerSignatureB64 string
@@ -1857,7 +1856,7 @@ func (s *DataService) insertReedCoreTx(
 	// queries internally, so these two inserts land as root spans rather than
 	// nested under ctx's request span — a known gap, not a bug (see
 	// specs/observability/04_context_threading.md).
-	userSigID, err := signing.InsertUserSignature(ctx, tx, p.UserFingerprint, p.UserSignatureB64)
+	userSigID, err := signing.InsertUserSignature(ctx, tx, p.UserKeyID, p.UserSignatureB64)
 	if err != nil {
 		return Reed{}, err
 	}
@@ -2159,7 +2158,7 @@ func (s *DataService) GetReedAttestation(ctx context.Context, reedID string) (*R
 		&att.ID,
 		&owner,
 		&att.Timestamp,
-		&att.UserFingerprint,
+		&att.UserKeyID,
 		&att.UserSignature,
 		&att.ServerFingerprint,
 		&att.ServerSignature,
@@ -4596,7 +4595,7 @@ type Ripple struct {
 	ReplyingTo      *string
 	Deleted         bool
 	PostedAt        time.Time
-	UserFingerprint string
+	UserKeyID       string
 	UserSignature   UserSignature
 	ServerSignature ServerSignature
 	// serverFingerprint holds the bare countersigning fingerprint between
@@ -4727,7 +4726,7 @@ func (s *DataService) PostRipple(
 		ReplyingTo:      replyingTo,
 		Deleted:         false,
 		PostedAt:        now,
-		UserFingerprint: userFingerprint,
+		UserKeyID:       userFingerprint,
 		UserSignature:   UserSignature{ID: userFingerprint, Armor: userSigArmor},
 		ServerSignature: serverSig,
 	}, nil
@@ -4797,7 +4796,7 @@ func scanRipple(row rippleRowScanner) (*Ripple, error) {
 	err := row.Scan(
 		&r.ID, &r.ReedID, &r.ThreadID, &r.UserID, &r.Content,
 		&replyingTo, &r.Deleted, &r.PostedAt,
-		&r.UserFingerprint, &r.UserSignature.Armor,
+		&r.UserKeyID, &r.UserSignature.Armor,
 		&r.serverFingerprint, &r.ServerSignature.Armor, &r.ServerSignature.SignedAt,
 	)
 	if err != nil {
@@ -4809,7 +4808,7 @@ func scanRipple(row rippleRowScanner) (*Ripple, error) {
 	if authorUserID, authorServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(r.ReedID)); ok {
 		r.ReedAuthorID = string(identity.CanonicalID(authorServerID, authorUserID))
 	}
-	r.UserSignature.ID = r.UserFingerprint
+	r.UserSignature.ID = r.UserKeyID
 	r.ServerSignature.SignedAt = r.ServerSignature.SignedAt.UTC().Truncate(time.Second)
 	return &r, nil
 }

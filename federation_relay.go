@@ -2037,7 +2037,7 @@ type relayAccountRemovalNotifyPayload struct {
 	UserID            string    `json:"user_id"`
 	Note              string    `json:"note"`
 	UserSignature     string    `json:"user_signature"`
-	UserFingerprint   string    `json:"user_fingerprint"`
+	UserKeyID         string    `json:"user_key_id"`
 	ServerSignature   string    `json:"server_signature"`
 	ServerFingerprint string    `json:"server_fingerprint"`
 	ServerSignedAt    time.Time `json:"server_signed_at"`
@@ -2058,7 +2058,7 @@ func (h *Handlers) notifyForeignAccountRemovalToPeers(ctx context.Context, remov
 		UserID:            removedUserID,
 		Note:              cert.Note,
 		UserSignature:     cert.UserSignature,
-		UserFingerprint:   cert.UserFingerprint,
+		UserKeyID:         cert.UserKeyID,
 		ServerSignature:   cert.ServerSignature,
 		ServerFingerprint: cert.ServerFingerprint,
 		ServerSignedAt:    cert.ServerSignedAt,
@@ -2120,16 +2120,16 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 	// account_removals.public_key_id is a hard FK — a foreign user's key
 	// is fetched and cached from its owning peer if we don't hold it yet
 	// (same resolvePublicKey path LikeReed uses for the same problem).
-	pubKey, err := h.resolvePublicKey(r.Context(), req.UserFingerprint)
+	pubKey, err := h.resolvePublicKey(r.Context(), req.UserKeyID)
 	if err != nil {
-		log.Error().Err(err).Str("userID", req.UserID).Str("fingerprint", req.UserFingerprint).Msg("Failed to resolve signing key for account removal")
+		log.Error().Err(err).Str("userID", req.UserID).Str("userKeyID", req.UserKeyID).Msg("Failed to resolve signing key for account removal")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
 		internalServerError(w)
 		return
 	}
 	if pubKey == nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "user_fingerprint could not be resolved")
+		writeResponse(w, http.StatusBadRequest, "user_key_id could not be resolved")
 		return
 	}
 
@@ -2137,7 +2137,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 		UserID:            req.UserID,
 		Note:              req.Note,
 		UserSignature:     req.UserSignature,
-		UserFingerprint:   req.UserFingerprint,
+		UserKeyID:         req.UserKeyID,
 		ServerSignature:   req.ServerSignature,
 		ServerFingerprint: req.ServerFingerprint,
 		ServerSignedAt:    req.ServerSignedAt,
@@ -2168,7 +2168,7 @@ type relayReedRemovalNotifyPayload struct {
 	ReedID            string    `json:"reed_id"`
 	UserID            string    `json:"user_id"`
 	UserSignature     string    `json:"user_signature"`
-	UserFingerprint   string    `json:"user_fingerprint"`
+	UserKeyID         string    `json:"user_key_id"`
 	ServerSignature   string    `json:"server_signature"`
 	ServerFingerprint string    `json:"server_fingerprint"`
 	ServerSignedAt    time.Time `json:"server_signed_at"`
@@ -2188,7 +2188,7 @@ func (h *Handlers) notifyForeignReedRemovalToPeers(ctx context.Context, reedID s
 		ReedID:            reedID,
 		UserID:            cert.UserID,
 		UserSignature:     cert.UserSignature,
-		UserFingerprint:   cert.UserFingerprint,
+		UserKeyID:         cert.UserKeyID,
 		ServerSignature:   cert.ServerSignature,
 		ServerFingerprint: cert.ServerFingerprint,
 		ServerSignedAt:    cert.ServerSignedAt,
@@ -2244,7 +2244,7 @@ func (h *Handlers) ReedRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 		ReedID:            req.ReedID,
 		UserID:            req.UserID,
 		UserSignature:     req.UserSignature,
-		UserFingerprint:   req.UserFingerprint,
+		UserKeyID:         req.UserKeyID,
 		ServerSignature:   req.ServerSignature,
 		ServerFingerprint: req.ServerFingerprint,
 		ServerSignedAt:    req.ServerSignedAt,
