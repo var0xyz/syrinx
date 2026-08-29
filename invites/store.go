@@ -51,21 +51,21 @@ func (s *Store) Insert(
 		grantedRole = "user"
 	}
 	_, err := s.DB.ExecContext(ctx, `
-		INSERT INTO invites (created_by, id, token_hash, created_at, granted_role)
+		INSERT INTO invites (id, created_by, token_hash, created_at, granted_role)
 		VALUES ($1, $2, $3, $4, $5)
-	`, creatorID, id, tokenHash, createdAt.UTC(), grantedRole)
+	`, id, creatorID, tokenHash, createdAt.UTC(), grantedRole)
 	if isUniqueViolation(err) {
 		return ErrInviteExists
 	}
 	return err
 }
 
-func (s *Store) GetByCreatorAndID(ctx context.Context, creatorID, id string) (*Invite, error) {
+func (s *Store) GetByID(ctx context.Context, id string) (*Invite, error) {
 	row := s.DB.QueryRowContext(ctx, `
 		SELECT id, created_by, created_at, granted_role, claimed_at, claimed_by, revoked_at
 		FROM invites
-		WHERE created_by = $1 AND id = $2
-	`, creatorID, id)
+		WHERE id = $1
+	`, id)
 	inv, err := scanInvite(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -107,21 +107,20 @@ func getByTokenHash(ctx context.Context, q tokenHashQuerier, hash []byte) (*Invi
 	return &inv, nil
 }
 
-func (s *Store) GetPendingInvite(ctx context.Context, creatorID, id string, hash []byte) (*Invite, error) {
-	return getPendingInvite(ctx, s.DB, s.ServerID, creatorID, id, hash)
+func (s *Store) GetPendingInvite(ctx context.Context, id string, hash []byte) (*Invite, error) {
+	return getPendingInvite(ctx, s.DB, id, hash)
 }
 
-func (s *Store) GetPendingInviteTx(ctx context.Context, tx *sql.Tx, creatorID, id string, hash []byte) (*Invite, error) {
-	return getPendingInvite(ctx, tx, s.ServerID, creatorID, id, hash)
+func (s *Store) GetPendingInviteTx(ctx context.Context, tx *sql.Tx, id string, hash []byte) (*Invite, error) {
+	return getPendingInvite(ctx, tx, id, hash)
 }
 
-func getPendingInvite(ctx context.Context, q tokenHashQuerier, serverID, creatorID, id string, hash []byte) (*Invite, error) {
-	selfIdentity := identity.CanonicalID(serverID, creatorID)
+func getPendingInvite(ctx context.Context, q tokenHashQuerier, id string, hash []byte) (*Invite, error) {
 	row := q.QueryRowContext(ctx, `
 		SELECT id, created_by, created_at, granted_role, claimed_at, claimed_by, revoked_at
 		FROM invites
-		WHERE created_by = $1 AND id = $2 AND token_hash = $3
-	`, selfIdentity, id, hash)
+		WHERE id = $1 AND token_hash = $2
+	`, id, hash)
 	inv, err := scanInvite(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -135,23 +134,21 @@ func getPendingInvite(ctx context.Context, q tokenHashQuerier, serverID, creator
 	return &inv, nil
 }
 
-// MarkClaimed claims an unused, unrevoked invite inside tx.
-// createdBy + inviteID form the composite primary key; claimedBy is a bare
-// userID. Returns whether a row was updated.
+// MarkClaimed claims an unused, unrevoked invite inside tx. inviteID is
+// canonical; claimedBy is a bare userID. Returns whether a row was updated.
 func (s *Store) MarkClaimed(
 	ctx context.Context,
 	tx *sql.Tx,
-	createdBy, inviteID, claimedBy string,
+	inviteID, claimedBy string,
 	claimedAt time.Time,
 ) (bool, error) {
-	createdByIdentity := identity.CanonicalID(s.ServerID, createdBy)
 	claimedByIdentity := identity.CanonicalID(s.ServerID, claimedBy)
 	res, err := tx.ExecContext(ctx, `
 		UPDATE invites
-		SET claimed_at = $3, claimed_by = $4
-		WHERE created_by = $1 AND id = $2
+		SET claimed_at = $2, claimed_by = $3
+		WHERE id = $1
 		  AND claimed_at IS NULL AND revoked_at IS NULL
-	`, createdByIdentity, inviteID, claimedAt.UTC(), claimedByIdentity)
+	`, inviteID, claimedAt.UTC(), claimedByIdentity)
 	if err != nil {
 		return false, err
 	}
@@ -162,22 +159,27 @@ func (s *Store) MarkClaimed(
 	return n == 1, nil
 }
 
-// Revoke marks an unused invite revoked. Issuer-only (composite key).
+// Revoke marks an unused invite revoked. inviteID is canonical; callerID
+// must match the invite's creator.
 func (s *Store) Revoke(
 	ctx context.Context,
-	inviteID, creatorID string,
+	inviteID, callerID string,
 	revokedAt time.Time,
 ) error {
+	var createdBy string
 	var claimedAt, existingRevoked sql.NullTime
 	err := s.DB.QueryRowContext(ctx, `
-		SELECT claimed_at, revoked_at
-		FROM invites WHERE created_by = $1 AND id = $2
-	`, creatorID, inviteID).Scan(&claimedAt, &existingRevoked)
+		SELECT created_by, claimed_at, revoked_at
+		FROM invites WHERE id = $1
+	`, inviteID).Scan(&createdBy, &claimedAt, &existingRevoked)
 	if err == sql.ErrNoRows {
 		return ErrInviteNotFound
 	}
 	if err != nil {
 		return err
+	}
+	if createdBy != callerID {
+		return ErrInviteNotOwner
 	}
 	if claimedAt.Valid {
 		return ErrInviteAlreadyClaimed
@@ -188,9 +190,9 @@ func (s *Store) Revoke(
 
 	res, err := s.DB.ExecContext(ctx, `
 		UPDATE invites
-		SET revoked_at = $3
-		WHERE created_by = $1 AND id = $2 AND claimed_at IS NULL AND revoked_at IS NULL
-	`, creatorID, inviteID, revokedAt.UTC())
+		SET revoked_at = $2
+		WHERE id = $1 AND claimed_at IS NULL AND revoked_at IS NULL
+	`, inviteID, revokedAt.UTC())
 	if err != nil {
 		return err
 	}

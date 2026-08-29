@@ -28,7 +28,6 @@
   let loading = false;
   let currentStep = 0;
   let inviteID = "";
-  let inviteCreatorID = "";
   let inviteSecret = "";
   let inviteCheckFailed = false;
   /** Every eligible signup must see the preamble — invited users too, not
@@ -38,14 +37,11 @@
   let inviteChecking = false;
   let gateReady = false;
 
-  // Invite links: /signup?iid=<id>&uid=<creator>#<secret> (secret stays in the fragment).
-  $: inviteID = ($page.url.searchParams.get("iid") || "").trim();
-  $: inviteCreatorID = ($page.url.searchParams.get("uid") || "").trim();
+  // Invite links: /signup?id=<id>#<secret> (secret stays in the fragment).
+  $: inviteID = ($page.url.searchParams.get("id") || "").trim();
 
   $: usernameCheckFields =
-    inviteID && inviteCreatorID && inviteSecret
-      ? { inviteID, inviteCreatorID, inviteSecret }
-      : {};
+    inviteID && inviteSecret ? { inviteID, inviteSecret } : {};
 
   onMount(async () => {
     if (authService.isLoggedIn()) {
@@ -82,15 +78,15 @@
       return;
     }
 
-    if (get(signupMode) === 'invite' && (!inviteID || !inviteCreatorID)) {
+    if (get(signupMode) === 'invite' && !inviteID) {
       return;
     }
 
-    if (inviteID && inviteCreatorID && inviteSecret) {
+    if (inviteID && inviteSecret) {
       inviteChecking = true;
       try {
         const { apiService } = await import("$lib/services/api");
-        const result = await apiService.checkInvite(inviteCreatorID, inviteID, inviteSecret);
+        const result = await apiService.checkInvite(inviteID, inviteSecret);
         inviteCheckFailed = !result.valid;
       } catch (err) {
         console.error("invite check failed", err);
@@ -98,7 +94,7 @@
       } finally {
         inviteChecking = false;
       }
-    } else if ((inviteID || inviteCreatorID) && !inviteSecret) {
+    } else if (inviteID && !inviteSecret) {
       // Query id without fragment secret — treat as broken link.
       inviteCheckFailed = true;
     }
@@ -159,7 +155,7 @@
 
     if (
       get(signupMode) === 'invite' &&
-      (!inviteID || !inviteCreatorID || !inviteSecret || inviteCheckFailed)
+      (!inviteID || !inviteSecret || inviteCheckFailed)
     ) {
       notificationStore.error(
         'You need a valid invite link to join this server.'
@@ -234,9 +230,7 @@
         userID: reserved.userID,
         userIDSignature: reserved.signature,
         userIDFingerprint: reserved.fingerprint,
-        ...(inviteID && inviteCreatorID && inviteSecret
-          ? { inviteID, inviteCreatorID, inviteSecret }
-          : {}),
+        ...(inviteID && inviteSecret ? { inviteID, inviteSecret } : {}),
       };
       const user = await authService.signup(signupPayload);
 
@@ -287,7 +281,7 @@
         This server is currently not accepting new signups.
       </p>
       <a href="/" class="back-link">Back to home</a>
-    {:else if $signupMode === 'invite' && (!inviteID || !inviteCreatorID)}
+    {:else if $signupMode === 'invite' && !inviteID}
       <p class="gate-message">
         You need a valid invite link to join this server.
       </p>

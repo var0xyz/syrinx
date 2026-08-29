@@ -489,16 +489,15 @@ type SignupInput struct {
 	DeviceID string
 }
 
-// GetPendingInvite resolves invite composite key + fragment secret for
+// GetPendingInvite resolves invite canonical id + fragment secret for
 // pre-signup policy checks. Returns nil invite when unknown or hash mismatch.
-func (s *DataService) GetPendingInvite(ctx context.Context, creatorID, inviteID, secret string) (*invites.Invite, error) {
-	creatorID = strings.TrimSpace(creatorID)
+func (s *DataService) GetPendingInvite(ctx context.Context, inviteID, secret string) (*invites.Invite, error) {
 	inviteID = strings.TrimSpace(inviteID)
 	secret = strings.TrimSpace(secret)
-	if creatorID == "" || inviteID == "" || secret == "" {
+	if inviteID == "" || secret == "" {
 		return nil, nil
 	}
-	return s.invites.GetPendingInvite(ctx, creatorID, inviteID, invites.HashSecret(secret))
+	return s.invites.GetPendingInvite(ctx, inviteID, invites.HashSecret(secret))
 }
 
 // Signup materialises a fresh identity record: it writes the users row
@@ -617,7 +616,7 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	}
 
 	if in.Invite != nil {
-		ok, err := s.invites.MarkClaimed(ctx, tx, inviteCreatorBare, in.Invite.ID, in.UserID, in.MemberSince)
+		ok, err := s.invites.MarkClaimed(ctx, tx, in.Invite.ID, in.UserID, in.MemberSince)
 		if err != nil {
 			return nil, err
 		}

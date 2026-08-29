@@ -25,7 +25,6 @@ export type SignupInput = {
   userIDSignature: string;
   userIDFingerprint: string;
   inviteID?: string;
-  inviteCreatorID?: string;
   inviteSecret?: string;
 };
 
@@ -346,9 +345,6 @@ export const apiService = {
     if (input.inviteID) {
       formData.append('inviteID', input.inviteID);
     }
-    if (input.inviteCreatorID) {
-      formData.append('inviteCreatorID', input.inviteCreatorID);
-    }
     if (input.inviteSecret) {
       formData.append('inviteSecret', input.inviteSecret);
     }
@@ -360,8 +356,8 @@ export const apiService = {
     });
   },
 
-  async checkInvite(creatorId: string, id: string, secret: string): Promise<{ valid: boolean }> {
-    const q = new URLSearchParams({ uid: creatorId, iid: id, secret });
+  async checkInvite(id: string, secret: string): Promise<{ valid: boolean }> {
+    const q = new URLSearchParams({ id, secret });
     return request<{ valid: boolean }>(`/invites/check?${q}`, {
       method: 'GET'
     });

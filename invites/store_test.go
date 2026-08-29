@@ -134,16 +134,15 @@ func ensureInviteSchema(db *sql.DB) error {
 			invited_by VARCHAR(255) REFERENCES identities(id)
 		)`,
 		`CREATE TABLE invites (
+			id         VARCHAR(255) PRIMARY KEY,
 			created_by VARCHAR(255) NOT NULL REFERENCES identities(id),
-			id         VARCHAR(255) NOT NULL,
 			token_hash BYTEA NOT NULL UNIQUE,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			claimed_at TIMESTAMPTZ,
 			claimed_by VARCHAR(255) REFERENCES identities(id),
 			revoked_at TIMESTAMPTZ,
 			granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
-				CHECK (granted_role IN ('admin', 'user')),
-			PRIMARY KEY (created_by, id)
+				CHECK (granted_role IN ('admin', 'user'))
 		)`,
 		fmt.Sprintf(`INSERT INTO servers (id, name, self) VALUES ('%s', 'test', TRUE)`, testServerID),
 	}
@@ -238,12 +237,14 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := HashSecret(raw)
-	id, err := NewInviteID()
+	creator := "creator1@" + testServerID
+	rawID, err := NewInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
+	id := creator + "/" + rawID
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.Insert(ctx, id, "creator1@"+testServerID, hash, now, roles.RoleUser); err != nil {
+	if err := store.Insert(ctx, id, creator, hash, now, roles.RoleUser); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 
@@ -251,12 +252,12 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err != nil || got == nil {
 		t.Fatalf("GetByTokenHash: %v %#v", got, err)
 	}
-	if got.ID != id || got.CreatedBy != "creator1@"+testServerID || got.Status() != "pending" {
+	if got.ID != id || got.CreatedBy != creator || got.Status() != "pending" {
 		t.Fatalf("unexpected invite: %+v", got)
 	}
 	_ = raw
 
-	n, err := store.CountByCreator(ctx, "creator1@"+testServerID)
+	n, err := store.CountByCreator(ctx, creator)
 	if err != nil || n != 1 {
 		t.Fatalf("CountByCreator = %d, %v", n, err)
 	}
@@ -265,7 +266,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok, err := store.MarkClaimed(ctx, tx, "creator1", id, "invitee1", now.Add(time.Minute))
+	ok, err := store.MarkClaimed(ctx, tx, id, "invitee1", now.Add(time.Minute))
 	if err != nil || !ok {
 		tx.Rollback()
 		t.Fatalf("MarkClaimed: ok=%v err=%v", ok, err)
@@ -278,7 +279,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok2, err := store.MarkClaimed(ctx, tx2, "creator1", id, "invitee1", now.Add(2*time.Minute))
+	ok2, err := store.MarkClaimed(ctx, tx2, id, "invitee1", now.Add(2*time.Minute))
 	tx2.Rollback()
 	if err != nil {
 		t.Fatalf("second MarkClaimed err: %v", err)
@@ -292,7 +293,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatalf("expected claimed: %+v %v", claimed, err)
 	}
 
-	n, err = store.CountByCreator(ctx, "creator1@"+testServerID)
+	n, err = store.CountByCreator(ctx, creator)
 	if err != nil || n != 1 {
 		t.Fatalf("CountByCreator after claim = %d, %v", n, err)
 	}
@@ -306,17 +307,19 @@ func TestRevokeDistinguishesClaimed(t *testing.T) {
 	seedUser(t, db, "creator2", "carol")
 	seedUser(t, db, "invitee2", "dave")
 
+	creator := "creator2@" + testServerID
 	secret, err := NewSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
 	hash := HashSecret(secret)
-	id, err := NewInviteID()
+	rawID, err := NewInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
+	id := creator + "/" + rawID
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.Insert(ctx, id, "creator2@"+testServerID, hash, now, roles.RoleUser); err != nil {
+	if err := store.Insert(ctx, id, creator, hash, now, roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 
@@ -324,7 +327,7 @@ func TestRevokeDistinguishesClaimed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ok, err := store.MarkClaimed(ctx, tx, "creator2", id, "invitee2", now)
+	ok, err := store.MarkClaimed(ctx, tx, id, "invitee2", now)
 	if err != nil || !ok {
 		tx.Rollback()
 		t.Fatalf("MarkClaimed: %v %v", ok, err)
@@ -333,12 +336,12 @@ func TestRevokeDistinguishesClaimed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = store.Revoke(ctx, id, "creator2@"+testServerID, now.Add(time.Minute))
+	err = store.Revoke(ctx, id, creator, now.Add(time.Minute))
 	if err != ErrInviteAlreadyClaimed {
 		t.Fatalf("Revoke claimed = %v, want ErrInviteAlreadyClaimed", err)
 	}
 
-	err = store.Revoke(ctx, "missing", "creator2@"+testServerID, now)
+	err = store.Revoke(ctx, "missing", creator, now)
 	if err != ErrInviteNotFound {
 		t.Fatalf("Revoke missing = %v, want ErrInviteNotFound", err)
 	}
@@ -351,33 +354,35 @@ func TestRevokeAndCountIncludesRevoked(t *testing.T) {
 
 	seedUser(t, db, "creator3", "erin")
 
+	creator := "creator3@" + testServerID
 	secret, err := NewSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
 	hash := HashSecret(secret)
-	id, err := NewInviteID()
+	rawID, err := NewInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
+	id := creator + "/" + rawID
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.Insert(ctx, id, "creator3@"+testServerID, hash, now, roles.RoleUser); err != nil {
+	if err := store.Insert(ctx, id, creator, hash, now, roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Revoke(ctx, id, "creator3@"+testServerID, now.Add(time.Minute)); err != nil {
+	if err := store.Revoke(ctx, id, creator, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Revoke(ctx, id, "creator3@"+testServerID, now.Add(2*time.Minute)); err != ErrInviteAlreadyRevoked {
+	if err := store.Revoke(ctx, id, creator, now.Add(2*time.Minute)); err != ErrInviteAlreadyRevoked {
 		t.Fatalf("second revoke = %v, want ErrInviteAlreadyRevoked", err)
 	}
 
-	n, err := store.CountByCreator(ctx, "creator3@"+testServerID)
+	n, err := store.CountByCreator(ctx, creator)
 	if err != nil || n != 1 {
 		t.Fatalf("CountByCreator should include revoked: %d %v", n, err)
 	}
 
-	got, err := store.GetByCreatorAndID(ctx, "creator3@"+testServerID, id)
+	got, err := store.GetByID(ctx, id)
 	if err != nil || got == nil || got.Status() != "revoked" {
-		t.Fatalf("GetByCreatorAndID: %+v %v", got, err)
+		t.Fatalf("GetByID: %+v %v", got, err)
 	}
 }

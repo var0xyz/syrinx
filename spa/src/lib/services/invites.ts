@@ -8,7 +8,7 @@ import { buildInviteUserPayload } from './signing';
 import { signedAtHeader } from './verify';
 import { get } from 'svelte/store';
 import { serverInfo } from './serverInfo';
-import { generateId } from '$lib/utils/id';
+import { generateReedId } from '$lib/utils/id';
 
 function newInviteSecret(): string {
   const buf = new Uint8Array(32);
@@ -27,14 +27,13 @@ export async function hashInviteSecret(secret: string): Promise<string> {
     .join('');
 }
 
-/** Share URL: invite id + creator id in query, secret in fragment (never sent on navigation). */
+/** Share URL: invite id in query, secret in fragment (never sent on navigation). */
 export function inviteShareURL(
   id: string,
   secret: string,
-  creatorId: string,
   origin = window.location.origin,
 ): string {
-  const q = new URLSearchParams({ iid: id, uid: creatorId });
+  const q = new URLSearchParams({ id });
   return `${origin}/signup?${q}#${secret}`;
 }
 
@@ -65,7 +64,7 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
     throw new Error('Private key not found');
   }
 
-  const id = generateId();
+  const id = `${user.id}/${generateReedId()}`;
   const secret = newInviteSecret();
   const tokenHash = await hashInviteSecret(secret);
   const createdAt = signedAtHeader(new Date());
