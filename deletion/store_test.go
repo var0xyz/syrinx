@@ -242,7 +242,7 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 
 	cert := Cert{
 		ReedID:            reedID,
-		UserID:            userID,
+		UserID:            identityID,
 		UserSignature:     "user-sig",
 		UserKeyID:         fp,
 		ServerSignature:   "server-sig",
@@ -262,6 +262,9 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 	}
 	if got.UserKeyID != fp {
 		t.Fatalf("fingerprint=%q", got.UserKeyID)
+	}
+	if got.UserID != identityID {
+		t.Fatalf("UserID = %q, want canonical %q", got.UserID, identityID)
 	}
 
 	conflict := cert

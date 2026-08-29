@@ -111,11 +111,11 @@ func loadReedCertTx(ctx context.Context, q reedQuerier, reedID string, forUpdate
 	if err != nil {
 		return nil, err
 	}
-	userID, _, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	authorID, ok := identity.AuthorOf(identity.IdentityID(reedID))
 	if !ok {
 		return nil, fmt.Errorf("malformed reed id: %s", reedID)
 	}
-	return assembleReedCert(ctx, q, reedID, userID, userFP, userSigID, serverSigID)
+	return assembleReedCert(ctx, q, reedID, string(authorID), userFP, userSigID, serverSigID)
 }
 
 func assembleReedCert(ctx context.Context, q reedQuerier, reedID, userID, userFP string, userSigID, serverSigID int64) (*Cert, error) {

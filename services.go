@@ -2947,12 +2947,12 @@ func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerId
 	if err != nil {
 		return nil, err
 	}
-	authorUserID, authorServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	authorID, ok := identity.AuthorOf(identity.IdentityID(reedID))
 	if !ok {
 		return nil, fmt.Errorf("malformed reed id: %s", reedID)
 	}
 	return &LikeCert{
-		AuthorID: string(identity.CanonicalID(authorServerID, authorUserID)),
+		AuthorID: string(authorID),
 		ReedID:   reedID,
 		UserSignature: UserSignature{
 			ID:    userRow.PublicKeyID,
@@ -4635,11 +4635,10 @@ func (s *DataService) PostRipple(
 	now time.Time,
 ) (*Ripple, error) {
 	now = now.UTC().Truncate(time.Second)
-	reedAuthorBare, reedAuthorServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	reedAuthorIdentity, ok := identity.AuthorOf(identity.IdentityID(reedID))
 	if !ok {
 		return nil, fmt.Errorf("malformed reed id: %s", reedID)
 	}
-	reedAuthorIdentity := identity.CanonicalID(reedAuthorServerID, reedAuthorBare)
 	selfIdentity := identity.IdentityID(userID)
 
 	tx, err := s.db.BeginTx(ctx, nil)

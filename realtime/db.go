@@ -385,11 +385,11 @@ func (ds *DBService) GetPendingReedEvent(ctx context.Context, eventID string) (*
 // reedAuthorIdentity extracts the userID@serverID author identity embedded
 // in a canonical reed id. Empty string if reedID is malformed.
 func reedAuthorIdentity(reedID string) string {
-	userID, serverID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	authorID, ok := identity.AuthorOf(identity.IdentityID(reedID))
 	if !ok {
 		return ""
 	}
-	return string(identity.CanonicalID(serverID, userID))
+	return string(authorID)
 }
 
 // DeletePendingEvent deletes a pending event by event ID (cascades to child
