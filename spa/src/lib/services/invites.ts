@@ -9,7 +9,6 @@ import { signedAtHeader } from './verify';
 import { get } from 'svelte/store';
 import { serverInfo } from './serverInfo';
 import { generateId } from '$lib/utils/id';
-import { parseKeyId } from '$lib/utils/identityRef';
 
 function newInviteSecret(): string {
   const buf = new Uint8Array(32);
@@ -84,11 +83,8 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
     privateKey.armor,
     passphrase
   );
-  // userSignature.fingerprint travels bare over the wire (identifies the
-  // signer; joined server-side with the caller's own canonical id — see
-  // invites/handlers.go's CreateInvite).
   const userSignature = {
-    fingerprint: parseKeyId(fingerprint)?.fingerprint ?? fingerprint,
+    keyID: fingerprint,
     armor: btoa(sigArmor),
   };
 

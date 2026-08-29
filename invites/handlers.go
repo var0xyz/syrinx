@@ -19,8 +19,8 @@ import (
 
 // UserSignatureWire is the nested user attestation on create/response.
 type UserSignatureWire struct {
-	Fingerprint string `json:"fingerprint"`
-	Armor       string `json:"armor"`
+	KeyID string `json:"keyID"`
+	Armor string `json:"armor"`
 }
 
 // ServerSignatureWire is the nested server countersignature on create
@@ -133,7 +133,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tokenHashHex := EncodeHashHex(tokenHash)
-	if req.UserSignature.Fingerprint == "" || req.UserSignature.Armor == "" {
+	if req.UserSignature.KeyID == "" || req.UserSignature.Armor == "" {
 		writeJSON(w, http.StatusBadRequest, "userSignature is required")
 		return
 	}
@@ -193,10 +193,7 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Invalid userSignature encoding")
 		return
 	}
-	// req.UserSignature.Fingerprint travels bare over the wire; join with
-	// caller (already canonical) before the key lookup.
-	callerFingerprint := string(identity.AppendEntity(identity.IdentityID(caller), req.UserSignature.Fingerprint))
-	pubArmor, err := d.GetPublicKeyArmor(r.Context(), caller, callerFingerprint)
+	pubArmor, err := d.GetPublicKeyArmor(r.Context(), caller, req.UserSignature.KeyID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return

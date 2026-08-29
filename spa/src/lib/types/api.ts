@@ -268,10 +268,7 @@ export interface Invite extends Base {
   claimedAt?: string | null;
   claimedBy?: string | null;
   revokedAt?: string | null;
-  /** fingerprint is genuinely bare here (see invites/handlers.go's
-   * CreateInvite) — a different wire shape from every other
-   * userSignature block, which carries the canonical id. */
-  userSignature: { fingerprint: string; armor: string };
+  userSignature: UserSignature;
   serverSignature: ServerSignature;
 }
 

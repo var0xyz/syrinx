@@ -367,21 +367,18 @@ export const apiService = {
     });
   },
 
-  // userSignature.fingerprint here is genuinely bare (see
-  // invites/handlers.go's CreateInvite) — a different wire shape from
-  // every other userSignature block, which carries the canonical id.
   async createInvite(body: {
     id: string;
     tokenHash: string;
     createdAt: string;
     grantedRole?: 'user' | 'admin';
-    userSignature: { fingerprint: string; armor: string };
+    userSignature: { keyID: string; armor: string };
   }): Promise<{
     id: string;
     tokenHash: string;
     createdAt: string;
     grantedRole: 'user' | 'admin';
-    userSignature: { fingerprint: string; armor: string };
+    userSignature: api.UserSignature;
     serverSignature: api.ServerSignature;
   }> {
     return request('/invites', {
@@ -740,7 +737,7 @@ export const apiService = {
       threadID: string;
       replyingTo?: string;
       proof: string;
-      fingerprint: string;
+      keyID: string;
       userSignature: string;
     }
   ): Promise<api.Ripple> {
@@ -753,7 +750,7 @@ export const apiService = {
         threadID: fields.threadID,
         replyingTo: fields.replyingTo ?? null,
         proof: fields.proof,
-        fingerprint: fields.fingerprint,
+        keyID: fields.keyID,
         userSignature: fields.userSignature,
         // Only used server-side when this request is relayed to the
         // reed's home server (see handlers.go's resolveActingUser) — a
