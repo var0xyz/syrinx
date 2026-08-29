@@ -372,7 +372,7 @@ export const apiService = {
     tokenHash: string;
     createdAt: string;
     grantedRole?: 'user' | 'admin';
-    userSignature: { keyID: string; armor: string };
+    userSignature: api.UserSignature;
   }): Promise<{
     id: string;
     tokenHash: string;

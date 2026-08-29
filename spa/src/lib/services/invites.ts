@@ -84,7 +84,7 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
     passphrase
   );
   const userSignature = {
-    keyID: fingerprint,
+    id: fingerprint,
     armor: btoa(sigArmor),
   };
 

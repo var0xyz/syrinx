@@ -83,7 +83,7 @@ func createBody(t *testing.T, id, tokenHashHex string, createdAt time.Time, gran
 		CreatedAt:   createdAt,
 		GrantedRole: grantedRole,
 		UserSignature: UserSignatureWire{
-			KeyID: "user-fp@" + testServerID,
+			ID:    "user-fp@" + testServerID,
 			Armor: base64.StdEncoding.EncodeToString([]byte("user-sig")),
 		},
 	})
