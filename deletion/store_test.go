@@ -244,7 +244,7 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 		ReedID:            reedID,
 		UserID:            userID,
 		UserSignature:     "user-sig",
-		UserFingerprint:   fp,
+		UserKeyID:         fp,
 		ServerSignature:   "server-sig",
 		ServerFingerprint: "server-fp",
 		ServerSignedAt:    time.Now().UTC(),
@@ -260,8 +260,8 @@ func TestInsertCert_IdempotentAndConflict(t *testing.T) {
 	if err != nil || got == nil {
 		t.Fatalf("get: got=%v err=%v", got, err)
 	}
-	if got.UserFingerprint != fp {
-		t.Fatalf("fingerprint=%q", got.UserFingerprint)
+	if got.UserKeyID != fp {
+		t.Fatalf("fingerprint=%q", got.UserKeyID)
 	}
 
 	conflict := cert
@@ -295,7 +295,7 @@ func TestInsertAccountCert_IdempotentConflictAndNote(t *testing.T) {
 		UserID:            userID,
 		Note:              "goodbye",
 		UserSignature:     "user-sig",
-		UserFingerprint:   fp,
+		UserKeyID:         fp,
 		ServerSignature:   "server-sig",
 		ServerFingerprint: "server-fp",
 		ServerSignedAt:    time.Now().UTC(),
@@ -371,7 +371,7 @@ func TestInsertForeignAccountCert_NoLocalSideEffects(t *testing.T) {
 		UserID:            identityID,
 		Note:              "gone",
 		UserSignature:     "user-sig",
-		UserFingerprint:   fp,
+		UserKeyID:         fp,
 		ServerSignature:   "server-sig",
 		ServerFingerprint: "server-fp",
 		ServerSignedAt:    time.Now().UTC(),

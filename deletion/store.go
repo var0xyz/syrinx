@@ -25,7 +25,7 @@ type Cert struct {
 	ReedID            string
 	UserID            string
 	UserSignature     string
-	UserFingerprint   string
+	UserKeyID         string
 	ServerSignature   string
 	ServerFingerprint string
 	ServerSignedAt    time.Time
@@ -47,7 +47,7 @@ func InsertCert(ctx context.Context, db *sql.DB, cert Cert, serverID string) err
 	switch {
 	case err == sql.ErrNoRows:
 		userSigID, err := signing.InsertUserSignature(
-			ctx, tx, cert.UserFingerprint, cert.UserSignature,
+			ctx, tx, cert.UserKeyID, cert.UserSignature,
 		)
 		if err != nil {
 			return err
@@ -63,14 +63,14 @@ func InsertCert(ctx context.Context, db *sql.DB, cert Cert, serverID string) err
 				reed_id, public_key_id,
 				user_signature_id, server_signature_id
 			) VALUES ($1, $2, $3, $4)
-		`, cert.ReedID, cert.UserFingerprint, userSigID, serverSigID); err != nil {
+		`, cert.ReedID, cert.UserKeyID, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert reed removal: %w", err)
 		}
 	case err != nil:
 		return err
 	default:
 		if existing.UserSignature != cert.UserSignature ||
-			existing.UserFingerprint != cert.UserFingerprint ||
+			existing.UserKeyID != cert.UserKeyID ||
 			existing.ServerSignature != cert.ServerSignature ||
 			existing.ServerFingerprint != cert.ServerFingerprint ||
 			!existing.ServerSignedAt.Equal(cert.ServerSignedAt) {
@@ -135,7 +135,7 @@ func assembleReedCert(ctx context.Context, q reedQuerier, reedID, userID, userFP
 	return &Cert{
 		ReedID:            reedID,
 		UserID:            userID,
-		UserFingerprint:   userFP,
+		UserKeyID:         userFP,
 		UserSignature:     userRow.Signature,
 		ServerSignature:   serverRow.Signature,
 		ServerFingerprint: serverRow.Fingerprint,

@@ -23,7 +23,7 @@ func TestCreateReed_GenesisRequiresEmptyPreviousID(t *testing.T) {
 	reedID := newTestReedID(t)
 	ts := time.Now().UTC().Truncate(time.Second)
 	_, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: reedID, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: reedID, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts, PreviousID: "",
 	})
@@ -42,7 +42,7 @@ func TestCreateReed_GenesisWithNonemptyPreviousIDForks(t *testing.T) {
 	reedID := newTestReedID(t)
 	ts := time.Now().UTC().Truncate(time.Second)
 	_, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: reedID, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: reedID, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts, PreviousID: "some-nonexistent-reed",
 	})
@@ -63,7 +63,7 @@ func TestCreateReed_MatchingTipSucceeds(t *testing.T) {
 	first := newTestReedID(t)
 	ts := time.Now().UTC().Truncate(time.Second)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: first, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: first, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts, PreviousID: "",
 	}); err != nil {
@@ -72,7 +72,7 @@ func TestCreateReed_MatchingTipSucceeds(t *testing.T) {
 
 	second := newTestReedID(t)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: second, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: second, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts.Add(time.Second), PreviousID: first,
 	}); err != nil {
@@ -92,7 +92,7 @@ func TestCreateReed_StaleTipForks(t *testing.T) {
 	first := newTestReedID(t)
 	ts := time.Now().UTC().Truncate(time.Second)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: first, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: first, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts, PreviousID: "",
 	}); err != nil {
@@ -101,7 +101,7 @@ func TestCreateReed_StaleTipForks(t *testing.T) {
 
 	second := newTestReedID(t)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: second, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: second, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts.Add(time.Second), PreviousID: first,
 	}); err != nil {
@@ -110,7 +110,7 @@ func TestCreateReed_StaleTipForks(t *testing.T) {
 
 	third := newTestReedID(t)
 	_, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: third, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: third, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts.Add(2 * time.Second), PreviousID: first, // stale — second is now the tip
 	})
@@ -131,7 +131,7 @@ func TestCreateReed_UnknownPreviousIDForks(t *testing.T) {
 	first := newTestReedID(t)
 	ts := time.Now().UTC().Truncate(time.Second)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: first, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: first, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts, PreviousID: "",
 	}); err != nil {
@@ -140,7 +140,7 @@ func TestCreateReed_UnknownPreviousIDForks(t *testing.T) {
 
 	second := newTestReedID(t)
 	_, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: second, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: second, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts.Add(time.Second), PreviousID: "totally-unknown-reed-id",
 	})
@@ -162,7 +162,7 @@ func TestCreateReed_AfterDeleteNamingNewTipSucceeds(t *testing.T) {
 	first := newTestReedID(t)
 	ts := time.Now().UTC().Truncate(time.Second)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: first, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: first, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts, PreviousID: "",
 	}); err != nil {
@@ -171,7 +171,7 @@ func TestCreateReed_AfterDeleteNamingNewTipSucceeds(t *testing.T) {
 
 	second := newTestReedID(t)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: second, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: second, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts.Add(time.Second), PreviousID: first,
 	}); err != nil {
@@ -187,7 +187,7 @@ func TestCreateReed_AfterDeleteNamingNewTipSucceeds(t *testing.T) {
 	// Naming the new tip (first, since second is removed) must succeed.
 	third := newTestReedID(t)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: third, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: third, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts.Add(2 * time.Second), PreviousID: first,
 	}); err != nil {
@@ -198,7 +198,7 @@ func TestCreateReed_AfterDeleteNamingNewTipSucceeds(t *testing.T) {
 	// valid tip even though the row exists).
 	fourth := newTestReedID(t)
 	_, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: fourth, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: fourth, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts.Add(3 * time.Second), PreviousID: second,
 	})
@@ -220,7 +220,7 @@ func TestCreateReed_PreviousIDFromAnotherUserForks(t *testing.T) {
 	bobsReed := newTestReedID(t)
 	ts := time.Now().UTC().Truncate(time.Second)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: bobsReed, UserID: "bob@testserver", UserFingerprint: "bobfp",
+		ReedID: bobsReed, UserID: "bob@testserver", UserKeyID: "bobfp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-bob", ServerSignatureB64: "sig",
 		Timestamp: ts, PreviousID: "",
 	}); err != nil {
@@ -229,7 +229,7 @@ func TestCreateReed_PreviousIDFromAnotherUserForks(t *testing.T) {
 
 	aliceReed := newTestReedID(t)
 	_, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: aliceReed, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: aliceReed, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts.Add(time.Second), PreviousID: bobsReed,
 	})
@@ -252,7 +252,7 @@ func TestCreateReed_ConcurrentSameTipOneWinsOneForks(t *testing.T) {
 	first := newTestReedID(t)
 	ts := time.Now().UTC().Truncate(time.Second)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: first, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: first, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts, PreviousID: "",
 	}); err != nil {
@@ -268,7 +268,7 @@ func TestCreateReed_ConcurrentSameTipOneWinsOneForks(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		_, errs[0] = svc.CreateReed(ctx, createReedParams{
-			ReedID: second, UserID: "alice@testserver", UserFingerprint: "alicefp",
+			ReedID: second, UserID: "alice@testserver", UserKeyID: "alicefp",
 			UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 			Timestamp: ts.Add(time.Second), PreviousID: first,
 		})
@@ -276,7 +276,7 @@ func TestCreateReed_ConcurrentSameTipOneWinsOneForks(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		_, errs[1] = svc.CreateReed(ctx, createReedParams{
-			ReedID: third, UserID: "alice@testserver", UserFingerprint: "alicefp",
+			ReedID: third, UserID: "alice@testserver", UserKeyID: "alicefp",
 			UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 			Timestamp: ts.Add(time.Second), PreviousID: first,
 		})

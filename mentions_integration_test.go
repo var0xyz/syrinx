@@ -145,7 +145,7 @@ func TestCreateReed_MentionsIndexed(t *testing.T) {
 	_, err := svc.CreateReed(ctx, createReedParams{
 		ReedID:             reedID,
 		UserID:             "alice@testserver",
-		UserFingerprint:    "alicefp",
+		UserKeyID:          "alicefp",
 		UserSignatureB64:   "usersig",
 		ServerFingerprint:  "srvfp-alice",
 		ServerSignatureB64: "serversig",
@@ -193,7 +193,7 @@ func TestCreateReed_MentionOfNonexistentUserRejected(t *testing.T) {
 	_, err := svc.CreateReed(ctx, createReedParams{
 		ReedID:             reedID,
 		UserID:             "alice@testserver",
-		UserFingerprint:    "alicefp",
+		UserKeyID:          "alicefp",
 		UserSignatureB64:   "usersig",
 		ServerFingerprint:  "srvfp-alice",
 		ServerSignatureB64: "serversig",
@@ -298,7 +298,7 @@ func TestDeleteMentionsForReed_ClearsRows(t *testing.T) {
 	_, err := svc.CreateReed(ctx, createReedParams{
 		ReedID:             reedID,
 		UserID:             "alice@testserver",
-		UserFingerprint:    "alicefp",
+		UserKeyID:          "alicefp",
 		UserSignatureB64:   "usersig",
 		ServerFingerprint:  "srvfp-alice",
 		ServerSignatureB64: "serversig",
@@ -335,7 +335,7 @@ func TestDeleteMentionsByAuthor_ClearsBothSides(t *testing.T) {
 	reed1 := newTestReedID(t)
 	ts := time.Now().UTC().Truncate(time.Second)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: reed1, UserID: "alice@testserver", UserFingerprint: "alicefp",
+		ReedID: reed1, UserID: "alice@testserver", UserKeyID: "alicefp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
 		Timestamp: ts, Mentions: []string{"bob@testserver"},
 	}); err != nil {
@@ -346,7 +346,7 @@ func TestDeleteMentionsByAuthor_ClearsBothSides(t *testing.T) {
 	// DeleteMentionsByAuthor(bob) clears mentions of bob regardless of author)
 	reed2 := newTestReedID(t)
 	if _, err := svc.CreateReed(ctx, createReedParams{
-		ReedID: reed2, UserID: "carol@testserver", UserFingerprint: "carolfp",
+		ReedID: reed2, UserID: "carol@testserver", UserKeyID: "carolfp",
 		UserSignatureB64: "sig", ServerFingerprint: "srvfp-carol", ServerSignatureB64: "sig",
 		Timestamp: ts, Mentions: []string{"bob@testserver"},
 	}); err != nil {

@@ -8,10 +8,11 @@ import (
 	"syrinx/identity"
 )
 
-// UserSignatureWire is the nested user attestation block on removal certs.
+// UserSignatureWire is the nested user attestation block on removal certs
+// and ripple pushes.
 type UserSignatureWire struct {
-	Fingerprint string `json:"fingerprint"`
-	Armor       string `json:"armor"`
+	ID    string `json:"id"`
+	Armor string `json:"armor"`
 }
 
 // ServerSignatureWire is the nested server countersignature block on removal certs.
@@ -49,8 +50,8 @@ func NewReedRemovalWire(serverID string, cert *deletion.Cert) ReedRemovalWire {
 		UserID:   cert.UserID,
 		ReedID:   cert.ReedID,
 		UserSignature: UserSignatureWire{
-			Fingerprint: cert.UserFingerprint,
-			Armor:       cert.UserSignature,
+			ID:    cert.UserKeyID,
+			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignatureWire{
 			ID:        string(identity.CanonicalID(serverID, cert.ServerFingerprint)),
@@ -68,8 +69,8 @@ func NewAccountRemovalWire(serverID string, cert *deletion.AccountCert) AccountR
 		UserID:   cert.UserID,
 		Note:     cert.Note,
 		UserSignature: UserSignatureWire{
-			Fingerprint: cert.UserFingerprint,
-			Armor:       cert.UserSignature,
+			ID:    cert.UserKeyID,
+			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignatureWire{
 			ID:        string(identity.CanonicalID(serverID, cert.ServerFingerprint)),
