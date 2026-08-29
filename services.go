@@ -276,7 +276,7 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 		WHERE sv.self = TRUE AND pk.revoked_at IS NULL
 	`).Scan(&keyID, &encryptedArmor, &createdAt)
 	if err == nil {
-		if _, _, fp, ok := identity.ParseKeyFingerprint(identity.IdentityID(keyID)); ok {
+		if fp, _, ok := identity.ParseIdentityID(identity.IdentityID(keyID)); ok {
 			fingerprint = fp
 		}
 	}
@@ -391,7 +391,7 @@ func (s *DataService) SaveServerKeyPair(ctx context.Context, keyID, privateArmor
 		return err
 	}
 
-	_, _, fingerprint, ok := identity.ParseKeyFingerprint(identity.IdentityID(keyID))
+	fingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(keyID))
 	if !ok {
 		return fmt.Errorf("malformed server key id: %s", keyID)
 	}
