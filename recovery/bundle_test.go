@@ -29,14 +29,15 @@ func TestValidateShape_AndDecrypt(t *testing.T) {
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
+	keyID := kp.Fingerprint + "@Ab3xY9pQ"
 	b := &Bundle{
-		Version:               BundleVersion,
-		ExportedAt:            now,
-		ServerID:              "Ab3xY9pQ",
-		ServerName:            "syrinx.example",
-		SigningKeyFingerprint: kp.Fingerprint,
+		Version:      BundleVersion,
+		ExportedAt:   now,
+		ServerID:     "Ab3xY9pQ",
+		ServerName:   "syrinx.example",
+		SigningKeyID: keyID,
 		Keys: []BundleKey{{
-			Fingerprint:     kp.Fingerprint,
+			ID:              keyID,
 			PrivateKeyArmor: encPriv,
 			PublicKeyArmor:  kp.PublicKey,
 			CreatedAt:       now,
@@ -68,7 +69,7 @@ func TestValidateShape_AndDecrypt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseBundleJSON: %v", err)
 	}
-	if parsed.ServerID != b.ServerID || parsed.ServerName != b.ServerName || parsed.SigningKeyFingerprint != b.SigningKeyFingerprint {
+	if parsed.ServerID != b.ServerID || parsed.ServerName != b.ServerName || parsed.SigningKeyID != b.SigningKeyID {
 		t.Fatalf("parsed mismatch: %+v", parsed)
 	}
 	if len(parsed.Keys) != 1 || parsed.Keys[0].PrivateKeyArmor != encPriv || parsed.Keys[0].PublicKeyArmor != kp.PublicKey {
@@ -79,13 +80,13 @@ func TestValidateShape_AndDecrypt(t *testing.T) {
 func TestValidateShape_SigningKeyMissing(t *testing.T) {
 	now := time.Now().UTC()
 	b := &Bundle{
-		Version:               BundleVersion,
-		ExportedAt:            now,
-		ServerID:              "Ab3xY9pQ",
-		ServerName:            "syrinx.example",
-		SigningKeyFingerprint: "DEADBEEF",
+		Version:      BundleVersion,
+		ExportedAt:   now,
+		ServerID:     "Ab3xY9pQ",
+		ServerName:   "syrinx.example",
+		SigningKeyID: "DEADBEEF",
 		Keys: []BundleKey{{
-			Fingerprint:     "CAFEBABE",
+			ID:              "CAFEBABE",
 			PrivateKeyArmor: "priv",
 			PublicKeyArmor:  "pub",
 			CreatedAt:       now,

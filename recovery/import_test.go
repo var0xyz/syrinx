@@ -4,19 +4,19 @@ import "testing"
 
 func TestIdentityMatches(t *testing.T) {
 	b := &Bundle{
-		Version:               BundleVersion,
-		ServerID:              "Ab3xY9pQ",
-		ServerName:            "syrinx.example",
-		SigningKeyFingerprint: "AAAA",
+		Version:      BundleVersion,
+		ServerID:     "Ab3xY9pQ",
+		ServerName:   "syrinx.example",
+		SigningKeyID: "AAAA@Ab3xY9pQ",
 		Keys: []BundleKey{
-			{Fingerprint: "AAAA", PrivateKeyArmor: "priv-a", PublicKeyArmor: "pub-a"},
-			{Fingerprint: "BBBB", PrivateKeyArmor: "priv-b", PublicKeyArmor: "pub-b"},
+			{ID: "AAAA@Ab3xY9pQ", PrivateKeyArmor: "priv-a", PublicKeyArmor: "pub-a"},
+			{ID: "BBBB@Ab3xY9pQ", PrivateKeyArmor: "priv-b", PublicKeyArmor: "pub-b"},
 		},
 	}
 	self := ExistingSelf{ID: "Ab3xY9pQ", Name: "syrinx.example", SigningKey: "AAAA@Ab3xY9pQ"}
 	keys := []ExistingKey{
-		{Fingerprint: "AAAA@Ab3xY9pQ", Armor: "priv-a"},
-		{Fingerprint: "BBBB@Ab3xY9pQ", Armor: "priv-b"},
+		{ID: "AAAA@Ab3xY9pQ", Armor: "priv-a"},
+		{ID: "BBBB@Ab3xY9pQ", Armor: "priv-b"},
 	}
 	if !IdentityMatches(b, self, keys) {
 		t.Fatal("expected match")
@@ -31,12 +31,12 @@ func TestIdentityMatches(t *testing.T) {
 	if IdentityMatches(b, ExistingSelf{ID: "Ab3xY9pQ", Name: "syrinx.example", SigningKey: "CCCC@Ab3xY9pQ"}, keys) {
 		t.Fatal("different signing key should not match")
 	}
-	if IdentityMatches(b, self, []ExistingKey{{Fingerprint: "AAAA@Ab3xY9pQ", Armor: "priv-a"}}) {
+	if IdentityMatches(b, self, []ExistingKey{{ID: "AAAA@Ab3xY9pQ", Armor: "priv-a"}}) {
 		t.Fatal("missing key should not match")
 	}
 	if IdentityMatches(b, self, []ExistingKey{
-		{Fingerprint: "AAAA@Ab3xY9pQ", Armor: "priv-a"},
-		{Fingerprint: "BBBB@Ab3xY9pQ", Armor: "CHANGED"},
+		{ID: "AAAA@Ab3xY9pQ", Armor: "priv-a"},
+		{ID: "BBBB@Ab3xY9pQ", Armor: "CHANGED"},
 	}) {
 		t.Fatal("different armor should not match")
 	}
