@@ -950,22 +950,27 @@ func InitDB(db *sql.DB) error {
 		ON pending_follows(following_user_id);
 	`
 
-	// Invites — operational redeem state. PK is (created_by, id) because
-	// clients mint ids; scoping to the issuer prevents cross-user collisions.
+	// Invites — operational redeem state. id is canonical
+	// (creatorID@serverID/uuid), self-describing and globally unique, so
+	// it alone is PK; created_by stays a real column for CountByCreator
+	// and cascade-on-account-removal.
 	createInvitesTable := `
 	CREATE TABLE IF NOT EXISTS invites (
+		id VARCHAR(255) PRIMARY KEY,
 		created_by VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		id VARCHAR(255) NOT NULL,
 		token_hash BYTEA NOT NULL UNIQUE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		claimed_at TIMESTAMPTZ,
 		claimed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
 		revoked_at TIMESTAMPTZ,
 		granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
-			CHECK (granted_role IN ('admin', 'user')),
-
-		PRIMARY KEY (created_by, id)
+			CHECK (granted_role IN ('admin', 'user'))
 	);`
+
+	createInvitesIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_invites_created_by
+		ON invites(created_by);
+	`
 
 	// federation_invitation covers the whole handshake lifecycle: new ->
 	// accepted/canceled, accepted -> approved/rejected, approved -> revoked.
@@ -1128,6 +1133,7 @@ func InitDB(db *sql.DB) error {
 		createUserFollowingIndexes,
 
 		createInvitesTable,
+		createInvitesIndexes,
 
 		// Realtime
 		createOnlineUsersTable,

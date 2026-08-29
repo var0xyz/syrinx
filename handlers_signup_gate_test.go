@@ -96,21 +96,21 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := invites.HashSecret(secret)
-	id, err := invites.NewInviteID()
+	rawID, err := invites.NewInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
 	inviterCanonical := "inviter@" + h.services.db.GetServerID()
+	id := inviterCanonical + "/" + rawID
 	store := &invites.Store{DB: db, ServerID: h.services.db.GetServerID()}
 	if err := store.Insert(ctx, id, inviterCanonical, hash, time.Now().UTC(), roles.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 
 	rrBad := postCheckUsername(t, h, url.Values{
-		"username":        {"bob"},
-		"inviteID":        {id},
-		"inviteCreatorID": {inviterCanonical},
-		"inviteSecret":    {"wrong-secret"},
+		"username":     {"bob"},
+		"inviteID":     {id},
+		"inviteSecret": {"wrong-secret"},
 	})
 	if rrBad.Code != http.StatusForbidden {
 		t.Fatalf("bad secret: status=%d body=%s", rrBad.Code, rrBad.Body.String())
@@ -120,10 +120,9 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 	}
 
 	rrOk := postCheckUsername(t, h, url.Values{
-		"username":        {"bob"},
-		"inviteID":        {id},
-		"inviteCreatorID": {inviterCanonical},
-		"inviteSecret":    {secret},
+		"username":     {"bob"},
+		"inviteID":     {id},
+		"inviteSecret": {secret},
 	})
 	if rrOk.Code != http.StatusOK {
 		t.Fatalf("valid invite: status=%d body=%s", rrOk.Code, rrOk.Body.String())

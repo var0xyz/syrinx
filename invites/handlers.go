@@ -24,7 +24,7 @@ type UserSignatureWire struct {
 }
 
 // ServerSignatureWire is the nested server countersignature on create
-// response. ID is canonical, same shape as every other ServerSignature.
+// response, same shape as every other ServerSignature.
 type ServerSignatureWire struct {
 	ID        string `json:"id"`
 	Armor     string `json:"armor"`
@@ -123,8 +123,13 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if !crypto.IsValidID(req.ID) {
+	idOwner, idServerID, idEntity, ok := identity.ParseKeyFingerprint(identity.IdentityID(req.ID))
+	if !ok || !crypto.IsValidUUIDv7(idEntity) {
 		writeJSON(w, http.StatusBadRequest, "Invalid invite id")
+		return
+	}
+	if string(identity.CanonicalID(idServerID, idOwner)) != caller {
+		writeJSON(w, http.StatusForbidden, "Invite id does not belong to the caller")
 		return
 	}
 	tokenHash, err := DecodeHashHex(req.TokenHash)
@@ -265,12 +270,12 @@ func (d Deps) Status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inv, err := d.Store.GetByCreatorAndID(r.Context(), caller, id)
+	inv, err := d.Store.GetByID(r.Context(), id)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
-	if inv == nil {
+	if inv == nil || inv.CreatedBy != caller {
 		writeJSON(w, http.StatusNotFound, "Invite not found")
 		return
 	}
@@ -318,28 +323,16 @@ type checkResponse struct {
 	Valid bool `json:"valid"`
 }
 
-// Check handles GET /api/invites/check?uid=&iid=&secret=.
-// Client sends the fragment secret; server looks up by composite PK + hash.
-//
-// uid arrives already in "userID@serverID" form — Store.GetPendingInvite
-// composes identity.CanonicalID internally, so uid is decoded to bare right
-// at this boundary to avoid double-appending serverID.
+// Check handles GET /api/invites/check?id=&secret=.
+// Client sends the fragment secret; server looks up by id + hash.
 func (d Deps) Check(w http.ResponseWriter, r *http.Request) {
-	creatorID := strings.TrimSpace(r.URL.Query().Get("uid"))
-	id := strings.TrimSpace(r.URL.Query().Get("iid"))
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	secret := strings.TrimSpace(r.URL.Query().Get("secret"))
-	if creatorID == "" || id == "" || secret == "" {
-		writeJSON(w, http.StatusBadRequest, "Arguments `uid`, `iid`, and `secret` are required")
+	if id == "" || secret == "" {
+		writeJSON(w, http.StatusBadRequest, "Arguments `id` and `secret` are required")
 		return
 	}
-	bareCreatorID, _, ok := identity.ParseIdentityID(identity.IdentityID(creatorID))
-	if !ok {
-		// Public, unauthenticated endpoint — use ParseIdentityID's safe
-		// ok-check rather than .UserID(), which panics on malformed input.
-		writeJSON(w, http.StatusBadRequest, "Invalid `uid`")
-		return
-	}
-	inv, err := d.Store.GetPendingInvite(r.Context(), bareCreatorID, id, HashSecret(secret))
+	inv, err := d.Store.GetPendingInvite(r.Context(), id, HashSecret(secret))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "Internal Server Error")
 		return

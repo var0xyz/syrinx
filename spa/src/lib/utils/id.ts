@@ -1,6 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 
-/** Shared alphabet/length for server, user, and invite IDs (matches syrinx/crypto). */
+/** Shared alphabet/length for server and user IDs (matches syrinx/crypto). */
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 export const ID_LENGTH = 8;

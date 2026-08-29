@@ -205,10 +205,11 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := invites.HashSecret(raw)
-	id, err := invites.NewInviteID()
+	rawID, err := invites.NewInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
+	id := "inviter@srv/" + rawID
 	store := &invites.Store{DB: db, ServerID: "srv"}
 	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleUser); err != nil {
 		t.Fatal(err)
@@ -264,10 +265,11 @@ func TestSignup_OpenValidToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := invites.HashSecret(raw)
-	id, err := invites.NewInviteID()
+	rawID, err := invites.NewInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
+	id := "inviter@srv/" + rawID
 	store := &invites.Store{DB: db, ServerID: "srv"}
 	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleUser); err != nil {
 		t.Fatal(err)
@@ -365,10 +367,11 @@ func TestSignup_AdminInviteGrantsAdminRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := invites.HashSecret(raw)
-	id, err := invites.NewInviteID()
+	rawID, err := invites.NewInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
+	id := "inviter@srv/" + rawID
 	store := &invites.Store{DB: db, ServerID: "srv"}
 	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleAdmin); err != nil {
 		t.Fatal(err)

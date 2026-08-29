@@ -341,18 +341,8 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inviteID := strings.TrimSpace(values.Get("inviteID"))
-	// inviteCreatorID arrives already in "userID@serverID" form.
-	// GetPendingInvite composes identity.CanonicalID internally and expects
-	// bare, so decode only for that call.
-	inviteCreatorID := strings.TrimSpace(values.Get("inviteCreatorID"))
-	inviteCreatorBare := ""
-	if inviteCreatorID != "" {
-		if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(inviteCreatorID)); ok {
-			inviteCreatorBare = bare
-		}
-	}
 	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
-	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteCreatorBare, inviteID, inviteSecret)
+	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteID, inviteSecret)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to look up invite")
 		internalServerError(w)
@@ -361,7 +351,6 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	resolved, err := invites.ResolveSignup(
 		invites.SignupMode(h.cfg.SignupMode),
 		inviteID,
-		inviteCreatorID,
 		inviteSecret,
 		invite,
 	)
@@ -578,17 +567,8 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inviteID := strings.TrimSpace(values.Get("inviteID"))
-	// Same inviteCreatorID handling as CreateAccount's identical block
-	// above — see that call site's comment.
-	inviteCreatorID := strings.TrimSpace(values.Get("inviteCreatorID"))
-	inviteCreatorBare := ""
-	if inviteCreatorID != "" {
-		if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(inviteCreatorID)); ok {
-			inviteCreatorBare = bare
-		}
-	}
 	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
-	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteCreatorBare, inviteID, inviteSecret)
+	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteID, inviteSecret)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to look up invite")
 		internalServerError(w)
@@ -597,7 +577,6 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	if _, err := invites.ResolveSignup(
 		invites.SignupMode(h.cfg.SignupMode),
 		inviteID,
-		inviteCreatorID,
 		inviteSecret,
 		invite,
 	); err != nil {
