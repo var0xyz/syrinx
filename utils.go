@@ -1,3 +1,5 @@
+//go:build !ops && !ripplescleanup
+
 package main
 
 import (

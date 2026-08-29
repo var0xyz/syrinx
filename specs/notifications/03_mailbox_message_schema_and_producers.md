@@ -57,14 +57,28 @@ Payload shape (JSON, pre-encryption):
 type MailboxPayload struct {
     Kind    string          `json:"kind"`    // e.g. "reed_processing_error", "admin_message"
     Message string          `json:"message"`
+    Link    string          `json:"link,omitempty"` // client-side route, e.g. "/mentions"
     Meta    json.RawMessage `json:"meta,omitempty"` // kind-specific structured data
 }
 ```
 
+`Link` is an app-relative client route, not a server concept — the
+server never validates, resolves, or otherwise interprets it; it's
+opaque bytes to every producer except the SPA, which uses it to render a
+clickable action on the message (e.g. a mention notification linking to
+`/mentions`, once [02](02_mentions_tab.md) lands). Omit it for messages
+with nothing to link to.
+
+`Message` is capped at 140 characters (rune count, not bytes), the same
+limit used elsewhere in this app (`MaxRippleContentChars`/
+`MaxReedVisibleChars`, `handlers.go`) — enforced by `SendMailboxMessage`
+before encryption, rejecting with `ErrMailboxMessageTooLong` rather than
+truncating silently.
+
 ### `SendMailboxMessage` (internal helper)
 
 ```go
-func (s *DataService) SendMailboxMessage(ctx context.Context, cryptoSvc *crypto.Service, userID, kind, message string, meta any) error {
+func (s *DataService) SendMailboxMessage(ctx context.Context, cryptoSvc *crypto.Service, userID, kind, message, link string, meta any) error {
     fingerprint, err := s.GetActiveKeyFingerprint(ctx, userID)
     if err != nil {
         return err
@@ -77,7 +91,7 @@ func (s *DataService) SendMailboxMessage(ctx context.Context, cryptoSvc *crypto.
     if err != nil {
         return err
     }
-    payload, err := json.Marshal(MailboxPayload{Kind: kind, Message: message, Meta: metaRaw})
+    payload, err := json.Marshal(MailboxPayload{Kind: kind, Message: message, Link: link, Meta: metaRaw})
     if err != nil {
         return err
     }
@@ -113,11 +127,25 @@ ops mailbox-send <userID> <message>
     the relevant server code path instead.
 ```
 
+**Important limitation**: `ops` is a separate OS process from the running
+API server (its own `-tags ops` binary, its own DB connection) with no
+access to the server's in-memory WS connection registry
+([04](04_mailbox_message_ws_delivery.md)'s `connManager`). So `ops
+mailbox-send` can only insert the row — it never triggers the live-send
+path, even if the recipient is online at that moment. The message reaches
+them only via catch-up on their next reconnect/`SYNC_REQUEST`, same as if
+they'd been offline. This is fine for its stated manual/rare-admin-action
+use case, but means `ops mailbox-send` is not a way to test or rely on
+instant delivery — use an in-process call (`Handlers.SendMailboxMessage`)
+for that.
+
 Implementation: `loadOpsConfig()` → `openDB(cfg)` →
 `crypto.NewService()` → `SendMailboxMessage(ctx, cryptoSvc, userID,
-"admin_message", message, nil)`. No new logic beyond argument parsing —
-this command exists so a human doesn't need direct DB/encryption access
-to send one message.
+"admin_message", message, "", nil)`. No new logic beyond argument
+parsing — this command exists so a human doesn't need direct
+DB/encryption access to send one message. (No `link` argument in v1;
+`ops mailbox-send` always sends `link=""`. A future admin use case that
+wants to link somewhere can extend the CLI's argument list then.)
 
 ### `admin_mentions` job-tracking sketch (documentation only)
 

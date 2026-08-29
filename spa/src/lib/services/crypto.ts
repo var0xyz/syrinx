@@ -216,6 +216,18 @@ export class CryptoService {
   }
 
   /**
+   * Decrypt an armored PGP message encrypted to the caller's own public
+   * key (asymmetric — mailbox delivery, not the symmetric backup format
+   * above). privateKeyArmored/passphrase unlock the recipient's own key.
+   */
+  async decryptOwnMessage(armored: string, privateKeyArmored: string, passphrase: string): Promise<string> {
+    const decryptionKeys = await this.decryptPrivateKey(privateKeyArmored, passphrase);
+    const message = await openpgp.readMessage({ armoredMessage: armored });
+    const { data } = await openpgp.decrypt({ message, decryptionKeys });
+    return data as string;
+  }
+
+  /**
    * Re-derive fingerprint from armored public key material.
    */
   async fingerprintFromArmor(publicKey: string): Promise<string> {

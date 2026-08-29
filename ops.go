@@ -66,6 +66,13 @@ func main() {
 		if err := runRotatePassphrase(); err != nil {
 			fail(err)
 		}
+	case "mailbox-send":
+		if len(os.Args) < 4 {
+			fail(fmt.Errorf("usage: ops mailbox-send <userID> <message>"))
+		}
+		if err := runMailboxSend(os.Args[2], os.Args[3]); err != nil {
+			fail(err)
+		}
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -94,6 +101,19 @@ Commands:
       Re-wrap private_keys under a new server key passphrase, update the
       OS keychain when not using SERVER_KEY_PASSPHRASE, and remind you to
       re-export the identity bundle.
+
+  mailbox-send <userID> <message>
+      Send a one-off encrypted mailbox message to <userID>. Accepts either
+      a bare local userID (e.g. 1) or canonical "userID@serverID" — a bare
+      id resolves against this server's own id, since mailbox is always
+      local-only. <message> is limited to 140 characters.
+
+      Delivered on the recipient's next reconnect or catch-up sync, NOT
+      instantly — this CLI runs as a separate OS process from the API
+      server and has no access to its live WS connections, only the
+      database. For an online recipient to get it immediately, call
+      Handlers.SendMailboxMessage from within the running server instead
+      (see specs/notifications/03/04).
 
   help
       Show this message.
@@ -282,6 +302,22 @@ func runRotatePassphrase() error {
 
 	fmt.Fprintln(os.Stderr, "Re-export the identity bundle now (bundle password will be prompted again):")
 	fmt.Fprintln(os.Stderr, "  ops export-identity")
+	return nil
+}
+
+func runMailboxSend(userID, message string) error {
+	cfg := loadOpsConfig()
+	db, err := openDB(cfg)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	cryptoSvc := crypto.NewService()
+	if _, _, err := SendMailboxMessage(context.Background(), db, cryptoSvc, userID, MailboxCategorySystem, "admin_message", message, "", "", nil); err != nil {
+		return err
+	}
+	fmt.Printf("Sent mailbox message to %s\n", userID)
 	return nil
 }
 
