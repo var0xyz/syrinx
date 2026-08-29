@@ -404,6 +404,22 @@ func InitDB(db *sql.DB) error {
 		CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140)
 	);`
 
+	// Encrypted server->user mailbox messages. No plaintext columns — the
+	// row's mere existence is the undelivered-message record; it is
+	// deleted once the client ACKs receipt (see specs/notifications/03,04).
+	createUserMailboxTable := `
+	CREATE TABLE IF NOT EXISTS user_mailbox (
+		id VARCHAR(255) PRIMARY KEY,
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		ciphertext TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);`
+
+	createUserMailboxIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_user_mailbox_user_created
+		ON user_mailbox(user_id, created_at);
+	`
+
 	// Signed like certificates, one row per currently-liked (liker, reed)
 	// pair; unliking hard-deletes the row. reed_id FKs to reed_identities,
 	// not reeds, so a local user's like on a FOREIGN reed is represented here too.
@@ -1112,6 +1128,9 @@ func InitDB(db *sql.DB) error {
 
 		createReedRemovalsTable,
 		createAccountRemovalsTable,
+
+		createUserMailboxTable,
+		createUserMailboxIndexes,
 
 		createReedsLikedTable,
 		createReedsLikedIndexes,

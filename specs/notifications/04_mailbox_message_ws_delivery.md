@@ -78,7 +78,11 @@ for content the client couldn't process.
 
 ## Testing
 
-- Online recipient: message sent live, immediately visible client-side.
+- Online recipient: message sent live, immediately visible client-side —
+  only true for an in-process producer (`Handlers.SendMailboxMessage`);
+  `ops mailbox-send` runs in a separate process with no access to the
+  live connection registry, so it always lands via catch-up regardless of
+  the recipient's online state (see [03](03_mailbox_message_schema_and_producers.md)).
 - Offline recipient: message delivered on next connect via catch-up, not
   lost.
 - ACK deletes exactly the acked row, scoped to the acking user (a

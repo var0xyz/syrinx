@@ -1124,6 +1124,12 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 			rs.handleDataInvalid(client, d)
 		}
 
+	case "MAILBOX_ACK":
+		var d MailboxAckData
+		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
+			rs.handleMailboxAck(client, d)
+		}
+
 	case "KEY_FETCH_ERROR":
 		var d KeyFetchErrorData
 		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
@@ -1701,6 +1707,18 @@ func (rs *RealtimeService) HandleHolderNotify(ctx context.Context, reedID, notif
 	return rs.dbService.RecordServerHolder(ctx, reedID, notifyingServerID)
 }
 
+// NotifyMailboxMessage attempts live WS delivery of a just-stored
+// user_mailbox row. Called by the main package right after its own
+// SendMailboxMessage insert commits — the encrypt+insert happens outside
+// this package (needs crypto.Service + the main DataService), so this is
+// just the live-send half. If the recipient isn't connected, nothing else
+// happens here; the row stays and reaches them via catchUp on reconnect.
+func (rs *RealtimeService) NotifyMailboxMessage(userID, id, ciphertext string) {
+	if err := rs.connManager.SendToUser(userID, NewMailboxMsg(userID, id, ciphertext)); err != nil {
+		log.Debug().Err(err).Str("userID", userID).Str("mailboxID", id).Msg("Mailbox recipient not connected, will deliver on catch-up")
+	}
+}
+
 // recordForeignRelayRequest inserts eventID's foreign_relay_requests row,
 // rolling back the speculative pending_events row on failure — shared by
 // HandleForeignRequestReed and HandleForeignSubscribeProfile.
@@ -2194,6 +2212,22 @@ func (rs *RealtimeService) handleDataInvalid(client *Client, data DataInvalidDat
 
 	if err := rs.deletePendingEvent(context.Background(), data.EventID); err != nil {
 		log.Error().Err(err).Str("eventID", data.EventID).Msg("Failed to delete pending event on data invalid")
+	}
+}
+
+// handleMailboxAck deletes the acked user_mailbox row. data.ID is the
+// canonical ref (userID@serverID/id) this server sent in NewMailboxMsg;
+// DeleteMailboxMessage's query is scoped by bare id + userID, so split it
+// back apart first. Unlike handleDataAck, there is no pending_events
+// bookkeeping to reconcile — the row itself is the only delivery record
+// (see specs/notifications/04).
+func (rs *RealtimeService) handleMailboxAck(client *Client, data MailboxAckData) {
+	userID, serverID, id, ok := identity.ParseKeyFingerprint(identity.IdentityID(data.ID))
+	if !ok || string(identity.CanonicalID(serverID, userID)) != client.userID {
+		return
+	}
+	if err := rs.dbService.DeleteMailboxMessage(context.Background(), id, client.userID); err != nil {
+		log.Error().Err(err).Str("id", id).Str("userID", client.userID).Msg("Failed to delete mailbox message on ack")
 	}
 }
 
@@ -3169,6 +3203,17 @@ func (rs *RealtimeService) catchUp(userID, requestID string) {
 			continue
 		}
 		rs.deliverAccountRemoved(eventID, requestID, userID, rem.UserID, &rem.Cert)
+	}
+
+	mailbox, err := rs.dbService.GetPendingMailbox(context.Background(), userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to get pending mailbox messages")
+		return
+	}
+	for _, m := range mailbox {
+		if err := rs.connManager.SendToUser(userID, NewMailboxMsg(userID, m.ID, m.Ciphertext)); err != nil {
+			log.Error().Err(err).Str("userID", userID).Str("mailboxID", m.ID).Msg("Failed to send MAILBOX on catch-up")
+		}
 	}
 }
 

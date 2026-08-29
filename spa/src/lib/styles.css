@@ -140,6 +140,7 @@ form .row .help-text {
 }
 
 header {
+  position: relative;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   text-align: center;

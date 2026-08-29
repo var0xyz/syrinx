@@ -19,14 +19,14 @@ renamed) is stale — see that file's superseded notice.
 | [02](02_mentions_tab.md) | Mentions tab (list API + SPA) | 00, 01 | Proposed |
 | [03](03_mailbox_message_schema_and_producers.md) | Mailbox message schema + `SendMailboxMessage` + `ops mailbox-send` | 00 | Proposed |
 | [04](04_mailbox_message_ws_delivery.md) | Mailbox message WS delivery + ACK-and-delete | 03 | Proposed |
-| [05](05_mailbox_message_spa_bell.md) | SPA bell + `/mailbox/[id]` detail | 04 | Proposed |
+| [05](05_mailbox_message_spa_bell.md) | SPA bell + popover (read/delete) | 04 | Proposed |
 
 ## Glossary
 
 | Term | What | Trigger | Storage | Delivery | Reply? | Lifetime |
 |------|------|---------|---------|----------|--------|----------|
 | **Alert** *(existing, unchanged)* | Client-only UI feedback about current app/client state (e.g. "copied to clipboard", "signup failed") | Any client code, no server round-trip | None — in-memory Svelte store | Immediate, local only | n/a | Auto-dismiss, ephemeral |
-| **Mailbox message** | Server → one specific user, private | Internal server code (errors/detail) or an admin via `ops` CLI | Server DB, row **encrypted** to the recipient's active public key | WS push + client ACK; catch-up on reconnect | **No** — one-way | Deleted from the server once delivered + ACKed |
+| **Mailbox message** | Server → one specific user, private | Internal server code (errors/detail) or an admin via `ops` CLI | Server DB, row **encrypted** to the recipient's active public key | WS push + client ACK; catch-up on reconnect | **No** — one-way | Deleted from the server once delivered + ACKed; client keeps its own local copy (with a local read/delete state) until the user deletes it |
 | **Admin mention** | Server/admin → every local user, public | An admin authors a reed containing the literal `@everyone` token | A normal signed reed + `reed_mentions` rows (one per local user) | Same as any reed — surfaced in the **mentions tab** | **Yes** — it's a real reed; anyone can reply | Same as any other reed — permanent until a deletion cert removes it |
 
 ### Which one to use
@@ -60,6 +60,8 @@ job is naming/scope clarity, not a rewrite.
 | Mailbox message delivery | WS push while online; the DB row itself is the pending-delivery record (no separate `pending_*` table) — exists = undelivered, deleted on `DATA_ACK`-equivalent. Catch-up on reconnect queries remaining rows for that user. |
 | Mailbox message producers | Primary: **internal server helper**, callable from any request/handler that needs to report user-specific detail beyond a short HTTP error. Secondary: **`ops mailbox-send`** CLI command for manual one-off admin messages — a thin wrapper over the same helper. No HTTP admin endpoint in v1. |
 | Mailbox message reply | None. If a reply matters, the sender should use an admin mention instead. |
+| Mailbox message link | Payload has an optional `Link` field (app-relative client route, e.g. `/mentions`) the SPA renders as a clickable action — server never interprets it. |
+| Mailbox message read/delete | Read/unread and per-message delete are **client-local only** (IndexedDB `isRead` flag); the server has no read state and already deleted its copy at ACK time. |
 | `@everyone` mechanism | Not a `~userID@serverID` token variant (that pattern resolves to one real, existing user). A distinct, admin-gated expansion at publish time: one `INSERT ... SELECT id FROM users` into `reed_mentions`, inside the same transaction as the reed write. |
 | `@everyone` authorization | `roles.IsAdmin(role)` at publish time. Non-admin authors' literal `@everyone` text is inert — stored as plain content, never expanded. |
 | `@everyone` server scope | This server's own `users` table only. Federation does not extend it — see [00](00_glossary_and_design.md) for why. |

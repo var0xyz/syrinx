@@ -19,6 +19,7 @@ export enum ServerEvent {
   DataResponse         = 'DATA_RESPONSE',
   FollowReed           = 'FOLLOW_REED',
   InvalidRequestIdError = 'INVALID_REQUEST_ID_ERROR',
+  Mailbox              = 'MAILBOX',
   PipeReed             = 'PIPE_REED',
   PublishReadyAck      = 'PUBLISH_READY_ACK',
   ReedCoverage         = 'REED_COVERAGE',
@@ -374,6 +375,13 @@ class ServerConnection {
 
   sendDataInvalid(eventId: string): void {
     this.send({ type: 'DATA_INVALID', data: { event_id: eventId } });
+  }
+
+  /** Confirms receipt of a MAILBOX message; the server deletes its row on
+   * receiving this. A failed decrypt must NOT call this — see the MAILBOX
+   * handler in +layout.svelte. */
+  sendMailboxAck(id: string): void {
+    this.send({ type: 'MAILBOX_ACK', data: { id } });
   }
 
   /** Reports a failed key fetch needed to verify content received over this

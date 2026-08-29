@@ -5286,3 +5286,18 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 		Ripple: realtimeRippleWire(&wire),
 	}
 }
+
+// SendMailboxMessage is the primary producer entry point (see
+// specs/notifications/03): any handler or background job with a userID
+// and something to say beyond a short HTTP error calls this. It stores
+// the encrypted message, then attempts live WS delivery if the recipient
+// is online — an offline recipient still gets it via catch-up on
+// reconnect, so a failed live-send here is not itself an error.
+func (h *Handlers) SendMailboxMessage(ctx context.Context, userID string, category MailboxCategory, kind, message, link, senderUserID string, meta any) error {
+	id, ciphertext, err := h.services.db.SendMailboxMessage(ctx, h.services.crypto, userID, category, kind, message, link, senderUserID, meta)
+	if err != nil {
+		return err
+	}
+	h.realtimeRelay.NotifyMailboxMessage(userID, id, ciphertext)
+	return nil
+}
