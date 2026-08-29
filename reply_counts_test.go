@@ -67,6 +67,90 @@ func ensureReplyCountSchema(db *sql.DB) error {
 		`CREATE TABLE account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id)
 		)`,
+		`DROP TABLE IF EXISTS reed_stats CASCADE`,
+		`CREATE TABLE reed_stats (
+			reed_id VARCHAR(255) PRIMARY KEY,
+			reply_count INT NOT NULL DEFAULT 0,
+			echo_count INT NOT NULL DEFAULT 0,
+			like_count INT NOT NULL DEFAULT 0,
+			holder_count INT NOT NULL DEFAULT 0
+		)`,
+		`CREATE OR REPLACE FUNCTION bump_reed_stat(p_reed_id VARCHAR(255), col_name TEXT, delta INT)
+		RETURNS VOID AS $$
+		BEGIN
+			EXECUTE format(
+				'INSERT INTO reed_stats (reed_id, %1$I) VALUES ($1, GREATEST(0, $2))
+				 ON CONFLICT (reed_id) DO UPDATE SET %1$I = GREATEST(0, reed_stats.%1$I + $2)',
+				col_name
+			) USING p_reed_id, delta;
+		END;
+		$$ LANGUAGE plpgsql`,
+		`CREATE OR REPLACE FUNCTION bump_reply_ancestors(start_reed_id VARCHAR(255), delta INT)
+		RETURNS VOID AS $$
+		DECLARE
+			current_id VARCHAR(255);
+			next_id VARCHAR(255);
+		BEGIN
+			current_id := start_reed_id;
+			LOOP
+				SELECT parent_reed_id INTO next_id FROM reed_replies WHERE reed_id = current_id;
+				EXIT WHEN next_id IS NULL;
+				PERFORM bump_reed_stat(next_id, 'reply_count', delta);
+				current_id := next_id;
+			END LOOP;
+		END;
+		$$ LANGUAGE plpgsql`,
+		`CREATE OR REPLACE FUNCTION reed_reply_count_trigger() RETURNS TRIGGER AS $$
+		DECLARE
+			author_removed BOOLEAN;
+		BEGIN
+			SELECT EXISTS(
+				SELECT 1 FROM account_removals ar
+				JOIN reeds r ON r.id = NEW.reed_id
+				WHERE ar.user_id = r.user_id
+			) INTO author_removed;
+			IF NOT author_removed THEN
+				PERFORM bump_reply_ancestors(NEW.reed_id, 1);
+			END IF;
+			RETURN NULL;
+		END;
+		$$ LANGUAGE plpgsql`,
+		`DROP TRIGGER IF EXISTS reed_replies_count_insert ON reed_replies`,
+		`CREATE TRIGGER reed_replies_count_insert
+			AFTER INSERT ON reed_replies
+			FOR EACH ROW EXECUTE FUNCTION reed_reply_count_trigger()`,
+		`CREATE OR REPLACE FUNCTION reed_removal_reply_count_trigger() RETURNS TRIGGER AS $$
+		BEGIN
+			PERFORM bump_reply_ancestors(NEW.reed_id, -1);
+			RETURN NULL;
+		END;
+		$$ LANGUAGE plpgsql`,
+		`DROP TRIGGER IF EXISTS reed_removals_count_insert ON reed_removals`,
+		`CREATE TRIGGER reed_removals_count_insert
+			AFTER INSERT ON reed_removals
+			FOR EACH ROW EXECUTE FUNCTION reed_removal_reply_count_trigger()`,
+		`CREATE OR REPLACE FUNCTION account_removal_reply_count_trigger() RETURNS TRIGGER AS $$
+		DECLARE
+			reply_row RECORD;
+		BEGIN
+			FOR reply_row IN
+				SELECT rr.reed_id
+				FROM reed_replies rr
+				JOIN reeds r ON r.id = rr.reed_id
+				WHERE r.user_id = NEW.user_id
+				AND NOT EXISTS (
+					SELECT 1 FROM reed_removals rm WHERE rm.reed_id = rr.reed_id
+				)
+			LOOP
+				PERFORM bump_reply_ancestors(reply_row.reed_id, -1);
+			END LOOP;
+			RETURN NULL;
+		END;
+		$$ LANGUAGE plpgsql`,
+		`DROP TRIGGER IF EXISTS account_removals_count_insert ON account_removals`,
+		`CREATE TRIGGER account_removals_count_insert
+			AFTER INSERT ON account_removals
+			FOR EACH ROW EXECUTE FUNCTION account_removal_reply_count_trigger()`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {

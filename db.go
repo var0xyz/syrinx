@@ -577,6 +577,225 @@ func InitDB(db *sql.DB) error {
 	ON CONFLICT (id) DO NOTHING;
 	`
 
+	// One row per reed, kept in sync by triggers below instead of
+	// recomputed live on every read (reply_count in particular used to be
+	// a WITH RECURSIVE subtree walk on every SUBSCRIBE_REED). Rows are
+	// created lazily by the trigger functions' upsert-increment, not
+	// seeded here.
+	createReedStatsTable := `
+	CREATE TABLE IF NOT EXISTS reed_stats (
+		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
+		reply_count INT NOT NULL DEFAULT 0,
+		echo_count INT NOT NULL DEFAULT 0,
+		like_count INT NOT NULL DEFAULT 0,
+		holder_count INT NOT NULL DEFAULT 0
+	);`
+
+	// Coverage percent is a pure function of two already-cheap counters
+	// (reed_stats.holder_count, network_stats.active_users) — a plain view,
+	// not a trigger, since there's nothing expensive left to precompute.
+	createReedCoverageView := `
+	CREATE OR REPLACE VIEW reed_coverage AS
+	SELECT
+		rs.reed_id,
+		rs.holder_count,
+		LEAST(100, (100 * rs.holder_count) / GREATEST(1, ns.active_users)) AS coverage_percent
+	FROM reed_stats rs
+	CROSS JOIN network_stats ns;
+	`
+
+	// bump_reed_stat upserts reed_stats and adds delta to one column,
+	// selected by col_name — shared by every simple (non-reply) counter
+	// trigger below so the increment/decrement logic lives in one place.
+	createBumpReedStatFunction := `
+	CREATE OR REPLACE FUNCTION bump_reed_stat(p_reed_id VARCHAR(255), col_name TEXT, delta INT)
+	RETURNS VOID AS $$
+	BEGIN
+		EXECUTE format(
+			'INSERT INTO reed_stats (reed_id, %1$I) VALUES ($1, GREATEST(0, $2))
+			 ON CONFLICT (reed_id) DO UPDATE SET %1$I = GREATEST(0, reed_stats.%1$I + $2)',
+			col_name
+		) USING p_reed_id, delta;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createEchoCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_echo_count_trigger() RETURNS TRIGGER AS $$
+	BEGIN
+		IF TG_OP = 'INSERT' AND NEW.echoing_reed_id != NEW.echoed_reed_id THEN
+			PERFORM bump_reed_stat(NEW.echoed_reed_id, 'echo_count', 1);
+		ELSIF TG_OP = 'DELETE' AND OLD.echoing_reed_id != OLD.echoed_reed_id THEN
+			PERFORM bump_reed_stat(OLD.echoed_reed_id, 'echo_count', -1);
+		END IF;
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createEchoCountTriggers := `
+	DROP TRIGGER IF EXISTS reed_echoes_count_insert ON reed_echoes;
+	CREATE TRIGGER reed_echoes_count_insert
+		AFTER INSERT ON reed_echoes
+		FOR EACH ROW EXECUTE FUNCTION reed_echo_count_trigger();
+
+	DROP TRIGGER IF EXISTS reed_echoes_count_delete ON reed_echoes;
+	CREATE TRIGGER reed_echoes_count_delete
+		AFTER DELETE ON reed_echoes
+		FOR EACH ROW EXECUTE FUNCTION reed_echo_count_trigger();
+	`
+
+	createLikeCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_like_count_trigger() RETURNS TRIGGER AS $$
+	BEGIN
+		IF TG_OP = 'INSERT' THEN
+			PERFORM bump_reed_stat(NEW.reed_id, 'like_count', 1);
+		ELSIF TG_OP = 'DELETE' THEN
+			PERFORM bump_reed_stat(OLD.reed_id, 'like_count', -1);
+		END IF;
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createLikeCountTriggers := `
+	DROP TRIGGER IF EXISTS reeds_liked_count_insert ON reeds_liked;
+	CREATE TRIGGER reeds_liked_count_insert
+		AFTER INSERT ON reeds_liked
+		FOR EACH ROW EXECUTE FUNCTION reed_like_count_trigger();
+
+	DROP TRIGGER IF EXISTS reeds_liked_count_delete ON reeds_liked;
+	CREATE TRIGGER reeds_liked_count_delete
+		AFTER DELETE ON reeds_liked
+		FOR EACH ROW EXECUTE FUNCTION reed_like_count_trigger();
+	`
+
+	createHolderCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_holder_count_trigger() RETURNS TRIGGER AS $$
+	BEGIN
+		IF TG_OP = 'INSERT' THEN
+			PERFORM bump_reed_stat(NEW.reed_id, 'holder_count', 1);
+		ELSIF TG_OP = 'DELETE' THEN
+			PERFORM bump_reed_stat(OLD.reed_id, 'holder_count', -1);
+		END IF;
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createHolderCountTriggers := `
+	DROP TRIGGER IF EXISTS reed_allocations_count_insert ON reed_allocations;
+	CREATE TRIGGER reed_allocations_count_insert
+		AFTER INSERT ON reed_allocations
+		FOR EACH ROW EXECUTE FUNCTION reed_holder_count_trigger();
+
+	DROP TRIGGER IF EXISTS reed_allocations_count_delete ON reed_allocations;
+	CREATE TRIGGER reed_allocations_count_delete
+		AFTER DELETE ON reed_allocations
+		FOR EACH ROW EXECUTE FUNCTION reed_holder_count_trigger();
+	`
+
+	// bump_reply_ancestors walks parent_reed_id from start_reed_id up to
+	// the root, applying delta to reply_count at every level — the
+	// iterative equivalent of GetSubtreeReplyCount's recursive CTE, paid
+	// once per write instead of on every read.
+	createBumpReplyAncestorsFunction := `
+	CREATE OR REPLACE FUNCTION bump_reply_ancestors(start_reed_id VARCHAR(255), delta INT)
+	RETURNS VOID AS $$
+	DECLARE
+		current_id VARCHAR(255);
+		next_id VARCHAR(255);
+	BEGIN
+		current_id := start_reed_id;
+		LOOP
+			SELECT parent_reed_id INTO next_id FROM reed_replies WHERE reed_id = current_id;
+			EXIT WHEN next_id IS NULL;
+			PERFORM bump_reed_stat(next_id, 'reply_count', delta);
+			current_id := next_id;
+		END LOOP;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	// A new reply increments every ancestor's reply_count, unless the
+	// replying author's account is already removed — mirrors
+	// GetSubtreeReplyCount's live NOT EXISTS account_removals filter.
+	createReplyCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_reply_count_trigger() RETURNS TRIGGER AS $$
+	DECLARE
+		author_removed BOOLEAN;
+	BEGIN
+		SELECT EXISTS(
+			SELECT 1 FROM account_removals ar
+			JOIN reeds r ON r.id = NEW.reed_id
+			WHERE ar.user_id = r.user_id
+		) INTO author_removed;
+		IF NOT author_removed THEN
+			PERFORM bump_reply_ancestors(NEW.reed_id, 1);
+		END IF;
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createReplyCountTrigger := `
+	DROP TRIGGER IF EXISTS reed_replies_count_insert ON reed_replies;
+	CREATE TRIGGER reed_replies_count_insert
+		AFTER INSERT ON reed_replies
+		FOR EACH ROW EXECUTE FUNCTION reed_reply_count_trigger();
+	`
+
+	// A reed removal decrements every ancestor's reply_count, undoing what
+	// the insert trigger added — a no-op walk for a removed root reed
+	// (reed_replies has no row for it, so the loop exits immediately).
+	createReedRemovalReplyCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION reed_removal_reply_count_trigger() RETURNS TRIGGER AS $$
+	BEGIN
+		PERFORM bump_reply_ancestors(NEW.reed_id, -1);
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createReedRemovalReplyCountTrigger := `
+	DROP TRIGGER IF EXISTS reed_removals_count_insert ON reed_removals;
+	CREATE TRIGGER reed_removals_count_insert
+		AFTER INSERT ON reed_removals
+		FOR EACH ROW EXECUTE FUNCTION reed_removal_reply_count_trigger();
+	`
+
+	// An account removal decrements ancestor reply_count for every reply
+	// by that author that isn't already covered by its own reed_removals
+	// row — the one genuinely bulk trigger, O(replies by author × depth),
+	// accepted as a synchronous cost inside the (rare) removal transaction.
+	createAccountRemovalReplyCountTriggerFunction := `
+	CREATE OR REPLACE FUNCTION account_removal_reply_count_trigger() RETURNS TRIGGER AS $$
+	DECLARE
+		reply_row RECORD;
+	BEGIN
+		FOR reply_row IN
+			SELECT rr.reed_id
+			FROM reed_replies rr
+			JOIN reeds r ON r.id = rr.reed_id
+			WHERE r.user_id = NEW.user_id
+			AND NOT EXISTS (
+				SELECT 1 FROM reed_removals rm WHERE rm.reed_id = rr.reed_id
+			)
+		LOOP
+			PERFORM bump_reply_ancestors(reply_row.reed_id, -1);
+		END LOOP;
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	`
+
+	createAccountRemovalReplyCountTrigger := `
+	DROP TRIGGER IF EXISTS account_removals_count_insert ON account_removals;
+	CREATE TRIGGER account_removals_count_insert
+		AFTER INSERT ON account_removals
+		FOR EACH ROW EXECUTE FUNCTION account_removal_reply_count_trigger();
+	`
+
 	createPendingEventsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_events (
 		event_id VARCHAR(255) PRIMARY KEY,
@@ -912,6 +1131,31 @@ func InitDB(db *sql.DB) error {
 
 		createNetworkStatsTable,
 		seedNetworkStats,
+
+		createReedStatsTable,
+		createReedCoverageView,
+
+		createBumpReedStatFunction,
+
+		createEchoCountTriggerFunction,
+		createEchoCountTriggers,
+
+		createLikeCountTriggerFunction,
+		createLikeCountTriggers,
+
+		createHolderCountTriggerFunction,
+		createHolderCountTriggers,
+
+		createBumpReplyAncestorsFunction,
+
+		createReplyCountTriggerFunction,
+		createReplyCountTrigger,
+
+		createReedRemovalReplyCountTriggerFunction,
+		createReedRemovalReplyCountTrigger,
+
+		createAccountRemovalReplyCountTriggerFunction,
+		createAccountRemovalReplyCountTrigger,
 
 		createProfileSubscriptionsTable,
 		createProfileSubscriptionsIndex,

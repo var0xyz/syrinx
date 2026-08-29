@@ -563,19 +563,25 @@ func (ds *DBService) ReedExists(ctx context.Context, reedID string) (bool, error
 	return exists, err
 }
 
-// GetReedCoverage returns holder count and network coverage percent for a tip reed.
+// GetReedCoverage returns holder count and network coverage percent for a
+// tip reed, read from the reed_coverage view (db.go) — a join of
+// reed_stats.holder_count against network_stats.active_users, both
+// already-cheap counters, so the view needs no trigger of its own.
 func (ds *DBService) GetReedCoverage(ctx context.Context, reedID string) (holders, percent int, err error) {
 	err = ds.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM reed_allocations WHERE reed_id = $1
-	`, reedID).Scan(&holders)
+		SELECT holder_count, coverage_percent FROM reed_coverage WHERE reed_id = $1
+	`, reedID).Scan(&holders, &percent)
+	if err == sql.ErrNoRows {
+		activeUsers, aErr := coverage.ActiveUsers(ctx, ds.db)
+		if aErr != nil {
+			return 0, 0, aErr
+		}
+		return 0, coverage.Percent(0, activeUsers), nil
+	}
 	if err != nil {
 		return 0, 0, err
 	}
-	activeUsers, err := coverage.ActiveUsers(ctx, ds.db)
-	if err != nil {
-		return 0, 0, err
-	}
-	return holders, coverage.Percent(holders, activeUsers), nil
+	return holders, percent, nil
 }
 
 // GetReedCoveragePercent returns network coverage percent for a tip reed.
@@ -584,25 +590,30 @@ func (ds *DBService) GetReedCoveragePercent(ctx context.Context, reedID string) 
 	return percent, err
 }
 
-// CountEchoes returns how many non-removed echoes point at the given reed.
-// echoing_author_id is stored directly on reed_echoes — no join against
-// reeds, which would only ever match a local echoer and exclude a foreign one.
+// CountEchoes returns how many non-removed echoes point at the given reed,
+// read from reed_stats.echo_count (db.go), maintained incrementally by
+// triggers rather than recomputed here.
 func (ds *DBService) CountEchoes(ctx context.Context, echoedReedID string) (int, error) {
 	var n int
 	err := ds.db.QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT echoing_author_id) FROM reed_echoes
-		WHERE echoed_reed_id = $1
-		AND echoing_reed_id != echoed_reed_id
+		SELECT COALESCE(echo_count, 0) FROM reed_stats WHERE reed_id = $1
 	`, echoedReedID).Scan(&n)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	return n, err
 }
 
-// CountLikes returns the current like count for a reed.
+// CountLikes returns the current like count for a reed, read from
+// reed_stats.like_count (db.go).
 func (ds *DBService) CountLikes(ctx context.Context, reedID string) (int, error) {
 	var n int
 	err := ds.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM reeds_liked WHERE reed_id = $1
+		SELECT COALESCE(like_count, 0) FROM reed_stats WHERE reed_id = $1
 	`, reedID).Scan(&n)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	return n, err
 }
 
@@ -702,41 +713,17 @@ func (ds *DBService) InsertForeignReply(ctx context.Context, parentReedID, reply
 	return tx.Commit()
 }
 
-// GetSubtreeReplyCount returns live descendant reply count beneath reedID.
-// Matches services.go's identical GetSubtreeReplyCount.
+// GetSubtreeReplyCount returns descendant reply count beneath reedID, read
+// from reed_stats.reply_count (db.go), maintained incrementally by
+// triggers. Matches services.go's identical GetSubtreeReplyCount.
 func (ds *DBService) GetSubtreeReplyCount(ctx context.Context, reedID string) (int, error) {
 	var count int
 	err := ds.db.QueryRowContext(ctx, `
-		WITH RECURSIVE descendants AS (
-			SELECT rr.reed_id
-			FROM reed_replies rr
-			WHERE rr.parent_reed_id = $1
-			AND NOT EXISTS (
-				SELECT 1 FROM reed_removals rm
-				WHERE rm.reed_id = rr.reed_id
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM account_removals ar
-				JOIN reeds r ON r.id = rr.reed_id
-				WHERE ar.user_id = r.user_id
-			)
-			UNION ALL
-			SELECT rr.reed_id
-			FROM reed_replies rr
-			INNER JOIN descendants d
-				ON rr.parent_reed_id = d.reed_id
-			WHERE NOT EXISTS (
-				SELECT 1 FROM reed_removals rm
-				WHERE rm.reed_id = rr.reed_id
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM account_removals ar
-				JOIN reeds r ON r.id = rr.reed_id
-				WHERE ar.user_id = r.user_id
-			)
-		)
-		SELECT COUNT(*) FROM descendants
+		SELECT COALESCE(reply_count, 0) FROM reed_stats WHERE reed_id = $1
 	`, reedID).Scan(&count)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	return count, err
 }
 

@@ -2312,10 +2312,11 @@ func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) 
 func (s *DataService) CountEchoes(ctx context.Context, echoedReedID string) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT echoing_author_id) FROM reed_echoes
-		WHERE echoed_reed_id = $1
-		AND echoing_reed_id != echoed_reed_id
+		SELECT COALESCE(echo_count, 0) FROM reed_stats WHERE reed_id = $1
 	`, echoedReedID).Scan(&n)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	return n, err
 }
 
@@ -2624,40 +2625,17 @@ func (s *DataService) ReplyCountNotifyTargetsForAuthor(ctx context.Context, user
 	return targets, rows.Err()
 }
 
-// GetSubtreeReplyCount returns live descendant reply count beneath reedID.
+// GetSubtreeReplyCount returns descendant reply count beneath reedID,
+// maintained incrementally by reed_stats triggers (db.go) rather than
+// recomputed here on every call.
 func (s *DataService) GetSubtreeReplyCount(ctx context.Context, reedID string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
-		WITH RECURSIVE descendants AS (
-			SELECT rr.reed_id
-			FROM reed_replies rr
-			WHERE rr.parent_reed_id = $1
-			AND NOT EXISTS (
-				SELECT 1 FROM reed_removals rm
-				WHERE rm.reed_id = rr.reed_id
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM account_removals ar
-				JOIN reeds r ON r.id = rr.reed_id
-				WHERE ar.user_id = r.user_id
-			)
-			UNION ALL
-			SELECT rr.reed_id
-			FROM reed_replies rr
-			INNER JOIN descendants d
-				ON rr.parent_reed_id = d.reed_id
-			WHERE NOT EXISTS (
-				SELECT 1 FROM reed_removals rm
-				WHERE rm.reed_id = rr.reed_id
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM account_removals ar
-				JOIN reeds r ON r.id = rr.reed_id
-				WHERE ar.user_id = r.user_id
-			)
-		)
-		SELECT COUNT(*) FROM descendants
+		SELECT COALESCE(reply_count, 0) FROM reed_stats WHERE reed_id = $1
 	`, reedID).Scan(&count)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	return count, err
 }
 
@@ -2928,8 +2906,11 @@ func (s *DataService) DeleteReedLike(ctx context.Context, likerID, reedID string
 func (s *DataService) CountLikes(ctx context.Context, reedID string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM reeds_liked WHERE reed_id = $1
+		SELECT COALESCE(like_count, 0) FROM reed_stats WHERE reed_id = $1
 	`, reedID).Scan(&count)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	return count, err
 }
 
