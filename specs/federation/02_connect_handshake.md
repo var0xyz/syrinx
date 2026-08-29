@@ -227,9 +227,11 @@ failure can never turn an otherwise-successful handshake step into a 500):
   row** from the moment it's recorded (before the outbound POST), then
   again on reach/reject failure or final success.
 
-**Reading these logs (SPA/API) is not yet built** — this pass is schema +
-write path only. A `GET .../log` endpoint and a Mesh UI display are a
-follow-up.
+**Reading these logs (SPA/API) is implemented.** `GET
+/api/federation/attempts/{id}/logs` and `.../servers/{id}/logs` back a
+"Logs" section on the attempt and peer detail pages
+(`/mesh/attempt/{attemptId}`, `/mesh/peer/{serverId}`) — plain text,
+rendered verbatim.
 
 ### SPA — Admin → Mesh → Accept connection
 
