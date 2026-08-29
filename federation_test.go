@@ -783,6 +783,46 @@ func TestFederationServerDisconnect_CancelClearsRequest(t *testing.T) {
 	}
 }
 
+// TestFederationServerSelfRowProtected verifies every disconnect/purge write
+// path refuses to touch the self server's own servers row, even when an
+// admin (or root, for purge) targets its id directly — self=FALSE is baked
+// into each query itself, not just enforced by never offering the self
+// server as a target in the UI.
+func TestFederationServerSelfRowProtected(t *testing.T) {
+	h, ds, _, _ := testFederationHandlers(t)
+	root := seedFederationUser(t, ds, roles.RootUserID, "root1", roles.RoleRoot)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
+	selfID := ds.GetServerID()
+
+	router := mux.NewRouter()
+	api := router.PathPrefix("/api").Subrouter()
+	api.HandleFunc("/federation/servers/{id}/revoke", h.RequestFederationServerDisconnect).Methods(http.MethodPost)
+	api.HandleFunc("/federation/servers/{id}/purge", h.PurgeFederationServer).Methods(http.MethodPost)
+
+	body, _ := json.Marshal(map[string]string{"reason": "testing"})
+	rr := httptest.NewRecorder()
+	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+selfID+"/revoke", bytes.NewReader(body)), admin1)
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("disconnect-request against self server status=%d body=%s, want 404", rr.Code, rr.Body.String())
+	}
+
+	rr2 := httptest.NewRecorder()
+	req2 := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+selfID+"/purge", nil), root)
+	router.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusNotFound {
+		t.Fatalf("purge against self server status=%d body=%s, want 404", rr2.Code, rr2.Body.String())
+	}
+
+	var stillSelf bool
+	if err := ds.db.QueryRow(`SELECT self FROM servers WHERE id = $1`, selfID).Scan(&stillSelf); err != nil {
+		t.Fatalf("self server row missing after attempted purge: %v", err)
+	}
+	if !stillSelf {
+		t.Fatal("self server row's self flag was cleared")
+	}
+}
+
 // TestGetForeignHolderServersForAuthor verifies the account-removal
 // peer-discovery query finds every distinct peer holding a copy of any
 // reed by the given author, and nothing else (no follower/subscriber
