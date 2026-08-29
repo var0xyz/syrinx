@@ -23,12 +23,12 @@ type UserSignatureWire struct {
 	Armor       string `json:"armor"`
 }
 
-// ServerSignatureWire is the nested server countersignature on create response.
+// ServerSignatureWire is the nested server countersignature on create
+// response. ID is canonical, same shape as every other ServerSignature.
 type ServerSignatureWire struct {
-	ServerID    string `json:"serverID"`
-	Fingerprint string `json:"fingerprint"`
-	Armor       string `json:"armor"`
-	Timestamp   string `json:"timestamp"`
+	ID        string `json:"id"`
+	Armor     string `json:"armor"`
+	Timestamp string `json:"timestamp"`
 }
 
 // Deps are dependencies RegisterRoutes needs from main.
