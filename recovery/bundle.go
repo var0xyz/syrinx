@@ -15,18 +15,18 @@ const BundleVersion = 1
 
 // Bundle is the plaintext identity export (before symmetric encryption).
 type Bundle struct {
-	Version               int         `json:"version"`
-	ExportedAt            time.Time   `json:"exportedAt"`
-	ServerID              string      `json:"serverID"`
-	ServerName            string      `json:"serverName"`
-	SigningKeyFingerprint string      `json:"signingKeyFingerprint"`
-	Keys                  []BundleKey `json:"keys"`
+	Version      int         `json:"version"`
+	ExportedAt   time.Time   `json:"exportedAt"`
+	ServerID     string      `json:"serverID"`
+	ServerName   string      `json:"serverName"`
+	SigningKeyID string      `json:"signingKeyID"`
+	Keys         []BundleKey `json:"keys"`
 }
 
 // BundleKey is one server signing key (active or rotated/revoked).
 // PrivateKeyArmor remains passphrase-wrapped; export never decrypts it.
 type BundleKey struct {
-	Fingerprint     string     `json:"fingerprint"`
+	ID              string     `json:"id"`
 	PrivateKeyArmor string     `json:"privateKeyArmor"`
 	PublicKeyArmor  string     `json:"publicKeyArmor"`
 	CreatedAt       time.Time  `json:"createdAt"`
@@ -79,7 +79,7 @@ func ExportFromDB(ctx context.Context, db *sql.DB, exportedAt time.Time) (*Bundl
 		var revokedAt sql.NullTime
 		var reason sql.NullString
 		if err := rows.Scan(
-			&k.Fingerprint, &k.PrivateKeyArmor, &k.PublicKeyArmor, &k.CreatedAt, &revokedAt, &reason,
+			&k.ID, &k.PrivateKeyArmor, &k.PublicKeyArmor, &k.CreatedAt, &revokedAt, &reason,
 		); err != nil {
 			return nil, fmt.Errorf("scan key: %w", err)
 		}
@@ -102,12 +102,12 @@ func ExportFromDB(ctx context.Context, db *sql.DB, exportedAt time.Time) (*Bundl
 	}
 
 	b := &Bundle{
-		Version:               BundleVersion,
-		ExportedAt:            exportedAt,
-		ServerID:              serverID,
-		ServerName:            serverName,
-		SigningKeyFingerprint: signingFP,
-		Keys:                  keys,
+		Version:      BundleVersion,
+		ExportedAt:   exportedAt,
+		ServerID:     serverID,
+		ServerName:   serverName,
+		SigningKeyID: signingFP,
+		Keys:         keys,
 	}
 	if err := ValidateShape(b); err != nil {
 		return nil, err
@@ -129,8 +129,8 @@ func ValidateShape(b *Bundle) error {
 	if b.ServerName == "" {
 		return fmt.Errorf("serverName is empty")
 	}
-	if b.SigningKeyFingerprint == "" {
-		return fmt.Errorf("signingKeyFingerprint is empty")
+	if b.SigningKeyID == "" {
+		return fmt.Errorf("signingKeyID is empty")
 	}
 	if len(b.Keys) == 0 {
 		return fmt.Errorf("keys is empty")
@@ -138,8 +138,8 @@ func ValidateShape(b *Bundle) error {
 	seen := make(map[string]struct{}, len(b.Keys))
 	foundSigning := false
 	for i, k := range b.Keys {
-		if k.Fingerprint == "" {
-			return fmt.Errorf("keys[%d]: fingerprint is empty", i)
+		if k.ID == "" {
+			return fmt.Errorf("keys[%d]: id is empty", i)
 		}
 		if k.PrivateKeyArmor == "" {
 			return fmt.Errorf("keys[%d]: privateKeyArmor is empty", i)
@@ -150,16 +150,16 @@ func ValidateShape(b *Bundle) error {
 		if k.CreatedAt.IsZero() {
 			return fmt.Errorf("keys[%d]: createdAt is zero", i)
 		}
-		if _, ok := seen[k.Fingerprint]; ok {
-			return fmt.Errorf("duplicate fingerprint %s", k.Fingerprint)
+		if _, ok := seen[k.ID]; ok {
+			return fmt.Errorf("duplicate key id %s", k.ID)
 		}
-		seen[k.Fingerprint] = struct{}{}
-		if k.Fingerprint == b.SigningKeyFingerprint {
+		seen[k.ID] = struct{}{}
+		if k.ID == b.SigningKeyID {
 			foundSigning = true
 		}
 	}
 	if !foundSigning {
-		return fmt.Errorf("signingKeyFingerprint %s not present in keys", b.SigningKeyFingerprint)
+		return fmt.Errorf("signingKeyID %s not present in keys", b.SigningKeyID)
 	}
 	return nil
 }
@@ -171,7 +171,7 @@ func ValidateDecrypt(b *Bundle, cryptoSvc *crypto.Service, passphrase string) er
 	}
 	for i, k := range b.Keys {
 		if _, err := cryptoSvc.DecryptPrivateKey(k.PrivateKeyArmor, passphrase); err != nil {
-			return fmt.Errorf("keys[%d] (%s): wrong server key passphrase or corrupt armor", i, k.Fingerprint)
+			return fmt.Errorf("keys[%d] (%s): wrong server key passphrase or corrupt armor", i, k.ID)
 		}
 	}
 	return nil
