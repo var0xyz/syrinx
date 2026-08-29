@@ -2,32 +2,30 @@
 
 ## Status
 
-**The approval gate is real and implemented — on `federation_attempt`,
-not a separate `federation_established` table — but the "second admin"
-rule this doc's title promises is never enforced.** A peer's `servers`
-row (and with it, `connected = TRUE`/the fingerprint pin) is created
-only when an admin calls `POST /api/federation/attempts/{id}/approve`
+**Implemented — on `federation_attempt`, not a separate
+`federation_established` table.** A peer's `servers` row (and with it,
+`connected = TRUE`/the fingerprint pin) is created only when an admin
+calls `POST /api/federation/attempts/{id}/approve`
 (`ApproveFederationAttempt`, `handlers.go`/`services.go`) — not
 automatically at handshake time (see [02](02_connect_handshake.md)'s
 corrected status). So this doc's core idea — "the handshake completing
 is not enough; a deliberate admin action is required before the link is
-live" — did ship. What didn't:
+live" — did ship, and so did the second-admin rule its title promises:
 
 - **No `federation_established` table.** Approval state lives on
   `federation_attempt` (`approved_by`/`approved_at`/`rejected_by`/
   `rejected_at`/`rejected_reason` columns) plus the peer's own `servers`
-  row (`connected`, `revoked`) — see [05](05_revoke_established.md) for
-  why `revoked` here is currently a dead column.
-- **No second-admin check.** `ApproveFederationAttempt`'s only
-  authorization check is "caller is an admin" — there is no comparison
-  against `federation_invitation.created_by` or against who initiated
-  the responder's side. Any single admin, including the one who set up
-  the invite/pasted the connection string, can approve their own
-  handshake. The rule this doc names in its title, and that code
-  comments elsewhere describe as the intent (`services.go`,
-  `handlers.go`), was never actually written into the approve handler.
-- **No single-admin-instance carve-out** (moot, since there's no
-  multi-admin check to carve an exception out of).
+  row (`connected`, `revoked`) — see [05](05_revoke_established.md),
+  which now sets `revoked` via a real admin revoke action.
+- **Second-admin check, enforced with one deviation.**
+  `ApproveFederationAttempt` compares the approving admin against
+  `federation_invitation.created_by` on the initiator side (the only
+  side with a local "who created this" record) and rejects a same-admin
+  approval with `errFederationSameApprover`. The deviation: root can
+  bypass this check (`callerIsRoot`) — a deliberate escape hatch for a
+  single-admin instance, not an oversight. The responder side, which
+  never created a local invitation, has no creator to compare against,
+  so any local admin may approve it there.
 - **API paths differ**: the real endpoints are `POST
   /api/federation/attempts/{id}/approve` and `.../reject` (one pair,
   each side approves its own local `federation_attempt` row
@@ -36,9 +34,10 @@ live" — did ship. What didn't:
   action lives on a per-attempt detail page
   (`/mesh/attempt/{attemptId}`), not inline on the Mesh list.
 
-Treat this doc's *intent* (a deliberate gate before trust) as validated;
-treat its schema/API/second-admin sections as historical design, not
-current behavior.
+Treat this doc's *intent* (a deliberate gate before trust, enforced by a
+second admin) as validated and shipped; treat its schema/API sections
+(table names, endpoint shape) as historical design, not current
+behavior.
 
 ## Depends on
 
