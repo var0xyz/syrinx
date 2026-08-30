@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
+  import { createPaginationStore } from '$lib/stores/pagination';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
@@ -14,17 +15,6 @@
   /** Bound out to the parent for tab-count display. */
   export let count = 0;
 
-  /** @type {{ userID: string; username: string; serverID: string; echoedAt: string }[]} */
-  let rows = [];
-  let loading = true;
-  let loadingMore = false;
-  let error = '';
-  let hasMore = false;
-  /** @type {string | undefined} */
-  let cursor = undefined;
-
-  $: count = rows.length;
-
   async function resolveRow(u) {
     const profile = await userRepository.getByUserId(u.userID).catch(() => null);
     return {
@@ -34,55 +24,24 @@
     };
   }
 
-  async function loadPage() {
-    const list = await apiService.listEchoers(reedID, { before: cursor });
-    const resolved = await Promise.all(list.users.map(resolveRow));
-    rows = [...rows, ...resolved];
-    hasMore = list.hasMore;
-    cursor = list.users.length > 0 ? list.users[list.users.length - 1].echoedAt : cursor;
-  }
+  const store = createPaginationStore({
+    fetchPage: (cursor) => apiService.listEchoers(reedID, { before: cursor }),
+    getItems: (page) => Promise.all(page.users.map(resolveRow)),
+    getHasMore: (page) => page.hasMore,
+    getNextCursor: (page) =>
+      page.users.length > 0 ? page.users[page.users.length - 1].echoedAt : undefined,
+  });
 
-  async function loadMore() {
-    if (!hasMore || loadingMore) return;
-    loadingMore = true;
-    try {
-      await loadPage();
-    } catch (err) {
-      console.error('Failed to load more of the chorus:', err);
-    } finally {
-      loadingMore = false;
-    }
-  }
-
-  /** REED_ECHOES only carries the new total, not who echoed — refetch from
-   * the top rather than trying to patch `rows` in place. Collapses any
-   * pagination the viewer had done back to the first page, same tradeoff
-   * ConversationSection makes on a live reply. */
-  async function reload() {
-    try {
-      rows = [];
-      hasMore = false;
-      cursor = undefined;
-      await loadPage();
-    } catch (err) {
-      console.error('Failed to refresh chorus:', err);
-    }
-  }
+  $: ({ rows, loading, loadingMore, hasMore, error } = $store);
+  $: count = rows.length;
 
   function handleReedEchoes(msg) {
     if (msg?.reedID !== reedID) return;
-    void reload();
+    void store.reload();
   }
 
   onMount(async () => {
-    try {
-      await loadPage();
-    } catch (err) {
-      console.error('Failed to load chorus:', err);
-      error = 'Unable to load this list right now.';
-    } finally {
-      loading = false;
-    }
+    await store.load();
   });
 
   onMount(() => {
@@ -124,7 +83,7 @@
       <p class="chorus-empty error">{error}</p>
     {/if}
     {#if hasMore}
-      <button type="button" class="load-more-btn" on:click={loadMore} disabled={loadingMore}>
+      <button type="button" class="load-more-btn" on:click={store.loadMore} disabled={loadingMore}>
         {loadingMore ? 'Loading…' : 'Load more'}
       </button>
     {/if}

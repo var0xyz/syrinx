@@ -166,6 +166,16 @@
     return performance.now() + (parsed - Date.now());
   }
 
+  // Deliberately not using the shared createPaginationStore (see
+  // stores/pagination.ts): this function has its own expiry short-circuit
+  // before touching `ripples` at all, filters fetched items through
+  // ripplesRepository.storeRipple (kept items can be a strict subset of
+  // the page), and live-arrived ripples are routed into three separate
+  // buffers (liveExtras/topLevelLiveExtras/pendingRipples) and later
+  // spliced into `ripples` by insertRipple's tree-insertion index — all
+  // outside of loadPage. The shared store's update() escape hatch would
+  // be in near-constant use here, so adopting it wouldn't remove
+  // complexity, just relocate it.
   async function loadPage(before) {
     const res = await apiService.listRipples(reedID, serverSignatureArmor, { limit: 50, before });
 

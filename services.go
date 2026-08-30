@@ -1615,12 +1615,7 @@ type ReplyListResponse struct {
 // author is recovered from its reed_id via identity.ParseKeyFingerprint
 // for the wire item's UserID field.
 func (s *DataService) ListReplies(ctx context.Context, parentReedID string, limit int, before *time.Time) (*ReplyListResponse, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 100 {
-		limit = 100
-	}
+	limit = clampLimit(limit)
 
 	args := []any{parentReedID}
 	// LEFT JOIN, not JOIN: a reply may itself be foreign (reed_id has no
@@ -1676,13 +1671,7 @@ func (s *DataService) ListReplies(ctx context.Context, parentReedID string, limi
 		return nil, err
 	}
 
-	hasMore := len(items) > limit
-	if hasMore {
-		items = items[:limit]
-	}
-	if items == nil {
-		items = []ReplyListItem{}
-	}
+	items, hasMore := paginateRows(items, limit)
 	return &ReplyListResponse{Replies: items, HasMore: hasMore}, nil
 }
 
@@ -1715,12 +1704,7 @@ func (s *DataService) ListFollowers(ctx context.Context, userID string, limit in
 // the URL-path-identified subject, already in userID@serverID form, and
 // the scanned edge ids are used as-is for the FollowListItem wire shape.
 func (s *DataService) listFollowEdge(ctx context.Context, table, otherCol, userID string, limit int, before *time.Time) (*FollowListResponse, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 100 {
-		limit = 100
-	}
+	limit = clampLimit(limit)
 
 	selfIdentity := userID
 	args := []any{selfIdentity}
@@ -1763,13 +1747,7 @@ func (s *DataService) listFollowEdge(ctx context.Context, table, otherCol, userI
 		return nil, err
 	}
 
-	hasMore := len(items) > limit
-	if hasMore {
-		items = items[:limit]
-	}
-	if items == nil {
-		items = []FollowListItem{}
-	}
+	items, hasMore := paginateRows(items, limit)
 	return &FollowListResponse{Users: items, HasMore: hasMore}, nil
 }
 
@@ -2335,12 +2313,7 @@ type EchoerListResponse struct {
 // GetReedChorus returns the users who echoed the given reed, oldest first.
 // Self-echoes (a user echoing their own reed) are excluded.
 func (s *DataService) GetReedChorus(ctx context.Context, echoedReedID string, limit int, before *time.Time) (*EchoerListResponse, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 100 {
-		limit = 100
-	}
+	limit = clampLimit(limit)
 
 	// A user can echo the same target more than once (separate echoing
 	// reeds), so group by echoing_author_id and take their earliest echo
@@ -2391,13 +2364,7 @@ func (s *DataService) GetReedChorus(ctx context.Context, echoedReedID string, li
 		return nil, err
 	}
 
-	hasMore := len(items) > limit
-	if hasMore {
-		items = items[:limit]
-	}
-	if items == nil {
-		items = []EchoerListItem{}
-	}
+	items, hasMore := paginateRows(items, limit)
 	return &EchoerListResponse{Users: items, HasMore: hasMore}, nil
 }
 
@@ -4852,12 +4819,7 @@ func (s *DataService) ListRipples(
 	limit int,
 	before string,
 ) (*RippleListResult, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 100 {
-		limit = 100
-	}
+	limit = clampLimit(limit)
 
 	args := []any{reedID}
 	query := `
@@ -4917,11 +4879,9 @@ func (s *DataService) ListRipples(
 		return nil, err
 	}
 
-	hasMore := len(items) > limit
-	if hasMore {
-		items = items[:limit]
-		threadCreatedAts = threadCreatedAts[:limit]
-	}
+	keep, hasMore := paginationTrimCount(len(items), limit)
+	items = items[:keep]
+	threadCreatedAts = threadCreatedAts[:keep]
 
 	nextCursor := ""
 	if hasMore && len(items) > 0 {

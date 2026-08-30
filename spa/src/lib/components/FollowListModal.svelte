@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
+  import { createPaginationStore } from '$lib/stores/pagination';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
   import type * as api from '$lib/types/api';
@@ -15,62 +16,33 @@
 
   type Row = { userID: string; username: string; followedAt: string };
 
-  let rows: Row[] = [];
-  let loading = false;
-  let error = '';
-  let hasMore = false;
-  let cursor: string | undefined;
-  let loadedForKey = '';
+  async function resolveRow(u: api.FollowListUser): Promise<Row> {
+    const profile = await userRepository.getByUserId(u.userID).catch(() => null);
+    return { userID: u.userID, username: profile?.username ?? u.userID, followedAt: u.followedAt };
+  }
+
+  function makeStore(uid: string, m: typeof mode) {
+    const s = createPaginationStore<Row, api.FollowListResponse>({
+      fetchPage: (cursor) =>
+        m === 'following'
+          ? apiService.listFollowing(uid, { before: cursor })
+          : apiService.listFollowers(uid, { before: cursor }),
+      getItems: (page) => Promise.all(page.users.map(resolveRow)),
+      getHasMore: (page) => page.hasMore,
+      getNextCursor: (page) =>
+        page.users.length > 0 ? page.users[page.users.length - 1].followedAt : undefined,
+    });
+    void s.load();
+    return s;
+  }
+
+  // Recreated whenever userId/mode changes — each store instance owns
+  // exactly one userId/mode combination's pagination state.
+  let store = makeStore(userId, mode);
+  $: if (userId) store = makeStore(userId, mode);
 
   $: title = mode === 'following' ? 'Following' : 'Followers';
-
-  // Fires once on mount (loadedForKey starts empty) and again if the
-  // parent ever reuses a still-mounted instance for a different user/mode.
-  $: key = `${userId}:${mode}`;
-  $: if (key !== loadedForKey) {
-    loadedForKey = key;
-    reset();
-    void loadPage();
-  }
-
-  function reset() {
-    rows = [];
-    error = '';
-    hasMore = false;
-    cursor = undefined;
-  }
-
-  async function loadPage() {
-    if (!userId) return;
-    loading = true;
-    error = '';
-    try {
-      const list: api.FollowListResponse =
-        mode === 'following'
-          ? await apiService.listFollowing(userId, { before: cursor })
-          : await apiService.listFollowers(userId, { before: cursor });
-
-      const resolved = await Promise.all(
-        list.users.map(async (u) => {
-          const profile = await userRepository.getByUserId(u.userID).catch(() => null);
-          return {
-            userID: u.userID,
-            username: profile?.username ?? u.userID,
-            followedAt: u.followedAt,
-          };
-        })
-      );
-
-      rows = [...rows, ...resolved];
-      hasMore = list.hasMore;
-      cursor = list.users.length > 0 ? list.users[list.users.length - 1].followedAt : cursor;
-    } catch (err) {
-      console.error(`Failed to load ${mode} list:`, err);
-      error = 'Unable to load this list right now.';
-    } finally {
-      loading = false;
-    }
-  }
+  $: ({ rows, loading, hasMore, error } = $store);
 
   function close() {
     dispatch('close');
@@ -122,7 +94,7 @@
           <p class="state-text error">{error}</p>
         {/if}
         {#if hasMore}
-          <button class="load-more-btn" on:click={loadPage} disabled={loading}>
+          <button class="load-more-btn" on:click={store.loadMore} disabled={loading}>
             {loading ? 'Loading…' : 'Load more'}
           </button>
         {/if}

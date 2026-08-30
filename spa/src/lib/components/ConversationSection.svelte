@@ -38,6 +38,13 @@
     void loadConversation();
   }
 
+  // Deliberately not using the shared createPaginationStore (see
+  // stores/pagination.ts): this component's cache-sync must run in a
+  // specific order relative to each fetch (syncFromServerList, then a
+  // conditional pruneStale gated on that same page's hasMore, before
+  // hydration), has a cache-first-then-network double load path for page
+  // 1 with no analog elsewhere, and loadMore() prepends older pages with
+  // an explicit dedup set — the shared store has no hook for any of that.
   async function loadConversation() {
     loading = true;
     errorMessage = '';

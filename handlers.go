@@ -2701,25 +2701,15 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 50
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
-			return
-		}
-		limit = n
+	limit, err := parseLimitParam(r)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
 	}
-
-	var before *time.Time
-	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
-		t, err := time.Parse(time.RFC3339, raw)
-		if err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
-			return
-		}
-		t = t.UTC().Truncate(time.Second)
-		before = &t
+	before, err := parseBeforeTimeParam(r)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	list, err := h.services.db.GetReedChorus(r.Context(), reedID, limit, before)
@@ -2759,25 +2749,15 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 50
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
-			return
-		}
-		limit = n
+	limit, err := parseLimitParam(r)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
 	}
-
-	var before *time.Time
-	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
-		t, err := time.Parse(time.RFC3339, raw)
-		if err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
-			return
-		}
-		t = t.UTC().Truncate(time.Second)
-		before = &t
+	before, err := parseBeforeTimeParam(r)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	list, err := h.services.db.ListReplies(r.Context(), reedID, limit, before)
@@ -2801,25 +2781,15 @@ func (h *Handlers) GetUserFollowing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 50
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
-			return
-		}
-		limit = n
+	limit, err := parseLimitParam(r)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
 	}
-
-	var before *time.Time
-	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
-		t, err := time.Parse(time.RFC3339, raw)
-		if err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
-			return
-		}
-		t = t.UTC().Truncate(time.Second)
-		before = &t
+	before, err := parseBeforeTimeParam(r)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	list, err := h.services.db.ListFollowing(r.Context(), userID, limit, before)
@@ -2843,25 +2813,15 @@ func (h *Handlers) GetUserFollowers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 50
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
-			return
-		}
-		limit = n
+	limit, err := parseLimitParam(r)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
 	}
-
-	var before *time.Time
-	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
-		t, err := time.Parse(time.RFC3339, raw)
-		if err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
-			return
-		}
-		t = t.UTC().Truncate(time.Second)
-		before = &t
+	before, err := parseBeforeTimeParam(r)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	list, err := h.services.db.ListFollowers(r.Context(), userID, limit, before)
@@ -5194,14 +5154,10 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 50
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
-			return
-		}
-		limit = n
+	limit, err := parseLimitParam(r)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	before := strings.TrimSpace(r.URL.Query().Get("before"))
