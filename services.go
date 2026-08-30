@@ -4117,7 +4117,15 @@ type federationServerLogRow struct {
 	CreatedAt time.Time
 }
 
-// listFederationLog reads federation_log lines through one of its three
+// federationLogLineCap bounds how many lines listFederationLog returns —
+// closes the unbounded-growth risk for a long-lived peer connection
+// without a wire-format change (these endpoints serve plain text, not
+// JSON, so the {items, hasMore, before} cursor convention has no natural
+// home here; see specs/pagination/04_federation_admin_pagination.md).
+const federationLogLineCap = 500
+
+// listFederationLog reads the most recent federationLogLineCap lines
+// (chronological ascending) through one of federation_log's three
 // junction tables — federation_server_log (junctionTable="federation_server_log",
 // junctionCol="server_id"), federation_invitation_log
 // (junctionCol="invitation_id"), or federation_attempt_log
@@ -4126,12 +4134,16 @@ type federationServerLogRow struct {
 // handshake steps write to which.
 func (s *DataService) listFederationLog(ctx context.Context, junctionTable, junctionCol, id string) ([]federationServerLogRow, error) {
 	query := fmt.Sprintf(`
-		SELECT fl.id, fl.level, fl.message, fl.created_at
-		FROM %s j
-		JOIN federation_log fl ON fl.id = j.log_id
-		WHERE j.%s = $1
-		ORDER BY fl.created_at ASC
-	`, junctionTable, junctionCol)
+		SELECT id, level, message, created_at FROM (
+			SELECT fl.id, fl.level, fl.message, fl.created_at
+			FROM %s j
+			JOIN federation_log fl ON fl.id = j.log_id
+			WHERE j.%s = $1
+			ORDER BY fl.created_at DESC
+			LIMIT %d
+		) recent
+		ORDER BY created_at ASC
+	`, junctionTable, junctionCol, federationLogLineCap)
 	rows, err := s.db.QueryContext(ctx, query, id)
 	if err != nil {
 		return nil, err

@@ -39,7 +39,7 @@ Each table below has a **Status** column per step. Values:
 | Prerequisites    | Implemented | 01–10 (11 superseded — see Notifications)         |
 | Avatars          | Deferred    | 00–05                                             |
 | Likes            | Proposed    | 00–06                                             |
-| Pagination       | In progress | 04–05                                             |
+| Pagination       | In progress | 05                                                |
 
 **Already done:** Invites, Coverage, Deletion, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -276,7 +276,7 @@ See [`pagination/`](pagination/README.md):
 | 00 | Audit + locked convention                       | Implemented |
 | 01 | Unify duplicated pagination logic               | Implemented |
 | 02 | User search cursor pagination                   | Implemented |
-| 04 | Federation admin list/log pagination            | Proposed    |
+| 04 | Federation admin list/log pagination            | Implemented (scoped down) |
 | 05 | `ReedsList` (profile feed) client-side cursor   | Proposed    |
 
 ## Signed deletions (reeds + accounts)
@@ -418,9 +418,8 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
   `performSignup`/`performPublish`) can land and be verified against the
   existing e2e suite independently of 02/03.
 - **Pagination** ([`pagination/`](pagination/README.md)) — independent of
-  every other track; 00 (audit), 01 (deduplication), and 02 (user search
-  cursor) are Implemented. 04–05 are independent of each other and may
-  land in any order.
+  every other track; 00, 01, 02, and 04 are Implemented (04 landed scoped
+  down to a fixed log-line cap, not a cursor — see its own doc). 05 remains.
 - **Ripples** ([`ripples/`](ripples/README.md)) — unsigned, server-only,
   ephemeral reed comments; independent of every other track (new package,
   no shared schema). Within `ripples/`, follow 00→04 in order (schema

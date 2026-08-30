@@ -14,8 +14,8 @@ follow, and the still-open gaps.
 
 ## Status
 
-**In progress.** 00, 01, and 02 are Implemented. 04–05 are Proposed —
-each is independent of the other and can land in any order.
+**In progress.** 00, 01, 02, and 04 are Implemented (04 landed scoped
+down — see its own Status). 05 is Proposed.
 
 ## Motivation
 
@@ -50,7 +50,8 @@ this convention was derived from.
 
 - **00** (audit) is a prerequisite for everything else — it's where the
   convention was derived and locked.
-- **01** (deduplication) should land before 02/04/05 so new pagination
-  call sites use the shared helpers instead of adding a sixth copy.
+- **01** (deduplication) should land before 02/05 so new pagination
+  call sites use the shared helpers instead of adding a sixth copy (04
+  didn't end up needing them — its fix is a fixed cap, not a cursor).
 - **02, 04, 05** are independent of each other and may land in any order
   once 01 is in.

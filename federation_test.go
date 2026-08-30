@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -943,5 +944,64 @@ func TestGetForeignHolderServersForReed(t *testing.T) {
 	}
 	if len(got2) != 1 || got2[0] != peerB {
 		t.Fatalf("got %v, want exactly [%s]", got2, peerB)
+	}
+}
+
+// TestListFederationLog_CapsAtMostRecentLines verifies listFederationLog
+// (shared by GetFederationServerLogs/GetFederationAttemptLogs) keeps only
+// the most recent federationLogLineCap lines, still returned oldest-first
+// for chronological display — the fix for these plain-text endpoints'
+// previously-unbounded query (see specs/pagination/04_federation_admin_pagination.md).
+func TestListFederationLog_CapsAtMostRecentLines(t *testing.T) {
+	_, ds, _, _ := testFederationHandlers(t)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	serverID := establishedPeer(t, ds, "inv-logcap", admin1, admin2, false, fixed)
+
+	total := federationLogLineCap + 10
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < total; i++ {
+		logID, err := crypto.NewID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		createdAt := base.Add(time.Duration(i) * time.Minute)
+		if _, err := ds.db.Exec(
+			`INSERT INTO federation_log (id, created_at, level, message) VALUES ($1, $2, 'info', $3)`,
+			logID, createdAt, fmt.Sprintf("line-%d", i),
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ds.db.Exec(
+			`INSERT INTO federation_server_log (server_id, log_id) VALUES ($1, $2)`,
+			serverID, logID,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := ds.ListFederationServerLogs(context.Background(), serverID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != federationLogLineCap {
+		t.Fatalf("len(got) = %d, want %d", len(got), federationLogLineCap)
+	}
+	// Oldest-first display order: the first kept line must be the
+	// (total - cap)'th one written, and the last must be the very last
+	// written — the trim discards the OLDEST lines, not the newest.
+	wantFirst := fmt.Sprintf("line-%d", total-federationLogLineCap)
+	wantLast := fmt.Sprintf("line-%d", total-1)
+	if got[0].Message != wantFirst {
+		t.Fatalf("got[0].Message = %q, want %q", got[0].Message, wantFirst)
+	}
+	if got[len(got)-1].Message != wantLast {
+		t.Fatalf("got[last].Message = %q, want %q", got[len(got)-1].Message, wantLast)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i].CreatedAt.Before(got[i-1].CreatedAt) {
+			t.Fatalf("results not ascending at index %d: %v before %v", i, got[i].CreatedAt, got[i-1].CreatedAt)
+		}
 	}
 }
