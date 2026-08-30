@@ -25,7 +25,6 @@ boilerplate was copy-pasted five times (`handlers.go:2705, 2763, 2805,
 | Followers | `GET /users/{u}/followers` (`handlers.go:2836`) | Yes | `limit` + `before` (RFC3339) keyset, `hasMore` |
 | Reed feed / timeline | — | N/A | No such endpoint exists at all — reeds are delivered exclusively over the websocket relay, never listed via REST (see `docs/content.md`) |
 | User search | `GET /users/search` (`handlers.go:836`) | **No** | Flat `limit` only (default 20, max 100), no cursor. Caller can never see past page one. Also fans out to peers and merges results, which complicates adding a cursor later. See [02](../pagination/README.md). |
-| Invites (list mine) | — | N/A | **No list endpoint exists.** Only single-invite lookup by ID and a validity check. See [03](../pagination/README.md). |
 | Federation invitations | `GET /federation/invitations` (`handlers.go:3744`) | **No** | Full result, `ORDER BY created_at DESC`, no LIMIT |
 | Federation servers | `GET /federation/servers` (`handlers.go:3809`) | **No** | Full result, `ORDER BY created_at DESC`, no LIMIT |
 | Federation attempts | via `GET /federation/list` (`handlers.go:4072`) | **No** | Full result, `ORDER BY created_at DESC`, no LIMIT |
@@ -40,11 +39,10 @@ features don't exist in this codebase.
 
 1. **User search** — the most user-facing gap. No way to page past the
    first `limit` results.
-2. **Invites list** — missing entirely, not just unpaginated.
-3. **Federation admin lists/logs** — admin-only so lower urgency, but the
+2. **Federation admin lists/logs** — admin-only so lower urgency, but the
    log endpoints (`GetFederationServerLogs`, `GetFederationAttemptLogs`)
    are genuinely unbounded and could grow large for a long-lived peer.
-4. Everything else already follows the working convention.
+3. Everything else already follows the working convention.
 
 ## Frontend audit
 

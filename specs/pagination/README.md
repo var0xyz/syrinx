@@ -9,14 +9,13 @@ follow, and the still-open gaps.
 | [00](00_audit.md)                          | Audit + locked convention                    | —          |
 | [01](01_deduplication.md)                  | Unify duplicated pagination logic            | 00         |
 | [02](02_user_search_cursor.md)             | User search cursor pagination                | 00, 01     |
-| [03](03_invites_list.md)                   | Invites list endpoint                        | 00         |
 | [04](04_federation_admin_pagination.md)    | Federation admin list/log pagination         | 00, 01     |
 | [05](05_reeds_list_client_cursor.md)       | `ReedsList` (profile feed) client-side cursor | 00         |
 
 ## Status
 
-**In progress.** 00, 01, and 02 are Implemented. 03–05 are Proposed —
-each is independent of the others and can land in any order.
+**In progress.** 00, 01, and 02 are Implemented. 04–05 are Proposed —
+each is independent of the other and can land in any order.
 
 ## Motivation
 
@@ -51,7 +50,7 @@ this convention was derived from.
 
 - **00** (audit) is a prerequisite for everything else — it's where the
   convention was derived and locked.
-- **01** (deduplication) should land before 02–05 so new pagination call
-  sites use the shared helpers instead of adding a sixth copy.
-- **02, 03, 04, 05** are independent of each other and may land in any
-  order once 01 is in.
+- **01** (deduplication) should land before 02/04/05 so new pagination
+  call sites use the shared helpers instead of adding a sixth copy.
+- **02, 04, 05** are independent of each other and may land in any order
+  once 01 is in.

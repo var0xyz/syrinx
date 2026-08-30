@@ -26,8 +26,8 @@ keyset predicate is mechanical using `paginateRows`/`clampLimit`/
 `parseLimitParam`/`parseBeforeTimeParam` from [01](01_deduplication.md).
 
 Every one of these is admin-only (`isAdmin` gated), so this is lower
-urgency than [02](02_user_search_cursor.md)/[03](03_invites_list.md) —
-except the two log endpoints (`GetFederationServerLogs`,
+urgency than [02](02_user_search_cursor.md) — except the two log
+endpoints (`GetFederationServerLogs`,
 `GetFederationAttemptLogs`), which are genuinely unbounded: a long-lived
 peer connection's log can grow indefinitely with no cap at all, unlike
 the three entity-list endpoints which are naturally bounded by how many
