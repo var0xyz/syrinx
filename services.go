@@ -1947,8 +1947,10 @@ func (s *DataService) CreateReed(ctx context.Context, p createReedParams) (*Reed
 }
 
 // CreateReedWithEcho inserts a reed and indexes it as an echo of echoTarget.
-// echoIndexed is true when a new reed_echoes row was inserted. isBlank
-// records whether the echoing reed carried no commentary — see is_blank on
+// echoIndexed is true when a new reed_echoes row was inserted for a
+// different author than the target (self-echoes are excluded from counts/
+// notifications, same as CountEchoes/GetReedChorus). isBlank records
+// whether the echoing reed carried no commentary — see is_blank on
 // reed_echoes.
 func (s *DataService) CreateReedWithEcho(
 	ctx context.Context,
@@ -2015,7 +2017,7 @@ func (s *DataService) CreateReedWithEcho(
 		return nil, false, fmt.Errorf("insert echo index: %w", err)
 	}
 	n, _ := res.RowsAffected()
-	echoIndexed = n > 0 && echoedReedID != p.ReedID
+	echoIndexed = n > 0 && p.UserID != echoedAuthorID
 
 	if err := tx.Commit(); err != nil {
 		return nil, false, err
@@ -2352,7 +2354,7 @@ func (s *DataService) GetReedChorus(ctx context.Context, echoedReedID string, li
 		SELECT echoing_author_id, MIN(signed_at) AS first_echoed_at
 		FROM reed_echoes
 		WHERE echoed_reed_id = $1
-		AND echoing_reed_id != echoed_reed_id
+		AND echoing_author_id != echoed_author_id
 		AND NOT EXISTS (
 			SELECT 1 FROM account_removals ar WHERE ar.user_id = echoing_author_id
 		)

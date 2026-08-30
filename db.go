@@ -621,9 +621,9 @@ func InitDB(db *sql.DB) error {
 	createEchoCountTriggerFunction := `
 	CREATE OR REPLACE FUNCTION reed_echo_count_trigger() RETURNS TRIGGER AS $$
 	BEGIN
-		IF TG_OP = 'INSERT' AND NEW.echoing_reed_id != NEW.echoed_reed_id THEN
+		IF TG_OP = 'INSERT' AND NEW.echoing_author_id != NEW.echoed_author_id THEN
 			PERFORM bump_reed_stat(NEW.echoed_reed_id, 'echo_count', 1);
-		ELSIF TG_OP = 'DELETE' AND OLD.echoing_reed_id != OLD.echoed_reed_id THEN
+		ELSIF TG_OP = 'DELETE' AND OLD.echoing_author_id != OLD.echoed_author_id THEN
 			PERFORM bump_reed_stat(OLD.echoed_reed_id, 'echo_count', -1);
 		END IF;
 		RETURN NULL;
