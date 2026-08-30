@@ -2202,30 +2202,30 @@ func (rs *RealtimeService) handleDataInvalid(client *Client, data DataInvalidDat
 // verify it failed. Not tied to a pending_events row — this is the client
 // self-reporting an anomaly, not acking a specific delivery.
 func (rs *RealtimeService) handleKeyFetchError(client *Client, data KeyFetchErrorData) {
-	if data.UserID == "" || data.Fingerprint == "" {
+	if data.UserID == "" || data.KeyID == "" {
 		return
 	}
 	log.Warn().
 		Str("reporterUserID", client.userID).
 		Str("targetUserID", data.UserID).
-		Str("fingerprint", data.Fingerprint).
+		Str("keyID", data.KeyID).
 		Msg("Client reported key fetch error")
-	rs.metrics.KeyFetchError(context.Background(), client.userID, data.UserID, data.Fingerprint)
+	rs.metrics.KeyFetchError(context.Background(), client.userID, data.UserID, data.KeyID)
 }
 
 // handleRevokedKeyUsed is called when a client found signed content whose
 // timestamp is at or after its signing key's revocation — a genuine
 // revoked-key-abuse signal, surfaced for later security analysis.
 func (rs *RealtimeService) handleRevokedKeyUsed(client *Client, data RevokedKeyUsedData) {
-	if data.UserID == "" || data.Fingerprint == "" {
+	if data.UserID == "" || data.KeyID == "" {
 		return
 	}
 	log.Warn().
 		Str("reporterUserID", client.userID).
 		Str("targetUserID", data.UserID).
-		Str("fingerprint", data.Fingerprint).
+		Str("keyID", data.KeyID).
 		Msg("Client reported content signed with a revoked key")
-	rs.metrics.RevokedKeyUsed(context.Background(), client.userID, data.UserID, data.Fingerprint)
+	rs.metrics.RevokedKeyUsed(context.Background(), client.userID, data.UserID, data.KeyID)
 }
 
 func (rs *RealtimeService) handleSubscribeProfile(client *Client, data json.RawMessage) {

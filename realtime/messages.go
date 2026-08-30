@@ -173,23 +173,23 @@ type DataInvalidData struct {
 }
 
 // KeyFetchErrorData is the parsed payload of an incoming KEY_FETCH_ERROR
-// message: the client tried to fetch userID's key (fingerprint) to verify
+// message: the client tried to fetch userID's key (keyID) to verify
 // signed content and the request failed (network error, non-2xx other than
 // a legitimate "key not found"). The server was reachable enough to have
 // delivered the content in the first place, so this is an anomaly worth
 // logging, not a routine cache miss.
 type KeyFetchErrorData struct {
-	UserID      string `json:"user_id"`
-	Fingerprint string `json:"fingerprint"`
+	UserID string `json:"user_id"`
+	KeyID  string `json:"key_id"`
 }
 
 // RevokedKeyUsedData is the parsed payload of an incoming REVOKED_KEY_USED
-// message: the client fetched userID's key (fingerprint), found it revoked,
+// message: the client fetched userID's key (keyID), found it revoked,
 // and the signed content's timestamp was at or after the revocation time —
 // i.e. content purportedly signed with an already-revoked key.
 type RevokedKeyUsedData struct {
-	UserID      string `json:"user_id"`
-	Fingerprint string `json:"fingerprint"`
+	UserID string `json:"user_id"`
+	KeyID  string `json:"key_id"`
 }
 
 // SyncRequestData is the parsed payload of an incoming SYNC_REQUEST message.
