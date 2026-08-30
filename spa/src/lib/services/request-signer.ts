@@ -4,7 +4,7 @@
  * Does NOT store decrypted key in memory (only in service worker)
  *
  * After OS discards the SW heap, re-INIT_KEY from localStorage
- * (fingerprint + passphrase) on resume or before sign when the SW reports no key.
+ * (key id + passphrase) on resume or before sign when the SW reports no key.
  */
 
 import { privateKeyRepository } from '../repositories/privateKey';
@@ -160,15 +160,15 @@ class RequestSignerService {
           return;
         }
 
-        const fingerprint = authService.getActiveKeyFingerprint();
+        const keyId = authService.getActiveKeyId();
         const passphrase = authService.getPassphrase();
-        if (!fingerprint || !passphrase) {
+        if (!keyId || !passphrase) {
           this.initialized = false;
           throw new Error('Private key not initialized');
         }
 
         this.initialized = false;
-        await this.initializeWorker(fingerprint, passphrase);
+        await this.initializeWorker(keyId, passphrase);
       } finally {
         this.reinitInFlight = null;
       }
@@ -181,9 +181,9 @@ class RequestSignerService {
    * Initialize the service worker with a decrypted private key
    * Key is decrypted, passed to worker, then immediately discarded
    */
-  async initializeWorker(fingerprint: string, passphrase: string): Promise<void> {
-    if (!fingerprint) {
-      throw new Error('RequestSigner: fingerprint is required to initialize');
+  async initializeWorker(keyId: string, passphrase: string): Promise<void> {
+    if (!keyId) {
+      throw new Error('RequestSigner: key id is required to initialize');
     }
     if (!passphrase) {
       throw new Error('RequestSigner: passphrase is required to initialize');
@@ -199,7 +199,7 @@ class RequestSignerService {
         await this.waitForServiceWorker();
         console.log('RequestSigner: Service worker is ready');
 
-        const keyData = await privateKeyRepository.getPrivateKey(fingerprint);
+        const keyData = await privateKeyRepository.getPrivateKey(keyId);
         if (!keyData) {
           throw new Error('Private key not found');
         }
@@ -216,7 +216,7 @@ class RequestSignerService {
           armoredKey: keyData.armor,
           passphrase,
           userId: user.id,
-          fingerprint,
+          keyId,
         });
 
         this.initialized = true;
@@ -318,9 +318,9 @@ class RequestSignerService {
 
     // Get user info
     const user = await authService.getCurrentUser();
-    const canonicalFingerprint = authService.getActiveKeyFingerprint();
+    const activeKeyId = authService.getActiveKeyId();
 
-    if (!user || !canonicalFingerprint) {
+    if (!user || !activeKeyId) {
       throw new Error('User or active key not found');
     }
 
@@ -355,7 +355,7 @@ class RequestSignerService {
 
     // Add signature headers
     const signedHeaders = new Headers(options.headers);
-    signedHeaders.set('X-Syrinx-Public-Key-Id', canonicalFingerprint);
+    signedHeaders.set('X-Syrinx-Public-Key-Id', activeKeyId);
     signedHeaders.set('X-Syrinx-Signature-Scope', 'body');
     signedHeaders.set('X-Syrinx-Timestamp', timestamp);
     signedHeaders.set('X-Syrinx-Signature', signature);

@@ -143,12 +143,12 @@
         // definition — don't send them through the mandatory-backup nag on
         // the very next <Auth> mount (see Auth.svelte's lastKeyBackupAt gate).
         localStorage.setItem('lastKeyBackupAt', String(Date.now()));
-        const fingerprint = authService.getActiveKeyFingerprint();
+        const keyId = authService.getActiveKeyId();
         const passphrase = authService.getPassphrase();
-        if (!fingerprint || !passphrase) {
+        if (!keyId || !passphrase) {
           throw new Error('Restored backup is missing key material for device binding.');
         }
-        await requestSigner.initializeWorker(fingerprint, passphrase);
+        await requestSigner.initializeWorker(keyId, passphrase);
         await apiService.bindDevice();
         clearRecoveryRun();
         completeImportRun();

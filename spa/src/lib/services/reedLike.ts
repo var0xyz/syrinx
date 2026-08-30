@@ -57,18 +57,18 @@ export async function likeReed(reedRef: string): Promise<api.ReedLike> {
     throw new Error('Server ID not available');
   }
 
-  const fingerprint = authService.getActiveKeyFingerprint();
+  const keyId = authService.getActiveKeyId();
   const passphrase = authService.getPassphrase();
-  if (!fingerprint || !passphrase) {
+  if (!keyId || !passphrase) {
     throw new Error('Active key or passphrase not available');
   }
 
-  const privateKey = await privateKeyRepository.getPrivateKey(fingerprint);
+  const privateKey = await privateKeyRepository.getPrivateKey(keyId);
   if (!privateKey?.armor) {
     throw new Error('Private key not found');
   }
 
-  const userPayload = buildReedLikeUserPayload(reedRef, fingerprint);
+  const userPayload = buildReedLikeUserPayload(reedRef, keyId);
   const sigArmor = await cryptoService.signMessage(userPayload, privateKey.armor, passphrase);
   const signature = btoa(sigArmor);
 
@@ -77,11 +77,11 @@ export async function likeReed(reedRef: string): Promise<api.ReedLike> {
     compositeKey: reedRef,
     reedID: reedRef,
     serverID,
-    fingerprint,
+    keyId,
     signature,
   });
 
-  const cert = await apiService.likeReed(reedRef, signature, fingerprint);
+  const cert = await apiService.likeReed(reedRef, signature, keyId);
   if (!(await verifyAndCommitReedLike(cert))) {
     throw new Error('Server like countersignature failed verification');
   }

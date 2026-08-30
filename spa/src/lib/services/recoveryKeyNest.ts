@@ -29,7 +29,7 @@ export type NestAssembleResult = { ok: true } | { ok: false; reason: string };
 export type KeyNestLookups = {
   getUser: (userId: string) => api.User | null | undefined;
   /** Active signing key; from usersInfo (or legacy field on old backups). */
-  getActiveKeyFingerprint: (userId: string) => string | null | undefined;
+  getActiveKeyId: (userId: string) => string | null | undefined;
   getPublicKey: (fingerprint: string) => api.PublicKey | null | undefined;
 };
 
@@ -81,7 +81,7 @@ export function buildKeyNest(
     return { ok: false, reason: 'missing profile' };
   }
   const startFp =
-    lookups.getActiveKeyFingerprint(userId) ||
+    lookups.getActiveKeyId(userId) ||
     (user as api.User & { activeKeyID?: string }).activeKeyID;
   if (!startFp) {
     return { ok: false, reason: 'missing activeKeyID' };

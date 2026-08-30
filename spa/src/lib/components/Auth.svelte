@@ -40,11 +40,11 @@
       }
 
       const passphrase = authService.getPassphrase();
-      const fingerprint = authService.getActiveKeyFingerprint();
+      const keyId = authService.getActiveKeyId();
 
-      if (fingerprint && passphrase && !requestSigner.isInitialized()) {
+      if (keyId && passphrase && !requestSigner.isInitialized()) {
         try {
-          await requestSigner.initializeWorker(fingerprint, passphrase);
+          await requestSigner.initializeWorker(keyId, passphrase);
         } catch (error) {
           console.warn('Failed to auto-initialize request signer:', error);
           goto('/');

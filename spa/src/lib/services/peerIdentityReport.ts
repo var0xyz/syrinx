@@ -52,7 +52,7 @@ export async function reportPeerIdentity(
 
   const nest = buildKeyNest(peerUserId, {
     getUser: (id) => usersById.get(id),
-    getActiveKeyFingerprint: (id) =>
+    getActiveKeyId: (id) =>
       infoByUserId.get(id)?.activeKeyID ||
       (usersById.get(id) as api.User & { activeKeyID?: string } | undefined)
         ?.activeKeyID,

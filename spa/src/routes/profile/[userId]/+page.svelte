@@ -122,18 +122,18 @@
       // identity.go — see signing.ts for the mirror contract. The
       // signature travels as base64(armored PGP) to survive
       // form-encoding.
-      const fingerprint = authService.getActiveKeyFingerprint();
+      const keyId = authService.getActiveKeyId();
       const passphrase = authService.getPassphrase();
-      if (!fingerprint || !passphrase) {
+      if (!keyId || !passphrase) {
         editError = 'Session expired. Please sign in again.';
         return;
       }
-      const privateKey = await privateKeyRepository.getPrivateKey(fingerprint);
+      const privateKey = await privateKeyRepository.getPrivateKey(keyId);
       if (!privateKey) {
         editError = 'Could not locate your signing key.';
         return;
       }
-      const payload = buildUserIdentityPayload(nextUsername, fingerprint, nextBio);
+      const payload = buildUserIdentityPayload(nextUsername, keyId, nextBio);
       const sigArmor = await cryptoService.signMessage(payload, privateKey.armor, passphrase);
       const userSignature = btoa(sigArmor);
 

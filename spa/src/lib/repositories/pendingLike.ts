@@ -8,7 +8,7 @@ export interface PendingLikeRecord {
   compositeKey: string; // reedRef (authorID@serverID/uuid)
   reedID: string;
   serverID: string;
-  fingerprint: string;
+  keyId: string;
   signature: string; // base64 user detached sig
 }
 
@@ -37,7 +37,7 @@ export const pendingLikeRepository = {
     const pending = await pendingLikeRepository.getAll();
     for (const record of pending) {
       try {
-        const cert = await apiService.likeReed(record.reedID, record.signature, record.fingerprint);
+        const cert = await apiService.likeReed(record.reedID, record.signature, record.keyId);
         if (!(await verifyAndCommitReedLike(cert))) {
           console.error('Failed to verify reed like cert on flush:', record.reedID);
           continue;

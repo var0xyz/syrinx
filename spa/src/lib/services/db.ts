@@ -38,18 +38,14 @@ export class IndexedDbService implements DbService {
   private readonly dbName = 'Syrinx';
   // Bumping `version` must NOT wipe existing stores — see onupgradeneeded
   // below, which is additive: it only creates stores/indexes that don't
-  // exist yet on this client, never deletes anything, except for
-  // 'publicKeys'/'revocations'/'reeds' (pure server mirrors, dropped and
-  // recreated on a keyPath change since IndexedDB keyPaths are immutable —
-  // they repopulate on next use via the existing fetch-on-miss paths).
-  // privateKeys (irreplaceable local-only key material) and
-  // unsignedReeds/pendingRevocation/etc (unsynced local intent) are never
-  // dropped — there is no "clients resync from the server" fallback for
-  // them, the server never holds a copy.
-  private readonly version = 13;
+  // exist yet on this client, never deletes anything, except for stores
+  // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
+  // must be dropped and recreated — see the drop loop below). Pre-launch,
+  // so dropped stores' data loss is acceptable rather than migrated.
+  private readonly version = 14;
   private readonly storeNames = [
     ['following',   'userId'     ],
-    ['privateKeys', 'fingerprint'],
+    ['privateKeys', 'keyId'      ],
     ['publicKeys',  'id'         ],
     ['revocations', 'id'         ],
     ['tags',        'tagName'    ],
@@ -63,7 +59,7 @@ export class IndexedDbService implements DbService {
     ['unfollow',           'userId'     ],
     ['unsignedReeds',      'id'         ],
     ['pendingFollows',     'userId'     ],
-    ['pendingRevocation',  'fingerprint'],
+    ['pendingRevocation',  'keyId'      ],
     ['pendingRemoval',     'reedID'     ],
     ['pendingPublication', 'reedID'     ],
     ['pendingBackups',     'id'         ],
@@ -95,10 +91,10 @@ export class IndexedDbService implements DbService {
         // changes a store's keyPath must drop and recreate it — a plain
         // ensureStore call would silently keep the OLD keyPath on a store
         // that already exists (see the NOTE below). Pre-launch project, no
-        // production data to preserve: every store is a cache that
-        // repopulates on next use, so dropped stores are just cleared, not
-        // migrated in place.
-        for (const storeName of ['publicKeys', 'revocations', 'reeds']) {
+        // production data to preserve, so dropped stores are just cleared,
+        // not migrated in place — including privateKeys/pendingRevocation
+        // here for the fingerprint -> keyId rename.
+        for (const storeName of ['publicKeys', 'revocations', 'reeds', 'privateKeys', 'pendingRevocation']) {
           if (db.objectStoreNames.contains(storeName)) {
             db.deleteObjectStore(storeName);
           }

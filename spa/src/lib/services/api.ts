@@ -130,13 +130,13 @@ async function requestRaw(path: string, init?: RequestInit): Promise<Response> {
       // Check if request signer is initialized
       if (!requestSigner.isInitialized()) {
         // Try to get auth data from auth service
-        const fingerprint = authService.getActiveKeyFingerprint();
+        const keyId = authService.getActiveKeyId();
         const passphrase = authService.getPassphrase();
-        if (!fingerprint || !passphrase) {
+        if (!keyId || !passphrase) {
           throw new Error('Cannot sign request: active key or passphrase not available');
         }
 
-        await requestSigner.initializeWorker(fingerprint, passphrase);
+        await requestSigner.initializeWorker(keyId, passphrase);
       }
 
       // Sign the request
@@ -827,12 +827,12 @@ export const apiService = {
   async likeReed(
     reedId: string,
     signature: string,
-    fingerprint: string
+    keyId: string
   ): Promise<api.ReedLike> {
     const { userId, bareId } = splitReedId(reedId);
     // fingerprint travels bare over the wire — the server joins it with the
     // authenticated caller's userID itself (see handlers.go's LikeReed).
-    const bareFingerprint = parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
+    const bareFingerprint = parseKeyId(keyId)?.fingerprint ?? keyId;
     const formData = new URLSearchParams();
     formData.append('signature', signature);
     formData.append('fingerprint', bareFingerprint);
@@ -866,8 +866,8 @@ export const apiService = {
   // (userID@serverID/fingerprint) for the URL — GET /keys/{id:.+} takes
   // the whole id as one greedy path segment now, not a separate {userID}
   // plus a bare {fingerprint}. See main.go's route registration comment.
-  async getKeyRevocation(userId: string, fingerprint: string): Promise<api.KeyRevocation> {
-    const id = canonicalKeyId(userId, fingerprint);
+  async getKeyRevocation(userId: string, keyId: string): Promise<api.KeyRevocation> {
+    const id = canonicalKeyId(userId, keyId);
     return request<api.KeyRevocation>(`/keys/${id}/revocation`, { method: 'GET' });
   },
 
@@ -906,7 +906,7 @@ export const apiService = {
   async addPublicKey(
     userID: string,
     publicKey: string,
-    revokedKeyFingerprint: string,
+    revokedKeyId: string,
     revokedKeySignature: string,
     newKeySignature: string,
     revocationReason: string,
@@ -914,7 +914,7 @@ export const apiService = {
   ): Promise<api.PublicKey> {
     // revokedKeyFingerprint travels bare over the wire (form field) — the
     // server joins it with userID itself (see handlers.go's AddPublicKey).
-    const bareRevokedKeyFingerprint = parseKeyId(revokedKeyFingerprint)?.fingerprint ?? revokedKeyFingerprint;
+    const bareRevokedKeyFingerprint = parseKeyId(revokedKeyId)?.fingerprint ?? revokedKeyId;
     const formData = new URLSearchParams();
     formData.append('userID', userID);
     formData.append('publicKey', publicKey);
