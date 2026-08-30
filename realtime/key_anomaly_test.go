@@ -13,14 +13,14 @@ type fakeRecorder struct {
 	revokedKeysUsed []call3
 }
 
-type call3 struct{ reporter, target, fingerprint string }
+type call3 struct{ reporter, target, keyID string }
 
-func (f *fakeRecorder) KeyFetchError(_ context.Context, reporter, target, fingerprint string) {
-	f.keyFetchErrors = append(f.keyFetchErrors, call3{reporter, target, fingerprint})
+func (f *fakeRecorder) KeyFetchError(_ context.Context, reporter, target, keyID string) {
+	f.keyFetchErrors = append(f.keyFetchErrors, call3{reporter, target, keyID})
 }
 
-func (f *fakeRecorder) RevokedKeyUsed(_ context.Context, reporter, target, fingerprint string) {
-	f.revokedKeysUsed = append(f.revokedKeysUsed, call3{reporter, target, fingerprint})
+func (f *fakeRecorder) RevokedKeyUsed(_ context.Context, reporter, target, keyID string) {
+	f.revokedKeysUsed = append(f.revokedKeysUsed, call3{reporter, target, keyID})
 }
 
 func TestHandleKeyFetchError(t *testing.T) {
@@ -30,13 +30,13 @@ func TestHandleKeyFetchError(t *testing.T) {
 	rs := &RealtimeService{metrics: rec}
 	client := &Client{userID: "viewer-1"}
 
-	rs.handleKeyFetchError(client, KeyFetchErrorData{UserID: "author-1", Fingerprint: "FP1"})
+	rs.handleKeyFetchError(client, KeyFetchErrorData{UserID: "author-1", KeyID: "FP1"})
 
 	if len(rec.keyFetchErrors) != 1 {
 		t.Fatalf("keyFetchErrors = %d calls, want 1", len(rec.keyFetchErrors))
 	}
 	got := rec.keyFetchErrors[0]
-	if got.reporter != "viewer-1" || got.target != "author-1" || got.fingerprint != "FP1" {
+	if got.reporter != "viewer-1" || got.target != "author-1" || got.keyID != "FP1" {
 		t.Fatalf("unexpected call: %+v", got)
 	}
 	if len(rec.revokedKeysUsed) != 0 {
@@ -53,7 +53,7 @@ func TestHandleKeyFetchErrorIgnoresEmptyPayload(t *testing.T) {
 
 	rs.handleKeyFetchError(client, KeyFetchErrorData{})
 	rs.handleKeyFetchError(client, KeyFetchErrorData{UserID: "author-1"})
-	rs.handleKeyFetchError(client, KeyFetchErrorData{Fingerprint: "FP1"})
+	rs.handleKeyFetchError(client, KeyFetchErrorData{KeyID: "FP1"})
 
 	if len(rec.keyFetchErrors) != 0 {
 		t.Fatalf("keyFetchErrors = %d calls, want 0 for malformed payloads", len(rec.keyFetchErrors))
@@ -67,13 +67,13 @@ func TestHandleRevokedKeyUsed(t *testing.T) {
 	rs := &RealtimeService{metrics: rec}
 	client := &Client{userID: "viewer-1"}
 
-	rs.handleRevokedKeyUsed(client, RevokedKeyUsedData{UserID: "author-1", Fingerprint: "FP1"})
+	rs.handleRevokedKeyUsed(client, RevokedKeyUsedData{UserID: "author-1", KeyID: "FP1"})
 
 	if len(rec.revokedKeysUsed) != 1 {
 		t.Fatalf("revokedKeysUsed = %d calls, want 1", len(rec.revokedKeysUsed))
 	}
 	got := rec.revokedKeysUsed[0]
-	if got.reporter != "viewer-1" || got.target != "author-1" || got.fingerprint != "FP1" {
+	if got.reporter != "viewer-1" || got.target != "author-1" || got.keyID != "FP1" {
 		t.Fatalf("unexpected call: %+v", got)
 	}
 	if len(rec.keyFetchErrors) != 0 {
@@ -90,7 +90,7 @@ func TestHandleRevokedKeyUsedIgnoresEmptyPayload(t *testing.T) {
 
 	rs.handleRevokedKeyUsed(client, RevokedKeyUsedData{})
 	rs.handleRevokedKeyUsed(client, RevokedKeyUsedData{UserID: "author-1"})
-	rs.handleRevokedKeyUsed(client, RevokedKeyUsedData{Fingerprint: "FP1"})
+	rs.handleRevokedKeyUsed(client, RevokedKeyUsedData{KeyID: "FP1"})
 
 	if len(rec.revokedKeysUsed) != 0 {
 		t.Fatalf("revokedKeysUsed = %d calls, want 0 for malformed payloads", len(rec.revokedKeysUsed))

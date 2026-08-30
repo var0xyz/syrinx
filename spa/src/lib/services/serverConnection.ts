@@ -378,13 +378,13 @@ class ServerConnection {
 
   /** Reports a failed key fetch needed to verify content received over this
    * (already-authenticated) connection — an anomaly, not a routine cache miss. */
-  sendKeyFetchError(userId: string, fingerprint: string): void {
-    this.send({ type: 'KEY_FETCH_ERROR', data: { user_id: userId, fingerprint } });
+  sendKeyFetchError(userId: string, keyId: string): void {
+    this.send({ type: 'KEY_FETCH_ERROR', data: { user_id: userId, key_id: keyId } });
   }
 
   /** Reports content whose timestamp is at or after its signing key's revocation. */
-  sendRevokedKeyUsed(userId: string, fingerprint: string): void {
-    this.send({ type: 'REVOKED_KEY_USED', data: { user_id: userId, fingerprint } });
+  sendRevokedKeyUsed(userId: string, keyId: string): void {
+    this.send({ type: 'REVOKED_KEY_USED', data: { user_id: userId, key_id: keyId } });
   }
 
   async publishReady(reedId: string, options?: { broadcast?: boolean }): Promise<void> {

@@ -162,28 +162,28 @@ func (r *OTEL) KeyRevoked(ctx context.Context, userID string) {
 // KeyFetchError records a client-reported failure to fetch a key it needed
 // to verify signed content it received over an already-authenticated
 // connection — an anomaly, not a routine cache miss.
-func (r *OTEL) KeyFetchError(ctx context.Context, reporterUserID, targetUserID, fingerprint string) {
+func (r *OTEL) KeyFetchError(ctx context.Context, reporterUserID, targetUserID, keyID string) {
 	if r.keyFetchErrors == nil {
 		return
 	}
 	r.keyFetchErrors.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("reporter.id_hash", UserIDHash(reporterUserID)),
 		attribute.String("target.id_hash", UserIDHash(targetUserID)),
-		attribute.String("key.fingerprint", fingerprint),
+		attribute.String("key.fingerprint", keyID),
 	))
 }
 
 // RevokedKeyUsed records a client-reported signed resource whose timestamp
 // falls at or after its signing key's revocation — kept in the clear
 // (fingerprint, not user identity) for later security analysis.
-func (r *OTEL) RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID, fingerprint string) {
+func (r *OTEL) RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID, keyID string) {
 	if r.revokedKeysUsed == nil {
 		return
 	}
 	r.revokedKeysUsed.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("reporter.id_hash", UserIDHash(reporterUserID)),
 		attribute.String("target.id_hash", UserIDHash(targetUserID)),
-		attribute.String("key.fingerprint", fingerprint),
+		attribute.String("key.fingerprint", keyID),
 	))
 }
 
