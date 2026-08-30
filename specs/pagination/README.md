@@ -15,8 +15,8 @@ follow, and the still-open gaps.
 
 ## Status
 
-**In progress.** 00 and 01 are Implemented. 02–05 are Proposed — each is
-independent of the others and can land in any order.
+**In progress.** 00, 01, and 02 are Implemented. 03–05 are Proposed —
+each is independent of the others and can land in any order.
 
 ## Motivation
 

@@ -838,18 +838,22 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if query == "" {
-		writeResponse(w, http.StatusOK, map[string]any{"users": []UserSearchResult{}})
+		writeResponse(w, http.StatusOK, UserSearchResponse{Users: []UserSearchResult{}})
 		return
 	}
 
-	limit := 20
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil {
-			limit = n
-		}
+	limit, err := parseLimitParam(r)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
 	}
+	before := r.URL.Query().Get("before")
 
-	localResults, err := h.services.db.SearchUsers(r.Context(), query, limit)
+	// Pagination applies to local results only: fanned-out foreign results
+	// are a best-effort widening of page one, not a cursor-addressable
+	// source (see fanoutUserSearchToPeers) — hasMore/nextCursor reflect
+	// the local page alone.
+	localResp, err := h.services.db.SearchUsers(r.Context(), query, limit, before)
 	if err != nil {
 		log.Error().Str("query", query).Err(err).Msg("Error searching users")
 		internalServerError(w)
@@ -857,9 +861,13 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	foreignResults := h.fanoutUserSearchToPeers(r.Context(), query, limit, searchUsersFanoutTimeout)
-	results := mergeUserSearchResults(query, localResults, foreignResults)
+	merged := mergeUserSearchResults(query, localResp.Users, foreignResults)
 
-	writeResponse(w, http.StatusOK, map[string]any{"users": results})
+	writeResponse(w, http.StatusOK, UserSearchResponse{
+		Users:      merged,
+		HasMore:    localResp.HasMore,
+		NextCursor: localResp.NextCursor,
+	})
 }
 
 // mergeUserSearchResults combines local and fanned-out foreign results.

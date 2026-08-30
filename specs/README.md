@@ -39,7 +39,7 @@ Each table below has a **Status** column per step. Values:
 | Prerequisites    | Implemented | 01–10 (11 superseded — see Notifications)         |
 | Avatars          | Deferred    | 00–05                                             |
 | Likes            | Proposed    | 00–06                                             |
-| Pagination       | In progress | 02–05                                             |
+| Pagination       | In progress | 03–05                                             |
 
 **Already done:** Invites, Coverage, Deletion, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -275,7 +275,7 @@ See [`pagination/`](pagination/README.md):
 |----|-------------------------------------------------|-------------|
 | 00 | Audit + locked convention                       | Implemented |
 | 01 | Unify duplicated pagination logic               | Implemented |
-| 02 | User search cursor pagination                   | Proposed    |
+| 02 | User search cursor pagination                   | Implemented |
 | 03 | Invites list endpoint                           | Proposed    |
 | 04 | Federation admin list/log pagination            | Proposed    |
 | 05 | `ReedsList` (profile feed) client-side cursor   | Proposed    |
@@ -419,8 +419,9 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
   `performSignup`/`performPublish`) can land and be verified against the
   existing e2e suite independently of 02/03.
 - **Pagination** ([`pagination/`](pagination/README.md)) — independent of
-  every other track; 00 (audit) and 01 (deduplication) are Implemented.
-  02–05 are each independent of each other and may land in any order.
+  every other track; 00 (audit), 01 (deduplication), and 02 (user search
+  cursor) are Implemented. 03–05 are each independent of each other and
+  may land in any order.
 - **Ripples** ([`ripples/`](ripples/README.md)) — unsigned, server-only,
   ephemeral reed comments; independent of every other track (new package,
   no shared schema). Within `ripples/`, follow 00→04 in order (schema

@@ -2240,20 +2240,52 @@ type UserSearchResult struct {
 	ServerName string `json:"serverName"`
 }
 
+// UserSearchResponse is the body of GET /users/search.
+type UserSearchResponse struct {
+	Users      []UserSearchResult `json:"users"`
+	HasMore    bool               `json:"hasMore"`
+	NextCursor string             `json:"nextCursor,omitempty"`
+}
+
+// userSearchCursor is the decoded form of the opaque user-search
+// pagination cursor. Usernames aren't unique across servers, so the
+// keyset needs the id tiebreak the same way (username, id) orders below —
+// a single username can't represent "where I left off" alone.
+type userSearchCursor struct {
+	Username string `json:"username"`
+	ID       string `json:"id"`
+}
+
+func encodeUserSearchCursor(c userSearchCursor) string {
+	b, _ := json.Marshal(c)
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+func decodeUserSearchCursor(s string) (*userSearchCursor, error) {
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid cursor encoding: %w", err)
+	}
+	var c userSearchCursor
+	if err := json.Unmarshal(b, &c); err != nil {
+		return nil, fmt.Errorf("invalid cursor payload: %w", err)
+	}
+	return &c, nil
+}
+
 // SearchUsers returns users whose username contains query (case-insensitive
-// substring match), excluding account-removed users, ordered by username.
-func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) ([]UserSearchResult, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
+// substring match), excluding account-removed users, ordered by username
+// then id. before is an opaque cursor from a prior response's NextCursor,
+// or "" for the first page.
+func (s *DataService) SearchUsers(ctx context.Context, query string, limit int, before string) (*UserSearchResponse, error) {
+	limit = clampLimit(limit)
+
 	// account_removals.user_id FKs to identities(id), and u.id is that same
 	// form directly now (identity_id no longer exists as a separate
 	// column) — join against u.id on both sides. identities.server_id FKs
 	// to servers.id, so join through it to servers.name for display.
-	rows, err := s.db.QueryContext(ctx, `
+	args := []any{query}
+	sqlQuery := `
 		SELECT u.id, u.username, s.name
 		FROM users u
 		JOIN identities i ON i.id = u.id
@@ -2262,15 +2294,30 @@ func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) 
 		  AND NOT EXISTS (
 		      SELECT 1 FROM account_removals ar WHERE ar.user_id = u.id
 		  )
-		ORDER BY u.username ASC
-		LIMIT $2
-	`, query, limit)
+	`
+	if before != "" {
+		c, err := decodeUserSearchCursor(before)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, c.Username, c.ID)
+		sqlQuery += fmt.Sprintf(`
+			AND (u.username, u.id) > ($%d, $%d)
+		`, len(args)-1, len(args))
+	}
+	args = append(args, limit+1)
+	sqlQuery += fmt.Sprintf(`
+		ORDER BY u.username ASC, u.id ASC
+		LIMIT $%d
+	`, len(args))
+
+	rows, err := s.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	results := []UserSearchResult{}
+	var results []UserSearchResult
 	for rows.Next() {
 		var r UserSearchResult
 		if err := rows.Scan(&r.ID, &r.Username, &r.ServerName); err != nil {
@@ -2281,7 +2328,15 @@ func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return results, nil
+
+	results, hasMore := paginateRows(results, limit)
+
+	resp := &UserSearchResponse{Users: results, HasMore: hasMore}
+	if hasMore && len(results) > 0 {
+		last := results[len(results)-1]
+		resp.NextCursor = encodeUserSearchCursor(userSearchCursor{Username: last.Username, ID: last.ID})
+	}
+	return resp, nil
 }
 
 // CountEchoes returns how many echoes point at the given reed. Self-echoes

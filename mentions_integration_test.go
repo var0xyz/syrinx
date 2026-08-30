@@ -423,20 +423,74 @@ func TestSearchUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := svc.SearchUsers(ctx, "alice", 20)
+	resp, err := svc.SearchUsers(ctx, "alice", 20, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// UserSearchResult.ID holds u.id directly (which IS identities.id).
-	if len(results) != 1 || results[0].ID != "alice@testserver" || results[0].ServerName != "Test Server" {
-		t.Fatalf("results = %+v", results)
+	if len(resp.Users) != 1 || resp.Users[0].ID != "alice@testserver" || resp.Users[0].ServerName != "Test Server" {
+		t.Fatalf("results = %+v", resp.Users)
+	}
+	if resp.HasMore {
+		t.Fatalf("expected hasMore = false, got true")
 	}
 
-	results, err = svc.SearchUsers(ctx, "bobname", 20)
+	resp, err = svc.SearchUsers(ctx, "bobname", 20, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 0 {
-		t.Fatalf("expected account-removed user excluded, got %+v", results)
+	if len(resp.Users) != 0 {
+		t.Fatalf("expected account-removed user excluded, got %+v", resp.Users)
+	}
+}
+
+func TestSearchUsersPagination(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	for _, id := range []string{"user1", "user2", "user3", "user4", "user5"} {
+		seedMentionUser(t, db, id)
+	}
+
+	page1, err := svc.SearchUsers(ctx, "user", 2, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page1.Users) != 2 || !page1.HasMore || page1.NextCursor == "" {
+		t.Fatalf("page1 = %+v", page1)
+	}
+
+	page2, err := svc.SearchUsers(ctx, "user", 2, page1.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page2.Users) != 2 || !page2.HasMore || page2.NextCursor == "" {
+		t.Fatalf("page2 = %+v", page2)
+	}
+
+	page3, err := svc.SearchUsers(ctx, "user", 2, page2.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page3.Users) != 1 || page3.HasMore || page3.NextCursor != "" {
+		t.Fatalf("page3 = %+v", page3)
+	}
+
+	seen := map[string]bool{}
+	for _, page := range [][]UserSearchResult{page1.Users, page2.Users, page3.Users} {
+		for _, u := range page {
+			if seen[u.ID] {
+				t.Fatalf("duplicate result across pages: %s", u.ID)
+			}
+			seen[u.ID] = true
+		}
+	}
+	if len(seen) != 5 {
+		t.Fatalf("expected 5 distinct users across pages, got %d", len(seen))
+	}
+
+	if _, err := svc.SearchUsers(ctx, "user", 2, "not-valid-base64!!"); err == nil {
+		t.Fatal("expected error for malformed cursor")
 	}
 }

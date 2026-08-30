@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -49,3 +49,40 @@ cross-server "page 2" today.
 - Federated/cross-server merged pagination — the fanout+merge path stays
   single-page.
 - Any change to `MentionPicker`'s typeahead behavior.
+
+## Implementation
+
+`DataService.SearchUsers` (`services.go`) now takes `(ctx, query, limit,
+before string)` and returns `(*UserSearchResponse, error)`, where
+`UserSearchResponse{Users, HasMore, NextCursor}` mirrors the
+`FollowListResponse`/`EchoerListResponse` shape.
+
+Usernames aren't globally unique (only unique per-server), so a bare
+`(username)` cursor wasn't enough — the keyset needed a tiebreak. Rather
+than an RFC3339-timestamp `before` (there's no timestamp in this
+ordering), the cursor follows the ripples pattern instead: an opaque
+base64-JSON `userSearchCursor{Username, ID}`, minted server-side and
+returned as `NextCursor`, decoded via `decodeUserSearchCursor`. The SQL
+keyset predicate is `(u.username, u.id) > ($from cursor)`, `ORDER BY
+u.username ASC, u.id ASC` — same `limit+1`/`paginateRows` trim as every
+other endpoint from [01](01_deduplication.md).
+
+`SearchUsers` (`handlers.go`) passes the incoming `before` query param
+straight through to the service and echoes back `HasMore`/`NextCursor`
+from the **local** response only, exactly as scoped — the merge with
+`fanoutUserSearchToPeers`'s foreign results happens after, and doesn't
+affect either field. `SearchUsersFromPeer` (`federation_relay.go`, the
+federation relay leg) calls `SearchUsers` with `before = ""` always,
+keeping the peer-to-peer path single-page as planned.
+
+`MentionPicker.svelte`'s call site was updated only for the new
+`(query, { limit, before? })` options-object signature on
+`apiService.searchUsers` — its behavior (hardcoded `limit: 20`, no
+pagination) is unchanged. `spa/src/lib/types/api.ts` gained
+`UserSearchResult`/`UserSearchResponse` (previously the response was an
+inline anonymous type).
+
+Covered by `TestSearchUsers` (unchanged behavior) and the new
+`TestSearchUsersPagination` in `mentions_integration_test.go`: pages
+through 5 seeded users at `limit=2`, asserts no duplicate/missing rows
+across pages, and asserts a malformed cursor errors.

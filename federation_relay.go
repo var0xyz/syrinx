@@ -1875,7 +1875,9 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := h.services.db.SearchUsers(r.Context(), req.Query, req.Limit)
+	// Federation fanout stays single-page — no cursor is forwarded across
+	// the peer boundary (see pagination spec 02's non-goals).
+	resp, err := h.services.db.SearchUsers(r.Context(), req.Query, req.Limit, "")
 	if err != nil {
 		log.Error().Err(err).Str("query", req.Query).Str("peerServerID", peerServerID).Msg("Failed to handle foreign search-users request")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "search-users", false)
@@ -1883,7 +1885,7 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "search-users", true)
-	writeResponse(w, http.StatusOK, relaySearchUsersResponse{Users: results})
+	writeResponse(w, http.StatusOK, relaySearchUsersResponse{Users: resp.Users})
 }
 
 // //////////////////////////////////////// //

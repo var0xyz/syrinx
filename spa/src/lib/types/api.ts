@@ -254,6 +254,19 @@ export interface EchoerListResponse extends Base {
   hasMore: boolean;
 }
 
+/** One row in GET /users/search. */
+export interface UserSearchResult extends Base {
+  id: string;
+  username: string;
+  serverName: string;
+}
+
+export interface UserSearchResponse extends Base {
+  users: UserSearchResult[];
+  hasMore: boolean;
+  nextCursor?: string;
+}
+
 /** Local + create-response shape for a signed invite (status is unsigned). */
 export interface Invite extends Base {
   id: string;

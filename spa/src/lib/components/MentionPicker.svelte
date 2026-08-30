@@ -115,7 +115,7 @@
     currentSearch = controller;
     const q = query;
     try {
-      const res = await apiService.searchUsers(q, 20);
+      const res = await apiService.searchUsers(q, { limit: 20 });
       if (controller.signal.aborted) return;
       results = res.users || [];
       highlighted = 0;
