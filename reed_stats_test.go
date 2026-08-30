@@ -255,10 +255,13 @@ func TestReedStatsEchoLikeHolderTriggers(t *testing.T) {
 
 	root := "alice@testserver/root"
 	echoReed := "bob@testserver/echo1"
+	selfEchoReed := "alice@testserver/echo2"
 	seedReedStatsReed(t, db, root, "alice@testserver", pubKeyID, userSigID, serverSigID)
 	seedReedStatsReed(t, db, echoReed, "bob@testserver", pubKeyID, userSigID, serverSigID)
+	seedReedStatsReed(t, db, selfEchoReed, "alice@testserver", pubKeyID, userSigID, serverSigID)
 
-	// Echo: insert increments, self-echo is excluded, delete decrements.
+	// Echo: insert increments, self-echo (same author, distinct reed) is
+	// excluded, delete decrements.
 	if _, err := db.Exec(`
 		INSERT INTO reed_echoes (echoing_reed_id, echoed_reed_id, echoing_author_id, echoed_author_id, is_blank, signed_at)
 		VALUES ($1, $2, $3, $4, FALSE, NOW())
@@ -267,8 +270,8 @@ func TestReedStatsEchoLikeHolderTriggers(t *testing.T) {
 	}
 	if _, err := db.Exec(`
 		INSERT INTO reed_echoes (echoing_reed_id, echoed_reed_id, echoing_author_id, echoed_author_id, is_blank, signed_at)
-		VALUES ($1, $1, $2, $2, FALSE, NOW())
-	`, root, "alice@testserver"); err != nil {
+		VALUES ($1, $2, $3, $3, FALSE, NOW())
+	`, selfEchoReed, root, "alice@testserver"); err != nil {
 		t.Fatal(err)
 	}
 	echoCount, err := ds.CountEchoes(ctx, root)
@@ -339,6 +342,50 @@ func TestReedStatsEchoLikeHolderTriggers(t *testing.T) {
 	}
 	if holderCount != 0 {
 		t.Fatalf("holder_count after delete = %d, want 0", holderCount)
+	}
+}
+
+// TestGetReedChorusExcludesSelfEcho guards against a self-echo (a user
+// echoing their own reed) showing up in the chorus list, mirroring the
+// exclusion in CountEchoes above.
+func TestGetReedChorusExcludesSelfEcho(t *testing.T) {
+	db := openReedStatsTestDB(t)
+	ds := &DataService{db: db, serverID: "testserver"}
+	ctx := context.Background()
+
+	userSigID, serverSigID, pubKeyID := seedReedStatsServer(t, db, "testserver")
+	seedReedStatsIdentity(t, db, "alice", "testserver")
+	seedReedStatsIdentity(t, db, "bob", "testserver")
+
+	root := "alice@testserver/root"
+	echoReed := "bob@testserver/echo1"
+	selfEchoReed := "alice@testserver/echo2"
+	seedReedStatsReed(t, db, root, "alice@testserver", pubKeyID, userSigID, serverSigID)
+	seedReedStatsReed(t, db, echoReed, "bob@testserver", pubKeyID, userSigID, serverSigID)
+	seedReedStatsReed(t, db, selfEchoReed, "alice@testserver", pubKeyID, userSigID, serverSigID)
+
+	if _, err := db.Exec(`
+		INSERT INTO reed_echoes (echoing_reed_id, echoed_reed_id, echoing_author_id, echoed_author_id, is_blank, signed_at)
+		VALUES ($1, $2, $3, $4, FALSE, NOW())
+	`, echoReed, root, "bob@testserver", "alice@testserver"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO reed_echoes (echoing_reed_id, echoed_reed_id, echoing_author_id, echoed_author_id, is_blank, signed_at)
+		VALUES ($1, $2, $3, $3, FALSE, NOW())
+	`, selfEchoReed, root, "alice@testserver"); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := ds.GetReedChorus(ctx, root, 50, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Users) != 1 {
+		t.Fatalf("chorus users = %d, want 1 (self-echo must be excluded): %+v", len(resp.Users), resp.Users)
+	}
+	if resp.Users[0].UserID != "bob@testserver" {
+		t.Fatalf("chorus user = %q, want bob@testserver", resp.Users[0].UserID)
 	}
 }
 
