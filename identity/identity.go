@@ -6,7 +6,7 @@
 // not identical:
 //
 //   - The USER payload covers only user-authored fields (username,
-//     fingerprint, and bio as the envelope content). The user's
+//     keyID, and bio as the envelope content). The user's
 //     detached PGP signature over these bytes is `userSignature`.
 //
 //   - The SERVER payload covers a superset: user-authored fields + all
@@ -45,22 +45,22 @@ import (
 const recordTimeFormat = time.RFC3339
 
 // userIdentityHeaders returns the header map covered by userSignature.
-func userIdentityHeaders(username, fingerprint string) map[string]string {
+func userIdentityHeaders(username, keyID string) map[string]string {
 	return map[string]string{
-		"type":        "identity-user",
-		"username":    username,
-		"fingerprint": fingerprint,
+		"type":     "identity-user",
+		"username": username,
+		"keyID":    keyID,
 	}
 }
 
 // BuildUserIdentityPayload returns the exact bytes the user signs.
 // `bio` may be empty; it is placed in the envelope's content section and
 // is not escaped.
-func BuildUserIdentityPayload(username, fingerprint, bio string) []byte {
+func BuildUserIdentityPayload(username, keyID, bio string) []byte {
 	return signing.BytesToSign(
 		userIdentityHeaders(
 			username,
-			fingerprint,
+			keyID,
 		),
 		bio,
 	)
@@ -78,7 +78,7 @@ func BuildUserIdentityPayload(username, fingerprint, bio string) []byte {
 func profileHeaders(
 	userID,
 	username,
-	fingerprint,
+	keyID,
 	serverID,
 	serverKeyFingerprint,
 	userSignatureB64,
@@ -91,7 +91,7 @@ func profileHeaders(
 		"type":                 "identity-server",
 		"userID":               userID,
 		"username":             username,
-		"fingerprint":          fingerprint,
+		"keyID":                keyID,
 		"memberSince":          memberSince.UTC().Format(recordTimeFormat),
 		"role":                 role,
 		"serverID":             serverID,
@@ -111,7 +111,7 @@ func profileHeaders(
 func BuildProfilePayload(
 	userID,
 	username,
-	fingerprint,
+	keyID,
 	serverID,
 	serverKeyFingerprint,
 	userSignatureB64,
@@ -125,7 +125,7 @@ func BuildProfilePayload(
 		profileHeaders(
 			userID,
 			username,
-			fingerprint,
+			keyID,
 			serverID,
 			serverKeyFingerprint,
 			userSignatureB64,
@@ -185,9 +185,9 @@ func BuildReedPayload(
 
 // PublicKeyCountersignHeaders is the header map signed over a user
 // public key. Content is the armored key.
-func PublicKeyCountersignHeaders(userID, fingerprint, serverID, serverKeyFingerprint string, ts time.Time) map[string]string {
+func PublicKeyCountersignHeaders(userID, keyID, serverID, serverKeyFingerprint string, ts time.Time) map[string]string {
 	return map[string]string{
-		"fingerprint":          fingerprint,
+		"keyID":                keyID,
 		"serverID":             serverID,
 		"serverKeyFingerprint": serverKeyFingerprint,
 		"signedAt":             ts.UTC().Format(time.RFC3339),
@@ -197,7 +197,7 @@ func PublicKeyCountersignHeaders(userID, fingerprint, serverID, serverKeyFingerp
 
 // BuildPublicKeyPayload returns the exact bytes the server countersigns
 // for a user's public key. Headers bind ownership and issuance
-// (userID, user fingerprint, serverID, server-key fingerprint,
+// (userID, user key id, serverID, server-key fingerprint,
 // signedAt); content is the armored key itself, so a verifier can
 // check that this server attested this specific key for this user.
 //
@@ -207,7 +207,7 @@ func PublicKeyCountersignHeaders(userID, fingerprint, serverID, serverKeyFingerp
 func BuildPublicKeyPayload(
 	serverID,
 	userID,
-	userFingerprint,
+	userKeyID,
 	serverFingerprint,
 	publicKey string,
 	timestamp time.Time,
@@ -215,7 +215,7 @@ func BuildPublicKeyPayload(
 	return signing.BytesToSign(
 		PublicKeyCountersignHeaders(
 			userID,
-			userFingerprint,
+			userKeyID,
 			serverID,
 			serverFingerprint,
 			timestamp,
@@ -226,21 +226,21 @@ func BuildPublicKeyPayload(
 
 // userRevocationHeaders returns the header map the key owner signs when
 // revoking. Content is the free-text reason (may be empty).
-func userRevocationHeaders(userID, fingerprint string) map[string]string {
+func userRevocationHeaders(userID, keyID string) map[string]string {
 	return map[string]string{
-		"type":        "revocation",
-		"userID":      userID,
-		"fingerprint": fingerprint,
+		"type":   "revocation",
+		"userID": userID,
+		"keyID":  keyID,
 	}
 }
 
 // BuildUserRevocationPayload returns the exact bytes the key being
 // revoked must sign to produce the wire `signature` field.
-func BuildUserRevocationPayload(userID, fingerprint, reason string) []byte {
+func BuildUserRevocationPayload(userID, keyID, reason string) []byte {
 	return signing.BytesToSign(
 		userRevocationHeaders(
 			userID,
-			fingerprint,
+			keyID,
 		),
 		reason,
 	)
@@ -251,7 +251,7 @@ func BuildUserRevocationPayload(userID, fingerprint, reason string) []byte {
 // bytes, same pattern as identity records.
 func serverRevocationHeaders(
 	userID,
-	fingerprint,
+	keyID,
 	serverID,
 	serverKeyFingerprint,
 	userSignatureB64 string,
@@ -260,7 +260,7 @@ func serverRevocationHeaders(
 	return map[string]string{
 		"type":                 "revocation",
 		"userID":               userID,
-		"fingerprint":          fingerprint,
+		"keyID":                keyID,
 		"signedAt":             signedAt.UTC().Format(recordTimeFormat),
 		"serverID":             serverID,
 		"serverKeyFingerprint": serverKeyFingerprint,
@@ -273,7 +273,7 @@ func serverRevocationHeaders(
 // on the wire.
 func BuildServerRevocationPayload(
 	userID,
-	fingerprint,
+	keyID,
 	reason,
 	serverID,
 	serverKeyFingerprint,
@@ -283,7 +283,7 @@ func BuildServerRevocationPayload(
 	return signing.BytesToSign(
 		serverRevocationHeaders(
 			userID,
-			fingerprint,
+			keyID,
 			serverID,
 			serverKeyFingerprint,
 			userSignatureB64,
@@ -369,23 +369,23 @@ func BuildReedRemovalServerPayload(
 const TypeReedLike = "reed_like"
 
 // reedLikeUserHeaders returns the header map the liker signs. reedID is
-// the target reed's full canonical id. fingerprint names the liker's own
+// the target reed's full canonical id. keyID names the liker's own
 // signing key, so the server verifies against that exact key — avoids a
 // spurious verification failure if the liker rotates keys between signing
 // and the server processing the request. Content is empty.
-func reedLikeUserHeaders(reedID, fingerprint string) map[string]string {
+func reedLikeUserHeaders(reedID, keyID string) map[string]string {
 	return map[string]string{
-		"type":        TypeReedLike,
-		"reedID":      reedID,
-		"fingerprint": fingerprint,
+		"type":   TypeReedLike,
+		"reedID": reedID,
+		"keyID":  keyID,
 	}
 }
 
 // BuildReedLikeUserPayload returns the exact bytes the liker signs to
 // produce the wire `signature` field on a reed-like cert.
-func BuildReedLikeUserPayload(reedID, fingerprint string) []byte {
+func BuildReedLikeUserPayload(reedID, keyID string) []byte {
 	return signing.BytesToSign(
-		reedLikeUserHeaders(reedID, fingerprint),
+		reedLikeUserHeaders(reedID, keyID),
 		"",
 	)
 }
@@ -583,7 +583,7 @@ func BuildInviteServerPayload(
 func BuildNewProfilePayload(
 	userID,
 	username,
-	fingerprint,
+	keyID,
 	serverID,
 	serverKeyFingerprint,
 	userSignatureB64,
@@ -594,7 +594,7 @@ func BuildNewProfilePayload(
 	return BuildProfilePayload(
 		userID,
 		username,
-		fingerprint,
+		keyID,
 		serverID,
 		serverKeyFingerprint,
 		userSignatureB64,
@@ -639,11 +639,11 @@ func BuildFederationConnectPayload(inviteID, serverID, baseURL, fingerprint stri
 // replyingTo is omitted (and therefore dropped by BytesToSign) for a
 // top-level post. No timestamp — client clocks are never signed over,
 // same as every other user payload in this package.
-func rippleUserHeaders(reedID, rippleAuthorID, fingerprint, threadID, replyingTo string) map[string]string {
+func rippleUserHeaders(reedID, rippleAuthorID, keyID, threadID, replyingTo string) map[string]string {
 	return map[string]string{
 		"reedID":         reedID,
 		"rippleAuthorID": rippleAuthorID,
-		"fingerprint":    fingerprint,
+		"keyID":          keyID,
 		"threadID":       threadID,
 		"replyingTo":     replyingTo,
 	}
@@ -652,9 +652,9 @@ func rippleUserHeaders(reedID, rippleAuthorID, fingerprint, threadID, replyingTo
 // BuildRippleUserPayload returns the exact bytes a ripple's author signs.
 // `content` is the ripple text, placed in the envelope's content section
 // verbatim, unescaped. `replyingTo` may be empty for a top-level post.
-func BuildRippleUserPayload(reedID, rippleAuthorID, fingerprint, threadID, replyingTo, content string) []byte {
+func BuildRippleUserPayload(reedID, rippleAuthorID, keyID, threadID, replyingTo, content string) []byte {
 	return signing.BytesToSign(
-		rippleUserHeaders(reedID, rippleAuthorID, fingerprint, threadID, replyingTo),
+		rippleUserHeaders(reedID, rippleAuthorID, keyID, threadID, replyingTo),
 		content,
 	)
 }
@@ -665,12 +665,12 @@ func BuildRippleUserPayload(reedID, rippleAuthorID, fingerprint, threadID, reply
 // threadID/replyingTo kills cross-reed, cross-author, and cross-thread
 // replay; binding the server-key fingerprint lets a verifier with
 // multiple historical server keys pick the right one.
-func rippleServerHeaders(serverID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo string, ts time.Time) map[string]string {
+func rippleServerHeaders(serverID, reedID, rippleAuthorID, keyID, threadID, replyingTo string, ts time.Time) map[string]string {
 	return map[string]string{
 		"serverID":       serverID,
 		"reedID":         reedID,
 		"rippleAuthorID": rippleAuthorID,
-		"fingerprint":    fingerprint,
+		"keyID":          keyID,
 		"threadID":       threadID,
 		"replyingTo":     replyingTo,
 		"timestamp":      ts.UTC().Format(recordTimeFormat),
@@ -687,9 +687,9 @@ func rippleServerHeaders(serverID, reedID, rippleAuthorID, fingerprint, threadID
 //
 // `timestamp` must already be truncated to whole seconds so that what is
 // signed matches what Postgres stores after any timestamp round-trip.
-func BuildRippleServerPayload(serverID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo, userSignatureB64 string, timestamp time.Time) []byte {
+func BuildRippleServerPayload(serverID, reedID, rippleAuthorID, keyID, threadID, replyingTo, userSignatureB64 string, timestamp time.Time) []byte {
 	return signing.BytesToSign(
-		rippleServerHeaders(serverID, reedID, rippleAuthorID, fingerprint, threadID, replyingTo, timestamp),
+		rippleServerHeaders(serverID, reedID, rippleAuthorID, keyID, threadID, replyingTo, timestamp),
 		userSignatureB64,
 	)
 }

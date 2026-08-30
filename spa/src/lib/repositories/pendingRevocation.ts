@@ -9,10 +9,10 @@ import { revocationRepository } from '$lib/repositories/revocation';
 import { allowUnsigned } from '$lib/verifiers';
 
 export interface PendingRevocationRecord {
-  fingerprint: string;          // old key — keyPath
+  keyId: string;                // old key — keyPath
   reason: string;
   userId: string;
-  newFingerprint: string;
+  newKeyId: string;
   newPublicKey: string;         // armored
   userRevocationSignature: string; // base64 user sig over revocation payload
   revokedKeySignature: string;  // rotation proof: old key signs new armor
@@ -27,12 +27,12 @@ export const pendingRevocationRepository = {
     await dbService.put('pendingRevocation', record, allowUnsigned);
   },
 
-  async delete(fingerprint: string): Promise<void> {
-    await dbService.delete('pendingRevocation', fingerprint);
+  async delete(keyId: string): Promise<void> {
+    await dbService.delete('pendingRevocation', keyId);
   },
 
-  async get(fingerprint: string): Promise<PendingRevocationRecord | null> {
-    return dbService.get<PendingRevocationRecord>('pendingRevocation', fingerprint);
+  async get(keyId: string): Promise<PendingRevocationRecord | null> {
+    return dbService.get<PendingRevocationRecord>('pendingRevocation', keyId);
   },
 
   async getAll(): Promise<PendingRevocationRecord[]> {
@@ -52,7 +52,7 @@ export const pendingRevocationRepository = {
           newPublicKey = await apiService.addPublicKey(
             record.userId,
             btoa(record.newPublicKey),
-            record.fingerprint,
+            record.keyId,
             record.revokedKeySignature,
             record.newKeySignature,
             record.reason,
@@ -61,7 +61,7 @@ export const pendingRevocationRepository = {
         } catch (addKeyError) {
           const status = (addKeyError as { status?: number })?.status;
           if (status !== 409) throw addKeyError;
-          newPublicKey = await apiService.getPublicKey(record.newFingerprint);
+          newPublicKey = await apiService.getPublicKey(record.newKeyId);
         }
 
         // The rotation is fully done server-side at this point (old key
@@ -70,12 +70,12 @@ export const pendingRevocationRepository = {
         // new key locally. Verifying the new key fetches the predecessor's
         // revocation cert over a signed request; that request must be
         // signed with the new key, not the now-revoked old one.
-        await dbService.delete('pendingRevocation', record.fingerprint);
+        await dbService.delete('pendingRevocation', record.keyId);
         pendingRevocationSynced.update(n => n + 1);
-        await privateKeyRepository.setRevoked(record.fingerprint);
-        authService.setActiveKey(record.newFingerprint);
+        await privateKeyRepository.setRevoked(record.keyId);
+        authService.setActiveKey(record.newKeyId);
         const passphrase = authService.getPassphrase();
-        if (passphrase) await requestSigner.initializeWorker(record.newFingerprint, passphrase);
+        if (passphrase) await requestSigner.initializeWorker(record.newKeyId, passphrase);
 
         await publicKeyRepository.put(newPublicKey);
 
@@ -84,15 +84,15 @@ export const pendingRevocationRepository = {
         // Failure here is not retried via this record — the rotation
         // already succeeded — so it's logged, not rethrown.
         try {
-          const revokedKey = await apiService.getPublicKey(record.fingerprint);
+          const revokedKey = await apiService.getPublicKey(record.keyId);
           await publicKeyRepository.setRevoked(revokedKey);
-          const revocation = await apiService.getKeyRevocation(record.userId, record.fingerprint);
+          const revocation = await apiService.getKeyRevocation(record.userId, record.keyId);
           await revocationRepository.put(revocation);
         } catch (revocationFetchError) {
-          console.error('Failed to fetch revocation certificate (rotation already complete):', record.fingerprint, revocationFetchError);
+          console.error('Failed to fetch revocation certificate (rotation already complete):', record.keyId, revocationFetchError);
         }
       } catch (error) {
-        console.error('Failed to sync pending revocation:', record.fingerprint, error);
+        console.error('Failed to sync pending revocation:', record.keyId, error);
       }
     }
   },

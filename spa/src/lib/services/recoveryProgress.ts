@@ -154,7 +154,7 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
 
   const lookups = {
     getUser: (id: string) => byUser.get(id),
-    getActiveKeyFingerprint: (id: string) =>
+    getActiveKeyId: (id: string) =>
       byInfo.get(id)?.activeKeyID ||
       (byUser.get(id) as api.User & { activeKeyID?: string } | undefined)
         ?.activeKeyID,

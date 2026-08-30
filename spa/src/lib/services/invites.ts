@@ -53,13 +53,13 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
     throw new Error('Server ID not available');
   }
 
-  const fingerprint = authService.getActiveKeyFingerprint();
+  const keyId = authService.getActiveKeyId();
   const passphrase = authService.getPassphrase();
-  if (!fingerprint || !passphrase) {
+  if (!keyId || !passphrase) {
     throw new Error('Active key or passphrase not available');
   }
 
-  const privateKey = await privateKeyRepository.getPrivateKey(fingerprint);
+  const privateKey = await privateKeyRepository.getPrivateKey(keyId);
   if (!privateKey?.armor) {
     throw new Error('Private key not found');
   }
@@ -83,7 +83,7 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
     passphrase
   );
   const userSignature = {
-    id: fingerprint,
+    id: keyId,
     armor: btoa(sigArmor),
   };
 

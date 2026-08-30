@@ -23,9 +23,9 @@ export async function claimOwnIdentity(): Promise<api.User> {
     throw new Error('Missing local userId; restore a backup first.');
   }
 
-  const fingerprint = authService.getActiveKeyFingerprint();
+  const keyId = authService.getActiveKeyId();
   const passphrase = authService.getPassphrase();
-  if (!fingerprint || !passphrase) {
+  if (!keyId || !passphrase) {
     throw new Error('Missing active key or passphrase after restore.');
   }
 
@@ -53,15 +53,15 @@ export async function claimOwnIdentity(): Promise<api.User> {
   const infoFp =
     infoByUserId.get(userId)?.activeKeyID ||
     (profile as api.User & { activeKeyID?: string }).activeKeyID;
-  if (!infoFp || fingerprint.toLowerCase() !== infoFp.toLowerCase()) {
+  if (!infoFp || keyId.toLowerCase() !== infoFp.toLowerCase()) {
     throw new Error(
-      'Active key fingerprint does not match the restored profile.'
+      'Active key id does not match the restored profile.'
     );
   }
 
   const nest = buildKeyNest(userId, {
     getUser: (id) => usersById.get(id),
-    getActiveKeyFingerprint: (id) =>
+    getActiveKeyId: (id) =>
       infoByUserId.get(id)?.activeKeyID ||
       (usersById.get(id) as api.User & { activeKeyID?: string } | undefined)
         ?.activeKeyID,
@@ -77,10 +77,10 @@ export async function claimOwnIdentity(): Promise<api.User> {
   // matching the recovery package's wire/verification exception); the
   // privateKeys lookup wants the canonical form.
   const activeBareFingerprint = nest.key.fingerprint;
-  const activeFingerprint = appendFingerprint(userId, activeBareFingerprint);
-  const privateKey = await privateKeyRepository.getPrivateKey(activeFingerprint);
+  const activeKeyId = appendFingerprint(userId, activeBareFingerprint);
+  const privateKey = await privateKeyRepository.getPrivateKey(activeKeyId);
   if (!privateKey?.armor) {
-    throw new Error('Missing private key for active fingerprint.');
+    throw new Error('Missing private key for active key id.');
   }
 
   const { challenge } = await apiService.getIdentityClaimChallenge();
@@ -99,8 +99,8 @@ export async function claimOwnIdentity(): Promise<api.User> {
   });
 
   await authService.saveUserToStorage(claimed);
-  authService.setActiveKey(activeFingerprint);
-  await requestSigner.initializeWorker(activeFingerprint, passphrase);
+  authService.setActiveKey(activeKeyId);
+  await requestSigner.initializeWorker(activeKeyId, passphrase);
 
   return claimed;
 }

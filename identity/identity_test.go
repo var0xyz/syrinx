@@ -57,7 +57,7 @@ func verifyB64(t *testing.T, svc *crypto.Service, publicKeyArmor, sigB64 string,
 func TestUserPayloadCanonicalShape(t *testing.T) {
 	got := BuildUserIdentityPayload("alice", "ABCDEF", "hello\nworld")
 	want := "---\n" +
-		"fingerprint: ABCDEF\n" +
+		"keyID: ABCDEF\n" +
 		"type: identity-user\n" +
 		"username: alice\n" +
 		"---\n" +
@@ -84,7 +84,7 @@ func TestServerPayloadCanonicalShape(t *testing.T) {
 		memberSince, signedAt,
 	)
 	want := "---\n" +
-		"fingerprint: ABCDEF\n" +
+		"keyID: ABCDEF\n" +
 		"memberSince: 2026-01-01T00:00:00Z\n" +
 		"role: user\n" +
 		"serverID: Server01\n" +
@@ -277,7 +277,7 @@ func TestTamperedUsernameBreaksUserSignature(t *testing.T) {
 }
 
 // TestTamperedFingerprintBreaksUserSignature confirms the user's
-// signature covers `fingerprint`. A server that swaps the fingerprint
+// signature covers `keyID`. A server that swaps the key id
 // in the profile response (to point at an attacker-controlled key)
 // must produce a verification failure at the profile viewer.
 func TestTamperedFingerprintBreaksUserSignature(t *testing.T) {
@@ -307,9 +307,9 @@ func TestUserPayloadRejectsCrossTypeConfusion(t *testing.T) {
 	// on the server side). The bytes cannot match because `type` differs
 	// (identity-user vs identity-server).
 	fakeServerPayload := signing.BytesToSign(map[string]string{
-		"type":        "identity-server",
-		"username":    "alice",
-		"fingerprint": userKP.Fingerprint,
+		"type":     "identity-server",
+		"username": "alice",
+		"keyID":    userKP.Fingerprint,
 	}, "")
 	if err := verifyB64(t, cryptoSvc, userKP.PublicKey, userSig, fakeServerPayload); err == nil {
 		t.Fatal("user signature must not verify against a server-typed payload")
@@ -462,7 +462,7 @@ func TestReedRemovalTamperFails(t *testing.T) {
 func TestReedLikeUserPayloadCanonicalShape(t *testing.T) {
 	got := BuildReedLikeUserPayload("authorABC@Server01/0v4reed", "AA11BB")
 	want := "---\n" +
-		"fingerprint: AA11BB\n" +
+		"keyID: AA11BB\n" +
 		"reedID: authorABC@Server01/0v4reed\n" +
 		"type: reed_like\n" +
 		"---\n"
@@ -647,7 +647,7 @@ func TestFederationInvitationPayloadCanonicalShape(t *testing.T) {
 func TestRippleUserPayloadCanonicalShape(t *testing.T) {
 	got := BuildRippleUserPayload("0v4reed", "commenterXYZ", "AA11BB", "3fa85f64-5717-4562-b3fc-2c963f66afa6", "", "nice post!")
 	want := "---\n" +
-		"fingerprint: AA11BB\n" +
+		"keyID: AA11BB\n" +
 		"reedID: 0v4reed\n" +
 		"rippleAuthorID: commenterXYZ\n" +
 		"threadID: 3fa85f64-5717-4562-b3fc-2c963f66afa6\n" +
@@ -661,7 +661,7 @@ func TestRippleUserPayloadCanonicalShape(t *testing.T) {
 func TestRippleUserPayloadWithReplyingTo(t *testing.T) {
 	got := BuildRippleUserPayload("0v4reed", "commenterXYZ", "AA11BB", "3fa85f64-5717-4562-b3fc-2c963f66afa6", "abc123hash", "agreed")
 	want := "---\n" +
-		"fingerprint: AA11BB\n" +
+		"keyID: AA11BB\n" +
 		"reedID: 0v4reed\n" +
 		"replyingTo: abc123hash\n" +
 		"rippleAuthorID: commenterXYZ\n" +
@@ -681,7 +681,7 @@ func TestRippleServerPayloadCanonicalShape(t *testing.T) {
 		"dXNlcnNpZw==", signedAt,
 	)
 	want := "---\n" +
-		"fingerprint: 0011FF\n" +
+		"keyID: 0011FF\n" +
 		"reedID: 0v4reed\n" +
 		"rippleAuthorID: commenterXYZ\n" +
 		"serverID: Server01\n" +

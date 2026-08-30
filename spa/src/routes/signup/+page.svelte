@@ -131,20 +131,20 @@
     return msg || "Unknown error";
   }
 
-  async function cleanupFailedSignup(fingerprint) {
+  async function cleanupFailedSignup(keyId) {
     try {
       localStorage.removeItem("keyPassphrase");
-      localStorage.removeItem("keyFingerprint");
+      localStorage.removeItem("activeKeyId");
       localStorage.removeItem("userId");
     } catch {
       // ignore
     }
-    if (!fingerprint) return;
+    if (!keyId) return;
     try {
       const { privateKeyRepository } = await import(
         "$lib/repositories/privateKey"
       );
-      await privateKeyRepository.deletePrivateKey(fingerprint);
+      await privateKeyRepository.deletePrivateKey(keyId);
     } catch (err) {
       console.error("Failed to clean up private key after signup error", err);
     }
@@ -165,7 +165,7 @@
 
     loading = true;
     currentStep = 0;
-    let fingerprint = "";
+    let keyId = "";
 
     try {
       const { privateKeyRepository } = await import(
@@ -192,12 +192,12 @@
         comment: serverName || undefined,
         password,
       });
-      const canonicalFingerprint = appendFingerprint(canonicalUserId, keyPair.fingerprint);
-      fingerprint = canonicalFingerprint;
+      const newKeyId = appendFingerprint(canonicalUserId, keyPair.fingerprint);
+      keyId = newKeyId;
       authService.setPassphrase(password);
 
       currentStep = 3;
-      await privateKeyRepository.put(canonicalFingerprint, keyPair.privateKey);
+      await privateKeyRepository.put(newKeyId, keyPair.privateKey);
 
       currentStep = 4;
       const signature = btoa(await cryptoService.signMessage(
@@ -212,7 +212,7 @@
       const trimmedUsername = trimInvisibleChars(username);
       const identityPayload = buildNewUserIdentityPayload(
         trimmedUsername,
-        canonicalFingerprint,
+        newKeyId,
       );
       const identitySigArmor = await cryptoService.signMessage(
         identityPayload,
@@ -238,8 +238,8 @@
       // authenticated. Cache the attested public key before the verified
       // user put — verifyUser resolves armor from IndexedDB.
       currentStep = 6;
-      authService.setActiveKey(canonicalFingerprint);
-      await requestSigner.initializeWorker(canonicalFingerprint, password);
+      authService.setActiveKey(newKeyId);
+      await requestSigner.initializeWorker(newKeyId, password);
 
       currentStep = 7;
       // getPublicKey takes an already-canonical GET /keys/{id} id — see
@@ -260,7 +260,7 @@
     } catch (err) {
       loading = false;
       currentStep = 0;
-      await cleanupFailedSignup(fingerprint);
+      await cleanupFailedSignup(keyId);
       const errorMessage =
         "Signup failed: " +
         friendlySignupError(err instanceof Error ? err.message : "");

@@ -156,26 +156,26 @@ export async function encryptAndSaveBackup(
  */
 export async function buildKeyBackupPayload(): Promise<BackupPayload> {
   const userId = localStorage.getItem('userId');
-  const fingerprint = authService.getActiveKeyFingerprint();
-  if (!userId || !fingerprint) {
+  const keyId = authService.getActiveKeyId();
+  if (!userId || !keyId) {
     throw new Error('No active identity to back up.');
   }
 
   const allLocalStorage = localStorageService.getAll();
-  const IDENTITY_KEYS = ['userId', 'keyFingerprint', 'keyPassphrase', 'serverId', 'serverName'];
+  const IDENTITY_KEYS = ['userId', 'activeKeyId', 'keyPassphrase', 'serverId', 'serverName'];
   const localStorageSubset: Record<string, string> = {};
   for (const key of IDENTITY_KEYS) {
     if (allLocalStorage[key] !== undefined) localStorageSubset[key] = allLocalStorage[key];
   }
 
-  const privateKey = await privateKeyRepository.getPrivateKey(fingerprint);
+  const privateKey = await privateKeyRepository.getPrivateKey(keyId);
   if (!privateKey) {
     throw new Error('Active private key not found locally.');
   }
 
-  let publicKey = await publicKeyRepository.getPublicKey(fingerprint);
+  let publicKey = await publicKeyRepository.getPublicKey(keyId);
   if (!publicKey) {
-    publicKey = await apiService.getPublicKey(canonicalKeyId(userId, fingerprint));
+    publicKey = await apiService.getPublicKey(canonicalKeyId(userId, keyId));
   }
 
   return {
@@ -285,18 +285,18 @@ export function extractProfile(backup: BackupPayload): api.User {
 export function assertIdentityBackupKeys(backup: BackupPayload): void {
   const ls = backup.localStorage ?? {};
   const userId = ls['userId'];
-  const keyFingerprint = ls['keyFingerprint'];
+  const activeKeyId = ls['activeKeyId'];
   const keyPassphrase = ls['keyPassphrase'];
   const serverId = ls['serverId'];
 
   const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
   const privateKeyEntry = (privateKeysTable?.items ?? []).find(
-    (k) => k && typeof k === 'object' && backupKeyItemId(k) === keyFingerprint
+    (k) => k && typeof k === 'object' && backupKeyItemId(k) === activeKeyId
   ) as { armor?: string } | undefined;
 
   const publicKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'publicKeys');
   const publicKeyEntry = (publicKeysTable?.items ?? []).find(
-    (k) => k && typeof k === 'object' && backupKeyItemId(k) === keyFingerprint
+    (k) => k && typeof k === 'object' && backupKeyItemId(k) === activeKeyId
   );
 
   const usersTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'users');
@@ -304,7 +304,7 @@ export function assertIdentityBackupKeys(backup: BackupPayload): void {
     throw new Error('Invalid identity backup: profile must not be included.');
   }
 
-  if (!userId || !keyFingerprint || !keyPassphrase || !serverId || !privateKeyEntry?.armor) {
+  if (!userId || !activeKeyId || !keyPassphrase || !serverId || !privateKeyEntry?.armor) {
     throw new Error('Invalid identity backup: missing required key material.');
   }
   if (!publicKeyEntry) {
@@ -356,29 +356,29 @@ export async function writeIdentityKeysBackup(backup: BackupPayload): Promise<vo
 export function assertBackupIdentity(backup: BackupPayload): void {
   const ls = backup.localStorage ?? {};
   const userId = ls['userId'];
-  const keyFingerprint = ls['keyFingerprint'];
+  const activeKeyId = ls['activeKeyId'];
   const keyPassphrase = ls['keyPassphrase'];
 
   const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
   const privateKeyEntry = (privateKeysTable?.items ?? []).find(
-    (k) => k && typeof k === 'object' && backupKeyItemId(k) === keyFingerprint
+    (k) => k && typeof k === 'object' && backupKeyItemId(k) === activeKeyId
   ) as { armor?: string } | undefined;
 
-  if (!userId || !keyFingerprint || !keyPassphrase || !privateKeyEntry?.armor) {
+  if (!userId || !activeKeyId || !keyPassphrase || !privateKeyEntry?.armor) {
     throw new Error('Invalid backup file: missing required identity data.');
   }
 }
 
 /**
  * A backup's privateKeys/publicKeys item can carry either `id` (the Go
- * root-key exporter's identityPrivateKeyItem/Key wire shapes) or
- * `fingerprint` (the SPA's own export, which spreads an IndexedDB-shaped
- * record where `fingerprint` is a keyPath alias of `id` — see
- * verifiers/index.ts's write path). Match either.
+ * root-key exporter's identityPrivateKeyItem/Key wire shapes) or `keyId`
+ * (the SPA's own export, which spreads an IndexedDB-shaped record where
+ * `keyId` is a keyPath alias of `id` — see verifiers/index.ts's write
+ * path). Match either.
  */
 export function backupKeyItemId(item: object): string | undefined {
-  return (item as { id?: string; fingerprint?: string }).id
-    ?? (item as { id?: string; fingerprint?: string }).fingerprint;
+  return (item as { id?: string; keyId?: string }).id
+    ?? (item as { id?: string; keyId?: string }).keyId;
 }
 
 async function restoreItem(storeName: string, item: unknown): Promise<void> {
@@ -414,7 +414,7 @@ async function restoreItem(storeName: string, item: unknown): Promise<void> {
       return;
     case 'privateKeys': {
       const key = item as PrivateKey;
-      const id = backupKeyItemId(key as unknown as object) ?? key.fingerprint;
+      const id = backupKeyItemId(key as unknown as object) ?? key.keyId;
       await privateKeyRepository.put(id, atob(key.armor));
       if (key.revoked) {
         await privateKeyRepository.setRevoked(id);

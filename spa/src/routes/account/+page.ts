@@ -18,7 +18,7 @@ export async function load({ parent }) {
     userInfoRepository.get(user.id).catch(() => null),
   ]);
 
-  const activeKeyMintedAt = await privateKeyRepository.getMintedAt(keyInfo.fingerprint);
+  const activeKeyMintedAt = await privateKeyRepository.getMintedAt(keyInfo.keyId);
 
   // Read ahead of render so the "last backup" / stale-backup line has its
   // answer the moment the page paints, instead of the onMount-driven flash

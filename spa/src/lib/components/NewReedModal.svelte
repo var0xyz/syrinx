@@ -66,9 +66,9 @@
   $: if (open) checkPendingRevocation();
 
   async function checkPendingRevocation() {
-    const fingerprint = authService.getActiveKeyFingerprint();
-    if (!fingerprint) return;
-    hasPendingRevocation = !!(await pendingRevocationRepository.get(fingerprint));
+    const keyId = authService.getActiveKeyId();
+    if (!keyId) return;
+    hasPendingRevocation = !!(await pendingRevocationRepository.get(keyId));
   }
 
   $: title = pinnedReply ? 'Reply Reed' : pinnedEcho ? 'Echo Reed' : 'New Reed';
@@ -123,9 +123,9 @@
         return;
       }
 
-      const activeKeyFingerprint = authService.getActiveKeyFingerprint();
-      if (!activeKeyFingerprint) {
-        errorMessage = 'No active key fingerprint found.';
+      const activeKeyId = authService.getActiveKeyId();
+      if (!activeKeyId) {
+        errorMessage = 'No active key id found.';
         return;
       }
 
@@ -148,8 +148,8 @@
         return;
       }
 
-      const fingerprint = authService.getActiveKeyFingerprint();
-      const keyData = await privateKeyRepository.getPrivateKey(fingerprint);
+      const keyId = authService.getActiveKeyId();
+      const keyData = await privateKeyRepository.getPrivateKey(keyId);
       if (!keyData) throw new Error('Private key not found. Please import your key.');
 
       const passphrase = authService.getPassphrase();
@@ -165,7 +165,7 @@
         reed.echoing = pinnedEcho.id;
       }
       const detachedArmor = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
-      reed.setUserSignature(fingerprint, detachedArmor);
+      reed.setUserSignature(keyId, detachedArmor);
       const { publish } = await reedsService.createReed(reed);
       const href = `/reed/${reed.id}`;
       // Keep the modal open (covering the feed/detail page underneath) until

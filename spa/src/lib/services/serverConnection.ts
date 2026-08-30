@@ -152,16 +152,16 @@ class ServerConnection {
       }
 
       if (!requestSigner.isInitialized()) {
-        const fingerprint = authService.getActiveKeyFingerprint();
+        const keyId = authService.getActiveKeyId();
         const passphrase = authService.getPassphrase();
 
-        if (!fingerprint || !passphrase) {
+        if (!keyId || !passphrase) {
           console.log('ServerConnection: request signer not ready, skipping connection');
           return;
         }
 
         try {
-          await requestSigner.initializeWorker(fingerprint, passphrase);
+          await requestSigner.initializeWorker(keyId, passphrase);
         } catch (error) {
           console.error('ServerConnection: failed to initialize request signer:', error);
           return;
@@ -179,11 +179,11 @@ class ServerConnection {
 
       const timestamp = Math.floor(Date.now() / 1000).toString();
       const signature = await requestSigner.sign(timestamp);
-      const canonicalFingerprint = authService.getActiveKeyFingerprint()!;
+      const activeKeyId = authService.getActiveKeyId()!;
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const url = new URL(`${protocol}//${window.location.host}/ws/`);
-      url.searchParams.set('publicKeyId', canonicalFingerprint);
+      url.searchParams.set('publicKeyId', activeKeyId);
       url.searchParams.set('timestamp', timestamp);
       url.searchParams.set('signature', signature);
       url.searchParams.set('deviceId', ensureDeviceId());

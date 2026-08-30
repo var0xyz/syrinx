@@ -55,7 +55,7 @@ function assertServerMatch(backup: BackupPayload): void {
 
 async function fetchBootstrap(
   userId: string,
-  fingerprint: string,
+  keyId: string,
   privateKeyArmor: string,
   passphrase: string
 ): Promise<api.AccountRecoveryBootstrapResponse> {
@@ -71,7 +71,7 @@ async function fetchBootstrap(
     return await apiService.bootstrapAccountRecovery({
       challenge,
       userID: userId,
-      keyID: fingerprint,
+      keyID: keyId,
       signature,
     });
   } catch (err) {
@@ -90,19 +90,19 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
 
   const ls = backup.localStorage ?? {};
   const userId = ls['userId']!;
-  const fingerprint = ls['keyFingerprint']!;
+  const keyId = ls['activeKeyId']!;
   const passphrase = ls['keyPassphrase']!;
 
   const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
   const privateKeyEntry = (privateKeysTable?.items ?? []).find(
-    (k) => k && typeof k === 'object' && backupKeyItemId(k) === fingerprint
+    (k) => k && typeof k === 'object' && backupKeyItemId(k) === keyId
   ) as { armor?: string } | undefined;
 
   if (!privateKeyEntry?.armor) {
     throw new Error('Invalid identity backup: missing private key armor.');
   }
 
-  const bootstrap = await fetchBootstrap(userId, fingerprint, atob(privateKeyEntry.armor), passphrase);
+  const bootstrap = await fetchBootstrap(userId, keyId, atob(privateKeyEntry.armor), passphrase);
 
   await writeIdentityKeysBackup(backup);
   // Restoring from a backup means the user already has one by definition —
@@ -111,7 +111,7 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
   localStorage.setItem('lastKeyBackupAt', String(Date.now()));
 
   await authService.saveUserToStorage(bootstrap.profile);
-  authService.setActiveKey(fingerprint);
+  authService.setActiveKey(keyId);
 
   for (const followId of bootstrap.following) {
     await followingRepository.recordLocalFollow(followId);
@@ -123,7 +123,7 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
     localStorage.removeItem('publishTipReedID');
   }
 
-  await requestSigner.initializeWorker(fingerprint, passphrase);
+  await requestSigner.initializeWorker(keyId, passphrase);
 
   if (get(serverInfo)?.id ?? localStorage.getItem('serverId')) {
     const skip = new Set<string>();

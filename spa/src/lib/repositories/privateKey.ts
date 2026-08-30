@@ -8,7 +8,7 @@ import { allowUnsigned } from '$lib/verifiers';
  * so we do not keep treating this material as an active signing key.
  */
 export interface PrivateKey {
-  fingerprint: string;
+  keyId: string;
   armor: string;
   createdAt: Date;
   revoked: boolean;
@@ -17,10 +17,10 @@ export interface PrivateKey {
 export class PrivateKeyRepository {
   private db = dbService;
 
-  async put(fingerprint: string, armor: string): Promise<void> {
+  async put(keyId: string, armor: string): Promise<void> {
     const now = new Date();
     const keyData: PrivateKey = {
-      fingerprint,
+      keyId,
       armor: armor.trim(),
       createdAt: now,
       revoked: false,
@@ -29,29 +29,29 @@ export class PrivateKeyRepository {
     await this.db.put('privateKeys', keyData, allowUnsigned);
   }
 
-  async getPrivateKey(fingerprint: string): Promise<PrivateKey | null> {
-    return await this.db.get<PrivateKey>('privateKeys', fingerprint);
+  async getPrivateKey(keyId: string): Promise<PrivateKey | null> {
+    return await this.db.get<PrivateKey>('privateKeys', keyId);
   }
 
   /** When this key was minted (put into IndexedDB) — `__meta__.created`, in ms. */
-  async getMintedAt(fingerprint: string): Promise<number | null> {
-    const meta = await this.db.getMeta('privateKeys', fingerprint);
+  async getMintedAt(keyId: string): Promise<number | null> {
+    const meta = await this.db.getMeta('privateKeys', keyId);
     return meta?.created ?? null;
   }
 
-  async hasPrivateKey(fingerprint: string): Promise<boolean> {
-    const keyData = await this.getPrivateKey(fingerprint);
+  async hasPrivateKey(keyId: string): Promise<boolean> {
+    const keyData = await this.getPrivateKey(keyId);
     return !!keyData;
   }
 
-  async deletePrivateKey(fingerprint: string): Promise<void> {
-    await this.db.delete('privateKeys', fingerprint);
+  async deletePrivateKey(keyId: string): Promise<void> {
+    await this.db.delete('privateKeys', keyId);
   }
 
   /** Mark local private-key material as revoked (boolean flag only). */
-  async setRevoked(fingerprint: string): Promise<void> {
-    const existing = await this.getPrivateKey(fingerprint);
-    if (!existing) throw new Error(`Private key not found: ${fingerprint}`);
+  async setRevoked(keyId: string): Promise<void> {
+    const existing = await this.getPrivateKey(keyId);
+    if (!existing) throw new Error(`Private key not found: ${keyId}`);
     await this.db.put('privateKeys', { ...existing, revoked: true }, allowUnsigned);
   }
 

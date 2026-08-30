@@ -58,10 +58,10 @@
       const user = await authService.getCurrentUser();
       if (!user) throw new Error('No user ID found. Please log in.');
 
-      const fingerprint = authService.getActiveKeyFingerprint();
-      if (!fingerprint) throw new Error('No active key fingerprint found.');
+      const keyId = authService.getActiveKeyId();
+      if (!keyId) throw new Error('No active key id found.');
 
-      const keyData = await privateKeyRepository.getPrivateKey(fingerprint);
+      const keyData = await privateKeyRepository.getPrivateKey(keyId);
       if (!keyData) throw new Error('Private key not found. Please import your key.');
 
       const passphrase = authService.getPassphrase();
@@ -73,7 +73,7 @@
       const userPayload = buildRippleUserPayload(
         reedID,
         user.id,
-        fingerprint,
+        keyId,
         threadID,
         replyingToHash ?? '',
         content
@@ -86,7 +86,7 @@
         threadID,
         replyingTo: replyingToHash,
         proof: serverSignatureArmor,
-        keyID: fingerprint,
+        keyID: keyId,
         userSignature,
       });
 
