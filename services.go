@@ -3487,27 +3487,32 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 // requests (specs/federation/04): serverID must be an established
 // (self=FALSE), non-revoked peer, and the caller's claimed fingerprint must
 // match the one pinned at approval (see ApproveFederationAttempt, which
-// points servers.key_id at the promoted public_keys row). Returns
-// ok=false — not an error — for "not peered," "revoked," or "fingerprint
-// doesn't match": callers should respond 401 in all three cases without
-// distinguishing why (don't help an attacker enumerate which check failed).
-func (s *DataService) VerifyFederationPeer(ctx context.Context, serverID, fingerprint string) (ok bool, err error) {
-	var pinnedKeyID sql.NullString
+// points servers.key_id at the promoted public_keys row). On success also
+// returns that row's armor, so callers can verify the request signature
+// without a live fetch to the peer. Returns ok=false — not an error — for
+// "not peered," "revoked," or "fingerprint doesn't match": callers should
+// respond 401 in all three cases without distinguishing why (don't help an
+// attacker enumerate which check failed).
+func (s *DataService) VerifyFederationPeer(ctx context.Context, serverID, fingerprint string) (ok bool, armor string, err error) {
+	var pinnedKeyID, keyArmor sql.NullString
 	var revokedAt sql.NullTime
 	err = s.db.QueryRowContext(ctx, `
-		SELECT key_id, revoked_at FROM servers WHERE id = $1 AND self = FALSE
-	`, serverID).Scan(&pinnedKeyID, &revokedAt)
+		SELECT sv.key_id, sv.revoked_at, pk.armor
+		FROM servers sv
+		LEFT JOIN public_keys pk ON pk.id = sv.key_id
+		WHERE sv.id = $1 AND sv.self = FALSE
+	`, serverID).Scan(&pinnedKeyID, &revokedAt, &keyArmor)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+		return false, "", nil
 	}
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	keyID := string(identity.CanonicalID(serverID, fingerprint))
-	if revokedAt.Valid || !pinnedKeyID.Valid || pinnedKeyID.String != keyID {
-		return false, nil
+	if revokedAt.Valid || !pinnedKeyID.Valid || pinnedKeyID.String != keyID || !keyArmor.Valid {
+		return false, "", nil
 	}
-	return true, nil
+	return true, keyArmor.String, nil
 }
 
 // PeerServer is a known, approved, non-revoked federation peer, resolved

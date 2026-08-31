@@ -272,30 +272,16 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// authenticateAsPeer verifies a request signed by a peer's own key,
-// fetched live since peer keys aren't stored locally.
+// authenticateAsPeer verifies a request signed by a peer's own key, read
+// from the local public_keys row promoted at approval time (see
+// ApproveFederationAttempt) — no live fetch to the peer needed.
 func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, next http.Handler, fingerprint, callerServerID, signatureHeader string) {
-	ok, err := h.services.db.VerifyFederationPeer(r.Context(), callerServerID, fingerprint)
+	ok, publicKeyArmor, err := h.services.db.VerifyFederationPeer(r.Context(), callerServerID, fingerprint)
 	if err != nil {
 		internalServerError(w)
 		return
 	}
 	if !ok {
-		writeResponse(w, http.StatusForbidden, "Not an established peer")
-		return
-	}
-
-	peer, err := h.services.db.GetServerByID(r.Context(), callerServerID)
-	if err != nil {
-		internalServerError(w)
-		return
-	}
-	if peer == nil {
-		writeResponse(w, http.StatusForbidden, "Not an established peer")
-		return
-	}
-	publicKeyArmor, err := h.fetchPeerServerKeyArmor(r.Context(), peer.BaseURL, callerServerID, fingerprint)
-	if err != nil || publicKeyArmor == "" {
 		writeResponse(w, http.StatusForbidden, "Not an established peer")
 		return
 	}
