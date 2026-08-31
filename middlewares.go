@@ -463,7 +463,32 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			if userID != "" {
 				ctx = context.WithValue(ctx, userIDKey, userID)
 			} else {
-				ctx = context.WithValue(ctx, peerServerIDKey, h.services.db.GetServerID())
+				// No owner means this key was promoted from a peer handshake
+				// (ApproveFederationAttempt) rather than a local user's own —
+				// its id is "{fingerprint}@{peerServerID}", so recover the
+				// caller's server id from it instead of assuming self.
+				fingerprint, callerServerID, ok := identity.ParseIdentityID(identity.IdentityID(publicKeyIDHeader))
+				if !ok {
+					log.Error().
+						Str("publicKeyId", publicKeyIDHeader).
+						Msg("Owner-less key id not parseable as peer key")
+					internalServerError(w)
+					return
+				}
+				// The key row itself only tracks per-key revocation
+				// (checked above); disconnecting a peer revokes the servers
+				// row instead, so that must be checked here too or a
+				// disconnected peer's still-unrevoked key keeps working.
+				peerOK, _, err := h.services.db.VerifyFederationPeer(r.Context(), callerServerID, fingerprint)
+				if err != nil {
+					internalServerError(w)
+					return
+				}
+				if !peerOK {
+					writeResponse(w, http.StatusForbidden, "Not an established peer")
+					return
+				}
+				ctx = context.WithValue(ctx, peerServerIDKey, callerServerID)
 			}
 			r = r.WithContext(ctx)
 
