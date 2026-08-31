@@ -285,6 +285,32 @@ class ReedsService {
     }
   }
 
+  /**
+   * One page of an author's published reeds, newest first, resuming
+   * after afterId (a reed id from the previous page's last item). Unlike
+   * getReedsByAuthor, this never loads the author's full reed set —
+   * see specs/pagination/05_reeds_list_client_cursor.md.
+   */
+  async getReedsByAuthorPage(
+    authorId: string,
+    limit: number,
+    afterId?: string
+  ): Promise<{ reeds: ReedType[]; hasMore: boolean }> {
+    try {
+      const { items, hasMore } = await dbService.getPageFromIndex<ReedType>(
+        'reeds',
+        'userID',
+        authorId,
+        limit,
+        afterId
+      );
+      return { reeds: items, hasMore };
+    } catch (error) {
+      console.error('Failed to get reeds page by author:', error);
+      return { reeds: [], hasMore: false };
+    }
+  }
+
   /** Pending reeds for this author (local unsigned store only). */
   async getUnsignedReedsByAuthor(authorId: string): Promise<ReedType[]> {
     try {

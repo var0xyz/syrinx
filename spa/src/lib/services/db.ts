@@ -39,6 +39,7 @@ export interface DbService {
   getAllSortedByIndex<T>(storeName: string, indexName: string): Promise<T[]>;
   getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean): Promise<T[]>;
   getAllByIndex<T>(storeName: string, indexName: string, key: string): Promise<T[]>;
+  getPageFromIndex<T>(storeName: string, indexName: string, key: string, limit: number, afterKey?: DbKey): Promise<{ items: T[]; hasMore: boolean }>;
   clear(storeName: string): Promise<void>;
 }
 
@@ -287,6 +288,66 @@ export class IndexedDbService implements DbService {
         if (!filter || filter(item)) {
           results.push(item);
         }
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Windowed read of one index key's entries, newest primary-key first,
+   * resuming after `afterKey` (the primary key of the last item from a
+   * prior page, or undefined for the first page) via
+   * continuePrimaryKey — a true O(1) jump to that position, not a
+   * re-walk from the start. Relies on the spec guarantee that entries
+   * sharing one non-unique index key are ordered by primary key, so no
+   * compound index is needed to scope+order in one pass.
+   */
+  async getPageFromIndex<T>(
+    storeName: string,
+    indexName: string,
+    key: string,
+    limit: number,
+    afterKey?: DbKey,
+  ): Promise<{ items: T[]; hasMore: boolean }> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([storeName], 'readonly');
+      const store = transaction.objectStore(storeName);
+      const index = store.index(indexName);
+      const range = IDBKeyRange.only(key);
+      const request = index.openCursor(range, 'prev');
+      const items: T[] = [];
+      // continuePrimaryKey lands ON afterKey itself (the last item the
+      // caller already has), not past it — one extra state tracks that
+      // single skip so it isn't re-added to this page.
+      let resumed = afterKey === undefined;
+      let skipNext = afterKey !== undefined;
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve({ items, hasMore: false });
+          return;
+        }
+        if (!resumed) {
+          resumed = true;
+          cursor.continuePrimaryKey(key, afterKey as IDBValidKey);
+          return;
+        }
+        if (skipNext) {
+          skipNext = false;
+          cursor.continue();
+          return;
+        }
+        if (items.length >= limit) {
+          resolve({ items, hasMore: true });
+          return;
+        }
+        const { __meta__, ...data } = cursor.value;
+        items.push(data as T);
         cursor.continue();
       };
       request.onerror = () => reject(request.error);

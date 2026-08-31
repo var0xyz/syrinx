@@ -36,12 +36,15 @@
   export let scrollRestoreY = /** @type {number | null} */ (null);
 
   const dispatch = createEventDispatcher();
+  const REEDS_PAGE_LIMIT = 50;
 
   let isWriteSectionOpen = false;
   let showNewReedBanner = false;
   let reeds = [];
   /** @type {import('$lib/types/reed').ReedType[]} */
   let pendingReeds = [];
+  let hasMoreReeds = false;
+  let loadingMoreReeds = false;
   let profileUser = null;
   let loadingReeds = true;
   let errorLoadingReeds = '';
@@ -215,11 +218,12 @@
     }
   }
 
-  /** Resolves echo/reply quote targets for reedList: walks blank-echo
+  /** Resolves echo/reply quote targets for items: walks blank-echo
    * chains so unwrap can reach real content, and requests missing echo
    * targets over the relay. Returns fresh maps — callers merge them into
-   * the persistent echoedReeds/echoedReedUsers/repliedToReeds. */
-  async function prefetchQuoteTargets(reedList) {
+   * the persistent echoedReeds/echoedReedUsers/repliedToReeds, so a later
+   * page's resolution never drops what an earlier one already resolved. */
+  async function prefetchQuoteTargets(items) {
     const echoMap = new Map();
     const seenEchoKeys = new Set();
     /** @type {string[]} */
@@ -232,7 +236,7 @@
       echoFrontier.push(key);
     }
 
-    for (const r of reedList) {
+    for (const r of items) {
       if (r.echoing) enqueueEchoKey(r.echoing);
     }
 
@@ -253,7 +257,7 @@
           return;
         }
         if (
-          reedList.some((r) => r.echoing === key && isBlankEcho(r)) &&
+          items.some((r) => r.echoing === key && isBlankEcho(r)) &&
           !pendingEchoRequests.has(key)
         ) {
           pendingEchoRequests.add(key);
@@ -268,7 +272,7 @@
 
     // Authors for blank-echo identity swap (final unwrapped reed).
     const displayAuthors = new Set();
-    for (const r of reedList) {
+    for (const r of items) {
       if (!isBlankEcho(r)) continue;
       const display = resolveBlankEchoFromMap(r, echoMap);
       if (display.id !== r.id) displayAuthors.add(display.userID);
@@ -285,7 +289,7 @@
 
     // Prefetch replied-to reeds for list items and blank-unwrapped targets.
     const replyKeys = new Set();
-    for (const r of reedList) {
+    for (const r of items) {
       const display = resolveBlankEchoFromMap(r, echoMap);
       if (display.replying) replyKeys.add(display.replying);
     }
@@ -307,6 +311,17 @@
     return { echoMap, userMap, replyMap };
   }
 
+  /** Merges prefetchQuoteTargets' fresh maps into the persistent
+   * echoedReeds/echoedReedUsers/repliedToReeds stores rather than
+   * replacing them, so one caller's resolution never drops what another
+   * (loadPinned, loadReeds, loadMore) already resolved. */
+  async function resolveEchoesAndReplies(items) {
+    const { echoMap, userMap, replyMap } = await prefetchQuoteTargets(items);
+    if (echoMap.size) echoedReeds = new Map([...echoedReeds, ...echoMap]);
+    if (userMap.size) echoedReedUsers = new Map([...echoedReedUsers, ...userMap]);
+    if (replyMap.size) repliedToReeds = new Map([...repliedToReeds, ...replyMap]);
+  }
+
   async function loadReeds() {
     try {
       loadingReeds = true;
@@ -320,7 +335,12 @@
       // otherwise linger even once the content it was pointing at is on
       // screen, only clearing via its own manual dismiss/show buttons.
       showNewReedBanner = false;
-      reeds = await reedsService.getReedsByAuthor(authorId);
+      echoedReeds = new Map();
+      echoedReedUsers = new Map();
+      repliedToReeds = new Map();
+      const page = await reedsService.getReedsByAuthorPage(authorId, REEDS_PAGE_LIMIT);
+      reeds = page.reeds;
+      hasMoreReeds = page.hasMore;
       pendingReeds = isOwner
         ? await reedsService.getUnsignedReedsByAuthor(authorId)
         : [];
@@ -339,6 +359,22 @@
         appliedScrollRestore = true;
         await restoreWindowScroll(scrollRestoreY);
       }
+    }
+  }
+
+  async function loadMore() {
+    if (!hasMoreReeds || loadingMoreReeds || reeds.length === 0) return;
+    loadingMoreReeds = true;
+    try {
+      const afterId = reeds[reeds.length - 1].id;
+      const page = await reedsService.getReedsByAuthorPage(authorId, REEDS_PAGE_LIMIT, afterId);
+      reeds = [...reeds, ...page.reeds];
+      hasMoreReeds = page.hasMore;
+      await resolveEchoesAndReplies(page.reeds);
+    } catch (error) {
+      console.error('Error loading more reeds:', error);
+    } finally {
+      loadingMoreReeds = false;
     }
   }
 
@@ -492,6 +528,11 @@
         />
       {/if}
     {/each}
+    {#if hasMoreReeds}
+      <button type="button" class="load-more-btn" on:click={loadMore} disabled={loadingMoreReeds}>
+        {loadingMoreReeds ? 'Loading…' : 'Load more'}
+      </button>
+    {/if}
   {/if}
 </div>
 
@@ -576,6 +617,25 @@
     /* Clears the floating write button (bottom: 80px, 56px tall) so it
        doesn't cover the last reed. */
     padding-bottom: 156px;
+  }
+
+  .load-more-btn {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.5rem;
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .load-more-btn:hover:not(:disabled) {
+    background: var(--input-bg);
+  }
+
+  .load-more-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 
   .reed-item {
