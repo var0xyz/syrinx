@@ -68,7 +68,6 @@ func ensureRipplesSchema(db *sql.DB) error {
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			username VARCHAR(255) UNIQUE NOT NULL,
-			user_fingerprint VARCHAR(255),
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
@@ -92,7 +91,6 @@ func ensureRipplesSchema(db *sql.DB) error {
 		`CREATE TABLE reeds (
 			id VARCHAR(255) PRIMARY KEY,
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
-			private_key_id VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
@@ -137,7 +135,6 @@ func ensureRipplesSchema(db *sql.DB) error {
 			deleted BOOLEAN NOT NULL DEFAULT FALSE,
 			posted_at TIMESTAMP NOT NULL,
 
-			user_fingerprint VARCHAR(255) NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
@@ -173,15 +170,15 @@ func insertRipplesTestUser(t *testing.T, db *sql.DB, userID, username string) {
 		t.Fatalf("insert user_signatures for %s: %v", userID, err)
 	}
 	if err := db.QueryRow(
-		`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
 		"server-fp-"+userID,
 	).Scan(&serverSigID); err != nil {
 		t.Fatalf("insert server_signatures for %s: %v", userID, err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO users (id, username, user_fingerprint, user_signature_id, server_signature_id)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		identityID, username, "fp-"+userID, userSigID, serverSigID,
+		`INSERT INTO users (id, username, user_signature_id, server_signature_id)
+		 VALUES ($1, $2, $3, $4)`,
+		identityID, username, userSigID, serverSigID,
 	); err != nil {
 		t.Fatalf("insert user %s: %v", userID, err)
 	}
@@ -207,15 +204,15 @@ func insertRipplesTestReed(t *testing.T, db *sql.DB, authorID, bareReedID string
 		t.Fatalf("insert user_signatures for reed %s: %v", reedID, err)
 	}
 	if err := db.QueryRow(
-		`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
 		"reed-server-fp-"+reedID,
 	).Scan(&serverSigID); err != nil {
 		t.Fatalf("insert server_signatures for reed %s: %v", reedID, err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO reeds (id, user_id, private_key_id, signed_at, user_signature_id, server_signature_id)
-		 VALUES ($1, $2, $3, now(), $4, $5)`,
-		reedID, identityID, "fp-"+authorID+"@testserver", userSigID, serverSigID,
+		`INSERT INTO reeds (id, user_id, signed_at, user_signature_id, server_signature_id)
+		 VALUES ($1, $2, now(), $3, $4)`,
+		reedID, identityID, userSigID, serverSigID,
 	); err != nil {
 		t.Fatalf("insert reed %s: %v", reedID, err)
 	}
@@ -250,7 +247,7 @@ func insertReedRemoval(t *testing.T, db *sql.DB, authorID, bareReedID string) {
 		t.Fatalf("insert user_signatures for reed removal of %s: %v", reedID, err)
 	}
 	if err := db.QueryRow(
-		`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
 		"reed-removal-server-fp-"+reedID,
 	).Scan(&serverSigID); err != nil {
 		t.Fatalf("insert server_signatures for reed removal of %s: %v", reedID, err)
@@ -276,7 +273,7 @@ func insertAccountRemoval(t *testing.T, db *sql.DB, userID string) {
 		t.Fatalf("insert user_signatures for removal of %s: %v", userID, err)
 	}
 	if err := db.QueryRow(
-		`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
 		"removal-server-fp-"+userID,
 	).Scan(&serverSigID); err != nil {
 		t.Fatalf("insert server_signatures for removal of %s: %v", userID, err)
@@ -316,7 +313,7 @@ func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 	canonicalFP := string(identity.AppendEntity(identityID, kp.Fingerprint))
 	var serverSigID int
 	if err := db.QueryRow(
-		`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
 		"key-server-fp-"+kp.Fingerprint,
 	).Scan(&serverSigID); err != nil {
 		t.Fatalf("insert server_signatures for key %s: %v", kp.Fingerprint, err)

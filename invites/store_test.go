@@ -127,7 +127,6 @@ func ensureInviteSchema(db *sql.DB) error {
 			role VARCHAR(16) NOT NULL DEFAULT 'user'
 				CHECK (role IN ('root', 'admin', 'user')),
 			bio TEXT,
-			user_fingerprint VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
@@ -170,7 +169,7 @@ func seedUserWithRole(t *testing.T, db *sql.DB, userID, username, role string) {
 		t.Fatalf("user sig: %v", err)
 	}
 	err = db.QueryRow(`
-		INSERT INTO server_signatures (fingerprint, signature, signed_at)
+		INSERT INTO server_signatures (private_key_id, signature, signed_at)
 		VALUES ('seed-sfp', 's', NOW()) RETURNING id
 	`).Scan(&serverSigID)
 	if err != nil {

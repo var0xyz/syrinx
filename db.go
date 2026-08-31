@@ -223,28 +223,6 @@ func InitDB(db *sql.DB) error {
 		ON identities(server_id);
 	`
 
-	// users is a satellite of identities — profile fields only. id IS
-	// identities.id directly. user_fingerprint is the denormalized
-	// active-key hint; the signing key lives on user_signatures.
-	createUsersTable := `
-	CREATE TABLE IF NOT EXISTS users (
-		id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
-		username VARCHAR(255) UNIQUE,
-		role VARCHAR(16) NOT NULL DEFAULT 'user'
-			CHECK (role IN ('root', 'admin', 'user')),
-		bio TEXT,
-		user_fingerprint VARCHAR(255),
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		user_signature_id INT REFERENCES user_signatures(id),
-		server_signature_id INT REFERENCES server_signatures(id),
-		invited_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL
-	);`
-
-	createUserIndexes := `
-	CREATE UNIQUE INDEX IF NOT EXISTS idx_lower_users_username
-		ON users(LOWER(username));
-	`
-
 	// Server-owned private keys. Unaffected by the public_keys unification
 	// below — private key material never leaves this table, regardless of
 	// whose key it is (a user's private key never touches the server at all).
@@ -273,6 +251,29 @@ func InitDB(db *sql.DB) error {
 	createPublicKeyIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_public_keys_owner
 		ON public_keys(owner) WHERE owner IS NOT NULL;
+	`
+
+	// users is a satellite of identities — profile fields only. id IS
+	// identities.id directly. active_key_id points at this user's current
+	// unrevoked key (public_keys.id); created after public_keys so the FK
+	// can be declared inline.
+	createUsersTable := `
+	CREATE TABLE IF NOT EXISTS users (
+		id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
+		username VARCHAR(255) UNIQUE,
+		role VARCHAR(16) NOT NULL DEFAULT 'user'
+			CHECK (role IN ('root', 'admin', 'user')),
+		bio TEXT,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		active_key_id VARCHAR(255) REFERENCES public_keys(id),
+		user_signature_id INT REFERENCES user_signatures(id),
+		server_signature_id INT REFERENCES server_signatures(id),
+		invited_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL
+	);`
+
+	createUserIndexes := `
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_lower_users_username
+		ON users(LOWER(username));
 	`
 
 	// A row's existence means the key is revoked. successor and
@@ -451,7 +452,6 @@ func InitDB(db *sql.DB) error {
 		deleted BOOLEAN NOT NULL DEFAULT FALSE,
 		posted_at TIMESTAMP NOT NULL,
 
-		user_fingerprint VARCHAR(255) NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
@@ -1085,13 +1085,13 @@ func InitDB(db *sql.DB) error {
 		createIdentitiesTable,
 		createIdentitiesIndexes,
 
-		createUsersTable,
-		createUserIndexes,
-
 		createPrivateKeysTable,
 
 		createPublicKeysTable,
 		createPublicKeyIndexes,
+
+		createUsersTable,
+		createUserIndexes,
 
 		createPublicKeyRevocationsTable,
 

@@ -560,27 +560,6 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	}
 	signupRole := roles.SignupRole(in.UserID, inviteGrantedRole, in.Invite != nil, s.serverID)
 
-	// created_at is set explicitly to memberSince — the value that was
-	// signed by the server. Using the DB's DEFAULT would create a
-	// race between what was signed and what is persisted, and would
-	// silently truncate to whatever precision Postgres chooses.
-	// users.id IS identities.id now (no separate identity_id column) —
-	// insert selfIdentity as the PK directly.
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO users (
-			id, username, role, created_at, user_fingerprint,
-			user_signature_id, server_signature_id, invited_by
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`,
-		selfIdentity, in.Username, signupRole, in.MemberSince, in.Fingerprint,
-		userSignatureID, serverSignatureID, invitedBy,
-	); err != nil {
-		if isUsernameUniqueViolation(err) {
-			return nil, ErrUsernameTaken
-		}
-		return nil, err
-	}
-
 	keyServerSigID, err := signing.InsertServerSignature(ctx, tx,
 		in.PublicKeySignature.ID,
 		in.PublicKeySignature.Armor,
@@ -597,6 +576,28 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 		) VALUES ($1, $2, $3, $4, $5)
 	`, in.Fingerprint, selfIdentity, in.PublicKeyArmor, in.KeyCreatedAt,
 		keyServerSigID); err != nil {
+		return nil, err
+	}
+
+	// created_at is set explicitly to memberSince — the value that was
+	// signed by the server. Using the DB's DEFAULT would create a
+	// race between what was signed and what is persisted, and would
+	// silently truncate to whatever precision Postgres chooses.
+	// users.id IS identities.id now (no separate identity_id column) —
+	// insert selfIdentity as the PK directly. active_key_id references
+	// the public_keys row just inserted above.
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO users (
+			id, username, role, created_at, active_key_id,
+			user_signature_id, server_signature_id, invited_by
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`,
+		selfIdentity, in.Username, signupRole, in.MemberSince, in.Fingerprint,
+		userSignatureID, serverSignatureID, invitedBy,
+	); err != nil {
+		if isUsernameUniqueViolation(err) {
+			return nil, ErrUsernameTaken
+		}
 		return nil, err
 	}
 
@@ -707,14 +708,14 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 	selfIdentity := userID
 
 	var info UserInfo
-	var activeFP sql.NullString
+	var activeKeyID sql.NullString
 
 	// reeds.user_id, user_followers.user_id, and user_following.user_id all
 	// FK to identities(id), and u.id is that same form directly (identity_id
 	// no longer exists as a separate column), so this is a plain u.id join.
 	err := s.db.QueryRowContext(ctx, `
 		SELECT u.id,
-		       u.user_fingerprint,
+		       u.active_key_id,
 		       ss.signed_at,
 		       EXISTS (
 		           SELECT 1 FROM reeds r
@@ -738,7 +739,7 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 		WHERE u.id = $1
 	`, selfIdentity).Scan(
 		&info.ID,
-		&activeFP,
+		&activeKeyID,
 		&info.ProfileTimestamp,
 		&info.HasReeds,
 		&info.FollowersCount,
@@ -750,29 +751,32 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 		}
 		return nil, err
 	}
-	if activeFP.Valid {
-		info.ActiveKeyID = activeFP.String
+	if activeKeyID.Valid {
+		info.ActiveKeyID = activeKeyID.String
 	}
 	return &info, nil
 }
 
-// GetActiveKeyFingerprint returns users.user_fingerprint for internal
-// signing checks (update/delete/reed paths). userID arrives in
-// userID@serverID form already.
+// GetActiveKeyFingerprint returns users.active_key_id for internal signing
+// checks (update/delete/reed paths). userID arrives in userID@serverID
+// form already.
 func (s *DataService) GetActiveKeyFingerprint(ctx context.Context, userID string) (string, error) {
 	selfIdentity := userID
-	var fp sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT user_fingerprint FROM users WHERE id = $1`, selfIdentity).Scan(&fp)
+	var keyID sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT active_key_id FROM users WHERE id = $1`,
+		selfIdentity,
+	).Scan(&keyID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", nil
 		}
 		return "", err
 	}
-	if !fp.Valid {
+	if !keyID.Valid {
 		return "", nil
 	}
-	return fp.String, nil
+	return keyID.String, nil
 }
 
 // GetUserRole returns users.role for authorization checks. The RootUserID
@@ -1224,7 +1228,7 @@ type AddPublicKeyInput struct {
 	RevocationServer        ServerSignature
 }
 
-// On success it inserts the key, points users.user_fingerprint at it, and
+// On success it inserts the key, points users.active_key_id at it, and
 // writes the successor pointer + successor signature on the predecessor's
 // revocation row.
 //
@@ -1390,7 +1394,7 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 
 	// users.id is identities.id now — use the already-computed selfIdentity,
 	// not the bare in.UserID.
-	_, err = tx.ExecContext(ctx, `UPDATE users SET user_fingerprint = $1 WHERE id = $2`, id, selfIdentity)
+	_, err = tx.ExecContext(ctx, `UPDATE users SET active_key_id = $1 WHERE id = $2`, id, selfIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -4666,10 +4670,10 @@ func (s *DataService) PostRipple(
 		INSERT INTO ripple_responses (
 			id, reed_id, thread_id, user_id,
 			content, replying_to, deleted, posted_at,
-			user_fingerprint, user_signature_id, server_signature_id
-		) VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8, $9, $10)
+			user_signature_id, server_signature_id
+		) VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8, $9)
 	`, id, reedID, threadID, selfIdentity, content, replyingTo, now,
-		userFingerprint, userSigID, serverSigID); err != nil {
+		userSigID, serverSigID); err != nil {
 		return nil, fmt.Errorf("insert ripple response: %w", err)
 	}
 
@@ -4703,7 +4707,7 @@ func (s *DataService) GetRipple(ctx context.Context, id string) (*Ripple, error)
 	r, err := scanRipple(s.db.QueryRowContext(ctx, `
 		SELECT rr.id, rr.reed_id, rr.thread_id, rr.user_id,
 		       rr.content, rr.replying_to, rr.deleted, rr.posted_at,
-		       rr.user_fingerprint, us.signature, ss.private_key_id, ss.signature, ss.signed_at
+		       us.public_key_id, us.signature, ss.private_key_id, ss.signature, ss.signed_at
 		FROM ripple_responses rr
 		JOIN user_signatures us ON us.id = rr.user_signature_id
 		JOIN server_signatures ss ON ss.id = rr.server_signature_id
@@ -4827,7 +4831,7 @@ func (s *DataService) ListRipples(
 		FROM (
 			SELECT rr.id, rr.reed_id, rr.thread_id, rr.user_id,
 			       rr.content, rr.replying_to, rr.deleted, rr.posted_at,
-			       rr.user_fingerprint, us.signature AS user_sig,
+			       us.public_key_id AS user_fingerprint, us.signature AS user_sig,
 			       ss.private_key_id AS server_fingerprint, ss.signature AS server_sig,
 			       ss.signed_at AS server_signed_at,
 			       MIN(rr.posted_at) OVER (PARTITION BY rr.thread_id) AS thread_created_at

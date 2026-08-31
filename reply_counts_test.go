@@ -38,14 +38,12 @@ func ensureReplyCountSchema(db *sql.DB) error {
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			username VARCHAR(255) UNIQUE NOT NULL,
-			user_fingerprint VARCHAR(255),
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE reeds (
 			id VARCHAR(255) PRIMARY KEY,
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
-			private_key_id VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
@@ -171,7 +169,7 @@ func seedReplyTestUser(t *testing.T, db *sql.DB, userID string) {
 	if err := db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, 'sig') RETURNING id`, userID+"fp").Scan(&usID); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "srvfp").Scan(&ssID); err != nil {
+	if err := db.QueryRow(`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "srvfp").Scan(&ssID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO users (id, username, user_signature_id, server_signature_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
@@ -189,12 +187,12 @@ func seedReplyTestReed(t *testing.T, db *sql.DB, userID, reedID string) {
 	if err := db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, 'sig') RETURNING id`, reedID+"fp").Scan(&usID); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "srvfp2").Scan(&ssID); err != nil {
+	if err := db.QueryRow(`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "srvfp2").Scan(&ssID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO reeds (id, user_id, private_key_id, signed_at, user_signature_id, server_signature_id)
-		VALUES ($1, $2, $3, NOW(), $4, $5)`,
-		reedID, identityID, userID+"fp@testserver", usID, ssID); err != nil {
+	if _, err := db.Exec(`INSERT INTO reeds (id, user_id, signed_at, user_signature_id, server_signature_id)
+		VALUES ($1, $2, NOW(), $3, $4)`,
+		reedID, identityID, usID, ssID); err != nil {
 		t.Fatal(err)
 	}
 }

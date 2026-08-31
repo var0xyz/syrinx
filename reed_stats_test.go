@@ -30,11 +30,11 @@ func seedReedStatsServer(t *testing.T, db *sql.DB, serverID string) (userSigID, 
 	if err := db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, 'sig') RETURNING id`, "sig1").Scan(&userSigID); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "sfp1").Scan(&serverSigID); err != nil {
+	if err := db.QueryRow(`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "sfp1").Scan(&serverSigID); err != nil {
 		t.Fatal(err)
 	}
 	var pkServerSigID int64
-	if err := db.QueryRow(`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "sfp-pk").Scan(&pkServerSigID); err != nil {
+	if err := db.QueryRow(`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "sfp-pk").Scan(&pkServerSigID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO public_keys (id, armor, server_signature_id) VALUES ($1, 'pubarmor', $2)`, pubKeyID, pkServerSigID); err != nil {
@@ -57,9 +57,9 @@ func seedReedStatsReed(t *testing.T, db *sql.DB, reedID, userID, pubKeyID string
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`
-		INSERT INTO reeds (id, user_id, private_key_id, signed_at, user_signature_id, server_signature_id)
-		VALUES ($1, $2, $3, NOW(), $4, $5)
-	`, reedID, userID, pubKeyID, userSigID, serverSigID); err != nil {
+		INSERT INTO reeds (id, user_id, signed_at, user_signature_id, server_signature_id)
+		VALUES ($1, $2, NOW(), $3, $4)
+	`, reedID, userID, userSigID, serverSigID); err != nil {
 		t.Fatal(err)
 	}
 }

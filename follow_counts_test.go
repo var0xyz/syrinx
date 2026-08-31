@@ -43,14 +43,13 @@ func ensureFollowCountSchema(db *sql.DB) error {
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			username VARCHAR(255) UNIQUE NOT NULL,
-			user_fingerprint VARCHAR(255),
+			active_key_id VARCHAR(255),
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE reeds (
 			id VARCHAR(255) NOT NULL,
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
-			private_key_id VARCHAR(255) NOT NULL,
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
@@ -106,13 +105,13 @@ func insertFollowCountTestUser(t *testing.T, db *sql.DB, userID, username string
 		t.Fatalf("insert user_signatures for %s: %v", userID, err)
 	}
 	if err := db.QueryRow(
-		`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
 		"server-fp-"+userID,
 	).Scan(&serverSigID); err != nil {
 		t.Fatalf("insert server_signatures for %s: %v", userID, err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO users (id, username, user_fingerprint, user_signature_id, server_signature_id)
+		`INSERT INTO users (id, username, active_key_id, user_signature_id, server_signature_id)
 		 VALUES ($1, $2, $3, $4, $5)`,
 		identityID, username, "fp-"+userID, userSigID, serverSigID,
 	); err != nil {

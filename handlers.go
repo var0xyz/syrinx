@@ -1360,7 +1360,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// using the fingerprint we trust (from the row) rather than one
 	// supplied by the caller. Then verify.
 	//
-	// The client signs with the currently-active key (users.user_fingerprint).
+	// The client signs with the currently-active key (users.active_key_id).
 	fingerprint, err := h.services.db.GetActiveKeyFingerprint(r.Context(), userID)
 	if err != nil || fingerprint == "" {
 		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")

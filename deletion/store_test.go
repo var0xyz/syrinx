@@ -122,7 +122,6 @@ func ensureTestSchema(db *sql.DB) error {
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			username VARCHAR(255) UNIQUE,
-			user_fingerprint VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			user_signature_id INT REFERENCES user_signatures(id),
 			server_signature_id INT REFERENCES server_signatures(id)
@@ -186,7 +185,7 @@ func seedUser(t *testing.T, db *sql.DB, userID, username string) {
 		t.Fatalf("seed user_signatures: %v", err)
 	}
 	err = db.QueryRow(`
-		INSERT INTO server_signatures (fingerprint, signature, signed_at)
+		INSERT INTO server_signatures (private_key_id, signature, signed_at)
 		VALUES ('seed-sfp', 's', NOW()) RETURNING id
 	`).Scan(&serverSigID)
 	if err != nil {
@@ -207,7 +206,7 @@ func seedUserKey(t *testing.T, db *sql.DB, userID, fingerprint string) {
 	canonicalFP := string(identity.AppendEntity(identity.IdentityID(identityID), fingerprint))
 	var serverSigID int64
 	err := db.QueryRow(`
-		INSERT INTO server_signatures (fingerprint, signature, signed_at)
+		INSERT INTO server_signatures (private_key_id, signature, signed_at)
 		VALUES ('key-sfp', 's', NOW()) RETURNING id
 	`).Scan(&serverSigID)
 	if err != nil {
@@ -353,7 +352,7 @@ func TestInsertForeignAccountCert_NoLocalSideEffects(t *testing.T) {
 	}
 	var serverSigID int64
 	if err := db.QueryRow(`
-		INSERT INTO server_signatures (fingerprint, signature, signed_at)
+		INSERT INTO server_signatures (private_key_id, signature, signed_at)
 		VALUES ('foreign-key-sfp', 's', NOW()) RETURNING id
 	`).Scan(&serverSigID); err != nil {
 		t.Fatalf("seed key server_signatures: %v", err)

@@ -303,7 +303,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	// doesn't matter for this test's purposes, only that the row exists.
 	var serverSigID int64
 	if err := db.QueryRow(
-		`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
 		serverKP.Fingerprint,
 	).Scan(&serverSigID); err != nil {
 		t.Fatal(err)

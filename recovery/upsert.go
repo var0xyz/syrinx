@@ -123,8 +123,8 @@ func upsertIdentity(ctx context.Context, tx *sql.Tx, serverID string, profile Pr
 	incomingSignedAt := profile.ServerSignature.Timestamp.UTC().Truncate(time.Second)
 	selfIdentity := identity.CanonicalID(serverID, profile.ID)
 	// flat's fingerprints are bare (see insertKeys' comment); canonicalize
-	// for the users.user_fingerprint hint and signature-attestation rows,
-	// which want the same canonical form as every other table.
+	// for users.active_key_id and the signature-attestation rows, which
+	// want the same canonical form as every other table.
 	activeFP := string(identity.AppendEntity(selfIdentity, flat[len(flat)-1].Key.Fingerprint))
 
 	// Lock/check the identities row, not users — identities is the actual FK
@@ -144,6 +144,20 @@ func upsertIdentity(ctx context.Context, tx *sql.Tx, serverID string, profile Pr
 
 	switch {
 	case err == sql.ErrNoRows:
+		// Mint the identities row before public_keys/users — both
+		// FK to it, and neither exists yet on this branch. ON CONFLICT DO
+		// NOTHING: a stale identities row surviving an earlier partial run
+		// is safe to leave in place.
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO identities (id, server_id)
+			VALUES ($1, $2)
+			ON CONFLICT (id) DO NOTHING
+		`, selfIdentity, serverID); err != nil {
+			return nil, fmt.Errorf("insert identity: %w", err)
+		}
+		if err := insertKeys(ctx, tx, selfIdentity, flat); err != nil {
+			return nil, err
+		}
 		if err := insertUser(ctx, tx, serverID, profile, activeFP, incomingSignedAt); err != nil {
 			if errors.Is(err, errUsernameCollisionLoss) {
 				return &SaveIdentityResult{Rejected: true}, nil
@@ -155,6 +169,9 @@ func upsertIdentity(ctx context.Context, tx *sql.Tx, serverID string, profile Pr
 	case err != nil:
 		return nil, err
 	default:
+		if err := insertKeys(ctx, tx, selfIdentity, flat); err != nil {
+			return nil, err
+		}
 		wrote, err := updateUserIfNewer(ctx, tx, selfIdentity, profile, activeFP, existingSignedAt, incomingSignedAt)
 		if err != nil {
 			if errors.Is(err, errUsernameCollisionLoss) {
@@ -165,16 +182,12 @@ func upsertIdentity(ctx context.Context, tx *sql.Tx, serverID string, profile Pr
 		updated = wrote
 	}
 
-	if err := insertKeys(ctx, tx, selfIdentity, flat); err != nil {
-		return nil, err
-	}
-
 	return &SaveIdentityResult{Created: created, Updated: updated}, nil
 }
 
-// insertUser mints both the identities row and its satellite users row.
-// Every subject in this package is local, so the identities row is minted
-// with server_id=serverID (self) — mirroring services.go's Signup.
+// insertUser inserts the users row (its satellite identities row is
+// already minted by the caller). active_key_id references a public_keys
+// row inserted by the caller's insertKeys call, before this runs.
 func insertUser(ctx context.Context, tx *sql.Tx, serverID string, profile Profile, activeFP string, signedAt time.Time) error {
 	selfIdentity := identity.CanonicalID(serverID, profile.ID)
 
@@ -184,18 +197,6 @@ func insertUser(ctx context.Context, tx *sql.Tx, serverID string, profile Profil
 	}
 	if err := roles.ValidateProfileRole(profile.ID, profile.Role, serverID); err != nil {
 		return err
-	}
-
-	// Mint the identities row before its satellite users row — users.id
-	// REFERENCES identities(id) ON DELETE CASCADE, so this must land first.
-	// ON CONFLICT DO NOTHING: a stale identities row surviving an earlier
-	// partial run is safe to leave in place.
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO identities (id, server_id)
-		VALUES ($1, $2)
-		ON CONFLICT (id) DO NOTHING
-	`, selfIdentity, serverID); err != nil {
-		return fmt.Errorf("insert identity: %w", err)
 	}
 
 	// profile.UserSignature.Fingerprint is bare (same reasoning as
@@ -223,7 +224,7 @@ func insertUser(ctx context.Context, tx *sql.Tx, serverID string, profile Profil
 	// value, same pattern as services.go's Signup INSERT.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO users (
-			id, username, role, created_at, user_fingerprint, bio,
+			id, username, role, created_at, active_key_id, bio,
 			user_signature_id, server_signature_id, invited_by
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`,
@@ -276,7 +277,7 @@ func updateUserIfNewer(
 			username = $1,
 			bio = $2,
 			role = $3,
-			user_fingerprint = $4,
+			active_key_id = $4,
 			user_signature_id = $5,
 			server_signature_id = $6
 		WHERE id = $7

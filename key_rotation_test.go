@@ -17,7 +17,7 @@ func seedPublicKey(t *testing.T, ds *DataService, id, owner string) {
 	t.Helper()
 	var serverSigID int64
 	if err := ds.db.QueryRow(
-		`INSERT INTO server_signatures (fingerprint, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
 		"seed-"+id,
 	).Scan(&serverSigID); err != nil {
 		t.Fatal(err)

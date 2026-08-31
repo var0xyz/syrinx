@@ -66,7 +66,7 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			role VARCHAR(16) NOT NULL DEFAULT 'user'
 				CHECK (role IN ('root', 'admin', 'user')),
 			bio TEXT,
-			user_fingerprint VARCHAR(255),
+			active_key_id VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
