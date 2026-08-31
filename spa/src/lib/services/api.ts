@@ -756,8 +756,18 @@ export const apiService = {
     });
   },
 
-  async deleteRipple(rippleHash: string): Promise<void> {
-    return request<void>(`/ripples/${rippleHash}`, { method: 'DELETE' });
+  async deleteRipple(reedId: string, rippleHash: string): Promise<void> {
+    const { userId, bareId } = splitReedId(reedId);
+    return request<void>(`/reeds/${userId}/${bareId}/ripples/${rippleHash}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        // Only used server-side when this request is relayed to the
+        // reed's home server (see handlers.go's resolveActingUser) — a
+        // local caller's own session already provides this.
+        userID: localStorage.getItem('userId') ?? '',
+      }),
+    });
   },
 
   async listFollowing(

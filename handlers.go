@@ -4930,6 +4930,13 @@ type postRippleRequest struct {
 	Proof string `json:"proof"`
 }
 
+type deleteRippleRequest struct {
+	// UserID is the acting user's canonical id — only read when the
+	// request arrives via peer relay (see resolveActingUser); a local
+	// caller's own session already provides this.
+	UserID string `json:"userID"`
+}
+
 // PostRipple handles POST /api/reeds/{userID}/{reedID}/ripples. The
 // caller submits a user-signed payload plus proof of possession of the
 // parent reed (see checkReedPossession — posting requires the same proof
@@ -5228,13 +5235,38 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, resp)
 }
 
-// DeleteRipple handles DELETE /api/ripples/{rippleID}.
+// DeleteRipple handles DELETE /api/reeds/{reedID}/ripples/{rippleID}. Routed
+// by reed rather than by the bare ripple hash so it can proxy to the reed's
+// true home server (see proxyIfForeign) the same way PostRipple already
+// does — ripples are never mirrored locally, so the home server is the only
+// place a remote reed's ripple row exists.
 func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
-	callerID := h.getUserID(r)
-
+	reedID := mux.Vars(r)["reedID"]
 	rippleID := mux.Vars(r)["rippleID"]
-	if rippleID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `rippleID` is required")
+	if reedID == "" || rippleID == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `reedID` and `rippleID` are required")
+		return
+	}
+
+	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	var req deleteRippleRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeResponse(w, http.StatusBadRequest, "Invalid request body")
+			return
+		}
+	}
+	callerID, ok := h.resolveActingUser(r, req.UserID)
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
 

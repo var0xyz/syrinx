@@ -423,7 +423,7 @@
       return;
     }
     try {
-      await apiService.deleteRipple(hash);
+      await apiService.deleteRipple(reedID, hash);
       ripples = ripples.map((r) =>
         r.hash === hash ? { ...r, deleted: true, content: '[DELETED]' } : r
       );

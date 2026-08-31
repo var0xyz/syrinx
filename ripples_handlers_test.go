@@ -583,9 +583,9 @@ func TestGetRipples_Handler_InvalidCursor(t *testing.T) {
 	}
 }
 
-func deleteRipple(h *Handlers, uid, rippleID string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodDelete, "/api/ripples/"+rippleID, nil)
-	req = withRippleVars(req, map[string]string{"rippleID": rippleID})
+func deleteRipple(h *Handlers, uid, reedID, rippleID string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodDelete, "/api/reeds/"+reedID+"/ripples/"+rippleID, nil)
+	req = withRippleVars(req, map[string]string{"reedID": reedID, "rippleID": rippleID})
 	if uid != "" {
 		req = withRippleUID(req, uid)
 	}
@@ -605,7 +605,7 @@ func TestDeleteRipple_Handler_Own(t *testing.T) {
 
 	resp := postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "hi", nil, time.Now())
 
-	rr := deleteRipple(h, canonicalCommenter1, resp.ID)
+	rr := deleteRipple(h, canonicalCommenter1, reed1ID, resp.ID)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -631,7 +631,7 @@ func TestDeleteRipple_Handler_Others(t *testing.T) {
 
 	resp := postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "hi", nil, time.Now())
 
-	rr := deleteRipple(h, canonicalCommenter2, resp.ID)
+	rr := deleteRipple(h, canonicalCommenter2, reed1ID, resp.ID)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", rr.Code)
 	}
@@ -642,7 +642,7 @@ func TestDeleteRipple_Handler_Missing(t *testing.T) {
 	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 
-	rr := deleteRipple(h, canonicalCommenter1, "nonexistent")
+	rr := deleteRipple(h, canonicalCommenter1, reed1ID, "nonexistent")
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rr.Code)
 	}
@@ -659,10 +659,10 @@ func TestDeleteRipple_Handler_AlreadyDeletedIdempotent(t *testing.T) {
 
 	resp := postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "hi", nil, time.Now())
 
-	if rr := deleteRipple(h, canonicalCommenter1, resp.ID); rr.Code != http.StatusNoContent {
+	if rr := deleteRipple(h, canonicalCommenter1, reed1ID, resp.ID); rr.Code != http.StatusNoContent {
 		t.Fatalf("first delete status = %d", rr.Code)
 	}
-	if rr := deleteRipple(h, canonicalCommenter1, resp.ID); rr.Code != http.StatusNoContent {
+	if rr := deleteRipple(h, canonicalCommenter1, reed1ID, resp.ID); rr.Code != http.StatusNoContent {
 		t.Fatalf("second delete status = %d, want 204 (idempotent)", rr.Code)
 	}
 }

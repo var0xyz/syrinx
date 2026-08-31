@@ -371,8 +371,8 @@ func main() {
 	// api.HandleFunc("/reeds/{userID}/{reedID}/ripples/proof", h.GetRipples).Methods("POST")
 	// api.HandleFunc("/reeds/{userID}/{reedID}/ripples/proof", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/ripples/{rippleID}", h.DeleteRipple).Methods("DELETE")
-	api.HandleFunc("/ripples/{rippleID}", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/reeds/{reedID:.+}/ripples/{rippleID}", h.DeleteRipple).Methods("DELETE")
+	api.HandleFunc("/reeds/{reedID:.+}/ripples/{rippleID}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
