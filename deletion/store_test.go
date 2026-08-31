@@ -100,7 +100,7 @@ func ensureTestSchema(db *sql.DB) error {
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (
 			id             SERIAL PRIMARY KEY,
-			fingerprint    VARCHAR(255) NOT NULL,
+			private_key_id VARCHAR(255) NOT NULL,
 			signature      TEXT NOT NULL,
 			signed_at      TIMESTAMP NOT NULL
 		)`,

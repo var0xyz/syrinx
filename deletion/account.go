@@ -243,7 +243,7 @@ func loadAccountCertTx(ctx context.Context, q reedQuerier, selfIdentity identity
 		UserKeyID:         userFP,
 		UserSignature:     userRow.Signature,
 		ServerSignature:   serverRow.Signature,
-		ServerFingerprint: serverRow.Fingerprint,
+		ServerFingerprint: serverRow.PrivateKeyID,
 		ServerSignedAt:    serverRow.SignedAt,
 	}, nil
 }

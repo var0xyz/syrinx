@@ -47,7 +47,7 @@ func openRipplesTestDB(t *testing.T) *sql.DB {
 func ensureRipplesSchema(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS user_signatures (id SERIAL PRIMARY KEY, public_key_id VARCHAR(255) NOT NULL, signature TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS server_signatures (id SERIAL PRIMARY KEY, fingerprint VARCHAR(255) NOT NULL, signature TEXT NOT NULL, signed_at TIMESTAMP NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS server_signatures (id SERIAL PRIMARY KEY, private_key_id VARCHAR(255) NOT NULL, signature TEXT NOT NULL, signed_at TIMESTAMP NOT NULL)`,
 		`DROP TABLE IF EXISTS ripple_responses CASCADE`,
 		`DROP TABLE IF EXISTS ripples CASCADE`,
 		`DROP TABLE IF EXISTS reed_echoes CASCADE`,

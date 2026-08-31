@@ -1164,18 +1164,13 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(serverSignature.ID))
-	if !ok {
-		internalServerError(w)
-		return
-	}
 	cert := deletion.AccountCert{
 		UserID:            userID,
 		Note:              note,
 		UserSignature:     userSignatureB64,
 		UserKeyID:         fingerprint,
 		ServerSignature:   serverSignature.Armor,
-		ServerFingerprint: accountServerFingerprint,
+		ServerFingerprint: serverSignature.ID,
 		ServerSignedAt:    serverSignature.SignedAt,
 	}
 	if err := h.services.db.InsertAccountRemoval(r.Context(), cert); err != nil {
@@ -1251,7 +1246,7 @@ func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval
 			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignature{
-			ID:       string(identity.CanonicalID(h.services.db.GetServerID(), cert.ServerFingerprint)),
+			ID:       cert.ServerFingerprint,
 			Armor:    cert.ServerSignature,
 			SignedAt: cert.ServerSignedAt,
 		},
@@ -1978,11 +1973,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	if h.filterPipeTags != nil {
 		tags = h.filterPipeTags(tags)
 	}
-	reedServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(serverSignature.ID))
-	if !ok {
-		internalServerError(w)
-		return
-	}
+	reedServerFingerprint := serverSignature.ID
 	createParams := createReedParams{
 		ReedID:             reedID,
 		UserID:             userID,
@@ -2124,7 +2115,7 @@ func (h *Handlers) respondSignReedReplay(
 		Str("userID", userID).
 		Msg("SignReed replay: returning stored countersignature")
 	writeResponse(w, http.StatusOK, ServerSignature{
-		ID:       string(identity.CanonicalID(h.services.db.GetServerID(), existing.ServerFingerprint)),
+		ID:       existing.ServerFingerprint,
 		Armor:    existing.ServerSignature,
 		SignedAt: existing.ServerSignedAt,
 	})
@@ -2259,18 +2250,13 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	removalServerFingerprint, _, ok := identity.ParseIdentityID(identity.IdentityID(serverSignature.ID))
-	if !ok {
-		internalServerError(w)
-		return
-	}
 	cert := deletion.Cert{
 		ReedID:            reedID,
 		UserID:            userID,
 		UserSignature:     userSignatureB64,
 		UserKeyID:         fingerprint,
 		ServerSignature:   serverSignature.Armor,
-		ServerFingerprint: removalServerFingerprint,
+		ServerFingerprint: serverSignature.ID,
 		ServerSignedAt:    serverSignature.SignedAt,
 	}
 	if err := h.services.db.InsertReedRemoval(r.Context(), cert); err != nil {
@@ -2578,7 +2564,7 @@ func (h *Handlers) reedRemovalWire(cert *deletion.Cert) ReedRemoval {
 			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignature{
-			ID:       string(identity.CanonicalID(h.services.db.GetServerID(), cert.ServerFingerprint)),
+			ID:       cert.ServerFingerprint,
 			Armor:    cert.ServerSignature,
 			SignedAt: cert.ServerSignedAt,
 		},

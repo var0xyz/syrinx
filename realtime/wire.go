@@ -54,7 +54,7 @@ func NewReedRemovalWire(serverID string, cert *deletion.Cert) ReedRemovalWire {
 			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignatureWire{
-			ID:        string(identity.CanonicalID(serverID, cert.ServerFingerprint)),
+			ID:        cert.ServerFingerprint,
 			Armor:     cert.ServerSignature,
 			Timestamp: cert.ServerSignedAt.UTC(),
 		},
@@ -73,7 +73,7 @@ func NewAccountRemovalWire(serverID string, cert *deletion.AccountCert) AccountR
 			Armor: cert.UserSignature,
 		},
 		ServerSignature: ServerSignatureWire{
-			ID:        string(identity.CanonicalID(serverID, cert.ServerFingerprint)),
+			ID:        cert.ServerFingerprint,
 			Armor:     cert.ServerSignature,
 			Timestamp: cert.ServerSignedAt.UTC(),
 		},

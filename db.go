@@ -189,9 +189,10 @@ func InitDB(db *sql.DB) error {
 		disconnect_reason TEXT
 	);`
 
-	// Normalized attestation rows. public_key_id is not FK'd to public_keys
-	// (historical / rotated keys — a signature can reference a
-	// since-superseded key id).
+	// Normalized attestation rows. public_key_id/private_key_id are not
+	// FK'd to public_keys/private_keys (historical/rotated/peer keys — a
+	// signature can reference a key id that's since superseded or not
+	// stored locally at all, e.g. a cached peer server's countersignature).
 	createUserSignaturesTable := `
 	CREATE TABLE IF NOT EXISTS user_signatures (
 		id SERIAL PRIMARY KEY,
@@ -202,7 +203,7 @@ func InitDB(db *sql.DB) error {
 	createServerSignaturesTable := `
 	CREATE TABLE IF NOT EXISTS server_signatures (
 		id SERIAL PRIMARY KEY,
-		fingerprint VARCHAR(255) NOT NULL,
+		private_key_id VARCHAR(255) NOT NULL,
 		signature TEXT NOT NULL,
 		signed_at TIMESTAMP NOT NULL
 	);`
@@ -310,7 +311,6 @@ func InitDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS reeds (
 		id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		private_key_id VARCHAR(255) NOT NULL REFERENCES private_keys(id),
 		signed_at TIMESTAMP NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id)

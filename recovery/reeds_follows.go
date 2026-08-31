@@ -61,9 +61,11 @@ func SaveReed(ctx context.Context,
 	var existingAuthor, existingKeyID string
 	var existingAt time.Time
 	err = tx.QueryRowContext(ctx, `
-		SELECT user_id, private_key_id, signed_at
-		FROM reeds WHERE id = $1
-		FOR UPDATE
+		SELECT r.user_id, ss.private_key_id, r.signed_at
+		FROM reeds r
+		JOIN server_signatures ss ON ss.id = r.server_signature_id
+		WHERE r.id = $1
+		FOR UPDATE OF r
 	`, reedID).Scan(&existingAuthor, &existingKeyID, &existingAt)
 
 	switch {
@@ -72,17 +74,17 @@ func SaveReed(ctx context.Context,
 		if err != nil {
 			return err
 		}
-		serverSigID, err := signing.InsertServerSignature(ctx, tx, fingerprint, serverSignatureB64, signedAt)
+		serverSigID, err := signing.InsertServerSignature(ctx, tx, keyID, serverSignatureB64, signedAt)
 		if err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reeds (
-				id, user_id, private_key_id, signed_at,
+				id, user_id, signed_at,
 				user_signature_id, server_signature_id
 			)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`, reedID, authorIdentity, keyID, signedAt, userSigID, serverSigID); err != nil {
+			VALUES ($1, $2, $3, $4, $5)
+		`, reedID, authorIdentity, signedAt, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert reed: %w", err)
 		}
 	case err != nil:

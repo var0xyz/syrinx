@@ -138,7 +138,7 @@ func assembleReedCert(ctx context.Context, q reedQuerier, reedID, userID, userFP
 		UserKeyID:         userFP,
 		UserSignature:     userRow.Signature,
 		ServerSignature:   serverRow.Signature,
-		ServerFingerprint: serverRow.Fingerprint,
+		ServerFingerprint: serverRow.PrivateKeyID,
 		ServerSignedAt:    serverRow.SignedAt,
 	}, nil
 }

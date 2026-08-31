@@ -23,15 +23,14 @@ type UserSignature struct {
 	Signature   string
 }
 
-// ServerSignature is one row in server_signatures. Fingerprint is
-// deliberately unrenamed (server_signatures.fingerprint is out of scope for
-// the public_keys unification — it identifies the server signing key that
-// produced the countersignature, not a public_keys.id).
+// ServerSignature is one row in server_signatures. PrivateKeyID names which
+// key (private_keys.id / public_keys.id — the two share ids) produced the
+// countersignature, same pattern as UserSignature.PublicKeyID.
 type ServerSignature struct {
-	ID          int64
-	Fingerprint string
-	Signature   string
-	SignedAt    time.Time
+	ID           int64
+	PrivateKeyID string
+	Signature    string
+	SignedAt     time.Time
 }
 
 // WireUserSignature is the nested userSignature wire block.
@@ -64,14 +63,14 @@ func InsertUserSignature(ctx context.Context, db DBTX, publicKeyID, signature st
 
 // InsertServerSignature inserts a server countersignature row and returns
 // its id. signedAt is stored UTC truncated to seconds.
-func InsertServerSignature(ctx context.Context, db DBTX, fingerprint, signature string, signedAt time.Time) (int64, error) {
+func InsertServerSignature(ctx context.Context, db DBTX, privateKeyID, signature string, signedAt time.Time) (int64, error) {
 	signedAt = signedAt.UTC().Truncate(time.Second)
 	var id int64
 	err := db.QueryRowContext(ctx, `
-		INSERT INTO server_signatures (fingerprint, signature, signed_at)
+		INSERT INTO server_signatures (private_key_id, signature, signed_at)
 		VALUES ($1, $2, $3)
 		RETURNING id
-	`, fingerprint, signature, signedAt).Scan(&id)
+	`, privateKeyID, signature, signedAt).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert server_signatures: %w", err)
 	}
@@ -100,12 +99,12 @@ func GetUserSignature(ctx context.Context, db DBTX, id int64) (*UserSignature, e
 func GetServerSignature(ctx context.Context, db DBTX, id int64) (*ServerSignature, error) {
 	var row ServerSignature
 	err := db.QueryRowContext(ctx, `
-		SELECT id, fingerprint, signature, signed_at
+		SELECT id, private_key_id, signature, signed_at
 		FROM server_signatures
 		WHERE id = $1
 	`, id).Scan(
 		&row.ID,
-		&row.Fingerprint,
+		&row.PrivateKeyID,
 		&row.Signature,
 		&row.SignedAt,
 	)
@@ -130,7 +129,7 @@ func UserWire(row *UserSignature) WireUserSignature {
 func ServerWire(row *ServerSignature, serverID string) WireServerSignature {
 	return WireServerSignature{
 		ServerID:    serverID,
-		Fingerprint: row.Fingerprint,
+		Fingerprint: row.PrivateKeyID,
 		Armor:       row.Signature,
 		Timestamp:   row.SignedAt.UTC().Truncate(time.Second),
 	}

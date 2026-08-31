@@ -131,7 +131,7 @@ func ImportIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *crypto.Service, pa
 		if err != nil {
 			return 0, fmt.Errorf("self-countersign restored key %s: %w", keyID, err)
 		}
-		serverSignatureID, err := signing.InsertServerSignature(ctx, tx, bareFP, selfSigArmor, k.CreatedAt.UTC())
+		serverSignatureID, err := signing.InsertServerSignature(ctx, tx, keyID, selfSigArmor, k.CreatedAt.UTC())
 		if err != nil {
 			return 0, fmt.Errorf("insert server signature for %s: %w", keyID, err)
 		}

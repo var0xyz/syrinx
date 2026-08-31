@@ -208,7 +208,8 @@ func insertUser(ctx context.Context, tx *sql.Tx, serverID string, profile Profil
 	if err != nil {
 		return err
 	}
-	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, profile.ServerSignature.Fingerprint, profile.ServerSignature.Armor, signedAt)
+	serverKeyID := string(identity.CanonicalID(serverID, profile.ServerSignature.Fingerprint))
+	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, serverKeyID, profile.ServerSignature.Armor, signedAt)
 	if err != nil {
 		return err
 	}
@@ -261,7 +262,8 @@ func updateUserIfNewer(
 	if err != nil {
 		return false, err
 	}
-	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, profile.ServerSignature.Fingerprint, profile.ServerSignature.Armor, incomingSignedAt)
+	serverKeyID := string(identity.CanonicalID(selfIdentity.ServerID(), profile.ServerSignature.Fingerprint))
+	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, serverKeyID, profile.ServerSignature.Armor, incomingSignedAt)
 	if err != nil {
 		return false, err
 	}
@@ -302,14 +304,19 @@ func insertKeys(ctx context.Context, tx *sql.Tx, owner identity.IdentityID, flat
 	canonicalFP := func(bare string) string {
 		return string(identity.AppendEntity(owner, bare))
 	}
+	// Server signature ServerID on the wire is optional (verifyKeyCountersig
+	// only checks it if non-empty); owner.ServerID() is always populated and
+	// is what verification actually binds against, so use it here.
+	ownerServerID := owner.ServerID()
 	for i, fk := range flat {
 		fingerprint := canonicalFP(fk.Key.Fingerprint)
 		var predID interface{}
 		if fk.PredecessorFingerprint != "" {
 			predID = canonicalFP(fk.PredecessorFingerprint)
 		}
+		keyServerKeyID := string(identity.CanonicalID(ownerServerID, fk.Key.ServerSignature.Fingerprint))
 		serverSigID, err := signing.InsertServerSignature(ctx, tx,
-			fk.Key.ServerSignature.Fingerprint,
+			keyServerKeyID,
 			fk.Key.ServerSignature.Armor,
 			fk.Key.ServerSignature.Timestamp,
 		)
@@ -337,8 +344,9 @@ func insertKeys(ctx context.Context, tx *sql.Tx, owner identity.IdentityID, flat
 			if err != nil {
 				return fmt.Errorf("insert revocation user signature %s: %w", fk.Key.Fingerprint, err)
 			}
+			revServerKeyID := string(identity.CanonicalID(ownerServerID, fk.Revocation.ServerSignature.Fingerprint))
 			serverSigID, err := signing.InsertServerSignature(ctx, tx,
-				fk.Revocation.ServerSignature.Fingerprint,
+				revServerKeyID,
 				fk.Revocation.ServerSignature.Armor,
 				fk.Revocation.ServerSignature.Timestamp,
 			)
