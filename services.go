@@ -3486,23 +3486,25 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 // VerifyFederationPeer is the runtime trust check for peer-authenticated
 // requests (specs/federation/04): serverID must be an established
 // (self=FALSE), non-revoked peer, and the caller's claimed fingerprint must
-// match the one pinned at approval (see ApproveFederationAttempt). Returns
+// match the one pinned at approval (see ApproveFederationAttempt, which
+// points servers.key_id at the promoted public_keys row). Returns
 // ok=false — not an error — for "not peered," "revoked," or "fingerprint
 // doesn't match": callers should respond 401 in all three cases without
 // distinguishing why (don't help an attacker enumerate which check failed).
 func (s *DataService) VerifyFederationPeer(ctx context.Context, serverID, fingerprint string) (ok bool, err error) {
-	var pinnedFingerprint sql.NullString
+	var pinnedKeyID sql.NullString
 	var revokedAt sql.NullTime
 	err = s.db.QueryRowContext(ctx, `
-		SELECT fingerprint, revoked_at FROM servers WHERE id = $1 AND self = FALSE
-	`, serverID).Scan(&pinnedFingerprint, &revokedAt)
+		SELECT key_id, revoked_at FROM servers WHERE id = $1 AND self = FALSE
+	`, serverID).Scan(&pinnedKeyID, &revokedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	if revokedAt.Valid || !pinnedFingerprint.Valid || pinnedFingerprint.String != fingerprint {
+	keyID := string(identity.CanonicalID(serverID, fingerprint))
+	if revokedAt.Valid || !pinnedKeyID.Valid || pinnedKeyID.String != keyID {
 		return false, nil
 	}
 	return true, nil
@@ -3791,26 +3793,37 @@ func (s *DataService) GetFederationAttempt(ctx context.Context, attemptID string
 
 // ApproveFederationAttempt is the ONLY place a servers row is created — a
 // peer only becomes a real, addressable server once a second admin
-// approves the attempt that verified the handshake. Creates servers
-// (connected=TRUE from the start, since approval IS the confirmation now —
-// contrast the old model where a server row existed pre-approval with
-// connected=FALSE), backfills federation_attempt.server_id and, if this
-// attempt has a local invitation (initiator side), federation_invitation's
-// server_id and status too. callerIsRoot bypasses the different-admin check.
-func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, approvedBy string, approvedAt time.Time, callerIsRoot bool) (serverID string, err error) {
+// approves the attempt that verified the handshake. Promotes the peer's
+// key (received and stored on federation_attempt during the handshake)
+// into public_keys — owner NULL (not a local identity), countersigned by
+// this server the same way any other public_keys row is, binding "we
+// received and approved this exact key during a verified handshake."
+// Creates servers (connected=TRUE from the start, since approval IS the
+// confirmation now — contrast the old model where a server row existed
+// pre-approval with connected=FALSE) pointing key_id at the promoted row,
+// backfills federation_attempt.server_id and, if this attempt has a local
+// invitation (initiator side), federation_invitation's server_id and
+// status too. callerIsRoot bypasses the different-admin check.
+func (s *DataService) ApproveFederationAttempt(
+	ctx context.Context,
+	attemptID, approvedBy string,
+	approvedAt time.Time,
+	callerIsRoot bool,
+	countersign func(payload []byte, ts time.Time) (ServerSignature, error),
+) (serverID string, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback()
 
-	var remoteServerID, remoteServerName, baseURL, fingerprint, invitationID string
+	var remoteServerID, remoteServerName, baseURL, fingerprint, publicKeyArmor, invitationID string
 	var status string
 	if err := tx.QueryRowContext(ctx, `
-		SELECT remote_server_id, remote_server_name, base_url, fingerprint,
+		SELECT remote_server_id, remote_server_name, base_url, fingerprint, public_key_armor,
 			COALESCE(invitation_id, ''), status
 		FROM federation_attempt WHERE id = $1 FOR UPDATE
-	`, attemptID).Scan(&remoteServerID, &remoteServerName, &baseURL, &fingerprint, &invitationID, &status); err != nil {
+	`, attemptID).Scan(&remoteServerID, &remoteServerName, &baseURL, &fingerprint, &publicKeyArmor, &invitationID, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", errFederationAttemptNotFound
 		}
@@ -3834,18 +3847,37 @@ func (s *DataService) ApproveFederationAttempt(ctx context.Context, attemptID, a
 		}
 	}
 
-	// fingerprint pins the trust root for peer-authenticated runtime
-	// requests (specs/federation/04). Its armor is never stored anywhere
-	// past this point — public_keys only ever holds local keys; any future
-	// need to verify against this peer's key proxies live to them (main.go's
-	// GET /keys/{id}).
+	// keyID pins the trust root for peer-authenticated runtime requests
+	// (specs/federation/04) — same canonical shape as any other key id.
+	// ON CONFLICT DO NOTHING: re-approving after a revoke/reconnect with
+	// the same key hits the same row; a key's armor never changes once set.
+	keyID := string(identity.CanonicalID(remoteServerID, fingerprint))
+	keyPayload := identity.BuildPublicKeyPayload(
+		s.serverID, keyID, keyID, fingerprint, publicKeyArmor, approvedAt.UTC(),
+	)
+	serverSig, err := countersign(keyPayload, approvedAt.UTC())
+	if err != nil {
+		return "", fmt.Errorf("countersign peer key: %w", err)
+	}
+	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, serverSig.ID, serverSig.Armor, serverSig.SignedAt)
+	if err != nil {
+		return "", err
+	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO servers (id, name, self, base_url, connected, fingerprint, created_at)
+		INSERT INTO public_keys (id, owner, armor, created_at, server_signature_id)
+		VALUES ($1, NULL, $2, $3, $4)
+		ON CONFLICT (id) DO NOTHING
+	`, keyID, publicKeyArmor, approvedAt.UTC(), serverSignatureID); err != nil {
+		return "", fmt.Errorf("promote peer key: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO servers (id, name, self, base_url, connected, key_id, created_at)
 		VALUES ($1, $2, FALSE, $3, TRUE, $4, $5)
 		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, name = EXCLUDED.name,
-			connected = TRUE, fingerprint = EXCLUDED.fingerprint,
+			connected = TRUE, key_id = EXCLUDED.key_id,
 			revoked_at = NULL, revoked_by = NULL, revoked_reason = NULL
-	`, remoteServerID, remoteServerName, baseURL, fingerprint, approvedAt.UTC()); err != nil {
+	`, remoteServerID, remoteServerName, baseURL, keyID, approvedAt.UTC()); err != nil {
 		return "", fmt.Errorf("insert federation peer: %w", err)
 	}
 
@@ -4348,15 +4380,15 @@ func (s *DataService) RevokeFederationInvitation(ctx context.Context, id, review
 // federationPeer describes the remote server on the other end of a
 // handshake, as claimed in its handshake payload — captured onto
 // federation_attempt, not servers (which doesn't get a row until the
-// attempt is approved — see ApproveFederationAttempt). Fingerprint is the
-// peer's pinned trust root; the peer's key ARMOR is never stored locally
-// — public_keys only ever holds local keys now, any future need to verify
-// against a peer's key proxies live to them (main.go's GET /keys/{id}).
+// attempt is approved — see ApproveFederationAttempt, which promotes
+// PublicKeyArmor into public_keys). Fingerprint is the peer's pinned
+// trust root.
 type federationPeer struct {
-	ServerID    string
-	ServerName  string
-	BaseURL     string
-	Fingerprint string
+	ServerID       string
+	ServerName     string
+	BaseURL        string
+	Fingerprint    string
+	PublicKeyArmor string
 }
 
 // CreateFederationAttempt runs on the RESPONDER, before it even attempts
@@ -4381,9 +4413,9 @@ func (s *DataService) CreateFederationAttempt(ctx context.Context, peer federati
 		return "", err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO federation_attempt (id, remote_server_id, remote_server_name, base_url, fingerprint, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, attemptID, peer.ServerID, name, peer.BaseURL, peer.Fingerprint, createdAt.UTC()); err != nil {
+		INSERT INTO federation_attempt (id, remote_server_id, remote_server_name, base_url, fingerprint, public_key_armor, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, attemptID, peer.ServerID, name, peer.BaseURL, peer.Fingerprint, peer.PublicKeyArmor, createdAt.UTC()); err != nil {
 		return "", fmt.Errorf("insert federation attempt: %w", err)
 	}
 
@@ -4405,10 +4437,13 @@ func (s *DataService) MarkFederationInvitationAccepted(ctx context.Context, invi
 	}
 	defer tx.Rollback()
 
-	var status string
+	// public_key_armor is the peer's key as stored on the invitation — the
+	// initiator already holds it (it's what the connect payload was
+	// encrypted to), so the connect callback doesn't need to resend it.
+	var status, publicKeyArmor string
 	if err := tx.QueryRowContext(ctx, `
-		SELECT status FROM federation_invitation WHERE id = $1 FOR UPDATE
-	`, inviteID).Scan(&status); err != nil {
+		SELECT status, public_key_armor FROM federation_invitation WHERE id = $1 FOR UPDATE
+	`, inviteID).Scan(&status, &publicKeyArmor); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", errFederationInvitationNotFound
 		}
@@ -4427,9 +4462,9 @@ func (s *DataService) MarkFederationInvitationAccepted(ctx context.Context, invi
 		return "", err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO federation_attempt (id, remote_server_id, remote_server_name, base_url, fingerprint, invitation_id, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, attemptID, peer.ServerID, name, peer.BaseURL, peer.Fingerprint, inviteID, acceptedAt.UTC()); err != nil {
+		INSERT INTO federation_attempt (id, remote_server_id, remote_server_name, base_url, fingerprint, public_key_armor, invitation_id, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, attemptID, peer.ServerID, name, peer.BaseURL, peer.Fingerprint, publicKeyArmor, inviteID, acceptedAt.UTC()); err != nil {
 		return "", fmt.Errorf("insert federation attempt: %w", err)
 	}
 

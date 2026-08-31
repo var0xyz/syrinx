@@ -42,7 +42,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS base_url TEXT`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS connected BOOLEAN NOT NULL DEFAULT FALSE`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS fingerprint VARCHAR(255)`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS key_id VARCHAR(255)`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMP`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked_by VARCHAR(255)`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked_reason TEXT`,
@@ -140,6 +140,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			remote_server_name VARCHAR(255) NOT NULL,
 			base_url TEXT NOT NULL,
 			fingerprint VARCHAR(255) NOT NULL,
+			public_key_armor TEXT NOT NULL DEFAULT '',
 			invitation_id VARCHAR(255) REFERENCES federation_invitation(id),
 			server_id VARCHAR(255) REFERENCES servers(id),
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -547,7 +548,7 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 
 	// Approve (by a different admin) creates the servers row and backfills
 	// both the attempt's and the invitation's server_id.
-	if _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed, false); err != nil {
+	if _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed, false, h.countersign); err != nil {
 		t.Fatal(err)
 	}
 	if err := ds.db.QueryRowContext(context.Background(),
@@ -656,10 +657,10 @@ func TestApproveFederationAttempt_RootBypassesSelfApprove(t *testing.T) {
 
 // establishedPeer approves a fresh invitation/attempt pair and returns the
 // resulting servers.id — shared setup for the disconnect tests below.
-func establishedPeer(t *testing.T, ds *DataService, invID, createdBy, approvedBy string, callerIsRoot bool, at time.Time) string {
+func establishedPeer(t *testing.T, h *Handlers, ds *DataService, invID, createdBy, approvedBy string, callerIsRoot bool, at time.Time) string {
 	t.Helper()
 	attemptID := pendingAttemptFromInvitation(t, ds, invID, createdBy, at)
-	if _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, approvedBy, at, callerIsRoot); err != nil {
+	if _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, approvedBy, at, callerIsRoot, h.countersign); err != nil {
 		t.Fatal(err)
 	}
 	return "server-" + invID
@@ -670,7 +671,7 @@ func TestFederationServerDisconnect_SameAdminConfirmForbidden(t *testing.T) {
 	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
 	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	serverID := establishedPeer(t, ds, "inv-dc1", admin1, admin2, false, fixed)
+	serverID := establishedPeer(t, h, ds, "inv-dc1", admin1, admin2, false, fixed)
 
 	router := mux.NewRouter()
 	api := router.PathPrefix("/api").Subrouter()
@@ -724,7 +725,7 @@ func TestFederationServerDisconnect_RootBypassesSelfConfirm(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
 	root := seedFederationUser(t, ds, roles.RootUserID, "root", roles.RoleRoot)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	serverID := establishedPeer(t, ds, "inv-dc2", root, root, true, fixed)
+	serverID := establishedPeer(t, h, ds, "inv-dc2", root, root, true, fixed)
 
 	router := mux.NewRouter()
 	api := router.PathPrefix("/api").Subrouter()
@@ -752,7 +753,7 @@ func TestFederationServerDisconnect_CancelClearsRequest(t *testing.T) {
 	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
 	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	serverID := establishedPeer(t, ds, "inv-dc3", admin1, admin2, false, fixed)
+	serverID := establishedPeer(t, h, ds, "inv-dc3", admin1, admin2, false, fixed)
 
 	router := mux.NewRouter()
 	api := router.PathPrefix("/api").Subrouter()
@@ -829,12 +830,12 @@ func TestFederationServerSelfRowProtected(t *testing.T) {
 // reed by the given author, and nothing else (no follower/subscriber
 // involvement, no cross-author leakage).
 func TestGetForeignHolderServersForAuthor(t *testing.T) {
-	_, ds, _, _ := testFederationHandlers(t)
+	h, ds, _, _ := testFederationHandlers(t)
 	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
 	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	peerA := establishedPeer(t, ds, "inv-holder-a", admin1, admin2, false, fixed)
-	peerB := establishedPeer(t, ds, "inv-holder-b", admin1, admin2, false, fixed)
+	peerA := establishedPeer(t, h, ds, "inv-holder-a", admin1, admin2, false, fixed)
+	peerB := establishedPeer(t, h, ds, "inv-holder-b", admin1, admin2, false, fixed)
 
 	author := seedFederationUser(t, ds, "author1", "author1", roles.RoleUser)
 	other := seedFederationUser(t, ds, "author2", "author2", roles.RoleUser)
@@ -884,12 +885,12 @@ func TestGetForeignHolderServersForAuthor(t *testing.T) {
 }
 
 func TestGetForeignHolderServersForReed(t *testing.T) {
-	_, ds, _, _ := testFederationHandlers(t)
+	h, ds, _, _ := testFederationHandlers(t)
 	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
 	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	peerA := establishedPeer(t, ds, "inv-reed-holder-a", admin1, admin2, false, fixed)
-	peerB := establishedPeer(t, ds, "inv-reed-holder-b", admin1, admin2, false, fixed)
+	peerA := establishedPeer(t, h, ds, "inv-reed-holder-a", admin1, admin2, false, fixed)
+	peerB := establishedPeer(t, h, ds, "inv-reed-holder-b", admin1, admin2, false, fixed)
 
 	author := seedFederationUser(t, ds, "reedauthor1", "reedauthor1", roles.RoleUser)
 

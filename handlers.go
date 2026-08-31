@@ -4208,7 +4208,7 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	serverID, err := h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot)
+	serverID, err := h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot, h.countersign)
 	switch {
 	case errors.Is(err, errFederationAttemptNotFound):
 		writeResponse(w, http.StatusNotFound, "Attempt not found")
@@ -4765,10 +4765,11 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	// instead of writing nothing until success.
 	now := time.Now().UTC().Truncate(time.Second)
 	peer := federationPeer{
-		ServerID:    payload.ServerID,
-		ServerName:  payload.ServerName,
-		BaseURL:     payload.BaseURL,
-		Fingerprint: payload.Fingerprint,
+		ServerID:       payload.ServerID,
+		ServerName:     payload.ServerName,
+		BaseURL:        payload.BaseURL,
+		Fingerprint:    payload.Fingerprint,
+		PublicKeyArmor: payload.PublicKeyArmor,
 	}
 	attemptID, err := h.services.db.CreateFederationAttempt(r.Context(), peer, now)
 	if err != nil {

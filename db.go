@@ -163,13 +163,16 @@ func InitDB(db *sql.DB) error {
 	// /////// //
 	//   API   //
 	// /////// //
-	// base_url/connected/fingerprint/revoked are federation fields, unset on
-	// the self row. fingerprint is the peer's pinned signing key fingerprint —
-	// its armor is NEVER stored locally; every key/profile fetch proxies live.
-	// signing_key is a soft reference to public_keys(id) (not FK'd — servers
-	// is created before public_keys to satisfy identities' own FK on
-	// servers(id)): the canonical id of this server's own current signing
-	// key, shared by its private_keys row and its public_keys row alike.
+	// base_url/connected/key_id/revoked are federation fields, unset on the
+	// self row. signing_key and key_id are both soft references to
+	// public_keys(id) (not FK'd — servers is created before public_keys to
+	// satisfy identities' own FK on servers(id), a real three-way cycle:
+	// servers -> public_keys -> identities -> servers). signing_key is the
+	// canonical id of this server's own current signing key, shared by its
+	// private_keys row and its public_keys row alike. key_id is the peer's
+	// pinned signing key on a federated row — approving a handshake
+	// promotes the peer's key into public_keys (owner NULL) and points
+	// key_id at it, so the peer's real armor lives there like any other key.
 	createServersTable := `
 	CREATE TABLE IF NOT EXISTS servers (
 		id VARCHAR(16) UNIQUE,
@@ -180,7 +183,7 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		base_url TEXT,
 		connected BOOLEAN NOT NULL DEFAULT FALSE,
-		fingerprint VARCHAR(255),
+		key_id VARCHAR(255),
 		revoked_at TIMESTAMP,
 		revoked_by VARCHAR(255),
 		revoked_reason TEXT,
@@ -1003,6 +1006,7 @@ func InitDB(db *sql.DB) error {
 		remote_server_name VARCHAR(255) NOT NULL,
 		base_url TEXT NOT NULL,
 		fingerprint VARCHAR(255) NOT NULL,
+		public_key_armor TEXT NOT NULL,
 		invitation_id VARCHAR(255) REFERENCES federation_invitation(id),
 		server_id VARCHAR(16) REFERENCES servers(id) ON DELETE SET NULL,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
