@@ -1094,7 +1094,7 @@ func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error)
 	}
 	key.Revoked = revoked
 	if predID.Valid {
-		key.Predecessor = &KeyPredecessor{ID: predID.String}
+		key.Predecessor = &predID.String
 	}
 
 	return &key, nil
@@ -1389,7 +1389,7 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	key.UserID = owner
 	key.ServerSignature = in.Server
 	if in.PredecessorSignature != "" {
-		key.Predecessor = &KeyPredecessor{ID: predecessor}
+		key.Predecessor = &predecessor
 	}
 
 	// users.id is identities.id now — use the already-computed selfIdentity,

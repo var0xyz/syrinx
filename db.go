@@ -65,23 +65,16 @@ type ServerSignature struct {
 	SignedAt time.Time `json:"timestamp"`
 }
 
-// KeyPredecessor identifies the key this one replaced (rotation only).
-// The predecessor's detached signature over this key's armor lives on
-// the predecessor's own KeyRevocation.SuccessorSignature instead.
-type KeyPredecessor struct {
-	ID string `json:"id"`
-}
-
 // Key is the wire shape of a public key — a local user's or this server's
 // own (peer servers' keys are never stored; foreign ids proxy live instead).
-// Revoked is computed on read; Predecessor is set for rotation keys only.
+// Revoked is computed on read; Predecessor is the replaced key's id (rotation only).
 type Key struct {
 	ID              string          `json:"id"`
 	UserID          string          `json:"userID"`
 	Armor           string          `json:"armor"`
 	CreatedAt       time.Time       `json:"createdAt"`
 	Revoked         bool            `json:"revoked"`
-	Predecessor     *KeyPredecessor `json:"predecessor"`
+	Predecessor     *string         `json:"predecessor"`
 	ServerSignature ServerSignature `json:"serverSignature"`
 }
 

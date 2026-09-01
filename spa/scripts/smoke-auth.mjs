@@ -130,8 +130,8 @@ async function main() {
     console.error(`ADD PUBLIC KEY FINGERPRINT MISMATCH: got ${newKey.fingerprint} want ${newCanonicalFingerprint}`);
     process.exit(1);
   }
-  if (newKey.predecessor?.fingerprint !== canonicalFingerprint) {
-    console.error(`PREDECESSOR MISMATCH: got ${newKey.predecessor?.fingerprint} want ${canonicalFingerprint}`);
+  if (newKey.predecessor !== canonicalFingerprint) {
+    console.error(`PREDECESSOR MISMATCH: got ${newKey.predecessor} want ${canonicalFingerprint}`);
     process.exit(1);
   }
   console.log('TEST C.2 (AddPublicKey / rotation) PASSED\n');

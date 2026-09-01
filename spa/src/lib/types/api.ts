@@ -45,24 +45,17 @@ export interface UserInfo extends Base {
   profileTimestamp: string;
 }
 
-// KeyPredecessor is a plain forward-pointer to the key this one replaced —
-// no signature here; the predecessor's *own* revocation row carries the
-// proof it approved the rotation (KeyRevocation.successorSignature).
-export interface KeyPredecessor extends Base {
-  id: string;
-};
-
 // PublicKey is the wire shape of a distributed user or server public key.
 // `serverSignature` is required (countersignature over userID/id/armor).
-// `revoked` is computed on read — revocation details live in KeyRevocation.
-// `predecessor` is null for signup keys; set for rotation keys.
+// `predecessor` is the replaced key's id (null for signup keys); the proof
+// it approved the rotation lives on that key's own KeyRevocation.successorSignature.
 export interface PublicKey extends Base {
   id: string;
   userID: string;
   armor: string;
   createdAt?: string;
   revoked: boolean;
-  predecessor: KeyPredecessor | null;
+  predecessor: string | null;
   serverSignature: ServerSignature;
 };
 

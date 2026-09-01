@@ -97,7 +97,7 @@ async function resolvePublicKey(
 }
 
 async function resolvePredecessor(key: api.PublicKey): Promise<api.PublicKey | null> {
-  const predId = key.predecessor?.id;
+  const predId = key.predecessor;
   if (!predId) return null;
   const cached = await dbService.get<api.PublicKey>('publicKeys', predId);
   if (cached) return cached;
@@ -178,19 +178,17 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
     return false;
   }
 
-  // Rotation provenance is one hop away now: the predecessor no longer
-  // carries its own handoff signature (KeyPredecessor is just {id}) — that
-  // proof lives on the *predecessor's own* revocation cert, as
-  // successorSignature (see types/api.ts's KeyPredecessor doc comment).
-  if (key.predecessor?.id) {
+  // Rotation provenance is one hop away: the predecessor's handoff proof
+  // lives on the *predecessor's own* revocation cert, as successorSignature.
+  if (key.predecessor) {
     const predecessor = await resolvePredecessor(key);
     if (!predecessor?.armor) {
-      console.error('[verifyPublicKey] predecessor public key unavailable', key.predecessor.id);
+      console.error('[verifyPublicKey] predecessor public key unavailable', key.predecessor);
       return false;
     }
-    const predRevocation = await resolvePredecessorRevocation(key.predecessor.id);
+    const predRevocation = await resolvePredecessorRevocation(key.predecessor);
     if (!predRevocation?.successorSignature) {
-      console.error('[verifyPublicKey] predecessor revocation/successorSignature unavailable', key.predecessor.id);
+      console.error('[verifyPublicKey] predecessor revocation/successorSignature unavailable', key.predecessor);
       return false;
     }
     if (predRevocation.successor !== key.id) {

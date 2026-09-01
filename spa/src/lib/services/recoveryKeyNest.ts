@@ -12,9 +12,9 @@
  * though, so every fingerprint pulled from a lookup is extracted back to
  * bare before landing on the wire node.
  *
- * The predecessor handoff signature (KeyNode.signature) no longer lives on
- * PublicKey.predecessor (now just {id}, see types/api.ts) — it's one hop
- * away, on the predecessor's own KeyRevocation.successorSignature.
+ * The predecessor handoff signature (KeyNode.signature) doesn't live on
+ * PublicKey.predecessor (just an id) — it's one hop away, on the
+ * predecessor's own KeyRevocation.successorSignature.
  */
 
 import type * as api from '$lib/types/api';
@@ -68,9 +68,8 @@ export function canAssembleKeyNest(
  * Build the recursive wire nest for claim / peer identity from local stores.
  * Puts the predecessor's own revocation.successorSignature on the child
  * node's `signature` (older key's sig over parent armor) — that's where
- * the rotation handoff proof lives now, one hop from PublicKey.predecessor
- * (now just {id}; see types/api.ts). Attaches each node's own revocation
- * by fingerprint or null.
+ * the rotation handoff proof lives, one hop from PublicKey.predecessor.
+ * Attaches each node's own revocation by fingerprint or null.
  */
 export function buildKeyNest(
   userId: string,
@@ -130,22 +129,16 @@ export function buildKeyNest(
 
     let predecessor: api.RecoveryKeyNode | null = null;
     if (key.predecessor != null) {
-      if (!key.predecessor.id) {
-        return {
-          ok: false,
-          reason: `incomplete predecessor on ${fingerprint}`,
-        };
-      }
       // The handoff proof (predecessor's sig over this key's armor) lives
       // on the PREDECESSOR's own revocation row, not this key's.
-      const predRevocation = lookups.getRevocation(key.predecessor.id) ?? null;
+      const predRevocation = lookups.getRevocation(key.predecessor) ?? null;
       if (!predRevocation?.successorSignature) {
         return {
           ok: false,
           reason: `missing predecessor handoff signature on ${fingerprint}`,
         };
       }
-      const child = buildNode(key.predecessor.id, predRevocation.successorSignature);
+      const child = buildNode(key.predecessor, predRevocation.successorSignature);
       if (child.ok === false) {
         return child;
       }
