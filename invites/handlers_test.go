@@ -390,3 +390,37 @@ func TestRegisterRoutes_CheckAllowlistedPath(t *testing.T) {
 		t.Fatalf("check route = %d", rr.Code)
 	}
 }
+
+// TestRegisterRoutes_StatusAndRevokeSlashID exercises Status/RevokeInvite
+// through the real router (not deps.Status called directly with manually
+// injected mux vars) — invite ids are "userID@serverID/reedID"-shaped and
+// carry a "/", so a plain {id} route variable never matches them.
+func TestRegisterRoutes_StatusAndRevokeSlashID(t *testing.T) {
+	deps := testDeps(t, ModeOpen, MaxInvitesUnlimited)
+	seedUser(t, deps.Store.DB, "u1", "alice")
+	creator := "u1@" + testServerID
+	id := newTestInviteID(t, creator)
+	secret, err := NewSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deps.Store.Insert(context.Background(), id, creator, HashSecret(secret), deps.Now(), roles.RoleUser); err != nil {
+		t.Fatal(err)
+	}
+
+	r := mux.NewRouter()
+	api := r.PathPrefix("/api").Subrouter()
+	RegisterRoutes(api, deps)
+
+	rrStatus := httptest.NewRecorder()
+	r.ServeHTTP(rrStatus, withUID(httptest.NewRequest(http.MethodGet, "/api/invites/"+id, nil), creator))
+	if rrStatus.Code != http.StatusOK {
+		t.Fatalf("status via router = %d body=%s", rrStatus.Code, rrStatus.Body.String())
+	}
+
+	rrRevoke := httptest.NewRecorder()
+	r.ServeHTTP(rrRevoke, withUID(httptest.NewRequest(http.MethodDelete, "/api/invites/"+id, nil), creator))
+	if rrRevoke.Code != http.StatusNoContent {
+		t.Fatalf("revoke via router = %d body=%s", rrRevoke.Code, rrRevoke.Body.String())
+	}
+}

@@ -59,9 +59,12 @@ func RegisterRoutes(api *mux.Router, deps Deps) {
 	api.HandleFunc("/invites", noop).Methods(http.MethodOptions)
 	api.HandleFunc("/invites/check", deps.Check).Methods(http.MethodGet)
 	api.HandleFunc("/invites/check", noop).Methods(http.MethodOptions)
-	api.HandleFunc("/invites/{id}", deps.Status).Methods(http.MethodGet)
-	api.HandleFunc("/invites/{id}", deps.RevokeInvite).Methods(http.MethodDelete)
-	api.HandleFunc("/invites/{id}", noop).Methods(http.MethodOptions)
+	// {id} is "userID@serverID/reedID"-shaped and carries a "/", so it needs
+	// a greedy path variable ({id:.+}) — a plain {id} stops at the first "/"
+	// and never matches (see main.go's /keys/{id:.+} for the same gotcha).
+	api.HandleFunc("/invites/{id:.+}", deps.Status).Methods(http.MethodGet)
+	api.HandleFunc("/invites/{id:.+}", deps.RevokeInvite).Methods(http.MethodDelete)
+	api.HandleFunc("/invites/{id:.+}", noop).Methods(http.MethodOptions)
 }
 
 func noop(w http.ResponseWriter, r *http.Request) {
