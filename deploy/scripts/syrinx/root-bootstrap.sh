@@ -159,9 +159,17 @@ syrinx_remove_root_export_dropin() {
 }
 
 # Wait for the one-shot mint to finish (exit 0 → inactive with Restart=on-failure).
+# Checks the DB + export file (ground truth) first on every poll, not just
+# ExecMainStatus/Result — a stray extra restart cycle (e.g. Restart=on-failure
+# still catching up from a prior crash loop) can land the unit back on a
+# *different* exit than the one that actually did the export, making
+# ExecMainStatus alone unreliable right at the transition.
 syrinx_wait_root_export_exit() {
     local i status result
     for i in $(seq 1 90); do
+        if syrinx_root_bootstrap_complete; then
+            return 0
+        fi
         if ! systemctl is-active --quiet "$APP_NAME.service"; then
             status="$(systemctl show -p ExecMainStatus --value "$APP_NAME.service" 2>/dev/null || echo 1)"
             result="$(systemctl show -p Result --value "$APP_NAME.service" 2>/dev/null || echo unknown)"
@@ -242,6 +250,10 @@ syrinx_ensure_root_bootstrap() {
     echo "🔹 Starting $APP_NAME for root export (ReadWritePaths=$export_dir)..."
     systemctl restart "$APP_NAME.service"
     if ! syrinx_wait_root_export_exit; then
+        # Stop rather than leave it running: with the passphrase still set,
+        # Restart=on-failure would otherwise crash-loop the unit indefinitely
+        # against maybeExportRootKey's already-exists guard.
+        systemctl stop "$APP_NAME.service" 2>/dev/null || true
         echo "   Passphrase left in $ENV_FILE; drop-in left in place for retry" >&2
         return 1
     fi
