@@ -36,8 +36,13 @@ syrinx_root_export_file() {
 syrinx_root_bootstrap_complete() {
     local marker export_file
     marker="$(syrinx_root_bootstrap_marker)"
+    if [ -f "$marker" ]; then
+        return 0
+    fi
     export_file="$(syrinx_root_export_file)"
-    [ -f "$marker" ] || { [ -n "$export_file" ] && [ -f "$export_file" ]; }
+    # Require the .passphrase sidecar too — an export file alone (no
+    # passphrase, no marker) is undecryptable and not a complete bootstrap.
+    [ -n "$export_file" ] && [ -f "$export_file" ] && [ -f "${export_file}.passphrase" ]
 }
 
 # Failed one-shot mint persists users.id=1 before writing .sxi.gpg (see root.go).
