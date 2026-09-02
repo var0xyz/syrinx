@@ -38,9 +38,10 @@ permissions and are never committed to git.
 - **`psql.sh`** — opens an interactive `psql` shell (or runs `-c '...'`)
   against the app database, using credentials read from `app.env`. Requires
   root (the env file is `640 root:$APP_USER`).
-- **`wipe-db.sh`** — backs up (`pg_dump | gzip`, mode 600) then drops and
-  recreates an empty database with the same owner/grants. Requires typing the
-  database name to confirm; refuses to proceed on a mismatch.
+- **`wipe-db.sh [--force]`** — backs up (`pg_dump | gzip`, mode 600) then
+  drops and recreates an empty database with the same owner/grants. Requires
+  typing the database name to confirm and refuses to proceed on a mismatch,
+  unless `--force` is passed to skip the prompt (e.g. for non-TTY callers).
 - **`root-bootstrap.sh`** — not run directly; sourced by `setup.sh`/`update.sh`
   to mint the reserved root identity (`users.id=1`) on first boot. See below.
 - **`otel-agent.sh`** — not run directly; sourced by `setup.sh`/`update.sh` to
