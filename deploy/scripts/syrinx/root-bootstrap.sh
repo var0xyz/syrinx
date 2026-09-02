@@ -65,7 +65,7 @@ syrinx_root_other_user_count() {
     db="${DB_NAME:?DB_NAME missing in $ENV_FILE}"
 
     PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$db" -tAc \
-        "SELECT COUNT(*) FROM users WHERE id <> '1'" 2>/dev/null | tr -d '[:space:]'
+        "SELECT COUNT(*) FROM users WHERE id <> '1' AND id NOT LIKE '1@%'" 2>/dev/null | tr -d '[:space:]'
 }
 
 syrinx_delete_orphan_root() {
@@ -83,11 +83,10 @@ syrinx_delete_orphan_root() {
 
     echo "🔹 Removing incomplete root user (id=1) so mint can run again..."
     systemctl stop "$APP_NAME.service" 2>/dev/null || true
+    # identities(id) cascades to users and public_keys(owner) — one delete
+    # covers all three, and matches both the bare "1" and canonical "1@..." id.
     PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$db" -v ON_ERROR_STOP=1 <<'SQL'
-BEGIN;
-DELETE FROM user_keys WHERE owner = '1';
-DELETE FROM users WHERE id = '1';
-COMMIT;
+DELETE FROM identities WHERE id = '1' OR id LIKE '1@%';
 SQL
     rm -f "$(syrinx_root_bootstrap_marker)"
 }
@@ -115,7 +114,7 @@ syrinx_root_exists() {
     db="${DB_NAME:?DB_NAME missing in $ENV_FILE}"
 
     PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$db" -tAc \
-        "SELECT 1 FROM users WHERE id = '1' LIMIT 1" 2>/dev/null | grep -q 1
+        "SELECT 1 FROM users WHERE id = '1' OR id LIKE '1@%' LIMIT 1" 2>/dev/null | grep -q 1
 }
 
 syrinx_strip_root_export_env() {
