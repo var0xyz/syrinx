@@ -212,7 +212,7 @@ syrinx_ensure_root_bootstrap() {
     fi
 
     if syrinx_root_exists; then
-        if syrinx_root_bootstrap_complete; then
+        if syrinx_root_bootstrap_complete && [ "${FORCE_ROOT_REMINT:-0}" != "1" ]; then
             syrinx_strip_root_export_env
             syrinx_remove_root_export_dropin
             echo "🔹 Root user already exists — skipping one-shot mint"
