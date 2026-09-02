@@ -21,7 +21,3 @@ func trimInvisibleChars(s string) string {
 	// Trim spaces again after removing invisible chars
 	return strings.TrimSpace(result.String())
 }
-
-func (h *Handlers) federationBaseURL() string {
-	return strings.TrimRight(string(h.cfg.APIBaseURL), "/")
-}

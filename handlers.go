@@ -5305,3 +5305,7 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 		Ripple: realtimeRippleWire(&wire),
 	}
 }
+
+func (h *Handlers) federationBaseURL() string {
+	return strings.TrimRight(string(h.cfg.APIBaseURL), "/")
+}
