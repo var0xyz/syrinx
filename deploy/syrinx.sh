@@ -12,7 +12,8 @@
 #   restart                     sudo ./restart.sh
 #   signup-mode <mode>          sudo ./set-signup-mode.sh <mode>
 #   psql [args...]              sudo ./psql.sh [args...]
-#   wipe-db                     sudo ./wipe-db.sh   (interactive confirmation)
+#   wipe-db [--force]           sudo ./wipe-db.sh [--force]
+#                                (interactive confirmation unless --force)
 #
 # Examples:
 #   ./syrinx.sh setup
@@ -21,6 +22,7 @@
 #   ./syrinx.sh signup-mode invite
 #   ./syrinx.sh psql -c 'select count(*) from users;'
 #   ./syrinx.sh wipe-db
+#   ./syrinx.sh wipe-db --force
 #
 # Only `setup` prompts for the host address — it's the one command allowed
 # to establish or change it, saved to deploy/scripts/syrinx/deploy.env
@@ -32,8 +34,8 @@
 # without touching the saved value.
 #
 # Root-requiring remote scripts (setup, update, restart, ...) are run with
-# sudo; wipe-db and psql are interactive, so their prompts pass straight
-# through your terminal.
+# sudo; wipe-db and psql prompt interactively (unless wipe-db gets --force),
+# and those prompts pass straight through your terminal.
 #
 # After the first root identity mint, run
 # ./deploy/scripts/syrinx/cp-root-creds.sh separately to copy the export
@@ -53,7 +55,7 @@ info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
 usage() {
-    sed -n '2,41p' "$0" | sed -e 's/^# //' -e 's/^#$//'
+    sed -n '2,43p' "$0" | sed -e 's/^# //' -e 's/^#$//'
 }
 
 load_saved_host() {

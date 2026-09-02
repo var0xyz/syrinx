@@ -2,6 +2,10 @@
 # ==============================================================================
 # Wipe app database: backup, DROP + recreate empty DB (same owner / grants as setup).
 # Requires setup.env from a prior ./setup.sh run.
+#
+# Usage: ./wipe-db.sh [--force]
+#   --force   Skip the interactive "type the database name" confirmation
+#             (for non-TTY callers, e.g. `ssh -t ... wipe-db.sh --force`).
 # ==============================================================================
 
 set -euo pipefail
@@ -10,6 +14,20 @@ if [ "$EUID" -ne 0 ]; then
     echo "❌ Error: run as root (sudo ./wipe-db.sh)"
     exit 1
 fi
+
+FORCE=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --force)
+            FORCE=1
+            shift
+            ;;
+        *)
+            echo "❌ Error: unknown argument: $1"
+            exit 1
+            ;;
+    esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SETUP_ENV="$SCRIPT_DIR/setup.env"
@@ -50,10 +68,14 @@ echo "Database: $DB_NAME"
 echo "Owner:    $APP_USER"
 echo "Backup:   $BACKUP_DIR (created before wipe if DB exists)"
 echo ""
-read -r -p "Type the database name ($DB_NAME) to confirm wipe: " CONFIRM
-if [ "$CONFIRM" != "$DB_NAME" ]; then
-    echo "❌ Confirmation mismatch — aborting. No changes made."
-    exit 1
+if [ "$FORCE" -eq 1 ]; then
+    echo "⚠️  --force passed — skipping confirmation prompt."
+else
+    read -r -p "Type the database name ($DB_NAME) to confirm wipe: " CONFIRM
+    if [ "$CONFIRM" != "$DB_NAME" ]; then
+        echo "❌ Confirmation mismatch — aborting. No changes made."
+        exit 1
+    fi
 fi
 
 echo -e "\n🛑 Stopping $APP_NAME to release DB connections..."
