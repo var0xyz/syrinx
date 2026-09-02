@@ -6,6 +6,9 @@
 # Does NOT reconfigure Cloudflare — the tunnel is unrelated to app rebuilds.
 # setup.sh skips Cloudflare too when https://$APP_DOMAIN already responds
 # (use FORCE_CF=1 there to force a tunnel rewrite).
+#
+# Usage: ./update.sh [--branch <name>]
+#   --branch <name>   Clone this branch instead of APP_REPO's default branch.
 # ==============================================================================
 
 set -euo pipefail
@@ -14,6 +17,21 @@ if [ "$EUID" -ne 0 ]; then
     echo "❌ Error: run as root (sudo ./update.sh)"
     exit 1
 fi
+
+BRANCH=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --branch)
+            [ $# -ge 2 ] || { echo "❌ Error: --branch requires a value"; exit 1; }
+            BRANCH="$2"
+            shift 2
+            ;;
+        *)
+            echo "❌ Error: unknown argument: $1"
+            exit 1
+            ;;
+    esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SETUP_ENV="$SCRIPT_DIR/setup.env"
@@ -116,7 +134,11 @@ cleanup() {
 trap cleanup EXIT
 
 echo "================================================================"
-echo "🔄 Updating $APP_NAME from $APP_REPO"
+if [ -n "$BRANCH" ]; then
+    echo "🔄 Updating $APP_NAME from $APP_REPO (branch: $BRANCH)"
+else
+    echo "🔄 Updating $APP_NAME from $APP_REPO"
+fi
 echo "================================================================"
 
 if ! command -v go >/dev/null 2>&1 && [ ! -x /usr/local/go/bin/go ]; then
@@ -126,7 +148,11 @@ fi
 
 echo -e "\n📦 Shallow-cloning latest code..."
 mkdir -p "$BUILD_DIR"
-git clone --depth 1 "$APP_REPO" "$BUILD_DIR/src"
+if [ -n "$BRANCH" ]; then
+    git clone --depth 1 --branch "$BRANCH" "$APP_REPO" "$BUILD_DIR/src"
+else
+    git clone --depth 1 "$APP_REPO" "$BUILD_DIR/src"
+fi
 GIT_COMMIT="$(git -C "$BUILD_DIR/src" rev-parse HEAD)"
 export GIT_COMMIT
 echo "    Commit: $GIT_COMMIT"
