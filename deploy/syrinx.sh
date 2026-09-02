@@ -7,16 +7,17 @@
 #   ./syrinx.sh <command> [args...]
 #
 # Commands (map 1:1 to the script of the same name on the host):
-#   setup                    sudo ./setup.sh
-#   update                    sudo ./update.sh
-#   restart                   sudo ./restart.sh
-#   signup-mode <mode>        sudo ./set-signup-mode.sh <mode>
-#   psql [args...]            sudo ./psql.sh [args...]
-#   wipe-db                   sudo ./wipe-db.sh   (interactive confirmation)
+#   setup                       sudo ./setup.sh
+#   update [--branch <name>]    sudo ./update.sh [--branch <name>]
+#   restart                     sudo ./restart.sh
+#   signup-mode <mode>          sudo ./set-signup-mode.sh <mode>
+#   psql [args...]              sudo ./psql.sh [args...]
+#   wipe-db                     sudo ./wipe-db.sh   (interactive confirmation)
 #
 # Examples:
 #   ./syrinx.sh setup
 #   DEPLOY_HOST=pi@10.0.0.50 ./syrinx.sh update
+#   ./syrinx.sh update --branch canonicalmerge
 #   ./syrinx.sh signup-mode invite
 #   ./syrinx.sh psql -c 'select count(*) from users;'
 #   ./syrinx.sh wipe-db
@@ -52,7 +53,7 @@ info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
 usage() {
-    sed -n '2,37p' "$0" | sed -e 's/^# //' -e 's/^#$//'
+    sed -n '2,41p' "$0" | sed -e 's/^# //' -e 's/^#$//'
 }
 
 load_saved_host() {
