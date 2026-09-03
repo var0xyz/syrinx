@@ -384,6 +384,8 @@ export const apiService = {
     });
   },
 
+  // id carries a literal "/" (userID@serverID/reedID) — no encodeURIComponent,
+  // same convention as canonicalKeyId above, or the signed path won't match.
   async getInviteStatus(id: string): Promise<{
     id: string;
     createdAt: string;
@@ -392,11 +394,11 @@ export const apiService = {
     claimedBy: string | null;
     revokedAt: string | null;
   }> {
-    return request(`/invites/${encodeURIComponent(id)}`, { method: 'GET' });
+    return request(`/invites/${id}`, { method: 'GET' });
   },
 
   async revokeInvite(id: string): Promise<void> {
-    await request(`/invites/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await request(`/invites/${id}`, { method: 'DELETE' });
   },
 
   async listFederationInvitations(): Promise<api.FederationInvitation[]> {
