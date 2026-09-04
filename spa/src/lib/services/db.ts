@@ -20,6 +20,15 @@ export function payloadByteLength(data: unknown): number {
  * a store whose keyPath is a compound key. */
 export type DbKey = string | string[];
 
+/** Reports a verification failure that caused `put` to refuse a write.
+ * Set by serverConnection at startup — db.ts can't import serverConnection
+ * directly (serverConnection -> repositories/reeds -> db.ts would cycle). */
+export type ContentRejectedReporter = (storeName: string) => void;
+let contentRejectedReporter: ContentRejectedReporter | null = null;
+export function setContentRejectedReporter(reporter: ContentRejectedReporter): void {
+  contentRejectedReporter = reporter;
+}
+
 export interface DbService {
   init(): Promise<void>;
   put<T extends api.Base>(storeName: string, data: T, verifier: Verifier<T>): Promise<void>;
@@ -142,6 +151,7 @@ export class IndexedDbService implements DbService {
 
     const ok = await verifier(data);
     if (!ok) {
+      contentRejectedReporter?.(storeName);
       throw new Error(`Refusing to store in ${storeName}: verification failed`);
     }
 

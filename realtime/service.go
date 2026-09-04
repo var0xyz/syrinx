@@ -1136,6 +1136,12 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 			rs.handleRevokedKeyUsed(client, d)
 		}
 
+	case "CONTENT_REJECTED":
+		var d ContentRejectedData
+		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
+			rs.handleContentRejected(client, d)
+		}
+
 	case "SUBSCRIBE_PROFILE":
 		rs.handleSubscribeProfile(client, jsonMsg.Data)
 
@@ -2226,6 +2232,20 @@ func (rs *RealtimeService) handleRevokedKeyUsed(client *Client, data RevokedKeyU
 		Str("keyID", data.KeyID).
 		Msg("Client reported content signed with a revoked key")
 	rs.metrics.RevokedKeyUsed(context.Background(), client.userID, data.UserID, data.KeyID)
+}
+
+// handleContentRejected is called when a client received a signed resource,
+// failed to verify it, and refused to store it — the client rejecting
+// content, not a server-side signature check.
+func (rs *RealtimeService) handleContentRejected(client *Client, data ContentRejectedData) {
+	if data.StoreName == "" {
+		return
+	}
+	log.Warn().
+		Str("reporterUserID", client.userID).
+		Str("storeName", data.StoreName).
+		Msg("Client rejected content that failed verification")
+	rs.metrics.ContentRejected(context.Background(), client.userID, data.StoreName)
 }
 
 func (rs *RealtimeService) handleSubscribeProfile(client *Client, data json.RawMessage) {

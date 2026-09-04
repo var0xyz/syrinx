@@ -71,6 +71,9 @@ stream as host metrics today.
 | `syrinx.ws.messages` | Counter | Every WS frame handled (see 5.4) | `ws.direction` (`in` \| `out`), `ws.message.type` (normalized type name) |
 | `syrinx.relay.event` | Counter | Every `pending_events` row created/fulfilled/deleted | `relay.lifecycle` (`created` \| `fulfilled` \| `deleted`), `event.kind` (`EventName`, e.g. `request_reed`), `event.id_hash` (SHA-256 of the event id, which embeds the requester's identity) |
 | `syrinx.federation.relay` | Counter | Every federation relay HTTP leg, either side | `federation.direction` (`in` \| `out`), `peer.server_id`, `federation.leg` (path's last segment, e.g. `request`, `deliver`), `ok` (bool — 2xx response) |
+| `syrinx.keys.fetch_errors` | Counter | Client-reported `KEY_FETCH_ERROR` WS message | `reporter.id_hash`, `target.id_hash`, `key.fingerprint` |
+| `syrinx.keys.revoked_used` | Counter | Client-reported `REVOKED_KEY_USED` WS message | `reporter.id_hash`, `target.id_hash`, `key.fingerprint` |
+| `syrinx.content.rejected` | Counter | Client-reported `CONTENT_REJECTED` WS message — a signed resource failed client-side verification and was refused a local write | `reporter.id_hash`, `store.name` (IndexedDB store, e.g. `reeds`, `invites`, `removedReeds`) |
 
 **Echoes and replies** use two complementary counters:
 
