@@ -192,6 +192,14 @@ type RevokedKeyUsedData struct {
 	KeyID  string `json:"key_id"`
 }
 
+// ContentRejectedData is the parsed payload of an incoming CONTENT_REJECTED
+// message: the client received a signed resource, failed to verify it, and
+// refused to store it. StoreName identifies the resource kind (the SPA's
+// IndexedDB store, e.g. "reeds", "invites", "removedReeds").
+type ContentRejectedData struct {
+	StoreName string `json:"store_name"`
+}
+
 // SyncRequestData is the parsed payload of an incoming SYNC_REQUEST message.
 type SyncRequestData struct {
 	RequestID string `json:"request_id"`

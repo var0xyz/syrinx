@@ -21,6 +21,7 @@ type OTEL struct {
 	keysRevoked         metric.Int64Counter
 	keyFetchErrors      metric.Int64Counter
 	revokedKeysUsed     metric.Int64Counter
+	contentRejected     metric.Int64Counter
 	usersBackup         metric.Int64Counter
 	wsMessages          metric.Int64Counter
 	relayEvents         metric.Int64Counter
@@ -64,6 +65,7 @@ func New(m metric.Meter) *OTEL {
 	r.keysRevoked = counter("syrinx.keys.revoked")
 	r.keyFetchErrors = counter("syrinx.keys.fetch_errors")
 	r.revokedKeysUsed = counter("syrinx.keys.revoked_used")
+	r.contentRejected = counter("syrinx.content.rejected")
 	r.usersBackup = counter("syrinx.users.backup")
 	r.wsMessages = counter("syrinx.ws.messages")
 	r.relayEvents = counter("syrinx.relay.event")
@@ -184,6 +186,20 @@ func (r *OTEL) RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID,
 		attribute.String("reporter.id_hash", UserIDHash(reporterUserID)),
 		attribute.String("target.id_hash", UserIDHash(targetUserID)),
 		attribute.String("key.fingerprint", keyID),
+	))
+}
+
+// ContentRejected records a client-reported signed resource that failed
+// verification and was refused a local write — the client rejecting
+// content it received, not a server-side signature check on an incoming
+// request.
+func (r *OTEL) ContentRejected(ctx context.Context, reporterUserID, storeName string) {
+	if r.contentRejected == nil {
+		return
+	}
+	r.contentRejected.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("reporter.id_hash", UserIDHash(reporterUserID)),
+		attribute.String("store.name", storeName),
 	))
 }
 
