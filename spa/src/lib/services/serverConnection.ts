@@ -8,6 +8,7 @@ import {
 } from '$lib/repositories/reedRequests';
 import { reedsService } from '$lib/repositories/reeds';
 import { startReedRequestDrainer } from './reedRequestDrainer';
+import { setContentRejectedReporter } from './db';
 
 export type ServerEventHandler = (data: any) => void;
 
@@ -387,6 +388,14 @@ class ServerConnection {
     this.send({ type: 'REVOKED_KEY_USED', data: { user_id: userId, key_id: keyId } });
   }
 
+  /** Reports a signed resource that failed verification and was refused a
+   * local write (dbService.put's `!ok` branch) — the client rejecting
+   * content, not the server. `storeName` identifies the resource kind
+   * (e.g. 'reeds', 'invites', 'removedReeds'). */
+  sendContentRejected(storeName: string): void {
+    this.send({ type: 'CONTENT_REJECTED', data: { store_name: storeName } });
+  }
+
   async publishReady(reedId: string, options?: { broadcast?: boolean }): Promise<void> {
     await this.connect();
     this.send({
@@ -500,3 +509,5 @@ class ServerConnection {
 }
 
 export const serverConnection = new ServerConnection();
+
+setContentRejectedReporter((storeName) => serverConnection.sendContentRejected(storeName));
