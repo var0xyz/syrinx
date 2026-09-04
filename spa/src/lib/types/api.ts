@@ -43,6 +43,8 @@ export interface UserInfo extends Base {
   activeKeyID: string;
   /** Same instant as the user's profile serverSignature.timestamp. */
   profileTimestamp: string;
+  /** Up to 3 of this user's own pinned reed IDs, newest-pin-first. */
+  pinnedReedIDs?: string[];
 }
 
 // PublicKey is the wire shape of a distributed user or server public key.

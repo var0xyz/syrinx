@@ -2553,6 +2553,72 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PinReed handles POST /reeds/{reedID}/pin.
+func (h *Handlers) PinReed(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	reedID := mux.Vars(r)["reedID"]
+	if reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	pinnerID, ok := h.resolveActingUser(r, r.FormValue("pinnerID"))
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		return
+	}
+
+	if err := h.services.db.PinReed(r.Context(), pinnerID, reedID); err != nil {
+		if errors.Is(err, ErrPinTargetNotFound) {
+			writeResponse(w, http.StatusNotFound, "Reed not found or not owned by this user")
+			return
+		}
+		if errors.Is(err, ErrPinLimitReached) {
+			writeResponse(w, http.StatusConflict, "Already pinned 3 reeds")
+			return
+		}
+		log.Error().Str("pinnerID", pinnerID).Str("reedID", reedID).Err(err).Msg("Error pinning reed")
+		internalServerError(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// UnpinReed handles DELETE /reeds/{reedID}/pin. Always 204, even if
+// reedID wasn't pinned — mirrors UnlikeReed's no-op-on-absent behavior.
+func (h *Handlers) UnpinReed(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	reedID := mux.Vars(r)["reedID"]
+	if reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
+		return
+	}
+
+	// r.FormValue skips DELETE bodies — read directly, same as UnlikeReed.
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	values, _ := url.ParseQuery(string(body))
+	pinnerID, ok := h.resolveActingUser(r, values.Get("pinnerID"))
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		return
+	}
+
+	if err := h.services.db.UnpinReed(r.Context(), pinnerID, reedID); err != nil {
+		log.Error().Str("pinnerID", pinnerID).Str("reedID", reedID).Err(err).Msg("Error unpinning reed")
+		internalServerError(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handlers) reedRemovalWire(cert *deletion.Cert) ReedRemoval {
 	return ReedRemoval{
 		Type:     identity.TypeReed,

@@ -364,6 +364,12 @@ func main() {
 	api.HandleFunc("/reeds/{userID}/{reedID}/like", h.UnlikeReed).Methods("DELETE")
 	api.HandleFunc("/reeds/{userID}/{reedID}/like", h.noop).Methods("OPTIONS")
 
+	// {reedID:.+} (not split {userID}/{reedID}) so the full reed id the
+	// client already has is used as-is, no server-side reconstruction.
+	api.HandleFunc("/reeds/{reedID:.+}/pin", h.PinReed).Methods("POST")
+	api.HandleFunc("/reeds/{reedID:.+}/pin", h.UnpinReed).Methods("DELETE")
+	api.HandleFunc("/reeds/{reedID:.+}/pin", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/reeds/{userID}/{reedID}/ripples", h.PostRipple).Methods("POST")
 	api.HandleFunc("/reeds/{userID}/{reedID}/ripples", h.GetRipples).Methods("QUERY")
 	api.HandleFunc("/reeds/{userID}/{reedID}/ripples", h.noop).Methods("OPTIONS")
