@@ -301,6 +301,12 @@
     }
   }
 
+  function onPinnedChange(e) {
+    if (profileUser) {
+      profileUser = { ...profileUser, pinnedReedIDs: e.detail.pinnedReedIDs };
+    }
+  }
+
   function onFollowingChange(e) {
     // Drop any in-flight profile /info fetch that started before this follow.
     infoFetchSeq += 1;
@@ -579,6 +585,8 @@
           showWriteButton={isOwner}
           {scrollRestoreY}
           {expectContent}
+          pinnedReedIds={profileUser?.pinnedReedIDs ?? []}
+          on:pinnedChange={onPinnedChange}
         />
       {/key}
     {/if}
