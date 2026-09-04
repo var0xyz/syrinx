@@ -754,6 +754,28 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 	if activeKeyID.Valid {
 		info.ActiveKeyID = activeKeyID.String
 	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT pr.reed_id FROM pinned_reeds pr
+		WHERE pr.user_id = $1
+		  AND NOT EXISTS (SELECT 1 FROM reed_removals rm WHERE rm.reed_id = pr.reed_id)
+		ORDER BY pr.pinned_at DESC, pr.reed_id DESC
+		LIMIT 3
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var reedID string
+		if err := rows.Scan(&reedID); err != nil {
+			return nil, err
+		}
+		info.PinnedReedIDs = append(info.PinnedReedIDs, reedID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return &info, nil
 }
 
@@ -1020,6 +1042,61 @@ func (s *DataService) UnfollowUser(ctx context.Context, followerID, userID strin
 	}
 
 	return tx.Commit()
+}
+
+var ErrPinTargetNotFound = errors.New("pin target not found")
+var ErrPinLimitReached = errors.New("pin limit reached")
+
+const maxPinnedReeds = 3
+
+// PinReed requires reedID be a reeds row owned by pinningUserID. Re-pinning
+// an already-pinned reed bumps pinned_at instead of erroring.
+func (s *DataService) PinReed(ctx context.Context, pinningUserID, reedID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var ownerID string
+	err = tx.QueryRowContext(ctx, `SELECT user_id FROM reeds WHERE id = $1`, reedID).Scan(&ownerID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrPinTargetNotFound
+		}
+		return err
+	}
+	if ownerID != pinningUserID {
+		return ErrPinTargetNotFound
+	}
+
+	var count int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM pinned_reeds WHERE user_id = $1 AND reed_id != $2
+	`, pinningUserID, reedID).Scan(&count); err != nil {
+		return err
+	}
+	if count >= maxPinnedReeds {
+		return ErrPinLimitReached
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO pinned_reeds (user_id, reed_id, pinned_at)
+		VALUES ($1, $2, CURRENT_TIMESTAMP)
+		ON CONFLICT (user_id, reed_id) DO UPDATE SET pinned_at = CURRENT_TIMESTAMP
+	`, pinningUserID, reedID)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// UnpinReed is a no-op (not an error) if reedID wasn't pinned.
+func (s *DataService) UnpinReed(ctx context.Context, pinningUserID, reedID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM pinned_reeds WHERE user_id = $1 AND reed_id = $2
+	`, pinningUserID, reedID)
+	return err
 }
 
 // RemoveRemoteFollower is UnfollowUser's mirror on the receiving end of a

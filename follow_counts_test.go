@@ -77,6 +77,19 @@ func ensureFollowCountSchema(db *sql.DB) error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (user_id, following_user_id)
 		)`,
+		`DROP TABLE IF EXISTS pinned_reeds CASCADE`,
+		`DROP TABLE IF EXISTS reed_identities CASCADE`,
+		`CREATE TABLE reed_identities (
+			id VARCHAR(255) PRIMARY KEY,
+			server_id VARCHAR(16) NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE pinned_reeds (
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+			reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+			pinned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, reed_id)
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {

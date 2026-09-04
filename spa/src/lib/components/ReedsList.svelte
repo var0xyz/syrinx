@@ -1,6 +1,7 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { reedsService, unsignedReedsProcessed, profileReedQueue, followReedQueue } from '$lib/repositories/reeds';
+  import { pinReed, unpinReed } from '$lib/services/reedPin';
   import { formatRelativeTime } from '$lib/utils/time';
   import { dbService } from '$lib/services/db';
   import { userRepository } from '$lib/repositories/user';
@@ -11,6 +12,7 @@
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import KebabMenu from '$lib/components/KebabMenu.svelte';
+  import ReedListItem from '$lib/components/ReedListItem.svelte';
   import { goto } from '$app/navigation';
   import { isValidRef, getUserId } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
@@ -22,6 +24,9 @@
   export let authorId;
   export let isOwner = false;
   export let showWriteButton = false;
+  /** This profile's pinned reed ids (newest-pin-first), from the parent
+   * page's already-fetched /info data. */
+  export let pinnedReedIds = /** @type {string[]} */ ([]);
   /** Server already reports this author has reeds (info.hasReeds), but none
    * are held locally yet — e.g. the author is offline and no online peer
    * has relayed the body. Distinguishes "known content, still arriving"
@@ -29,6 +34,8 @@
   export let expectContent = false;
   /** Window scrollY to restore after the first load (SvelteKit page snapshot). */
   export let scrollRestoreY = /** @type {number | null} */ (null);
+
+  const dispatch = createEventDispatcher();
 
   let isWriteSectionOpen = false;
   let showNewReedBanner = false;
@@ -79,6 +86,31 @@
     const user = await userRepository.getByUserId(id).catch(() => null);
     if (id !== profileUserFor) return;
     profileUser = user;
+  }
+
+  let pinnedOrdered = [];
+  $: pinnedSet = new Set(pinnedReedIds);
+  $: void loadPinned(pinnedReedIds);
+
+  /** Pinned reeds are fetched by id directly (not searched in `reeds`,
+   * which is paginated and may not hold every pinned item), then get the
+   * same echo/reply quote-target prefetch as the main list — merged into
+   * the shared maps, not overwritten, since loadReeds populates those too. */
+  async function loadPinned(ids) {
+    const loaded = await Promise.all(ids.map((id) => reedsService.getReed(id)));
+    pinnedOrdered = loaded.filter(Boolean);
+    const { echoMap, userMap, replyMap } = await prefetchQuoteTargets(pinnedOrdered);
+    if (echoMap.size) echoedReeds = new Map([...echoedReeds, ...echoMap]);
+    if (userMap.size) echoedReedUsers = new Map([...echoedReedUsers, ...userMap]);
+    if (replyMap.size) repliedToReeds = new Map([...repliedToReeds, ...replyMap]);
+  }
+
+  async function togglePinReed(reed) {
+    const pin = !pinnedSet.has(reed.id);
+    const updated = pin
+      ? await pinReed(authorId, reed.id, pinnedReedIds)
+      : await unpinReed(authorId, reed.id, pinnedReedIds);
+    dispatch('pinnedChange', { pinnedReedIDs: updated });
   }
 
   $: if ($unsignedReedsProcessed > 0) loadReeds();
@@ -183,6 +215,98 @@
     }
   }
 
+  /** Resolves echo/reply quote targets for reedList: walks blank-echo
+   * chains so unwrap can reach real content, and requests missing echo
+   * targets over the relay. Returns fresh maps — callers merge them into
+   * the persistent echoedReeds/echoedReedUsers/repliedToReeds. */
+  async function prefetchQuoteTargets(reedList) {
+    const echoMap = new Map();
+    const seenEchoKeys = new Set();
+    /** @type {string[]} */
+    let echoFrontier = [];
+
+    function enqueueEchoKey(key) {
+      if (!key || seenEchoKeys.has(key)) return;
+      if (!isValidRef(key)) return;
+      seenEchoKeys.add(key);
+      echoFrontier.push(key);
+    }
+
+    for (const r of reedList) {
+      if (r.echoing) enqueueEchoKey(r.echoing);
+    }
+
+    for (let depth = 0; depth < 8 && echoFrontier.length > 0; depth++) {
+      const batch = echoFrontier;
+      echoFrontier = [];
+      const echoResults = await Promise.allSettled(
+        batch.map((key) => reedsService.getReed(key))
+      );
+      batch.forEach((key, i) => {
+        if (echoResults[i].status === 'fulfilled' && echoResults[i].value) {
+          const original = echoResults[i].value;
+          echoMap.set(key, original);
+          pendingEchoRequests.delete(key);
+          if (isBlankEcho(original) && original.echoing) {
+            enqueueEchoKey(original.echoing);
+          }
+          return;
+        }
+        if (
+          reedList.some((r) => r.echoing === key && isBlankEcho(r)) &&
+          !pendingEchoRequests.has(key)
+        ) {
+          pendingEchoRequests.add(key);
+          void (async () => {
+            const localReason = await locallyKnownRemovalReason(key);
+            if (localReason) return;
+            serverConnection.requestReedContent(key).catch(() => {});
+          })();
+        }
+      });
+    }
+
+    // Authors for blank-echo identity swap (final unwrapped reed).
+    const displayAuthors = new Set();
+    for (const r of reedList) {
+      if (!isBlankEcho(r)) continue;
+      const display = resolveBlankEchoFromMap(r, echoMap);
+      if (display.id !== r.id) displayAuthors.add(display.userID);
+    }
+    const echoAuthorResults = await Promise.allSettled(
+      [...displayAuthors].map((author) => userRepository.getByUserId(author))
+    );
+    const userMap = new Map();
+    [...displayAuthors].forEach((author, i) => {
+      if (echoAuthorResults[i].status === 'fulfilled' && echoAuthorResults[i].value) {
+        userMap.set(author, echoAuthorResults[i].value);
+      }
+    });
+
+    // Prefetch replied-to reeds for list items and blank-unwrapped targets.
+    const replyKeys = new Set();
+    for (const r of reedList) {
+      const display = resolveBlankEchoFromMap(r, echoMap);
+      if (display.replying) replyKeys.add(display.replying);
+    }
+    const replyEntries = [...replyKeys]
+      .map((key) => (isValidRef(key) ? { key } : null))
+      .filter(Boolean);
+
+    const replyResults = await Promise.allSettled(
+      replyEntries.map(({ key }) => reedsService.getReed(key))
+    );
+
+    const replyMap = new Map();
+    replyEntries.forEach(({ key }, i) => {
+      if (replyResults[i].status === 'fulfilled' && replyResults[i].value) {
+        replyMap.set(key, replyResults[i].value);
+      }
+    });
+
+    return { echoMap, userMap, replyMap };
+  }
+
   async function loadReeds() {
     try {
       loadingReeds = true;
@@ -202,93 +326,9 @@
         : [];
 
       const allForQuotes = [...pendingReeds, ...reeds];
-
-      // Fetch echoed reeds; walk blank-echo chains so unwrap can reach content.
-      const echoMap = new Map();
-      const seenEchoKeys = new Set();
-      /** @type {string[]} */
-      let echoFrontier = [];
-
-      function enqueueEchoKey(key) {
-        if (!key || seenEchoKeys.has(key)) return;
-        if (!isValidRef(key)) return;
-        seenEchoKeys.add(key);
-        echoFrontier.push(key);
-      }
-
-      for (const r of allForQuotes) {
-        if (r.echoing) enqueueEchoKey(r.echoing);
-      }
-
-      for (let depth = 0; depth < 8 && echoFrontier.length > 0; depth++) {
-        const batch = echoFrontier;
-        echoFrontier = [];
-        const echoResults = await Promise.allSettled(
-          batch.map((key) => reedsService.getReed(key))
-        );
-        batch.forEach((key, i) => {
-          if (echoResults[i].status === 'fulfilled' && echoResults[i].value) {
-            const original = echoResults[i].value;
-            echoMap.set(key, original);
-            pendingEchoRequests.delete(key);
-            if (isBlankEcho(original) && original.echoing) {
-              enqueueEchoKey(original.echoing);
-            }
-            return;
-          }
-          if (
-            allForQuotes.some((r) => r.echoing === key && isBlankEcho(r)) &&
-            !pendingEchoRequests.has(key)
-          ) {
-            pendingEchoRequests.add(key);
-            void (async () => {
-              const localReason = await locallyKnownRemovalReason(key);
-              if (localReason) return;
-              serverConnection.requestReedContent(key).catch(() => {});
-            })();
-          }
-        });
-      }
+      const { echoMap, userMap, replyMap } = await prefetchQuoteTargets(allForQuotes);
       echoedReeds = echoMap;
-
-      // Authors for blank-echo identity swap (final unwrapped reed).
-      const displayAuthors = new Set();
-      for (const r of allForQuotes) {
-        if (!isBlankEcho(r)) continue;
-        const display = resolveBlankEchoFromMap(r, echoMap);
-        if (display.id !== r.id) displayAuthors.add(display.userID);
-      }
-      const echoAuthorResults = await Promise.allSettled(
-        [...displayAuthors].map((author) => userRepository.getByUserId(author))
-      );
-      const userMap = new Map();
-      [...displayAuthors].forEach((author, i) => {
-        if (echoAuthorResults[i].status === 'fulfilled' && echoAuthorResults[i].value) {
-          userMap.set(author, echoAuthorResults[i].value);
-        }
-      });
       echoedReedUsers = userMap;
-
-      // Prefetch replied-to reeds for list items and blank-unwrapped targets.
-      const replyKeys = new Set();
-      for (const r of allForQuotes) {
-        const display = resolveBlankEchoFromMap(r, echoMap);
-        if (display.replying) replyKeys.add(display.replying);
-      }
-      const replyEntries = [...replyKeys]
-        .map((key) => (isValidRef(key) ? { key } : null))
-        .filter(Boolean);
-
-      const replyResults = await Promise.allSettled(
-        replyEntries.map(({ key }) => reedsService.getReed(key))
-      );
-
-      const replyMap = new Map();
-      replyEntries.forEach(({ key }, i) => {
-        if (replyResults[i].status === 'fulfilled' && replyResults[i].value) {
-          replyMap.set(key, replyResults[i].value);
-        }
-      });
       repliedToReeds = replyMap;
     } catch (error) {
       console.error('Error loading reeds:', error);
@@ -420,58 +460,37 @@
         {/if}
       </div>
     {/each}
+    {#each pinnedOrdered as reed (reed.id)}
+      <ReedListItem
+        {reed}
+        {authorId}
+        {isOwner}
+        pinned={true}
+        {profileUser}
+        {echoedReeds}
+        {repliedToReeds}
+        {echoedReedUsers}
+        onNavigate={navigateToReed}
+        onTogglePin={togglePinReed}
+        onDelete={deleteReed}
+      />
+    {/each}
     {#each reeds as reed (reed.id)}
-      {@const displayReed = resolveBlankEchoFromMap(reed, echoedReeds)}
-      {@const isUnwrapped = isBlankEcho(reed) && displayReed.id !== reed.id}
-      {@const awaitingOriginal =
-        isBlankEcho(reed) &&
-        isBlankEcho(displayReed) &&
-        !(displayReed.echoing && echoedReeds.has(displayReed.echoing))}
-      {@const displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
-      <div class="reed-item" role="button" tabindex="0" on:click={() => navigateToReed(awaitingOriginal ? reed : displayReed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(awaitingOriginal ? reed : displayReed)}>
-        <div class="reed-header">
-          <ReedAuthorHeader
-            userID={displayReed.userID}
-            username={displayUser.username}
-            nameTag="h3"
-            subtext={formatRelativeTime((awaitingOriginal ? reed : displayReed).serverSignature?.timestamp ?? reed.serverSignature?.timestamp)}
-            stopPropagation
-            linked={false}
-          />
-          {#if isOwner}
-            <div class="reed-meta">
-              <KebabMenu options={[{ label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: () => deleteReed(reed.id) }]} />
-            </div>
-          {/if}
-        </div>
-        {#if !awaitingOriginal && displayReed.replying}
-          <div class="quote-container">
-            <Quote
-              reed={repliedToReeds.get(displayReed.replying)}
-              reedRef={displayReed.replying}
-              type="reply"
-              missing={false}
-              linked={false}
-            />
-          </div>
-        {/if}
-        {#if !awaitingOriginal && (displayReed.content || "").trim()}
-          <div class={["reed-preview", !isUnwrapped && reed.echoing && "echo", !isUnwrapped && reed.replying && "reply"]}>
-            <MarkdownParser text={displayReed.content} preview={true} />
-          </div>
-        {/if}
-        {#if displayReed.echoing}
-          <div class="quote-container">
-            <Quote
-              reed={echoedReeds.get(displayReed.echoing)}
-              reedRef={displayReed.echoing}
-              type="echo"
-              missing={false}
-              linked={false}
-            />
-          </div>
-        {/if}
-      </div>
+      {#if !pinnedSet.has(reed.id)}
+        <ReedListItem
+          {reed}
+          {authorId}
+          {isOwner}
+          pinned={false}
+          {profileUser}
+          {echoedReeds}
+          {repliedToReeds}
+          {echoedReedUsers}
+          onNavigate={navigateToReed}
+          onTogglePin={togglePinReed}
+          onDelete={deleteReed}
+        />
+      {/if}
     {/each}
   {/if}
 </div>
@@ -554,10 +573,11 @@
   }
 
   .reed-item {
+    /* No overflow: hidden — the kebab dropdown is an absolutely
+       positioned child that must be able to escape this card's bounds. */
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    overflow: hidden;
     transition: all 0.2s ease;
     cursor: pointer;
   }
@@ -612,8 +632,7 @@
 
   .reed-meta {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
+    align-items: center;
     gap: 0.25rem;
   }
 

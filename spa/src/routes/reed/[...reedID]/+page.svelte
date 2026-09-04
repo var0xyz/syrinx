@@ -9,6 +9,8 @@
   import { removedReedsRepository } from '$lib/repositories/removedReeds';
   import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
   import { likeReed, unlikeReed, isReedLiked } from '$lib/services/reedLike';
+  import { pinReed, unpinReed } from '$lib/services/reedPin';
+  import { userInfoRepository } from '$lib/repositories/userInfo';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
@@ -64,6 +66,8 @@
 
   // Action buttons state
   let isLiked = false;
+  let isPinned = false;
+  let pinnedReedIds = [];
   let isReplyModalOpen = false;
   let isEchoModalOpen = false;
   /** Target for the reply/echo modals — resolved off `reed` through any
@@ -177,10 +181,19 @@
     lastHandledFollowReedId = '';
     lastHandledReedReplyId = '';
     isLiked = false;
+    isPinned = false;
     if (next.reed?.id) {
       void isReedLiked(next.reed.id).then((liked) => {
         if (reed?.id === next.reed.id) isLiked = liked;
       });
+      if (user?.id === next.reed.userID) {
+        void userInfoRepository.get(user.id).then((info) => {
+          if (reed?.id === next.reed.id) {
+            pinnedReedIds = info?.pinnedReedIDs ?? [];
+            isPinned = pinnedReedIds.includes(next.reed.id);
+          }
+        });
+      }
     }
     loadingReed = !next.fromCache && !next.errorMessage;
     if (next.fromCache) {
@@ -587,6 +600,15 @@
     }
   }
 
+  async function handlePin() {
+    if (!user?.id) return;
+    const updated = isPinned
+      ? await unpinReed(user.id, canonicalReedID, pinnedReedIds)
+      : await pinReed(user.id, canonicalReedID, pinnedReedIds);
+    pinnedReedIds = updated;
+    isPinned = updated.includes(canonicalReedID);
+  }
+
 </script>
 
   <Auth>
@@ -720,7 +742,10 @@
               </div>
               {#if user?.id === reed.userID}
                 <div class="reed-actions">
-                  <KebabMenu options={[{ label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: deleteReed }]} />
+                  <KebabMenu options={[
+                    { label: isPinned ? 'Unpin' : 'Pin', icon: isPinned ? '/icons/pin-16-filled.png' : '/icons/pin-16-outlined.png', onSelect: handlePin },
+                    { label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: deleteReed },
+                  ]} />
                 </div>
               {/if}
             </div>
@@ -855,10 +880,11 @@
   }
 
   .reed-detail {
+    /* No overflow: hidden — the kebab dropdown is an absolutely
+       positioned child that must be able to escape this card's bounds. */
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    overflow: hidden;
   }
 
   .reed-meta {
