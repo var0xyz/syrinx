@@ -873,6 +873,20 @@ export const apiService = {
     });
   },
 
+  async pinReed(reedId: string): Promise<void> {
+    return request<void>(`/reeds/${reedId}/pin`, { method: 'POST' });
+  },
+
+  async unpinReed(reedId: string): Promise<void> {
+    const formData = new URLSearchParams();
+    formData.append('pinnerID', localStorage.getItem('userId') ?? '');
+    return request<void>(`/reeds/${reedId}/pin`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString(),
+    });
+  },
+
   // getKeyRevocation/getPublicKey accept either a bare fingerprint or an
   // already-canonical key id and build the full canonical id
   // (userID@serverID/fingerprint) for the URL — GET /keys/{id:.+} takes

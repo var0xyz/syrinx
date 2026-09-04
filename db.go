@@ -42,6 +42,11 @@ type UserInfo struct {
 	FollowingCount   int       `json:"followingCount"`
 	ActiveKeyID      string    `json:"activeKeyID"`
 	ProfileTimestamp time.Time `json:"profileTimestamp"`
+
+	// TODO: In the future we need to make pinned reeds part of the user profile,
+	// so that in case of recovery the pinned reeds are not lost. Not critical
+	// for now though.
+	PinnedReedIDs []string `json:"pinnedReedIDs,omitempty"`
 }
 
 // InvitedBy is the durable inviter binding nested on User wire when set.
@@ -493,6 +498,20 @@ func InitDB(db *sql.DB) error {
 	createUserFollowingIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_user_following_following_user_id
 		ON user_following(following_user_id);
+	`
+
+	createPinnedReedsTable := `
+	CREATE TABLE IF NOT EXISTS pinned_reeds (
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+		pinned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (user_id, reed_id)
+	);`
+
+	createPinnedReedsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_pinned_reeds_reed_id
+		ON pinned_reeds(reed_id);
 	`
 
 	// //////////// //
@@ -1128,6 +1147,9 @@ func InitDB(db *sql.DB) error {
 
 		createUserFollowingTable,
 		createUserFollowingIndexes,
+
+		createPinnedReedsTable,
+		createPinnedReedsIndexes,
 
 		createInvitesTable,
 		createInvitesIndexes,
