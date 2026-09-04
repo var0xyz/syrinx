@@ -8,8 +8,10 @@
 # Exit immediately if a command exits with a non-zero status
 set -e
 
-# Clear Terminal and print ASCII Banner
-clear
+# clear fails (and, under set -e, kills the whole script) when TERM is
+# unset/unknown — happens under sudo's use_pty with no real terminal, e.g.
+# piped/non-interactive runs. Cosmetic only, so never fatal.
+clear || true
 echo "================================================================"
 echo "🛡️  Go-Postgres-Vite Secure Fullstack Installer for Raspberry Pi 5"
 echo "================================================================"
@@ -202,7 +204,11 @@ on_error() {
 trap 'on_error $LINENO' ERR
 
 echo -e "\n⚙️  Validating target dependency versions on Debian Trixie..."
-apt update && apt install -y curl git postgresql postgresql-contrib ufw nodejs npm wget build-essential nginx openssl
+# Host's apt-listchanges.conf uses frontend=pager, which DEBIAN_FRONTEND
+# doesn't override — hangs a non-tty run on any package with changelogs.
+export DEBIAN_FRONTEND=noninteractive
+APT_LISTCHANGES_FRONTEND=none apt update
+APT_LISTCHANGES_FRONTEND=none apt install -y curl git postgresql postgresql-contrib ufw nodejs npm wget build-essential nginx openssl
 
 # Ensure local system firewall blocks edge attempts (Zero ports open externally
 # in cloudflare mode; mtls mode needs 443 reachable for its direct edge).

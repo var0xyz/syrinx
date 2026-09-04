@@ -269,13 +269,17 @@ syrinx_ensure_root_bootstrap() {
     fi
     chown "$APP_USER:$APP_USER" "$export_file" 2>/dev/null || true
     chmod 600 "$export_file" 2>/dev/null || true
-    touch "$(syrinx_root_bootstrap_marker)"
-    chown "$APP_USER:$APP_USER" "$(syrinx_root_bootstrap_marker)" 2>/dev/null || true
-    chmod 600 "$(syrinx_root_bootstrap_marker)" 2>/dev/null || true
 
     syrinx_strip_root_export_env
     syrinx_remove_root_export_dropin
 
+    # Retry briefly: the export file (proof the app committed the insert
+    # before writing it) can be visible here a beat before a fresh psql
+    # connection sees the same row — seen in practice, cause unconfirmed.
+    for i in 1 2 3 4 5; do
+        syrinx_root_exists && break
+        sleep 1
+    done
     if ! syrinx_root_exists; then
         echo "❌ Root export wrote $export_file but users.id=1 is still missing" >&2
         return 1
@@ -288,6 +292,14 @@ syrinx_ensure_root_bootstrap() {
     printf '%s\n' "$passphrase" > "$passphrase_file"
     chown "$APP_USER:$APP_USER" "$passphrase_file" 2>/dev/null || true
     chmod 600 "$passphrase_file" 2>/dev/null || true
+
+    # Marker is the fast-path signal syrinx_root_bootstrap_complete() trusts
+    # without re-checking the passphrase file — must not be written until
+    # the passphrase actually exists, or a later run's fast path skips
+    # straight past a genuinely incomplete bootstrap.
+    touch "$(syrinx_root_bootstrap_marker)"
+    chown "$APP_USER:$APP_USER" "$(syrinx_root_bootstrap_marker)" 2>/dev/null || true
+    chmod 600 "$(syrinx_root_bootstrap_marker)" 2>/dev/null || true
 
     echo "------------------------------------------------------------------"
     echo "✅ Root identity minted (users.id=1)"
