@@ -305,6 +305,33 @@ depending on which direction that specific leg flows — read the leg's own
 doc comment for who calls whom, don't pattern-match the check from a
 similarly-named sibling.
 
+## Deploy
+
+`deploy/syrinx.sh <command>` runs the matching script under `deploy/scripts/syrinx/`
+on the app host over SSH (`setup`→`setup.sh`, `update`→`update.sh`,
+`wipe-db`→`wipe-db.sh`, etc. — see the header comment in `deploy/syrinx.sh` for
+the full command map). It reuses the host saved in
+`deploy/scripts/syrinx/deploy.env`; only `setup` may (re)establish that host.
+
+**`setup.sh` is interactive** (confirms/collects `APP_NAME`, `APP_DOMAIN`,
+`APP_REPO`, `EDGE_MODE`, Cloudflare tokens, `TELEMETRY_HOST`) but every prompt
+falls back to the value already saved in `~/syrinx/setup.env` on the host when
+given a blank line. So once a host has been set up once, a non-interactive
+agent/CI run can re-run it by piping blank lines through:
+
+```bash
+yes '' | ./deploy/syrinx.sh setup
+```
+
+This keeps every saved value as-is. It does **not** work for a genuinely first
+-time setup (no `setup.env` yet) or if you need to change a value — do those
+interactively in a real terminal. `wipe-db --force` and `update`/`restart` are
+already non-interactive by flag/design and need no such trick.
+
+After `setup`, fetch the (re)minted root identity export with
+`deploy/scripts/syrinx/cp-root-creds.sh` — also non-interactive once the host
+is saved (it only prompts y/N about deleting the remote copy, default No).
+
 ## House rules for changes
 
 - Prefer editing existing files; keep feature logic in its package, not `main`.
