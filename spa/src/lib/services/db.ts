@@ -89,7 +89,23 @@ export class IndexedDbService implements DbService {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         this.db = request.result;
+        // Another tab (or a future deploy in this same tab) requesting a
+        // higher version blocks behind this connection until it closes —
+        // without this, a live tab left open across a deploy wedges every
+        // other tab's IndexedDB open indefinitely (no error, no timeout).
+        this.db.onversionchange = () => {
+          this.db?.close();
+          this.db = null;
+          window.location.reload();
+        };
         resolve();
+      };
+
+      // Fires when an older connection (this same origin, another tab) is
+      // still open and hasn't responded to versionchange in time — without
+      // this handler the open request just hangs forever with no callback.
+      request.onblocked = () => {
+        reject(new Error('IndexedDB upgrade blocked by another open tab — close other tabs of this app and retry.'));
       };
 
       request.onupgradeneeded = (event) => {
