@@ -40,21 +40,17 @@ func (d Deps) ReportReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// req.UserSignature.Fingerprint is bare (the author's key, not part of
-	// the verified reed countersignature — see verifyReedCountersig above,
-	// which only binds the server key fingerprint); canonicalize it for the
-	// attestation row, same as every other DB-write boundary in this
-	// package.
-	authorIdentity := identity.CanonicalID(d.ServerID, req.AuthorID)
-	authorFingerprint := string(identity.AppendEntity(authorIdentity, req.UserSignature.Fingerprint))
-	canonicalReedID := string(identity.AppendEntity(authorIdentity, req.ReedID))
+	// req.AuthorID (reed.userID client-side) and req.UserSignature.KeyID
+	// both arrive already canonical — only req.ReedID is bare on this wire.
+	authorKeyID := req.UserSignature.KeyID
+	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(req.AuthorID), req.ReedID))
 	err := SaveReed(r.Context(), d.DB,
 		d.ServerID,
 		canonicalReedID,
 		req.ServerSignature.Fingerprint,
 		req.ServerSignature.Timestamp,
 		caller,
-		authorFingerprint,
+		authorKeyID,
 		req.UserSignature.Armor,
 		req.ServerSignature.Armor,
 	)
@@ -128,10 +124,10 @@ func verifyReedCountersig(ctx context.Context, req ReedRequest, serverID string,
 		return fmt.Errorf("unknown server key %s", req.ServerSignature.Fingerprint)
 	}
 
-	// req.ReedID/AuthorID are bare on this file's wire (deliberate exception,
-	// see wire.go); the original countersignature was computed over the
-	// canonical id, so rebuild it here before verifying.
-	canonicalReedID := string(identity.AppendEntity(identity.CanonicalID(serverID, req.AuthorID), req.ReedID))
+	// req.AuthorID arrives already canonical (reed.userID client-side);
+	// only req.ReedID is bare on this wire — append it to rebuild the id
+	// the original countersignature was computed over.
+	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(req.AuthorID), req.ReedID))
 	ts := req.ServerSignature.Timestamp.UTC().Truncate(time.Second)
 	payload := identity.BuildReedPayload(
 		serverID,

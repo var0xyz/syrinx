@@ -1,24 +1,91 @@
 package recovery
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
 
-// DELIBERATE EXCEPTION — this file's userID-shaped fields stay BARE, unlike
-// every other package's wire fields: the SPA's recoveryKeyNest.ts still
-// signs payloads with bare userIDs, so converting these breaks verification.
+	"syrinx/identity"
+)
 
-// UserSignature is the nested user attestation wire block.
+// DELIBERATE EXCEPTION — KeyWire.Fingerprint / Revocation.Fingerprint stay
+// bare (recoveryKeyNest.ts signs those raw); nested UserSignature /
+// ServerSignature are NOT part of that and decode canonical `id` below.
+
+// UserSignature is the nested user attestation wire block. KeyID is the
+// full canonical key id ("userID@serverID/fingerprint"), not a bare
+// fingerprint — signed profile payloads bind the whole thing.
 type UserSignature struct {
-	Fingerprint string `json:"fingerprint"`
-	Armor       string `json:"armor"`
+	KeyID string `json:"-"`
+	Armor string `json:"armor"`
+}
+
+func (s *UserSignature) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		ID    string `json:"id"`
+		Armor string `json:"armor"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	s.Armor = wire.Armor
+	s.KeyID = wire.ID
+	return nil
+}
+
+func (s UserSignature) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ID    string `json:"id"`
+		Armor string `json:"armor"`
+	}{
+		ID:    s.KeyID,
+		Armor: s.Armor,
+	})
 }
 
 // ServerSignature is the server's countersignature metadata on a signed
-// resource (identity, public key, revocation, reed).
+// resource (identity, public key, revocation, reed). Decodes the wire's
+// `id` (canonical "fingerprint@serverID") into Fingerprint and ServerID.
 type ServerSignature struct {
-	ServerID    string    `json:"serverID"`
-	Fingerprint string    `json:"fingerprint"`
+	ServerID    string    `json:"-"`
+	Fingerprint string    `json:"-"`
 	Armor       string    `json:"armor"`
 	Timestamp   time.Time `json:"timestamp"`
+}
+
+func (s *ServerSignature) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		ID        string    `json:"id"`
+		Armor     string    `json:"armor"`
+		Timestamp time.Time `json:"timestamp"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	s.Armor = wire.Armor
+	s.Timestamp = wire.Timestamp
+	if wire.ID == "" {
+		return nil
+	}
+	fingerprint, serverID, ok := identity.ParseIdentityID(identity.IdentityID(wire.ID))
+	if !ok {
+		return fmt.Errorf("serverSignature.id is not a canonical key id: %q", wire.ID)
+	}
+	s.Fingerprint = fingerprint
+	s.ServerID = serverID
+	return nil
+}
+
+func (s ServerSignature) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ID        string    `json:"id"`
+		Armor     string    `json:"armor"`
+		Timestamp time.Time `json:"timestamp"`
+	}{
+		ID:        string(identity.CanonicalID(s.ServerID, s.Fingerprint)),
+		Armor:     s.Armor,
+		Timestamp: s.Timestamp,
+	})
 }
 
 // Profile is the User wire shape of a countersigned identity record.

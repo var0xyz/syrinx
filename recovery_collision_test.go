@@ -76,8 +76,8 @@ func recoveryProfile(userID, username string, signedAt time.Time) recovery.Profi
 		Role:        "user",
 		MemberSince: signedAt,
 		UserSignature: recovery.UserSignature{
-			Fingerprint: userID + "-key",
-			Armor:       "user-sig-" + userID,
+			KeyID: userID + "-key",
+			Armor: "user-sig-" + userID,
 		},
 		ServerSignature: recovery.ServerSignature{
 			ServerID:    "test",

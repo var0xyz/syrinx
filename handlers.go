@@ -671,8 +671,8 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if profile.ID == "" || profile.Username == "" || profile.UserSignature.Fingerprint == "" {
-		writeResponse(w, http.StatusBadRequest, "profile id, username, and userSignature.fingerprint are required")
+	if profile.ID == "" || profile.Username == "" || profile.UserSignature.KeyID == "" {
+		writeResponse(w, http.StatusBadRequest, "profile id, username, and userSignature.id are required")
 		return
 	}
 

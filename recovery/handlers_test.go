@@ -3,6 +3,7 @@ package recovery
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"syrinx/crypto"
 	"syrinx/identity"
 )
 
@@ -18,12 +20,58 @@ func testReedUserSig() UserSignature {
 	return UserSignature{Armor: "dXNlclNpZw=="}
 }
 
+// TestVerifyReedCountersig_RealSignature: AuthorID arrives canonical, only
+// ReedID is bare — fakeVerifier-based tests never run real crypto so
+// can't catch a wrong reconstructed payload; this signs/verifies for real.
+func TestVerifyReedCountersig_RealSignature(t *testing.T) {
+	cryptoSvc := crypto.NewService()
+	serverID := "srv1"
+	serverKP, err := cryptoSvc.CreateKeyPair("server", "", "")
+	if err != nil {
+		t.Fatalf("CreateKeyPair: %v", err)
+	}
+
+	authorID := "author1@" + serverID
+	canonicalReedID := authorID + "/reed1"
+	ts := time.Now().UTC().Truncate(time.Second)
+	userSigArmorB64 := "dXNlclNpZw=="
+
+	payload := identity.BuildReedPayload(serverID, canonicalReedID, serverKP.Fingerprint, userSigArmorB64, ts)
+	sigArmor, err := cryptoSvc.Sign(string(payload), serverKP.PrivateKey)
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+
+	req := ReedRequest{
+		ReedID:        "reed1",
+		AuthorID:      authorID,
+		UserSignature: UserSignature{Armor: userSigArmorB64},
+		ServerSignature: ServerSignature{
+			ServerID: serverID, Fingerprint: serverKP.Fingerprint,
+			Armor: base64.StdEncoding.EncodeToString([]byte(sigArmor)), Timestamp: ts,
+		},
+	}
+
+	err = verifyReedCountersig(context.Background(), req, serverID,
+		func(ctx context.Context, fp string) (string, error) {
+			if fp == serverKP.Fingerprint {
+				return serverKP.PublicKey, nil
+			}
+			return "", nil
+		},
+		cryptoSvc,
+	)
+	if err != nil {
+		t.Fatalf("verifyReedCountersig: %v", err)
+	}
+}
+
 func TestVerifyReedCountersig_OK(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	serverID := "srv1"
 	req := ReedRequest{
 		ReedID:          "reed1",
-		AuthorID:        "author1",
+		AuthorID:        "author1@srv1",
 		UserSignature:   testReedUserSig(),
 		ServerSignature: testServerSig(serverID, ts),
 	}
@@ -46,7 +94,7 @@ func TestVerifyReedCountersig_BadSig(t *testing.T) {
 	serverID := "srv1"
 	req := ReedRequest{
 		ReedID:          "reed1",
-		AuthorID:        "author1",
+		AuthorID:        "author1@srv1",
 		UserSignature:   testReedUserSig(),
 		ServerSignature: testServerSig(serverID, ts),
 	}
@@ -63,7 +111,7 @@ func TestVerifyReedCountersig_BadSig(t *testing.T) {
 func TestVerifyReedCountersig_ServerIDMismatch(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	req := ReedRequest{
-		ReedID: "reed1", AuthorID: "author1", UserSignature: testReedUserSig(),
+		ReedID: "reed1", AuthorID: "author1@srv1", UserSignature: testReedUserSig(),
 		ServerSignature: testServerSig("other", ts),
 	}
 	err := verifyReedCountersig(context.Background(), req, "srv1", func(ctx context.Context, _ string) (string, error) { return "pub", nil }, &fakeVerifier{})
@@ -85,7 +133,7 @@ func TestReportReed_BadCountersig(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	serverID := "srv1"
 	req := ReedRequest{
-		ReedID: "reed1", AuthorID: "author1", UserSignature: testReedUserSig(),
+		ReedID: "reed1", AuthorID: "author1@srv1", UserSignature: testReedUserSig(),
 		ServerSignature: testServerSig(serverID, ts),
 	}
 	payload := string(identity.BuildReedPayload(serverID, "author1@srv1/reed1", "SKEY", "dXNlclNpZw==", ts))

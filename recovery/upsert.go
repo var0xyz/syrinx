@@ -199,13 +199,13 @@ func insertUser(ctx context.Context, tx *sql.Tx, serverID string, profile Profil
 		return err
 	}
 
-	// profile.UserSignature.Fingerprint is bare (same reasoning as
-	// insertKeys); canonicalize for the attestation row, matching activeFP.
-	fingerprint := activeFP
-	if profile.UserSignature.Fingerprint != "" {
-		fingerprint = string(identity.AppendEntity(selfIdentity, profile.UserSignature.Fingerprint))
+	// profile.UserSignature.KeyID is already the full canonical key
+	// id (unlike flat's bare fingerprints) — use it as-is when present.
+	keyID := activeFP
+	if profile.UserSignature.KeyID != "" {
+		keyID = profile.UserSignature.KeyID
 	}
-	userSignatureID, err := signing.InsertUserSignature(ctx, tx, fingerprint, profile.UserSignature.Armor)
+	userSignatureID, err := signing.InsertUserSignature(ctx, tx, keyID, profile.UserSignature.Armor)
 	if err != nil {
 		return err
 	}
@@ -254,12 +254,13 @@ func updateUserIfNewer(
 	if err != nil {
 		return false, err
 	}
-	// profile.UserSignature.Fingerprint is bare; canonicalize as insertUser does.
-	fingerprint := activeFP
-	if profile.UserSignature.Fingerprint != "" {
-		fingerprint = string(identity.AppendEntity(selfIdentity, profile.UserSignature.Fingerprint))
+	// profile.UserSignature.KeyID is already the full canonical key
+	// id (unlike flat's bare fingerprints) — use it as-is when present.
+	keyID := activeFP
+	if profile.UserSignature.KeyID != "" {
+		keyID = profile.UserSignature.KeyID
 	}
-	userSignatureID, err := signing.InsertUserSignature(ctx, tx, fingerprint, profile.UserSignature.Armor)
+	userSignatureID, err := signing.InsertUserSignature(ctx, tx, keyID, profile.UserSignature.Armor)
 	if err != nil {
 		return false, err
 	}

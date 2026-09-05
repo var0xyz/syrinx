@@ -69,16 +69,16 @@ func TestClaimIdentity_BadChallengeSignature(t *testing.T) {
 	ts := fixed
 	serverID := "srv1"
 	profile := Profile{
-		ID:              "user1",
+		ID:              "user1@srv1",
 		Username:        "alice",
 		Role:            "user",
 		MemberSince:     ts,
-		UserSignature:   testUserSig("AAA"),
+		UserSignature:   testUserSig("user1@srv1/AAA"),
 		ServerSignature: testServerSig(serverID, ts),
 	}
 	root := KeyNode{
 		KeyWire: KeyWire{
-			Fingerprint: "AAA", Armor: base64.StdEncoding.EncodeToString([]byte("armor-a")), UserID: "user1", CreatedAt: ts,
+			Fingerprint: "AAA", Armor: base64.StdEncoding.EncodeToString([]byte("armor-a")), UserID: "user1@srv1", CreatedAt: ts,
 			ServerSignature: testServerSig(serverID, ts),
 		},
 	}

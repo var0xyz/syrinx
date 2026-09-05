@@ -25,9 +25,8 @@ export async function reportRecoveryReed(reedId: string): Promise<void> {
     throw new Error(`Reed ${reedId} missing userID`);
   }
 
-  // recovery/wire.go's ReedRequest is a deliberate bare-everything
-  // exception (recoveryKeyNest.ts signs bare payloads) — send the bare
-  // suffix, not the canonical reed.id.
+  // Only reedID is sent bare here (recovery/wire.go rebuilds the full id
+  // from authorID + this suffix) — authorID/userSignature stay canonical.
   const bareReedID = parseKeyId(reed.id)?.fingerprint ?? reed.id;
   await apiService.reportRecoveryReed({
     reedID: bareReedID,

@@ -117,7 +117,7 @@ func SaveReed(ctx context.Context,
 // SaveFollowing writes follow edges for followerUserID. Existing targets go
 // into user_following / user_followers; missing targets go into
 // pending_follows. Caller must reject self-follows before calling.
-// followerUserID/targetIDs are bare userIDs local to serverID.
+// followerUserID/targetIDs arrive already canonical (userID@serverID).
 func SaveFollowing(ctx context.Context, db *sql.DB, serverID string, followerUserID string, targetIDs []string) error {
 	if len(targetIDs) == 0 {
 		return nil
@@ -129,7 +129,7 @@ func SaveFollowing(ctx context.Context, db *sql.DB, serverID string, followerUse
 	}
 	defer tx.Rollback()
 
-	followerIdentity := identity.CanonicalID(serverID, followerUserID)
+	followerIdentity := identity.IdentityID(followerUserID)
 
 	// Check identities, not users, same reason as SaveReed above.
 	existing := make(map[string]bool, len(targetIDs))
@@ -139,7 +139,7 @@ func SaveFollowing(ctx context.Context, db *sql.DB, serverID string, followerUse
 		if targetID == "" {
 			continue
 		}
-		targetIdentity := identity.CanonicalID(serverID, targetID)
+		targetIdentity := identity.IdentityID(targetID)
 		targetIdentities[targetID] = targetIdentity
 		canonicalTargets = append(canonicalTargets, string(targetIdentity))
 	}
@@ -183,14 +183,17 @@ func SaveFollowing(ctx context.Context, db *sql.DB, serverID string, followerUse
 			}
 			continue
 		}
-		// pending_follows.following_user_id has no FK by design (the target
-		// may have no identities row yet) — stays bare. follower_user_id
-		// IS FK'd to identities.
+		// pending_follows.following_user_id has no FK (target may not
+		// exist yet) and stays bare, matching drainPendingFollows' lookup.
+		bareTargetID, _, ok := identity.ParseIdentityID(targetIdentities[targetID])
+		if !ok {
+			continue
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO pending_follows (follower_user_id, following_user_id)
 			VALUES ($1, $2)
 			ON CONFLICT DO NOTHING
-		`, followerIdentity, targetID); err != nil {
+		`, followerIdentity, bareTargetID); err != nil {
 			return err
 		}
 	}
