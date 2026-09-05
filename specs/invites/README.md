@@ -21,12 +21,13 @@ the invites consume helper. Shared identity payload builders stay in
 | [03](03_signup_consume.md)           | Consume at signup, identity, `invitedBy`           | 02         |
 | [04](04_spa_signup_gating.md)        | Home CTA + invite-link signup path                 | 00, 03     |
 | [05](05_spa_invite_management.md)    | Toolbar Invites + local signed invites             | 02, 03     |
+| [06](06_stranded_reclaim.md)         | Stranded-signup reclaim (ready cert + reclaim API) | 02, 03     |
 
 ---
 
 ## Status
 
-**00–05 implemented.**
+**00–05 implemented. 06 proposed, tentative — not yet reviewed for implementation order.**
 
 ## Motivation
 
