@@ -78,7 +78,7 @@
               </div>
               {#if reed.replying}
                 <div class="quote-container">
-                  <Quote reedRef={reed.replying} type="reply" missing={false} linked={true} />
+                  <Quote reedRef={reed.replying} type="reply" missing={false} linked={false} />
                 </div>
               {/if}
               {#if (reed.content || '').trim()}
@@ -88,7 +88,7 @@
               {/if}
               {#if reed.echoing}
                 <div class="quote-container">
-                  <Quote reedRef={reed.echoing} type="echo" missing={false} linked={true} />
+                  <Quote reedRef={reed.echoing} type="echo" missing={false} linked={false} />
                 </div>
               {/if}
             </div>
