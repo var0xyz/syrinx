@@ -380,7 +380,7 @@
   </div>
 {/if}
 
-<div class="reeds-list">
+<div class="reeds-list" class:with-write-button={showWriteButton}>
   {#if loadingReeds}
     <div class="loading">
       <h2>Loading reeds...</h2>
@@ -570,6 +570,12 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+  }
+
+  .reeds-list.with-write-button {
+    /* Clears the floating write button (bottom: 80px, 56px tall) so it
+       doesn't cover the last reed. */
+    padding-bottom: 156px;
   }
 
   .reed-item {
