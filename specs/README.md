@@ -39,8 +39,9 @@ Each table below has a **Status** column per step. Values:
 | Prerequisites    | Implemented | 01–10 (11 superseded — see Notifications)         |
 | Avatars          | Deferred    | 00–05                                             |
 | Likes            | Proposed    | 00–06                                             |
+| Invites          | In progress | 06 (00–05 implemented)                            |
 
-**Already done:** Invites, Coverage, Deletion, Signature storage, Publish
+**Already done:** Coverage, Deletion, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
 superseded by [`notifications/`](notifications/README.md), which is its own track,
 separate from the recovery prerequisites — see below).
@@ -93,6 +94,7 @@ See [`invites/`](invites/README.md):
 | 03 | Consume at signup, identity, `invitedBy`          | Implemented |
 | 04 | Home CTA + invite-link signup path                | Implemented |
 | 05 | Toolbar Invites tab + management UI               | Implemented |
+| 06 | Stranded-signup reclaim (ready cert + reclaim API) | Proposed    |
 
 ## Echoes and replies (conversations)
 
