@@ -774,7 +774,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 200;
+    /* Above .floating-create-btn/.floating-accept-btn (z-index: 1000) so
+       the modal covers them instead of the buttons floating over it. */
+    z-index: 1100;
     padding: 1rem;
   }
 

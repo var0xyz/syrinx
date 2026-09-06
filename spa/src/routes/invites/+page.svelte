@@ -612,7 +612,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 200;
+    /* Above .floating-create-btn (z-index: 1000) so the modal covers it
+       instead of the button floating over the dialog. */
+    z-index: 1100;
     padding: 1rem;
   }
 
