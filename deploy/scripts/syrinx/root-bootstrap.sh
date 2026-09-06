@@ -25,21 +25,26 @@ syrinx_root_bootstrap_marker() {
     printf '%s' "$(syrinx_root_export_dir)/.bootstrap-complete"
 }
 
-# Latest keys-only export on disk (empty if none).
+# Latest keys-only export on disk (empty if none). Pass a cutoff (epoch
+# seconds, from `date +%s`) to consider only files created at or after it —
+# needed during a mint attempt so a leftover export+passphrase pair from a
+# prior mint (never cleaned up here — see wipe-db's separate concern) can't
+# be mistaken for the one this attempt is producing.
 syrinx_root_export_file() {
-    local export_dir
+    local export_dir cutoff
     export_dir="$(syrinx_root_export_dir)"
-    find "$export_dir" -maxdepth 1 -type f -name 'syrinx-1-*.sxi.gpg' 2>/dev/null \
+    cutoff="${1:-0}"
+    find "$export_dir" -maxdepth 1 -type f -name 'syrinx-1-*.sxi.gpg' -newermt "@$cutoff" 2>/dev/null \
         | sort | tail -n1
 }
 
 syrinx_root_bootstrap_complete() {
-    local marker export_file
+    local cutoff="${1:-0}" marker export_file
     marker="$(syrinx_root_bootstrap_marker)"
     if [ -f "$marker" ]; then
         return 0
     fi
-    export_file="$(syrinx_root_export_file)"
+    export_file="$(syrinx_root_export_file "$cutoff")"
     # Require the .passphrase sidecar too — an export file alone (no
     # passphrase, no marker) is undecryptable and not a complete bootstrap.
     [ -n "$export_file" ] && [ -f "$export_file" ] && [ -f "${export_file}.passphrase" ]
@@ -169,9 +174,9 @@ syrinx_remove_root_export_dropin() {
 # *different* exit than the one that actually did the export, making
 # ExecMainStatus alone unreliable right at the transition.
 syrinx_wait_root_export_exit() {
-    local i status result
+    local cutoff="${1:-0}" i status result
     for i in $(seq 1 90); do
-        if syrinx_root_bootstrap_complete; then
+        if syrinx_root_bootstrap_complete "$cutoff"; then
             return 0
         fi
         if ! systemctl is-active --quiet "$APP_NAME.service"; then
@@ -251,9 +256,16 @@ syrinx_ensure_root_bootstrap() {
 
     syrinx_install_root_export_dropin
 
+    # Captured before the restart, minus a second of margin for mtime/clock
+    # granularity — a leftover export+passphrase pair from a prior mint (see
+    # syrinx_root_export_file's comment) predates this and is excluded, so
+    # the wait below can't fire early on someone else's stale file.
+    local mint_cutoff
+    mint_cutoff="$(($(date +%s) - 1))"
+
     echo "🔹 Starting $APP_NAME for root export (ReadWritePaths=$export_dir)..."
     systemctl restart "$APP_NAME.service"
-    if ! syrinx_wait_root_export_exit; then
+    if ! syrinx_wait_root_export_exit "$mint_cutoff"; then
         # Stop rather than leave it running: with the passphrase still set,
         # Restart=on-failure would otherwise crash-loop the unit indefinitely
         # against maybeExportRootKey's already-exists guard.
@@ -262,7 +274,7 @@ syrinx_ensure_root_bootstrap() {
         return 1
     fi
 
-    export_file="$(syrinx_root_export_file)"
+    export_file="$(syrinx_root_export_file "$mint_cutoff")"
     if [ -z "$export_file" ] || [ ! -f "$export_file" ]; then
         echo "❌ Root export exited 0 but no syrinx-1-*.sxi.gpg in $export_dir" >&2
         return 1
