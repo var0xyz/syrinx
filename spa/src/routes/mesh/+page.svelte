@@ -77,6 +77,7 @@
 
   function openCreateModal() {
     if (creating) return;
+    showAcceptModal = false;
     showCreateModal = true;
   }
 
@@ -124,6 +125,7 @@
 
   function openAcceptModal() {
     if (accepting) return;
+    showCreateModal = false;
     showAcceptModal = true;
   }
 
@@ -719,9 +721,6 @@
 
   .floating-accept-btn {
     bottom: 9.5rem;
-    background: var(--surface);
-    color: var(--fg);
-    border: 1px solid var(--border);
   }
 
   .floating-create-btn:hover:not(:disabled),
