@@ -7,6 +7,11 @@ export const serverInfo = writable<ServerInfo | null>(null);
 export const serverInfoLoading = writable(true);
 export const serverInfoFetchFailed = writable(false);
 
+/** Set when a fetched server.id no longer matches the one this device
+ * already trusted — a redeployed/reset/impersonating server, not a fetch
+ * failure. Null once no mismatch is outstanding. */
+export const serverIdMismatch = writable<{ known: string; fetched: string } | null>(null);
+
 export const isSignupOpen = derived(
   serverInfo,
   ($info) => $info?.signupMode === 'open'
@@ -31,6 +36,13 @@ export const isRecoveryMode = derived(
 export const isServerUnreachable = derived(
   [isOnline, serverInfoFetchFailed],
   ([$online, $failed]) => $online && $failed
+);
+
+/** This origin now answers as a server id different from the one this
+ * device already trusted. */
+export const hasServerIdMismatch = derived(
+  serverIdMismatch,
+  ($mismatch) => $mismatch !== null
 );
 
 function normalizeSignupMode(value: unknown): SignupMode {
@@ -122,6 +134,24 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
       maxInvitesPerUser: normalizeMaxInvites(data.maxInvitesPerUser),
       serverKeyId: typeof data.serverKeyId === 'string' ? data.serverKeyId : '',
     };
+
+    // A previously-trusted serverId that no longer matches means this
+    // origin now answers as a different server (redeploy/reset, or worse) —
+    // never silently adopt it. Leave the known id in place so any
+    // in-progress trust check (e.g. accountRecovery's assertServerMatch)
+    // still compares against what this device actually trusted, not
+    // against the new value it would otherwise just have been overwritten
+    // with.
+    const knownServerId = localStorage.getItem('serverId');
+    if (knownServerId && knownServerId !== info.id) {
+      console.error(
+        `serverInfo: server id changed from ${knownServerId} to ${info.id} — refusing to adopt it`
+      );
+      serverIdMismatch.set({ known: knownServerId, fetched: info.id });
+      serverInfoFetchFailed.set(false);
+      return null;
+    }
+    serverIdMismatch.set(null);
 
     localStorage.setItem('serverId', info.id);
     localStorage.setItem('serverName', info.name);
