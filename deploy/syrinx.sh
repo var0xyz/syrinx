@@ -7,7 +7,7 @@
 #   ./syrinx.sh <command> [args...]
 #
 # Commands (map 1:1 to the script of the same name on the host):
-#   setup                       sudo ./setup.sh
+#   setup [--branch <name>]     sudo ./setup.sh [--branch <name>]
 #   update [--branch <name>]    sudo ./update.sh [--branch <name>]
 #   restart                     sudo ./restart.sh
 #   signup-mode <mode>          sudo ./set-signup-mode.sh <mode>

@@ -3,10 +3,28 @@
 # ==============================================================================
 # UNIFIED SECURE DEPLOYMENT ENGINE (Idempotent Architecture Blueprint)
 # Target Environment: Raspberry Pi 5 / Debian 13 (Trixie)
+#
+# Usage: ./setup.sh [--branch <name>]
+#   --branch <name>   Clone this branch instead of APP_REPO's default branch.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status
 set -e
+
+BRANCH=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --branch)
+            [ $# -ge 2 ] || { echo "❌ Error: --branch requires a value"; exit 1; }
+            BRANCH="$2"
+            shift 2
+            ;;
+        *)
+            echo "❌ Error: unknown argument: $1"
+            exit 1
+            ;;
+    esac
+done
 
 # clear fails (and, under set -e, kills the whole script) when TERM is
 # unset/unknown — happens under sudo's use_pty with no real terminal, e.g.
@@ -337,9 +355,17 @@ fi
 # ==============================================================================
 # REPO RETRIEVAL, COMPILATION & PLACEMENT
 # ==============================================================================
-echo -e "\n📦 Cloning monorepo into build workspace..."
+if [ -n "$BRANCH" ]; then
+    echo -e "\n📦 Cloning monorepo into build workspace (branch: $BRANCH)..."
+else
+    echo -e "\n📦 Cloning monorepo into build workspace..."
+fi
 rm -rf "$BUILD_DIR/src"
-git clone --depth 1 "$APP_REPO" "$BUILD_DIR/src"
+if [ -n "$BRANCH" ]; then
+    git clone --depth 1 --branch "$BRANCH" "$APP_REPO" "$BUILD_DIR/src"
+else
+    git clone --depth 1 "$APP_REPO" "$BUILD_DIR/src"
+fi
 GIT_COMMIT="$(git -C "$BUILD_DIR/src" rev-parse HEAD)"
 export GIT_COMMIT
 echo "    Commit: $GIT_COMMIT"
