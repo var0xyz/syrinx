@@ -13,6 +13,7 @@
   import Notifications from '$lib/components/Notifications.svelte';
   import OfflineIndicator from '$lib/components/OfflineIndicator.svelte';
   import ServerUnreachableIndicator from '$lib/components/ServerUnreachableIndicator.svelte';
+  import ServerIdMismatchIndicator from '$lib/components/ServerIdMismatchIndicator.svelte';
   import UpdateAvailableIndicator from '$lib/components/UpdateAvailableIndicator.svelte';
   import { initializePWA, onReconnect } from '$lib/services/pwa';
   import { refreshServerInfo } from '$lib/services/serverInfo';
@@ -269,6 +270,7 @@
   <h1><a href={headerLink}>💫 Syrinx</a></h1>
 </header>
 
+<ServerIdMismatchIndicator />
 <ServerUnreachableIndicator />
 <OfflineIndicator />
 <slot />
