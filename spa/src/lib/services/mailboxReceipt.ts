@@ -19,14 +19,14 @@ interface MailboxPayload {
  * silently lost (see specs/notifications/04, 05).
  */
 export async function receiveMailboxMessage(id: string, ciphertext: string): Promise<boolean> {
-  const fingerprint = authService.getActiveKeyFingerprint();
+  const keyId = authService.getActiveKeyId();
   const passphrase = authService.getPassphrase();
-  if (!fingerprint || !passphrase) {
+  if (!keyId || !passphrase) {
     console.error('Mailbox: active key or passphrase not available, cannot decrypt', id);
     return false;
   }
 
-  const privateKey = await privateKeyRepository.getPrivateKey(fingerprint);
+  const privateKey = await privateKeyRepository.getPrivateKey(keyId);
   if (!privateKey?.armor) {
     console.error('Mailbox: private key not found, cannot decrypt', id);
     return false;

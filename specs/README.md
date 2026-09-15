@@ -40,6 +40,7 @@ Each table below has a **Status** column per step. Values:
 | Avatars          | Deferred    | 00–05                                             |
 | Likes            | Proposed    | 00–06                                             |
 | Invites          | In progress | 06 (00–05 implemented)                            |
+| Content privacy  | In progress | 04 (mention-inbox client consumption)             |
 
 **Already done:** Coverage, Deletion, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -210,6 +211,20 @@ local reeds with that tag remain on device.
 | 01 | Extract tags                              | Implemented |
 | 02 | WS subscribe + READY fanout               | Implemented |
 | 03 | SPA links + `/pipe/[tag]` page            | Implemented |
+
+## Content privacy
+
+See [`content_privacy/`](content_privacy/README.md). The server never
+receives reed content, even transiently; relay is end-to-end encrypted.
+
+| #  | Title                                                   | Status      |
+|----|----------------------------------------------------------|-------------|
+| 00 | Design + scope + locked decisions                       | Implemented |
+| 01 | `SignReed` drops content; claimed `tags`/`mentions`      | Implemented |
+| 02 | Encrypted relay (`RELAY_REQUEST`/`RELAY_RESPONSE`, `RELAY_ERROR`) | Implemented |
+| 03 | Mentioned-user pull inbox                                | Implemented |
+| 04 | SPA: encrypt/decrypt, tag-claim verify                   | Partial     |
+| 05 | `ContentRejectedData.reason`                             | Implemented |
 
 ## Notifications
 

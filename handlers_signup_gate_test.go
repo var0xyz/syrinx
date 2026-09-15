@@ -42,7 +42,6 @@ func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
 		db:     dataService,
 		crypto: cryptoSvc,
 		log:    NewLoggingService(),
-		md:     NewMarkdownService(),
 	}
 	if cfg.ServerName == "" {
 		cfg.ServerName = "test"
@@ -290,7 +289,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := NewHandlers(
-		&Services{db: dataService, crypto: cryptoSvc, log: NewLoggingService(), md: NewMarkdownService()},
+		&Services{db: dataService, crypto: cryptoSvc, log: NewLoggingService()},
 		AppConfig{ServerName: "test", SignupMode: "open"},
 		make(chan realtime.BroadcastMessage, 1),
 		ServerSigningKey{Fingerprint: serverKP.Fingerprint, Armor: serverKP.PrivateKey},

@@ -12,24 +12,22 @@ const scope = "syrinx/business"
 
 // OTEL implements Recorder with the OpenTelemetry SDK.
 type OTEL struct {
-	usersCreated        metric.Int64Counter
-	usersDeleted        metric.Int64Counter
-	reedsPublished      metric.Int64Counter
-	reedsDeleted        metric.Int64Counter
-	echoesTargeted      metric.Int64Counter
-	reedsRejectedLength metric.Int64Counter
-	keysRevoked         metric.Int64Counter
-	keyFetchErrors      metric.Int64Counter
-	revokedKeysUsed     metric.Int64Counter
-	contentRejected     metric.Int64Counter
-	usersBackup         metric.Int64Counter
-	wsMessages          metric.Int64Counter
-	relayEvents         metric.Int64Counter
-	federationRelay     metric.Int64Counter
-	rawChars            metric.Int64Histogram
-	visibleChars        metric.Int64Histogram
-	holders             metric.Int64Histogram
-	coveragePercent     metric.Int64Histogram
+	usersCreated         metric.Int64Counter
+	usersDeleted         metric.Int64Counter
+	reedsPublished       metric.Int64Counter
+	reedsDeleted         metric.Int64Counter
+	echoesTargeted       metric.Int64Counter
+	keysRevoked          metric.Int64Counter
+	keyFetchErrors       metric.Int64Counter
+	revokedKeysUsed      metric.Int64Counter
+	contentRejected      metric.Int64Counter
+	mentionClaimRejected metric.Int64Counter
+	usersBackup          metric.Int64Counter
+	wsMessages           metric.Int64Counter
+	relayEvents          metric.Int64Counter
+	federationRelay      metric.Int64Counter
+	holders              metric.Int64Histogram
+	coveragePercent      metric.Int64Histogram
 }
 
 // New builds an OTEL recorder from a meter. An instrument that fails to
@@ -61,17 +59,15 @@ func New(m metric.Meter) *OTEL {
 	r.reedsPublished = counter("syrinx.reeds.published")
 	r.reedsDeleted = counter("syrinx.reeds.deleted")
 	r.echoesTargeted = counter("syrinx.echoes.targeted")
-	r.reedsRejectedLength = counter("syrinx.reeds.rejected.length")
 	r.keysRevoked = counter("syrinx.keys.revoked")
 	r.keyFetchErrors = counter("syrinx.keys.fetch_errors")
 	r.revokedKeysUsed = counter("syrinx.keys.revoked_used")
 	r.contentRejected = counter("syrinx.content.rejected")
+	r.mentionClaimRejected = counter("syrinx.mentions.claim_rejected")
 	r.usersBackup = counter("syrinx.users.backup")
 	r.wsMessages = counter("syrinx.ws.messages")
 	r.relayEvents = counter("syrinx.relay.event")
 	r.federationRelay = counter("syrinx.federation.relay")
-	r.rawChars = histogram("syrinx.reed.content.raw_chars")
-	r.visibleChars = histogram("syrinx.reed.content.visible_chars")
 	r.holders = histogram("syrinx.reed.holders")
 	r.coveragePercent = histogram("syrinx.reed.coverage_percent")
 	return r
@@ -109,17 +105,6 @@ func (r *OTEL) ReedPublished(ctx context.Context, p ReedPublishedAttrs) {
 			attribute.String("reed.id", p.ReedID),
 		))
 	}
-	reedAttrs := metric.WithAttributes(
-		attribute.String("reed.kind", string(p.Kind)),
-		attribute.String("author.id_hash", authorHash),
-		attribute.String("reed.id", p.ReedID),
-	)
-	if r.rawChars != nil {
-		r.rawChars.Record(ctx, int64(p.RawChars), reedAttrs)
-	}
-	if r.visibleChars != nil {
-		r.visibleChars.Record(ctx, int64(p.VisibleChars), reedAttrs)
-	}
 }
 
 func (r *OTEL) ReedDeleted(ctx context.Context, authorID, reedID string) {
@@ -139,16 +124,6 @@ func (r *OTEL) EchoTargeted(ctx context.Context, targetAuthorID, targetReedID st
 	r.echoesTargeted.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("target.author.id_hash", UserIDHash(targetAuthorID)),
 		attribute.String("target.reed.id", targetReedID),
-	))
-}
-
-func (r *OTEL) ReedRejectedLength(ctx context.Context, rawChars, visibleChars int) {
-	if r.reedsRejectedLength == nil {
-		return
-	}
-	r.reedsRejectedLength.Add(ctx, 1, metric.WithAttributes(
-		attribute.Bool("raw.exceeds_max", rawChars > maxReedRawChars),
-		attribute.Bool("visible.exceeds_max", visibleChars > maxReedVisibleChars),
 	))
 }
 
@@ -190,16 +165,28 @@ func (r *OTEL) RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID,
 }
 
 // ContentRejected records a client-reported signed resource that failed
-// verification and was refused a local write — the client rejecting
-// content it received, not a server-side signature check on an incoming
-// request.
-func (r *OTEL) ContentRejected(ctx context.Context, reporterUserID, storeName string) {
+// verification and was refused a local write. reason may be empty.
+func (r *OTEL) ContentRejected(ctx context.Context, reporterUserID, storeName, reason string) {
 	if r.contentRejected == nil {
 		return
 	}
 	r.contentRejected.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("reporter.id_hash", UserIDHash(reporterUserID)),
 		attribute.String("store.name", storeName),
+		attribute.String("reason", reason),
+	))
+}
+
+// MentionClaimRejected records a claimed mention that wasn't really
+// present in the reed. Carries both parties, not just the reporter.
+func (r *OTEL) MentionClaimRejected(ctx context.Context, authorID, reporterUserID, reason string) {
+	if r.mentionClaimRejected == nil {
+		return
+	}
+	r.mentionClaimRejected.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("author.id_hash", UserIDHash(authorID)),
+		attribute.String("reporter.id_hash", UserIDHash(reporterUserID)),
+		attribute.String("reason", reason),
 	))
 }
 
@@ -268,9 +255,3 @@ func (r *OTEL) FederationRelay(ctx context.Context, direction Direction, peerSer
 		attribute.Bool("ok", ok),
 	))
 }
-
-// Limits mirrored from main.MaxReedRawChars / MaxReedVisibleChars for rejection attrs.
-const (
-	maxReedRawChars     = 1400
-	maxReedVisibleChars = 140
-)

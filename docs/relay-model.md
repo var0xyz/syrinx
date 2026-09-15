@@ -84,10 +84,15 @@ CREATE TABLE pending_account_events (
    (`GetNextPendingForHolder`, `ORDER BY created_at LIMIT 1`), atomically
    claims it (`UPDATE ... SET dispatched_at = now() WHERE dispatched_at IS
    NULL` — race-safe if this ever runs on multiple replicas), and sends
-   the holder `RELAY_REQUEST { eventID, authorID, reedID }`.
-5. Holder replies `RELAY_RESPONSE { eventID, data }`, or `RELAY_MISS` if
-   it no longer actually has the content (deletes that holder's
-   allocation row, server retries a different holder).
+   the holder `RELAY_REQUEST { eventID, authorID, reedID, requesterID }`
+   — `requesterID` so the holder can resolve that user's key and encrypt
+   the body to them before responding (see [Content privacy](/content_privacy)).
+5. Holder replies `RELAY_RESPONSE { eventID, ciphertext }`, the armored
+   PGP encryption of the reed; `RELAY_MISS` if it no longer actually
+   has the content (deletes that holder's allocation row, server retries
+   a different holder); or `RELAY_ERROR` if it has the content but
+   couldn't complete encryption (e.g. failed to resolve the requester's
+   key — allocation is kept, server still retries another holder).
 6. Server looks up the pending event by `event_id`. **No matching row →
    no delivery.** This is the abuse guardrail: a forged `RELAY_RESPONSE`
    citing an unknown or already-consumed `event_id` is a no-op.
@@ -115,10 +120,11 @@ which wire message wraps the payload differ (`FOLLOW_REED`, `PIPE_REED`,
 |---|---|---|
 | Viewer → Server | `REQUEST_REED` | `requestID, reedID, authorID` |
 | Server → Viewer | `REQUEST_ACK` | `requestID, eventID, reedID` |
-| Server → Holder | `RELAY_REQUEST` | `eventID, authorID, reedID` |
-| Holder → Server | `RELAY_RESPONSE` | `eventID, data` |
-| Holder → Server | `RELAY_MISS` | `eventID` (holder no longer has it) |
-| Server → Viewer | `DATA_RESPONSE` / `FOLLOW_REED` / `PIPE_REED` / `BROADCAST_REED` | `eventID, requestID, reedID, userID, data, username` |
+| Server → Holder | `RELAY_REQUEST` | `eventID, authorID, reedID, requesterID` |
+| Holder → Server | `RELAY_RESPONSE` | `eventID, ciphertext` (armored PGP, opaque to the server) |
+| Holder → Server | `RELAY_MISS` | `eventID` (holder no longer has it — allocation dropped) |
+| Holder → Server | `RELAY_ERROR` | `eventID` (holder has it, couldn't complete the relay — allocation kept) |
+| Server → Viewer | `DATA_RESPONSE` / `FOLLOW_REED` / `PIPE_REED` / `BROADCAST_REED` | `eventID, requestID, reedID, userID, data, username` (`data` carries the ciphertext, opaque to the server) |
 | Viewer → Server | `DATA_ACK` / `DATA_INVALID` | `eventID` |
 | Server → Viewer | `REED_NOT_FOUND` / `REED_NOT_HELD` | failure paths — no metadata, or metadata exists but no holder |
 
@@ -148,6 +154,8 @@ inside the dispatch loop itself. Full design, including the new
 
 - [Content distribution](/content) — the conceptual walkthrough and abuse
   guardrails this page underpins
+- [Content privacy](/content_privacy) — why relay payloads are encrypted
+  and how the holder resolves a requester's key
 - [Architecture](/architecture) — tracker/relay role of the server
 - [`specs/federation/`](https://github.com/var0xyz/syrinx/tree/main/specs/federation)
   — the handshake spec (peering) and

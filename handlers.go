@@ -1753,6 +1753,29 @@ func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, revocation)
 }
 
+// normalizeClaimedTags lowercases, trims, and dedupes a client-claimed tag
+// list (first-appearance order). The server never sees content to check
+// these claims against — receiving pipe watchers do that.
+func normalizeClaimedTags(claims []string) []string {
+	if len(claims) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(claims))
+	out := make([]string, 0, len(claims))
+	for _, c := range claims {
+		tag := strings.ToLower(strings.TrimSpace(c))
+		if tag == "" {
+			continue
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		out = append(out, tag)
+	}
+	return out
+}
+
 func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("SignReed request received")
@@ -1780,52 +1803,26 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Content may be empty (e.g. bare echo). Echoing/replying are optional reed refs.
-	contentBody := r.FormValue("content")
+	// Echoing/replying are optional reed refs. Reed content never reaches
+	// the server — only structural metadata and the author's claims about
+	// it (tags, mentions), which receiving clients verify.
 	echoing := strings.TrimSpace(r.FormValue("echoing"))
 	replying := strings.TrimSpace(r.FormValue("replying"))
 	previousID := strings.TrimSpace(r.FormValue("previousID"))
-
-	if !ReedContentWithinLimits(contentBody) {
-		h.metrics.ReedRejectedLength(r.Context(), len(contentBody), CountMarkdownCharacters(contentBody))
-		writeResponse(w, http.StatusBadRequest, "Reed content exceeds character limits")
-		return
-	}
+	claimedTags := r.Form["tags"]
+	claimedMentions := r.Form["mentions"]
 
 	localServerID := h.services.db.GetServerID()
 	var echoRef *ReedRef
 	var replyRef *ReedRef
+	// Blankness/existence of the target was already weak trust theater;
+	// the server no longer even tries. A viewer resolving the target
+	// through the verify path enforces real authenticity.
 	if echoing != "" {
 		ref, ok := h.parseReedRef(echoing, localServerID)
 		if !ok {
 			writeResponse(w, http.StatusBadRequest, "Invalid echoing reference")
 			return
-		}
-		// Blankness/existence can only be checked against this server's own
-		// DB, so a foreign target skips it entirely — the client already has
-		// the target rendered locally (that's how it's being echoed at all),
-		// and this check was weak trust theater even for local targets (any
-		// client could already misreport blank status). Real authenticity is
-		// enforced downstream, when a viewer actually resolves the target
-		// through the existing read-proxy/signature-verification path — not
-		// here. TODO: most of these server-side "sanity" checks predate
-		// federation and made limited sense even then; reconsider dropping
-		// them outright rather than patching each one for the foreign case.
-		if ref.ServerID == localServerID {
-			blank, err := h.services.db.IsBlankEcho(r.Context(), FormatReedRef(ref))
-			if errors.Is(err, ErrReedNotFound) {
-				writeResponse(w, http.StatusBadRequest, "Target reed not found")
-				return
-			}
-			if err != nil {
-				log.Error().Err(err).Msg("Error checking echo target blankness")
-				internalServerError(w)
-				return
-			}
-			if blank {
-				writeResponse(w, http.StatusBadRequest, "Cannot echo an empty echo — echo the original reed instead")
-				return
-			}
 		}
 		echoRef = &ref
 	}
@@ -1834,22 +1831,6 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			writeResponse(w, http.StatusBadRequest, "Invalid replying reference")
 			return
-		}
-		if ref.ServerID == localServerID {
-			blank, err := h.services.db.IsBlankEcho(r.Context(), FormatReedRef(ref))
-			if errors.Is(err, ErrReedNotFound) {
-				writeResponse(w, http.StatusBadRequest, "Target reed not found")
-				return
-			}
-			if err != nil {
-				log.Error().Err(err).Msg("Error checking reply target blankness")
-				internalServerError(w)
-				return
-			}
-			if blank {
-				writeResponse(w, http.StatusBadRequest, "Cannot reply to an empty echo — reply to the original reed instead")
-				return
-			}
 		}
 		replyRef = &ref
 	}
@@ -1869,12 +1850,10 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Local mentions are validated + indexed immediately here; foreign
-	// mentions (mentioned user lives on a peer) get no local validation —
-	// only that peer's own server can confirm the user exists — and are
-	// instead queued for the mention-notify federation leg below, once
-	// create succeeds.
-	allMentions := ExtractMentions(contentBody, userID)
+	// Mentions are claimed metadata now. Local mentions still get an
+	// existence sanity check; foreign ones are queued for the mention-notify
+	// federation leg below. Either way the mentioned client re-verifies.
+	allMentions := ValidateMentionClaims(claimedMentions, userID)
 	localMentions := make([]string, 0, len(allMentions))
 	foreignMentions := make([]string, 0, len(allMentions))
 	for _, m := range allMentions {
@@ -1896,8 +1875,6 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		localMentions = append(localMentions, mentionedUserID)
 	}
 
-	markdown := ReedAsMarkdown(reedID, userID, contentBody, echoing, replying, threadID)
-
 	user, err := h.services.db.GetUserProfile(r.Context(), userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error getting user")
@@ -1915,8 +1892,10 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	userSigArmor, err := encoding.Base64Decode(userSignature)
-	if err != nil {
+	// Unverifiable here (no content), but still required/stored/countersigned:
+	// it closes the "re-sign different content under the same id" swap
+	// attack. See docs/content_privacy.md.
+	if _, err := encoding.Base64Decode(userSignature); err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
@@ -1928,15 +1907,6 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 	if pubKey == nil || pubKey.Revoked {
 		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
-		return
-	}
-	if err := h.services.crypto.VerifySignature(markdown, userSigArmor, pubKey.Armor); err != nil {
-		log.Error().
-			Str("userID", userID).
-			Str("reedID", reedID).
-			Err(err).
-			Msg("reed signature verification failed")
-		writeResponse(w, http.StatusBadRequest, "signature verification failed")
 		return
 	}
 
@@ -1969,7 +1939,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tags := ExtractTags(contentBody)
+	tags := normalizeClaimedTags(claimedTags)
 	if h.filterPipeTags != nil {
 		tags = h.filterPipeTags(tags)
 	}
@@ -1991,8 +1961,10 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	var echoIndexed bool
 	switch {
 	case echoRef != nil:
-		isBlankEcho := strings.TrimSpace(contentBody) == ""
-		reed, echoIndexed, err = h.services.db.CreateReedWithEcho(r.Context(), createParams, *echoRef, isBlankEcho)
+		// is_blank is read-side display only; the server can't tell blank
+		// from commented without content, so a conservative default costs
+		// nothing — receiving clients derive the real answer themselves.
+		reed, echoIndexed, err = h.services.db.CreateReedWithEcho(r.Context(), createParams, *echoRef, false)
 	case replyRef != nil:
 		reed, err = h.services.db.CreateReedWithReply(r.Context(), createParams, threadID, *replyRef)
 	default:
@@ -2033,7 +2005,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			go func() {
-				if err := h.notifyForeignEchoToPeer(context.Background(), FormatReedRef(*echoRef), reedID, userID, strings.TrimSpace(contentBody) == "", serverSignature.SignedAt); err != nil {
+				if err := h.notifyForeignEchoToPeer(context.Background(), FormatReedRef(*echoRef), reedID, userID, false, serverSignature.SignedAt); err != nil {
 					log.Error().Err(err).Str("echoedReedID", FormatReedRef(*echoRef)).Str("echoingReedID", reedID).Msg("Failed to notify foreign echo target's home server")
 				}
 			}()
@@ -2078,12 +2050,10 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		reedKind = metrics.ReedKindReply
 	}
 	h.metrics.ReedPublished(r.Context(), metrics.ReedPublishedAttrs{
-		Kind:         reedKind,
-		AuthorID:     userID,
-		ReedID:       reed.ID,
-		TagCount:     len(tags),
-		RawChars:     len(contentBody),
-		VisibleChars: CountMarkdownCharacters(contentBody),
+		Kind:     reedKind,
+		AuthorID: userID,
+		ReedID:   reed.ID,
+		TagCount: len(tags),
 	})
 	if activeUsers, err := coverage.ActiveUsers(r.Context(), h.services.db.db); err == nil {
 		h.metrics.ReedCoverage(r.Context(), userID, reed.ID, 1, coverage.Percent(1, activeUsers))
@@ -2840,6 +2810,83 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeResponse(w, http.StatusOK, list)
+}
+
+// GetMentions handles GET /mentions — the caller's own claimed-mention
+// inbox. Unverified by the server; the client must decrypt each reed and
+// confirm the mention token is really present before trusting it.
+func (h *Handlers) GetMentions(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("GetMentions request received")
+
+	userID := h.getUserID(r)
+
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			return
+		}
+		limit = n
+	}
+
+	var before *time.Time
+	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			return
+		}
+		t = t.UTC().Truncate(time.Second)
+		before = &t
+	}
+
+	list, err := h.services.db.GetMentionsForUser(r.Context(), userID, limit, before)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error listing mentions")
+		internalServerError(w)
+		return
+	}
+
+	writeResponse(w, http.StatusOK, list)
+}
+
+// DeleteMention handles DELETE /mentions/{reedID}: the caller reports a
+// claimed mention of them isn't really present, removing it from their
+// inbox only (row key is reedID+callerUserID). Doesn't touch the reed.
+func (h *Handlers) DeleteMention(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	log.Info().Msg("DeleteMention request received")
+
+	userID := h.getUserID(r)
+
+	reedID := mux.Vars(r)["reedID"]
+	if reedID == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
+		return
+	}
+
+	reason := strings.TrimSpace(r.URL.Query().Get("reason"))
+
+	removed, err := h.services.db.DeleteMentionEntry(r.Context(), reedID, userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error deleting mention entry")
+		internalServerError(w)
+		return
+	}
+	if !removed {
+		writeResponse(w, http.StatusNotFound, "Mention not found")
+		return
+	}
+
+	authorID := reedID
+	if a, ok := identity.AuthorOf(identity.IdentityID(reedID)); ok {
+		authorID = string(a)
+	}
+	h.metrics.MentionClaimRejected(r.Context(), authorID, userID, reason)
+
+	writeResponse(w, http.StatusOK, map[string]bool{"removed": true})
 }
 
 // GetUserFollowing handles GET /users/{userID}/following.

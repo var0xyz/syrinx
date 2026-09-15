@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -79,7 +78,6 @@ type Services struct {
 	db     *DataService
 	crypto *crypto.Service
 	log    *LoggingService
-	md     *MarkdownService
 }
 
 // =============== //
@@ -2314,6 +2312,91 @@ func (s *DataService) InsertMentionRow(ctx context.Context, mentioningReedID, me
 	return insertMentionRow(ctx, s.db, mentioningReedID, mentionedUserID)
 }
 
+// MentionListItem is one row of a mentioned user's pull inbox. AuthorID is
+// parsed from the canonical reed id, no join needed.
+type MentionListItem struct {
+	ReedID    string    `json:"reedID"`
+	AuthorID  string    `json:"authorID"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// MentionListResponse is the GET .../mentions response shape.
+type MentionListResponse struct {
+	Mentions []MentionListItem `json:"mentions"`
+	HasMore  bool              `json:"hasMore"`
+}
+
+// GetMentionsForUser returns mentionedUserID's pull inbox, oldest first.
+// limit is clamped to [1, 100], defaulting to 50.
+func (s *DataService) GetMentionsForUser(ctx context.Context, mentionedUserID string, limit int, before *time.Time) (*MentionListResponse, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	args := []any{mentionedUserID}
+	query := `
+		SELECT mentioning_reed_id, created_at
+		FROM reed_mentions
+		WHERE mentioned_user_id = $1
+	`
+	if before != nil {
+		args = append(args, before.UTC().Truncate(time.Second))
+		query += fmt.Sprintf(" AND (created_at, mentioning_reed_id) > ($%d, '')", len(args))
+	}
+	args = append(args, limit+1)
+	query += fmt.Sprintf(" ORDER BY created_at ASC, mentioning_reed_id ASC LIMIT $%d", len(args))
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []MentionListItem
+	for rows.Next() {
+		var reedID string
+		var createdAt time.Time
+		if err := rows.Scan(&reedID, &createdAt); err != nil {
+			return nil, err
+		}
+		authorID := reedID
+		if a, ok := identity.AuthorOf(identity.IdentityID(reedID)); ok {
+			authorID = string(a)
+		}
+		items = append(items, MentionListItem{ReedID: reedID, AuthorID: authorID, CreatedAt: createdAt})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	return &MentionListResponse{Mentions: items, HasMore: hasMore}, nil
+}
+
+// DeleteMentionEntry removes one (reedID, mentionedUserID) row. Scoping to
+// the caller's own id is the handler layer's job. Returns false, not an
+// error, if no matching row existed.
+func (s *DataService) DeleteMentionEntry(ctx context.Context, reedID, mentionedUserID string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM reed_mentions
+		WHERE mentioning_reed_id = $1 AND mentioned_user_id = $2
+	`, reedID, mentionedUserID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // UserSearchResult is one row in a GET /users/search response — minimal
 // fields only, no keys, no bio. ServerName is the servers.name a viewer can
 // read to disambiguate two identically-named usernames on different
@@ -3152,221 +3235,6 @@ func CountMarkdownCharacters(text string) int {
 	result = reBold.ReplaceAllString(result, "$1")
 	result = reHashtag.ReplaceAllString(result, "$1$2")
 	return utf8.RuneCountInString(result)
-}
-
-// ReedContentWithinLimits reports whether content is within raw and visible caps.
-// Raw uses byte length to match JavaScript string.length for BMP text.
-func ReedContentWithinLimits(body string) bool {
-	if len(body) > MaxReedRawChars {
-		return false
-	}
-	if CountMarkdownCharacters(body) > MaxReedVisibleChars {
-		return false
-	}
-	return true
-}
-
-// ReedAsMarkdown builds the canonical signed markdown envelope (must match SPA reedAsMarkdown).
-func ReedAsMarkdown(id, userID, content, echoing, replying, threadId string) string {
-	headers := map[string]string{
-		"id":     id,
-		"userID": userID,
-	}
-	if replying != "" {
-		headers["replying"] = replying
-	}
-	if echoing != "" {
-		headers["echoing"] = echoing
-	}
-	if threadId != "" {
-		headers["threadId"] = threadId
-	}
-	keys := make([]string, 0, len(headers))
-	for k := range headers {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	var b strings.Builder
-	b.WriteString("---\n")
-	for _, k := range keys {
-		b.WriteString(k)
-		b.WriteString(": ")
-		b.WriteString(headers[k])
-		b.WriteByte('\n')
-	}
-	b.WriteString("---\n")
-	b.WriteString(content)
-	return b.String()
-}
-
-// hashtagExtract matches SPA Reed.extractTags: (^|\s)#\S+
-var hashtagExtract = regexp.MustCompile(`(^|\s)#\S+`)
-
-// ExtractTags returns normalized unique hashtags from content (no leading #,
-// lowercase, first-appearance order). Mirrors spa/src/lib/types/reed.ts extractTags.
-func ExtractTags(content string) []string {
-	matches := hashtagExtract.FindAllString(content, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(matches))
-	out := make([]string, 0, len(matches))
-	for _, m := range matches {
-		tag := strings.ToLower(strings.TrimSpace(m)[1:]) // drop leading #
-		if tag == "" {
-			continue
-		}
-		if _, ok := seen[tag]; ok {
-			continue
-		}
-		seen[tag] = struct{}{}
-		out = append(out, tag)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-type MarkdownService struct {
-}
-
-func NewMarkdownService() *MarkdownService {
-	return &MarkdownService{}
-}
-
-type ReedHeader struct {
-	ID     string
-	UserID string
-
-	// Social
-	Replying string
-	Echoing  string
-	ThreadID string
-}
-
-func (s *MarkdownService) ExtractReedHeader(reed string) ReedHeader {
-	lines := strings.Split(reed, "\n")
-	inHeader := false
-	var id,
-		userID,
-		replying,
-		echoing,
-		threadID string
-	for _, line := range lines {
-		if inHeader {
-			if line == "---" {
-				break
-			}
-			if strings.HasPrefix(line, "id:") {
-				id, _ = strings.CutPrefix(line, "id:")
-			}
-			if strings.HasPrefix(line, "userID:") {
-				userID, _ = strings.CutPrefix(line, "userID:")
-			}
-			if strings.HasPrefix(line, "replying:") {
-				replying, _ = strings.CutPrefix(line, "replying:")
-			}
-			if strings.HasPrefix(line, "echoing:") {
-				echoing, _ = strings.CutPrefix(line, "echoing:")
-			}
-			if strings.HasPrefix(line, "threadId:") {
-				threadID, _ = strings.CutPrefix(line, "threadId:")
-			}
-		}
-
-		if line == "---" && !inHeader {
-			inHeader = true
-		}
-	}
-
-	header := ReedHeader{
-		ID:       strings.TrimSpace(id),
-		UserID:   strings.TrimSpace(userID),
-		Replying: strings.TrimSpace(replying),
-		Echoing:  strings.TrimSpace(echoing),
-		ThreadID: strings.TrimSpace(threadID),
-	}
-
-	return header
-}
-
-func (s *MarkdownService) ValidateReedHeader(reed string) error {
-	mandatoryFoundCount := 0
-	mandatoryHeaders := []string{
-		"id",
-		"userID",
-	}
-	optionalHeaders := []string{
-		"replying",
-		"echoing",
-		"threadId",
-	}
-
-	lines := strings.Split(reed, "\n")
-	inHeader := false
-	for _, line := range lines {
-		if inHeader {
-			if line == "---" {
-				break
-			}
-			if strings.Contains(line, ": ") {
-				headerName := strings.Split(line, ": ")[0]
-				inMandatory := slices.Contains(mandatoryHeaders, headerName)
-				inOptional := slices.Contains(optionalHeaders, headerName)
-				if inMandatory {
-					mandatoryFoundCount++
-				} else {
-					if !inOptional {
-						return fmt.Errorf("unrecognized header: %s", headerName)
-					}
-				}
-			} else {
-				return fmt.Errorf("invalid header format: %s", line)
-			}
-		}
-		if line == "---" && !inHeader {
-			inHeader = true
-		}
-	}
-
-	if mandatoryFoundCount != len(mandatoryHeaders) {
-		return fmt.Errorf("mandatory headers missing: %v", mandatoryHeaders)
-	}
-
-	return nil
-}
-
-func (s *MarkdownService) ExtractReedContent(reed string) string {
-	lines := strings.Split(reed, "\n")
-	inHeader := false
-	inContent := false
-	var content string
-	for _, line := range lines {
-		if inContent {
-			content += line + "\n"
-		}
-		if line == "---" {
-			if inContent {
-				continue
-			}
-			inHeader = !inHeader
-			inContent = !inHeader
-		}
-	}
-
-	return strings.TrimSpace(content)
-}
-
-func (s *MarkdownService) ParseMarkdown(reed string) string {
-	// Remove markdown formatting characters and links
-	// Handle *bold* and _italic_ and ~strikethrough~
-	reed = regexp.MustCompile(`[*_~](.*?)[*_~]`).ReplaceAllString(reed, "$1")
-
-	// Handle links [text](url)
-	reed = regexp.MustCompile(`\[(.*?)\]\(.*?\)`).ReplaceAllString(reed, "$1")
-
-	return reed
 }
 
 // ================= //

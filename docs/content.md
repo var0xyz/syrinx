@@ -21,7 +21,7 @@ Syrinx will not invent a “For You” firehose of accounts you never chose. Pag
 
 ## How content moves
 
-The server is a **tracker**, not a library. It knows *who holds* a reed and helps peers find each other. Reed **bodies** travel holder → server (in transit only) → requester.
+The server is a **tracker**, not a library. It knows *who holds* a reed and helps peers find each other. Reed **bodies** travel holder → server (in transit only) → requester, encrypted end-to-end so the server only ever handles ciphertext—see [Content privacy](/content_privacy).
 
 ```mermaid
 sequenceDiagram
@@ -31,10 +31,11 @@ sequenceDiagram
   Viewer->>Server: REQUEST_REED (request_id)
   Server->>Server: Create pending_events row
   Server-->>Viewer: REQUEST_ACK
-  Server->>Holder: RELAY_REQUEST (event_id)
-  Holder->>Server: RELAY_RESPONSE (event_id + body)
-  Server->>Viewer: DATA_RESPONSE (request_id + body)
-  Viewer->>Viewer: Verify signatures
+  Server->>Holder: RELAY_REQUEST (event_id, requester_id)
+  Holder->>Holder: Encrypt body to requester's key
+  Holder->>Server: RELAY_RESPONSE (event_id + ciphertext)
+  Server->>Viewer: DATA_RESPONSE (request_id + ciphertext)
+  Viewer->>Viewer: Decrypt, then verify signatures
   Viewer->>Server: DATA_ACK
 ```
 
@@ -45,10 +46,10 @@ When you open a reed you do not already hold:
 1. The client mints a **`request_id`** and stores it locally (session storage).
 2. It sends `REQUEST_REED` with that id, the reed id, and the author id.
 3. The server creates a **`pending_events`** row (`event_id` + your `request_id`), then sends `REQUEST_ACK`.
-4. The server picks an online **holder** and sends them `RELAY_REQUEST` with the `event_id`.
-5. The holder replies with `RELAY_RESPONSE` (body) or `RELAY_MISS` (no longer has it).
+4. The server picks an online **holder** and sends them `RELAY_REQUEST` with the `event_id` and your id, so they know whose key to encrypt for.
+5. The holder replies with `RELAY_RESPONSE` (encrypted body), `RELAY_MISS` (no longer has it), or `RELAY_ERROR` (has it, but couldn't resolve your key right now—the server retries with another holder without dropping this one's copy).
 6. On a valid response, the server delivers `DATA_RESPONSE` to you, still keyed by your `request_id`.
-7. You verify signatures. Success → store (if your storage rules allow) and `DATA_ACK`. Failure → `DATA_INVALID`.
+7. You decrypt, then verify signatures. Success → store (if your storage rules allow) and `DATA_ACK`. Failure → `DATA_INVALID`.
 
 Requests may outlive a single page view. Starting a fetch, navigating away, and returning later is intentional—and helps the mesh move bytes even if you never re-open the reed.
 
@@ -141,5 +142,6 @@ Authors can queue work locally (pending publishes, pending removals, pending rev
 ## Related
 
 - [Trust model](/trust#content-consent-and-relay) — consent and forged-event framing
+- [Content privacy](/content_privacy) — why the server never sees content, and how relay encryption works
 - [Philosophy — Only store what you trust](/philosophy#only-store-what-you-trust)
 - [Architecture](/architecture) — tracker / relay role of the server

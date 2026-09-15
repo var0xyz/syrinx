@@ -1109,7 +1109,13 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 	case "RELAY_MISS":
 		var d RelayMissData
 		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
-			rs.handleRelayMiss(client, d)
+			rs.handleRelayMiss(client, d.EventID, true)
+		}
+
+	case "RELAY_ERROR":
+		var d RelayErrorData
+		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
+			rs.handleRelayMiss(client, d.EventID, false)
 		}
 
 	case "DATA_ACK":
@@ -1323,7 +1329,7 @@ func (rs *RealtimeService) dispatchNext(holderUserID string) {
 	if !ok {
 		return // another replica claimed it
 	}
-	if err := rs.connManager.SendToUser(holderUserID, NewRelayRequestMsg(pe.EventID, pe.UserID, pe.ReedID)); err != nil {
+	if err := rs.connManager.SendToUser(holderUserID, NewRelayRequestMsg(pe.EventID, pe.UserID, pe.ReedID, pe.RequesterUserID)); err != nil {
 		log.Error().
 			Err(err).
 			Str("holderUserID", holderUserID).
@@ -1817,11 +1823,16 @@ func (rs *RealtimeService) HandleForeignRelayResponse(ctx context.Context, peerE
 		return true, nil
 	}
 
+	var ciphertext string
+	if err := json.Unmarshal(data, &ciphertext); err != nil {
+		return false, err
+	}
+
 	var msg DataResponseMsg
 	if pe.EventName == string(ReedReplyEvent) {
-		msg = NewReedReplyMsg(pe.EventID, pe.RequestID, pe.ReedID, data)
+		msg = NewReedReplyMsg(pe.EventID, pe.RequestID, pe.ReedID, ciphertext)
 	} else {
-		msg = NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, data)
+		msg = NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, ciphertext)
 	}
 	if err := rs.connManager.SendToUser(pe.RequesterUserID, msg); err != nil {
 		log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver foreign-relayed data response")
@@ -1965,15 +1976,8 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMess
 		return
 	}
 	if pe == nil {
-		// Event was cancelled/already resolved (e.g. UNSUBSCRIBE_PROFILE, or
-		// a same-holder retransmit arriving after the first response already
-		// deleted this row) — still advance the holder's queue. Recording
-		// nothing here (rather than a second "fulfilled") is what keeps a
-		// genuine duplicate response from inflating the fulfilled count for
-		// event types that delete immediately (BroadcastReedEvent); for the
-		// deferred-delete types below, a retransmit instead falls through
-		// to a real second "fulfilled" sample for the same event.id_hash —
-		// exactly the wasted-bandwidth signal this metric exists to catch.
+		// Already resolved (e.g. a retransmit) — no duplicate "fulfilled"
+		// sample, just advance the holder's queue.
 		rs.dispatchNext(client.userID)
 		return
 	}
@@ -1989,7 +1993,7 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMess
 			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Dropping broadcast reed: author account was either removed or never existed")
 		} else {
 			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering broadcast reed to subscriber")
-			if err := rs.connManager.SendToUser(pe.RequesterUserID, NewBroadcastReedMsg(pe.ReedID, relay.Data, username)); err != nil {
+			if err := rs.connManager.SendToUser(pe.RequesterUserID, NewBroadcastReedMsg(pe.ReedID, relay.Ciphertext, username)); err != nil {
 				log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver broadcast reed")
 			}
 		}
@@ -1998,25 +2002,25 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMess
 		}
 	} else if pe.EventName == string(PipeReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering pipe reed to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relay.Data, func() DataResponseMsg {
-			return NewPipeReedMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Data)
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
+			return NewPipeReedMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Ciphertext)
 		})
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else if pe.EventName == string(FollowReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering follow reed to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relay.Data, func() DataResponseMsg {
-			return NewFollowReedMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Data)
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
+			return NewFollowReedMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Ciphertext)
 		})
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else if pe.EventName == string(ReedReplyEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering reed reply to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relay.Data, func() DataResponseMsg {
-			return NewReedReplyMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Data)
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
+			return NewReedReplyMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Ciphertext)
 		})
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else {
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relay.Data, func() DataResponseMsg {
-			return NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Data)
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
+			return NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Ciphertext)
 		})
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	}
@@ -2053,15 +2057,17 @@ func (rs *RealtimeService) deliverOrForward(ctx context.Context, eventID, reques
 	}
 }
 
-// handleRelayMiss drops the reporting holder's allocation and retries another online holder.
-func (rs *RealtimeService) handleRelayMiss(client *Client, data RelayMissData) {
-	if data.EventID == "" {
+// handleRelayMiss handles RELAY_MISS (holder truly lacks the content,
+// deleteAllocation true) and RELAY_ERROR (holder has it but couldn't relay
+// it, deleteAllocation false) — same retry shape either way.
+func (rs *RealtimeService) handleRelayMiss(client *Client, eventID string, deleteAllocation bool) {
+	if eventID == "" {
 		return
 	}
 
-	pe, err := rs.dbService.GetPendingReedEvent(context.Background(), data.EventID)
+	pe, err := rs.dbService.GetPendingReedEvent(context.Background(), eventID)
 	if err != nil {
-		log.Error().Err(err).Str("eventID", data.EventID).Msg("Failed to get pending event for relay miss")
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event for relay miss/error")
 		rs.dispatchNext(client.userID)
 		return
 	}
@@ -2071,23 +2077,26 @@ func (rs *RealtimeService) handleRelayMiss(client *Client, data RelayMissData) {
 	}
 
 	log.Info().
-		Str("eventID", data.EventID).
+		Str("eventID", eventID).
 		Str("holderID", client.userID).
 		Str("authorID", pe.UserID).
 		Str("reedID", pe.ReedID).
-		Msg("Relay miss; dropping holder allocation and retrying")
+		Bool("deleteAllocation", deleteAllocation).
+		Msg("Relay miss/error; retrying")
 
-	if _, err := rs.dbService.DeleteReedAllocation(context.Background(), pe.ReedID, client.userID); err != nil {
-		log.Error().Err(err).Str("reedID", pe.ReedID).Str("holderID", client.userID).Msg("Failed to delete allocation on relay miss")
+	if deleteAllocation {
+		if _, err := rs.dbService.DeleteReedAllocation(context.Background(), pe.ReedID, client.userID); err != nil {
+			log.Error().Err(err).Str("reedID", pe.ReedID).Str("holderID", client.userID).Msg("Failed to delete allocation on relay miss")
+		}
 	}
 
-	if err := rs.dbService.ResetDispatchedAt(context.Background(), data.EventID); err != nil {
-		log.Error().Err(err).Str("eventID", data.EventID).Msg("Failed to reset dispatched_at on relay miss")
+	if err := rs.dbService.ResetDispatchedAt(context.Background(), eventID); err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to reset dispatched_at on relay miss/error")
 	}
 
 	hasHolders, holder, err := rs.dbService.GetOnlineHolders(context.Background(), pe.ReedID)
 	if err != nil {
-		log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to check reed holders on relay miss")
+		log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to check reed holders on relay miss/error")
 	} else if !hasHolders {
 		rs.failReedNotHeld(pe)
 	} else if holder != "" {
@@ -2278,8 +2287,9 @@ func (rs *RealtimeService) handleContentRejected(client *Client, data ContentRej
 	log.Warn().
 		Str("reporterUserID", client.userID).
 		Str("storeName", data.StoreName).
+		Str("reason", data.Reason).
 		Msg("Client rejected content that failed verification")
-	rs.metrics.ContentRejected(context.Background(), client.userID, data.StoreName)
+	rs.metrics.ContentRejected(context.Background(), client.userID, data.StoreName, data.Reason)
 }
 
 func (rs *RealtimeService) handleSubscribeProfile(client *Client, data json.RawMessage) {

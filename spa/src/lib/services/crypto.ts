@@ -227,6 +227,18 @@ export class CryptoService {
     return data as string;
   }
 
+  /** Encrypt plaintext to a recipient's public key (asymmetric — a relay
+   * holder encrypting for the requester, not the symmetric backup above). */
+  async encryptToRecipient(plaintext: string, recipientPublicKeyArmored: string): Promise<string> {
+    const publicKey = await openpgp.readKey({ armoredKey: recipientPublicKeyArmored });
+    const message = await openpgp.createMessage({ text: plaintext });
+    return (await openpgp.encrypt({
+      message,
+      encryptionKeys: publicKey,
+      format: 'armored'
+    })) as string;
+  }
+
   /**
    * Re-derive fingerprint from armored public key material.
    */

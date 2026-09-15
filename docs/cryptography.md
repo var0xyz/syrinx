@@ -51,6 +51,10 @@ User attestations and server countersignatures differ (who signs, whether `signe
 
 Verification is pushed down so invalid material is not stored: repositories supply verifiers to persistence `put` paths without turning the DB layer into a crypto library.
 
+## Content relay encryption
+
+Reed content signatures are the one exception to "the server verifies before it accepts": the server never receives content, so it cannot check the author's signature over it—only receiving peers do, once they fetch and decrypt a body. The server's countersignature still covers the author's signature *bytes*, closing the swap attack this asymmetry would otherwise open. See [Content privacy](/content_privacy) for the full mechanism and relay's own asymmetric encryption (distinct from these detached signatures).
+
 ## HTTP response signing
 
 API responses can be signed by middleware: the complete response (canonical headers + body) is signed with the server key; the client can verify via a signature header (e.g. `X-Syrinx-Signature`). Headers are sorted into a canonical string before signing. This proves the **HTTP response** came from the server key—not a substitute for verifying resource-level user/server blocks on stored entities.
