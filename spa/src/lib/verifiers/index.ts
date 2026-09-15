@@ -5,7 +5,7 @@
  */
 
 import type * as api from '$lib/types/api';
-import { reedAsMarkdown, type ReedType } from '$lib/types/reed';
+import { reedAsMarkdown, extractTags, type ReedType } from '$lib/types/reed';
 import { apiService } from '$lib/services/api';
 import { cryptoService } from '$lib/services/crypto';
 import { dbService } from '$lib/services/db';
@@ -73,7 +73,9 @@ async function fetchAndStorePublicKey(
   }
 }
 
-async function resolvePublicKeyArmor(
+/** Cached-or-fetched armor for a known key id. Exported for the relay
+ * handler, which resolves a requester's active key before encrypting. */
+export async function resolvePublicKeyArmor(
   userID: string,
   fingerprint: string
 ): Promise<string | null> {
@@ -432,6 +434,13 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
   }
 
   return true;
+}
+
+/** Confirms deliveryTag is really among the reed's real (decrypted) tags —
+ * the server routed on an unverified author claim, this checks it. */
+export function verifyClaimedTags(reed: ReedType, deliveryTag: string | null): boolean {
+  if (!deliveryTag) return true;
+  return extractTags(reed.content).includes(deliveryTag);
 }
 
 /**

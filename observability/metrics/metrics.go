@@ -44,14 +44,13 @@ const (
 	RelayEventDeleted   RelayLifecycle = "deleted"
 )
 
-// ReedPublishedAttrs carries structural publish metadata (no content or tag text).
+// ReedPublishedAttrs carries structural publish metadata (no content or tag
+// text — the server never sees either).
 type ReedPublishedAttrs struct {
-	Kind         ReedKind
-	AuthorID     string
-	ReedID       string
-	TagCount     int
-	RawChars     int
-	VisibleChars int
+	Kind     ReedKind
+	AuthorID string
+	ReedID   string
+	TagCount int
 }
 
 // Recorder emits domain metrics. Implementations must be safe for concurrent use.
@@ -61,11 +60,11 @@ type Recorder interface {
 	ReedPublished(ctx context.Context, p ReedPublishedAttrs)
 	ReedDeleted(ctx context.Context, authorID, reedID string)
 	EchoTargeted(ctx context.Context, targetAuthorID, targetReedID string)
-	ReedRejectedLength(ctx context.Context, rawChars, visibleChars int)
 	KeyRevoked(ctx context.Context, userID string)
 	KeyFetchError(ctx context.Context, reporterUserID, targetUserID, keyID string)
 	RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID, keyID string)
-	ContentRejected(ctx context.Context, reporterUserID, storeName string)
+	ContentRejected(ctx context.Context, reporterUserID, storeName, reason string)
+	MentionClaimRejected(ctx context.Context, authorID, reporterUserID, reason string)
 	UserBackup(ctx context.Context, userID string, kind BackupKind)
 	ReedCoverage(ctx context.Context, authorID, reedID string, holders, coveragePercent int)
 	WSMessage(ctx context.Context, direction Direction, msgType string)
@@ -81,11 +80,11 @@ func (Noop) UserDeleted(context.Context, string, bool)                        {}
 func (Noop) ReedPublished(context.Context, ReedPublishedAttrs)                {}
 func (Noop) ReedDeleted(context.Context, string, string)                      {}
 func (Noop) EchoTargeted(context.Context, string, string)                     {}
-func (Noop) ReedRejectedLength(context.Context, int, int)                     {}
 func (Noop) KeyRevoked(context.Context, string)                               {}
 func (Noop) KeyFetchError(context.Context, string, string, string)            {}
 func (Noop) RevokedKeyUsed(context.Context, string, string, string)           {}
-func (Noop) ContentRejected(context.Context, string, string)                  {}
+func (Noop) ContentRejected(context.Context, string, string, string)          {}
+func (Noop) MentionClaimRejected(context.Context, string, string, string)     {}
 func (Noop) UserBackup(context.Context, string, BackupKind)                   {}
 func (Noop) ReedCoverage(context.Context, string, string, int, int)           {}
 func (Noop) WSMessage(context.Context, Direction, string)                     {}

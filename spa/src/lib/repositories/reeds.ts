@@ -126,9 +126,10 @@ class ReedsService {
       console.log('Getting signature from server...');
       const previousID = await previousIDForPublish();
       const response = await api.createReed(reed.id, armor, {
-        content: reed.content,
         echoing: reed.echoing,
         replying: reed.replying,
+        tags: reed.tags,
+        mentions: reed.mentions,
         ...(previousID ? { previousID } : {}),
       });
       let published: ReedType;

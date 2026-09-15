@@ -20,6 +20,30 @@ export interface ReedType {
   serverSignature?: ServerSignature;
   content: string;
   tags: string[];
+  mentions: string[];
+}
+
+/** Normalized unique hashtags from content (no #, lowercase). */
+export function extractTags(content: string): string[] {
+  const hashtagRegex = /(^|\s)#\S+/g;
+  const matches = content.match(hashtagRegex);
+  if (!matches) return [];
+  const tags = matches.map(tag => tag.trim().substring(1).toLowerCase());
+  return [...new Set(tags)];
+}
+
+/** ~userID@serverID mention claims from content, canonical form,
+ * deduped, self-mentions (matching authorID) dropped. */
+export function extractMentions(content: string, authorID: string): string[] {
+  const mentionRegex = /~([a-zA-Z0-9]+)@([a-zA-Z0-9]+)/g;
+  const seen = new Set<string>();
+  for (const match of content.matchAll(mentionRegex)) {
+    const [, userID, serverID] = match;
+    const canonical = `${userID}@${serverID}`;
+    if (canonical === authorID) continue;
+    seen.add(canonical);
+  }
+  return [...seen];
 }
 
 /** Reconstruct the signed markdown payload from a reed object. */
@@ -53,6 +77,7 @@ export class Reed {
   private _serverSignature: ServerSignature | undefined = undefined;
   private _content: string = '';
   private _tags: string[] = [];
+  private _mentions: string[] = [];
 
   constructor() {
     // Auto-populate userID (already canonical: userID@serverID).
@@ -89,6 +114,10 @@ export class Reed {
 
   get tags(): string[] {
     return this._tags;
+  }
+
+  get mentions(): string[] {
+    return this._mentions;
   }
 
   set userID(value: string) {
@@ -137,24 +166,8 @@ export class Reed {
 
   set content(value: string) {
     this._content = value;
-    this._tags = this.extractTags(value);
-  }
-
-  /**
-   * Extract hashtags from content
-   * Returns normalized (lowercase) unique tags without the # prefix
-   */
-  private extractTags(content: string): string[] {
-    const hashtagRegex = /(^|\s)#\S+/g;
-    const matches = content.match(hashtagRegex);
-
-    if (!matches) {
-      return [];
-    }
-
-    // Remove # prefix, normalize to lowercase, and remove duplicates
-    const tags = matches.map(tag => tag.trim().substring(1).toLowerCase());
-    return [...new Set(tags)];
+    this._tags = extractTags(value);
+    this._mentions = extractMentions(value, this._userID);
   }
 
   /**
@@ -177,7 +190,8 @@ export class Reed {
       userSignature: this._userSignature ? { ...this._userSignature } : undefined,
       serverSignature: this._serverSignature ? { ...this._serverSignature } : undefined,
       content: this.content,
-      tags: this.tags
+      tags: this.tags,
+      mentions: this.mentions
     };
   }
 }

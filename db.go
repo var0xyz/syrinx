@@ -362,20 +362,21 @@ func InitDB(db *sql.DB) error {
 		ON reed_replies (thread_id, timestamp);
 	`
 
-	// One row per (reed, mentioned user). mentioning_reed_id FKs to
-	// reed_identities, not reeds, since a foreign reed can mention a local
-	// user. mentioned_user_id already carries the server in its canonical form, so no separate mentioned_server_id column is needed.
+	// One row per (reed, mentioned user) — the mentioned user's pull inbox,
+	// since the server never sees content to notify them directly.
+	// mentioning_reed_id FKs reed_identities so a foreign reed can qualify.
 	createReedMentionsTable := `
 	CREATE TABLE IF NOT EXISTS reed_mentions (
 		mentioning_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		mentioned_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
 		PRIMARY KEY (mentioning_reed_id, mentioned_user_id)
 	);`
 
 	createReedMentionsIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_mentions_mentioned
-		ON reed_mentions (mentioned_user_id);
+		ON reed_mentions (mentioned_user_id, created_at);
 
 	CREATE INDEX IF NOT EXISTS idx_reed_mentions_reed
 		ON reed_mentions (mentioning_reed_id);

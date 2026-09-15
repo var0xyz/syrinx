@@ -638,19 +638,21 @@ export const apiService = {
     reedId: string,
     signature: string,
     fields: {
-      content: string;
       echoing?: string;
       replying?: string;
       previousID?: string;
+      tags?: string[];
+      mentions?: string[];
     }
   ): Promise<SignReedResponse> {
     const formData = new URLSearchParams();
     formData.append('signature', signature);
     formData.append('reedID', reedId);
-    formData.append('content', fields.content ?? '');
     if (fields.echoing) formData.append('echoing', fields.echoing);
     if (fields.replying) formData.append('replying', fields.replying);
     if (fields.previousID) formData.append('previousID', fields.previousID);
+    for (const tag of fields.tags ?? []) formData.append('tags', tag);
+    for (const mention of fields.mentions ?? []) formData.append('mentions', mention);
 
     return request('/reeds', {
       method: 'POST',

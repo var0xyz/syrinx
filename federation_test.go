@@ -292,7 +292,6 @@ func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *crypto.KeyP
 		db:     dataService,
 		crypto: cryptoSvc,
 		log:    NewLoggingService(),
-		md:     NewMarkdownService(),
 	}
 	h := NewHandlers(services, AppConfig{ServerName: "test", APIBaseURL: "https://test.example"}, make(chan realtime.BroadcastMessage, 1), ServerSigningKey{
 		Fingerprint: serverKP.Fingerprint,

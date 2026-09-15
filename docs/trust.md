@@ -12,6 +12,8 @@ Syrinx assumes the server is useful and usually honest—but **not** an oracle y
 | Open spam registration on a community instance | Invite / closed signup modes without phone/email |
 | Stealing or hijacking **pending** invite links from server storage | Server stores **SHA-256(secret)** only; redeem needs the preimage; secret is fragment-only at share time |
 | Pushing unsolicited reed bodies onto clients | Pending-event ledger + client request correlation; clients only keep what they agreed to hold |
+| A compromised server operator reading reed bodies | Server never receives content, even transiently; relayed bodies are end-to-end encrypted holder→requester—see [Content privacy](/content_privacy) |
+| A spoofed hashtag/mention routing garbage into a pipe or an inbox | Server routes on the author's unverified claim, but the receiving/mentioned client re-derives the real value from decrypted content and reports a mismatch |
 
 | We do **not** claim to stop… | Why |
 |------------------------------|-----|
@@ -103,7 +105,7 @@ If an instance is destroyed or taken over, a new host can import the **server id
 
 ## Content consent and relay
 
-Reed bodies are not served from a CDN. They move holder → server (in transit) → requester, under a **pending-event** ledger:
+Reed bodies are not served from a CDN. They move holder → server (in transit) → requester, under a **pending-event** ledger, and the payload itself is end-to-end encrypted to the requester—the server relays ciphertext it cannot read. See [Content privacy](/content_privacy) for how.
 
 - The server creates an event row **before** it asks anyone to relay.
 - `RELAY_RESPONSE` / `RELAY_MISS` only matter if they cite a real `event_id`. A forged response with a made-up id is ignored.

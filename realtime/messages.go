@@ -24,19 +24,22 @@ const (
 // AuthorID disambiguates ReedID, which is only unique per author — without
 // it a holder caching more than one author's content under a colliding
 // local ID has no way to tell which reed is actually being asked for.
+// RequesterID is who the holder must encrypt the content to before
+// responding — the server relays ciphertext blindly and never sees the body.
 type RelayRequestMsg struct {
 	Type string           `json:"type"`
 	Data RelayRequestData `json:"data"`
 }
 
 type RelayRequestData struct {
-	EventID  string `json:"event_id"`
-	AuthorID string `json:"author_id"`
-	ReedID   string `json:"reed_id"`
+	EventID     string `json:"event_id"`
+	AuthorID    string `json:"author_id"`
+	ReedID      string `json:"reed_id"`
+	RequesterID string `json:"requester_id"`
 }
 
-func NewRelayRequestMsg(eventID, authorID, reedID string) RelayRequestMsg {
-	return RelayRequestMsg{Type: "RELAY_REQUEST", Data: RelayRequestData{EventID: eventID, AuthorID: authorID, ReedID: reedID}}
+func NewRelayRequestMsg(eventID, authorID, reedID, requesterID string) RelayRequestMsg {
+	return RelayRequestMsg{Type: "RELAY_REQUEST", Data: RelayRequestData{EventID: eventID, AuthorID: authorID, ReedID: reedID, RequesterID: requesterID}}
 }
 
 // RequestAckMsg is sent from the server to a requester confirming the relay request was registered.
@@ -70,17 +73,25 @@ type DataResponseData struct {
 	Username  string          `json:"username,omitempty"`
 }
 
-func NewDataResponseMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
-	return DataResponseMsg{Type: "DATA_RESPONSE", Data: DataResponseData{EventID: eventID, RequestID: requestID, ReedID: reedID, Data: data}}
+// jsonString JSON-encodes a Go string (adds quoting/escaping) so it can be
+// carried in DataResponseData.Data alongside the cert-payload messages that
+// share that field but marshal a struct instead of a bare string.
+func jsonString(s string) json.RawMessage {
+	raw, _ := json.Marshal(s)
+	return raw
+}
+
+func NewDataResponseMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
+	return DataResponseMsg{Type: "DATA_RESPONSE", Data: DataResponseData{EventID: eventID, RequestID: requestID, ReedID: reedID, Data: jsonString(ciphertext)}}
 }
 
 // NewBroadcastReedMsg builds a BROADCAST_REED delivery message (no request_id needed).
-func NewBroadcastReedMsg(reedID string, reedData json.RawMessage, username string) DataResponseMsg {
+func NewBroadcastReedMsg(reedID, ciphertext, username string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "BROADCAST_REED",
 		Data: DataResponseData{
 			ReedID:   reedID,
-			Data:     reedData,
+			Data:     jsonString(ciphertext),
 			Username: username,
 		},
 	}
@@ -88,27 +99,27 @@ func NewBroadcastReedMsg(reedID string, reedData json.RawMessage, username strin
 
 // NewPipeReedMsg builds a PIPE_REED delivery (pipe subscription push).
 // Carries event_id so the viewer can DATA_ACK after verify+store (same as DATA_RESPONSE).
-func NewPipeReedMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
+func NewPipeReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "PIPE_REED",
 		Data: DataResponseData{
 			EventID:   eventID,
 			RequestID: requestID,
 			ReedID:    reedID,
-			Data:      data,
+			Data:      jsonString(ciphertext),
 		},
 	}
 }
 
 // NewFollowReedMsg builds a FOLLOW_REED delivery (followcast / follow catch-up push).
-func NewFollowReedMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
+func NewFollowReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "FOLLOW_REED",
 		Data: DataResponseData{
 			EventID:   eventID,
 			RequestID: requestID,
 			ReedID:    reedID,
-			Data:      data,
+			Data:      jsonString(ciphertext),
 		},
 	}
 }
@@ -121,14 +132,14 @@ func NewFollowReedMsg(eventID, requestID, reedID string, data json.RawMessage) D
 // home server relayed it to us on their behalf (see
 // notifyForeignReedSubscribersOfReply) — the client handles both identically,
 // so there is no separate cross-server wire type.
-func NewReedReplyMsg(eventID, requestID, reedID string, data json.RawMessage) DataResponseMsg {
+func NewReedReplyMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "REED_REPLY",
 		Data: DataResponseData{
 			EventID:   eventID,
 			RequestID: requestID,
 			ReedID:    reedID,
-			Data:      data,
+			Data:      jsonString(ciphertext),
 		},
 	}
 }
@@ -161,8 +172,17 @@ func NewAccountRemovedMsg(eventID, requestID, removedUserID string, cert Account
 	}
 }
 
-// RelayMissData is the parsed payload of an incoming RELAY_MISS message.
+// RelayMissData is the parsed payload of an incoming RELAY_MISS message:
+// the holder no longer actually has this content. Causes its allocation to
+// be dropped.
 type RelayMissData struct {
+	EventID string `json:"event_id"`
+}
+
+// RelayErrorData is the parsed payload of an incoming RELAY_ERROR message:
+// the holder has the content but couldn't complete the relay (e.g. a key
+// fetch failure). Distinct from RELAY_MISS — the allocation must NOT drop.
+type RelayErrorData struct {
 	EventID string `json:"event_id"`
 }
 
@@ -223,11 +243,11 @@ type RevokedKeyUsedData struct {
 }
 
 // ContentRejectedData is the parsed payload of an incoming CONTENT_REJECTED
-// message: the client received a signed resource, failed to verify it, and
-// refused to store it. StoreName identifies the resource kind (the SPA's
-// IndexedDB store, e.g. "reeds", "invites", "removedReeds").
+// message: the client failed to verify a signed resource and refused to
+// store it. Reason is optional, one of a small standardized set.
 type ContentRejectedData struct {
 	StoreName string `json:"store_name"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 // SyncRequestData is the parsed payload of an incoming SYNC_REQUEST message.

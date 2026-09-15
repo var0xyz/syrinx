@@ -39,6 +39,9 @@
   import MailboxBell from '$lib/components/MailboxBell.svelte';
   import { isValidRef } from '$lib/utils/identityRef';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
+  import { encryptReedForRequester, decryptRelayPayload, reportDecryptFailure } from '$lib/services/relayDecrypt';
+  import { verifyClaimedTags } from '$lib/verifiers';
+  import type { ReedType } from '$lib/types/reed';
 
   // Prefetch reeds referenced by echoing/replying (userID@serverID/reedID).
   async function requestReferencedReeds(reed: any) {
@@ -109,21 +112,37 @@
       if (!reed_id) return;
       void pendingPublicationRepository.delete(reed_id);
     });
-    serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, author_id, reed_id }) => {
+    serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, author_id, reed_id, requester_id }) => {
       console.log('ServerConnection: relay request received for reed:', author_id, reed_id, 'event:', event_id);
-      const reed = await dbService.get('reeds', reed_id);
-      if (reed) {
-        console.log('ServerConnection: reed found in IndexedDB, fulfilling relay:', reed_id);
-        serverConnection.sendRelayResponse(event_id, reed);
-      } else {
+      const reed = await dbService.get<ReedType>('reeds', reed_id);
+      if (!reed) {
         console.warn('ServerConnection: reed NOT found in IndexedDB, sending relay miss:', reed_id);
         serverConnection.sendRelayMiss(event_id);
+        return;
       }
+      const ciphertext = await encryptReedForRequester(reed, requester_id);
+      if (!ciphertext) {
+        console.warn('ServerConnection: could not encrypt for requester, sending relay error:', requester_id);
+        serverConnection.sendRelayError(event_id);
+        return;
+      }
+      console.log('ServerConnection: reed found and encrypted, fulfilling relay:', reed_id);
+      serverConnection.sendRelayResponse(event_id, ciphertext);
     });
     serverConnection.on(ServerEvent.DataResponse, async (data) => {
-      const reed = data.data;
       const eventId = data.event_id;
       const requestId = data.request_id as string | undefined;
+
+      let reed;
+      try {
+        reed = await decryptRelayPayload(data.ciphertext);
+      } catch (error) {
+        console.warn('ServerConnection: failed to decrypt relayed reed:', error);
+        reportDecryptFailure('reeds');
+        if (requestId) await reedRequestsRepository.delete(requestId);
+        serverConnection.sendDataInvalid(eventId);
+        return;
+      }
 
       try {
         await reedsService.storeReed(reed);
@@ -143,8 +162,17 @@
       }
     });
     serverConnection.on(ServerEvent.FollowReed, async (data) => {
-      const reed = data.data;
       const eventId = data.event_id;
+
+      let reed;
+      try {
+        reed = await decryptRelayPayload(data.ciphertext);
+      } catch (error) {
+        console.warn('ServerConnection: failed to decrypt follow reed:', error);
+        reportDecryptFailure('reeds');
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
 
       try {
         await reedsService.storeReed(reed);
@@ -159,8 +187,24 @@
       }
     });
     serverConnection.on(ServerEvent.PipeReed, async (data) => {
-      const reed = data.data;
       const eventId = data.event_id;
+
+      let reed;
+      try {
+        reed = await decryptRelayPayload(data.ciphertext);
+      } catch (error) {
+        console.warn('ServerConnection: failed to decrypt pipe reed:', error);
+        reportDecryptFailure('reeds');
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+
+      if (!verifyClaimedTags(reed, serverConnection.activePipeTag)) {
+        console.warn('ServerConnection: pipe reed tag claim mismatch, rejecting:', reed.id);
+        serverConnection.sendContentRejected('reeds', 'tag_claim_mismatch');
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
 
       try {
         await reedsService.storeReed(reed);
@@ -179,8 +223,17 @@
       }
     });
     serverConnection.on(ServerEvent.ReedReply, async (data) => {
-      const reed = data.data;
       const eventId = data.event_id;
+
+      let reed;
+      try {
+        reed = await decryptRelayPayload(data.ciphertext);
+      } catch (error) {
+        console.warn('ServerConnection: failed to decrypt reed reply:', error);
+        reportDecryptFailure('reeds');
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
 
       try {
         await reedsService.storeReed(reed);

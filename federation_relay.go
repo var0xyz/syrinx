@@ -1211,11 +1211,9 @@ func (h *Handlers) MentionNotifyFromPeer(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Defense-in-depth: same "is this a real, live local user" gate
-	// SignReed applies to a local mention target — self-mention filtering
-	// already happened on O's side (ExtractMentions). This server's own
-	// row in `servers` (seeded at boot, self=TRUE) is what makes
-	// MentionTargetValid's servers-EXISTS check pass here.
+	// Defense-in-depth: same local-user gate SignReed applies — self-mention
+	// filtering already happened on O's side (ValidateMentionClaims). This
+	// server's own `servers` row (seeded at boot) makes the EXISTS check pass.
 	valid, err := h.services.db.MentionTargetValid(r.Context(), mentionedBareUserID, mentionedServerID)
 	if err != nil {
 		log.Error().Err(err).Str("mentionedUserID", req.MentionedUserID).Msg("Error validating foreign mention target")

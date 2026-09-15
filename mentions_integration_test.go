@@ -75,6 +75,7 @@ func ensureMentionsSchema(db *sql.DB) error {
 		`CREATE TABLE reed_mentions (
 			mentioning_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 			mentioned_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (mentioning_reed_id, mentioned_user_id)
 		)`,
 		`DROP TABLE IF EXISTS reed_removals CASCADE`,
@@ -406,6 +407,143 @@ func TestMentionTargetValid(t *testing.T) {
 	}
 	if valid {
 		t.Fatal("expected account-removed user to be invalid mention target")
+	}
+}
+
+func TestGetMentionsForUser_OrderAndCursor(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	seedMentionUser(t, db, "alice")
+	seedMentionUser(t, db, "bob")
+
+	var reedIDs []string
+	previousID := ""
+	// Fixed base so each row's back-dated created_at is exactly i seconds
+	// apart, regardless of how long CreateReed itself takes per iteration —
+	// deriving the offset from a fresh time.Now() per iteration would make
+	// the actual deltas unpredictable (CreateReed's own work advances the
+	// clock too, on top of the +i*time.Second offset).
+	base := time.Now().UTC().Truncate(time.Second)
+	for i := 0; i < 3; i++ {
+		reedID := string(identity.AppendEntity(identity.IdentityID("alice@testserver"), newTestReedID(t)))
+		reedIDs = append(reedIDs, reedID)
+		ts := time.Now().UTC().Truncate(time.Second)
+		if _, err := svc.CreateReed(ctx, createReedParams{
+			ReedID: reedID, UserID: "alice@testserver", UserKeyID: "alicefp",
+			UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
+			Timestamp: ts, Mentions: []string{"bob@testserver"}, PreviousID: previousID,
+		}); err != nil {
+			t.Fatalf("CreateReed %d: %v", i, err)
+		}
+		previousID = reedID
+		// Force distinct, second-granular created_at ordering — the cursor
+		// truncates to whole seconds (matching what an RFC3339 wire cursor
+		// carries), so rows must differ by at least a full second to prove
+		// ordering isn't accidentally relying on sub-second precision.
+		if _, err := db.Exec(`UPDATE reed_mentions SET created_at = $1 WHERE mentioning_reed_id = $2`,
+			base.Add(time.Duration(i)*time.Second), reedID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	list, err := svc.GetMentionsForUser(ctx, "bob@testserver", 2, nil)
+	if err != nil {
+		t.Fatalf("GetMentionsForUser: %v", err)
+	}
+	if len(list.Mentions) != 2 || !list.HasMore {
+		t.Fatalf("page 1 = %+v, want 2 items with HasMore", list)
+	}
+	if list.Mentions[0].ReedID != reedIDs[0] || list.Mentions[0].AuthorID != "alice@testserver" {
+		t.Fatalf("page 1 item 0 = %+v", list.Mentions[0])
+	}
+	if list.Mentions[1].ReedID != reedIDs[1] {
+		t.Fatalf("page 1 item 1 = %+v, want reed %q", list.Mentions[1], reedIDs[1])
+	}
+
+	// The cursor is (created_at, reed_id) > (cursor_ts, ''): a floor, not
+	// strict exclusion, matching the codebase's other list cursors (e.g.
+	// ListReplies). Any row at or after cursor_ts matches, including the
+	// cursor's own source row (its reed_id, a non-empty string, is always
+	// > ''). A cursor from a full second before the earliest still-wanted
+	// row is what correctly excludes everything already consumed.
+	cursor := list.Mentions[0].CreatedAt.Add(-time.Second)
+	page2, err := svc.GetMentionsForUser(ctx, "bob@testserver", 2, &cursor)
+	if err != nil {
+		t.Fatalf("GetMentionsForUser page 2: %v", err)
+	}
+	if len(page2.Mentions) != 2 || !page2.HasMore {
+		t.Fatalf("page 2 = %+v, want items 0 and 1 with HasMore (item 2 also matches)", page2)
+	}
+	if page2.Mentions[0].ReedID != reedIDs[0] || page2.Mentions[1].ReedID != reedIDs[1] {
+		t.Fatalf("page 2 = %+v, want reeds %q then %q", page2.Mentions, reedIDs[0], reedIDs[1])
+	}
+
+	// A cursor from the last item's own timestamp still re-delivers that
+	// item (floor semantics), landing on item 2 plus a repeat of item 1.
+	cursor2 := list.Mentions[1].CreatedAt
+	page3, err := svc.GetMentionsForUser(ctx, "bob@testserver", 2, &cursor2)
+	if err != nil {
+		t.Fatalf("GetMentionsForUser page 3: %v", err)
+	}
+	if len(page3.Mentions) != 2 || page3.HasMore {
+		t.Fatalf("page 3 = %+v, want items 1 (repeat) and 2, no more", page3)
+	}
+	if page3.Mentions[0].ReedID != reedIDs[1] || page3.Mentions[1].ReedID != reedIDs[2] {
+		t.Fatalf("page 3 = %+v, want reeds %q then %q", page3.Mentions, reedIDs[1], reedIDs[2])
+	}
+}
+
+func TestDeleteMentionEntry_ScopedToRow(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	seedMentionUser(t, db, "alice")
+	seedMentionUser(t, db, "bob")
+	seedMentionUser(t, db, "carol")
+
+	reedID := newTestReedID(t)
+	ts := time.Now().UTC().Truncate(time.Second)
+	if _, err := svc.CreateReed(ctx, createReedParams{
+		ReedID: reedID, UserID: "alice@testserver", UserKeyID: "alicefp",
+		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
+		Timestamp: ts, Mentions: []string{"bob@testserver", "carol@testserver"},
+	}); err != nil {
+		t.Fatalf("CreateReed: %v", err)
+	}
+
+	// carol's entry for the same reed must survive removing bob's — the
+	// row key is (reedID, mentionedUserID), so this is never a broader delete.
+	removed, err := svc.DeleteMentionEntry(ctx, reedID, "bob@testserver")
+	if err != nil {
+		t.Fatalf("DeleteMentionEntry: %v", err)
+	}
+	if !removed {
+		t.Fatal("expected bob's entry to be removed")
+	}
+
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM reed_mentions WHERE mentioning_reed_id = $1 AND mentioned_user_id = 'bob@testserver'`, reedID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("bob's row still present, count = %d", n)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM reed_mentions WHERE mentioning_reed_id = $1 AND mentioned_user_id = 'carol@testserver'`, reedID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("carol's row should be untouched, count = %d", n)
+	}
+
+	removed, err = svc.DeleteMentionEntry(ctx, reedID, "bob@testserver")
+	if err != nil {
+		t.Fatalf("DeleteMentionEntry (already gone): %v", err)
+	}
+	if removed {
+		t.Fatal("expected no-op removal of an already-removed row")
 	}
 }
 

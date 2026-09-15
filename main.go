@@ -147,11 +147,9 @@ func main() {
 	// Wrap database with instrumentation
 	dataService := NewDataService(db, cfg.ServerName)
 	cryptoService := crypto.NewService()
-	markdownService := NewMarkdownService()
 	services := &Services{
 		db:     dataService,
 		crypto: cryptoService,
-		md:     markdownService,
 	}
 	log.Info().Msg("[OK] Services initialized successfully")
 
@@ -359,6 +357,12 @@ func main() {
 
 	api.HandleFunc("/reeds/{userID}/{reedID}/replies", h.GetReedReplies).Methods("GET")
 	api.HandleFunc("/reeds/{userID}/{reedID}/replies", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/mentions", h.GetMentions).Methods("GET")
+	api.HandleFunc("/mentions", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/mentions/{reedID:.+}", h.DeleteMention).Methods("DELETE")
+	api.HandleFunc("/mentions/{reedID:.+}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/reeds/{userID}/{reedID}/like", h.LikeReed).Methods("POST")
 	api.HandleFunc("/reeds/{userID}/{reedID}/like", h.UnlikeReed).Methods("DELETE")

@@ -362,12 +362,19 @@ class ServerConnection {
     return promise;
   }
 
-  sendRelayResponse(eventId: string, data: any): void {
-    this.send({ type: 'RELAY_RESPONSE', data: { event_id: eventId, data } });
+  sendRelayResponse(eventId: string, ciphertext: string): void {
+    this.send({ type: 'RELAY_RESPONSE', data: { event_id: eventId, data: ciphertext } });
   }
 
   sendRelayMiss(eventId: string): void {
     this.send({ type: 'RELAY_MISS', data: { event_id: eventId } });
+  }
+
+  /** Reports that the holder has the content but couldn't complete the
+   * relay (e.g. failed to fetch the requester's key) — distinct from
+   * RELAY_MISS, so the server doesn't drop this holder's allocation. */
+  sendRelayError(eventId: string): void {
+    this.send({ type: 'RELAY_ERROR', data: { event_id: eventId } });
   }
 
   sendDataAck(eventId: string): void {
@@ -396,12 +403,10 @@ class ServerConnection {
     this.send({ type: 'REVOKED_KEY_USED', data: { user_id: userId, key_id: keyId } });
   }
 
-  /** Reports a signed resource that failed verification and was refused a
-   * local write (dbService.put's `!ok` branch) — the client rejecting
-   * content, not the server. `storeName` identifies the resource kind
-   * (e.g. 'reeds', 'invites', 'removedReeds'). */
-  sendContentRejected(storeName: string): void {
-    this.send({ type: 'CONTENT_REJECTED', data: { store_name: storeName } });
+  /** Reports content the client refused to store or trust. `reason` is one
+   * of a small standardized set (docs/content_privacy.md), or omitted. */
+  sendContentRejected(storeName: string, reason?: string): void {
+    this.send({ type: 'CONTENT_REJECTED', data: { store_name: storeName, reason } });
   }
 
   async publishReady(reedId: string, options?: { broadcast?: boolean }): Promise<void> {
@@ -461,6 +466,12 @@ class ServerConnection {
   unsubscribeFromBroadcast(): void {
     this.broadcastSubscribed = false;
     this.send({ type: 'UNSUBSCRIBE_BROADCAST' });
+  }
+
+  /** The pipe tag currently subscribed, if any — used to re-verify a
+   * PIPE_REED delivery actually contains a tag we're watching for. */
+  get activePipeTag(): string | null {
+    return this.activeSubscription?.kind === 'pipe' ? this.activeSubscription.tag : null;
   }
 
   async subscribePipe(tag: string): Promise<void> {
