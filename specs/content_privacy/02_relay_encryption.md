@@ -23,18 +23,19 @@ and decrypt it themselves.
 
 ```go
 type RelayRequestData struct {
-    EventID     string `json:"event_id"`
     AuthorID    string `json:"author_id"`
     ReedID      string `json:"reed_id"`
     RequesterID string `json:"requester_id"` // new
 }
 ```
 
+(The event id itself lives on the message root as `id`, not inside this
+struct — see [06](06_event_id_at_root.md).)
+
 `RELAY_RESPONSE` (holder → server) carries the ciphertext under its own
 name — `RelayResponseData.Ciphertext` (`json:"ciphertext"`) — rather than
-the old generic `data` field, so a payload log or capture doesn't read as
-a confusing `data.data`. `DATA_RESPONSE` / `FOLLOW_REED` / `PIPE_REED` /
-`REED_REPLY` keep their existing `data` field name (shared with the
+the old generic `data` field. `DATA_RESPONSE` / `FOLLOW_REED` / `PIPE_REED`
+/ `REED_REPLY` keep their existing `data` field name (shared with the
 unrelated `REED_REMOVED`/`ACCOUNT_REMOVED` cert messages, which are not
 encrypted), but its *content* is now the JSON-encoded ciphertext string
 instead of the plaintext reed object — opaque to the server either way.
@@ -60,8 +61,9 @@ instead of the plaintext reed object — opaque to the server either way.
 A holder that can't resolve the requester's key (fetch failure) has the
 content but can't complete the relay — this is **not** a `RELAY_MISS`
 ("I don't have this content"), and must not delete the holder's
-`reed_allocations` row. `handleRelayMiss` (Go) takes a `deleteAllocation
-bool`: `true` for `RELAY_MISS`, `false` for the new `RELAY_ERROR` — same
+`reed_allocations` row. `handleRelayMiss`/`handleRelayError` (Go) are thin
+wrappers over a shared `handleFailedRelay(holderUserID, eventID,
+deleteAllocation bool)`: `true` for a miss, `false` for an error — same
 retry shape either way (reset dispatch, requery `GetOnlineHolders` with no
 exclusion list, redispatch or give up), only the allocation-delete step
 differs.

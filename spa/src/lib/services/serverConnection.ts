@@ -245,7 +245,8 @@ class ServerConnection {
             }
           }
 
-          this.emit(message.type, message.data ?? message);
+          const payload = message.data ?? message;
+          this.emit(message.type, message.id !== undefined ? { ...payload, id: message.id } : payload);
         } catch {
           console.warn('ServerConnection: received non-JSON message, ignoring');
         }
@@ -363,26 +364,26 @@ class ServerConnection {
   }
 
   sendRelayResponse(eventId: string, ciphertext: string): void {
-    this.send({ type: 'RELAY_RESPONSE', data: { event_id: eventId, data: ciphertext } });
+    this.send({ type: 'RELAY_RESPONSE', id: eventId, data: { ciphertext } });
   }
 
   sendRelayMiss(eventId: string): void {
-    this.send({ type: 'RELAY_MISS', data: { event_id: eventId } });
+    this.send({ type: 'RELAY_MISS', id: eventId });
   }
 
   /** Reports that the holder has the content but couldn't complete the
    * relay (e.g. failed to fetch the requester's key) — distinct from
    * RELAY_MISS, so the server doesn't drop this holder's allocation. */
   sendRelayError(eventId: string): void {
-    this.send({ type: 'RELAY_ERROR', data: { event_id: eventId } });
+    this.send({ type: 'RELAY_ERROR', id: eventId });
   }
 
   sendDataAck(eventId: string): void {
-    this.send({ type: 'DATA_ACK', data: { event_id: eventId } });
+    this.send({ type: 'DATA_ACK', id: eventId });
   }
 
   sendDataInvalid(eventId: string): void {
-    this.send({ type: 'DATA_INVALID', data: { event_id: eventId } });
+    this.send({ type: 'DATA_INVALID', id: eventId });
   }
 
   /** Confirms receipt of a MAILBOX message; the server deletes its row on
@@ -509,7 +510,7 @@ class ServerConnection {
     }
   }
 
-  private send(message: { type: string; data?: any; userID?: string; reedID?: string }): void {
+  private send(message: { type: string; id?: string; data?: any; userID?: string; reedID?: string }): void {
     if (!this.isConnected()) {
       console.warn('ServerConnection: cannot send, not connected');
       return;

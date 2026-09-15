@@ -1106,31 +1106,19 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 		rs.handleRequestReed(client, jsonMsg.Data)
 
 	case "RELAY_RESPONSE":
-		rs.handleRelayResponse(client, jsonMsg.Data)
+		rs.handleRelayResponse(client, jsonMsg.ID, jsonMsg.Data)
 
 	case "RELAY_MISS":
-		var d RelayMissData
-		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
-			rs.handleRelayMiss(client.userID, d.EventID)
-		}
+		rs.handleRelayMiss(client.userID, jsonMsg.ID)
 
 	case "RELAY_ERROR":
-		var d RelayErrorData
-		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
-			rs.handleRelayError(client.userID, d.EventID)
-		}
+		rs.handleRelayError(client.userID, jsonMsg.ID)
 
 	case "DATA_ACK":
-		var d DataAckData
-		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
-			rs.handleDataAck(client, d)
-		}
+		rs.handleDataAck(client, jsonMsg.ID)
 
 	case "DATA_INVALID":
-		var d DataInvalidData
-		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
-			rs.handleDataInvalid(client, d)
-		}
+		rs.handleDataInvalid(client, jsonMsg.ID)
 
 	case "MAILBOX_ACK":
 		var d MailboxAckData
@@ -2017,13 +2005,12 @@ func (rs *RealtimeService) handlePublishReady(client *Client, data json.RawMessa
 	}
 }
 
-func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMessage) {
-	var relay RelayResponseData
-	if err := json.Unmarshal(data, &relay); err != nil {
+func (rs *RealtimeService) handleRelayResponse(client *Client, eventID string, data json.RawMessage) {
+	if eventID == "" {
 		return
 	}
-	eventID := relay.EventID
-	if eventID == "" {
+	var relay RelayResponseData
+	if err := json.Unmarshal(data, &relay); err != nil {
 		return
 	}
 
@@ -2200,11 +2187,10 @@ func (rs *RealtimeService) failReedNotHeld(pe *PendingReedEvent) {
 
 // handleDataAck is called when the viewer has received and verified a delivery successfully.
 // New reeds: allocate. Reed removals: clear allocation. Account removals: clear peer state.
-func (rs *RealtimeService) handleDataAck(client *Client, data DataAckData) {
-	if data.EventID == "" {
+func (rs *RealtimeService) handleDataAck(client *Client, eventID string) {
+	if eventID == "" {
 		return
 	}
-	eventID := data.EventID
 
 	pe, err := rs.dbService.GetPendingSubject(context.Background(), eventID)
 	if err != nil {
@@ -2297,13 +2283,13 @@ func (rs *RealtimeService) handleDataAck(client *Client, data DataAckData) {
 
 // handleDataInvalid is called when the viewer received a reed but its signature failed verification.
 // The pending event is removed without allocating the reed to the viewer.
-func (rs *RealtimeService) handleDataInvalid(client *Client, data DataInvalidData) {
-	if data.EventID == "" {
+func (rs *RealtimeService) handleDataInvalid(client *Client, eventID string) {
+	if eventID == "" {
 		return
 	}
 
-	if err := rs.deletePendingEvent(context.Background(), data.EventID); err != nil {
-		log.Error().Err(err).Str("eventID", data.EventID).Msg("Failed to delete pending event on data invalid")
+	if err := rs.deletePendingEvent(context.Background(), eventID); err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event on data invalid")
 	}
 }
 
