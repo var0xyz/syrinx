@@ -195,6 +195,27 @@
         if (eventId) serverConnection.sendDataInvalid(eventId);
       }
     });
+    serverConnection.on(ServerEvent.ArchiveReed, async (data) => {
+      const eventId = data.id;
+
+      let reed;
+      try {
+        reed = await decryptRelayPayload(data.data);
+      } catch (error) {
+        console.warn('ServerConnection: failed to decrypt archive reed:', error);
+        reportDecryptFailure('reeds');
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+
+      try {
+        await reedsService.storeReed(reed);
+        if (eventId) serverConnection.sendDataAck(eventId);
+      } catch (error) {
+        console.warn('ServerConnection: invalid archive reed signature, rejecting:', reed?.id, error);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+      }
+    });
     serverConnection.on(ServerEvent.PipeReed, async (data) => {
       const eventId = data.id;
 

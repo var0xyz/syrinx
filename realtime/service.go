@@ -471,6 +471,12 @@ func (rs *RealtimeService) fanoutNewReedNoBroadcast(reedID string, tags []string
 
 func (rs *RealtimeService) fanoutNewReedCore(reedID string, broadcastRecipients, tags, excludeFromFollowers []string) {
 	authorUserID := reedAuthorIdentity(reedID)
+
+	onlineAdmins, err := rs.dbService.GetOnlineAdmins(context.Background(), authorUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get online admins for reed archival")
+	}
+
 	followers, err := rs.dbService.GetOnlineFollowers(context.Background(), authorUserID)
 	if err != nil {
 		log.Error().
@@ -488,8 +494,16 @@ func (rs *RealtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 	// reply too.
 	followersOnly = subtractUserIDs(followersOnly, excludeFromFollowers)
 
+	// An admin who already gets the reed via FOLLOW_REED/PIPE_REED doesn't
+	// also need ARCHIVE_REED — the reed lands in their local store either
+	// way, so archival-only delivery is for admins with no other route to it.
+	archiveOnly := subtractUserIDs(onlineAdmins, unionUserIDs(followersOnly, pipeListeners))
+	rs.dispatchMany(archiveOnly, ArchiveReedEvent, reedID)
+
 	durable := unionUserIDs(followersOnly, pipeListeners)
 	broadcastOnly := subtractUserIDs(broadcastRecipients, durable)
+	// Admins covered by ARCHIVE_REED above don't also need BROADCAST_REED.
+	broadcastOnly = subtractUserIDs(broadcastOnly, archiveOnly)
 
 	log.Info().
 		Str("userID", authorUserID).
@@ -2055,6 +2069,12 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, eventID string, d
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering follow reed to subscriber")
 		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
 			return NewFollowReedMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Ciphertext)
+		})
+		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
+	} else if pe.EventName == string(ArchiveReedEvent) {
+		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering archive reed to admin")
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
+			return NewArchiveReedMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Ciphertext)
 		})
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else if pe.EventName == string(ReedReplyEvent) {

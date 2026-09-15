@@ -9,6 +9,7 @@ import (
 	"syrinx/coverage"
 	"syrinx/deletion"
 	"syrinx/identity"
+	"syrinx/roles"
 
 	"github.com/lib/pq"
 	"github.com/rs/zerolog/log"
@@ -194,6 +195,35 @@ func (ds *DBService) GetOnlineFollowers(ctx context.Context, authorID string) ([
 	}
 
 	return followers, nil
+}
+
+// GetOnlineAdmins returns the IDs of online users with role admin or root,
+// excluding excludeUserID (the reed's own author, if they're an admin —
+// they already hold via the author-dispatch path).
+func (ds *DBService) GetOnlineAdmins(ctx context.Context, excludeUserID string) ([]string, error) {
+	excludeIdentity := identity.IdentityID(excludeUserID)
+	rows, err := ds.db.QueryContext(ctx, `
+		SELECT ou.user_id
+		FROM online_users ou
+		JOIN users u ON ou.user_id = u.id
+		WHERE u.role IN ($1, $2)
+		  AND ou.user_id != $3
+	`, roles.RoleRoot, roles.RoleAdmin, excludeIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var admins []string
+	for rows.Next() {
+		var userID identity.IdentityID
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		admins = append(admins, string(userID))
+	}
+
+	return admins, nil
 }
 
 // PendingEvent represents a pending relay event stored in the database

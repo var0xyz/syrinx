@@ -18,6 +18,7 @@ const (
 	ReedRemovedEvent         EventName = "reed_removed"
 	AccountRemovedEvent      EventName = "account_removed"
 	ReedReplyEvent           EventName = "reed_reply"
+	ArchiveReedEvent         EventName = "archive_reed"
 )
 
 // RelayRequestMsg is sent from the server to a holder to request reed content.
@@ -115,6 +116,21 @@ func NewPipeReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseM
 func NewFollowReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "FOLLOW_REED",
+		ID:   eventID,
+		Data: DataResponseData{
+			RequestID: requestID,
+			ReedID:    reedID,
+			Data:      jsonString(ciphertext),
+		},
+	}
+}
+
+// NewArchiveReedMsg builds an ARCHIVE_REED delivery to an admin/root
+// resilience holder. No feed/UI semantics — the client stores and holds
+// the reed without touching any social-graph state.
+func NewArchiveReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
+	return DataResponseMsg{
+		Type: "ARCHIVE_REED",
 		ID:   eventID,
 		Data: DataResponseData{
 			RequestID: requestID,
