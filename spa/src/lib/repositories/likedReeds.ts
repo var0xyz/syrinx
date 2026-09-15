@@ -29,9 +29,9 @@ export const likedReedsRepository = {
     return !!(await likedReedsRepository.get(reedRef));
   },
 
-  /** Newest-liked-first. */
-  async getAll(): Promise<LikedReedRecord[]> {
-    const all = await dbService.getAllSortedByIndex<LikedReedRecord>('likedReeds', 'likedAt');
-    return all.reverse();
+  /** Newest-liked-first page. Pass the previous page's last record's
+   * likedAt as `after` to resume; omit for the first page. */
+  async getPage(limit: number, after?: string): Promise<LikedReedRecord[]> {
+    return dbService.getLatestFromIndex<LikedReedRecord>('likedReeds', 'likedAt', limit, undefined, after);
   },
 };

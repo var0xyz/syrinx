@@ -13,58 +13,87 @@
   /** Window scrollY to restore after the first load (SvelteKit page snapshot). */
   export let scrollRestoreY = /** @type {number | null} */ (null);
 
+  const PAGE_SIZE = 50;
+
   let loading = true;
+  let loadingMore = false;
   /** @type {{ record: import('$lib/repositories/likedReeds').LikedReedRecord, reed: import('$lib/types/reed').ReedType, author: any }[]} */
   let items = [];
+  let hasMore = false;
   let appliedScrollRestore = false;
 
   onMount(async () => {
-    await loadLiked();
+    await loadPage();
   });
 
-  async function loadLiked() {
+  /** Resolves reed+author for a page of liked-reed records, dropping any
+   * whose reed isn't locally held. */
+  async function resolveItems(records) {
+    const resolved = await Promise.allSettled(
+      records.map((record) => reedsService.getReed(record.reedID))
+    );
+
+    const withReeds = [];
+    records.forEach((record, i) => {
+      const result = resolved[i];
+      if (result.status === 'fulfilled' && result.value) {
+        withReeds.push({ record, reed: result.value });
+      }
+    });
+
+    const authorIds = [...new Set(withReeds.map((item) => item.reed.userID))];
+    const authorResults = await Promise.allSettled(
+      authorIds.map((id) => userRepository.getByUserId(id))
+    );
+    const authorMap = new Map();
+    authorIds.forEach((id, i) => {
+      const result = authorResults[i];
+      if (result.status === 'fulfilled' && result.value) {
+        authorMap.set(id, result.value);
+      }
+    });
+
+    return withReeds.map(({ record, reed }) => ({
+      record,
+      reed,
+      author: authorMap.get(reed.userID) || { username: reed.userID },
+    }));
+  }
+
+  async function loadPage() {
     try {
       loading = true;
-      const records = await likedReedsRepository.getAll();
-
-      const resolved = await Promise.allSettled(
-        records.map((record) => reedsService.getReed(record.reedID))
-      );
-
-      const withReeds = [];
-      records.forEach((record, i) => {
-        const result = resolved[i];
-        if (result.status === 'fulfilled' && result.value) {
-          withReeds.push({ record, reed: result.value });
-        }
-      });
-
-      const authorIds = [...new Set(withReeds.map((item) => item.reed.userID))];
-      const authorResults = await Promise.allSettled(
-        authorIds.map((id) => userRepository.getByUserId(id))
-      );
-      const authorMap = new Map();
-      authorIds.forEach((id, i) => {
-        const result = authorResults[i];
-        if (result.status === 'fulfilled' && result.value) {
-          authorMap.set(id, result.value);
-        }
-      });
-
-      items = withReeds.map(({ record, reed }) => ({
-        record,
-        reed,
-        author: authorMap.get(reed.userID) || { username: reed.userID },
-      }));
+      // Fetch one extra record to detect whether another page exists,
+      // without it every page boundary would masquerade as the last.
+      const records = await likedReedsRepository.getPage(PAGE_SIZE + 1);
+      hasMore = records.length > PAGE_SIZE;
+      items = await resolveItems(records.slice(0, PAGE_SIZE));
     } catch (error) {
       console.error('Error loading liked reeds:', error);
       items = [];
+      hasMore = false;
     } finally {
       loading = false;
       if (!appliedScrollRestore && typeof scrollRestoreY === 'number') {
         appliedScrollRestore = true;
         await restoreWindowScroll(scrollRestoreY);
       }
+    }
+  }
+
+  async function loadMore() {
+    if (loadingMore || items.length === 0) return;
+    try {
+      loadingMore = true;
+      const after = items[items.length - 1].record.likedAt;
+      const records = await likedReedsRepository.getPage(PAGE_SIZE + 1, after);
+      hasMore = records.length > PAGE_SIZE;
+      const nextItems = await resolveItems(records.slice(0, PAGE_SIZE));
+      items = [...items, ...nextItems];
+    } catch (error) {
+      console.error('Error loading more liked reeds:', error);
+    } finally {
+      loadingMore = false;
     }
   }
 
@@ -114,6 +143,11 @@
         {/if}
       </div>
     {/each}
+    {#if hasMore}
+      <button class="load-more-btn" on:click={loadMore} disabled={loadingMore}>
+        {loadingMore ? 'Loading…' : 'Load more'}
+      </button>
+    {/if}
   {/if}
 </div>
 
@@ -187,6 +221,25 @@
   .loading h2 {
     margin: 0 0 0.5rem 0;
     color: var(--fg);
+  }
+
+  .load-more-btn {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.5rem;
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .load-more-btn:hover:not(:disabled) {
+    background: var(--input-bg);
+  }
+
+  .load-more-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 
   @media (max-width: 768px) {
