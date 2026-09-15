@@ -555,7 +555,7 @@ func (rs *RealtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 		}
 	}
 
-	rs.dispatchNextIfConnected(authorUserID)
+	rs.dispatchNIfConnected(authorUserID, initialFanoutBurst)
 }
 
 func unionUserIDs(a, b []string) []string {
@@ -724,8 +724,10 @@ func (rs *RealtimeService) dispatchMany(recipients []string, eventName EventName
 			Str("recipientID", recipientID).
 			Str("eventID", eventID).
 			Str("holderUserID", authorUserID).
-			Msg("Pending event created, dispatching to holder")
-		rs.dispatchNextIfConnected(authorUserID)
+			Msg("Pending event created")
+		// Dispatch is windowed, once, in fanoutNewReedCore's trailing
+		// dispatchN call — not per-recipient here, which would flood
+		// the author's single connection with no backpressure.
 	}
 }
 
@@ -1109,13 +1111,13 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 	case "RELAY_MISS":
 		var d RelayMissData
 		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
-			rs.handleRelayMiss(client, d.EventID, true)
+			rs.handleRelayMiss(client.userID, d.EventID)
 		}
 
 	case "RELAY_ERROR":
 		var d RelayErrorData
 		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
-			rs.handleRelayMiss(client, d.EventID, false)
+			rs.handleRelayError(client.userID, d.EventID)
 		}
 
 	case "DATA_ACK":
@@ -1306,28 +1308,45 @@ func (rs *RealtimeService) GetConnectionCount() int {
 	return rs.connManager.GetConnectionCount()
 }
 
-func (rs *RealtimeService) dispatchNext(holderUserID string) {
+// dispatchRequestTimeout bounds how long the server waits for a holder to
+// answer one dispatched RELAY_REQUEST (RELAY_RESPONSE/MISS/ERROR) before
+// giving up on them and retrying with another holder.
+const dispatchRequestTimeout = 5 * time.Second
+
+// initialFanoutBurst is how many pending events go to the author (the only
+// holder at t=0) up front, kept small since the author alone pays for each
+// one plus any retry — fanoutRefillBurst takes over once other holders exist.
+const initialFanoutBurst = 2
+
+// fanoutRefillBurst is how many further events get dispatched to a holder
+// each time one of their in-flight relay requests resolves (response, miss,
+// error, or timeout) — the windowed backlog's refill size.
+const fanoutRefillBurst = 5
+
+// dispatchNext claims and sends the holder's oldest undispatched pending
+// event, if any. Returns true if something was dispatched — dispatchN uses
+// this to know when a holder's queue has run dry.
+func (rs *RealtimeService) dispatchNext(holderUserID string) bool {
 	pe, err := rs.dbService.GetNextPendingForHolder(context.Background(), holderUserID)
 	if err != nil {
 		log.Error().Err(err).Str("holderUserID", holderUserID).Msg("Failed to get next pending event for holder")
-		return
+		return false
 	}
 	if pe == nil {
 		log.Debug().Str("holderUserID", holderUserID).Msg("No pending events for holder")
-		return
+		return false
 	}
 	if EventName(pe.EventName) == ReedRemovedEvent {
 		rs.deliverReedRemoved(pe.EventID, pe.RequestID, pe.RequesterUserID, pe.ReedID, nil)
-		rs.dispatchNext(holderUserID)
-		return
+		return rs.dispatchNext(holderUserID)
 	}
 	ok, err := rs.dbService.MarkEventDispatched(context.Background(), pe.EventID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to mark event dispatched")
-		return
+		return false
 	}
 	if !ok {
-		return // another replica claimed it
+		return false // another replica claimed it
 	}
 	if err := rs.connManager.SendToUser(holderUserID, NewRelayRequestMsg(pe.EventID, pe.UserID, pe.ReedID, pe.RequesterUserID)); err != nil {
 		log.Error().
@@ -1339,13 +1358,39 @@ func (rs *RealtimeService) dispatchNext(holderUserID string) {
 		if resetErr := rs.dbService.ResetDispatchedAt(context.Background(), pe.EventID); resetErr != nil {
 			log.Error().Err(resetErr).Str("eventID", pe.EventID).Msg("Failed to reset dispatched_at after relay send failure")
 		}
-		return
+		return false
 	}
 	log.Debug().
 		Str("holderUserID", holderUserID).
 		Str("eventID", pe.EventID).
 		Str("reedID", pe.ReedID).
 		Msg("Relay request sent to holder")
+
+	eventID := pe.EventID
+	time.AfterFunc(dispatchRequestTimeout, func() {
+		rs.handleRelayTimeout(holderUserID, eventID)
+	})
+	return true
+}
+
+// dispatchN calls dispatchNext up to n times, stopping early once the
+// holder's queue is empty (dispatchNext returns false).
+func (rs *RealtimeService) dispatchN(holderUserID string, n int) {
+	dispatchNTimes(n, func() bool { return rs.dispatchNext(holderUserID) })
+}
+
+// dispatchNTimes calls step up to n times, stopping the first time it
+// returns false. Extracted from dispatchN so the loop/early-stop logic is
+// testable without a live RealtimeService.
+func dispatchNTimes(n int, step func() bool) int {
+	sent := 0
+	for i := 0; i < n; i++ {
+		if !step() {
+			return sent
+		}
+		sent++
+	}
+	return sent
 }
 
 func (rs *RealtimeService) dispatchNextIfConnected(holderUserID string) {
@@ -1357,6 +1402,19 @@ func (rs *RealtimeService) dispatchNextIfConnected(holderUserID string) {
 		return
 	}
 	rs.dispatchNext(holderUserID)
+}
+
+// dispatchNIfConnected is dispatchN guarded by HasConnection, matching
+// dispatchNextIfConnected's guard for the single-dispatch case.
+func (rs *RealtimeService) dispatchNIfConnected(holderUserID string, n int) {
+	if holderUserID == "" {
+		return
+	}
+	if !rs.connManager.HasConnection(holderUserID) {
+		log.Debug().Str("holderUserID", holderUserID).Msg("Holder has no active WebSocket; skipping relay dispatch")
+		return
+	}
+	rs.dispatchN(holderUserID, n)
 }
 
 // generateEventID mints a canonical event_id (requesterUserID/uuid) —
@@ -1972,13 +2030,13 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMess
 	pe, err := rs.dbService.GetPendingReedEvent(context.Background(), eventID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event")
-		rs.dispatchNext(client.userID)
+		rs.dispatchN(client.userID, fanoutRefillBurst)
 		return
 	}
 	if pe == nil {
 		// Already resolved (e.g. a retransmit) — no duplicate "fulfilled"
 		// sample, just advance the holder's queue.
-		rs.dispatchNext(client.userID)
+		rs.dispatchN(client.userID, fanoutRefillBurst)
 		return
 	}
 
@@ -2025,7 +2083,7 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, data json.RawMess
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	}
 
-	rs.dispatchNext(client.userID)
+	rs.dispatchN(client.userID, fanoutRefillBurst)
 }
 
 // deliverOrForward delivers relayed data for eventID either straight to a
@@ -2057,10 +2115,29 @@ func (rs *RealtimeService) deliverOrForward(ctx context.Context, eventID, reques
 	}
 }
 
-// handleRelayMiss handles RELAY_MISS (holder truly lacks the content,
-// deleteAllocation true) and RELAY_ERROR (holder has it but couldn't relay
-// it, deleteAllocation false) — same retry shape either way.
-func (rs *RealtimeService) handleRelayMiss(client *Client, eventID string, deleteAllocation bool) {
+// handleRelayMiss: the holder truly lacks the content — drop their
+// allocation, then retry via handleFailedRelay's shared shape.
+func (rs *RealtimeService) handleRelayMiss(holderUserID, eventID string) {
+	rs.handleFailedRelay(holderUserID, eventID, true)
+}
+
+// handleRelayError: the holder has the content but couldn't relay it (a
+// failed key fetch) — keep their allocation, retry via handleFailedRelay.
+func (rs *RealtimeService) handleRelayError(holderUserID, eventID string) {
+	rs.handleFailedRelay(holderUserID, eventID, false)
+}
+
+// handleRelayTimeout: no response within dispatchRequestTimeout. Same
+// shape as handleRelayError — silence proves nothing about the content.
+func (rs *RealtimeService) handleRelayTimeout(holderUserID, eventID string) {
+	log.Warn().Str("eventID", eventID).Str("holderID", holderUserID).Msg("Relay request timed out; retrying")
+	rs.handleFailedRelay(holderUserID, eventID, false)
+}
+
+// handleFailedRelay is the shared retry shape behind handleRelayMiss,
+// handleRelayError, and handleRelayTimeout: reset dispatch, requery for a
+// holder, retry or give up.
+func (rs *RealtimeService) handleFailedRelay(holderUserID, eventID string, deleteAllocation bool) {
 	if eventID == "" {
 		return
 	}
@@ -2068,25 +2145,25 @@ func (rs *RealtimeService) handleRelayMiss(client *Client, eventID string, delet
 	pe, err := rs.dbService.GetPendingReedEvent(context.Background(), eventID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event for relay miss/error")
-		rs.dispatchNext(client.userID)
+		rs.dispatchN(holderUserID, fanoutRefillBurst)
 		return
 	}
 	if pe == nil {
-		rs.dispatchNext(client.userID)
+		rs.dispatchN(holderUserID, fanoutRefillBurst)
 		return
 	}
 
 	log.Info().
 		Str("eventID", eventID).
-		Str("holderID", client.userID).
+		Str("holderID", holderUserID).
 		Str("authorID", pe.UserID).
 		Str("reedID", pe.ReedID).
 		Bool("deleteAllocation", deleteAllocation).
 		Msg("Relay miss/error; retrying")
 
 	if deleteAllocation {
-		if _, err := rs.dbService.DeleteReedAllocation(context.Background(), pe.ReedID, client.userID); err != nil {
-			log.Error().Err(err).Str("reedID", pe.ReedID).Str("holderID", client.userID).Msg("Failed to delete allocation on relay miss")
+		if _, err := rs.dbService.DeleteReedAllocation(context.Background(), pe.ReedID, holderUserID); err != nil {
+			log.Error().Err(err).Str("reedID", pe.ReedID).Str("holderID", holderUserID).Msg("Failed to delete allocation on relay miss")
 		}
 	}
 
@@ -2103,7 +2180,7 @@ func (rs *RealtimeService) handleRelayMiss(client *Client, eventID string, delet
 		rs.dispatchNextIfConnected(holder)
 	}
 
-	rs.dispatchNext(client.userID)
+	rs.dispatchN(holderUserID, fanoutRefillBurst)
 }
 
 func (rs *RealtimeService) failReedNotHeld(pe *PendingReedEvent) {
