@@ -17,6 +17,7 @@ type PendingRequest = { resolve: (reed: ReedType) => void; reject: (err: any) =>
 
 export enum ServerEvent {
   AccountRemoved       = 'ACCOUNT_REMOVED',
+  ArchiveReed          = 'ARCHIVE_REED',
   BroadcastReed        = 'BROADCAST_REED',
   DataResponse         = 'DATA_RESPONSE',
   FollowReed           = 'FOLLOW_REED',
