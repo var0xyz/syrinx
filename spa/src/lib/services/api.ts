@@ -697,6 +697,23 @@ export const apiService = {
     return request<api.EchoerListResponse>(path, { method: 'GET' });
   },
 
+  async getMentions(
+    opts?: { limit?: number; before?: string },
+  ): Promise<api.MentionListResponse> {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.before) params.set('before', opts.before);
+    const qs = params.toString();
+    return request<api.MentionListResponse>(`/mentions${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+
+  async deleteMention(reedID: string, reason: string): Promise<void> {
+    const params = new URLSearchParams();
+    if (reason) params.set('reason', reason);
+    const qs = params.toString();
+    return request<void>(`/mentions/${reedID}${qs ? `?${qs}` : ''}`, { method: 'DELETE' });
+  },
+
   /**
    * Listing ripples requires proving possession of the parent reed —
    * `serverSignatureArmor` (the reed's own base64 server-signature armor,

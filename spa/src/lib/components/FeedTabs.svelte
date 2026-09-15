@@ -1,5 +1,5 @@
 <script>
-  /** @type {'follow' | 'broadcast' | 'liked'} */
+  /** @type {'follow' | 'broadcast' | 'liked' | 'mentions'} */
   export let active;
 </script>
 
@@ -13,11 +13,15 @@
   <a href="/feed/liked" class="toggle-btn" class:active={active === 'liked'}>
     💛 Likes
   </a>
+  <a href="/feed/mentions" class="toggle-btn" class:active={active === 'mentions'}>
+    📣 Mentions
+  </a>
 </div>
 
 <style>
   .section-toggle {
     display: flex;
+    flex-wrap: wrap;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     padding: 0.5rem;
@@ -28,7 +32,7 @@
   }
 
   .toggle-btn {
-    flex: 1;
+    flex: 1 1 calc(50% - 0.125rem);
     display: flex;
     align-items: center;
     justify-content: center;

@@ -51,7 +51,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 14;
+  private readonly version = 15;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'keyId'      ],
@@ -79,6 +79,7 @@ export class IndexedDbService implements DbService {
     ['pendingLikes',       'compositeKey'],
     ['pendingUnlike',      'compositeKey'],
     ['likedReeds',         'compositeKey', 'likedAt'],
+    ['mentions',           'reedID', 'createdAt'],
   ];
 
   async init(): Promise<void> {
