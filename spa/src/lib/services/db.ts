@@ -37,7 +37,7 @@ export interface DbService {
   delete(storeName: string, key: DbKey): Promise<void>;
   getAll<T extends api.Base>(storeName: string): Promise<T[]>;
   getAllSortedByIndex<T>(storeName: string, indexName: string): Promise<T[]>;
-  getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean): Promise<T[]>;
+  getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean, after?: IDBValidKey): Promise<T[]>;
   getAllByIndex<T>(storeName: string, indexName: string, key: string): Promise<T[]>;
   clear(storeName: string): Promise<void>;
 }
@@ -266,7 +266,7 @@ export class IndexedDbService implements DbService {
     });
   }
 
-  async getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean): Promise<T[]> {
+  async getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean, after?: IDBValidKey): Promise<T[]> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -274,7 +274,10 @@ export class IndexedDbService implements DbService {
       const transaction = this.db!.transaction([storeName], 'readonly');
       const store = transaction.objectStore(storeName);
       const index = store.index(indexName);
-      const request = index.openCursor(null, 'prev');
+      // after resumes a "load more" page: strictly before the last-seen key,
+      // continuing the same newest-first walk.
+      const range = after !== undefined ? IDBKeyRange.upperBound(after, true) : null;
+      const request = index.openCursor(range, 'prev');
       const results: T[] = [];
 
       request.onsuccess = () => {
