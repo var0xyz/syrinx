@@ -31,9 +31,9 @@ sequenceDiagram
   Viewer->>Server: REQUEST_REED (request_id)
   Server->>Server: Create pending_events row
   Server-->>Viewer: REQUEST_ACK
-  Server->>Holder: RELAY_REQUEST (event_id, requester_id)
+  Server->>Holder: RELAY_REQUEST (id, requester_id)
   Holder->>Holder: Encrypt body to requester's key
-  Holder->>Server: RELAY_RESPONSE (event_id + ciphertext)
+  Holder->>Server: RELAY_RESPONSE (id + ciphertext)
   Server->>Viewer: DATA_RESPONSE (request_id + ciphertext)
   Viewer->>Viewer: Decrypt, then verify signatures
   Viewer->>Server: DATA_ACK
@@ -46,7 +46,7 @@ When you open a reed you do not already hold:
 1. The client mints a **`request_id`** and stores it locally (session storage).
 2. It sends `REQUEST_REED` with that id, the reed id, and the author id.
 3. The server creates a **`pending_events`** row (`event_id` + your `request_id`), then sends `REQUEST_ACK`.
-4. The server picks an online **holder** and sends them `RELAY_REQUEST` with the `event_id` and your id, so they know whose key to encrypt for.
+4. The server picks an online **holder** and sends them `RELAY_REQUEST` — carrying that event id at the message root and your id in its `data`, so they know whose key to encrypt for.
 5. The holder replies with `RELAY_RESPONSE` (encrypted body), `RELAY_MISS` (no longer has it), or `RELAY_ERROR` (has it, but couldn't resolve your key right now—the server retries with another holder without dropping this one's copy).
 6. On a valid response, the server delivers `DATA_RESPONSE` to you, still keyed by your `request_id`.
 7. You decrypt, then verify signatures. Success → store (if your storage rules allow) and `DATA_ACK`. Failure → `DATA_INVALID`.

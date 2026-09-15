@@ -112,30 +112,30 @@
       if (!reed_id) return;
       void pendingPublicationRepository.delete(reed_id);
     });
-    serverConnection.on(ServerEvent.RelayRequest, async ({ event_id, author_id, reed_id, requester_id }) => {
-      console.log('ServerConnection: relay request received for reed:', author_id, reed_id, 'event:', event_id);
+    serverConnection.on(ServerEvent.RelayRequest, async ({ id: eventId, author_id, reed_id, requester_id }) => {
+      console.log('ServerConnection: relay request received for reed:', author_id, reed_id, 'event:', eventId);
       const reed = await dbService.get<ReedType>('reeds', reed_id);
       if (!reed) {
         console.warn('ServerConnection: reed NOT found in IndexedDB, sending relay miss:', reed_id);
-        serverConnection.sendRelayMiss(event_id);
+        serverConnection.sendRelayMiss(eventId);
         return;
       }
       const ciphertext = await encryptReedForRequester(reed, requester_id);
       if (!ciphertext) {
         console.warn('ServerConnection: could not encrypt for requester, sending relay error:', requester_id);
-        serverConnection.sendRelayError(event_id);
+        serverConnection.sendRelayError(eventId);
         return;
       }
       console.log('ServerConnection: reed found and encrypted, fulfilling relay:', reed_id);
-      serverConnection.sendRelayResponse(event_id, ciphertext);
+      serverConnection.sendRelayResponse(eventId, ciphertext);
     });
     serverConnection.on(ServerEvent.DataResponse, async (data) => {
-      const eventId = data.event_id;
+      const eventId = data.id;
       const requestId = data.request_id as string | undefined;
 
       let reed;
       try {
-        reed = await decryptRelayPayload(data.ciphertext);
+        reed = await decryptRelayPayload(data.data);
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt relayed reed:', error);
         reportDecryptFailure('reeds');
@@ -162,11 +162,11 @@
       }
     });
     serverConnection.on(ServerEvent.FollowReed, async (data) => {
-      const eventId = data.event_id;
+      const eventId = data.id;
 
       let reed;
       try {
-        reed = await decryptRelayPayload(data.ciphertext);
+        reed = await decryptRelayPayload(data.data);
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt follow reed:', error);
         reportDecryptFailure('reeds');
@@ -187,11 +187,11 @@
       }
     });
     serverConnection.on(ServerEvent.PipeReed, async (data) => {
-      const eventId = data.event_id;
+      const eventId = data.id;
 
       let reed;
       try {
-        reed = await decryptRelayPayload(data.ciphertext);
+        reed = await decryptRelayPayload(data.data);
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt pipe reed:', error);
         reportDecryptFailure('reeds');
@@ -223,11 +223,11 @@
       }
     });
     serverConnection.on(ServerEvent.ReedReply, async (data) => {
-      const eventId = data.event_id;
+      const eventId = data.id;
 
       let reed;
       try {
-        reed = await decryptRelayPayload(data.ciphertext);
+        reed = await decryptRelayPayload(data.data);
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt reed reply:', error);
         reportDecryptFailure('reeds');
@@ -257,7 +257,7 @@
       dispatchReedToQueue(reed, 'broadcast_reed', data.username);
     });
     serverConnection.on(ServerEvent.ReedRemoved, async (data) => {
-      const eventId = data.event_id;
+      const eventId = data.id;
       const cert = data.data;
       if (!cert || cert.type !== 'reed') {
         console.warn('ServerConnection: ignoring non-reed removal cert', cert?.type);
@@ -272,7 +272,7 @@
       }
     });
     serverConnection.on(ServerEvent.AccountRemoved, async (data) => {
-      const eventId = data.event_id;
+      const eventId = data.id;
       const cert = data.data;
       if (!cert || cert.type !== 'account') {
         console.warn('ServerConnection: ignoring non-account removal cert', cert?.type);

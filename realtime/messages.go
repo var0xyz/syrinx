@@ -28,44 +28,44 @@ const (
 // responding — the server relays ciphertext blindly and never sees the body.
 type RelayRequestMsg struct {
 	Type string           `json:"type"`
+	ID   string           `json:"id"`
 	Data RelayRequestData `json:"data"`
 }
 
 type RelayRequestData struct {
-	EventID     string `json:"event_id"`
 	AuthorID    string `json:"author_id"`
 	ReedID      string `json:"reed_id"`
 	RequesterID string `json:"requester_id"`
 }
 
 func NewRelayRequestMsg(eventID, authorID, reedID, requesterID string) RelayRequestMsg {
-	return RelayRequestMsg{Type: "RELAY_REQUEST", Data: RelayRequestData{EventID: eventID, AuthorID: authorID, ReedID: reedID, RequesterID: requesterID}}
+	return RelayRequestMsg{Type: "RELAY_REQUEST", ID: eventID, Data: RelayRequestData{AuthorID: authorID, ReedID: reedID, RequesterID: requesterID}}
 }
 
 // RequestAckMsg is sent from the server to a requester confirming the relay request was registered.
 type RequestAckMsg struct {
 	Type string         `json:"type"`
+	ID   string         `json:"id"`
 	Data RequestAckData `json:"data"`
 }
 
 type RequestAckData struct {
 	RequestID string `json:"request_id"`
-	EventID   string `json:"event_id"`
 	ReedID    string `json:"reed_id"`
 }
 
 func NewRequestAckMsg(requestID, eventID, reedID string) RequestAckMsg {
-	return RequestAckMsg{Type: "REQUEST_ACK", Data: RequestAckData{RequestID: requestID, EventID: eventID, ReedID: reedID}}
+	return RequestAckMsg{Type: "REQUEST_ACK", ID: eventID, Data: RequestAckData{RequestID: requestID, ReedID: reedID}}
 }
 
 // DataResponseMsg is sent from the server to the requester with the relayed reed content.
 type DataResponseMsg struct {
 	Type string           `json:"type"`
+	ID   string           `json:"id,omitempty"`
 	Data DataResponseData `json:"data"`
 }
 
 type DataResponseData struct {
-	EventID   string          `json:"event_id,omitempty"`
 	RequestID string          `json:"request_id,omitempty"`
 	ReedID    string          `json:"reed_id,omitempty"`
 	UserID    string          `json:"user_id,omitempty"`
@@ -82,10 +82,10 @@ func jsonString(s string) json.RawMessage {
 }
 
 func NewDataResponseMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
-	return DataResponseMsg{Type: "DATA_RESPONSE", Data: DataResponseData{EventID: eventID, RequestID: requestID, ReedID: reedID, Data: jsonString(ciphertext)}}
+	return DataResponseMsg{Type: "DATA_RESPONSE", ID: eventID, Data: DataResponseData{RequestID: requestID, ReedID: reedID, Data: jsonString(ciphertext)}}
 }
 
-// NewBroadcastReedMsg builds a BROADCAST_REED delivery message (no request_id needed).
+// NewBroadcastReedMsg builds a BROADCAST_REED delivery message (no request_id or event id needed).
 func NewBroadcastReedMsg(reedID, ciphertext, username string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "BROADCAST_REED",
@@ -98,12 +98,12 @@ func NewBroadcastReedMsg(reedID, ciphertext, username string) DataResponseMsg {
 }
 
 // NewPipeReedMsg builds a PIPE_REED delivery (pipe subscription push).
-// Carries event_id so the viewer can DATA_ACK after verify+store (same as DATA_RESPONSE).
+// Carries the event id so the viewer can DATA_ACK after verify+store (same as DATA_RESPONSE).
 func NewPipeReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "PIPE_REED",
+		ID:   eventID,
 		Data: DataResponseData{
-			EventID:   eventID,
 			RequestID: requestID,
 			ReedID:    reedID,
 			Data:      jsonString(ciphertext),
@@ -115,8 +115,8 @@ func NewPipeReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseM
 func NewFollowReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "FOLLOW_REED",
+		ID:   eventID,
 		Data: DataResponseData{
-			EventID:   eventID,
 			RequestID: requestID,
 			ReedID:    reedID,
 			Data:      jsonString(ciphertext),
@@ -135,8 +135,8 @@ func NewFollowReedMsg(eventID, requestID, reedID, ciphertext string) DataRespons
 func NewReedReplyMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "REED_REPLY",
+		ID:   eventID,
 		Data: DataResponseData{
-			EventID:   eventID,
 			RequestID: requestID,
 			ReedID:    reedID,
 			Data:      jsonString(ciphertext),
@@ -149,8 +149,8 @@ func NewReedRemovedMsg(eventID, requestID, reedID string, cert ReedRemovalWire) 
 	raw, _ := json.Marshal(cert)
 	return DataResponseMsg{
 		Type: "REED_REMOVED",
+		ID:   eventID,
 		Data: DataResponseData{
-			EventID:   eventID,
 			RequestID: requestID,
 			ReedID:    reedID,
 			Data:      raw,
@@ -163,8 +163,8 @@ func NewAccountRemovedMsg(eventID, requestID, removedUserID string, cert Account
 	raw, _ := json.Marshal(cert)
 	return DataResponseMsg{
 		Type: "ACCOUNT_REMOVED",
+		ID:   eventID,
 		Data: DataResponseData{
-			EventID:   eventID,
 			RequestID: requestID,
 			UserID:    removedUserID,
 			Data:      raw,
@@ -172,29 +172,9 @@ func NewAccountRemovedMsg(eventID, requestID, removedUserID string, cert Account
 	}
 }
 
-// RelayMissData is the parsed payload of an incoming RELAY_MISS message:
-// the holder no longer actually has this content. Causes its allocation to
-// be dropped.
-type RelayMissData struct {
-	EventID string `json:"event_id"`
-}
-
-// RelayErrorData is the parsed payload of an incoming RELAY_ERROR message:
-// the holder has the content but couldn't complete the relay (e.g. a key
-// fetch failure). Distinct from RELAY_MISS — the allocation must NOT drop.
-type RelayErrorData struct {
-	EventID string `json:"event_id"`
-}
-
-// DataAckData is the parsed payload of an incoming DATA_ACK message.
-type DataAckData struct {
-	EventID string `json:"event_id"`
-}
-
-// DataInvalidData is the parsed payload of an incoming DATA_INVALID message.
-type DataInvalidData struct {
-	EventID string `json:"event_id"`
-}
+// RELAY_MISS, RELAY_ERROR, DATA_ACK, and DATA_INVALID carry no payload
+// beyond the event id, which lives on InboundJSONMsg.ID — no dedicated
+// data struct needed for any of them.
 
 // MailboxMsg delivers one pending user_mailbox row. The server never
 // decrypts or inspects Ciphertext — it's opaque bytes to everyone but the

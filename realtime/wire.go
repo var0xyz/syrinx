@@ -87,9 +87,12 @@ type UserUpdateBroadcast struct {
 }
 
 // InboundJSONMsg is the common envelope for client JSON WebSocket frames.
+// ID is the event id for messages that reply to a specific dispatched
+// event (RELAY_RESPONSE, RELAY_MISS, RELAY_ERROR, DATA_ACK, DATA_INVALID).
 // ReedID is the whole canonical reed ref (SUBSCRIBE_REED/UNSUBSCRIBE_REED).
 type InboundJSONMsg struct {
 	Type   string          `json:"type"`
+	ID     string          `json:"id"`
 	Data   json.RawMessage `json:"data"`
 	ReedID string          `json:"reedID"`
 }
@@ -112,11 +115,10 @@ type RequestReedData struct {
 	ReedID    string `json:"reed_id"`
 }
 
-// RelayResponseData is the payload of an incoming RELAY_RESPONSE message.
-// Ciphertext is the holder's armored PGP encryption of the reed, opaque to
-// the server — never plaintext reed content.
+// RelayResponseData is RELAY_RESPONSE's payload (event id is
+// InboundJSONMsg.ID). Ciphertext is the holder's armored PGP encryption
+// of the reed, opaque to the server — never plaintext reed content.
 type RelayResponseData struct {
-	EventID    string `json:"event_id"`
 	Ciphertext string `json:"ciphertext"`
 }
 

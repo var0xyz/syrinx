@@ -225,6 +225,7 @@ receives reed content, even transiently; relay is end-to-end encrypted.
 | 03 | Mentioned-user pull inbox                                | Implemented |
 | 04 | SPA: encrypt/decrypt, tag-claim verify                   | Partial     |
 | 05 | `ContentRejectedData.reason`                             | Implemented |
+| 06 | Event id moves to the message root (`id`)                | Implemented |
 
 ## Notifications
 

@@ -44,10 +44,10 @@ sequenceDiagram
   Viewer->>Server: REQUEST_REED (request_id)
   Server->>Server: Create pending_events row
   Server-->>Viewer: REQUEST_ACK
-  Server->>Holder: RELAY_REQUEST (event_id, requester_id)
+  Server->>Holder: RELAY_REQUEST (id, requester_id)
   Holder->>Server: GET requester's active key
   Holder->>Holder: Encrypt body to that key
-  Holder->>Server: RELAY_RESPONSE (event_id, ciphertext)
+  Holder->>Server: RELAY_RESPONSE (id, ciphertext)
   Server->>Viewer: DATA_RESPONSE (request_id, ciphertext)
   Viewer->>Viewer: Decrypt, then verify signatures as always
   Viewer->>Server: DATA_ACK
@@ -56,7 +56,7 @@ sequenceDiagram
 The server's role in that middle step is unchanged from before this
 work—it still creates the pending-event row first, still only delivers to
 the requester recorded on that event, still ignores a `RELAY_RESPONSE`
-that doesn't cite a real `event_id`. See
+that doesn't cite a real event id. See
 [Content distribution](/content#abuse-guardrails) for those guardrails in
 full; encryption sits on top of them, it doesn't replace them.
 

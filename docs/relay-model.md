@@ -84,21 +84,22 @@ CREATE TABLE pending_account_events (
    (`GetNextPendingForHolder`, `ORDER BY created_at LIMIT 1`), atomically
    claims it (`UPDATE ... SET dispatched_at = now() WHERE dispatched_at IS
    NULL` — race-safe if this ever runs on multiple replicas), and sends
-   the holder `RELAY_REQUEST { eventID, authorID, reedID, requesterID }`
+   the holder `RELAY_REQUEST { id, data: { authorID, reedID, requesterID } }`
    — `requesterID` so the holder can resolve that user's key and encrypt
    the body to them before responding (see [Content privacy](/content_privacy)).
-5. Holder replies `RELAY_RESPONSE { eventID, ciphertext }`, the armored
-   PGP encryption of the reed; `RELAY_MISS` if it no longer actually
-   has the content (deletes that holder's allocation row, server retries
-   a different holder); or `RELAY_ERROR` if it has the content but
-   couldn't complete encryption (e.g. failed to resolve the requester's
-   key — allocation is kept, server still retries another holder).
-6. Server looks up the pending event by `event_id`. **No matching row →
+5. Holder replies `RELAY_RESPONSE { id, data: { ciphertext } }`, the
+   armored PGP encryption of the reed; `RELAY_MISS { id }` if it no
+   longer actually has the content (deletes that holder's allocation
+   row, server retries a different holder); or `RELAY_ERROR { id }` if
+   it has the content but couldn't complete encryption (e.g. failed to
+   resolve the requester's key — allocation is kept, server still
+   retries another holder).
+6. Server looks up the pending event by that id. **No matching row →
    no delivery.** This is the abuse guardrail: a forged `RELAY_RESPONSE`
-   citing an unknown or already-consumed `event_id` is a no-op.
-7. Server delivers `DATA_RESPONSE { eventID, requestID, reedID, userID,
-   data, username }` to the **requester recorded on that event** — never
-   to whoever happens to be asking right now.
+   citing an unknown or already-consumed id is a no-op.
+7. Server delivers `DATA_RESPONSE { id, data: { requestID, reedID,
+   userID, data, username } }` to the **requester recorded on that
+   event** — never to whoever happens to be asking right now.
 8. Viewer verifies signatures. Valid → `DATA_ACK` (server inserts a new
    `reed_allocations` row for the viewer, deletes the pending event, which
    cascades to its subject row). Invalid → `DATA_INVALID` (pending event
@@ -116,17 +117,22 @@ which wire message wraps the payload differ (`FOLLOW_REED`, `PIPE_REED`,
 
 ## Wire messages (`realtime/messages.go`, `realtime/wire.go`)
 
-| Direction | Message | Carries |
-|---|---|---|
-| Viewer → Server | `REQUEST_REED` | `requestID, reedID, authorID` |
-| Server → Viewer | `REQUEST_ACK` | `requestID, eventID, reedID` |
-| Server → Holder | `RELAY_REQUEST` | `eventID, authorID, reedID, requesterID` |
-| Holder → Server | `RELAY_RESPONSE` | `eventID, ciphertext` (armored PGP, opaque to the server) |
-| Holder → Server | `RELAY_MISS` | `eventID` (holder no longer has it — allocation dropped) |
-| Holder → Server | `RELAY_ERROR` | `eventID` (holder has it, couldn't complete the relay — allocation kept) |
-| Server → Viewer | `DATA_RESPONSE` / `FOLLOW_REED` / `PIPE_REED` / `BROADCAST_REED` | `eventID, requestID, reedID, userID, data, username` (`data` carries the ciphertext, opaque to the server) |
-| Viewer → Server | `DATA_ACK` / `DATA_INVALID` | `eventID` |
-| Server → Viewer | `REED_NOT_FOUND` / `REED_NOT_HELD` | failure paths — no metadata, or metadata exists but no holder |
+The event/relay id lives at the message **root** as `id`, sibling to
+`type`, not nested inside `data` — so a payload never reads as the
+confusing `data.data` a fully-nested shape would produce.
+
+| Direction | Message | Root `id`? | `data` carries |
+|---|---|---|---|
+| Viewer → Server | `REQUEST_REED` | no | `requestID, reedID, authorID` |
+| Server → Viewer | `REQUEST_ACK` | yes | `requestID, reedID` |
+| Server → Holder | `RELAY_REQUEST` | yes | `authorID, reedID, requesterID` |
+| Holder → Server | `RELAY_RESPONSE` | yes | `ciphertext` (armored PGP, opaque to the server) |
+| Holder → Server | `RELAY_MISS` | yes | — (holder no longer has it — allocation dropped) |
+| Holder → Server | `RELAY_ERROR` | yes | — (holder has it, couldn't complete the relay — allocation kept) |
+| Server → Viewer | `DATA_RESPONSE` / `FOLLOW_REED` / `PIPE_REED` / `REED_REPLY` | yes | `requestID, reedID, userID, data, username` (`data` carries the ciphertext, opaque to the server) |
+| Server → Viewer | `BROADCAST_REED` | no | `reedID, data, username` (no event to ack — ephemeral) |
+| Viewer → Server | `DATA_ACK` / `DATA_INVALID` | yes | — |
+| Server → Viewer | `REED_NOT_FOUND` / `REED_NOT_HELD` | no | failure paths — no metadata, or metadata exists but no holder |
 
 ## Why this matters for federation
 

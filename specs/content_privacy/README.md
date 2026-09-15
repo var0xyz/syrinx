@@ -16,6 +16,7 @@ server relays ciphertext blindly.
 | [03](03_mention_inbox.md) | Mentioned-user pull inbox (`reed_mentions`, cursor fetch, removal) | 01 | Implemented |
 | [04](04_spa.md) | SPA: encrypt/decrypt, claim extraction, tag-claim verify | 01, 02 | Partial |
 | [05](05_content_rejected_reasons.md) | `ContentRejectedData.reason` and the standardized set | — | Implemented |
+| [06](06_event_id_at_root.md) | Event id moves to the message root (`id`, not nested `data.event_id`) | 02 | Implemented |
 
 ## Locked decisions
 

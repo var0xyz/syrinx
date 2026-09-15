@@ -108,7 +108,7 @@ If an instance is destroyed or taken over, a new host can import the **server id
 Reed bodies are not served from a CDN. They move holder → server (in transit) → requester, under a **pending-event** ledger, and the payload itself is end-to-end encrypted to the requester—the server relays ciphertext it cannot read. See [Content privacy](/content_privacy) for how.
 
 - The server creates an event row **before** it asks anyone to relay.
-- `RELAY_RESPONSE` / `RELAY_MISS` only matter if they cite a real `event_id`. A forged response with a made-up id is ignored.
+- `RELAY_RESPONSE` / `RELAY_MISS` only matter if they cite a real event id. A forged response with a made-up id is ignored.
 - The client keeps the **`request_id`** it minted. Acks and data for unknown ids are dropped—the client never asked for them.
 
 **Agree** means an action: follow someone, or open a reed. Broadcast may be watched as ephemeral session data; it does not automatically enter IndexedDB. If something unsolicited still arrives, a correct client silently refuses to keep it.
