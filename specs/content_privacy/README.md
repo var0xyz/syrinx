@@ -17,6 +17,7 @@ server relays ciphertext blindly.
 | [04](04_spa.md) | SPA: encrypt/decrypt, claim extraction, tag-claim verify | 01, 02 | Partial |
 | [05](05_content_rejected_reasons.md) | `ContentRejectedData.reason` and the standardized set | — | Implemented |
 | [06](06_event_id_at_root.md) | Event id moves to the message root (`id`, not nested `data.event_id`) | 02 | Implemented |
+| [07](07_verified_request_reed_content.md) | `requestReedContent()` resolves a decrypted+verified reed, not the raw payload | 06 | Implemented |
 
 ## Locked decisions
 

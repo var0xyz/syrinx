@@ -139,14 +139,20 @@
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt relayed reed:', error);
         reportDecryptFailure('reeds');
-        if (requestId) await reedRequestsRepository.delete(requestId);
+        if (requestId) {
+          await reedRequestsRepository.delete(requestId);
+          serverConnection.rejectPendingReedRequest(requestId, error);
+        }
         serverConnection.sendDataInvalid(eventId);
         return;
       }
 
       try {
         await reedsService.storeReed(reed);
-        if (requestId) await reedRequestsRepository.delete(requestId);
+        if (requestId) {
+          await reedRequestsRepository.delete(requestId);
+          serverConnection.resolvePendingReedRequest(requestId, reed);
+        }
         serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
         // Explicit REQUEST_REED or profile_subscription relay reply.
@@ -157,7 +163,10 @@
         await requestReferencedReeds(reed);
       } catch (error) {
         console.warn('ServerConnection: invalid reed signature, rejecting:', reed.id, error);
-        if (requestId) await reedRequestsRepository.delete(requestId);
+        if (requestId) {
+          await reedRequestsRepository.delete(requestId);
+          serverConnection.rejectPendingReedRequest(requestId, error);
+        }
         serverConnection.sendDataInvalid(eventId);
       }
     });

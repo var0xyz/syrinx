@@ -226,6 +226,7 @@ receives reed content, even transiently; relay is end-to-end encrypted.
 | 04 | SPA: encrypt/decrypt, tag-claim verify                   | Partial     |
 | 05 | `ContentRejectedData.reason`                             | Implemented |
 | 06 | Event id moves to the message root (`id`)                | Implemented |
+| 07 | `requestReedContent()` resolves a verified reed           | Implemented |
 
 ## Notifications
 

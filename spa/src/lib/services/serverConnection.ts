@@ -9,10 +9,11 @@ import {
 import { reedsService } from '$lib/repositories/reeds';
 import { startReedRequestDrainer } from './reedRequestDrainer';
 import { setContentRejectedReporter } from './db';
+import type { ReedType } from '$lib/types/reed';
 
 export type ServerEventHandler = (data: any) => void;
 
-type PendingRequest = { resolve: (data: any) => void; reject: (err: any) => void };
+type PendingRequest = { resolve: (reed: ReedType) => void; reject: (err: any) => void };
 
 export enum ServerEvent {
   AccountRemoved       = 'ACCOUNT_REMOVED',
@@ -213,13 +214,10 @@ class ServerConnection {
               }
             });
           } else if (message.type === 'DATA_RESPONSE') {
-            const requestId = message.data.request_id;
-            this.dispatchedReedRequests.delete(requestId);
-            const pending = this.pendingRequests.get(requestId);
-            if (pending) {
-              pending.resolve(message.data.data);
-              this.pendingRequests.delete(requestId);
-            }
+            // Resolution happens in resolve/rejectPendingReedRequest, called
+            // by +layout.svelte's DataResponse listener once it has decrypted
+            // and verified — never the raw payload straight from here.
+            this.dispatchedReedRequests.delete(message.data.request_id);
           } else if (message.type === ServerEvent.ReedNotFound || message.type === ServerEvent.ReedNotHeld) {
             const requestId = message.data.request_id;
             this.dispatchedReedRequests.delete(requestId);
@@ -340,7 +338,7 @@ class ServerConnection {
     }
   }
 
-  async requestReedContent(reedId: string): Promise<any> {
+  async requestReedContent(reedId: string): Promise<ReedType> {
     const requesterId = localStorage.getItem('userId') ?? '';
     const requestId = computeReedRequestId(requesterId, reedId);
     const held = await reedsService.getReed(reedId);
@@ -350,7 +348,7 @@ class ServerConnection {
 
     let promise = this.pendingReedPromises.get(requestId);
     if (!promise) {
-      promise = new Promise<any>((resolve, reject) => {
+      promise = new Promise<ReedType>((resolve, reject) => {
         this.pendingRequests.set(requestId, { resolve, reject });
       }).finally(() => {
         this.pendingReedPromises.delete(requestId);
@@ -361,6 +359,27 @@ class ServerConnection {
 
     startReedRequestDrainer();
     return promise;
+  }
+
+  /** Resolves a requestReedContent() caller with the reed the
+   * DataResponse listener actually decrypted, verified, and stored —
+   * never the raw relayed payload. No-op if nobody is waiting. */
+  resolvePendingReedRequest(requestId: string, reed: ReedType): void {
+    const pending = this.pendingRequests.get(requestId);
+    if (pending) {
+      pending.resolve(reed);
+      this.pendingRequests.delete(requestId);
+    }
+  }
+
+  /** Rejects a requestReedContent() caller after a decrypt or
+   * verification failure. No-op if nobody is waiting. */
+  rejectPendingReedRequest(requestId: string, err: unknown): void {
+    const pending = this.pendingRequests.get(requestId);
+    if (pending) {
+      pending.reject(err);
+      this.pendingRequests.delete(requestId);
+    }
   }
 
   sendRelayResponse(eventId: string, ciphertext: string): void {
