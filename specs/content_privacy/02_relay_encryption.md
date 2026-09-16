@@ -23,22 +23,28 @@ and decrypt it themselves.
 
 ```go
 type RelayRequestData struct {
-    AuthorID    string `json:"author_id"`
     ReedID      string `json:"reed_id"`
     RequesterID string `json:"requester_id"` // new
 }
 ```
 
+No separate author field: `ReedID` is already the canonical id
+(`userID@serverID/uuid`), globally unique and already embedding the
+author, so nothing else is needed to disambiguate it — an earlier
+`AuthorID` field was dropped as redundant once this was confirmed.
+
 (The event id itself lives on the message root as `id`, not inside this
 struct — see [06](06_event_id_at_root.md).)
 
 `RELAY_RESPONSE` (holder → server) carries the ciphertext under its own
-name — `RelayResponseData.Ciphertext` (`json:"ciphertext"`) — rather than
-the old generic `data` field. `DATA_RESPONSE` / `FOLLOW_REED` / `PIPE_REED`
-/ `REED_REPLY` keep their existing `data` field name (shared with the
-unrelated `REED_REMOVED`/`ACCOUNT_REMOVED` cert messages, which are not
-encrypted), but its *content* is now the JSON-encoded ciphertext string
-instead of the plaintext reed object — opaque to the server either way.
+name — `RelayResponseData.Ciphertext` (`json:"ciphertext"`). `DATA_RESPONSE`
+/ `FOLLOW_REED` / `PIPE_REED` / `ARCHIVE_REED` / `REED_REPLY` /
+`BROADCAST_REED` also carry ciphertext under their own dedicated
+`DataResponseData.Ciphertext` field (`json:"ciphertext"`), separate from
+`DataResponseData.Data` (`json:"data"`), which stays reserved for the
+unrelated plaintext `REED_REMOVED`/`ACCOUNT_REMOVED` cert payloads — the
+two used to share one field, which meant client code had to know which
+message type it was to interpret `data` correctly; they no longer do.
 
 ## Holder → requester flow
 

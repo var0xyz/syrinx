@@ -112,8 +112,8 @@
       if (!reed_id) return;
       void pendingPublicationRepository.delete(reed_id);
     });
-    serverConnection.on(ServerEvent.RelayRequest, async ({ id: eventId, author_id, reed_id, requester_id }) => {
-      console.log('ServerConnection: relay request received for reed:', author_id, reed_id, 'event:', eventId);
+    serverConnection.on(ServerEvent.RelayRequest, async ({ id: eventId, reed_id, requester_id }) => {
+      console.log('ServerConnection: relay request received for reed:', reed_id, 'event:', eventId);
       const reed = await dbService.get<ReedType>('reeds', reed_id);
       if (!reed) {
         console.warn('ServerConnection: reed NOT found in IndexedDB, sending relay miss:', reed_id);
