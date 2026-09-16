@@ -18,6 +18,7 @@ server relays ciphertext blindly.
 | [05](05_content_rejected_reasons.md) | `ContentRejectedData.reason` and the standardized set | — | Implemented |
 | [06](06_event_id_at_root.md) | Event id moves to the message root (`id`, not nested `data.event_id`) | 02 | Implemented |
 | [07](07_verified_request_reed_content.md) | `requestReedContent()` resolves a decrypted+verified reed, not the raw payload | 06 | Implemented |
+| [08](08_flatten_redundant_ids.md) | Flatten `RELAY_RESPONSE` to a bare string; drop redundant `reed_id`/`user_id` off ciphertext/cert payloads | 06 | Implemented |
 
 ## Locked decisions
 
