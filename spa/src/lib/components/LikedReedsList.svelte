@@ -1,5 +1,4 @@
 <script>
-  import { onMount } from 'svelte';
   import { reedsService } from '$lib/repositories/reeds';
   import { likedReedsRepository } from '$lib/repositories/likedReeds';
   import { userRepository } from '$lib/repositories/user';
@@ -7,6 +6,7 @@
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
+  import LocalPagination from '$lib/components/LocalPagination.svelte';
   import { goto } from '$app/navigation';
   import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';
 
@@ -15,16 +15,7 @@
 
   const PAGE_SIZE = 50;
 
-  let loading = true;
-  let loadingMore = false;
-  /** @type {{ record: import('$lib/repositories/likedReeds').LikedReedRecord, reed: import('$lib/types/reed').ReedType, author: any }[]} */
-  let items = [];
-  let hasMore = false;
   let appliedScrollRestore = false;
-
-  onMount(async () => {
-    await loadPage();
-  });
 
   /** Resolves reed+author for a page of liked-reed records, dropping any
    * whose reed isn't locally held. */
@@ -60,40 +51,21 @@
     }));
   }
 
-  async function loadPage() {
-    try {
-      loading = true;
-      // Fetch one extra record to detect whether another page exists,
-      // without it every page boundary would masquerade as the last.
-      const records = await likedReedsRepository.getPage(PAGE_SIZE + 1);
-      hasMore = records.length > PAGE_SIZE;
-      items = await resolveItems(records.slice(0, PAGE_SIZE));
-    } catch (error) {
-      console.error('Error loading liked reeds:', error);
-      items = [];
-      hasMore = false;
-    } finally {
-      loading = false;
-      if (!appliedScrollRestore && typeof scrollRestoreY === 'number') {
-        appliedScrollRestore = true;
-        await restoreWindowScroll(scrollRestoreY);
-      }
-    }
+  async function fetchLikedPage(after) {
+    // Fetch one extra record to detect whether another page exists,
+    // without it every page boundary would masquerade as the last.
+    const records = await likedReedsRepository.getPage(PAGE_SIZE + 1, after);
+    const hasMore = records.length > PAGE_SIZE;
+    const pageRecords = records.slice(0, PAGE_SIZE);
+    const items = await resolveItems(pageRecords);
+    const nextCursor = pageRecords.length > 0 ? pageRecords[pageRecords.length - 1].likedAt : after;
+    return { items, hasMore, nextCursor };
   }
 
-  async function loadMore() {
-    if (loadingMore || items.length === 0) return;
-    try {
-      loadingMore = true;
-      const after = items[items.length - 1].record.likedAt;
-      const records = await likedReedsRepository.getPage(PAGE_SIZE + 1, after);
-      hasMore = records.length > PAGE_SIZE;
-      const nextItems = await resolveItems(records.slice(0, PAGE_SIZE));
-      items = [...items, ...nextItems];
-    } catch (error) {
-      console.error('Error loading more liked reeds:', error);
-    } finally {
-      loadingMore = false;
+  function onFirstPageSettled() {
+    if (!appliedScrollRestore && typeof scrollRestoreY === 'number') {
+      appliedScrollRestore = true;
+      void restoreWindowScroll(scrollRestoreY);
     }
   }
 
@@ -103,52 +75,44 @@
 </script>
 
 <div class="reeds-list">
-  {#if loading}
-    <div class="loading">
-      <h2>Loading liked reeds...</h2>
-    </div>
-  {:else if items.length === 0}
-    <div class="empty-state">
-      <div class="empty-icon">💖</div>
-      <h3>No liked reeds yet</h3>
-      <p>Reeds you like will appear here.</p>
-    </div>
-  {:else}
-    {#each items as item (item.record.compositeKey)}
-      <div class="reed-item" role="button" tabindex="0" on:click={() => navigateToReed(item.reed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(item.reed)}>
+  <LocalPagination fetchPage={fetchLikedPage} on:ready={onFirstPageSettled}>
+    {#snippet item(likedItem)}
+      <div class="reed-item" role="button" tabindex="0" on:click={() => navigateToReed(likedItem.reed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(likedItem.reed)}>
         <div class="reed-header">
           <ReedAuthorHeader
-            userID={item.reed.userID}
-            username={item.author.username}
+            userID={likedItem.reed.userID}
+            username={likedItem.author.username}
             nameTag="h3"
-            subtext={`Liked ${formatRelativeTime(item.record.likedAt)}`}
+            subtext={`Liked ${formatRelativeTime(likedItem.record.likedAt)}`}
             stopPropagation
             linked={false}
           />
         </div>
-        {#if item.reed.replying}
+        {#if likedItem.reed.replying}
           <div class="quote-container">
-            <Quote reedRef={item.reed.replying} type="reply" missing={false} linked={false} />
+            <Quote reedRef={likedItem.reed.replying} type="reply" missing={false} linked={false} />
           </div>
         {/if}
-        {#if (item.reed.content || '').trim()}
+        {#if (likedItem.reed.content || '').trim()}
           <div class="reed-preview">
-            <MarkdownParser text={item.reed.content} preview={true} />
+            <MarkdownParser text={likedItem.reed.content} preview={true} />
           </div>
         {/if}
-        {#if item.reed.echoing}
+        {#if likedItem.reed.echoing}
           <div class="quote-container">
-            <Quote reedRef={item.reed.echoing} type="echo" missing={false} linked={false} />
+            <Quote reedRef={likedItem.reed.echoing} type="echo" missing={false} linked={false} />
           </div>
         {/if}
       </div>
-    {/each}
-    {#if hasMore}
-      <button class="load-more-btn" on:click={loadMore} disabled={loadingMore}>
-        {loadingMore ? 'Loading…' : 'Load more'}
-      </button>
-    {/if}
-  {/if}
+    {/snippet}
+    {#snippet empty()}
+      <div class="empty-state">
+        <div class="empty-icon">💖</div>
+        <h3>No liked reeds yet</h3>
+        <p>Reeds you like will appear here.</p>
+      </div>
+    {/snippet}
+  </LocalPagination>
 </div>
 
 <style>
@@ -210,36 +174,6 @@
   .empty-state p {
     margin: 0;
     font-size: 0.9rem;
-  }
-
-  .loading {
-    text-align: center;
-    padding: 2rem;
-    color: var(--muted);
-  }
-
-  .loading h2 {
-    margin: 0 0 0.5rem 0;
-    color: var(--fg);
-  }
-
-  .load-more-btn {
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--fg);
-    border-radius: 8px;
-    padding: 0.5rem;
-    cursor: pointer;
-    font-weight: 600;
-  }
-
-  .load-more-btn:hover:not(:disabled) {
-    background: var(--input-bg);
-  }
-
-  .load-more-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
   }
 
   @media (max-width: 768px) {

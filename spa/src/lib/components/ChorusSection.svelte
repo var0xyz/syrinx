@@ -4,6 +4,7 @@
   import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
+  import RemotePagination from '$lib/components/RemotePagination.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
 
@@ -14,14 +15,10 @@
   /** Bound out to the parent for tab-count display. */
   export let count = 0;
 
-  /** @type {{ userID: string; username: string; serverID: string; echoedAt: string }[]} */
+  /** @type {RemotePagination<{ userID: string; username: string; echoedAt: string }> | undefined} */
+  let pagination;
+  /** @type {{ userID: string; username: string; echoedAt: string }[]} */
   let rows = [];
-  let loading = true;
-  let loadingMore = false;
-  let error = '';
-  let hasMore = false;
-  /** @type {string | undefined} */
-  let cursor = undefined;
 
   $: count = rows.length;
 
@@ -34,56 +31,21 @@
     };
   }
 
-  async function loadPage() {
+  async function fetchChorusPage(cursor) {
     const list = await apiService.listEchoers(reedID, { before: cursor });
-    const resolved = await Promise.all(list.users.map(resolveRow));
-    rows = [...rows, ...resolved];
-    hasMore = list.hasMore;
-    cursor = list.users.length > 0 ? list.users[list.users.length - 1].echoedAt : cursor;
-  }
-
-  async function loadMore() {
-    if (!hasMore || loadingMore) return;
-    loadingMore = true;
-    try {
-      await loadPage();
-    } catch (err) {
-      console.error('Failed to load more of the chorus:', err);
-    } finally {
-      loadingMore = false;
-    }
+    const items = await Promise.all(list.users.map(resolveRow));
+    const nextCursor = list.users.length > 0 ? list.users[list.users.length - 1].echoedAt : cursor;
+    return { items, hasMore: list.hasMore, nextCursor };
   }
 
   /** REED_ECHOES only carries the new total, not who echoed — refetch from
    * the top rather than trying to patch `rows` in place. Collapses any
    * pagination the viewer had done back to the first page, same tradeoff
    * ConversationSection makes on a live reply. */
-  async function reload() {
-    try {
-      rows = [];
-      hasMore = false;
-      cursor = undefined;
-      await loadPage();
-    } catch (err) {
-      console.error('Failed to refresh chorus:', err);
-    }
-  }
-
   function handleReedEchoes(msg) {
     if (msg?.reedID !== reedID) return;
-    void reload();
+    void pagination?.loadFirstPage();
   }
-
-  onMount(async () => {
-    try {
-      await loadPage();
-    } catch (err) {
-      console.error('Failed to load chorus:', err);
-      error = 'Unable to load this list right now.';
-    } finally {
-      loading = false;
-    }
-  });
 
   onMount(() => {
     serverConnection.on(ServerEvent.ReedEchoes, handleReedEchoes);
@@ -95,15 +57,9 @@
 </script>
 
 <section class="chorus-section" aria-label="Chorus">
-  {#if loading}
-    <p class="chorus-empty">Loading…</p>
-  {:else if error && rows.length === 0}
-    <p class="chorus-empty error">{error}</p>
-  {:else if rows.length === 0}
-    <p class="chorus-empty">No one has echoed this yet.</p>
-  {:else}
-    <div class="chorus-list">
-      {#each rows as row (row.userID)}
+  <div class="chorus-list">
+    <RemotePagination bind:this={pagination} bind:items={rows} fetchPage={fetchChorusPage}>
+      {#snippet item(row)}
         <div
           class="chorus-row"
           role="button"
@@ -118,17 +74,12 @@
             stopPropagation
           />
         </div>
-      {/each}
-    </div>
-    {#if error}
-      <p class="chorus-empty error">{error}</p>
-    {/if}
-    {#if hasMore}
-      <button type="button" class="load-more-btn" on:click={loadMore} disabled={loadingMore}>
-        {loadingMore ? 'Loading…' : 'Load more'}
-      </button>
-    {/if}
-  {/if}
+      {/snippet}
+      {#snippet empty()}
+        <p class="chorus-empty">No one has echoed this yet.</p>
+      {/snippet}
+    </RemotePagination>
+  </div>
 </section>
 
 <style>
@@ -141,10 +92,6 @@
     color: var(--muted);
     font-size: 0.9rem;
     font-style: italic;
-  }
-
-  .chorus-empty.error {
-    color: var(--error);
   }
 
   .chorus-list {
@@ -165,24 +112,11 @@
     background: var(--input-bg);
   }
 
-  .load-more-btn {
+  /* :global — the button lives inside RemotePagination's own template,
+   * outside this component's style scope; this only tightens its margin/
+   * font-size, RemotePagination's own CSS still supplies the rest. */
+  :global(.chorus-list .load-more-btn) {
     margin: 0 0.75rem 1rem;
     font-size: 0.8rem;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--fg);
-    border-radius: 8px;
-    padding: 0.5rem;
-    cursor: pointer;
-    font-weight: 600;
-  }
-
-  .load-more-btn:hover:not(:disabled) {
-    background: var(--input-bg);
-  }
-
-  .load-more-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
   }
 </style>
