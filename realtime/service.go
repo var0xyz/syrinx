@@ -110,6 +110,14 @@ const (
 	ForeignRequestOK ForeignRequestResult = iota
 	ForeignRequestReedNotFound
 	ForeignRequestReedNotHeld
+	// ForeignRequestAccepted means the home server has a known holder for
+	// the reed but none is online right now — it created a pending event
+	// that will resolve on its own once a holder reconnects (see
+	// registerReedRequest), but can't dispatch or deliver immediately.
+	// Distinct from ForeignRequestOK so a caller trying multiple peers
+	// (tryPeerFallback) can keep looking for an immediate 200 before
+	// settling for this as a fallback.
+	ForeignRequestAccepted
 )
 
 // ForeignRequestReedHook registers requesterUserID's interest in reedID
@@ -1515,7 +1523,7 @@ func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessag
 		return
 	}
 
-	exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), reedID, client.userID, client.userID, requestID, true, RequestReedEvent)
+	exists, hasHolders, _, eventID, err := rs.registerReedRequest(context.Background(), reedID, client.userID, client.userID, requestID, true, RequestReedEvent)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed request")
 		return
@@ -1547,9 +1555,14 @@ func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessag
 // server is home to. Mints a speculative local pending event (mirroring
 // handleForeignRequestReedFromClient's own speculative-pending-event
 // pattern), then tries each peer server known to hold a copy
-// (GetForeignHolderServers), sequentially, stopping at the first that
-// accepts the fallback request. Exactly one pending_events row is created
-// regardless of how many candidates are tried — never touching
+// (GetForeignHolderServers), sequentially. Only a genuine ForeignRequestOK
+// (a peer with an online holder right now) stops the loop immediately —
+// a ForeignRequestAccepted (a peer with a known holder that's offline) is
+// remembered as a fallback candidate but the loop keeps trying other
+// peers, preferring an immediate delivery over a sleeping one. If nothing
+// ever returns OK, the best-remembered Accepted candidate is committed to
+// once every peer has been tried. Exactly one pending_events row is
+// created regardless of how many candidates are tried — never touching
 // registerReedRequest's own event-minting path, since that path already
 // returned early with hasHolders=false. Sequential rather than parallel:
 // this is a rare failure-recovery path, not a hot one, and sequential
@@ -1570,10 +1583,17 @@ func (rs *RealtimeService) tryPeerFallback(ctx context.Context, reedID, requeste
 		return "", false
 	}
 
+	var acceptedPeerServerID, acceptedPeerEventID string
 	for _, peerServerID := range peerServerIDs {
 		result, peerEventID, err := rs.foreignFallbackHook(ctx, peerServerID, reedID, requesterUserID, requestID)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Str("peerServerID", peerServerID).Msg("Peer fallback request failed")
+			continue
+		}
+		if result == ForeignRequestAccepted {
+			if acceptedPeerServerID == "" {
+				acceptedPeerServerID, acceptedPeerEventID = peerServerID, peerEventID
+			}
 			continue
 		}
 		if result != ForeignRequestOK {
@@ -1584,6 +1604,14 @@ func (rs *RealtimeService) tryPeerFallback(ctx context.Context, reedID, requeste
 			continue
 		}
 		return eventID, true
+	}
+
+	if acceptedPeerServerID != "" {
+		if err := rs.dbService.CreateForeignPendingEvent(ctx, eventID, acceptedPeerServerID, acceptedPeerEventID); err != nil {
+			log.Error().Err(err).Msg("Failed to record foreign pending event for peer fallback")
+		} else {
+			return eventID, true
+		}
 	}
 
 	if delErr := rs.deletePendingEvent(ctx, eventID); delErr != nil {
@@ -1627,52 +1655,59 @@ func (rs *RealtimeService) validateRequestID(id, requesterUserID string) bool {
 // dispatch-to-holder sequence shared by a local REQUEST_REED and a
 // foreign one registered on this server's behalf via HandleForeignRequestReed.
 // dropRequesterAllocation should be true only for a genuine local
-// requester — a sentinel peer-relay "requester" never legitimately holds
-// a stale allocation, so that DELETE is skipped for it.
+// requester — a foreign "requester" (empty FK value) never legitimately
+// holds a stale allocation, so that DELETE is skipped for it.
 // eventIdentity is who the minted event_id's canonical prefix names —
 // normally the same as requesterUserID, except on a home server's
-// sentinel-bookkeeping path, where requesterUserID is the sentinel (to
-// satisfy pending_events' FK) but eventIdentity is the ORIGINAL remote
-// requester, so the event_id still names who actually asked.
-func (rs *RealtimeService) registerReedRequest(ctx context.Context, reedID, requesterUserID, eventIdentity, requestID string, dropRequesterAllocation bool, eventName EventName) (exists, hasHolders bool, eventID string, err error) {
+// foreign-bookkeeping path, where requesterUserID is empty (no local
+// online_users row backs a remote requester) but eventIdentity is the
+// ORIGINAL remote requester, so the event_id still names who actually asked.
+//
+// hasHolders means "someone has ever fetched and held this reed" —
+// independent of whether they're online right now. holderOnline is the
+// narrower "someone is here to dispatch to immediately" signal. A pending
+// event is created whenever hasHolders is true, even with no one online:
+// it just sits with dispatched_at NULL until a holder for this reed
+// connects — the existing SYNC_REQUEST -> dispatchNext(holderUserID) path
+// already finds and dispatches any such waiting event the moment that
+// happens, no separate wake-up mechanism needed.
+func (rs *RealtimeService) registerReedRequest(ctx context.Context, reedID, requesterUserID, eventIdentity, requestID string, dropRequesterAllocation bool, eventName EventName) (exists, hasHolders, holderOnline bool, eventID string, err error) {
 	exists, err = rs.dbService.ReedExists(ctx, reedID)
 	if err != nil {
-		return false, false, "", err
+		return false, false, false, "", err
 	}
 	if !exists {
-		return false, false, "", nil
+		return false, false, false, "", nil
 	}
 
 	if dropRequesterAllocation {
 		// Removes a stale holder row when the requester asks for a reed the
 		// server thought they held — they clearly do not have the body locally.
 		if _, err = rs.dbService.DeleteReedAllocation(ctx, reedID, requesterUserID); err != nil {
-			return false, false, "", err
+			return false, false, false, "", err
 		}
 	}
 
 	var holder string
 	hasHolders, holder, err = rs.dbService.GetOnlineHolders(ctx, reedID)
 	if err != nil {
-		return false, false, "", err
+		return false, false, false, "", err
 	}
-	// A stale allocation (holder recorded but not currently online) is not
-	// "held" from a dispatch standpoint — hasHolders must mean "someone is
-	// actually here to relay-request right now," not just "an allocation
-	// row exists somewhere." Otherwise this registers a pending event that
-	// can never be dispatched to anyone and silently stalls forever.
-	if !hasHolders || holder == "" {
-		return true, false, "", nil
+	if !hasHolders {
+		return true, false, false, "", nil
 	}
+	holderOnline = holder != ""
 
 	eventID = generateEventID(eventIdentity)
 	if err = rs.createPendingReedEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID); err != nil {
-		return false, false, "", err
+		return false, false, false, "", err
 	}
 
-	rs.dispatchNextIfConnected(holder)
+	if holderOnline {
+		rs.dispatchNextIfConnected(holder)
+	}
 
-	return true, true, eventID, nil
+	return true, true, holderOnline, eventID, nil
 }
 
 // handleForeignRequestReedFromClient is handleRequestReed's foreign
@@ -1744,7 +1779,7 @@ func (rs *RealtimeService) registerAndRecordForeignRelay(ctx context.Context, re
 	// surfaces it (logging, future features) reflects who actually asked,
 	// not this server's internal bookkeeping stand-in.
 	requestID := generateEventID(requestingUserID)
-	exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, reedID, "", requestingUserID, requestID, false, RequestReedEvent)
+	exists, hasHolders, holderOnline, eventID, err := rs.registerReedRequest(ctx, reedID, "", requestingUserID, requestID, false, RequestReedEvent)
 	if err != nil {
 		return ForeignRequestReedNotFound, "", err
 	}
@@ -1759,6 +1794,9 @@ func (rs *RealtimeService) registerAndRecordForeignRelay(ctx context.Context, re
 		return ForeignRequestReedNotFound, "", err
 	}
 
+	if !holderOnline {
+		return ForeignRequestAccepted, eventID, nil
+	}
 	return ForeignRequestOK, eventID, nil
 }
 
@@ -1850,7 +1888,7 @@ func (rs *RealtimeService) HandleForeignSubscribeProfile(ctx context.Context, au
 
 	for _, reedID := range reedIDs {
 		requestID := generateEventID(requestingUserID)
-		exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, reedID, "", requestingUserID, requestID, false, RequestReedEvent)
+		exists, hasHolders, _, eventID, err := rs.registerReedRequest(ctx, reedID, "", requestingUserID, requestID, false, RequestReedEvent)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed for foreign profile subscription")
 			continue
@@ -3181,7 +3219,7 @@ func (rs *RealtimeService) notifyForeignReedSubscribersOfReply(ancestorReedID, r
 			continue
 		}
 		requestID := generateEventID(sub.ViewerUserID)
-		exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), replyReedID, "", sub.ViewerUserID, requestID, false, ReedReplyEvent)
+		exists, hasHolders, _, eventID, err := rs.registerReedRequest(context.Background(), replyReedID, "", sub.ViewerUserID, requestID, false, ReedReplyEvent)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", replyReedID).Str("viewerUserID", sub.ViewerUserID).Msg("Failed to register foreign reed reply notify")
 			continue
