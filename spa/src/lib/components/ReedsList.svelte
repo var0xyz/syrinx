@@ -397,7 +397,7 @@
     <div class="empty-state">
       <div class="empty-icon">🌱</div>
       <h3>Waiting for content…</h3>
-      <p>Reeds will appear automatically appear here once we find a peer to fetch them from.</p>
+      <p>Reeds will appear here once we find a peer to fetch them from.</p>
     </div>
   {:else if reeds.length === 0 && pendingReeds.length === 0}
     <div class="empty-state">
