@@ -9,6 +9,7 @@ import {
 import { reedsService } from '$lib/repositories/reeds';
 import { startReedRequestDrainer } from './reedRequestDrainer';
 import { setContentRejectedReporter } from './db';
+import { notificationStore } from '$lib/stores/notifications';
 import type { ReedType } from '$lib/types/reed';
 
 export type ServerEventHandler = (data: any) => void;
@@ -65,11 +66,18 @@ class ServerConnection {
    * so a concurrent connect() elsewhere doesn't leave a duplicate timer
    * running. Cleared once a retry succeeds (or something else reconnects). */
   private sigtermRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Id of the "lost connection" notice raised by handleSigterm, so it can
+   * be dismissed once a retry reconnects. */
+  private sigtermNotificationId: string | null = null;
 
   private cancelSigtermRetry(): void {
     if (this.sigtermRetryTimer != null) {
       clearTimeout(this.sigtermRetryTimer);
       this.sigtermRetryTimer = null;
+    }
+    if (this.sigtermNotificationId != null) {
+      notificationStore.dismiss(this.sigtermNotificationId);
+      this.sigtermNotificationId = null;
     }
   }
 
@@ -80,6 +88,10 @@ class ServerConnection {
   private handleSigterm(): void {
     console.log('ServerConnection: server sent SIGTERM, reconnecting…');
     this.cancelSigtermRetry();
+    this.sigtermNotificationId = notificationStore.add({
+      type: 'warning',
+      message: 'The server closed the connection. Reconnecting…',
+    });
     if (this.ws) {
       const prev = this.ws;
       this.ws = null;
