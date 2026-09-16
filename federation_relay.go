@@ -406,6 +406,80 @@ func (h *Handlers) DeliverRelayResponseFromPeer(w http.ResponseWriter, r *http.R
 	writeResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// ///////////////////////////////////////// //
+//   Leg 2b: not-held / give-up (H -> O)     //
+// ///////////////////////////////////////// //
+//
+// Failure counterpart of leg 2: H registered O's request (leg 1) but
+// exhausted every holder before anyone could relay the content. Without
+// this, O's local pending event would sit forever with nothing to notify
+// its requester or clean up its own bookkeeping.
+
+type relayNotHeldPayload struct {
+	PeerEventID string `json:"peer_event_id"`
+}
+
+// notifyRelayNotHeldToPeer is failReedNotHeld's foreignNotHeldHook
+// implementation (H's side): tells the requesting peer this server gave
+// up relaying peerEventID.
+func (h *Handlers) notifyRelayNotHeldToPeer(ctx context.Context, requestingServerID, peerEventID string) error {
+	peer, err := h.services.db.GetServerByID(ctx, requestingServerID)
+	if err != nil {
+		return err
+	}
+	if peer == nil {
+		return nil
+	}
+	payload := relayNotHeldPayload{PeerEventID: peerEventID}
+	_, err = h.callPeerRelayEndpoint(ctx, requestingServerID, peer.BaseURL, "/api/federation/relay/not-held", payload, nil)
+	return err
+}
+
+// RelayNotHeldFromPeer is leg 2b's originating-server handler: the home
+// server is telling us it gave up on a request we registered via leg 1.
+func (h *Handlers) RelayNotHeldFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayNotHeldPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "not-held", false)
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.PeerEventID = strings.TrimSpace(req.PeerEventID)
+	if req.PeerEventID == "" {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "not-held", false)
+		writeResponse(w, http.StatusBadRequest, "peer_event_id is required")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "not-held", false)
+		internalServerError(w)
+		return
+	}
+	found, err := h.realtimeRelay.HandleForeignRelayNotHeld(r.Context(), req.PeerEventID, peerServerID)
+	if err != nil {
+		log.Error().Err(err).Str("peerEventID", req.PeerEventID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign relay not-held")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "not-held", false)
+		internalServerError(w)
+		return
+	}
+	if !found {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "not-held", true)
+		writeResponse(w, http.StatusNotFound, "Unknown or already-resolved event")
+		return
+	}
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "not-held", true)
+	writeResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // ///////////////////////////////////// //
 //   Leg 4: cancel-request (O -> H)      //
 // ///////////////////////////////////// //

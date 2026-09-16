@@ -48,6 +48,7 @@ type RealtimeService struct {
 	// SetDeviceCheck/SetOngoingCheck's existing injection direction).
 	foreignRequestReedHook          ForeignRequestReedHook
 	foreignDeliverHook              ForeignDeliverHook
+	foreignNotHeldHook              ForeignNotHeldHook
 	foreignCancelHook               ForeignCancelHook
 	foreignSubscribeProfileHook     ForeignSubscribeProfileHook
 	foreignAckHook                  ForeignAckHook
@@ -129,6 +130,17 @@ type ForeignDeliverHook func(ctx context.Context, requestingServerID, peerEventI
 // SetForeignDeliverHook installs the leg-2 (deliver-response) hook.
 func (rs *RealtimeService) SetForeignDeliverHook(hook ForeignDeliverHook) {
 	rs.foreignDeliverHook = hook
+}
+
+// ForeignNotHeldHook notifies requestingServerID over peer HTTP that
+// peerEventID's home server exhausted every holder and is giving up —
+// the failure counterpart of ForeignDeliverHook, called on the home
+// server once it has no one left to relay a peer-registered request to.
+type ForeignNotHeldHook func(ctx context.Context, requestingServerID, peerEventID string) error
+
+// SetForeignNotHeldHook installs the give-up-notify hook.
+func (rs *RealtimeService) SetForeignNotHeldHook(hook ForeignNotHeldHook) {
+	rs.foreignNotHeldHook = hook
 }
 
 // ForeignCancelHook notifies homeServerID over peer HTTP (leg 4) that
@@ -1898,6 +1910,42 @@ func (rs *RealtimeService) HandleForeignRelayResponse(ctx context.Context, peerE
 	return true, nil
 }
 
+// HandleForeignRelayNotHeld runs on the originating server (O): the home
+// server (H) exhausted every holder for a request O registered via leg 1
+// and is giving up. Resolves peerEventID back to O's own local
+// pending_events row, notifies the local requester the same way a local
+// give-up would (NewReedNotHeldMsg), and deletes O's half of the pending
+// state — there's no content coming, so unlike a delivered response
+// there's nothing left to defer until a DATA_ACK. Idempotent: an unknown
+// peerEventID (already resolved, or never registered by this peer) is a
+// no-op, not an error.
+func (rs *RealtimeService) HandleForeignRelayNotHeld(ctx context.Context, peerEventID, callerServerID string) (found bool, err error) {
+	fpe, err := rs.dbService.GetForeignPendingEventByPeerEventID(ctx, peerEventID, callerServerID)
+	if err != nil {
+		return false, err
+	}
+	if fpe == nil {
+		return false, nil
+	}
+
+	pe, err := rs.dbService.GetPendingReedEvent(ctx, fpe.EventID)
+	if err != nil {
+		return false, err
+	}
+	if pe == nil {
+		// Local requester's row already gone (e.g. raced with disconnect) -- not an error.
+		return true, nil
+	}
+
+	if err := rs.connManager.SendToUser(pe.RequesterUserID, NewReedNotHeldMsg(pe.RequestID, pe.ReedID)); err != nil {
+		log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to notify requester of foreign relay give-up")
+	}
+	if err := rs.deletePendingEvent(ctx, pe.EventID); err != nil {
+		log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to delete pending event on foreign relay give-up")
+	}
+	return true, nil
+}
+
 // errForeignRelayOwnershipMismatch is returned by CancelForeignPendingEvent
 // when callerServerID doesn't match the peer that originally registered
 // peerEventID — the HTTP handler maps this to 403.
@@ -2190,6 +2238,13 @@ func (rs *RealtimeService) handleFailedRelay(holderUserID, eventID string, delet
 	rs.dispatchN(holderUserID, fanoutRefillBurst)
 }
 
+// failReedNotHeld gives up on pe: no holder is left to relay it to. A local
+// requester is notified directly over their own WebSocket. A foreign
+// requester has no such connection here — this server's own bookkeeping is
+// deleted first (this server's duty is done either way), then the
+// requesting peer is notified best-effort via foreignNotHeldHook so their
+// side doesn't wait forever; a failed/lost notification only leaves the
+// peer's own state stale, not this server's.
 func (rs *RealtimeService) failReedNotHeld(pe *PendingReedEvent) {
 	log.Info().
 		Str("eventID", pe.EventID).
@@ -2197,11 +2252,30 @@ func (rs *RealtimeService) failReedNotHeld(pe *PendingReedEvent) {
 		Str("authorID", pe.UserID).
 		Str("reedID", pe.ReedID).
 		Msg("No reed holders remain; notifying requester")
-	if err := rs.connManager.SendToUser(pe.RequesterUserID, NewReedNotHeldMsg(pe.RequestID, pe.ReedID)); err != nil {
-		log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to send reed not held")
+
+	if pe.RequesterUserID != "" {
+		if err := rs.connManager.SendToUser(pe.RequesterUserID, NewReedNotHeldMsg(pe.RequestID, pe.ReedID)); err != nil {
+			log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to send reed not held")
+		}
 	}
+
+	var frr *ForeignRelayRequest
+	if pe.RequesterUserID == "" {
+		var err error
+		frr, err = rs.dbService.GetForeignRelayRequest(context.Background(), pe.EventID)
+		if err != nil {
+			log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to check foreign relay request on reed not held")
+		}
+	}
+
 	if err := rs.deletePendingEvent(context.Background(), pe.EventID); err != nil {
 		log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to delete pending event on reed not held")
+	}
+
+	if frr != nil && rs.foreignNotHeldHook != nil {
+		if err := rs.foreignNotHeldHook(context.Background(), frr.RequestingServerID, pe.EventID); err != nil {
+			log.Error().Err(err).Str("eventID", pe.EventID).Str("requestingServerID", frr.RequestingServerID).Msg("Failed to notify requesting peer of relay give-up")
+		}
 	}
 }
 
