@@ -490,14 +490,14 @@
         <p class="modal-lead">Share this with the remote admin. You can copy it again from the invite list while it is still pending.</p>
         <div class="connection-field">
           <div class="connection-label">
-            <label for="connection-share">Share code</label>
+            <label for="connection-string">Connection string</label>
             <CopyButton
               ariaLabel="Copy connection string"
               on:click={() => copyConnectionString(freshConnectionString)}
             />
           </div>
           <input
-            id="connection-share"
+            id="connection-string"
             class="connection-output"
             type="text"
             readonly
