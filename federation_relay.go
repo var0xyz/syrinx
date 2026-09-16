@@ -1957,7 +1957,9 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := h.services.db.SearchUsers(r.Context(), req.Query, req.Limit)
+	// No self-exclusion here: the searching user is on the peer's own
+	// server, never a local u.id on this one.
+	results, err := h.services.db.SearchUsers(r.Context(), req.Query, "", req.Limit)
 	if err != nil {
 		log.Error().Err(err).Str("query", req.Query).Str("peerServerID", peerServerID).Msg("Failed to handle foreign search-users request")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "search-users", false)

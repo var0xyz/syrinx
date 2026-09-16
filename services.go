@@ -2408,8 +2408,9 @@ type UserSearchResult struct {
 }
 
 // SearchUsers returns users whose username contains query (case-insensitive
-// substring match), excluding account-removed users, ordered by username.
-func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) ([]UserSearchResult, error) {
+// substring match), excluding account-removed users and excludeUserID (the
+// caller themselves — pass "" to not exclude anyone), ordered by username.
+func (s *DataService) SearchUsers(ctx context.Context, query, excludeUserID string, limit int) ([]UserSearchResult, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -2426,12 +2427,13 @@ func (s *DataService) SearchUsers(ctx context.Context, query string, limit int) 
 		JOIN identities i ON i.id = u.id
 		JOIN servers s ON s.id = i.server_id
 		WHERE u.username ILIKE '%' || $1 || '%'
+		  AND u.id != $2
 		  AND NOT EXISTS (
 		      SELECT 1 FROM account_removals ar WHERE ar.user_id = u.id
 		  )
 		ORDER BY u.username ASC
-		LIMIT $2
-	`, query, limit)
+		LIMIT $3
+	`, query, excludeUserID, limit)
 	if err != nil {
 		return nil, err
 	}

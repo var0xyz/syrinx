@@ -849,7 +849,7 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	localResults, err := h.services.db.SearchUsers(r.Context(), query, limit)
+	localResults, err := h.services.db.SearchUsers(r.Context(), query, h.getUserID(r), limit)
 	if err != nil {
 		log.Error().Str("query", query).Err(err).Msg("Error searching users")
 		internalServerError(w)
