@@ -21,6 +21,7 @@
   import ReedsList from '$lib/components/ReedsList.svelte';
   import UserProfileCard from '$lib/components/UserProfileCard.svelte';
   import UsernameChecker from '$lib/components/UsernameChecker.svelte';
+  import ProfileTabs from '$lib/components/ProfileTabs.svelte';
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
   import { mergeUserView, profileNeedsRefresh } from '$lib/utils/userView';
   import { countMarkdownCharacters, MAX_REED_VISIBLE_CHARS } from '$lib/utils/reedContent';
@@ -402,6 +403,9 @@
 
 <Auth>
 <div class="profile-container">
+  {#if isOwner}
+    <ProfileTabs active="profile" />
+  {/if}
   <div class="profile-content">
     {#if status === 'loading'}
       {#if profileUser}

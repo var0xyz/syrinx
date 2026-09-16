@@ -21,6 +21,8 @@ import {
 import { isOnline, onReconnect } from '$lib/services/pwa';
 import { isBlankEcho } from '$lib/utils/emptyEcho';
 import { clearPublishTipOverride, previousIDForPublish } from '../services/publishTip';
+import { listsRepository } from './lists';
+import type { ListType } from '$lib/types/list';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
@@ -438,4 +440,33 @@ export async function getFollowReeds(): Promise<{ reeds: ReedType[]; authors: Re
     }
   }
   return { reeds, authors };
+}
+
+const LIST_FEED_LIMIT = 50;
+
+/** Same "latest reeds where userID is in this set" query as the follow
+ * feed, scoped to one list's members. No type filtering, mirroring the
+ * follow feed. Queried fresh each call — no session caching, since lists
+ * are visited far less often than the main feed. */
+export async function getListReeds(
+  listId: string
+): Promise<{ reeds: ReedType[]; authors: Record<string, User>; list: ListType | null }> {
+  const list = await listsRepository.get(listId);
+  if (!list || list.memberIds.length === 0) {
+    return { reeds: [], authors: {}, list };
+  }
+  const memberSet = new Set(list.memberIds);
+  const reeds = await dbService.getLatestFromIndex<ReedType>(
+    'reeds', 'serverSignature.timestamp', LIST_FEED_LIMIT,
+    reed => memberSet.has(reed.userID)
+  );
+  const authors: Record<string, User> = {};
+  for (const reed of reeds) {
+    const authorId = reed.userID;
+    if (!authors[authorId]) {
+      const user = await dbService.get<User>('users', authorId);
+      if (user) authors[authorId] = user;
+    }
+  }
+  return { reeds, authors, list };
 }

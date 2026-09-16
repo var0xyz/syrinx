@@ -1,17 +1,17 @@
 <script>
-  /** @type {'follow' | 'broadcast' | 'list'} */
+  /** @type {'profile' | 'liked' | 'mentions'} */
   export let active;
 </script>
 
 <div class="section-toggle">
-  <a href="/feed/follow" class="toggle-btn" class:active={active === 'follow'}>
-    👥 Follow
+  <a href="/reeds" class="toggle-btn" class:active={active === 'profile'}>
+    👤 Profile
   </a>
-  <a href="/feed/broadcast" class="toggle-btn" class:active={active === 'broadcast'}>
-    📡 Broadcast
+  <a href="/reeds/likes" class="toggle-btn" class:active={active === 'liked'}>
+    💛 Liked
   </a>
-  <a href="/feed/lists" class="toggle-btn" class:active={active === 'list'}>
-    📋 Lists
+  <a href="/reeds/mentions" class="toggle-btn" class:active={active === 'mentions'}>
+    📣 Mentions
   </a>
 </div>
 
