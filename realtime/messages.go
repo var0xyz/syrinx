@@ -21,12 +21,12 @@ const (
 	ArchiveReedEvent         EventName = "archive_reed"
 )
 
-// RelayRequestMsg is sent from the server to a holder to request reed content.
-// AuthorID disambiguates ReedID, which is only unique per author — without
-// it a holder caching more than one author's content under a colliding
-// local ID has no way to tell which reed is actually being asked for.
-// RequesterID is who the holder must encrypt the content to before
-// responding — the server relays ciphertext blindly and never sees the body.
+// RelayRequestMsg is sent from the server to a holder to request reed
+// content. ReedID is the canonical id (userID@serverID/uuid) — already
+// globally unique and already embeds the author, so no separate author
+// field is needed to disambiguate it. RequesterID is who the holder must
+// encrypt the content to before responding — the server relays ciphertext
+// blindly and never sees the body.
 type RelayRequestMsg struct {
 	Type string           `json:"type"`
 	ID   string           `json:"id"`
@@ -34,13 +34,12 @@ type RelayRequestMsg struct {
 }
 
 type RelayRequestData struct {
-	AuthorID    string `json:"author_id"`
 	ReedID      string `json:"reed_id"`
 	RequesterID string `json:"requester_id"`
 }
 
-func NewRelayRequestMsg(eventID, authorID, reedID, requesterID string) RelayRequestMsg {
-	return RelayRequestMsg{Type: "RELAY_REQUEST", ID: eventID, Data: RelayRequestData{AuthorID: authorID, ReedID: reedID, RequesterID: requesterID}}
+func NewRelayRequestMsg(eventID, reedID, requesterID string) RelayRequestMsg {
+	return RelayRequestMsg{Type: "RELAY_REQUEST", ID: eventID, Data: RelayRequestData{ReedID: reedID, RequesterID: requesterID}}
 }
 
 // RequestAckMsg is sent from the server to a requester confirming the relay request was registered.

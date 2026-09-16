@@ -1377,7 +1377,7 @@ func (rs *RealtimeService) dispatchNext(holderUserID string) bool {
 	} else if frr != nil {
 		requesterID = frr.RequestingUserID
 	}
-	if err := rs.connManager.SendToUser(holderUserID, NewRelayRequestMsg(pe.EventID, pe.UserID, pe.ReedID, requesterID)); err != nil {
+	if err := rs.connManager.SendToUser(holderUserID, NewRelayRequestMsg(pe.EventID, pe.ReedID, requesterID)); err != nil {
 		log.Error().
 			Err(err).
 			Str("holderUserID", holderUserID).
