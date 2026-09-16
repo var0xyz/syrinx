@@ -67,23 +67,24 @@ type DataResponseMsg struct {
 }
 
 type DataResponseData struct {
-	RequestID string          `json:"request_id,omitempty"`
-	ReedID    string          `json:"reed_id,omitempty"`
-	UserID    string          `json:"user_id,omitempty"`
-	Data      json.RawMessage `json:"data"`
-	Username  string          `json:"username,omitempty"`
+	RequestID  string          `json:"request_id,omitempty"`
+	ReedID     string          `json:"reed_id,omitempty"`
+	UserID     string          `json:"user_id,omitempty"`
+	Data       json.RawMessage `json:"data,omitempty"`
+	Ciphertext string          `json:"ciphertext,omitempty"`
+	Username   string          `json:"username,omitempty"`
 }
 
-// jsonString JSON-encodes a Go string (adds quoting/escaping) so it can be
-// carried in DataResponseData.Data alongside the cert-payload messages that
-// share that field but marshal a struct instead of a bare string.
+// jsonString JSON-encodes a Go string (adds quoting/escaping) — used to
+// wrap ciphertext for the federation transport layer (deliverOrForward's
+// data json.RawMessage param), not for DataResponseData's own JSON shape.
 func jsonString(s string) json.RawMessage {
 	raw, _ := json.Marshal(s)
 	return raw
 }
 
 func NewDataResponseMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
-	return DataResponseMsg{Type: "DATA_RESPONSE", ID: eventID, Data: DataResponseData{RequestID: requestID, ReedID: reedID, Data: jsonString(ciphertext)}}
+	return DataResponseMsg{Type: "DATA_RESPONSE", ID: eventID, Data: DataResponseData{RequestID: requestID, ReedID: reedID, Ciphertext: ciphertext}}
 }
 
 // NewBroadcastReedMsg builds a BROADCAST_REED delivery message (no request_id or event id needed).
@@ -91,9 +92,9 @@ func NewBroadcastReedMsg(reedID, ciphertext, username string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "BROADCAST_REED",
 		Data: DataResponseData{
-			ReedID:   reedID,
-			Data:     jsonString(ciphertext),
-			Username: username,
+			ReedID:     reedID,
+			Ciphertext: ciphertext,
+			Username:   username,
 		},
 	}
 }
@@ -105,9 +106,9 @@ func NewPipeReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseM
 		Type: "PIPE_REED",
 		ID:   eventID,
 		Data: DataResponseData{
-			RequestID: requestID,
-			ReedID:    reedID,
-			Data:      jsonString(ciphertext),
+			RequestID:  requestID,
+			ReedID:     reedID,
+			Ciphertext: ciphertext,
 		},
 	}
 }
@@ -118,9 +119,9 @@ func NewFollowReedMsg(eventID, requestID, reedID, ciphertext string) DataRespons
 		Type: "FOLLOW_REED",
 		ID:   eventID,
 		Data: DataResponseData{
-			RequestID: requestID,
-			ReedID:    reedID,
-			Data:      jsonString(ciphertext),
+			RequestID:  requestID,
+			ReedID:     reedID,
+			Ciphertext: ciphertext,
 		},
 	}
 }
@@ -133,9 +134,9 @@ func NewArchiveReedMsg(eventID, requestID, reedID, ciphertext string) DataRespon
 		Type: "ARCHIVE_REED",
 		ID:   eventID,
 		Data: DataResponseData{
-			RequestID: requestID,
-			ReedID:    reedID,
-			Data:      jsonString(ciphertext),
+			RequestID:  requestID,
+			ReedID:     reedID,
+			Ciphertext: ciphertext,
 		},
 	}
 }
@@ -153,9 +154,9 @@ func NewReedReplyMsg(eventID, requestID, reedID, ciphertext string) DataResponse
 		Type: "REED_REPLY",
 		ID:   eventID,
 		Data: DataResponseData{
-			RequestID: requestID,
-			ReedID:    reedID,
-			Data:      jsonString(ciphertext),
+			RequestID:  requestID,
+			ReedID:     reedID,
+			Ciphertext: ciphertext,
 		},
 	}
 }

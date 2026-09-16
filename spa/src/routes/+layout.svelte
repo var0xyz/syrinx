@@ -135,7 +135,7 @@
 
       let reed;
       try {
-        reed = await decryptRelayPayload(data.data);
+        reed = await decryptRelayPayload(data.ciphertext);
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt relayed reed:', error);
         reportDecryptFailure('reeds');
@@ -175,7 +175,7 @@
 
       let reed;
       try {
-        reed = await decryptRelayPayload(data.data);
+        reed = await decryptRelayPayload(data.ciphertext);
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt follow reed:', error);
         reportDecryptFailure('reeds');
@@ -200,7 +200,7 @@
 
       let reed;
       try {
-        reed = await decryptRelayPayload(data.data);
+        reed = await decryptRelayPayload(data.ciphertext);
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt archive reed:', error);
         reportDecryptFailure('reeds');
@@ -221,7 +221,7 @@
 
       let reed;
       try {
-        reed = await decryptRelayPayload(data.data);
+        reed = await decryptRelayPayload(data.ciphertext);
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt pipe reed:', error);
         reportDecryptFailure('reeds');
@@ -257,7 +257,7 @@
 
       let reed;
       try {
-        reed = await decryptRelayPayload(data.data);
+        reed = await decryptRelayPayload(data.ciphertext);
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt reed reply:', error);
         reportDecryptFailure('reeds');
@@ -279,7 +279,7 @@
     serverConnection.on(ServerEvent.BroadcastReed, async (data) => {
       // Broadcast reeds are ephemeral: never stored in IndexedDB.
       // Followed authors belong in the follow feed only — ignore if we follow them.
-      const reed = data.data;
+      const reed = data.ciphertext;
       if (isBlankEcho(reed)) return;
       if (reed?.userID && (await followingRepository.isFollowing(reed.userID))) {
         return;
