@@ -1,5 +1,5 @@
 <script>
-  /** @type {'follow' | 'broadcast' | 'liked' | 'mentions'} */
+  /** @type {'follow' | 'broadcast' | 'list'} */
   export let active;
 </script>
 
@@ -10,11 +10,8 @@
   <a href="/feed/broadcast" class="toggle-btn" class:active={active === 'broadcast'}>
     📡 Broadcast
   </a>
-  <a href="/feed/liked" class="toggle-btn" class:active={active === 'liked'}>
-    💛 Likes
-  </a>
-  <a href="/feed/mentions" class="toggle-btn" class:active={active === 'mentions'}>
-    📣 Mentions
+  <a href="/feed/lists" class="toggle-btn" class:active={active === 'list'}>
+    📋 Lists
   </a>
 </div>
 
@@ -32,7 +29,7 @@
   }
 
   .toggle-btn {
-    flex: 1 1 calc(50% - 0.125rem);
+    flex: 1 1 0;
     display: flex;
     align-items: center;
     justify-content: center;

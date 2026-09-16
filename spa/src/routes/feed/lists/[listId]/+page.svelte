@@ -1,0 +1,238 @@
+<script>
+  import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { formatRelativeTime } from '$lib/utils/time';
+  import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import Auth from '$lib/components/Auth.svelte';
+  import FeedTabs from '$lib/components/FeedTabs.svelte';
+  import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
+  import Quote from '$lib/components/Quote.svelte';
+  import { followReedQueue, getListReeds } from '$lib/repositories/reeds';
+  import { captureWindowScroll, restoreWindowScroll } from '$lib/utils/scrollSnapshot';
+
+  /** @type {import('./$types').PageData} */
+  export let data;
+
+  let list = data.list;
+  let reeds = data.reeds;
+  let authors = data.authors;
+  $: list = data.list;
+  $: reeds = data.reeds;
+  $: authors = data.authors;
+
+  let lastHandledFollowReedId = '';
+
+  // List members are always a subset of who the viewer follows, so any
+  // reed from a member also arrives over the follow_reed relay path —
+  // reuse that live-delivery signal instead of a list-specific one.
+  $: followArrived = $followReedQueue?.reed;
+  $: if (followArrived && followArrived.id !== lastHandledFollowReedId) {
+    lastHandledFollowReedId = followArrived.id;
+    void loadListReeds();
+  }
+
+  async function loadListReeds() {
+    const result = await getListReeds(list.id);
+    reeds = result.reeds;
+    authors = result.authors;
+  }
+
+  /** @type {number | null} */
+  let pendingScrollY = null;
+
+  /** @type {import('./$types').Snapshot<number>} */
+  export const snapshot = {
+    capture: () => captureWindowScroll(),
+    restore: (y) => {
+      pendingScrollY = y;
+    },
+  };
+
+  onMount(async () => {
+    if (pendingScrollY != null) {
+      const y = pendingScrollY;
+      pendingScrollY = null;
+      await restoreWindowScroll(y);
+    }
+  });
+</script>
+
+<Auth>
+  <div class="feed-container">
+    <FeedTabs active="list" />
+
+    <div class="feed-content-wrap">
+      <div class="list-header">
+        <h2>{list.name}</h2>
+        {#if list.description}
+          <p class="list-description">{list.description}</p>
+        {/if}
+      </div>
+
+      <div class="reeds-list">
+        {#if reeds.length === 0}
+          <div class="empty-state">
+            <div class="empty-icon">📋</div>
+            {#if list.memberIds.length === 0}
+              <h3>This list has no members</h3>
+              <p>Edit the list to add people you follow.</p>
+            {:else}
+              <h3>No reeds from this list yet.</h3>
+              <p>Reeds from list members will appear here.</p>
+            {/if}
+          </div>
+        {:else}
+          {#each reeds as reed (reed.id)}
+            <div class="reed-item" role="button" tabindex="0"
+              on:click={() => goto(`/reed/${reed.id}`)}
+              on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.id}`)}>
+              <div class="reed-header">
+                <ReedAuthorHeader
+                  userID={reed.userID}
+                  username={authors[reed.userID]?.username ?? reed.userID}
+                  nameTag="h3"
+                  subtext={formatRelativeTime(reed.serverSignature.timestamp)}
+                  stopPropagation
+                  linked={false}
+                />
+              </div>
+              {#if reed.replying}
+                <div class="quote-container">
+                  <Quote reedRef={reed.replying} type="reply" missing={false} linked={false} />
+                </div>
+              {/if}
+              {#if (reed.content || '').trim()}
+                <div class="reed-preview">
+                  <MarkdownParser text={reed.content} preview={true} />
+                </div>
+              {/if}
+              {#if reed.echoing}
+                <div class="quote-container">
+                  <Quote reedRef={reed.echoing} type="echo" missing={false} linked={false} />
+                </div>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+      </div>
+    </div>
+
+    <BottomToolbar currentPage="feeds" />
+  </div>
+</Auth>
+
+<style>
+  .feed-container {
+    min-height: calc(100vh - 3rem - 1px);
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+  }
+
+  .feed-content-wrap {
+    flex: 1;
+    max-width: 600px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 1rem;
+  }
+
+  .list-header {
+    margin: 0 0.75rem 1rem;
+  }
+
+  .list-header h2 {
+    margin: 0 0 0.25rem;
+    color: var(--fg);
+    font-size: 1.4rem;
+  }
+
+  .list-description {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .reeds-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .reed-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  .reed-item:hover {
+    border-color: var(--primary);
+    box-shadow: 0 2px 8px rgba(88, 166, 255, 0.1);
+  }
+
+  .reed-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+    min-width: 0;
+  }
+
+  .reed-preview {
+    padding: 1rem;
+    word-break: break-word;
+  }
+
+  .quote-container {
+    margin: 1rem;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--muted);
+  }
+
+  .empty-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+  }
+
+  .empty-state h3 {
+    margin: 0 0 0.5rem 0;
+    color: var(--fg);
+    font-size: 1.1rem;
+  }
+
+  .empty-state p {
+    margin: 0;
+    font-size: 0.9rem;
+  }
+
+  @media (max-width: 768px) {
+    .feed-content-wrap {
+      padding: 0.5rem;
+    }
+
+    .reeds-list {
+      gap: 0.5rem;
+    }
+
+    .reed-header {
+      padding: 0.75rem;
+    }
+
+    .reed-preview {
+      padding: 0.5rem 0.75rem;
+    }
+
+    .quote-container {
+      margin: 0.75rem;
+    }
+  }
+</style>

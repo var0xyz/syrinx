@@ -19,3 +19,8 @@ export function generateId(length = ID_LENGTH): string {
 export function generateReedId(): string {
   return uuidv7();
 }
+
+/** Time-ordered list id (UUID v7). */
+export function generateListId(): string {
+  return uuidv7();
+}

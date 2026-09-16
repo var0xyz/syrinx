@@ -1,7 +1,7 @@
 <script>
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Auth from '$lib/components/Auth.svelte';
-  import FeedTabs from '$lib/components/FeedTabs.svelte';
+  import ProfileTabs from '$lib/components/ProfileTabs.svelte';
   import LikedReedsList from '$lib/components/LikedReedsList.svelte';
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
 
@@ -19,13 +19,13 @@
 
 <Auth>
   <div class="feed-container">
-    <FeedTabs active="liked" />
+    <ProfileTabs active="liked" />
 
     <div class="feed-content-wrap">
       <LikedReedsList {scrollRestoreY} />
     </div>
 
-    <BottomToolbar currentPage="feeds" />
+    <BottomToolbar currentPage="reeds" />
   </div>
 </Auth>
 
