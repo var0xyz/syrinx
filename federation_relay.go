@@ -144,6 +144,8 @@ func (h *Handlers) relayRequestToPeer(ctx context.Context, reedID, requesterUser
 	switch {
 	case status == http.StatusOK:
 		return realtime.ForeignRequestOK, respBody.PeerEventID, nil
+	case status == http.StatusAccepted:
+		return realtime.ForeignRequestAccepted, respBody.PeerEventID, nil
 	case status == http.StatusNotFound:
 		return realtime.ForeignRequestReedNotFound, "", nil
 	case status == http.StatusConflict:
@@ -214,6 +216,9 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 	case realtime.ForeignRequestReedNotHeld:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", true)
 		writeResponse(w, http.StatusConflict, "Reed is not currently held")
+	case realtime.ForeignRequestAccepted:
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", true)
+		writeResponse(w, http.StatusAccepted, relayRequestResponse{PeerEventID: peerEventID, Status: "accepted"})
 	default:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", true)
 		writeResponse(w, http.StatusOK, relayRequestResponse{PeerEventID: peerEventID, Status: "ack"})
@@ -1656,6 +1661,8 @@ func (h *Handlers) relayFallbackRequestToPeer(ctx context.Context, peerServerID,
 	switch {
 	case status == http.StatusOK:
 		return realtime.ForeignRequestOK, respBody.PeerEventID, nil
+	case status == http.StatusAccepted:
+		return realtime.ForeignRequestAccepted, respBody.PeerEventID, nil
 	case status == http.StatusNotFound:
 		return realtime.ForeignRequestReedNotFound, "", nil
 	case status == http.StatusConflict:
@@ -1726,6 +1733,9 @@ func (h *Handlers) RelayFallbackRequestFromPeer(w http.ResponseWriter, r *http.R
 	case realtime.ForeignRequestReedNotHeld:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", true)
 		writeResponse(w, http.StatusConflict, "Reed is not currently held")
+	case realtime.ForeignRequestAccepted:
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", true)
+		writeResponse(w, http.StatusAccepted, relayFallbackRequestResponse{PeerEventID: peerEventID, Status: "accepted"})
 	default:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", true)
 		writeResponse(w, http.StatusOK, relayFallbackRequestResponse{PeerEventID: peerEventID, Status: "ack"})
