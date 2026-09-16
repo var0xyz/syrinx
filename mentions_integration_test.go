@@ -559,7 +559,7 @@ func TestSearchUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := svc.SearchUsers(ctx, "alice", 20)
+	results, err := svc.SearchUsers(ctx, "alice", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,11 +568,19 @@ func TestSearchUsers(t *testing.T) {
 		t.Fatalf("results = %+v", results)
 	}
 
-	results, err = svc.SearchUsers(ctx, "bobname", 20)
+	results, err = svc.SearchUsers(ctx, "bobname", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(results) != 0 {
 		t.Fatalf("expected account-removed user excluded, got %+v", results)
+	}
+
+	results, err = svc.SearchUsers(ctx, "alice", "alice@testserver", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected excludeUserID to exclude the searcher's own match, got %+v", results)
 	}
 }
