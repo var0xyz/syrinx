@@ -368,7 +368,6 @@ if (typeof window !== 'undefined') {
   });
 }
 
-const FOLLOW_FEED_KEY = 'followFeedIds';
 const FOLLOW_FEED_LIMIT = 50;
 const BROADCAST_KEY = 'broadcastReeds';
 
@@ -389,48 +388,18 @@ export function removeBroadcastReed(reedId: string): void {
   }
 }
 
-export async function initFollowIds(): Promise<void> {
-  if (sessionStorage.getItem(FOLLOW_FEED_KEY) !== null) return;
-  const following = await dbService.getAll<{ userId: string }>('following');
-  if (following.length === 0) return;
-  const followedSet = new Set(following.map(f => f.userId));
-  const reeds = await dbService.getLatestFromIndex<ReedType>(
-    'reeds', 'serverSignature.timestamp', FOLLOW_FEED_LIMIT,
-    reed => followedSet.has(reed.userID)
-  );
-  const refs: string[] = reeds.map(r => r.id);
-  sessionStorage.setItem(FOLLOW_FEED_KEY, JSON.stringify(refs));
-}
-
-export function prependFollowId(reedId: string): void {
-  let refs: string[] = [];
-  try {
-    refs = JSON.parse(sessionStorage.getItem(FOLLOW_FEED_KEY) ?? '[]');
-  } catch {
-    // ignore
-  }
-  if (!refs.includes(reedId)) {
-    refs = [reedId, ...refs].slice(0, FOLLOW_FEED_LIMIT);
-    sessionStorage.setItem(FOLLOW_FEED_KEY, JSON.stringify(refs));
-  }
-}
-
+/** Latest reeds from everyone the viewer follows, queried fresh from
+ * IndexedDB each call — no session caching, so it always reflects current
+ * local state (new follows, newly synced reeds, etc). */
 export async function getFollowReeds(): Promise<{ reeds: ReedType[]; authors: Record<string, User> }> {
-  let refs: string[] = [];
-  try {
-    refs = JSON.parse(sessionStorage.getItem(FOLLOW_FEED_KEY) ?? '[]');
-  } catch {
-    // ignore
-  }
-  const reeds: ReedType[] = [];
-  for (const ref of refs) {
-    try {
-      const reed = await dbService.get<ReedType>('reeds', ref);
-      if (reed) reeds.push(reed);
-    } catch (error) {
-      console.warn('getFollowReeds: skipping unreadable ref', ref, error);
-    }
-  }
+  const following = await dbService.getAll<{ userId: string }>('following');
+  const followedSet = new Set(following.map(f => f.userId));
+  const reeds = followedSet.size === 0
+    ? []
+    : await dbService.getLatestFromIndex<ReedType>(
+        'reeds', 'serverSignature.timestamp', FOLLOW_FEED_LIMIT,
+        reed => followedSet.has(reed.userID)
+      );
   const authors: Record<string, User> = {};
   for (const reed of reeds) {
     const authorId = reed.userID;

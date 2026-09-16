@@ -22,7 +22,7 @@
   import { enforceImportGate } from '$lib/services/restoreFlow';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { dbService } from '$lib/services/db';
-  import { reedsService, dispatchReedToQueue, initFollowIds, prependFollowId, removeBroadcastReed } from '$lib/repositories/reeds';
+  import { reedsService, dispatchReedToQueue, removeBroadcastReed } from '$lib/repositories/reeds';
   import { reedRequestsRepository } from '$lib/repositories/reedRequests';
   import { followingRepository } from '$lib/repositories/following';
   import { clearReedRequestDispatched, startReedRequestDrainer } from '$lib/services/reedRequestDrainer';
@@ -157,9 +157,6 @@
         removeBroadcastReed(reed.id);
         // Explicit REQUEST_REED or profile_subscription relay reply.
         dispatchReedToQueue(reed, ServerEvent.DataResponse);
-        if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
-          prependFollowId(reed.id);
-        }
         await requestReferencedReeds(reed);
       } catch (error) {
         console.warn('ServerConnection: invalid reed signature, rejecting:', reed.id, error);
@@ -187,7 +184,6 @@
         await reedsService.storeReed(reed);
         if (eventId) serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
-        prependFollowId(reed.id);
         dispatchReedToQueue(reed, 'follow_reed');
         await requestReferencedReeds(reed);
       } catch (error) {
@@ -243,7 +239,6 @@
         dispatchReedToQueue(reed, 'pipe_reed');
         // Also following the author: keep the follow feed in sync without a second relay.
         if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
-          prependFollowId(reed.id);
           dispatchReedToQueue(reed, 'follow_reed');
         }
         await requestReferencedReeds(reed);
