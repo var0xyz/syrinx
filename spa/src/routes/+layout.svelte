@@ -277,10 +277,17 @@
       }
     });
     serverConnection.on(ServerEvent.BroadcastReed, async (data) => {
-      // Broadcast reeds are ephemeral: never stored in IndexedDB.
-      // Followed authors belong in the follow feed only — ignore if we follow them.
-      const reed = data.ciphertext;
+      // Broadcast reeds are ephemeral: never stored in IndexedDB, no
+      // event id to ack/reject against — a decrypt failure is just dropped.
+      let reed;
+      try {
+        reed = await decryptRelayPayload(data.ciphertext);
+      } catch (error) {
+        console.warn('ServerConnection: failed to decrypt broadcast reed:', error);
+        return;
+      }
       if (isBlankEcho(reed)) return;
+      // Followed authors belong in the follow feed only — ignore if we follow them.
       if (reed?.userID && (await followingRepository.isFollowing(reed.userID))) {
         return;
       }
