@@ -846,7 +846,7 @@ func InitDB(db *sql.DB) error {
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_events (
 		event_id VARCHAR(255) PRIMARY KEY,
 		request_id VARCHAR(255) NOT NULL,
-		requester_user_id VARCHAR(255) NOT NULL REFERENCES online_users(user_id) ON DELETE CASCADE,
+		requester_user_id VARCHAR(255) REFERENCES online_users(user_id) ON DELETE CASCADE,
 		event_name VARCHAR(255) NOT NULL,
 		subscription_id VARCHAR(255) REFERENCES profile_subscriptions(subscription_id) ON DELETE CASCADE,
 		dispatched_at TIMESTAMP,

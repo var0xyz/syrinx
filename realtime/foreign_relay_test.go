@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"syrinx/crypto"
@@ -47,19 +46,6 @@ func TestIsForeignReed(t *testing.T) {
 	// Malformed input (no embedded serverID at all) must not be treated as foreign.
 	if foreign, _ := rs.isForeignReed("not-a-canonical-id"); foreign {
 		t.Fatal("expected malformed reedID to not be treated as foreign")
-	}
-}
-
-// TestPeerRelaySentinelUserIDNeverCollidesWithRealUser guards the
-// assumption EnsurePeerSentinelUser's design depends on: the underscore
-// character never appears in crypto.Alphabet, so no real userID minted
-// via crypto.NewID can ever equal the sentinel token.
-func TestPeerRelaySentinelUserIDNeverCollidesWithRealUser(t *testing.T) {
-	if strings.ContainsAny(crypto.Alphabet, "_") {
-		t.Fatalf("crypto.Alphabet unexpectedly contains '_' -- peerRelaySentinelUserID %q may now collide with a real userID", peerRelaySentinelUserID)
-	}
-	if !strings.Contains(peerRelaySentinelUserID, "_") {
-		t.Fatalf("peerRelaySentinelUserID %q no longer contains the reserved '_' marker", peerRelaySentinelUserID)
 	}
 }
 

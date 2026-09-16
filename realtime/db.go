@@ -256,9 +256,12 @@ type PendingSubject struct {
 
 // CreatePendingReedEvent inserts pending_events + pending_reed_events (FK to reeds).
 // requesterUserID is the viewer; authorUserID + reedID identify the reed subject,
-// already in userID@serverID form.
+// already in userID@serverID form. requesterUserID == "" means the event is
+// foreign-attributed — no local online_users row can back it, so it's
+// stored as SQL NULL; foreign_relay_requests is the source of truth for
+// who it's really for (see recordForeignRelayRequest).
 func (ds *DBService) CreatePendingReedEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName EventName, reedID string) error {
-	requesterIdentity := identity.IdentityID(requesterUserID)
+	requester := sql.NullString{String: requesterUserID, Valid: requesterUserID != ""}
 
 	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -269,7 +272,7 @@ func (ds *DBService) CreatePendingReedEvent(ctx context.Context, eventID, reques
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
 		VALUES ($1, $2, $3, $4)
-	`, eventID, requestID, requesterIdentity, eventName)
+	`, eventID, requestID, requester, eventName)
 	if err != nil {
 		return err
 	}
@@ -316,9 +319,11 @@ func (ds *DBService) CreatePendingAccountEvent(ctx context.Context, eventID, req
 	return tx.Commit()
 }
 
-// CreateProfileSubscriptionEvent inserts a reed pending event tied to a profile subscription.
+// CreateProfileSubscriptionEvent inserts a reed pending event tied to a
+// profile subscription. requesterUserID == "" means foreign-attributed —
+// see CreatePendingReedEvent's doc comment for the NULL convention.
 func (ds *DBService) CreateProfileSubscriptionEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName EventName, reedID, subscriptionID string) error {
-	requesterIdentity := identity.IdentityID(requesterUserID)
+	requester := sql.NullString{String: requesterUserID, Valid: requesterUserID != ""}
 
 	tx, err := ds.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -329,7 +334,7 @@ func (ds *DBService) CreateProfileSubscriptionEvent(ctx context.Context, eventID
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name, subscription_id)
 		VALUES ($1, $2, $3, $4, $5)
-	`, eventID, requestID, requesterIdentity, eventName, subscriptionID)
+	`, eventID, requestID, requester, eventName, subscriptionID)
 	if err != nil {
 		return err
 	}
@@ -350,7 +355,7 @@ func (ds *DBService) CreateProfileSubscriptionEvent(ctx context.Context, eventID
 // form (cast to string, no .UserID() decode).
 func (ds *DBService) GetPendingSubject(ctx context.Context, eventID string) (*PendingSubject, error) {
 	var pe PendingSubject
-	var requester identity.IdentityID
+	var requester sql.NullString
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name
 		FROM pending_events pe
@@ -362,7 +367,7 @@ func (ds *DBService) GetPendingSubject(ctx context.Context, eventID string) (*Pe
 		}
 		return nil, err
 	}
-	pe.RequesterUserID = string(requester)
+	pe.RequesterUserID = requester.String
 
 	var subjectID identity.IdentityID
 	if EventName(pe.EventName) == AccountRemovedEvent {
@@ -394,7 +399,7 @@ func (ds *DBService) GetPendingSubject(ctx context.Context, eventID string) (*Pe
 // (author) is derived from the canonical reed_id.
 func (ds *DBService) GetPendingReedEvent(ctx context.Context, eventID string) (*PendingReedEvent, error) {
 	var pe PendingReedEvent
-	var requester identity.IdentityID
+	var requester sql.NullString
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id
 		FROM pending_events pe
@@ -407,7 +412,7 @@ func (ds *DBService) GetPendingReedEvent(ctx context.Context, eventID string) (*
 		}
 		return nil, err
 	}
-	pe.RequesterUserID = string(requester)
+	pe.RequesterUserID = requester.String
 	pe.UserID = reedAuthorIdentity(pe.ReedID)
 	return &pe, nil
 }
@@ -761,7 +766,7 @@ func (ds *DBService) GetSubtreeReplyCount(ctx context.Context, reedID string) (i
 func (ds *DBService) GetNextPendingForHolder(ctx context.Context, holderUserID string) (*PendingReedEvent, error) {
 	holderIdentity := identity.IdentityID(holderUserID)
 	var pe PendingReedEvent
-	var requester identity.IdentityID
+	var requester sql.NullString
 	err := ds.db.QueryRowContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id
 		FROM pending_reed_events pre
@@ -778,7 +783,7 @@ func (ds *DBService) GetNextPendingForHolder(ctx context.Context, holderUserID s
 	if err != nil {
 		return nil, err
 	}
-	pe.RequesterUserID = string(requester)
+	pe.RequesterUserID = requester.String
 	pe.UserID = reedAuthorIdentity(pe.ReedID)
 	return &pe, nil
 }
@@ -927,7 +932,7 @@ func (ds *DBService) GetPendingEventsForUser(ctx context.Context, userID string)
 	var results []PendingReedEvent
 	for rows.Next() {
 		var prr PendingReedEvent
-		var requester identity.IdentityID
+		var requester sql.NullString
 		if err := rows.Scan(
 			&prr.EventID,
 			&prr.RequestID,
@@ -937,7 +942,7 @@ func (ds *DBService) GetPendingEventsForUser(ctx context.Context, userID string)
 		); err != nil {
 			return nil, err
 		}
-		prr.RequesterUserID = string(requester)
+		prr.RequesterUserID = requester.String
 		prr.UserID = reedAuthorIdentity(prr.ReedID)
 		results = append(results, prr)
 	}
@@ -962,7 +967,7 @@ func (ds *DBService) GetPendingRequestsForRequester(ctx context.Context, request
 	var results []PendingReedEvent
 	for rows.Next() {
 		var prr PendingReedEvent
-		var requester identity.IdentityID
+		var requester sql.NullString
 		if err := rows.Scan(
 			&prr.EventID,
 			&prr.RequestID,
@@ -972,7 +977,7 @@ func (ds *DBService) GetPendingRequestsForRequester(ctx context.Context, request
 		); err != nil {
 			return nil, err
 		}
-		prr.RequesterUserID = string(requester)
+		prr.RequesterUserID = requester.String
 		prr.UserID = reedAuthorIdentity(prr.ReedID)
 		results = append(results, prr)
 	}
@@ -1517,11 +1522,6 @@ func (ds *DBService) ClearPeerStateForRemovedAccount(ctx context.Context, viewer
 	return targets, nil
 }
 
-// peerRelaySentinelUserID is the reserved bare userID minted for a
-// per-peer sentinel identity representing "peer server X, proxying a
-// REQUEST_REED on behalf of one of its users." Underscores never appear in a real userID, so this can never collide.
-const peerRelaySentinelUserID = "__peer_relay__"
-
 // ForeignPendingEvent is an originating-server foreign_pending_events row:
 // the mapping from a local pending_events.event_id to the outstanding
 // registration on the reed's home server (which peer to call back, and what id THEY know this event by).
@@ -1605,40 +1605,6 @@ func (ds *DBService) GetForeignPendingEventsByRequester(ctx context.Context, req
 		out = append(out, fpe)
 	}
 	return out, rows.Err()
-}
-
-// EnsurePeerSentinelUser idempotently mints (or reuses) a per-peer
-// sentinel identity + online_users row, satisfying pending_events.requester_user_id's
-// FK without a genuine local session — permanently "online", not a session refresh.
-func (ds *DBService) EnsurePeerSentinelUser(ctx context.Context, peerServerID string) (string, error) {
-	sentinelIdentity := identity.CanonicalID(peerServerID, peerRelaySentinelUserID)
-
-	tx, err := ds.db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO identities (id, server_id)
-		VALUES ($1, $2)
-		ON CONFLICT (id) DO NOTHING
-	`, sentinelIdentity, peerServerID); err != nil {
-		return "", err
-	}
-
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO online_users (user_id)
-		VALUES ($1)
-		ON CONFLICT (user_id) DO NOTHING
-	`, sentinelIdentity); err != nil {
-		return "", err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return "", err
-	}
-	return string(sentinelIdentity), nil
 }
 
 // UpsertReedIdentity idempotently records that reedID is a well-formed id
