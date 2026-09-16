@@ -780,6 +780,7 @@
   @media (max-width: 768px) {
     .profile-content {
       padding: 0.5rem;
+      padding-bottom: 6rem;
     }
 
     .user-profile-card-container {

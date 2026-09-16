@@ -572,12 +572,6 @@
     gap: 1rem;
   }
 
-  .reeds-list.with-write-button {
-    /* Clears the floating write button (bottom: 80px, 56px tall) so it
-       doesn't cover the last reed. */
-    padding-bottom: 156px;
-  }
-
   .reed-item {
     /* No overflow: hidden — the kebab dropdown is an absolutely
        positioned child that must be able to escape this card's bounds. */
