@@ -523,26 +523,23 @@ func (rs *RealtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 	}
 
 	for _, sub := range profileSubscribers {
-		requesterUserID := sub.ViewerUserID
 		foreign, viewerServerID := rs.isForeignReed(sub.ViewerUserID)
+		// pending_events.requester_user_id FKs to online_users, which a
+		// foreign viewer never has a row in — store NULL for the foreign
+		// case (createProfileSubscriptionEvent's convention) instead of a
+		// sentinel. Delivery still ends up at the real viewer:
+		// handleRelayResponse's default branch checks foreign_relay_requests
+		// (recorded below) and routes to foreignDeliverHook instead of a
+		// local WS send. eventID/requestID always inherit the REAL viewer's
+		// identity (generateEventID's own contract), never a placeholder.
+		fkRequesterUserID := sub.ViewerUserID
 		if foreign {
-			// pending_events.requester_user_id FKs to online_users, which a
-			// foreign viewer never has a row in — substitute the per-peer
-			// sentinel, same as HandleForeignSubscribeProfile's backfill
-			// path. Delivery still ends up at the real viewer: handleRelayResponse's
-			// default branch checks foreign_relay_requests (recorded below)
-			// and routes to foreignDeliverHook instead of a local WS send.
-			sentinelUserID, err := rs.dbService.EnsurePeerSentinelUser(context.Background(), viewerServerID)
-			if err != nil {
-				log.Error().Err(err).Str("viewerUserID", sub.ViewerUserID).Msg("Failed to ensure peer sentinel for foreign profile subscriber")
-				continue
-			}
-			requesterUserID = sentinelUserID
+			fkRequesterUserID = ""
 		}
 
-		eventID := generateEventID(requesterUserID)
-		requestID := generateEventID(requesterUserID)
-		if err := rs.createProfileSubscriptionEvent(context.Background(), eventID, requestID, requesterUserID, ProfileSubscriptionEvent, reedID, sub.SubscriptionID); err != nil {
+		eventID := generateEventID(sub.ViewerUserID)
+		requestID := generateEventID(sub.ViewerUserID)
+		if err := rs.createProfileSubscriptionEvent(context.Background(), eventID, requestID, fkRequesterUserID, ProfileSubscriptionEvent, reedID, sub.SubscriptionID); err != nil {
 			log.Error().
 				Err(err).
 				Str("viewerUserID", sub.ViewerUserID).
@@ -1350,7 +1347,17 @@ func (rs *RealtimeService) dispatchNext(holderUserID string) bool {
 	if !ok {
 		return false // another replica claimed it
 	}
-	if err := rs.connManager.SendToUser(holderUserID, NewRelayRequestMsg(pe.EventID, pe.UserID, pe.ReedID, pe.RequesterUserID)); err != nil {
+	// pe.RequesterUserID is empty for a foreign-attributed event (no local
+	// online_users row backs a remote requester) — the holder needs the
+	// real remote user id to resolve their key and encrypt to them, so
+	// look it up from foreign_relay_requests instead.
+	requesterID := pe.RequesterUserID
+	if frr, ferr := rs.dbService.GetForeignRelayRequest(context.Background(), pe.EventID); ferr != nil {
+		log.Error().Err(ferr).Str("eventID", pe.EventID).Msg("Failed to check foreign relay request for dispatch")
+	} else if frr != nil {
+		requesterID = frr.RequestingUserID
+	}
+	if err := rs.connManager.SendToUser(holderUserID, NewRelayRequestMsg(pe.EventID, pe.UserID, pe.ReedID, requesterID)); err != nil {
 		log.Error().
 			Err(err).
 			Str("holderUserID", holderUserID).
@@ -1713,23 +1720,19 @@ func (rs *RealtimeService) handleForeignRequestReedFromClient(client *Client, re
 // its own content) and HandleForeignFallbackRequest (a peer we notified
 // asks us, the true home, to relay back a copy after finding no local
 // holder). Both cases run the same registerReedRequest sequence a local
-// requester would, using a per-peer sentinel identity as the "requester"
-// so the rest of the local relay-holder machinery (dispatchNext,
-// handleRelayResponse, etc.) needs no special-casing to handle either.
+// requester would, with an empty FK-column requester (no local
+// online_users row can back a foreign requester) so the rest of the
+// local relay-holder machinery (dispatchNext, handleRelayResponse, etc.)
+// needs no special-casing to handle either.
 func (rs *RealtimeService) registerAndRecordForeignRelay(ctx context.Context, reedID, requestingServerID, requestingUserID string) (result ForeignRequestResult, peerEventID string, err error) {
-	sentinelUserID, err := rs.dbService.EnsurePeerSentinelUser(ctx, requestingServerID)
-	if err != nil {
-		return ForeignRequestReedNotFound, "", err
-	}
-
 	// requestID here is our own local pending_events.request_id bookkeeping
 	// value, not the peer's own request id (that's recorded separately
 	// below) — but it still inherits the ORIGINAL remote requester's
-	// identity, not the sentinel's, so any downstream code that ever
+	// identity, not a placeholder, so any downstream code that ever
 	// surfaces it (logging, future features) reflects who actually asked,
 	// not this server's internal bookkeeping stand-in.
 	requestID := generateEventID(requestingUserID)
-	exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, reedID, sentinelUserID, requestingUserID, requestID, false, RequestReedEvent)
+	exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, reedID, "", requestingUserID, requestID, false, RequestReedEvent)
 	if err != nil {
 		return ForeignRequestReedNotFound, "", err
 	}
@@ -1814,11 +1817,6 @@ func (rs *RealtimeService) recordForeignRelayRequest(ctx context.Context, eventI
 // error; matches the local SUBSCRIBE_PROFILE path's own
 // best-effort-per-reed behavior).
 func (rs *RealtimeService) HandleForeignSubscribeProfile(ctx context.Context, authorID, requestingServerID, requestingUserID string) (results []ForeignSubscribeProfileResult, err error) {
-	sentinelUserID, err := rs.dbService.EnsurePeerSentinelUser(ctx, requestingServerID)
-	if err != nil {
-		return nil, err
-	}
-
 	// Durable registration for LIVE fanout: without this, fanoutNewReedCore's
 	// GetProfileSubscribers(authorID) call never sees this peer's viewer, so
 	// a reed authorID publishes after this snapshot never reaches them. The
@@ -1840,7 +1838,7 @@ func (rs *RealtimeService) HandleForeignSubscribeProfile(ctx context.Context, au
 
 	for _, reedID := range reedIDs {
 		requestID := generateEventID(requestingUserID)
-		exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, reedID, sentinelUserID, requestingUserID, requestID, false, RequestReedEvent)
+		exists, hasHolders, eventID, err := rs.registerReedRequest(ctx, reedID, "", requestingUserID, requestID, false, RequestReedEvent)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed for foreign profile subscription")
 			continue
@@ -3106,13 +3104,8 @@ func (rs *RealtimeService) notifyForeignReedSubscribersOfReply(ancestorReedID, r
 		if !foreign {
 			continue
 		}
-		sentinelUserID, err := rs.dbService.EnsurePeerSentinelUser(context.Background(), viewerServerID)
-		if err != nil {
-			log.Error().Err(err).Str("viewerUserID", sub.ViewerUserID).Msg("Failed to ensure peer sentinel for foreign reed reply notify")
-			continue
-		}
 		requestID := generateEventID(sub.ViewerUserID)
-		exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), replyReedID, sentinelUserID, sub.ViewerUserID, requestID, false, ReedReplyEvent)
+		exists, hasHolders, eventID, err := rs.registerReedRequest(context.Background(), replyReedID, "", sub.ViewerUserID, requestID, false, ReedReplyEvent)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", replyReedID).Str("viewerUserID", sub.ViewerUserID).Msg("Failed to register foreign reed reply notify")
 			continue

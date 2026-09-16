@@ -509,7 +509,7 @@ func (h *Handlers) ackRelayDeliveryWithPeer(ctx context.Context, homeServerID, p
 
 // AckRelayDeliveryFromPeer is leg 5's home-server handler: the
 // originating server's local viewer verified and allocated the delivered
-// content; mirror that allocation against this peer's sentinel identity
+// content; record that peer server as a known holder (RecordServerHolder)
 // so future GetUnallocatedReeds-style queries for it stop re-offering
 // content already successfully relayed.
 func (h *Handlers) AckRelayDeliveryFromPeer(w http.ResponseWriter, r *http.Request) {
@@ -555,7 +555,7 @@ func (h *Handlers) AckRelayDeliveryFromPeer(w http.ResponseWriter, r *http.Reque
 //
 // Teardown counterpart of leg 1b: without this, UNSUBSCRIBE_PROFILE only
 // ever updated O's own bookkeeping, so H kept fanning out to a departed
-// viewer's sentinel-attributed pending events forever.
+// viewer's foreign-attributed pending events forever.
 
 type relayUnsubscribePayload struct {
 	AuthorID        string `json:"author_id"`
