@@ -4,8 +4,8 @@
   import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
+  import RemotePagination from '$lib/components/RemotePagination.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
-  import type * as api from '$lib/types/api';
 
   export let userId = '';
   /** 'following' | 'followers' */
@@ -15,61 +15,38 @@
 
   type Row = { userID: string; username: string; followedAt: string };
 
-  let rows: Row[] = [];
-  let loading = false;
-  let error = '';
-  let hasMore = false;
-  let cursor: string | undefined;
+  let pagination: RemotePagination<Row> | undefined;
   let loadedForKey = '';
 
   $: title = mode === 'following' ? 'Following' : 'Followers';
 
-  // Fires once on mount (loadedForKey starts empty) and again if the
-  // parent ever reuses a still-mounted instance for a different user/mode.
+  // Fires once on mount and again if the parent ever reuses a
+  // still-mounted instance for a different user/mode.
   $: key = `${userId}:${mode}`;
   $: if (key !== loadedForKey) {
     loadedForKey = key;
-    reset();
-    void loadPage();
+    void pagination?.loadFirstPage();
   }
 
-  function reset() {
-    rows = [];
-    error = '';
-    hasMore = false;
-    cursor = undefined;
-  }
+  async function fetchFollowPage(cursor?: string) {
+    if (!userId) return { items: [], hasMore: false };
+    const list = mode === 'following'
+      ? await apiService.listFollowing(userId, { before: cursor })
+      : await apiService.listFollowers(userId, { before: cursor });
 
-  async function loadPage() {
-    if (!userId) return;
-    loading = true;
-    error = '';
-    try {
-      const list: api.FollowListResponse =
-        mode === 'following'
-          ? await apiService.listFollowing(userId, { before: cursor })
-          : await apiService.listFollowers(userId, { before: cursor });
+    const items = await Promise.all(
+      list.users.map(async (u) => {
+        const profile = await userRepository.getByUserId(u.userID).catch(() => null);
+        return {
+          userID: u.userID,
+          username: profile?.username ?? u.userID,
+          followedAt: u.followedAt,
+        };
+      })
+    );
 
-      const resolved = await Promise.all(
-        list.users.map(async (u) => {
-          const profile = await userRepository.getByUserId(u.userID).catch(() => null);
-          return {
-            userID: u.userID,
-            username: profile?.username ?? u.userID,
-            followedAt: u.followedAt,
-          };
-        })
-      );
-
-      rows = [...rows, ...resolved];
-      hasMore = list.hasMore;
-      cursor = list.users.length > 0 ? list.users[list.users.length - 1].followedAt : cursor;
-    } catch (err) {
-      console.error(`Failed to load ${mode} list:`, err);
-      error = 'Unable to load this list right now.';
-    } finally {
-      loading = false;
-    }
+    const nextCursor = list.users.length > 0 ? list.users[list.users.length - 1].followedAt : cursor;
+    return { items, hasMore: list.hasMore, nextCursor };
   }
 
   function close() {
@@ -93,16 +70,8 @@
     </div>
 
     <div class="list-body">
-      {#if rows.length === 0 && loading}
-        <p class="state-text">Loading…</p>
-      {:else if error && rows.length === 0}
-        <p class="state-text error">{error}</p>
-      {:else if rows.length === 0}
-        <p class="state-text">
-          {mode === 'following' ? 'Not following anyone yet.' : 'No followers yet.'}
-        </p>
-      {:else}
-        {#each rows as row (row.userID)}
+      <RemotePagination bind:this={pagination} fetchPage={fetchFollowPage}>
+        {#snippet item(row)}
           <div
             class="user-row"
             role="button"
@@ -117,16 +86,13 @@
               stopPropagation
             />
           </div>
-        {/each}
-        {#if error}
-          <p class="state-text error">{error}</p>
-        {/if}
-        {#if hasMore}
-          <button class="load-more-btn" on:click={loadPage} disabled={loading}>
-            {loading ? 'Loading…' : 'Load more'}
-          </button>
-        {/if}
-      {/if}
+        {/snippet}
+        {#snippet empty()}
+          <p class="state-text">
+            {mode === 'following' ? 'Not following anyone yet.' : 'No followers yet.'}
+          </p>
+        {/snippet}
+      </RemotePagination>
     </div>
   </div>
 </div>
@@ -216,28 +182,5 @@
     text-align: center;
     padding: 1rem 0;
     margin: 0;
-  }
-
-  .state-text.error {
-    color: var(--error);
-  }
-
-  .load-more-btn {
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--fg);
-    border-radius: 8px;
-    padding: 0.5rem;
-    cursor: pointer;
-    font-weight: 600;
-  }
-
-  .load-more-btn:hover:not(:disabled) {
-    background: var(--input-bg);
-  }
-
-  .load-more-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
   }
 </style>
