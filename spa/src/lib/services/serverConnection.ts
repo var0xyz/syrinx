@@ -384,7 +384,7 @@ class ServerConnection {
   }
 
   sendRelayResponse(eventId: string, ciphertext: string): void {
-    this.send({ type: 'RELAY_RESPONSE', id: eventId, data: { ciphertext } });
+    this.send({ type: 'RELAY_RESPONSE', id: eventId, data: ciphertext });
   }
 
   sendRelayMiss(eventId: string): void {

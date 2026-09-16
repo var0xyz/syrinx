@@ -115,12 +115,6 @@ type RequestReedData struct {
 	ReedID    string `json:"reed_id"`
 }
 
-// RelayResponseData is RELAY_RESPONSE's payload (event id is
-// InboundJSONMsg.ID). Ciphertext is the holder's armored PGP encryption
-// of the reed, opaque to the server — never plaintext reed content.
-type RelayResponseData struct {
-	Ciphertext string `json:"ciphertext"`
-}
 
 // PublishReadyData is the payload of an incoming PUBLISH_READY message.
 type PublishReadyData struct {

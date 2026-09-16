@@ -693,7 +693,7 @@ func (rs *RealtimeService) deliverAccountRemoved(eventID, requestID, recipientID
 	if !ok {
 		return
 	}
-	if err := rs.connManager.SendToUser(recipientID, NewAccountRemovedMsg(eventID, requestID, removedUserID, wire)); err != nil {
+	if err := rs.connManager.SendToUser(recipientID, NewAccountRemovedMsg(eventID, requestID, wire)); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Str("userID", removedUserID).Msg("Failed to send ACCOUNT_REMOVED")
 	}
 }
@@ -718,7 +718,7 @@ func (rs *RealtimeService) deliverReedRemoved(eventID, requestID, recipientID, r
 	if !ok {
 		return
 	}
-	if err := rs.connManager.SendToUser(recipientID, NewReedRemovedMsg(eventID, requestID, reedID, wire)); err != nil {
+	if err := rs.connManager.SendToUser(recipientID, NewReedRemovedMsg(eventID, requestID, wire)); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Str("reedID", reedID).Msg("Failed to send REED_REMOVED")
 	}
 }
@@ -1938,9 +1938,9 @@ func (rs *RealtimeService) HandleForeignRelayResponse(ctx context.Context, peerE
 
 	var msg DataResponseMsg
 	if pe.EventName == string(ReedReplyEvent) {
-		msg = NewReedReplyMsg(pe.EventID, pe.RequestID, pe.ReedID, ciphertext)
+		msg = NewReedReplyMsg(pe.EventID, pe.RequestID, ciphertext)
 	} else {
-		msg = NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, ciphertext)
+		msg = NewDataResponseMsg(pe.EventID, pe.RequestID, ciphertext)
 	}
 	if err := rs.connManager.SendToUser(pe.RequesterUserID, msg); err != nil {
 		log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver foreign-relayed data response")
@@ -2107,8 +2107,8 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, eventID string, d
 	if eventID == "" {
 		return
 	}
-	var relay RelayResponseData
-	if err := json.Unmarshal(data, &relay); err != nil {
+	var ciphertext string
+	if err := json.Unmarshal(data, &ciphertext); err != nil {
 		return
 	}
 
@@ -2136,8 +2136,8 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, eventID string, d
 			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Dropping broadcast reed: author account was either removed or never existed")
 		} else {
 			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering broadcast reed to subscriber")
-			rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
-				return NewBroadcastReedMsg(pe.ReedID, relay.Ciphertext, username)
+			rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(ciphertext), func() DataResponseMsg {
+				return NewBroadcastReedMsg(ciphertext, username)
 			})
 		}
 		// Broadcast is ephemeral (no DATA_ACK expected) — delete right away,
@@ -2147,31 +2147,31 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, eventID string, d
 		}
 	} else if pe.EventName == string(PipeReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering pipe reed to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
-			return NewPipeReedMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Ciphertext)
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(ciphertext), func() DataResponseMsg {
+			return NewPipeReedMsg(pe.EventID, pe.RequestID, ciphertext)
 		})
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else if pe.EventName == string(FollowReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering follow reed to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
-			return NewFollowReedMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Ciphertext)
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(ciphertext), func() DataResponseMsg {
+			return NewFollowReedMsg(pe.EventID, pe.RequestID, ciphertext)
 		})
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else if pe.EventName == string(ArchiveReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering archive reed to admin")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
-			return NewArchiveReedMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Ciphertext)
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(ciphertext), func() DataResponseMsg {
+			return NewArchiveReedMsg(pe.EventID, pe.RequestID, ciphertext)
 		})
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else if pe.EventName == string(ReedReplyEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering reed reply to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
-			return NewReedReplyMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Ciphertext)
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(ciphertext), func() DataResponseMsg {
+			return NewReedReplyMsg(pe.EventID, pe.RequestID, ciphertext)
 		})
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else {
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(relay.Ciphertext), func() DataResponseMsg {
-			return NewDataResponseMsg(pe.EventID, pe.RequestID, pe.ReedID, relay.Ciphertext)
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(ciphertext), func() DataResponseMsg {
+			return NewDataResponseMsg(pe.EventID, pe.RequestID, ciphertext)
 		})
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	}

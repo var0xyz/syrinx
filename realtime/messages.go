@@ -65,10 +65,12 @@ type DataResponseMsg struct {
 	Data DataResponseData `json:"data"`
 }
 
+// DataResponseData carries no id of its own — the reed/account identity
+// already lives inside Ciphertext (once decrypted) or inside Data (the
+// cert object already carries its own reedID/userID) — an outer id here
+// would only ever duplicate one already present in the payload.
 type DataResponseData struct {
 	RequestID  string          `json:"request_id,omitempty"`
-	ReedID     string          `json:"reed_id,omitempty"`
-	UserID     string          `json:"user_id,omitempty"`
 	Data       json.RawMessage `json:"data,omitempty"`
 	Ciphertext string          `json:"ciphertext,omitempty"`
 	Username   string          `json:"username,omitempty"`
@@ -82,16 +84,15 @@ func jsonString(s string) json.RawMessage {
 	return raw
 }
 
-func NewDataResponseMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
-	return DataResponseMsg{Type: "DATA_RESPONSE", ID: eventID, Data: DataResponseData{RequestID: requestID, ReedID: reedID, Ciphertext: ciphertext}}
+func NewDataResponseMsg(eventID, requestID, ciphertext string) DataResponseMsg {
+	return DataResponseMsg{Type: "DATA_RESPONSE", ID: eventID, Data: DataResponseData{RequestID: requestID, Ciphertext: ciphertext}}
 }
 
 // NewBroadcastReedMsg builds a BROADCAST_REED delivery message (no request_id or event id needed).
-func NewBroadcastReedMsg(reedID, ciphertext, username string) DataResponseMsg {
+func NewBroadcastReedMsg(ciphertext, username string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "BROADCAST_REED",
 		Data: DataResponseData{
-			ReedID:     reedID,
 			Ciphertext: ciphertext,
 			Username:   username,
 		},
@@ -100,26 +101,24 @@ func NewBroadcastReedMsg(reedID, ciphertext, username string) DataResponseMsg {
 
 // NewPipeReedMsg builds a PIPE_REED delivery (pipe subscription push).
 // Carries the event id so the viewer can DATA_ACK after verify+store (same as DATA_RESPONSE).
-func NewPipeReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
+func NewPipeReedMsg(eventID, requestID, ciphertext string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "PIPE_REED",
 		ID:   eventID,
 		Data: DataResponseData{
 			RequestID:  requestID,
-			ReedID:     reedID,
 			Ciphertext: ciphertext,
 		},
 	}
 }
 
 // NewFollowReedMsg builds a FOLLOW_REED delivery (followcast / follow catch-up push).
-func NewFollowReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
+func NewFollowReedMsg(eventID, requestID, ciphertext string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "FOLLOW_REED",
 		ID:   eventID,
 		Data: DataResponseData{
 			RequestID:  requestID,
-			ReedID:     reedID,
 			Ciphertext: ciphertext,
 		},
 	}
@@ -128,13 +127,12 @@ func NewFollowReedMsg(eventID, requestID, reedID, ciphertext string) DataRespons
 // NewArchiveReedMsg builds an ARCHIVE_REED delivery to an admin/root
 // resilience holder. No feed/UI semantics — the client stores and holds
 // the reed without touching any social-graph state.
-func NewArchiveReedMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
+func NewArchiveReedMsg(eventID, requestID, ciphertext string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "ARCHIVE_REED",
 		ID:   eventID,
 		Data: DataResponseData{
 			RequestID:  requestID,
-			ReedID:     reedID,
 			Ciphertext: ciphertext,
 		},
 	}
@@ -148,41 +146,38 @@ func NewArchiveReedMsg(eventID, requestID, reedID, ciphertext string) DataRespon
 // home server relayed it to us on their behalf (see
 // notifyForeignReedSubscribersOfReply) — the client handles both identically,
 // so there is no separate cross-server wire type.
-func NewReedReplyMsg(eventID, requestID, reedID, ciphertext string) DataResponseMsg {
+func NewReedReplyMsg(eventID, requestID, ciphertext string) DataResponseMsg {
 	return DataResponseMsg{
 		Type: "REED_REPLY",
 		ID:   eventID,
 		Data: DataResponseData{
 			RequestID:  requestID,
-			ReedID:     reedID,
 			Ciphertext: ciphertext,
 		},
 	}
 }
 
 // NewReedRemovedMsg builds a REED_REMOVED delivery with the full signed cert as data.
-func NewReedRemovedMsg(eventID, requestID, reedID string, cert ReedRemovalWire) DataResponseMsg {
+func NewReedRemovedMsg(eventID, requestID string, cert ReedRemovalWire) DataResponseMsg {
 	raw, _ := json.Marshal(cert)
 	return DataResponseMsg{
 		Type: "REED_REMOVED",
 		ID:   eventID,
 		Data: DataResponseData{
 			RequestID: requestID,
-			ReedID:    reedID,
 			Data:      raw,
 		},
 	}
 }
 
 // NewAccountRemovedMsg builds an ACCOUNT_REMOVED delivery with the full signed cert.
-func NewAccountRemovedMsg(eventID, requestID, removedUserID string, cert AccountRemovalWire) DataResponseMsg {
+func NewAccountRemovedMsg(eventID, requestID string, cert AccountRemovalWire) DataResponseMsg {
 	raw, _ := json.Marshal(cert)
 	return DataResponseMsg{
 		Type: "ACCOUNT_REMOVED",
 		ID:   eventID,
 		Data: DataResponseData{
 			RequestID: requestID,
-			UserID:    removedUserID,
 			Data:      raw,
 		},
 	}

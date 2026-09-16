@@ -38,12 +38,14 @@ has — nothing else moved.
 
 ## What didn't move
 
-`DataResponseData.Data` (`json:"data"`) — the field carrying the reed
-ciphertext (as a JSON-encoded string) or, for `REED_REMOVED`/
-`ACCOUNT_REMOVED`, the removal certificate — is unrelated to this change
-and stays exactly where it is. `pending_events.event_id`, the Postgres
-column, is also unrelated — this is a wire-shape change only, no schema
-migration.
+`DataResponseData.Data` (`json:"data"`) — at the time of this change, the
+field carrying either the reed ciphertext (as a JSON-encoded string) or,
+for `REED_REMOVED`/`ACCOUNT_REMOVED`, the removal certificate — was
+unrelated to this change and stayed exactly where it was.
+[08](08_flatten_redundant_ids.md) later split the ciphertext case onto its
+own `Ciphertext` field; `Data` now carries only the cert case. Also
+unrelated: `pending_events.event_id`, the Postgres column — this was a
+wire-shape change only, no schema migration.
 
 ## Go implementation
 

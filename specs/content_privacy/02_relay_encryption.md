@@ -36,10 +36,10 @@ author, so nothing else is needed to disambiguate it — an earlier
 (The event id itself lives on the message root as `id`, not inside this
 struct — see [06](06_event_id_at_root.md).)
 
-`RELAY_RESPONSE` (holder → server) carries the ciphertext under its own
-name — `RelayResponseData.Ciphertext` (`json:"ciphertext"`). `DATA_RESPONSE`
-/ `FOLLOW_REED` / `PIPE_REED` / `ARCHIVE_REED` / `REED_REPLY` /
-`BROADCAST_REED` also carry ciphertext under their own dedicated
+`RELAY_RESPONSE` (holder → server) carries `data` as a bare ciphertext
+string — no wrapper object, see [08](08_flatten_redundant_ids.md).
+`DATA_RESPONSE` / `FOLLOW_REED` / `PIPE_REED` / `ARCHIVE_REED` /
+`REED_REPLY` / `BROADCAST_REED` carry ciphertext under their own dedicated
 `DataResponseData.Ciphertext` field (`json:"ciphertext"`), separate from
 `DataResponseData.Data` (`json:"data"`), which stays reserved for the
 unrelated plaintext `REED_REMOVED`/`ACCOUNT_REMOVED` cert payloads — the
