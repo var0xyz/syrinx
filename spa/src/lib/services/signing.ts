@@ -133,7 +133,7 @@ export function buildProfilePayload(
   serverID: string,
   serverKeyFingerprint: string,
   userSignatureB64: string,
-  invitedBy: string,
+  inviteID: string,
   role: string,
   bio: string,
   memberSince: string,
@@ -151,7 +151,7 @@ export function buildProfilePayload(
       serverKeyFingerprint,
       signedAt,
       userSignature: userSignatureB64,
-      invitedBy
+      inviteID
     },
     bio
   );

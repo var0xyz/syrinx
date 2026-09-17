@@ -160,9 +160,9 @@
         <p class="user-info">{user?.id}</p>
       </div>
       <p class="user-info">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
-      {#if user?.invitedBy}
+      {#if user?.invite}
         <p class="user-info invited-by">
-          Invited by <Username userID={user.invitedBy.id} username={user.invitedBy.username} at fire={false} />
+          Invited by <Username userID={user.invite.userID} username={user.invite.username} at fire={false} />
         </p>
       {/if}
       <div class="follow-stats">

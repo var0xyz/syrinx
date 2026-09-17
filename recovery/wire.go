@@ -99,12 +99,15 @@ type Profile struct {
 	UserSignature        UserSignature   `json:"userSignature"`
 	ServerSignature      ServerSignature `json:"serverSignature"`
 	HasReeds             bool            `json:"hasReeds"`
-	InvitedBy            *InvitedBy      `json:"invitedBy"`
+	Invite               *Invite         `json:"invite"`
 }
 
-// InvitedBy is the inviter identity nested on User/Profile wire when set.
-type InvitedBy struct {
+// Invite is the invite binding nested on User/Profile wire when set. ID is
+// the invite's id (the value the profile signature covers); UserID/Username
+// identify the inviter for display.
+type Invite struct {
 	ID       string `json:"id"`
+	UserID   string `json:"userID"`
 	Username string `json:"username"`
 }
 

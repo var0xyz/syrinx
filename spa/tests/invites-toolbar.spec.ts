@@ -20,7 +20,7 @@ test.describe('Invites management UI', () => {
     expect(src).toContain("currentPage === 'invites'");
   });
 
-  test('invites route exists and profile card shows invitedBy', () => {
+  test('invites route exists and profile card shows invite', () => {
     const page = readFileSync(join(root, 'src/routes/invites/+page.svelte'), 'utf8');
     expect(page).toContain('createSignedInvite');
     expect(page).toContain('inviteShareURL');
@@ -35,7 +35,7 @@ test.describe('Invites management UI', () => {
       join(root, 'src/lib/components/UserProfileCard.svelte'),
       'utf8'
     );
-    expect(card).toContain('user?.invitedBy');
+    expect(card).toContain('user?.invite');
     expect(card).toContain('Invited by');
   });
 

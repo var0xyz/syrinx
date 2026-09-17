@@ -214,23 +214,23 @@ func insertUser(ctx context.Context, tx *sql.Tx, serverID string, profile Profil
 	if err != nil {
 		return err
 	}
-	// invited_by FKs identities(id): the inviter is always a local user,
-	// so the same CanonicalID conversion applies, as in services.go's Signup.
-	var invitedBy any
-	if inviter := profileInvitedByID(profile); inviter != "" {
-		invitedBy = identity.CanonicalID(serverID, inviter)
+	// invite_id is already canonical (creatorID@serverID/uuid) — no
+	// conversion needed, unlike a bare user id.
+	var inviteID any
+	if id := profileInviteID(profile); id != "" {
+		inviteID = id
 	}
 	// users.id IS identities.id directly — selfIdentity is the sole PK
 	// value, same pattern as services.go's Signup INSERT.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO users (
 			id, username, role, created_at, active_key_id, bio,
-			user_signature_id, server_signature_id, invited_by
+			user_signature_id, server_signature_id, invite_id
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`,
 		selfIdentity, username, profile.Role, profile.MemberSince.UTC().Truncate(time.Second),
 		activeFP, nullIfEmpty(profile.Bio),
-		userSignatureID, serverSignatureID, invitedBy,
+		userSignatureID, serverSignatureID, inviteID,
 	)
 	if err != nil {
 		return fmt.Errorf("insert user: %w", err)

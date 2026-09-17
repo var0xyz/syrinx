@@ -215,7 +215,10 @@ func (d Deps) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := d.Store.Insert(r.Context(), req.ID, caller, tokenHash, createdAt, grantedRole); err != nil {
+	if err := d.Store.Insert(
+		r.Context(), req.ID, caller, tokenHash, createdAt, grantedRole,
+		req.UserSignature.ID, req.UserSignature.Armor,
+	); err != nil {
 		if errors.Is(err, ErrInviteExists) {
 			writeJSON(w, http.StatusConflict, "Invite already exists")
 			return

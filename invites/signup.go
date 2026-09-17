@@ -13,8 +13,7 @@ var (
 
 // ResolvedInvite is the invite (if any) to consume during signup.
 type ResolvedInvite struct {
-	InviteID  string
-	InviterID string
+	InviteID string
 }
 
 // ResolveSignup applies SIGNUP_MODE invite policy given an optional invite
@@ -52,7 +51,6 @@ func ResolveSignup(
 		return ResolvedInvite{}, ErrInvalidInvite
 	}
 	return ResolvedInvite{
-		InviteID:  inv.ID,
-		InviterID: inv.CreatedBy,
+		InviteID: inv.ID,
 	}, nil
 }

@@ -450,7 +450,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		h.services.db.GetServerID(),
 		h.signingKey.Fingerprint,
 		userSignatureB64,
-		resolved.InviterID,
+		resolved.InviteID,
 		signupRole,
 		now,
 	)
@@ -1421,10 +1421,10 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Mint the server-authored fields and countersign. createdAt
 	// stays pinned to the value set at signup; only signedAt advances.
-	// invitedBy is immutable — always re-bind the value stored on the row.
-	invitedByID := ""
-	if currentUser.InvitedBy != nil {
-		invitedByID = currentUser.InvitedBy.ID
+	// inviteID is immutable — always re-bind the value stored on the row.
+	inviteID := ""
+	if currentUser.Invite != nil {
+		inviteID = currentUser.Invite.ID
 	}
 	signedAt := time.Now().UTC().Truncate(time.Second)
 	profilePayload := identity.BuildProfilePayload(
@@ -1434,7 +1434,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		h.services.db.GetServerID(),
 		h.signingKey.Fingerprint,
 		userSignatureB64,
-		invitedByID,
+		inviteID,
 		currentUser.Role,
 		bio,
 		currentUser.CreatedAt,

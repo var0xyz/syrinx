@@ -130,11 +130,11 @@ func FlattenKeysNest(
 	return active, flat, nil
 }
 
-func profileInvitedByID(profile Profile) string {
-	if profile.InvitedBy == nil {
+func profileInviteID(profile Profile) string {
+	if profile.Invite == nil {
 		return ""
 	}
-	return profile.InvitedBy.ID
+	return profile.Invite.ID
 }
 
 // VerifyProfileServerCountersig checks profile.serverSignature.serverID
@@ -161,7 +161,7 @@ func VerifyProfileServerCountersig(ctx context.Context, profile Profile, serverI
 		serverID,
 		profile.ServerSignature.Fingerprint,
 		profile.UserSignature.Armor,
-		profileInvitedByID(profile),
+		profileInviteID(profile),
 		profile.Role,
 		profile.Bio,
 		profile.MemberSince.UTC().Truncate(time.Second),
