@@ -336,7 +336,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     profileServerID,
     profileServerFingerprint,
     user.userSignature.armor,
-    user.invitedBy?.id ?? '',
+    user.invite?.id ?? '',
     user.role,
     user.bio ?? '',
     signedAtHeader(user.memberSince),

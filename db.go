@@ -29,7 +29,7 @@ type User struct {
 	CreatedAt       time.Time       `json:"memberSince"`
 	UserSignature   UserSignature   `json:"userSignature"`
 	ServerSignature ServerSignature `json:"serverSignature"`
-	InvitedBy       *InvitedBy      `json:"invitedBy"`
+	Invite          *Invite         `json:"invite"`
 }
 
 // UserInfo is the unsigned, frequently changing view of a user
@@ -49,9 +49,12 @@ type UserInfo struct {
 	PinnedReedIDs []string `json:"pinnedReedIDs,omitempty"`
 }
 
-// InvitedBy is the durable inviter binding nested on User wire when set.
-type InvitedBy struct {
+// Invite is the durable invite binding nested on User wire when set. ID is
+// the invite's id (the value the profile signature covers); UserID/Username
+// identify the inviter for display.
+type Invite struct {
 	ID       string `json:"id"`
+	UserID   string `json:"userID"`
 	Username string `json:"username"`
 }
 
@@ -255,9 +258,8 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// users is a satellite of identities — profile fields only. id IS
-	// identities.id directly. active_key_id points at this user's current
-	// unrevoked key (public_keys.id); created after public_keys so the FK
-	// can be declared inline.
+	// identities.id directly. invite_id points at the claimed invite
+	// (NULL if none); the inviter is reached via invites.created_by.
 	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
 		id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -269,7 +271,7 @@ func InitDB(db *sql.DB) error {
 		active_key_id VARCHAR(255) REFERENCES public_keys(id),
 		user_signature_id INT REFERENCES user_signatures(id),
 		server_signature_id INT REFERENCES server_signatures(id),
-		invited_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL
+		invite_id VARCHAR(255) REFERENCES invites(id) ON DELETE SET NULL
 	);`
 
 	createUserIndexes := `
@@ -982,10 +984,9 @@ func InitDB(db *sql.DB) error {
 		ON pending_follows(following_user_id);
 	`
 
-	// Invites — operational redeem state. id is canonical
-	// (creatorID@serverID/uuid), self-describing and globally unique, so
-	// it alone is PK; created_by stays a real column for CountByCreator
-	// and cascade-on-account-removal.
+	// Invites — operational redeem state plus the inviter's attestation.
+	// id is canonical (creatorID@serverID/uuid) and globally unique, so it
+	// alone is PK. user_signature_id is the inviter's signature over the invite.
 	createInvitesTable := `
 	CREATE TABLE IF NOT EXISTS invites (
 		id VARCHAR(255) PRIMARY KEY,
@@ -996,7 +997,8 @@ func InitDB(db *sql.DB) error {
 		claimed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
 		revoked_at TIMESTAMPTZ,
 		granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
-			CHECK (granted_role IN ('admin', 'user'))
+			CHECK (granted_role IN ('admin', 'user')),
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id)
 	);`
 
 	createInvitesIndexes := `
@@ -1123,6 +1125,9 @@ func InitDB(db *sql.DB) error {
 		createPublicKeysTable,
 		createPublicKeyIndexes,
 
+		createInvitesTable,
+		createInvitesIndexes,
+
 		createUsersTable,
 		createUserIndexes,
 
@@ -1170,9 +1175,6 @@ func InitDB(db *sql.DB) error {
 
 		createPinnedReedsTable,
 		createPinnedReedsIndexes,
-
-		createInvitesTable,
-		createInvitesIndexes,
 
 		// Realtime
 		createOnlineUsersTable,

@@ -187,7 +187,7 @@ func TestCreate_Closed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := deps.Store.Insert(context.Background(), id, creator, HashSecret(secret), fixed, roles.RoleUser); err != nil {
+	if err := deps.Store.Insert(context.Background(), id, creator, HashSecret(secret), fixed, roles.RoleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 	rrStatus := httptest.NewRecorder()
@@ -236,7 +236,7 @@ func TestStatus_ClaimedBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := deps.Store.Insert(context.Background(), id, creator, HashSecret(secret), now, roles.RoleUser); err != nil {
+	if err := deps.Store.Insert(context.Background(), id, creator, HashSecret(secret), now, roles.RoleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := deps.Store.DB.Begin()
@@ -404,7 +404,7 @@ func TestRegisterRoutes_StatusAndRevokeSlashID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := deps.Store.Insert(context.Background(), id, creator, HashSecret(secret), deps.Now(), roles.RoleUser); err != nil {
+	if err := deps.Store.Insert(context.Background(), id, creator, HashSecret(secret), deps.Now(), roles.RoleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 

@@ -549,15 +549,9 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 		return nil, err
 	}
 
-	// invited_by FKs identities(id): the inviter is always a local user, so
-	// the same CanonicalID conversion applies here as for selfIdentity above.
-	// in.Invite.CreatedBy arrives in userID@serverID form; strip it back to
-	// bare before re-composing via identity.CanonicalID, which expects bare.
-	var invitedBy any
-	var inviteCreatorBare string
+	var inviteID any
 	if in.Invite != nil {
-		inviteCreatorBare = identity.IdentityID(in.Invite.CreatedBy).UserID()
-		invitedBy = identity.CanonicalID(s.serverID, inviteCreatorBare)
+		inviteID = in.Invite.ID
 	}
 
 	inviteGrantedRole := ""
@@ -595,11 +589,11 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO users (
 			id, username, role, created_at, active_key_id,
-			user_signature_id, server_signature_id, invited_by
+			user_signature_id, server_signature_id, invite_id
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`,
 		selfIdentity, in.Username, signupRole, in.MemberSince, in.Fingerprint,
-		userSignatureID, serverSignatureID, invitedBy,
+		userSignatureID, serverSignatureID, inviteID,
 	); err != nil {
 		if isUsernameUniqueViolation(err) {
 			return nil, ErrUsernameTaken
@@ -645,16 +639,17 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 	var user User
 	var bio sql.NullString
 	var userSignatureID, serverSignatureID int64
-	var inviterID, inviterUsername sql.NullString
+	var inviteID, inviterID, inviterUsername sql.NullString
 
-	// users.id IS identities.id now, so the self-join is a plain
-	// u.invited_by = inv.id match, not the old inv.identity_id indirection.
+	// invite_id -> invites.id gives the invite; invites.created_by -> users
+	// gives the inviter for display.
 	err := s.db.QueryRowContext(ctx, `
 		SELECT u.id, u.username, u.role, u.bio, u.created_at,
 		       u.user_signature_id, u.server_signature_id,
-		       inv.id, inv.username
+		       i.id, inv.id, inv.username
 		FROM users u
-		LEFT JOIN users inv ON inv.id = u.invited_by
+		LEFT JOIN invites i ON i.id = u.invite_id
+		LEFT JOIN users inv ON inv.id = i.created_by
 		WHERE u.id = $1
 	`, selfIdentity).Scan(
 		&user.ID,
@@ -664,6 +659,7 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 		&user.CreatedAt,
 		&userSignatureID,
 		&serverSignatureID,
+		&inviteID,
 		&inviterID,
 		&inviterUsername,
 	)
@@ -676,9 +672,10 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 	if bio.Valid {
 		user.Bio = bio.String
 	}
-	if inviterID.Valid {
-		user.InvitedBy = &InvitedBy{
-			ID:       inviterID.String,
+	if inviteID.Valid {
+		user.Invite = &Invite{
+			ID:       inviteID.String,
+			UserID:   inviterID.String,
 			Username: inviterUsername.String,
 		}
 	}

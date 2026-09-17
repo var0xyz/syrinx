@@ -23,7 +23,7 @@ const clientShapedProfileJSON = `{
 	"userSignature": {"id": "user1@srv1/AAA", "armor": "dXNlcg=="},
 	"serverSignature": {"id": "SKEY@srv1", "armor": "c2VydmVy", "timestamp": "2026-07-19T12:00:00Z"},
 	"hasReeds": false,
-	"invitedBy": null
+	"invite": null
 }`
 
 func TestProfileUnmarshalJSON_ClientShape(t *testing.T) {

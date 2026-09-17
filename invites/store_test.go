@@ -121,17 +121,6 @@ func ensureInviteSchema(db *sql.DB) error {
 			id VARCHAR(255) PRIMARY KEY,
 			server_id VARCHAR(16) REFERENCES servers(id)
 		)`,
-		`CREATE TABLE users (
-			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id),
-			username VARCHAR(255) UNIQUE NOT NULL,
-			role VARCHAR(16) NOT NULL DEFAULT 'user'
-				CHECK (role IN ('root', 'admin', 'user')),
-			bio TEXT,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			invited_by VARCHAR(255) REFERENCES identities(id)
-		)`,
 		`CREATE TABLE invites (
 			id         VARCHAR(255) PRIMARY KEY,
 			created_by VARCHAR(255) NOT NULL REFERENCES identities(id),
@@ -141,7 +130,19 @@ func ensureInviteSchema(db *sql.DB) error {
 			claimed_by VARCHAR(255) REFERENCES identities(id),
 			revoked_at TIMESTAMPTZ,
 			granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
-				CHECK (granted_role IN ('admin', 'user'))
+				CHECK (granted_role IN ('admin', 'user')),
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id)
+		)`,
+		`CREATE TABLE users (
+			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id),
+			username VARCHAR(255) UNIQUE NOT NULL,
+			role VARCHAR(16) NOT NULL DEFAULT 'user'
+				CHECK (role IN ('root', 'admin', 'user')),
+			bio TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+			invite_id VARCHAR(255) REFERENCES invites(id)
 		)`,
 		fmt.Sprintf(`INSERT INTO servers (id, name, self) VALUES ('%s', 'test', TRUE)`, testServerID),
 	}
@@ -243,7 +244,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 	id := creator + "/" + rawID
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.Insert(ctx, id, creator, hash, now, roles.RoleUser); err != nil {
+	if err := store.Insert(ctx, id, creator, hash, now, roles.RoleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 
@@ -318,7 +319,7 @@ func TestRevokeDistinguishesClaimed(t *testing.T) {
 	}
 	id := creator + "/" + rawID
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.Insert(ctx, id, creator, hash, now, roles.RoleUser); err != nil {
+	if err := store.Insert(ctx, id, creator, hash, now, roles.RoleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -365,7 +366,7 @@ func TestRevokeAndCountIncludesRevoked(t *testing.T) {
 	}
 	id := creator + "/" + rawID
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.Insert(ctx, id, creator, hash, now, roles.RoleUser); err != nil {
+	if err := store.Insert(ctx, id, creator, hash, now, roles.RoleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Revoke(ctx, id, creator, now.Add(time.Minute)); err != nil {

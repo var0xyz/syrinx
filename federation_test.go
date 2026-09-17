@@ -65,14 +65,27 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			active_key_id VARCHAR(255),
 			user_signature_id INT,
 			server_signature_id INT,
-			invited_by VARCHAR(255) REFERENCES identities(id)
+			invite_id VARCHAR(255)
 		)`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS active_key_id VARCHAR(255)`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_signature_id INT`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS server_signature_id INT`,
-		`ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by VARCHAR(255) REFERENCES identities(id)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_id VARCHAR(255)`,
+		// GetUserProfile joins invites to resolve the inviter for display;
+		// this suite never exercises signup invites, so an empty table suffices.
+		`CREATE TABLE IF NOT EXISTS invites (
+			id VARCHAR(255) PRIMARY KEY,
+			created_by VARCHAR(255) NOT NULL,
+			token_hash BYTEA NOT NULL UNIQUE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			claimed_at TIMESTAMPTZ,
+			claimed_by VARCHAR(255),
+			revoked_at TIMESTAMPTZ,
+			granted_role VARCHAR(16) NOT NULL DEFAULT 'user',
+			user_signature_id INT
+		)`,
 		`CREATE TABLE IF NOT EXISTS user_signatures (
 			id SERIAL PRIMARY KEY,
 			public_key_id VARCHAR(255) NOT NULL,

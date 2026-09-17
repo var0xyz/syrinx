@@ -60,6 +60,18 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			public_key_fingerprint VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE invites (
+			id VARCHAR(255) PRIMARY KEY,
+			created_by VARCHAR(255) NOT NULL REFERENCES identities(id),
+			token_hash BYTEA NOT NULL UNIQUE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			claimed_at TIMESTAMPTZ,
+			claimed_by VARCHAR(255) REFERENCES identities(id),
+			revoked_at TIMESTAMPTZ,
+			granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
+				CHECK (granted_role IN ('admin', 'user')),
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id)
+		)`,
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			username VARCHAR(255) UNIQUE NOT NULL,
@@ -70,7 +82,7 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			invited_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL
+			invite_id VARCHAR(255) REFERENCES invites(id) ON DELETE SET NULL
 		)`,
 		`CREATE TABLE public_keys (
 			id VARCHAR(255) PRIMARY KEY,
@@ -101,18 +113,6 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS user_devices_one_active_per_user
 			ON user_devices (user_id) WHERE revoked_at IS NULL`,
-		`CREATE TABLE invites (
-			created_by VARCHAR(255) NOT NULL REFERENCES identities(id),
-			id VARCHAR(255) NOT NULL,
-			token_hash BYTEA NOT NULL UNIQUE,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			claimed_at TIMESTAMPTZ,
-			claimed_by VARCHAR(255) REFERENCES identities(id),
-			revoked_at TIMESTAMPTZ,
-			granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
-				CHECK (granted_role IN ('admin', 'user')),
-			PRIMARY KEY (created_by, id)
-		)`,
 		`CREATE TABLE user_following (
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 			following_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
@@ -182,8 +182,8 @@ func TestSignup_OpenNoInvite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if user.InvitedBy != nil {
-		t.Fatalf("invitedBy = %+v, want nil", user.InvitedBy)
+	if user.Invite != nil {
+		t.Fatalf("invite = %+v, want nil", user.Invite)
 	}
 	if role := queryUserRole(t, db, "u1@srv"); role != roles.RoleUser {
 		t.Fatalf("role = %q want %q", role, roles.RoleUser)
@@ -211,7 +211,7 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 	}
 	id := "inviter@srv/" + rawID
 	store := &invites.Store{DB: db, ServerID: "srv"}
-	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleUser); err != nil {
+	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 	invRow, err := store.GetByTokenHash(ctx, hash)
@@ -223,8 +223,8 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if user.InvitedBy == nil || user.InvitedBy.ID != "inviter@srv" || user.InvitedBy.Username != "alice" {
-		t.Fatalf("invitedBy = %+v", user.InvitedBy)
+	if user.Invite == nil || user.Invite.ID != id || user.Invite.UserID != "inviter@srv" || user.Invite.Username != "alice" {
+		t.Fatalf("invite = %+v", user.Invite)
 	}
 	if role := queryUserRole(t, db, "invitee@srv"); role != roles.RoleUser {
 		t.Fatalf("invitee role = %q want %q", role, roles.RoleUser)
@@ -271,7 +271,7 @@ func TestSignup_OpenValidToken(t *testing.T) {
 	}
 	id := "inviter@srv/" + rawID
 	store := &invites.Store{DB: db, ServerID: "srv"}
-	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleUser); err != nil {
+	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 	invRow, err := store.GetByTokenHash(ctx, hash)
@@ -283,8 +283,8 @@ func TestSignup_OpenValidToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if user.InvitedBy == nil || user.InvitedBy.ID != "inviter@srv" {
-		t.Fatalf("invitedBy = %+v", user.InvitedBy)
+	if user.Invite == nil || user.Invite.ID != id || user.Invite.UserID != "inviter@srv" {
+		t.Fatalf("invite = %+v", user.Invite)
 	}
 	var n int
 	_ = db.QueryRow(`SELECT COUNT(*) FROM user_following`).Scan(&n)
@@ -373,7 +373,7 @@ func TestSignup_AdminInviteGrantsAdminRole(t *testing.T) {
 	}
 	id := "inviter@srv/" + rawID
 	store := &invites.Store{DB: db, ServerID: "srv"}
-	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleAdmin); err != nil {
+	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleAdmin, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 	invRow, err := store.GetByTokenHash(ctx, hash)

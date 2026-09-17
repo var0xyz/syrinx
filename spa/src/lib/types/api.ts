@@ -17,8 +17,10 @@ export interface ServerSignature extends Base {
 // attestations nest under `userSignature` and `serverSignature`.
 //
 // Mutable / unsigned hints live on UserInfo (GET /users/{id}/info).
-export interface InvitedBy {
+/** id is the invite's id (the value serverSignature covers); userID/username identify the inviter for display. */
+export interface UserInvite {
   id: string;
+  userID: string;
   username: string;
 }
 
@@ -31,7 +33,7 @@ export interface User extends Base {
   bio: string;
   userSignature: UserSignature;
   serverSignature: ServerSignature;
-  invitedBy: InvitedBy | null;
+  invite: UserInvite | null;
 }
 
 /** Unsigned hints + profile cache invalidation (GET /users/{id}/info). */

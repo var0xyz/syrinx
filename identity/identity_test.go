@@ -101,20 +101,20 @@ func TestServerPayloadCanonicalShape(t *testing.T) {
 	}
 }
 
-func TestServerPayloadInvitedBy(t *testing.T) {
+func TestServerPayloadInviteID(t *testing.T) {
 	memberSince := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	signedAt := memberSince
 	with := string(BuildProfilePayload(
 		"abc123", "bob", "ABCDEF",
 		"Server01", "0011FF",
 		"dXNlcnNpZw==",
-		"inviter99",
+		"inviter99@Server01/invite1",
 		"user",
 		"",
 		memberSince, signedAt,
 	))
-	if !strings.Contains(with, "invitedBy: inviter99\n") {
-		t.Fatalf("missing invitedBy header:\n%s", with)
+	if !strings.Contains(with, "inviteID: inviter99@Server01/invite1\n") {
+		t.Fatalf("missing inviteID header:\n%s", with)
 	}
 	without := string(BuildProfilePayload(
 		"abc123", "bob", "ABCDEF",
@@ -125,8 +125,8 @@ func TestServerPayloadInvitedBy(t *testing.T) {
 		"",
 		memberSince, signedAt,
 	))
-	if strings.Contains(without, "invitedBy") {
-		t.Fatalf("empty invitedBy must be omitted:\n%s", without)
+	if strings.Contains(without, "inviteID") {
+		t.Fatalf("empty inviteID must be omitted:\n%s", without)
 	}
 }
 
