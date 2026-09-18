@@ -1,5 +1,3 @@
-//go:build !ops && !ripplescleanup
-
 // Local instance role tiers (root, admin, user) and helpers for
 // authorization checks. Role is bound on the profile server
 // countersignature (identity-server payload); users never sign role.

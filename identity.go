@@ -1,5 +1,3 @@
-//go:build !ops && !ripplescleanup
-
 // Canonical byte sequences for signed identity records and related
 // countersignatures (keys, reeds, revocations, reed removals).
 //

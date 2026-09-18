@@ -1,4 +1,6 @@
-package recovery
+//go:build !ops
+
+package main
 
 import "testing"
 
@@ -19,7 +21,7 @@ func TestPasswordStrengthWarning(t *testing.T) {
 		{"Qzf5btn5ayp@chu5", false},
 	}
 	for _, tc := range cases {
-		msg := PasswordStrengthWarning(tc.pw)
+		msg := passwordStrengthWarning(tc.pw)
 		if tc.wantMsg && msg == "" {
 			t.Fatalf("%q: expected warning, got none", tc.pw)
 		}

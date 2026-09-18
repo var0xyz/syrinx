@@ -20,7 +20,6 @@ import (
 
 	"syrinx/observability/metrics"
 	"syrinx/realtime"
-	"syrinx/recovery"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -659,7 +658,7 @@ func (h *Handlers) respondUsernameAvailability(w http.ResponseWriter, r *http.Re
 // sends a countersigned profile; server verifies its own countersignature and
 // reports claimed / unclaimed / mid-recovery state.
 func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
-	var profile recovery.Profile
+	var profile recoveryProfile
 	if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
@@ -671,14 +670,14 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 
 	// Profile must carry this server's countersignature (wrong serverID or
 	// bad/missing sig → 400).
-	if err := recovery.VerifyProfileServerCountersig(
+	if err := verifyProfileServerCountersig(
 		r.Context(),
 		profile,
 		h.services.db.GetServerID(),
 		func(ctx context.Context, fp string) (string, error) {
 			return h.services.db.GetServerPublicKeyByFingerprint(ctx, fp)
 		},
-		h.services.legacyCrypto,
+		h.services.crypto,
 	); err != nil {
 		writeResponse(w, http.StatusBadRequest, err.Error())
 		return
@@ -692,7 +691,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if unclaimed {
-		writeResponse(w, http.StatusNotFound, recovery.UserStatusUnknownResponse)
+		writeResponse(w, http.StatusNotFound, recoveryUserStatusUnknownResponse)
 		return
 	}
 
@@ -700,7 +699,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 	signedAt, err := h.services.db.UserServerSignedAt(r.Context(), profile.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			writeResponse(w, http.StatusNotFound, recovery.UserStatusUnknownResponse)
+			writeResponse(w, http.StatusNotFound, recoveryUserStatusUnknownResponse)
 			return
 		}
 		internalServerError(w)
@@ -722,12 +721,12 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ongoing {
-		writeResponse(w, http.StatusConflict, recovery.UserStatusOngoingResponse)
+		writeResponse(w, http.StatusConflict, recoveryUserStatusOngoingResponse)
 		return
 	}
 
 	// Claimed, not mid-import, profile not older than DB → complete.
-	writeResponse(w, http.StatusOK, recovery.UserStatusCompleteResponse)
+	writeResponse(w, http.StatusOK, recoveryUserStatusCompleteResponse)
 }
 
 func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
@@ -3073,7 +3072,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 	}
 
 	now := time.Now()
-	if err := recovery.ValidateChallengeAge(req.Challenge, now, 60*time.Second); err != nil {
+	if err := validateChallengeAge(req.Challenge, now, 60*time.Second); err != nil {
 		writeResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -3124,7 +3123,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := recovery.VerifyChallengeSignature(req.Challenge, req.Signature, key.Armor, h.services.legacyCrypto); err != nil {
+	if err := verifyChallengeSignature(req.Challenge, req.Signature, key.Armor, h.services.crypto); err != nil {
 		writeResponse(w, http.StatusUnauthorized, err.Error())
 		return
 	}
@@ -3159,6 +3158,251 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		TipReedID: tipReedID,
 		ReedIDs:   reedIDs,
 	})
+}
+
+// ============ //
+//   recovery   //
+// ============ //
+
+// IssueChallenge handles GET /api/recovery/identity/claim.
+func (h *Handlers) IssueChallenge(w http.ResponseWriter, r *http.Request) {
+	writeResponse(w, http.StatusOK, recoveryChallengeResponse{
+		Challenge: time.Now().UTC().Unix(),
+	})
+}
+
+// ClaimIdentity handles POST /api/recovery/identity/claim.
+func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
+	var req recoveryClaimRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := decodeRecoveryKeyNestArmor(&req.Key); err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	now := time.Now()
+	if err := validateChallengeAge(req.Challenge, now, challengeMaxAge); err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	serverID := h.services.db.GetServerID()
+	active, keys, err := flattenKeysNest(r.Context(), req.Profile, req.Key, serverID, h.services.db.GetServerPublicKeyByFingerprint, h.services.crypto)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := verifyChallengeSignature(req.Challenge, req.Signature, active.Key.Armor, h.services.crypto); err != nil {
+		writeResponse(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	deviceID, err := parseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
+		return
+	}
+
+	res, err := saveOwnIdentity(r.Context(), h.services.db.db, serverID, req.Profile, keys, deviceID)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if res.Rejected {
+		writeResponse(w, http.StatusConflict, "Username is already held by a more recently signed identity on this server")
+		return
+	}
+	if res.Created {
+		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport, req.Profile.ID)
+	}
+
+	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
+	writeResponse(w, http.StatusOK, req.Profile)
+}
+
+// ReportPeerIdentity handles POST /api/recovery/identity.
+func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
+	caller, ok := r.Context().Value(userIDKey).(string)
+	if !ok || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req recoveryPeerIdentityRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := decodeRecoveryKeyNestArmor(&req.Key); err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if req.Profile.ID == caller {
+		writeResponse(w, http.StatusBadRequest, "own identity must use claim")
+		return
+	}
+
+	serverID := h.services.db.GetServerID()
+	active, keys, err := flattenKeysNest(r.Context(), req.Profile, req.Key, serverID, h.services.db.GetServerPublicKeyByFingerprint, h.services.crypto)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	res, err := savePeerIdentity(r.Context(), h.services.db.db, serverID, req.Profile, keys)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if res.Rejected {
+		writeResponse(w, http.StatusConflict, "Username is already held by a more recently signed identity on this server")
+		return
+	}
+	if res.Created {
+		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport, req.Profile.ID)
+	}
+
+	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
+	writeResponse(w, http.StatusOK, req.Profile)
+}
+
+// ReportReed handles POST /api/recovery/reeds.
+func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
+	caller, ok := r.Context().Value(userIDKey).(string)
+	if !ok || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req recoveryReedRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if req.ReedID == "" || req.AuthorID == "" || req.UserSignature.Armor == "" {
+		writeResponse(w, http.StatusBadRequest, "reedID, authorID, and userSignature are required")
+		return
+	}
+	if req.ServerSignature.Fingerprint == "" || req.ServerSignature.Armor == "" || req.ServerSignature.Timestamp.IsZero() {
+		writeResponse(w, http.StatusBadRequest, "server countersignature is required")
+		return
+	}
+
+	serverID := h.services.db.GetServerID()
+	if err := verifyRecoveryReedCountersig(r.Context(), req, serverID, h.services.db.GetServerPublicKeyByFingerprint, h.services.crypto); err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// req.AuthorID (reed.userID client-side) and req.UserSignature.KeyID
+	// both arrive already canonical — only req.ReedID is bare on this wire.
+	authorKeyID := req.UserSignature.KeyID
+	canonicalReedID := string(appendEntity(identityID(req.AuthorID), req.ReedID))
+	err := saveRecoveryReed(r.Context(), h.services.db.db,
+		serverID,
+		canonicalReedID,
+		req.ServerSignature.Fingerprint,
+		req.ServerSignature.Timestamp,
+		caller,
+		authorKeyID,
+		req.UserSignature.Armor,
+		req.ServerSignature.Armor,
+	)
+	switch {
+	case errors.Is(err, errRecoveryAuthorNotFound):
+		writeResponse(w, http.StatusBadRequest, "author not found")
+	case errors.Is(err, errRecoveryReedConflict):
+		writeResponse(w, http.StatusConflict, "reed metadata conflict")
+	case err != nil:
+		internalServerError(w)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// ReportFollowing handles POST /api/recovery/following.
+func (h *Handlers) ReportFollowing(w http.ResponseWriter, r *http.Request) {
+	caller, ok := r.Context().Value(userIDKey).(string)
+	if !ok || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req recoveryFollowingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if len(req.UserIDs) > maxRecoveryFollowingBatch {
+		writeResponse(w, http.StatusBadRequest, "userIDs exceeds maximum of 100")
+		return
+	}
+	for _, id := range req.UserIDs {
+		if id == caller {
+			writeResponse(w, http.StatusBadRequest, "Cannot follow yourself")
+			return
+		}
+	}
+
+	if err := saveRecoveryFollowing(r.Context(), h.services.db.db, h.services.db.GetServerID(), caller, req.UserIDs); err != nil {
+		internalServerError(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// CompleteImport handles POST /api/recovery/complete.
+func (h *Handlers) CompleteImport(w http.ResponseWriter, r *http.Request) {
+	caller, ok := r.Context().Value(userIDKey).(string)
+	if !ok || caller == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	if err := h.services.db.DeleteOngoing(r.Context(), h.services.db.GetServerID(), caller); err != nil {
+		internalServerError(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func verifyRecoveryReedCountersig(ctx context.Context, req recoveryReedRequest, serverID string, lookup recoveryServerKeyLookup, v recoveryVerifier) error {
+	if req.ServerSignature.ServerID != "" && req.ServerSignature.ServerID != serverID {
+		return fmt.Errorf("server id mismatch")
+	}
+	serverPub, err := lookup(ctx, req.ServerSignature.Fingerprint)
+	if err != nil {
+		return err
+	}
+	if serverPub == "" {
+		return fmt.Errorf("unknown server key %s", req.ServerSignature.Fingerprint)
+	}
+
+	// req.AuthorID arrives already canonical (reed.userID client-side);
+	// only req.ReedID is bare on this wire — append it to rebuild the id
+	// the original countersignature was computed over.
+	canonicalReedID := string(appendEntity(identityID(req.AuthorID), req.ReedID))
+	ts := req.ServerSignature.Timestamp.UTC().Truncate(time.Second)
+	payload := buildReedPayload(
+		serverID,
+		canonicalReedID,
+		req.ServerSignature.Fingerprint,
+		req.UserSignature.Armor,
+		ts,
+	)
+	sigArmor, err := decodeRecoveryB64Armor(req.ServerSignature.Armor)
+	if err != nil {
+		return fmt.Errorf("server signature: %w", err)
+	}
+	if err := v.verifySignature(string(payload), sigArmor, serverPub); err != nil {
+		return fmt.Errorf("bad countersignature")
+	}
+	return nil
 }
 
 // ============== //

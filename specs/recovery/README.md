@@ -5,10 +5,16 @@ the full protocol; numbered files below are independently reviewable
 implementation steps. Land them in order unless a step's "Depends on" says
 otherwise.
 
-**Code organization:** all server-side recovery logic must live in the
-`syrinx/recovery` Go package. The main package only wires boot, routes, and
-middleware. Shared payload builders stay in `syrinx/identity`. Operator CLI
-lives in root [`ops.go`](../../ops.go) (`//go:build ops`; build with
+**Code organization:** recovery logic originally lived in its own
+`syrinx/recovery` Go package, as a deliberate boundary (main only wired
+boot/routes/middleware). [`specs/depackaging/09_recovery.md`](../depackaging/09_recovery.md)
+superseded that mandate: `recovery` was schema-coupled to root's own tables
+like every other package folded by that spec, so its code now lives directly
+in root (`recovery.go`, plus sections in `services.go`/`handlers.go`) —
+see that file for the rationale and the move's details. The design decisions
+below (protocol, verification rules, table layout) are unaffected; only the
+package-boundary mandate is superseded. Operator CLI lives in root
+[`ops.go`](../../ops.go) (`//go:build ops`; build with
 `go build -tags ops -o bin/ops .`).
 
 | #                                          | Title                                                 | Depends on |
@@ -68,24 +74,27 @@ not needed by recovery.
 
 ## Code organization
 
-**All server-side recovery logic lives in the `recovery/` Go package**
-(`syrinx/recovery`). That includes key-bundle export/import helpers, nested
-key-chain types, store helpers for `unclaimed_accounts` / `ongoing_recoveries`,
-signature verification for claim and peer report-back, HTTP handlers, route
-registration, and import-gate helpers (`IsOngoing`, path allowlist).
+**Recovery logic now lives directly in root** (`package main`), per
+[`specs/depackaging/09_recovery.md`](../depackaging/09_recovery.md) —
+superseding the original `syrinx/recovery` package boundary described
+below for historical context. Key-bundle export/import helpers, nested
+key-chain types, and signature verification for claim/peer/reed report-back
+live in root [`recovery.go`](../../recovery.go) (unexported, no build tag —
+needed by both the normal server binary and the `ops` CLI). Store helpers
+for `unclaimed_accounts` / `ongoing_recoveries` and the identity/reed/follow
+save logic live in [`services.go`](../../services.go); HTTP handlers and
+route registration live in [`handlers.go`](../../handlers.go) /
+[`main.go`](../../main.go); the import-gate middleware
+(`recoveryImportGateMiddleware`, path allowlist) lives in `services.go`.
 
 Bookkeeping **table DDL** lives in root `InitDB` (`db.go`) with the rest of
-the schema (always created). The main package only **wires** recovery in:
-`RECOVERY_MODE` env, passing it into `InitServer` (mint vs fatal on missing
-self), mode-on unclaimed count log, `recovery.RegisterRoutes` when
-`RECOVERY_MODE` is on, and mode-on middleware that calls `DataService.IsOngoing`.
-Do not add recovery endpoints or recovery verification logic under
-`handlers.go` or other root files.
+the schema (always created).
 
 Shared normal-operation helpers used by both live traffic and recovery (e.g.
-canonical identity/reed payload builders) live in `identity/`, not in
-`recovery/`. Operator CLI for the identity bundle lives in root `ops.go`
-(`go build -tags ops -o bin/ops .`).
+canonical identity/reed payload builders) live in root
+[`identity.go`](../../identity.go), unexported and shared by every caller in
+the same package. Operator CLI for the identity bundle lives in root
+`ops.go` (`go build -tags ops -o bin/ops .`).
 
 ## Motivation
 
@@ -152,10 +161,10 @@ the new one.
 All recovery verification is performed **server-side** using the restored keys,
 selecting the key **by fingerprint** for each record.
 
-### Required work (`recovery/` package)
+### Required work
 
 Server identity import/export and recovery endpoints are implemented in
-`syrinx/recovery` (see *Code organization*). Identity is restored **only** via
+root (see *Code organization*). Identity is restored **only** via
 `ops import-identity` (calls full `InitDB`, prompts for **bundle password** and
 resolves **server key passphrase** separately, populate `servers` /
 `private_keys` / `public_keys`, remind operator to enable `RECOVERY_MODE`,
@@ -790,9 +799,12 @@ Deferred:
 
 ## Resolved (decisions)
 
-- **Code organization**: recovery logic in `syrinx/recovery`; bookkeeping DDL
-  in `InitDB`; main wires `RECOVERY_MODE`, `InitServer(recoveryMode)`,
-  mode-on routes/middleware. Shared payload builders in `syrinx/identity`;
+- **Code organization**: recovery logic lives directly in root (`recovery.go`,
+  `services.go`, `handlers.go`) per
+  [`specs/depackaging/09_recovery.md`](../depackaging/09_recovery.md),
+  superseding the original standalone `syrinx/recovery` package; bookkeeping
+  DDL in `InitDB`; main wires `RECOVERY_MODE`, `InitServer(recoveryMode)`,
+  mode-on routes/middleware. Shared payload builders in root `identity.go`;
   ops CLI in root `ops.go` (`go build -tags ops -o bin/ops .`).
 - **Activation**: `RECOVERY_MODE` env flag. Identity must already be in the DB
   via `ops import-identity`; `InitServer` **resumes** if a self identity exists

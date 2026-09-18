@@ -18,7 +18,6 @@ import (
 	"syrinx/crypto"
 	"syrinx/observability"
 	"syrinx/realtime"
-	"syrinx/recovery"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
@@ -144,14 +143,13 @@ func main() {
 	// Wrap database with instrumentation
 	dataService := NewDataService(db, cfg.ServerName)
 	cryptoService := newCryptoService()
-	// legacyCryptoService bridges to realtime/recovery, which haven't
-	// merged into root yet (specs/depackaging/) and still need the
-	// exported syrinx/crypto API — drop this once they do.
+	// legacyCryptoService bridges to realtime, which hasn't merged into
+	// root yet (specs/depackaging/) and still needs the exported
+	// syrinx/crypto API — drop this once it does.
 	legacyCryptoService := crypto.NewService()
 	services := &Services{
-		db:           dataService,
-		crypto:       cryptoService,
-		legacyCrypto: legacyCryptoService,
+		db:     dataService,
+		crypto: cryptoService,
 	}
 	log.Info().Msg("[OK] Services initialized successfully")
 
@@ -200,7 +198,7 @@ func main() {
 	}
 	log.Info().Str("userID", rootUserID).Msg("[OK] Root user present")
 
-	if msg, err := recovery.StaleIdentityBackupMessage(context.Background(), db); err != nil {
+	if msg, err := staleIdentityBackupMessage(context.Background(), db); err != nil {
 		log.Warn().Err(err).Msg("[WARN] Could not check identity backup freshness")
 	} else if msg != "" {
 		log.Warn().Msg("[WARN] " + msg)
@@ -261,11 +259,11 @@ func main() {
 		realtimeService.SetOngoingCheck(func(userID string) (bool, error) {
 			// userID arrives already in "userID@serverID" form (see
 			// realtime/auth.go), and IsOngoing expects that same composed
-			// form — pass through unmodified, same as the recovery.Middleware
-			// registration below.
+			// form — pass through unmodified, same as the import-gate
+			// middleware registration below.
 			return dataService.IsOngoing(context.Background(), userID)
 		})
-		api.Use(recovery.Middleware(userIDKey, func(ctx context.Context, userID string) (bool, error) { return dataService.IsOngoing(ctx, userID) }))
+		api.Use(recoveryImportGateMiddleware(userIDKey, func(ctx context.Context, userID string) (bool, error) { return dataService.IsOngoing(ctx, userID) }))
 	}
 	api.Use(h.deviceMiddleware())
 	api.Use(h.responseSignerMiddleware(signingKey.Armor))
@@ -547,7 +545,7 @@ func main() {
 
 	if cfg.RecoveryMode {
 		log.Debug().Msg("Initializing recovery mode...")
-		unclaimedCount, err := recovery.CountUnclaimed(context.Background(), db)
+		unclaimedCount, err := dataService.CountUnclaimed(context.Background())
 		if err != nil {
 			log.Warn().Err(err).Msg("[WARN] Could not count unclaimed accounts")
 		} else {
@@ -555,14 +553,17 @@ func main() {
 				log.Warn().Msg(fmt.Sprintf("[OK] %d unclaimed accounts", unclaimedCount))
 			}
 		}
-		recovery.RegisterRoutes(api, recovery.Deps{
-			DB:        db,
-			Crypto:    legacyCryptoService,
-			ServerID:  dataService.GetServerID(),
-			Lookup:    dataService.GetServerPublicKeyByFingerprint,
-			UserIDKey: userIDKey,
-			Metrics:   obs.Metrics(),
-		})
+		api.HandleFunc("/recovery/identity/claim", h.IssueChallenge).Methods(http.MethodGet)
+		api.HandleFunc("/recovery/identity/claim", h.ClaimIdentity).Methods(http.MethodPost)
+		api.HandleFunc("/recovery/identity/claim", h.noop).Methods(http.MethodOptions)
+		api.HandleFunc("/recovery/identity", h.ReportPeerIdentity).Methods(http.MethodPost)
+		api.HandleFunc("/recovery/identity", h.noop).Methods(http.MethodOptions)
+		api.HandleFunc("/recovery/reeds", h.ReportReed).Methods(http.MethodPost)
+		api.HandleFunc("/recovery/reeds", h.noop).Methods(http.MethodOptions)
+		api.HandleFunc("/recovery/following", h.ReportFollowing).Methods(http.MethodPost)
+		api.HandleFunc("/recovery/following", h.noop).Methods(http.MethodOptions)
+		api.HandleFunc("/recovery/complete", h.CompleteImport).Methods(http.MethodPost)
+		api.HandleFunc("/recovery/complete", h.noop).Methods(http.MethodOptions)
 		log.Info().Msg("[OK] Recovery mode initialized successfully")
 	}
 

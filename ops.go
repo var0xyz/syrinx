@@ -19,9 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"syrinx/crypto"
-	"syrinx/recovery"
-
 	_ "github.com/lib/pq"
 	"github.com/tooxie/env"
 	"golang.org/x/term"
@@ -159,7 +156,7 @@ func runExportIdentity(outfile string) error {
 	defer db.Close()
 
 	exportedAt := time.Now().UTC().Truncate(time.Second)
-	bundle, err := recovery.ExportFromDB(context.Background(), db, exportedAt)
+	bundle, err := exportFromDB(context.Background(), db, exportedAt)
 	if err != nil {
 		return err
 	}
@@ -169,7 +166,7 @@ func runExportIdentity(outfile string) error {
 		return err
 	}
 
-	raw, err := recovery.MarshalBundleJSON(bundle)
+	raw, err := marshalBundleJSON(bundle)
 	if err != nil {
 		return err
 	}
@@ -180,13 +177,13 @@ func runExportIdentity(outfile string) error {
 	}
 
 	if outfile == "" {
-		outfile = recovery.DefaultExportFilename(bundle.ServerID, bundle.ExportedAt)
+		outfile = defaultExportFilename(bundle.ServerID, bundle.ExportedAt)
 	}
 	if err := os.WriteFile(outfile, []byte(armored), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", outfile, err)
 	}
 
-	if err := recovery.SetIdentityBackupAt(context.Background(), db, bundle.ExportedAt); err != nil {
+	if err := setIdentityBackupAt(context.Background(), db, bundle.ExportedAt); err != nil {
 		return fmt.Errorf("wrote %s but failed to update identity_backup_at: %w", outfile, err)
 	}
 
@@ -221,7 +218,7 @@ func runImportIdentity(infile string) error {
 	if err != nil {
 		return fmt.Errorf("decrypt bundle: %w", err)
 	}
-	bundle, err := recovery.ParseBundleJSON(plain)
+	bundle, err := parseBundleJSON(plain)
 	if err != nil {
 		return err
 	}
@@ -236,22 +233,18 @@ func runImportIdentity(infile string) error {
 		return fmt.Errorf("resolve server key passphrase: %w", err)
 	}
 
-	// legacyCryptoSvc bridges to recovery, which hasn't merged into root
-	// yet (specs/depackaging/) and still needs the exported syrinx/crypto
-	// API — drop this once it does.
-	legacyCryptoSvc := crypto.NewService()
-	if err := recovery.ValidateDecrypt(bundle, legacyCryptoSvc, passphrase.Value); err != nil {
+	if err := validateBundleDecrypt(bundle, cryptoSvc, passphrase.Value); err != nil {
 		return err
 	}
 
-	result, err := recovery.ImportIntoDB(context.Background(), db, legacyCryptoSvc, passphrase.Value, bundle)
+	result, err := importIntoDB(context.Background(), db, cryptoSvc, passphrase.Value, bundle)
 	if err != nil {
 		return err
 	}
 	switch result {
-	case recovery.ImportAlreadyPresent:
+	case recoveryImportAlreadyPresent:
 		fmt.Println("Identity already present and matches the bundle (no changes).")
-	case recovery.ImportApplied:
+	case recoveryImportApplied:
 		fmt.Printf("Imported identity serverID=%s serverName=%s keys=%d\n",
 			bundle.ServerID, bundle.ServerName, len(bundle.Keys))
 		fmt.Printf("Recorded identity_backup_at=%s\n", bundle.ExportedAt.UTC().Format(time.RFC3339))
@@ -286,10 +279,8 @@ func runRotatePassphrase() error {
 		return err
 	}
 
-	// Bridges to recovery, which hasn't merged into root yet
-	// (specs/depackaging/) and still needs the exported syrinx/crypto API.
-	legacyCryptoSvc := crypto.NewService()
-	if err := recovery.RotateServerKeyPassphrase(context.Background(), db, legacyCryptoSvc, current.Value, newPass); err != nil {
+	cryptoSvc := newCryptoService()
+	if err := rotateServerKeyPassphrase(context.Background(), db, cryptoSvc, current.Value, newPass); err != nil {
 		return err
 	}
 
@@ -339,7 +330,7 @@ func promptBundlePassword() (string, error) {
 		return "", fmt.Errorf("bundle password must not be empty")
 	}
 	pw := string(a)
-	if msg := recovery.PasswordStrengthWarning(pw); msg != "" {
+	if msg := passwordStrengthWarning(pw); msg != "" {
 		fmt.Fprintf(os.Stderr, "warning: %s — accepting anyway\n", msg)
 	}
 	return pw, nil

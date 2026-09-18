@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,9 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"syrinx/crypto"
 	"syrinx/deletion"
-	"syrinx/recovery"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -73,11 +72,7 @@ func isReedUniqueViolation(err error) bool {
 type Services struct {
 	db     *DataService
 	crypto *cryptoService
-	// legacyCrypto bridges to recovery, which hasn't merged into root yet
-	// (specs/depackaging/) and still needs the exported syrinx/crypto API
-	// via recovery.Verifier — drop this once it does.
-	legacyCrypto *crypto.Service
-	log          *LoggingService
+	log    *LoggingService
 }
 
 // =============== //
@@ -153,6 +148,46 @@ func (s *DataService) IsOngoing(ctx context.Context, userID string) (bool, error
 	return exists, err
 }
 
+// InsertUnclaimed records a peer-seeded account awaiting owner claim.
+func (s *DataService) InsertUnclaimed(ctx context.Context, serverID, userID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO unclaimed_accounts (user_id)
+		VALUES ($1)
+		ON CONFLICT DO NOTHING
+	`, canonicalID(serverID, userID))
+	return err
+}
+
+// DeleteUnclaimed removes a user from the unclaimed gauge (e.g. after own claim).
+func (s *DataService) DeleteUnclaimed(ctx context.Context, serverID, userID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM unclaimed_accounts WHERE user_id = $1`, canonicalID(serverID, userID))
+	return err
+}
+
+// InsertOngoing marks a claimant as mid-import (import gate).
+func (s *DataService) InsertOngoing(ctx context.Context, serverID, userID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO ongoing_recoveries (user_id)
+		VALUES ($1)
+		ON CONFLICT DO NOTHING
+	`, canonicalID(serverID, userID))
+	return err
+}
+
+// DeleteOngoing clears the import gate for a user (e.g. after /complete).
+func (s *DataService) DeleteOngoing(ctx context.Context, serverID, userID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM ongoing_recoveries WHERE user_id = $1`, canonicalID(serverID, userID))
+	return err
+}
+
+// CountUnclaimed returns how many peer-seeded accounts still await claim.
+// No user filter needed — this is a bare row count.
+func (s *DataService) CountUnclaimed(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM unclaimed_accounts`).Scan(&n)
+	return n, err
+}
+
 func generateServerID() (string, error) {
 	return newCryptoID()
 }
@@ -168,7 +203,7 @@ func (s *DataService) InitServer(ctx context.Context, recoveryMode bool, baseURL
 	err := s.db.QueryRowContext(ctx, `SELECT id, name, base_url FROM servers WHERE self = TRUE`).Scan(&id, &name, &dbBaseURL)
 	if err == sql.ErrNoRows {
 		if recoveryMode {
-			return recovery.ErrNoIdentityFound
+			return errRecoveryNoIdentityFound
 		}
 		id, err = generateServerID()
 		if err != nil {
@@ -5854,4 +5889,761 @@ func scanInvite(ctx context.Context, sigDB signingDBTX, row inviteScannable) (*i
 	}
 	inv.UserSignature = *sigRow
 	return &inv, nil
+}
+
+// ============ //
+//   recovery   //
+// ============ //
+
+const maxRecoveryFollowingBatch = 100
+
+// recoverySaveIdentityResult describes what a save did to the users row.
+type recoverySaveIdentityResult struct {
+	Created bool
+	Updated bool // profile columns written (create or newer-wins)
+	// Rejected is true when profile.Username collided with an existing
+	// holder whose server_signed_at was newer or equal — the incoming
+	// submission was discarded, nothing was written.
+	Rejected bool
+}
+
+// errRecoveryUsernameCollisionLoss signals that the incoming profile lost a
+// username collision and must not be persisted.
+var errRecoveryUsernameCollisionLoss = fmt.Errorf("incoming profile lost username collision")
+
+// Every subject handled by the recovery save/reed/follow functions below
+// (profile.ID, follow targets, reed authors/reporters) is a bare userID
+// local to serverID; every identity minted or looked up here uses
+// canonicalID(serverID, userID) — cross-server subjects aren't handled here.
+
+// saveOwnIdentity upserts a verified own-claim identity + nest. Clears
+// unclaimed_accounts and records the user in ongoing_recoveries.
+func saveOwnIdentity(ctx context.Context, db *sql.DB, serverID string, profile recoveryProfile, flat []recoveryFlatKey, deviceID string) (*recoverySaveIdentityResult, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	selfIdentity := canonicalID(serverID, profile.ID)
+
+	res, err := upsertRecoveryIdentity(ctx, tx, serverID, profile, flat)
+	if err != nil {
+		return nil, err
+	}
+	if res.Rejected {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return res, nil
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM unclaimed_accounts WHERE user_id = $1`, selfIdentity); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO ongoing_recoveries (user_id) VALUES ($1)
+		ON CONFLICT DO NOTHING
+	`, selfIdentity); err != nil {
+		return nil, err
+	}
+	if err := drainRecoveryPendingFollows(ctx, tx, profile.ID, selfIdentity); err != nil {
+		return nil, err
+	}
+	if deviceID != "" {
+		if err := bindRecoveryClaimDeviceTx(ctx, tx, selfIdentity, deviceID, profile.ServerSignature.Timestamp.UTC()); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// savePeerIdentity upserts a verified peer-reported identity + nest.
+// Newly created rows are inserted into unclaimed_accounts; already-claimed
+// accounts are never re-marked unclaimed.
+func savePeerIdentity(ctx context.Context, db *sql.DB, serverID string, profile recoveryProfile, flat []recoveryFlatKey) (*recoverySaveIdentityResult, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	selfIdentity := canonicalID(serverID, profile.ID)
+
+	res, err := upsertRecoveryIdentity(ctx, tx, serverID, profile, flat)
+	if err != nil {
+		return nil, err
+	}
+	if res.Rejected {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return res, nil
+	}
+	if res.Created {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO unclaimed_accounts (user_id) VALUES ($1)
+			ON CONFLICT DO NOTHING
+		`, selfIdentity); err != nil {
+			return nil, err
+		}
+	}
+	if err := drainRecoveryPendingFollows(ctx, tx, profile.ID, selfIdentity); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, profile recoveryProfile, flat []recoveryFlatKey) (*recoverySaveIdentityResult, error) {
+	if len(flat) == 0 {
+		return nil, fmt.Errorf("empty key nest")
+	}
+	incomingSignedAt := profile.ServerSignature.Timestamp.UTC().Truncate(time.Second)
+	selfIdentity := canonicalID(serverID, profile.ID)
+	// flat's fingerprints are bare (see insertRecoveryKeys' comment);
+	// canonicalize for users.active_key_id and the signature-attestation
+	// rows, which want the same canonical form as every other table.
+	activeFP := string(appendEntity(selfIdentity, flat[len(flat)-1].Key.Fingerprint))
+
+	// Lock/check the identities row, not users — identities is the actual FK
+	// target. users.id IS identities.id directly, so the join is on u.id.
+	var existingSignedAt time.Time
+	err := tx.QueryRowContext(ctx, `
+		SELECT ss.signed_at
+		FROM identities i
+		JOIN users u ON u.id = i.id
+		JOIN server_signatures ss ON ss.id = u.server_signature_id
+		WHERE i.id = $1
+		FOR UPDATE OF i
+	`, selfIdentity).Scan(&existingSignedAt)
+
+	created := false
+	updated := false
+
+	switch {
+	case err == sql.ErrNoRows:
+		// Mint the identities row before public_keys/users — both
+		// FK to it, and neither exists yet on this branch. ON CONFLICT DO
+		// NOTHING: a stale identities row surviving an earlier partial run
+		// is safe to leave in place.
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO identities (id, server_id)
+			VALUES ($1, $2)
+			ON CONFLICT (id) DO NOTHING
+		`, selfIdentity, serverID); err != nil {
+			return nil, fmt.Errorf("insert identity: %w", err)
+		}
+		if err := insertRecoveryKeys(ctx, tx, selfIdentity, flat); err != nil {
+			return nil, err
+		}
+		if err := insertRecoveryUser(ctx, tx, serverID, profile, activeFP, incomingSignedAt); err != nil {
+			if errors.Is(err, errRecoveryUsernameCollisionLoss) {
+				return &recoverySaveIdentityResult{Rejected: true}, nil
+			}
+			return nil, err
+		}
+		created = true
+		updated = true
+	case err != nil:
+		return nil, err
+	default:
+		if err := insertRecoveryKeys(ctx, tx, selfIdentity, flat); err != nil {
+			return nil, err
+		}
+		wrote, err := updateRecoveryUserIfNewer(ctx, tx, selfIdentity, profile, activeFP, existingSignedAt, incomingSignedAt)
+		if err != nil {
+			if errors.Is(err, errRecoveryUsernameCollisionLoss) {
+				return &recoverySaveIdentityResult{Rejected: true}, nil
+			}
+			return nil, err
+		}
+		updated = wrote
+	}
+
+	return &recoverySaveIdentityResult{Created: created, Updated: updated}, nil
+}
+
+// insertRecoveryUser inserts the users row (its satellite identities row is
+// already minted by the caller). active_key_id references a public_keys
+// row inserted by the caller's insertRecoveryKeys call, before this runs.
+func insertRecoveryUser(ctx context.Context, tx *sql.Tx, serverID string, profile recoveryProfile, activeFP string, signedAt time.Time) error {
+	selfIdentity := canonicalID(serverID, profile.ID)
+
+	username, err := claimRecoveryUsername(ctx, tx, selfIdentity, profile.Username, signedAt)
+	if err != nil {
+		return err
+	}
+	if err := validateProfileRole(profile.ID, profile.Role, serverID); err != nil {
+		return err
+	}
+
+	// profile.UserSignature.KeyID is already the full canonical key
+	// id (unlike flat's bare fingerprints) — use it as-is when present.
+	keyID := activeFP
+	if profile.UserSignature.KeyID != "" {
+		keyID = profile.UserSignature.KeyID
+	}
+	userSignatureID, err := insertUserSignature(ctx, tx, keyID, profile.UserSignature.Armor)
+	if err != nil {
+		return err
+	}
+	serverKeyID := string(canonicalID(serverID, profile.ServerSignature.Fingerprint))
+	serverSignatureID, err := insertServerSignature(ctx, tx, serverKeyID, profile.ServerSignature.Armor, signedAt)
+	if err != nil {
+		return err
+	}
+	// invite_id is already canonical (creatorID@serverID/uuid) — no
+	// conversion needed, unlike a bare user id.
+	var inviteID any
+	if id := recoveryProfileInviteID(profile); id != "" {
+		inviteID = id
+	}
+	// users.id IS identities.id directly — selfIdentity is the sole PK
+	// value, same pattern as Signup's INSERT.
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO users (
+			id, username, role, created_at, active_key_id, bio,
+			user_signature_id, server_signature_id, invite_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`,
+		selfIdentity, username, profile.Role, profile.MemberSince.UTC().Truncate(time.Second),
+		activeFP, nullIfEmptyString(profile.Bio),
+		userSignatureID, serverSignatureID, inviteID,
+	)
+	if err != nil {
+		return fmt.Errorf("insert user: %w", err)
+	}
+	return bumpActiveUsers(ctx, tx, 1)
+}
+
+func updateRecoveryUserIfNewer(
+	ctx context.Context,
+	tx *sql.Tx,
+	selfIdentity identityID,
+	profile recoveryProfile,
+	activeFP string,
+	existingSignedAt time.Time,
+	incomingSignedAt time.Time,
+) (bool, error) {
+	if !incomingSignedAt.After(existingSignedAt) {
+		return false, nil
+	}
+	username, err := claimRecoveryUsername(ctx, tx, selfIdentity, profile.Username, incomingSignedAt)
+	if err != nil {
+		return false, err
+	}
+	// profile.UserSignature.KeyID is already the full canonical key
+	// id (unlike flat's bare fingerprints) — use it as-is when present.
+	keyID := activeFP
+	if profile.UserSignature.KeyID != "" {
+		keyID = profile.UserSignature.KeyID
+	}
+	userSignatureID, err := insertUserSignature(ctx, tx, keyID, profile.UserSignature.Armor)
+	if err != nil {
+		return false, err
+	}
+	serverKeyID := string(canonicalID(selfIdentity.ServerID(), profile.ServerSignature.Fingerprint))
+	serverSignatureID, err := insertServerSignature(ctx, tx, serverKeyID, profile.ServerSignature.Armor, incomingSignedAt)
+	if err != nil {
+		return false, err
+	}
+	// Profile fields only — role/username/bio/fingerprint/signatures. This
+	// updates the existing satellite users row in place; the identities row
+	// is untouched. WHERE id = $7 targets users.id, which IS identities.id
+	// — must bind selfIdentity, not bare profile.ID, or this updates zero rows.
+	_, err = tx.ExecContext(ctx, `
+		UPDATE users SET
+			username = $1,
+			bio = $2,
+			role = $3,
+			active_key_id = $4,
+			user_signature_id = $5,
+			server_signature_id = $6
+		WHERE id = $7
+	`,
+		username, nullIfEmptyString(profile.Bio),
+		profile.Role, activeFP, userSignatureID, serverSignatureID, selfIdentity,
+	)
+	if err != nil {
+		return false, fmt.Errorf("update user: %w", err)
+	}
+	return true, nil
+}
+
+// insertRecoveryKeys writes flat's keys/revocations to public_keys/
+// public_key_revocations. flat's fingerprints arrive BARE —
+// verifyRecoveryKeyCountersig/verifyRecoveryRevocation checked them against
+// bytes the SPA's recoveryKeyNest.ts actually signed, which (per this
+// section's deliberate bare-userID exception) pairs a bare fingerprint with
+// a bare userID, so the wire/verification layer must stay bare here too. DB
+// storage still wants the canonical form like every other table, so
+// canonicalize against owner right at this boundary, after verification
+// and before any INSERT. owner is always a real, local identity here —
+// this section handles only local subjects.
+func insertRecoveryKeys(ctx context.Context, tx *sql.Tx, owner identityID, flat []recoveryFlatKey) error {
+	canonicalFP := func(bare string) string {
+		return string(appendEntity(owner, bare))
+	}
+	// Server signature ServerID on the wire is optional
+	// (verifyRecoveryKeyCountersig only checks it if non-empty);
+	// owner.ServerID() is always populated and is what verification
+	// actually binds against, so use it here.
+	ownerServerID := owner.ServerID()
+	for i, fk := range flat {
+		fingerprint := canonicalFP(fk.Key.Fingerprint)
+		var predID interface{}
+		if fk.PredecessorFingerprint != "" {
+			predID = canonicalFP(fk.PredecessorFingerprint)
+		}
+		keyServerKeyID := string(canonicalID(ownerServerID, fk.Key.ServerSignature.Fingerprint))
+		serverSigID, err := insertServerSignature(ctx, tx,
+			keyServerKeyID,
+			fk.Key.ServerSignature.Armor,
+			fk.Key.ServerSignature.Timestamp,
+		)
+		if err != nil {
+			return fmt.Errorf("insert key server signature %s: %w", fk.Key.Fingerprint, err)
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO public_keys (
+				id, owner, armor, created_at,
+				server_signature_id, predecessor_id
+			) VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (id) DO NOTHING
+		`,
+			fingerprint, owner, fk.Key.Armor,
+			fk.Key.CreatedAt.UTC().Truncate(time.Second),
+			serverSigID, predID,
+		)
+		if err != nil {
+			return fmt.Errorf("insert key %s: %w", fk.Key.Fingerprint, err)
+		}
+
+		if fk.Revocation != nil {
+			revocationFP := canonicalFP(fk.Revocation.Fingerprint)
+			userSigID, err := insertUserSignature(ctx, tx, revocationFP, fk.Revocation.UserSignature.Armor)
+			if err != nil {
+				return fmt.Errorf("insert revocation user signature %s: %w", fk.Key.Fingerprint, err)
+			}
+			revServerKeyID := string(canonicalID(ownerServerID, fk.Revocation.ServerSignature.Fingerprint))
+			serverSigID, err := insertServerSignature(ctx, tx,
+				revServerKeyID,
+				fk.Revocation.ServerSignature.Armor,
+				fk.Revocation.ServerSignature.Timestamp,
+			)
+			if err != nil {
+				return fmt.Errorf("insert revocation server signature %s: %w", fk.Key.Fingerprint, err)
+			}
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO public_key_revocations (
+					key_id, owner, reason,
+					user_signature_id, server_signature_id
+				) VALUES ($1, $2, $3, $4, $5)
+				ON CONFLICT (key_id) DO NOTHING
+			`,
+				revocationFP, owner, fk.Revocation.Reason,
+				userSigID, serverSigID,
+			)
+			if err != nil {
+				return fmt.Errorf("insert revocation %s: %w", fk.Key.Fingerprint, err)
+			}
+		}
+
+		// After inserting a newer key, point the predecessor revocation's
+		// successor + the handoff signature proof onto that same row.
+		if i > 0 {
+			var successorSigID interface{}
+			if fk.PredecessorSignature != "" {
+				sigID, err := insertUserSignature(ctx, tx, canonicalFP(flat[i-1].Key.Fingerprint), fk.PredecessorSignature)
+				if err != nil {
+					return fmt.Errorf("insert successor signature for %s: %w", flat[i-1].Key.Fingerprint, err)
+				}
+				successorSigID = sigID
+			}
+			_, err := tx.ExecContext(ctx, `
+				UPDATE public_key_revocations
+				SET successor = $1, successor_signature_id = $2
+				WHERE key_id = $3
+				  AND (successor IS NULL OR successor = '')
+			`, fingerprint, successorSigID, canonicalFP(flat[i-1].Key.Fingerprint))
+			if err != nil {
+				return fmt.Errorf("set successor for %s: %w", flat[i-1].Key.Fingerprint, err)
+			}
+		}
+	}
+	return nil
+}
+
+// claimRecoveryUsername resolves a username collision by deleting whichever
+// side has the older (or equal) server_signed_at. If the incoming profile
+// loses, the existing holder is left untouched and
+// errRecoveryUsernameCollisionLoss is returned — callers must abort the
+// whole upsert without writing anything. If the incoming profile wins (or
+// there is no collision), the holder row (if any) is hard-deleted — ON
+// DELETE CASCADE removes its keys, signatures, and recovery/social
+// bookkeeping — and username is returned unchanged for the caller to store.
+func claimRecoveryUsername(ctx context.Context, tx *sql.Tx, selfIdentity identityID, username string, signedAt time.Time) (string, error) {
+	var holderIdentityID string
+	var holderSignedAt time.Time
+	// users.id IS identities.id directly now, so both the self-exclusion
+	// comparison and the selected holder id must use that form — comparing
+	// bare here would make "u.id <> $2" always-true, wrongly treating a
+	// same-identity re-report as a collision.
+	err := tx.QueryRowContext(ctx, `
+		SELECT u.id, ss.signed_at
+		FROM users u
+		JOIN server_signatures ss ON ss.id = u.server_signature_id
+		WHERE LOWER(u.username) = LOWER($1) AND u.id <> $2
+		FOR UPDATE OF u
+	`, username, selfIdentity).Scan(&holderIdentityID, &holderSignedAt)
+	if err == sql.ErrNoRows {
+		return username, nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	holderWins := !signedAt.After(holderSignedAt)
+	if holderWins {
+		return "", errRecoveryUsernameCollisionLoss
+	}
+
+	// Incoming wins: the holder is a different, older, provably-signed
+	// identity — not a duplicate of the incoming one. Deleting it is
+	// destructive by design: a renamed-in-place row would carry a username
+	// that no longer matches what its owner signed, permanently breaking
+	// verification instead.
+	//
+	// Deletes FROM identities, not FROM users: identities is the actual FK
+	// root, so ON DELETE CASCADE removes the satellite users row and
+	// everything else (keys, signatures, recovery/social bookkeeping) in one shot.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM identities WHERE id = $1`, holderIdentityID); err != nil {
+		return "", fmt.Errorf("delete username collision loser %s: %w", holderIdentityID, err)
+	}
+	if err := bumpActiveUsers(ctx, tx, -1); err != nil {
+		return "", err
+	}
+	return username, nil
+}
+
+func nullIfEmptyString(s string) interface{} {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return s
+}
+
+// drainRecoveryPendingFollows moves pending edges targeting targetUserID
+// into the real follow tables, then deletes those pending rows.
+// targetUserID is bare (pending_follows has no FK); targetIdentity is the
+// same subject's identities.id, used for the fully-FK'd destination tables.
+func drainRecoveryPendingFollows(ctx context.Context, tx *sql.Tx, targetUserID string, targetIdentity identityID) error {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO user_following (user_id, following_user_id)
+		SELECT follower_user_id, $2
+		FROM pending_follows
+		WHERE following_user_id = $1
+		ON CONFLICT DO NOTHING
+	`, targetUserID, targetIdentity); err != nil {
+		return fmt.Errorf("drain pending following: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO user_followers (user_id, follower_user_id)
+		SELECT $2, follower_user_id
+		FROM pending_follows
+		WHERE following_user_id = $1
+		ON CONFLICT DO NOTHING
+	`, targetUserID, targetIdentity); err != nil {
+		return fmt.Errorf("drain pending followers: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM pending_follows WHERE following_user_id = $1
+	`, targetUserID); err != nil {
+		return fmt.Errorf("delete pending follows: %w", err)
+	}
+	return nil
+}
+
+// bindRecoveryClaimDeviceTx binds the claiming device in the own-identity
+// claim transaction. Device binding is local-account-only, so ownerIdentity
+// is always a local selfIdentity — same convention as BindDeviceTx.
+func bindRecoveryClaimDeviceTx(ctx context.Context, tx *sql.Tx, ownerIdentity identityID, deviceID string, now time.Time) error {
+	deviceID, err := parseDeviceID(deviceID)
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE user_devices SET revoked_at = $2
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, ownerIdentity, now); err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO user_devices (user_id, device_id, linked_at, revoked_at)
+		VALUES ($1, $2, $3, NULL)
+	`, ownerIdentity, deviceID, now)
+	return err
+}
+
+// errRecoveryReedConflict is returned when an existing reed row's metadata
+// does not match the countersigned submission (should be impossible under
+// the bind).
+var errRecoveryReedConflict = errors.New("reed metadata conflict")
+
+// errRecoveryAuthorNotFound is returned when the reed author has no
+// identities row.
+var errRecoveryAuthorNotFound = errors.New("reed author not found")
+
+// saveRecoveryReed inserts reed metadata if missing; rejects conflicting
+// metadata; always upserts an allocation for reporterUserID. Caller must
+// have verified the countersignature. Checks identities, not users, so a
+// provisional row still works for a remote author. reedID is canonical
+// (authorID@serverID/uuid); the author identity is recovered from it.
+func saveRecoveryReed(ctx context.Context,
+	db *sql.DB,
+	serverID string,
+	reedID, fingerprint string,
+	signedAt time.Time,
+	reporterUserID string,
+	userFingerprint, userSignatureB64 string,
+	serverSignatureB64 string,
+) error {
+	signedAt = signedAt.UTC().Truncate(time.Second)
+	authorBare, authorServerID, _, ok := parseKeyFingerprint(identityID(reedID))
+	if !ok {
+		return fmt.Errorf("malformed reed id: %s", reedID)
+	}
+	authorIdentity := canonicalID(authorServerID, authorBare)
+	reporterIdentity := canonicalID(serverID, reporterUserID)
+	keyID := string(canonicalID(serverID, fingerprint))
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM identities WHERE id = $1)`, authorIdentity).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errRecoveryAuthorNotFound
+	}
+
+	var existingAuthor, existingKeyID string
+	var existingAt time.Time
+	err = tx.QueryRowContext(ctx, `
+		SELECT r.user_id, ss.private_key_id, r.signed_at
+		FROM reeds r
+		JOIN server_signatures ss ON ss.id = r.server_signature_id
+		WHERE r.id = $1
+		FOR UPDATE OF r
+	`, reedID).Scan(&existingAuthor, &existingKeyID, &existingAt)
+
+	switch {
+	case err == sql.ErrNoRows:
+		userSigID, err := insertUserSignature(ctx, tx, userFingerprint, userSignatureB64)
+		if err != nil {
+			return err
+		}
+		serverSigID, err := insertServerSignature(ctx, tx, keyID, serverSignatureB64, signedAt)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reeds (
+				id, user_id, signed_at,
+				user_signature_id, server_signature_id
+			)
+			VALUES ($1, $2, $3, $4, $5)
+		`, reedID, authorIdentity, signedAt, userSigID, serverSigID); err != nil {
+			return fmt.Errorf("insert reed: %w", err)
+		}
+	case err != nil:
+		return err
+	default:
+		existingAt = existingAt.UTC().Truncate(time.Second)
+		if existingAuthor != string(authorIdentity) || existingKeyID != keyID || !existingAt.Equal(signedAt) {
+			log.Error().
+				Str("reedID", reedID).
+				Str("existingAuthor", existingAuthor).
+				Str("existingKeyID", existingKeyID).
+				Str("existingAt", existingAt.Format(time.RFC3339)).
+				Str("incomingAuthor", string(authorIdentity)).
+				Str("incomingKeyID", keyID).
+				Str("incomingAt", signedAt.Format(time.RFC3339)).
+				Msg("[ERR] recovery reed conflict")
+			return errRecoveryReedConflict
+		}
+	}
+
+	// reed_allocations.holder_user_id is a direct FK to identities(id);
+	// reed_id FKs to reeds(id).
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO reed_allocations (reed_id, holder_user_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, reedID, reporterIdentity); err != nil {
+		return fmt.Errorf("insert reed allocation: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// saveRecoveryFollowing writes follow edges for followerUserID. Existing
+// targets go into user_following / user_followers; missing targets go into
+// pending_follows. Caller must reject self-follows before calling.
+// followerUserID/targetIDs arrive already canonical (userID@serverID).
+func saveRecoveryFollowing(ctx context.Context, db *sql.DB, serverID string, followerUserID string, targetIDs []string) error {
+	if len(targetIDs) == 0 {
+		return nil
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	followerIdentity := identityID(followerUserID)
+
+	// Check identities, not users, same reason as saveRecoveryReed above.
+	existing := make(map[string]bool, len(targetIDs))
+	targetIdentities := make(map[string]identityID, len(targetIDs))
+	canonicalTargets := make([]string, 0, len(targetIDs))
+	for _, targetID := range targetIDs {
+		if targetID == "" {
+			continue
+		}
+		targetIdentity := identityID(targetID)
+		targetIdentities[targetID] = targetIdentity
+		canonicalTargets = append(canonicalTargets, string(targetIdentity))
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id FROM identities WHERE id = ANY($1)
+	`, pq.Array(canonicalTargets))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		existing[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, targetID := range targetIDs {
+		if targetID == "" {
+			continue
+		}
+		targetIdentity := targetIdentities[targetID]
+		if existing[string(targetIdentity)] {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO user_following (user_id, following_user_id)
+				VALUES ($1, $2)
+				ON CONFLICT DO NOTHING
+			`, followerIdentity, targetIdentity); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO user_followers (user_id, follower_user_id)
+				VALUES ($1, $2)
+				ON CONFLICT DO NOTHING
+			`, targetIdentity, followerIdentity); err != nil {
+				return err
+			}
+			continue
+		}
+		// pending_follows.following_user_id has no FK (target may not
+		// exist yet) and stays bare, matching drainRecoveryPendingFollows'
+		// lookup.
+		bareTargetID, _, ok := parseIdentityID(targetIdentities[targetID])
+		if !ok {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO pending_follows (follower_user_id, following_user_id)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, followerIdentity, bareTargetID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// recoveryErrorMessage is the JSON shape of a generic recovery error body.
+type recoveryErrorMessage struct {
+	Error string `json:"error"`
+}
+
+// recoveryAllowedDuringImport reports whether path may be used while the
+// caller is in ongoing_recoveries. path is the request URL path (e.g.
+// /api/server/info).
+func recoveryAllowedDuringImport(path string) bool {
+	if path == "/api/server/info" {
+		return true
+	}
+	if path == "/api/users/status" {
+		return true
+	}
+	if strings.HasPrefix(path, "/api/recovery/") {
+		return true
+	}
+	if strings.HasPrefix(path, "/api/server/keys/") {
+		return true
+	}
+	return false
+}
+
+// recoveryImportGateMiddleware returns the import-gate middleware. userIDKey
+// is the context key signature-auth uses for the authenticated user id.
+// isOngoing reports whether that user is mid-import. Authenticated users
+// mid-import get 403 on non-allowlisted paths. OPTIONS always passes.
+func recoveryImportGateMiddleware(userIDKey any, isOngoing func(context.Context, string) (bool, error)) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodOptions {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			userID, ok := r.Context().Value(userIDKey).(string)
+			if !ok || userID == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if recoveryAllowedDuringImport(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			ongoing, err := isOngoing(r.Context(), userID)
+			if err != nil {
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			if ongoing {
+				writeResponse(w, http.StatusForbidden, recoveryErrorMessage{Error: "Finish recovery import first."})
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
