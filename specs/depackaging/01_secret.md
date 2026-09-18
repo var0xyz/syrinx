@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed.
+Implemented. `secret/passphrase.go` and `secret/passphrase_test.go` moved
+to root `secret.go`/`secret_test.go`, `secret/` directory deleted (this
+package had no remaining in-repo dependents once moved).
 
 ## Depends on
 

@@ -21,7 +21,6 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/recovery"
-	"syrinx/secret"
 
 	_ "github.com/lib/pq"
 	"github.com/tooxie/env"
@@ -232,7 +231,7 @@ func runImportIdentity(infile string) error {
 			cfg.ServerName, bundle.ServerName)
 	}
 
-	resolver := secret.NewResolver(cfg.ServerKeyPassphrase, cfg.ServerName)
+	resolver := NewResolver(cfg.ServerKeyPassphrase, cfg.ServerName)
 	passphrase, err := resolver.Resolve()
 	if err != nil {
 		return fmt.Errorf("resolve server key passphrase: %w", err)
@@ -273,7 +272,7 @@ func runRotatePassphrase() error {
 	}
 	defer db.Close()
 
-	resolver := secret.NewResolver(cfg.ServerKeyPassphrase, cfg.ServerName)
+	resolver := NewResolver(cfg.ServerKeyPassphrase, cfg.ServerName)
 	current, err := resolver.Resolve()
 	if err != nil {
 		return fmt.Errorf("resolve current passphrase: %w", err)
@@ -290,7 +289,7 @@ func runRotatePassphrase() error {
 	}
 
 	if err := resolver.Store(newPass); err != nil {
-		if errors.Is(err, secret.ErrEnvManaged) {
+		if errors.Is(err, ErrEnvManaged) {
 			fmt.Fprintln(os.Stderr, "Passphrase re-wrapped in DB.")
 			fmt.Fprintln(os.Stderr, "SERVER_KEY_PASSPHRASE is set — update the injected secret yourself; keychain was not changed.")
 		} else {
@@ -353,15 +352,15 @@ func promptNewServerKeyPassphrase() (string, error) {
 	}
 	pw := strings.TrimSpace(string(a))
 	if pw == "" {
-		pw, err = secret.GeneratePassphrase()
+		pw, err = GeneratePassphrase()
 		if err != nil {
 			return "", err
 		}
 		fmt.Fprintf(os.Stdout, "Generated server key passphrase: %s\n", pw)
 		return pw, nil
 	}
-	if len(pw) < secret.MinPassphraseLen {
-		return "", secret.ErrTooShort
+	if len(pw) < MinPassphraseLen {
+		return "", ErrTooShort
 	}
 	fmt.Fprint(os.Stderr, "Confirm new server key passphrase: ")
 	b, err := term.ReadPassword(int(os.Stdin.Fd()))

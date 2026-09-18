@@ -1,11 +1,11 @@
-// Package secret resolves and stores the server key passphrase.
+// Server key passphrase resolution and storage.
 //
 // Resolution order:
 //  1. non-empty SERVER_KEY_PASSPHRASE (HA escape hatch; never written to keychain)
 //  2. OS keychain / secret store
 //  3. interactive TTY prompt → store in keychain
 //  4. otherwise fail closed
-package secret
+package main
 
 import (
 	"crypto/rand"
