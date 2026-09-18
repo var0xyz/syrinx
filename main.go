@@ -21,7 +21,6 @@ import (
 	"syrinx/realtime"
 	"syrinx/recovery"
 	"syrinx/roles"
-	"syrinx/secret"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
@@ -159,18 +158,18 @@ func main() {
 	}
 
 	log.Debug().Msg("Resolving server key passphrase...")
-	passphrase, err := secret.NewResolver(cfg.ServerKeyPassphrase, cfg.ServerName).Resolve()
+	passphrase, err := NewResolver(cfg.ServerKeyPassphrase, cfg.ServerName).Resolve()
 	if err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to resolve server key passphrase")
 	}
 	switch passphrase.Source {
-	case secret.SourceEnv:
+	case SourceEnv:
 		log.Info().Msg("[OK] Server key passphrase found in SERVER_KEY_PASSPHRASE")
-	case secret.SourceKeychain:
+	case SourceKeychain:
 		log.Info().Msg("[OK] Server key passphrase fetched from OS keychain")
-	case secret.SourcePrompt:
+	case SourcePrompt:
 		log.Info().Msg("[OK] Server key passphrase stored in OS keychain")
-	case secret.SourceGenerated:
+	case SourceGenerated:
 		log.Info().Msg("[OK] Server key passphrase auto-generated and stored in OS keychain")
 	}
 
