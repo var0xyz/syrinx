@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -19,7 +20,6 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/deletion"
-	"syrinx/invites"
 	"syrinx/recovery"
 
 	"github.com/google/uuid"
@@ -88,23 +88,20 @@ type DataService struct {
 	db         *sql.DB
 	serverName string
 	serverID   string
-	invites    *invites.Store
 }
 
 func NewDataService(db *sql.DB, serverName string) *DataService {
 	return &DataService{
 		db:         db,
 		serverName: serverName,
-		invites:    &invites.Store{DB: db},
 	}
 }
 
-// setServerIDForTest sets serverID and keeps s.invites.ServerID in sync;
-// tests must use this instead of writing s.serverID directly, or invite
-// creation/claiming breaks (s.invites.ServerID stays "" while serverID is set).
+// setServerIDForTest sets serverID; tests must use this instead of writing
+// s.serverID directly (kept as its own helper for parity with earlier
+// callers, even though it's now a one-line assignment).
 func (s *DataService) setServerIDForTest(id string) {
 	s.serverID = id
-	s.invites.ServerID = id
 }
 
 func (s *DataService) GetServerID() string {
@@ -182,14 +179,12 @@ func (s *DataService) InitServer(ctx context.Context, recoveryMode bool, baseURL
 			return err
 		}
 		s.serverID = id
-		s.invites.ServerID = id
 		return nil
 	}
 	if err != nil {
 		return err
 	}
 	s.serverID = id
-	s.invites.ServerID = id
 	if name != s.serverName || dbBaseURL.String != baseURL {
 		_, err = s.db.ExecContext(ctx, `UPDATE servers SET name = $1, base_url = $2 WHERE self = TRUE`, s.serverName, baseURL)
 		return err
@@ -484,19 +479,19 @@ type SignupInput struct {
 	ProfileSignature   ServerSignature
 	PublicKeySignature ServerSignature
 	// Invite is the pending invite row to consume (nil when signing up without one).
-	Invite   *invites.Invite
+	Invite   *inviteRecord
 	DeviceID string
 }
 
 // GetPendingInvite resolves invite canonical id + fragment secret for
 // pre-signup policy checks. Returns nil invite when unknown or hash mismatch.
-func (s *DataService) GetPendingInvite(ctx context.Context, inviteID, secret string) (*invites.Invite, error) {
+func (s *DataService) GetPendingInvite(ctx context.Context, inviteID, secret string) (*inviteRecord, error) {
 	inviteID = strings.TrimSpace(inviteID)
 	secret = strings.TrimSpace(secret)
 	if inviteID == "" || secret == "" {
 		return nil, nil
 	}
-	return s.invites.GetPendingInvite(ctx, inviteID, invites.HashSecret(secret))
+	return getPendingInvite(ctx, s.db, s.db, inviteID, hashSecret(secret))
 }
 
 // Signup materialises a fresh identity record: it writes the users row
@@ -523,7 +518,7 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	defer tx.Rollback()
 
 	if in.Invite != nil && in.Invite.Status() != "pending" {
-		return nil, invites.ErrInvalidInvite
+		return nil, errInvalidInvite
 	}
 
 	// identities.id for the new local user, minted here inside the signup
@@ -602,12 +597,12 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	}
 
 	if in.Invite != nil {
-		ok, err := s.invites.MarkClaimed(ctx, tx, in.Invite.ID, in.UserID, in.MemberSince)
+		ok, err := s.markInviteClaimed(ctx, tx, in.Invite.ID, in.UserID, in.MemberSince)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
-			return nil, invites.ErrInvalidInvite
+			return nil, errInvalidInvite
 		}
 	}
 
@@ -5496,4 +5491,367 @@ func toLegacyDeletionAccountCert(cert accountRemovalCert) deletion.AccountCert {
 		ServerFingerprint: cert.ServerFingerprint,
 		ServerSignedAt:    cert.ServerSignedAt,
 	}
+}
+
+// =========== //
+//   invites   //
+// =========== //
+
+// inviteSignupMode is the deploy-time registration policy.
+type inviteSignupMode string
+
+const (
+	signupModeOpen   inviteSignupMode = "open"
+	signupModeInvite inviteSignupMode = "invite"
+	signupModeClosed inviteSignupMode = "closed"
+)
+
+// maxInvitesUnlimited means no per-user invite minting cap.
+const maxInvitesUnlimited = -1
+
+// inviteCreateSkew is how far a client-supplied createdAt may drift from
+// server now on create.
+const inviteCreateSkew = 5 * time.Minute
+
+// hashSecret returns SHA-256(secret). Create sends this digest (hex); the
+// server stores it. Redeem sends the raw secret; the server hashes and
+// compares. The secret itself never appears on create.
+func hashSecret(secret string) []byte {
+	return cryptoHash(secret)
+}
+
+// encodeHashHex encodes a 32-byte digest as lowercase hex (wire / signed header).
+func encodeHashHex(digest []byte) string {
+	return hex.EncodeToString(digest)
+}
+
+// decodeHashHex parses a 32-byte digest from hex.
+func decodeHashHex(s string) ([]byte, error) {
+	b, err := hex.DecodeString(strings.TrimSpace(s))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) != cryptoHashSize {
+		return nil, fmt.Errorf("hash must be %d bytes", cryptoHashSize)
+	}
+	return b, nil
+}
+
+// newInviteSecret returns a URL-fragment-safe raw secret (≥256 bits).
+func newInviteSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := cryptorand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// newInviteID returns a random UUIDv7 — the bare entity component of a
+// canonical invite id (creatorID@serverID/uuid), same convention as reed ids.
+func newInviteID() (string, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return "", err
+	}
+	return id.String(), nil
+}
+
+// Invite revoke / insert outcome errors for handlers.
+var (
+	errInviteNotFound       = errors.New("invite not found")
+	errInviteNotOwner       = errors.New("invite not owned by caller")
+	errInviteAlreadyClaimed = errors.New("invite already claimed")
+	errInviteAlreadyRevoked = errors.New("invite already revoked")
+	errInviteExists         = errors.New("invite already exists")
+	errInviteRequired       = errors.New("invite required")
+	errInvalidInvite        = errors.New("invalid or claimed invite")
+)
+
+// inviteRecord is the durable invite row (never includes the raw token).
+// CreatedBy/ClaimedBy hold the full "userID@serverID" form; ClaimedBy is
+// exposed via inviteStatusResponse.ClaimedBy on GET /api/invites/{id}.
+// UserSignature is the inviter's attestation over the invite fields.
+type inviteRecord struct {
+	ID            string
+	CreatedBy     string
+	CreatedAt     time.Time
+	GrantedRole   string
+	ClaimedAt     *time.Time
+	ClaimedBy     *string
+	RevokedAt     *time.Time
+	UserSignature userSignatureRow
+}
+
+// Status derives the invite read-model status (revoked wins over claimed).
+func (inv inviteRecord) Status() string {
+	if inv.RevokedAt != nil {
+		return "revoked"
+	}
+	if inv.ClaimedAt != nil {
+		return "claimed"
+	}
+	return "pending"
+}
+
+// resolvedInvite is the invite (if any) to consume during signup.
+type resolvedInvite struct {
+	InviteID string
+}
+
+// resolveSignup applies SIGNUP_MODE invite policy given an optional invite
+// row looked up by id + hashSecret(secret) (nil if absent).
+//
+// When inviteID/secret are provided, inv must be pending and inv.ID must
+// equal inviteID.
+//
+// Policy:
+//   - invite mode → id+secret required
+//   - open mode → optional
+//   - closed mode is rejected by the handler before this runs
+//   - if credentials are provided they must resolve to a pending invite
+//
+// First account: deploy with SIGNUP_MODE=open, then switch to invite or closed.
+func resolveSignup(mode inviteSignupMode, inviteID, secret string, inv *inviteRecord) (resolvedInvite, error) {
+	id := strings.TrimSpace(inviteID)
+	sec := strings.TrimSpace(secret)
+	hasCreds := id != "" || sec != ""
+
+	if !hasCreds {
+		if mode == signupModeInvite {
+			return resolvedInvite{}, errInviteRequired
+		}
+		return resolvedInvite{}, nil
+	}
+	if id == "" || sec == "" {
+		return resolvedInvite{}, errInvalidInvite
+	}
+	if inv == nil || inv.Status() != "pending" || inv.ID != id {
+		return resolvedInvite{}, errInvalidInvite
+	}
+	return resolvedInvite{InviteID: inv.ID}, nil
+}
+
+func (s *DataService) countInvitesByCreator(ctx context.Context, creatorID string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM invites WHERE created_by = $1
+	`, creatorID).Scan(&n)
+	return n, err
+}
+
+func (s *DataService) insertInvite(
+	ctx context.Context,
+	id, creatorID string,
+	tokenHash []byte,
+	createdAt time.Time,
+	grantedRole string,
+	userKeyID, userSignatureArmor string,
+) error {
+	if grantedRole == "" {
+		grantedRole = "user"
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	userSignatureID, err := insertUserSignature(ctx, tx, userKeyID, userSignatureArmor)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO invites (id, created_by, token_hash, created_at, granted_role, user_signature_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, id, creatorID, tokenHash, createdAt.UTC(), grantedRole, userSignatureID)
+	if isUniqueViolation(err) {
+		return errInviteExists
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *DataService) getInviteByID(ctx context.Context, id string) (*inviteRecord, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, created_by, created_at, granted_role, claimed_at, claimed_by, revoked_at, user_signature_id
+		FROM invites
+		WHERE id = $1
+	`, id)
+	return scanInvite(ctx, s.db, row)
+}
+
+func (s *DataService) getInviteByTokenHash(ctx context.Context, hash []byte) (*inviteRecord, error) {
+	return getInviteByTokenHash(ctx, s.db, s.db, hash)
+}
+
+func (s *DataService) getInviteByTokenHashTx(ctx context.Context, tx *sql.Tx, hash []byte) (*inviteRecord, error) {
+	return getInviteByTokenHash(ctx, tx, tx, hash)
+}
+
+type inviteTokenHashQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// getInviteByTokenHash has no creatorID in scope (token_hash is globally
+// unique) — created_by/claimed_by come back in full form from the row
+// itself, no conversion needed on the query side here.
+func getInviteByTokenHash(ctx context.Context, q inviteTokenHashQuerier, sigDB signingDBTX, hash []byte) (*inviteRecord, error) {
+	row := q.QueryRowContext(ctx, `
+		SELECT id, created_by, created_at, granted_role, claimed_at, claimed_by, revoked_at, user_signature_id
+		FROM invites
+		WHERE token_hash = $1
+	`, hash)
+	return scanInvite(ctx, sigDB, row)
+}
+
+func (s *DataService) getPendingInviteTx(ctx context.Context, tx *sql.Tx, id string, hash []byte) (*inviteRecord, error) {
+	return getPendingInvite(ctx, tx, tx, id, hash)
+}
+
+func getPendingInvite(ctx context.Context, q inviteTokenHashQuerier, sigDB signingDBTX, id string, hash []byte) (*inviteRecord, error) {
+	row := q.QueryRowContext(ctx, `
+		SELECT id, created_by, created_at, granted_role, claimed_at, claimed_by, revoked_at, user_signature_id
+		FROM invites
+		WHERE id = $1 AND token_hash = $2
+	`, id, hash)
+	inv, err := scanInvite(ctx, sigDB, row)
+	if err != nil || inv == nil {
+		return inv, err
+	}
+	if inv.Status() != "pending" {
+		return nil, nil
+	}
+	return inv, nil
+}
+
+// markInviteClaimed claims an unused, unrevoked invite inside tx. inviteID
+// is canonical; claimedBy is a bare userID. Returns whether a row was updated.
+func (s *DataService) markInviteClaimed(
+	ctx context.Context,
+	tx *sql.Tx,
+	inviteID, claimedBy string,
+	claimedAt time.Time,
+) (bool, error) {
+	claimedByIdentity := canonicalID(s.serverID, claimedBy)
+	res, err := tx.ExecContext(ctx, `
+		UPDATE invites
+		SET claimed_at = $2, claimed_by = $3
+		WHERE id = $1
+		  AND claimed_at IS NULL AND revoked_at IS NULL
+	`, inviteID, claimedAt.UTC(), claimedByIdentity)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
+// revokeInvite marks an unused invite revoked. inviteID is canonical;
+// callerID must match the invite's creator.
+func (s *DataService) revokeInvite(
+	ctx context.Context,
+	inviteID, callerID string,
+	revokedAt time.Time,
+) error {
+	var createdBy string
+	var claimedAt, existingRevoked sql.NullTime
+	err := s.db.QueryRowContext(ctx, `
+		SELECT created_by, claimed_at, revoked_at
+		FROM invites WHERE id = $1
+	`, inviteID).Scan(&createdBy, &claimedAt, &existingRevoked)
+	if err == sql.ErrNoRows {
+		return errInviteNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if createdBy != callerID {
+		return errInviteNotOwner
+	}
+	if claimedAt.Valid {
+		return errInviteAlreadyClaimed
+	}
+	if existingRevoked.Valid {
+		return errInviteAlreadyRevoked
+	}
+
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE invites
+		SET revoked_at = $2
+		WHERE id = $1 AND claimed_at IS NULL AND revoked_at IS NULL
+	`, inviteID, revokedAt.UTC())
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return errInviteNotFound
+	}
+	return nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "23505"
+	}
+	return false
+}
+
+type inviteScannable interface {
+	Scan(dest ...any) error
+}
+
+// scanInvite scans created_by/claimed_by as identityID (the row's actual
+// stored form) and keeps that form on inviteRecord's wire-facing fields,
+// no decode to bare. Loads the inviter's persisted signature via sigDB.
+func scanInvite(ctx context.Context, sigDB signingDBTX, row inviteScannable) (*inviteRecord, error) {
+	var inv inviteRecord
+	var createdBy identityID
+	var claimedAt, revokedAt sql.NullTime
+	var claimedBy sql.NullString
+	var userSignatureID int64
+	err := row.Scan(
+		&inv.ID,
+		&createdBy,
+		&inv.CreatedAt,
+		&inv.GrantedRole,
+		&claimedAt,
+		&claimedBy,
+		&revokedAt,
+		&userSignatureID,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	inv.CreatedBy = string(createdBy)
+	if claimedAt.Valid {
+		t := claimedAt.Time.UTC()
+		inv.ClaimedAt = &t
+	}
+	if claimedBy.Valid {
+		s := claimedBy.String
+		inv.ClaimedBy = &s
+	}
+	if revokedAt.Valid {
+		t := revokedAt.Time.UTC()
+		inv.RevokedAt = &t
+	}
+	sigRow, err := getUserSignatureRow(ctx, sigDB, userSignatureID)
+	if err != nil {
+		return nil, err
+	}
+	inv.UserSignature = *sigRow
+	return &inv, nil
 }

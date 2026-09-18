@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/invites"
 
 	_ "github.com/lib/pq"
 )
@@ -138,7 +137,7 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 	return nil
 }
 
-func signupInput(userID, username string, inv *invites.Invite) SignupInput {
+func signupInput(userID, username string, inv *inviteRecord) SignupInput {
 	now := time.Now().UTC().Truncate(time.Second)
 	return SignupInput{
 		UserID:           userID,
@@ -198,21 +197,20 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := invites.NewSecret()
+	raw, err := newInviteSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash := invites.HashSecret(raw)
-	rawID, err := invites.NewInviteID()
+	hash := hashSecret(raw)
+	rawID, err := newInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
 	id := "inviter@srv/" + rawID
-	store := &invites.Store{DB: db, ServerID: "srv"}
-	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
+	if err := svc.insertInvite(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
-	invRow, err := store.GetByTokenHash(ctx, hash)
+	invRow, err := svc.getInviteByTokenHash(ctx, hash)
 	if err != nil || invRow == nil {
 		t.Fatalf("load invite: err=%v inv=%v", err, invRow)
 	}
@@ -228,7 +226,7 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 		t.Fatalf("invitee role = %q want %q", role, roleUser)
 	}
 
-	inv, err := store.GetByTokenHash(ctx, hash)
+	inv, err := svc.getInviteByTokenHash(ctx, hash)
 	if err != nil || inv == nil || inv.Status() != "claimed" {
 		t.Fatalf("invite status = %+v err=%v", inv, err)
 	}
@@ -244,7 +242,7 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 	}
 
 	_, err = svc.Signup(context.Background(), signupInput("other", "carol", invRow))
-	if !errors.Is(err, invites.ErrInvalidInvite) {
+	if !errors.Is(err, errInvalidInvite) {
 		t.Fatalf("reuse = %v, want ErrInvalidInvite", err)
 	}
 }
@@ -258,21 +256,20 @@ func TestSignup_OpenValidToken(t *testing.T) {
 	if _, err := svc.Signup(context.Background(), signupInput("inviter", "alice", nil)); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := invites.NewSecret()
+	raw, err := newInviteSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash := invites.HashSecret(raw)
-	rawID, err := invites.NewInviteID()
+	hash := hashSecret(raw)
+	rawID, err := newInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
 	id := "inviter@srv/" + rawID
-	store := &invites.Store{DB: db, ServerID: "srv"}
-	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
+	if err := svc.insertInvite(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
-	invRow, err := store.GetByTokenHash(ctx, hash)
+	invRow, err := svc.getInviteByTokenHash(ctx, hash)
 	if err != nil || invRow == nil {
 		t.Fatalf("load invite: err=%v inv=%v", err, invRow)
 	}
@@ -308,14 +305,14 @@ func TestSignup_OpenInvalidToken(t *testing.T) {
 	}
 	claimedAt := time.Now().UTC()
 	claimedBy := "someone-else"
-	_, err := svc.Signup(ctx, signupInput("u1", "alice", &invites.Invite{
+	_, err := svc.Signup(ctx, signupInput("u1", "alice", &inviteRecord{
 		ID:          "abcdefghijkl",
 		CreatedBy:   "inviter",
 		GrantedRole: roleUser,
 		ClaimedAt:   &claimedAt,
 		ClaimedBy:   &claimedBy,
 	}))
-	if !errors.Is(err, invites.ErrInvalidInvite) {
+	if !errors.Is(err, errInvalidInvite) {
 		t.Fatalf("err = %v", err)
 	}
 	var n int
@@ -360,21 +357,20 @@ func TestSignup_AdminInviteGrantsAdminRole(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := invites.NewSecret()
+	raw, err := newInviteSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash := invites.HashSecret(raw)
-	rawID, err := invites.NewInviteID()
+	hash := hashSecret(raw)
+	rawID, err := newInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
 	id := "inviter@srv/" + rawID
-	store := &invites.Store{DB: db, ServerID: "srv"}
-	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleAdmin, "seed-ufp", "sig"); err != nil {
+	if err := svc.insertInvite(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleAdmin, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
-	invRow, err := store.GetByTokenHash(ctx, hash)
+	invRow, err := svc.getInviteByTokenHash(ctx, hash)
 	if err != nil || invRow == nil {
 		t.Fatalf("load invite: err=%v inv=%v", err, invRow)
 	}
