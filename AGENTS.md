@@ -139,10 +139,14 @@ DDL, routes, and middleware.
 - `deletion/` — signed reed/account removal store + helpers.
 - `coverage/` — reed network coverage + live stats.
 - `realtime/` — WebSocket service: connection manager, message types, publish-ready,
-  reed subscribe, ongoing-recovery gate. Uses **binary protobuf frames** (see
-  `proto/`). Has its own `README.md` (Known Issues incl. the publish/relay race).
-- `proto/` — `websocket.proto` + generated `websocket.pb.go` (WS wire is
-  protobuf today; HTTP is still JSON — see `specs/protobuf/`).
+  reed subscribe, ongoing-recovery gate. Wire is **JSON text frames** today;
+  a binary protobuf path exists but only covers a handful of message types
+  and is unused in production. Has its own `README.md` (Known Issues incl.
+  the publish/relay race).
+- `proto/` — `websocket.proto` + generated `websocket.pb.go`, a partial,
+  stale stub. Both HTTP and WS are JSON/form-encoded in production; a
+  protobuf migration for HTTP, WS, and federation is spec'd but not
+  implemented — see `specs/protobuf/`.
 
 ### Frontend (`spa/src/`)
 
