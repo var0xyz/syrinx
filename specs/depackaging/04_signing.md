@@ -2,7 +2,39 @@
 
 ## Status
 
-Proposed.
+Implemented (root's own call sites only, `store.go` half only), with
+deviations. `signing/` still exists in full and stays exported —
+`deletion`, `invites`, `recovery` haven't merged yet, and (see deviation
+below) neither has `identity`, so `signing.go`'s `BytesToSign` didn't move
+either.
+
+**Deviation — `signing.go` deferred to step 05, not moved with `store.go`.**
+The original plan assumed both halves move together since `identity`
+"merges immediately after." At implementation time, `identity` hadn't
+merged *yet* — `BytesToSign`'s only caller is `identity/identity.go`,
+which still imports the still-exported `signing` package. Moving
+`BytesToSign` into root now would add code nothing in root calls.
+Deferred: `signing.go` stays in `signing/` untouched; move it as part of
+step 05, when `identity` merging actually gives root a direct caller.
+
+**Deviation — `db.go` was wrong again (same finding as `coverage`,
+step 02).** `store.go`'s row types and 4 DB functions moved into
+`services.go`, not `db.go` — `db.go` is still pure DDL string constants,
+no home for query-helper functions.
+
+**Simplification beyond the original plan — eliminated the
+`WireUserSignature`/`WireServerSignature` intermediate layer entirely.**
+The spec flagged this as a maybe ("may become unnecessary entirely,
+check at implementation time"). Verified: all 5 callers of
+`signing.UserWire`/`ServerWire` in `services.go` immediately unpacked the
+result into root's own `UserSignature`/`ServerSignature` field-by-field —
+the wire types added a conversion step with no remaining purpose once
+inside root. `getUserSignatureWire`/`getServerSignatureWire` (new,
+replacing `GetUserSignature`+`UserWire` / `GetServerSignature`+
+`ServerWire`) return root's `UserSignature`/`ServerSignature` directly.
+One caller (the `KeyRevocation.SuccessorSignature` case) only ever needed
+the raw `.Signature` field, not a full wire block — that one uses a new
+`getUserSignatureRow` (row-only, no wire conversion) instead.
 
 ## Depends on
 
@@ -24,7 +56,9 @@ Proposed.
 Since `identity` is also merging (step 05, immediately after this one),
 there's no remaining reason to keep `signing.go` split out as its own
 package — once `identity` is part of root, `BytesToSign`'s only caller is
-root itself. Both halves move together in this one step; no split.
+root itself. **This step turned out not to move both halves together —
+see Status.** `identity` hadn't merged yet at the point `store.go` moved,
+so `signing.go` was deferred to land alongside step 05 instead.
 
 Importers today: `deletion/store.go`, `deletion/account.go` (step 07),
 `identity/identity.go` (step 05), `invites/store.go` (step 08),
@@ -73,50 +107,57 @@ Rename `signing`'s pair on merge, e.g. `userSignatureRow`/
 next to root's existing wire-shaped `UserSignature`/`ServerSignature`.
 
 `WireUserSignature`/`WireServerSignature` (the `UserWire`/`ServerWire`
-conversion targets) — check these against root's own wire types at
-implementation time; not diffed this session, likely close to or
-identical to root's `UserSignature`/`ServerSignature` given the naming,
-in which case `UserWire`/`ServerWire` may become unnecessary entirely
-(construct root's wire type directly instead of converting through an
-intermediate `WireUserSignature`).
+conversion targets) turned out to have **no root equivalent at all** —
+diffed at implementation time: root's `db.go` `UserSignature`/
+`ServerSignature` are the wire types every caller actually wanted, and
+`WireUserSignature`/`WireServerSignature` were a pointless middle layer
+(different field names — `Fingerprint` vs `ID` — existing only because
+`signing` couldn't construct root's real type directly). Eliminated
+entirely rather than ported — see Status.
 
 No collisions on `DBTX`, `InsertUserSignature`, `InsertServerSignature`,
-`GetUserSignature`, `GetServerSignature`, `UserWire`, `ServerWire`,
-`BytesToSign`.
+`GetUserSignature`, `GetServerSignature`.
 
 ## Move plan
 
-1. Move `signing.go` and `store.go`'s contents into root. `BytesToSign`
-   is small and general enough to fit `utils.go` alongside `encoding`'s
-   two functions (step 00) — same file, same header. The `store.go`
-   contents (DB row types + 4 functions) are substantial enough to
-   warrant their own section in `db.go`, next to the `user_signatures`/
-   `server_signatures` DDL they already depend on.
-2. Rename the colliding row types per the Collisions section above.
-3. Add section headers:
-   - In `utils.go`, alongside (not replacing) the `encoding` header from
-     step 00:
-     ```go
-     // ========== //
-     //   signing   //
-     // ========== //
-     ```
-   - In `db.go`:
-     ```go
-     // ================ //
-     //   signing/store   //
-     // ================ //
-     ```
-4. Update call sites incrementally as each importing package merges in
-   its own later step — don't force all of them to update in this step;
-   `deletion`, `identity`, `invites`, `recovery` keep importing
-   `"syrinx/signing"` until their own step lands.
-5. Delete the `signing/` directory only after step 09 (`recovery`, its
-   last remaining external importer) lands.
+1. Moved `store.go`'s contents into `services.go` (not `db.go` — see
+   Status, same wrong-guess pattern as step 02). `signing.go`
+   (`BytesToSign`) deferred to step 05 — see Status.
+2. Renamed the colliding row types per the Collisions section above:
+   `UserSignature`→`userSignatureRow`, `ServerSignature`→
+   `serverSignatureRow`, `DBTX`→`signingDBTX`.
+   `InsertUserSignature`/`InsertServerSignature`→`insertUserSignature`/
+   `insertServerSignature` (unexported, mechanical rename, no shape
+   change). `GetUserSignature`/`GetServerSignature`/`UserWire`/
+   `ServerWire` collapsed into two new functions,
+   `getUserSignatureWire`/`getServerSignatureWire`, returning root's
+   `UserSignature`/`ServerSignature` directly (see Status). Added
+   `getUserSignatureRow` for the one caller needing the raw row instead
+   of a wire block.
+3. Added the section header in `services.go` (appended after the
+   `coverage` section from step 02, not in `utils.go`/`db.go` as
+   originally planned — see Status for `signing.go`'s deferral and
+   `db.go`'s wrong-guess):
+   ```go
+   // ========== //
+   //   signing   //
+   // ========== //
+   ```
+4. Updated all `services.go` call sites to the new unexported functions;
+   dropped `services.go`'s `"syrinx/signing"` import. Left `deletion`,
+   `identity`, `invites`, `recovery` importing `"syrinx/signing"`
+   unchanged — none of them merge in this step.
+5. `signing/store.go` and its DB row/function contents are untouched in
+   `signing/` (still needed by `deletion`/`invites`/`recovery`) — only
+   root gained its own copy. `signing/signing.go` (`BytesToSign`) is
+   untouched too, deferred to step 05. `signing/` directory deletion
+   waits until step 09 (`recovery`, the last remaining external
+   importer) lands.
 
 ## Verification
 
-`go build ./...`, `go vet ./...`, `go test ./...` pass. Confirm the
-renamed row types don't collide with anything root already has (re-run
-the `comm -12` check after renaming, not just before). `signing/`
+`go build ./...`, `go vet ./...`, `go test ./...`, plus `go build -tags
+ops` and `go build -tags ripplescleanup` all pass. Confirmed the renamed
+row types (`userSignatureRow`, `serverSignatureRow`, `signingDBTX`) don't
+collide with anything root already has. `signing/`
 directory deletion is deferred to after step 09, not this step.

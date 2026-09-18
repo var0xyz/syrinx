@@ -23,7 +23,6 @@ import (
 	"syrinx/invites"
 	"syrinx/recovery"
 	"syrinx/roles"
-	"syrinx/signing"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -400,7 +399,7 @@ func (s *DataService) SaveServerKeyPair(ctx context.Context, keyID, privateArmor
 		return err
 	}
 
-	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, keyID, selfSigArmor, signedAt)
+	serverSignatureID, err := insertServerSignature(ctx, tx, keyID, selfSigArmor, signedAt)
 	if err != nil {
 		return err
 	}
@@ -539,11 +538,11 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 		return nil, err
 	}
 
-	userSignatureID, err := signing.InsertUserSignature(ctx, tx, in.Fingerprint, in.UserSignatureB64)
+	userSignatureID, err := insertUserSignature(ctx, tx, in.Fingerprint, in.UserSignatureB64)
 	if err != nil {
 		return nil, err
 	}
-	serverSignatureID, err := signing.InsertServerSignature(ctx, tx,
+	serverSignatureID, err := insertServerSignature(ctx, tx,
 		in.ProfileSignature.ID,
 		in.ProfileSignature.Armor,
 		in.ProfileSignature.SignedAt,
@@ -563,7 +562,7 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	}
 	signupRole := roles.SignupRole(in.UserID, inviteGrantedRole, in.Invite != nil, s.serverID)
 
-	keyServerSigID, err := signing.InsertServerSignature(ctx, tx,
+	keyServerSigID, err := insertServerSignature(ctx, tx,
 		in.PublicKeySignature.ID,
 		in.PublicKeySignature.Armor,
 		in.PublicKeySignature.SignedAt,
@@ -683,26 +682,17 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 		}
 	}
 
-	userRow, err := signing.GetUserSignature(ctx, s.db, userSignatureID)
+	userSig, err := getUserSignatureWire(ctx, s.db, userSignatureID)
 	if err != nil {
 		return nil, err
 	}
-	uw := signing.UserWire(userRow)
-	user.UserSignature = UserSignature{
-		ID:    uw.Fingerprint,
-		Armor: uw.Armor,
-	}
+	user.UserSignature = userSig
 
-	serverRow, err := signing.GetServerSignature(ctx, s.db, serverSignatureID)
+	serverSig, err := getServerSignatureWire(ctx, s.db, serverSignatureID)
 	if err != nil {
 		return nil, err
 	}
-	sw := signing.ServerWire(serverRow, s.serverID)
-	user.ServerSignature = ServerSignature{
-		ID:       sw.Fingerprint,
-		Armor:    sw.Armor,
-		SignedAt: sw.Timestamp,
-	}
+	user.ServerSignature = serverSig
 
 	return &user, nil
 }
@@ -861,11 +851,11 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 		return err
 	}
 
-	userSignatureID, err := signing.InsertUserSignature(ctx, tx, in.Fingerprint, in.UserSignatureB64)
+	userSignatureID, err := insertUserSignature(ctx, tx, in.Fingerprint, in.UserSignatureB64)
 	if err != nil {
 		return err
 	}
-	serverSignatureID, err := signing.InsertServerSignature(ctx, tx,
+	serverSignatureID, err := insertServerSignature(ctx, tx,
 		in.ProfileSignature.ID,
 		in.ProfileSignature.Armor,
 		in.ProfileSignature.SignedAt,
@@ -1165,16 +1155,11 @@ func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error)
 	} else if ownerID, ownerServer, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(key.ID)); ok {
 		key.UserID = string(identity.CanonicalID(ownerServer, ownerID))
 	}
-	serverRow, err := signing.GetServerSignature(ctx, s.db, serverSignatureID)
+	serverSig, err := getServerSignatureWire(ctx, s.db, serverSignatureID)
 	if err != nil {
 		return nil, err
 	}
-	sw := signing.ServerWire(serverRow, s.serverID)
-	key.ServerSignature = ServerSignature{
-		ID:       sw.Fingerprint,
-		Armor:    sw.Armor,
-		SignedAt: sw.Timestamp,
-	}
+	key.ServerSignature = serverSig
 	key.Revoked = revoked
 	if predID.Valid {
 		key.Predecessor = &predID.String
@@ -1221,7 +1206,7 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, id string) (*KeyRevo
 		rev.Successor = &s
 	}
 	if successorSigID.Valid {
-		successorSigRow, err := signing.GetUserSignature(ctx, s.db, successorSigID.Int64)
+		successorSigRow, err := getUserSignatureRow(ctx, s.db, successorSigID.Int64)
 		if err != nil {
 			return nil, err
 		}
@@ -1229,26 +1214,17 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, id string) (*KeyRevo
 		rev.SuccessorSignature = &armor
 	}
 
-	userRow, err := signing.GetUserSignature(ctx, s.db, userSigID)
+	userSig, err := getUserSignatureWire(ctx, s.db, userSigID)
 	if err != nil {
 		return nil, err
 	}
-	uw := signing.UserWire(userRow)
-	rev.UserSignature = UserSignature{
-		ID:    uw.Fingerprint,
-		Armor: uw.Armor,
-	}
+	rev.UserSignature = userSig
 
-	serverRow, err := signing.GetServerSignature(ctx, s.db, serverSigID)
+	serverSig, err := getServerSignatureWire(ctx, s.db, serverSigID)
 	if err != nil {
 		return nil, err
 	}
-	sw := signing.ServerWire(serverRow, s.serverID)
-	rev.ServerSignature = ServerSignature{
-		ID:       sw.Fingerprint,
-		Armor:    sw.Armor,
-		SignedAt: sw.Timestamp,
-	}
+	rev.ServerSignature = serverSig
 	return &rev, nil
 }
 
@@ -1393,11 +1369,11 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 		// there is never a window where the predecessor is revoked but no
 		// successor exists yet (a request signed in that gap would have no
 		// valid key at all).
-		revUserSigID, err := signing.InsertUserSignature(ctx, tx, predecessor, in.RevocationUserSignature)
+		revUserSigID, err := insertUserSignature(ctx, tx, predecessor, in.RevocationUserSignature)
 		if err != nil {
 			return nil, err
 		}
-		revServerSigID, err := signing.InsertServerSignature(ctx, tx,
+		revServerSigID, err := insertServerSignature(ctx, tx,
 			in.RevocationServer.ID,
 			in.RevocationServer.Armor,
 			in.RevocationServer.SignedAt,
@@ -1445,7 +1421,7 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 		return nil, ErrActiveKeyExists
 	}
 
-	serverSignatureID, err := signing.InsertServerSignature(ctx, tx,
+	serverSignatureID, err := insertServerSignature(ctx, tx,
 		in.Server.ID,
 		in.Server.Armor,
 		in.Server.SignedAt,
@@ -1487,7 +1463,7 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	// PREDECESSOR's revocation row — not this new key's own row.
 	var successorSigID any
 	if in.PredecessorSignature != "" {
-		sigID, err := signing.InsertUserSignature(ctx, tx, predecessor, in.PredecessorSignature)
+		sigID, err := insertUserSignature(ctx, tx, predecessor, in.PredecessorSignature)
 		if err != nil {
 			return nil, err
 		}
@@ -1911,15 +1887,15 @@ func (s *DataService) insertReedCoreTx(
 
 	ts := p.Timestamp.UTC().Truncate(time.Second)
 
-	// signing.InsertUserSignature/InsertServerSignature still use non-context
+	// insertUserSignature/insertServerSignature still use non-context
 	// queries internally, so these two inserts land as root spans rather than
 	// nested under ctx's request span — a known gap, not a bug (see
 	// specs/observability/04_context_threading.md).
-	userSigID, err := signing.InsertUserSignature(ctx, tx, p.UserKeyID, p.UserSignatureB64)
+	userSigID, err := insertUserSignature(ctx, tx, p.UserKeyID, p.UserSignatureB64)
 	if err != nil {
 		return Reed{}, err
 	}
-	serverSigID, err := signing.InsertServerSignature(ctx, tx, p.ServerFingerprint, p.ServerSignatureB64, ts)
+	serverSigID, err := insertServerSignature(ctx, tx, p.ServerFingerprint, p.ServerSignatureB64, ts)
 	if err != nil {
 		return Reed{}, err
 	}
@@ -2292,11 +2268,11 @@ func (s *DataService) MentionTargetValid(ctx context.Context, userID, serverID s
 }
 
 // insertMentionRow records one (mentioningReedID, mentionedUserID) row.
-// q is signing.DBTX (satisfied by both *sql.Tx and *sql.DB — the same
+// q is signingDBTX (satisfied by both *sql.Tx and *sql.DB — the same
 // interface already used for the reed-like loader below) so the same
 // statement serves insertReedCoreTx's in-transaction local insert and the
 // mention-notify federation handler's standalone insert.
-func insertMentionRow(ctx context.Context, q signing.DBTX, mentioningReedID, mentionedUserID string) error {
+func insertMentionRow(ctx context.Context, q signingDBTX, mentioningReedID, mentionedUserID string) error {
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO reed_mentions (mentioning_reed_id, mentioned_user_id)
 		VALUES ($1, $2)
@@ -2994,11 +2970,11 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 	existing, err := s.loadLikeCertTx(ctx, tx, likerIdentity, cert.ReedID, true)
 	switch {
 	case err == sql.ErrNoRows:
-		userSigID, err := signing.InsertUserSignature(ctx, tx, cert.UserSignature.ID, cert.UserSignature.Armor)
+		userSigID, err := insertUserSignature(ctx, tx, cert.UserSignature.ID, cert.UserSignature.Armor)
 		if err != nil {
 			return err
 		}
-		serverSigID, err := signing.InsertServerSignature(ctx, tx, cert.ServerSignature.ID, cert.ServerSignature.Armor, cert.ServerSignature.SignedAt)
+		serverSigID, err := insertServerSignature(ctx, tx, cert.ServerSignature.ID, cert.ServerSignature.Armor, cert.ServerSignature.SignedAt)
 		if err != nil {
 			return err
 		}
@@ -3079,16 +3055,16 @@ func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerId
 		return nil, err
 	}
 
-	// signing helpers need DBTX; *sql.DB and *sql.Tx both satisfy it.
-	dbtx, ok := q.(signing.DBTX)
+	// signing helpers need signingDBTX; *sql.DB and *sql.Tx both satisfy it.
+	dbtx, ok := q.(signingDBTX)
 	if !ok {
-		return nil, fmt.Errorf("reed like load: querier is not signing.DBTX")
+		return nil, fmt.Errorf("reed like load: querier is not signingDBTX")
 	}
-	userRow, err := signing.GetUserSignature(ctx, dbtx, userSigID)
+	userSig, err := getUserSignatureWire(ctx, dbtx, userSigID)
 	if err != nil {
 		return nil, err
 	}
-	serverRow, err := signing.GetServerSignature(ctx, dbtx, serverSigID)
+	serverSig, err := getServerSignatureWire(ctx, dbtx, serverSigID)
 	if err != nil {
 		return nil, err
 	}
@@ -3097,17 +3073,10 @@ func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerId
 		return nil, fmt.Errorf("malformed reed id: %s", reedID)
 	}
 	return &LikeCert{
-		AuthorID: string(authorID),
-		ReedID:   reedID,
-		UserSignature: UserSignature{
-			ID:    userRow.PublicKeyID,
-			Armor: userRow.Signature,
-		},
-		ServerSignature: ServerSignature{
-			ID:       serverRow.PrivateKeyID,
-			Armor:    serverRow.Signature,
-			SignedAt: serverRow.SignedAt,
-		},
+		AuthorID:        string(authorID),
+		ReedID:          reedID,
+		UserSignature:   userSig,
+		ServerSignature: serverSig,
 	}, nil
 }
 
@@ -3602,7 +3571,7 @@ func (s *DataService) CachePeerUserKey(ctx context.Context, keyID, ownerCanonica
 		return tx.Commit()
 	}
 
-	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, serverSig.ID, serverSig.Armor, serverSig.SignedAt)
+	serverSignatureID, err := insertServerSignature(ctx, tx, serverSig.ID, serverSig.Armor, serverSig.SignedAt)
 	if err != nil {
 		return err
 	}
@@ -3819,7 +3788,7 @@ func (s *DataService) ApproveFederationAttempt(
 	if err != nil {
 		return "", fmt.Errorf("countersign peer key: %w", err)
 	}
-	serverSignatureID, err := signing.InsertServerSignature(ctx, tx, serverSig.ID, serverSig.Armor, serverSig.SignedAt)
+	serverSignatureID, err := insertServerSignature(ctx, tx, serverSig.ID, serverSig.Armor, serverSig.SignedAt)
 	if err != nil {
 		return "", err
 	}
@@ -4642,11 +4611,11 @@ func (s *DataService) PostRipple(
 
 	id := hex.EncodeToString(cryptoHash(string(serverPayload)))
 
-	userSigID, err := signing.InsertUserSignature(ctx, tx, userFingerprint, userSigArmor)
+	userSigID, err := insertUserSignature(ctx, tx, userFingerprint, userSigArmor)
 	if err != nil {
 		return nil, err
 	}
-	serverSigID, err := signing.InsertServerSignature(ctx, tx, serverSig.ID, serverSig.Armor, serverSig.SignedAt)
+	serverSigID, err := insertServerSignature(ctx, tx, serverSig.ID, serverSig.Armor, serverSig.SignedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -4978,4 +4947,128 @@ func getActiveUsers(ctx context.Context, db *sql.DB) (int, error) {
 	var n int
 	err := db.QueryRowContext(ctx, `SELECT active_users FROM network_stats WHERE id = TRUE`).Scan(&n)
 	return n, err
+}
+
+// ========== //
+//   signing   //
+// ========== //
+
+// signingDBTX is the subset of *sql.DB / *sql.Tx needed by signature store helpers.
+type signingDBTX interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// userSignatureRow is one row in user_signatures. PublicKeyID names which
+// key (public_keys.id) produced the signature — the wire shape still calls
+// this "fingerprint", since on the wire it's identifying a signer, an
+// orthogonal concept to a canonical key id.
+type userSignatureRow struct {
+	ID          int64
+	PublicKeyID string
+	Signature   string
+}
+
+// serverSignatureRow is one row in server_signatures. PrivateKeyID names
+// which key (private_keys.id / public_keys.id — the two share ids)
+// produced the countersignature, same pattern as userSignatureRow.PublicKeyID.
+type serverSignatureRow struct {
+	ID           int64
+	PrivateKeyID string
+	Signature    string
+	SignedAt     time.Time
+}
+
+// insertUserSignature inserts a user attestation row and returns its id.
+func insertUserSignature(ctx context.Context, db signingDBTX, publicKeyID, signature string) (int64, error) {
+	var id int64
+	err := db.QueryRowContext(ctx, `
+		INSERT INTO user_signatures (public_key_id, signature)
+		VALUES ($1, $2)
+		RETURNING id
+	`, publicKeyID, signature).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("insert user_signatures: %w", err)
+	}
+	return id, nil
+}
+
+// insertServerSignature inserts a server countersignature row and returns
+// its id. signedAt is stored UTC truncated to seconds.
+func insertServerSignature(ctx context.Context, db signingDBTX, privateKeyID, signature string, signedAt time.Time) (int64, error) {
+	signedAt = signedAt.UTC().Truncate(time.Second)
+	var id int64
+	err := db.QueryRowContext(ctx, `
+		INSERT INTO server_signatures (private_key_id, signature, signed_at)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`, privateKeyID, signature, signedAt).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("insert server_signatures: %w", err)
+	}
+	return id, nil
+}
+
+// getUserSignatureWire loads a user_signatures row by id and returns it
+// directly as the wire UserSignature block (skipping the intermediate
+// row/wire split the old signing package used, since every caller here
+// immediately unpacked one into the other).
+func getUserSignatureWire(ctx context.Context, db signingDBTX, id int64) (UserSignature, error) {
+	var row userSignatureRow
+	err := db.QueryRowContext(ctx, `
+		SELECT id, public_key_id, signature
+		FROM user_signatures
+		WHERE id = $1
+	`, id).Scan(
+		&row.ID,
+		&row.PublicKeyID,
+		&row.Signature,
+	)
+	if err != nil {
+		return UserSignature{}, err
+	}
+	return UserSignature{ID: row.PublicKeyID, Armor: row.Signature}, nil
+}
+
+// getServerSignatureWire loads a server_signatures row by id and returns
+// it directly as the wire ServerSignature block — see getUserSignatureWire.
+func getServerSignatureWire(ctx context.Context, db signingDBTX, id int64) (ServerSignature, error) {
+	var row serverSignatureRow
+	err := db.QueryRowContext(ctx, `
+		SELECT id, private_key_id, signature, signed_at
+		FROM server_signatures
+		WHERE id = $1
+	`, id).Scan(
+		&row.ID,
+		&row.PrivateKeyID,
+		&row.Signature,
+		&row.SignedAt,
+	)
+	if err != nil {
+		return ServerSignature{}, err
+	}
+	return ServerSignature{
+		ID:       row.PrivateKeyID,
+		Armor:    row.Signature,
+		SignedAt: row.SignedAt.UTC().Truncate(time.Second),
+	}, nil
+}
+
+// getUserSignatureRow loads a user_signatures row by id without wire
+// conversion — for callers that need the raw row (e.g. just the armor).
+func getUserSignatureRow(ctx context.Context, db signingDBTX, id int64) (*userSignatureRow, error) {
+	var row userSignatureRow
+	err := db.QueryRowContext(ctx, `
+		SELECT id, public_key_id, signature
+		FROM user_signatures
+		WHERE id = $1
+	`, id).Scan(
+		&row.ID,
+		&row.PublicKeyID,
+		&row.Signature,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
 }
