@@ -8,7 +8,6 @@ import (
 	"errors"
 	"testing"
 
-	"syrinx/identity"
 
 	_ "github.com/lib/pq"
 )
@@ -97,7 +96,7 @@ func ensurePinReedSchema(db *sql.DB) error {
 
 func insertPinReedTestUser(t *testing.T, db *sql.DB, userID, username string) string {
 	t.Helper()
-	identityID := string(identity.CanonicalID(pinReedTestServerID, userID))
+	identityID := string(canonicalID(pinReedTestServerID, userID))
 	if _, err := db.Exec(
 		`INSERT INTO identities (id, server_id) VALUES ($1, $2)`,
 		identityID, pinReedTestServerID,

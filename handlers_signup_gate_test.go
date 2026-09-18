@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/identity"
 	"syrinx/invites"
 	"syrinx/realtime"
 	"syrinx/roles"
@@ -177,7 +176,7 @@ func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint,
 
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("X-Syrinx-Public-Key-Id", string(identity.AppendEntity(identity.IdentityID(userID), fingerprint)))
+	req.Header.Set("X-Syrinx-Public-Key-Id", string(appendEntity(identityID(userID), fingerprint)))
 	req.Header.Set("X-Syrinx-Signature", sigB64)
 	req.Header.Set("X-Syrinx-Signature-Scope", "body")
 	req.Header.Set("X-Syrinx-Timestamp", timestamp)
@@ -198,8 +197,8 @@ func signedUpUser(t *testing.T, h *Handlers, userID, username string) cryptoKeyP
 		t.Fatal(err)
 	}
 	in := signupInput(userID, username, nil)
-	in.Fingerprint = string(identity.AppendEntity(
-		identity.CanonicalID(h.services.db.GetServerID(), userID), kp.Fingerprint,
+	in.Fingerprint = string(appendEntity(
+		canonicalID(h.services.db.GetServerID(), userID), kp.Fingerprint,
 	))
 	in.PublicKeyArmor = kp.PublicKey
 	in.KeyCreatedAt = time.Now().UTC().Truncate(time.Second)
@@ -332,10 +331,10 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	canonicalFingerprint := string(identity.AppendEntity(
-		identity.CanonicalID(h.services.db.GetServerID(), userID), kp.Fingerprint,
+	canonicalFingerprint := string(appendEntity(
+		canonicalID(h.services.db.GetServerID(), userID), kp.Fingerprint,
 	))
-	identityPayload := identity.BuildUserIdentityPayload("bob", canonicalFingerprint, "")
+	identityPayload := buildUserIdentityPayload("bob", canonicalFingerprint, "")
 	userSigArmor, err := h.services.crypto.sign(string(identityPayload), kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
@@ -378,11 +377,11 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	// Exactly what verifyPublicKey does client-side: rebuild the payload
 	// using the userID this same response returned, then check the server
 	// signature against it.
-	keyServerFingerprint, keyServerID, ok := identity.ParseIdentityID(identity.IdentityID(key.ServerSignature.ID))
+	keyServerFingerprint, keyServerID, ok := parseIdentityID(identityID(key.ServerSignature.ID))
 	if !ok {
 		t.Fatalf("malformed key server signature id: %s", key.ServerSignature.ID)
 	}
-	rebuiltKey := identity.BuildPublicKeyPayload(
+	rebuiltKey := buildPublicKeyPayload(
 		keyServerID,
 		key.UserID,
 		key.ID,
@@ -399,11 +398,11 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	}
 
 	// Same check for verifyUser's profile payload rebuild.
-	profileServerFingerprint, profileServerID, ok := identity.ParseIdentityID(identity.IdentityID(user.ServerSignature.ID))
+	profileServerFingerprint, profileServerID, ok := parseIdentityID(identityID(user.ServerSignature.ID))
 	if !ok {
 		t.Fatalf("malformed profile server signature id: %s", user.ServerSignature.ID)
 	}
-	rebuiltProfile := identity.BuildProfilePayload(
+	rebuiltProfile := buildProfilePayload(
 		user.ID,
 		user.Username,
 		user.UserSignature.ID,

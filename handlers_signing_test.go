@@ -5,16 +5,13 @@ package main
 import (
 	"testing"
 	"time"
-
-	"syrinx/identity"
-	"syrinx/signing"
 )
 
 func TestPublicKeyCountersignCanonicalShape(t *testing.T) {
 	ts := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
 	armor := "-----BEGIN PGP PUBLIC KEY BLOCK-----\nxyz\n-----END PGP PUBLIC KEY BLOCK-----"
-	got := signing.BytesToSign(
-		identity.PublicKeyCountersignHeaders("userABC", "FINGERPRINT01", "Server01", "SERVERKEY01", ts),
+	got := bytesToSign(
+		publicKeyCountersignHeaders("userABC", "FINGERPRINT01", "Server01", "SERVERKEY01", ts),
 		armor,
 	)
 	want := "---\n" +

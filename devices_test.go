@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/identity"
 
 	_ "github.com/lib/pq"
 )
@@ -61,7 +60,7 @@ func ensureDevicesSchema(db *sql.DB) error {
 }
 
 func insertDeviceTestUser(db *sql.DB, userID string) {
-	identityID := string(identity.CanonicalID(devicesTestServerID, userID))
+	identityID := string(canonicalID(devicesTestServerID, userID))
 	if _, err := db.Exec(
 		`INSERT INTO identities (id, server_id) VALUES ($1, $2)`,
 		identityID, devicesTestServerID,
@@ -156,7 +155,7 @@ func TestCheckActiveDevice(t *testing.T) {
 	if err := svc.CheckActiveDevice(context.Background(), "u1@testserver", "6ba7b810-9dad-11d1-80b4-00c04fd430c8"); err != errDeviceMismatch {
 		t.Fatalf("mismatch: %v", err)
 	}
-	if err := svc.CheckActiveDevice(context.Background(), "u1@testserver", ""); err != identity.ErrMissingDevice {
+	if err := svc.CheckActiveDevice(context.Background(), "u1@testserver", ""); err != errMissingDevice {
 		t.Fatalf("missing: %v", err)
 	}
 }
@@ -195,7 +194,7 @@ func TestBindDevice_ConcurrentBind(t *testing.T) {
 	var activeCount int
 	if err := db.QueryRow(`
 		SELECT COUNT(*) FROM user_devices WHERE user_id = $1 AND revoked_at IS NULL
-	`, string(identity.CanonicalID(devicesTestServerID, "u1"))).Scan(&activeCount); err != nil {
+	`, string(canonicalID(devicesTestServerID, "u1"))).Scan(&activeCount); err != nil {
 		t.Fatal(err)
 	}
 	if activeCount != 1 {

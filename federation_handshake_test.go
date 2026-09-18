@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/identity"
 	"syrinx/roles"
 
 	"github.com/gorilla/mux"
@@ -278,7 +277,7 @@ func TestIncomingFederationAttempt_WrongSecret(t *testing.T) {
 	}
 	inviteID, _ := createInvitationEncryptedTo(t, a, aAdmin, remoteKP)
 
-	signBytes := identity.BuildFederationConnectPayload(inviteID, "server-b", a.srv.URL, remoteKP.Fingerprint)
+	signBytes := buildFederationConnectPayload(inviteID, "server-b", a.srv.URL, remoteKP.Fingerprint)
 	sigArmor, err := a.h.services.crypto.sign(string(signBytes), remoteKP.PrivateKey)
 	if err != nil {
 		t.Fatal(err)

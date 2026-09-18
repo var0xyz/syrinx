@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/identity"
 
 	"github.com/google/uuid"
 )
@@ -101,7 +100,7 @@ func openMentionsTestDB(t *testing.T) *sql.DB {
 // the satellite users row, mirroring services.go's Signup.
 func seedMentionUser(t *testing.T, db *sql.DB, userID string) {
 	t.Helper()
-	identityID := string(identity.CanonicalID("testserver", userID))
+	identityID := string(canonicalID("testserver", userID))
 	if _, err := db.Exec(`INSERT INTO identities (id, server_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 		identityID, "testserver"); err != nil {
 		t.Fatal(err)
@@ -168,7 +167,7 @@ func TestCreateReed_MentionsIndexed(t *testing.T) {
 		}
 		got = append(got, u)
 	}
-	// reed_mentions.mentioned_user_id stores identity.CanonicalID(m.ServerID,
+	// reed_mentions.mentioned_user_id stores canonicalID(m.ServerID,
 	// m.AuthorID), not the bare AuthorID.
 	if len(got) != 2 || got[0] != "bob@testserver" || got[1] != "carol@testserver" {
 		t.Fatalf("mentioned users = %v, want [bob@testserver carol@testserver]", got)
@@ -292,7 +291,7 @@ func TestDeleteMentionsForReed_ClearsRows(t *testing.T) {
 	seedMentionUser(t, db, "bob")
 
 	bareReedID := newTestReedID(t)
-	reedID := string(identity.AppendEntity(identity.IdentityID("alice@testserver"), bareReedID))
+	reedID := string(appendEntity(identityID("alice@testserver"), bareReedID))
 	ts := time.Now().UTC().Truncate(time.Second)
 	_, err := svc.CreateReed(ctx, createReedParams{
 		ReedID:             reedID,
@@ -427,7 +426,7 @@ func TestGetMentionsForUser_OrderAndCursor(t *testing.T) {
 	// clock too, on top of the +i*time.Second offset).
 	base := time.Now().UTC().Truncate(time.Second)
 	for i := 0; i < 3; i++ {
-		reedID := string(identity.AppendEntity(identity.IdentityID("alice@testserver"), newTestReedID(t)))
+		reedID := string(appendEntity(identityID("alice@testserver"), newTestReedID(t)))
 		reedIDs = append(reedIDs, reedID)
 		ts := time.Now().UTC().Truncate(time.Second)
 		if _, err := svc.CreateReed(ctx, createReedParams{

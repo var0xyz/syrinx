@@ -19,7 +19,6 @@ import (
 	"unicode/utf8"
 
 	"syrinx/deletion"
-	"syrinx/identity"
 	"syrinx/invites"
 	"syrinx/observability/metrics"
 	"syrinx/realtime"
@@ -39,7 +38,7 @@ func (h *Handlers) countersign(payload []byte, ts time.Time) (ServerSignature, e
 		return ServerSignature{}, err
 	}
 	return ServerSignature{
-		ID:       string(identity.CanonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint)),
+		ID:       string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint)),
 		Armor:    base64Encode(sigArmor),
 		SignedAt: ts,
 	}, nil
@@ -175,7 +174,7 @@ func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 		RecoveryMode:      h.cfg.RecoveryMode,
 		SignupMode:        h.cfg.SignupMode,
 		MaxInvitesPerUser: h.cfg.MaxInvitesPerUser,
-		ServerKeyID:       string(identity.CanonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint)),
+		ServerKeyID:       string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint)),
 	})
 }
 
@@ -272,7 +271,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deviceID, err := identity.ParseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
+	deviceID, err := parseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
 		return
@@ -409,13 +408,13 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	// verification will rebuild different bytes than what was signed.
 	// Computed up front (before verifying userSignature) because the
 	// canonical key fingerprint the client signed over is built from it.
-	selfIdentity := identity.CanonicalID(h.services.db.GetServerID(), userID)
-	canonicalFingerprint := identity.AppendEntity(selfIdentity, key.Fingerprint)
+	selfIdentity := canonicalID(h.services.db.GetServerID(), userID)
+	canonicalFingerprint := appendEntity(selfIdentity, key.Fingerprint)
 
 	// Reconstruct the exact bytes the client claims to have signed. At
 	// signup bio is empty — a user cannot set it before their account
 	// exists.
-	userPayload := identity.BuildUserIdentityPayload(username, string(canonicalFingerprint), "")
+	userPayload := buildUserIdentityPayload(username, string(canonicalFingerprint), "")
 
 	// userSignature travels as base64(armored PGP). Decode once and hand
 	// the armor to VerifySignature.
@@ -440,7 +439,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 	signupRole := roles.SignupRole(userID, inviteGrantedRole, hasInvite, h.services.db.GetServerID())
 
-	profilePayload := identity.BuildNewProfilePayload(
+	profilePayload := buildNewProfilePayload(
 		string(selfIdentity),
 		username,
 		string(canonicalFingerprint),
@@ -460,7 +459,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Server signature over the user's public key
-	keyPayload := identity.BuildPublicKeyPayload(
+	keyPayload := buildPublicKeyPayload(
 		h.services.db.GetServerID(),
 		string(selfIdentity),
 		string(canonicalFingerprint),
@@ -899,7 +898,7 @@ func (h *Handlers) proxyFollowIfForeign(w http.ResponseWriter, r *http.Request, 
 	if !isUser {
 		return false, 0
 	}
-	_, embeddedServerID, ok := identity.ParseIdentityID(identity.IdentityID(userID))
+	_, embeddedServerID, ok := parseIdentityID(identityID(userID))
 	if !ok || embeddedServerID == h.services.db.GetServerID() {
 		return false, 0
 	}
@@ -947,7 +946,7 @@ func (h *Handlers) resolveFollower(r *http.Request) (followerID string, ok bool)
 		return "", false
 	}
 	followerID = strings.TrimSpace(values.Get("followerID"))
-	_, embeddedServerID, parseOK := identity.ParseIdentityID(identity.IdentityID(followerID))
+	_, embeddedServerID, parseOK := parseIdentityID(identityID(followerID))
 	if !parseOK || embeddedServerID != peerServerID {
 		return "", false
 	}
@@ -968,7 +967,7 @@ func (h *Handlers) resolveActingUser(r *http.Request, candidateID string) (userI
 		return "", false
 	}
 	candidateID = strings.TrimSpace(candidateID)
-	_, embeddedServerID, parseOK := identity.ParseIdentityID(identity.IdentityID(candidateID))
+	_, embeddedServerID, parseOK := parseIdentityID(identityID(candidateID))
 	if !parseOK || embeddedServerID != peerServerID {
 		return "", false
 	}
@@ -1124,7 +1123,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	userPayload := identity.BuildAccountRemovalUserPayload(serverID, userID, note)
+	userPayload := buildAccountRemovalUserPayload(serverID, userID, note)
 	userSigArmor, err := base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
@@ -1150,7 +1149,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	serverPayload := identity.BuildAccountRemovalServerPayload(
+	serverPayload := buildAccountRemovalServerPayload(
 		serverID, userID, note,
 		h.signingKey.Fingerprint, userSignatureB64, now,
 	)
@@ -1234,7 +1233,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval {
 	return AccountRemoval{
-		Type:     identity.TypeAccount,
+		Type:     identityTypeAccount,
 		ServerID: h.services.db.GetServerID(),
 		UserID:   cert.UserID,
 		Note:     cert.Note,
@@ -1254,7 +1253,7 @@ func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval
 // user editing their own profile. Full-replacement semantics: the
 // request MUST carry the complete post-edit tuple (username, bio) plus
 // `userSignature`, a base64(armored PGP) detached signature over
-// `identity.BuildUserIdentityPayload(username, fingerprint, bio)` where
+// `buildUserIdentityPayload(username, fingerprint, bio)` where
 // `fingerprint` is the caller's active user key.
 //
 // The client is expected to skip the network call entirely when nothing
@@ -1364,7 +1363,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	userPayload := identity.BuildUserIdentityPayload(username, fingerprint, bio)
+	userPayload := buildUserIdentityPayload(username, fingerprint, bio)
 
 	userSigArmor, err := base64Decode(userSignatureB64)
 	if err != nil {
@@ -1424,7 +1423,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		inviteID = currentUser.Invite.ID
 	}
 	signedAt := time.Now().UTC().Truncate(time.Second)
-	profilePayload := identity.BuildProfilePayload(
+	profilePayload := buildProfilePayload(
 		userID,
 		username,
 		fingerprint,
@@ -1571,7 +1570,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `revokedKeyFingerprint` is required")
 		return
 	}
-	revokedKeyFingerprint := string(identity.AppendEntity(identity.IdentityID(userID), revokedKeyFingerprintBare))
+	revokedKeyFingerprint := string(appendEntity(identityID(userID), revokedKeyFingerprintBare))
 
 	// Retrieve old key — needed for cryptographic verification of the
 	// rotation proof below. DB integrity of the rotation itself (revoked,
@@ -1613,7 +1612,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 
 	// Verify the revocation attestation itself, same check RevokeKey used
 	// to do standalone — the old key signing off on its own revocation.
-	revocationPayload := identity.BuildUserRevocationPayload(userID, revokedKeyFingerprint, revocationReason)
+	revocationPayload := buildUserRevocationPayload(userID, revokedKeyFingerprint, revocationReason)
 	if err := h.services.crypto.verifySignature(string(revocationPayload), revocationUserSigArmor, revokedKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1637,10 +1636,10 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", newKey.Fingerprint).
 		Msg("Public key signature verified successfully")
 
-	newKeyFingerprint := string(identity.AppendEntity(identity.IdentityID(userID), newKey.Fingerprint))
+	newKeyFingerprint := string(appendEntity(identityID(userID), newKey.Fingerprint))
 
 	now := time.Now().UTC().Truncate(time.Second)
-	keyPayload := identity.BuildPublicKeyPayload(
+	keyPayload := buildPublicKeyPayload(
 		h.services.db.GetServerID(),
 		userID,
 		newKeyFingerprint,
@@ -1655,7 +1654,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	revocationServerPayload := identity.BuildServerRevocationPayload(
+	revocationServerPayload := buildServerRevocationPayload(
 		userID,
 		revokedKeyFingerprint,
 		revocationReason,
@@ -1919,7 +1918,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	timestamp := time.Now().UTC().Truncate(time.Second)
-	reedPayload := identity.BuildReedPayload(
+	reedPayload := buildReedPayload(
 		h.services.db.GetServerID(),
 		reedID,
 		h.signingKey.Fingerprint,
@@ -2116,7 +2115,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusForbidden, "You can only delete your own reeds")
 		return
 	}
-	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
+	reedID := string(appendEntity(identityID(userID), bareReedID))
 
 	values, err := parseFormData(r)
 	if err != nil {
@@ -2179,7 +2178,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	userPayload := identity.BuildReedRemovalUserPayload(serverID, reedID)
+	userPayload := buildReedRemovalUserPayload(serverID, reedID)
 	userSigArmor, err := base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
@@ -2206,7 +2205,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	serverPayload := identity.BuildReedRemovalServerPayload(
+	serverPayload := buildReedRemovalServerPayload(
 		serverID, reedID,
 		h.signingKey.Fingerprint, userSignatureB64, now,
 	)
@@ -2335,7 +2334,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
-	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
+	reedID := string(appendEntity(identityID(authorID), bareReedID))
 
 	if h.proxyLikeToForeignReed(w, r, reedID) {
 		return
@@ -2362,7 +2361,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `fingerprint` is required")
 		return
 	}
-	fingerprint := string(identity.AppendEntity(identity.IdentityID(likerID), bareFingerprint))
+	fingerprint := string(appendEntity(identityID(likerID), bareFingerprint))
 
 	serverID := h.services.db.GetServerID()
 
@@ -2392,7 +2391,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userPayload := identity.BuildReedLikeUserPayload(reedID, fingerprint)
+	userPayload := buildReedLikeUserPayload(reedID, fingerprint)
 	userSigArmor, err := base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
@@ -2420,7 +2419,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	serverPayload := identity.BuildReedLikeServerPayload(
+	serverPayload := buildReedLikeServerPayload(
 		reedID,
 		h.signingKey.Fingerprint, userSignatureB64, now,
 	)
@@ -2481,7 +2480,7 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
-	reedID := string(identity.AppendEntity(identity.IdentityID(authorID), bareReedID))
+	reedID := string(appendEntity(identityID(authorID), bareReedID))
 
 	if h.proxyUnlikeToForeignReed(w, r, reedID) {
 		return
@@ -2588,7 +2587,7 @@ func (h *Handlers) UnpinReed(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) reedRemovalWire(cert *deletion.Cert) ReedRemoval {
 	return ReedRemoval{
-		Type:     identity.TypeReed,
+		Type:     identityTypeReed,
 		ServerID: h.services.db.GetServerID(),
 		UserID:   cert.UserID,
 		ReedID:   cert.ReedID,
@@ -2614,7 +2613,7 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
-	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
+	reedID := string(appendEntity(identityID(userID), bareReedID))
 
 	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
 		return
@@ -2657,7 +2656,7 @@ func (h *Handlers) GetReedEchoCount(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
-	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
+	reedID := string(appendEntity(identityID(userID), bareReedID))
 
 	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
 		return
@@ -2703,7 +2702,7 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
-	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
+	reedID := string(appendEntity(identityID(userID), bareReedID))
 
 	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
 		return
@@ -2761,7 +2760,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
-	reedID := string(identity.AppendEntity(identity.IdentityID(userID), bareReedID))
+	reedID := string(appendEntity(identityID(userID), bareReedID))
 
 	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
 		return
@@ -2878,7 +2877,7 @@ func (h *Handlers) DeleteMention(w http.ResponseWriter, r *http.Request) {
 	}
 
 	authorID := reedID
-	if a, ok := identity.AuthorOf(identity.IdentityID(reedID)); ok {
+	if a, ok := authorOf(identityID(reedID)); ok {
 		authorID = string(a)
 	}
 	h.metrics.MentionClaimRejected(r.Context(), authorID, userID, reason)
@@ -3012,7 +3011,7 @@ func (h *Handlers) BindDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deviceID, err := identity.ParseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
+	deviceID, err := parseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
 	if err != nil {
 		writeDeviceError(w, http.StatusBadRequest, "Invalid device id.")
 		return
@@ -3080,7 +3079,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	deviceID, err := identity.ParseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
+	deviceID, err := parseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
 		return
@@ -3212,7 +3211,7 @@ func (h *Handlers) rememberRemoteIdentityOnSuccess(ctx context.Context, log *zer
 }
 
 func (h *Handlers) upsertRemoteIdentity(ctx context.Context, log *zerolog.Logger, canonicalID string) {
-	_, serverID, ok := identity.ParseIdentityID(identity.IdentityID(canonicalID))
+	_, serverID, ok := parseIdentityID(identityID(canonicalID))
 	if !ok {
 		return
 	}
@@ -3235,9 +3234,9 @@ func (h *Handlers) rememberRemoteIdentityAndFollowLocally(ctx context.Context, l
 // foreign (handled=true, plus the peer's status code), or does nothing
 // (handled=false) when id is local or malformed.
 func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id string) (handled bool, status int) {
-	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(id))
+	_, embeddedServerID, _, ok := parseKeyFingerprint(identityID(id))
 	if !ok {
-		_, embeddedServerID, ok = identity.ParseIdentityID(identity.IdentityID(id))
+		_, embeddedServerID, ok = parseIdentityID(identityID(id))
 	}
 	if !ok || embeddedServerID == h.services.db.GetServerID() {
 		return false, 0
@@ -3265,7 +3264,7 @@ func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id str
 // user liked it: every read of "did I like this" against this server's
 // own DB would incorrectly say no.
 func (h *Handlers) proxyLikeToForeignReed(w http.ResponseWriter, r *http.Request, reedID string) (handled bool) {
-	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	_, embeddedServerID, _, ok := parseKeyFingerprint(identityID(reedID))
 	if !ok || embeddedServerID == h.services.db.GetServerID() {
 		return false
 	}
@@ -3341,7 +3340,7 @@ func (h *Handlers) mirrorForeignLike(ctx context.Context, likerID string, cert L
 // DELETE/unlike direction: forwards to the home server, and on success
 // removes the locally mirrored like row (if any) so both servers agree.
 func (h *Handlers) proxyUnlikeToForeignReed(w http.ResponseWriter, r *http.Request, reedID string) (handled bool) {
-	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	_, embeddedServerID, _, ok := parseKeyFingerprint(identityID(reedID))
 	if !ok || embeddedServerID == h.services.db.GetServerID() {
 		return false
 	}
@@ -3517,7 +3516,7 @@ func (h *Handlers) setPeerProxyAuthHeaders(req *http.Request, body string) error
 	if err != nil {
 		return err
 	}
-	publicKeyID := string(identity.CanonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint))
+	publicKeyID := string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint))
 	req.Header.Set("X-Syrinx-Public-Key-Id", publicKeyID)
 	req.Header.Set("X-Syrinx-Signature", base64Encode(sigArmor))
 	req.Header.Set("X-Syrinx-Signature-Scope", "body")
@@ -3576,7 +3575,7 @@ func (h *Handlers) resolvePublicKey(ctx context.Context, fingerprint string) (*K
 		return key, nil
 	}
 
-	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(fingerprint))
+	_, embeddedServerID, _, ok := parseKeyFingerprint(identityID(fingerprint))
 	if !ok || embeddedServerID == h.services.db.GetServerID() {
 		// Malformed, or genuinely local and simply doesn't exist —
 		// no peer to ask, and asking ourselves again would be pointless.
@@ -3632,7 +3631,7 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 		return nil, fmt.Errorf("decode peer user key armor: %w", err)
 	}
 
-	peerKeyServerFingerprint, _, parseOK := identity.ParseIdentityID(identity.IdentityID(key.ServerSignature.ID))
+	peerKeyServerFingerprint, _, parseOK := parseIdentityID(identityID(key.ServerSignature.ID))
 	if !parseOK {
 		return nil, fmt.Errorf("malformed peer key server signature id: %s", key.ServerSignature.ID)
 	}
@@ -3649,7 +3648,7 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 	// asked for, and verify the peer's countersignature actually covers
 	// this exact key material — a peer must not be able to hand back
 	// content for a different user, or unsigned/tampered key bytes.
-	_, ownerServerID, ok := identity.ParseIdentityID(identity.IdentityID(key.UserID))
+	_, ownerServerID, ok := parseIdentityID(identityID(key.UserID))
 	if !ok || ownerServerID != peerServerID {
 		return nil, fmt.Errorf("peer %s returned a key for a different server", peerServerID)
 	}
@@ -3661,7 +3660,7 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 	if err != nil {
 		return nil, fmt.Errorf("decode peer key server signature: %w", err)
 	}
-	keyPayload := identity.BuildPublicKeyPayload(
+	keyPayload := buildPublicKeyPayload(
 		peerServerID, key.UserID, key.ID,
 		peerKeyServerFingerprint, armor,
 		key.ServerSignature.SignedAt,
@@ -3778,7 +3777,7 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 	}
 
 	baseURL := h.federationBaseURL()
-	signBytes := identity.BuildFederationInvitationPayload(
+	signBytes := buildFederationInvitationPayload(
 		inviteID,
 		h.services.db.GetServerID(),
 		baseURL,
@@ -4745,7 +4744,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	signBytes := identity.BuildFederationConnectPayload(inviteID, req.ServerID, req.BaseURL, req.Fingerprint)
+	signBytes := buildFederationConnectPayload(inviteID, req.ServerID, req.BaseURL, req.Fingerprint)
 	sigArmor, err := base64Decode(req.Signature)
 	if err != nil {
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invalid signature encoding")
@@ -4857,7 +4856,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		writeResponse(w, http.StatusBadRequest, "Public key does not match claimed fingerprint")
 		return
 	}
-	initiatorSignBytes := identity.BuildFederationInvitationPayload(
+	initiatorSignBytes := buildFederationInvitationPayload(
 		payload.InviteID, payload.ServerID, payload.BaseURL, payload.Fingerprint, payload.Secret,
 	)
 	initiatorSigArmor, err := base64Decode(payload.Signature)
@@ -4892,7 +4891,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 
 	localBaseURL := h.federationBaseURL()
 	localServerID := h.services.db.GetServerID()
-	connectSignBytes := identity.BuildFederationConnectPayload(payload.InviteID, localServerID, localBaseURL, h.signingKey.Fingerprint)
+	connectSignBytes := buildFederationConnectPayload(payload.InviteID, localServerID, localBaseURL, h.signingKey.Fingerprint)
 	connectSigB64, err := h.federationSignServer(connectSignBytes)
 	if err != nil {
 		internalServerError(w)
@@ -5061,7 +5060,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
-	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(reedUserID), reedID))
+	canonicalReedID := string(appendEntity(identityID(reedUserID), reedID))
 
 	if handled, _ := h.proxyIfForeign(w, r, canonicalReedID); handled {
 		return
@@ -5154,7 +5153,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	if req.ReplyingTo != nil {
 		replyingToVal = *req.ReplyingTo
 	}
-	userPayload := identity.BuildRippleUserPayload(
+	userPayload := buildRippleUserPayload(
 		canonicalReedID, callerID, req.KeyID, req.ThreadID, replyingToVal, content,
 	)
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
@@ -5274,7 +5273,7 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
-	canonicalReedID := string(identity.AppendEntity(identity.IdentityID(reedUserID), reedID))
+	canonicalReedID := string(appendEntity(identityID(reedUserID), reedID))
 
 	if handled, _ := h.proxyIfForeign(w, r, canonicalReedID); handled {
 		return
@@ -5403,7 +5402,7 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wire := rippleWire(tombstoned)
-	_, _, bareReedID, ok := identity.ParseKeyFingerprint(identity.IdentityID(tombstoned.ReedID))
+	_, _, bareReedID, ok := parseKeyFingerprint(identityID(tombstoned.ReedID))
 	if !ok {
 		h.services.log.GetLogger(r.Context()).Error().Str("reedID", tombstoned.ReedID).Msg("Malformed reed id on tombstoned ripple")
 		return

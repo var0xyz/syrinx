@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/identity"
 	"syrinx/invites"
 	"syrinx/roles"
 
@@ -151,12 +150,12 @@ func signupInput(userID, username string, inv *invites.Invite) SignupInput {
 		UserSignatureB64: "usig-" + userID,
 		MemberSince:      now,
 		ProfileSignature: ServerSignature{
-			ID:       string(identity.CanonicalID("test", "sfp")),
+			ID:       string(canonicalID("test", "sfp")),
 			Armor:    "psig-" + userID,
 			SignedAt: now,
 		},
 		PublicKeySignature: ServerSignature{
-			ID:       string(identity.CanonicalID("test", "sfp")),
+			ID:       string(canonicalID("test", "sfp")),
 			Armor:    "ksig-" + userID,
 			SignedAt: now,
 		},

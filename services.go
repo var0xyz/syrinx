@@ -19,7 +19,6 @@ import (
 
 	"syrinx/crypto"
 	"syrinx/deletion"
-	"syrinx/identity"
 	"syrinx/invites"
 	"syrinx/recovery"
 	"syrinx/roles"
@@ -220,7 +219,7 @@ func (s *DataService) ProcessRevocations(ctx context.Context) error {
 		}
 
 		fingerprint := strings.TrimSuffix(entry.Name(), ".rvk")
-		keyID := string(identity.CanonicalID(s.serverID, fingerprint))
+		keyID := string(canonicalID(s.serverID, fingerprint))
 		rvkPath := filepath.Join(revocationsDir, entry.Name())
 
 		reasonBytes, err := os.ReadFile(rvkPath)
@@ -284,7 +283,7 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *cryptoServic
 		WHERE sv.self = TRUE AND pk.revoked_at IS NULL
 	`).Scan(&keyID, &encryptedArmor, &createdAt)
 	if err == nil {
-		if fp, _, ok := identity.ParseIdentityID(identity.IdentityID(keyID)); ok {
+		if fp, _, ok := parseIdentityID(identityID(keyID)); ok {
 			fingerprint = fp
 		}
 	}
@@ -310,15 +309,15 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *cryptoServic
 		// The server's own public half becomes a normal public_keys row —
 		// every row in that table carries a countersignature, so the
 		// server countersigns its own key with itself. Same payload shape
-		// as any user key's countersignature (identity.BuildPublicKeyPayload).
+		// as any user key's countersignature (buildPublicKeyPayload).
 		// This key has no owner (it's the trust anchor itself, distinct
 		// from the root USER account, which gets its own separate key via
 		// normal signup) — pass its own id as "userID" too, since the
 		// header just needs to bind SOME identity consistently between
 		// what's signed and what's later verified; there is no owner
 		// identity to bind instead.
-		keyID := string(identity.CanonicalID(s.serverID, keyPair.Fingerprint))
-		selfPayload := identity.BuildPublicKeyPayload(
+		keyID := string(canonicalID(s.serverID, keyPair.Fingerprint))
+		selfPayload := buildPublicKeyPayload(
 			s.serverID, keyID, keyID, keyPair.Fingerprint,
 			keyPair.PublicKey, now,
 		)
@@ -446,7 +445,7 @@ func (s *DataService) GetServerPublicKeyByFingerprint(ctx context.Context, finge
 	var armor string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT armor FROM public_keys WHERE id = $1`,
-		string(identity.CanonicalID(s.serverID, fingerprint)),
+		string(canonicalID(s.serverID, fingerprint)),
 	).Scan(&armor)
 	if err == sql.ErrNoRows {
 		return "", nil
@@ -476,7 +475,7 @@ type SignupInput struct {
 	Username       string
 	PublicKeyArmor string
 	// Fingerprint arrives canonical ("userID@serverID/fingerprint")
-	// already — the handler builds it via identity.AppendEntity before
+	// already — the handler builds it via appendEntity before
 	// signing the identity/public-key payloads, since the same canonical
 	// value must appear in the signed bytes.
 	Fingerprint        string
@@ -530,7 +529,7 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 
 	// identities.id for the new local user, minted here inside the signup
 	// transaction so it never exists half-committed.
-	selfIdentity := identity.CanonicalID(s.serverID, in.UserID)
+	selfIdentity := canonicalID(s.serverID, in.UserID)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO identities (id, server_id)
 		VALUES ($1, $2)
@@ -919,7 +918,7 @@ func (s *DataService) UsernameExists(ctx context.Context, username string) (bool
 // only the `users` row does not cascade to `identities` (FK direction is
 // identities → users), so wiring this up needs DELETE FROM identities instead.
 func (s *DataService) DeleteUser(ctx context.Context, userID string) error {
-	selfIdentity := identity.CanonicalID(s.serverID, userID)
+	selfIdentity := canonicalID(s.serverID, userID)
 
 	// Start transaction
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -972,7 +971,7 @@ func (s *DataService) FollowUser(ctx context.Context, followerID, userID string)
 		return err
 	}
 
-	if _, embeddedServerID, ok := identity.ParseIdentityID(identity.IdentityID(targetIdentity)); ok && embeddedServerID == s.serverID {
+	if _, embeddedServerID, ok := parseIdentityID(identityID(targetIdentity)); ok && embeddedServerID == s.serverID {
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO user_followers (user_id, follower_user_id)
 			VALUES ($1, $2)
@@ -1027,7 +1026,7 @@ func (s *DataService) UnfollowUser(ctx context.Context, followerID, userID strin
 		return err
 	}
 
-	if _, embeddedServerID, ok := identity.ParseIdentityID(identity.IdentityID(targetIdentity)); ok && embeddedServerID == s.serverID {
+	if _, embeddedServerID, ok := parseIdentityID(identityID(targetIdentity)); ok && embeddedServerID == s.serverID {
 		_, err = tx.ExecContext(ctx, `
 			DELETE FROM user_followers
 			WHERE user_id = $1 AND follower_user_id = $2
@@ -1152,8 +1151,8 @@ func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error)
 	// canonical id itself instead.
 	if owner.Valid {
 		key.UserID = owner.String
-	} else if ownerID, ownerServer, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(key.ID)); ok {
-		key.UserID = string(identity.CanonicalID(ownerServer, ownerID))
+	} else if ownerID, ownerServer, _, ok := parseKeyFingerprint(identityID(key.ID)); ok {
+		key.UserID = string(canonicalID(ownerServer, ownerID))
 	}
 	serverSig, err := getServerSignatureWire(ctx, s.db, serverSignatureID)
 	if err != nil {
@@ -1197,8 +1196,8 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, id string) (*KeyRevo
 	}
 	// owner isn't stored on this table — recover it from the canonical id
 	// itself (same derivation as GetPublicKey).
-	if ownerID, ownerServer, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(rev.ID)); ok {
-		rev.UserID = string(identity.CanonicalID(ownerServer, ownerID))
+	if ownerID, ownerServer, _, ok := parseKeyFingerprint(identityID(rev.ID)); ok {
+		rev.UserID = string(canonicalID(ownerServer, ownerID))
 	}
 	rev.Reason = reason.String
 	if successor.Valid && successor.String != "" {
@@ -1258,7 +1257,7 @@ func (s *DataService) PublicKeyExists(ctx context.Context, id string) (bool, err
 //  6. the user has no other active (non-revoked) key
 type AddPublicKeyInput struct {
 	// ID and PredecessorID arrive canonical ("userID@serverID/fingerprint")
-	// already — callers build them via identity.AppendEntity(selfIdentity,
+	// already — callers build them via appendEntity(selfIdentity,
 	// bareFingerprint) before this is called, since the same canonical
 	// value must also appear in the signed payloads built ahead of this
 	// call.
@@ -1302,7 +1301,7 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 		return nil, ErrPredecessorRequired
 	}
 	id := in.ID
-	selfIdentity := identity.IdentityID(in.UserID)
+	selfIdentity := identityID(in.UserID)
 	createdAt := in.CreatedAt
 	armor := in.Armor
 	predecessor := in.PredecessorID
@@ -1492,14 +1491,14 @@ type ReedRef struct {
 // WS subscription key, and broadcast UserID field actually needs. AuthorID
 // alone is bare; use this instead of AuthorID at any call site that isn't
 // itself recomposing a wire ref (FormatReedRef) or calling
-// identity.CanonicalID(ServerID, AuthorID) directly.
+// canonicalID(ServerID, AuthorID) directly.
 func (r ReedRef) CanonicalAuthorID() string {
-	return string(identity.CanonicalID(r.ServerID, r.AuthorID))
+	return string(canonicalID(r.ServerID, r.AuthorID))
 }
 
 // ParseReedRef parses "userID@serverID/reedID". Returns ok=false for empty or malformed input.
 func ParseReedRef(raw string) (ReedRef, bool) {
-	author, serverID, reedID, ok := identity.ParseKeyFingerprint(identity.IdentityID(strings.TrimSpace(raw)))
+	author, serverID, reedID, ok := parseKeyFingerprint(identityID(strings.TrimSpace(raw)))
 	if !ok {
 		return ReedRef{}, false
 	}
@@ -1508,7 +1507,7 @@ func ParseReedRef(raw string) (ReedRef, bool) {
 
 // FormatReedRef returns the canonical wire form userID@serverID/reedID.
 func FormatReedRef(ref ReedRef) string {
-	return string(identity.CanonicalID(ref.ServerID, ref.AuthorID, ref.ReedID))
+	return string(canonicalID(ref.ServerID, ref.AuthorID, ref.ReedID))
 }
 
 // ReedAttestation is tip reed metadata plus stored user/server signatures.
@@ -1581,7 +1580,7 @@ func (s *DataService) InsertReply(
 }
 
 // insertReplyTx takes replyIdentity already in userID@serverID form (the
-// caller has either converted a local userID via identity.CanonicalID, or
+// caller has either converted a local userID via canonicalID, or
 // is insertReedCoreTx's selfIdentity). parent's identity is built the same
 // way ResolveThreadIDForParent does, from the full ReedRef.
 func (s *DataService) insertReplyTx(
@@ -1608,7 +1607,7 @@ func (s *DataService) insertReplyTx(
 			return fmt.Errorf("insert reply parent reed identity: %w", err)
 		}
 	}
-	if _, replyServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(replyReedID)); ok && replyServerID != s.serverID {
+	if _, replyServerID, _, ok := parseKeyFingerprint(identityID(replyReedID)); ok && replyServerID != s.serverID {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO reed_identities (id, server_id)
 			VALUES ($1, $2)
@@ -1648,7 +1647,7 @@ type ReplyListResponse struct {
 // ListReplies returns visible direct replies to parentReedID, oldest first.
 //
 // parentReedID is canonical (authorID@serverID/uuid); each reply's own
-// author is recovered from its reed_id via identity.ParseKeyFingerprint
+// author is recovered from its reed_id via parseKeyFingerprint
 // for the wire item's UserID field.
 func (s *DataService) ListReplies(ctx context.Context, parentReedID string, limit int, before *time.Time) (*ReplyListResponse, error) {
 	if limit <= 0 {
@@ -1702,9 +1701,9 @@ func (s *DataService) ListReplies(ctx context.Context, parentReedID string, limi
 		if err := rows.Scan(&reedID, &_ts); err != nil {
 			return nil, err
 		}
-		userID, serverID, _, _ := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+		userID, serverID, _, _ := parseKeyFingerprint(identityID(reedID))
 		items = append(items, ReplyListItem{
-			UserID: string(identity.CanonicalID(serverID, userID)),
+			UserID: string(canonicalID(serverID, userID)),
 			ReedID: reedID,
 		})
 	}
@@ -1819,7 +1818,7 @@ func (s *DataService) listFollowEdge(ctx context.Context, table, otherCol, userI
 //
 // selfIdentity is the identities.id for the author — callers
 // (insertReedCoreTx) construct it once and pass it down.
-func checkReedTipTx(ctx context.Context, tx *sql.Tx, selfIdentity identity.IdentityID, previousID string) error {
+func checkReedTipTx(ctx context.Context, tx *sql.Tx, selfIdentity identityID, previousID string) error {
 	if err := tx.QueryRowContext(ctx, `
 		SELECT 1 FROM identities WHERE id = $1 FOR UPDATE
 	`, selfIdentity).Scan(new(int)); err != nil {
@@ -1860,17 +1859,17 @@ func checkReedTipTx(ctx context.Context, tx *sql.Tx, selfIdentity identity.Ident
 // front, and uses it for every column that FKs to identities(id) (see
 // db.go's FOREIGN KEY clauses for reeds, reed_allocations, reed_mentions).
 // Mention targets (p.Mentions) are converted the same way, via
-// identity.CanonicalID, since only local mentions are inserted today.
+// canonicalID, since only local mentions are inserted today.
 //
 // p.ReedID is already canonical (authorID@serverID/uuid) — callers build
-// it via identity.AppendEntity before constructing createReedParams.
+// it via appendEntity before constructing createReedParams.
 func (s *DataService) insertReedCoreTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	p createReedParams,
 ) (Reed, error) {
 	bareReedID := p.ReedID
-	if _, _, suffix, ok := identity.ParseKeyFingerprint(identity.IdentityID(p.ReedID)); ok {
+	if _, _, suffix, ok := parseKeyFingerprint(identityID(p.ReedID)); ok {
 		bareReedID = suffix
 	}
 	if !isValidUUIDv7(bareReedID) {
@@ -1878,8 +1877,8 @@ func (s *DataService) insertReedCoreTx(
 	}
 
 	// p.UserID arrives in userID@serverID form already; checkReedTipTx
-	// requires identity.IdentityID, so this is a plain type conversion.
-	selfIdentity := identity.IdentityID(p.UserID)
+	// requires identityID, so this is a plain type conversion.
+	selfIdentity := identityID(p.UserID)
 
 	if err := checkReedTipTx(ctx, tx, selfIdentity, p.PreviousID); err != nil {
 		return Reed{}, err
@@ -2071,7 +2070,7 @@ func (s *DataService) CreateReedWithEcho(
 // identity is first referenced by this server. Idempotent: a retried
 // notify is a harmless no-op (ON CONFLICT on reed_echoes' PK).
 func (s *DataService) InsertForeignEcho(ctx context.Context, echoingReedID, echoedReedID, echoingAuthorID, echoedAuthorID string, isBlank bool, ts time.Time) error {
-	_, echoingServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(echoingReedID))
+	_, echoingServerID, _, ok := parseKeyFingerprint(identityID(echoingReedID))
 	if !ok {
 		return fmt.Errorf("malformed echoing reed id: %s", echoingReedID)
 	}
@@ -2090,7 +2089,7 @@ func (s *DataService) InsertForeignEcho(ctx context.Context, echoingReedID, echo
 		return fmt.Errorf("insert echoing reed identity: %w", err)
 	}
 
-	_, echoingIdentityServerID, ok := identity.ParseIdentityID(identity.IdentityID(echoingAuthorID))
+	_, echoingIdentityServerID, ok := parseIdentityID(identityID(echoingAuthorID))
 	if !ok {
 		return fmt.Errorf("malformed echoing author id: %s", echoingAuthorID)
 	}
@@ -2250,7 +2249,7 @@ func (s *DataService) ReedExists(ctx context.Context, reedID string) (bool, erro
 // indexed. Checks `users`/`account_removals` directly, so a foreign mention
 // target with no local `users` row is never valid yet.
 func (s *DataService) MentionTargetValid(ctx context.Context, userID, serverID string) (bool, error) {
-	targetIdentity := identity.CanonicalID(serverID, userID)
+	targetIdentity := canonicalID(serverID, userID)
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
@@ -2339,7 +2338,7 @@ func (s *DataService) GetMentionsForUser(ctx context.Context, mentionedUserID st
 			return nil, err
 		}
 		authorID := reedID
-		if a, ok := identity.AuthorOf(identity.IdentityID(reedID)); ok {
+		if a, ok := authorOf(identityID(reedID)); ok {
 			authorID = string(a)
 		}
 		items = append(items, MentionListItem{ReedID: reedID, AuthorID: authorID, CreatedAt: createdAt})
@@ -2803,7 +2802,7 @@ func (s *DataService) GetReed(ctx context.Context, reedID string) (*Reed, error)
 func (s *DataService) GetReedOrRemovalCert(ctx context.Context, reedID string) (ReedOrRemovalResult, error) {
 	var out ReedOrRemovalResult
 
-	userID, _, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	userID, _, _, ok := parseKeyFingerprint(identityID(reedID))
 	if !ok {
 		return out, fmt.Errorf("malformed reed id: %s", reedID)
 	}
@@ -2849,7 +2848,7 @@ func (s *DataService) InsertReedRemoval(ctx context.Context, cert deletion.Cert)
 // lookup param is bare, so decode before delegating.
 func (s *DataService) GetAccountRemoval(ctx context.Context, userID string) (*deletion.AccountCert, error) {
 	bareUserID := userID
-	if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(userID)); ok {
+	if bare, _, ok := parseIdentityID(identityID(userID)); ok {
 		bareUserID = bare
 	}
 	return deletion.GetAccountCert(ctx, s.db, bareUserID, s.serverID)
@@ -2859,7 +2858,7 @@ func (s *DataService) GetAccountRemoval(ctx context.Context, userID string) (*de
 // cert.UserID arrives in userID@serverID form; deletion.InsertAccountCert's
 // cert.UserID is bare, so decode before delegating.
 func (s *DataService) InsertAccountRemoval(ctx context.Context, cert deletion.AccountCert) error {
-	if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(cert.UserID)); ok {
+	if bare, _, ok := parseIdentityID(identityID(cert.UserID)); ok {
 		cert.UserID = bare
 	}
 	return deletion.InsertAccountCert(ctx, s.db, cert, s.serverID)
@@ -2927,7 +2926,7 @@ func (s *DataService) GetForeignHolderServersForReed(ctx context.Context, reedID
 // lookup param is bare, so decode before delegating.
 func (s *DataService) HasAccountRemoval(ctx context.Context, userID string) (bool, error) {
 	bareUserID := userID
-	if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(userID)); ok {
+	if bare, _, ok := parseIdentityID(identityID(userID)); ok {
 		bareUserID = bare
 	}
 	return deletion.HasAccountRemoval(ctx, s.db, bareUserID, s.serverID)
@@ -2939,10 +2938,10 @@ var ErrLikeConflict = errors.New("like conflict")
 
 // GetReedLike returns the stored like cert for (likerID, reedID), or nil if
 // the reed is not liked by that user. likerID arrives in userID@serverID
-// form; loadLikeCertTx requires identity.IdentityID, so this is a plain
+// form; loadLikeCertTx requires identityID, so this is a plain
 // type conversion. reedID is canonical.
 func (s *DataService) GetReedLike(ctx context.Context, likerID, reedID string) (*LikeCert, error) {
-	likerIdentity := identity.IdentityID(likerID)
+	likerIdentity := identityID(likerID)
 	cert, err := s.loadLikeCertTx(ctx, s.db, likerIdentity, reedID, false)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -2959,7 +2958,7 @@ func (s *DataService) GetReedLike(ctx context.Context, likerID, reedID string) (
 // cert.ReedID is canonical.
 func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerprint string, cert LikeCert) error {
 	cert.ServerSignature.SignedAt = cert.ServerSignature.SignedAt.UTC().Truncate(time.Second)
-	likerIdentity := identity.IdentityID(likerID)
+	likerIdentity := identityID(likerID)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -3005,7 +3004,7 @@ func (s *DataService) InsertReedLike(ctx context.Context, likerID, likerFingerpr
 // Deleting a nonexistent row is a no-op, returning deleted=false with no
 // error. likerID arrives in userID@serverID form already; reedID is canonical.
 func (s *DataService) DeleteReedLike(ctx context.Context, likerID, reedID string) (deleted bool, err error) {
-	likerIdentity := identity.IdentityID(likerID)
+	likerIdentity := identityID(likerID)
 
 	res, err := s.db.ExecContext(ctx, `
 		DELETE FROM reeds_liked
@@ -3040,7 +3039,7 @@ type likeQuerier interface {
 // loadLikeCertTx takes likerID already in userID@serverID form — see
 // callers (GetReedLike, InsertReedLike, DeleteReedLike), which convert
 // once at their own boundary before calling in. reedID is canonical.
-func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerIdentity identity.IdentityID, reedID string, forUpdate bool) (*LikeCert, error) {
+func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerIdentity identityID, reedID string, forUpdate bool) (*LikeCert, error) {
 	query := `
 		SELECT liker_public_key_id, user_signature_id, server_signature_id
 		FROM reeds_liked
@@ -3068,7 +3067,7 @@ func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerId
 	if err != nil {
 		return nil, err
 	}
-	authorID, ok := identity.AuthorOf(identity.IdentityID(reedID))
+	authorID, ok := authorOf(identityID(reedID))
 	if !ok {
 		return nil, fmt.Errorf("malformed reed id: %s", reedID)
 	}
@@ -3238,11 +3237,11 @@ func (s *DataService) GetActiveDeviceID(ctx context.Context, userID string) (str
 // BindDeviceTx takes a bare local userID and converts to identities.id
 // form internally before touching user_devices, which FKs to identities(id).
 func (s *DataService) BindDeviceTx(ctx context.Context, tx *sql.Tx, userID, deviceID string, now time.Time) error {
-	deviceID, err := identity.ParseDeviceID(deviceID)
+	deviceID, err := parseDeviceID(deviceID)
 	if err != nil {
 		return err
 	}
-	selfIdentity := identity.CanonicalID(s.serverID, userID)
+	selfIdentity := canonicalID(s.serverID, userID)
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE user_devices SET revoked_at = $2
@@ -3262,12 +3261,12 @@ func (s *DataService) BindDeviceTx(ctx context.Context, tx *sql.Tx, userID, devi
 }
 
 // BindDevice's userID arrives in userID@serverID form already. It calls
-// BindDeviceTx, which composes internally (identity.CanonicalID) — decode
-// back to bare first via identity.ParseIdentityID to avoid double-composing,
+// BindDeviceTx, which composes internally (canonicalID) — decode
+// back to bare first via parseIdentityID to avoid double-composing,
 // matching what BindDeviceTx expects from its other (Signup) caller.
 func (s *DataService) BindDevice(ctx context.Context, userID, deviceID string, now time.Time) error {
 	bareUserID := userID
-	if bare, _, ok := identity.ParseIdentityID(identity.IdentityID(userID)); ok {
+	if bare, _, ok := parseIdentityID(identityID(userID)); ok {
 		bareUserID = bare
 	}
 
@@ -3286,7 +3285,7 @@ func (s *DataService) BindDevice(ctx context.Context, userID, deviceID string, n
 // CheckActiveDevice's userID arrives in userID@serverID form already (see
 // GetActiveDeviceID's comment above).
 func (s *DataService) CheckActiveDevice(ctx context.Context, userID, presented string) error {
-	presented, err := identity.ParseDeviceID(presented)
+	presented, err := parseDeviceID(presented)
 	if err != nil {
 		return err
 	}
@@ -3432,7 +3431,7 @@ func (s *DataService) VerifyFederationPeer(ctx context.Context, serverID, finger
 	if err != nil {
 		return false, "", err
 	}
-	keyID := string(identity.CanonicalID(serverID, fingerprint))
+	keyID := string(canonicalID(serverID, fingerprint))
 	if revokedAt.Valid || !pinnedKeyID.Valid || pinnedKeyID.String != keyID || !keyArmor.Valid {
 		return false, "", nil
 	}
@@ -3529,7 +3528,7 @@ func (s *DataService) UpsertRemoteIdentity(ctx context.Context, canonicalID, rem
 // when this server needs to reference a foreign reed (e.g. mirroring a
 // like) without holding a copy of the reed itself.
 func (s *DataService) UpsertReedIdentity(ctx context.Context, reedID string) error {
-	_, serverID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	_, serverID, _, ok := parseKeyFingerprint(identityID(reedID))
 	if !ok {
 		return fmt.Errorf("malformed reed id: %s", reedID)
 	}
@@ -3780,8 +3779,8 @@ func (s *DataService) ApproveFederationAttempt(
 	// (specs/federation/04) — same canonical shape as any other key id.
 	// ON CONFLICT DO NOTHING: re-approving after a revoke/reconnect with
 	// the same key hits the same row; a key's armor never changes once set.
-	keyID := string(identity.CanonicalID(remoteServerID, fingerprint))
-	keyPayload := identity.BuildPublicKeyPayload(
+	keyID := string(canonicalID(remoteServerID, fingerprint))
+	keyPayload := buildPublicKeyPayload(
 		s.serverID, keyID, keyID, fingerprint, publicKeyArmor, approvedAt.UTC(),
 	)
 	serverSig, err := countersign(keyPayload, approvedAt.UTC())
@@ -4570,11 +4569,11 @@ func (s *DataService) PostRipple(
 	now time.Time,
 ) (*Ripple, error) {
 	now = now.UTC().Truncate(time.Second)
-	reedAuthorIdentity, ok := identity.AuthorOf(identity.IdentityID(reedID))
+	reedAuthorIdentity, ok := authorOf(identityID(reedID))
 	if !ok {
 		return nil, fmt.Errorf("malformed reed id: %s", reedID)
 	}
-	selfIdentity := identity.IdentityID(userID)
+	selfIdentity := identityID(userID)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -4599,7 +4598,7 @@ func (s *DataService) PostRipple(
 		replyingToVal = *replyingTo
 	}
 	serverID := s.GetServerID()
-	serverPayload := identity.BuildRippleServerPayload(
+	serverPayload := buildRippleServerPayload(
 		serverID, reedID, userID,
 		userFingerprint, threadID, replyingToVal,
 		userSigArmor, now,
@@ -4732,8 +4731,8 @@ func scanRipple(row rippleRowScanner) (*Ripple, error) {
 	if replyingTo.Valid {
 		r.ReplyingTo = &replyingTo.String
 	}
-	if authorUserID, authorServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(r.ReedID)); ok {
-		r.ReedAuthorID = string(identity.CanonicalID(authorServerID, authorUserID))
+	if authorUserID, authorServerID, _, ok := parseKeyFingerprint(identityID(r.ReedID)); ok {
+		r.ReedAuthorID = string(canonicalID(authorServerID, authorUserID))
 	}
 	r.UserSignature.ID = r.UserKeyID
 	r.ServerSignature.SignedAt = r.ServerSignature.SignedAt.UTC().Truncate(time.Second)
@@ -4888,11 +4887,11 @@ func (s *DataService) GetRipplesExpiresAt(ctx context.Context, reedID string) (t
 // succeeds again as a no-op.
 //
 // ripple_responses.user_id is a direct FK; ownerUserID arrives in
-// userID@serverID form already but needs an identity.IdentityID-typed
+// userID@serverID form already but needs an identityID-typed
 // value for the equality check against actualOwner, hence the type conversion.
 func (s *DataService) SoftDeleteRipple(ctx context.Context, id, ownerUserID string) (found, owned bool, err error) {
-	ownerIdentity := identity.IdentityID(ownerUserID)
-	var actualOwner identity.IdentityID
+	ownerIdentity := identityID(ownerUserID)
+	var actualOwner identityID
 	err = s.db.QueryRowContext(ctx, `
 		SELECT user_id FROM ripple_responses WHERE id = $1
 	`, id).Scan(&actualOwner)

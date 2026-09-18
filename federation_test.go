@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/identity"
 	"syrinx/realtime"
 	"syrinx/roles"
 
@@ -216,7 +215,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 // so callers can build wire-facing values without recomputing it.
 func seedFederationUser(t *testing.T, ds *DataService, userID, username, role string) string {
 	t.Helper()
-	identityID := string(identity.CanonicalID(ds.serverID, userID))
+	identityID := string(canonicalID(ds.serverID, userID))
 	if _, err := ds.db.Exec(`
 		INSERT INTO identities (id, server_id) VALUES ($1, $2)
 		ON CONFLICT (id) DO NOTHING

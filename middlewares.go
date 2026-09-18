@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"syrinx/identity"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -384,7 +383,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 			// No local row — could be a foreign peer's own key (never
 			// stored locally), so try authenticateAsPeer before giving up.
 			if publicKey == nil {
-				fingerprint, callerServerID, ok := identity.ParseIdentityID(identity.IdentityID(publicKeyIDHeader))
+				fingerprint, callerServerID, ok := parseIdentityID(identityID(publicKeyIDHeader))
 				if ok && !strings.Contains(publicKeyIDHeader, "/") {
 					h.authenticateAsPeer(w, r, next, fingerprint, callerServerID, signatureHeader)
 					return
@@ -465,7 +464,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				// (ApproveFederationAttempt) rather than a local user's own —
 				// its id is "{fingerprint}@{peerServerID}", so recover the
 				// caller's server id from it instead of assuming self.
-				fingerprint, callerServerID, ok := identity.ParseIdentityID(identity.IdentityID(publicKeyIDHeader))
+				fingerprint, callerServerID, ok := parseIdentityID(identityID(publicKeyIDHeader))
 				if !ok {
 					log.Error().
 						Str("publicKeyId", publicKeyIDHeader).
@@ -645,7 +644,7 @@ func (h *Handlers) deviceMiddleware() func(http.Handler) http.Handler {
 			}
 
 			if err := h.services.db.CheckActiveDevice(r.Context(), userID, r.Header.Get("X-Syrinx-Device-Id")); err != nil {
-				if err == errDeviceMismatch || err == identity.ErrMissingDevice {
+				if err == errDeviceMismatch || err == errMissingDevice {
 					writeDeviceError(w, http.StatusForbidden, "Device mismatch: this session is not bound to the active device.")
 					return
 				}

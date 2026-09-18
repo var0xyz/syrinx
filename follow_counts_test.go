@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"testing"
 
-	"syrinx/identity"
 
 	_ "github.com/lib/pq"
 )
@@ -103,7 +102,7 @@ func ensureFollowCountSchema(db *sql.DB) error {
 // signature FKs and matching identities row) for follow-count fixtures.
 func insertFollowCountTestUser(t *testing.T, db *sql.DB, userID, username string) {
 	t.Helper()
-	identityID := string(identity.CanonicalID(followCountsTestServerID, userID))
+	identityID := string(canonicalID(followCountsTestServerID, userID))
 	if _, err := db.Exec(
 		`INSERT INTO identities (id, server_id) VALUES ($1, $2)`,
 		identityID, followCountsTestServerID,
@@ -149,9 +148,9 @@ func TestGetUserInfo_FollowerCountExcludesRemovedAccounts(t *testing.T) {
 	insertFollowCountTestUser(t, db, "active-follower", "activeFollower")
 	insertFollowCountTestUser(t, db, "removed-follower", "removedFollower")
 
-	author1 := string(identity.CanonicalID(followCountsTestServerID, "author1"))
-	activeFollower := string(identity.CanonicalID(followCountsTestServerID, "active-follower"))
-	removedFollower := string(identity.CanonicalID(followCountsTestServerID, "removed-follower"))
+	author1 := string(canonicalID(followCountsTestServerID, "author1"))
+	activeFollower := string(canonicalID(followCountsTestServerID, "active-follower"))
+	removedFollower := string(canonicalID(followCountsTestServerID, "removed-follower"))
 
 	if _, err := db.Exec(
 		`INSERT INTO user_followers (user_id, follower_user_id) VALUES ($1, $2), ($1, $3)`,
@@ -200,9 +199,9 @@ func TestGetUserInfo_FollowingCountExcludesRemovedAccounts(t *testing.T) {
 	insertFollowCountTestUser(t, db, "active-followed", "activeFollowed")
 	insertFollowCountTestUser(t, db, "removed-followed", "removedFollowed")
 
-	viewer1 := string(identity.CanonicalID(followCountsTestServerID, "viewer1"))
-	activeFollowed := string(identity.CanonicalID(followCountsTestServerID, "active-followed"))
-	removedFollowed := string(identity.CanonicalID(followCountsTestServerID, "removed-followed"))
+	viewer1 := string(canonicalID(followCountsTestServerID, "viewer1"))
+	activeFollowed := string(canonicalID(followCountsTestServerID, "active-followed"))
+	removedFollowed := string(canonicalID(followCountsTestServerID, "removed-followed"))
 
 	if _, err := db.Exec(
 		`INSERT INTO user_following (user_id, following_user_id) VALUES ($1, $2), ($1, $3)`,
