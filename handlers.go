@@ -18,7 +18,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"syrinx/invites"
 	"syrinx/observability/metrics"
 	"syrinx/realtime"
 	"syrinx/recovery"
@@ -247,7 +246,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if invites.SignupMode(h.cfg.SignupMode) == invites.ModeClosed {
+	if inviteSignupMode(h.cfg.SignupMode) == signupModeClosed {
 		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
 		return
 	}
@@ -342,18 +341,18 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	resolved, err := invites.ResolveSignup(
-		invites.SignupMode(h.cfg.SignupMode),
+	resolved, err := resolveSignup(
+		inviteSignupMode(h.cfg.SignupMode),
 		inviteID,
 		inviteSecret,
 		invite,
 	)
 	if err != nil {
-		if errors.Is(err, invites.ErrInviteRequired) {
+		if errors.Is(err, errInviteRequired) {
 			writeResponse(w, http.StatusForbidden, "Invite required")
 			return
 		}
-		if errors.Is(err, invites.ErrInvalidInvite) {
+		if errors.Is(err, errInvalidInvite) {
 			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
 			return
 		}
@@ -486,7 +485,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		DeviceID:           deviceID,
 	})
 	if err != nil {
-		if errors.Is(err, invites.ErrInvalidInvite) {
+		if errors.Is(err, errInvalidInvite) {
 			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
 			return
 		}
@@ -550,7 +549,7 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if invites.SignupMode(h.cfg.SignupMode) == invites.ModeClosed {
+	if inviteSignupMode(h.cfg.SignupMode) == signupModeClosed {
 		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
 		return
 	}
@@ -568,17 +567,17 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	if _, err := invites.ResolveSignup(
-		invites.SignupMode(h.cfg.SignupMode),
+	if _, err := resolveSignup(
+		inviteSignupMode(h.cfg.SignupMode),
 		inviteID,
 		inviteSecret,
 		invite,
 	); err != nil {
-		if errors.Is(err, invites.ErrInviteRequired) {
+		if errors.Is(err, errInviteRequired) {
 			writeResponse(w, http.StatusForbidden, "Invite required")
 			return
 		}
-		if errors.Is(err, invites.ErrInvalidInvite) {
+		if errors.Is(err, errInvalidInvite) {
 			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
 			return
 		}
@@ -3770,7 +3769,7 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
-	secret, err := invites.NewSecret()
+	secret, err := newInviteSecret()
 	if err != nil {
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 		return
@@ -5426,4 +5425,291 @@ func (h *Handlers) SendMailboxMessage(ctx context.Context, userID string, catego
 	}
 	h.realtimeRelay.NotifyMailboxMessage(userID, id, ciphertext)
 	return nil
+}
+
+// =========== //
+//   invites   //
+// =========== //
+
+type inviteUserSignatureWire struct {
+	ID    string `json:"id"`
+	Armor string `json:"armor"`
+}
+
+type inviteServerSignatureWire struct {
+	ID        string `json:"id"`
+	Armor     string `json:"armor"`
+	Timestamp string `json:"timestamp"`
+}
+
+type inviteCreateRequest struct {
+	ID            string                  `json:"id"`
+	TokenHash     string                  `json:"tokenHash"`
+	CreatedAt     time.Time               `json:"createdAt"`
+	GrantedRole   string                  `json:"grantedRole"`
+	UserSignature inviteUserSignatureWire `json:"userSignature"`
+}
+
+type inviteCreateResponse struct {
+	ID              string                    `json:"id"`
+	TokenHash       string                    `json:"tokenHash"`
+	CreatedAt       time.Time                 `json:"createdAt"`
+	GrantedRole     string                    `json:"grantedRole"`
+	UserSignature   inviteUserSignatureWire   `json:"userSignature"`
+	ServerSignature inviteServerSignatureWire `json:"serverSignature"`
+}
+
+// CreateInvite handles POST /api/invites.
+// Client mints id + secret; only SHA-256(secret) is sent (tokenHash).
+func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
+	caller, ok := r.Context().Value(userIDKey).(string)
+	ok = ok && caller != ""
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	if inviteSignupMode(h.cfg.SignupMode) == signupModeClosed {
+		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	var req inviteCreateRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	idOwner, idServerID, idEntity, ok := parseKeyFingerprint(identityID(req.ID))
+	if !ok || !isValidUUIDv7(idEntity) {
+		writeResponse(w, http.StatusBadRequest, "Invalid invite id")
+		return
+	}
+	if string(canonicalID(idServerID, idOwner)) != caller {
+		writeResponse(w, http.StatusForbidden, "Invite id does not belong to the caller")
+		return
+	}
+	tokenHash, err := decodeHashHex(req.TokenHash)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid tokenHash")
+		return
+	}
+	tokenHashHex := encodeHashHex(tokenHash)
+	if req.UserSignature.ID == "" || req.UserSignature.Armor == "" {
+		writeResponse(w, http.StatusBadRequest, "userSignature is required")
+		return
+	}
+
+	createdAt := req.CreatedAt.UTC().Truncate(time.Second)
+	if createdAt.IsZero() {
+		writeResponse(w, http.StatusBadRequest, "createdAt is required")
+		return
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	skew := now.Sub(createdAt)
+	if skew < 0 {
+		skew = -skew
+	}
+	if skew > inviteCreateSkew {
+		writeResponse(w, http.StatusBadRequest, "createdAt out of range")
+		return
+	}
+
+	grantedRole := strings.TrimSpace(req.GrantedRole)
+	if grantedRole == "" {
+		grantedRole = roleUser
+	}
+	if grantedRole != roleUser && grantedRole != roleAdmin {
+		writeResponse(w, http.StatusBadRequest, "Invalid grantedRole")
+		return
+	}
+	if grantedRole == roleAdmin {
+		callerRole, err := h.services.db.GetUserRole(r.Context(), caller)
+		if err != nil {
+			writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+		if !canGrantAdmin(callerRole) {
+			writeResponse(w, http.StatusForbidden, "Cannot grant admin role")
+			return
+		}
+	}
+
+	if h.cfg.MaxInvitesPerUser != maxInvitesUnlimited {
+		n, err := h.services.db.countInvitesByCreator(r.Context(), caller)
+		if err != nil {
+			writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+		if n >= h.cfg.MaxInvitesPerUser {
+			writeResponse(w, http.StatusForbidden, "Invite limit reached")
+			return
+		}
+	}
+
+	userPayload := buildInviteUserPayload(
+		h.services.db.GetServerID(), caller, req.ID, tokenHashHex, grantedRole, createdAt,
+	)
+	userSigArmor, err := base64Decode(req.UserSignature.Armor)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
+		return
+	}
+	key, err := h.services.db.GetPublicKey(r.Context(), req.UserSignature.ID)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	var pubArmor string
+	if key != nil && !key.Revoked {
+		pubArmor = key.Armor
+	}
+	if pubArmor == "" {
+		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		return
+	}
+	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubArmor); err != nil {
+		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		return
+	}
+
+	if err := h.services.db.insertInvite(
+		r.Context(), req.ID, caller, tokenHash, createdAt, grantedRole,
+		req.UserSignature.ID, req.UserSignature.Armor,
+	); err != nil {
+		if errors.Is(err, errInviteExists) {
+			writeResponse(w, http.StatusConflict, "Invite already exists")
+			return
+		}
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	signedAt := now
+	serverPayload := buildInviteServerPayload(
+		h.services.db.GetServerID(),
+		caller,
+		req.ID,
+		tokenHashHex,
+		h.signingKey.Fingerprint,
+		req.UserSignature.Armor,
+		createdAt,
+		signedAt,
+	)
+	serverSig, err := h.countersign(serverPayload, signedAt)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	writeResponse(w, http.StatusCreated, inviteCreateResponse{
+		ID:            req.ID,
+		TokenHash:     tokenHashHex,
+		CreatedAt:     createdAt,
+		GrantedRole:   grantedRole,
+		UserSignature: req.UserSignature,
+		ServerSignature: inviteServerSignatureWire{
+			ID:        serverSig.ID,
+			Armor:     serverSig.Armor,
+			Timestamp: serverSig.SignedAt.UTC().Format(time.RFC3339),
+		},
+	})
+}
+
+type inviteStatusResponse struct {
+	ID        string     `json:"id"`
+	CreatedAt time.Time  `json:"createdAt"`
+	Status    string     `json:"status"`
+	ClaimedAt *time.Time `json:"claimedAt"`
+	ClaimedBy *string    `json:"claimedBy"`
+	RevokedAt *time.Time `json:"revokedAt"`
+}
+
+// InviteStatus handles GET /api/invites/{id} for the caller's invite.
+func (h *Handlers) InviteStatus(w http.ResponseWriter, r *http.Request) {
+	caller, ok := r.Context().Value(userIDKey).(string)
+	ok = ok && caller != ""
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	id := mux.Vars(r)["id"]
+	if id == "" {
+		writeResponse(w, http.StatusBadRequest, "Invite id is required")
+		return
+	}
+
+	inv, err := h.services.db.getInviteByID(r.Context(), id)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	if inv == nil || inv.CreatedBy != caller {
+		writeResponse(w, http.StatusNotFound, "Invite not found")
+		return
+	}
+
+	out := inviteStatusResponse{
+		ID:        inv.ID,
+		CreatedAt: inv.CreatedAt.UTC(),
+		Status:    inv.Status(),
+		ClaimedAt: inv.ClaimedAt,
+		ClaimedBy: inv.ClaimedBy,
+		RevokedAt: inv.RevokedAt,
+	}
+	writeResponse(w, http.StatusOK, out)
+}
+
+// DeleteInvite handles DELETE /api/invites/{id}.
+func (h *Handlers) DeleteInvite(w http.ResponseWriter, r *http.Request) {
+	caller, ok := r.Context().Value(userIDKey).(string)
+	ok = ok && caller != ""
+	if !ok {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	id := mux.Vars(r)["id"]
+	if id == "" {
+		writeResponse(w, http.StatusBadRequest, "Invite id is required")
+		return
+	}
+
+	err := h.services.db.revokeInvite(r.Context(), id, caller, time.Now().UTC())
+	switch {
+	case errors.Is(err, errInviteNotFound), errors.Is(err, errInviteNotOwner):
+		writeResponse(w, http.StatusNotFound, "Invite not found")
+	case errors.Is(err, errInviteAlreadyClaimed):
+		writeResponse(w, http.StatusConflict, "Invite already claimed")
+	case errors.Is(err, errInviteAlreadyRevoked):
+		w.WriteHeader(http.StatusNoContent)
+	case err != nil:
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+type inviteCheckResponse struct {
+	Valid bool `json:"valid"`
+}
+
+// CheckInvite handles GET /api/invites/check?id=&secret=.
+// Client sends the fragment secret; server looks up by id + hash.
+func (h *Handlers) CheckInvite(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	secret := strings.TrimSpace(r.URL.Query().Get("secret"))
+	if id == "" || secret == "" {
+		writeResponse(w, http.StatusBadRequest, "Arguments `id` and `secret` are required")
+		return
+	}
+	inv, err := h.services.db.GetPendingInvite(r.Context(), id, secret)
+	if err != nil {
+		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	valid := inv != nil
+	writeResponse(w, http.StatusOK, inviteCheckResponse{Valid: valid})
 }

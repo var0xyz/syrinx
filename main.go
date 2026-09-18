@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"syrinx/crypto"
-	"syrinx/invites"
 	"syrinx/observability"
 	"syrinx/realtime"
 	"syrinx/recovery"
@@ -70,7 +69,7 @@ func main() {
 	var appConfig AppConfig
 	cfg := env.MustAssert(appConfig)
 
-	if cfg.MaxInvitesPerUser < 1 && cfg.MaxInvitesPerUser != int(invites.MaxInvitesUnlimited) {
+	if cfg.MaxInvitesPerUser < 1 && cfg.MaxInvitesPerUser != maxInvitesUnlimited {
 		l.Panicf("[ERR] invalid MAX_INVITES_PER_USER %d: must be >= 1, or -1 for unlimited", cfg.MaxInvitesPerUser)
 	}
 
@@ -79,7 +78,7 @@ func main() {
 	// sniping against not-yet-reclaimed identities. A non-closed SIGNUP_MODE
 	// is therefore inert here — warn so the operator doesn't mistake it for
 	// "signups are open" and gets surprised once recovery ends.
-	if cfg.RecoveryMode && invites.SignupMode(cfg.SignupMode) != invites.ModeClosed {
+	if cfg.RecoveryMode && inviteSignupMode(cfg.SignupMode) != signupModeClosed {
 		l.Printf("[WARN] RECOVERY_MODE is on with SIGNUP_MODE=%q: signups are blocked entirely until recovery mode is turned off, regardless of SIGNUP_MODE", cfg.SignupMode)
 	}
 
@@ -392,39 +391,16 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	}).Methods("GET")
 
-	invites.RegisterRoutes(api, invites.Deps{
-		Store:                &invites.Store{DB: db, ServerID: dataService.GetServerID()},
-		Mode:                 invites.SignupMode(cfg.SignupMode),
-		Max:                  invites.MaxInvitesPerUser(cfg.MaxInvitesPerUser),
-		UserIDKey:            userIDKey,
-		ServerID:             dataService.GetServerID(),
-		ServerKeyFingerprint: signingKey.Fingerprint,
-		GetPublicKeyArmor: func(ctx context.Context, userID, fingerprint string) (string, error) {
-			key, err := dataService.GetPublicKey(ctx, fingerprint)
-			if err != nil {
-				return "", err
-			}
-			if key == nil || key.Revoked {
-				return "", nil
-			}
-			return key.Armor, nil
-		},
-		GetUserRole: dataService.GetUserRole,
-		VerifySignature: func(payload, sigArmor, pubKeyArmor string) error {
-			return cryptoService.verifySignature(payload, sigArmor, pubKeyArmor)
-		},
-		Countersign: func(payload []byte, ts time.Time) (invites.ServerSignatureWire, error) {
-			sig, err := h.countersign(payload, ts)
-			if err != nil {
-				return invites.ServerSignatureWire{}, err
-			}
-			return invites.ServerSignatureWire{
-				ID:        sig.ID,
-				Armor:     sig.Armor,
-				Timestamp: sig.SignedAt.UTC().Format(time.RFC3339),
-			}, nil
-		},
-	})
+	api.HandleFunc("/invites", h.CreateInvite).Methods("POST")
+	api.HandleFunc("/invites", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/invites/check", h.CheckInvite).Methods("GET")
+	api.HandleFunc("/invites/check", h.noop).Methods("OPTIONS")
+	// {id} is "userID@serverID/reedID"-shaped and carries a "/", so it needs
+	// a greedy path variable ({id:.+}) — a plain {id} stops at the first "/"
+	// and never matches (see /keys/{id:.+} above for the same gotcha).
+	api.HandleFunc("/invites/{id:.+}", h.InviteStatus).Methods("GET")
+	api.HandleFunc("/invites/{id:.+}", h.DeleteInvite).Methods("DELETE")
+	api.HandleFunc("/invites/{id:.+}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/federation/list", h.GetFederationList).Methods("GET")
 	api.HandleFunc("/federation/list", h.noop).Methods("OPTIONS")

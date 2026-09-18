@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/invites"
 	"syrinx/realtime"
 )
 
@@ -87,19 +86,18 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	secret, err := invites.NewSecret()
+	secret, err := newInviteSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash := invites.HashSecret(secret)
-	rawID, err := invites.NewInviteID()
+	hash := hashSecret(secret)
+	rawID, err := newInviteID()
 	if err != nil {
 		t.Fatal(err)
 	}
 	inviterCanonical := "inviter@" + h.services.db.GetServerID()
 	id := inviterCanonical + "/" + rawID
-	store := &invites.Store{DB: db, ServerID: h.services.db.GetServerID()}
-	if err := store.Insert(ctx, id, inviterCanonical, hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
+	if err := svc.insertInvite(ctx, id, inviterCanonical, hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 

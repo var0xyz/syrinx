@@ -2,7 +2,64 @@
 
 ## Status
 
-Proposed.
+Implemented and fully complete — `invites/` directory **deleted**, unlike
+every prior step in this spec. `invites` had zero remaining external
+importers once its own call sites moved (the spec's importer list —
+`deletion/store.go`, `identity/identity.go`, `recovery/*` — was already
+stale by the time this step landed; those packages import `signing`/
+`identity`/`roles` but never `invites` itself), so there was no reason to
+defer directory deletion the way every schema-coupled step before this
+one had to.
+
+**Two duplicate helpers deleted outright, not renamed.** `invites.noop`
+and `invites.writeJSON` were exact duplicates of root's own
+`(h *Handlers) noop` and `writeResponse` — found by checking `main.go`'s
+existing OPTIONS-route registrations (every other route already used
+`h.noop`) before assuming these needed porting at all. Confirms this
+spec's core thesis directly: `invites` didn't need a "clean API," it
+needed root's own helpers, which it couldn't reach without an import
+cycle.
+
+**The `Deps`/`RegisterRoutes` struct-of-closures pattern is gone, not
+preserved.** `Create`/`Status`/`RevokeInvite`/`Check` are now
+`h.CreateInvite`/`h.InviteStatus`/`h.DeleteInvite`/`h.CheckInvite` —
+plain `*Handlers` methods reading `h.services.db`/`h.services.crypto`/
+`h.cfg`/`h.signingKey` directly, registered via `api.HandleFunc(...)` in
+`main.go` exactly like every other route. The `GetPublicKeyArmor`/
+`GetUserRole`/`VerifySignature`/`Countersign` injectable closures are
+gone — those are direct calls now (`h.services.db.GetPublicKey`,
+`h.services.db.GetUserRole`, `h.services.crypto.verifySignature`,
+`h.countersign`, which already returns root's own `ServerSignature`,
+eliminating the `invites.ServerSignatureWire` conversion `main.go` used
+to do by hand).
+
+**`DataService.invites *invites.Store` field deleted entirely**, along
+with the two `s.invites.ServerID = id` sync points in `InitServer` and
+`setServerIDForTest` — `Store{DB, ServerID}` was pure duplication of
+`DataService{db, serverID}` once the invite functions became
+`DataService` methods / package-level functions taking `s.db` directly.
+
+**Real bugs found and fixed while rewriting the test suite** (see the
+"18 tests rewritten" note below) — not present in production, only
+surfaced because the tests moved from fake to real signature
+verification:
+- The test helper needed `UserSignature.ID` in **canonical**
+  (`fingerprint@serverID`) form, matching how `public_keys.id` is
+  actually stored (confirmed against `services.go`'s `Signup` insert and
+  the *original* `invites/handlers_test.go`'s fixture, which already
+  used the canonical form — the bug was in translating that convention
+  to the new test file, not in production code).
+  `GetPublicKeyArmor(ctx, userID, fingerprint string)` (both old and new)
+  discards `userID` and looks up `fingerprint` as-is — this only works
+  when the caller already passes it canonical.
+- `CreateInvite` normalizes an empty `grantedRole` to `roleUser` *before*
+  building the signed payload — a test signing with the raw (possibly
+  empty) role produces a payload that doesn't match what the server
+  reconstructs, failing signature verification. Both of these are
+  pre-existing behaviors in the original `invites` package, not new bugs
+  introduced by this merge — they were only ever exercised by the
+  original tests' fake `VerifySignature: func(...) error { return nil }`,
+  which could never have caught either issue.
 
 ## Depends on
 
@@ -56,48 +113,64 @@ type Invite struct {
 ```
 
 Different purpose entirely (DB-backed lifecycle record vs a wire-facing
-reference). Rename `invites.Invite` on merge — e.g. `inviteRecord` — since
-both are needed and neither should be deleted. Note this also depends on
-how step 04's `signing.UserSignature` rename lands, since
-`invites.Invite.UserSignature` references it directly — update that field
-type to match whatever `signing.UserSignature` gets renamed to.
+reference). Renamed `invites.Invite` → `inviteRecord` per this section's
+original plan. `UserSignature`'s field type became `userSignatureRow`
+(step 04's actual rename, resolving the note below).
+
+**Also found and deleted on merge, not ported**: `invites.noop` and
+`invites.writeJSON` — exact duplicates of root's `(h *Handlers) noop` and
+`writeResponse` (see Status).
 
 No other type/func collisions found.
 
 ## Move plan
 
-1. Move `store.go`, `handlers.go`, `mode.go`, `signup.go`, `token.go`'s
-   contents into root. Given the existing tight coupling (Step Context
-   above), this is less a "move" and more an unwrapping: `Deps`/
-   `RegisterRoutes` likely collapse into direct calls from `main.go`'s
-   existing route-registration code rather than staying a separate
-   struct-and-registration-function pair — decide the exact shape at
-   implementation time, but don't preserve the `Deps` indirection purely
-   out of inertia if `main.go`'s other route registration doesn't use
-   that pattern.
-2. Rename `Invite` → `inviteRecord` (or similar) per the Collisions
-   section; update the `UserSignature` field type to match step 04's
-   renamed `signing.UserSignature`.
-3. Add section headers per destination file (likely `handlers.go` for
-   the HTTP handlers, `services.go` or `db.go` for the store/DB logic —
-   split by content type the same way other steps do, not dumped as one
-   block):
+1. Moved `store.go`, `mode.go`, `signup.go`, `token.go`'s DB/logic
+   contents into `services.go` (as `DataService` methods and
+   package-level functions, following the `deletion`/`signing` pattern —
+   not `db.go`, which stayed pure DDL through every step of this spec).
+   Moved `handlers.go`'s HTTP layer into `handlers.go` at root, as plain
+   `*Handlers` methods — `Deps`/`RegisterRoutes` were deleted entirely,
+   not preserved in any form (see Status).
+2. Renamed `Invite` → `inviteRecord`; its `UserSignature` field now types
+   as `userSignatureRow` (step 04's actual naming).
+3. Added section headers:
    ```go
    // =========== //
    //   invites   //
    // =========== //
    ```
-4. Update `main.go`, `services.go`, `handlers.go` to drop the `invites.`
-   prefix and import, folding the `Deps`-based wiring into direct calls
-   per step 1.
-5. Delete the `invites/` directory (port `invites/*_test.go` cases to
-   root test files first, resolving the `newTestDatabase`/`testDSN`
-   duplication noted in step 07 the same way).
+   in both `services.go` (store/logic section) and `handlers.go` (HTTP
+   handlers section).
+4. Updated `main.go` to drop the whole `invites.RegisterRoutes(api,
+   invites.Deps{...})` block, replaced with direct `api.HandleFunc(...)`
+   registrations matching every other route (including reusing `h.noop`
+   for the OPTIONS variants, not a ported duplicate). Updated
+   `services.go`/`handlers.go` to drop the `invites.` prefix and import.
+5. Ported all 18 tests (`invites/signup_test.go`, `invites/store_test.go`,
+   `invites/handlers_test.go`) into three new root files
+   (`invites_signup_test.go`, `invites_store_test.go`,
+   `invites_handlers_test.go`), reusing root's existing
+   `newTestDatabase`/`testDSN` (`testdb_test.go`) rather than porting
+   `invites`' own copies — resolves the duplication this spec flagged.
+   The 12 HTTP-handler tests required a real rewrite, not a mechanical
+   port: `Deps`'s injectable `VerifySignature`/`Countersign`/
+   `GetPublicKeyArmor` seams no longer exist, so tests now go through a
+   real `*Handlers` (reusing `newSignupGateHandlers`/`signedUpUser` from
+   `handlers_signup_gate_test.go`, already in this package) with real
+   keypairs and real signature verification — this is what surfaced the
+   two pre-existing bugs noted in Status. Dropped the two
+   `RegisterRoutes`-through-a-real-router tests (`RegisterRoutes` no
+   longer exists as a separable function; their coverage is subsumed by
+   the direct-handler tests).
+6. Deleted the `invites/` directory outright — zero remaining external
+   importers (see Status), unlike every prior step in this spec.
 
 ## Verification
 
-`go build ./...`, `go vet ./...`, `go test ./...` pass, including the
-invite-flow tests currently in `invites/handlers_test.go`/
-`invites/signup_test.go`/`invites/store_test.go` — these exercise real
-HTTP behavior (create/claim/revoke), so don't let coverage silently drop
-during the port.
+`go build ./...`, `go vet ./...`, `go test ./...`, plus `go build -tags
+ops` and `go build -tags ripplescleanup`, all pass. All 18 original
+tests pass in their ported form, with real (not faked) signature
+verification exercising the full create/claim/revoke/check flow.
+`invites/` directory is gone — `git rm -r invites/` — confirmed via
+`go list ./...` no longer showing `syrinx/invites`.
