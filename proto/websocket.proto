@@ -7,6 +7,14 @@ option go_package = "github.com/alvaro/syrinx/proto";
 // WebSocket message wrapper
 message WSMessage {
   MessageType type = 1;
+  // Human-readable mirror of type (e.g. "DATA_RESPONSE"), redundant with
+  // the enum — lets a raw frame be read without cross-referencing this
+  // schema (protobuf enums are wire-encoded as bare varints, not names).
+  string type_name = 12;
+  // Event id this message replies to or originates (relay event id for
+  // DATA_RESPONSE; echoed back by the client on DATA_ACK/DATA_INVALID).
+  // Empty for message types that carry no event id.
+  string id = 11;
   oneof payload {
     PingMessage ping = 2;
     PongMessage pong = 3;
@@ -15,6 +23,8 @@ message WSMessage {
     ReedNotificationMessage reed_notification = 6;
     UserUpdateMessage user_update = 7;
     ErrorMessage error = 8;
+    RequestReedMessage request_reed = 9;
+    DataResponseMessage data_response = 10;
   }
 }
 
@@ -32,6 +42,8 @@ enum MessageType {
   SUBSCRIBE_BROADCAST = 9;
   UNSUBSCRIBE_USER = 10;
   UNSUBSCRIBE_BROADCAST = 11;
+  REQUEST_REED = 12;
+  DATA_RESPONSE = 13;
 }
 
 // Ping message
@@ -75,4 +87,19 @@ message ErrorMessage {
   string code = 1;
   string message = 2;
   int64 timestamp = 3;
+}
+
+// Client request for a reed's content, by id.
+message RequestReedMessage {
+  string request_id = 1;
+  string reed_id = 2;
+}
+
+// Server delivery of requested reed content. id (WSMessage-level, not
+// modeled here) carries the relay event id; request_id echoes the
+// requester's original RequestReedMessage.request_id.
+message DataResponseMessage {
+  string request_id = 1;
+  string ciphertext = 2;
+  string username = 3;
 }

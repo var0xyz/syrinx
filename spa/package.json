@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "proto:gen": "protoc --es_out=src/lib/proto --es_opt=target=ts -I ../proto ../proto/websocket.proto",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
@@ -19,6 +20,7 @@
     "test:key-id": "node --experimental-strip-types scripts/test-key-id.mjs"
   },
   "devDependencies": {
+    "@bufbuild/protoc-gen-es": "^2.15.0",
     "@playwright/test": "^1.56.1",
     "@sveltejs/adapter-static": "^3.0.0",
     "@sveltejs/kit": "^2.5.0",
@@ -43,6 +45,7 @@
     "baseline-browser-mapping": "$baseline-browser-mapping"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "^2.15.0",
     "openpgp": "^6.3.1",
     "qrcode-generator": "^2.0.4",
     "uuid": "^11.1.1"

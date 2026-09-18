@@ -109,13 +109,6 @@ type SubscribedMsg struct {
 	Data string `json:"data"`
 }
 
-// RequestReedData is the payload of an incoming REQUEST_REED message.
-type RequestReedData struct {
-	RequestID string `json:"request_id"`
-	ReedID    string `json:"reed_id"`
-}
-
-
 // PublishReadyData is the payload of an incoming PUBLISH_READY message.
 type PublishReadyData struct {
 	ReedID    string          `json:"reed_id"`
