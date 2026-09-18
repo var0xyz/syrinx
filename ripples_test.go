@@ -232,7 +232,7 @@ func markReedBlankEcho(t *testing.T, db *sql.DB, authorID, bareReedID string) {
 }
 
 // insertReedRemoval marks reedID as reed-removed, satisfying
-// GetReedOrRemovalCert's full deletion.GetCert read. reed_id is canonical
+// GetReedOrRemovalCert's full getReedRemovalCert read. reed_id is canonical
 // (embeds the author) — no separate user_id column, mirroring db.go.
 func insertReedRemoval(t *testing.T, db *sql.DB, authorID, bareReedID string) {
 	t.Helper()

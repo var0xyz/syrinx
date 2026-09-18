@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"syrinx/deletion"
 	"syrinx/observability/metrics"
 	"syrinx/realtime"
 )
@@ -2130,7 +2129,7 @@ type relayAccountRemovalNotifyPayload struct {
 // removedUserID's content that the account was removed, so each can store
 // the cert and fan it out to its own local followers/subscribers.
 // Best-effort per peer: one unreachable peer must not block the rest.
-func (h *Handlers) notifyForeignAccountRemovalToPeers(ctx context.Context, removedUserID string, cert deletion.AccountCert) {
+func (h *Handlers) notifyForeignAccountRemovalToPeers(ctx context.Context, removedUserID string, cert accountRemovalCert) {
 	log := h.services.log.GetLogger(ctx)
 	serverIDs, err := h.services.db.GetForeignHolderServersForAuthor(ctx, removedUserID)
 	if err != nil {
@@ -2216,7 +2215,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	cert := deletion.AccountCert{
+	cert := accountRemovalCert{
 		UserID:            req.UserID,
 		Note:              req.Note,
 		UserSignature:     req.UserSignature,
@@ -2225,7 +2224,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 		ServerFingerprint: req.ServerFingerprint,
 		ServerSignedAt:    req.ServerSignedAt,
 	}
-	if err := h.services.db.InsertForeignAccountRemoval(r.Context(), cert); err != nil && !errors.Is(err, deletion.ErrConflict) {
+	if err := h.services.db.InsertForeignAccountRemoval(r.Context(), cert); err != nil && !errors.Is(err, errRemovalConflict) {
 		log.Error().Err(err).Str("userID", req.UserID).Str("peerServerID", peerServerID).Msg("Failed to store foreign account removal")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
 		internalServerError(w)
@@ -2233,7 +2232,8 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 	}
 
 	if h.realtimeRelay != nil {
-		wire := realtime.NewAccountRemovalWire(peerServerID, &cert)
+		legacyCert := toLegacyDeletionAccountCert(cert)
+		wire := realtime.NewAccountRemovalWire(peerServerID, &legacyCert)
 		h.realtimeRelay.HandleForeignAccountRemoval(req.UserID, &wire)
 	}
 
@@ -2260,7 +2260,7 @@ type relayReedRemovalNotifyPayload struct {
 // notifyForeignReedRemovalToPeers tells every peer holding a copy of
 // reedID that it was removed. Best-effort per peer: one unreachable peer
 // must not block the rest.
-func (h *Handlers) notifyForeignReedRemovalToPeers(ctx context.Context, reedID string, cert deletion.Cert) {
+func (h *Handlers) notifyForeignReedRemovalToPeers(ctx context.Context, reedID string, cert reedRemovalCert) {
 	log := h.services.log.GetLogger(ctx)
 	serverIDs, err := h.services.db.GetForeignHolderServersForReed(ctx, reedID)
 	if err != nil {
@@ -2323,7 +2323,7 @@ func (h *Handlers) ReedRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	cert := deletion.Cert{
+	cert := reedRemovalCert{
 		ReedID:            req.ReedID,
 		UserID:            req.UserID,
 		UserSignature:     req.UserSignature,
@@ -2332,7 +2332,7 @@ func (h *Handlers) ReedRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 		ServerFingerprint: req.ServerFingerprint,
 		ServerSignedAt:    req.ServerSignedAt,
 	}
-	if err := h.services.db.InsertReedRemoval(r.Context(), cert); err != nil && !errors.Is(err, deletion.ErrConflict) {
+	if err := h.services.db.InsertReedRemoval(r.Context(), cert); err != nil && !errors.Is(err, errRemovalConflict) {
 		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Failed to store foreign reed removal")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
 		internalServerError(w)
@@ -2340,7 +2340,8 @@ func (h *Handlers) ReedRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 	}
 
 	if h.realtimeRelay != nil {
-		wire := realtime.NewReedRemovalWire(peerServerID, &cert)
+		legacyCert := toLegacyDeletionCert(cert)
+		wire := realtime.NewReedRemovalWire(peerServerID, &legacyCert)
 		h.realtimeRelay.HandleForeignReedRemoval(req.UserID, req.ReedID, &wire)
 	}
 

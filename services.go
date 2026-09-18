@@ -913,7 +913,7 @@ func (s *DataService) UsernameExists(ctx context.Context, username string) (bool
 }
 
 // DeleteUser has no callers today (account removal goes through
-// deletion.InsertAccountCert/account_removals instead). Note: deleting
+// insertAccountRemovalCert/account_removals instead). Note: deleting
 // only the `users` row does not cascade to `identities` (FK direction is
 // identities → users), so wiring this up needs DELETE FROM identities instead.
 func (s *DataService) DeleteUser(ctx context.Context, userID string) error {
@@ -2765,8 +2765,8 @@ func (s *DataService) GetSubtreeReplyCount(ctx context.Context, reedID string) (
 // All fields nil means the reed row does not exist.
 type ReedOrRemovalResult struct {
 	Reed           *Reed
-	AccountRemoval *deletion.AccountCert
-	ReedRemoval    *deletion.Cert
+	AccountRemoval *accountRemovalCert
+	ReedRemoval    *reedRemovalCert
 }
 
 // GetReed loads a live tip reed by its canonical id.
@@ -2833,41 +2833,41 @@ func (s *DataService) GetReedOrRemovalCert(ctx context.Context, reedID string) (
 }
 
 // GetReedRemoval returns the stored reed-removal cert for reedID (canonical).
-func (s *DataService) GetReedRemoval(ctx context.Context, reedID string) (*deletion.Cert, error) {
-	return deletion.GetCert(ctx, s.db, reedID, s.serverID)
+func (s *DataService) GetReedRemoval(ctx context.Context, reedID string) (*reedRemovalCert, error) {
+	return getReedRemovalCert(ctx, s.db, reedID, s.serverID)
 }
 
 // InsertReedRemoval persists a reed-removal cert (idempotent / conflict).
-func (s *DataService) InsertReedRemoval(ctx context.Context, cert deletion.Cert) error {
-	return deletion.InsertCert(ctx, s.db, cert, s.serverID)
+func (s *DataService) InsertReedRemoval(ctx context.Context, cert reedRemovalCert) error {
+	return insertReedRemovalCert(ctx, s.db, cert, s.serverID)
 }
 
 // GetAccountRemoval returns the stored account-removal cert for userID.
-// userID arrives in userID@serverID form; deletion.GetAccountCert's
+// userID arrives in userID@serverID form; getAccountRemovalCert's
 // lookup param is bare, so decode before delegating.
-func (s *DataService) GetAccountRemoval(ctx context.Context, userID string) (*deletion.AccountCert, error) {
+func (s *DataService) GetAccountRemoval(ctx context.Context, userID string) (*accountRemovalCert, error) {
 	bareUserID := userID
 	if bare, _, ok := parseIdentityID(identityID(userID)); ok {
 		bareUserID = bare
 	}
-	return deletion.GetAccountCert(ctx, s.db, bareUserID, s.serverID)
+	return getAccountRemovalCert(ctx, s.db, bareUserID, s.serverID)
 }
 
 // InsertAccountRemoval persists an account-removal cert (idempotent / conflict).
-// cert.UserID arrives in userID@serverID form; deletion.InsertAccountCert's
+// cert.UserID arrives in userID@serverID form; insertAccountRemovalCert's
 // cert.UserID is bare, so decode before delegating.
-func (s *DataService) InsertAccountRemoval(ctx context.Context, cert deletion.AccountCert) error {
+func (s *DataService) InsertAccountRemoval(ctx context.Context, cert accountRemovalCert) error {
 	if bare, _, ok := parseIdentityID(identityID(cert.UserID)); ok {
 		cert.UserID = bare
 	}
-	return deletion.InsertAccountCert(ctx, s.db, cert, s.serverID)
+	return insertAccountRemovalCert(ctx, s.db, cert, s.serverID)
 }
 
 // InsertForeignAccountRemoval persists an account-removal cert for a user
 // this server doesn't host, told to us by a peer holding that author's
 // content. cert.UserID is already the full canonical form.
-func (s *DataService) InsertForeignAccountRemoval(ctx context.Context, cert deletion.AccountCert) error {
-	return deletion.InsertForeignAccountCert(ctx, s.db, cert)
+func (s *DataService) InsertForeignAccountRemoval(ctx context.Context, cert accountRemovalCert) error {
+	return insertForeignAccountRemovalCert(ctx, s.db, cert)
 }
 
 // GetForeignHolderServersForAuthor returns distinct peer server IDs known
@@ -2921,14 +2921,14 @@ func (s *DataService) GetForeignHolderServersForReed(ctx context.Context, reedID
 }
 
 // HasAccountRemoval reports whether userID has an account-removal row.
-// userID arrives in userID@serverID form; deletion.HasAccountRemoval's
+// userID arrives in userID@serverID form; hasAccountRemoval's
 // lookup param is bare, so decode before delegating.
 func (s *DataService) HasAccountRemoval(ctx context.Context, userID string) (bool, error) {
 	bareUserID := userID
 	if bare, _, ok := parseIdentityID(identityID(userID)); ok {
 		bareUserID = bare
 	}
-	return deletion.HasAccountRemoval(ctx, s.db, bareUserID, s.serverID)
+	return hasAccountRemoval(ctx, s.db, bareUserID, s.serverID)
 }
 
 // ErrLikeConflict is returned when an existing like row differs from the
@@ -5069,4 +5069,431 @@ func getUserSignatureRow(ctx context.Context, db signingDBTX, id int64) (*userSi
 		return nil, err
 	}
 	return &row, nil
+}
+
+// getServerSignatureRow loads a server_signatures row by id without wire
+// conversion — for callers that need the raw row (e.g. removal certs,
+// which expose PrivateKeyID as ServerFingerprint directly).
+func getServerSignatureRow(ctx context.Context, db signingDBTX, id int64) (*serverSignatureRow, error) {
+	var row serverSignatureRow
+	err := db.QueryRowContext(ctx, `
+		SELECT id, private_key_id, signature, signed_at
+		FROM server_signatures
+		WHERE id = $1
+	`, id).Scan(
+		&row.ID,
+		&row.PrivateKeyID,
+		&row.Signature,
+		&row.SignedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	row.SignedAt = row.SignedAt.UTC().Truncate(time.Second)
+	return &row, nil
+}
+
+// ============ //
+//   deletion   //
+// ============ //
+
+// errRemovalConflict is returned when an existing removal row differs
+// from the cert being inserted (identical replay succeeds). Used for
+// reed and account removals.
+var errRemovalConflict = errors.New("removal conflict")
+
+// reedRemovalCert is the reed-removal attestation (in-memory / wire-facing shape).
+//
+// UserID asymmetry (same as accountRemovalCert): insertReedRemovalCert/
+// getReedRemovalCert's userID params are bare, but every cert RETURNED by
+// getReedRemovalCert/loadReedCertTx holds the full "userID@serverID" form.
+type reedRemovalCert struct {
+	ReedID            string
+	UserID            string
+	UserSignature     string
+	UserKeyID         string
+	ServerSignature   string
+	ServerFingerprint string
+	ServerSignedAt    time.Time
+}
+
+// insertReedRemovalCert stores a reed-removal cert once. Same signatures →
+// no-op; different signatures for the same reedID → errRemovalConflict.
+// cert.ReedID is canonical (embeds the author), so no separate user_id
+// column is needed.
+func insertReedRemovalCert(ctx context.Context, db *sql.DB, cert reedRemovalCert, serverID string) error {
+	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	existing, err := loadReedCertTx(ctx, tx, cert.ReedID, true)
+	switch {
+	case err == sql.ErrNoRows:
+		userSigID, err := insertUserSignature(
+			ctx, tx, cert.UserKeyID, cert.UserSignature,
+		)
+		if err != nil {
+			return err
+		}
+		serverSigID, err := insertServerSignature(
+			ctx, tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
+		)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reed_removals (
+				reed_id, public_key_id,
+				user_signature_id, server_signature_id
+			) VALUES ($1, $2, $3, $4)
+		`, cert.ReedID, cert.UserKeyID, userSigID, serverSigID); err != nil {
+			return fmt.Errorf("insert reed removal: %w", err)
+		}
+	case err != nil:
+		return err
+	default:
+		if existing.UserSignature != cert.UserSignature ||
+			existing.UserKeyID != cert.UserKeyID ||
+			existing.ServerSignature != cert.ServerSignature ||
+			existing.ServerFingerprint != cert.ServerFingerprint ||
+			!existing.ServerSignedAt.Equal(cert.ServerSignedAt) {
+			return errRemovalConflict
+		}
+	}
+
+	return tx.Commit()
+}
+
+// getReedRemovalCert returns the stored cert for reedID (canonical), or nil if none.
+func getReedRemovalCert(ctx context.Context, db *sql.DB, reedID, serverID string) (*reedRemovalCert, error) {
+	cert, err := loadReedCertTx(ctx, db, reedID, false)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return cert, nil
+}
+
+type reedQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func loadReedCertTx(ctx context.Context, q reedQuerier, reedID string, forUpdate bool) (*reedRemovalCert, error) {
+	query := `
+		SELECT public_key_id, user_signature_id, server_signature_id
+		FROM reed_removals
+		WHERE reed_id = $1`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
+	var userFP string
+	var userSigID, serverSigID int64
+	err := q.QueryRowContext(ctx, query, reedID).Scan(&userFP, &userSigID, &serverSigID)
+	if err != nil {
+		return nil, err
+	}
+	authorID, ok := authorOf(identityID(reedID))
+	if !ok {
+		return nil, fmt.Errorf("malformed reed id: %s", reedID)
+	}
+	return assembleReedCert(ctx, q, reedID, string(authorID), userFP, userSigID, serverSigID)
+}
+
+func assembleReedCert(ctx context.Context, q reedQuerier, reedID, userID, userFP string, userSigID, serverSigID int64) (*reedRemovalCert, error) {
+	// signing helpers need signingDBTX; *sql.DB and *sql.Tx both work.
+	dbtx, ok := q.(signingDBTX)
+	if !ok {
+		return nil, fmt.Errorf("reed removal load: querier is not signingDBTX")
+	}
+	userRow, err := getUserSignatureRow(ctx, dbtx, userSigID)
+	if err != nil {
+		return nil, err
+	}
+	serverRow, err := getServerSignatureRow(ctx, dbtx, serverSigID)
+	if err != nil {
+		return nil, err
+	}
+	return &reedRemovalCert{
+		ReedID:            reedID,
+		UserID:            userID,
+		UserKeyID:         userFP,
+		UserSignature:     userRow.Signature,
+		ServerSignature:   serverRow.Signature,
+		ServerFingerprint: serverRow.PrivateKeyID,
+		ServerSignedAt:    serverRow.SignedAt,
+	}, nil
+}
+
+// maxAccountNoteLen is the goodbye note limit (API + DB).
+const maxAccountNoteLen = 140
+
+// accountRemovalCert is the account-removal attestation (in-memory / wire-facing).
+//
+// UserID is bare on insertAccountRemovalCert's input, but full
+// "userID@serverID" form on any accountRemovalCert returned by
+// getAccountRemovalCert/loadAccountCertTx.
+type accountRemovalCert struct {
+	UserID            string
+	Note              string
+	UserSignature     string
+	UserKeyID         string
+	ServerSignature   string
+	ServerFingerprint string
+	ServerSignedAt    time.Time
+}
+
+// validateAccountNote returns an error if note exceeds maxAccountNoteLen.
+func validateAccountNote(note string) error {
+	if utf8.RuneCountInString(note) > maxAccountNoteLen {
+		return fmt.Errorf("note exceeds %d characters", maxAccountNoteLen)
+	}
+	return nil
+}
+
+// insertAccountRemovalCert stores an account-removal cert once. Same
+// signatures → no-op; different signatures for the same userID →
+// errRemovalConflict. cert.UserID is bare and is converted internally
+// before touching account_removals.
+func insertAccountRemovalCert(ctx context.Context, db *sql.DB, cert accountRemovalCert, serverID string) error {
+	if err := validateAccountNote(cert.Note); err != nil {
+		return err
+	}
+	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
+	selfIdentity := canonicalID(serverID, cert.UserID)
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	existing, err := loadAccountCertTx(ctx, tx, selfIdentity, true)
+	switch {
+	case err == sql.ErrNoRows:
+		userSigID, err := insertUserSignature(
+			ctx, tx, cert.UserKeyID, cert.UserSignature,
+		)
+		if err != nil {
+			return err
+		}
+		serverSigID, err := insertServerSignature(
+			ctx, tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
+		)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO account_removals (
+				user_id, note, public_key_id,
+				user_signature_id, server_signature_id
+			) VALUES ($1, $2, $3, $4, $5)
+		`, selfIdentity, cert.Note, cert.UserKeyID, userSigID, serverSigID); err != nil {
+			return fmt.Errorf("insert account removal: %w", err)
+		}
+		// Clear the username so it becomes reclaimable by a future signup.
+		// users.id IS identities.id directly — must bind selfIdentity, not
+		// bare cert.UserID, or this always-false comparison clears zero rows.
+		var profileUserSigID, profileServerSigID int64
+		if err := tx.QueryRowContext(ctx, `
+			SELECT user_signature_id, server_signature_id FROM users WHERE id = $1
+		`, selfIdentity).Scan(&profileUserSigID, &profileServerSigID); err != nil {
+			return fmt.Errorf("load profile signature ids: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE users SET username = NULL, user_signature_id = NULL, server_signature_id = NULL
+			WHERE id = $1
+		`, selfIdentity); err != nil {
+			return fmt.Errorf("clear profile on removal: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM user_signatures WHERE id = $1
+		`, profileUserSigID); err != nil {
+			return fmt.Errorf("delete stale profile user signature: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM server_signatures WHERE id = $1
+		`, profileServerSigID); err != nil {
+			return fmt.Errorf("delete stale profile server signature: %w", err)
+		}
+
+		if err := bumpActiveUsers(ctx, tx, -1); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	default:
+		if existing.Note != cert.Note ||
+			existing.UserSignature != cert.UserSignature ||
+			existing.UserKeyID != cert.UserKeyID ||
+			existing.ServerSignature != cert.ServerSignature ||
+			existing.ServerFingerprint != cert.ServerFingerprint ||
+			!existing.ServerSignedAt.Equal(cert.ServerSignedAt) {
+			return errRemovalConflict
+		}
+	}
+
+	return tx.Commit()
+}
+
+// insertForeignAccountRemovalCert stores an account-removal cert for a
+// user this server doesn't host — a peer holding content from that
+// author told us about it. cert.UserID is already the full canonical
+// form (unlike insertAccountRemovalCert's bare input). Only writes the
+// account_removals row: no username reclaim, no signature cleanup, no
+// active-user count change, since none of those apply to an account
+// this server never owned.
+func insertForeignAccountRemovalCert(ctx context.Context, db *sql.DB, cert accountRemovalCert) error {
+	if err := validateAccountNote(cert.Note); err != nil {
+		return err
+	}
+	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
+	selfIdentity := identityID(cert.UserID)
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	existing, err := loadAccountCertTx(ctx, tx, selfIdentity, true)
+	switch {
+	case err == sql.ErrNoRows:
+		userSigID, err := insertUserSignature(
+			ctx, tx, cert.UserKeyID, cert.UserSignature,
+		)
+		if err != nil {
+			return err
+		}
+		serverSigID, err := insertServerSignature(
+			ctx, tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
+		)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO account_removals (
+				user_id, note, public_key_id,
+				user_signature_id, server_signature_id
+			) VALUES ($1, $2, $3, $4, $5)
+		`, selfIdentity, cert.Note, cert.UserKeyID, userSigID, serverSigID); err != nil {
+			return fmt.Errorf("insert foreign account removal: %w", err)
+		}
+	case err != nil:
+		return err
+	default:
+		if existing.Note != cert.Note ||
+			existing.UserSignature != cert.UserSignature ||
+			existing.UserKeyID != cert.UserKeyID ||
+			existing.ServerSignature != cert.ServerSignature ||
+			existing.ServerFingerprint != cert.ServerFingerprint ||
+			!existing.ServerSignedAt.Equal(cert.ServerSignedAt) {
+			return errRemovalConflict
+		}
+	}
+
+	return tx.Commit()
+}
+
+// getAccountRemovalCert returns the stored account-removal cert, or nil
+// if none. userID (the lookup param) is bare; the RETURNED cert's UserID
+// field is the full "userID@serverID" form — see accountRemovalCert's
+// doc comment.
+func getAccountRemovalCert(ctx context.Context, db *sql.DB, userID, serverID string) (*accountRemovalCert, error) {
+	selfIdentity := canonicalID(serverID, userID)
+	cert, err := loadAccountCertTx(ctx, db, selfIdentity, false)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return cert, nil
+}
+
+// hasAccountRemoval reports whether userID has an account-removal cert.
+// userID is bare; serverID is this server's own id.
+func hasAccountRemoval(ctx context.Context, db *sql.DB, userID, serverID string) (bool, error) {
+	selfIdentity := canonicalID(serverID, userID)
+	var one int
+	err := db.QueryRowContext(ctx, `
+		SELECT 1 FROM account_removals WHERE user_id = $1
+	`, selfIdentity).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func loadAccountCertTx(ctx context.Context, q reedQuerier, selfIdentity identityID, forUpdate bool) (*accountRemovalCert, error) {
+	query := `
+		SELECT note, public_key_id, user_signature_id, server_signature_id
+		FROM account_removals
+		WHERE user_id = $1`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
+	var note, userFP string
+	var userSigID, serverSigID int64
+	err := q.QueryRowContext(ctx, query, selfIdentity).Scan(&note, &userFP, &userSigID, &serverSigID)
+	if err != nil {
+		return nil, err
+	}
+	dbtx, ok := q.(signingDBTX)
+	if !ok {
+		return nil, fmt.Errorf("account removal load: querier is not signingDBTX")
+	}
+	userRow, err := getUserSignatureRow(ctx, dbtx, userSigID)
+	if err != nil {
+		return nil, err
+	}
+	serverRow, err := getServerSignatureRow(ctx, dbtx, serverSigID)
+	if err != nil {
+		return nil, err
+	}
+	return &accountRemovalCert{
+		UserID:            string(selfIdentity),
+		Note:              note,
+		UserKeyID:         userFP,
+		UserSignature:     userRow.Signature,
+		ServerSignature:   serverRow.Signature,
+		ServerFingerprint: serverRow.PrivateKeyID,
+		ServerSignedAt:    serverRow.SignedAt,
+	}, nil
+}
+
+// toLegacyDeletionCert and toLegacyDeletionAccountCert bridge to realtime,
+// which hasn't merged into root yet (specs/depackaging/) and still needs
+// the exported syrinx/deletion API for NewReedRemovalWire/
+// NewAccountRemovalWire's parameter types — drop these once it does.
+func toLegacyDeletionCert(cert reedRemovalCert) deletion.Cert {
+	return deletion.Cert{
+		ReedID:            cert.ReedID,
+		UserID:            cert.UserID,
+		UserSignature:     cert.UserSignature,
+		UserKeyID:         cert.UserKeyID,
+		ServerSignature:   cert.ServerSignature,
+		ServerFingerprint: cert.ServerFingerprint,
+		ServerSignedAt:    cert.ServerSignedAt,
+	}
+}
+
+func toLegacyDeletionAccountCert(cert accountRemovalCert) deletion.AccountCert {
+	return deletion.AccountCert{
+		UserID:            cert.UserID,
+		Note:              cert.Note,
+		UserSignature:     cert.UserSignature,
+		UserKeyID:         cert.UserKeyID,
+		ServerSignature:   cert.ServerSignature,
+		ServerFingerprint: cert.ServerFingerprint,
+		ServerSignedAt:    cert.ServerSignedAt,
+	}
 }
