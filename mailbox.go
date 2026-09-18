@@ -8,7 +8,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"syrinx/roles"
 )
 
 // ErrNoActiveKey means the recipient has no usable (present, unrevoked)
@@ -90,7 +89,7 @@ func SendMailboxMessage(ctx context.Context, db *sql.DB, cryptoSvc *cryptoServic
 		userID = userID + "@" + selfServerID
 	}
 	if senderUserID == "" {
-		senderUserID = roles.RootUserID + "@" + selfServerID
+		senderUserID = rootUserID + "@" + selfServerID
 	} else if !strings.Contains(senderUserID, "@") {
 		senderUserID = senderUserID + "@" + selfServerID
 	}

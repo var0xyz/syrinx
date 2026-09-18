@@ -11,3 +11,10 @@ const userIDKey contextKey = "userID"
 // signatureAuthMiddleware's authenticateAsPeer branch, distinct from
 // userIDKey (no local user session).
 const peerServerIDKey contextKey = "peerServerID"
+
+// rootUserID is the reserved bare userID for the operator root account.
+// This stays a bare compile-time constant since the full identity
+// ("1@serverID") can't be — serverID is only known at runtime. Lives in
+// this untagged file (not roles.go) because mailbox.go, which has no
+// build tag, needs it across all three binary variants.
+const rootUserID = "1"

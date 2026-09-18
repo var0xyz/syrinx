@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"syrinx/roles"
 
 	"github.com/gorilla/mux"
 )
@@ -16,7 +15,7 @@ import (
 // request is enough to prove it fires.
 func TestDeleteMe_RootRejected(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	root := seedFederationUser(t, ds, roles.RootUserID, "root", roles.RoleRoot)
+	root := seedFederationUser(t, ds, rootUserID, "root", roleRoot)
 
 	router := mux.NewRouter()
 	api := router.PathPrefix("/api").Subrouter()
@@ -42,7 +41,7 @@ func TestDeleteMe_RootRejected(t *testing.T) {
 // regular user — it should fail later, on the missing signature, not here.
 func TestDeleteMe_NonRootAllowedPastGuard(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	user := seedFederationUser(t, ds, "regular1", "regular1", roles.RoleUser)
+	user := seedFederationUser(t, ds, "regular1", "regular1", roleUser)
 
 	router := mux.NewRouter()
 	api := router.PathPrefix("/api").Subrouter()

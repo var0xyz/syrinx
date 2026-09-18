@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"syrinx/invites"
-	"syrinx/roles"
 
 	_ "github.com/lib/pq"
 )
@@ -184,8 +183,8 @@ func TestSignup_OpenNoInvite(t *testing.T) {
 	if user.Invite != nil {
 		t.Fatalf("invite = %+v, want nil", user.Invite)
 	}
-	if role := queryUserRole(t, db, "u1@srv"); role != roles.RoleUser {
-		t.Fatalf("role = %q want %q", role, roles.RoleUser)
+	if role := queryUserRole(t, db, "u1@srv"); role != roleUser {
+		t.Fatalf("role = %q want %q", role, roleUser)
 	}
 }
 
@@ -210,7 +209,7 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 	}
 	id := "inviter@srv/" + rawID
 	store := &invites.Store{DB: db, ServerID: "srv"}
-	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleUser, "seed-ufp", "sig"); err != nil {
+	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 	invRow, err := store.GetByTokenHash(ctx, hash)
@@ -225,8 +224,8 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 	if user.Invite == nil || user.Invite.ID != id || user.Invite.UserID != "inviter@srv" || user.Invite.Username != "alice" {
 		t.Fatalf("invite = %+v", user.Invite)
 	}
-	if role := queryUserRole(t, db, "invitee@srv"); role != roles.RoleUser {
-		t.Fatalf("invitee role = %q want %q", role, roles.RoleUser)
+	if role := queryUserRole(t, db, "invitee@srv"); role != roleUser {
+		t.Fatalf("invitee role = %q want %q", role, roleUser)
 	}
 
 	inv, err := store.GetByTokenHash(ctx, hash)
@@ -270,7 +269,7 @@ func TestSignup_OpenValidToken(t *testing.T) {
 	}
 	id := "inviter@srv/" + rawID
 	store := &invites.Store{DB: db, ServerID: "srv"}
-	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleUser, "seed-ufp", "sig"); err != nil {
+	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 	invRow, err := store.GetByTokenHash(ctx, hash)
@@ -312,7 +311,7 @@ func TestSignup_OpenInvalidToken(t *testing.T) {
 	_, err := svc.Signup(ctx, signupInput("u1", "alice", &invites.Invite{
 		ID:          "abcdefghijkl",
 		CreatedBy:   "inviter",
-		GrantedRole: roles.RoleUser,
+		GrantedRole: roleUser,
 		ClaimedAt:   &claimedAt,
 		ClaimedBy:   &claimedBy,
 	}))
@@ -331,20 +330,20 @@ func TestSignup_RootMintRole(t *testing.T) {
 	svc := NewDataService(db, "test")
 	svc.setServerIDForTest("srv")
 
-	user, err := svc.Signup(context.Background(), signupInput(roles.RootUserID, "root", nil))
+	user, err := svc.Signup(context.Background(), signupInput(rootUserID, "root", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantID := roles.RootUserID + "@srv"
+	wantID := rootUserID + "@srv"
 	if user.ID != wantID {
 		t.Fatalf("id = %q want %q", user.ID, wantID)
 	}
-	if role := queryUserRole(t, db, wantID); role != roles.RoleRoot {
-		t.Fatalf("role = %q want %q", role, roles.RoleRoot)
+	if role := queryUserRole(t, db, wantID); role != roleRoot {
+		t.Fatalf("role = %q want %q", role, roleRoot)
 	}
 	got, err := svc.GetUserRole(context.Background(), wantID)
-	if err != nil || got != roles.RoleRoot {
-		t.Fatalf("GetUserRole = %q err=%v want %q", got, err, roles.RoleRoot)
+	if err != nil || got != roleRoot {
+		t.Fatalf("GetUserRole = %q err=%v want %q", got, err, roleRoot)
 	}
 }
 
@@ -357,7 +356,7 @@ func TestSignup_AdminInviteGrantsAdminRole(t *testing.T) {
 	if _, err := svc.Signup(context.Background(), signupInput("inviter", "alice", nil)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE users SET role = $1 WHERE id = $2`, roles.RoleAdmin, "inviter"); err != nil {
+	if _, err := db.Exec(`UPDATE users SET role = $1 WHERE id = $2`, roleAdmin, "inviter"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -372,7 +371,7 @@ func TestSignup_AdminInviteGrantsAdminRole(t *testing.T) {
 	}
 	id := "inviter@srv/" + rawID
 	store := &invites.Store{DB: db, ServerID: "srv"}
-	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roles.RoleAdmin, "seed-ufp", "sig"); err != nil {
+	if err := store.Insert(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleAdmin, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 	invRow, err := store.GetByTokenHash(ctx, hash)
@@ -387,7 +386,7 @@ func TestSignup_AdminInviteGrantsAdminRole(t *testing.T) {
 	if user.ID != "invitee@srv" {
 		t.Fatalf("id = %q", user.ID)
 	}
-	if role := queryUserRole(t, db, "invitee@srv"); role != roles.RoleAdmin {
-		t.Fatalf("invitee role = %q want %q", role, roles.RoleAdmin)
+	if role := queryUserRole(t, db, "invitee@srv"); role != roleAdmin {
+		t.Fatalf("invitee role = %q want %q", role, roleAdmin)
 	}
 }

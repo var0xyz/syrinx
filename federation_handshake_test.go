@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/roles"
 
 	"github.com/gorilla/mux"
 	"github.com/tooxie/env"
@@ -92,8 +91,8 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	a.h.cfg.ServerName = "Alpha"
 	b.h.cfg.ServerName = "Bravo"
 
-	aAdmin := seedFederationUser(t, a.ds, "a-admin", "a-admin", roles.RoleAdmin)
-	bAdmin := seedFederationUser(t, b.ds, "b-admin", "b-admin", roles.RoleAdmin)
+	aAdmin := seedFederationUser(t, a.ds, "a-admin", "a-admin", roleAdmin)
+	bAdmin := seedFederationUser(t, b.ds, "b-admin", "b-admin", roleAdmin)
 	// Each side's outbound calls to the other's httptest.NewTLSServer must
 	// trust its self-signed cert — a real deployment would have a valid
 	// public cert. a needs this too: peerAuthMiddleware now live-fetches
@@ -269,7 +268,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 
 func TestIncomingFederationAttempt_WrongSecret(t *testing.T) {
 	a := newFederationServer(t, "server-a")
-	aAdmin := seedFederationUser(t, a.ds, "a-admin", "a-admin", roles.RoleAdmin)
+	aAdmin := seedFederationUser(t, a.ds, "a-admin", "a-admin", roleAdmin)
 
 	remoteKP, err := newCryptoService().createKeyPair("remote", "", "")
 	if err != nil {
@@ -305,7 +304,7 @@ func TestIncomingFederationAttempt_WrongSecret(t *testing.T) {
 
 func TestIncomingFederationAttempt_ReplayNotNew(t *testing.T) {
 	a := newFederationServer(t, "server-a")
-	aAdmin := seedFederationUser(t, a.ds, "a-admin", "a-admin", roles.RoleAdmin)
+	aAdmin := seedFederationUser(t, a.ds, "a-admin", "a-admin", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := cryptoHash("s")
 	if err := a.ds.InsertFederationInvitation(context.Background(), "inv1", "peer", aAdmin, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
@@ -338,8 +337,8 @@ func TestIncomingFederationAttempt_ReplayNotNew(t *testing.T) {
 func TestOutgoingFederationAttempt_InvalidInitiatorSignature(t *testing.T) {
 	a := newFederationServer(t, "server-a")
 	b := newFederationServer(t, "server-b")
-	seedFederationUser(t, a.ds, "a-admin", "a-admin", roles.RoleAdmin)
-	bAdmin := seedFederationUser(t, b.ds, "b-admin", "b-admin", roles.RoleAdmin)
+	seedFederationUser(t, a.ds, "a-admin", "a-admin", roleAdmin)
+	bAdmin := seedFederationUser(t, b.ds, "b-admin", "b-admin", roleAdmin)
 
 	// Build a connection payload by hand with a bogus signature — as if
 	// the invite was tampered with or corrupted in transit.

@@ -20,7 +20,6 @@ import (
 	"syrinx/observability"
 	"syrinx/realtime"
 	"syrinx/recovery"
-	"syrinx/roles"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
@@ -200,7 +199,7 @@ func main() {
 	if err := requireRootUser(cfg, dataService); err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Root user required")
 	}
-	log.Info().Str("userID", roles.RootUserID).Msg("[OK] Root user present")
+	log.Info().Str("userID", rootUserID).Msg("[OK] Root user present")
 
 	if msg, err := recovery.StaleIdentityBackupMessage(context.Background(), db); err != nil {
 		log.Warn().Err(err).Msg("[WARN] Could not check identity backup freshness")

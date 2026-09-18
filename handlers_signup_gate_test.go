@@ -17,7 +17,6 @@ import (
 
 	"syrinx/invites"
 	"syrinx/realtime"
-	"syrinx/roles"
 )
 
 func newInviteModeHandlers(t *testing.T, db *sql.DB) *Handlers {
@@ -100,7 +99,7 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 	inviterCanonical := "inviter@" + h.services.db.GetServerID()
 	id := inviterCanonical + "/" + rawID
 	store := &invites.Store{DB: db, ServerID: h.services.db.GetServerID()}
-	if err := store.Insert(ctx, id, inviterCanonical, hash, time.Now().UTC(), roles.RoleUser, "seed-ufp", "sig"); err != nil {
+	if err := store.Insert(ctx, id, inviterCanonical, hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
 		t.Fatal(err)
 	}
 

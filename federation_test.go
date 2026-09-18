@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"syrinx/realtime"
-	"syrinx/roles"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
@@ -313,7 +312,7 @@ func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *cryptoKeyPa
 
 func TestCreateFederationInvitation_Admin(t *testing.T) {
 	h, ds, serverKP, remoteKP := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin", roles.RoleAdmin)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin", roleAdmin)
 
 	body, _ := json.Marshal(federationCreateRequest{
 		Name:                 "Acme staging",
@@ -366,7 +365,7 @@ func TestCreateFederationInvitation_Admin(t *testing.T) {
 
 func TestCreateFederationInvitation_MissingName(t *testing.T) {
 	h, _, _, remoteKP := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, h.services.db, "admin1", "admin", roles.RoleAdmin)
+	admin1 := seedFederationUser(t, h.services.db, "admin1", "admin", roleAdmin)
 
 	body, _ := json.Marshal(federationCreateRequest{RemotePublicKeyArmor: remoteKP.PublicKey})
 	rr := httptest.NewRecorder()
@@ -379,7 +378,7 @@ func TestCreateFederationInvitation_MissingName(t *testing.T) {
 
 func TestCreateFederationInvitation_UserForbidden(t *testing.T) {
 	h, _, _, remoteKP := testFederationHandlers(t)
-	user1 := seedFederationUser(t, h.services.db, "user1", "alice", roles.RoleUser)
+	user1 := seedFederationUser(t, h.services.db, "user1", "alice", roleUser)
 
 	body, _ := json.Marshal(federationCreateRequest{
 		Name:                 "other",
@@ -395,8 +394,8 @@ func TestCreateFederationInvitation_UserForbidden(t *testing.T) {
 
 func TestListFederationInvitations_AllAdminsSeeAll(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin", roles.RoleAdmin)
-	admin2 := seedFederationUser(t, ds, "admin2", "other", roles.RoleAdmin)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin", roleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "other", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := cryptoHash("s")
 	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
@@ -423,7 +422,7 @@ func TestListFederationInvitations_AllAdminsSeeAll(t *testing.T) {
 
 func TestRevokeFederationInvitation_NewOnly(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin", roles.RoleAdmin)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := cryptoHash("s")
 	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
@@ -489,8 +488,8 @@ func TestRevokeFederationInvitation_NewOnly(t *testing.T) {
 
 func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin", roles.RoleAdmin)
-	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin", roleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := cryptoHash("s")
 	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
@@ -602,7 +601,7 @@ func pendingAttemptFromInvitation(t *testing.T, ds *DataService, invID, createdB
 
 func TestApproveFederationAttempt_SameAdminForbidden(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	attemptID := pendingAttemptFromInvitation(t, ds, "inv-same", admin1, fixed)
 
@@ -630,8 +629,8 @@ func TestApproveFederationAttempt_SameAdminForbidden(t *testing.T) {
 
 func TestApproveFederationAttempt_DifferentAdminSucceeds(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
-	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	attemptID := pendingAttemptFromInvitation(t, ds, "inv-diff", admin1, fixed)
 
@@ -649,7 +648,7 @@ func TestApproveFederationAttempt_DifferentAdminSucceeds(t *testing.T) {
 
 func TestApproveFederationAttempt_RootBypassesSelfApprove(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	root := seedFederationUser(t, ds, roles.RootUserID, "root", roles.RoleRoot)
+	root := seedFederationUser(t, ds, rootUserID, "root", roleRoot)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	attemptID := pendingAttemptFromInvitation(t, ds, "inv-root", root, fixed)
 
@@ -678,8 +677,8 @@ func establishedPeer(t *testing.T, h *Handlers, ds *DataService, invID, createdB
 
 func TestFederationServerDisconnect_SameAdminConfirmForbidden(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
-	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	serverID := establishedPeer(t, h, ds, "inv-dc1", admin1, admin2, false, fixed)
 
@@ -733,7 +732,7 @@ func TestFederationServerDisconnect_SameAdminConfirmForbidden(t *testing.T) {
 
 func TestFederationServerDisconnect_RootBypassesSelfConfirm(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	root := seedFederationUser(t, ds, roles.RootUserID, "root", roles.RoleRoot)
+	root := seedFederationUser(t, ds, rootUserID, "root", roleRoot)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	serverID := establishedPeer(t, h, ds, "inv-dc2", root, root, true, fixed)
 
@@ -760,8 +759,8 @@ func TestFederationServerDisconnect_RootBypassesSelfConfirm(t *testing.T) {
 
 func TestFederationServerDisconnect_CancelClearsRequest(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
-	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	serverID := establishedPeer(t, h, ds, "inv-dc3", admin1, admin2, false, fixed)
 
@@ -802,8 +801,8 @@ func TestFederationServerDisconnect_CancelClearsRequest(t *testing.T) {
 // server as a target in the UI.
 func TestFederationServerSelfRowProtected(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	root := seedFederationUser(t, ds, roles.RootUserID, "root1", roles.RoleRoot)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
+	root := seedFederationUser(t, ds, rootUserID, "root1", roleRoot)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roleAdmin)
 	selfID := ds.GetServerID()
 
 	router := mux.NewRouter()
@@ -841,14 +840,14 @@ func TestFederationServerSelfRowProtected(t *testing.T) {
 // involvement, no cross-author leakage).
 func TestGetForeignHolderServersForAuthor(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
-	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	peerA := establishedPeer(t, h, ds, "inv-holder-a", admin1, admin2, false, fixed)
 	peerB := establishedPeer(t, h, ds, "inv-holder-b", admin1, admin2, false, fixed)
 
-	author := seedFederationUser(t, ds, "author1", "author1", roles.RoleUser)
-	other := seedFederationUser(t, ds, "author2", "author2", roles.RoleUser)
+	author := seedFederationUser(t, ds, "author1", "author1", roleUser)
+	other := seedFederationUser(t, ds, "author2", "author2", roleUser)
 
 	seedReed := func(reedID, userID string) {
 		if _, err := ds.db.Exec(
@@ -896,13 +895,13 @@ func TestGetForeignHolderServersForAuthor(t *testing.T) {
 
 func TestGetForeignHolderServersForReed(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roles.RoleAdmin)
-	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roleAdmin)
+	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	peerA := establishedPeer(t, h, ds, "inv-reed-holder-a", admin1, admin2, false, fixed)
 	peerB := establishedPeer(t, h, ds, "inv-reed-holder-b", admin1, admin2, false, fixed)
 
-	author := seedFederationUser(t, ds, "reedauthor1", "reedauthor1", roles.RoleUser)
+	author := seedFederationUser(t, ds, "reedauthor1", "reedauthor1", roleUser)
 
 	seedReed := func(reedID, userID string) {
 		if _, err := ds.db.Exec(
