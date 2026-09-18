@@ -11,6 +11,33 @@ import { startReedRequestDrainer } from './reedRequestDrainer';
 import { setContentRejectedReporter } from './db';
 import { notificationStore } from '$lib/stores/notifications';
 import type { ReedType } from '$lib/types/reed';
+import { create, toBinary, fromBinary } from '@bufbuild/protobuf';
+import { WSMessageSchema, MessageType } from '$lib/proto/websocket_pb';
+
+// REQUEST_REED / DATA_RESPONSE go over the wire as binary protobuf frames
+// (specs/protobuf/) — every other message type here stays JSON text frames.
+function encodeRequestReed(requestId: string, reedId: string): Uint8Array {
+  const msg = create(WSMessageSchema, {
+    type: MessageType.REQUEST_REED,
+    typeName: 'REQUEST_REED',
+    payload: { case: 'requestReed', value: { requestId, reedId } },
+  });
+  return toBinary(WSMessageSchema, msg);
+}
+
+function decodeDataResponse(data: ArrayBuffer): { type: string; id: string; data: any } | null {
+  const msg = fromBinary(WSMessageSchema, new Uint8Array(data));
+  if (msg.type !== MessageType.DATA_RESPONSE || msg.payload.case !== 'dataResponse') return null;
+  return {
+    type: 'DATA_RESPONSE',
+    id: msg.id,
+    data: {
+      request_id: msg.payload.value.requestId,
+      ciphertext: msg.payload.value.ciphertext,
+      username: msg.payload.value.username,
+    },
+  };
+}
 
 export type ServerEventHandler = (data: any) => void;
 
@@ -206,10 +233,13 @@ class ServerConnection {
 
       console.log('ServerConnection: connecting...');
       this.ws = new WebSocket(url.toString());
+      this.ws.binaryType = 'arraybuffer';
 
       this.ws.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data);
+          const message =
+            event.data instanceof ArrayBuffer ? decodeDataResponse(event.data) : JSON.parse(event.data);
+          if (!message) return;
           console.log('ServerConnection: message received:', message.type);
 
           if (message.type === ServerEvent.Sigterm) {
@@ -259,7 +289,7 @@ class ServerConnection {
           const payload = message.data ?? message;
           this.emit(message.type, message.id !== undefined ? { ...payload, id: message.id } : payload);
         } catch {
-          console.warn('ServerConnection: received non-JSON message, ignoring');
+          console.warn('ServerConnection: received unparseable message, ignoring');
         }
       };
 
@@ -325,13 +355,7 @@ class ServerConnection {
   dispatchReedRequest(record: ReedRequestRecord): void {
     if (this.dispatchedReedRequests.has(record.requestId)) return;
     this.dispatchedReedRequests.add(record.requestId);
-    this.send({
-      type: 'REQUEST_REED',
-      data: {
-        request_id: record.requestId,
-        reed_id: record.reedId,
-      },
-    });
+    this.sendBinary(encodeRequestReed(record.requestId, record.reedId));
   }
 
   on(event: ServerEvent, handler: ServerEventHandler): void {
@@ -548,6 +572,14 @@ class ServerConnection {
       return;
     }
     this.ws!.send(JSON.stringify(message));
+  }
+
+  private sendBinary(bytes: Uint8Array): void {
+    if (!this.isConnected()) {
+      console.warn('ServerConnection: cannot send, not connected');
+      return;
+    }
+    this.ws!.send(bytes);
   }
 
   private emit(eventType: string, data: any): void {

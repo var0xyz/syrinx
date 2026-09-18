@@ -173,6 +173,46 @@ func (cm *ConnectionManager) SendToUser(userID string, msg any) error {
 	return nil
 }
 
+// SendProtobufToUser marshals msg as a protobuf WSMessage and sends it as a
+// binary frame to every active connection for userID, mirroring SendToUser's
+// fan-out/error semantics for the JSON path.
+func (cm *ConnectionManager) SendProtobufToUser(userID string, msg *pb.WSMessage) error {
+	cm.mutex.RLock()
+	userConns, exists := cm.userConnections[userID]
+	if !exists || len(userConns) == 0 {
+		cm.mutex.RUnlock()
+		return fmt.Errorf("no active connection for user %s", userID)
+	}
+	clients := make([]*Client, 0, len(userConns))
+	for _, c := range userConns {
+		clients = append(clients, c)
+	}
+	cm.mutex.RUnlock()
+
+	msg.TypeName = msg.Type.String()
+	data, err := proto.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal protobuf message: %w", err)
+	}
+
+	var lastErr error
+	sent := 0
+	for _, c := range clients {
+		if err := c.writeMessage(websocket.BinaryMessage, data); err != nil {
+			lastErr = err
+			continue
+		}
+		sent++
+	}
+	if sent == 0 {
+		if lastErr != nil {
+			return fmt.Errorf("failed to send message: %w", lastErr)
+		}
+		return fmt.Errorf("no active connection for user %s", userID)
+	}
+	return nil
+}
+
 // HasConnection reports whether any active WebSocket is registered for the user.
 func (cm *ConnectionManager) HasConnection(userID string) bool {
 	cm.mutex.RLock()
@@ -241,6 +281,7 @@ func (cm *ConnectionManager) sendPing(client *Client) {
 
 // sendProtobufMessage sends a protobuf message to a connection
 func (cm *ConnectionManager) sendProtobufMessage(client *Client, msg *pb.WSMessage) {
+	msg.TypeName = msg.Type.String()
 	data, err := proto.Marshal(msg)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to marshal protobuf message")

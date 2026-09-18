@@ -1087,6 +1087,9 @@ func (rs *RealtimeService) handleProtobufMessage(client *Client, data []byte) {
 	case pb.MessageType_UNSUBSCRIBE_BROADCAST:
 		rs.handleUnsubscribeBroadcast(client, msg.GetSubscribe())
 
+	case pb.MessageType_REQUEST_REED:
+		rs.handleRequestReed(client, msg.GetRequestReed())
+
 	default:
 		log.Warn().Str("type", msg.Type.String()).Msg("Unknown protobuf WebSocket message type")
 	}
@@ -1132,9 +1135,6 @@ func (rs *RealtimeService) handleJSONMessage(client *Client, data []byte) {
 		if err := json.Unmarshal(jsonMsg.Data, &syncData); err == nil {
 			rs.handleSyncRequest(client, syncData)
 		}
-
-	case "REQUEST_REED":
-		rs.handleRequestReed(client, jsonMsg.Data)
 
 	case "RELAY_RESPONSE":
 		rs.handleRelayResponse(client, jsonMsg.ID, jsonMsg.Data)
@@ -1308,6 +1308,8 @@ func (rs *RealtimeService) handleUnsubscribeBroadcast(client *Client, subscribe 
 
 // sendProtobufMessage sends a protobuf message to a client
 func (rs *RealtimeService) sendProtobufMessage(client *Client, msg *pb.WSMessage) {
+	msg.TypeName = msg.Type.String()
+
 	// Marshal the protobuf message
 	data, err := proto.Marshal(msg)
 	if err != nil {
@@ -1503,16 +1505,16 @@ func (rs *RealtimeService) deletePendingEvent(ctx context.Context, eventID strin
 	return nil
 }
 
-func (rs *RealtimeService) handleRequestReed(client *Client, data json.RawMessage) {
-	var req RequestReedData
-	if err := json.Unmarshal(data, &req); err != nil {
+// handleRequestReed is REQUEST_REED's entry point: the SPA only
+// ever sends this as a binary protobuf frame (specs/protobuf/).
+func (rs *RealtimeService) handleRequestReed(client *Client, req *pb.RequestReedMessage) {
+	if req == nil || req.GetRequestId() == "" || req.GetReedId() == "" {
 		return
 	}
-	if req.RequestID == "" || req.ReedID == "" {
-		return
-	}
-	requestID, reedID := req.RequestID, req.ReedID
+	rs.requestReed(client, req.GetRequestId(), req.GetReedId())
+}
 
+func (rs *RealtimeService) requestReed(client *Client, requestID, reedID string) {
 	if !rs.validateRequestID(requestID, client.userID) {
 		rs.connManager.SendToUser(client.userID, NewInvalidRequestIDErrorMsg(requestID))
 		return
@@ -2170,9 +2172,7 @@ func (rs *RealtimeService) handleRelayResponse(client *Client, eventID string, d
 		})
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	} else {
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, jsonString(ciphertext), func() DataResponseMsg {
-			return NewDataResponseMsg(pe.EventID, pe.RequestID, ciphertext)
-		})
+		rs.deliverOrForwardDataResponse(context.Background(), eventID, pe.RequesterUserID, pe.RequestID, ciphertext)
 		// Allocation and deletion deferred until viewer sends DATA_ACK or DATA_INVALID.
 	}
 
@@ -2204,6 +2204,40 @@ func (rs *RealtimeService) deliverOrForward(ctx context.Context, eventID, reques
 		return
 	}
 	if err := rs.connManager.SendToUser(requesterUserID, buildLocalMsg()); err != nil {
+		log.Error().Err(err).Str("requesterID", requesterUserID).Msg("Failed to deliver relayed data")
+	}
+}
+
+// deliverOrForwardDataResponse is deliverOrForward specialized for the plain
+// DATA_RESPONSE case (the local answer to a client's own REQUEST_REED): the
+// foreign-forward leg is unchanged (still HTTP/JSON to the peer), but local
+// delivery goes out as a binary protobuf WSMessage instead of JSON, as a
+// first test of the wire migration described in specs/protobuf/.
+func (rs *RealtimeService) deliverOrForwardDataResponse(ctx context.Context, eventID, requesterUserID, requestID, ciphertext string) {
+	frr, ferr := rs.dbService.GetForeignRelayRequest(ctx, eventID)
+	if ferr != nil {
+		log.Error().Err(ferr).Str("eventID", eventID).Msg("Failed to check foreign relay request")
+		return
+	}
+	if frr != nil {
+		if rs.foreignDeliverHook != nil {
+			if err := rs.foreignDeliverHook(ctx, frr.RequestingServerID, eventID, jsonString(ciphertext)); err != nil {
+				log.Error().Err(err).Str("eventID", eventID).Msg("Failed to deliver relayed data to requesting peer")
+			}
+		}
+		return
+	}
+	msg := &pb.WSMessage{
+		Type: pb.MessageType_DATA_RESPONSE,
+		Id:   eventID,
+		Payload: &pb.WSMessage_DataResponse{
+			DataResponse: &pb.DataResponseMessage{
+				RequestId:  requestID,
+				Ciphertext: ciphertext,
+			},
+		},
+	}
+	if err := rs.connManager.SendProtobufToUser(requesterUserID, msg); err != nil {
 		log.Error().Err(err).Str("requesterID", requesterUserID).Msg("Failed to deliver relayed data")
 	}
 }
