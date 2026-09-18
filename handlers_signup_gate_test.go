@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/crypto"
 	"syrinx/identity"
 	"syrinx/invites"
 	"syrinx/realtime"
@@ -33,8 +32,8 @@ func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
 	if err := dataService.InitServer(context.Background(), false, "https://test.example"); err != nil {
 		t.Fatal(err)
 	}
-	cryptoSvc := crypto.NewService()
-	serverKP, err := cryptoSvc.CreateKeyPair("test", "", "")
+	cryptoSvc := newCryptoService()
+	serverKP, err := cryptoSvc.createKeyPair("test", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +169,7 @@ func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint,
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 
 	canonical := method + " " + path + "\n\n" + body + "\n\n" + timestamp
-	sigArmor, err := h.services.crypto.Sign(canonical, privateKeyArmor)
+	sigArmor, err := h.services.crypto.sign(canonical, privateKeyArmor)
 	if err != nil {
 		t.Fatalf("sign request: %v", err)
 	}
@@ -188,13 +187,13 @@ func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint,
 // signedUpUser creates a user with a real keypair (needed to sign requests
 // against authenticated endpoints in tests) and returns its keypair. The
 // returned KeyPair.Fingerprint stays bare (matching what
-// h.services.crypto.CreateKeyPair produces) since callers use it to build
+// h.services.crypto.createKeyPair produces) since callers use it to build
 // the canonical X-Syrinx-Public-Key-Id header via signedRequest —
 // DataService.Signup itself is given the canonical form, matching what
 // handlers.go now does.
-func signedUpUser(t *testing.T, h *Handlers, userID, username string) crypto.KeyPair {
+func signedUpUser(t *testing.T, h *Handlers, userID, username string) cryptoKeyPair {
 	t.Helper()
-	kp, err := h.services.crypto.CreateKeyPair(userID, "", "")
+	kp, err := h.services.crypto.createKeyPair(userID, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,8 +282,8 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	if err := dataService.InitServer(context.Background(), false, "https://test.example"); err != nil {
 		t.Fatal(err)
 	}
-	cryptoSvc := crypto.NewService()
-	serverKP, err := cryptoSvc.CreateKeyPair("test", "", "")
+	cryptoSvc := newCryptoService()
+	serverKP, err := cryptoSvc.createKeyPair("test", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,21 +313,21 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	userID, err := crypto.NewID()
+	userID, err := newCryptoID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	userIDSig, err := h.services.crypto.Sign(userID, h.signingKey.Armor)
+	userIDSig, err := h.services.crypto.sign(userID, h.signingKey.Armor)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	kp, err := h.services.crypto.CreateKeyPair(userID, "", "")
+	kp, err := h.services.crypto.createKeyPair(userID, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	pubKeyArmorB64 := base64.StdEncoding.EncodeToString([]byte(kp.PublicKey))
-	keySelfSig, err := h.services.crypto.Sign(kp.PublicKey, kp.PrivateKey)
+	keySelfSig, err := h.services.crypto.sign(kp.PublicKey, kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +336,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		identity.CanonicalID(h.services.db.GetServerID(), userID), kp.Fingerprint,
 	))
 	identityPayload := identity.BuildUserIdentityPayload("bob", canonicalFingerprint, "")
-	userSigArmor, err := h.services.crypto.Sign(string(identityPayload), kp.PrivateKey)
+	userSigArmor, err := h.services.crypto.sign(string(identityPayload), kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +394,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode key server signature armor: %v", err)
 	}
-	if err := h.services.crypto.VerifySignature(string(rebuiltKey), string(keySigArmor), serverKP.PublicKey); err != nil {
+	if err := h.services.crypto.verifySignature(string(rebuiltKey), string(keySigArmor), serverKP.PublicKey); err != nil {
 		t.Fatalf("public key server signature does not verify against the response's own userID: %v", err)
 	}
 
@@ -421,7 +420,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode profile server signature armor: %v", err)
 	}
-	if err := h.services.crypto.VerifySignature(string(rebuiltProfile), string(profileSigArmor), serverKP.PublicKey); err != nil {
+	if err := h.services.crypto.verifySignature(string(rebuiltProfile), string(profileSigArmor), serverKP.PublicKey); err != nil {
 		t.Fatalf("profile server signature does not verify against the response's own userID: %v", err)
 	}
 }

@@ -145,10 +145,15 @@ func main() {
 
 	// Wrap database with instrumentation
 	dataService := NewDataService(db, cfg.ServerName)
-	cryptoService := crypto.NewService()
+	cryptoService := newCryptoService()
+	// legacyCryptoService bridges to realtime/recovery, which haven't
+	// merged into root yet (specs/depackaging/) and still need the
+	// exported syrinx/crypto API — drop this once they do.
+	legacyCryptoService := crypto.NewService()
 	services := &Services{
-		db:     dataService,
-		crypto: cryptoService,
+		db:           dataService,
+		crypto:       cryptoService,
+		legacyCrypto: legacyCryptoService,
 	}
 	log.Info().Msg("[OK] Services initialized successfully")
 
@@ -205,7 +210,7 @@ func main() {
 	log.Info().Msg("[OK] Server identity initialized successfully")
 
 	log.Debug().Msg("Initializing realtime service...")
-	realtimeService := realtime.NewService(db, cryptoService, cfg.AllowedOrigin, dataService.GetServerID())
+	realtimeService := realtime.NewService(db, legacyCryptoService, cfg.AllowedOrigin, dataService.GetServerID())
 	realtimeService.SetMetrics(obs.Metrics())
 
 	// Create broadcast channel
@@ -407,7 +412,7 @@ func main() {
 		},
 		GetUserRole: dataService.GetUserRole,
 		VerifySignature: func(payload, sigArmor, pubKeyArmor string) error {
-			return cryptoService.VerifySignature(payload, sigArmor, pubKeyArmor)
+			return cryptoService.verifySignature(payload, sigArmor, pubKeyArmor)
 		},
 		Countersign: func(payload []byte, ts time.Time) (invites.ServerSignatureWire, error) {
 			sig, err := h.countersign(payload, ts)
@@ -577,7 +582,7 @@ func main() {
 		}
 		recovery.RegisterRoutes(api, recovery.Deps{
 			DB:        db,
-			Crypto:    cryptoService,
+			Crypto:    legacyCryptoService,
 			ServerID:  dataService.GetServerID(),
 			Lookup:    dataService.GetServerPublicKeyByFingerprint,
 			UserIDKey: userIDKey,

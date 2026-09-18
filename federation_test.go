@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/crypto"
 	"syrinx/identity"
 	"syrinx/realtime"
 	"syrinx/roles"
@@ -252,7 +251,7 @@ func seedFederationUser(t *testing.T, ds *DataService, userID, username, role st
 	return identityID
 }
 
-func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *crypto.KeyPair, *crypto.KeyPair) {
+func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *cryptoKeyPair, *cryptoKeyPair) {
 	t.Helper()
 	db := openFederationTestDB(t)
 	if _, err := db.Exec(`DELETE FROM federation_attempt`); err != nil {
@@ -273,12 +272,12 @@ func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *crypto.KeyP
 		t.Fatal(err)
 	}
 
-	cryptoSvc := crypto.NewService()
-	serverKP, err := cryptoSvc.CreateKeyPair("server-a", "", "")
+	cryptoSvc := newCryptoService()
+	serverKP, err := cryptoSvc.createKeyPair("server-a", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	remoteKP, err := cryptoSvc.CreateKeyPair("remote-b", "", "")
+	remoteKP, err := cryptoSvc.createKeyPair("remote-b", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +352,7 @@ func TestCreateFederationInvitation_Admin(t *testing.T) {
 		t.Fatalf("stored ciphertext=%q resp=%q", storedCiphertext, resp.ConnectionString)
 	}
 
-	plaintext, err := h.services.crypto.Decrypt(resp.ConnectionString, remoteKP.PrivateKey)
+	plaintext, err := h.services.crypto.decrypt(resp.ConnectionString, remoteKP.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +399,7 @@ func TestListFederationInvitations_AllAdminsSeeAll(t *testing.T) {
 	admin1 := seedFederationUser(t, ds, "admin1", "admin", roles.RoleAdmin)
 	admin2 := seedFederationUser(t, ds, "admin2", "other", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	hash := crypto.Hash("s")
+	hash := cryptoHash("s")
 	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +426,7 @@ func TestRevokeFederationInvitation_NewOnly(t *testing.T) {
 	h, ds, _, _ := testFederationHandlers(t)
 	admin1 := seedFederationUser(t, ds, "admin1", "admin", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	hash := crypto.Hash("s")
+	hash := cryptoHash("s")
 	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
 		t.Fatal(err)
 	}
@@ -494,7 +493,7 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 	admin1 := seedFederationUser(t, ds, "admin1", "admin", roles.RoleAdmin)
 	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	hash := crypto.Hash("s")
+	hash := cryptoHash("s")
 	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
 		t.Fatal(err)
 	}
@@ -586,7 +585,7 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 // shared setup for the same-approver tests below.
 func pendingAttemptFromInvitation(t *testing.T, ds *DataService, invID, createdBy string, at time.Time) string {
 	t.Helper()
-	hash := crypto.Hash("s")
+	hash := cryptoHash("s")
 	if err := ds.InsertFederationInvitation(context.Background(), invID, "Partner", createdBy, "fp-"+invID, "remote-armor", hash, "cipher-armor", at); err != nil {
 		t.Fatal(err)
 	}

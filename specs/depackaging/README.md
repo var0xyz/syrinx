@@ -71,7 +71,14 @@ deletion), `deletion`, `encoding`, `identity`, `invites`, `realtime`,
   `handlers.go` and `realtime.RealtimeService`, and used directly in
   `recovery/identity.go`. That's a genuine interface-based
   dependency-injection abstraction, not a loose grab-bag of functions like
-  `encoding`/`secret` — it stays independent.
+  `encoding`/`secret` — it stays independent. One real consequence of
+  this split surfaced during step 03 (`crypto`): `observability/metrics/
+  hash.go` imported `crypto.Hash`, which becomes permanently unsatisfiable
+  once `crypto` merges into `package main`. Fixed by inlining
+  `sha256.Sum256` directly in `hash.go` instead of importing `crypto` for
+  one 3-line wrapper — a pattern worth checking for again whenever an
+  in-scope package is about to merge: does anything permanently-independent
+  (`observability`/`observability/metrics`, or `proto`) import it?
 
 ## Dependency order
 

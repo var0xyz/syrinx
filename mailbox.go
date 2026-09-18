@@ -8,7 +8,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"syrinx/crypto"
 	"syrinx/roles"
 )
 
@@ -76,7 +75,7 @@ type MailboxPayload struct {
 // this server's root user — accurate for every producer today (server
 // internals, ops mailbox-send), since MailboxCategoryInteraction
 // producers that pass a real sender don't exist yet.
-func SendMailboxMessage(ctx context.Context, db *sql.DB, cryptoSvc *crypto.Service, userID string, category MailboxCategory, kind, message, link, senderUserID string, meta any) (id, ciphertext string, err error) {
+func SendMailboxMessage(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, userID string, category MailboxCategory, kind, message, link, senderUserID string, meta any) (id, ciphertext string, err error) {
 	if utf8.RuneCountInString(message) > MaxMailboxMessageChars {
 		return "", "", ErrMailboxMessageTooLong
 	}
@@ -138,12 +137,12 @@ func SendMailboxMessage(ctx context.Context, db *sql.DB, cryptoSvc *crypto.Servi
 	if err != nil {
 		return "", "", err
 	}
-	ciphertext, err = cryptoSvc.Encrypt(payload, armor)
+	ciphertext, err = cryptoSvc.encrypt(payload, armor)
 	if err != nil {
 		return "", "", err
 	}
 
-	id, err = crypto.NewID()
+	id, err = newCryptoID()
 	if err != nil {
 		return "", "", err
 	}

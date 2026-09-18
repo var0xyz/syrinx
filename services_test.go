@@ -4,16 +4,14 @@ package main
 
 import (
 	"testing"
-
-	"syrinx/crypto"
 )
 
 func TestGenerateUserID(t *testing.T) {
 	const iterations = 1000
 
-	allowed := make(map[byte]bool, len(crypto.Alphabet))
-	for i := 0; i < len(crypto.Alphabet); i++ {
-		allowed[crypto.Alphabet[i]] = true
+	allowed := make(map[byte]bool, len(idAlphabet))
+	for i := 0; i < len(idAlphabet); i++ {
+		allowed[idAlphabet[i]] = true
 	}
 
 	seen := make(map[string]struct{}, iterations)
@@ -22,8 +20,8 @@ func TestGenerateUserID(t *testing.T) {
 		if err != nil {
 			t.Fatalf("generateUserID() error = %v", err)
 		}
-		if len(id) != crypto.Length {
-			t.Fatalf("generateUserID() len = %d, want %d (id=%q)", len(id), crypto.Length, id)
+		if len(id) != idLength {
+			t.Fatalf("generateUserID() len = %d, want %d (id=%q)", len(id), idLength, id)
 		}
 		for j := 0; j < len(id); j++ {
 			if !allowed[id[j]] {
@@ -42,8 +40,8 @@ func TestGenerateServerIDLength(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateServerID() error = %v", err)
 	}
-	if len(id) != crypto.Length {
-		t.Fatalf("generateServerID() len = %d, want %d", len(id), crypto.Length)
+	if len(id) != idLength {
+		t.Fatalf("generateServerID() len = %d, want %d", len(id), idLength)
 	}
 }
 

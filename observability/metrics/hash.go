@@ -1,15 +1,15 @@
 package metrics
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
-
-	"syrinx/crypto"
 )
 
 // UserIDHash returns a stable SHA-256 hex digest of userID for metric
 // attributes. Every user-scoped series uses `*.id_hash` (never raw user ids).
 func UserIDHash(userID string) string {
-	return hex.EncodeToString(crypto.Hash(userID))
+	sum := sha256.Sum256([]byte(userID))
+	return hex.EncodeToString(sum[:])
 }
 
 // EventIDHash returns a stable SHA-256 hex digest of a pending relay event
@@ -19,5 +19,6 @@ func UserIDHash(userID string) string {
 // counters for the same event be correlated by this hash without exposing
 // who requested it.
 func EventIDHash(eventID string) string {
-	return hex.EncodeToString(crypto.Hash(eventID))
+	sum := sha256.Sum256([]byte(eventID))
+	return hex.EncodeToString(sum[:])
 }
