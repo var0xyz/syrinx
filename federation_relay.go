@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"syrinx/deletion"
-	"syrinx/identity"
 	"syrinx/observability/metrics"
 	"syrinx/realtime"
 )
@@ -42,7 +41,7 @@ import (
 // client, not to H), so only the server half is checked: an established
 // peer can only ever vouch for request ids naming its own server.
 func peerRequestIDMatchesPeer(id, callerServerID string) bool {
-	_, embeddedServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(id))
+	_, embeddedServerID, _, ok := parseKeyFingerprint(identityID(id))
 	if !ok {
 		return false
 	}
@@ -118,7 +117,7 @@ type relayRequestResponse struct {
 // (leg 1, O's side): registers requesterUserID's interest in reedID with
 // reedID's home server over peer HTTP.
 func (h *Handlers) relayRequestToPeer(ctx context.Context, reedID, requesterUserID, localRequestID string) (realtime.ForeignRequestResult, string, error) {
-	authorUserID, homeServerID, bareReedID, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	authorUserID, homeServerID, bareReedID, ok := parseKeyFingerprint(identityID(reedID))
 	if !ok {
 		return realtime.ForeignRequestReedNotFound, "", nil
 	}
@@ -132,7 +131,7 @@ func (h *Handlers) relayRequestToPeer(ctx context.Context, reedID, requesterUser
 
 	payload := relayRequestPayload{
 		ReedID:          bareReedID,
-		AuthorID:        string(identity.CanonicalID(homeServerID, authorUserID)),
+		AuthorID:        string(canonicalID(homeServerID, authorUserID)),
 		RequesterUserID: requesterUserID,
 		PeerRequestID:   localRequestID,
 	}
@@ -184,7 +183,7 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 	// Loop-prevention: this server can only ever be "home" for reeds it
 	// actually authors locally — never chain a request further to a third
 	// server. author_id's embedded serverID must be this server's own.
-	authorUserID, embeddedServerID, parseOK := identity.ParseIdentityID(identity.IdentityID(req.AuthorID))
+	authorUserID, embeddedServerID, parseOK := parseIdentityID(identityID(req.AuthorID))
 	if !parseOK || embeddedServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", false)
 		writeResponse(w, http.StatusBadRequest, "author_id is not local to this server")
@@ -195,7 +194,7 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 		writeResponse(w, http.StatusBadRequest, "peer_request_id does not belong to the calling peer")
 		return
 	}
-	canonicalReedID := string(identity.AppendEntity(identity.CanonicalID(h.services.db.GetServerID(), authorUserID), req.ReedID))
+	canonicalReedID := string(appendEntity(canonicalID(h.services.db.GetServerID(), authorUserID), req.ReedID))
 
 	if h.realtimeRelay == nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", false)
@@ -255,7 +254,7 @@ type relaySubscribeResponse struct {
 // (leg 1b, O's side): registers requesterUserID's interest in every one
 // of authorID's (foreign) reeds with authorID's home server over peer HTTP.
 func (h *Handlers) subscribeProfileToPeer(ctx context.Context, authorID, requesterUserID string) ([]realtime.ForeignSubscribeProfileResult, error) {
-	_, homeServerID, ok := identity.ParseIdentityID(identity.IdentityID(authorID))
+	_, homeServerID, ok := parseIdentityID(identityID(authorID))
 	if !ok {
 		return nil, nil
 	}
@@ -312,7 +311,7 @@ func (h *Handlers) RelaySubscribeProfileFromPeer(w http.ResponseWriter, r *http.
 
 	// Loop-prevention: identical guard to leg 1 — this server can only
 	// ever be "home" for authors it actually hosts locally.
-	_, embeddedServerID, parseOK := identity.ParseIdentityID(identity.IdentityID(req.AuthorID))
+	_, embeddedServerID, parseOK := parseIdentityID(identityID(req.AuthorID))
 	if !parseOK || embeddedServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe", false)
 		writeResponse(w, http.StatusBadRequest, "author_id is not local to this server")
@@ -645,7 +644,7 @@ type relayUnsubscribePayload struct {
 // implementation (leg 7, O's side): tells authorID's home server that
 // requesterUserID no longer wants live fanout.
 func (h *Handlers) unsubscribeProfileWithPeer(ctx context.Context, authorID, requesterUserID string) error {
-	_, homeServerID, ok := identity.ParseIdentityID(identity.IdentityID(authorID))
+	_, homeServerID, ok := parseIdentityID(identityID(authorID))
 	if !ok {
 		return nil
 	}
@@ -690,13 +689,13 @@ func (h *Handlers) RelayUnsubscribeProfileFromPeer(w http.ResponseWriter, r *htt
 	// Loop-prevention/spoof guard: this server can only ever be "home" for
 	// authors it hosts locally, and a peer may only unsubscribe its own
 	// users — never claim to act on behalf of a third server's user.
-	_, authorServerID, authorOK := identity.ParseIdentityID(identity.IdentityID(req.AuthorID))
+	_, authorServerID, authorOK := parseIdentityID(identityID(req.AuthorID))
 	if !authorOK || authorServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unsubscribe", false)
 		writeResponse(w, http.StatusBadRequest, "author_id is not local to this server")
 		return
 	}
-	_, requesterServerID, requesterOK := identity.ParseIdentityID(identity.IdentityID(req.RequesterUserID))
+	_, requesterServerID, requesterOK := parseIdentityID(identityID(req.RequesterUserID))
 	if !requesterOK || requesterServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unsubscribe", false)
 		writeResponse(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
@@ -743,7 +742,7 @@ type relaySubscribeReedResponse struct {
 // 8, O's side): registers requesterUserID's interest in reedID's live
 // stats with reedID's home server, returning the current snapshot.
 func (h *Handlers) subscribeReedToPeer(ctx context.Context, reedID, requesterUserID string) (realtime.ForeignReedStatsSnapshot, bool, error) {
-	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	_, homeServerID, _, ok := parseKeyFingerprint(identityID(reedID))
 	if !ok {
 		return realtime.ForeignReedStatsSnapshot{}, false, nil
 	}
@@ -800,13 +799,13 @@ func (h *Handlers) RelaySubscribeReedFromPeer(w http.ResponseWriter, r *http.Req
 
 	// Loop-prevention/spoof guard: this server can only be "home" for
 	// reeds it hosts locally, and a peer may only register its own users.
-	_, reedServerID, _, reedOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ReedID))
+	_, reedServerID, _, reedOK := parseKeyFingerprint(identityID(req.ReedID))
 	if !reedOK || reedServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe-reed", false)
 		writeResponse(w, http.StatusBadRequest, "reed_id is not local to this server")
 		return
 	}
-	_, requesterServerID, requesterOK := identity.ParseIdentityID(identity.IdentityID(req.RequesterUserID))
+	_, requesterServerID, requesterOK := parseIdentityID(identityID(req.RequesterUserID))
 	if !requesterOK || requesterServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe-reed", false)
 		writeResponse(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
@@ -848,7 +847,7 @@ type relayUnsubscribeReedPayload struct {
 // implementation (leg 9, O's side): tells reedID's home server that
 // requesterUserID no longer wants live stats.
 func (h *Handlers) unsubscribeReedWithPeer(ctx context.Context, reedID, requesterUserID string) error {
-	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(reedID))
+	_, homeServerID, _, ok := parseKeyFingerprint(identityID(reedID))
 	if !ok {
 		return nil
 	}
@@ -888,13 +887,13 @@ func (h *Handlers) RelayUnsubscribeReedFromPeer(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	_, reedServerID, _, reedOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ReedID))
+	_, reedServerID, _, reedOK := parseKeyFingerprint(identityID(req.ReedID))
 	if !reedOK || reedServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unsubscribe-reed", false)
 		writeResponse(w, http.StatusBadRequest, "reed_id is not local to this server")
 		return
 	}
-	_, requesterServerID, requesterOK := identity.ParseIdentityID(identity.IdentityID(req.RequesterUserID))
+	_, requesterServerID, requesterOK := parseIdentityID(identityID(req.RequesterUserID))
 	if !requesterOK || requesterServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unsubscribe-reed", false)
 		writeResponse(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
@@ -974,7 +973,7 @@ func (h *Handlers) PushReedStatsFromPeer(w http.ResponseWriter, r *http.Request)
 	// The viewer this push claims to be for must actually be one of this
 	// peer's own users — a peer must not be able to push content to a
 	// third server's user by spoofing requester_user_id.
-	_, requesterServerID, requesterOK := identity.ParseIdentityID(identity.IdentityID(req.RequesterUserID))
+	_, requesterServerID, requesterOK := parseIdentityID(identityID(req.RequesterUserID))
 	if !requesterOK || requesterServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-stats", false)
 		writeResponse(w, http.StatusBadRequest, "requester_user_id is not local to this server")
@@ -1014,7 +1013,7 @@ type relayReplyNotifyPayload struct {
 // (leg 11, O's side): tells parentReedID's home server that replyReedID
 // (authored here) replies to it.
 func (h *Handlers) notifyForeignReplyToPeer(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error {
-	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(parentReedID))
+	_, homeServerID, _, ok := parseKeyFingerprint(identityID(parentReedID))
 	if !ok {
 		return nil
 	}
@@ -1064,13 +1063,13 @@ func (h *Handlers) ReplyNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 	// Loop-prevention: this server can only be "home" for reeds it hosts
 	// locally, and a peer may only notify us of replies IT actually
 	// authors — never claim a reply on behalf of a third server.
-	_, parentServerID, _, parentOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ParentReedID))
+	_, parentServerID, _, parentOK := parseKeyFingerprint(identityID(req.ParentReedID))
 	if !parentOK || parentServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reply-notify", false)
 		writeResponse(w, http.StatusBadRequest, "parent_reed_id is not local to this server")
 		return
 	}
-	_, replyServerID, _, replyOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ReplyReedID))
+	_, replyServerID, _, replyOK := parseKeyFingerprint(identityID(req.ReplyReedID))
 	if !replyOK || replyServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reply-notify", false)
 		writeResponse(w, http.StatusBadRequest, "reply_reed_id does not belong to the calling peer")
@@ -1116,7 +1115,7 @@ type relayEchoNotifyPayload struct {
 // notifyForeignEchoToPeer tells echoedReedID's home server that
 // echoingReedID (authored here, by echoingAuthorID) echoes it.
 func (h *Handlers) notifyForeignEchoToPeer(ctx context.Context, echoedReedID, echoingReedID, echoingAuthorID string, isBlank bool, ts time.Time) error {
-	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(echoedReedID))
+	_, homeServerID, _, ok := parseKeyFingerprint(identityID(echoedReedID))
 	if !ok {
 		return nil
 	}
@@ -1167,19 +1166,19 @@ func (h *Handlers) EchoNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 	// Loop-prevention: this server can only be "home" for reeds it hosts
 	// locally, and a peer may only notify us of echoes IT actually
 	// authors — never claim an echo on behalf of a third server.
-	_, echoedServerID, _, echoedOK := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoedReedID))
+	_, echoedServerID, _, echoedOK := parseKeyFingerprint(identityID(req.EchoedReedID))
 	if !echoedOK || echoedServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "echo-notify", false)
 		writeResponse(w, http.StatusBadRequest, "echoed_reed_id is not local to this server")
 		return
 	}
-	_, echoingServerID, _, echoingOK := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoingReedID))
+	_, echoingServerID, _, echoingOK := parseKeyFingerprint(identityID(req.EchoingReedID))
 	if !echoingOK || echoingServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "echo-notify", false)
 		writeResponse(w, http.StatusBadRequest, "echoing_reed_id does not belong to the calling peer")
 		return
 	}
-	_, echoingAuthorServerID, echoingAuthorOK := identity.ParseIdentityID(identity.IdentityID(req.EchoingAuthorID))
+	_, echoingAuthorServerID, echoingAuthorOK := parseIdentityID(identityID(req.EchoingAuthorID))
 	if !echoingAuthorOK || echoingAuthorServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "echo-notify", false)
 		writeResponse(w, http.StatusBadRequest, "echoing_author_id does not belong to the calling peer")
@@ -1189,8 +1188,8 @@ func (h *Handlers) EchoNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 	// echoedAuthorID/bareEchoedReedID: this reed is local, so its author
 	// and bare id are recoverable directly from its own canonical id — H
 	// doesn't need O to assert either.
-	echoedAuthorBareID, _, bareEchoedReedID, _ := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoedReedID))
-	echoedAuthorID := string(identity.CanonicalID(echoedServerID, echoedAuthorBareID))
+	echoedAuthorBareID, _, bareEchoedReedID, _ := parseKeyFingerprint(identityID(req.EchoedReedID))
+	echoedAuthorID := string(canonicalID(echoedServerID, echoedAuthorBareID))
 
 	if err := h.services.db.InsertForeignEcho(r.Context(), req.EchoingReedID, req.EchoedReedID, req.EchoingAuthorID, echoedAuthorID, req.IsBlank, req.Timestamp); err != nil {
 		log.Error().Err(err).Str("echoedReedID", req.EchoedReedID).Str("echoingReedID", req.EchoingReedID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign echo notify")
@@ -1229,7 +1228,7 @@ type relayMentionNotifyPayload struct {
 // notifyForeignMentionToPeer tells mentionedUserID's home server that
 // mentioningReedID (authored here) mentions them.
 func (h *Handlers) notifyForeignMentionToPeer(ctx context.Context, mentioningReedID, mentionedUserID string, ts time.Time) error {
-	_, homeServerID, ok := identity.ParseIdentityID(identity.IdentityID(mentionedUserID))
+	_, homeServerID, ok := parseIdentityID(identityID(mentionedUserID))
 	if !ok {
 		return nil
 	}
@@ -1277,13 +1276,13 @@ func (h *Handlers) MentionNotifyFromPeer(w http.ResponseWriter, r *http.Request)
 	// Loop-prevention: a peer may only notify us of mentions in reeds IT
 	// actually authors — never claim a mention on behalf of a third
 	// server. This server can only be "home" for users it hosts locally.
-	_, mentioningServerID, _, mentioningOK := identity.ParseKeyFingerprint(identity.IdentityID(req.MentioningReedID))
+	_, mentioningServerID, _, mentioningOK := parseKeyFingerprint(identityID(req.MentioningReedID))
 	if !mentioningOK || mentioningServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "mention-notify", false)
 		writeResponse(w, http.StatusBadRequest, "mentioning_reed_id does not belong to the calling peer")
 		return
 	}
-	mentionedBareUserID, mentionedServerID, mentionedOK := identity.ParseIdentityID(identity.IdentityID(req.MentionedUserID))
+	mentionedBareUserID, mentionedServerID, mentionedOK := parseIdentityID(identityID(req.MentionedUserID))
 	if !mentionedOK || mentionedServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "mention-notify", false)
 		writeResponse(w, http.StatusBadRequest, "mentioned_user_id is not local to this server")
@@ -1344,7 +1343,7 @@ type relayReplyRemovalNotifyPayload struct {
 // notifyForeignReplyRemovalToPeer tells parentReedID's home server that
 // replyReedID (removed here) no longer replies to it.
 func (h *Handlers) notifyForeignReplyRemovalToPeer(ctx context.Context, parentReedID, replyReedID string, cert *realtime.ReedRemovalWire) error {
-	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(parentReedID))
+	_, homeServerID, _, ok := parseKeyFingerprint(identityID(parentReedID))
 	if !ok {
 		return nil
 	}
@@ -1389,13 +1388,13 @@ func (h *Handlers) ReplyRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Req
 	// Loop-prevention: this server can only be "home" for reeds it hosts
 	// locally, and a peer may only notify us about removal of a reply IT
 	// actually authors — never claim removal on behalf of a third server.
-	_, parentServerID, _, parentOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ParentReedID))
+	_, parentServerID, _, parentOK := parseKeyFingerprint(identityID(req.ParentReedID))
 	if !parentOK || parentServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reply-removal-notify", false)
 		writeResponse(w, http.StatusBadRequest, "parent_reed_id is not local to this server")
 		return
 	}
-	_, replyServerID, _, replyOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ReplyReedID))
+	_, replyServerID, _, replyOK := parseKeyFingerprint(identityID(req.ReplyReedID))
 	if !replyOK || replyServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reply-removal-notify", false)
 		writeResponse(w, http.StatusBadRequest, "reply_reed_id does not belong to the calling peer")
@@ -1453,7 +1452,7 @@ type relayEchoRemovalNotifyPayload struct {
 // notifyForeignEchoRemovalToPeer tells echoedReedID's home server that
 // echoingReedID (removed here) no longer echoes it.
 func (h *Handlers) notifyForeignEchoRemovalToPeer(ctx context.Context, echoedReedID, echoingReedID string) error {
-	_, homeServerID, _, ok := identity.ParseKeyFingerprint(identity.IdentityID(echoedReedID))
+	_, homeServerID, _, ok := parseKeyFingerprint(identityID(echoedReedID))
 	if !ok {
 		return nil
 	}
@@ -1498,13 +1497,13 @@ func (h *Handlers) EchoRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 	// Loop-prevention: this server can only be "home" for reeds it hosts
 	// locally, and a peer may only notify us about removal of an echo IT
 	// actually authors — never claim removal on behalf of a third server.
-	_, echoedServerID, _, echoedOK := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoedReedID))
+	_, echoedServerID, _, echoedOK := parseKeyFingerprint(identityID(req.EchoedReedID))
 	if !echoedOK || echoedServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "echo-removal-notify", false)
 		writeResponse(w, http.StatusBadRequest, "echoed_reed_id is not local to this server")
 		return
 	}
-	_, echoingServerID, _, echoingOK := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoingReedID))
+	_, echoingServerID, _, echoingOK := parseKeyFingerprint(identityID(req.EchoingReedID))
 	if !echoingOK || echoingServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "echo-removal-notify", false)
 		writeResponse(w, http.StatusBadRequest, "echoing_reed_id does not belong to the calling peer")
@@ -1520,10 +1519,10 @@ func (h *Handlers) EchoRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 	}
 
 	if deleted {
-		echoedAuthorBareID, _, bareEchoedReedID, _ := identity.ParseKeyFingerprint(identity.IdentityID(req.EchoedReedID))
+		echoedAuthorBareID, _, bareEchoedReedID, _ := parseKeyFingerprint(identityID(req.EchoedReedID))
 		h.broadcastChan <- realtime.BroadcastMessage{
 			Type:   realtime.EchoCountChanged,
-			UserID: string(identity.CanonicalID(echoedServerID, echoedAuthorBareID)),
+			UserID: string(canonicalID(echoedServerID, echoedAuthorBareID)),
 			ReedID: bareEchoedReedID,
 		}
 	}
@@ -1702,7 +1701,7 @@ func (h *Handlers) RelayFallbackRequestFromPeer(w http.ResponseWriter, r *http.R
 	// Inverse of leg 1's loop-prevention: the CALLER must own reedID —
 	// this stops any peer from asking us to hand back content on behalf
 	// of a reed it doesn't actually author.
-	_, embeddedServerID, _, parseOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ReedID))
+	_, embeddedServerID, _, parseOK := parseKeyFingerprint(identityID(req.ReedID))
 	if !parseOK || embeddedServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", false)
 		writeResponse(w, http.StatusBadRequest, "reed_id is not owned by the calling peer")
@@ -1829,7 +1828,7 @@ func (h *Handlers) RelayNewReedNotifyFromPeer(w http.ResponseWriter, r *http.Req
 	// opposite direction from leg 1b/8's requester checks, where the
 	// requester belongs to the calling peer. Reject a peer trying to
 	// register an event against a user it doesn't own.
-	_, requesterServerID, requesterOK := identity.ParseIdentityID(identity.IdentityID(req.RequesterUserID))
+	_, requesterServerID, requesterOK := parseIdentityID(identityID(req.RequesterUserID))
 	if !requesterOK || requesterServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "new-reed-notify", false)
 		writeResponse(w, http.StatusBadRequest, "requester_user_id is not local to this server")
@@ -1988,7 +1987,7 @@ type relayReplyRemovalToViewerPayload struct {
 
 // notifyForeignReplyRemovalToViewer is leg 20's O-side implementation.
 func (h *Handlers) notifyForeignReplyRemovalToViewer(ctx context.Context, viewerUserID, removedReedID string, cert *realtime.ReedRemovalWire) error {
-	_, homeServerID, ok := identity.ParseIdentityID(identity.IdentityID(viewerUserID))
+	_, homeServerID, ok := parseIdentityID(identityID(viewerUserID))
 	if !ok {
 		return nil
 	}
@@ -2037,13 +2036,13 @@ func (h *Handlers) ReplyRemovalToViewerFromPeer(w http.ResponseWriter, r *http.R
 	// it actually hosts locally, and a peer may only notify us about a
 	// removal on a reed IT actually hosts — never claim removal on
 	// behalf of a third server.
-	_, viewerServerID, viewerOK := identity.ParseIdentityID(identity.IdentityID(req.ViewerUserID))
+	_, viewerServerID, viewerOK := parseIdentityID(identityID(req.ViewerUserID))
 	if !viewerOK || viewerServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reply-removal-to-viewer", false)
 		writeResponse(w, http.StatusBadRequest, "viewer_user_id is not local to this server")
 		return
 	}
-	_, removedServerID, _, removedOK := identity.ParseKeyFingerprint(identity.IdentityID(req.RemovedReedID))
+	_, removedServerID, _, removedOK := parseKeyFingerprint(identityID(req.RemovedReedID))
 	if !removedOK || removedServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reply-removal-to-viewer", false)
 		writeResponse(w, http.StatusBadRequest, "removed_reed_id does not belong to the calling peer")
@@ -2187,7 +2186,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 
 	// Loop-prevention: a peer may only notify us about removal of one of
 	// its OWN users — never claim removal on behalf of a third server.
-	_, userServerID, userOK := identity.ParseIdentityID(identity.IdentityID(req.UserID))
+	_, userServerID, userOK := parseIdentityID(identityID(req.UserID))
 	if !userOK || userServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
 		writeResponse(w, http.StatusBadRequest, "user_id does not belong to the calling peer")
@@ -2317,7 +2316,7 @@ func (h *Handlers) ReedRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 	// Loop-prevention: a peer may only notify us about removal of a reed
 	// authored by one of its OWN users — never claim removal on behalf of
 	// a third server.
-	_, authorServerID, _, reedOK := identity.ParseKeyFingerprint(identity.IdentityID(req.ReedID))
+	_, authorServerID, _, reedOK := parseKeyFingerprint(identityID(req.ReedID))
 	if !reedOK || authorServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
 		writeResponse(w, http.StatusBadRequest, "reed_id does not belong to the calling peer")

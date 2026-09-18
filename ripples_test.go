@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/identity"
 
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
@@ -154,7 +153,7 @@ func ensureRipplesSchema(db *sql.DB) error {
 // services.go's Signup.
 func insertRipplesTestUser(t *testing.T, db *sql.DB, userID, username string) {
 	t.Helper()
-	identityID := string(identity.CanonicalID(ripplesTestServerID, userID))
+	identityID := string(canonicalID(ripplesTestServerID, userID))
 	if _, err := db.Exec(
 		`INSERT INTO identities (id, server_id) VALUES ($1, $2)`,
 		identityID, ripplesTestServerID,
@@ -186,14 +185,14 @@ func insertRipplesTestUser(t *testing.T, db *sql.DB, userID, username string) {
 // canonicalReedID composes authorID@ripplesTestServerID/bareReedID, matching
 // what production code stores as reeds.id.
 func canonicalReedID(authorID, bareReedID string) string {
-	return string(identity.AppendEntity(identity.CanonicalID(ripplesTestServerID, authorID), bareReedID))
+	return string(appendEntity(canonicalID(ripplesTestServerID, authorID), bareReedID))
 }
 
 // insertRipplesTestReed writes reeds.id as the full canonical id (authorID@
 // ripplesTestServerID/bareReedID), matching db.go's single-column reeds PK.
 func insertRipplesTestReed(t *testing.T, db *sql.DB, authorID, bareReedID string) {
 	t.Helper()
-	identityID := string(identity.CanonicalID(ripplesTestServerID, authorID))
+	identityID := string(canonicalID(ripplesTestServerID, authorID))
 	reedID := canonicalReedID(authorID, bareReedID)
 	var userSigID, serverSigID int
 	if err := db.QueryRow(
@@ -263,7 +262,7 @@ func insertReedRemoval(t *testing.T, db *sql.DB, authorID, bareReedID string) {
 // account_removals.user_id FKs identities(id) now.
 func insertAccountRemoval(t *testing.T, db *sql.DB, userID string) {
 	t.Helper()
-	identityID := string(identity.CanonicalID(ripplesTestServerID, userID))
+	identityID := string(canonicalID(ripplesTestServerID, userID))
 	var userSigID, serverSigID int
 	if err := db.QueryRow(
 		`INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, 'sig') RETURNING id`,
@@ -299,17 +298,17 @@ type rippleTestKey struct {
 	cryptoSvc            *cryptoService
 }
 
-// newRippleTestKey writes public_keys.owner as identity.CanonicalID(s.serverID,
+// newRippleTestKey writes public_keys.owner as canonicalID(s.serverID,
 // userID), matching how DataService.GetPublicKey resolves it.
 func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 	t.Helper()
-	identityID := identity.CanonicalID(ripplesTestServerID, userID)
+	identityID := canonicalID(ripplesTestServerID, userID)
 	svc := newCryptoService()
 	kp, err := svc.createKeyPair(userID, "", "")
 	if err != nil {
 		t.Fatalf("CreateKeyPair for %s: %v", userID, err)
 	}
-	canonicalFP := string(identity.AppendEntity(identityID, kp.Fingerprint))
+	canonicalFP := string(appendEntity(identityID, kp.Fingerprint))
 	var serverSigID int
 	if err := db.QueryRow(
 		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
@@ -332,7 +331,7 @@ func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 // DataService.PostRipple / the HTTP handler's `userSignature` field.
 func signRippleUserPayload(t *testing.T, key rippleTestKey, reedID, rippleAuthorID, threadID, replyingTo, content string) string {
 	t.Helper()
-	payload := identity.BuildRippleUserPayload(reedID, rippleAuthorID, key.CanonicalFingerprint, threadID, replyingTo, content)
+	payload := buildRippleUserPayload(reedID, rippleAuthorID, key.CanonicalFingerprint, threadID, replyingTo, content)
 	armor, err := key.cryptoSvc.sign(string(payload), key.PrivateKey)
 	if err != nil {
 		t.Fatalf("sign ripple user payload: %v", err)
@@ -356,7 +355,7 @@ func testCountersign(t *testing.T) (func(payload []byte, ts time.Time) (ServerSi
 			return ServerSignature{}, err
 		}
 		return ServerSignature{
-			ID:       string(identity.CanonicalID("testserver", kp.Fingerprint)),
+			ID:       string(canonicalID("testserver", kp.Fingerprint)),
 			Armor:    base64.StdEncoding.EncodeToString([]byte(armor)),
 			SignedAt: ts,
 		}, nil

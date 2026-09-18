@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/identity"
 
 	_ "github.com/lib/pq"
 )
@@ -160,7 +159,7 @@ func ensureReplyCountSchema(db *sql.DB) error {
 
 func seedReplyTestUser(t *testing.T, db *sql.DB, userID string) {
 	t.Helper()
-	identityID := string(identity.CanonicalID("testserver", userID))
+	identityID := string(canonicalID("testserver", userID))
 	if _, err := db.Exec(`INSERT INTO identities (id, server_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 		identityID, "testserver"); err != nil {
 		t.Fatal(err)
@@ -182,7 +181,7 @@ func seedReplyTestUser(t *testing.T, db *sql.DB, userID string) {
 // TestReplyCountsFromGraph's DataService.serverID.
 func seedReplyTestReed(t *testing.T, db *sql.DB, userID, reedID string) {
 	t.Helper()
-	identityID := string(identity.CanonicalID("testserver", userID))
+	identityID := string(canonicalID("testserver", userID))
 	var usID, ssID int
 	if err := db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, 'sig') RETURNING id`, reedID+"fp").Scan(&usID); err != nil {
 		t.Fatal(err)

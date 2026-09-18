@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"syrinx/identity"
 	"syrinx/observability/metrics"
 )
 
@@ -17,7 +16,7 @@ import (
 // exercise RelayRequestFromPeer/DeliverRelayResponseFromPeer/
 // CancelRelayRequestFromPeer's auth-rejection and loop-prevention checks —
 // both run entirely before any DB call (peerServerIDKey presence, then a
-// pure identity.ParseIdentityID comparison against GetServerID()), so no
+// pure parseIdentityID comparison against GetServerID()), so no
 // live database is needed for this slice of coverage. h.realtimeRelay is
 // left nil; these tests never get far enough to reach it.
 func newBareRelayTestHandlers(serverID string) *Handlers {
@@ -147,14 +146,14 @@ func TestCancelRelayRequestFromPeer_RejectsMissingPeerEventID(t *testing.T) {
 // TestRelayRequestCanonicalReedIDReconstruction confirms the exact
 // reconstruction RelayRequestFromPeer performs from trusted parts
 // (this server's own GetServerID() + the parsed author's bare userID +
-// the peer-supplied bare reed_id) matches identity.AppendEntity's shape,
+// the peer-supplied bare reed_id) matches appendEntity's shape,
 // since a mismatch here would silently misroute every registered request.
 func TestRelayRequestCanonicalReedIDReconstruction(t *testing.T) {
-	authorUserID, embeddedServerID, ok := identity.ParseIdentityID(identity.IdentityID("alice@home1234"))
+	authorUserID, embeddedServerID, ok := parseIdentityID(identityID("alice@home1234"))
 	if !ok || embeddedServerID != "home1234" {
 		t.Fatalf("ParseIdentityID unexpected result: userID=%q serverID=%q ok=%v", authorUserID, embeddedServerID, ok)
 	}
-	got := string(identity.AppendEntity(identity.CanonicalID("home1234", authorUserID), "01a026d4"))
+	got := string(appendEntity(canonicalID("home1234", authorUserID), "01a026d4"))
 	want := "alice@home1234/01a026d4"
 	if got != want {
 		t.Fatalf("canonical reedID = %q, want %q", got, want)

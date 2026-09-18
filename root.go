@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"syrinx/identity"
 	"syrinx/roles"
 
 	"github.com/rs/zerolog/log"
@@ -60,7 +59,7 @@ func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *cryptoService
 	// GetUserProfile takes userID in "userID@serverID" form; roles.RootUserID
 	// is the bare literal ("1"), composed with this server's own serverID
 	// so it resolves THIS instance's own root, not another server's "1".
-	rootIdentity := identity.CanonicalID(db.GetServerID(), roles.RootUserID)
+	rootIdentity := canonicalID(db.GetServerID(), roles.RootUserID)
 	root, err := db.GetUserProfile(context.Background(), rootIdentity.String())
 	if err != nil {
 		return false, err
@@ -88,7 +87,7 @@ func requireRootUser(cfg AppConfig, db *DataService) error {
 		return nil
 	}
 	// Same reasoning as maybeExportRootKey above.
-	rootIdentity := identity.CanonicalID(db.GetServerID(), roles.RootUserID)
+	rootIdentity := canonicalID(db.GetServerID(), roles.RootUserID)
 	root, err := db.GetUserProfile(context.Background(), rootIdentity.String())
 	if err != nil {
 		return err
@@ -143,10 +142,10 @@ func exportRootIdentity(
 	// will rebuild different bytes than what was signed (same invariant as
 	// the regular signup handler in handlers.go). Computed up front since
 	// the canonical key fingerprint the payloads sign is built from it.
-	rootID := identity.CanonicalID(serverID, roles.RootUserID).String()
-	keyID := string(identity.AppendEntity(identity.IdentityID(rootID), keyMeta.Fingerprint))
+	rootID := canonicalID(serverID, roles.RootUserID).String()
+	keyID := string(appendEntity(identityID(rootID), keyMeta.Fingerprint))
 
-	userPayload := identity.BuildUserIdentityPayload(rootUsername, keyID, "")
+	userPayload := buildUserIdentityPayload(rootUsername, keyID, "")
 	userSigArmor, err := cryptoSvc.sign(string(userPayload), kp.PrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("sign root identity: %w", err)
@@ -155,7 +154,7 @@ func exportRootIdentity(
 
 	now := time.Now().UTC().Truncate(time.Second)
 
-	profilePayload := identity.BuildNewProfilePayload(
+	profilePayload := buildNewProfilePayload(
 		rootID,
 		rootUsername,
 		keyID,
@@ -171,7 +170,7 @@ func exportRootIdentity(
 		return "", err
 	}
 
-	keyPayload := identity.BuildPublicKeyPayload(
+	keyPayload := buildPublicKeyPayload(
 		serverID,
 		rootID,
 		keyID,
@@ -279,7 +278,7 @@ func rootCountersign(cryptoSvc *cryptoService, db *DataService, signingKey *Serv
 		return ServerSignature{}, err
 	}
 	return ServerSignature{
-		ID:       string(identity.CanonicalID(db.GetServerID(), signingKey.Fingerprint)),
+		ID:       string(canonicalID(db.GetServerID(), signingKey.Fingerprint)),
 		Armor:    base64Encode(sigArmor),
 		SignedAt: ts,
 	}, nil
