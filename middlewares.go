@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"syrinx/crypto"
-	"syrinx/encoding"
 	"syrinx/identity"
 
 	"github.com/google/uuid"
@@ -503,7 +502,7 @@ func (h *Handlers) verifyRequestSignature(r *http.Request, signature, publicKey 
 	requestString := h.buildCanonicalRequestString(r)
 
 	// Decode base64 signature to get the armored signature
-	decodedSignature, err := encoding.Base64Decode(signature)
+	decodedSignature, err := base64Decode(signature)
 	if err != nil {
 		return fmt.Errorf("failed to decode base64 signature: %w", err)
 	}
