@@ -30,7 +30,11 @@ func TestRecoveryBundleRoundTrip(t *testing.T) {
 		t.Fatalf("seed self server: %v", err)
 	}
 
-	cryptoSvc := crypto.NewService()
+	cryptoSvc := newCryptoService()
+	// legacyCryptoSvc bridges to recovery, which hasn't merged into root
+	// yet (specs/depackaging/) and still needs the exported syrinx/crypto
+	// API — drop this once it does.
+	legacyCryptoSvc := crypto.NewService()
 	passphrase := "recovery-bundle-test-pass-16"
 	key, err := ds.InitServerKey(context.Background(), cryptoSvc, passphrase)
 	if err != nil {
@@ -42,12 +46,12 @@ func TestRecoveryBundleRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExportFromDB: %v", err)
 	}
-	if err := recovery.ValidateDecrypt(bundle, cryptoSvc, passphrase); err != nil {
+	if err := recovery.ValidateDecrypt(bundle, legacyCryptoSvc, passphrase); err != nil {
 		t.Fatalf("ValidateDecrypt: %v", err)
 	}
 
 	targetDB := openRecoveryBundleTestDB(t)
-	result, err := recovery.ImportIntoDB(context.Background(), targetDB, cryptoSvc, passphrase, bundle)
+	result, err := recovery.ImportIntoDB(context.Background(), targetDB, legacyCryptoSvc, passphrase, bundle)
 	if err != nil {
 		t.Fatalf("ImportIntoDB: %v", err)
 	}
@@ -67,7 +71,7 @@ func TestRecoveryBundleRoundTrip(t *testing.T) {
 
 	// Re-importing the identical bundle must report ImportAlreadyPresent,
 	// not a mismatch — this is the exact check that was broken.
-	result2, err := recovery.ImportIntoDB(context.Background(), sourceDB, cryptoSvc, passphrase, bundle)
+	result2, err := recovery.ImportIntoDB(context.Background(), sourceDB, legacyCryptoSvc, passphrase, bundle)
 	if err != nil {
 		t.Fatalf("ImportIntoDB (already present): %v", err)
 	}

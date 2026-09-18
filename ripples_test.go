@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/crypto"
 	"syrinx/identity"
 
 	"github.com/google/uuid"
@@ -295,9 +294,9 @@ func insertAccountRemoval(t *testing.T, db *sql.DB, userID string) {
 // userID@serverID/fingerprint form used as the public_keys PK and inside
 // signed payloads.
 type rippleTestKey struct {
-	*crypto.KeyPair
+	*cryptoKeyPair
 	CanonicalFingerprint string
-	cryptoSvc            *crypto.Service
+	cryptoSvc            *cryptoService
 }
 
 // newRippleTestKey writes public_keys.owner as identity.CanonicalID(s.serverID,
@@ -305,8 +304,8 @@ type rippleTestKey struct {
 func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 	t.Helper()
 	identityID := identity.CanonicalID(ripplesTestServerID, userID)
-	svc := crypto.NewService()
-	kp, err := svc.CreateKeyPair(userID, "", "")
+	svc := newCryptoService()
+	kp, err := svc.createKeyPair(userID, "", "")
 	if err != nil {
 		t.Fatalf("CreateKeyPair for %s: %v", userID, err)
 	}
@@ -325,7 +324,7 @@ func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 	); err != nil {
 		t.Fatalf("insert public_keys for %s: %v", userID, err)
 	}
-	return rippleTestKey{KeyPair: kp, CanonicalFingerprint: canonicalFP, cryptoSvc: svc}
+	return rippleTestKey{cryptoKeyPair: kp, CanonicalFingerprint: canonicalFP, cryptoSvc: svc}
 }
 
 // signRippleUserPayload builds and signs a ripple's user payload exactly
@@ -334,7 +333,7 @@ func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 func signRippleUserPayload(t *testing.T, key rippleTestKey, reedID, rippleAuthorID, threadID, replyingTo, content string) string {
 	t.Helper()
 	payload := identity.BuildRippleUserPayload(reedID, rippleAuthorID, key.CanonicalFingerprint, threadID, replyingTo, content)
-	armor, err := key.cryptoSvc.Sign(string(payload), key.PrivateKey)
+	armor, err := key.cryptoSvc.sign(string(payload), key.PrivateKey)
 	if err != nil {
 		t.Fatalf("sign ripple user payload: %v", err)
 	}
@@ -346,13 +345,13 @@ func signRippleUserPayload(t *testing.T, key rippleTestKey, reedID, rippleAuthor
 // Handlers.countersign without needing a full *Handlers.
 func testCountersign(t *testing.T) (func(payload []byte, ts time.Time) (ServerSignature, error), string) {
 	t.Helper()
-	svc := crypto.NewService()
-	kp, err := svc.CreateKeyPair("test-server", "", "")
+	svc := newCryptoService()
+	kp, err := svc.createKeyPair("test-server", "", "")
 	if err != nil {
 		t.Fatalf("CreateKeyPair for server: %v", err)
 	}
 	return func(payload []byte, ts time.Time) (ServerSignature, error) {
-		armor, err := svc.Sign(string(payload), kp.PrivateKey)
+		armor, err := svc.sign(string(payload), kp.PrivateKey)
 		if err != nil {
 			return ServerSignature{}, err
 		}

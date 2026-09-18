@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/crypto"
 	"syrinx/realtime"
 
 	"github.com/google/uuid"
@@ -33,8 +32,8 @@ func withRippleVars(r *http.Request, vars map[string]string) *http.Request {
 // onto it synchronously, and a nil channel would block that send forever
 // since nothing here runs RealtimeService to drain it.
 func ripplesTestHandlers(db *DataService) *Handlers {
-	svc := crypto.NewService()
-	kp, err := svc.CreateKeyPair("test-server", "", "")
+	svc := newCryptoService()
+	kp, err := svc.createKeyPair("test-server", "", "")
 	if err != nil {
 		panic(err)
 	}

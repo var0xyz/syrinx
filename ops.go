@@ -173,8 +173,8 @@ func runExportIdentity(outfile string) error {
 	if err != nil {
 		return err
 	}
-	cryptoSvc := crypto.NewService()
-	armored, err := cryptoSvc.EncryptSymmetric(raw, password)
+	cryptoSvc := newCryptoService()
+	armored, err := cryptoSvc.encryptSymmetric(raw, password)
 	if err != nil {
 		return err
 	}
@@ -216,8 +216,8 @@ func runImportIdentity(infile string) error {
 	if err != nil {
 		return err
 	}
-	cryptoSvc := crypto.NewService()
-	plain, err := cryptoSvc.DecryptSymmetric(string(armored), password)
+	cryptoSvc := newCryptoService()
+	plain, err := cryptoSvc.decryptSymmetric(string(armored), password)
 	if err != nil {
 		return fmt.Errorf("decrypt bundle: %w", err)
 	}
@@ -237,11 +237,15 @@ func runImportIdentity(infile string) error {
 		return fmt.Errorf("resolve server key passphrase: %w", err)
 	}
 
-	if err := recovery.ValidateDecrypt(bundle, cryptoSvc, passphrase.Value); err != nil {
+	// legacyCryptoSvc bridges to recovery, which hasn't merged into root
+	// yet (specs/depackaging/) and still needs the exported syrinx/crypto
+	// API — drop this once it does.
+	legacyCryptoSvc := crypto.NewService()
+	if err := recovery.ValidateDecrypt(bundle, legacyCryptoSvc, passphrase.Value); err != nil {
 		return err
 	}
 
-	result, err := recovery.ImportIntoDB(context.Background(), db, cryptoSvc, passphrase.Value, bundle)
+	result, err := recovery.ImportIntoDB(context.Background(), db, legacyCryptoSvc, passphrase.Value, bundle)
 	if err != nil {
 		return err
 	}
@@ -283,8 +287,10 @@ func runRotatePassphrase() error {
 		return err
 	}
 
-	cryptoSvc := crypto.NewService()
-	if err := recovery.RotateServerKeyPassphrase(context.Background(), db, cryptoSvc, current.Value, newPass); err != nil {
+	// Bridges to recovery, which hasn't merged into root yet
+	// (specs/depackaging/) and still needs the exported syrinx/crypto API.
+	legacyCryptoSvc := crypto.NewService()
+	if err := recovery.RotateServerKeyPassphrase(context.Background(), db, legacyCryptoSvc, current.Value, newPass); err != nil {
 		return err
 	}
 
@@ -312,7 +318,7 @@ func runMailboxSend(userID, message string) error {
 	}
 	defer db.Close()
 
-	cryptoSvc := crypto.NewService()
+	cryptoSvc := newCryptoService()
 	if _, _, err := SendMailboxMessage(context.Background(), db, cryptoSvc, userID, MailboxCategorySystem, "admin_message", message, "", "", nil); err != nil {
 		return err
 	}

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/crypto"
 	"syrinx/identity"
 	"syrinx/roles"
 
@@ -25,7 +24,7 @@ import (
 type federationServer struct {
 	h      *Handlers
 	ds     *DataService
-	kp     *crypto.KeyPair
+	kp     *cryptoKeyPair
 	srv    *httptest.Server
 	router *mux.Router
 }
@@ -66,7 +65,7 @@ func newFederationServer(t *testing.T, name string) *federationServer {
 // createInvitationEncryptedTo mints an invitation on fs (acting as the
 // initiator) addressed to remoteKP, returning the invite id and the
 // resulting connection string (as an admin on fs would receive it).
-func createInvitationEncryptedTo(t *testing.T, fs *federationServer, adminID string, remoteKP *crypto.KeyPair) (inviteID, connectionString string) {
+func createInvitationEncryptedTo(t *testing.T, fs *federationServer, adminID string, remoteKP *cryptoKeyPair) (inviteID, connectionString string) {
 	t.Helper()
 	body, _ := json.Marshal(federationCreateRequest{
 		Name:                 "peer",
@@ -241,7 +240,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	// rejected as 403 (not-established-peer, same bucket as "key not
 	// found") — VerifyFederationPeer fails closed on any mismatch. 401 is
 	// reserved for "key found but signature doesn't match".
-	strangerKP, err := crypto.NewService().CreateKeyPair("stranger", "", "")
+	strangerKP, err := newCryptoService().createKeyPair("stranger", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +250,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	}
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 	badCanonical := http.MethodGet + " " + badReq.URL.Path + "\n\n\n\n" + timestamp
-	badSigArmor, err := crypto.NewService().Sign(badCanonical, strangerKP.PrivateKey)
+	badSigArmor, err := newCryptoService().sign(badCanonical, strangerKP.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,14 +272,14 @@ func TestIncomingFederationAttempt_WrongSecret(t *testing.T) {
 	a := newFederationServer(t, "server-a")
 	aAdmin := seedFederationUser(t, a.ds, "a-admin", "a-admin", roles.RoleAdmin)
 
-	remoteKP, err := crypto.NewService().CreateKeyPair("remote", "", "")
+	remoteKP, err := newCryptoService().createKeyPair("remote", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	inviteID, _ := createInvitationEncryptedTo(t, a, aAdmin, remoteKP)
 
 	signBytes := identity.BuildFederationConnectPayload(inviteID, "server-b", a.srv.URL, remoteKP.Fingerprint)
-	sigArmor, err := a.h.services.crypto.Sign(string(signBytes), remoteKP.PrivateKey)
+	sigArmor, err := a.h.services.crypto.sign(string(signBytes), remoteKP.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +308,7 @@ func TestIncomingFederationAttempt_ReplayNotNew(t *testing.T) {
 	a := newFederationServer(t, "server-a")
 	aAdmin := seedFederationUser(t, a.ds, "a-admin", "a-admin", roles.RoleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	hash := crypto.Hash("s")
+	hash := cryptoHash("s")
 	if err := a.ds.InsertFederationInvitation(context.Background(), "inv1", "peer", aAdmin, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +357,7 @@ func TestOutgoingFederationAttempt_InvalidInitiatorSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connectionString, err := b.h.services.crypto.Encrypt(plaintext, b.kp.PublicKey)
+	connectionString, err := b.h.services.crypto.encrypt(plaintext, b.kp.PublicKey)
 	if err != nil {
 		t.Fatal(err)
 	}

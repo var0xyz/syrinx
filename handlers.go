@@ -18,7 +18,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"syrinx/crypto"
 	"syrinx/deletion"
 	"syrinx/identity"
 	"syrinx/invites"
@@ -35,7 +34,7 @@ import (
 // countersign signs payload with the active server key and returns a
 // ServerSignature. Used for keys, reeds, identity, etc.
 func (h *Handlers) countersign(payload []byte, ts time.Time) (ServerSignature, error) {
-	sigArmor, err := h.services.crypto.Sign(string(payload), h.signingKey.Armor)
+	sigArmor, err := h.services.crypto.sign(string(payload), h.signingKey.Armor)
 	if err != nil {
 		return ServerSignature{}, err
 	}
@@ -316,7 +315,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "userID is reserved")
 		return
 	}
-	if !crypto.IsValidID(userID) {
+	if !isValidCryptoID(userID) {
 		writeResponse(w, http.StatusBadRequest, "Invalid userID")
 		return
 	}
@@ -375,7 +374,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	if err := h.services.crypto.VerifySignature(userID, userIDSigArmor, serverPubKey); err != nil {
+	if err := h.services.crypto.verifySignature(userID, userIDSigArmor, serverPubKey); err != nil {
 		log.Error().Err(err).Msg("userID signature verification failed")
 		writeResponse(w, http.StatusBadRequest, "userID signature verification failed")
 		return
@@ -398,7 +397,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	// bare fingerprint / creation time / expiry from the armored key.
 	// This must happen before we can build the user identity payload,
 	// since the payload binds the fingerprint.
-	key, err := h.services.crypto.ValidateAndExtractPublicKey(publicKey, signatureArmor)
+	key, err := h.services.crypto.validateAndExtractPublicKey(publicKey, signatureArmor)
 	if err != nil {
 		log.Error().Err(err).Msg("Error validating public key")
 		writeResponse(w, http.StatusBadRequest, err.Error())
@@ -426,7 +425,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, publicKey); err != nil {
+	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, publicKey); err != nil {
 		log.Error().Err(err).Msg("userSignature verification failed")
 		writeResponse(w, http.StatusBadRequest, "userSignature verification failed")
 		return
@@ -531,7 +530,7 @@ func (h *Handlers) GenerateUserID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sig, err := h.services.crypto.Sign(userID, h.signingKey.Armor)
+	sig, err := h.services.crypto.sign(userID, h.signingKey.Armor)
 	if err != nil {
 		log.Error().Err(err).Msg("Error signing userID")
 		internalServerError(w)
@@ -683,7 +682,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 		func(ctx context.Context, fp string) (string, error) {
 			return h.services.db.GetServerPublicKeyByFingerprint(ctx, fp)
 		},
-		h.services.crypto,
+		h.services.legacyCrypto,
 	); err != nil {
 		writeResponse(w, http.StatusBadRequest, err.Error())
 		return
@@ -1141,7 +1140,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Err(err).
@@ -1409,7 +1408,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusUnauthorized, "Key is revoked")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Err(err).Msg("userSignature verification failed")
@@ -1597,7 +1596,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify revoked key signature against old key
-	err = h.services.crypto.VerifySignedChallenge(revokedKeySigArmor, revokedKey.Armor, armoredPublicKey)
+	err = h.services.crypto.verifySignedChallenge(revokedKeySigArmor, revokedKey.Armor, armoredPublicKey)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -1615,7 +1614,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	// Verify the revocation attestation itself, same check RevokeKey used
 	// to do standalone — the old key signing off on its own revocation.
 	revocationPayload := identity.BuildUserRevocationPayload(userID, revokedKeyFingerprint, revocationReason)
-	if err := h.services.crypto.VerifySignature(string(revocationPayload), revocationUserSigArmor, revokedKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(string(revocationPayload), revocationUserSigArmor, revokedKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Str("revokedKeyFingerprint", revokedKeyFingerprint).
@@ -1625,7 +1624,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate and verify the public newKey using crypto service
-	newKey, err := h.services.crypto.ValidateAndExtractPublicKey(armoredPublicKey, newKeySigArmor)
+	newKey, err := h.services.crypto.validateAndExtractPublicKey(armoredPublicKey, newKeySigArmor)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -2095,7 +2094,7 @@ func (h *Handlers) parseReedRef(raw, localServerID string) (ReedRef, bool) {
 	if !ok {
 		return ReedRef{}, false
 	}
-	if !crypto.IsValidUUIDv7(ref.ReedID) {
+	if !isValidUUIDv7(ref.ReedID) {
 		return ReedRef{}, false
 	}
 	return ref, true
@@ -2196,7 +2195,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Str("reedID", reedID).
@@ -2409,7 +2408,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
-	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().
 			Str("likerID", likerID).
 			Str("authorID", authorID).
@@ -3127,7 +3126,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := recovery.VerifyChallengeSignature(req.Challenge, req.Signature, key.Armor, h.services.crypto); err != nil {
+	if err := recovery.VerifyChallengeSignature(req.Challenge, req.Signature, key.Armor, h.services.legacyCrypto); err != nil {
 		writeResponse(w, http.StatusUnauthorized, err.Error())
 		return
 	}
@@ -3185,7 +3184,7 @@ func (h *Handlers) isRoot(ctx context.Context, userID string) (bool, error) {
 }
 
 func (h *Handlers) federationSignServer(message []byte) (string, error) {
-	sigArmor, err := h.services.crypto.Sign(string(message), h.signingKey.Armor)
+	sigArmor, err := h.services.crypto.sign(string(message), h.signingKey.Armor)
 	if err != nil {
 		return "", err
 	}
@@ -3514,7 +3513,7 @@ func (h *Handlers) setPeerProxyAuthHeaders(req *http.Request, body string) error
 	}
 	canonical += "\n\n" + body + "\n\n" + timestamp
 
-	sigArmor, err := h.services.crypto.Sign(canonical, h.signingKey.Armor)
+	sigArmor, err := h.services.crypto.sign(canonical, h.signingKey.Armor)
 	if err != nil {
 		return err
 	}
@@ -3549,7 +3548,7 @@ func (h *Handlers) fetchPeerServerKeyArmor(ctx context.Context, baseURL, serverI
 		return "", err
 	}
 	armor := string(body)
-	actualFingerprint, err := h.services.crypto.ExtractFingerprintFromArmor(armor)
+	actualFingerprint, err := h.services.crypto.extractFingerprintFromArmor(armor)
 	if err != nil {
 		return "", fmt.Errorf("parse peer server key: %w", err)
 	}
@@ -3667,7 +3666,7 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 		peerKeyServerFingerprint, armor,
 		key.ServerSignature.SignedAt,
 	)
-	if err := h.services.crypto.VerifySignature(string(keyPayload), serverSigArmor, serverKeyArmor); err != nil {
+	if err := h.services.crypto.verifySignature(string(keyPayload), serverSigArmor, serverKeyArmor); err != nil {
 		return nil, fmt.Errorf("peer %s key countersignature verification failed: %w", peerServerID, err)
 	}
 
@@ -3761,13 +3760,13 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	remoteFingerprint, err := h.services.crypto.ExtractFingerprintFromArmor(remoteArmor)
+	remoteFingerprint, err := h.services.crypto.extractFingerprintFromArmor(remoteArmor)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid remote public key")
 		return
 	}
 
-	inviteID, err := crypto.NewID()
+	inviteID, err := newCryptoID()
 	if err != nil {
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 		return
@@ -3814,13 +3813,13 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	connectionString, err := h.services.crypto.Encrypt(plaintext, remoteArmor)
+	connectionString, err := h.services.crypto.encrypt(plaintext, remoteArmor)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Failed to encrypt connection payload")
 		return
 	}
 
-	secretHash := crypto.Hash(secret)
+	secretHash := cryptoHash(secret)
 	now := time.Now().UTC().Truncate(time.Second)
 	if err := h.services.db.InsertFederationInvitation(r.Context(), inviteID, name, caller, remoteFingerprint, remoteArmor, secretHash, connectionString, now); err != nil {
 		if errors.Is(err, errFederationInvitationExists) {
@@ -4730,7 +4729,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if subtle.ConstantTimeCompare(crypto.Hash(req.Secret), inv.SecretHash) != 1 {
+	if subtle.ConstantTimeCompare(cryptoHash(req.Secret), inv.SecretHash) != 1 {
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invalid secret")
 		writeResponse(w, http.StatusForbidden, "Invalid secret")
 		return
@@ -4753,7 +4752,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	if err := h.services.crypto.VerifyDetachedSignature(string(signBytes), sigArmor, inv.PublicKey); err != nil {
+	if err := h.services.crypto.verifyDetachedSignature(string(signBytes), sigArmor, inv.PublicKey); err != nil {
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invalid signature")
 		writeResponse(w, http.StatusBadRequest, "Invalid signature")
 		return
@@ -4833,7 +4832,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	plaintext, err := h.services.crypto.Decrypt(connectionString, h.signingKey.Armor)
+	plaintext, err := h.services.crypto.decrypt(connectionString, h.signingKey.Armor)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Failed to decrypt connection string")
 		return
@@ -4853,7 +4852,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	remoteFingerprint, err := h.services.crypto.ExtractFingerprintFromArmor(payload.PublicKeyArmor)
+	remoteFingerprint, err := h.services.crypto.extractFingerprintFromArmor(payload.PublicKeyArmor)
 	if err != nil || remoteFingerprint != payload.Fingerprint {
 		writeResponse(w, http.StatusBadRequest, "Public key does not match claimed fingerprint")
 		return
@@ -4866,7 +4865,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	if err := h.services.crypto.VerifyDetachedSignature(string(initiatorSignBytes), initiatorSigArmor, payload.PublicKeyArmor); err != nil {
+	if err := h.services.crypto.verifyDetachedSignature(string(initiatorSignBytes), initiatorSigArmor, payload.PublicKeyArmor); err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid initiator signature")
 		return
 	}
@@ -5158,7 +5157,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	userPayload := identity.BuildRippleUserPayload(
 		canonicalReedID, callerID, req.KeyID, req.ThreadID, replyingToVal, content,
 	)
-	if err := h.services.crypto.VerifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().Str("userID", callerID).Str("reedID", canonicalReedID).Err(err).Msg("ripple signature verification failed")
 		writeResponse(w, http.StatusBadRequest, "Invalid signature.")
 		return

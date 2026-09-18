@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"syrinx/crypto"
 	"syrinx/identity"
 
 	"github.com/google/uuid"
@@ -46,7 +45,7 @@ type responseSigner struct {
 	wroteHeaders    bool
 	bodyBuffer      *bytes.Buffer
 	responseSent    bool
-	cryptoService   *crypto.Service
+	cryptoService   *cryptoService
 	dataService     *DataService
 	userID          string
 	signingKeyArmor string
@@ -173,7 +172,7 @@ func (rs *responseSigner) getServerPrivateKey() (string, error) {
 // signDetached creates a detached signature of the message
 func (rs *responseSigner) signDetached(message, privateKey string) (string, error) {
 	// Use crypto service to sign the message
-	signature, err := rs.cryptoService.Sign(message, privateKey)
+	signature, err := rs.cryptoService.sign(message, privateKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign message: %w", err)
 	}
@@ -508,7 +507,7 @@ func (h *Handlers) verifyRequestSignature(r *http.Request, signature, publicKey 
 	}
 
 	// Use the existing CryptoService method to verify the signature
-	return h.services.crypto.VerifySignature(requestString, decodedSignature, publicKey)
+	return h.services.crypto.verifySignature(requestString, decodedSignature, publicKey)
 }
 
 // buildCanonicalRequestString creates a canonical representation of the request for signing
@@ -567,7 +566,7 @@ func (h *Handlers) buildCanonicalRequestString(r *http.Request) string {
 // validateTimestamp validates the timestamp for replay protection
 // Accepts timestamps within ±5 minutes of current time
 func (h *Handlers) validateTimestamp(timestampStr string) error {
-	return h.services.crypto.ValidateTimestamp(timestampStr)
+	return h.services.crypto.validateTimestamp(timestampStr)
 }
 
 func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.Handler {

@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"syrinx/crypto"
 	"syrinx/identity"
 	"syrinx/roles"
 
@@ -48,7 +47,7 @@ type identityPrivateKeyItem struct {
 
 // maybeExportRootKey mints root when ROOT_KEY_EXPORT_PASSPHRASE is set.
 // Returns exit=true after writing .sxi.gpg; otherwise normal startup continues.
-func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *crypto.Service, signingKey *ServerSigningKey) (exit bool, err error) {
+func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *cryptoService, signingKey *ServerSigningKey) (exit bool, err error) {
 	if cfg.RecoveryMode {
 		return false, nil
 	}
@@ -105,7 +104,7 @@ func requireRootUser(cfg AppConfig, db *DataService) error {
 
 func exportRootIdentity(
 	db *DataService,
-	cryptoSvc *crypto.Service,
+	cryptoSvc *cryptoService,
 	signingKey *ServerSigningKey,
 	exportPassphrase string,
 	outDir string,
@@ -119,22 +118,22 @@ func exportRootIdentity(
 	keyPassphrase := exportPassphrase
 	openPGPName := roles.RootUserID + "@" + serverID
 
-	kp, err := cryptoSvc.CreateKeyPair(openPGPName, "", serverName)
+	kp, err := cryptoSvc.createKeyPair(openPGPName, "", serverName)
 	if err != nil {
 		return "", fmt.Errorf("generate root key: %w", err)
 	}
 
-	encryptedPrivate, err := cryptoSvc.EncryptPrivateKey(kp.PrivateKey, keyPassphrase)
+	encryptedPrivate, err := cryptoSvc.encryptPrivateKey(kp.PrivateKey, keyPassphrase)
 	if err != nil {
 		return "", fmt.Errorf("encrypt root private key: %w", err)
 	}
 
-	pubKeySig, err := cryptoSvc.Sign(kp.PublicKey, kp.PrivateKey)
+	pubKeySig, err := cryptoSvc.sign(kp.PublicKey, kp.PrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("sign root public key: %w", err)
 	}
 
-	keyMeta, err := cryptoSvc.ValidateAndExtractPublicKey(kp.PublicKey, pubKeySig)
+	keyMeta, err := cryptoSvc.validateAndExtractPublicKey(kp.PublicKey, pubKeySig)
 	if err != nil {
 		return "", fmt.Errorf("validate root public key: %w", err)
 	}
@@ -148,7 +147,7 @@ func exportRootIdentity(
 	keyID := string(identity.AppendEntity(identity.IdentityID(rootID), keyMeta.Fingerprint))
 
 	userPayload := identity.BuildUserIdentityPayload(rootUsername, keyID, "")
-	userSigArmor, err := cryptoSvc.Sign(string(userPayload), kp.PrivateKey)
+	userSigArmor, err := cryptoSvc.sign(string(userPayload), kp.PrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("sign root identity: %w", err)
 	}
@@ -257,7 +256,7 @@ func exportRootIdentity(
 		return "", err
 	}
 
-	encrypted, err := cryptoSvc.EncryptSymmetric(gz.Bytes(), exportPassphrase)
+	encrypted, err := cryptoSvc.encryptSymmetric(gz.Bytes(), exportPassphrase)
 	if err != nil {
 		return "", err
 	}
@@ -274,8 +273,8 @@ func exportRootIdentity(
 	return outPath, nil
 }
 
-func rootCountersign(cryptoSvc *crypto.Service, db *DataService, signingKey *ServerSigningKey, payload []byte, ts time.Time) (ServerSignature, error) {
-	sigArmor, err := cryptoSvc.Sign(string(payload), signingKey.Armor)
+func rootCountersign(cryptoSvc *cryptoService, db *DataService, signingKey *ServerSigningKey, payload []byte, ts time.Time) (ServerSignature, error) {
+	sigArmor, err := cryptoSvc.sign(string(payload), signingKey.Armor)
 	if err != nil {
 		return ServerSignature{}, err
 	}

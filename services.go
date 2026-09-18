@@ -75,8 +75,12 @@ func isReedUniqueViolation(err error) bool {
 
 type Services struct {
 	db     *DataService
-	crypto *crypto.Service
-	log    *LoggingService
+	crypto *cryptoService
+	// legacyCrypto bridges to recovery, which hasn't merged into root yet
+	// (specs/depackaging/) and still needs the exported syrinx/crypto API
+	// via recovery.Verifier — drop this once it does.
+	legacyCrypto *crypto.Service
+	log          *LoggingService
 }
 
 // =============== //
@@ -114,7 +118,7 @@ func (s *DataService) GetServerID() string {
 // db.go (a free function, not a DataService method, because ops.go's
 // `ops` build tag excludes this file — this wrapper exists purely for
 // ergonomic use from handlers.go via h.services.db).
-func (s *DataService) SendMailboxMessage(ctx context.Context, cryptoSvc *crypto.Service, userID string, category MailboxCategory, kind, message, link, senderUserID string, meta any) (id, ciphertext string, err error) {
+func (s *DataService) SendMailboxMessage(ctx context.Context, cryptoSvc *cryptoService, userID string, category MailboxCategory, kind, message, link, senderUserID string, meta any) (id, ciphertext string, err error) {
 	return SendMailboxMessage(ctx, s.db, cryptoSvc, userID, category, kind, message, link, senderUserID, meta)
 }
 
@@ -156,11 +160,11 @@ func (s *DataService) IsOngoing(ctx context.Context, userID string) (bool, error
 }
 
 func generateServerID() (string, error) {
-	return crypto.NewID()
+	return newCryptoID()
 }
 
 func generateUserID() (string, error) {
-	return crypto.NewID()
+	return newCryptoID()
 }
 
 func (s *DataService) InitServer(ctx context.Context, recoveryMode bool, baseURL string) error {
@@ -267,7 +271,7 @@ func (s *DataService) ProcessRevocations(ctx context.Context) error {
 // InitServerKey ensures an active (non-revoked) server signing key exists.
 // If the current signing key is revoked or missing, a new one is created.
 // Returns the decrypted Key (armor + fingerprint) for use by the signing middleware.
-func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Service, passphrase string) (*ServerSigningKey, error) {
+func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *cryptoService, passphrase string) (*ServerSigningKey, error) {
 	var fingerprint string
 	var encryptedArmor string
 	var createdAt time.Time
@@ -292,12 +296,12 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 
 	if err == sql.ErrNoRows {
 		// No active signing key — generate one
-		keyPair, err := cryptoSvc.CreateKeyPair(s.serverID, "", "")
+		keyPair, err := cryptoSvc.createKeyPair(s.serverID, "", "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to create server key pair: %w", err)
 		}
 
-		encryptedPrivate, err := cryptoSvc.EncryptPrivateKey(keyPair.PrivateKey, passphrase)
+		encryptedPrivate, err := cryptoSvc.encryptPrivateKey(keyPair.PrivateKey, passphrase)
 		if err != nil {
 			return nil, fmt.Errorf("failed to encrypt server private key: %w", err)
 		}
@@ -319,7 +323,7 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 			s.serverID, keyID, keyID, keyPair.Fingerprint,
 			keyPair.PublicKey, now,
 		)
-		selfSigArmor, err := cryptoSvc.Sign(string(selfPayload), keyPair.PrivateKey)
+		selfSigArmor, err := cryptoSvc.sign(string(selfPayload), keyPair.PrivateKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to self-countersign server public key: %w", err)
 		}
@@ -340,18 +344,18 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *crypto.Servi
 	}
 
 	// Active key found — decrypt it
-	decryptedArmor, err := cryptoSvc.DecryptPrivateKey(encryptedArmor, passphrase)
+	decryptedArmor, err := cryptoSvc.decryptPrivateKey(encryptedArmor, passphrase)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt server signing key (wrong passphrase?): %w", err)
 	}
 
 	// If the server name changed, add a new identity to the key
-	updatedArmor, err := cryptoSvc.AddIdentity(decryptedArmor, s.serverName)
+	updatedArmor, err := cryptoSvc.addIdentity(decryptedArmor, s.serverName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add identity to server signing key: %w", err)
 	}
 	if updatedArmor != decryptedArmor {
-		newEncrypted, err := cryptoSvc.EncryptPrivateKey(updatedArmor, passphrase)
+		newEncrypted, err := cryptoSvc.encryptPrivateKey(updatedArmor, passphrase)
 		if err != nil {
 			return nil, fmt.Errorf("failed to re-encrypt server signing key after identity update: %w", err)
 		}
@@ -1893,7 +1897,7 @@ func (s *DataService) insertReedCoreTx(
 	if _, _, suffix, ok := identity.ParseKeyFingerprint(identity.IdentityID(p.ReedID)); ok {
 		bareReedID = suffix
 	}
-	if !crypto.IsValidUUIDv7(bareReedID) {
+	if !isValidUUIDv7(bareReedID) {
 		return Reed{}, fmt.Errorf("invalid reed ID")
 	}
 
@@ -4364,7 +4368,7 @@ func (s *DataService) CreateFederationAttempt(ctx context.Context, peer federati
 	if name == "" {
 		name = peer.ServerID
 	}
-	attemptID, err := crypto.NewID()
+	attemptID, err := newCryptoID()
 	if err != nil {
 		return "", err
 	}
@@ -4413,7 +4417,7 @@ func (s *DataService) MarkFederationInvitationAccepted(ctx context.Context, invi
 	if name == "" {
 		name = peer.ServerID
 	}
-	attemptID, err := crypto.NewID()
+	attemptID, err := newCryptoID()
 	if err != nil {
 		return "", err
 	}
@@ -4447,7 +4451,7 @@ const (
 // that can fail or time out) — this is how an admin sees what actually
 // happened to their invite instead of it silently stalling.
 func (s *DataService) logFederationInvitation(ctx context.Context, invitationID, level, message string) error {
-	logID, err := crypto.NewID()
+	logID, err := newCryptoID()
 	if err != nil {
 		return err
 	}
@@ -4476,7 +4480,7 @@ func (s *DataService) logFederationInvitation(ctx context.Context, invitationID,
 // ApproveFederationAttempt). Pre-approval activity uses
 // logFederationAttempt instead.
 func (s *DataService) logFederationServer(ctx context.Context, serverID, level, message string) error {
-	logID, err := crypto.NewID()
+	logID, err := newCryptoID()
 	if err != nil {
 		return err
 	}
@@ -4506,7 +4510,7 @@ func (s *DataService) logFederationServer(ctx context.Context, serverID, level, 
 // approve/reject. Unlike logFederationServer, this survives rejection —
 // federation_attempt is never deleted.
 func (s *DataService) logFederationAttempt(ctx context.Context, attemptID, level, message string) error {
-	logID, err := crypto.NewID()
+	logID, err := newCryptoID()
 	if err != nil {
 		return err
 	}
@@ -4636,7 +4640,7 @@ func (s *DataService) PostRipple(
 		return nil, fmt.Errorf("countersign ripple: %w", err)
 	}
 
-	id := hex.EncodeToString(crypto.Hash(string(serverPayload)))
+	id := hex.EncodeToString(cryptoHash(string(serverPayload)))
 
 	userSigID, err := signing.InsertUserSignature(ctx, tx, userFingerprint, userSigArmor)
 	if err != nil {
