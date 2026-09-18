@@ -27,27 +27,34 @@ swapped), `Crypto` is an interface with one implementer that could be
 deleted without changing any runtime behavior.
 
 **Dead code**: cross-referencing every method against the rest of the
-tree (grep for `.<MethodName>(` outside `crypto/`) found 10 with zero
-external callers:
+tree found 10 with zero *external* callers, but 4 of those 10 are called
+*internally*, from `ValidateAndExtractPublicKey` (live, 3 external
+callers) — the original pass over this file only grepped for external
+callers and wrongly listed all 10 as removable. Re-verified at
+implementation time with an internal-caller check too:
 
-| Method | External callers |
-|---|---|
-| `GenerateNonce` | 0 |
-| `ExtractCreationTime` | 0 |
-| `ExtractExpirationTime` | 0 |
-| `ExtractKeyExpirationTime` | 0 |
-| `ExtractPublicKeyArmor` | 0 |
-| `FindEntityByIdentity` | 0 |
-| `ValidatePublicKey` | 0 |
-| `ExtractKeyMetadata` | 0 |
-| `ExtractEntity` | 0 |
-| `ReadArmoredKeyRing` | 0 |
+| Method | External callers | Internal callers | Verdict |
+|---|---|---|---|
+| `GenerateNonce` | 0 | 0 | dead, delete |
+| `ExtractExpirationTime` | 0 | 0 | dead, delete |
+| `FindEntityByIdentity` | 0 | 0 | dead, delete |
+| `ValidatePublicKey` | 0 | 0 | dead, delete |
+| `ExtractKeyMetadata` | 0 | 0 | dead, delete |
+| `ReadArmoredKeyRing` (the `*Service` method — not `openpgp.ReadArmoredKeyRing`, the library function it wraps) | 0 | 0 | dead, delete |
+| `ExtractCreationTime` | 0 | 2 (`ValidateAndExtractPublicKey`, `ExtractKeyMetadata`) | **keep** — live via `ValidateAndExtractPublicKey` |
+| `ExtractKeyExpirationTime` | 0 | 3 (same two, plus `CreateKeyPair`) | **keep** |
+| `ExtractPublicKeyArmor` | 0 | 2 (same two) | **keep** |
+| `ExtractEntity` | 0 | 3 (`Encrypt`, `ExtractFingerprintFromArmor`, `ValidateAndExtractPublicKey`) | **keep** |
 
-All 10 are also declared on the `Crypto` interface — once they're deleted,
-`Crypto` no longer has a reason to exist either (it was never used
-polymorphically in the first place). `types.go`'s `CryptographicKey` type
-is only constructed by `ExtractKeyMetadata` (dead) and
-`ValidateAndExtractPublicKey` (live, 3 external callers) — stays, since
+Only 6 are actually dead, not 10. All 6 are declared on the `Crypto`
+interface, along with the 4 kept ones — deleting the 6 doesn't make
+`Crypto` pointless on its own, but `Crypto` is still worth removing
+regardless (see the "zero real usages as an interface type" finding
+above) once the dead methods are gone and the interface's remaining
+declarations are checked against what actually needs `Crypto` per the
+`middlewares.go:50` finding. `types.go`'s `CryptographicKey` type is
+constructed by both `ExtractKeyMetadata` (dead, being deleted) and
+`ValidateAndExtractPublicKey` (live) — stays, since
 `ValidateAndExtractPublicKey` still needs it.
 
 Live methods (real external callers, must be preserved): `NewID`,

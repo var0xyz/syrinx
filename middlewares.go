@@ -46,7 +46,7 @@ type responseSigner struct {
 	wroteHeaders    bool
 	bodyBuffer      *bytes.Buffer
 	responseSent    bool
-	cryptoService   crypto.Crypto
+	cryptoService   *crypto.Service
 	dataService     *DataService
 	userID          string
 	signingKeyArmor string

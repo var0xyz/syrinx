@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
@@ -28,7 +29,7 @@ func TestAddIdentityPersistsAcrossEncryptDecrypt(t *testing.T) {
 			t.Fatal(err)
 		}
 		changed := updated != dec
-		ents, err := svc.ReadArmoredKeyRing(updated)
+		ents, err := openpgp.ReadArmoredKeyRing(strings.NewReader(updated))
 		if err != nil {
 			t.Fatal(err)
 		}
