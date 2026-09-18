@@ -3,7 +3,6 @@ package crypto
 import (
 	"bytes"
 	gocrypto "crypto"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -34,39 +33,12 @@ func NewService() *Service {
 	return &Service{}
 }
 
-// GenerateNonce generates a random nonce
-func (s *Service) GenerateNonce() (string, error) {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
-}
-
 // ExtractCreationTime extracts the creation time from a public key
 func (s *Service) ExtractCreationTime(publicKey interface{}) time.Time {
 	if pk, ok := publicKey.(*packet.PublicKey); ok {
 		return pk.CreationTime
 	}
 	return time.Time{}
-}
-
-// ExtractExpirationTime extracts expiration time from an identity
-func (s *Service) ExtractExpirationTime(identity *openpgp.Identity, createdAt time.Time) *time.Time {
-	var keyLifetimeSecs uint32
-	if identity.SelfSignature != nil {
-		if identity.SelfSignature.KeyLifetimeSecs != nil {
-			keyLifetimeSecs = *identity.SelfSignature.KeyLifetimeSecs
-		}
-	}
-
-	var expiresAt *time.Time
-	if keyLifetimeSecs > 0 {
-		expirationTime := createdAt.Add(time.Duration(keyLifetimeSecs) * time.Second)
-		expiresAt = &expirationTime
-	}
-
-	return expiresAt
 }
 
 // ExtractKeyExpirationTime extracts key expiration time from an entity
@@ -107,19 +79,6 @@ func (s *Service) ExtractPublicKeyArmor(entity *openpgp.Entity) (string, error) 
 	}
 
 	return buf.String(), nil
-}
-
-// FindEntityByIdentity finds an entity by user ID
-func (s *Service) FindEntityByIdentity(entities openpgp.EntityList, uid string) *openpgp.Entity {
-	for _, entity := range entities {
-		for _, identity := range entity.Identities {
-			if identity.Name == uid {
-				return entity
-			}
-		}
-	}
-
-	return nil
 }
 
 // CreateKeyPair creates a new OpenPGP key pair
@@ -451,45 +410,6 @@ func (s *Service) ValidateTimestamp(timestampStr string) error {
 	return nil
 }
 
-// ValidatePublicKey validates a public key format
-func (s *Service) ValidatePublicKey(publicKey string) error {
-	_, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
-	if err != nil {
-		return fmt.Errorf("invalid public key: %w", err)
-	}
-	return nil
-}
-
-// ExtractKeyMetadata extracts metadata from a public key
-func (s *Service) ExtractKeyMetadata(publicKey string) (*CryptographicKey, error) {
-	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
-	if err != nil {
-		return nil, fmt.Errorf("invalid public key: %w", err)
-	}
-
-	if len(entities) == 0 {
-		return nil, fmt.Errorf("no entities found in public key")
-	}
-
-	entity := entities[0]
-	fingerprint := hex.EncodeToString(entity.PrimaryKey.Fingerprint)
-	creationTime := s.ExtractCreationTime(entity.PrimaryKey)
-	keyExpirationTime := s.ExtractKeyExpirationTime(entity, creationTime)
-
-	// Extract the public key armor
-	extractedPublicKeyArmor, err := s.ExtractPublicKeyArmor(entity)
-	if err != nil {
-		return nil, fmt.Errorf("error extracting public key armor: %w", err)
-	}
-
-	return &CryptographicKey{
-		Fingerprint: fingerprint,
-		CreatedAt:   creationTime,
-		ExpiresAt:   keyExpirationTime,
-		Armor:       extractedPublicKeyArmor,
-	}, nil
-}
-
 func (s *Service) ExtractEntity(publicKey string) (*openpgp.Entity, error) {
 	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
 	if err != nil {
@@ -537,11 +457,6 @@ func (s *Service) ValidateAndExtractPublicKey(publicKey, signature string) (*Cry
 		ExpiresAt:   keyExpirationTime,
 		Armor:       extractedPublicKeyArmor,
 	}, nil
-}
-
-// ReadArmoredKeyRing reads an armored key ring
-func (s *Service) ReadArmoredKeyRing(armoredData string) (openpgp.EntityList, error) {
-	return openpgp.ReadArmoredKeyRing(strings.NewReader(armoredData))
 }
 
 // EncryptPrivateKey encrypts an unencrypted private key with a passphrase.
