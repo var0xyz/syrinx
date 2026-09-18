@@ -231,8 +231,7 @@ func runImportIdentity(infile string) error {
 			cfg.ServerName, bundle.ServerName)
 	}
 
-	resolver := NewResolver(cfg.ServerKeyPassphrase, cfg.ServerName)
-	passphrase, err := resolver.Resolve()
+	passphrase, err := resolvePassphrase(cfg.ServerKeyPassphrase, cfg.ServerName)
 	if err != nil {
 		return fmt.Errorf("resolve server key passphrase: %w", err)
 	}
@@ -276,7 +275,7 @@ func runRotatePassphrase() error {
 	}
 	defer db.Close()
 
-	resolver := NewResolver(cfg.ServerKeyPassphrase, cfg.ServerName)
+	resolver := newPassphraseResolver(cfg.ServerKeyPassphrase, cfg.ServerName)
 	current, err := resolver.Resolve()
 	if err != nil {
 		return fmt.Errorf("resolve current passphrase: %w", err)

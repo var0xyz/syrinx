@@ -85,8 +85,8 @@ func (osKeyring) Delete(service, user string) error {
 	return keyring.Delete(service, user)
 }
 
-// Resolver resolves the server key passphrase for boot and ops commands.
-type Resolver struct {
+// passphraseResolver resolves the server key passphrase for boot and ops commands.
+type passphraseResolver struct {
 	// EnvPassphrase is the value of SERVER_KEY_PASSPHRASE (empty means unset).
 	EnvPassphrase string
 	// ServerName scopes the keychain account when non-empty.
@@ -107,9 +107,9 @@ type Resolver struct {
 	GeneratePassphrase func() (string, error)
 }
 
-// NewResolver returns a Resolver wired to the OS keychain and stdin.
-func NewResolver(envPassphrase, serverName string) *Resolver {
-	return &Resolver{
+// newPassphraseResolver returns a passphraseResolver wired to the OS keychain and stdin.
+func newPassphraseResolver(envPassphrase, serverName string) *passphraseResolver {
+	return &passphraseResolver{
 		EnvPassphrase:      envPassphrase,
 		ServerName:         serverName,
 		Keyring:            osKeyring{},
@@ -122,14 +122,20 @@ func NewResolver(envPassphrase, serverName string) *Resolver {
 	}
 }
 
-func (r *Resolver) account() string {
+// resolvePassphrase is a one-shot convenience for callers that don't need
+// the resolver afterward (e.g. to later call Store) — just the passphrase.
+func resolvePassphrase(envPassphrase, serverName string) (Passphrase, error) {
+	return newPassphraseResolver(envPassphrase, serverName).Resolve()
+}
+
+func (r *passphraseResolver) account() string {
 	if r.ServerName == "" {
 		return keyringAccountBase
 	}
 	return keyringAccountBase + ":" + r.ServerName
 }
 
-func (r *Resolver) keyring() Keyring {
+func (r *passphraseResolver) keyring() Keyring {
 	if r.Keyring != nil {
 		return r.Keyring
 	}
@@ -137,7 +143,7 @@ func (r *Resolver) keyring() Keyring {
 }
 
 // Resolve returns the server key passphrase using env → keychain → prompt.
-func (r *Resolver) Resolve() (Passphrase, error) {
+func (r *passphraseResolver) Resolve() (Passphrase, error) {
 	if r.EnvPassphrase != "" {
 		if len(r.EnvPassphrase) < MinPassphraseLen {
 			return Passphrase{}, ErrTooShort
@@ -193,7 +199,7 @@ func (r *Resolver) Resolve() (Passphrase, error) {
 	return Passphrase{Value: pw, Source: source}, nil
 }
 
-func (r *Resolver) generate() (string, error) {
+func (r *passphraseResolver) generate() (string, error) {
 	if r.GeneratePassphrase != nil {
 		return r.GeneratePassphrase()
 	}
@@ -218,7 +224,7 @@ func GeneratePassphrase() (string, error) {
 // the process is not using the env HA path. Returns ErrEnvManaged when
 // EnvPassphrase is set so callers can remind the operator to update the
 // injected secret.
-func (r *Resolver) Store(passphrase string) error {
+func (r *passphraseResolver) Store(passphrase string) error {
 	if r.EnvPassphrase != "" {
 		return ErrEnvManaged
 	}

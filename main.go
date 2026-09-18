@@ -162,7 +162,7 @@ func main() {
 	}
 
 	log.Debug().Msg("Resolving server key passphrase...")
-	passphrase, err := NewResolver(cfg.ServerKeyPassphrase, cfg.ServerName).Resolve()
+	passphrase, err := resolvePassphrase(cfg.ServerKeyPassphrase, cfg.ServerName)
 	if err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to resolve server key passphrase")
 	}
