@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"syrinx/crypto"
-	"syrinx/encoding"
 	"syrinx/identity"
 	"syrinx/roles"
 
@@ -153,7 +152,7 @@ func exportRootIdentity(
 	if err != nil {
 		return "", fmt.Errorf("sign root identity: %w", err)
 	}
-	userSigB64 := encoding.Base64Encode(userSigArmor)
+	userSigB64 := base64Encode(userSigArmor)
 
 	now := time.Now().UTC().Truncate(time.Second)
 
@@ -204,7 +203,7 @@ func exportRootIdentity(
 	if err != nil || wireKey == nil {
 		return "", fmt.Errorf("load root public key after signup: %w", err)
 	}
-	wireKey.Armor = encoding.Base64Encode(wireKey.Armor)
+	wireKey.Armor = base64Encode(wireKey.Armor)
 
 	ts := time.Now().UnixMilli()
 	payload := identityBackupPayload{
@@ -231,7 +230,7 @@ func exportRootIdentity(
 			Items: []interface{}{
 				identityPrivateKeyItem{
 					ID:        keyID,
-					Armor:     encoding.Base64Encode(encryptedPrivate),
+					Armor:     base64Encode(encryptedPrivate),
 					CreatedAt: now,
 					Revoked:   false,
 				},
@@ -282,7 +281,7 @@ func rootCountersign(cryptoSvc *crypto.Service, db *DataService, signingKey *Ser
 	}
 	return ServerSignature{
 		ID:       string(identity.CanonicalID(db.GetServerID(), signingKey.Fingerprint)),
-		Armor:    encoding.Base64Encode(sigArmor),
+		Armor:    base64Encode(sigArmor),
 		SignedAt: ts,
 	}, nil
 }

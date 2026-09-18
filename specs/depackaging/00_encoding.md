@@ -2,7 +2,10 @@
 
 ## Status
 
-Proposed.
+Implemented (root's own call sites only). `base64Encode`/`base64Decode`
+now live in `utils.go`; `encoding/encoding.go` still exists and stays
+exported since `recovery`, `realtime`, and `invites` haven't merged yet —
+directory deletion deferred to whichever of those steps lands last.
 
 ## Depends on
 

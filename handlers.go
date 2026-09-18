@@ -21,7 +21,6 @@ import (
 	"syrinx/coverage"
 	"syrinx/crypto"
 	"syrinx/deletion"
-	"syrinx/encoding"
 	"syrinx/identity"
 	"syrinx/invites"
 	"syrinx/observability/metrics"
@@ -43,7 +42,7 @@ func (h *Handlers) countersign(payload []byte, ts time.Time) (ServerSignature, e
 	}
 	return ServerSignature{
 		ID:       string(identity.CanonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint)),
-		Armor:    encoding.Base64Encode(sigArmor),
+		Armor:    base64Encode(sigArmor),
 		SignedAt: ts,
 	}, nil
 }
@@ -215,7 +214,7 @@ func (h *Handlers) GetKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key.Armor = encoding.Base64Encode(key.Armor)
+	key.Armor = base64Encode(key.Armor)
 	writeResponse(w, http.StatusOK, key)
 }
 
@@ -286,7 +285,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `publicKey` is required")
 		return
 	}
-	publicKey, err := encoding.Base64Decode(publicKeyB64)
+	publicKey, err := base64Decode(publicKeyB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid publicKey encoding")
 		return
@@ -297,7 +296,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
-	signatureArmor, err := encoding.Base64Decode(signatureB64)
+	signatureArmor, err := base64Decode(signatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
@@ -328,7 +327,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `userIDSignature` is required")
 		return
 	}
-	userIDSigArmor, err := encoding.Base64Decode(userIDSigB64)
+	userIDSigArmor, err := base64Decode(userIDSigB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid userIDSignature encoding")
 		return
@@ -422,7 +421,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 
 	// userSignature travels as base64(armored PGP). Decode once and hand
 	// the armor to VerifySignature.
-	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
+	userSigArmor, err := base64Decode(userSignatureB64)
 	if err != nil {
 		log.Error().Err(err).Msg("Invalid userSignature encoding")
 		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
@@ -542,7 +541,7 @@ func (h *Handlers) GenerateUserID(w http.ResponseWriter, r *http.Request) {
 
 	writeResponse(w, http.StatusOK, map[string]string{
 		"userID":      userID,
-		"signature":   encoding.Base64Encode(sig),
+		"signature":   base64Encode(sig),
 		"fingerprint": h.signingKey.Fingerprint,
 	})
 }
@@ -1128,7 +1127,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userPayload := identity.BuildAccountRemovalUserPayload(serverID, userID, note)
-	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
+	userSigArmor, err := base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
@@ -1369,7 +1368,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	userPayload := identity.BuildUserIdentityPayload(username, fingerprint, bio)
 
-	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
+	userSigArmor, err := base64Decode(userSignatureB64)
 	if err != nil {
 		log.Error().Err(err).Msg("Invalid userSignature encoding")
 		writeResponse(w, http.StatusBadRequest, "Invalid userSignature encoding")
@@ -1514,7 +1513,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `revokedKeySignature` is required")
 		return
 	}
-	revokedKeySigArmor, err := encoding.Base64Decode(revokedKeySignatureB64)
+	revokedKeySigArmor, err := base64Decode(revokedKeySignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid revokedKeySignature encoding")
 		return
@@ -1528,7 +1527,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `newKeySignature` is required")
 		return
 	}
-	newKeySigArmor, err := encoding.Base64Decode(newKeySignatureB64)
+	newKeySigArmor, err := base64Decode(newKeySignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid newKeySignature encoding")
 		return
@@ -1548,7 +1547,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `revocationUserSignature` is required")
 		return
 	}
-	revocationUserSigArmor, err := encoding.Base64Decode(revocationUserSignatureB64)
+	revocationUserSigArmor, err := base64Decode(revocationUserSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid revocationUserSignature encoding")
 		return
@@ -1560,7 +1559,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `publicKey` is required")
 		return
 	}
-	armoredPublicKey, err := encoding.Base64Decode(publicKeyB64)
+	armoredPublicKey, err := base64Decode(publicKeyB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid publicKey encoding")
 		return
@@ -1719,7 +1718,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 
 	h.metrics.KeyRevoked(r.Context(), userID)
 
-	publicKey.Armor = encoding.Base64Encode(publicKey.Armor)
+	publicKey.Armor = base64Encode(publicKey.Armor)
 	writeResponse(w, http.StatusOK, publicKey)
 }
 
@@ -1895,7 +1894,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	// Unverifiable here (no content), but still required/stored/countersigned:
 	// it closes the "re-sign different content under the same id" swap
 	// attack. See docs/content_privacy.md.
-	if _, err := encoding.Base64Decode(userSignature); err != nil {
+	if _, err := base64Decode(userSignature); err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
@@ -2183,7 +2182,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userPayload := identity.BuildReedRemovalUserPayload(serverID, reedID)
-	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
+	userSigArmor, err := base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
@@ -2396,7 +2395,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userPayload := identity.BuildReedLikeUserPayload(reedID, fingerprint)
-	userSigArmor, err := encoding.Base64Decode(userSignatureB64)
+	userSigArmor, err := base64Decode(userSignatureB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
@@ -3191,7 +3190,7 @@ func (h *Handlers) federationSignServer(message []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return encoding.Base64Encode(sigArmor), nil
+	return base64Encode(sigArmor), nil
 }
 
 // federationHTTPClient returns the client used for server-to-server
@@ -3522,7 +3521,7 @@ func (h *Handlers) setPeerProxyAuthHeaders(req *http.Request, body string) error
 	}
 	publicKeyID := string(identity.CanonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint))
 	req.Header.Set("X-Syrinx-Public-Key-Id", publicKeyID)
-	req.Header.Set("X-Syrinx-Signature", encoding.Base64Encode(sigArmor))
+	req.Header.Set("X-Syrinx-Signature", base64Encode(sigArmor))
 	req.Header.Set("X-Syrinx-Signature-Scope", "body")
 	req.Header.Set("X-Syrinx-Timestamp", timestamp)
 	return nil
@@ -3630,7 +3629,7 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 	if err := json.NewDecoder(resp.Body).Decode(&key); err != nil {
 		return nil, fmt.Errorf("decode peer user key: %w", err)
 	}
-	armor, err := encoding.Base64Decode(key.Armor)
+	armor, err := base64Decode(key.Armor)
 	if err != nil {
 		return nil, fmt.Errorf("decode peer user key armor: %w", err)
 	}
@@ -3660,7 +3659,7 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 	// key.Armor above (see GetKey/verifyPublicKey's own base64 handling of
 	// this same field) — only successorSignature on a revocation cert is
 	// raw armor.
-	serverSigArmor, err := encoding.Base64Decode(key.ServerSignature.Armor)
+	serverSigArmor, err := base64Decode(key.ServerSignature.Armor)
 	if err != nil {
 		return nil, fmt.Errorf("decode peer key server signature: %w", err)
 	}
@@ -3748,7 +3747,7 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 		writeResponse(w, http.StatusBadRequest, "remotePublicKeyArmor is required")
 		return
 	}
-	remoteArmor, err := encoding.Base64Decode(remoteArmorB64)
+	remoteArmor, err := base64Decode(remoteArmorB64)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid remotePublicKeyArmor encoding")
 		return
@@ -4749,7 +4748,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	}
 
 	signBytes := identity.BuildFederationConnectPayload(inviteID, req.ServerID, req.BaseURL, req.Fingerprint)
-	sigArmor, err := encoding.Base64Decode(req.Signature)
+	sigArmor, err := base64Decode(req.Signature)
 	if err != nil {
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invalid signature encoding")
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
@@ -4863,7 +4862,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	initiatorSignBytes := identity.BuildFederationInvitationPayload(
 		payload.InviteID, payload.ServerID, payload.BaseURL, payload.Fingerprint, payload.Secret,
 	)
-	initiatorSigArmor, err := encoding.Base64Decode(payload.Signature)
+	initiatorSigArmor, err := base64Decode(payload.Signature)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
@@ -5148,7 +5147,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
-	userSigArmor, err := encoding.Base64Decode(req.UserSignature)
+	userSigArmor, err := base64Decode(req.UserSignature)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
