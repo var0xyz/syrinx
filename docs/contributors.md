@@ -7,7 +7,7 @@ This site is the **canonical source of truth** for design intent. When you chang
 | Path | Responsibility |
 |------|----------------|
 | Root Go module | HTTP API, middleware, DB init, wiring |
-| `realtime/` | WebSocket service, fanout, protobuf events |
+| `realtime/` | WebSocket service, fanout, JSON events (protobuf migration spec'd, not yet implemented) |
 | `spa/` | SvelteKit PWA client |
 | `identity/` | Shared identity payload builders |
 | `crypto/`, `signing/`, `keys/`, `secret/` | Crypto primitives and key handling |

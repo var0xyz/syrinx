@@ -9,7 +9,9 @@ This package provides real-time WebSocket functionality for the Syrinx applicati
 - **Subscription Management**: Supports user-specific and broadcast subscriptions
 - **Real-time Broadcasting**: Broadcasts reed notifications, user updates, and other events
 - **Online User Tracking**: Tracks online users in the database
-- **Protobuf Messages**: Uses Protocol Buffers for efficient message serialization
+- **JSON Messages**: Wire messages are JSON text frames today; a partial,
+  unused protobuf binary path exists but doesn't cover the live message
+  set (see `specs/protobuf/`)
 
 ## Architecture
 

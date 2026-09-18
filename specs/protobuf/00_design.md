@@ -23,11 +23,13 @@ protobuf but never completed the cutover.
 
 ## Scope
 
-- Define **protobuf as the only client↔server wire encoding** for HTTP
-  request/response bodies and WebSocket application messages.
+- Define **protobuf as the only wire encoding** for HTTP request/response
+  bodies and WebSocket application messages between client and server,
+  **and** for HTTP request/response bodies between federated servers
+  (`federation_relay.go`'s relay RPCs and admin/handshake endpoints).
 - Lock shared resource messages and the WS envelope.
 - Lock codegen, content types, and hard cutover rules.
-- Outline implementable steps ([01](01_shared_messages.md)–[06](06_spa_types.md)).
+- Outline implementable steps ([01](01_shared_messages.md)–[07](07_federation.md)).
 
 ## Non-goals
 
@@ -61,6 +63,7 @@ proto/
   invites.proto      # Invite messages
   recovery.proto     # Recovery / status probe bodies as needed
   websocket.proto    # WSMessage envelope + every WS payload
+  federation.proto   # Relay RPC + admin/handshake request/response messages
 ```
 
 Go: `option go_package` under `github.com/alvaro/syrinx/proto/…` (or a
@@ -144,6 +147,32 @@ message WSMessage {
   generated code; `ServerEvent` becomes the generated enum (or a thin
   map over it).
 
+### Federation
+
+Server-to-server traffic (`federation_relay.go`: 23 relay RPC legs plus
+~18 admin/handshake endpoints, registered in `main.go`) is signed
+HTTP+JSON today and is **in scope**, migrating alongside HTTP in the
+same spirit as 03–04 but tracked as its own step ([07](07_federation.md))
+since it has its own request/response shapes and registration surface,
+distinct from the client-facing `/api/` routes.
+
+Federation's transport-level signature
+(`X-Syrinx-Signature`/`X-Syrinx-Public-Key-Id`/`X-Syrinx-Timestamp`,
+set by `setPeerProxyAuthHeaders` in `handlers.go` and verified by
+`buildCanonicalRequestString` in `middlewares.go`) signs the literal
+request body bytes as received, not a re-derived or canonicalized form —
+the same mechanism used for regular client request signing. This makes
+it encoding-agnostic by construction: it is safe to sign protobuf bytes
+exactly as it is safe to sign JSON bytes today, **provided** the
+marshaled bytes are produced once and passed through unmodified between
+signing and sending, and verified against the unretouched received
+bytes. `proto.Marshal` is not guaranteed deterministic across calls, so
+neither side may re-marshal a message and expect identical bytes to a
+prior marshal of the same message — sign/verify must always operate on
+the actual bytes that crossed the wire, never on a re-serialized copy.
+This does not change the signature *scheme* (headers, canonical string
+shape) — only the body encoding underneath it.
+
 ### Cutover
 
 Blank slate with the deployed pair:
@@ -152,6 +181,7 @@ Blank slate with the deployed pair:
 2. Land HTTP codec + switch all routes and `api.ts` together (03–04).
 3. Land WS binary + drop the JSON WS branch together (05).
 4. Delete hand-maintained wire interfaces that duplicate protos (06).
+5. Land federation codec + switch all relay/admin endpoints together (07).
 
 No content-negotiation, no “JSON if Accept says so,” no parallel WS
 text path after 05.
@@ -179,3 +209,6 @@ text path after 05.
 - Whether recovery/ops-only HTTP is in the first cut or a follow-up
   within 04 (prefer **all** `/api/` in 04).
 - Single Go proto package vs per-file packages.
+- Whether each federation relay leg gets its own `*Request`/`*Response`
+  pair or several legs share one shape where the fields already
+  coincide (resolve in 07).
