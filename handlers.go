@@ -23,7 +23,6 @@ import (
 	"syrinx/observability/metrics"
 	"syrinx/realtime"
 	"syrinx/recovery"
-	"syrinx/roles"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -310,7 +309,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
-	if userID == roles.RootUserID {
+	if userID == rootUserID {
 		writeResponse(w, http.StatusBadRequest, "userID is reserved")
 		return
 	}
@@ -437,7 +436,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	if hasInvite {
 		inviteGrantedRole = invite.GrantedRole
 	}
-	signupRole := roles.SignupRole(userID, inviteGrantedRole, hasInvite, h.services.db.GetServerID())
+	signupRole := signupRole(userID, inviteGrantedRole, hasInvite, h.services.db.GetServerID())
 
 	profilePayload := buildNewProfilePayload(
 		string(selfIdentity),
@@ -3171,7 +3170,7 @@ func (h *Handlers) isAdmin(ctx context.Context, userID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return roles.RequireAdmin(role) == nil, nil
+	return requireAdmin(role) == nil, nil
 }
 
 func (h *Handlers) isRoot(ctx context.Context, userID string) (bool, error) {
@@ -3179,7 +3178,7 @@ func (h *Handlers) isRoot(ctx context.Context, userID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return roles.IsRoot(userID, role, h.services.db.GetServerID()), nil
+	return isRoot(userID, role, h.services.db.GetServerID()), nil
 }
 
 func (h *Handlers) federationSignServer(message []byte) (string, error) {

@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/roles"
 )
 
 // seedPublicKey inserts a minimal public_keys row directly (not via
@@ -35,7 +34,7 @@ func seedPublicKey(t *testing.T, ds *DataService, id, owner string) {
 // valid key at all (the bug this replaced a separate RevokeKey call for).
 func TestAddPublicKey_RotatesAtomically(t *testing.T) {
 	_, ds, _, _ := testFederationHandlers(t)
-	user := seedFederationUser(t, ds, "rotuser1", "rotuser1", roles.RoleUser)
+	user := seedFederationUser(t, ds, "rotuser1", "rotuser1", roleUser)
 	oldKeyID := user + "/oldkey1"
 	seedPublicKey(t, ds, oldKeyID, user)
 
@@ -80,7 +79,7 @@ func TestAddPublicKey_RotatesAtomically(t *testing.T) {
 // successor key is rejected, same as before the revoke+add merge.
 func TestAddPublicKey_DoubleRotationRejected(t *testing.T) {
 	_, ds, _, _ := testFederationHandlers(t)
-	user := seedFederationUser(t, ds, "rotuser2", "rotuser2", roles.RoleUser)
+	user := seedFederationUser(t, ds, "rotuser2", "rotuser2", roleUser)
 	oldKeyID := user + "/oldkey2"
 	seedPublicKey(t, ds, oldKeyID, user)
 

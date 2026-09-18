@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"syrinx/roles"
 
 	"github.com/rs/zerolog/log"
 )
@@ -56,10 +55,10 @@ func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *cryptoService
 		return false, nil
 	}
 
-	// GetUserProfile takes userID in "userID@serverID" form; roles.RootUserID
+	// GetUserProfile takes userID in "userID@serverID" form; rootUserID
 	// is the bare literal ("1"), composed with this server's own serverID
 	// so it resolves THIS instance's own root, not another server's "1".
-	rootIdentity := canonicalID(db.GetServerID(), roles.RootUserID)
+	rootIdentity := canonicalID(db.GetServerID(), rootUserID)
 	root, err := db.GetUserProfile(context.Background(), rootIdentity.String())
 	if err != nil {
 		return false, err
@@ -87,7 +86,7 @@ func requireRootUser(cfg AppConfig, db *DataService) error {
 		return nil
 	}
 	// Same reasoning as maybeExportRootKey above.
-	rootIdentity := canonicalID(db.GetServerID(), roles.RootUserID)
+	rootIdentity := canonicalID(db.GetServerID(), rootUserID)
 	root, err := db.GetUserProfile(context.Background(), rootIdentity.String())
 	if err != nil {
 		return err
@@ -115,7 +114,7 @@ func exportRootIdentity(
 	}
 
 	keyPassphrase := exportPassphrase
-	openPGPName := roles.RootUserID + "@" + serverID
+	openPGPName := rootUserID + "@" + serverID
 
 	kp, err := cryptoSvc.createKeyPair(openPGPName, "", serverName)
 	if err != nil {
@@ -142,7 +141,7 @@ func exportRootIdentity(
 	// will rebuild different bytes than what was signed (same invariant as
 	// the regular signup handler in handlers.go). Computed up front since
 	// the canonical key fingerprint the payloads sign is built from it.
-	rootID := canonicalID(serverID, roles.RootUserID).String()
+	rootID := canonicalID(serverID, rootUserID).String()
 	keyID := string(appendEntity(identityID(rootID), keyMeta.Fingerprint))
 
 	userPayload := buildUserIdentityPayload(rootUsername, keyID, "")
@@ -162,7 +161,7 @@ func exportRootIdentity(
 		signingKey.Fingerprint,
 		userSigB64,
 		"",
-		roles.RoleRoot,
+		roleRoot,
 		now,
 	)
 	profileSig, err := rootCountersign(cryptoSvc, db, signingKey, profilePayload, now)
@@ -184,7 +183,7 @@ func exportRootIdentity(
 	}
 
 	if _, err := db.Signup(context.Background(), SignupInput{
-		UserID:             roles.RootUserID,
+		UserID:             rootUserID,
 		Username:           rootUsername,
 		PublicKeyArmor:     kp.PublicKey,
 		Fingerprint:        keyID,
@@ -260,7 +259,7 @@ func exportRootIdentity(
 		return "", err
 	}
 
-	filename := fmt.Sprintf("syrinx-%s-%d.sxi.gpg", roles.RootUserID, ts)
+	filename := fmt.Sprintf("syrinx-%s-%d.sxi.gpg", rootUserID, ts)
 	outPath := filename
 	if dir := strings.TrimSpace(outDir); dir != "" {
 		outPath = filepath.Join(dir, filename)

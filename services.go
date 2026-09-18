@@ -21,7 +21,6 @@ import (
 	"syrinx/deletion"
 	"syrinx/invites"
 	"syrinx/recovery"
-	"syrinx/roles"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -559,7 +558,7 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 	if in.Invite != nil {
 		inviteGrantedRole = in.Invite.GrantedRole
 	}
-	signupRole := roles.SignupRole(in.UserID, inviteGrantedRole, in.Invite != nil, s.serverID)
+	signupRole := signupRole(in.UserID, inviteGrantedRole, in.Invite != nil, s.serverID)
 
 	keyServerSigID, err := insertServerSignature(ctx, tx,
 		in.PublicKeySignature.ID,
