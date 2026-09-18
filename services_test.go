@@ -94,3 +94,21 @@ func TestCountMarkdownCharacters(t *testing.T) {
 		t.Fatalf("got %d want 4", got)
 	}
 }
+
+func TestCoveragePercent(t *testing.T) {
+	tests := []struct {
+		holders, active int
+		want            int
+	}{
+		{0, 0, 0},
+		{12, 100, 12},
+		{1, 3, 33},
+		{100, 100, 100},
+		{150, 100, 100},
+	}
+	for _, tc := range tests {
+		if got := coveragePercent(tc.holders, tc.active); got != tc.want {
+			t.Fatalf("coveragePercent(%d, %d) = %d, want %d", tc.holders, tc.active, got, tc.want)
+		}
+	}
+}

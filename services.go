@@ -17,7 +17,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"syrinx/coverage"
 	"syrinx/crypto"
 	"syrinx/deletion"
 	"syrinx/identity"
@@ -611,7 +610,7 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 		}
 	}
 
-	if err := coverage.BumpActiveUsers(ctx, tx, 1); err != nil {
+	if err := bumpActiveUsers(ctx, tx, 1); err != nil {
 		return nil, err
 	}
 
@@ -4942,4 +4941,37 @@ func (s *DataService) SoftDeleteRipple(ctx context.Context, id, ownerUserID stri
 		return true, true, err
 	}
 	return true, true, nil
+}
+
+// ============ //
+//   coverage   //
+// ============ //
+
+// coveragePercent returns floor(100 * holders / activeUsers), capped at 100.
+func coveragePercent(holders, activeUsers int) int {
+	if activeUsers <= 0 {
+		return 0
+	}
+	p := (100 * holders) / activeUsers
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+// bumpActiveUsers adjusts the singleton active-user counter in the same TX.
+func bumpActiveUsers(ctx context.Context, tx *sql.Tx, delta int) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE network_stats
+		SET active_users = GREATEST(0, active_users + $1)
+		WHERE id = TRUE
+	`, delta)
+	return err
+}
+
+// getActiveUsers reads the network-wide active user count.
+func getActiveUsers(ctx context.Context, db *sql.DB) (int, error) {
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT active_users FROM network_stats WHERE id = TRUE`).Scan(&n)
+	return n, err
 }
