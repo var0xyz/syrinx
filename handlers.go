@@ -18,7 +18,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"syrinx/coverage"
 	"syrinx/crypto"
 	"syrinx/deletion"
 	"syrinx/identity"
@@ -2054,8 +2053,8 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		ReedID:   reed.ID,
 		TagCount: len(tags),
 	})
-	if activeUsers, err := coverage.ActiveUsers(r.Context(), h.services.db.db); err == nil {
-		h.metrics.ReedCoverage(r.Context(), userID, reed.ID, 1, coverage.Percent(1, activeUsers))
+	if activeUsers, err := getActiveUsers(r.Context(), h.services.db.db); err == nil {
+		h.metrics.ReedCoverage(r.Context(), userID, reed.ID, 1, coveragePercent(1, activeUsers))
 	}
 
 	log.Debug().
