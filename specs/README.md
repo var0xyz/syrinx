@@ -29,6 +29,7 @@ Each table below has a **Status** column per step. Values:
 | Load testing     | Proposed    | 00–03                                             |
 | Federation       | In progress | 00, 02–05 (depends on roles)                      |
 | Protobuf wire    | Proposed    | 00–07 (HTTP, WS, federation, shared protos, SPA types) |
+| Depackaging      | Proposed    | 00–10 (fold 11 packages into root)                |
 | Publish ready    | Implemented | —                                                 |
 | Pipes            | Implemented | —                                                 |
 | Conversations    | Implemented | —                                                 |
