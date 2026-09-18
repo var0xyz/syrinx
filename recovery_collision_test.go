@@ -6,12 +6,10 @@ import (
 	"database/sql"
 	"testing"
 	"time"
-
-	"syrinx/recovery"
 )
 
 // ensureRecoveryCollisionSchema extends the signup-test schema with the
-// tables SaveOwnIdentity/SavePeerIdentity touch: network_stats (coverage
+// tables saveOwnIdentity/savePeerIdentity touch: network_stats (coverage
 // counter), unclaimed_accounts, ongoing_recoveries, pending_follows, and
 // user_devices (own-claim device binding).
 func ensureRecoveryCollisionSchema(db *sql.DB) error {
@@ -22,9 +20,9 @@ func ensureRecoveryCollisionSchema(db *sql.DB) error {
 		`DROP TABLE IF EXISTS unclaimed_accounts CASCADE`,
 		`DROP TABLE IF EXISTS network_stats CASCADE`,
 		// public_keys/public_key_revocations are already created by
-		// openSignupTestDB with the shape insertKeys/claimUsername rely
-		// on (owner FKs identities(id) ON DELETE CASCADE), so no
-		// recreation needed here.
+		// openSignupTestDB with the shape insertRecoveryKeys/
+		// claimRecoveryUsername rely on (owner FKs identities(id) ON
+		// DELETE CASCADE), so no recreation needed here.
 		`CREATE TABLE network_stats (
 			id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
 			active_users INT NOT NULL DEFAULT 0
@@ -69,17 +67,17 @@ func openRecoveryCollisionTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func recoveryProfile(userID, username string, signedAt time.Time) recovery.Profile {
-	return recovery.Profile{
+func testRecoveryProfile(userID, username string, signedAt time.Time) recoveryProfile {
+	return recoveryProfile{
 		ID:          userID,
 		Username:    username,
 		Role:        "user",
 		MemberSince: signedAt,
-		UserSignature: recovery.UserSignature{
+		UserSignature: recoveryUserSignature{
 			KeyID: userID + "-key",
 			Armor: "user-sig-" + userID,
 		},
-		ServerSignature: recovery.ServerSignature{
+		ServerSignature: recoveryServerSignature{
 			ServerID:    "test",
 			Fingerprint: "server-key",
 			Armor:       "server-sig-" + userID,
@@ -88,14 +86,14 @@ func recoveryProfile(userID, username string, signedAt time.Time) recovery.Profi
 	}
 }
 
-func recoveryFlatKey(userID string, createdAt time.Time) []recovery.FlatKey {
-	return []recovery.FlatKey{{
-		Key: recovery.KeyWire{
+func testRecoveryFlatKey(userID string, createdAt time.Time) []recoveryFlatKey {
+	return []recoveryFlatKey{{
+		Key: recoveryKeyWire{
 			Fingerprint: userID + "-key",
 			UserID:      userID,
 			Armor:       "pubkey-" + userID,
 			CreatedAt:   createdAt,
-			ServerSignature: recovery.ServerSignature{
+			ServerSignature: recoveryServerSignature{
 				ServerID:    "test",
 				Fingerprint: "server-key",
 				Armor:       "key-server-sig-" + userID,
@@ -116,16 +114,16 @@ func TestSaveOwnIdentity_UsernameCollision_IncomingLoses(t *testing.T) {
 	ctx := t.Context()
 
 	holderSignedAt := time.Now().UTC().Truncate(time.Second)
-	holder := recoveryProfile("holder1", "bob", holderSignedAt)
-	if _, err := recovery.SavePeerIdentity(ctx, db, "test", holder, recoveryFlatKey("holder1", holderSignedAt)); err != nil {
+	holder := testRecoveryProfile("holder1", "bob", holderSignedAt)
+	if _, err := savePeerIdentity(ctx, db, "test", holder, testRecoveryFlatKey("holder1", holderSignedAt)); err != nil {
 		t.Fatalf("seed holder: %v", err)
 	}
 
 	olderSignedAt := holderSignedAt.Add(-time.Hour)
-	claimant := recoveryProfile("claimant1", "bob", olderSignedAt)
-	res, err := recovery.SaveOwnIdentity(ctx, db, "test", claimant, recoveryFlatKey("claimant1", olderSignedAt), "")
+	claimant := testRecoveryProfile("claimant1", "bob", olderSignedAt)
+	res, err := saveOwnIdentity(ctx, db, "test", claimant, testRecoveryFlatKey("claimant1", olderSignedAt), "")
 	if err != nil {
-		t.Fatalf("SaveOwnIdentity: %v", err)
+		t.Fatalf("saveOwnIdentity: %v", err)
 	}
 	if !res.Rejected {
 		t.Fatalf("expected Rejected=true, got %+v", res)
@@ -157,16 +155,16 @@ func TestSavePeerIdentity_UsernameCollision_IncomingWins(t *testing.T) {
 	ctx := t.Context()
 
 	holderSignedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
-	holder := recoveryProfile("holder2", "carol", holderSignedAt)
-	if _, err := recovery.SavePeerIdentity(ctx, db, "test", holder, recoveryFlatKey("holder2", holderSignedAt)); err != nil {
+	holder := testRecoveryProfile("holder2", "carol", holderSignedAt)
+	if _, err := savePeerIdentity(ctx, db, "test", holder, testRecoveryFlatKey("holder2", holderSignedAt)); err != nil {
 		t.Fatalf("seed holder: %v", err)
 	}
 
 	newerSignedAt := time.Now().UTC().Truncate(time.Second)
-	winner := recoveryProfile("winner2", "carol", newerSignedAt)
-	res, err := recovery.SavePeerIdentity(ctx, db, "test", winner, recoveryFlatKey("winner2", newerSignedAt))
+	winner := testRecoveryProfile("winner2", "carol", newerSignedAt)
+	res, err := savePeerIdentity(ctx, db, "test", winner, testRecoveryFlatKey("winner2", newerSignedAt))
 	if err != nil {
-		t.Fatalf("SavePeerIdentity: %v", err)
+		t.Fatalf("savePeerIdentity: %v", err)
 	}
 	if res.Rejected || !res.Created {
 		t.Fatalf("expected winner to be created, got %+v", res)
@@ -205,15 +203,15 @@ func TestSaveOwnIdentity_UsernameCollision_TieGoesToHolder(t *testing.T) {
 	ctx := t.Context()
 
 	tie := time.Now().UTC().Truncate(time.Second)
-	holder := recoveryProfile("holder3", "dave", tie)
-	if _, err := recovery.SavePeerIdentity(ctx, db, "test", holder, recoveryFlatKey("holder3", tie)); err != nil {
+	holder := testRecoveryProfile("holder3", "dave", tie)
+	if _, err := savePeerIdentity(ctx, db, "test", holder, testRecoveryFlatKey("holder3", tie)); err != nil {
 		t.Fatalf("seed holder: %v", err)
 	}
 
-	claimant := recoveryProfile("claimant3", "dave", tie)
-	res, err := recovery.SaveOwnIdentity(ctx, db, "test", claimant, recoveryFlatKey("claimant3", tie), "")
+	claimant := testRecoveryProfile("claimant3", "dave", tie)
+	res, err := saveOwnIdentity(ctx, db, "test", claimant, testRecoveryFlatKey("claimant3", tie), "")
 	if err != nil {
-		t.Fatalf("SaveOwnIdentity: %v", err)
+		t.Fatalf("saveOwnIdentity: %v", err)
 	}
 	if !res.Rejected {
 		t.Fatalf("expected tie to reject the incoming claim, got %+v", res)

@@ -1,4 +1,6 @@
-package recovery
+//go:build !ops
+
+package main
 
 import (
 	"context"
@@ -7,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestAllowedDuringImport(t *testing.T) {
+func TestRecoveryAllowedDuringImport(t *testing.T) {
 	tests := []struct {
 		path string
 		want bool
@@ -24,18 +26,18 @@ func TestAllowedDuringImport(t *testing.T) {
 		{"/api/health", false},
 	}
 	for _, tt := range tests {
-		if got := AllowedDuringImport(tt.path); got != tt.want {
-			t.Errorf("AllowedDuringImport(%q) = %v, want %v", tt.path, got, tt.want)
+		if got := recoveryAllowedDuringImport(tt.path); got != tt.want {
+			t.Errorf("recoveryAllowedDuringImport(%q) = %v, want %v", tt.path, got, tt.want)
 		}
 	}
 }
 
-func TestMiddleware(t *testing.T) {
+func TestRecoveryImportGateMiddleware(t *testing.T) {
 	type ctxKey struct{}
 	key := ctxKey{}
 
 	ongoing := map[string]bool{"user-ongoing": true}
-	mw := middleware(key, func(ctx context.Context, userID string) (bool, error) {
+	mw := recoveryImportGateMiddleware(key, func(ctx context.Context, userID string) (bool, error) {
 		return ongoing[userID], nil
 	})
 

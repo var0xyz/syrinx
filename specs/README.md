@@ -7,9 +7,10 @@ feature itself.
 
 The recovery **feature** (endpoints, boot, bundle, client) is specified and
 broken into reviewable steps under
-[`recovery/`](recovery/README.md). All server-side recovery implementation
-belongs in the **`syrinx/recovery`** package; main only wires boot, routes,
-and middleware.
+[`recovery/`](recovery/README.md). Server-side recovery implementation lives
+directly in root (`package main`), per
+[`depackaging/09_recovery.md`](depackaging/09_recovery.md) — superseding the
+original standalone `syrinx/recovery` package boundary.
 
 ## Status at a glance
 

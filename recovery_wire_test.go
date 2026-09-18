@@ -1,4 +1,6 @@
-package recovery
+//go:build !ops
+
+package main
 
 import (
 	"context"
@@ -6,14 +8,11 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
-
-	"syrinx/crypto"
-	"syrinx/identity"
 )
 
 // Real client wire shape (spa/src/lib/types/api.ts) — canonical `id`,
 // never a bare fingerprint. A Go-literal fixture wouldn't catch this.
-const clientShapedProfileJSON = `{
+const clientShapedRecoveryProfileJSON = `{
 	"id": "user1@srv1",
 	"username": "alice",
 	"role": "user",
@@ -26,9 +25,9 @@ const clientShapedProfileJSON = `{
 	"invite": null
 }`
 
-func TestProfileUnmarshalJSON_ClientShape(t *testing.T) {
-	var p Profile
-	if err := json.Unmarshal([]byte(clientShapedProfileJSON), &p); err != nil {
+func TestRecoveryProfileUnmarshalJSON_ClientShape(t *testing.T) {
+	var p recoveryProfile
+	if err := json.Unmarshal([]byte(clientShapedRecoveryProfileJSON), &p); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 	// UserSignature.KeyID holds the FULL canonical id — the signed
@@ -46,19 +45,19 @@ func TestProfileUnmarshalJSON_ClientShape(t *testing.T) {
 	}
 }
 
-func TestProfileMarshalUnmarshalRoundTrip(t *testing.T) {
+func TestRecoveryProfileMarshalUnmarshalRoundTrip(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
-	original := Profile{
+	original := recoveryProfile{
 		ID:              "user1@srv1",
 		Username:        "alice",
-		UserSignature:   UserSignature{KeyID: "user1@srv1/AAA", Armor: "dXNlcg=="},
-		ServerSignature: ServerSignature{ServerID: "srv1", Fingerprint: "SKEY", Armor: "c2VydmVy", Timestamp: ts},
+		UserSignature:   recoveryUserSignature{KeyID: "user1@srv1/AAA", Armor: "dXNlcg=="},
+		ServerSignature: recoveryServerSignature{ServerID: "srv1", Fingerprint: "SKEY", Armor: "c2VydmVy", Timestamp: ts},
 	}
 	b, err := json.Marshal(original)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	var round Profile
+	var round recoveryProfile
 	if err := json.Unmarshal(b, &round); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
@@ -73,8 +72,8 @@ func TestProfileMarshalUnmarshalRoundTrip(t *testing.T) {
 	}
 }
 
-func TestServerSignatureUnmarshalJSON_MalformedID(t *testing.T) {
-	var s ServerSignature
+func TestRecoveryServerSignatureUnmarshalJSON_MalformedID(t *testing.T) {
+	var s recoveryServerSignature
 	err := json.Unmarshal([]byte(`{"id": "not-canonical", "armor": "x", "timestamp": "2026-07-19T12:00:00Z"}`), &s)
 	if err == nil {
 		t.Fatal("expected error for non-canonical serverSignature.id")
@@ -82,50 +81,50 @@ func TestServerSignatureUnmarshalJSON_MalformedID(t *testing.T) {
 }
 
 // BuildProfilePayload's keyID header binds the full canonical user key
-// id, not a bare fingerprint — fakeVerifier tests can't catch a wrong
-// shape since they skip real crypto; this signs/verifies for real.
+// id, not a bare fingerprint — fakeRecoveryVerifier tests can't catch a
+// wrong shape since they skip real crypto; this signs/verifies for real.
 func TestVerifyProfileServerCountersig_RealSignatureAfterJSONRoundTrip(t *testing.T) {
-	cryptoSvc := crypto.NewService()
+	cryptoSvc := newCryptoService()
 	serverID := "srv1"
 
-	serverKP, err := cryptoSvc.CreateKeyPair("server", "", "")
+	serverKP, err := cryptoSvc.createKeyPair("server", "", "")
 	if err != nil {
-		t.Fatalf("CreateKeyPair(server): %v", err)
+		t.Fatalf("createKeyPair(server): %v", err)
 	}
-	userKP, err := cryptoSvc.CreateKeyPair("user1", "", "")
+	userKP, err := cryptoSvc.createKeyPair("user1", "", "")
 	if err != nil {
-		t.Fatalf("CreateKeyPair(user): %v", err)
+		t.Fatalf("createKeyPair(user): %v", err)
 	}
 
 	userID := "user1@" + serverID
-	keyID := identity.AppendEntity(identity.IdentityID(userID), userKP.Fingerprint)
+	keyID := appendEntity(identityID(userID), userKP.Fingerprint)
 	ts := time.Now().UTC().Truncate(time.Second)
 
-	userPayload := identity.BuildUserIdentityPayload("alice", string(keyID), "")
-	userSigArmor, err := cryptoSvc.Sign(string(userPayload), userKP.PrivateKey)
+	userPayload := buildUserIdentityPayload("alice", string(keyID), "")
+	userSigArmor, err := cryptoSvc.sign(string(userPayload), userKP.PrivateKey)
 	if err != nil {
-		t.Fatalf("Sign(user): %v", err)
+		t.Fatalf("sign(user): %v", err)
 	}
 	userSigB64 := base64.StdEncoding.EncodeToString([]byte(userSigArmor))
 
-	profilePayload := identity.BuildNewProfilePayload(
+	profilePayload := buildNewProfilePayload(
 		userID, "alice", string(keyID), serverID, serverKP.Fingerprint,
 		userSigB64, "", "user", ts,
 	)
-	serverSigArmor, err := cryptoSvc.Sign(string(profilePayload), serverKP.PrivateKey)
+	serverSigArmor, err := cryptoSvc.sign(string(profilePayload), serverKP.PrivateKey)
 	if err != nil {
-		t.Fatalf("Sign(server): %v", err)
+		t.Fatalf("sign(server): %v", err)
 	}
 
 	// Client wire shape: userSignature.id / serverSignature.id are
 	// canonical, armor is base64 — matches spa/src/lib/types/api.ts.
 	wireJSON, err := json.Marshal(struct {
-		ID              string `json:"id"`
-		Username        string `json:"username"`
-		Role            string `json:"role"`
-		MemberSince     string `json:"memberSince"`
-		Bio             string `json:"bio"`
-		UserSignature   struct {
+		ID            string `json:"id"`
+		Username      string `json:"username"`
+		Role          string `json:"role"`
+		MemberSince   string `json:"memberSince"`
+		Bio           string `json:"bio"`
+		UserSignature struct {
 			ID    string `json:"id"`
 			Armor string `json:"armor"`
 		} `json:"userSignature"`
@@ -146,7 +145,7 @@ func TestVerifyProfileServerCountersig_RealSignatureAfterJSONRoundTrip(t *testin
 			Armor     string `json:"armor"`
 			Timestamp string `json:"timestamp"`
 		}{
-			ID:        string(identity.CanonicalID(serverID, serverKP.Fingerprint)),
+			ID:        string(canonicalID(serverID, serverKP.Fingerprint)),
 			Armor:     base64.StdEncoding.EncodeToString([]byte(serverSigArmor)),
 			Timestamp: ts.Format(time.RFC3339),
 		},
@@ -155,12 +154,12 @@ func TestVerifyProfileServerCountersig_RealSignatureAfterJSONRoundTrip(t *testin
 		t.Fatalf("Marshal wire JSON: %v", err)
 	}
 
-	var profile Profile
+	var profile recoveryProfile
 	if err := json.Unmarshal(wireJSON, &profile); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	err = VerifyProfileServerCountersig(context.Background(), profile, serverID,
+	err = verifyProfileServerCountersig(context.Background(), profile, serverID,
 		func(ctx context.Context, fp string) (string, error) {
 			if fp == serverKP.Fingerprint {
 				return serverKP.PublicKey, nil
@@ -170,6 +169,6 @@ func TestVerifyProfileServerCountersig_RealSignatureAfterJSONRoundTrip(t *testin
 		cryptoSvc,
 	)
 	if err != nil {
-		t.Fatalf("VerifyProfileServerCountersig: %v", err)
+		t.Fatalf("verifyProfileServerCountersig: %v", err)
 	}
 }

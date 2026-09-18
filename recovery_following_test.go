@@ -7,8 +7,6 @@ import (
 	"database/sql"
 	"testing"
 
-	"syrinx/recovery"
-
 	_ "github.com/lib/pq"
 )
 
@@ -44,9 +42,9 @@ func TestSaveFollowing_CanonicalIDs(t *testing.T) {
 	insertFollowingTestIdentity(t, db, existingTarget, serverID)
 	// pendingTarget deliberately has no identities row yet.
 
-	err := recovery.SaveFollowing(context.Background(), db, serverID, follower, []string{existingTarget, pendingTarget})
+	err := saveRecoveryFollowing(context.Background(), db, serverID, follower, []string{existingTarget, pendingTarget})
 	if err != nil {
-		t.Fatalf("SaveFollowing: %v", err)
+		t.Fatalf("saveRecoveryFollowing: %v", err)
 	}
 
 	var followingCount int
