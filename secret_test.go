@@ -49,8 +49,8 @@ func (m *memKeyring) Delete(service, user string) error {
 	return nil
 }
 
-func testResolver(envPassphrase, serverName string, kr Keyring) *Resolver {
-	return &Resolver{
+func testPassphraseResolver(envPassphrase, serverName string, kr Keyring) *passphraseResolver {
+	return &passphraseResolver{
 		EnvPassphrase: envPassphrase,
 		ServerName:    serverName,
 		Keyring:       kr,
@@ -63,7 +63,7 @@ func testResolver(envPassphrase, serverName string, kr Keyring) *Resolver {
 
 func TestResolve_Env(t *testing.T) {
 	kr := newMemKeyring()
-	r := testResolver("sixteen-chars!!!", "myserver", kr)
+	r := testPassphraseResolver("sixteen-chars!!!", "myserver", kr)
 
 	got, err := r.Resolve()
 	if err != nil {
@@ -81,7 +81,7 @@ func TestResolve_Env(t *testing.T) {
 }
 
 func TestResolve_EnvTooShort(t *testing.T) {
-	r := testResolver("short", "myserver", newMemKeyring())
+	r := testPassphraseResolver("short", "myserver", newMemKeyring())
 	_, err := r.Resolve()
 	if !errors.Is(err, ErrTooShort) {
 		t.Fatalf("err = %v, want ErrTooShort", err)
@@ -91,7 +91,7 @@ func TestResolve_EnvTooShort(t *testing.T) {
 func TestResolve_Keychain(t *testing.T) {
 	kr := newMemKeyring()
 	_ = kr.Set(keyringService, "server-key-passphrase:myserver", "from-keychain-xx")
-	r := testResolver("", "myserver", kr)
+	r := testPassphraseResolver("", "myserver", kr)
 
 	got, err := r.Resolve()
 	if err != nil {
@@ -108,7 +108,7 @@ func TestResolve_Keychain(t *testing.T) {
 func TestResolve_PromptStoresInKeychain(t *testing.T) {
 	kr := newMemKeyring()
 	var prompt bytes.Buffer
-	r := &Resolver{
+	r := &passphraseResolver{
 		EnvPassphrase: "",
 		ServerName:    "myserver",
 		Keyring:       kr,
@@ -140,7 +140,7 @@ func TestResolve_PromptStoresInKeychain(t *testing.T) {
 func TestResolve_EmptyPromptGenerates(t *testing.T) {
 	kr := newMemKeyring()
 	var out bytes.Buffer
-	r := &Resolver{
+	r := &passphraseResolver{
 		EnvPassphrase: "",
 		ServerName:    "myserver",
 		Keyring:       kr,
@@ -188,7 +188,7 @@ func TestGeneratePassphrase_Length(t *testing.T) {
 }
 
 func TestResolve_NonTTYFailClosed(t *testing.T) {
-	r := testResolver("", "myserver", newMemKeyring())
+	r := testPassphraseResolver("", "myserver", newMemKeyring())
 	_, err := r.Resolve()
 	if !errors.Is(err, ErrNotProvided) {
 		t.Fatalf("err = %v, want ErrNotProvided", err)
@@ -196,7 +196,7 @@ func TestResolve_NonTTYFailClosed(t *testing.T) {
 }
 
 func TestResolve_PromptTooShort(t *testing.T) {
-	r := &Resolver{
+	r := &passphraseResolver{
 		EnvPassphrase: "",
 		ServerName:    "myserver",
 		Keyring:       newMemKeyring(),
@@ -212,7 +212,7 @@ func TestResolve_PromptTooShort(t *testing.T) {
 
 func TestStore_UpdatesKeychain(t *testing.T) {
 	kr := newMemKeyring()
-	r := testResolver("", "myserver", kr)
+	r := testPassphraseResolver("", "myserver", kr)
 	if err := r.Store("rotated-pass-16x"); err != nil {
 		t.Fatalf("Store: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestStore_UpdatesKeychain(t *testing.T) {
 
 func TestStore_EnvManaged(t *testing.T) {
 	kr := newMemKeyring()
-	r := testResolver("sixteen-chars!!!", "myserver", kr)
+	r := testPassphraseResolver("sixteen-chars!!!", "myserver", kr)
 	err := r.Store("rotated-pass-16x")
 	if !errors.Is(err, ErrEnvManaged) {
 		t.Fatalf("err = %v, want ErrEnvManaged", err)
@@ -235,7 +235,7 @@ func TestStore_EnvManaged(t *testing.T) {
 }
 
 func TestAccount_Unscoped(t *testing.T) {
-	r := testResolver("", "", newMemKeyring())
+	r := testPassphraseResolver("", "", newMemKeyring())
 	if got := r.account(); got != "server-key-passphrase" {
 		t.Fatalf("account = %q", got)
 	}
