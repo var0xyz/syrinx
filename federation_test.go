@@ -116,7 +116,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		)`,
 		// Minimal shape: GetFederationUserIdentity's account-removal check
 		// only needs "does a row exist for this user_id" (see
-		// deletion.GetAccountCert / loadAccountCertTx) — no test here
+		// getAccountRemovalCert / loadAccountCertTx) — no test here
 		// exercises an actual removed account through this path, so the
 		// signature-id FKs from the real schema are omitted.
 		`CREATE TABLE IF NOT EXISTS account_removals (

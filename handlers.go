@@ -18,7 +18,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"syrinx/deletion"
 	"syrinx/invites"
 	"syrinx/observability/metrics"
 	"syrinx/realtime"
@@ -1083,7 +1082,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	note := values.Get("note")
-	if err := deletion.ValidateAccountNote(note); err != nil {
+	if err := validateAccountNote(note); err != nil {
 		writeResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1159,7 +1158,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cert := deletion.AccountCert{
+	cert := accountRemovalCert{
 		UserID:            userID,
 		Note:              note,
 		UserSignature:     userSignatureB64,
@@ -1169,7 +1168,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		ServerSignedAt:    serverSignature.SignedAt,
 	}
 	if err := h.services.db.InsertAccountRemoval(r.Context(), cert); err != nil {
-		if errors.Is(err, deletion.ErrConflict) {
+		if errors.Is(err, errRemovalConflict) {
 			existing, getErr := h.services.db.GetAccountRemoval(r.Context(), userID)
 			if getErr == nil && existing != nil && existing.UserSignature == userSignatureB64 && existing.Note == note {
 				writeResponse(w, http.StatusOK, h.accountRemovalWire(existing))
@@ -1216,7 +1215,8 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	wire := realtime.NewAccountRemovalWire(serverID, &cert)
+	legacyCert := toLegacyDeletionAccountCert(cert)
+	wire := realtime.NewAccountRemovalWire(serverID, &legacyCert)
 	h.broadcastChan <- realtime.BroadcastMessage{
 		Type:           realtime.AccountRemoved,
 		ServerID:       serverID,
@@ -1230,7 +1230,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, h.accountRemovalWire(&cert))
 }
 
-func (h *Handlers) accountRemovalWire(cert *deletion.AccountCert) AccountRemoval {
+func (h *Handlers) accountRemovalWire(cert *accountRemovalCert) AccountRemoval {
 	return AccountRemoval{
 		Type:     identityTypeAccount,
 		ServerID: h.services.db.GetServerID(),
@@ -2215,7 +2215,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cert := deletion.Cert{
+	cert := reedRemovalCert{
 		ReedID:            reedID,
 		UserID:            userID,
 		UserSignature:     userSignatureB64,
@@ -2225,7 +2225,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		ServerSignedAt:    serverSignature.SignedAt,
 	}
 	if err := h.services.db.InsertReedRemoval(r.Context(), cert); err != nil {
-		if errors.Is(err, deletion.ErrConflict) {
+		if errors.Is(err, errRemovalConflict) {
 			// Concurrent first accept: return the stored cert if the user
 			// signature matches; otherwise a true conflicting attestation.
 			existing, getErr := h.services.db.GetReedRemoval(r.Context(), reedID)
@@ -2275,7 +2275,8 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 	// Keep the reeds row for allocation catch-up (04): reed_allocations FK
 	// cascades on reed delete. Tip/list already exclude reed_removals.
-	wire := realtime.NewReedRemovalWire(serverID, &cert)
+	legacyCert := toLegacyDeletionCert(cert)
+	wire := realtime.NewReedRemovalWire(serverID, &legacyCert)
 
 	replyTargets, err := h.services.db.ReplyCountNotifyTargetsForRemovedReply(r.Context(), reedID)
 	if err != nil {
@@ -2584,7 +2585,7 @@ func (h *Handlers) UnpinReed(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handlers) reedRemovalWire(cert *deletion.Cert) ReedRemoval {
+func (h *Handlers) reedRemovalWire(cert *reedRemovalCert) ReedRemoval {
 	return ReedRemoval{
 		Type:     identityTypeReed,
 		ServerID: h.services.db.GetServerID(),
