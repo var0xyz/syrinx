@@ -28,7 +28,7 @@ export function formatRelativeTime(timestamp: string | number): string {
 }
 
 /**
- * Format timestamp as absolute date and time (MMM DD, YYYY at HH:MM AM/PM)
+ * Format timestamp as absolute date and time (MMM DD, YYYY at HH:MM, 24h)
  */
 export function formatAbsoluteDateTime(timestamp: string): string {
   if (!timestamp) return '';
@@ -40,9 +40,9 @@ export function formatAbsoluteDateTime(timestamp: string): string {
     day: 'numeric'
   });
   const timeStr = date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
+    hour: '2-digit',
     minute: '2-digit',
-    hour12: true
+    hour12: false
   });
   return `${dateStr} at ${timeStr}`;
 }

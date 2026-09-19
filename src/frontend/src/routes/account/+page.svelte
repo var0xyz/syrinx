@@ -635,6 +635,12 @@
     margin: 0 0 1rem;
   }
 
+  @media (min-width: 768px) {
+    .app-version {
+      display: none;
+    }
+  }
+
 
   .action-btn {
     padding: 0.5rem 1rem;
