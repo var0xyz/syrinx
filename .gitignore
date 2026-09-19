@@ -8,9 +8,10 @@ deploy/scripts/syrinx/client-certs/
 docs/.vitepress/cache
 docs/.vitepress/dist
 docs/node_modules
-spa/.svelte-kit
-spa/build
-spa/certs
-spa/node_modules
-spa/playwright-report
-spa/test-results
+src/frontend/.svelte-kit
+src/frontend/build
+src/frontend/certs
+src/frontend/node_modules
+src/frontend/playwright-report
+src/frontend/test-results
+tmp/

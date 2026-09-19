@@ -32,7 +32,6 @@ more than in a typical web app.
 | H3     | High     | server     | Response signing fails open                                            |
 | H4     | High     | SPA        | `userId` in `localStorage` alone unlocks the app                       |
 | H5     | High     | SPA        | Service worker `SIGN_TEXT` is an origin-unchecked signing oracle       |
-| M1     | Medium   | server/SPA | `BytesToSign` no-escaping + a reed envelope that *is* parsed back      |
 | M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
 | M3     | Medium   | server     | Recovery claim can succeed with a revoked "active" key                 |
 | M4     | Medium   | server     | WS `DATA_ACK`/relay handlers change state with no caller authorization |
@@ -147,26 +146,6 @@ restrict to same-origin clients.
 ---
 
 ## Medium
-
-### M1 — `BytesToSign` "never parsed back" is violated by the reed envelope
-**Where:** `signing/signing.go` (no-escaping envelope, documented as never
-re-parsed); **but** `services.go:1591` `ExtractReedHeader` *does* parse it back,
-splitting on `\n` and `strings.HasPrefix(line, "id:")`; envelope built by
-`ReedAsMarkdown` (`services.go:1546`) with user-controlled `content`.
-The whole "no escaping is safe" argument rests on the envelope never being
-parsed into fields. `ExtractReedHeader` breaks that invariant. Reed `content` is
-user-controlled and unescaped, so a body crafted with leading
-`\nid: <other>\n---\n` can influence what a header-extractor reads, and more
-generally lets two logically different reeds/records produce confusable bytes.
-The SPA mirror (`spa/src/lib/types/reed.ts:24-41`, `signing.ts:59-73`) has the
-same shape. Free-text fields placed in *headers* (notably `username` in identity
-payloads) are the higher-risk sink; note that `username` cannot contain `\n`
-(`trimInvisibleChars` in `utils.go:9` drops non-printable runes) but **can**
-contain `:` and other printables.
-**Fix:** either (a) stop parsing envelopes back (remove/replace
-`ExtractReedHeader` with structured fields), or (b) escape/length-prefix header
-values and reed content. At minimum, add an explicit invariant test that no
-signed field can inject a header line.
 
 ### M2 — Recovery claim challenge is a predictable, untracked timestamp
 **Where:** `recovery/identity.go:32-36` (`IssueChallenge` = `now().Unix()`);
@@ -353,6 +332,5 @@ recipient's socket.
 3. **H1** — bind and nonce the WebSocket handshake.
 4. **M2 / M3** — fix recovery claim replay and revoked-tip acceptance before
    relying on `RECOVERY_MODE` in anger.
-5. **M1** — remove the "envelope is parsed back" contradiction or add escaping.
-6. **M4 / M5 / M6 / M7 / M8 / M9** — realtime authorization, WS read limit,
+5. **M4 / M5 / M6 / M7 / M8 / M9** — realtime authorization, WS read limit,
    invite-quota atomicity, and SPA verification hardening.

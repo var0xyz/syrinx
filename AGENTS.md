@@ -29,24 +29,33 @@ Vocabulary:
 
 ## Tech stack
 
-- **Backend:** Go (see `go.mod` for the version), `gorilla/mux` router +
-  `gorilla/websocket`, `lib/pq` over **PostgreSQL**, `zerolog` logging,
-  OpenPGP via `ProtonMail/go-crypto`, OpenTelemetry SDK (traces largely
-  scaffolded/dead — see `observability.go` and `specs/observability/`),
-  `zalando/go-keyring` for the server-key passphrase, `google.golang.org/protobuf`.
-- **Frontend (`spa/`):** SvelteKit 2 + Svelte 5, TypeScript, Vite 6, static
-  adapter (`adapter-static` → `spa/build`), PWA (`@vite-pwa/sveltekit` +
-  workbox), `openpgp` v6 in the browser, Playwright e2e.
+- **Backend (`src/backend/`):** Go (see `src/backend/go.mod` for the version),
+  `gorilla/mux` router + `gorilla/websocket`, `lib/pq` over **PostgreSQL**,
+  `zerolog` logging, OpenPGP via `ProtonMail/go-crypto`, OpenTelemetry SDK
+  (traces largely scaffolded/dead — see `src/backend/observability/` and
+  `specs/observability/`), `zalando/go-keyring` for the server-key
+  passphrase, `google.golang.org/protobuf`.
+- **Frontend (`src/frontend/`):** SvelteKit 2 + Svelte 5, TypeScript, Vite 6,
+  static adapter (`adapter-static` → `src/frontend/build`), PWA
+  (`@vite-pwa/sveltekit` + workbox), `openpgp` v6 in the browser, Playwright
+  e2e.
 - **Docs (`docs/`):** a separate static docs site (its own `package.json`).
+
+Repo layout: `src/backend/` and `src/frontend/` hold all Go and SvelteKit
+source respectively; everything else (`specs/`, `docs/`, `deploy/` — incl.
+the ripples-cleanup cron job at `deploy/jobs/` — `scripts/`, root-level
+`Makefile`/`Dockerfile*`/`docker-compose.yml`) stays at the repo root.
+`cli/` (a separate `syrinx-cli` Go module — a standalone CLI tool, unrelated
+to the server) also stays at repo root.
 
 ## Build / run / test
 
-Backend (from repo root):
+Backend (from repo root — the `Makefile` `cd`s into `src/backend/` itself):
 
 ```bash
-make build          # go build -o bin/syrinx .
-make run            # build + ./bin/syrinx  (needs a .env; see below)
-make test           # go test ./...
+make build          # go build -C src/backend -o ../../bin/syrinx .
+make run            # build + run (binary executes with cwd=src/backend)
+make test           # go test -C src/backend ./...
 make up / make down # docker-compose
 ```
 
@@ -70,11 +79,11 @@ Config comes from the process environment (`tooxie/env`, `env.MustAssert`),
 prompt), `RECOVERY_MODE`, `SIGNUP_MODE` (`open|invite|closed`),
 `MAX_INVITES_PER_USER` (`>=1`, or `-1`/unset = unlimited).
 
-SPA (from `spa/`):
+SPA (from `src/frontend/`):
 
 ```bash
 npm run dev            # vite dev
-npm run build          # vite build → spa/build (served by the Go server)
+npm run build          # vite build → src/frontend/build
 npm run check          # svelte-check
 npm run test:e2e       # Playwright
 # targeted node harnesses that guard cross-language parity:
@@ -82,73 +91,86 @@ npm run test:signing        # BytesToSign parity
 npm run test:verify-binary  # binary WS verify
 ```
 
-The Go server serves the built SPA: `router.PathPrefix("/").Handler(spaHandler("spa/build"))`.
-Run `npm run build` before expecting the Go server to serve current UI.
+The Go server serves the built SPA:
+`router.PathPrefix("/").Handler(spaHandler("../frontend/build"))` — a
+local-dev-only path (the binary runs with cwd=`src/backend`); production
+serves the SPA via nginx directly (see `deploy/scripts/syrinx/setup.sh`),
+never through this handler. Run `npm run build` before expecting the Go
+server to serve current UI locally.
 
 ## Repository map
 
-### Go server (root package `syrinx`)
+### Go server (`src/backend/`, root package `syrinx`)
 
-Root files are the "main" package (`//go:build !ops` except `ops.go`):
+**All server code lives directly in `package main`** — there are no Go
+subpackages for feature logic anymore (`crypto`, `signing`, `identity`,
+`roles`, `secret`, `recovery`, `invites`, `deletion`, `coverage`, and
+`realtime` were each folded into root and their directories deleted; see
+`specs/depackaging/README.md` for the history and rationale of that move).
+The only Go code outside `package main` is `observability/`,
+`observability/metrics/`, and `proto/` — kept independent because they have
+a real DI interface (`metrics.Recorder`) or can't be `package main`
+(generated protobuf code) respectively.
+
+Files are the "main" package (`//go:build !ops && !ripplescleanup` unless
+noted); most feature areas that used to be a subpackage now have a
+same-named root file instead:
 
 - `main.go` — boot sequence + **all root route registration** + middleware
   wiring + graceful shutdown. This is the map of the HTTP surface.
 - `db.go` — **`InitDB`**: the entire schema DDL (created on every boot). There
   are **no migrations** (the commented-out `MigrateDB` is intentionally off).
   Schema changes are **blank-slate**: recreate the DB, don't write `ALTER`s.
-- `handlers.go` (large) — root HTTP handlers (users, reeds, keys, follows).
-- `services.go` (large) — `DataService` (DB access) + business logic; also
-  `Services`, `MarkdownService`. `services_test.go` alongside.
+- `handlers.go` (large) — HTTP handlers for every feature (users, reeds, keys,
+  follows, invites, recovery, ripples, federation, …).
+- `services.go` (large) — `DataService` (DB access) + business logic for
+  every feature; also `Services`, `MarkdownService`.
 - `middlewares.go` — CORS, logging, **signature-auth** middleware, and the
   **`responseSigner`** (signs every `/api/*` response; see `RESPONSE_SIGNER.md`).
-- `interfaces.go`, `constants.go`, `utils.go`, `logger.go`, `observability.go`,
-  `spa_handler.go`, `ops.go`.
-
-### Go subpackages (`syrinx/<pkg>`)
-
-Feature logic is deliberately pushed into packages; **main only wires** boot,
-DDL, routes, and middleware.
-
-- `crypto/` — OpenPGP service: sign/verify/countersign, key add, types.
-- `signing/` — **`BytesToSign`** (the canonical signed-envelope helper) and the
-  normalized `user_signatures` / `server_signatures` store helpers.
-  `testvectors.json` + `roundtrip_test.go` pin cross-language parity with the
-  SPA. **Do not "harden" `BytesToSign` with escaping — it will break every
-  existing signature.** (The rationale is documented at the top of `signing.go`
-  and in `specs/README.md` → "Why nothing is escaped".)
-- `identity/` — shared canonical identity/profile/reed payload builders used by
-  both live traffic and recovery. Shared builders belong here, not in feature
-  packages. **Canonical ID** = `identity.CanonicalID(serverID, userID, ...reedID)`
-  → `IdentityID("{userID}@{serverID}[/{reedID}]")` (`identity_id.go`), parsed
-  back by splitting on the *last* `@`. "Canonical" means **everywhere**, not
-  just the DB FK: `users.id`/`identities.id`, wire/JSON fields, URL path params
-  (`@` unencoded), and every signed payload (`Build*Payload` in
-  `identity/identity.go`, mirrored in SPA `signing.ts`) all carry the full
-  `userID@serverID` form — see `specs/federation/SCOPE_canonical_id_everywhere.md`.
-  Exception: `roles.RootUserID = "1"` stays a bare literal; reconstruct the full
-  canonical form to compare it, never bare-string-match (prevents a remote user
-  with local id "1" from being treated as root).
-- `ids/` — random, server-scoped user/reed ID generation.
-- `secret/` — server-key passphrase resolver (env → keychain → prompt → auto-gen).
-- `recovery/` — **all** server-side DB-reconstruction (`RECOVERY_MODE`) logic:
-  bundle export/import, nested key chains, claim/peer/reeds/follows handlers,
-  import-gate middleware, `RegisterRoutes`. Registered **only** when
-  `RECOVERY_MODE` is on.
-- `invites/` — invite-only signup: mode/quota, `invites` store, lifecycle API,
-  signup consume, `RegisterRoutes` + `Deps`.
-- `deletion/` — signed reed/account removal store + helpers.
-- `coverage/` — reed network coverage + live stats.
-- `realtime/` — WebSocket service: connection manager, message types, publish-ready,
-  reed subscribe, ongoing-recovery gate. Wire is **JSON text frames** today;
-  a binary protobuf path exists but only covers a handful of message types
-  and is unused in production. Has its own `README.md` (Known Issues incl.
-  the publish/relay race).
+- `crypto.go` — OpenPGP: sign/verify/countersign, key add (unexported
+  `cryptoService`, was package `crypto`).
+- `identity.go`, `identity_id.go` — canonical identity/profile/reed payload
+  builders (unexported `build*Payload` funcs) and the canonical-ID type
+  (unexported `identityID`, `canonicalID(serverID, userID, ...reedID)`),
+  parsed back by splitting on the *last* `@`. "Canonical" means
+  **everywhere**, not just the DB FK: `users.id`/`identities.id`, wire/JSON
+  fields, URL path params (`@` unencoded), and every signed payload all carry
+  the full `userID@serverID` form — see
+  `specs/federation/SCOPE_canonical_id_everywhere.md`. Exception:
+  `rootUserID = "1"` (in `constants.go`) stays a bare literal; reconstruct
+  the full canonical form to compare it, never bare-string-match (prevents a
+  remote user with local id "1" from being treated as root).
+  **`bytesToSign` (`utils.go`)** is the canonical signed-envelope helper,
+  mirrored by SPA `signing.ts`. **Do not "harden" `bytesToSign` with
+  escaping — it will break every existing signature.**
+  (Rationale documented at its definition and in `specs/README.md` → "Why
+  nothing is escaped".)
+- `roles.go` — role tiers (root/admin/user), `isRootIdentity`,
+  `validateProfileRole` (was package `roles`).
+- `secret.go` — server-key passphrase resolver (env → keychain → prompt →
+  auto-gen; was package `secret`).
+- `recovery.go` — server-side DB-reconstruction (`RECOVERY_MODE`) wire types
+  and verification logic (bundle export/import, nested key chains); store
+  logic lives in `services.go`, handlers in `handlers.go`. Registered
+  **only** when `RECOVERY_MODE` is on (was package `recovery`).
+- `realtime.go` — WebSocket service: connection manager, auth, dispatch/relay
+  logic, message types; ~75 DB query methods live in `services.go` as
+  `DataService` methods (was package `realtime`). Wire is **JSON text
+  frames** today; a binary protobuf path exists but only covers a handful of
+  message types and is unused in production.
+- `constants.go`, `utils.go`, `logger.go`, `spa_handler.go`, `ops.go`,
+  `ripples_cleanup.go`, `mailbox.go`, `mentions.go`, `federation_relay.go`,
+  `root.go`, `wire.go`.
+- `observability/`, `observability/metrics/` — the one still-independent
+  subpackage with a real DI interface (`metrics.Recorder`, `Noop`/`OTEL`
+  implementations).
 - `proto/` — `websocket.proto` + generated `websocket.pb.go`, a partial,
-  stale stub. Both HTTP and WS are JSON/form-encoded in production; a
-  protobuf migration for HTTP, WS, and federation is spec'd but not
-  implemented — see `specs/protobuf/`.
+  stale stub — can't be `package main` (generated code needs its own
+  package), so this is the only other Go code outside root. Both HTTP and WS
+  are JSON/form-encoded in production; a protobuf migration for HTTP, WS, and
+  federation is spec'd but not implemented — see `specs/protobuf/`.
 
-### Frontend (`spa/src/`)
+### Frontend (`src/frontend/src/`)
 
 - `routes/` — SvelteKit pages: `signup`, `import`, `recover`/`recovery`,
   `profile`, `reed/[userID]/[reedID]`, `reeds`, `feeds`, `invites`, `delete`,
@@ -176,21 +198,23 @@ DDL, routes, and middleware.
 
 **Two recovery concepts — do not conflate** (user-facing overview in [`docs/identity.md`](docs/identity.md) → [Restore paths at a glance](docs/identity.md#restore-paths-at-a-glance)):
 
-- **Server recovery** (`recovery/`, `RECOVERY_MODE`): operator rebuilt a wiped
-  DB; clients report signed evidence *to* the server. Bookkeeping in
+- **Server recovery** (`recovery.go`, `RECOVERY_MODE`): operator rebuilt a
+  wiped DB; clients report signed evidence *to* the server. Bookkeeping in
   `ongoing_recoveries` / `unclaimed_accounts` / `pending_follows`.
-- **Account recovery** (`specs/account_recovery/`, package `syrinx/accountrecovery`
-  when built): a single user reconstitutes a client from keys while the server
-  still holds the account. **Never** overload `syrinx/recovery` or
-  `ongoing_recoveries` for it.
+- **Account recovery** (`specs/account_recovery/`; `AccountRecoveryChallenge`/
+  `BootstrapAccountRecovery` in `handlers.go` — always root-level functions,
+  never a separate package): a single user reconstitutes a client from keys
+  while the server still holds the account. **Never** overload the server
+  recovery flow or `ongoing_recoveries` for it.
 
 **Signed-envelope / signature rules** (see `specs/README.md` → "Shared
 conventions"):
 
-- One canonical `BytesToSign` (Go) mirrored by `bytesToSign` (SPA); they MUST be
-  byte-identical. Keys sorted ASCII-lexicographically; empty values omit the
-  whole line; **no escaping**; timestamps RFC3339 UTC second-precision `Z`.
-- Detached PGP signatures over the exact `BytesToSign` output, base64 (std
+- One canonical `bytesToSign` (Go, `utils.go`) mirrored by `bytesToSign`
+  (SPA); they MUST be byte-identical. Keys sorted ASCII-lexicographically;
+  empty values omit the whole line; **no escaping**; timestamps RFC3339 UTC
+  second-precision `Z`.
+- Detached PGP signatures over the exact `bytesToSign` output, base64 (std
   alphabet) on the wire, never nested base64-of-base64.
 - One helper called by both signer and verifier per feature (the drift bug that
   prerequisite 01 fixed).
@@ -209,10 +233,14 @@ squatting / revocation replay). See `specs/recovery/README.md` "Trust model".
 **Blank slate everywhere.** No DB migrations, no dual-write, no backward compat.
 Schema changes go in `InitDB`; recreate the DB. Callers ship in lockstep.
 
-**Feature packaging pattern:** new server features go in their own
-`syrinx/<feature>` package exposing `RegisterRoutes(api, Deps{...})`; `main.go`
-wires it (see the `invites.RegisterRoutes` / `recovery.RegisterRoutes` blocks).
-DDL goes in `InitDB`. Shared payload builders go in `identity/`.
+**Feature organization pattern:** new server features live directly in
+`package main` — no per-feature subpackage. Routes register directly in
+`main.go` (`api.HandleFunc(...)`, no `RegisterRoutes`/`Deps` indirection);
+handlers go in `handlers.go`, DB/business logic in `services.go`, and (for a
+large enough feature) a dedicated same-named root file (see `recovery.go`,
+`realtime.go`). DDL goes in `InitDB` (`db.go`). Shared payload builders go
+in `identity.go`. Only reach for a real subpackage when the code is
+genuinely reusable outside this server (see `observability/` for the bar).
 
 ## Security invariants & known gaps
 
@@ -222,12 +250,13 @@ recovery, realtime, or SPA key handling. Highlights a future agent must respect:
 
 **Invariants you must not break:**
 
-- **`BytesToSign` has NO escaping** and its output must stay byte-identical
-  between Go (`signing/`) and SPA (`spa/src/lib/services/signing.ts`). Never add
-  escaping "to be safe" — it silently breaks every existing signature. But also
-  **do not build code that parses a signed envelope back into fields** from
-  user-controlled bytes. (One offender already exists: `ExtractReedHeader` in
-  `services.go` re-parses the reed envelope — see RISKS.md M1. Don't add more.)
+- **`bytesToSign` has NO escaping** and its output must stay byte-identical
+  between Go (`utils.go`) and SPA (`src/frontend/src/lib/services/signing.ts`).
+  Never add escaping "to be safe" — it silently breaks every existing
+  signature. Also **do not build code that parses a signed envelope back
+  into fields** from user-controlled bytes — a prior offender that did this
+  (`ExtractReedHeader`) has since been removed; don't reintroduce the
+  pattern.
 - **Server countersignatures must bind identity** (reedID+authorID, or
   userID+fingerprint, + serverID + server-key fingerprint + server timestamp)
   and be verified against the server key selected **by fingerprint**. When
@@ -256,19 +285,17 @@ recovery, realtime, or SPA key handling. Highlights a future agent must respect:
   RISKS.md M9.
 
 **When you change security-relevant code:** update `RISKS.md` if you fix or
-introduce a finding, and add/adjust the parity tests (`signing/roundtrip_test.go`,
+introduce a finding, and add/adjust the parity tests (`handlers_signing_test.go`,
 SPA `test:signing` / `test:verify-binary`).
 
 ## Where to look first for common tasks
 
-- "What's the HTTP surface?" → `main.go` route block (+ `invites`/`recovery`
-  `RegisterRoutes`).
+- "What's the HTTP surface?" → `main.go` route block.
 - "What's in the DB?" → `db.go` `InitDB`.
-- "How is X signed/verified?" → `signing/`, `crypto/`, `identity/`, and
-  `lib/verifiers/` on the SPA side.
+- "How is X signed/verified?" → `utils.go` (`bytesToSign`), `crypto.go`,
+  `identity.go`, and `lib/verifiers/` on the SPA side.
 - "Is feature Y built?" → `specs/README.md` status column + `specs/Y/README.md`.
-- "Realtime/WebSocket behavior" → `realtime/` (+ its `README.md`) and
-  `proto/websocket.proto`.
+- "Realtime/WebSocket behavior" → `realtime.go` and `proto/websocket.proto`.
 - "How does response signing work?" → `RESPONSE_SIGNER.md` + `middlewares.go`.
 
 ## Debugging
@@ -338,12 +365,16 @@ is saved (it only prompts y/N about deleting the remote copy, default No).
 
 ## House rules for changes
 
-- Prefer editing existing files; keep feature logic in its package, not `main`.
-- Add a Go test next to the code (`*_test.go`) as the packages already do; run
-  `make test`. For anything touching `BytesToSign` / wire parity, also run the
-  SPA `test:signing` / `test:verify-binary` harnesses.
+- Prefer editing existing files. Feature logic goes in root `package main`
+  (see "Feature organization pattern" above), not a new subpackage — a new
+  subpackage is only warranted for code genuinely reusable outside this
+  server.
+- Add a Go test next to the code (`*_test.go`, same directory — Go requires
+  this for package-internal tests); run `make test`. For anything touching
+  `bytesToSign` / wire parity, also run the SPA `test:signing` /
+  `test:verify-binary` harnesses.
 - Keep `specs/*/README.md` status columns accurate when you land or start a step.
-- Don't add DB migrations or escaping to `BytesToSign`. Don't commit secrets;
+- Don't add DB migrations or escaping to `bytesToSign`. Don't commit secrets;
   `SERVER_KEY_PASSPHRASE` is intentionally absent from `.env.example`.
 - **Never log or persist private-key material or passphrases** (no `console.log`
   of keys, no `localStorage` passphrase). Never add a WS/postMessage signing

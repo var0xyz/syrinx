@@ -19,30 +19,30 @@ help:
 build:
 	@echo "Building API..."
 	@mkdir -p bin
-	go build -o bin/syrinx .
+	go build -C src/backend -o ../../bin/syrinx .
 
 ops:
 	@echo "Building ops CLI..."
 	@mkdir -p bin
-	go build -tags ops -o bin/ops .
+	go build -C src/backend -tags ops -o ../../bin/ops .
 
 export-identity: ops
-	./bin/ops export-identity
+	cd src/backend && ../../bin/ops export-identity
 
 import-identity: ops
 	@if [ -z "$(FILE)" ]; then echo "usage: make import-identity FILE=path/to/bundle.sxi.gpg"; exit 2; fi
-	./bin/ops import-identity "$(FILE)"
+	cd src/backend && ../../bin/ops import-identity "$(abspath $(FILE))"
 
 ripples-cleanup:
 	@echo "Building ripples-cleanup..."
 	@mkdir -p bin
-	go build -tags ripplescleanup -o bin/ripples-cleanup .
+	go build -C src/backend -tags ripplescleanup -o ../../bin/ripples-cleanup .
 
 # Run targets for development
 run:
 	@mkdir -p bin
-	go build -o bin/syrinx .
-	./bin/syrinx
+	go build -C src/backend -o ../../bin/syrinx .
+	cd src/backend && ../../bin/syrinx
 
 
 # Docker targets
@@ -62,12 +62,12 @@ clean:
 # Test target
 test:
 	@echo "Running tests..."
-	go test ./...
+	go test -C src/backend ./...
 
 # Install dependencies
 install:
 	@echo "Installing dependencies..."
-	go mod download
+	go mod download -C src/backend
 
 # Setup environment
 env:

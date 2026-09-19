@@ -57,7 +57,7 @@ services:
     environment:
       API_HOST: api:8080
     volumes:
-      - ./spa:/app
+      - ./src/frontend:/app
       - syrinx_gui_node_modules:/app/node_modules
     ports:
       - "5173:5173"

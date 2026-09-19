@@ -13,7 +13,7 @@ make run               # or: docker compose up --build
 
 Stop with `make stop` / `docker compose down`.
 
-For local development without Compose, use Go + Postgres: `make install`, create the DB, configure `.env`, `go run main.go`. The SPA is built separately under `spa/` and served as static assets in production layouts.
+For local development without Compose, use Go + Postgres: `make install`, create the DB, configure `.env`, `make run`. The SPA is built separately under `src/frontend/` and served as static assets in production layouts.
 
 ## Essential configuration
 
