@@ -34,9 +34,6 @@
   import { syncPendingBackupEvents } from '$lib/services/backupMetrics';
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
-  import { receiveMailboxMessage } from '$lib/services/mailboxReceipt';
-  import { refreshMailboxMessages } from '$lib/stores/mailbox';
-  import MailboxBell from '$lib/components/MailboxBell.svelte';
   import ActivitySidebar from '$lib/components/ActivitySidebar.svelte';
   import { isValidRef } from '$lib/utils/identityRef';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
@@ -319,16 +316,9 @@
         serverConnection.sendDataInvalid(eventId);
       }
     });
-    // Unlike the ack-or-invalid handlers above, a failed decrypt here does
-    // NOT send anything back — the server keeps the row and redelivers it
-    // on the next catch-up rather than the message being silently lost.
-    serverConnection.on(ServerEvent.Mailbox, async (data) => {
-      if (!data?.id || !data?.ciphertext) return;
-      if (await receiveMailboxMessage(data.id, data.ciphertext)) {
-        serverConnection.sendMailboxAck(data.id);
-        refreshMailboxMessages();
-      }
-    });
+    // MailboxBell is hidden and unused for now — handler disabled so we
+    // don't ack/store mailbox messages nothing reads. The server keeps
+    // redelivering on catch-up, same as any other undelivered message.
 
     // Check authentication status for header. Mid-recovery has local identity
     // but is not a finished session — do not connect or treat as logged in.
@@ -352,7 +342,6 @@
       pendingLikeRepository.syncPending();
       pendingUnlikeRepository.syncPending();
         syncPendingBackupEvents();
-        refreshMailboxMessages();
       }
     }
     })();
@@ -368,9 +357,8 @@
 
 <header>
   <h1><a href={headerLink}>💫 Syrinx</a></h1>
-  {#if user}
-    <MailboxBell />
-  {/if}
+  <!-- MailboxBell hidden — unused for now, see the disabled Mailbox WS
+       handler and boot-time refresh below. -->
 </header>
 
 <ServerIdMismatchIndicator />
