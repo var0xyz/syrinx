@@ -8,6 +8,7 @@
   import { serverInfo } from '$lib/services/serverInfo';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import SideNav from '$lib/components/SideNav.svelte';
   import NetworkTabs from '$lib/components/NetworkTabs.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import Username from '$lib/components/Username.svelte';
@@ -236,6 +237,7 @@
 </script>
 
 <Auth>
+  <SideNav currentPage="network" />
   <div class="mesh-container">
     <NetworkTabs active="mesh" />
     <div class="mesh-content">
@@ -528,6 +530,12 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
+  }
+
+  @media (min-width: 768px) {
+    .mesh-container {
+      padding-left: 220px;
+    }
   }
 
   .mesh-content {

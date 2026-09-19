@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import SideNav from '$lib/components/SideNav.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
@@ -73,6 +74,7 @@
 </script>
 
 <Auth>
+  <SideNav currentPage="" />
   <div class="pipe-container">
     <div class="pipe-header">
       <p class="pipe-sub">Pipe of reeds with tag: #{tag}</p>
@@ -124,6 +126,12 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
+  }
+
+  @media (min-width: 768px) {
+    .pipe-container {
+      padding-left: 220px;
+    }
   }
 
   .pipe-header {

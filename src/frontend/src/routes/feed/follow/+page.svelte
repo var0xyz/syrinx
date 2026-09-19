@@ -4,6 +4,7 @@
   import { followReedQueue, getFollowReeds } from '$lib/repositories/reeds';
   import { formatRelativeTime } from '$lib/utils/time';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import FeedTabs from '$lib/components/FeedTabs.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -50,6 +51,7 @@
 </script>
 
 <Auth>
+  <SideNav currentPage="feeds" />
   <div class="feed-container">
     <FeedTabs active="follow" />
 
@@ -107,6 +109,12 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
+  }
+
+  @media (min-width: 768px) {
+    .feed-container {
+      padding-left: 220px;
+    }
   }
 
   .feed-content-wrap {

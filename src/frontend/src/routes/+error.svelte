@@ -4,6 +4,7 @@
   import { goto } from '$app/navigation';
   import { authService } from '$lib/services/auth';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import SideNav from '$lib/components/SideNav.svelte';
 
   let isAuthenticated = false;
 
@@ -25,7 +26,7 @@
   $: icon = isNotFound ? '🪹' : '⚠️';
 </script>
 
-<div class="error-page">
+<div class="error-page" class:with-sidenav={isAuthenticated}>
   <div class="error-content">
     <div class="error-state">
       <div class="error-icon">{icon}</div>
@@ -39,6 +40,7 @@
   </div>
 
   {#if isAuthenticated}
+    <SideNav currentPage="" />
     <BottomToolbar currentPage="" />
   {/if}
 </div>
@@ -49,6 +51,12 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
+  }
+
+  @media (min-width: 768px) {
+    .error-page.with-sidenav {
+      padding-left: 220px;
+    }
   }
 
   .error-content {
