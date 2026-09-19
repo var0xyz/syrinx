@@ -143,7 +143,7 @@ async function resolvePredecessorRevocation(predId: string): Promise<api.KeyRevo
 
 /** Server attestation + armor↔id (+ optional predecessor handoff). */
 export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
-  if (!key?.serverSignature) {
+  if (!key?.serverSignature?.id || !key.serverSignature.armor || !key.serverSignature.timestamp) {
     console.error('[verifyPublicKey] missing serverSignature block', key?.id);
     return false;
   }
