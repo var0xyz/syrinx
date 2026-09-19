@@ -60,7 +60,7 @@
         on:click={openCreate}
         aria-label="New list"
       >
-        <span class="icon">📝</span>
+        <span class="icon"></span>
       </button>
 
       {#if lists.length === 0}
@@ -152,7 +152,18 @@
   }
 
   .floating-create-btn .icon {
-    font-size: 1.5rem;
+    display: inline-block;
+    width: 1.5rem;
+    height: 1.5rem;
+    background-color: currentColor;
+    -webkit-mask-image: url('/icons/add-list-24.png');
+    mask-image: url('/icons/add-list-24.png');
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
   }
 
   .lists {
