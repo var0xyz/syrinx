@@ -2,14 +2,11 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { formatRelativeTime } from '$lib/utils/time';
-  import BottomToolbar from '$lib/components/BottomToolbar.svelte';
-  import SideNav from '$lib/components/SideNav.svelte';
-  import Auth from '$lib/components/Auth.svelte';
-  import FeedTabs from '$lib/components/FeedTabs.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import Quote from '$lib/components/Quote.svelte';
-  import { followReedQueue, getListReeds } from '$lib/repositories/reeds';
+  import { followReedQueue } from '$lib/repositories/reeds';
+  import { getListReeds } from '$lib/repositories/reeds';
   import { captureWindowScroll, restoreWindowScroll } from '$lib/utils/scrollSnapshot';
 
   /** @type {import('./$types').PageData} */
@@ -59,87 +56,64 @@
   });
 </script>
 
-<Auth>
-  <SideNav currentPage="" />
-  <div class="feed-container">
-    <FeedTabs active="list" />
-
-    <div class="feed-content-wrap">
-      <div class="list-header">
-        <h2>{list.name}</h2>
-        {#if list.description}
-          <p class="list-description">{list.description}</p>
-        {/if}
-      </div>
-
-      <div class="reeds-list">
-        {#if reeds.length === 0}
-          <div class="empty-state">
-            <div class="empty-icon">📋</div>
-            {#if list.memberIds.length === 0}
-              <h3>This list has no members</h3>
-              <p>Edit the list to add people you follow.</p>
-            {:else}
-              <h3>No reeds from this list yet.</h3>
-              <p>Reeds from list members will appear here.</p>
-            {/if}
-          </div>
-        {:else}
-          {#each reeds as reed (reed.id)}
-            <div class="reed-item" role="button" tabindex="0"
-              on:click={() => goto(`/reed/${reed.id}`)}
-              on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.id}`)}>
-              <div class="reed-header">
-                <ReedAuthorHeader
-                  userID={reed.userID}
-                  username={authors[reed.userID]?.username ?? reed.userID}
-                  nameTag="h3"
-                  subtext={formatRelativeTime(reed.serverSignature.timestamp)}
-                  stopPropagation
-                  linked={false}
-                />
-              </div>
-              {#if reed.replying}
-                <div class="quote-container">
-                  <Quote reedRef={reed.replying} type="reply" missing={false} linked={false} />
-                </div>
-              {/if}
-              {#if (reed.content || '').trim()}
-                <div class="reed-preview">
-                  <MarkdownParser text={reed.content} preview={true} />
-                </div>
-              {/if}
-              {#if reed.echoing}
-                <div class="quote-container">
-                  <Quote reedRef={reed.echoing} type="echo" missing={false} linked={false} />
-                </div>
-              {/if}
-            </div>
-          {/each}
-        {/if}
-      </div>
-    </div>
-
-    <BottomToolbar currentPage="feeds" />
+<div class="feed-content-wrap">
+  <div class="list-header">
+    <h2>{list.name}</h2>
+    {#if list.description}
+      <p class="list-description">{list.description}</p>
+    {/if}
   </div>
-</Auth>
+
+  <div class="reeds-list">
+    {#if reeds.length === 0}
+      <div class="empty-state">
+        <div class="empty-icon">📋</div>
+        {#if list.memberIds.length === 0}
+          <h3>This list has no members</h3>
+          <p>Edit the list to add people you follow.</p>
+        {:else}
+          <h3>No reeds from this list yet.</h3>
+          <p>Reeds from list members will appear here.</p>
+        {/if}
+      </div>
+    {:else}
+      {#each reeds as reed (reed.id)}
+        <div class="reed-item" role="button" tabindex="0"
+          on:click={() => goto(`/reed/${reed.id}`)}
+          on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.id}`)}>
+          <div class="reed-header">
+            <ReedAuthorHeader
+              userID={reed.userID}
+              username={authors[reed.userID]?.username ?? reed.userID}
+              nameTag="h3"
+              subtext={formatRelativeTime(reed.serverSignature.timestamp)}
+              stopPropagation
+              linked={false}
+            />
+          </div>
+          {#if reed.replying}
+            <div class="quote-container">
+              <Quote reedRef={reed.replying} type="reply" missing={false} linked={false} />
+            </div>
+          {/if}
+          {#if (reed.content || '').trim()}
+            <div class="reed-preview">
+              <MarkdownParser text={reed.content} preview={true} />
+            </div>
+          {/if}
+          {#if reed.echoing}
+            <div class="quote-container">
+              <Quote reedRef={reed.echoing} type="echo" missing={false} linked={false} />
+            </div>
+          {/if}
+        </div>
+      {/each}
+    {/if}
+  </div>
+</div>
 
 <style>
-  .feed-container {
-    min-height: calc(100vh - 3rem - 1px);
-    display: flex;
-    flex-direction: column;
-    background: var(--bg);
-  }
-
-  @media (min-width: 768px) {
-    .feed-container {
-      padding-left: 220px;
-    }
-  }
-
   .feed-content-wrap {
-    flex: 1;
     max-width: 680px;
     margin: 0 auto;
     width: 100%;
