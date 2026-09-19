@@ -619,6 +619,12 @@
     }
   }
 
+  @media (min-width: 1400px) {
+    .profile-container {
+      padding-right: var(--activity-sidebar-width);
+    }
+  }
+
   .profile-content {
     flex: 1;
     max-width: 800px;

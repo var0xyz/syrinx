@@ -538,6 +538,12 @@
     }
   }
 
+  @media (min-width: 1400px) {
+    .mesh-container {
+      padding-right: var(--activity-sidebar-width);
+    }
+  }
+
   .mesh-content {
     flex: 1;
     max-width: 680px;

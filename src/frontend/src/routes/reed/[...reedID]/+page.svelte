@@ -893,6 +893,12 @@
     }
   }
 
+  @media (min-width: 1400px) {
+    .reed-detail-container {
+      padding-right: var(--activity-sidebar-width);
+    }
+  }
+
 
   .reed-content {
     flex: 1;

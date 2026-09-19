@@ -134,6 +134,12 @@
     }
   }
 
+  @media (min-width: 1400px) {
+    .pipe-container {
+      padding-right: var(--activity-sidebar-width);
+    }
+  }
+
   .pipe-header {
     max-width: 680px;
     margin: 0 auto;
