@@ -1047,6 +1047,7 @@
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
+    border-radius: 0;
     padding: 0.6rem 0.1rem;
     font: inherit;
     font-size: 0.9rem;
