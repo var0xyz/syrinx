@@ -84,7 +84,7 @@
     </a>
   {/if}
 
-  <a href="/account" class="sn-btn" class:active={accountActive}>
+  <a href="/account" class="sn-btn sn-account" class:active={accountActive}>
     <span class="sn-icon">👤</span>Account
   </a>
 </nav>
@@ -164,6 +164,10 @@
     font-size: 0.82rem;
     font-weight: 600;
     text-decoration: none;
+  }
+
+  .sn-account {
+    margin-top: auto;
   }
 
   .sn-btn:hover {

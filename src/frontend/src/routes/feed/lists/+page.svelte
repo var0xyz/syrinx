@@ -1,138 +1,80 @@
-<script lang="ts">
+<script>
+  import { getContext } from 'svelte';
   import { goto } from '$app/navigation';
-  import BottomToolbar from '$lib/components/BottomToolbar.svelte';
-  import SideNav from '$lib/components/SideNav.svelte';
-  import Auth from '$lib/components/Auth.svelte';
-  import FeedTabs from '$lib/components/FeedTabs.svelte';
-  import ListFormModal from '$lib/components/ListFormModal.svelte';
-  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-  import { listsRepository } from '$lib/repositories/lists';
-  import type { ListType } from '$lib/types/list';
 
-  /** @type {import('./$types').PageData} */
-  export let data;
-
-  let lists = data.lists;
-  $: lists = data.lists;
-
-  let formOpen = false;
-  let editingList: ListType | null = null;
-  let deleteTarget: ListType | null = null;
-
-  function openCreate() {
-    editingList = null;
-    formOpen = true;
-  }
-
-  function openEdit(list: ListType) {
-    editingList = list;
-    formOpen = true;
-  }
-
-  async function refresh() {
-    lists = await listsRepository.getAll();
-  }
-
-  async function onSaved() {
-    formOpen = false;
-    editingList = null;
-    await refresh();
-  }
-
-  function requestDelete(list: ListType) {
-    deleteTarget = list;
-  }
-
-  async function confirmDelete() {
-    if (!deleteTarget) return;
-    await listsRepository.delete(deleteTarget.id);
-    deleteTarget = null;
-    await refresh();
-  }
+  const { lists, openCreate, openEdit, requestDelete } = getContext('lists-panel');
 </script>
 
-<Auth>
-  <SideNav currentPage="" />
-  <div class="feed-container">
-    <FeedTabs active="list" />
+<div class="mobile-lists">
+  <button class="floating-create-btn" on:click={openCreate} aria-label="New list">
+    <span class="icon"></span>
+  </button>
 
-    <div class="feed-content-wrap">
-      <button
-        class="floating-create-btn"
-        on:click={openCreate}
-        aria-label="New list"
-      >
-        <span class="icon"></span>
-      </button>
-
-      {#if lists.length === 0}
-        <div class="empty-state">
-          <div class="empty-icon">📋</div>
-          <h3>No lists yet</h3>
-          <p>Create a list to organize the people you follow.</p>
-        </div>
-      {:else}
-        <div class="lists">
-          {#each lists as list (list.id)}
-            <div
-              class="list-row"
-              role="button"
-              tabindex="0"
-              on:click={() => goto(`/feed/lists/${list.id}`)}
-              on:keydown={(e) => e.key === 'Enter' && goto(`/feed/lists/${list.id}`)}
-            >
-              <span class="list-name">{list.name}</span>
-              <div class="list-actions">
-                <button aria-label="Edit list" on:click|stopPropagation={() => openEdit(list)}>
-                  <span class="action-icon edit-icon"></span>
-                </button>
-                <button class="delete-btn" aria-label="Delete list" on:click|stopPropagation={() => requestDelete(list)}>
-                  <span class="action-icon delete-icon"></span>
-                </button>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
+  {#if $lists.length === 0}
+    <div class="empty-state">
+      <div class="empty-icon">📋</div>
+      <h3>No lists yet</h3>
+      <p>Create a list to organize the people you follow.</p>
     </div>
+  {:else}
+    <div class="lists">
+      {#each $lists as list (list.id)}
+        <div
+          class="list-row"
+          role="button"
+          tabindex="0"
+          on:click={() => goto(`/feed/lists/${list.id}`)}
+          on:keydown={(e) => e.key === 'Enter' && goto(`/feed/lists/${list.id}`)}
+        >
+          <span class="list-name">{list.name}</span>
+          <div class="list-actions">
+            <button aria-label="Edit list" on:click|stopPropagation={() => openEdit(list)}>
+              <span class="action-icon edit-icon"></span>
+            </button>
+            <button class="delete-btn" aria-label="Delete list" on:click|stopPropagation={() => requestDelete(list)}>
+              <span class="action-icon delete-icon"></span>
+            </button>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+</div>
 
-    <BottomToolbar currentPage="feeds" />
-  </div>
-</Auth>
-
-{#if formOpen}
-  <ListFormModal list={editingList} on:saved={onSaved} on:cancel={() => (formOpen = false)} />
-{/if}
-
-{#if deleteTarget}
-  <ConfirmDialog
-    title="Delete list?"
-    message={`This will permanently delete "${deleteTarget.name}". This does not unfollow any members or delete any reeds.`}
-    on:confirm={confirmDelete}
-    on:cancel={() => (deleteTarget = null)}
-  />
-{/if}
+<div class="desktop-placeholder">
+  <div class="empty-icon">📋</div>
+  <p>Select a list to see its reeds.</p>
+</div>
 
 <style>
-  .feed-container {
-    min-height: calc(100vh - 3rem - 1px);
-    display: flex;
-    flex-direction: column;
-    background: var(--bg);
-  }
-
-  @media (min-width: 768px) {
-    .feed-container {
-      padding-left: 220px;
-    }
-  }
-
-  .feed-content-wrap {
-    flex: 1;
+  .mobile-lists {
     max-width: 680px;
     margin: 0 auto;
     width: 100%;
     padding: 1rem;
+  }
+
+  @media (min-width: 900px) {
+    .mobile-lists {
+      display: none;
+    }
+  }
+
+  .desktop-placeholder {
+    display: none;
+  }
+
+  @media (min-width: 900px) {
+    .desktop-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--muted);
+      text-align: center;
+      gap: 0.5rem;
+    }
   }
 
   .floating-create-btn {
@@ -282,7 +224,7 @@
   }
 
   @media (max-width: 768px) {
-    .feed-content-wrap {
+    .mobile-lists {
       padding: 0.5rem;
     }
   }
