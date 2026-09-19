@@ -96,14 +96,11 @@
 
   .chorus-list {
     list-style: none;
-    margin: 0 0 1rem;
-    padding: 0 0.75rem;
     display: flex;
     flex-direction: column;
   }
 
   .chorus-row {
-    padding: 0.4rem;
     border-radius: 8px;
     cursor: pointer;
   }

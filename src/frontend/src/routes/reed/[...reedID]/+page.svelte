@@ -925,7 +925,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem;
+    padding: .75rem 1rem;
     border-bottom: 1px solid var(--border);
   }
 
@@ -978,7 +978,7 @@
   .reed-stats {
     min-height: 1rem;
     display: inline-flex;
-    align-items: end;
+    align-items: center;
     gap: 0.45rem;
     margin: 0.25rem 0 0;
     padding: 0;
@@ -1055,7 +1055,7 @@
   }
 
   .reed-body {
-    padding: 1rem;
+    padding: .75rem 1rem;
     word-break: break-word;
   }
 
@@ -1099,14 +1099,17 @@
     color: var(--fg);
   }
 
+  .discussion-panel {
+    padding: .75rem 1rem;
+  }
+
   .discussion-panel.hidden {
     display: none;
   }
 
   .discussion-panel-title {
-    display: none;
     margin: 0;
-    padding: 0.9rem 0.9rem 0;
+    display: none;
     font-size: 0.72rem;
     font-weight: 600;
     text-transform: uppercase;
