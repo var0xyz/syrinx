@@ -3,7 +3,7 @@
 
   export let currentPage = 'reeds';
 
-  $: showMesh =
+  $: isAdmin =
     $page.data?.user?.role === 'admin' || $page.data?.user?.role === 'root';
 </script>
 
@@ -16,14 +16,15 @@
     <span class="icon">📰</span>
     <span class="label">Feed</span>
   </a>
-  <a href="/invites" class="toolbar-btn" class:active={currentPage === 'invites'}>
-    <span class="icon">✉️</span>
-    <span class="label">Invites</span>
-  </a>
-  {#if showMesh}
-    <a href="/mesh" class="toolbar-btn" class:active={currentPage === 'mesh'}>
+  {#if isAdmin}
+    <a href="/network" class="toolbar-btn" class:active={currentPage === 'network'}>
       <span class="icon">🌐</span>
-      <span class="label">Mesh</span>
+      <span class="label">Network</span>
+    </a>
+  {:else}
+    <a href="/invites" class="toolbar-btn" class:active={currentPage === 'invites'}>
+      <span class="icon">✉️</span>
+      <span class="label">Invites</span>
     </a>
   {/if}
   <a href="/account" class="toolbar-btn" class:active={currentPage === 'account'}>

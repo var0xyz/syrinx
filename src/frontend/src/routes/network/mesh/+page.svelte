@@ -8,6 +8,7 @@
   import { serverInfo } from '$lib/services/serverInfo';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import NetworkTabs from '$lib/components/NetworkTabs.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import Username from '$lib/components/Username.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
@@ -236,6 +237,7 @@
 
 <Auth>
   <div class="mesh-container">
+    <NetworkTabs active="mesh" />
     <div class="mesh-content">
       {#if loading}
         <p class="muted">Loading…</p>
@@ -391,7 +393,7 @@
       {/if}
     </div>
 
-    <BottomToolbar currentPage="mesh" />
+    <BottomToolbar currentPage="network" />
   </div>
 
   {#if showCreateModal}
