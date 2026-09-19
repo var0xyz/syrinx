@@ -18,6 +18,7 @@
   import { notificationStore } from '$lib/stores/notifications';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import SideNav from '$lib/components/SideNav.svelte';
   import ReedsList from '$lib/components/ReedsList.svelte';
   import UserProfileCard from '$lib/components/UserProfileCard.svelte';
   import UsernameChecker from '$lib/components/UsernameChecker.svelte';
@@ -402,6 +403,7 @@
 <svelte:window on:online={updateOnlineStatus} on:offline={updateOnlineStatus} />
 
 <Auth>
+<SideNav currentPage={isOwner ? 'reeds' : ''} />
 <div class="profile-container">
   {#if isOwner}
     <ProfileTabs active="profile" />
@@ -606,6 +608,12 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
+  }
+
+  @media (min-width: 768px) {
+    .profile-container {
+      padding-left: 220px;
+    }
   }
 
   .profile-content {

@@ -47,8 +47,7 @@
 
   @media (min-width: 768px) {
     .bottom-toolbar {
-      align-self: center;
-      min-width: 680px;
+      display: none;
     }
   }
 

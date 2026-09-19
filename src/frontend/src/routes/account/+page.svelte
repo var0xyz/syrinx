@@ -13,6 +13,7 @@
   import { compressBackupPayload, encryptAndSaveBackup, buildKeyBackupPayload } from '$lib/services/backupRestore';
   import { recordBackupEvent } from '$lib/services/backupMetrics';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import SideNav from '$lib/components/SideNav.svelte';
   import ExportDataModal from '$lib/components/ExportDataModal.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import { notificationStore } from '$lib/stores/notifications';
@@ -386,6 +387,7 @@
 </script>
 
 <Auth>
+  <SideNav currentPage="account" />
   <div class="profile-container">
     <!-- Main Content -->
     <div class="profile-content">
@@ -609,6 +611,12 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
+  }
+
+  @media (min-width: 768px) {
+    .profile-container {
+      padding-left: 220px;
+    }
   }
 
   .profile-content {

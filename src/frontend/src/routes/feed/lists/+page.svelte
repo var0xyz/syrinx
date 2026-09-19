@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import FeedTabs from '$lib/components/FeedTabs.svelte';
   import ListFormModal from '$lib/components/ListFormModal.svelte';
@@ -51,6 +52,7 @@
 </script>
 
 <Auth>
+  <SideNav currentPage="" />
   <div class="feed-container">
     <FeedTabs active="list" />
 
@@ -117,6 +119,12 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
+  }
+
+  @media (min-width: 768px) {
+    .feed-container {
+      padding-left: 220px;
+    }
   }
 
   .feed-content-wrap {

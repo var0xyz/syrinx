@@ -34,10 +34,8 @@
   }
 
   @media (min-width: 768px) {
-    .section-toggle-inner {
-      flex-grow: 0;
-      min-width: 680px;
-      margin: 0 auto;
+    .section-toggle {
+      display: none;
     }
   }
 

@@ -12,6 +12,7 @@
   import { pinReed, unpinReed } from '$lib/services/reedPin';
   import { userInfoRepository } from '$lib/repositories/userInfo';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import Quote from '$lib/components/Quote.svelte';
@@ -612,6 +613,7 @@
 </script>
 
   <Auth>
+    <SideNav currentPage="reeds" />
     <div class="reed-detail-container">
       {#key routeReedRef}
         {#if !isBlankEchoView && reedMatchesRoute && reed?.serverSignature && !removedReedCert && !removedAccountCert}
@@ -863,6 +865,12 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
+  }
+
+  @media (min-width: 768px) {
+    .reed-detail-container {
+      padding-left: 220px;
+    }
   }
 
 

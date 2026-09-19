@@ -8,6 +8,7 @@
   import { notificationStore } from '$lib/stores/notifications';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
+  import SideNav from '$lib/components/SideNav.svelte';
   import Username from '$lib/components/Username.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
 
@@ -166,6 +167,7 @@
 </script>
 
 <Auth>
+  <SideNav currentPage="network" />
   <div class="mesh-container">
     <div class="mesh-content">
       {#if loading}
@@ -382,6 +384,12 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
+  }
+
+  @media (min-width: 768px) {
+    .mesh-container {
+      padding-left: 220px;
+    }
   }
 
   .mesh-content {
