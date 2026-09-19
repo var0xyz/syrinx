@@ -557,6 +557,12 @@
     z-index: 1000;
   }
 
+  @media (min-width: 768px) {
+    .floating-write-btn {
+      display: none;
+    }
+  }
+
   .floating-write-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(88, 166, 255, 0.4);
