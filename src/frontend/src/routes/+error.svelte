@@ -55,7 +55,7 @@
 
   @media (min-width: 768px) {
     .error-page.with-sidenav {
-      padding-left: 220px;
+      padding-left: var(--sidenav-width);
     }
   }
 

@@ -388,7 +388,7 @@
 
   @media (min-width: 768px) {
     .mesh-container {
-      padding-left: 220px;
+      padding-left: var(--sidenav-width);
     }
   }
 
