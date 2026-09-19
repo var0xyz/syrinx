@@ -23,6 +23,7 @@
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { dbService } from '$lib/services/db';
   import { reedsService, dispatchReedToQueue, removeBroadcastReed } from '$lib/repositories/reeds';
+  import { recordActivity } from '$lib/repositories/activity';
   import { reedRequestsRepository } from '$lib/repositories/reedRequests';
   import { followingRepository } from '$lib/repositories/following';
   import { clearReedRequestDispatched, startReedRequestDrainer } from '$lib/services/reedRequestDrainer';
@@ -153,6 +154,7 @@
         }
         serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
+        recordActivity(reed);
         // Explicit REQUEST_REED or profile_subscription relay reply.
         dispatchReedToQueue(reed, ServerEvent.DataResponse);
         await requestReferencedReeds(reed);
@@ -182,6 +184,7 @@
         await reedsService.storeReed(reed);
         if (eventId) serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
+        recordActivity(reed);
         dispatchReedToQueue(reed, 'follow_reed');
         await requestReferencedReeds(reed);
       } catch (error) {
@@ -234,6 +237,7 @@
         await reedsService.storeReed(reed);
         if (eventId) serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
+        recordActivity(reed);
         dispatchReedToQueue(reed, 'pipe_reed');
         // Also following the author: keep the follow feed in sync without a second relay.
         if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
@@ -262,6 +266,7 @@
         await reedsService.storeReed(reed);
         if (eventId) serverConnection.sendDataAck(eventId);
         removeBroadcastReed(reed.id);
+        recordActivity(reed);
         dispatchReedToQueue(reed, 'reed_reply');
         await requestReferencedReeds(reed);
       } catch (error) {
