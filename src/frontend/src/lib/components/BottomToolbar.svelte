@@ -45,6 +45,13 @@
     border-radius: 0.5rem 0.5rem 0 0;
   }
 
+  @media (min-width: 768px) {
+    .bottom-toolbar {
+      align-self: center;
+      min-width: 680px;
+    }
+  }
+
   .toolbar-btn {
     flex: 1;
     display: flex;
@@ -73,6 +80,7 @@
   .toolbar-btn.active {
     background: var(--primary);
     color: var(--button-text);
+    border-radius: 0.5rem 0.5rem 0 0;
   }
 
   .toolbar-btn .icon {

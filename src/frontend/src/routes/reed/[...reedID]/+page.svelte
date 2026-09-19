@@ -868,7 +868,7 @@
 
   .reed-content {
     flex: 1;
-    max-width: 600px;
+    max-width: 680px;
     margin: 0 auto;
     width: 100%;
     padding: 1rem;

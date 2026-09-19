@@ -44,7 +44,7 @@
 
 <style>
   .container {
-    max-width: 600px;
+    max-width: 680px;
     margin: 0 auto;
     padding: 1rem;
     min-height: calc(100vh - 3rem - 1px);

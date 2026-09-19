@@ -4,12 +4,14 @@
 </script>
 
 <div class="section-toggle">
-  <a href="/network/users" class="toggle-btn" class:active={active === 'users'}>
-    Users
-  </a>
-  <a href="/network/mesh" class="toggle-btn" class:active={active === 'mesh'}>
-    Mesh
-  </a>
+  <div class="section-toggle-inner">
+    <a href="/network/users" class="toggle-btn" class:active={active === 'users'}>
+      Users
+    </a>
+    <a href="/network/mesh" class="toggle-btn" class:active={active === 'mesh'}>
+      Mesh
+    </a>
+  </div>
 </div>
 
 <style>
@@ -17,10 +19,23 @@
     display: flex;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: 0 0.5rem;
     position: sticky;
     top: 0;
     z-index: 10;
+  }
+
+  .section-toggle-inner {
+    display: flex;
+    flex: 1;
+    padding: 0 1rem;
+  }
+
+  @media (min-width: 768px) {
+    .section-toggle-inner {
+      flex-grow: 0;
+      min-width: 680px;
+      margin: 0 auto;
+    }
   }
 
   .toggle-btn {
