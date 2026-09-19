@@ -411,6 +411,37 @@ export async function getFollowReeds(): Promise<{ reeds: ReedType[]; authors: Re
   return { reeds, authors };
 }
 
+const ACTIVITY_SIDEBAR_LIMIT = 10;
+
+/** One row per followed author (their single latest reed), newest-first —
+ * for the activity sidebar. Distinct from getFollowReeds(), which can list
+ * the same prolific author more than once. Queried fresh each call, same
+ * as getFollowReeds(). */
+export async function getFollowActivity(): Promise<{ reeds: ReedType[]; authors: Record<string, User> }> {
+  const following = await dbService.getAll<{ userId: string }>('following');
+  const followedSet = new Set(following.map(f => f.userId));
+  const seenAuthors = new Set<string>();
+  const reeds = followedSet.size === 0
+    ? []
+    : await dbService.getLatestFromIndex<ReedType>(
+        'reeds', 'serverSignature.timestamp', ACTIVITY_SIDEBAR_LIMIT,
+        (reed) => {
+          if (!followedSet.has(reed.userID) || seenAuthors.has(reed.userID)) return false;
+          seenAuthors.add(reed.userID);
+          return true;
+        }
+      );
+  const authors: Record<string, User> = {};
+  for (const reed of reeds) {
+    const authorId = reed.userID;
+    if (!authors[authorId]) {
+      const user = await dbService.get<User>('users', authorId);
+      if (user) authors[authorId] = user;
+    }
+  }
+  return { reeds, authors };
+}
+
 const LIST_FEED_LIMIT = 50;
 
 /** Same "latest reeds where userID is in this set" query as the follow
