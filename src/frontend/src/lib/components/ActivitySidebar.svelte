@@ -1,6 +1,8 @@
 <script>
   import { goto } from '$app/navigation';
-  import { getFollowActivity, followReedQueue } from '$lib/repositories/reeds';
+  import { getActivity } from '$lib/repositories/activity';
+  import { followReedQueue, pipeReedQueue, reedReplyQueue, profileReedQueue } from '$lib/repositories/reeds';
+  import { dbService } from '$lib/services/db';
   import { formatRelativeTime } from '$lib/utils/time';
   import { stripMarkdown } from '$lib/utils/reedContent';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
@@ -19,9 +21,15 @@
       pendingRefresh = true;
       return;
     }
-    const result = await getFollowActivity();
-    reeds = result.reeds;
-    authors = result.authors;
+    reeds = getActivity();
+    const resolved = {};
+    for (const reed of reeds) {
+      if (!resolved[reed.userID]) {
+        const user = await dbService.get('users', reed.userID);
+        if (user) resolved[reed.userID] = user;
+      }
+    }
+    authors = resolved;
   }
 
   function onMouseEnter() {
@@ -36,7 +44,7 @@
     }
   }
 
-  $: arrived = $followReedQueue?.reed;
+  $: arrived = $followReedQueue?.reed ?? $pipeReedQueue?.reed ?? $reedReplyQueue?.reed ?? $profileReedQueue?.reed;
   $: if (arrived && arrived.id !== lastHandledReedId) {
     lastHandledReedId = arrived.id;
     void refresh();
@@ -51,8 +59,8 @@
   on:mouseenter={onMouseEnter}
   on:mouseleave={onMouseLeave}
 >
+  <h2 class="activity-title">Activity</h2>
   {#if reeds.length > 0}
-    <h2 class="activity-title">Activity</h2>
     <ul class="activity-list">
       {#each reeds as reed (reed.userID)}
         <li>
@@ -72,12 +80,23 @@
         </li>
       {/each}
     </ul>
+  {:else}
+    <p class="no-activity">
+      New reeds from the people you follow will show up here.
+    </p>
   {/if}
 </aside>
 
 <style>
   .activity-sidebar {
     display: none;
+  }
+
+  .no-activity {
+    margin: 0;
+    padding: 0 0.3rem;
+    color: var(--muted);
+    font-size: 0.8rem;
   }
 
   @media (min-width: 1400px) {
