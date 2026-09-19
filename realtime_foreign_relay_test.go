@@ -1,4 +1,6 @@
-package realtime
+//go:build !ops && !ripplescleanup
+
+package main
 
 import (
 	"context"
@@ -6,35 +8,34 @@ import (
 	"encoding/json"
 	"testing"
 
-	"syrinx/crypto"
-	"syrinx/identity"
-
 	_ "github.com/lib/pq"
 )
 
-// newTestRealtimeService builds a RealtimeService with a serverID but no
+// newTestRealtimeService builds a realtimeService with a serverID but no
 // live DB connection — sql.Open doesn't dial until first use, and
-// isForeignReed only reads rs.dbService.serverID, so this is safe for
-// pure parse-logic tests that never touch the database.
-func newTestRealtimeService(t *testing.T, serverID string) *RealtimeService {
+// isForeignReed only reads rs.db.serverID, so this is safe for pure
+// parse-logic tests that never touch the database.
+func newTestRealtimeService(t *testing.T, serverID string) *realtimeService {
 	t.Helper()
 	db, err := sql.Open("postgres", "dbname=unused_in_this_test sslmode=disable")
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return NewService(db, &crypto.Service{}, "", serverID)
+	ds := NewDataService(db, "test")
+	ds.setServerIDForTest(serverID)
+	return newRealtimeService(ds, newCryptoService(), "")
 }
 
 func TestIsForeignReed(t *testing.T) {
 	rs := newTestRealtimeService(t, "home1234")
 
-	localReedID := string(identity.AppendEntity(identity.CanonicalID("home1234", "alice"), "01a026d4-406f-744b-b730-fcd241bf2582"))
+	localReedID := string(appendEntity(canonicalID("home1234", "alice"), "01a026d4-406f-744b-b730-fcd241bf2582"))
 	if foreign, home := rs.isForeignReed(localReedID); foreign {
 		t.Fatalf("expected local reed to not be foreign, got foreign=true home=%q", home)
 	}
 
-	foreignReedID := string(identity.AppendEntity(identity.CanonicalID("peer5678", "bob"), "01a026d4-406f-744b-b730-fcd241bf2582"))
+	foreignReedID := string(appendEntity(canonicalID("peer5678", "bob"), "01a026d4-406f-744b-b730-fcd241bf2582"))
 	foreign, home := rs.isForeignReed(foreignReedID)
 	if !foreign {
 		t.Fatal("expected foreign reed to be detected as foreign")
@@ -61,9 +62,9 @@ func TestForeignHookSettersWireUp(t *testing.T) {
 	}
 
 	var requestCalled, deliverCalled, cancelCalled bool
-	rs.SetForeignRequestReedHook(func(_ context.Context, _, _, _ string) (ForeignRequestResult, string, error) {
+	rs.SetForeignRequestReedHook(func(_ context.Context, _, _, _ string) (realtimeForeignRequestResult, string, error) {
 		requestCalled = true
-		return ForeignRequestOK, "peer-event-1", nil
+		return realtimeForeignRequestOK, "peer-event-1", nil
 	})
 	rs.SetForeignDeliverHook(func(_ context.Context, _, _ string, _ json.RawMessage) error {
 		deliverCalled = true
@@ -94,10 +95,10 @@ func TestForeignHookSettersWireUp(t *testing.T) {
 }
 
 // TestCancelForeignPendingEventOwnershipMismatchIsDistinctError confirms
-// errForeignRelayOwnershipMismatch is a stable sentinel the HTTP handler
-// can compare against to map to 403 (vs. a generic DB error -> 500).
+// errRealtimeForeignRelayOwnershipMismatch is a stable sentinel the HTTP
+// handler can compare against to map to 403 (vs. a generic DB error -> 500).
 func TestCancelForeignPendingEventOwnershipMismatchIsDistinctError(t *testing.T) {
-	if errForeignRelayOwnershipMismatch == nil {
-		t.Fatal("expected errForeignRelayOwnershipMismatch to be a non-nil sentinel error")
+	if errRealtimeForeignRelayOwnershipMismatch == nil {
+		t.Fatal("expected errRealtimeForeignRelayOwnershipMismatch to be a non-nil sentinel error")
 	}
 }

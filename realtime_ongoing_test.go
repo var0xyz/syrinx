@@ -1,4 +1,6 @@
-package realtime
+//go:build !ops && !ripplescleanup
+
+package main
 
 import (
 	"encoding/json"
@@ -8,9 +10,9 @@ import (
 	"testing"
 )
 
-func TestRejectConnection(t *testing.T) {
+func TestRejectRealtimeConnection(t *testing.T) {
 	rr := httptest.NewRecorder()
-	rejectConnection(rr, "Finish recovery import first.")
+	rejectRealtimeConnection(rr, "Finish recovery import first.")
 
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", rr.Code)
@@ -18,7 +20,7 @@ func TestRejectConnection(t *testing.T) {
 	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
 		t.Fatalf("content-type = %q", ct)
 	}
-	var body errorMessage
+	var body realtimeErrorMessage
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
@@ -27,16 +29,16 @@ func TestRejectConnection(t *testing.T) {
 	}
 }
 
-func TestDeviceMismatch(t *testing.T) {
+func TestRealtimeDeviceMismatch(t *testing.T) {
 	t.Run("nil check allows", func(t *testing.T) {
-		rs := &RealtimeService{}
+		rs := &realtimeService{}
 		if rs.deviceMismatch("u1", "dev") {
 			t.Fatal("expected allow")
 		}
 	})
 
 	t.Run("check failure rejects", func(t *testing.T) {
-		rs := &RealtimeService{}
+		rs := &realtimeService{}
 		rs.SetDeviceCheck(func(userID, deviceID string) error {
 			return errors.New("mismatch")
 		})
@@ -46,7 +48,7 @@ func TestDeviceMismatch(t *testing.T) {
 	})
 
 	t.Run("check success allows", func(t *testing.T) {
-		rs := &RealtimeService{}
+		rs := &realtimeService{}
 		rs.SetDeviceCheck(func(userID, deviceID string) error {
 			return nil
 		})
@@ -56,9 +58,9 @@ func TestDeviceMismatch(t *testing.T) {
 	})
 }
 
-func TestOngoingImport(t *testing.T) {
+func TestRealtimeOngoingImport(t *testing.T) {
 	t.Run("nil check allows", func(t *testing.T) {
-		rs := &RealtimeService{}
+		rs := &realtimeService{}
 		ongoing, err := rs.ongoingImport("u1")
 		if err != nil {
 			t.Fatal(err)
@@ -69,7 +71,7 @@ func TestOngoingImport(t *testing.T) {
 	})
 
 	t.Run("ongoing", func(t *testing.T) {
-		rs := &RealtimeService{}
+		rs := &realtimeService{}
 		rs.SetOngoingCheck(func(userID string) (bool, error) {
 			return true, nil
 		})
@@ -83,7 +85,7 @@ func TestOngoingImport(t *testing.T) {
 	})
 
 	t.Run("not ongoing", func(t *testing.T) {
-		rs := &RealtimeService{}
+		rs := &realtimeService{}
 		rs.SetOngoingCheck(func(userID string) (bool, error) {
 			return false, nil
 		})

@@ -1,13 +1,15 @@
-package realtime
+//go:build !ops && !ripplescleanup
+
+package main
 
 import "testing"
 
 func TestReedSubscriptionBookkeeping(t *testing.T) {
-	cm := NewConnectionManager()
-	client := NewClient(nil, "viewer")
+	cm := newRealtimeConnectionManager()
+	client := newRealtimeClient(nil, "viewer")
 
 	cm.SubscribeReed(client, "reed1")
-	key := ReedKey("reed1")
+	key := realtimeReedKey("reed1")
 	if _, ok := client.reedSubscriptions[key]; !ok {
 		t.Fatal("expected client reed subscription")
 	}
@@ -24,14 +26,14 @@ func TestReedSubscriptionBookkeeping(t *testing.T) {
 	}
 }
 
-func TestEchoCountChangedString(t *testing.T) {
-	if got := EchoCountChanged.String(); got != "EchoCountChanged" {
+func TestRealtimeEchoCountChangedString(t *testing.T) {
+	if got := realtimeEchoCountChanged.String(); got != "EchoCountChanged" {
 		t.Fatalf("String() = %q, want EchoCountChanged", got)
 	}
 }
 
-func TestReplyCountChangedString(t *testing.T) {
-	if got := ReplyCountChanged.String(); got != "ReplyCountChanged" {
+func TestRealtimeReplyCountChangedString(t *testing.T) {
+	if got := realtimeReplyCountChanged.String(); got != "ReplyCountChanged" {
 		t.Fatalf("String() = %q, want ReplyCountChanged", got)
 	}
 }

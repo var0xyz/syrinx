@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"syrinx/observability/metrics"
-	"syrinx/realtime"
 )
 
 // Cross-server REQUEST_REED relay: bridges the existing local
@@ -115,17 +114,17 @@ type relayRequestResponse struct {
 // relayRequestToPeer is HandleForeignRequestReed's hook implementation
 // (leg 1, O's side): registers requesterUserID's interest in reedID with
 // reedID's home server over peer HTTP.
-func (h *Handlers) relayRequestToPeer(ctx context.Context, reedID, requesterUserID, localRequestID string) (realtime.ForeignRequestResult, string, error) {
+func (h *Handlers) relayRequestToPeer(ctx context.Context, reedID, requesterUserID, localRequestID string) (realtimeForeignRequestResult, string, error) {
 	authorUserID, homeServerID, bareReedID, ok := parseKeyFingerprint(identityID(reedID))
 	if !ok {
-		return realtime.ForeignRequestReedNotFound, "", nil
+		return realtimeForeignRequestReedNotFound, "", nil
 	}
 	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
 	if err != nil {
-		return realtime.ForeignRequestReedNotFound, "", err
+		return realtimeForeignRequestReedNotFound, "", err
 	}
 	if peer == nil {
-		return realtime.ForeignRequestReedNotFound, "", nil
+		return realtimeForeignRequestReedNotFound, "", nil
 	}
 
 	payload := relayRequestPayload{
@@ -137,19 +136,19 @@ func (h *Handlers) relayRequestToPeer(ctx context.Context, reedID, requesterUser
 	var respBody relayRequestResponse
 	status, err := h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/request", payload, &respBody)
 	if err != nil {
-		return realtime.ForeignRequestReedNotFound, "", err
+		return realtimeForeignRequestReedNotFound, "", err
 	}
 	switch {
 	case status == http.StatusOK:
-		return realtime.ForeignRequestOK, respBody.PeerEventID, nil
+		return realtimeForeignRequestOK, respBody.PeerEventID, nil
 	case status == http.StatusAccepted:
-		return realtime.ForeignRequestAccepted, respBody.PeerEventID, nil
+		return realtimeForeignRequestAccepted, respBody.PeerEventID, nil
 	case status == http.StatusNotFound:
-		return realtime.ForeignRequestReedNotFound, "", nil
+		return realtimeForeignRequestReedNotFound, "", nil
 	case status == http.StatusConflict:
-		return realtime.ForeignRequestReedNotHeld, "", nil
+		return realtimeForeignRequestReedNotHeld, "", nil
 	default:
-		return realtime.ForeignRequestReedNotFound, "", nil
+		return realtimeForeignRequestReedNotFound, "", nil
 	}
 }
 
@@ -208,13 +207,13 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	switch result {
-	case realtime.ForeignRequestReedNotFound:
+	case realtimeForeignRequestReedNotFound:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", true)
 		writeResponse(w, http.StatusNotFound, "Reed not found")
-	case realtime.ForeignRequestReedNotHeld:
+	case realtimeForeignRequestReedNotHeld:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", true)
 		writeResponse(w, http.StatusConflict, "Reed is not currently held")
-	case realtime.ForeignRequestAccepted:
+	case realtimeForeignRequestAccepted:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", true)
 		writeResponse(w, http.StatusAccepted, relayRequestResponse{PeerEventID: peerEventID, Status: "accepted"})
 	default:
@@ -252,7 +251,7 @@ type relaySubscribeResponse struct {
 // subscribeProfileToPeer is ForeignSubscribeProfileHook's implementation
 // (leg 1b, O's side): registers requesterUserID's interest in every one
 // of authorID's (foreign) reeds with authorID's home server over peer HTTP.
-func (h *Handlers) subscribeProfileToPeer(ctx context.Context, authorID, requesterUserID string) ([]realtime.ForeignSubscribeProfileResult, error) {
+func (h *Handlers) subscribeProfileToPeer(ctx context.Context, authorID, requesterUserID string) ([]realtimeForeignSubscribeProfileResult, error) {
 	_, homeServerID, ok := parseIdentityID(identityID(authorID))
 	if !ok {
 		return nil, nil
@@ -275,9 +274,9 @@ func (h *Handlers) subscribeProfileToPeer(ctx context.Context, authorID, request
 		return nil, nil
 	}
 
-	results := make([]realtime.ForeignSubscribeProfileResult, 0, len(respBody.Events))
+	results := make([]realtimeForeignSubscribeProfileResult, 0, len(respBody.Events))
 	for _, ev := range respBody.Events {
-		results = append(results, realtime.ForeignSubscribeProfileResult{PeerEventID: ev.PeerEventID, ReedID: ev.ReedID})
+		results = append(results, realtimeForeignSubscribeProfileResult{PeerEventID: ev.PeerEventID, ReedID: ev.ReedID})
 	}
 	return results, nil
 }
@@ -740,30 +739,30 @@ type relaySubscribeReedResponse struct {
 // subscribeReedToPeer is ForeignSubscribeReedHook's implementation (leg
 // 8, O's side): registers requesterUserID's interest in reedID's live
 // stats with reedID's home server, returning the current snapshot.
-func (h *Handlers) subscribeReedToPeer(ctx context.Context, reedID, requesterUserID string) (realtime.ForeignReedStatsSnapshot, bool, error) {
+func (h *Handlers) subscribeReedToPeer(ctx context.Context, reedID, requesterUserID string) (realtimeForeignReedStatsSnapshot, bool, error) {
 	_, homeServerID, _, ok := parseKeyFingerprint(identityID(reedID))
 	if !ok {
-		return realtime.ForeignReedStatsSnapshot{}, false, nil
+		return realtimeForeignReedStatsSnapshot{}, false, nil
 	}
 	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
 	if err != nil {
-		return realtime.ForeignReedStatsSnapshot{}, false, err
+		return realtimeForeignReedStatsSnapshot{}, false, err
 	}
 	if peer == nil {
-		return realtime.ForeignReedStatsSnapshot{}, false, nil
+		return realtimeForeignReedStatsSnapshot{}, false, nil
 	}
 
 	payload := relaySubscribeReedPayload{ReedID: reedID, RequesterUserID: requesterUserID}
 	var respBody relaySubscribeReedResponse
 	status, err := h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/subscribe-reed", payload, &respBody)
 	if err != nil {
-		return realtime.ForeignReedStatsSnapshot{}, false, err
+		return realtimeForeignReedStatsSnapshot{}, false, err
 	}
 	if status != http.StatusOK || !respBody.Found {
-		return realtime.ForeignReedStatsSnapshot{}, false, nil
+		return realtimeForeignReedStatsSnapshot{}, false, nil
 	}
 
-	return realtime.ForeignReedStatsSnapshot{
+	return realtimeForeignReedStatsSnapshot{
 		Echoes:          respBody.Echoes,
 		CoveragePercent: respBody.CoveragePercent,
 		Replies:         respBody.Replies,
@@ -1197,8 +1196,8 @@ func (h *Handlers) EchoNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:   realtime.EchoCountChanged,
+	h.broadcastChan <- realtimeBroadcastMessage{
+		Type:   realtimeEchoCountChanged,
 		UserID: echoedAuthorID,
 		ReedID: bareEchoedReedID,
 	}
@@ -1334,14 +1333,14 @@ func (h *Handlers) MentionNotifyFromPeer(w http.ResponseWriter, r *http.Request)
 // keep counting/showing content that no longer exists.
 
 type relayReplyRemovalNotifyPayload struct {
-	ParentReedID string                    `json:"parent_reed_id"`
-	ReplyReedID  string                    `json:"reply_reed_id"`
-	Cert         *realtime.ReedRemovalWire `json:"cert"`
+	ParentReedID string           `json:"parent_reed_id"`
+	ReplyReedID  string           `json:"reply_reed_id"`
+	Cert         *reedRemovalWire `json:"cert"`
 }
 
 // notifyForeignReplyRemovalToPeer tells parentReedID's home server that
 // replyReedID (removed here) no longer replies to it.
-func (h *Handlers) notifyForeignReplyRemovalToPeer(ctx context.Context, parentReedID, replyReedID string, cert *realtime.ReedRemovalWire) error {
+func (h *Handlers) notifyForeignReplyRemovalToPeer(ctx context.Context, parentReedID, replyReedID string, cert *reedRemovalWire) error {
 	_, homeServerID, _, ok := parseKeyFingerprint(identityID(parentReedID))
 	if !ok {
 		return nil
@@ -1414,8 +1413,8 @@ func (h *Handlers) ReplyRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Req
 			log.Error().Err(err).Str("parentReedID", req.ParentReedID).Msg("Failed to resolve reply count targets after foreign reply removal")
 		} else {
 			for _, t := range replyTargets {
-				h.broadcastChan <- realtime.BroadcastMessage{
-					Type:   realtime.ReplyCountChanged,
+				h.broadcastChan <- realtimeBroadcastMessage{
+					Type:   realtimeReplyCountChanged,
 					UserID: t.CanonicalAuthorID(),
 					ReedID: t.ReedID,
 				}
@@ -1519,8 +1518,8 @@ func (h *Handlers) EchoRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 
 	if deleted {
 		echoedAuthorBareID, _, bareEchoedReedID, _ := parseKeyFingerprint(identityID(req.EchoedReedID))
-		h.broadcastChan <- realtime.BroadcastMessage{
-			Type:   realtime.EchoCountChanged,
+		h.broadcastChan <- realtimeBroadcastMessage{
+			Type:   realtimeEchoCountChanged,
 			UserID: string(canonicalID(echoedServerID, echoedAuthorBareID)),
 			ReedID: bareEchoedReedID,
 		}
@@ -1637,13 +1636,13 @@ type relayFallbackRequestResponse struct {
 // implementation: asks peerServerID — a server previously notified (leg
 // 15) that it holds a copy of reedID — to relay that copy back to
 // requesterUserID, one of this server's own local users.
-func (h *Handlers) relayFallbackRequestToPeer(ctx context.Context, peerServerID, reedID, requesterUserID, localRequestID string) (realtime.ForeignRequestResult, string, error) {
+func (h *Handlers) relayFallbackRequestToPeer(ctx context.Context, peerServerID, reedID, requesterUserID, localRequestID string) (realtimeForeignRequestResult, string, error) {
 	peer, err := h.services.db.GetServerByID(ctx, peerServerID)
 	if err != nil {
-		return realtime.ForeignRequestReedNotFound, "", err
+		return realtimeForeignRequestReedNotFound, "", err
 	}
 	if peer == nil {
-		return realtime.ForeignRequestReedNotFound, "", nil
+		return realtimeForeignRequestReedNotFound, "", nil
 	}
 
 	payload := relayFallbackRequestPayload{
@@ -1654,19 +1653,19 @@ func (h *Handlers) relayFallbackRequestToPeer(ctx context.Context, peerServerID,
 	var respBody relayFallbackRequestResponse
 	status, err := h.callPeerRelayEndpoint(ctx, peerServerID, peer.BaseURL, "/api/federation/relay/fallback-request", payload, &respBody)
 	if err != nil {
-		return realtime.ForeignRequestReedNotFound, "", err
+		return realtimeForeignRequestReedNotFound, "", err
 	}
 	switch {
 	case status == http.StatusOK:
-		return realtime.ForeignRequestOK, respBody.PeerEventID, nil
+		return realtimeForeignRequestOK, respBody.PeerEventID, nil
 	case status == http.StatusAccepted:
-		return realtime.ForeignRequestAccepted, respBody.PeerEventID, nil
+		return realtimeForeignRequestAccepted, respBody.PeerEventID, nil
 	case status == http.StatusNotFound:
-		return realtime.ForeignRequestReedNotFound, "", nil
+		return realtimeForeignRequestReedNotFound, "", nil
 	case status == http.StatusConflict:
-		return realtime.ForeignRequestReedNotHeld, "", nil
+		return realtimeForeignRequestReedNotHeld, "", nil
 	default:
-		return realtime.ForeignRequestReedNotFound, "", nil
+		return realtimeForeignRequestReedNotFound, "", nil
 	}
 }
 
@@ -1725,13 +1724,13 @@ func (h *Handlers) RelayFallbackRequestFromPeer(w http.ResponseWriter, r *http.R
 		return
 	}
 	switch result {
-	case realtime.ForeignRequestReedNotFound:
+	case realtimeForeignRequestReedNotFound:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", true)
 		writeResponse(w, http.StatusNotFound, "Reed not found")
-	case realtime.ForeignRequestReedNotHeld:
+	case realtimeForeignRequestReedNotHeld:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", true)
 		writeResponse(w, http.StatusConflict, "Reed is not currently held")
-	case realtime.ForeignRequestAccepted:
+	case realtimeForeignRequestAccepted:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", true)
 		writeResponse(w, http.StatusAccepted, relayFallbackRequestResponse{PeerEventID: peerEventID, Status: "accepted"})
 	default:
@@ -1979,13 +1978,13 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 // server) — here O is the parent's home server, H is the viewer's own.
 
 type relayReplyRemovalToViewerPayload struct {
-	ViewerUserID  string                    `json:"viewer_user_id"`
-	RemovedReedID string                    `json:"removed_reed_id"`
-	Cert          *realtime.ReedRemovalWire `json:"cert"`
+	ViewerUserID  string           `json:"viewer_user_id"`
+	RemovedReedID string           `json:"removed_reed_id"`
+	Cert          *reedRemovalWire `json:"cert"`
 }
 
 // notifyForeignReplyRemovalToViewer is leg 20's O-side implementation.
-func (h *Handlers) notifyForeignReplyRemovalToViewer(ctx context.Context, viewerUserID, removedReedID string, cert *realtime.ReedRemovalWire) error {
+func (h *Handlers) notifyForeignReplyRemovalToViewer(ctx context.Context, viewerUserID, removedReedID string, cert *reedRemovalWire) error {
 	_, homeServerID, ok := parseIdentityID(identityID(viewerUserID))
 	if !ok {
 		return nil
@@ -2232,8 +2231,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 	}
 
 	if h.realtimeRelay != nil {
-		legacyCert := toLegacyDeletionAccountCert(cert)
-		wire := realtime.NewAccountRemovalWire(peerServerID, &legacyCert)
+		wire := newAccountRemovalWire(peerServerID, cert)
 		h.realtimeRelay.HandleForeignAccountRemoval(req.UserID, &wire)
 	}
 
@@ -2340,8 +2338,7 @@ func (h *Handlers) ReedRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 	}
 
 	if h.realtimeRelay != nil {
-		legacyCert := toLegacyDeletionCert(cert)
-		wire := realtime.NewReedRemovalWire(peerServerID, &legacyCert)
+		wire := newReedRemovalWire(peerServerID, cert)
 		h.realtimeRelay.HandleForeignReedRemoval(req.UserID, req.ReedID, &wire)
 	}
 

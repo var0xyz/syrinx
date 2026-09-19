@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed.
+Implemented — all 11 in-scope packages (00-10) have merged into root and
+their source directories deleted. `proto` and `observability`/
+`observability/metrics` remain independent, per the Context section below.
+See each numbered file's own Status section for what actually happened at
+that step, including every deviation from this document's original plan.
 
 ## Context
 

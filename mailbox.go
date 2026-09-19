@@ -60,10 +60,9 @@ type MailboxPayload struct {
 // callable from both the server and the ops CLI. Not gated behind any
 // admin check itself: a handler reporting that specific user's own
 // processing error is not an admin action (see specs/notifications/03).
-// Returns the new row's id and ciphertext so the caller (main package) can
-// hand them to realtime.RealtimeService.NotifyMailboxMessage for live
-// delivery — this function itself has no access to the realtime package's
-// connection registry.
+// Returns the new row's id and ciphertext so the caller can hand them to
+// realtimeService.NotifyMailboxMessage for live delivery — this function
+// itself has no access to the realtime connection registry.
 // userID accepts either canonical form ("userID@serverID") or a bare local
 // userID, resolved against this server's own id — mailbox is local-only
 // (the server never mails a foreign user), so there's no ambiguity to

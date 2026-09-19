@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/realtime"
-
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
 )
@@ -303,7 +301,7 @@ func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *cryptoKeyPa
 		crypto: cryptoSvc,
 		log:    NewLoggingService(),
 	}
-	h := NewHandlers(services, AppConfig{ServerName: "test", APIBaseURL: "https://test.example"}, make(chan realtime.BroadcastMessage, 1), ServerSigningKey{
+	h := NewHandlers(services, AppConfig{ServerName: "test", APIBaseURL: "https://test.example"}, make(chan realtimeBroadcastMessage, 1), ServerSigningKey{
 		Fingerprint: serverKP.Fingerprint,
 		Armor:       serverKP.PrivateKey,
 	})
