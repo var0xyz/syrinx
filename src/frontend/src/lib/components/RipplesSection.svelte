@@ -543,10 +543,6 @@
 </section>
 
 <style>
-  .ripples-section {
-    padding-top: 1rem;
-  }
-
   .ripples-header {
     display: flex;
     align-items: center;
@@ -616,9 +612,7 @@
   }
 
   .ripples-why-explainer {
-    margin: 0 0.75rem;
-    padding: 0.6rem 0.7rem;
-    background: var(--input-bg, rgba(127, 127, 127, 0.08));
+    margin: 1rem 0 0;
     border-radius: 8px;
     font-size: 0.8rem;
     line-height: 1.5;
@@ -626,7 +620,6 @@
   }
 
   .ripples-empty {
-    margin: 0 0.75rem 1rem;
     color: var(--muted);
     font-size: 0.9rem;
     font-style: italic;
@@ -666,7 +659,6 @@
     align-items: center;
     gap: 0.4rem;
     width: calc(100% - 1.5rem);
-    margin: 0 0.75rem 1rem;
     padding: 0.5rem 0.7rem;
     border: 1px solid var(--border);
     border-radius: 8px;
