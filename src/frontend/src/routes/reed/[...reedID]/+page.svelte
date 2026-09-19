@@ -889,7 +889,7 @@
 
   @media (min-width: 768px) {
     .reed-detail-container {
-      padding-left: 220px;
+      padding-left: var(--sidenav-width);
     }
   }
 

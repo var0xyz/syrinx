@@ -130,7 +130,7 @@
 
   @media (min-width: 768px) {
     .pipe-container {
-      padding-left: 220px;
+      padding-left: var(--sidenav-width);
     }
   }
 

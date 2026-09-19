@@ -112,7 +112,7 @@
       top: calc(3rem + 1px);
       left: 0;
       bottom: 0;
-      width: 220px;
+      width: var(--sidenav-width);
       background: var(--surface);
       border-right: 1px solid var(--border);
       padding: 1rem 0.7rem;

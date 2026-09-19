@@ -25,7 +25,7 @@
 
   @media (min-width: 768px) {
     .network-container {
-      padding-left: 220px;
+      padding-left: var(--sidenav-width);
     }
   }
 </style>
