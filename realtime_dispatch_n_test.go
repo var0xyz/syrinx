@@ -1,4 +1,6 @@
-package realtime
+//go:build !ops && !ripplescleanup
+
+package main
 
 import "testing"
 

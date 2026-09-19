@@ -14,8 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"syrinx/realtime"
 )
 
 func newInviteModeHandlers(t *testing.T, db *sql.DB) *Handlers {
@@ -45,7 +43,7 @@ func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
 	return NewHandlers(
 		services,
 		cfg,
-		make(chan realtime.BroadcastMessage, 1),
+		make(chan realtimeBroadcastMessage, 1),
 		ServerSigningKey{Fingerprint: serverKP.Fingerprint, Armor: serverKP.PrivateKey},
 	)
 }
@@ -286,7 +284,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	h := NewHandlers(
 		&Services{db: dataService, crypto: cryptoSvc, log: NewLoggingService()},
 		AppConfig{ServerName: "test", SignupMode: "open"},
-		make(chan realtime.BroadcastMessage, 1),
+		make(chan realtimeBroadcastMessage, 1),
 		ServerSigningKey{Fingerprint: serverKP.Fingerprint, Armor: serverKP.PrivateKey},
 	)
 	// GetServerPublicKeyByFingerprint (used to verify the userID reservation

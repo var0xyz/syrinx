@@ -1,4 +1,6 @@
-package realtime
+//go:build !ops && !ripplescleanup
+
+package main
 
 import (
 	"encoding/json"
@@ -12,7 +14,7 @@ import (
 func TestNewReedNotHeldMsg(t *testing.T) {
 	t.Parallel()
 
-	msg := NewReedNotHeldMsg("req-1", "reed-1")
+	msg := newReedNotHeldMsg("req-1", "reed-1")
 	if msg.Type != "REED_NOT_HELD" {
 		t.Fatalf("Type = %q, want REED_NOT_HELD", msg.Type)
 	}
@@ -43,8 +45,8 @@ func TestNewReedNotHeldMsg(t *testing.T) {
 func TestReedNotHeldDistinctFromReedNotFound(t *testing.T) {
 	t.Parallel()
 
-	held := NewReedNotHeldMsg("req-1", "reed-1")
-	found := NewReedNotFoundMsg("req-1", "reed-1")
+	held := newReedNotHeldMsg("req-1", "reed-1")
+	found := newReedNotFoundMsg("req-1", "reed-1")
 	if held.Type == found.Type {
 		t.Fatalf("REED_NOT_HELD and REED_NOT_FOUND must differ on the wire")
 	}

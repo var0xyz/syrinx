@@ -19,7 +19,6 @@ import (
 	"unicode/utf8"
 
 	"syrinx/observability/metrics"
-	"syrinx/realtime"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -47,7 +46,7 @@ func (h *Handlers) countersign(payload []byte, ts time.Time) (ServerSignature, e
 type Handlers struct {
 	services      *Services
 	cfg           AppConfig
-	broadcastChan chan<- realtime.BroadcastMessage
+	broadcastChan chan<- realtimeBroadcastMessage
 	signingKey    ServerSigningKey
 	metrics       metrics.Recorder
 	// filterPipeTags keeps only tags with current pipe listeners (SignReed stash).
@@ -60,9 +59,9 @@ type Handlers struct {
 	federationHTTPClientOverride *http.Client
 	// realtimeRelay backs the cross-server REQUEST_REED relay's HTTP
 	// endpoints (federation_relay.go) — they need to touch pending_events/
-	// reed_allocations/the WS connection registry, which only exists in
-	// the realtime package.
-	realtimeRelay *realtime.RealtimeService
+	// reed_allocations/the WS connection registry, which only exists on
+	// the realtime service.
+	realtimeRelay *realtimeService
 }
 
 type ServerInfo struct {
@@ -81,7 +80,7 @@ type ServerInfo struct {
 //   Utilities  //
 // ///////////// //
 
-func NewHandlers(services *Services, cfg AppConfig, broadcastChan chan<- realtime.BroadcastMessage, signingKey ServerSigningKey) *Handlers {
+func NewHandlers(services *Services, cfg AppConfig, broadcastChan chan<- realtimeBroadcastMessage, signingKey ServerSigningKey) *Handlers {
 	return &Handlers{
 		services:      services,
 		cfg:           cfg,
@@ -110,9 +109,9 @@ func (h *Handlers) SetKickUserWS(kick func(userID string)) {
 	h.kickUserWS = kick
 }
 
-// SetRealtimeRelay installs the RealtimeService the cross-server
+// SetRealtimeRelay installs the realtimeService the cross-server
 // REQUEST_REED relay endpoints (federation_relay.go) call into.
-func (h *Handlers) SetRealtimeRelay(rs *realtime.RealtimeService) {
+func (h *Handlers) SetRealtimeRelay(rs *realtimeService) {
 	h.realtimeRelay = rs
 }
 
@@ -1192,8 +1191,8 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		log.Error().Str("userID", userID).Err(err).Msg("Error clearing echo index for removed account")
 	} else {
 		for _, t := range affectedTargets {
-			h.broadcastChan <- realtime.BroadcastMessage{
-				Type:   realtime.EchoCountChanged,
+			h.broadcastChan <- realtimeBroadcastMessage{
+				Type:   realtimeEchoCountChanged,
 				UserID: t.CanonicalAuthorID(),
 				ReedID: t.ReedID,
 			}
@@ -1205,18 +1204,17 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		log.Error().Str("userID", userID).Err(err).Msg("Error resolving reply count targets for removed account")
 	} else {
 		for _, t := range threadTargets {
-			h.broadcastChan <- realtime.BroadcastMessage{
-				Type:   realtime.ReplyCountChanged,
+			h.broadcastChan <- realtimeBroadcastMessage{
+				Type:   realtimeReplyCountChanged,
 				UserID: t.CanonicalAuthorID(),
 				ReedID: t.ReedID,
 			}
 		}
 	}
 
-	legacyCert := toLegacyDeletionAccountCert(cert)
-	wire := realtime.NewAccountRemovalWire(serverID, &legacyCert)
-	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:           realtime.AccountRemoved,
+	wire := newAccountRemovalWire(serverID, cert)
+	h.broadcastChan <- realtimeBroadcastMessage{
+		Type:           realtimeAccountRemoved,
 		ServerID:       serverID,
 		UserID:         userID,
 		AccountRemoval: &wire,
@@ -1471,10 +1469,10 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:   realtime.UserUpdate,
+	h.broadcastChan <- realtimeBroadcastMessage{
+		Type:   realtimeUserUpdate,
 		UserID: userID,
-		UserUpdate: &realtime.UserUpdateBroadcast{
+		UserUpdate: &userUpdateBroadcast{
 			Username: updated.Username,
 			Bio:      updated.Bio,
 		},
@@ -1991,8 +1989,8 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	if echoIndexed && echoRef != nil {
 		h.metrics.EchoTargeted(r.Context(), echoRef.AuthorID, echoRef.ReedID)
 		if echoRef.ServerID == localServerID {
-			h.broadcastChan <- realtime.BroadcastMessage{
-				Type:   realtime.EchoCountChanged,
+			h.broadcastChan <- realtimeBroadcastMessage{
+				Type:   realtimeEchoCountChanged,
 				UserID: echoRef.CanonicalAuthorID(),
 				ReedID: echoRef.ReedID,
 			}
@@ -2026,8 +2024,8 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			log.Error().Err(err).Msg("Error resolving reply count notify targets")
 		} else {
 			for _, t := range targets {
-				h.broadcastChan <- realtime.BroadcastMessage{
-					Type:   realtime.ReplyCountChanged,
+				h.broadcastChan <- realtimeBroadcastMessage{
+					Type:   realtimeReplyCountChanged,
 					UserID: t.CanonicalAuthorID(),
 					ReedID: t.ReedID,
 				}
@@ -2263,8 +2261,8 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 				}(FormatReedRef(t), reedID)
 				continue
 			}
-			h.broadcastChan <- realtime.BroadcastMessage{
-				Type:   realtime.EchoCountChanged,
+			h.broadcastChan <- realtimeBroadcastMessage{
+				Type:   realtimeEchoCountChanged,
 				UserID: t.CanonicalAuthorID(),
 				ReedID: t.ReedID,
 			}
@@ -2273,8 +2271,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 	// Keep the reeds row for allocation catch-up (04): reed_allocations FK
 	// cascades on reed delete. Tip/list already exclude reed_removals.
-	legacyCert := toLegacyDeletionCert(cert)
-	wire := realtime.NewReedRemovalWire(serverID, &legacyCert)
+	wire := newReedRemovalWire(serverID, cert)
 
 	replyTargets, err := h.services.db.ReplyCountNotifyTargetsForRemovedReply(r.Context(), reedID)
 	if err != nil {
@@ -2296,16 +2293,16 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 				}(FormatReedRef(t), reedID)
 				continue
 			}
-			h.broadcastChan <- realtime.BroadcastMessage{
-				Type:   realtime.ReplyCountChanged,
+			h.broadcastChan <- realtimeBroadcastMessage{
+				Type:   realtimeReplyCountChanged,
 				UserID: t.CanonicalAuthorID(),
 				ReedID: t.ReedID,
 			}
 		}
 	}
 
-	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:        realtime.ReedRemoved,
+	h.broadcastChan <- realtimeBroadcastMessage{
+		Type:        realtimeReedRemoved,
 		ServerID:    serverID,
 		UserID:      userID,
 		ReedID:      bareReedID,
@@ -2453,8 +2450,8 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:   realtime.LikeCountChanged,
+	h.broadcastChan <- realtimeBroadcastMessage{
+		Type:   realtimeLikeCountChanged,
 		UserID: authorID,
 		ReedID: bareReedID,
 	}
@@ -2506,8 +2503,8 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if deleted {
-		h.broadcastChan <- realtime.BroadcastMessage{
-			Type:   realtime.LikeCountChanged,
+		h.broadcastChan <- realtimeBroadcastMessage{
+			Type:   realtimeLikeCountChanged,
 			UserID: authorID,
 			ReedID: bareReedID,
 		}
@@ -5422,35 +5419,11 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	wire := rippleWire(resp)
 	writeResponse(w, http.StatusCreated, wire)
 
-	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:   realtime.RipplePosted,
+	h.broadcastChan <- realtimeBroadcastMessage{
+		Type:   realtimeRipplePosted,
 		UserID: reedUserID,
 		ReedID: reedID,
-		Ripple: realtimeRippleWire(&wire),
-	}
-}
-
-// realtimeRippleWire converts the HTTP-layer RippleWire into realtime's
-// own duplicated wire shape (realtime cannot import the main package —
-// same reasoning as ReedRemovalWire/AccountRemovalWire).
-func realtimeRippleWire(w *RippleWire) *realtime.RippleWire {
-	return &realtime.RippleWire{
-		Hash:       w.Hash,
-		ThreadID:   w.ThreadID,
-		UserID:     w.UserID,
-		Content:    w.Content,
-		ReplyingTo: w.ReplyingTo,
-		Deleted:    w.Deleted,
-		PostedAt:   w.PostedAt,
-		UserSignature: realtime.UserSignatureWire{
-			ID:    w.UserSignature.ID,
-			Armor: w.UserSignature.Armor,
-		},
-		ServerSignature: realtime.ServerSignatureWire{
-			ID:        w.ServerSignature.ID,
-			Armor:     w.ServerSignature.Armor,
-			Timestamp: w.ServerSignature.SignedAt,
-		},
+		Ripple: &wire,
 	}
 }
 
@@ -5650,11 +5623,11 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 		h.services.log.GetLogger(r.Context()).Error().Str("reedID", tombstoned.ReedID).Msg("Malformed reed id on tombstoned ripple")
 		return
 	}
-	h.broadcastChan <- realtime.BroadcastMessage{
-		Type:   realtime.RippleUpdated,
+	h.broadcastChan <- realtimeBroadcastMessage{
+		Type:   realtimeRippleUpdated,
 		UserID: tombstoned.ReedAuthorID,
 		ReedID: bareReedID,
-		Ripple: realtimeRippleWire(&wire),
+		Ripple: &wire,
 	}
 }
 

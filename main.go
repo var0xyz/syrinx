@@ -15,9 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"syrinx/crypto"
 	"syrinx/observability"
-	"syrinx/realtime"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
@@ -143,10 +141,6 @@ func main() {
 	// Wrap database with instrumentation
 	dataService := NewDataService(db, cfg.ServerName)
 	cryptoService := newCryptoService()
-	// legacyCryptoService bridges to realtime, which hasn't merged into
-	// root yet (specs/depackaging/) and still needs the exported
-	// syrinx/crypto API — drop this once it does.
-	legacyCryptoService := crypto.NewService()
 	services := &Services{
 		db:     dataService,
 		crypto: cryptoService,
@@ -206,39 +200,39 @@ func main() {
 	log.Info().Msg("[OK] Server identity initialized successfully")
 
 	log.Debug().Msg("Initializing realtime service...")
-	realtimeService := realtime.NewService(db, legacyCryptoService, cfg.AllowedOrigin, dataService.GetServerID())
-	realtimeService.SetMetrics(obs.Metrics())
+	rtService := newRealtimeService(dataService, cryptoService, cfg.AllowedOrigin)
+	rtService.SetMetrics(obs.Metrics())
 
 	// Create broadcast channel
-	broadcastChan := make(chan realtime.BroadcastMessage, 100)
+	broadcastChan := make(chan realtimeBroadcastMessage, 100)
 
 	// Start realtime service in goroutine
-	go realtimeService.Start(broadcastChan)
+	go rtService.Start(broadcastChan)
 
 	log.Debug().Msg("Initializing handlers...")
 	h := NewHandlers(services, cfg, broadcastChan, *signingKey)
 	h.SetMetrics(obs.Metrics())
-	h.SetPipeTagFilter(realtimeService.FilterSubscribedPipeTags)
-	h.SetKickUserWS(realtimeService.DisconnectUser)
-	h.SetRealtimeRelay(realtimeService)
-	realtimeService.SetForeignRequestReedHook(h.relayRequestToPeer)
-	realtimeService.SetForeignSubscribeProfileHook(h.subscribeProfileToPeer)
-	realtimeService.SetForeignDeliverHook(h.deliverRelayResponseToPeer)
-	realtimeService.SetForeignNotHeldHook(h.notifyRelayNotHeldToPeer)
-	realtimeService.SetForeignCancelHook(h.cancelRelayRequestWithPeer)
-	realtimeService.SetForeignAckHook(h.ackRelayDeliveryWithPeer)
-	realtimeService.SetForeignUnsubscribeProfileHook(h.unsubscribeProfileWithPeer)
-	realtimeService.SetForeignSubscribeReedHook(h.subscribeReedToPeer)
-	realtimeService.SetForeignUnsubscribeReedHook(h.unsubscribeReedWithPeer)
-	realtimeService.SetForeignReedStatsHook(h.pushReedStatsToPeer)
-	realtimeService.SetForeignReplyNotifyHook(h.notifyForeignReplyToPeer)
-	realtimeService.SetForeignHolderNotifyHook(h.notifyHolderToPeer)
-	realtimeService.SetForeignFallbackRequestHook(h.relayFallbackRequestToPeer)
-	realtimeService.SetForeignNewReedNotifyHook(h.notifyNewReedToPeer)
-	realtimeService.SetForeignReplyRemovalToViewerHook(h.notifyForeignReplyRemovalToViewer)
-	realtimeService.SetDeviceCheck(func(userID, deviceID string) error {
+	h.SetPipeTagFilter(rtService.FilterSubscribedPipeTags)
+	h.SetKickUserWS(rtService.DisconnectUser)
+	h.SetRealtimeRelay(rtService)
+	rtService.SetForeignRequestReedHook(h.relayRequestToPeer)
+	rtService.SetForeignSubscribeProfileHook(h.subscribeProfileToPeer)
+	rtService.SetForeignDeliverHook(h.deliverRelayResponseToPeer)
+	rtService.SetForeignNotHeldHook(h.notifyRelayNotHeldToPeer)
+	rtService.SetForeignCancelHook(h.cancelRelayRequestWithPeer)
+	rtService.SetForeignAckHook(h.ackRelayDeliveryWithPeer)
+	rtService.SetForeignUnsubscribeProfileHook(h.unsubscribeProfileWithPeer)
+	rtService.SetForeignSubscribeReedHook(h.subscribeReedToPeer)
+	rtService.SetForeignUnsubscribeReedHook(h.unsubscribeReedWithPeer)
+	rtService.SetForeignReedStatsHook(h.pushReedStatsToPeer)
+	rtService.SetForeignReplyNotifyHook(h.notifyForeignReplyToPeer)
+	rtService.SetForeignHolderNotifyHook(h.notifyHolderToPeer)
+	rtService.SetForeignFallbackRequestHook(h.relayFallbackRequestToPeer)
+	rtService.SetForeignNewReedNotifyHook(h.notifyNewReedToPeer)
+	rtService.SetForeignReplyRemovalToViewerHook(h.notifyForeignReplyRemovalToViewer)
+	rtService.SetDeviceCheck(func(userID, deviceID string) error {
 		// userID arrives already in "userID@serverID" form (see
-		// realtime/auth.go), and CheckActiveDevice expects that same
+		// authenticateWebSocket), and CheckActiveDevice expects that same
 		// composed form (see its doc comment) — pass through unmodified.
 		return dataService.CheckActiveDevice(context.Background(), userID, deviceID)
 	})
@@ -256,11 +250,11 @@ func main() {
 	api.Use(h.CORSMiddleware(cfg.AllowedOrigin))
 	api.Use(h.signatureAuthMiddleware("/api"))
 	if cfg.RecoveryMode {
-		realtimeService.SetOngoingCheck(func(userID string) (bool, error) {
+		rtService.SetOngoingCheck(func(userID string) (bool, error) {
 			// userID arrives already in "userID@serverID" form (see
-			// realtime/auth.go), and IsOngoing expects that same composed
-			// form — pass through unmodified, same as the import-gate
-			// middleware registration below.
+			// authenticateWebSocket), and IsOngoing expects that same
+			// composed form — pass through unmodified, same as the
+			// import-gate middleware registration below.
 			return dataService.IsOngoing(context.Background(), userID)
 		})
 		api.Use(recoveryImportGateMiddleware(userIDKey, func(ctx context.Context, userID string) (bool, error) { return dataService.IsOngoing(ctx, userID) }))
@@ -538,7 +532,7 @@ func main() {
 
 	// WebSocket Router (must be before catch-all SPA handler)
 	ws := router.PathPrefix("/ws").Subrouter()
-	ws.HandleFunc("/", realtimeService.HandleWebSocket)
+	ws.HandleFunc("/", rtService.HandleWebSocket)
 
 	// SvelteKit static build (spa/build) with SPA fallback for client routes
 	router.PathPrefix("/").Handler(spaHandler("spa/build"))
@@ -621,7 +615,7 @@ func main() {
 	// on their still-open sockets until its timeout. Notify and close them
 	// ourselves first so clients reconnect immediately instead of being
 	// left on a connection that silently goes dead.
-	realtimeService.Shutdown()
+	rtService.Shutdown()
 
 	// Shutdown server
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

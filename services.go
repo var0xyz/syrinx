@@ -19,8 +19,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"syrinx/deletion"
-
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/rs/zerolog"
@@ -5500,34 +5498,6 @@ func loadAccountCertTx(ctx context.Context, q reedQuerier, selfIdentity identity
 	}, nil
 }
 
-// toLegacyDeletionCert and toLegacyDeletionAccountCert bridge to realtime,
-// which hasn't merged into root yet (specs/depackaging/) and still needs
-// the exported syrinx/deletion API for NewReedRemovalWire/
-// NewAccountRemovalWire's parameter types — drop these once it does.
-func toLegacyDeletionCert(cert reedRemovalCert) deletion.Cert {
-	return deletion.Cert{
-		ReedID:            cert.ReedID,
-		UserID:            cert.UserID,
-		UserSignature:     cert.UserSignature,
-		UserKeyID:         cert.UserKeyID,
-		ServerSignature:   cert.ServerSignature,
-		ServerFingerprint: cert.ServerFingerprint,
-		ServerSignedAt:    cert.ServerSignedAt,
-	}
-}
-
-func toLegacyDeletionAccountCert(cert accountRemovalCert) deletion.AccountCert {
-	return deletion.AccountCert{
-		UserID:            cert.UserID,
-		Note:              cert.Note,
-		UserSignature:     cert.UserSignature,
-		UserKeyID:         cert.UserKeyID,
-		ServerSignature:   cert.ServerSignature,
-		ServerFingerprint: cert.ServerFingerprint,
-		ServerSignedAt:    cert.ServerSignedAt,
-	}
-}
-
 // =========== //
 //   invites   //
 // =========== //
@@ -6646,4 +6616,1539 @@ func recoveryImportGateMiddleware(userIDKey any, isOngoing func(context.Context,
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ============ //
+//   realtime   //
+// ============ //
+
+// MarkUserOnline marks a user as online in the database.
+func (s *DataService) MarkUserOnline(ctx context.Context, userID string) error {
+	selfIdentity := identityID(userID)
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO online_users (user_id)
+		VALUES ($1)
+		ON CONFLICT (user_id) DO UPDATE
+		SET created_at = CURRENT_TIMESTAMP
+	`, selfIdentity)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("[ERR] Failed to mark user as online")
+		return err
+	}
+	return nil
+}
+
+// SetSyncRequestID stores the client-provided sync request ID for a user.
+func (s *DataService) SetSyncRequestID(ctx context.Context, userID, requestID string) error {
+	selfIdentity := identityID(userID)
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE online_users SET sync_request_id = $1 WHERE user_id = $2
+	`, requestID, selfIdentity)
+	return err
+}
+
+// GetSyncRequestID returns the stored sync request ID for a user, or "" if not set.
+func (s *DataService) GetSyncRequestID(ctx context.Context, userID string) (string, error) {
+	selfIdentity := identityID(userID)
+	var id string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(sync_request_id, '') FROM online_users WHERE user_id = $1
+	`, selfIdentity).Scan(&id)
+	return id, err
+}
+
+// MarkUserOffline marks a user as offline in the database.
+func (s *DataService) MarkUserOffline(ctx context.Context, userID string) error {
+	selfIdentity := identityID(userID)
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM online_users WHERE user_id = $1
+	`, selfIdentity)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("[ERR] Failed to mark user as offline")
+		return err
+	}
+	return nil
+}
+
+// GetRealtimeUserPublicKey retrieves a user's public key by canonical,
+// self-scoping fingerprint — same shape as GetPublicKey.
+func (s *DataService) GetRealtimeUserPublicKey(ctx context.Context, fingerprint string) (string, error) {
+	var armor string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT armor
+		FROM public_keys
+		WHERE id = $1
+	`, fingerprint).Scan(&armor)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return armor, nil
+}
+
+// GetRealtimeUsername returns the current username for display on ephemeral
+// deliveries. users.id IS identities.id directly, and userID here already
+// arrives in that form, so this queries users.id directly, no join needed.
+func (s *DataService) GetRealtimeUsername(ctx context.Context, userID string) (string, error) {
+	var name sql.NullString
+	if err := s.db.QueryRowContext(ctx, `SELECT username FROM users WHERE id = $1`, userID).Scan(&name); err != nil {
+		return "", err
+	}
+	if !name.Valid {
+		return "", sql.ErrNoRows
+	}
+	return name.String, nil
+}
+
+// SubscribeToBroadcast adds a user to the broadcast subscriptions table.
+// broadcast_subscriptions.user_id has no direct FK to identities but is
+// composite-FK'd to online_users(user_id), which is itself FK'd to identities(id).
+func (s *DataService) SubscribeToBroadcast(ctx context.Context, userID string) error {
+	selfIdentity := identityID(userID)
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO broadcast_subscriptions (user_id)
+		VALUES ($1)
+		ON CONFLICT (user_id) DO UPDATE
+		SET created_at = CURRENT_TIMESTAMP
+	`, selfIdentity)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("[ERR] Failed to subscribe user to broadcast")
+		return err
+	}
+	return nil
+}
+
+// UnsubscribeFromBroadcast removes a user from the broadcast subscriptions table.
+func (s *DataService) UnsubscribeFromBroadcast(ctx context.Context, userID string) error {
+	selfIdentity := identityID(userID)
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM broadcast_subscriptions WHERE user_id = $1
+	`, selfIdentity)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("[ERR] Failed to unsubscribe user from broadcast")
+		return err
+	}
+	return nil
+}
+
+// GetOnlineFollowers returns the IDs of online users who follow the given author.
+// online_users.user_id and user_followers.user_id/follower_user_id are all
+// direct FKs to identities(id).
+func (s *DataService) GetOnlineFollowers(ctx context.Context, authorID string) ([]string, error) {
+	authorIdentity := identityID(authorID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ou.user_id
+		FROM online_users ou
+		JOIN user_followers uf ON ou.user_id = uf.follower_user_id
+		WHERE uf.user_id = $1
+	`, authorIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var followers []string
+	for rows.Next() {
+		var userID identityID
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		followers = append(followers, string(userID))
+	}
+	return followers, nil
+}
+
+// GetOnlineAdmins returns the IDs of online users with role admin or root,
+// excluding excludeUserID (the reed's own author, if they're an admin —
+// they already hold via the author-dispatch path).
+func (s *DataService) GetOnlineAdmins(ctx context.Context, excludeUserID string) ([]string, error) {
+	excludeIdentity := identityID(excludeUserID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ou.user_id
+		FROM online_users ou
+		JOIN users u ON ou.user_id = u.id
+		WHERE u.role IN ($1, $2)
+		  AND ou.user_id != $3
+	`, roleRoot, roleAdmin, excludeIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var admins []string
+	for rows.Next() {
+		var userID identityID
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		admins = append(admins, string(userID))
+	}
+	return admins, nil
+}
+
+// pendingEvent represents a pending relay event stored in the database.
+type pendingEvent struct {
+	EventID         string
+	RequestID       string
+	RequesterUserID string
+	EventName       string
+}
+
+// pendingReedEvent is a pending_events row with its pending_reed_events subject.
+type pendingReedEvent struct {
+	pendingEvent
+	UserID string // author
+	ReedID string
+}
+
+// pendingAccountEvent is a pending_events row with its pending_account_events subject.
+type pendingAccountEvent struct {
+	pendingEvent
+	UserID string // removed account
+}
+
+// pendingSubject is the ACK/lookup view: reed and/or account fields depending on event_name.
+type pendingSubject struct {
+	pendingEvent
+	UserID string // author (reed) or removed account
+	ReedID string // set for reed events only
+}
+
+// CreatePendingReedEvent inserts pending_events + pending_reed_events (FK to reeds).
+// requesterUserID is the viewer; authorUserID + reedID identify the reed subject,
+// already in userID@serverID form. requesterUserID == "" means the event is
+// foreign-attributed — no local online_users row can back it, so it's
+// stored as SQL NULL; foreign_relay_requests is the source of truth for
+// who it's really for (see CreateForeignRelayRequest).
+func (s *DataService) CreatePendingReedEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName realtimeEventName, reedID string) error {
+	requester := sql.NullString{String: requesterUserID, Valid: requesterUserID != ""}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
+		VALUES ($1, $2, $3, $4)
+	`, eventID, requestID, requester, eventName)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO pending_reed_events (event_id, reed_id)
+		VALUES ($1, $2)
+	`, eventID, reedID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// CreatePendingAccountEvent inserts pending_events + pending_account_events.
+// pending_account_events.user_id is a direct FK to identities(id).
+func (s *DataService) CreatePendingAccountEvent(ctx context.Context, eventID, requestID, requesterUserID, removedUserID string) error {
+	requesterIdentity := identityID(requesterUserID)
+	removedIdentity := identityID(removedUserID)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
+		VALUES ($1, $2, $3, $4)
+	`, eventID, requestID, requesterIdentity, accountRemovedEvent)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO pending_account_events (event_id, user_id)
+		VALUES ($1, $2)
+	`, eventID, removedIdentity)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// CreateProfileSubscriptionEvent inserts a reed pending event tied to a
+// profile subscription. requesterUserID == "" means foreign-attributed —
+// see CreatePendingReedEvent's doc comment for the NULL convention.
+func (s *DataService) CreateProfileSubscriptionEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName realtimeEventName, reedID, subscriptionID string) error {
+	requester := sql.NullString{String: requesterUserID, Valid: requesterUserID != ""}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name, subscription_id)
+		VALUES ($1, $2, $3, $4, $5)
+	`, eventID, requestID, requester, eventName, subscriptionID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO pending_reed_events (event_id, reed_id)
+		VALUES ($1, $2)
+	`, eventID, reedID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// GetPendingSubject loads a pending event and its typed child subject by
+// event ID. The user-id columns are scanned into identityID and kept in
+// that form (cast to string, no .UserID() decode).
+func (s *DataService) GetPendingSubject(ctx context.Context, eventID string) (*pendingSubject, error) {
+	var pe pendingSubject
+	var requester sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name
+		FROM pending_events pe
+		WHERE pe.event_id = $1
+	`, eventID).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	pe.RequesterUserID = requester.String
+
+	var subjectID identityID
+	if realtimeEventName(pe.EventName) == accountRemovedEvent {
+		err = s.db.QueryRowContext(ctx, `
+			SELECT user_id FROM pending_account_events WHERE event_id = $1
+		`, eventID).Scan(&subjectID)
+		if err == nil {
+			pe.UserID = string(subjectID)
+		}
+	} else {
+		err = s.db.QueryRowContext(ctx, `
+			SELECT reed_id FROM pending_reed_events WHERE event_id = $1
+		`, eventID).Scan(&pe.ReedID)
+		if err == nil {
+			pe.UserID = reedAuthorIdentity(pe.ReedID)
+		}
+	}
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &pe, nil
+}
+
+// GetPendingReedEvent loads a reed-subject pending event (nil if missing or account event).
+// requester_user_id is kept in userID@serverID form on return; pe.UserID
+// (author) is derived from the canonical reed_id.
+func (s *DataService) GetPendingReedEvent(ctx context.Context, eventID string) (*pendingReedEvent, error) {
+	var pe pendingReedEvent
+	var requester sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id
+		FROM pending_events pe
+		JOIN pending_reed_events pre ON pre.event_id = pe.event_id
+		WHERE pe.event_id = $1
+	`, eventID).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName, &pe.ReedID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	pe.RequesterUserID = requester.String
+	pe.UserID = reedAuthorIdentity(pe.ReedID)
+	return &pe, nil
+}
+
+// reedAuthorIdentity extracts the userID@serverID author identity embedded
+// in a canonical reed id. Empty string if reedID is malformed.
+func reedAuthorIdentity(reedID string) string {
+	authorID, ok := authorOf(identityID(reedID))
+	if !ok {
+		return ""
+	}
+	return string(authorID)
+}
+
+// DeletePendingEvent deletes a pending event by event ID (cascades to child
+// subject tables) and reports its event_name for telemetry — empty string
+// if no such row existed (already deleted by a concurrent caller).
+func (s *DataService) DeletePendingEvent(ctx context.Context, eventID string) (eventName string, err error) {
+	err = s.db.QueryRowContext(ctx, `
+		DELETE FROM pending_events WHERE event_id = $1
+		RETURNING event_name
+	`, eventID).Scan(&eventName)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return eventName, err
+}
+
+// deletedPendingEvent identifies one row DeletePendingEventsByUser removed,
+// for per-event telemetry.
+type deletedPendingEvent struct {
+	EventID   string
+	EventName string
+}
+
+// DeletePendingEventsByUser deletes all pending events for a given requester
+// user ID (e.g. the user went offline) and reports which ones were removed.
+func (s *DataService) DeletePendingEventsByUser(ctx context.Context, userID string) ([]deletedPendingEvent, error) {
+	selfIdentity := identityID(userID)
+	rows, err := s.db.QueryContext(ctx, `
+		DELETE FROM pending_events WHERE requester_user_id = $1
+		RETURNING event_id, event_name
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var deleted []deletedPendingEvent
+	for rows.Next() {
+		var d deletedPendingEvent
+		if err := rows.Scan(&d.EventID, &d.EventName); err != nil {
+			return nil, err
+		}
+		deleted = append(deleted, d)
+	}
+	return deleted, rows.Err()
+}
+
+// DeleteProfileSubscriptionsByViewer deletes all profile subscriptions for a given viewer.
+func (s *DataService) DeleteProfileSubscriptionsByViewer(ctx context.Context, userID string) error {
+	selfIdentity := identityID(userID)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM profile_subscriptions WHERE viewer_user_id = $1`, selfIdentity)
+	return err
+}
+
+// viewerSubscription is one of a viewer's own active profile subscriptions
+// (the reverse of profileSubscriber, which is keyed by author instead).
+type viewerSubscription struct {
+	SubscriptionID string
+	AuthorUserID   string
+}
+
+// GetProfileSubscriptionsByViewer lists a viewer's active subscriptions —
+// used on disconnect to notify any foreign authors' home servers before
+// DeleteProfileSubscriptionsByViewer removes the local rows.
+func (s *DataService) GetProfileSubscriptionsByViewer(ctx context.Context, userID string) ([]viewerSubscription, error) {
+	selfIdentity := identityID(userID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT subscription_id, author_user_id
+		FROM profile_subscriptions
+		WHERE viewer_user_id = $1
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []viewerSubscription
+	for rows.Next() {
+		var sub viewerSubscription
+		var author identityID
+		if err := rows.Scan(&sub.SubscriptionID, &author); err != nil {
+			return nil, err
+		}
+		sub.AuthorUserID = string(author)
+		subs = append(subs, sub)
+	}
+	return subs, rows.Err()
+}
+
+// reedCoverageTarget identifies a reed whose holder count changed.
+type reedCoverageTarget struct {
+	AuthorUserID string
+	ReedID       string
+}
+
+// AllocateReed records that holderUserID now holds reedID. Returns true
+// when a new allocation row was inserted. holderUserID must be a genuine
+// local user — reed_allocations.holder_user_id is a direct FK to users(id).
+func (s *DataService) AllocateReed(ctx context.Context, reedID, holderUserID string) (bool, error) {
+	holderIdentity := identityID(holderUserID)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO reed_allocations (reed_id, holder_user_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, reedID, holderIdentity)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// DeleteReedAllocation removes a single holder's allocation for a reed.
+// Returns true when a row was deleted.
+func (s *DataService) DeleteReedAllocation(ctx context.Context, reedID, holderUserID string) (bool, error) {
+	holderIdentity := identityID(holderUserID)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
+		DELETE FROM reed_allocations
+		WHERE reed_id = $1 AND holder_user_id = $2
+	`, reedID, holderIdentity)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// GetReedCoverage returns holder count and network coverage percent for a
+// tip reed, read from the reed_coverage view (db.go) — a join of
+// reed_stats.holder_count against network_stats.active_users, both
+// already-cheap counters, so the view needs no trigger of its own.
+func (s *DataService) GetReedCoverage(ctx context.Context, reedID string) (holders, percent int, err error) {
+	err = s.db.QueryRowContext(ctx, `
+		SELECT holder_count, coverage_percent FROM reed_coverage WHERE reed_id = $1
+	`, reedID).Scan(&holders, &percent)
+	if err == sql.ErrNoRows {
+		activeUsers, aErr := getActiveUsers(ctx, s.db)
+		if aErr != nil {
+			return 0, 0, aErr
+		}
+		return 0, coveragePercent(0, activeUsers), nil
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	return holders, percent, nil
+}
+
+// GetReedCoveragePercent returns network coverage percent for a tip reed.
+func (s *DataService) GetReedCoveragePercent(ctx context.Context, reedID string) (percent int, err error) {
+	_, percent, err = s.GetReedCoverage(ctx, reedID)
+	return percent, err
+}
+
+// GetReedStatsSnapshot returns echoes, coverage, subtree reply count, and
+// like count for subscribe ACK.
+func (s *DataService) GetReedStatsSnapshot(ctx context.Context, reedID string) (echoes, coveragePct, replies, likes int, err error) {
+	coveragePct, err = s.GetReedCoveragePercent(ctx, reedID)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	echoes, err = s.CountEchoes(ctx, reedID)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	replies, err = s.GetSubtreeReplyCount(ctx, reedID)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	likes, err = s.CountLikes(ctx, reedID)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	return echoes, coveragePct, replies, likes, nil
+}
+
+// ReplyParent returns the immediate parent_reed_id that reedID replies to,
+// if it's indexed as a reply at all — ok is false when it isn't.
+func (s *DataService) ReplyParent(ctx context.Context, reedID string) (parentReedID string, ok bool, err error) {
+	err = s.db.QueryRowContext(ctx, `
+		SELECT parent_reed_id
+		FROM reed_replies
+		WHERE reed_id = $1
+	`, reedID).Scan(&parentReedID)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return parentReedID, true, nil
+}
+
+// replyRecord is one reed's full reed_replies row.
+type replyRecord struct {
+	ParentReedID string
+	ThreadID     string
+	Timestamp    time.Time
+}
+
+// GetReplyRecord loads reedID's own reed_replies row (parent + thread +
+// timestamp in one query) — used to notify a foreign parent's home
+// server of the reply once, rather than three separate lookups.
+func (s *DataService) GetReplyRecord(ctx context.Context, reedID string) (*replyRecord, error) {
+	var rec replyRecord
+	err := s.db.QueryRowContext(ctx, `
+		SELECT parent_reed_id, thread_id, timestamp
+		FROM reed_replies
+		WHERE reed_id = $1
+	`, reedID).Scan(&rec.ParentReedID, &rec.ThreadID, &rec.Timestamp)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+// InsertForeignReply records that a peer-authored reedID replies to
+// parentReedID (local to this server). Idempotent (ON CONFLICT DO NOTHING
+// on reed_id, the PK). Upserts a reed_identities row for the reply reedID first.
+func (s *DataService) InsertForeignReply(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error {
+	_, replyServerID, _, ok := parseKeyFingerprint(identityID(replyReedID))
+	if !ok {
+		return fmt.Errorf("malformed reply reed id: %s", replyReedID)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO reed_identities (id, server_id)
+		VALUES ($1, $2)
+		ON CONFLICT (id) DO NOTHING
+	`, replyReedID, replyServerID); err != nil {
+		return fmt.Errorf("insert foreign reply reed identity: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO reed_replies (thread_id, reed_id, parent_reed_id, timestamp)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (reed_id) DO NOTHING
+	`, threadID, replyReedID, parentReedID, ts.UTC().Truncate(time.Second)); err != nil {
+		return fmt.Errorf("insert foreign reply: %w", err)
+	}
+	return tx.Commit()
+}
+
+// GetNextPendingForHolder returns the oldest undispatched reed pending for reeds held by holderUserID.
+func (s *DataService) GetNextPendingForHolder(ctx context.Context, holderUserID string) (*pendingReedEvent, error) {
+	holderIdentity := identityID(holderUserID)
+	var pe pendingReedEvent
+	var requester sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id
+		FROM pending_reed_events pre
+		JOIN pending_events pe ON pe.event_id = pre.event_id
+		JOIN reed_allocations ra ON ra.reed_id = pre.reed_id
+		WHERE ra.holder_user_id = $1
+		  AND pe.dispatched_at IS NULL
+		ORDER BY pe.created_at
+		LIMIT 1
+	`, holderIdentity).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName, &pe.ReedID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	pe.RequesterUserID = requester.String
+	pe.UserID = reedAuthorIdentity(pe.ReedID)
+	return &pe, nil
+}
+
+// MarkEventDispatched marks an event as dispatched. Returns true if the update claimed the row
+// (i.e. it was still undispatched), false if another replica already claimed it.
+func (s *DataService) MarkEventDispatched(ctx context.Context, eventID string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE pending_events SET dispatched_at = NOW()
+		WHERE event_id = $1 AND dispatched_at IS NULL
+	`, eventID)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n == 1, err
+}
+
+// ResetDispatchedAt clears dispatched_at for an event, making it eligible for dispatch again.
+func (s *DataService) ResetDispatchedAt(ctx context.Context, eventID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE pending_events SET dispatched_at = NULL WHERE event_id = $1
+	`, eventID)
+	return err
+}
+
+// GetOnlineHolders reports whether a reed has any holders and returns one online holder
+// for relay dispatch when available. Callers must delete stale holder rows (e.g. the
+// requester) before calling when appropriate.
+func (s *DataService) GetOnlineHolders(ctx context.Context, reedID string) (hasHolders bool, holder string, err error) {
+	var onlineHolder sql.NullString
+	err = s.db.QueryRowContext(ctx, `
+		SELECT
+			EXISTS (
+				SELECT 1 FROM reed_allocations WHERE reed_id = $1
+			),
+			(
+				SELECT ou.user_id
+				FROM reed_allocations ra
+				JOIN online_users ou ON ou.user_id = ra.holder_user_id
+				WHERE ra.reed_id = $1
+				LIMIT 1
+			)
+	`, reedID).Scan(&hasHolders, &onlineHolder)
+	if err != nil {
+		return false, "", err
+	}
+	if onlineHolder.Valid {
+		holder = onlineHolder.String
+	}
+	return hasHolders, holder, nil
+}
+
+// GetOnlineReedHolder returns the user ID of one online holder of the given reed,
+// or an empty string if no holder is currently online.
+func (s *DataService) GetOnlineReedHolder(ctx context.Context, reedID string) (string, error) {
+	var userID identityID
+	err := s.db.QueryRowContext(ctx, `
+		SELECT ou.user_id FROM online_users ou
+		JOIN reed_allocations ra ON ra.holder_user_id = ou.user_id
+		WHERE ra.reed_id = $1
+		LIMIT 1
+	`, reedID).Scan(&userID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return string(userID), nil
+}
+
+// RecordServerHolder upserts "peer server serverID holds a copy of
+// reedID," idempotent per (reed_id, server_id) — multiple users on the
+// same peer collapse to one row, since the fallback delegates to the peer as a whole.
+func (s *DataService) RecordServerHolder(ctx context.Context, reedID, serverID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO reed_server_allocations (reed_id, server_id)
+		VALUES ($1, $2)
+		ON CONFLICT (reed_id, server_id) DO NOTHING
+	`, reedID, serverID)
+	return err
+}
+
+// GetForeignHolderServers returns peer server IDs known to hold a copy of
+// reedID, oldest-recorded-first, capped so a widely-relayed reed can't
+// blow up a sequential fallback loop's latency.
+func (s *DataService) GetForeignHolderServers(ctx context.Context, reedID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT server_id FROM reed_server_allocations
+		WHERE reed_id = $1
+		ORDER BY delivered_at ASC
+		LIMIT 5
+	`, reedID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var serverIDs []string
+	for rows.Next() {
+		var serverID string
+		if err := rows.Scan(&serverID); err != nil {
+			return nil, err
+		}
+		serverIDs = append(serverIDs, serverID)
+	}
+	return serverIDs, rows.Err()
+}
+
+// ClaimPendingFanout removes the pending_fanout row if present. Returns true when
+// this call claimed fanout (row deleted), plus any pipe tags stashed at SignReed.
+// Concurrent READY messages only claim once. pending_fanout.reed_id FKs to reeds(id).
+func (s *DataService) ClaimPendingFanout(ctx context.Context, reedID string) (claimed bool, tags []string, err error) {
+	var id string
+	var tagArray pq.StringArray
+	err = s.db.QueryRowContext(ctx, `
+		DELETE FROM pending_fanout
+		WHERE reed_id = $1
+		RETURNING reed_id, tags
+	`, reedID).Scan(&id, &tagArray)
+	if err == sql.ErrNoRows {
+		return false, nil, nil
+	}
+	if err != nil {
+		return false, nil, err
+	}
+	return true, []string(tagArray), nil
+}
+
+// GetPendingEventsForUser returns all pending reed events for reeds held by the given user.
+func (s *DataService) GetPendingEventsForUser(ctx context.Context, userID string) ([]pendingReedEvent, error) {
+	selfIdentity := identityID(userID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id
+		FROM pending_reed_events pre
+		JOIN pending_events pe ON pe.event_id = pre.event_id
+		JOIN reed_allocations ra ON ra.reed_id = pre.reed_id
+		WHERE ra.holder_user_id = $1
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []pendingReedEvent
+	for rows.Next() {
+		var prr pendingReedEvent
+		var requester sql.NullString
+		if err := rows.Scan(
+			&prr.EventID,
+			&prr.RequestID,
+			&requester,
+			&prr.EventName,
+			&prr.ReedID,
+		); err != nil {
+			return nil, err
+		}
+		prr.RequesterUserID = requester.String
+		prr.UserID = reedAuthorIdentity(prr.ReedID)
+		results = append(results, prr)
+	}
+	return results, nil
+}
+
+// GetPendingRequestsForRequester returns pending reed events initiated by the given user
+// (reed relay retry only — not account events).
+func (s *DataService) GetPendingRequestsForRequester(ctx context.Context, requesterUserID string) ([]pendingReedEvent, error) {
+	requesterIdentity := identityID(requesterUserID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id
+		FROM pending_reed_events pre
+		JOIN pending_events pe ON pe.event_id = pre.event_id
+		WHERE pe.requester_user_id = $1
+	`, requesterIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []pendingReedEvent
+	for rows.Next() {
+		var prr pendingReedEvent
+		var requester sql.NullString
+		if err := rows.Scan(
+			&prr.EventID,
+			&prr.RequestID,
+			&requester,
+			&prr.EventName,
+			&prr.ReedID,
+		); err != nil {
+			return nil, err
+		}
+		prr.RequesterUserID = requester.String
+		prr.UserID = reedAuthorIdentity(prr.ReedID)
+		results = append(results, prr)
+	}
+	return results, nil
+}
+
+// GetMissingReedIDsForViewer returns IDs of reeds by authorID that viewerID does not yet have,
+// excluding any IDs the viewer already holds locally (ownedIDs) or via reed_allocations.
+func (s *DataService) GetMissingReedIDsForViewer(ctx context.Context, authorID, viewerID string, ownedIDs []string) ([]string, error) {
+	if ownedIDs == nil {
+		ownedIDs = []string{}
+	}
+	authorIdentity := identityID(authorID)
+	viewerIdentity := identityID(viewerID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id FROM reeds r
+		WHERE r.user_id = $1
+		  AND r.id <> ALL($3)
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_allocations ra
+		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $2
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals rr
+		      WHERE rr.reed_id = r.id
+		  )
+	`, authorIdentity, viewerIdentity, pq.Array(ownedIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// unallocatedReed holds a reed ID and its author, used when computing delivery diffs.
+type unallocatedReed struct {
+	ReedID   string
+	AuthorID string
+}
+
+// GetMissingOut returns all reeds from authors that userID follows
+// which are not yet present in reed_allocations for that user.
+// user_following.user_id/following_user_id are both direct FKs to identities(id).
+func (s *DataService) GetMissingOut(ctx context.Context, userID string) ([]unallocatedReed, error) {
+	selfIdentity := identityID(userID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id, r.user_id
+		FROM reeds r
+		JOIN user_following uf ON uf.following_user_id = r.user_id
+		WHERE uf.user_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_allocations ra
+		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $1
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals rr
+		      WHERE rr.reed_id = r.id
+		  )
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []unallocatedReed
+	for rows.Next() {
+		var reedID string
+		var authorIdentity identityID
+		if err := rows.Scan(&reedID, &authorIdentity); err != nil {
+			return nil, err
+		}
+		results = append(results, unallocatedReed{ReedID: reedID, AuthorID: string(authorIdentity)})
+	}
+	return results, nil
+}
+
+// GetUnallocatedReeds returns IDs of reeds by authorID that viewerID does not have in reed_allocations.
+func (s *DataService) GetUnallocatedReeds(ctx context.Context, authorID, viewerID string) ([]string, error) {
+	authorIdentity := identityID(authorID)
+	viewerIdentity := identityID(viewerID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id FROM reeds r
+		WHERE r.user_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_allocations ra
+		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $2
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals rr
+		      WHERE rr.reed_id = r.id
+		  )
+	`, authorIdentity, viewerIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// GetUnallocatedReedsForServer is GetUnallocatedReeds' server-scoped
+// counterpart: used where the "viewer" is a whole peer server rather than
+// a genuine local user, since reed_server_allocations has no per-user granularity.
+func (s *DataService) GetUnallocatedReedsForServer(ctx context.Context, authorID, serverID string) ([]string, error) {
+	authorIdentity := identityID(authorID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id FROM reeds r
+		WHERE r.user_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_server_allocations rsa
+		      WHERE rsa.reed_id = r.id AND rsa.server_id = $2
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals rr
+		      WHERE rr.reed_id = r.id
+		  )
+	`, authorIdentity, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// CreateProfileSubscription records an active profile feed subscription for
+// a viewer, returning the effective subscription_id. Idempotent per
+// (viewer_user_id, author_user_id) — reuses the existing id on conflict, so callers must use the returned id, not the one they passed in.
+func (s *DataService) CreateProfileSubscription(ctx context.Context, subscriptionID, viewerUserID, authorUserID string) (string, error) {
+	viewerIdentity := identityID(viewerUserID)
+	authorIdentity := identityID(authorUserID)
+	var effectiveID string
+	err := s.db.QueryRowContext(ctx, `
+		INSERT INTO profile_subscriptions (subscription_id, viewer_user_id, author_user_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (viewer_user_id, author_user_id)
+			DO UPDATE SET viewer_user_id = EXCLUDED.viewer_user_id
+		RETURNING subscription_id
+	`, subscriptionID, viewerIdentity, authorIdentity).Scan(&effectiveID)
+	return effectiveID, err
+}
+
+// GetProfileSubscription returns the subscription ID for an active (viewer, author) pair.
+// Returns an empty string when no subscription exists.
+func (s *DataService) GetProfileSubscription(ctx context.Context, viewerUserID, authorUserID string) (string, error) {
+	viewerIdentity := identityID(viewerUserID)
+	authorIdentity := identityID(authorUserID)
+	var id string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT subscription_id FROM profile_subscriptions
+		WHERE viewer_user_id = $1 AND author_user_id = $2
+	`, viewerIdentity, authorIdentity).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
+// DeleteProfileSubscription deletes a subscription by ID, cascading to its pending_events.
+func (s *DataService) DeleteProfileSubscription(ctx context.Context, subscriptionID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM profile_subscriptions WHERE subscription_id = $1
+	`, subscriptionID)
+	return err
+}
+
+// CreateReedSubscription records an active reed-stats subscription for a
+// viewer. reed_subscriptions.reed_id FKs to reed_identities (not reeds
+// directly), so the subscribed reed may be local or foreign.
+func (s *DataService) CreateReedSubscription(ctx context.Context, subscriptionID, viewerUserID, reedID string) error {
+	viewerIdentity := identityID(viewerUserID)
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO reed_subscriptions (subscription_id, viewer_user_id, reed_id)
+		VALUES ($1, $2, $3)
+	`, subscriptionID, viewerIdentity, reedID)
+	return err
+}
+
+// GetReedSubscription returns the subscription ID for an active (viewer,
+// reed) pair. Returns an empty string when no subscription exists.
+func (s *DataService) GetReedSubscription(ctx context.Context, viewerUserID, reedID string) (string, error) {
+	viewerIdentity := identityID(viewerUserID)
+	var id string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT subscription_id FROM reed_subscriptions
+		WHERE viewer_user_id = $1 AND reed_id = $2
+	`, viewerIdentity, reedID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
+// DeleteReedSubscription deletes a reed-stats subscription by ID.
+func (s *DataService) DeleteReedSubscription(ctx context.Context, subscriptionID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM reed_subscriptions WHERE subscription_id = $1
+	`, subscriptionID)
+	return err
+}
+
+// DeleteReedSubscriptionsByViewer deletes all reed-stats subscriptions for a given viewer.
+func (s *DataService) DeleteReedSubscriptionsByViewer(ctx context.Context, userID string) error {
+	selfIdentity := identityID(userID)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM reed_subscriptions WHERE viewer_user_id = $1`, selfIdentity)
+	return err
+}
+
+// reedSubscriber represents an active reed-stats subscription.
+type reedSubscriber struct {
+	SubscriptionID string
+	ViewerUserID   string
+}
+
+// GetReedSubscribers returns all active reed-stats subscriptions for the given reed.
+func (s *DataService) GetReedSubscribers(ctx context.Context, reedID string) ([]reedSubscriber, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT subscription_id, viewer_user_id
+		FROM reed_subscriptions
+		WHERE reed_id = $1
+	`, reedID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subscribers []reedSubscriber
+	for rows.Next() {
+		var sub reedSubscriber
+		var viewer identityID
+		if err := rows.Scan(&sub.SubscriptionID, &viewer); err != nil {
+			return nil, err
+		}
+		sub.ViewerUserID = string(viewer)
+		subscribers = append(subscribers, sub)
+	}
+	return subscribers, rows.Err()
+}
+
+// viewerReedSubscription is one of a viewer's own active reed-stats
+// subscriptions (the reverse of reedSubscriber, which is keyed by reed).
+type viewerReedSubscription struct {
+	SubscriptionID string
+	ReedID         string
+}
+
+// GetReedSubscriptionsByViewer lists a viewer's active reed-stats
+// subscriptions — used on disconnect to notify any foreign reeds' home
+// servers before DeleteReedSubscriptionsByViewer removes the local rows.
+func (s *DataService) GetReedSubscriptionsByViewer(ctx context.Context, userID string) ([]viewerReedSubscription, error) {
+	selfIdentity := identityID(userID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT subscription_id, reed_id
+		FROM reed_subscriptions
+		WHERE viewer_user_id = $1
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []viewerReedSubscription
+	for rows.Next() {
+		var sub viewerReedSubscription
+		if err := rows.Scan(&sub.SubscriptionID, &sub.ReedID); err != nil {
+			return nil, err
+		}
+		subs = append(subs, sub)
+	}
+	return subs, rows.Err()
+}
+
+// profileSubscriber represents an active profile feed subscription.
+type profileSubscriber struct {
+	SubscriptionID string
+	ViewerUserID   string
+}
+
+// GetProfileSubscribers returns all active profile subscriptions for the given author.
+func (s *DataService) GetProfileSubscribers(ctx context.Context, authorID string) ([]profileSubscriber, error) {
+	authorIdentity := identityID(authorID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT subscription_id, viewer_user_id
+		FROM profile_subscriptions
+		WHERE author_user_id = $1
+	`, authorIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subscribers []profileSubscriber
+	for rows.Next() {
+		var subscriber profileSubscriber
+		var viewer identityID
+		if err := rows.Scan(&subscriber.SubscriptionID, &viewer); err != nil {
+			return nil, err
+		}
+		subscriber.ViewerUserID = string(viewer)
+		subscribers = append(subscribers, subscriber)
+	}
+	return subscribers, nil
+}
+
+// GetBroadcastSubscribers returns up to 100 broadcast subscribers for the
+// given author, throttled to one delivery/second and excluding followers.
+// NOTE: the last_delivery UPDATE is not serialised across replicas — concurrent replicas can double-deliver to up to 100 users; acceptable, harmless.
+func (s *DataService) GetBroadcastSubscribers(ctx context.Context, authorID string) ([]string, error) {
+	authorIdentity := identityID(authorID)
+	rows, err := s.db.QueryContext(ctx, `
+		WITH eligible AS (
+			SELECT bs.user_id
+			FROM broadcast_subscriptions bs
+			WHERE bs.user_id != $1
+			  AND (bs.last_delivery IS NULL OR bs.last_delivery < NOW() - INTERVAL '1 second')
+			  AND NOT EXISTS (
+				SELECT 1 FROM user_following uf
+				WHERE uf.user_id = bs.user_id AND uf.following_user_id = $1
+			  )
+			ORDER BY bs.last_delivery ASC NULLS FIRST
+			LIMIT 100
+		),
+		updated AS (
+			UPDATE broadcast_subscriptions
+			SET last_delivery = NOW()
+			WHERE user_id IN (SELECT user_id FROM eligible)
+		)
+		SELECT user_id FROM eligible
+	`, authorIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subscribers []string
+	for rows.Next() {
+		var userID identityID
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		subscribers = append(subscribers, string(userID))
+	}
+	return subscribers, nil
+}
+
+// missingRemoval is a reed_allocations ∩ reed_removals row for catch-up.
+type missingRemoval struct {
+	ReedID string
+	UserID string
+	Cert   reedRemovalWire
+}
+
+// GetMissingRemovals returns removal certs for reeds this user still holds.
+// missingRemoval.UserID comes from cert.UserID, in userID@serverID form.
+func (s *DataService) GetMissingRemovals(ctx context.Context, userID string) ([]missingRemoval, error) {
+	selfIdentity := identityID(userID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT rr.reed_id
+		FROM reed_allocations ra
+		JOIN reed_removals rr ON rr.reed_id = ra.reed_id
+		WHERE ra.holder_user_id = $1
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	serverID := s.serverID
+
+	var out []missingRemoval
+	for rows.Next() {
+		var reedID string
+		if err := rows.Scan(&reedID); err != nil {
+			return nil, err
+		}
+		cert, err := getReedRemovalCert(ctx, s.db, reedID, serverID)
+		if err != nil || cert == nil {
+			return nil, err
+		}
+		out = append(out, missingRemoval{
+			ReedID: reedID,
+			UserID: cert.UserID,
+			Cert:   newReedRemovalWire(serverID, *cert),
+		})
+	}
+	return out, rows.Err()
+}
+
+// GetReedRemovalWire loads a removal cert for WS delivery. reedID is canonical.
+func (s *DataService) GetReedRemovalWire(ctx context.Context, reedID string) (reedRemovalWire, error) {
+	cert, err := getReedRemovalCert(ctx, s.db, reedID, s.serverID)
+	if err != nil || cert == nil {
+		return reedRemovalWire{}, err
+	}
+	return newReedRemovalWire(s.serverID, *cert), nil
+}
+
+// missingAccountRemoval is a catch-up row: viewer still follows or holds
+// allocations for a removed author's reeds.
+type missingAccountRemoval struct {
+	UserID string
+	Cert   accountRemovalWire
+}
+
+// GetMissingAccountRemovals returns account_removals that still apply to
+// viewer (follow ∪ allocations for that author's reeds). account_removals.user_id
+// is written in the same userID@serverID form the EXISTS subqueries expect.
+func (s *DataService) GetMissingAccountRemovals(ctx context.Context, viewerUserID string) ([]missingAccountRemoval, error) {
+	selfIdentity := identityID(viewerUserID)
+	serverID := s.serverID
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ar.user_id
+		FROM account_removals ar
+		WHERE EXISTS (
+			SELECT 1 FROM user_following uf
+			WHERE uf.user_id = $1 AND uf.following_user_id = ar.user_id
+		) OR EXISTS (
+			SELECT 1 FROM reed_allocations ra
+			JOIN reeds r ON r.id = ra.reed_id
+			WHERE ra.holder_user_id = $1 AND r.user_id = ar.user_id
+		)
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []missingAccountRemoval
+	for rows.Next() {
+		var removedIdentity identityID
+		if err := rows.Scan(&removedIdentity); err != nil {
+			return nil, err
+		}
+		// getAccountRemovalCert takes a bare userID + serverID — decode
+		// only for this call; UserID stays in userID@serverID form.
+		cert, err := getAccountRemovalCert(ctx, s.db, removedIdentity.UserID(), serverID)
+		if err != nil || cert == nil {
+			return nil, err
+		}
+		out = append(out, missingAccountRemoval{
+			UserID: cert.UserID,
+			Cert:   newAccountRemovalWire(serverID, *cert),
+		})
+	}
+	return out, rows.Err()
+}
+
+// GetAccountRemovalWire loads an account-removal cert for WS delivery.
+// userID arrives in userID@serverID form; getAccountRemovalCert takes a
+// bare userID + serverID — decoded here.
+func (s *DataService) GetAccountRemovalWire(ctx context.Context, userID string) (accountRemovalWire, error) {
+	cert, err := getAccountRemovalCert(ctx, s.db, identityID(userID).UserID(), s.serverID)
+	if err != nil || cert == nil {
+		return accountRemovalWire{}, err
+	}
+	return newAccountRemovalWire(s.serverID, *cert), nil
+}
+
+// ClearPeerStateForRemovedAccount drops follow edges and allocations so
+// catch-up no longer re-delivers the account cert to this viewer. Returns
+// reeds whose holder counts changed.
+func (s *DataService) ClearPeerStateForRemovedAccount(ctx context.Context, viewerUserID, removedUserID string) ([]reedCoverageTarget, error) {
+	viewerIdentity := identityID(viewerUserID)
+	removedIdentity := identityID(removedUserID)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	stmts := []struct {
+		q  string
+		a1 identityID
+		a2 identityID
+	}{
+		{`DELETE FROM user_following WHERE user_id = $1 AND following_user_id = $2`, viewerIdentity, removedIdentity},
+		{`DELETE FROM user_following WHERE user_id = $1 AND following_user_id = $2`, removedIdentity, viewerIdentity},
+		{`DELETE FROM user_followers WHERE user_id = $1 AND follower_user_id = $2`, removedIdentity, viewerIdentity},
+		{`DELETE FROM user_followers WHERE user_id = $1 AND follower_user_id = $2`, viewerIdentity, removedIdentity},
+	}
+	for _, s := range stmts {
+		if _, err := tx.ExecContext(ctx, s.q, s.a1, s.a2); err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+		DELETE FROM reed_allocations ra
+		USING reeds r
+		WHERE ra.reed_id = r.id AND ra.holder_user_id = $1 AND r.user_id = $2
+		RETURNING r.user_id, ra.reed_id
+	`, viewerIdentity, removedIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var targets []reedCoverageTarget
+	for rows.Next() {
+		var t reedCoverageTarget
+		var author identityID
+		if err := rows.Scan(&author, &t.ReedID); err != nil {
+			return nil, err
+		}
+		t.AuthorUserID = string(author)
+		targets = append(targets, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
+// foreignPendingEvent is an originating-server foreign_pending_events row:
+// the mapping from a local pending_events.event_id to the outstanding
+// registration on the reed's home server (which peer to call back, and what id THEY know this event by).
+type foreignPendingEvent struct {
+	EventID      string
+	HomeServerID string
+	PeerEventID  string
+}
+
+// CreateForeignPendingEvent records, on the originating server, that
+// eventID's local pending_events row corresponds to peerEventID on
+// homeServerID. eventID must already exist in pending_events (FK).
+func (s *DataService) CreateForeignPendingEvent(ctx context.Context, eventID, homeServerID, peerEventID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO foreign_pending_events (event_id, home_server_id, peer_event_id)
+		VALUES ($1, $2, $3)
+	`, eventID, homeServerID, peerEventID)
+	return err
+}
+
+// GetForeignPendingEvent resolves the originating server's own event_id to
+// its foreign_pending_events row — the reverse direction of
+// GetForeignPendingEventByPeerEventID.
+func (s *DataService) GetForeignPendingEvent(ctx context.Context, eventID string) (*foreignPendingEvent, error) {
+	var fpe foreignPendingEvent
+	err := s.db.QueryRowContext(ctx, `
+		SELECT event_id, home_server_id, peer_event_id
+		FROM foreign_pending_events
+		WHERE event_id = $1
+	`, eventID).Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &fpe, nil
+}
+
+// GetForeignPendingEventByPeerEventID resolves a home server's callback
+// back to the originating server's local event. The homeServerID filter
+// doubles as an ownership check that only the registered peer may resolve it.
+func (s *DataService) GetForeignPendingEventByPeerEventID(ctx context.Context, peerEventID, homeServerID string) (*foreignPendingEvent, error) {
+	var fpe foreignPendingEvent
+	err := s.db.QueryRowContext(ctx, `
+		SELECT event_id, home_server_id, peer_event_id
+		FROM foreign_pending_events
+		WHERE peer_event_id = $1 AND home_server_id = $2
+	`, peerEventID, homeServerID).Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &fpe, nil
+}
+
+// GetForeignPendingEventsByRequester lists a requester's outstanding
+// cross-server relay requests, for disconnect-cleanup to notify each home
+// server before the requester's pending_events rows cascade-delete.
+func (s *DataService) GetForeignPendingEventsByRequester(ctx context.Context, requesterUserID string) ([]foreignPendingEvent, error) {
+	requesterIdentity := identityID(requesterUserID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT fpe.event_id, fpe.home_server_id, fpe.peer_event_id
+		FROM foreign_pending_events fpe
+		JOIN pending_events pe ON pe.event_id = fpe.event_id
+		WHERE pe.requester_user_id = $1
+	`, requesterIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []foreignPendingEvent
+	for rows.Next() {
+		var fpe foreignPendingEvent
+		if err := rows.Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID); err != nil {
+			return nil, err
+		}
+		out = append(out, fpe)
+	}
+	return out, rows.Err()
+}
+
+// foreignRelayRequest is a home-server foreign_relay_requests row: which
+// peer+user a sentinel-attributed pending_events row was really
+// registered on behalf of.
+type foreignRelayRequest struct {
+	EventID            string
+	RequestingServerID string
+	RequestingUserID   string
+}
+
+// CreateForeignRelayRequest records, on the home server, which peer+user
+// eventID's sentinel-attributed pending_events row represents.
+func (s *DataService) CreateForeignRelayRequest(ctx context.Context, eventID, requestingServerID, requestingUserID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO foreign_relay_requests (event_id, requesting_server_id, requesting_user_id)
+		VALUES ($1, $2, $3)
+	`, eventID, requestingServerID, requestingUserID)
+	return err
+}
+
+// GetForeignRelayRequest returns nil if eventID is an ordinary local
+// event (no cross-server registration exists for it).
+func (s *DataService) GetForeignRelayRequest(ctx context.Context, eventID string) (*foreignRelayRequest, error) {
+	var frr foreignRelayRequest
+	err := s.db.QueryRowContext(ctx, `
+		SELECT event_id, requesting_server_id, requesting_user_id
+		FROM foreign_relay_requests
+		WHERE event_id = $1
+	`, eventID).Scan(&frr.EventID, &frr.RequestingServerID, &frr.RequestingUserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &frr, nil
+}
+
+// DeleteMailboxMessage deletes one message, scoped to userID so a client
+// can only ack/delete its own mail.
+func (s *DataService) DeleteMailboxMessage(ctx context.Context, id, userID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM user_mailbox WHERE id = $1 AND user_id = $2
+	`, id, userID)
+	return err
 }

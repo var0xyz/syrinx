@@ -1,4 +1,6 @@
-package realtime
+//go:build !ops && !ripplescleanup
+
+package main
 
 import (
 	"encoding/json"
@@ -25,7 +27,7 @@ func TestPublishReadyIncludeBroadcast(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			var data PublishReadyData
+			var data publishReadyData
 			if err := json.Unmarshal([]byte(tc.raw), &data); err != nil {
 				t.Fatal(err)
 			}

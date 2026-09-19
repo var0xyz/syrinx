@@ -1,10 +1,12 @@
-package realtime
+//go:build !ops && !ripplescleanup
+
+package main
 
 import "testing"
 
 func TestPipeSubscriptionBookkeeping(t *testing.T) {
-	cm := NewConnectionManager()
-	client := NewClient(nil, "viewer")
+	cm := newRealtimeConnectionManager()
+	client := newRealtimeClient(nil, "viewer")
 
 	cm.SubscribePipe(client, "#Climate")
 	if _, ok := client.pipeSubscriptions["climate"]; !ok {
@@ -36,10 +38,10 @@ func TestPipeSubscriptionBookkeeping(t *testing.T) {
 }
 
 func TestClearPipeSubscriptionsOnUnregister(t *testing.T) {
-	cm := NewConnectionManager()
+	cm := newRealtimeConnectionManager()
 	// Use a fake conn pointer via nil — unregister needs conn in map.
 	// Subscribe then clearPipeSubscriptions directly (unregister closes conn).
-	client := NewClient(nil, "viewer")
+	client := newRealtimeClient(nil, "viewer")
 	cm.SubscribePipe(client, "tag1")
 	cm.SubscribePipe(client, "tag2")
 	cm.clearPipeSubscriptions(client)
@@ -63,10 +65,10 @@ func TestUnionAndSubtractUserIDs(t *testing.T) {
 }
 
 func TestNormalizePipeTag(t *testing.T) {
-	if got := NormalizePipeTag(" #Foo "); got != "foo" {
+	if got := normalizePipeTag(" #Foo "); got != "foo" {
 		t.Fatalf("got %q want foo", got)
 	}
-	if got := NormalizePipeTag(""); got != "" {
+	if got := normalizePipeTag(""); got != "" {
 		t.Fatalf("empty: got %q", got)
 	}
 }

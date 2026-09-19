@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"syrinx/realtime"
-
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
@@ -39,7 +37,7 @@ func ripplesTestHandlers(db *DataService) *Handlers {
 	}
 	return &Handlers{
 		services:      &Services{db: db, crypto: svc, log: NewLoggingService()},
-		broadcastChan: make(chan realtime.BroadcastMessage, 100),
+		broadcastChan: make(chan realtimeBroadcastMessage, 100),
 		signingKey: ServerSigningKey{
 			Fingerprint: kp.Fingerprint,
 			Armor:       kp.PrivateKey,
