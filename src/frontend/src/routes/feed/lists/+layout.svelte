@@ -180,6 +180,7 @@
   .list-master-add {
     width: auto;
     flex-shrink: 0;
+    margin-right: 1.25rem;
     background: none;
     border: none;
     color: var(--primary);
