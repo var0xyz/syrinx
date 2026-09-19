@@ -366,8 +366,8 @@
 </script>
 
 {#if showWriteButton}
-  <button class="floating-write-btn" on:click={() => (isWriteSectionOpen = true)}>
-    <span class="icon">✍️</span>
+  <button class="floating-write-btn" on:click={() => (isWriteSectionOpen = true)} aria-label="New reed">
+    <span class="icon"></span>
   </button>
   <NewReedModal open={isWriteSectionOpen} on:close={() => (isWriteSectionOpen = false)} />
 {/if}
@@ -563,7 +563,18 @@
   }
 
   .floating-write-btn .icon {
-    font-size: 1.5rem;
+    display: inline-block;
+    width: 1.5rem;
+    height: 1.5rem;
+    background-color: currentColor;
+    -webkit-mask-image: url('/icons/quill-pen-24.png');
+    mask-image: url('/icons/quill-pen-24.png');
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
   }
 
   .reeds-list {

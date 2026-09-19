@@ -240,7 +240,11 @@
           on:click={onCreateClick}
           aria-label={creating ? 'Creating invite' : 'Create invite'}
         >
-          <span class="icon">{creating ? '…' : '✉️'}</span>
+          {#if creating}
+            <span class="icon">…</span>
+          {:else}
+            <span class="icon icon-invite"></span>
+          {/if}
         </button>
       {/if}
 
@@ -458,6 +462,21 @@
 
   .floating-create-btn .icon {
     font-size: 1.5rem;
+  }
+
+  .floating-create-btn .icon.icon-invite {
+    display: inline-block;
+    width: 1.5rem;
+    height: 1.5rem;
+    background-color: currentColor;
+    -webkit-mask-image: url('/icons/invite-24.png');
+    mask-image: url('/icons/invite-24.png');
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
   }
 
   .empty-state {

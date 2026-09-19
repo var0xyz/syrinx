@@ -244,13 +244,26 @@
       {:else}
         <div class="lead-row">
           <p class="lead">Federate with other Syrinx instances</p>
-          <button
-            class="btn secondary own-key-btn"
-            disabled={!$serverInfo?.serverKeyId || copyingOwnKey}
-            on:click={copyOwnPublicKey}
-          >
-            {copyingOwnKey ? 'Copying…' : 'Copy this server’s public key'}
-          </button>
+          <div class="lead-actions">
+            <button
+              class="btn secondary lead-action-btn"
+              disabled={!$serverInfo?.serverKeyId || copyingOwnKey}
+              on:click={copyOwnPublicKey}
+            >
+              {#if !copyingOwnKey}
+                <span class="icon-copy" aria-hidden="true"></span>
+              {/if}
+              {copyingOwnKey ? 'Copying…' : 'Copy this server’s public key'}
+            </button>
+            <button
+              class="btn secondary lead-action-btn"
+              disabled={accepting}
+              on:click={openAcceptModal}
+            >
+              <span class="icon-connect" aria-hidden="true"></span>
+              {accepting ? 'Accepting…' : 'Paste connection string'}
+            </button>
+          </div>
         </div>
 
         {#if invitations.length === 0 && attempts.length === 0 && servers.length === 0}
@@ -364,21 +377,16 @@
         {/if}
 
         <button
-          class="floating-accept-btn"
-          disabled={accepting}
-          on:click={openAcceptModal}
-          aria-label={accepting ? 'Accepting connection' : 'Accept federation connection'}
-        >
-          <span class="icon">{accepting ? '…' : '📥'}</span>
-        </button>
-
-        <button
           class="floating-create-btn"
           disabled={creating}
           on:click={openCreateModal}
           aria-label={creating ? 'Creating invite' : 'Create federation invite'}
         >
-          <span class="icon">{creating ? '…' : '🔗'}</span>
+          {#if creating}
+            <span class="icon">…</span>
+          {:else}
+            <span class="icon icon-link"></span>
+          {/if}
         </button>
       {/if}
     </div>
@@ -543,7 +551,7 @@
     margin-bottom: 1rem;
   }
 
-  .own-key-btn {
+  .lead-action-btn {
     flex-shrink: 0;
     font-size: 0.85rem;
     padding: 0.4rem 0.75rem;
@@ -699,8 +707,7 @@
     color: #b91c1c;
   }
 
-  .floating-create-btn,
-  .floating-accept-btn {
+  .floating-create-btn {
     position: fixed;
     bottom: 5rem;
     right: 1.5rem;
@@ -719,25 +726,66 @@
     justify-content: center;
   }
 
-  .floating-accept-btn {
-    bottom: 9.5rem;
-  }
-
-  .floating-create-btn:hover:not(:disabled),
-  .floating-accept-btn:hover:not(:disabled) {
+  .floating-create-btn:hover:not(:disabled) {
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(88, 166, 255, 0.4);
   }
 
-  .floating-create-btn:disabled,
-  .floating-accept-btn:disabled {
+  .floating-create-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
   }
 
-  .floating-create-btn .icon,
-  .floating-accept-btn .icon {
+  .floating-create-btn .icon {
     font-size: 1.5rem;
+  }
+
+  .floating-create-btn .icon.icon-link {
+    display: inline-block;
+    width: 1.5rem;
+    height: 1.5rem;
+    background-color: currentColor;
+    -webkit-mask-image: url('/icons/link-24.png');
+    mask-image: url('/icons/link-24.png');
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
+
+  .lead-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .icon-connect,
+  .icon-copy {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    margin-right: 0.35rem;
+    vertical-align: middle;
+    background-color: currentColor;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
+
+  .icon-connect {
+    -webkit-mask-image: url('/icons/connect-24.png');
+    mask-image: url('/icons/connect-24.png');
+  }
+
+  .icon-copy {
+    -webkit-mask-image: url('/icons/copy-24.png');
+    mask-image: url('/icons/copy-24.png');
   }
 
   .field {
@@ -773,8 +821,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    /* Above .floating-create-btn/.floating-accept-btn (z-index: 1000) so
-       the modal covers them instead of the buttons floating over it. */
+    /* Above .floating-create-btn (z-index: 1000) so the modal covers it
+       instead of the button floating over it. */
     z-index: 1100;
     padding: 1rem;
   }
