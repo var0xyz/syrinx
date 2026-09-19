@@ -1,5 +1,8 @@
 <script>
   import { page } from '$app/stores';
+  import NewReedModal from '$lib/components/NewReedModal.svelte';
+
+  let isComposeOpen = false;
 
   // Coarse top-level hint for routes the URL alone can't map to a nav
   // destination (reed detail, pipe, mesh peer/attempt, error page) — leave
@@ -34,6 +37,10 @@
 </script>
 
 <nav class="side-nav">
+  <button type="button" class="sn-compose" on:click={() => (isComposeOpen = true)}>
+    <span class="sn-compose-icon"></span>New Reed
+  </button>
+
   <a href={ownProfileHref} class="sn-btn" class:active={reedsActive}>
     <span class="sn-icon">🌾</span>Reeds
   </a>
@@ -82,6 +89,8 @@
   </a>
 </nav>
 
+<NewReedModal open={isComposeOpen} on:close={() => (isComposeOpen = false)} />
+
 <style>
   .side-nav {
     display: none;
@@ -104,6 +113,45 @@
       overflow-y: auto;
       z-index: 90;
     }
+  }
+
+  .sn-compose {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    width: 100%;
+    margin: 0 0 0.9rem;
+    padding: 0.65rem 0.8rem;
+    border: none;
+    border-radius: 10px;
+    background: var(--primary);
+    color: var(--button-text);
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+  }
+
+  .sn-compose:hover {
+    opacity: 0.9;
+  }
+
+  .sn-compose-icon {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    background-color: currentColor;
+    -webkit-mask-image: url('/icons/quill-pen-24.png');
+    mask-image: url('/icons/quill-pen-24.png');
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    flex-shrink: 0;
   }
 
   .sn-btn {
