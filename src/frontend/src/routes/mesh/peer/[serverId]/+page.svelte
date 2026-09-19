@@ -80,7 +80,7 @@
       history.back();
       return;
     }
-    goto('/mesh');
+    goto('/network/mesh');
   }
 
   function openRevokeModal() {
@@ -157,7 +157,7 @@
     try {
       await apiService.purgeFederationServer(serverId);
       notificationStore.success('Server and all associated data deleted');
-      goto('/mesh');
+      goto('/network/mesh');
     } catch (err) {
       notificationStore.error(err instanceof Error ? err.message : 'Failed to delete server');
       purging = false;
@@ -292,7 +292,7 @@
       {/if}
     </div>
 
-    <BottomToolbar currentPage="mesh" />
+    <BottomToolbar currentPage="network" />
   </div>
 
   {#if showRevokeModal}

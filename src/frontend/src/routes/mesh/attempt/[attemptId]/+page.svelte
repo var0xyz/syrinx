@@ -56,7 +56,7 @@
       history.back();
       return;
     }
-    goto('/mesh');
+    goto('/network/mesh');
   }
 
   function statusLabel(status: api.FederationAttempt['status']) {
@@ -179,7 +179,7 @@
       {/if}
     </div>
 
-    <BottomToolbar currentPage="mesh" />
+    <BottomToolbar currentPage="network" />
   </div>
 
   {#if showRejectModal}
