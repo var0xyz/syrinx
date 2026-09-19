@@ -86,7 +86,8 @@
   {/if}
 
   <a href="/account" class="sn-btn sn-account" class:active={accountActive}>
-    <span class="sn-icon">👤</span>Account
+    <span class="sn-icon">👤</span>
+    <span class="sn-account-label">{$page.data?.user?.username ?? 'Account'}</span>
   </a>
 
   <p class="sn-version">
@@ -174,6 +175,13 @@
 
   .sn-account {
     margin-top: auto;
+  }
+
+  .sn-account-label {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
 
   .sn-btn:hover {
