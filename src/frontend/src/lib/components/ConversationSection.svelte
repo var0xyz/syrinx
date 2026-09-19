@@ -269,8 +269,10 @@
 {/if}
 
 <style>
-  .conversation-section {
-    padding-top: 1rem;
+  @media (max-width: 768px) {
+    .conversation-section {
+      padding-top: 1rem;
+    }
   }
 
   .conversation-empty {

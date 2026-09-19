@@ -530,6 +530,7 @@
       class="ripple-action post-ripple-trigger"
       on:click={() => (topComposerOpen = true)}
     >
+      <span class="post-ripple-icon"></span>
       Post ripple
     </button>
   {/if}
@@ -661,7 +662,9 @@
   }
 
   .post-ripple-trigger {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     width: calc(100% - 1.5rem);
     margin: 0 0.75rem 1rem;
     padding: 0.5rem 0.7rem;
@@ -678,6 +681,22 @@
     color: var(--fg);
     text-decoration: none;
     background: var(--input-bg, rgba(127, 127, 127, 0.08));
+  }
+
+  .post-ripple-icon {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    background-color: currentColor;
+    -webkit-mask-image: url('/icons/ripple-16.png');
+    mask-image: url('/icons/ripple-16.png');
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
   }
 
   /* No list-item box model needed — this <li> only exists so the inline
