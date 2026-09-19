@@ -37,6 +37,7 @@
   import { receiveMailboxMessage } from '$lib/services/mailboxReceipt';
   import { refreshMailboxMessages } from '$lib/stores/mailbox';
   import MailboxBell from '$lib/components/MailboxBell.svelte';
+  import ActivitySidebar from '$lib/components/ActivitySidebar.svelte';
   import { isValidRef } from '$lib/utils/identityRef';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
   import { encryptReedForRequester, decryptRelayPayload, reportDecryptFailure } from '$lib/services/relayDecrypt';
@@ -376,5 +377,9 @@
 <ServerUnreachableIndicator />
 <OfflineIndicator />
 <slot />
+
+{#if user}
+  <ActivitySidebar />
+{/if}
 
 <Notifications />
