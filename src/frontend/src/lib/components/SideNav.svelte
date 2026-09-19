@@ -1,6 +1,7 @@
 <script>
   import { page } from '$app/stores';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
+  import { formatAbsoluteDateTime } from '$lib/utils/time';
 
   let isComposeOpen = false;
 
@@ -87,6 +88,11 @@
   <a href="/account" class="sn-btn sn-account" class:active={accountActive}>
     <span class="sn-icon">👤</span>Account
   </a>
+
+  <p class="sn-version">
+    Version {__APP_VERSION__.slice(0, 12)}<br />
+    Built {formatAbsoluteDateTime(__APP_BUILD_TIME__)}
+  </p>
 </nav>
 
 <NewReedModal open={isComposeOpen} on:close={() => (isComposeOpen = false)} />
@@ -211,5 +217,14 @@
     border-radius: 50%;
     background: currentColor;
     flex-shrink: 0;
+  }
+
+  .sn-version {
+    margin: 0.6rem 0 0;
+    padding: 0 0.7rem;
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-family: monospace;
+    line-height: 1.4;
   }
 </style>
