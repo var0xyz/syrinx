@@ -31,20 +31,17 @@
       </div>
       <p class="subtitle">Restore from a backup to continue</p>
     {:else}
-      <p class="subtitle">A distributed, P2P content-distribution platform</p>
+      <p class="subtitle">A P2P content-distribution platform.</p>
     {/if}
 
-    {#if $canInstall && !$isInstalled}
       <div class="install-section">
         <button on:click={installApp} class="btn btn-install">
-          📱 Install App
+          <span class="install-icon"></span>Install App
         </button>
-        <p class="install-text">Install Syrinx to get started</p>
       </div>
-    {/if}
 
     <div class="action-buttons">
-      <a href="/import" class="btn btn-primary">Already a user</a>
+      <a href="/import" class="btn btn-primary">Import User</a>
       {#if !$serverInfoLoading && $isSignupOpen && !$isRecoveryMode}
         <a href="/signup" class="btn btn-secondary">Sign Up</a>
       {/if}
@@ -65,6 +62,7 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 2rem;
+    padding-top: 1rem;
     text-align: center;
   }
 
@@ -75,7 +73,7 @@
   }
 
   .card p.subtitle {
-    margin: 0 0 2rem 0;
+    margin-bottom: 1rem;
     color: var(--muted);
     font-size: 1.1rem;
   }
@@ -99,14 +97,14 @@
   .action-buttons {
     display: flex;
     gap: 1rem;
-    justify-content: center;
-    border-top: 1px solid var(--border);
-    padding-top: 2rem;
+    justify-content: space-between;
+    padding-top: 1rem;
   }
 
   .btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     padding: 0.75rem 1.5rem;
     border-radius: 8px;
     text-decoration: none;
@@ -138,9 +136,23 @@
   }
 
   .install-section {
-    margin-top: 2rem;
-    padding-top: 2rem;
-    border-top: 1px solid var(--border);
+    margin: 2rem auto 0;
+  }
+
+  .install-icon {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    background-color: currentColor;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-image: url('/icons/install-16.png');
+    mask-image: url('/icons/install-16.png');
+    margin-right: 0.5rem;
   }
 
   .btn-install {
@@ -155,20 +167,17 @@
     transform: translateY(-1px);
   }
 
-  .install-text {
-    margin: 0.5rem 0 0 0;
-    color: var(--muted);
-    font-size: 0.9rem;
-  }
-
   @media (max-width: 640px) {
     .action-buttons {
       flex-direction: column;
     }
 
+    .install-section {
+      max-width: 100%;
+    }
+
     .btn {
       text-align: center;
-      justify-content: center;
     }
   }
 </style>
