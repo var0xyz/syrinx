@@ -1,10 +1,13 @@
 import type * as api from '$lib/types/api';
+import { get } from 'svelte/store';
 import { cryptoService } from './crypto';
 import { dbService } from './db';
 import { apiService, canonicalKeyId } from './api';
 import { authService } from './auth';
 import { ensureDeviceId } from './deviceId';
 import { localStorageService } from './localstorage';
+import { serverInfo } from './serverInfo';
+import { markChecked } from '$lib/utils/keyCheckThrottle';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
 import { revocationRepository } from '$lib/repositories/revocation';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
@@ -351,13 +354,16 @@ export async function writeIdentityKeysBackup(backup: BackupPayload): Promise<vo
 }
 
 /**
- * Validate that the backup carries identity material needed for a session.
+ * Validate that the backup carries identity material needed for a session,
+ * and that it belongs to the server this app is currently connected to —
+ * a mismatch here means every signed record below will fail to verify.
  */
 export function assertBackupIdentity(backup: BackupPayload): void {
   const ls = backup.localStorage ?? {};
   const userId = ls['userId'];
   const activeKeyId = ls['activeKeyId'];
   const keyPassphrase = ls['keyPassphrase'];
+  const backupServerId = ls['serverId'];
 
   const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
   const privateKeyEntry = (privateKeysTable?.items ?? []).find(
@@ -366,6 +372,11 @@ export function assertBackupIdentity(backup: BackupPayload): void {
 
   if (!userId || !activeKeyId || !keyPassphrase || !privateKeyEntry?.armor) {
     throw new Error('Invalid backup file: missing required identity data.');
+  }
+
+  const currentServerId = get(serverInfo)?.id || localStorage.getItem('serverId');
+  if (backupServerId && currentServerId && backupServerId !== currentServerId) {
+    throw new Error('This backup belongs to a different server.');
   }
 }
 
@@ -381,11 +392,35 @@ export function backupKeyItemId(item: object): string | undefined {
     ?? (item as { id?: string; keyId?: string }).keyId;
 }
 
+/**
+ * A self-signed server key has an empty serverSignature.id (nothing
+ * countersigns it). Other keys need it cached to verify their own
+ * serverSignature, so it must restore first — getAll() order gives no guarantee.
+ */
+function orderServerKeysFirst(table: BackupTable): BackupTable {
+  const items = [...(table.items ?? [])];
+  items.sort((a, b) => {
+    const aIsServerKey = (a as api.PublicKey)?.serverSignature?.id === '' ? 0 : 1;
+    const bIsServerKey = (b as api.PublicKey)?.serverSignature?.id === '' ? 0 : 1;
+    return aIsServerKey - bIsServerKey;
+  });
+  return { ...table, items };
+}
+
 async function restoreItem(storeName: string, item: unknown): Promise<void> {
   switch (storeName) {
     case 'publicKeys': {
-      const key = item as api.PublicKey;
-      await publicKeyRepository.put({ ...key, armor: atob(key.armor) });
+      const key = { ...(item as api.PublicKey), armor: atob((item as api.PublicKey).armor) };
+      // A self-signed server key (see ensureServerKeyCached) can't be
+      // verified against itself — restore it unsigned, like on first cache.
+      if (key.serverSignature?.id === '') {
+        await dbService.put('publicKeys', key, allowUnsigned);
+      } else {
+        await publicKeyRepository.put(key);
+      }
+      // Otherwise later verifiers treat this fresh-from-backup key as due
+      // for a recheck and re-fetch it over the network regardless.
+      markChecked(key.id);
       return;
     }
     case 'revocations':
@@ -448,12 +483,16 @@ export async function writeBackup(backup: BackupPayload): Promise<void> {
 
   await dbService.init();
 
-  // Restore public keys before users/reeds/revocations so verifiers can resolve armor.
+  // Verifiers fall back to a signed API call only on a publicKeys cache
+  // miss — restoring publicKeys first keeps every later lookup a hit.
+  // users goes next: storeReed opportunistically looks up the author
+  // profile after each reed, which would otherwise also miss the cache.
   const tables = backup.indexedDB?.tables ?? [];
   const ordered = [
-    ...tables.filter((t) => t.name === 'publicKeys'),
     ...tables.filter((t) => t.name === 'privateKeys'),
-    ...tables.filter((t) => t.name !== 'publicKeys' && t.name !== 'privateKeys'),
+    ...tables.filter((t) => t.name === 'publicKeys').map(orderServerKeysFirst),
+    ...tables.filter((t) => t.name === 'users'),
+    ...tables.filter((t) => !['privateKeys', 'publicKeys', 'users'].includes(t.name)),
   ];
 
   for (const table of ordered) {

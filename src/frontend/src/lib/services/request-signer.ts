@@ -189,53 +189,32 @@ class RequestSignerService {
       throw new Error('RequestSigner: passphrase is required to initialize');
     }
 
-    const maxRetries = 3;
-    let lastError: Error | null = null;
+    await this.waitForServiceWorker();
+    console.log('RequestSigner: Service worker is ready');
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`RequestSigner: Starting service worker initialization (attempt ${attempt}/${maxRetries})...`);
-
-        await this.waitForServiceWorker();
-        console.log('RequestSigner: Service worker is ready');
-
-        const keyData = await privateKeyRepository.getPrivateKey(keyId);
-        if (!keyData) {
-          throw new Error('Private key not found');
-        }
-        console.log('RequestSigner: Private key retrieved from IndexedDB');
-
-        const user = await authService.getCurrentUser();
-        if (!user) {
-          throw new Error('User not found');
-        }
-        console.log('RequestSigner: User data retrieved');
-
-        console.log('RequestSigner: Sending INIT_KEY message to service worker');
-        await this.postToWorker('INIT_KEY', {
-          armoredKey: keyData.armor,
-          passphrase,
-          userId: user.id,
-          keyId,
-        });
-
-        this.initialized = true;
-        this.installResumeHook();
-        console.log('RequestSigner: Service worker initialization complete');
-        return;
-      } catch (error) {
-        lastError = error as Error;
-        console.error(`RequestSigner: Attempt ${attempt} failed:`, error);
-
-        if (attempt < maxRetries) {
-          console.log(`RequestSigner: Retrying in 2 seconds...`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      }
+    const keyData = await privateKeyRepository.getPrivateKey(keyId);
+    if (!keyData) {
+      throw new Error('Private key not found');
     }
+    console.log('RequestSigner: Private key retrieved from IndexedDB');
 
-    console.error('RequestSigner: All initialization attempts failed');
-    throw lastError || new Error('Failed to initialize request signer after all retries');
+    const user = await authService.getCurrentUser();
+    if (!user) {
+      throw new Error('User not found');
+    }
+    console.log('RequestSigner: User data retrieved');
+
+    console.log('RequestSigner: Sending INIT_KEY message to service worker');
+    await this.postToWorker('INIT_KEY', {
+      armoredKey: keyData.armor,
+      passphrase,
+      userId: user.id,
+      keyId,
+    });
+
+    this.initialized = true;
+    this.installResumeHook();
+    console.log('RequestSigner: Service worker initialization complete');
   }
 
   /**

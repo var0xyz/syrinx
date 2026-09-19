@@ -230,9 +230,24 @@ func (h *Handlers) GetServerKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// h.signingKey.Armor is the private key (it's what cryptoSvc.sign uses)
+	// — this route must only ever hand out the public half.
+	entity, err := h.services.crypto.extractEntity(h.signingKey.Armor)
+	if err != nil {
+		log.Error().Err(err).Msg("GetServerKey: failed to parse signing key")
+		internalServerError(w)
+		return
+	}
+	publicArmor, err := h.services.crypto.extractPublicKeyArmor(entity)
+	if err != nil {
+		log.Error().Err(err).Msg("GetServerKey: failed to derive public key armor")
+		internalServerError(w)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(h.signingKey.Armor))
+	_, _ = w.Write([]byte(publicArmor))
 }
 
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {

@@ -208,8 +208,12 @@
         <h2>Import complete</h2>
         <p>Your backup has been restored. You can now access your account.</p>
         <div class="success-actions">
-          <a href="/reeds" class="btn btn-primary">Go to reeds</a>
-          <a href="/account" class="btn btn-secondary">Go to profile</a>
+          <button type="button" class="btn btn-primary" on:click={() => (window.location.href = '/reeds')}>
+            Go to reeds
+          </button>
+          <button type="button" class="btn btn-secondary" on:click={() => (window.location.href = '/account')}>
+            Go to profile
+          </button>
         </div>
       </div>
     {:else}
@@ -300,9 +304,7 @@
 
 <style>
   .container {
-    min-height: 100vh;
     display: flex;
-    align-items: center;
     justify-content: center;
     padding: 1rem;
   }
