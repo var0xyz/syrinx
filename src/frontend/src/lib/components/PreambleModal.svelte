@@ -49,16 +49,13 @@
         </div>
       </div>
 
-      <p><strong>Important:</strong> If you create a user and later decide to install the app, you won't have
-      access to that data anymore due to browser-enforced security restrictions. So either install the app first or
-      use it as a web app, but migration won't be possible.</p>
       <div class="action-buttons">
         {#if $canInstall && !$isInstalled}
           <button on:click={install} class="btn btn-install">
             Install App
           </button>
         {/if}
-        <button on:click={accept} class="btn btn-primary">I understand,<br>continue to sign up</button>
+        <button on:click={accept} class="btn btn-primary">I understand, continue to sign up</button>
       </div>
     </div>
   </div>
@@ -142,8 +139,6 @@
   }
 
   .action-buttons {
-    border-top: 1px solid var(--border);
-    padding-top: 2rem;
     text-align: center;
     display: flex;
     gap: 1rem;
