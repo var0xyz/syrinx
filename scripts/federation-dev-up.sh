@@ -79,7 +79,7 @@ done
 # 3. Build the server binary once; both instances run the same binary with
 # different env.
 echo "Building syrinx binary..."
-(cd "$ROOT_DIR" && mkdir -p bin && go build -o bin/syrinx .)
+(cd "$ROOT_DIR" && mkdir -p bin && go build -C src/backend -o ../../bin/syrinx .)
 
 # common_env NAME DB_NAME API_PORT SERVER_NAME SERVER_KEY_PASSPHRASE ROOT_EXPORT_PASSPHRASE SPA_PORT
 common_env() {
@@ -125,10 +125,10 @@ mint_root_if_needed() {
   fi
 
   echo "[$label] minting root identity (server will exit after writing the .sxi.gpg export)..."
-  ( cd "$ROOT_DIR" && eval "$env_block"; export ROOT_KEY_EXPORT_PASSPHRASE="$root_pass"; ./bin/syrinx ) || true
+  ( cd "$ROOT_DIR/src/backend" && eval "$env_block"; export ROOT_KEY_EXPORT_PASSPHRASE="$root_pass"; ../../bin/syrinx ) || true
 
   local bundle
-  bundle=$(ls -t "$ROOT_DIR"/syrinx-1-*.sxi.gpg 2>/dev/null | head -1)
+  bundle=$(ls -t "$ROOT_DIR"/src/backend/syrinx-1-*.sxi.gpg 2>/dev/null | head -1)
   if [ -z "$bundle" ]; then
     echo "[$label] ERROR: expected syrinx-1-*.sxi.gpg after mint run, none found." >&2
     exit 1
@@ -146,16 +146,16 @@ mint_root_if_needed "B" "$B_DB_NAME" "$B_ENV" "$B_ROOT_EXPORT_PASSPHRASE"
 
 # 5. Launch tmux session: one window per instance, split into api + spa panes.
 tmux new-session -d -s "$SESSION" -n "instance-a"
-tmux send-keys -t "$SESSION:instance-a" "cd '$ROOT_DIR'; $A_ENV
-./bin/syrinx" Enter
+tmux send-keys -t "$SESSION:instance-a" "cd '$ROOT_DIR/src/backend'; $A_ENV
+../../bin/syrinx" Enter
 tmux split-window -t "$SESSION:instance-a" -h
-tmux send-keys -t "$SESSION:instance-a.1" "cd '$ROOT_DIR/spa'; API_HOST=localhost:${A_API_PORT} npm run dev -- --host --port ${A_SPA_PORT}" Enter
+tmux send-keys -t "$SESSION:instance-a.1" "cd '$ROOT_DIR/src/frontend'; API_HOST=localhost:${A_API_PORT} npm run dev -- --host --port ${A_SPA_PORT}" Enter
 
 tmux new-window -t "$SESSION" -n "instance-b"
-tmux send-keys -t "$SESSION:instance-b" "cd '$ROOT_DIR'; $B_ENV
-./bin/syrinx" Enter
+tmux send-keys -t "$SESSION:instance-b" "cd '$ROOT_DIR/src/backend'; $B_ENV
+../../bin/syrinx" Enter
 tmux split-window -t "$SESSION:instance-b" -h
-tmux send-keys -t "$SESSION:instance-b.1" "cd '$ROOT_DIR/spa'; API_HOST=localhost:${B_API_PORT} npm run dev -- --host --port ${B_SPA_PORT}" Enter
+tmux send-keys -t "$SESSION:instance-b.1" "cd '$ROOT_DIR/src/frontend'; API_HOST=localhost:${B_API_PORT} npm run dev -- --host --port ${B_SPA_PORT}" Enter
 
 tmux new-window -t "$SESSION" -n "db"
 tmux send-keys -t "$SESSION:db" "docker exec -it syrinx_db psql -U $DB_USER" Enter

@@ -57,8 +57,8 @@ set +a
 
 APP_NAME=$(echo "${APP_NAME:-}" | tr -d ' ' | tr 'A-Z' 'a-z')
 # Fixed to Syrinx's own repo layout (see setup.sh) — not user-configurable.
-BACKEND_PATH="."
-FRONTEND_PATH="spa"
+BACKEND_PATH="src/backend"
+FRONTEND_PATH="src/frontend"
 
 if [ -z "$APP_NAME" ] || [ -z "${APP_REPO:-}" ]; then
     echo "❌ Error: APP_NAME and APP_REPO must be set in $SETUP_ENV"
@@ -194,10 +194,10 @@ chown "$APP_USER:$APP_USER" "$JOB_LOG_DIR"
 chmod 700 "$JOB_LOG_DIR"
 
 # Refresh the cron fragment on every deploy too, in case the schedule/command
-# in the repo's jobs/ripples-cleanup.cron changes.
+# in the repo's deploy/jobs/ripples-cleanup.cron changes.
 sed -e "s|@APP_USER@|$APP_USER|g" -e "s|@ENV_FILE@|$ENV_FILE|g" -e "s|@APP_NAME@|$APP_NAME|g" \
     -e "s|@JOB_LOG_DIR@|$JOB_LOG_DIR|g" \
-    "$BUILD_DIR/src/jobs/ripples-cleanup.cron" > "/etc/cron.d/$APP_NAME-ripples-cleanup"
+    "$BUILD_DIR/src/deploy/jobs/ripples-cleanup.cron" > "/etc/cron.d/$APP_NAME-ripples-cleanup"
 chmod 644 "/etc/cron.d/$APP_NAME-ripples-cleanup"
 
 # Ship the SPA into its own timestamped release dir and repoint the `build`

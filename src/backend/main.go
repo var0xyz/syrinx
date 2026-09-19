@@ -534,8 +534,12 @@ func main() {
 	ws := router.PathPrefix("/ws").Subrouter()
 	ws.HandleFunc("/", rtService.HandleWebSocket)
 
-	// SvelteKit static build (spa/build) with SPA fallback for client routes
-	router.PathPrefix("/").Handler(spaHandler("spa/build"))
+	// SvelteKit static build (../frontend/build, relative to src/backend/
+	// where this binary is built/run from) with SPA fallback for client
+	// routes. Local dev only — production serves the SPA via nginx
+	// directly (see deploy/scripts/syrinx/setup.sh), so this path is
+	// never resolved there.
+	router.PathPrefix("/").Handler(spaHandler("../frontend/build"))
 
 	if cfg.RecoveryMode {
 		log.Debug().Msg("Initializing recovery mode...")

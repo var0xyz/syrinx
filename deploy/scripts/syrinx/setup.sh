@@ -77,8 +77,8 @@ APP_REPO="${APP_REPO_INPUT:-$APP_REPO}"
 
 # Fixed to Syrinx's own repo layout — this script deploys Syrinx specifically,
 # not an arbitrary app, so these aren't user-configurable.
-BACKEND_PATH="."
-FRONTEND_PATH="spa"
+BACKEND_PATH="src/backend"
+FRONTEND_PATH="src/frontend"
 
 # Public edge: how the outside world reaches this host.
 #   cloudflare (default) — outbound-only Tunnel, zero inbound ports, works
@@ -427,10 +427,10 @@ mkdir -p "$JOB_LOG_DIR"
 chown "$APP_USER:$APP_USER" "$JOB_LOG_DIR"
 chmod 700 "$JOB_LOG_DIR"
 
-# Placeholders (@APP_USER@ etc.) come from jobs/ripples-cleanup.cron in the repo.
+# Placeholders (@APP_USER@ etc.) come from deploy/jobs/ripples-cleanup.cron in the repo.
 sed -e "s|@APP_USER@|$APP_USER|g" -e "s|@ENV_FILE@|$ENV_FILE|g" -e "s|@APP_NAME@|$APP_NAME|g" \
     -e "s|@JOB_LOG_DIR@|$JOB_LOG_DIR|g" \
-    "$BUILD_DIR/src/jobs/ripples-cleanup.cron" > "/etc/cron.d/$APP_NAME-ripples-cleanup"
+    "$BUILD_DIR/src/deploy/jobs/ripples-cleanup.cron" > "/etc/cron.d/$APP_NAME-ripples-cleanup"
 chmod 644 "/etc/cron.d/$APP_NAME-ripples-cleanup"
 
 # @sveltejs/adapter-static writes to "build" (not Vite's default "dist").

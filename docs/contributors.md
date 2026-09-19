@@ -6,24 +6,26 @@ This site is the **canonical source of truth** for design intent. When you chang
 
 | Path | Responsibility |
 |------|----------------|
-| Root Go module | HTTP API, middleware, DB init, wiring |
-| `realtime/` | WebSocket service, fanout, JSON events (protobuf migration spec'd, not yet implemented) |
-| `spa/` | SvelteKit PWA client |
-| `identity/` | Shared identity payload builders |
-| `crypto/`, `signing/`, `keys/`, `secret/` | Crypto primitives and key handling |
-| `recovery/` | Server-side recovery mode (handlers, gates, stores) |
-| `invites/` | Invite lifecycle |
-| `deletion/` | Removal certificates and related API |
-| `cli/` | Separate Bubble Tea CLI module (optional tooling) |
+| `src/backend/` | Go module — HTTP API, middleware, DB init, WebSocket service, all feature logic (in `package main` directly — see below) |
+| `src/backend/observability/`, `src/backend/observability/metrics/` | Business-metrics recorder DI interface — the one feature area still a real subpackage |
+| `src/backend/proto/` | WebSocket protobuf definitions (generated code needs its own package) |
+| `src/frontend/` | SvelteKit PWA client |
+| `cli/` | Separate Go module, standalone CLI tool (optional tooling) — not part of the server module |
 | `docs/` | This VitePress documentation site |
-| `proto/` | Realtime protobuf definitions |
+| `deploy/` (incl. `deploy/jobs/`), `scripts/` | Deploy automation, cron job definitions, dev-environment scripts |
 
-Feature packages own their domain logic. `main` wires config, routes, and middleware—it should not accumulate recovery/invite/deletion business rules.
+Feature logic lives directly in root `package main` under `src/backend/`
+(`handlers.go`, `services.go`, and dedicated same-named files like
+`recovery.go`/`realtime.go` for larger features) — not in per-feature
+subpackages. `main.go` wires config, routes, and middleware for every
+feature; there's no `RegisterRoutes`/`Deps` indirection to route around.
+Reach for a real subpackage only when code is genuinely reusable outside
+this server, matching `observability/`'s bar.
 
 ## Local development
 
 - `make run` / Compose for the full stack, or `dev.sh` for a tmux-oriented setup if you use it.
-- SPA: Node 20+, install under `spa/`, `pnpm dev` / `npm run dev`.
+- SPA: Node 20+, install under `src/frontend/`, `pnpm dev` / `npm run dev`.
 - Docs: under `docs/`, `npm install && npm run dev`.
 
 Project `.gitignore` is intentionally narrow (project artifacts only). Put personal editor ignores in `.git/info/exclude`.
@@ -31,7 +33,7 @@ Project `.gitignore` is intentionally narrow (project artifacts only). Put perso
 ## Design culture
 
 - **Verify before trust** — clients check user and server signatures; don’t add server-only “trust me” paths for sensitive mutations.
-- **Canonical bytes** — signing goes through shared `BytesToSign` helpers; never “almost the same” serialization on one side.
+- **Canonical bytes** — signing goes through the shared `bytesToSign` helper; never “almost the same” serialization on one side.
 - **Blank-slate schema** — this project often prefers recreate-DB cutovers over long dual-write migrations while it is still early. Say so in the PR if you change schema.
 - **Idempotent certificates** — removals and similar attestations should replay safely.
 - **Offline-first where it matters** — author queues for publishes/removals/revocations; sync is not “hope the tab stayed open.”

@@ -2,10 +2,11 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  cmd = "go build ."
-  bin = "./syrinx"
+  cmd = "go build -C src/backend -o ../../tmp/syrinx ."
+  bin = "tmp/syrinx"
+  full_bin = "sh -c 'cd src/backend && ../../tmp/syrinx'"
   include_ext = ["go"]
-  exclude_dir = ["tmp", "spa", "keys", "proto"]
+  exclude_dir = ["tmp", "src/frontend", "keys", "src/backend/proto"]
   delay = 1000
   kill_delay = "0s"
   rerun = true
