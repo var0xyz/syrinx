@@ -700,6 +700,7 @@
             <button class="btn btn-primary" on:click={goBack}>Go Back</button>
           </div>
         {:else if reed}
+          <div class="reed-main-col">
           <div class="reed-detail">
             <div class="reed-meta">
               <div class="reed-author">
@@ -791,7 +792,11 @@
             <p class="not-recognized-notice">Reed not recognized by the server</p>
             <!-- Ripples/Chorus lose meaning without server vouching for
                  the reed; Conversation stays since cached replies are real. -->
-            <div class="discussion-panel" class:hidden={conversationCount === 0}>
+            <div
+              class="discussion-panel discussion-panel-conversation"
+              class:hidden={conversationCount === 0}
+              class:empty-on-wide={conversationCount === 0}
+            >
               <ConversationSection
                 bind:this={conversationSection}
                 parentReedRef={routeReedRef}
@@ -832,7 +837,11 @@
                 Chorus{#if chorusCount > 0}&nbsp;({chorusCount}){/if}
               </button>
             </div>
-            <div class="discussion-panel" class:hidden={discussionTab !== 'conversation'}>
+            <div
+              class="discussion-panel discussion-panel-conversation"
+              class:hidden={discussionTab !== 'conversation'}
+              class:empty-on-wide={conversationCount === 0}
+            >
               <ConversationSection
                 bind:this={conversationSection}
                 parentReedRef={routeReedRef}
@@ -840,11 +849,22 @@
                 bind:count={conversationCount}
               />
             </div>
-            <div class="discussion-panel" class:hidden={discussionTab !== 'ripples'}>
-              <RipplesSection reedID={canonicalReedID} serverSignatureArmor={reed.serverSignature?.armor ?? ''} bind:count={ripplesCount} />
-            </div>
-            <div class="discussion-panel" class:hidden={discussionTab !== 'chorus'}>
-              <ChorusSection reedID={canonicalReedID} bind:count={chorusCount} />
+          {/if}
+          </div>
+          {#if !reedNotRecognized && !isPending && !isBlankEchoView}
+            <div class="reed-side-col">
+              <div class="discussion-panel discussion-panel-ripples" class:hidden={discussionTab !== 'ripples'}>
+                <h2 class="discussion-panel-title">Ripples</h2>
+                <RipplesSection reedID={canonicalReedID} serverSignatureArmor={reed.serverSignature?.armor ?? ''} bind:count={ripplesCount} />
+              </div>
+              <div
+                class="discussion-panel discussion-panel-chorus"
+                class:hidden={discussionTab !== 'chorus'}
+                class:empty-on-wide={chorusCount === 0}
+              >
+                <h2 class="discussion-panel-title">Chorus</h2>
+                <ChorusSection reedID={canonicalReedID} bind:count={chorusCount} />
+              </div>
             </div>
           {/if}
         {/if}
@@ -1077,10 +1097,21 @@
     display: none;
   }
 
+  .discussion-panel-title {
+    display: none;
+    margin: 0;
+    padding: 0.9rem 0.9rem 0;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+
   .reed-actions-bar {
     display: flex;
     gap: 0.5rem;
-    padding: 1rem 1.5rem;
+    padding: 0.5rem 1rem;
     border-top: 1px solid var(--border);
     background: var(--surface);
   }
@@ -1252,6 +1283,61 @@
 
     .quote-container {
       margin: 0.5rem 0;
+    }
+  }
+
+  @media (min-width: 900px) {
+    .reed-content {
+      max-width: 900px;
+      display: flex;
+      align-items: flex-start;
+      gap: 1.25rem;
+    }
+
+    .reed-main-col {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .reed-side-col {
+      display: flex;
+      flex-direction: column;
+      width: 300px;
+      flex-shrink: 0;
+      gap: 1rem;
+    }
+
+    .discussion-tabs {
+      display: none;
+    }
+
+    .discussion-panel.hidden {
+      display: block;
+    }
+
+    .discussion-panel-conversation {
+      margin-top: 1rem;
+    }
+
+    .discussion-panel-conversation.empty-on-wide {
+      display: none;
+    }
+
+    .discussion-panel-ripples,
+    .discussion-panel-chorus {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+
+    .discussion-panel-chorus.empty-on-wide {
+      display: none;
+    }
+
+    .discussion-panel-title {
+      display: block;
     }
   }
 </style>
