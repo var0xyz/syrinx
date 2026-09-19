@@ -87,7 +87,7 @@
       top: calc(3rem + 1px);
       right: 0;
       bottom: 0;
-      width: 280px;
+      width: var(--activity-sidebar-width);
       background: var(--surface);
       border-left: 1px solid var(--border);
       padding: 1rem 0.7rem;

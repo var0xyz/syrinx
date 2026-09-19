@@ -117,6 +117,12 @@
     }
   }
 
+  @media (min-width: 1400px) {
+    .feed-container {
+      padding-right: var(--activity-sidebar-width);
+    }
+  }
+
   .feed-content-wrap {
     flex: 1;
     max-width: 680px;

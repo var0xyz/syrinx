@@ -26,4 +26,10 @@
       padding-left: var(--sidenav-width);
     }
   }
+
+  @media (min-width: 1400px) {
+    .invites-container {
+      padding-right: var(--activity-sidebar-width);
+    }
+  }
 </style>

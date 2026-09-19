@@ -139,6 +139,12 @@
     }
   }
 
+  @media (min-width: 1400px) {
+    .feed-container {
+      padding-right: var(--activity-sidebar-width);
+    }
+  }
+
   .lists-layout {
     flex: 1;
     display: flex;

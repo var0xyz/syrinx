@@ -59,6 +59,12 @@
     }
   }
 
+  @media (min-width: 1400px) {
+    .error-page.with-sidenav {
+      padding-right: var(--activity-sidebar-width);
+    }
+  }
+
   .error-content {
     flex: 1;
     max-width: 680px;
