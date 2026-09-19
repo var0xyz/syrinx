@@ -4,15 +4,17 @@
 </script>
 
 <div class="section-toggle">
-  <a href="/feed/follow" class="toggle-btn" class:active={active === 'follow'}>
-    Follow
-  </a>
-  <a href="/feed/broadcast" class="toggle-btn" class:active={active === 'broadcast'}>
-    Broadcast
-  </a>
-  <a href="/feed/lists" class="toggle-btn" class:active={active === 'list'}>
-    Lists
-  </a>
+  <div class="section-toggle-inner">
+    <a href="/feed/follow" class="toggle-btn" class:active={active === 'follow'}>
+      Follow
+    </a>
+    <a href="/feed/broadcast" class="toggle-btn" class:active={active === 'broadcast'}>
+      Broadcast
+    </a>
+    <a href="/feed/lists" class="toggle-btn" class:active={active === 'list'}>
+      Lists
+    </a>
+  </div>
 </div>
 
 <style>
@@ -20,10 +22,23 @@
     display: flex;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: 0 0.5rem;
     position: sticky;
     top: 0;
     z-index: 10;
+  }
+
+  .section-toggle-inner {
+    display: flex;
+    flex: 1;
+    padding: 0 1rem;
+  }
+
+  @media (min-width: 768px) {
+    .section-toggle-inner {
+      flex-grow: 0;
+      min-width: 680px;
+      margin: 0 auto;
+    }
   }
 
   .toggle-btn {

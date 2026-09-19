@@ -287,6 +287,13 @@
     overflow-y: auto;
   }
 
+  @media (min-width: 900px) {
+    .write-modal {
+      width: 380px;
+      box-shadow: -12px 0 24px -16px rgba(0, 0, 0, 0.6);
+    }
+  }
+
   .write-modal-header {
     display: flex;
     align-items: center;

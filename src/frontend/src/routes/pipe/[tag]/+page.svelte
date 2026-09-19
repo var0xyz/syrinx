@@ -127,7 +127,7 @@
   }
 
   .pipe-header {
-    max-width: 600px;
+    max-width: 680px;
     margin: 0 auto;
     width: 100%;
     padding: 1.25rem 1rem 0.5rem;
@@ -141,7 +141,7 @@
 
   .pipe-content {
     flex: 1;
-    max-width: 600px;
+    max-width: 680px;
     margin: 0 auto;
     width: 100%;
     padding: 1rem;
