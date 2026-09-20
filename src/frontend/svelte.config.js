@@ -9,6 +9,9 @@ const config = {
     }),
     serviceWorker: {
       register: false
+    },
+    output: {
+      bundleStrategy: 'single'
     }
   }
 };
