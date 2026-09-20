@@ -103,18 +103,25 @@ export function initializePWA() {
       updateViaCache: 'none'
     };
 
-    // A new worker taking control (update path only, never the first-ever
-    // install for a fresh visitor) means the running app is now stale —
-    // surface the update banner instead of reloading out from under the
-    // user. reloadPending guards against firing twice if controllerchange
-    // races with the registration.waiting check below.
+    // WebKit fires controllerchange on plain reloads even when the same
+    // worker re-claims its clients, not just on genuine updates. Confirm via
+    // the controller's actual build version before showing the banner.
     const hadController = !!navigator.serviceWorker.controller;
     let reloadPending = false;
 
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (!hadController || reloadPending) return;
-      reloadPending = true;
-      updateAvailable.set(true);
+      const controller = navigator.serviceWorker.controller;
+      if (!controller) return;
+
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event) => {
+        if (event.data?.success && event.data.version !== __APP_VERSION__) {
+          reloadPending = true;
+          updateAvailable.set(true);
+        }
+      };
+      controller.postMessage({ type: 'GET_VERSION' }, [channel.port2]);
     });
 
     navigator.serviceWorker.register(swUrl, swOptions)
