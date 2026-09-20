@@ -91,7 +91,8 @@
   .ripple-row {
     display: flex;
     gap: 0.5rem;
-    padding: 0.25rem 0;
+    padding: 0;
+    margin-top: 0.5rem;
   }
 
   /* Not a full nested-reply indent (00's lock: flat rendering) — just a
@@ -207,7 +208,7 @@
   }
 
   .ripple-content {
-    margin: 0 0 0.3rem;
+    margin: 0;
     font-size: 0.88rem;
     line-height: 1.45;
     color: var(--fg);
@@ -216,7 +217,7 @@
   }
 
   .ripple-content-deleted {
-    margin: 0 0 0.3rem;
+    margin: 0;
     font-size: 0.88rem;
     line-height: 1.45;
     white-space: pre-wrap;
