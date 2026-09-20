@@ -13,6 +13,7 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedListItem from '$lib/components/ReedListItem.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import { goto } from '$app/navigation';
   import { isValidRef, getUserId } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
@@ -342,11 +343,16 @@
     }
   }
 
-  async function deleteReed(reedId, pending = false) {
-    if (!confirm('Are you sure you want to delete this reed?')) {
-      return;
-    }
+  let deleteTarget = null;
 
+  function deleteReed(reedId, pending = false) {
+    deleteTarget = { reedId, pending };
+  }
+
+  async function confirmDeleteReed() {
+    if (!deleteTarget) return;
+    const { reedId, pending } = deleteTarget;
+    deleteTarget = null;
     try {
       if (pending) {
         await reedsService.discardUnsignedReed(reedId);
@@ -494,6 +500,15 @@
     {/each}
   {/if}
 </div>
+
+{#if deleteTarget}
+  <ConfirmDialog
+    title="Delete reed?"
+    message="Are you sure you want to delete this reed?"
+    on:confirm={confirmDeleteReed}
+    on:cancel={() => (deleteTarget = null)}
+  />
+{/if}
 
 <style>
   .new-reed-banner {

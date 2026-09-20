@@ -7,6 +7,7 @@
   import { onDestroy, onMount } from 'svelte';
   import RippleRow from '$lib/components/RippleRow.svelte';
   import RippleComposer from '$lib/components/RippleComposer.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
   import { ripplesRepository } from '$lib/repositories/ripples';
@@ -418,10 +419,15 @@
     }
   }
 
-  async function deleteRipple(hash) {
-    if (!confirm('Are you sure you want to delete this ripple?')) {
-      return;
-    }
+  let deleteTargetHash = null;
+
+  function requestDeleteRipple(hash) {
+    deleteTargetHash = hash;
+  }
+
+  async function confirmDeleteRipple() {
+    const hash = deleteTargetHash;
+    deleteTargetHash = null;
     try {
       await apiService.deleteRipple(reedID, hash);
       ripples = ripples.map((r) =>
@@ -466,7 +472,7 @@
           {ownUserID}
           {burning}
           burnDelayMs={Math.min(i * BURN_STAGGER_MS, MAX_BURN_STAGGER_MS)}
-          on:delete={(e) => deleteRipple(e.detail)}
+          on:delete={(e) => requestDeleteRipple(e.detail)}
           on:reply={() => startReply(ripple)}
         />
         {#if replyingToHashes.has(ripple.hash)}
@@ -489,7 +495,7 @@
               replyingToUsername={usernames[ripple.userID] ?? null}
               {ownUserID}
               replyable={false}
-              on:delete={(e) => deleteRipple(e.detail)}
+              on:delete={(e) => requestDeleteRipple(e.detail)}
             />
           {/each}
         {/if}
@@ -519,7 +525,7 @@
             replyingToLoaded={false}
             {ownUserID}
             replyable={false}
-            on:delete={(e) => deleteRipple(e.detail)}
+            on:delete={(e) => requestDeleteRipple(e.detail)}
           />
         {/each}
       </ul>
@@ -541,6 +547,15 @@
     only — markdown isn't supported.
   </p>
 </section>
+
+{#if deleteTargetHash}
+  <ConfirmDialog
+    title="Delete ripple?"
+    message="Are you sure you want to delete this ripple?"
+    on:confirm={confirmDeleteRipple}
+    on:cancel={() => (deleteTargetHash = null)}
+  />
+{/if}
 
 <style>
   .ripples-header {
