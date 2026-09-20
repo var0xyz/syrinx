@@ -14,6 +14,8 @@ declare let self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST?: Array<string | { url: string; revision: string | null }>;
 };
 
+declare const __APP_VERSION__: string;
+
 // Injected at build time by vite-plugin-pwa; empty array in Vite/SvelteKit dev.
 precacheAndRoute(self.__WB_MANIFEST ?? []);
 cleanupOutdatedCaches();
@@ -159,6 +161,8 @@ self.addEventListener('message', async (event) => {
     }
   } else if (type === 'TEST_COMMUNICATION') {
     port.postMessage({ success: true, message: 'Service worker is ready' });
+  } else if (type === 'GET_VERSION') {
+    port.postMessage({ success: true, version: __APP_VERSION__ });
   }
 });
 
