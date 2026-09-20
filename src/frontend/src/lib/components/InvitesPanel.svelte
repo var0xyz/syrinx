@@ -23,6 +23,7 @@
   import CopyButton from '$lib/components/CopyButton.svelte';
   import QRButton from '$lib/components/QRButton.svelte';
   import QRCodeModal from '$lib/components/QRCodeModal.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
 
   let user = null;
@@ -30,6 +31,7 @@
   let refreshingIds: string[] = [];
   let creating = false;
   let revokingId: string | null = null;
+  let revokeTargetId: string | null = null;
   let freshShareURL = '';
   let showFreshLink = false;
   let isAdmin = false;
@@ -165,15 +167,19 @@
     }
   }
 
-  async function revokeInvite(id: string) {
+  function requestRevoke(id: string) {
     if (revokingId) return;
     if (!get(isOnline)) {
       notificationStore.error("You're offline — reconnect to revoke this invite.");
       return;
     }
-    if (!confirm('Are you sure you want to revoke this invite?')) {
-      return;
-    }
+    revokeTargetId = id;
+  }
+
+  async function confirmRevoke() {
+    if (!revokeTargetId) return;
+    const id = revokeTargetId;
+    revokeTargetId = null;
     revokingId = id;
     try {
       await revokeLocalInvite(id);
@@ -313,7 +319,7 @@
               <button
                 class="btn danger"
                 disabled={revokingId === invite.id}
-                on:click={() => revokeInvite(invite.id)}
+                on:click={() => requestRevoke(invite.id)}
               >
                 {revokingId === invite.id ? 'Revoking…' : 'Revoke'}
               </button>
@@ -400,6 +406,17 @@
   url={qrModalURL}
   on:close={dismissQRModal}
 />
+
+{#if revokeTargetId}
+  <ConfirmDialog
+    title="Revoke invite?"
+    message={maxInvites === -1
+      ? 'Are you sure you want to revoke this invite?'
+      : 'Are you sure you want to revoke this invite? Revoked invites still count towards your invite limit.'}
+    on:confirm={confirmRevoke}
+    on:cancel={() => (revokeTargetId = null)}
+  />
+{/if}
 
 <style>
   .invites-content {

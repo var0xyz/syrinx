@@ -15,6 +15,7 @@
   import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { userRepository } from '$lib/repositories/user';
@@ -493,11 +494,14 @@
     }
   }
 
-  async function deleteReed() {
-    if (!confirm('Are you sure you want to delete this reed?')) {
-      return;
-    }
+  let confirmingDelete = false;
 
+  function requestDelete() {
+    confirmingDelete = true;
+  }
+
+  async function deleteReed() {
+    confirmingDelete = false;
     await performDelete();
   }
 
@@ -747,7 +751,7 @@
                 <div class="reed-actions">
                   <KebabMenu options={[
                     { label: isPinned ? 'Unpin' : 'Pin', icon: isPinned ? '/icons/pin-16-filled.png' : '/icons/pin-16-outlined.png', onSelect: handlePin },
-                    { label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: deleteReed },
+                    { label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: requestDelete },
                   ]} />
                 </div>
               {/if}
@@ -877,6 +881,14 @@
     <NewReedModal open={isReplyModalOpen} replyingTo={replyEchoTarget} on:close={() => { isReplyModalOpen = false; }} />
     <NewReedModal open={isEchoModalOpen} echoOf={replyEchoTarget} on:close={() => { isEchoModalOpen = false; }} />
     <ReedStatsInfoModal open={isStatsInfoModalOpen} on:close={() => { isStatsInfoModalOpen = false; }} />
+    {#if confirmingDelete}
+      <ConfirmDialog
+        title="Delete reed?"
+        message="Are you sure you want to delete this reed?"
+        on:confirm={deleteReed}
+        on:cancel={() => (confirmingDelete = false)}
+      />
+    {/if}
   </Auth>
 
 <style>

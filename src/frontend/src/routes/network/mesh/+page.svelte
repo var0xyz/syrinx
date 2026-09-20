@@ -11,6 +11,7 @@
   import SideNav from '$lib/components/SideNav.svelte';
   import NetworkTabs from '$lib/components/NetworkTabs.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Username from '$lib/components/Username.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
 
@@ -24,6 +25,7 @@
   let inviteName = '';
   let creating = false;
   let revokingId: string | null = null;
+  let revokeTarget: api.FederationInvitation | null = null;
   let freshConnectionString = '';
   let showConnectionModal = false;
   let showCreateModal = false;
@@ -94,11 +96,15 @@
     modalError = '';
   }
 
-  async function revokeInvite(inviteId: string) {
+  function requestRevoke(inv: api.FederationInvitation) {
     if (revokingId) return;
-    if (!confirm('Are you sure you want to revoke this federation invite?')) {
-      return;
-    }
+    revokeTarget = inv;
+  }
+
+  async function confirmRevoke() {
+    if (!revokeTarget) return;
+    const inviteId = revokeTarget.inviteId;
+    revokeTarget = null;
     revokingId = inviteId;
     try {
       await apiService.revokeFederationInvitation(inviteId);
@@ -321,7 +327,7 @@
                     <button
                       class="btn danger"
                       disabled={revokingId === inv.inviteId}
-                      on:click={() => revokeInvite(inv.inviteId)}
+                      on:click={() => requestRevoke(inv)}
                     >
                       {revokingId === inv.inviteId ? 'Revoking…' : 'Revoke'}
                     </button>
@@ -534,6 +540,15 @@
         </div>
       </div>
     </div>
+  {/if}
+
+  {#if revokeTarget}
+    <ConfirmDialog
+      title="Revoke federation invite?"
+      message={`This will revoke the invite "${revokeTarget.name}". The connection string will no longer work.`}
+      on:confirm={confirmRevoke}
+      on:cancel={() => (revokeTarget = null)}
+    />
   {/if}
 </Auth>
 
