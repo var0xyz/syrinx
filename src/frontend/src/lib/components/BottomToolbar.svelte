@@ -43,6 +43,7 @@
     bottom: 0;
     z-index: 100;
     border-radius: 0.5rem 0.5rem 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   @media (min-width: 768px) {
