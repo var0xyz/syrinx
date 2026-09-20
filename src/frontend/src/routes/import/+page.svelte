@@ -16,6 +16,7 @@
   } from '$lib/services/backupRestore';
   import { restoreFromIdentityBackup } from '$lib/services/accountRecovery';
   import {
+    clearImportRun,
     completeImportRun,
     isImportComplete,
     isImportInProgress,
@@ -55,7 +56,15 @@
   onMount(async () => {
     if (await redirectForRestoreState()) return;
     if (isImportComplete() && !isRecoveryInProgress()) {
-      importSucceeded = true;
+      // The marker can outlive the identity it describes (logout, an
+      // IndexedDB wipe) since nothing clears it independently — only trust
+      // "complete" when a real user still resolves.
+      const user = await authService.getCurrentUser();
+      if (user) {
+        importSucceeded = true;
+      } else {
+        clearImportRun();
+      }
     }
   });
 
