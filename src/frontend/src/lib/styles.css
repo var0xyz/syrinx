@@ -18,6 +18,10 @@
 
 html, body, #app {
   height: 100%;
+  /* iOS Safari's dynamic toolbar makes 100%/100vh taller than the visible
+     viewport, producing a phantom scrollbar even on empty pages; dvh tracks
+     the actual visible viewport. */
+  height: 100dvh;
 }
 
 body {
