@@ -4019,6 +4019,10 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 		writeResponse(w, http.StatusBadRequest, "Invalid remote public key")
 		return
 	}
+	if remoteFingerprint == h.signingKey.Fingerprint {
+		writeResponse(w, http.StatusBadRequest, "Cannot create a federation invitation using this server's own public key")
+		return
+	}
 
 	inviteID, err := newCryptoID()
 	if err != nil {
@@ -4076,11 +4080,16 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 	secretHash := cryptoHash(secret)
 	now := time.Now().UTC().Truncate(time.Second)
 	if err := h.services.db.InsertFederationInvitation(r.Context(), inviteID, name, caller, remoteFingerprint, remoteArmor, secretHash, connectionString, now); err != nil {
-		if errors.Is(err, errFederationInvitationExists) {
+		switch {
+		case errors.Is(err, errFederationInvitationExists):
 			writeResponse(w, http.StatusConflict, "Invitation already exists")
-			return
+		case errors.Is(err, errFederationInvitationDuplicateKey):
+			writeResponse(w, http.StatusConflict, "A pending invitation for this public key already exists")
+		case errors.Is(err, errFederationInvitationDuplicateName):
+			writeResponse(w, http.StatusConflict, "A pending invitation with this name already exists")
+		default:
+			writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 		}
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
@@ -5025,6 +5034,12 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	case errors.Is(err, errFederationInvitationNotNew):
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invitation is not new")
 		writeResponse(w, http.StatusConflict, "Invitation is not new")
+	case errors.Is(err, errFederationServerAlreadyKnown):
+		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: server already known")
+		writeResponse(w, http.StatusConflict, "A federation attempt or connection with this server already exists")
+	case errors.Is(err, errFederationKeyAlreadyKnown):
+		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: public key already known")
+		writeResponse(w, http.StatusConflict, "This server's public key is already on record")
 	case err != nil:
 		log.Error().Err(err).Str("inviteId", inviteID).Msg("federation connect accept failed")
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Failed to record connect attempt: internal error")
@@ -5136,7 +5151,14 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		PublicKeyArmor: payload.PublicKeyArmor,
 	}
 	attemptID, err := h.services.db.CreateFederationAttempt(r.Context(), peer, now)
-	if err != nil {
+	switch {
+	case errors.Is(err, errFederationServerAlreadyKnown):
+		writeResponse(w, http.StatusConflict, "A federation attempt or connection with this server already exists")
+		return
+	case errors.Is(err, errFederationKeyAlreadyKnown):
+		writeResponse(w, http.StatusConflict, "This server's public key is already on record")
+		return
+	case err != nil:
 		log.Error().Err(err).Msg("failed to record federation attempt")
 		internalServerError(w)
 		return

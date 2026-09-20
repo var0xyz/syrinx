@@ -3351,6 +3351,11 @@ var (
 	errFederationInvitationNotRevocable = errors.New("federation invitation cannot be revoked")
 	errFederationInvitationExists       = errors.New("federation invitation already exists")
 	errFederationInvitationNotNew       = errors.New("federation invitation is not new")
+	// errFederationInvitationDuplicateKey/Name: another "new" invitation
+	// already targets the same fingerprint/name — creating a second one
+	// isn't a distinct peer to invite.
+	errFederationInvitationDuplicateKey  = errors.New("a pending invitation for this public key already exists")
+	errFederationInvitationDuplicateName = errors.New("a pending invitation with this name already exists")
 )
 
 type federationInvitation struct {
@@ -3648,6 +3653,16 @@ var errFederationDisconnectAlreadyRequested = errors.New("disconnect already req
 // ConfirmFederationServerDisconnect when no disconnect request is pending
 // for this peer.
 var errFederationDisconnectNotRequested = errors.New("no disconnect request is pending for this server")
+
+// errFederationServerAlreadyKnown is returned by CreateFederationAttempt
+// and MarkFederationInvitationAccepted when the claimed remote server
+// already has an attempt or servers row on record — see rejectKnownFederationPeer.
+var errFederationServerAlreadyKnown = errors.New("a federation attempt or connection with this server already exists")
+
+// errFederationKeyAlreadyKnown is returned alongside
+// errFederationServerAlreadyKnown when the claimed fingerprint is already
+// in public_keys under that server id — see rejectKnownFederationPeer.
+var errFederationKeyAlreadyKnown = errors.New("this server's public key is already on record")
 
 type federationAttemptRow struct {
 	ID               string
@@ -4129,6 +4144,20 @@ func (s *DataService) InsertFederationInvitation(
 	}
 	defer tx.Rollback()
 
+	var dupFingerprint, dupName bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM federation_invitation WHERE fingerprint = $1 AND status = $2),
+		       EXISTS(SELECT 1 FROM federation_invitation WHERE name = $3 AND status = $2)
+	`, fingerprint, federationStatusNew, name).Scan(&dupFingerprint, &dupName); err != nil {
+		return err
+	}
+	if dupFingerprint {
+		return errFederationInvitationDuplicateKey
+	}
+	if dupName {
+		return errFederationInvitationDuplicateName
+	}
+
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO federation_invitation (
 			id, name, secret_hash, fingerprint, public_key_armor, created_by,
@@ -4346,18 +4375,51 @@ type federationPeer struct {
 	PublicKeyArmor string
 }
 
-// CreateFederationAttempt runs on the RESPONDER, before it even attempts
-// the handshake: it inserts a pending federation_attempt row
-// (invitation_id NULL — the responder never has a local invitation row)
-// so there's somewhere to log against from the first moment, rather than
-// only writing anything once the handshake already succeeded. Returns the
-// new attempt id.
+// rejectKnownFederationPeer rejects a peer that isn't actually new:
+// errFederationServerAlreadyKnown if remoteServerID has any prior
+// federation_attempt or servers row (revoked included — no re-federating),
+// errFederationKeyAlreadyKnown if its fingerprint is already in public_keys.
+func rejectKnownFederationPeer(ctx context.Context, tx *sql.Tx, remoteServerID, fingerprint string) error {
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM federation_attempt WHERE remote_server_id = $1
+		) OR EXISTS(
+			SELECT 1 FROM servers WHERE id = $1
+		)
+	`, remoteServerID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return errFederationServerAlreadyKnown
+	}
+
+	keyID := string(canonicalID(remoteServerID, fingerprint))
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM public_keys WHERE id = $1)
+	`, keyID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return errFederationKeyAlreadyKnown
+	}
+
+	return nil
+}
+
+// CreateFederationAttempt runs on the RESPONDER, logging a pending
+// federation_attempt row (invitation_id NULL) before the handshake so
+// there's somewhere to log against even if it fails. See rejectKnownFederationPeer.
 func (s *DataService) CreateFederationAttempt(ctx context.Context, peer federationPeer, createdAt time.Time) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback()
+
+	if err := rejectKnownFederationPeer(ctx, tx, peer.ServerID, peer.Fingerprint); err != nil {
+		return "", err
+	}
 
 	name := peer.ServerName
 	if name == "" {
@@ -4378,13 +4440,8 @@ func (s *DataService) CreateFederationAttempt(ctx context.Context, peer federati
 }
 
 // MarkFederationInvitationAccepted runs on the INITIATOR when a remote
-// server's connect callback verifies successfully: it creates a pending
-// federation_attempt row (invitation_id set — the initiator has a local
-// invitation row) and moves the invitation new -> accepted, atomically.
-// server_id on both rows stays NULL until ApproveFederationAttempt.
-// Returns the new attempt id. Returns errFederationInvitationNotFound if id
-// doesn't exist, errFederationInvitationNotNew if it exists but isn't in
-// status "new".
+// server's connect callback verifies: creates a pending federation_attempt
+// row and moves the invitation new -> accepted, atomically.
 func (s *DataService) MarkFederationInvitationAccepted(ctx context.Context, inviteID string, peer federationPeer, acceptedAt time.Time) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -4406,6 +4463,10 @@ func (s *DataService) MarkFederationInvitationAccepted(ctx context.Context, invi
 	}
 	if status != federationStatusNew {
 		return "", errFederationInvitationNotNew
+	}
+
+	if err := rejectKnownFederationPeer(ctx, tx, peer.ServerID, peer.Fingerprint); err != nil {
+		return "", err
 	}
 
 	name := peer.ServerName
