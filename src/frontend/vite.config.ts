@@ -174,6 +174,9 @@ export default defineConfig({
   optimizeDeps: {
     include: ['openpgp/lightweight']
   },
+  build: {
+    cssCodeSplit: false
+  },
   server: {
     proxy: {
       '/api': {
