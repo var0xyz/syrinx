@@ -190,13 +190,17 @@ async function requestRaw(path: string, init?: RequestInit): Promise<Response> {
 
       throw new Error(message);
     }
-    const err = new Error(`HTTP ${res.status}`) as Error & { status?: number; body?: unknown };
-    err.status = res.status;
+    const raw = await res.text();
+    let body: unknown;
     try {
-      err.body = await res.json();
+      body = JSON.parse(raw);
     } catch {
-      // no JSON body
+      body = raw || undefined;
     }
+    const message = typeof body === 'string' && body ? body : `HTTP ${res.status}`;
+    const err = new Error(message) as Error & { status?: number; body?: unknown };
+    err.status = res.status;
+    err.body = body;
     throw err;
   }
 

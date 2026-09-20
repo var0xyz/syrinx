@@ -31,6 +31,7 @@
   let acceptConnectionString = '';
   let accepting = false;
   let copyingOwnKey = false;
+  let modalError = '';
 
   onMount(async () => {
     user = await authService.getCurrentUser();
@@ -61,6 +62,7 @@
     const name = inviteName.trim();
     if (!armor || !name || creating) return;
     creating = true;
+    modalError = '';
     try {
       const created = await apiService.createFederationInvitation(name, btoa(armor));
       showCreateModal = false;
@@ -71,7 +73,7 @@
       await refreshList();
       notificationStore.success('Federation invite created.');
     } catch (err) {
-      notificationStore.error(err instanceof Error ? err.message : 'Failed to create invite');
+      modalError = err instanceof Error ? err.message : 'Failed to create invite';
     } finally {
       creating = false;
     }
@@ -80,6 +82,7 @@
   function openCreateModal() {
     if (creating) return;
     showAcceptModal = false;
+    modalError = '';
     showCreateModal = true;
   }
 
@@ -88,6 +91,7 @@
     showCreateModal = false;
     remotePublicKey = '';
     inviteName = '';
+    modalError = '';
   }
 
   async function revokeInvite(inviteId: string) {
@@ -128,6 +132,7 @@
   function openAcceptModal() {
     if (accepting) return;
     showCreateModal = false;
+    modalError = '';
     showAcceptModal = true;
   }
 
@@ -135,12 +140,14 @@
     if (accepting) return;
     showAcceptModal = false;
     acceptConnectionString = '';
+    modalError = '';
   }
 
   async function acceptInvite() {
     const encoded = acceptConnectionString.trim();
     if (!encoded || accepting) return;
     accepting = true;
+    modalError = '';
     try {
       const connectionString = decodeConnectionString(encoded);
       await apiService.attemptFederationConnection(connectionString);
@@ -148,7 +155,7 @@
       acceptConnectionString = '';
       notificationStore.success('Connection accepted — awaiting a second admin’s approval.');
     } catch (err) {
-      notificationStore.error(err instanceof Error ? err.message : 'Failed to accept connection');
+      modalError = err instanceof Error ? err.message : 'Failed to accept connection';
     } finally {
       accepting = false;
     }
@@ -431,6 +438,9 @@
             placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"
           ></textarea>
         </label>
+        {#if modalError}
+          <div class="modal-error">{modalError}</div>
+        {/if}
         <div class="modal-actions">
           <button class="btn secondary" disabled={creating} on:click={dismissCreateModal}>
             Cancel
@@ -471,6 +481,9 @@
             placeholder="Paste the share code here"
           ></textarea>
         </label>
+        {#if modalError}
+          <div class="modal-error">{modalError}</div>
+        {/if}
         <div class="modal-actions">
           <button class="btn secondary" disabled={accepting} on:click={dismissAcceptModal}>
             Cancel
@@ -892,6 +905,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .modal-error {
+    margin: 0 0 1rem 0;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.35rem;
+    border: 1px solid #e0837c;
+    background: color-mix(in srgb, #e0837c 12%, transparent);
+    color: #c0392b;
+    font-size: 0.85rem;
+    line-height: 1.4;
   }
 
   .modal-actions {
