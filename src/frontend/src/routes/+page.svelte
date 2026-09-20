@@ -112,6 +112,8 @@
     transition: all 0.2s ease;
     border: none;
     cursor: pointer;
+    white-space: nowrap;
+    width: 100%;
   }
 
   .btn-primary {
