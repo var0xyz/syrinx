@@ -258,6 +258,9 @@
             {/if}
           </div>
         </div>
+        <p class="reed-format-hint">
+          Formatting: `code`, *bold*, _italic_, ~strike~, #hashtag, [label](url)
+        </p>
       </div>
     </form>
   </div>
@@ -409,6 +412,13 @@
     margin: 0;
     color: var(--muted);
     font-size: 0.95rem;
+    line-height: 1.4;
+  }
+
+  .reed-format-hint {
+    margin: 1rem 0 0;
+    color: var(--muted);
+    font-size: 0.8rem;
     line-height: 1.4;
   }
 
