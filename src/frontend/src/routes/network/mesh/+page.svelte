@@ -32,7 +32,6 @@
   let showAcceptModal = false;
   let acceptConnectionString = '';
   let accepting = false;
-  let copyingOwnKey = false;
   let modalError = '';
 
   onMount(async () => {
@@ -177,16 +176,12 @@
   }
 
   async function copyOwnPublicKey() {
-    if (copyingOwnKey) return;
-    copyingOwnKey = true;
     try {
       const armor = await apiService.getOwnServerKey();
       await navigator.clipboard.writeText(armor);
       notificationStore.success('Server public key copied');
     } catch (err) {
       notificationStore.error(err instanceof Error ? err.message : 'Could not copy server public key');
-    } finally {
-      copyingOwnKey = false;
     }
   }
 
@@ -264,13 +259,11 @@
           <div class="lead-actions">
             <button
               class="btn secondary lead-action-btn"
-              disabled={!$serverInfo?.serverKeyId || copyingOwnKey}
+              disabled={!$serverInfo?.serverKeyId}
               on:click={copyOwnPublicKey}
             >
-              {#if !copyingOwnKey}
-                <span class="icon-copy" aria-hidden="true"></span>
-              {/if}
-              {copyingOwnKey ? 'Copying…' : 'Copy this server’s public key'}
+              <span class="icon-copy" aria-hidden="true"></span>
+              Copy this server’s public key
             </button>
             <button
               class="btn secondary lead-action-btn"
