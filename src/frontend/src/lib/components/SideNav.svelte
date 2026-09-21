@@ -21,10 +21,10 @@
   $: profileSubActive = onOwnProfile;
   $: likedSubActive = path === '/reeds/saved';
 
-  $: feedsActive = currentPage === 'feeds' || path.startsWith('/feed/follow') || path === '/feed/broadcast' || path === '/feed/pipes';
+  $: feedsActive = currentPage === 'feeds' || path.startsWith('/feed/follow') || path === '/feed/broadcast' || path.startsWith('/feed/pipes');
   $: followSubActive = path.startsWith('/feed/follow');
   $: broadcastSubActive = path === '/feed/broadcast';
-  $: pipesSubActive = path === '/feed/pipes';
+  $: pipesSubActive = path.startsWith('/feed/pipes');
 
   $: listsActive = currentPage === 'lists' || path.startsWith('/feed/lists');
 
