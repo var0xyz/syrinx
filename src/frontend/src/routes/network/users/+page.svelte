@@ -2,14 +2,19 @@
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
-  import NetworkTabs from '$lib/components/NetworkTabs.svelte';
+  import SectionTabs from '$lib/components/SectionTabs.svelte';
   import InvitesPanel from '$lib/components/InvitesPanel.svelte';
+
+  const tabs = [
+    { href: '/network/users', label: 'Users' },
+    { href: '/network/mesh', label: 'Mesh' },
+  ];
 </script>
 
 <Auth>
   <SideNav currentPage="network" />
   <div class="network-container">
-    <NetworkTabs active="users" />
+    <SectionTabs {tabs} active="users" />
     <InvitesPanel />
     <BottomToolbar currentPage="network" />
   </div>

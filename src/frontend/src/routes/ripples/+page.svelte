@@ -2,11 +2,20 @@
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
+  import SectionTabs from '$lib/components/SectionTabs.svelte';
+
+  const tabs = [
+    { href: '/replies', label: 'Replies' },
+    { href: '/ripples', label: 'Ripples' },
+    { href: '/feed/mentions', label: 'Mentions' },
+  ];
 </script>
 
 <Auth>
   <SideNav currentPage="interactions" />
   <div class="ripples-container">
+    <SectionTabs {tabs} active="ripples" />
+
     <div class="empty-state">
       <div class="empty-icon">🌊</div>
       <h3>Ripples</h3>
