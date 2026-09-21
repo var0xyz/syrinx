@@ -156,11 +156,11 @@
 
         {#if attempt.status === 'pending'}
           <div class="approval-actions">
-            <button class="btn danger" disabled={approving || rejecting} on:click={openRejectModal}>
-              Reject
-            </button>
             <button class="btn primary" disabled={approving || rejecting} on:click={approve}>
               {approving ? 'Approving…' : 'Approve'}
+            </button>
+            <button class="btn danger" disabled={approving || rejecting} on:click={openRejectModal}>
+              Reject
             </button>
           </div>
         {/if}
@@ -314,7 +314,6 @@
   }
 
   .section-heading {
-    margin: 1.5rem 0 0.75rem 0;
     font-size: 0.95rem;
     color: var(--fg);
   }
@@ -357,9 +356,9 @@
 
   .approval-actions {
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
     gap: 0.5rem;
-    margin-top: 0.75rem;
+    margin: 1rem 0;
   }
 
   .btn {
@@ -368,6 +367,7 @@
     padding: 0.6rem 1rem;
     font-weight: 600;
     cursor: pointer;
+    width: calc(50% - 0.5rem);
   }
 
   .btn:disabled {
@@ -456,6 +456,18 @@
   @media (max-width: 768px) {
     .mesh-content {
       padding: 0.5rem;
+    }
+
+    .approval-actions {
+      display: block;
+    }
+
+    .approval-actions .btn {
+      width: 100%;
+    }
+
+    .approval-actions .btn:first-child {
+      margin-bottom: 1rem;
     }
   }
 </style>

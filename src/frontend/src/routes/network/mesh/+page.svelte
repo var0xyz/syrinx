@@ -587,19 +587,19 @@
     font-size: 0.9rem;
   }
 
+  .lead-row p {
+    margin-bottom: 1rem;
+  }
+
   .lead-row {
-    display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    flex-wrap: wrap;
     margin-bottom: 1rem;
   }
 
   .lead-action-btn {
-    flex-shrink: 0;
     font-size: 0.85rem;
     padding: 0.4rem 0.75rem;
+    width: calc(50% - 0.5rem);
   }
 
   .empty-state {
@@ -805,6 +805,7 @@
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
+    justify-content: space-between;
   }
 
   .icon-connect,
@@ -948,6 +949,18 @@
   @media (max-width: 768px) {
     .mesh-content {
       padding: 0.5rem;
+    }
+
+    .lead-actions {
+      display: block;
+    }
+
+    .lead-action-btn{
+      width: 100%;
+    }
+
+    .lead-action-btn:first-child {
+      margin-bottom: 1rem;
     }
   }
 </style>
