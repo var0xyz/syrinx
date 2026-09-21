@@ -1,18 +1,15 @@
 <script>
-  /** @type {'profile' | 'liked' | 'mentions'} */
+  /** @type {'profile' | 'liked'} */
   export let active;
 </script>
 
 <div class="section-toggle">
   <div class="section-toggle-inner">
     <a href="/reeds" class="toggle-btn" class:active={active === 'profile'}>
-      Profile
+      Mine
     </a>
-    <a href="/reeds/likes" class="toggle-btn" class:active={active === 'liked'}>
+    <a href="/reeds/saved" class="toggle-btn" class:active={active === 'liked'}>
       Liked
-    </a>
-    <a href="/reeds/mentions" class="toggle-btn" class:active={active === 'mentions'}>
-      Mentions
     </a>
   </div>
 </div>
@@ -23,7 +20,7 @@
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     position: sticky;
-    top: 0;
+    top: calc(3rem + 1px);
     z-index: 10;
   }
 

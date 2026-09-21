@@ -6,7 +6,6 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
-  import FeedTabs from '$lib/components/FeedTabs.svelte';
   import ListFormModal from '$lib/components/ListFormModal.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import { listsRepository } from '$lib/repositories/lists';
@@ -66,10 +65,8 @@
 </script>
 
 <Auth>
-  <SideNav currentPage="" />
+  <SideNav currentPage="lists" />
   <div class="feed-container">
-    <FeedTabs active="list" />
-
     <div class="lists-layout">
       <div class="list-master">
         <div class="list-master-head">
@@ -108,7 +105,7 @@
       </div>
     </div>
 
-    <BottomToolbar currentPage="feeds" />
+    <BottomToolbar currentPage="lists" />
   </div>
 </Auth>
 

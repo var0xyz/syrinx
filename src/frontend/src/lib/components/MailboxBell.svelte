@@ -181,7 +181,7 @@
 </div>
 
 <style>
-  /* Absolutely positioned within <header> (position:relative, see
+  /* Absolutely positioned within <header> (position:sticky, see
      styles.css) so the bell sits right-aligned at the logo's level
      without disturbing the logo's own centering. */
   .mailbox-bell {

@@ -146,9 +146,12 @@ form .row .help-text {
 }
 
 header {
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 95;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  box-shadow: 0 0 0 1px var(--surface);
   text-align: center;
   padding-top: env(safe-area-inset-top);
 }
