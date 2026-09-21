@@ -4,7 +4,6 @@
   // held-while-composer-open pending list, without duplicating it.
   import Avatar from '$lib/components/Avatar.svelte';
   import Username from '$lib/components/Username.svelte';
-  import { formatRelativeTime } from '$lib/utils/time';
   import { createEventDispatcher } from 'svelte';
 
   /** @type {import('$lib/types/api').Ripple} */
@@ -58,7 +57,6 @@
         {:else}
           <span class="ripple-username-removed">[removed account]</span>
         {/if}
-        · {formatRelativeTime(ripple.postedAt)}
       </span>
     </p>
     {#if ripple.replyingTo}
