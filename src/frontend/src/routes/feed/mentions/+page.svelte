@@ -2,7 +2,6 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
-  import ProfileTabs from '$lib/components/ProfileTabs.svelte';
   import MentionsList from '$lib/components/MentionsList.svelte';
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
 
@@ -22,15 +21,13 @@
 </script>
 
 <Auth>
-  <SideNav currentPage="reeds" />
+  <SideNav currentPage="interactions" />
   <div class="feed-container">
-    <ProfileTabs active="mentions" />
-
     <div class="feed-content-wrap">
       <MentionsList items={data.items} {scrollRestoreY} />
     </div>
 
-    <BottomToolbar currentPage="reeds" />
+    <BottomToolbar currentPage="interactions" />
   </div>
 </Auth>
 

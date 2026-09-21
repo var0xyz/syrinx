@@ -1,18 +1,18 @@
 <script>
-  /** @type {'follow' | 'broadcast' | 'list'} */
+  /** @type {'follow' | 'broadcast' | 'pipes'} */
   export let active;
 </script>
 
 <div class="section-toggle">
   <div class="section-toggle-inner">
     <a href="/feed/follow" class="toggle-btn" class:active={active === 'follow'}>
-      Follow
+      Following
     </a>
     <a href="/feed/broadcast" class="toggle-btn" class:active={active === 'broadcast'}>
       Broadcast
     </a>
-    <a href="/feed/lists" class="toggle-btn" class:active={active === 'list'}>
-      Lists
+    <a href="/feed/pipes" class="toggle-btn" class:active={active === 'pipes'}>
+      Pipes
     </a>
   </div>
 </div>
@@ -23,7 +23,7 @@
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     position: sticky;
-    top: 0;
+    top: calc(3rem + 1px);
     z-index: 10;
   }
 

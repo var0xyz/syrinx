@@ -20,7 +20,7 @@
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     position: sticky;
-    top: 0;
+    top: calc(3rem + 1px);
     z-index: 10;
   }
 

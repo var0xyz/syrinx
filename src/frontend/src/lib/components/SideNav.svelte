@@ -8,7 +8,7 @@
   // Coarse top-level hint for routes the URL alone can't map to a nav
   // destination (reed detail, pipe, mesh peer/attempt, error page) — leave
   // unset to derive purely from the URL. Never implies a sub-item.
-  /** @type {'reeds' | 'feeds' | 'network' | 'invites' | 'account' | ''} */
+  /** @type {'reeds' | 'feeds' | 'lists' | 'interactions' | 'network' | 'invites' | 'account' | ''} */
   export let currentPage = '';
 
   $: path = $page.url.pathname;
@@ -17,16 +17,21 @@
   $: ownProfileHref = $page.data?.user ? `/profile/${$page.data.user.id}` : '/reeds';
 
   $: onOwnProfile = $page.data?.user && path === `/profile/${$page.data.user.id}`;
-  $: reedsActive = currentPage === 'reeds' || onOwnProfile || path === '/reeds/likes' || path === '/reeds/mentions';
+  $: reedsActive = currentPage === 'reeds' || onOwnProfile || path === '/reeds/saved';
   $: profileSubActive = onOwnProfile;
-  $: likedSubActive = path === '/reeds/likes';
-  $: mentionsSubActive = path === '/reeds/mentions';
+  $: likedSubActive = path === '/reeds/saved';
 
-  $: feedsActive = path.startsWith('/feed/follow') || path === '/feed/broadcast';
+  $: feedsActive = currentPage === 'feeds' || path.startsWith('/feed/follow') || path === '/feed/broadcast' || path === '/feed/pipes';
   $: followSubActive = path.startsWith('/feed/follow');
   $: broadcastSubActive = path === '/feed/broadcast';
+  $: pipesSubActive = path === '/feed/pipes';
 
-  $: listsActive = path.startsWith('/feed/lists');
+  $: listsActive = currentPage === 'lists' || path.startsWith('/feed/lists');
+
+  $: interactionsActive = currentPage === 'interactions' || path === '/replies' || path === '/ripples' || path === '/feed/mentions';
+  $: repliesSubActive = path === '/replies';
+  $: ripplesSubActive = path === '/ripples';
+  $: mentionsSubActive = path === '/feed/mentions';
 
   $: networkActive = currentPage === 'network' || path.startsWith('/network/');
   $: usersSubActive = path.startsWith('/network/users');
@@ -46,27 +51,40 @@
     <span class="sn-icon">🌾</span>Reeds
   </a>
   <a href={ownProfileHref} class="sn-sub" class:active={profileSubActive}>
-    <span class="sn-dot"></span>Profile
+    <span class="sn-dot"></span>Mine
   </a>
-  <a href="/reeds/likes" class="sn-sub" class:active={likedSubActive}>
+  <a href="/reeds/saved" class="sn-sub" class:active={likedSubActive}>
     <span class="sn-dot"></span>Liked
-  </a>
-  <a href="/reeds/mentions" class="sn-sub" class:active={mentionsSubActive}>
-    <span class="sn-dot"></span>Mentions
   </a>
 
   <a href="/feed/follow" class="sn-btn" class:active={feedsActive}>
-    <span class="sn-icon">📰</span>Feed
+    <span class="sn-icon">📰</span>Feeds
   </a>
   <a href="/feed/follow" class="sn-sub" class:active={followSubActive}>
-    <span class="sn-dot"></span>Follow
+    <span class="sn-dot"></span>Following
   </a>
   <a href="/feed/broadcast" class="sn-sub" class:active={broadcastSubActive}>
     <span class="sn-dot"></span>Broadcast
   </a>
+  <a href="/feed/pipes" class="sn-sub" class:active={pipesSubActive}>
+    <span class="sn-dot"></span>Pipes
+  </a>
 
   <a href="/feed/lists" class="sn-btn" class:active={listsActive}>
     <span class="sn-icon">📋</span>Lists
+  </a>
+
+  <a href="/replies" class="sn-btn" class:active={interactionsActive}>
+    <span class="sn-icon">💬</span>Interactions
+  </a>
+  <a href="/replies" class="sn-sub" class:active={repliesSubActive}>
+    <span class="sn-dot"></span>Replies
+  </a>
+  <a href="/ripples" class="sn-sub" class:active={ripplesSubActive}>
+    <span class="sn-dot"></span>Ripples
+  </a>
+  <a href="/feed/mentions" class="sn-sub" class:active={mentionsSubActive}>
+    <span class="sn-dot"></span>Mentions
   </a>
 
   {#if isAdmin}

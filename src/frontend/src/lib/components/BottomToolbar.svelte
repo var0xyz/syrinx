@@ -14,7 +14,15 @@
   </a>
   <a href="/feed" class="toolbar-btn" class:active={currentPage === 'feeds'}>
     <span class="icon">📰</span>
-    <span class="label">Feed</span>
+    <span class="label">Feeds</span>
+  </a>
+  <a href="/feed/lists" class="toolbar-btn" class:active={currentPage === 'lists'}>
+    <span class="icon">📋</span>
+    <span class="label">Lists</span>
+  </a>
+  <a href="/replies" class="toolbar-btn" class:active={currentPage === 'interactions'}>
+    <span class="icon">💬</span>
+    <span class="label">Interactions</span>
   </a>
   {#if isAdmin}
     <a href="/network" class="toolbar-btn" class:active={currentPage === 'network'}>
