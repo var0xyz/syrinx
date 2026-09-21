@@ -85,7 +85,7 @@ export function internalPath(href: string): string | null {
   }
   const pipe = PIPE_HREF.exec(raw);
   if (pipe?.[1]) {
-    return `/pipe/${encodeURIComponent(pipe[1])}`;
+    return `/feed/pipes/${encodeURIComponent(pipe[1])}`;
   }
   return null;
 }

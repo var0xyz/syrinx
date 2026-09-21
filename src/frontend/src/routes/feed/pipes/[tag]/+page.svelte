@@ -1,15 +1,15 @@
 <script>
-  import { onDestroy } from 'svelte';
+  import { getContext, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
-  import Auth from '$lib/components/Auth.svelte';
-  import BottomToolbar from '$lib/components/BottomToolbar.svelte';
-  import SideNav from '$lib/components/SideNav.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
   import { pipeReedQueue } from '$lib/repositories/reeds';
   import { serverConnection } from '$lib/services/serverConnection';
   import { userRepository } from '$lib/repositories/user';
+  import { pipesRepository } from '$lib/repositories/pipes';
+
+  const { refresh: refreshPipes } = getContext('pipes-panel');
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -19,6 +19,7 @@
   let authors = data.authors;
   let lastHandledPipeReedId = '';
   let subscribedTag = '';
+  let pinned = false;
 
   $: tag = data.tag;
   $: reeds = data.reeds;
@@ -26,6 +27,20 @@
 
   $: if (tag && tag !== subscribedTag) {
     void switchPipeSubscription(tag);
+  }
+
+  $: if (tag) {
+    void pipesRepository.isPinned(tag).then((v) => (pinned = v));
+  }
+
+  async function togglePin() {
+    if (pinned) {
+      await pipesRepository.unpin(tag);
+    } else {
+      await pipesRepository.pin(tag);
+    }
+    pinned = !pinned;
+    await refreshPipes();
   }
 
   $: pipeArrived = $pipeReedQueue?.reed;
@@ -73,74 +88,58 @@
   });
 </script>
 
-<Auth>
-  <SideNav currentPage="" />
-  <div class="pipe-container">
-    <div class="pipe-header">
-      <p class="pipe-sub">Pipe of reeds with tag: #{tag}</p>
-    </div>
+<div class="pipe-header">
+  <h2 class="pipe-sub">#{tag}</h2>
+  <button
+    class="pin-btn"
+    class:unpin-btn={pinned}
+    on:click={togglePin}
+    aria-label={pinned ? 'Unpin pipe' : 'Pin pipe'}
+  >
+    <span class="action-icon" class:pin-icon={!pinned} class:unpin-icon={pinned}></span>
+  </button>
+</div>
 
-    <div class="pipe-content">
-      <div class="pipe-list">
-        {#if reeds.length === 0}
-          <div class="waiting-state">
-            <div class="waiting-pulse"></div>
-            <p>No local reeds for #{tag} yet. Listening…</p>
-          </div>
-        {:else}
-          {#each reeds as reed (reed.id)}
-            <div
-              class="feed-item"
-              role="button"
-              tabindex="0"
-              on:click={() => goto(`/reed/${reed.id}`)}
-              on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.id}`)}
-            >
-              <div class="feed-header">
-                <ReedAuthorHeader
-                  userID={reed.userID}
-                  username={authors[reed.userID]?.username ?? reed.userID}
-                  subtext={formatRelativeTime(reed.serverSignature?.timestamp)}
-                  stopPropagation
-                  linked={false}
-                />
-              </div>
-              {#if (reed.content || '').trim()}
-                <div class="feed-content">
-                  <MarkdownParser text={reed.content} preview={true} />
-                </div>
-              {/if}
-            </div>
-          {/each}
-        {/if}
+<div class="pipe-content">
+  <div class="pipe-list">
+    {#if reeds.length === 0}
+      <div class="waiting-state">
+        <div class="waiting-pulse"></div>
+        <p>No local reeds for #{tag} yet. Listening…</p>
       </div>
-    </div>
-
-    <BottomToolbar currentPage="" />
+    {:else}
+      {#each reeds as reed (reed.id)}
+        <div
+          class="feed-item"
+          role="button"
+          tabindex="0"
+          on:click={() => goto(`/reed/${reed.id}`)}
+          on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.id}`)}
+        >
+          <div class="feed-header">
+            <ReedAuthorHeader
+              userID={reed.userID}
+              username={authors[reed.userID]?.username ?? reed.userID}
+              subtext={formatRelativeTime(reed.serverSignature?.timestamp)}
+              stopPropagation
+              linked={false}
+            />
+          </div>
+          {#if (reed.content || '').trim()}
+            <div class="feed-content">
+              <MarkdownParser text={reed.content} preview={true} />
+            </div>
+          {/if}
+        </div>
+      {/each}
+    {/if}
   </div>
-</Auth>
+</div>
 
 <style>
-  .pipe-container {
-    min-height: calc(100vh - 3rem - 1px);
-    display: flex;
-    flex-direction: column;
-    background: var(--bg);
-  }
-
-  @media (min-width: 768px) {
-    .pipe-container {
-      padding-left: var(--sidenav-width);
-    }
-  }
-
-  @media (min-width: 1400px) {
-    .pipe-container {
-      padding-right: var(--activity-sidebar-width);
-    }
-  }
-
   .pipe-header {
+    display: flex;
+    justify-content: space-between;
     max-width: 680px;
     margin: 0 auto;
     width: 100%;
@@ -152,9 +151,57 @@
   }
 
   .pipe-sub {
-    margin: 0.35rem 0 0;
+    margin: 0;
+    color: var(--fg);
+    font-weight: 600;
+    display: inline;
+  }
+
+  .pin-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.35rem;
+    border-radius: 6px;
     color: var(--muted);
-    font-size: 0.9rem;
+    width: auto;
+  }
+
+  .pin-btn:hover {
+    background: var(--input-bg);
+    color: var(--fg);
+  }
+
+  .pin-btn.unpin-btn {
+    color: var(--error);
+  }
+
+  .pin-btn.unpin-btn:hover {
+    background: var(--input-bg);
+    color: var(--error);
+  }
+
+  .action-icon {
+    display: inline-block;
+    width: 1.1rem;
+    height: 1.1rem;
+    background-color: currentColor;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
+
+  .pin-icon {
+    -webkit-mask-image: url('/icons/pin-24.png');
+    mask-image: url('/icons/pin-24.png');
+  }
+
+  .unpin-icon {
+    -webkit-mask-image: url('/icons/unpin-24.png');
+    mask-image: url('/icons/unpin-24.png');
   }
 
   .pipe-content {
@@ -229,7 +276,10 @@
   }
 
   @media (max-width: 768px) {
-    .pipe-header,
+    .pipe-header {
+      padding: 0.5rem 1.5rem 0;
+    }
+
     .pipe-content {
       padding: 0.5rem;
     }
