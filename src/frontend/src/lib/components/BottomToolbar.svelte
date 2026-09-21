@@ -1,45 +1,88 @@
 <script>
+  import { onDestroy } from 'svelte';
   import { page } from '$app/stores';
+  import { currentToolbarPage, toolbarUsers } from '$lib/stores/bottomToolbar';
 
-  export let currentPage = 'reeds';
+  // Legacy per-page usage: <BottomToolbar currentPage="x" /> sets which tab
+  // is active on the single toolbar instance (rendered once in the root
+  // layout) instead of rendering a toolbar of its own — so the toolbar's
+  // DOM, and its scroll position, survive navigation between pages.
+  export let currentPage = undefined;
+
+  $: if (currentPage !== undefined) currentToolbarPage.set(currentPage);
+
+  if (currentPage !== undefined) {
+    toolbarUsers.update((n) => n + 1);
+    onDestroy(() => toolbarUsers.update((n) => n - 1));
+  }
 
   $: isAdmin =
     $page.data?.user?.role === 'admin' || $page.data?.user?.role === 'root';
 </script>
 
-<nav class="bottom-toolbar">
-  <a href="/reeds" class="toolbar-btn" class:active={currentPage === 'reeds'}>
-    <span class="icon">🌾</span>
-    <span class="label">Reeds</span>
-  </a>
-  <a href="/feed" class="toolbar-btn" class:active={currentPage === 'feeds'}>
-    <span class="icon">📰</span>
-    <span class="label">Feeds</span>
-  </a>
-  <a href="/feed/lists" class="toolbar-btn" class:active={currentPage === 'lists'}>
-    <span class="icon">📋</span>
-    <span class="label">Lists</span>
-  </a>
-  <a href="/replies" class="toolbar-btn" class:active={currentPage === 'interactions'}>
-    <span class="icon">💬</span>
-    <span class="label">Interactions</span>
-  </a>
-  {#if isAdmin}
-    <a href="/network" class="toolbar-btn" class:active={currentPage === 'network'}>
-      <span class="icon">🌐</span>
-      <span class="label">Network</span>
+{#if currentPage === undefined && $toolbarUsers > 0}
+  <nav class="bottom-toolbar">
+    <a
+      href="/reeds"
+      class="toolbar-btn"
+      class:active={$currentToolbarPage === 'reeds'}
+    >
+      <span class="icon">🌾</span>
+      <span class="label">Reeds</span>
     </a>
-  {:else}
-    <a href="/invites" class="toolbar-btn" class:active={currentPage === 'invites'}>
-      <span class="icon">✉️</span>
-      <span class="label">Invites</span>
+    <a
+      href="/feed"
+      class="toolbar-btn"
+      class:active={$currentToolbarPage === 'feeds'}
+    >
+      <span class="icon">📰</span>
+      <span class="label">Feeds</span>
     </a>
-  {/if}
-  <a href="/account" class="toolbar-btn" class:active={currentPage === 'account'}>
-    <span class="icon">👤</span>
-    <span class="label">Account</span>
-  </a>
-</nav>
+    <a
+      href="/feed/lists"
+      class="toolbar-btn"
+      class:active={$currentToolbarPage === 'lists'}
+    >
+      <span class="icon">📋</span>
+      <span class="label">Lists</span>
+    </a>
+    <a
+      href="/replies"
+      class="toolbar-btn"
+      class:active={$currentToolbarPage === 'interactions'}
+    >
+      <span class="icon">💬</span>
+      <span class="label">Interactions</span>
+    </a>
+    {#if isAdmin}
+      <a
+        href="/network"
+        class="toolbar-btn"
+        class:active={$currentToolbarPage === 'network'}
+      >
+        <span class="icon">🌐</span>
+        <span class="label">Network</span>
+      </a>
+    {:else}
+      <a
+        href="/invites"
+        class="toolbar-btn"
+        class:active={$currentToolbarPage === 'invites'}
+      >
+        <span class="icon">✉️</span>
+        <span class="label">Invites</span>
+      </a>
+    {/if}
+    <a
+      href="/account"
+      class="toolbar-btn"
+      class:active={$currentToolbarPage === 'account'}
+    >
+      <span class="icon">👤</span>
+      <span class="label">Account</span>
+    </a>
+  </nav>
+{/if}
 
 <style>
   .bottom-toolbar {

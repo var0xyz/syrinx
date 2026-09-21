@@ -11,6 +11,7 @@
   import { afterNavigate } from '$app/navigation';
   import "$lib/styles.css";
   import Notifications from '$lib/components/Notifications.svelte';
+  import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import OfflineIndicator from '$lib/components/OfflineIndicator.svelte';
   import ServerUnreachableIndicator from '$lib/components/ServerUnreachableIndicator.svelte';
   import ServerIdMismatchIndicator from '$lib/components/ServerIdMismatchIndicator.svelte';
@@ -374,5 +375,7 @@
 {#if user}
   <ActivitySidebar />
 {/if}
+
+<BottomToolbar />
 
 <Notifications />
