@@ -13,6 +13,7 @@
     isIdentityBackupFilename,
     isIdentityBackupPayload,
     writeBackup,
+    type BackupPayload,
   } from '$lib/services/backupRestore';
   import { restoreFromIdentityBackup } from '$lib/services/accountRecovery';
   import {
@@ -31,6 +32,7 @@
   import { ensureRecoveryProgress } from '$lib/services/recoveryProgress';
   import { redirectForRestoreState } from '$lib/services/restoreFlow';
   import { isRecoveryMode, serverInfoLoading } from '$lib/services/serverInfo';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
   type ImportMode = 'backup' | 'identity';
 
@@ -40,6 +42,8 @@
   let restoring = false;
   let error = '';
   let importSucceeded = false;
+  let pendingIdentityBackup: BackupPayload | null = null;
+  let showAbortConfirm = false;
 
   $: file = files?.[0] ?? null;
   $: resumeImport = mode === 'backup' && isImportInProgress();
@@ -108,6 +112,34 @@
       if (!isIdentityBackupPayload(backup)) {
         throw new Error('Invalid identity export: profile must not be included.');
       }
+
+      if (isImportInProgress()) {
+        pendingIdentityBackup = backup;
+        showAbortConfirm = true;
+        restoring = false;
+        return;
+      }
+
+      await restoreFromIdentityBackup(backup);
+      window.location.assign('/reeds');
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Restore failed. Please try again.';
+      restoring = false;
+    }
+  }
+
+  async function confirmAbortAndRestoreIdentity() {
+    const backup = pendingIdentityBackup;
+    showAbortConfirm = false;
+    pendingIdentityBackup = null;
+    if (!backup) return;
+
+    clearImportRun();
+    clearRecoveryRun();
+
+    restoring = true;
+    error = '';
+    try {
       await restoreFromIdentityBackup(backup);
       window.location.assign('/reeds');
     } catch (e) {
@@ -117,13 +149,17 @@
     }
   }
 
+  function cancelAbortConfirm() {
+    showAbortConfirm = false;
+    pendingIdentityBackup = null;
+  }
+
   async function handleBackupRestore() {
     if (!file) return;
 
     restoring = true;
     error = '';
     importSucceeded = false;
-    startImportRun();
 
     try {
       validateFileForMode(file.name);
@@ -131,6 +167,8 @@
 
       assertBackupIdentity(backup);
       const profile = extractProfile(backup);
+
+      startImportRun();
 
       const probe = await apiService.probeUserStatus(profile);
       if (probe.httpStatus === 400) {
@@ -310,6 +348,16 @@
     {/if}
   </div>
 </div>
+
+{#if showAbortConfirm}
+  <ConfirmDialog
+    title="Abandon full backup import?"
+    message="A full backup import is already in progress on this device. Restoring with keys only will abandon it. Continue?"
+    confirmLabel="Abandon and continue"
+    on:confirm={confirmAbortAndRestoreIdentity}
+    on:cancel={cancelAbortConfirm}
+  />
+{/if}
 
 <style>
   .container {
