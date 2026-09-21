@@ -46,12 +46,19 @@
     display: flex;
     background: var(--surface);
     border-top: 1px solid var(--border);
-    gap: 0.25rem;
     position: sticky;
     bottom: 0;
     z-index: 100;
     border-radius: 0.5rem 0.5rem 0 0;
     padding-bottom: env(safe-area-inset-bottom);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .bottom-toolbar::-webkit-scrollbar {
+    display: none;
   }
 
   @media (min-width: 768px) {
@@ -108,7 +115,8 @@
     }
 
     .toolbar-btn {
-      padding: 0.5rem 0.25rem;
+      padding: 0.5rem 0;
+      min-width: 5rem;
     }
   }
 
