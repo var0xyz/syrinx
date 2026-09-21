@@ -147,6 +147,10 @@
     padding: 1.25rem 1rem 0.5rem;
   }
 
+  .pipe-header p {
+    margin: 0;
+  }
+
   .pipe-sub {
     margin: 0.35rem 0 0;
     color: var(--muted);
@@ -158,7 +162,7 @@
     max-width: 680px;
     margin: 0 auto;
     width: 100%;
-    padding: 1rem;
+    padding: 0.5rem;
   }
 
   .pipe-list {
@@ -227,8 +231,7 @@
   @media (max-width: 768px) {
     .pipe-header,
     .pipe-content {
-      padding-left: 0.5rem;
-      padding-right: 0.5rem;
+      padding: 0.5rem;
     }
   }
 </style>
