@@ -22,8 +22,13 @@
   import ReedsList from '$lib/components/ReedsList.svelte';
   import UserProfileCard from '$lib/components/UserProfileCard.svelte';
   import UsernameChecker from '$lib/components/UsernameChecker.svelte';
-  import ProfileTabs from '$lib/components/ProfileTabs.svelte';
+  import SectionTabs from '$lib/components/SectionTabs.svelte';
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
+
+  const profileTabs = [
+    { href: '/reeds', label: 'Mine' },
+    { href: '/reeds/saved', label: 'Liked' },
+  ];
   import { mergeUserView, profileNeedsRefresh } from '$lib/utils/userView';
   import { countMarkdownCharacters, MAX_REED_VISIBLE_CHARS } from '$lib/utils/reedContent';
   import { parseCanonicalId } from '$lib/utils/identityRef';
@@ -406,7 +411,7 @@
 <SideNav currentPage={isOwner ? 'reeds' : ''} />
 <div class="profile-container">
   {#if isOwner}
-    <ProfileTabs active="profile" />
+    <SectionTabs tabs={profileTabs} active="mine" />
   {/if}
   <div class="profile-content">
     {#if status === 'loading'}

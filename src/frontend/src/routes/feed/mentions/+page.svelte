@@ -2,8 +2,15 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
+  import SectionTabs from '$lib/components/SectionTabs.svelte';
   import MentionsList from '$lib/components/MentionsList.svelte';
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
+
+  const tabs = [
+    { href: '/replies', label: 'Replies' },
+    { href: '/ripples', label: 'Ripples' },
+    { href: '/feed/mentions', label: 'Mentions' },
+  ];
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -23,6 +30,8 @@
 <Auth>
   <SideNav currentPage="interactions" />
   <div class="feed-container">
+    <SectionTabs {tabs} active="mentions" />
+
     <div class="feed-content-wrap">
       <MentionsList items={data.items} {scrollRestoreY} />
     </div>

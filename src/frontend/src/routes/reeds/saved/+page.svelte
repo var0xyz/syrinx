@@ -2,9 +2,14 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
-  import ProfileTabs from '$lib/components/ProfileTabs.svelte';
+  import SectionTabs from '$lib/components/SectionTabs.svelte';
   import LikedReedsList from '$lib/components/LikedReedsList.svelte';
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
+
+  const tabs = [
+    { href: '/reeds', label: 'Mine' },
+    { href: '/reeds/saved', label: 'Liked' },
+  ];
 
   /** @type {number | null} */
   let scrollRestoreY = null;
@@ -21,7 +26,7 @@
 <Auth>
   <SideNav currentPage="reeds" />
   <div class="feed-container">
-    <ProfileTabs active="liked" />
+    <SectionTabs {tabs} active="liked" />
 
     <div class="feed-content-wrap">
       <LikedReedsList {scrollRestoreY} />

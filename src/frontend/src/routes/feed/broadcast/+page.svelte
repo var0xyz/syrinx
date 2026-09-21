@@ -9,11 +9,17 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
-  import FeedTabs from '$lib/components/FeedTabs.svelte';
+  import SectionTabs from '$lib/components/SectionTabs.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import { captureWindowScroll, restoreWindowScroll } from '$lib/utils/scrollSnapshot';
+
+  const tabs = [
+    { href: '/feed/follow', label: 'Following' },
+    { href: '/feed/broadcast', label: 'Broadcast' },
+    { href: '/feed/pipes', label: 'Pipes' },
+  ];
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -101,7 +107,7 @@
 <Auth>
   <SideNav currentPage="feeds" />
   <div class="feed-container">
-    <FeedTabs active="broadcast" />
+    <SectionTabs {tabs} active="broadcast" />
 
     <div class="feed-content-wrap">
       <div class="reeds-list">

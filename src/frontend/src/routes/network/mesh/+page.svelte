@@ -9,11 +9,16 @@
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
-  import NetworkTabs from '$lib/components/NetworkTabs.svelte';
+  import SectionTabs from '$lib/components/SectionTabs.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Username from '$lib/components/Username.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
+
+  const tabs = [
+    { href: '/network/users', label: 'Users' },
+    { href: '/network/mesh', label: 'Mesh' },
+  ];
 
   let user: api.User | null = null;
   let isAdmin = false;
@@ -256,7 +261,7 @@
 <Auth>
   <SideNav currentPage="network" />
   <div class="mesh-container">
-    <NetworkTabs active="mesh" />
+    <SectionTabs {tabs} active="mesh" />
     <div class="mesh-content">
       {#if loading}
         <p class="muted">Loading…</p>

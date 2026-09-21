@@ -1,19 +1,20 @@
 <script>
-  /** @type {'follow' | 'broadcast' | 'pipes'} */
+  /** @type {{ href: string, label: string }[]} */
+  export let tabs;
+
+  /** @type {string} */
   export let active;
+
+  const keyOf = (label) => label.toLowerCase().replace(/\s+/g, '-');
 </script>
 
 <div class="section-toggle">
   <div class="section-toggle-inner">
-    <a href="/feed/follow" class="toggle-btn" class:active={active === 'follow'}>
-      Following
-    </a>
-    <a href="/feed/broadcast" class="toggle-btn" class:active={active === 'broadcast'}>
-      Broadcast
-    </a>
-    <a href="/feed/pipes" class="toggle-btn" class:active={active === 'pipes'}>
-      Pipes
-    </a>
+    {#each tabs as tab (tab.href)}
+      <a href={tab.href} class="toggle-btn" class:active={active === keyOf(tab.label)}>
+        {tab.label}
+      </a>
+    {/each}
   </div>
 </div>
 
@@ -30,7 +31,7 @@
   .section-toggle-inner {
     display: flex;
     flex: 1;
-    padding: 0 1rem;
+    padding: 0 0.5rem;
   }
 
   @media (min-width: 768px) {

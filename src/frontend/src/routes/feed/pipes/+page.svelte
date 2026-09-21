@@ -2,13 +2,19 @@
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
-  import FeedTabs from '$lib/components/FeedTabs.svelte';
+  import SectionTabs from '$lib/components/SectionTabs.svelte';
+
+  const tabs = [
+    { href: '/feed/follow', label: 'Following' },
+    { href: '/feed/broadcast', label: 'Broadcast' },
+    { href: '/feed/pipes', label: 'Pipes' },
+  ];
 </script>
 
 <Auth>
   <SideNav currentPage="feeds" />
   <div class="pipes-container">
-    <FeedTabs active="pipes" />
+    <SectionTabs {tabs} active="pipes" />
 
     <div class="empty-state">
       <div class="empty-icon">🏷️</div>
