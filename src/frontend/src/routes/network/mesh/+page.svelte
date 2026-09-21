@@ -153,8 +153,17 @@
     if (!encoded || accepting) return;
     accepting = true;
     modalError = '';
+    let connectionString
+
     try {
-      const connectionString = decodeConnectionString(encoded);
+      connectionString = decodeConnectionString(encoded);
+    } catch (err) {
+      modalError = "Invalid connection string"
+      accepting = false;
+      return
+    }
+
+    try {
       await apiService.attemptFederationConnection(connectionString);
       showAcceptModal = false;
       acceptConnectionString = '';
@@ -267,11 +276,10 @@
             </button>
             <button
               class="btn secondary lead-action-btn"
-              disabled={accepting}
               on:click={openAcceptModal}
             >
               <span class="icon-connect" aria-hidden="true"></span>
-              {accepting ? 'Accepting…' : 'Paste connection string'}
+              Paste connection string
             </button>
           </div>
         </div>
