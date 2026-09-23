@@ -4,6 +4,7 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import SectionTabs from '$lib/components/SectionTabs.svelte';
+  import LocalPagination from '$lib/components/LocalPagination.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import Quote from '$lib/components/Quote.svelte';
@@ -22,17 +23,15 @@
     { href: '/feed/mentions', label: 'Mentions', unread: $unreadInteractions.mentions },
   ];
 
+  const PAGE_SIZE = 50;
+
   type Row = {
     reedID: string;
     authorID: string;
     parentReedID: string;
-    reed: ReedType | null;
+    reed: ReedType;
     username: string;
-    loading: boolean;
   };
-
-  let rows: Row[] = [];
-  let loading = true;
 
   async function toRow(reedID: string, parentReedID: string): Promise<Row | null> {
     if (await removedReedsRepository.has(reedID)) return null;
@@ -43,34 +42,33 @@
     if (!reed) return null;
     const username =
       (await userRepository.getByUserId(reed.userID).catch(() => null))?.username ?? reed.userID;
-    return { reedID, authorID: reed.userID, parentReedID, reed, username, loading: false };
+    return { reedID, authorID: reed.userID, parentReedID, reed, username };
   }
 
-  async function loadReplies() {
-    loading = true;
-    try {
-      const myUserID = localStorage.getItem('userId') ?? '';
-      const myReeds = await reedsService.getReedsByAuthor(myUserID);
-      const replyRows = await reedRepliesRepository.listByParents(myReeds.map((r) => r.id));
-
-      const resolved = await Promise.all(
-        replyRows.map((r) => toRow(r.reedID, r.parentReedID)),
-      );
-      rows = resolved
-        .filter((r): r is Row => r !== null)
-        .sort((a, b) => (b.reed!.serverSignature?.timestamp ?? '').localeCompare(
-          a.reed!.serverSignature?.timestamp ?? '',
-        ));
-    } finally {
-      loading = false;
-    }
+  async function fetchRepliesPage(after?: string) {
+    const myUserID = localStorage.getItem('userId') ?? '';
+    const myReeds = await reedsService.getReedsByAuthor(myUserID);
+    // Fetch one extra row to detect whether another page exists.
+    const replyRows = await reedRepliesRepository.getPage(
+      myReeds.map((r) => r.id),
+      myUserID,
+      PAGE_SIZE + 1,
+      after,
+    );
+    const hasMore = replyRows.length > PAGE_SIZE;
+    const pageRows = replyRows.slice(0, PAGE_SIZE);
+    const resolved = await Promise.all(
+      pageRows.map((r) => toRow(r.reedID, r.parentReedID)),
+    );
+    const items = resolved.filter((r): r is Row => r !== null);
+    const nextCursor = pageRows.length > 0 ? pageRows[pageRows.length - 1].createdAt : after;
+    return { items, hasMore, nextCursor };
   }
 
   function navigateToReply(row: Row) {
     goto(`/reed/${row.reedID}`);
   }
 
-  loadReplies();
   clearUnread('replies');
 </script>
 
@@ -80,54 +78,49 @@
     <SectionTabs {tabs} active="replies" />
 
     <div class="replies-content">
-      {#if loading}
-        <div class="loading-state">
-          <p>Loading…</p>
-        </div>
-      {:else if rows.length === 0}
-        <div class="empty-state">
-          <div class="empty-icon">💬</div>
-          <h3>No replies yet</h3>
-          <p>Replies to your reeds will appear here.</p>
-        </div>
-      {:else}
-        <ul class="reply-list">
-          {#each rows as row (row.reedID)}
-            <li>
-              <div
-                class="reply-row"
-                role="button"
-                tabindex="0"
-                on:click={() => navigateToReply(row)}
-                on:keydown={(e) => e.key === 'Enter' && navigateToReply(row)}
-              >
-                <ReedAuthorHeader
-                  userID={row.authorID}
-                  username={row.username}
-                  avatarSize="36px"
-                  subtext={row.reed?.serverSignature?.timestamp
-                    ? formatRelativeTime(row.reed.serverSignature.timestamp)
-                    : ''}
-                  stopPropagation
-                  linked={false}
-                />
-                <div class="reply-body">
-                  {#if row.reed?.content?.trim()}
-                    <div class="reply-preview">
-                      <MarkdownParser text={row.reed.content} preview={true} />
-                    </div>
-                  {:else}
-                    <p class="reply-preview muted">Empty reply</p>
-                  {/if}
-                </div>
-                <div class="reply-quote">
-                  <Quote reedRef={row.parentReedID} type="reply" linked={false} />
-                </div>
+      <div class="reply-list">
+        <LocalPagination fetchPage={fetchRepliesPage}>
+          {#snippet item(row)}
+            <div
+              class="reply-row"
+              role="button"
+              tabindex="0"
+              on:click={() => navigateToReply(row)}
+              on:keydown={(e) => e.key === 'Enter' && navigateToReply(row)}
+            >
+              <ReedAuthorHeader
+                userID={row.authorID}
+                username={row.username}
+                avatarSize="36px"
+                subtext={row.reed.serverSignature?.timestamp
+                  ? formatRelativeTime(row.reed.serverSignature.timestamp)
+                  : ''}
+                stopPropagation
+                linked={false}
+              />
+              <div class="reply-body">
+                {#if row.reed.content?.trim()}
+                  <div class="reply-preview">
+                    <MarkdownParser text={row.reed.content} preview={true} />
+                  </div>
+                {:else}
+                  <p class="reply-preview muted">Empty reply</p>
+                {/if}
               </div>
-            </li>
-          {/each}
-        </ul>
-      {/if}
+              <div class="reply-quote">
+                <Quote reedRef={row.parentReedID} type="reply" linked={false} />
+              </div>
+            </div>
+          {/snippet}
+          {#snippet empty()}
+            <div class="empty-state">
+              <div class="empty-icon">💬</div>
+              <h3>No replies yet</h3>
+              <p>Replies to your reeds will appear here.</p>
+            </div>
+          {/snippet}
+        </LocalPagination>
+      </div>
     </div>
 
     <BottomToolbar currentPage="interactions" />
@@ -140,11 +133,19 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
-    gap: 0.5rem;
   }
 
   .replies-content {
-    margin: 0 0.5rem;
+    max-width: 680px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 1rem;
+  }
+
+  @media (max-width: 768px) {
+    .replies-content {
+      padding: 0.5rem;
+    }
   }
 
   @media (min-width: 768px) {
@@ -159,7 +160,6 @@
     }
   }
 
-  .loading-state,
   .empty-state {
     text-align: center;
     padding: 3rem 1rem;
@@ -183,12 +183,15 @@
   }
 
   .reply-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 1rem;
+  }
+
+  @media (max-width: 768px) {
+    .reply-list {
+      gap: 0.5rem;
+    }
   }
 
   .reply-row {

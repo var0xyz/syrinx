@@ -191,6 +191,7 @@ export interface ReedLike extends Base {
 export interface ReplyMeta extends Base {
   userID: string;
   reedID: string;
+  timestamp: string;
 }
 
 export interface ReplyListResponse extends Base {
