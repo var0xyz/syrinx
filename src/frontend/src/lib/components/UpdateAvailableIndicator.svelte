@@ -22,6 +22,11 @@
     text-align: center;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
     animation: slideDown 0.3s ease-out;
+    /* Above the sidenav's fixed z-index (90) and the sticky header's (95) —
+       otherwise the sidenav, whose fixed offset assumes the header starts
+       at the viewport top, renders over this banner instead of below it. */
+    position: relative;
+    z-index: 100;
   }
 
   .update-banner p {
