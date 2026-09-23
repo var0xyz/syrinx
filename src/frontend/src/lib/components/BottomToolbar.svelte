@@ -54,6 +54,14 @@
       <span class="icon">💬</span>
       <span class="label">Interactions</span>
     </a>
+    <a
+      href="/search/reeds"
+      class="toolbar-btn"
+      class:active={$currentToolbarPage === 'search'}
+    >
+      <span class="icon">🔍</span>
+      <span class="label">Search</span>
+    </a>
     {#if isAdmin}
       <a
         href="/network"
