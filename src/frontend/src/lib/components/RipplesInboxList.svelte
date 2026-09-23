@@ -22,11 +22,6 @@
   let loadingMore = false;
   let nextCursor = /** @type {string | undefined} */ (undefined);
 
-  let ownUserID = '';
-  onMount(() => {
-    ownUserID = localStorage.getItem('userId') ?? '';
-  });
-
   async function resolveUsername(uid) {
     if (!uid || uid in usernames) return;
     const user = await userRepository.getByUserId(uid).catch(() => null);
@@ -43,7 +38,6 @@
     }
     for (const ripple of kept) {
       await resolveUsername(ripple.userID);
-      await resolveUsername(ripple.reedAuthorID);
     }
     ripples = before ? [...ripples, ...kept] : kept;
     hasMore = res.hasMore;
@@ -74,7 +68,7 @@
   });
 
   function openReed(reedID) {
-    goto(`/reed/${reedID}`);
+    goto(`/reed/${reedID}#ripples`);
   }
 </script>
 
@@ -87,7 +81,7 @@
     <div class="empty-state">
       <div class="empty-icon">🌊</div>
       <h3>No ripples yet</h3>
-      <p>Comments on your reeds, and replies to your own comments, will appear here.</p>
+      <p>Comments on your reeds will appear here.</p>
     </div>
   {:else}
     <ul class="inbox-list">
@@ -112,21 +106,11 @@
               <span class="inbox-meta-sep">&middot;</span>
               <span class="inbox-meta-text">{formatRelativeTime(ripple.postedAt)}</span>
             </p>
-            <p class="inbox-context">
-              {#if ripple.reedAuthorID === ownUserID}
-                on your reed
-              {:else if usernames[ripple.reedAuthorID]}
-                on @{usernames[ripple.reedAuthorID]}'s reed
-              {:else}
-                on a reed
-              {/if}
-            </p>
             {#if ripple.deleted}
               <p class="inbox-content inbox-content-deleted">[DELETED]</p>
             {:else}
               <p class="inbox-content">{ripple.content}</p>
             {/if}
-            <p class="inbox-expiry">Expires {formatAbsoluteDateTime(ripple.expiresAt)}</p>
           </div>
         </li>
       {/each}
@@ -230,13 +214,6 @@
     color: var(--muted);
   }
 
-  .inbox-context {
-    margin: 0.1rem 0 0.3rem;
-    font-size: 0.78rem;
-    color: var(--muted);
-    font-style: italic;
-  }
-
   .inbox-content {
     margin: 0;
     font-size: 0.88rem;
@@ -249,12 +226,6 @@
   .inbox-content-deleted {
     color: var(--muted);
     font-style: italic;
-  }
-
-  .inbox-expiry {
-    margin: 0.4rem 0 0;
-    font-size: 0.75rem;
-    color: var(--muted);
   }
 
   .load-more-btn {

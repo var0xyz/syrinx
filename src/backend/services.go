@@ -5075,8 +5075,8 @@ func decodeReceivedRippleCursor(s string) (*receivedRippleCursor, error) {
 }
 
 // ListReceivedRipples returns userID's ripples inbox: rows on a reed they
-// own, plus replies to a ripple they authored, scoped to reeds hosted here
-// (ripples never leave their origin server). Own comments are excluded.
+// own, scoped to reeds hosted here (ripples never leave their origin
+// server). Own comments are excluded.
 func (s *DataService) ListReceivedRipples(
 	ctx context.Context,
 	userID string,
@@ -5102,9 +5102,8 @@ func (s *DataService) ListReceivedRipples(
 		JOIN server_signatures ss ON ss.id = rr.server_signature_id
 		JOIN reeds reed ON reed.id = rr.reed_id
 		JOIN ripples p ON p.reed_id = rr.reed_id
-		LEFT JOIN ripple_responses parent ON parent.id = rr.replying_to
 		WHERE rr.user_id != $1
-		AND (reed.user_id = $1 OR parent.user_id = $1)
+		AND reed.user_id = $1
 		AND NOT EXISTS (
 			SELECT 1 FROM reed_removals x WHERE x.reed_id = rr.reed_id
 		)
@@ -5119,12 +5118,12 @@ func (s *DataService) ListReceivedRipples(
 		}
 		args = append(args, c.PostedAt, c.ID)
 		query += fmt.Sprintf(`
-			AND (rr.posted_at, rr.id) > ($%d, $%d)
+			AND (rr.posted_at, rr.id) < ($%d, $%d)
 		`, len(args)-1, len(args))
 	}
 	args = append(args, limit+1)
 	query += fmt.Sprintf(`
-		ORDER BY rr.posted_at ASC, rr.id ASC
+		ORDER BY rr.posted_at DESC, rr.id DESC
 		LIMIT $%d
 	`, len(args))
 
