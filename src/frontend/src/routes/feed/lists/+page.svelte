@@ -128,7 +128,7 @@
     justify-content: space-between;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 0.25rem 1rem;
     cursor: pointer;
     transition: all 0.2s ease;
