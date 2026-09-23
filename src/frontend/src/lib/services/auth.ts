@@ -1,11 +1,11 @@
 import { get } from 'svelte/store';
-import { deviceIdHeader } from './deviceId';
 import type * as api from '$lib/types/api';
 import { requestSigner } from './request-signer';
 import { isImportInProgress } from './importRun';
 import { isRecoveryInProgress } from './recoveryRun';
 import { serverConnection } from './serverConnection';
 import { refreshServerInfo, serverInfo } from './serverInfo';
+import { apiService } from './api';
 
 interface SignupUser {
   username: string;
@@ -151,44 +151,7 @@ export class AuthService {
       throw new Error('Failed to fetch server info', { cause: error });
     }
 
-    const formData = new URLSearchParams();
-    formData.append('username', userData.username);
-    formData.append('publicKey', userData.publicKey);
-    formData.append('signature', userData.signature);
-    formData.append('userSignature', userData.userSignature);
-    formData.append('userID', userData.userID);
-    formData.append('userIDSignature', userData.userIDSignature);
-    formData.append('userIDFingerprint', userData.userIDFingerprint);
-    if (userData.inviteID) {
-      formData.append('inviteID', userData.inviteID);
-    }
-    if (userData.inviteSecret) {
-      formData.append('inviteSecret', userData.inviteSecret);
-    }
-
-    const response = await fetch('/api/users/signup', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        ...deviceIdHeader(),
-      },
-      body: formData.toString()
-    });
-
-    if (!response.ok) {
-      let message = `HTTP ${response.status}`;
-      try {
-        const body = await response.json();
-        if (typeof body === 'string' && body.trim() !== '') {
-          message = body;
-        }
-      } catch {
-        // keep status message
-      }
-      throw new Error(message);
-    }
-
-    const user = await response.json();
+    const user = await apiService.signup(userData);
     localStorage.setItem('userId', user.id);
     this._user = user;
 
