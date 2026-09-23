@@ -19,8 +19,6 @@
   let showNewMentionsBanner = false;
   let lastHandledMentionId = /** @type {string | undefined} */ (undefined);
 
-  // MENTION delivery (live push + catch-up on reconnect) — mentions arrive
-  // purely over WS now, same as follow/reply feeds; no pull sync on mount.
   $: mentionArrived = $mentionReedQueue?.reed;
   $: if (mentionArrived && mentionArrived.id !== lastHandledMentionId) {
     lastHandledMentionId = mentionArrived.id;

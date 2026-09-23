@@ -10,6 +10,7 @@ import { reedsService } from '$lib/repositories/reeds';
 import { startReedRequestDrainer } from './reedRequestDrainer';
 import { setContentRejectedReporter } from './db';
 import { notificationStore } from '$lib/stores/notifications';
+import { decryptRelayPayload } from './relayDecrypt';
 import type { ReedType } from '$lib/types/reed';
 import { create, toBinary, fromBinary } from '@bufbuild/protobuf';
 import { WSMessageSchema, MessageType } from '$lib/proto/websocket_pb';
@@ -375,6 +376,36 @@ class ServerConnection {
       const index = handlers.indexOf(handler);
       if (index > -1) handlers.splice(index, 1);
     }
+  }
+
+  /** Registers a handler for a ciphertext reed delivery event: decrypts
+   * and id-matches before the handler ever sees it, dropping (and
+   * DATA_INVALID-ing) a bad envelope without calling it. handler gets
+   * the verified reed and still owns storing + acking itself. */
+  onEncryptedReed(
+    event: ServerEvent,
+    label: string,
+    handler: (reed: ReedType, data: any) => void | Promise<void>
+  ): void {
+    this.on(event, async (data) => {
+      let reed: ReedType;
+      try {
+        reed = await decryptRelayPayload(data.ciphertext);
+      } catch (error) {
+        console.warn(`ServerConnection: failed to decrypt ${label}:`, error);
+        this.sendContentRejected('reeds', 'decrypt_failed');
+        if (data.id) this.sendDataInvalid(data.id);
+        return;
+      }
+
+      if (!data.reed_id || reed.id !== data.reed_id) {
+        console.warn(`ServerConnection: ${label} id does not match server-asserted reed_id, rejecting:`, data.reed_id, 'got', reed.id);
+        if (data.id) this.sendDataInvalid(data.id);
+        return;
+      }
+
+      await handler(reed, data);
+    });
   }
 
   async requestReedContent(reedId: string): Promise<ReedType> {
