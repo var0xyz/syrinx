@@ -19,9 +19,15 @@
   let loadingFollowing = true;
   let saveError = '';
   let saving = false;
+  let memberSearch = '';
 
   $: nameCount = name.length;
   $: descriptionCount = description.length;
+  $: filteredFollowingUsers = memberSearch.trim()
+    ? followingUsers.filter((u) =>
+        u.username.toLowerCase().includes(memberSearch.trim().toLowerCase())
+      )
+    : followingUsers;
 
   onMount(async () => {
     const following = await dbService.getAll<{ userId: string }>('following');
@@ -90,13 +96,24 @@
 
   <div class="field">
     <span class="field-label">Members</span>
+    {#if !loadingFollowing && followingUsers.length > 0}
+      <input
+        type="text"
+        class="member-search"
+        bind:value={memberSearch}
+        placeholder="Search users…"
+        aria-label="Search users"
+      />
+    {/if}
     <div class="member-picker">
       {#if loadingFollowing}
         <p class="state-text">Loading…</p>
       {:else if followingUsers.length === 0}
         <p class="state-text">You aren't following anyone yet.</p>
+      {:else if filteredFollowingUsers.length === 0}
+        <p class="state-text">No users match "{memberSearch}".</p>
       {:else}
-        {#each followingUsers as u (u.userId)}
+        {#each filteredFollowingUsers as u (u.userId)}
           <div
             class="user-row"
             role="button"
@@ -201,6 +218,22 @@
   .char-count.over-limit {
     color: var(--error);
     font-weight: 600;
+  }
+
+  .member-search {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--input-bg);
+    color: var(--fg);
+    font-size: 0.85rem;
+    font-family: inherit;
+    margin-bottom: 0.4rem;
+  }
+
+  .member-search:focus {
+    outline: none;
+    border-color: var(--primary);
   }
 
   .member-picker {
