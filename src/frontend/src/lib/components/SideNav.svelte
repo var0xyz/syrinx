@@ -1,7 +1,7 @@
 <script>
   import { page } from '$app/stores';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
-  import { formatAbsoluteDateTime } from '$lib/utils/time';
+  import ServerVersionInfo from '$lib/components/ServerVersionInfo.svelte';
 
   let isComposeOpen = false;
 
@@ -108,10 +108,7 @@
     <span class="sn-account-label">{$page.data?.user?.username ?? 'Account'}</span>
   </a>
 
-  <p class="sn-version">
-    Version {__APP_VERSION__.slice(0, 12)}<br />
-    Built {formatAbsoluteDateTime(__APP_BUILD_TIME__)}
-  </p>
+  <ServerVersionInfo className="sn-version" />
 </nav>
 
 <NewReedModal open={isComposeOpen} on:close={() => (isComposeOpen = false)} />
@@ -245,8 +242,8 @@
     flex-shrink: 0;
   }
 
-  .sn-version {
-    margin: 0.6rem 0 0;
+  :global(.sn-version) {
+    margin: 0.2rem 0 0;
     padding: 0 0.7rem;
     color: var(--muted);
     font-size: 0.68rem;
