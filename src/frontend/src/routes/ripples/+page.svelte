@@ -4,11 +4,12 @@
   import SideNav from '$lib/components/SideNav.svelte';
   import SectionTabs from '$lib/components/SectionTabs.svelte';
   import RipplesInboxList from '$lib/components/RipplesInboxList.svelte';
+  import { unreadInteractions } from '$lib/stores/unreadInteractions';
 
-  const tabs = [
-    { href: '/replies', label: 'Replies' },
+  $: tabs = [
+    { href: '/replies', label: 'Replies', unread: $unreadInteractions.replies },
     { href: '/ripples', label: 'Ripples' },
-    { href: '/feed/mentions', label: 'Mentions' },
+    { href: '/feed/mentions', label: 'Mentions', unread: $unreadInteractions.mentions },
   ];
 </script>
 

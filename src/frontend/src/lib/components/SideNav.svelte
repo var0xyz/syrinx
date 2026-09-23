@@ -2,6 +2,9 @@
   import { page } from '$app/stores';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import ServerVersionInfo from '$lib/components/ServerVersionInfo.svelte';
+  import { unreadInteractions } from '$lib/stores/unreadInteractions';
+
+  $: hasUnreadInteractions = $unreadInteractions.replies || $unreadInteractions.mentions;
 
   let isComposeOpen = false;
 
@@ -80,15 +83,18 @@
 
   <a href="/replies" class="sn-btn" class:active={interactionsActive}>
     <span class="sn-icon">💬</span>Interactions
+    {#if hasUnreadInteractions}<span class="sn-unread-dot"></span>{/if}
   </a>
   <a href="/replies" class="sn-sub" class:active={repliesSubActive}>
     <span class="sn-dot"></span>Replies
+    {#if $unreadInteractions.replies}<span class="sn-unread-dot"></span>{/if}
   </a>
   <a href="/ripples" class="sn-sub" class:active={ripplesSubActive}>
     <span class="sn-dot"></span>Ripples
   </a>
   <a href="/feed/mentions" class="sn-sub" class:active={mentionsSubActive}>
     <span class="sn-dot"></span>Mentions
+    {#if $unreadInteractions.mentions}<span class="sn-unread-dot"></span>{/if}
   </a>
 
   <a href="/search/reeds" class="sn-btn" class:active={searchActive}>
@@ -253,6 +259,14 @@
     height: 4px;
     border-radius: 50%;
     background: currentColor;
+    flex-shrink: 0;
+  }
+
+  .sn-unread-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--error);
     flex-shrink: 0;
   }
 

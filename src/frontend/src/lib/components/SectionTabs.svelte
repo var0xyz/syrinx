@@ -1,5 +1,5 @@
 <script>
-  /** @type {{ href: string, label: string }[]} */
+  /** @type {{ href: string, label: string, unread?: boolean }[]} */
   export let tabs;
 
   /** @type {string} */
@@ -13,6 +13,7 @@
     {#each tabs as tab (tab.href)}
       <a href={tab.href} class="toggle-btn" class:active={active === keyOf(tab.label)}>
         {tab.label}
+        {#if tab.unread}<span class="toggle-dot"></span>{/if}
       </a>
     {/each}
   </div>
@@ -41,6 +42,7 @@
   }
 
   .toggle-btn {
+    position: relative;
     flex: 1 1 0;
     text-align: center;
     background: transparent;
@@ -53,6 +55,15 @@
     font-weight: 600;
     text-decoration: none;
     white-space: nowrap;
+  }
+
+  .toggle-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--error);
+    vertical-align: super;
   }
 
   .toggle-btn:hover {

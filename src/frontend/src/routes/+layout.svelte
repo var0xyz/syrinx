@@ -39,6 +39,7 @@
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { verifyAndStoreMention } from '$lib/services/mentionsSync';
+  import { markUnread } from '$lib/stores/unreadInteractions';
   import ActivitySidebar from '$lib/components/ActivitySidebar.svelte';
   import { isValidRef } from '$lib/utils/identityRef';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
@@ -211,6 +212,7 @@
         removeBroadcastReed(reed.id);
         recordActivity(reed);
         dispatchReedToQueue(reed, 'reed_reply');
+        markUnread('replies');
         await requestReferencedReeds(reed);
       } catch (error) {
         console.warn('ServerConnection: invalid reed reply signature, rejecting:', reed.id, error);
@@ -232,6 +234,7 @@
         removeBroadcastReed(reed.id);
         recordActivity(reed);
         dispatchReedToQueue(reed, 'mention');
+        markUnread('mentions');
       }
     });
     serverConnection.onEncryptedReed(ServerEvent.BroadcastReed, 'broadcast reed', async (reed, data) => {

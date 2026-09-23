@@ -2,6 +2,9 @@
   import { onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { currentToolbarPage, toolbarUsers } from '$lib/stores/bottomToolbar';
+  import { unreadInteractions } from '$lib/stores/unreadInteractions';
+
+  $: hasUnreadInteractions = $unreadInteractions.replies || $unreadInteractions.mentions;
 
   // Legacy per-page usage: <BottomToolbar currentPage="x" /> sets which tab
   // is active on the single toolbar instance (rendered once in the root
@@ -51,7 +54,10 @@
       class="toolbar-btn"
       class:active={$currentToolbarPage === 'interactions'}
     >
-      <span class="icon">💬</span>
+      <span class="icon-wrap">
+        <span class="icon">💬</span>
+        {#if hasUnreadInteractions}<span class="toolbar-unread-dot"></span>{/if}
+      </span>
       <span class="label">Interactions</span>
     </a>
     <a
@@ -149,9 +155,25 @@
     border-radius: 0.5rem 0.5rem 0 0;
   }
 
+  .toolbar-btn .icon-wrap {
+    position: relative;
+    display: inline-flex;
+    margin-bottom: 0.25rem;
+  }
+
   .toolbar-btn .icon {
     font-size: 1.2rem;
-    margin-bottom: 0.25rem;
+  }
+
+  .toolbar-unread-dot {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--error);
+    border: 1.5px solid var(--surface);
   }
 
   .toolbar-btn .label {
