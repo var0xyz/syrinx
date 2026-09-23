@@ -5625,8 +5625,7 @@ type receivedRippleListResponse struct {
 }
 
 // GetReceivedRipples handles GET /ripples: the caller's ripples inbox —
-// every response on a reed they own, plus every reply to a ripple they
-// authored themselves, on any reed hosted on this server.
+// every response on a reed they own, on any reed hosted on this server.
 func (h *Handlers) GetReceivedRipples(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 
