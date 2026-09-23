@@ -178,6 +178,17 @@ same-named root file instead:
 - `lib/services/` — API/client services (has its own `README.md`).
 - `lib/repositories/` — IndexedDB persistence (reeds, profiles, etc.).
 - `lib/verifiers/` — client-side signature verification (verify-before-store).
+- **Resolving a reed's content you don't hold locally**: `reedsService.getReed()`
+  (`lib/repositories/reeds.ts`) is IndexedDB-only, no network fetch. To fetch
+  content for a reed you only have a reference to (e.g. items from a
+  paginated `{userID/authorID, reedID}` list response like `/mentions`,
+  `/replies`, `/reeds/.../replies`), call
+  `serverConnection.requestReedContent(reedID)` (`lib/services/serverConnection.ts`)
+  — checks local IndexedDB first, else relays a `REQUEST_REED` through the
+  server to the author's peer, verifies, stores, and resolves with the reed.
+  See `ConversationSection.svelte`'s `relayReply`/`hydrateRows` for the
+  established hydrate-then-relay UI pattern (render rows immediately from
+  whatever's local, show a loading state, patch in content as it resolves).
 - `lib/crypto` helpers, `lib/stores/`, `lib/components/`, `lib/workers/`,
   `lib/utils/` (incl. `identicon.ts`, the avatar fallback).
 - `scripts/` — node parity harnesses invoked by the `test:*` npm scripts.
@@ -296,6 +307,14 @@ SPA `test:signing` / `test:verify-binary`).
   `identity.go`, and `lib/verifiers/` on the SPA side.
 - "Is feature Y built?" → `specs/README.md` status column + `specs/Y/README.md`.
 - "Realtime/WebSocket behavior" → `realtime.go` and `proto/websocket.proto`.
+- "Replies to a reed / to a user's reeds" → `reed_replies` (`db.go`) is a join
+  table (`reed_id` PK, `parent_reed_id`, `thread_id`, `timestamp`) — a reply is
+  **not** a column on `reeds`. `reeds.user_id` is only populated for reeds
+  local to this server, so `JOIN reeds ON reeds.id = reed_replies.parent_reed_id`
+  is how you scope "replies to reeds authored by user X" (see
+  `DataService.ListReplies`/`GetRepliesToUser` in `services.go` — same
+  keyset-cursor + `reed_removals`/`account_removals` filtering pattern, just a
+  different join target).
 - "How does response signing work?" → `RESPONSE_SIGNER.md` + `middlewares.go`.
 
 ## Debugging

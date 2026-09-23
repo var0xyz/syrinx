@@ -81,6 +81,12 @@ export const reedRepliesRepository = {
     return dbService.getAllByIndex<ReedReplyRow>('reedReplies', 'parentReedID', parentReedRef);
   },
 
+  /** All locally known replies across every reed in parentReedRefs. */
+  async listByParents(parentReedRefs: string[]): Promise<ReedReplyRow[]> {
+    const lists = await Promise.all(parentReedRefs.map((ref) => reedRepliesRepository.listByParent(ref)));
+    return lists.flat();
+  },
+
   async remove(reedID: string): Promise<void> {
     await dbService.delete('reedReplies', reedID);
   },
