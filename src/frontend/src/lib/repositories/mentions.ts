@@ -35,13 +35,6 @@ export const mentionsRepository = {
     const all = await dbService.getAllSortedByIndex<MentionRecord>('mentions', 'createdAt');
     return all.reverse();
   },
-
-  /** The most recent createdAt already synced, or undefined if empty —
-   * doubles as the resume cursor for the next GET /mentions sync. */
-  async getLatestCreatedAt(): Promise<string | undefined> {
-    const [latest] = await dbService.getLatestFromIndex<MentionRecord>('mentions', 'createdAt', 1);
-    return latest?.createdAt;
-  },
 };
 
 /** Resolves every locally-stored mention against its reed + author,

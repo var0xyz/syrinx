@@ -268,19 +268,6 @@ export interface EchoerListResponse extends Base {
   hasMore: boolean;
 }
 
-/** One row in GET /mentions — a claimed mention pending client
- * verification. authorID is parsed server-side from the canonical reedID. */
-export interface MentionListItem extends Base {
-  reedID: string;
-  authorID: string;
-  createdAt: string;
-}
-
-export interface MentionListResponse extends Base {
-  mentions: MentionListItem[];
-  hasMore: boolean;
-}
-
 /** Local + create-response shape for a signed invite (status is unsigned). */
 export interface Invite extends Base {
   id: string;

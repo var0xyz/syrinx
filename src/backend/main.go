@@ -350,9 +350,6 @@ func main() {
 	api.HandleFunc("/reeds/{userID}/{reedID}/replies", h.GetReedReplies).Methods("GET")
 	api.HandleFunc("/reeds/{userID}/{reedID}/replies", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/mentions", h.GetMentions).Methods("GET")
-	api.HandleFunc("/mentions", h.noop).Methods("OPTIONS")
-
 	api.HandleFunc("/mentions/{reedID:.+}", h.DeleteMention).Methods("DELETE")
 	api.HandleFunc("/mentions/{reedID:.+}", h.noop).Methods("OPTIONS")
 

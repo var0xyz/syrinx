@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { getMentionItems } from '$lib/repositories/mentions';
-  import { syncMentions } from '$lib/services/mentionsSync';
+  import { mentionReedQueue } from '$lib/repositories/reeds';
   import { formatRelativeTime } from '$lib/utils/time';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -17,23 +17,24 @@
 
   let appliedScrollRestore = false;
   let showNewMentionsBanner = false;
+  let lastHandledMentionId = /** @type {string | undefined} */ (undefined);
+
+  // MENTION delivery (live push + catch-up on reconnect) — mentions arrive
+  // purely over WS now, same as follow/reply feeds; no pull sync on mount.
+  $: mentionArrived = $mentionReedQueue?.reed;
+  $: if (mentionArrived && mentionArrived.id !== lastHandledMentionId) {
+    lastHandledMentionId = mentionArrived.id;
+    if (window.scrollY === 0) {
+      void reloadMentions();
+    } else {
+      showNewMentionsBanner = true;
+    }
+  }
 
   onMount(async () => {
     if (typeof scrollRestoreY === 'number' && !appliedScrollRestore) {
       appliedScrollRestore = true;
       await restoreWindowScroll(scrollRestoreY);
-    }
-
-    const { added } = await syncMentions().catch((error) => {
-      console.error('Error syncing mentions:', error);
-      return { added: 0 };
-    });
-    if (added > 0) {
-      if (window.scrollY === 0) {
-        await reloadMentions();
-      } else {
-        showNewMentionsBanner = true;
-      }
     }
   });
 
