@@ -3,6 +3,7 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import SectionTabs from '$lib/components/SectionTabs.svelte';
+  import RipplesInboxList from '$lib/components/RipplesInboxList.svelte';
 
   const tabs = [
     { href: '/replies', label: 'Replies' },
@@ -16,11 +17,10 @@
   <div class="ripples-container">
     <SectionTabs {tabs} active="ripples" />
 
-    <div class="empty-state">
-      <div class="empty-icon">🌊</div>
-      <h3>Ripples</h3>
-      <p>Coming soon.</p>
+    <div class="ripples-content-wrap">
+      <RipplesInboxList />
     </div>
+
     <BottomToolbar currentPage="interactions" />
   </div>
 </Auth>
@@ -45,25 +45,17 @@
     }
   }
 
-  .empty-state {
-    text-align: center;
-    padding: 3rem 1rem;
-    color: var(--muted);
+  .ripples-content-wrap {
+    flex: 1;
+    max-width: 680px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 1rem;
   }
 
-  .empty-icon {
-    font-size: 3rem;
-    margin-bottom: 1rem;
-  }
-
-  .empty-state h3 {
-    margin: 0 0 0.5rem 0;
-    color: var(--fg);
-    font-size: 1.1rem;
-  }
-
-  .empty-state p {
-    margin: 0;
-    font-size: 0.9rem;
+  @media (max-width: 768px) {
+    .ripples-content-wrap {
+      padding: 0.5rem;
+    }
   }
 </style>

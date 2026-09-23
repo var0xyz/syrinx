@@ -5638,6 +5638,76 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ReceivedRippleWire is one row in a user's ripples inbox — RippleWire
+// plus fields implicit from the URL on the per-reed endpoints but sent
+// explicitly here, since one response can mix ripples from many reeds.
+type ReceivedRippleWire struct {
+	RippleWire
+	ReedID       string    `json:"reedID"`
+	ReedAuthorID string    `json:"reedAuthorID"`
+	ExpiresAt    time.Time `json:"expiresAt"`
+}
+
+func receivedRippleWire(r *ReceivedRipple) ReceivedRippleWire {
+	return ReceivedRippleWire{
+		RippleWire:   rippleWire(&r.Ripple),
+		ReedID:       r.ReedID,
+		ReedAuthorID: r.ReedAuthorID,
+		ExpiresAt:    r.ExpiresAt,
+	}
+}
+
+type receivedRippleListResponse struct {
+	Ripples    []ReceivedRippleWire `json:"ripples"`
+	HasMore    bool                 `json:"hasMore"`
+	NextCursor string               `json:"nextCursor,omitempty"`
+}
+
+// GetReceivedRipples handles GET /ripples: the caller's ripples inbox —
+// every response on a reed they own, plus every reply to a ripple they
+// authored themselves, on any reed hosted on this server.
+func (h *Handlers) GetReceivedRipples(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	userID := h.getUserID(r)
+
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			return
+		}
+		limit = n
+	}
+
+	before := strings.TrimSpace(r.URL.Query().Get("before"))
+	if before != "" {
+		if _, err := decodeReceivedRippleCursor(before); err != nil {
+			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			return
+		}
+	}
+
+	list, err := h.services.db.ListReceivedRipples(r.Context(), userID, limit, before)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error listing received ripples")
+		internalServerError(w)
+		return
+	}
+
+	wires := make([]ReceivedRippleWire, len(list.Ripples))
+	for i := range list.Ripples {
+		wires[i] = receivedRippleWire(&list.Ripples[i])
+	}
+
+	writeResponse(w, http.StatusOK, receivedRippleListResponse{
+		Ripples:    wires,
+		HasMore:    list.HasMore,
+		NextCursor: list.NextCursor,
+	})
+}
+
 func (h *Handlers) federationBaseURL() string {
 	return strings.TrimRight(string(h.cfg.APIBaseURL), "/")
 }
