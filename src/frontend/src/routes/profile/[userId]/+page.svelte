@@ -151,6 +151,7 @@
       });
 
       await authService.saveUserToStorage(updatedUser);
+      await userRepository.put(updatedUser);
       const cachedInfo = await userInfoRepository.get(updatedUser.id);
       profileUser = mergeUserView(updatedUser, cachedInfo);
       // Root layout's `currentUser` (parent load) is otherwise cached across
@@ -596,6 +597,7 @@
           showWriteButton={isOwner}
           {scrollRestoreY}
           {expectContent}
+          {profileUser}
           pinnedReedIds={profileUser?.pinnedReedIDs ?? []}
           on:pinnedChange={onPinnedChange}
         />

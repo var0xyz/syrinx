@@ -35,6 +35,11 @@
   export let expectContent = false;
   /** Window scrollY to restore after the first load (SvelteKit page snapshot). */
   export let scrollRestoreY = /** @type {number | null} */ (null);
+  /** Parent page's already-fetched/kept-fresh profile user, when known (e.g.
+   * the profile page, which updates this immediately on a username edit).
+   * Takes priority over our own cached lookup so a rename shows up without
+   * a reload. */
+  export let profileUser = /** @type {import('$lib/types/api').User | null} */ (null);
 
   const dispatch = createEventDispatcher();
 
@@ -43,7 +48,10 @@
   let reeds = [];
   /** @type {import('$lib/types/reed').ReedType[]} */
   let pendingReeds = [];
-  let profileUser = null;
+  /** Own cached-lookup fallback, used only when the parent hasn't supplied
+   * a fresher `profileUser` prop. */
+  let fetchedProfileUser = null;
+  $: displayProfileUser = profileUser || fetchedProfileUser;
   let loadingReeds = true;
   let errorLoadingReeds = '';
   let echoedReeds = new Map();
@@ -86,7 +94,7 @@
   async function loadProfileUser(id) {
     const user = await userRepository.getByUserId(id).catch(() => null);
     if (id !== profileUserFor) return;
-    profileUser = user;
+    fetchedProfileUser = user;
   }
 
   let pinnedOrdered = [];
@@ -419,7 +427,7 @@
         isBlankEcho(reed) &&
         isBlankEcho(displayReed) &&
         !(displayReed.echoing && echoedReeds.has(displayReed.echoing))}
-      {@const displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (profileUser || { username: authorId })}
+      {@const displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (displayProfileUser || { username: authorId })}
       <div class="reed-item pending" role="button" tabindex="0" on:click={() => navigateToReed(reed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(reed)}>
         <div class="reed-header">
           <ReedAuthorHeader
@@ -472,7 +480,7 @@
         {authorId}
         {isOwner}
         pinned={true}
-        {profileUser}
+        profileUser={displayProfileUser}
         {echoedReeds}
         {repliedToReeds}
         {echoedReedUsers}
@@ -488,7 +496,7 @@
           {authorId}
           {isOwner}
           pinned={false}
-          {profileUser}
+          profileUser={displayProfileUser}
           {echoedReeds}
           {repliedToReeds}
           {echoedReedUsers}
