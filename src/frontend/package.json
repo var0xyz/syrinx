@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "proto:gen": "protoc --es_out=src/lib/proto --es_opt=target=ts -I ../proto ../proto/websocket.proto",
+    "proto:gen": "protoc --es_out=src/lib/proto --es_opt=target=ts -I ../backend/proto ../backend/proto/websocket.proto",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",

@@ -97,9 +97,13 @@ message RequestReedMessage {
 
 // Server delivery of requested reed content. id (WSMessage-level, not
 // modeled here) carries the relay event id; request_id echoes the
-// requester's original RequestReedMessage.request_id.
+// requester's original RequestReedMessage.request_id. reed_id is the
+// server's own record of which reed this delivery answers — the client
+// checks the decrypted reed's own id against it, since ciphertext could
+// otherwise be swapped for a different, independently valid reed.
 message DataResponseMessage {
   string request_id = 1;
   string ciphertext = 2;
   string username = 3;
+  string reed_id = 4;
 }

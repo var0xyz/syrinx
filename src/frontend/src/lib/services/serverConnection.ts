@@ -35,6 +35,7 @@ function decodeDataResponse(data: ArrayBuffer): { type: string; id: string; data
       request_id: msg.payload.value.requestId,
       ciphertext: msg.payload.value.ciphertext,
       username: msg.payload.value.username,
+      reed_id: msg.payload.value.reedId,
     },
   };
 }

@@ -43,6 +43,15 @@
   import { verifyClaimedTags } from '$lib/verifiers';
   import type { ReedType } from '$lib/types/reed';
 
+  // The server asserts which reed a delivery is supposed to be (reed_id)
+  // alongside its ciphertext. verifyReed alone can't catch a substitution —
+  // a swapped-in reed can be a different, independently valid, correctly
+  // signed one — so this checks the decrypted reed's own id against what
+  // the server said it would be, before anything else touches it.
+  function reedIdMatchesDelivery(reed: ReedType, data: { reed_id?: string }): boolean {
+    return !!data.reed_id && reed.id === data.reed_id;
+  }
+
   // Prefetch reeds referenced by echoing/replying (userID@serverID/reedID).
   async function requestReferencedReeds(reed: any) {
     const refs = [reed.echoing, reed.replying].filter(Boolean);
@@ -147,6 +156,16 @@
         return;
       }
 
+      if (!reedIdMatchesDelivery(reed, data)) {
+        console.warn('ServerConnection: relayed reed id does not match server-asserted reed_id, rejecting:', data.reed_id, 'got', reed.id);
+        if (requestId) {
+          await reedRequestsRepository.delete(requestId);
+          serverConnection.rejectPendingReedRequest(requestId, new Error('reed_id_mismatch'));
+        }
+        serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+
       try {
         await reedsService.storeReed(reed);
         if (requestId) {
@@ -181,6 +200,12 @@
         return;
       }
 
+      if (!reedIdMatchesDelivery(reed, data)) {
+        console.warn('ServerConnection: follow reed id does not match server-asserted reed_id, rejecting:', data.reed_id, 'got', reed.id);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+
       try {
         await reedsService.storeReed(reed);
         if (eventId) serverConnection.sendDataAck(eventId);
@@ -206,6 +231,12 @@
         return;
       }
 
+      if (!reedIdMatchesDelivery(reed, data)) {
+        console.warn('ServerConnection: archive reed id does not match server-asserted reed_id, rejecting:', data.reed_id, 'got', reed.id);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+
       try {
         await reedsService.storeReed(reed);
         if (eventId) serverConnection.sendDataAck(eventId);
@@ -223,6 +254,12 @@
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt pipe reed:', error);
         reportDecryptFailure('reeds');
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+
+      if (!reedIdMatchesDelivery(reed, data)) {
+        console.warn('ServerConnection: pipe reed id does not match server-asserted reed_id, rejecting:', data.reed_id, 'got', reed.id);
         if (eventId) serverConnection.sendDataInvalid(eventId);
         return;
       }
@@ -263,6 +300,12 @@
         return;
       }
 
+      if (!reedIdMatchesDelivery(reed, data)) {
+        console.warn('ServerConnection: reed reply id does not match server-asserted reed_id, rejecting:', data.reed_id, 'got', reed.id);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+
       try {
         await reedsService.storeReed(reed);
         if (eventId) serverConnection.sendDataAck(eventId);
@@ -283,6 +326,10 @@
         reed = await decryptRelayPayload(data.ciphertext);
       } catch (error) {
         console.warn('ServerConnection: failed to decrypt broadcast reed:', error);
+        return;
+      }
+      if (!reedIdMatchesDelivery(reed, data)) {
+        console.warn('ServerConnection: broadcast reed id does not match server-asserted reed_id, dropping:', data.reed_id, 'got', reed.id);
         return;
       }
       if (isBlankEcho(reed)) return;
