@@ -542,9 +542,8 @@
   {/if}
 
   <p class="ripples-why-explainer">
-    Ripples aren't saved permanently — this thread disappears 7 days after
-    its last reply, and posting a new one resets the countdown. Plain text
-    only — markdown isn't supported.
+    Ripples aren't saved permanently — they disappear 7 days after
+    the last reply. Plain text only, formatting isn't supported.
   </p>
 </section>
 
