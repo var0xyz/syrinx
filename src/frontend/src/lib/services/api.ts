@@ -3,6 +3,7 @@ import { deviceIdHeader } from './deviceId';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
 import { serverKeyProofHeader } from './serverKeyTrust';
+import { verifyResponseEnvelope } from './responseVerifier';
 import { appendFingerprint, parseKeyId } from '$lib/utils/identityRef';
 import {
   handleDeviceMismatch,
@@ -178,6 +179,16 @@ async function requestRaw(path: string, init?: RequestInit): Promise<Response> {
       networkError?: boolean;
     };
     err.networkError = true;
+    throw err;
+  }
+
+  // Every response is signed (see responseSignerMiddleware) — a missing
+  // or invalid Signature is treated the same: fail closed.
+  if (!(await verifyResponseEnvelope(res))) {
+    const err = new Error('Server response failed signature verification.') as Error & {
+      tampered?: boolean;
+    };
+    err.tampered = true;
     throw err;
   }
 

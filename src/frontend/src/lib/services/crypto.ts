@@ -179,6 +179,20 @@ export class CryptoService {
   }
 
   /**
+   * Verify a signature with its armor delimiters stripped — the wire
+   * format of the response `Signature` header (stripArmorDelimiters in
+   * middlewares.go). Rewraps it, then delegates to verifySignature.
+   */
+  async verifyStrippedSignature(
+    message: string,
+    strippedSignature: string,
+    publicKeyArmored: string
+  ): Promise<boolean> {
+    const armored = `-----BEGIN PGP SIGNATURE-----\n\n${strippedSignature}\n-----END PGP SIGNATURE-----`;
+    return this.verifySignature(message, armored, publicKeyArmored);
+  }
+
+  /**
    * Encrypt binary data with a password using OpenPGP symmetric encryption
    */
   async encryptBackup(data: Uint8Array, password: string): Promise<Uint8Array> {

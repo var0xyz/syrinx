@@ -45,8 +45,6 @@ type responseSigner struct {
 	bodyBuffer      *bytes.Buffer
 	responseSent    bool
 	cryptoService   *cryptoService
-	dataService     *DataService
-	userID          string
 	signingKeyArmor string
 }
 
@@ -89,23 +87,31 @@ func (rs *responseSigner) Flush() {
 		return
 	}
 
-	// Sign the complete response (headers + body)
+	// A signing failure must never leak the original (unsigned) body —
+	// send a generic error instead of the real, buffered content. Headers
+	// set by signCompleteResponse (e.g. Content-Length) describe that
+	// discarded body, so they're cleared and rebuilt for this one.
 	if err := rs.signCompleteResponse(); err != nil {
-		log.Error().
-			Err(err).
-			Msg("Failed to sign complete response")
-		rs.statusCode = http.StatusInternalServerError
+		log.Error().Err(err).Msg("Failed to sign complete response")
+		body := []byte("Internal Server Error")
+		h := rs.ResponseWriter.Header()
+		for k := range h {
+			delete(h, k)
+		}
+		h.Set("Content-Type", "text/plain; charset=utf-8")
+		h.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+		rs.ResponseWriter.WriteHeader(http.StatusInternalServerError)
+		rs.wroteHeaders = true
+		rs.ResponseWriter.Write(body)
+		rs.responseSent = true
+		return
 	}
 
-	// Write headers
 	rs.ResponseWriter.WriteHeader(rs.statusCode)
 	rs.wroteHeaders = true
-
-	// Write body
 	if rs.bodyBuffer != nil {
 		rs.ResponseWriter.Write(rs.bodyBuffer.Bytes())
 	}
-
 	rs.responseSent = true
 }
 
@@ -114,13 +120,14 @@ func (rs *responseSigner) signCompleteResponse() error {
 	// Get all headers
 	headers := rs.ResponseWriter.Header()
 
-	// Set Content-Length header if we have a body
+	// For framing, not signing (see buildCanonicalHeaderString) — the
+	// signature covers the exact body bytes regardless of this value.
 	if rs.bodyBuffer != nil && rs.bodyBuffer.Len() > 0 {
 		headers.Set("Content-Length", fmt.Sprintf("%d", rs.bodyBuffer.Len()))
 	}
 
 	// Build a canonical representation of headers
-	headerString := buildCanonicalHeaderString(headers)
+	headerString, signedNames := buildCanonicalHeaderString(headers)
 
 	// Get the response body
 	var bodyString string
@@ -131,18 +138,9 @@ func (rs *responseSigner) signCompleteResponse() error {
 	// Create the complete response string (headers + body)
 	completeResponse := headerString + "\n\n" + bodyString
 
-	// Get server's private key for this user
-	privateKey, err := rs.getServerPrivateKey()
-	if err != nil {
-		return fmt.Errorf("failed to get private key: %w", err)
-	}
-
+	privateKey := rs.signingKeyArmor
 	if privateKey == "" {
-		// No private key available, skip signing
-		log.Warn().
-			Str("userID", rs.userID).
-			Msg("No private key available for signing complete response")
-		return nil
+		panic("responseSigner: no signing key available — every response must be signed")
 	}
 
 	// Sign the complete response with detached signature
@@ -159,13 +157,9 @@ func (rs *responseSigner) signCompleteResponse() error {
 	// Add signature to headers (stripped of armor delimiters)
 	rs.ResponseWriter.Header().Set("Signature", escapedSignature)
 	rs.ResponseWriter.Header().Set("X-Syrinx-Signature-Scope", "body")
+	rs.ResponseWriter.Header().Set(signedHeadersHeader, strings.Join(signedNames, ","))
 
 	return nil
-}
-
-// getServerPrivateKey returns the server's signing key (already decrypted, loaded at startup)
-func (rs *responseSigner) getServerPrivateKey() (string, error) {
-	return rs.signingKeyArmor, nil
 }
 
 // signDetached creates a detached signature of the message
@@ -200,12 +194,21 @@ func stripArmorDelimiters(signature string) string {
 	return strings.Join(result, "\n")
 }
 
-// buildCanonicalHeaderString creates a consistent string representation of headers
-// Headers are sorted alphabetically for consistency
-func buildCanonicalHeaderString(headers http.Header) string {
-	// Get all header names and sort them
+// signedHeadersHeader lists (comma-separated) the headers actually
+// covered by the signature — the transport or a proxy can add headers
+// after signing, so the client reads this rather than guessing.
+const signedHeadersHeader = "X-Syrinx-Signed-Headers"
+
+// buildCanonicalHeaderString sorts and stringifies headers, returning the
+// names covered. Excludes Signature/signedHeadersHeader and Content-Length
+// (framing can rewrite it; the body's exact bytes are covered directly).
+func buildCanonicalHeaderString(headers http.Header) (string, []string) {
 	headerNames := make([]string, 0, len(headers))
 	for headerName := range headers {
+		lower := strings.ToLower(headerName)
+		if lower == "signature" || lower == "content-length" || lower == strings.ToLower(signedHeadersHeader) {
+			continue
+		}
 		headerNames = append(headerNames, headerName)
 	}
 	sort.Strings(headerNames)
@@ -226,7 +229,7 @@ func buildCanonicalHeaderString(headers http.Header) string {
 		builder.WriteString(strings.Join(values, ", "))
 	}
 
-	return builder.String()
+	return builder.String(), headerNames
 }
 
 // loggingMiddleware logs all HTTP requests with status codes and URLs
@@ -637,7 +640,7 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, QUERY, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", strings.Join(allowedHeaders, ", "))
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Expose-Headers", "Signature")
+			w.Header().Set("Access-Control-Expose-Headers", "Signature, "+signedHeadersHeader)
 
 			// Handle preflight requests
 			if r.Method == "OPTIONS" {
@@ -702,21 +705,10 @@ func (h *Handlers) deviceMiddleware() func(http.Handler) http.Handler {
 func (h *Handlers) responseSignerMiddleware(signingKeyArmor string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get user ID from context (set by signature auth middleware)
-			userID := r.Context().Value(userIDKey)
-			if userID == nil {
-				// No user ID in context, skip signing and use regular response writer
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// Wrap the response writer for authenticated requests
 			signer := &responseSigner{
 				ResponseWriter:  w,
 				statusCode:      http.StatusOK,
 				cryptoService:   h.services.crypto,
-				dataService:     h.services.db,
-				userID:          userID.(string),
 				signingKeyArmor: signingKeyArmor,
 			}
 

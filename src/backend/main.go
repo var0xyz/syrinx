@@ -245,9 +245,13 @@ func main() {
 	// API Router
 	api := router.PathPrefix("/api").Subrouter()
 
-	// Middlewares
+	// Middlewares. responseSignerMiddleware runs early (right after CORS)
+	// so that every response — including a 400/401 from an auth gate
+	// below it — goes out signed; nothing downstream may write directly
+	// to the unwrapped ResponseWriter.
 	api.Use(loggingMiddleware)
 	api.Use(h.CORSMiddleware(cfg.AllowedOrigin))
+	api.Use(h.responseSignerMiddleware(signingKey.Armor))
 	api.Use(h.serverKeyProofMiddleware("/api"))
 	api.Use(h.signatureAuthMiddleware("/api"))
 	if cfg.RecoveryMode {
@@ -261,7 +265,6 @@ func main() {
 		api.Use(recoveryImportGateMiddleware(userIDKey, func(ctx context.Context, userID string) (bool, error) { return dataService.IsOngoing(ctx, userID) }))
 	}
 	api.Use(h.deviceMiddleware())
-	api.Use(h.responseSignerMiddleware(signingKey.Armor))
 
 	api.HandleFunc("/server/info", h.GetServerInfo).Methods("GET")
 	api.HandleFunc("/server/info", h.noop).Methods("OPTIONS")
