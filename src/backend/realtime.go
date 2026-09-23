@@ -256,15 +256,18 @@ type dataResponseMsg struct {
 	Data dataResponseData `json:"data"`
 }
 
-// dataResponseData carries no id of its own — the reed/account identity
-// already lives inside Ciphertext (once decrypted) or inside Data (the
-// cert object already carries its own reedID/userID) — an outer id here
-// would only ever duplicate one already present in the payload.
+// dataResponseData: for a removal cert (Data), the cert already carries its
+// own reedID/userID, so no separate id is needed there. For a reed delivery
+// (Ciphertext), ReedID is the server's own record of which reed this
+// delivery answers — the client checks the decrypted reed's own id against
+// it, since Ciphertext could otherwise be swapped for a different,
+// independently valid reed without the client noticing.
 type dataResponseData struct {
 	RequestID  string          `json:"request_id,omitempty"`
 	Data       json.RawMessage `json:"data,omitempty"`
 	Ciphertext string          `json:"ciphertext,omitempty"`
 	Username   string          `json:"username,omitempty"`
+	ReedID     string          `json:"reed_id,omitempty"`
 }
 
 // realtimeJSONString JSON-encodes a Go string (adds quoting/escaping) —
@@ -276,42 +279,45 @@ func realtimeJSONString(s string) json.RawMessage {
 	return raw
 }
 
-func newDataResponseMsg(eventID, requestID, ciphertext string) dataResponseMsg {
-	return dataResponseMsg{Type: "DATA_RESPONSE", ID: eventID, Data: dataResponseData{RequestID: requestID, Ciphertext: ciphertext}}
+func newDataResponseMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
+	return dataResponseMsg{Type: "DATA_RESPONSE", ID: eventID, Data: dataResponseData{RequestID: requestID, Ciphertext: ciphertext, ReedID: reedID}}
 }
 
 // newBroadcastReedMsg builds a BROADCAST_REED delivery message (no request_id or event id needed).
-func newBroadcastReedMsg(ciphertext, username string) dataResponseMsg {
+func newBroadcastReedMsg(ciphertext, username, reedID string) dataResponseMsg {
 	return dataResponseMsg{
 		Type: "BROADCAST_REED",
 		Data: dataResponseData{
 			Ciphertext: ciphertext,
 			Username:   username,
+			ReedID:     reedID,
 		},
 	}
 }
 
 // newPipeReedMsg builds a PIPE_REED delivery (pipe subscription push).
 // Carries the event id so the viewer can DATA_ACK after verify+store (same as DATA_RESPONSE).
-func newPipeReedMsg(eventID, requestID, ciphertext string) dataResponseMsg {
+func newPipeReedMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
 	return dataResponseMsg{
 		Type: "PIPE_REED",
 		ID:   eventID,
 		Data: dataResponseData{
 			RequestID:  requestID,
 			Ciphertext: ciphertext,
+			ReedID:     reedID,
 		},
 	}
 }
 
 // newFollowReedMsg builds a FOLLOW_REED delivery (followcast / follow catch-up push).
-func newFollowReedMsg(eventID, requestID, ciphertext string) dataResponseMsg {
+func newFollowReedMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
 	return dataResponseMsg{
 		Type: "FOLLOW_REED",
 		ID:   eventID,
 		Data: dataResponseData{
 			RequestID:  requestID,
 			Ciphertext: ciphertext,
+			ReedID:     reedID,
 		},
 	}
 }
@@ -319,13 +325,14 @@ func newFollowReedMsg(eventID, requestID, ciphertext string) dataResponseMsg {
 // newArchiveReedMsg builds an ARCHIVE_REED delivery to an admin/root
 // resilience holder. No feed/UI semantics — the client stores and holds
 // the reed without touching any social-graph state.
-func newArchiveReedMsg(eventID, requestID, ciphertext string) dataResponseMsg {
+func newArchiveReedMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
 	return dataResponseMsg{
 		Type: "ARCHIVE_REED",
 		ID:   eventID,
 		Data: dataResponseData{
 			RequestID:  requestID,
 			Ciphertext: ciphertext,
+			ReedID:     reedID,
 		},
 	}
 }
@@ -337,13 +344,14 @@ func newArchiveReedMsg(eventID, requestID, ciphertext string) dataResponseMsg {
 // Used both for same-server subscriber fanout and for a foreign viewer whose
 // home server relayed it to us on their behalf, so there is no separate
 // cross-server wire type.
-func newReedReplyMsg(eventID, requestID, ciphertext string) dataResponseMsg {
+func newReedReplyMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
 	return dataResponseMsg{
 		Type: "REED_REPLY",
 		ID:   eventID,
 		Data: dataResponseData{
 			RequestID:  requestID,
 			Ciphertext: ciphertext,
+			ReedID:     reedID,
 		},
 	}
 }
@@ -4239,7 +4247,7 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID s
 		} else {
 			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering broadcast reed to subscriber")
 			rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
-				return newBroadcastReedMsg(ciphertext, username)
+				return newBroadcastReedMsg(ciphertext, username, pe.ReedID)
 			})
 		}
 		// Broadcast is ephemeral (no DATA_ACK expected) — delete right away,
@@ -4250,25 +4258,25 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID s
 	} else if pe.EventName == string(pipeReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering pipe reed to subscriber")
 		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
-			return newPipeReedMsg(pe.EventID, pe.RequestID, ciphertext)
+			return newPipeReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(followReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering follow reed to subscriber")
 		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
-			return newFollowReedMsg(pe.EventID, pe.RequestID, ciphertext)
+			return newFollowReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(archiveReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering archive reed to admin")
 		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
-			return newArchiveReedMsg(pe.EventID, pe.RequestID, ciphertext)
+			return newArchiveReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(reedReplyEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering reed reply to subscriber")
 		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
-			return newReedReplyMsg(pe.EventID, pe.RequestID, ciphertext)
+			return newReedReplyMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else {
-		rs.deliverOrForwardDataResponse(context.Background(), eventID, pe.RequesterUserID, pe.RequestID, ciphertext)
+		rs.deliverOrForwardDataResponse(context.Background(), eventID, pe.RequesterUserID, pe.RequestID, ciphertext, pe.ReedID)
 	}
 
 	rs.dispatchN(client.userID, fanoutRefillBurst)
@@ -4308,7 +4316,7 @@ func (rs *realtimeService) deliverOrForward(ctx context.Context, eventID, reques
 // foreign-forward leg is unchanged (still HTTP/JSON to the peer), but local
 // delivery goes out as a binary protobuf WSMessage instead of JSON, as a
 // first test of the wire migration described in specs/protobuf/.
-func (rs *realtimeService) deliverOrForwardDataResponse(ctx context.Context, eventID, requesterUserID, requestID, ciphertext string) {
+func (rs *realtimeService) deliverOrForwardDataResponse(ctx context.Context, eventID, requesterUserID, requestID, ciphertext, reedID string) {
 	frr, ferr := rs.db.GetForeignRelayRequest(ctx, eventID)
 	if ferr != nil {
 		log.Error().Err(ferr).Str("eventID", eventID).Msg("Failed to check foreign relay request")
@@ -4329,6 +4337,7 @@ func (rs *realtimeService) deliverOrForwardDataResponse(ctx context.Context, eve
 			DataResponse: &pb.DataResponseMessage{
 				RequestId:  requestID,
 				Ciphertext: ciphertext,
+				ReedId:     reedID,
 			},
 		},
 	}
@@ -4708,9 +4717,9 @@ func (rs *realtimeService) HandleForeignRelayResponse(ctx context.Context, peerE
 
 	var msg dataResponseMsg
 	if pe.EventName == string(reedReplyEvent) {
-		msg = newReedReplyMsg(pe.EventID, pe.RequestID, ciphertext)
+		msg = newReedReplyMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 	} else {
-		msg = newDataResponseMsg(pe.EventID, pe.RequestID, ciphertext)
+		msg = newDataResponseMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 	}
 	if err := rs.connManager.SendToUser(pe.RequesterUserID, msg); err != nil {
 		log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver foreign-relayed data response")
