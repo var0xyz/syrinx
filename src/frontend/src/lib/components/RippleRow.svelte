@@ -46,11 +46,6 @@
   </div>
   <div class="ripple-body">
     <p class="ripple-meta">
-      {#if ripple.userID === ownUserID && !ripple.deleted}
-        <button type="button" class="ripple-delete-btn" on:click={() => dispatch('delete', ripple.hash)} aria-label="Delete ripple">
-          <span class="ripple-delete-icon"></span>
-        </button>
-      {/if}
       <span class="ripple-meta-text">
         {#if username}
           <Username userID={ripple.userID} {username} color="var(--muted)" />
@@ -79,6 +74,9 @@
         {ripple.content}
         {#if replyable}
           <button type="button" class="ripple-action ripple-reply-inline" on:click={() => dispatch('reply')}>reply</button>
+        {/if}
+        {#if ripple.userID === ownUserID}
+          <button type="button" class="ripple-action ripple-reply-inline" on:click={() => dispatch('delete', ripple.hash)}>delete</button>
         {/if}
       </p>
     {/if}
@@ -161,41 +159,6 @@
 
   .ripple-username-removed {
     font-style: italic;
-  }
-
-  .ripple-delete-btn {
-    display: inline-flex;
-    flex: 0 0 auto;
-    width: auto;
-    align-items: center;
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0 0.4rem 0 0;
-    line-height: 0;
-    cursor: pointer;
-    color: var(--muted);
-    opacity: 0.7;
-  }
-
-  .ripple-delete-btn:hover {
-    opacity: 1;
-    color: #d9534f;
-  }
-
-  .ripple-delete-icon {
-    display: inline-block;
-    width: 0.85rem;
-    height: 0.85rem;
-    background-color: currentColor;
-    -webkit-mask-image: url('/icons/trash-16.png');
-    mask-image: url('/icons/trash-16.png');
-    -webkit-mask-position: center;
-    mask-position: center;
-    -webkit-mask-size: contain;
-    mask-size: contain;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
   }
 
   .ripple-reply-chip {
