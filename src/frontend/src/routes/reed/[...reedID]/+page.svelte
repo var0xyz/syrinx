@@ -683,7 +683,7 @@
                replying/echoing) and Ripples/Chorus lose meaning once nobody
                can see the original content. Replies made before removal are
                still real, though, so show them directly if any exist. -->
-          <div class="discussion-panel" class:hidden={conversationCount === 0}>
+          <div class="discussion-panel discussion-panel-conversation" class:hidden={conversationCount === 0}>
             <ConversationSection
               bind:this={conversationSection}
               parentReedRef={routeReedRef}
@@ -1113,6 +1113,14 @@
 
   .discussion-panel {
     padding: .75rem 1rem;
+  }
+
+  /* Replies get their own full-width card per row (see ConversationSection),
+     so this panel shouldn't also inset them horizontally — that made each
+     reply's card look narrower than the reed-detail card above it. */
+  .discussion-panel-conversation {
+    padding-left: 0;
+    padding-right: 0;
   }
 
   .discussion-panel.hidden {
