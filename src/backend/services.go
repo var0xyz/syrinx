@@ -2378,6 +2378,9 @@ func (s *DataService) GetMentionsForUser(ctx context.Context, mentionedUserID st
 	if hasMore {
 		items = items[:limit]
 	}
+	if items == nil {
+		items = []MentionListItem{}
+	}
 	return &MentionListResponse{Mentions: items, HasMore: hasMore}, nil
 }
 
