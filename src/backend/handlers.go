@@ -1760,7 +1760,8 @@ func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 }
 
 // normalizeClaimedTags lowercases, trims, and dedupes a client-claimed tag
-// list (first-appearance order). The server never sees content to check
+// list (first-appearance order), dropping any tag containing whitespace —
+// tag names never contain spaces. The server never sees content to check
 // these claims against — receiving pipe watchers do that.
 func normalizeClaimedTags(claims []string) []string {
 	if len(claims) == 0 {
@@ -1770,7 +1771,7 @@ func normalizeClaimedTags(claims []string) []string {
 	out := make([]string, 0, len(claims))
 	for _, c := range claims {
 		tag := strings.ToLower(strings.TrimSpace(c))
-		if tag == "" {
+		if tag == "" || strings.ContainsAny(tag, " \t\n\r") {
 			continue
 		}
 		if _, ok := seen[tag]; ok {

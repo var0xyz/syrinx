@@ -10,15 +10,16 @@
   let allTags: string[] = [];
   let suggestionsDismissed = false;
   let selectionMade = false;
+  let errorMessage = '';
 
   onMount(async () => {
-    const tags = await dbService.getAll<{ tagName: string }>('tags');
-    allTags = tags.map((t) => t.tagName).sort();
+    const tags = await dbService.getAll<{ tagName: string; displayName?: string }>('tags');
+    allTags = tags.map((t) => t.displayName ?? t.tagName).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   });
 
   $: normalized = normalizePipeTag(query);
   $: suggestions = normalized
-    ? allTags.filter((t) => t.includes(normalized)).slice(0, 8)
+    ? allTags.filter((t) => t.toLowerCase().includes(normalized)).slice(0, 8)
     : allTags.slice(0, 8);
   $: showSuggestions = !suggestionsDismissed && !selectionMade && suggestions.length > 0;
 
@@ -32,7 +33,12 @@
   }
 
   function open() {
-    if (!normalized) return;
+    if (!normalized) {
+      errorMessage = query.trim()
+        ? 'Tags can\'t contain spaces.'
+        : 'Enter a tag.';
+      return;
+    }
     goto(`/feed/pipes/${encodeURIComponent(normalized)}`);
     dispatch('cancel');
   }
@@ -55,7 +61,10 @@
         bind:value={query}
         placeholder="hashtag"
         autocomplete="off"
-        on:input={() => (selectionMade = false)}
+        on:input={() => {
+          selectionMade = false;
+          errorMessage = '';
+        }}
         on:keydown={(e) => e.key === 'Enter' && open()}
       />
       {#if suggestions.length > 0}
@@ -79,11 +88,14 @@
         </ul>
       {/if}
     </div>
+    {#if errorMessage}
+      <p class="field-error">{errorMessage}</p>
+    {/if}
   </div>
 
   <div class="actions">
     <button class="btn btn-secondary" on:click={cancel}>Cancel</button>
-    <button class="btn btn-primary" on:click={open} disabled={!normalized}>Open</button>
+    <button class="btn btn-primary" on:click={open}>Open</button>
   </div>
 </div>
 
@@ -129,6 +141,12 @@
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--fg);
+  }
+
+  .field-error {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--error);
   }
 
   .autocomplete {

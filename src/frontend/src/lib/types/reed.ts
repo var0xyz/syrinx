@@ -23,13 +23,23 @@ export interface ReedType {
   mentions: string[];
 }
 
-/** Normalized unique hashtags from content (no #, lowercase). */
+/** Unique hashtags from content (no #), in the casing the author wrote —
+ * matching/storage elsewhere is case-insensitive, this is display-only.
+ * Deduped case-insensitively, first-seen casing wins. */
 export function extractTags(content: string): string[] {
   const hashtagRegex = /(^|\s)#\S+/g;
   const matches = content.match(hashtagRegex);
   if (!matches) return [];
-  const tags = matches.map(tag => tag.trim().substring(1).toLowerCase());
-  return [...new Set(tags)];
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const match of matches) {
+    const tag = match.trim().substring(1);
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+  }
+  return tags;
 }
 
 /** ~userID@serverID mention claims from content, canonical form,

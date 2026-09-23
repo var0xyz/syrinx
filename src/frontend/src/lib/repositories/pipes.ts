@@ -20,7 +20,8 @@ export const pipesRepository = {
   async pin(tag: string): Promise<void> {
     const normalized = normalizePipeTag(tag);
     if (!normalized) return;
-    const pipe: PipeType = { tagName: normalized, createdAt: Date.now() };
+    const displayName = tag.trim().replace(/^#/, '') || normalized;
+    const pipe: PipeType = { tagName: normalized, displayName, createdAt: Date.now() };
     await dbService.put<PipeType>(PIPES_STORE, pipe, allowUnsigned);
   },
 
