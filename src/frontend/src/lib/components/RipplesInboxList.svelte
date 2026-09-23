@@ -244,6 +244,10 @@
   }
 
   @media (max-width: 768px) {
+    .inbox-list {
+      gap: 0.5rem;
+    }
+
     .inbox-row {
       padding: 0.6rem;
     }

@@ -13,6 +13,9 @@ export type ReedReplyRow = {
   /** Canonical ref (authorID/reedID) of the reed this one replies to. */
   parentReedID: string;
   threadId: string;
+  /** Reply reed's own server-signed timestamp — sort/page key for the
+   * cross-parent inbox view (replies page). */
+  createdAt: string;
 };
 
 function rowFromFields(
@@ -20,12 +23,14 @@ function rowFromFields(
   replyReedID: string,
   parentReedRef: string,
   threadId: string,
+  createdAt: string,
 ): ReedReplyRow {
   return {
     reedID: replyReedID,
     userID: replyUserID,
     parentReedID: parentReedRef,
     threadId,
+    createdAt,
   };
 }
 
@@ -40,14 +45,14 @@ export const reedRepliesRepository = {
     threadId: string,
   ): Promise<void> {
     await reedRepliesRepository.put(
-      rowFromFields(reply.userID, reply.reedID, parentReedRef, threadId),
+      rowFromFields(reply.userID, reply.reedID, parentReedRef, threadId, reply.timestamp),
     );
   },
 
-  async upsertFromReed(reed: Pick<ReedType, 'id' | 'userID' | 'threadId' | 'replying'>): Promise<void> {
-    if (!reed.replying || !reed.threadId) return;
+  async upsertFromReed(reed: Pick<ReedType, 'id' | 'userID' | 'threadId' | 'replying' | 'serverSignature'>): Promise<void> {
+    if (!reed.replying || !reed.threadId || !reed.serverSignature?.timestamp) return;
     await reedRepliesRepository.put(
-      rowFromFields(reed.userID, reed.id, reed.replying, reed.threadId),
+      rowFromFields(reed.userID, reed.id, reed.replying, reed.threadId, reed.serverSignature.timestamp),
     );
   },
 
@@ -77,14 +82,37 @@ export const reedRepliesRepository = {
     }
   },
 
-  async listByParent(parentReedRef: string): Promise<ReedReplyRow[]> {
-    return dbService.getAllByIndex<ReedReplyRow>('reedReplies', 'parentReedID', parentReedRef);
+  async listByParent(parentReedRef: string, excludeUserID?: string): Promise<ReedReplyRow[]> {
+    const rows = await dbService.getAllByIndex<ReedReplyRow>('reedReplies', 'parentReedID', parentReedRef);
+    return excludeUserID ? rows.filter((row) => row.userID !== excludeUserID) : rows;
   },
 
   /** All locally known replies across every reed in parentReedRefs. */
-  async listByParents(parentReedRefs: string[]): Promise<ReedReplyRow[]> {
-    const lists = await Promise.all(parentReedRefs.map((ref) => reedRepliesRepository.listByParent(ref)));
+  async listByParents(parentReedRefs: string[], excludeUserID?: string): Promise<ReedReplyRow[]> {
+    const lists = await Promise.all(
+      parentReedRefs.map((ref) => reedRepliesRepository.listByParent(ref, excludeUserID)),
+    );
     return lists.flat();
+  },
+
+  /** Newest-first page of replies across every reed in parentReedRefs,
+   * excluding excludeUserID's own replies (e.g. self-replies on your own
+   * reed). Pass the previous page's last row's createdAt as `after` to
+   * resume; omit for the first page. */
+  async getPage(
+    parentReedRefs: string[],
+    excludeUserID: string,
+    limit: number,
+    after?: string,
+  ): Promise<ReedReplyRow[]> {
+    const parentSet = new Set(parentReedRefs);
+    return dbService.getLatestFromIndex<ReedReplyRow>(
+      'reedReplies',
+      'createdAt',
+      limit,
+      (row) => parentSet.has(row.parentReedID) && row.userID !== excludeUserID,
+      after,
+    );
   },
 
   async remove(reedID: string): Promise<void> {

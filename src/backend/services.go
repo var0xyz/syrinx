@@ -1661,8 +1661,9 @@ func (s *DataService) insertReplyTx(
 
 // ReplyListItem is one direct reply in a paginated list response.
 type ReplyListItem struct {
-	UserID string `json:"userID"`
-	ReedID string `json:"reedID"`
+	UserID    string    `json:"userID"`
+	ReedID    string    `json:"reedID"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // ReplyListResponse is the body of GET /reeds/{userID}/{reedID}/replies.
@@ -1724,14 +1725,15 @@ func (s *DataService) ListReplies(ctx context.Context, parentReedID string, limi
 	var items []ReplyListItem
 	for rows.Next() {
 		var reedID string
-		var _ts time.Time
-		if err := rows.Scan(&reedID, &_ts); err != nil {
+		var ts time.Time
+		if err := rows.Scan(&reedID, &ts); err != nil {
 			return nil, err
 		}
 		userID, serverID, _, _ := parseKeyFingerprint(identityID(reedID))
 		items = append(items, ReplyListItem{
-			UserID: string(canonicalID(serverID, userID)),
-			ReedID: reedID,
+			UserID:    string(canonicalID(serverID, userID)),
+			ReedID:    reedID,
+			Timestamp: ts,
 		})
 	}
 	if err := rows.Err(); err != nil {
