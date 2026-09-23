@@ -292,45 +292,57 @@ func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, ne
 	next.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// unauthenticatedExactPaths are the routes under prefix that skip
+// signature auth outright, requiring proof of the server key fingerprint
+// instead (see serverKeyProofMiddleware). Shared with
+// isUnauthenticatedPath so the two middlewares stay in sync.
+func unauthenticatedExactPaths(prefix string) []string {
+	return []string{
+		prefix + "/users/login",
+		prefix + "/users/id",
+		prefix + "/users/signup",
+		prefix + "/users/status",
+		prefix + "/check-username",
+		prefix + "/keys",
+		prefix + "/server/info",
+		prefix + "/recovery/identity/claim",
+		prefix + "/account-recovery/challenge",
+		prefix + "/account-recovery/bootstrap",
+		prefix + "/invites/check",
+	}
+}
+
+// isUnauthenticatedExactPath reports whether path is one of
+// unauthenticatedExactPaths under prefix.
+func isUnauthenticatedExactPath(prefix, path string) bool {
+	for _, p := range unauthenticatedExactPaths(prefix) {
+		if path == p {
+			return true
+		}
+	}
+	return false
+}
+
+// isUnauthenticatedPath reports whether path skips signature auth under
+// prefix — either one of unauthenticatedExactPaths, or under
+// /federation/connect/, the initiator's callback route authenticated by
+// its own invitation secret instead of a local session.
+func isUnauthenticatedPath(prefix, path string) bool {
+	if isUnauthenticatedExactPath(prefix, path) {
+		return true
+	}
+	return strings.HasPrefix(path, prefix+"/federation/connect/")
+}
+
 // Signature-based authentication middleware
 func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			log.Info().
 				Msg("signatureAuthMiddleware()")
-			excludePaths := []string{
-				prefix + "/users/login",
-				prefix + "/users/id",
-				prefix + "/users/signup",
-				prefix + "/users/status",
-				prefix + "/check-username",
-				prefix + "/keys",
-				prefix + "/server/info",
-				// GetServerKey only ever returns this server's own key, so
-				// it's safe to leave unauthenticated.
-				prefix + "/server/key",
-				prefix + "/recovery/identity/claim",
-				prefix + "/account-recovery/challenge",
-				prefix + "/account-recovery/bootstrap",
-				prefix + "/invites/check",
-			}
-			// /federation/connect/ is the initiator's callback route — no
-			// local session, the invitation secret proves legitimacy.
-			excludePrefixes := []string{
-				prefix + "/federation/connect/",
-			}
-
-			for _, path := range excludePaths {
-				if r.URL.Path == path {
-					next.ServeHTTP(w, r)
-					return
-				}
-			}
-			for _, p := range excludePrefixes {
-				if strings.HasPrefix(r.URL.Path, p) {
-					next.ServeHTTP(w, r)
-					return
-				}
+			if isUnauthenticatedPath(prefix, r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
 			}
 
 			// Canonical id of the key that signed the request — local
@@ -494,6 +506,33 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 	}
 }
 
+// serverKeyProofHeader proves the caller already has this server's public
+// key out-of-band, without the key ever being served over HTTP.
+const serverKeyProofHeader = "X-Syrinx-Server-Key-Fingerprint"
+
+// serverKeyProofMiddleware gates the routes that skip signature auth
+// behind proof the caller already knows this server's key fingerprint.
+// federation/connect is excluded: it authenticates via its own invitation
+// secret instead.
+func (h *Handlers) serverKeyProofMiddleware(prefix string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !isUnauthenticatedExactPath(prefix, r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			fingerprint := r.Header.Get(serverKeyProofHeader)
+			if fingerprint == "" || fingerprint != h.signingKey.Fingerprint {
+				writeResponse(w, http.StatusUnauthorized, "Missing or incorrect server key proof")
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // verifyRequestSignature verifies the signature of the request
 func (h *Handlers) verifyRequestSignature(r *http.Request, signature, publicKey string) error {
 	// Build the canonical request string (method + path + headers + body)
@@ -590,6 +629,7 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 			"X-Syrinx-Signature",
 			"X-Syrinx-Signature-Scope",
 			"X-Syrinx-Timestamp",
+			serverKeyProofHeader,
 		}
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

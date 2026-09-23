@@ -72,7 +72,7 @@ type ServerInfo struct {
 	MaxInvitesPerUser int    `json:"maxInvitesPerUser"` // -1 = infinite
 	// ServerKeyID is this server's own current signing key's canonical id
 	// (fingerprint@serverID) — clients check their local publicKeys cache
-	// for it and, on a miss, fetch it via GET /server/key.
+	// for it and, on a miss, fetch it via GET /keys/{id}.
 	ServerKeyID string `json:"serverKeyId"`
 }
 
@@ -208,46 +208,6 @@ func (h *Handlers) GetKey(w http.ResponseWriter, r *http.Request) {
 
 	key.Armor = base64Encode(key.Armor)
 	writeResponse(w, http.StatusOK, key)
-}
-
-// GetServerKey returns THIS server's own current signing key armor as
-// plain text — the only key that's public verification material (anyone
-// validating a countersignature must be able to fetch it without being
-// signed in, even mid-rotation with a revoked user key of their own; see
-// signatureAuthMiddleware's excludePaths). Deliberately takes no {id} path
-// param and never resolves anything else, so there's no id/URL shape for
-// an unauthenticated caller to manipulate — unlike GetKey, which serves
-// both user keys and (via proxying) peer server keys and stays
-// authenticated. Served straight from the in-memory signing key (no DB
-// round-trip, no base64/JSON envelope) since this route only ever returns
-// the one thing.
-func (h *Handlers) GetServerKey(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("GetServerKey request received")
-	if h.signingKey.Armor == "" {
-		log.Error().Msg("GetServerKey: no signing key loaded")
-		internalServerError(w)
-		return
-	}
-
-	// h.signingKey.Armor is the private key (it's what cryptoSvc.sign uses)
-	// — this route must only ever hand out the public half.
-	entity, err := h.services.crypto.extractEntity(h.signingKey.Armor)
-	if err != nil {
-		log.Error().Err(err).Msg("GetServerKey: failed to parse signing key")
-		internalServerError(w)
-		return
-	}
-	publicArmor, err := h.services.crypto.extractPublicKeyArmor(entity)
-	if err != nil {
-		log.Error().Err(err).Msg("GetServerKey: failed to derive public key armor")
-		internalServerError(w)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(publicArmor))
 }
 
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
@@ -3781,13 +3741,18 @@ func (h *Handlers) setPeerProxyAuthHeaders(req *http.Request, body string) error
 }
 
 // fetchPeerServerKeyArmor live-fetches a peer's own signing key armor over
-// GET /api/server/key — peer keys are never persisted locally. The
-// returned armor's fingerprint is checked against the caller's pinned
-// expectation rather than trusted outright.
+// GET /api/keys/{id} — a server-owned key id is "fingerprint@serverID",
+// same route as any other federated key. Peer keys are never persisted
+// locally; the returned armor's fingerprint is checked against the
+// caller's pinned expectation rather than trusted outright.
 func (h *Handlers) fetchPeerServerKeyArmor(ctx context.Context, baseURL, serverID, fingerprint string) (string, error) {
-	target := strings.TrimRight(baseURL, "/") + "/api/server/key"
+	keyID := string(canonicalID(serverID, fingerprint))
+	target := strings.TrimRight(baseURL, "/") + "/api/keys/" + keyID
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
+		return "", err
+	}
+	if err := h.setPeerProxyAuthHeaders(httpReq, ""); err != nil {
 		return "", err
 	}
 	resp, err := h.federationHTTPClient().Do(httpReq)
@@ -3798,11 +3763,15 @@ func (h *Handlers) fetchPeerServerKeyArmor(ctx context.Context, baseURL, serverI
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("fetch peer server key: status %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
+	var key Key
+	if err := json.NewDecoder(resp.Body).Decode(&key); err != nil {
+		return "", fmt.Errorf("decode peer server key: %w", err)
 	}
-	armor := string(body)
+	armorBytes, err := base64Decode(key.Armor)
+	if err != nil {
+		return "", fmt.Errorf("decode peer server key armor: %w", err)
+	}
+	armor := string(armorBytes)
 	actualFingerprint, err := h.services.crypto.extractFingerprintFromArmor(armor)
 	if err != nil {
 		return "", fmt.Errorf("parse peer server key: %w", err)

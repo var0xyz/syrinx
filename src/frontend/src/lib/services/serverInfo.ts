@@ -2,6 +2,7 @@ import { derived, writable } from 'svelte/store';
 import type { ServerInfo, SignupMode } from '$lib/types/server';
 import type { PublicKey } from '$lib/types/api';
 import { isOnline } from './pwa';
+import { serverKeyProofHeader } from './serverKeyTrust';
 
 export const serverInfo = writable<ServerInfo | null>(null);
 export const serverInfoLoading = writable(true);
@@ -53,13 +54,10 @@ function normalizeSignupMode(value: unknown): SignupMode {
 }
 
 /**
- * Fetch + cache this server's own signing key if it's not already in
- * publicKeys. Trust is established by the connection itself (same origin
- * this app was served from) — verifyPublicKey's serverSignature check
- * would be circular for the server's own key (it self-countersigns, so
- * "verifying" it here just means checking a key against itself over the
- * same channel it arrived on: no protection against a swapped key, which
- * could just as easily carry a forged self-signature).
+ * Cache this server's own signing key in publicKeys if it's not already
+ * there, sourced from the armor the user pasted out-of-band on first run
+ * (see serverKeyTrust) rather than fetched over the wire — that pasted
+ * armor is the trust anchor, so no further verification is needed here.
  */
 async function ensureServerKeyCached(serverId: string, serverKeyId: string): Promise<void> {
   if (!serverId || !serverKeyId) return;
@@ -67,22 +65,21 @@ async function ensureServerKeyCached(serverId: string, serverKeyId: string): Pro
     const { publicKeyRepository } = await import('$lib/repositories/publicKey');
     if (await publicKeyRepository.hasPublicKey(serverKeyId)) return;
 
-    const { apiService } = await import('./api');
-    const { cryptoService } = await import('./crypto');
+    const { getTrustedServerKey } = await import('./serverKeyTrust');
     const { dbService } = await import('./db');
     const { allowUnsigned } = await import('$lib/verifiers');
     const { formatServerKeyId } = await import('$lib/utils/identityRef');
 
-    const armor = await apiService.getOwnServerKey();
-    const fingerprint = await cryptoService.fingerprintFromArmor(armor);
-    if (formatServerKeyId(fingerprint, serverId) !== serverKeyId) {
+    const trusted = getTrustedServerKey();
+    if (!trusted) return;
+    if (formatServerKeyId(trusted.fingerprint, serverId) !== serverKeyId) {
       throw new Error('server key armor does not match serverKeyId');
     }
 
     const key: PublicKey = {
       id: serverKeyId,
       userID: '',
-      armor,
+      armor: trusted.armor,
       revoked: false,
       predecessor: null,
       serverSignature: { id: '', armor: '', timestamp: '' },
@@ -119,9 +116,17 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
     // A reachable-but-slow/hanging server must not stall this indefinitely —
     // offline-first means the app finishes booting either way, background
     // work included.
-    const response = await fetch('/api/server/info', { signal: AbortSignal.timeout(8000) });
+    const response = await fetch('/api/server/info', {
+      headers: serverKeyProofHeader(),
+      signal: AbortSignal.timeout(8000),
+    });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        const { clearTrustedServerKey } = await import('./serverKeyTrust');
+        clearTrustedServerKey();
+        window.location.href = '/';
+      }
       throw new Error(`HTTP ${response.status}`);
     }
 

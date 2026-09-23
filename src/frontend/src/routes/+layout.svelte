@@ -18,6 +18,8 @@
   import UpdateAvailableIndicator from '$lib/components/UpdateAvailableIndicator.svelte';
   import { initializePWA, onReconnect } from '$lib/services/pwa';
   import { refreshServerInfo } from '$lib/services/serverInfo';
+  import { hasTrustedServerKey } from '$lib/services/serverKeyTrust';
+  import ServerKeyGate from '$lib/components/ServerKeyGate.svelte';
   import { authService } from '$lib/services/auth';
   import { ensureDeviceId } from '$lib/services/deviceId';
   import { enforceImportGate } from '$lib/services/restoreFlow';
@@ -67,6 +69,8 @@
   let user = null;
   $: headerLink = user ? '/reeds' : '/';
 
+  let serverKeyTrusted = hasTrustedServerKey();
+
   function syncAfterReconnect() {
     refreshServerInfo();
     if (!authService.isLoggedIn()) return;
@@ -94,6 +98,7 @@
   });
 
   onMount(() => {
+    if (!serverKeyTrusted) return;
     ensureDeviceId();
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', (event) => {
@@ -105,6 +110,7 @@
   });
 
   onMount(() => {
+    if (!serverKeyTrusted) return;
     initializePWA();
     const stopReconnect = onReconnect(syncAfterReconnect);
     refreshServerInfo();
@@ -406,23 +412,27 @@
   });
 </script>
 
-<UpdateAvailableIndicator />
+{#if !serverKeyTrusted}
+  <ServerKeyGate on:trusted={() => (serverKeyTrusted = true)} />
+{:else}
+  <UpdateAvailableIndicator />
 
-<header>
-  <h1><a href={headerLink}>💫 Syrinx</a></h1>
-  <!-- MailboxBell hidden — unused for now, see the disabled Mailbox WS
-       handler and boot-time refresh below. -->
-</header>
+  <header>
+    <h1><a href={headerLink}>💫 Syrinx</a></h1>
+    <!-- MailboxBell hidden — unused for now, see the disabled Mailbox WS
+         handler and boot-time refresh below. -->
+  </header>
 
-<ServerIdMismatchIndicator />
-<ServerUnreachableIndicator />
-<OfflineIndicator />
-<slot />
+  <ServerIdMismatchIndicator />
+  <ServerUnreachableIndicator />
+  <OfflineIndicator />
+  <slot />
 
-{#if user}
-  <ActivitySidebar />
+  {#if user}
+    <ActivitySidebar />
+  {/if}
+
+  <BottomToolbar />
+
+  <Notifications />
 {/if}
-
-<BottomToolbar />
-
-<Notifications />

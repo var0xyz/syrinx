@@ -2,6 +2,7 @@ import type * as api from '$lib/types/api';
 import { deviceIdHeader } from './deviceId';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
+import { serverKeyProofHeader } from './serverKeyTrust';
 import { appendFingerprint, parseKeyId } from '$lib/utils/identityRef';
 import {
   handleDeviceMismatch,
@@ -106,7 +107,6 @@ const UNAUTHENTICATED_ENDPOINTS = [
   '/users/status',
   '/check-username',
   '/server/info',
-  '/server/key',
   '/recovery/identity/claim',
   '/account-recovery/challenge',
   '/account-recovery/bootstrap',
@@ -151,6 +151,11 @@ async function requestRaw(path: string, init?: RequestInit): Promise<Response> {
     const headers = new Headers(init?.headers);
     for (const [key, value] of Object.entries(deviceIdHeader())) {
       headers.set(key, value);
+    }
+    if (!isAuthenticated) {
+      for (const [key, value] of Object.entries(serverKeyProofHeader())) {
+        headers.set(key, value);
+      }
     }
     return { ...init, headers };
   };
@@ -254,6 +259,11 @@ async function checkUsername(
   for (const [key, value] of Object.entries(deviceIdHeader())) {
     headers.set(key, value);
   }
+  if (!signed) {
+    for (const [key, value] of Object.entries(serverKeyProofHeader())) {
+      headers.set(key, value);
+    }
+  }
 
   const res = await fetch(`${BASE_URL}${path}`, { ...init, headers });
 
@@ -276,7 +286,7 @@ export const apiService = {
   async probeUserStatus(profile: api.User): Promise<UserStatusProbeResult> {
     const res = await fetch(`${BASE_URL}/users/status`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...serverKeyProofHeader() },
       body: JSON.stringify(profile),
     });
 
@@ -932,21 +942,10 @@ export const apiService = {
    * for a user key, fingerprint@serverID for a server's own key (build with
    * canonicalKeyId/formatServerKeyId). Authenticated: GET /keys/{id} serves
    * any key — local or, transparently via server-side proxying, a
-   * federated peer's — but requires a session, unlike getOwnServerKey. */
+   * federated peer's. */
   async getPublicKey(id: string): Promise<api.PublicKey> {
     const key = await request<api.PublicKey>(`/keys/${id}`, { method: 'GET' });
     return { ...key, armor: atob(key.armor) };
-  },
-
-  /**
-   * Fetch THIS server's own current signing key armor — unauthenticated
-   * (GET /server/key takes no id, only ever returns this server's own key,
-   * see GetServerKey in handlers.go), unlike getPublicKey. Needed by flows
-   * that run before a session/private key exists yet (e.g. identity
-   * backup restore) and can't use the authenticated general lookup.
-   */
-  async getOwnServerKey(): Promise<string> {
-    return requestText('/server/key', { method: 'GET' });
   },
 
   /** Atomically revokes the predecessor key and registers the new one —

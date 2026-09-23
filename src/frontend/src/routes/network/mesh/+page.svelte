@@ -190,9 +190,11 @@
   }
 
   async function copyOwnPublicKey() {
+    const keyId = $serverInfo?.serverKeyId;
+    if (!keyId) return;
     try {
-      const armor = await apiService.getOwnServerKey();
-      await navigator.clipboard.writeText(armor);
+      const key = await apiService.getPublicKey(keyId);
+      await navigator.clipboard.writeText(key.armor);
       notificationStore.success('Server public key copied');
     } catch (err) {
       notificationStore.error(err instanceof Error ? err.message : 'Could not copy server public key');

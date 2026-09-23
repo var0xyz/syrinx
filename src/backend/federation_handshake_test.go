@@ -39,14 +39,10 @@ func newFederationServer(t *testing.T, name string) *federationServer {
 	api.HandleFunc("/federation/attempt", h.OutgoingFederationAttempt).Methods(http.MethodPost)
 	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods(http.MethodPost)
 	api.HandleFunc("/federation/users/{userID}/identity", h.GetFederationUserIdentity).Methods(http.MethodGet)
-	// signatureAuthMiddleware's authenticateAsPeer branch live-fetches the
-	// caller's own signing key armor from the caller (fetchPeerServerKeyArmor,
-	// GET /server/key) to verify its request signature, so both test servers
-	// need to be able to serve their own key back, exactly as main.go
-	// registers it. The identity route needs the middleware wrapped around
-	// it (unlike main.go's global api.Use, this test router registers
-	// handlers directly) since that's where peer-vs-user auth is decided.
-	api.HandleFunc("/server/key", h.GetServerKey).Methods(http.MethodGet)
+	// fetchPeerServerKeyArmor live-fetches a peer's server key over
+	// GET /keys/{id}, so both test servers need that route registered
+	// too, exactly as main.go does.
+	api.HandleFunc("/keys/{id:.+}", h.GetKey).Methods(http.MethodGet)
 	api.Use(h.signatureAuthMiddleware("/api"))
 
 	// TLS: the connect/attempt handlers reject non-https baseUrls, so the
