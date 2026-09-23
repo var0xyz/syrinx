@@ -62,6 +62,10 @@ func main() {
 		if err := runRotatePassphrase(); err != nil {
 			fail(err)
 		}
+	case "print-key":
+		if err := runPrintKey(); err != nil {
+			fail(err)
+		}
 	case "mailbox-send":
 		if len(os.Args) < 4 {
 			fail(fmt.Errorf("usage: ops mailbox-send <userID> <message>"))
@@ -97,6 +101,11 @@ Commands:
       Re-wrap private_keys under a new server key passphrase, update the
       OS keychain when not using SERVER_KEY_PASSPHRASE, and remind you to
       re-export the identity bundle.
+
+  print-key
+      Print this server's own public signing key armor to stdout, for an
+      admin to hand out to users/peer admins out-of-band — the server no
+      longer serves this over HTTP.
 
   mailbox-send <userID> <message>
       Send a one-off encrypted mailbox message to <userID>. Accepts either
@@ -297,6 +306,32 @@ func runRotatePassphrase() error {
 
 	fmt.Fprintln(os.Stderr, "Re-export the identity bundle now (bundle password will be prompted again):")
 	fmt.Fprintln(os.Stderr, "  ops export-identity")
+	return nil
+}
+
+func runPrintKey() error {
+	cfg := loadOpsConfig()
+	db, err := openDB(cfg)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	var publicArmor string
+	err = db.QueryRowContext(context.Background(), `
+		SELECT pub.armor
+		FROM servers s
+		JOIN public_keys pub ON pub.id = s.signing_key
+		WHERE s.self = TRUE
+	`).Scan(&publicArmor)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("no self server signing key found")
+	}
+	if err != nil {
+		return fmt.Errorf("load server signing key: %w", err)
+	}
+
+	fmt.Println(publicArmor)
 	return nil
 }
 
