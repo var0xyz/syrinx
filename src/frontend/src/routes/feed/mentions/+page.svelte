@@ -5,9 +5,12 @@
   import SectionTabs from '$lib/components/SectionTabs.svelte';
   import MentionsList from '$lib/components/MentionsList.svelte';
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
+  import { clearUnread, unreadInteractions } from '$lib/stores/unreadInteractions';
 
-  const tabs = [
-    { href: '/replies', label: 'Replies' },
+  clearUnread('mentions');
+
+  $: tabs = [
+    { href: '/replies', label: 'Replies', unread: $unreadInteractions.replies },
     { href: '/ripples', label: 'Ripples' },
     { href: '/feed/mentions', label: 'Mentions' },
   ];

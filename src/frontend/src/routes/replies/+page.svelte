@@ -13,12 +13,13 @@
   import { removedReedsRepository } from '$lib/repositories/removedReeds';
   import { serverConnection } from '$lib/services/serverConnection';
   import { formatRelativeTime } from '$lib/utils/time';
+  import { clearUnread, unreadInteractions } from '$lib/stores/unreadInteractions';
   import type { ReedType } from '$lib/types/reed';
 
-  const tabs = [
+  $: tabs = [
     { href: '/replies', label: 'Replies' },
     { href: '/ripples', label: 'Ripples' },
-    { href: '/feed/mentions', label: 'Mentions' },
+    { href: '/feed/mentions', label: 'Mentions', unread: $unreadInteractions.mentions },
   ];
 
   type Row = {
@@ -70,6 +71,7 @@
   }
 
   loadReplies();
+  clearUnread('replies');
 </script>
 
 <Auth>
