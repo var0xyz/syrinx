@@ -17,11 +17,13 @@
 }
 
 html, body, #app {
-  height: 100%;
+  min-height: 100%;
   /* iOS Safari's dynamic toolbar makes 100%/100vh taller than the visible
      viewport, producing a phantom scrollbar even on empty pages; dvh tracks
-     the actual visible viewport. */
-  height: 100dvh;
+     the actual visible viewport. min-height (not height) so the box still
+     grows with content past one viewport — a fixed height here breaks
+     `header`'s position: sticky once scrolled past that point. */
+  min-height: 100dvh;
 }
 
 body {
