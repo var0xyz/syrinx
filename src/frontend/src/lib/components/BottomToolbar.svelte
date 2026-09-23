@@ -61,7 +61,7 @@
       <span class="label">Interactions</span>
     </a>
     <a
-      href="/search/reeds"
+      href="/search"
       class="toolbar-btn"
       class:active={$currentToolbarPage === 'search'}
     >

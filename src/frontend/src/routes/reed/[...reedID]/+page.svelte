@@ -1142,7 +1142,7 @@
     gap: 0.5rem;
     padding: 0.5rem 1rem;
     border-top: 1px solid var(--border);
-    background: var(--surface);
+    background-color: transparent;
   }
 
   .action-btn {

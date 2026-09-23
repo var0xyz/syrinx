@@ -37,8 +37,6 @@
   $: mentionsSubActive = path === '/feed/mentions';
 
   $: searchActive = currentPage === 'search' || path.startsWith('/search');
-  $: searchReedsSubActive = path === '/search/reeds';
-  $: searchUsersSubActive = path === '/search/users';
 
   $: networkActive = currentPage === 'network' || path.startsWith('/network/');
   $: usersSubActive = path.startsWith('/network/users');
@@ -97,14 +95,8 @@
     {#if $unreadInteractions.mentions}<span class="sn-unread-dot"></span>{/if}
   </a>
 
-  <a href="/search/reeds" class="sn-btn" class:active={searchActive}>
+  <a href="/search" class="sn-btn" class:active={searchActive}>
     <span class="sn-icon">🔍</span>Search
-  </a>
-  <a href="/search/reeds" class="sn-sub" class:active={searchReedsSubActive}>
-    <span class="sn-dot"></span>Reeds
-  </a>
-  <a href="/search/users" class="sn-sub" class:active={searchUsersSubActive}>
-    <span class="sn-dot"></span>Users
   </a>
 
   {#if isAdmin}
