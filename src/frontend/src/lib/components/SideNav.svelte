@@ -8,7 +8,7 @@
   // Coarse top-level hint for routes the URL alone can't map to a nav
   // destination (reed detail, pipe, mesh peer/attempt, error page) — leave
   // unset to derive purely from the URL. Never implies a sub-item.
-  /** @type {'reeds' | 'feeds' | 'lists' | 'interactions' | 'network' | 'invites' | 'account' | ''} */
+  /** @type {'reeds' | 'feeds' | 'lists' | 'interactions' | 'search' | 'network' | 'invites' | 'account' | ''} */
   export let currentPage = '';
 
   $: path = $page.url.pathname;
@@ -32,6 +32,10 @@
   $: repliesSubActive = path === '/replies';
   $: ripplesSubActive = path === '/ripples';
   $: mentionsSubActive = path === '/feed/mentions';
+
+  $: searchActive = currentPage === 'search' || path.startsWith('/search');
+  $: searchReedsSubActive = path === '/search/reeds';
+  $: searchUsersSubActive = path === '/search/users';
 
   $: networkActive = currentPage === 'network' || path.startsWith('/network/');
   $: usersSubActive = path.startsWith('/network/users');
@@ -85,6 +89,16 @@
   </a>
   <a href="/feed/mentions" class="sn-sub" class:active={mentionsSubActive}>
     <span class="sn-dot"></span>Mentions
+  </a>
+
+  <a href="/search/reeds" class="sn-btn" class:active={searchActive}>
+    <span class="sn-icon">🔍</span>Search
+  </a>
+  <a href="/search/reeds" class="sn-sub" class:active={searchReedsSubActive}>
+    <span class="sn-dot"></span>Reeds
+  </a>
+  <a href="/search/users" class="sn-sub" class:active={searchUsersSubActive}>
+    <span class="sn-dot"></span>Users
   </a>
 
   {#if isAdmin}
