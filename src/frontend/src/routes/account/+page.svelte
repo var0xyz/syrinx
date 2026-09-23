@@ -16,8 +16,9 @@
   import SideNav from '$lib/components/SideNav.svelte';
   import ExportDataModal from '$lib/components/ExportDataModal.svelte';
   import Auth from '$lib/components/Auth.svelte';
+  import ServerVersionInfo from '$lib/components/ServerVersionInfo.svelte';
   import { notificationStore } from '$lib/stores/notifications';
-  import { formatRelativeTime, formatAbsoluteDateTime } from '$lib/utils/time';
+  import { formatRelativeTime } from '$lib/utils/time';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { userInfoRepository } from '$lib/repositories/userInfo';
@@ -583,10 +584,7 @@
       </div>
     </div>
 
-    <p class="app-version">
-      Version: {__APP_VERSION__.slice(0, 12)}<br />
-      Built {formatAbsoluteDateTime(__APP_BUILD_TIME__)}
-    </p>
+    <ServerVersionInfo className="app-version" />
 
     <ExportDataModal
       open={showExportWarningModal}
@@ -633,7 +631,7 @@
     padding: 1rem;
   }
 
-  .app-version {
+  :global(.app-version) {
     text-align: center;
     color: var(--muted);
     font-size: 0.75rem;
@@ -642,7 +640,7 @@
   }
 
   @media (min-width: 768px) {
-    .app-version {
+    :global(.app-version) {
       display: none;
     }
   }
