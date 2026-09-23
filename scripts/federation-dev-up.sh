@@ -77,9 +77,10 @@ for db in "$A_DB_NAME" "$B_DB_NAME"; do
 done
 
 # 3. Build the server binary once; both instances run the same binary with
-# different env.
+# different env. Also build the ops binary (print-key needs the ops tag).
 echo "Building syrinx binary..."
 (cd "$ROOT_DIR" && mkdir -p bin && go build -C src/backend -o ../../bin/syrinx .)
+(cd "$ROOT_DIR" && go build -C src/backend -tags ops -o ../../bin/syrinx-ops .)
 
 # common_env NAME DB_NAME API_PORT SERVER_NAME SERVER_KEY_PASSPHRASE ROOT_EXPORT_PASSPHRASE SPA_PORT
 common_env() {
@@ -144,6 +145,16 @@ mint_root_if_needed() {
 mint_root_if_needed "A" "$A_DB_NAME" "$A_ENV" "$A_ROOT_EXPORT_PASSPHRASE"
 mint_root_if_needed "B" "$B_DB_NAME" "$B_ENV" "$B_ROOT_EXPORT_PASSPHRASE"
 
+# 4b. Print each instance's server public key — ServerKeyGate needs it
+# pasted in out-of-band before the SPA can reach either instance's API.
+print_key() {
+  local env_block="$1"
+  ( cd "$ROOT_DIR/src/backend" && eval "$env_block"; ../../bin/syrinx-ops print-key )
+}
+
+A_PUBLIC_KEY="$(print_key "$A_ENV")"
+B_PUBLIC_KEY="$(print_key "$B_ENV")"
+
 # 5. Launch tmux session: one window per instance, split into api + spa panes.
 tmux new-session -d -s "$SESSION" -n "instance-a"
 tmux send-keys -t "$SESSION:instance-a" "cd '$ROOT_DIR/src/backend'; $A_ENV
@@ -173,6 +184,15 @@ and scripts/syrinx-b-1-*.sxi.gpg — import each into its respective SPA via
 Server key passphrases (unwrap each instance's signing key):
   A: ${A_SERVER_KEY_PASSPHRASE}
   B: ${B_SERVER_KEY_PASSPHRASE}
+
+Server public keys — paste the matching one into each SPA's ServerKeyGate
+on first load (the SPA can't reach its API until it does):
+
+Instance A public key:
+${A_PUBLIC_KEY}
+
+Instance B public key:
+${B_PUBLIC_KEY}
 
 (These passwords are also saved in this script's source, if you need them later.)
 
