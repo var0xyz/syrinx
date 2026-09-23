@@ -229,6 +229,23 @@ export interface RippleListResponse extends Base {
   expiresAt?: string;
 }
 
+/**
+ * One row of GET /ripples — a ripple the caller received, on a reed they
+ * own or as a reply to one they authored. Adds fields implicit from the
+ * URL on the per-reed endpoint, since one response can mix reeds.
+ */
+export interface ReceivedRipple extends Ripple {
+  reedID: string;
+  reedAuthorID: string;
+  expiresAt: string;
+}
+
+export interface ReceivedRippleListResponse extends Base {
+  ripples: ReceivedRipple[];
+  hasMore: boolean;
+  nextCursor?: string;
+}
+
 /** One row in GET /users/{userID}/following or /users/{userID}/followers. */
 export interface FollowListUser extends Base {
   userID: string;

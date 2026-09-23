@@ -728,6 +728,18 @@ export const apiService = {
     return request<void>(`/mentions/${reedID}${qs ? `?${qs}` : ''}`, { method: 'DELETE' });
   },
 
+  /** The caller's ripples inbox: comments on their own reeds, plus replies
+   * to a ripple they themselves authored — see GetReceivedRipples. */
+  async getReceivedRipples(
+    opts?: { limit?: number; before?: string },
+  ): Promise<api.ReceivedRippleListResponse> {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.before) params.set('before', opts.before);
+    const qs = params.toString();
+    return request<api.ReceivedRippleListResponse>(`/ripples${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+
   /**
    * Listing ripples requires proving possession of the parent reed —
    * `serverSignatureArmor` (the reed's own base64 server-signature armor,
