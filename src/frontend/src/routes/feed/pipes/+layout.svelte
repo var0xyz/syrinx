@@ -78,7 +78,7 @@
               on:click={() => selectPipe(pipe.tagName)}
               on:keydown={(e) => e.key === 'Enter' && selectPipe(pipe.tagName)}
             >
-              <span class="pipe-row-name">#{pipe.tagName}</span>
+              <span class="pipe-row-name">#{pipe.displayName}</span>
               <div class="pipe-row-actions">
                 <button
                   class="delete-btn"
@@ -117,7 +117,7 @@
 {#if deleteTarget}
   <ConfirmDialog
     title="Remove pipe?"
-    message={`This will unpin #${deleteTarget.tagName} from your Pipes list.`}
+    message={`This will unpin #${deleteTarget.displayName} from your Pipes list.`}
     confirmLabel="Remove"
     on:confirm={confirmRemove}
     on:cancel={() => (deleteTarget = null)}

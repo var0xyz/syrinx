@@ -440,7 +440,7 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
  * the server routed on an unverified author claim, this checks it. */
 export function verifyClaimedTags(reed: ReedType, deliveryTag: string | null): boolean {
   if (!deliveryTag) return true;
-  return extractTags(reed.content).includes(deliveryTag);
+  return extractTags(reed.content).some((tag) => tag.toLowerCase() === deliveryTag);
 }
 
 /**

@@ -14,11 +14,12 @@ export async function load({ parent, params }) {
     throw error(404, 'Pipe not found');
   }
 
-  const { reeds, authors } = await reedsService.getReedsByTag(tag);
+  const { reeds, authors, displayName } = await reedsService.getReedsByTag(tag);
 
   return {
     user,
     tag,
+    displayName,
     reeds,
     authors,
   };

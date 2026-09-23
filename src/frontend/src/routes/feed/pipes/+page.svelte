@@ -41,7 +41,7 @@
           on:click={() => goto(`/feed/pipes/${encodeURIComponent(pipe.tagName)}`)}
           on:keydown={(e) => e.key === 'Enter' && goto(`/feed/pipes/${encodeURIComponent(pipe.tagName)}`)}
         >
-          <span class="pipe-name">#{pipe.tagName}</span>
+          <span class="pipe-name">#{pipe.displayName}</span>
           <div class="pipe-actions">
             <button
               class="delete-btn"
@@ -65,7 +65,7 @@
 {#if deleteTarget}
   <ConfirmDialog
     title="Remove pipe?"
-    message={`This will unpin #${deleteTarget.tagName} from your Pipes list.`}
+    message={`This will unpin #${deleteTarget.displayName} from your Pipes list.`}
     confirmLabel="Remove"
     on:confirm={confirmRemove}
     on:cancel={() => (deleteTarget = null)}
@@ -115,7 +115,7 @@
     justify-content: space-between;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 0.25rem 1rem;
     cursor: pointer;
     transition: all 0.2s ease;

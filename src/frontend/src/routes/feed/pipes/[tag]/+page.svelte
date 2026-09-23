@@ -15,6 +15,7 @@
   export let data;
 
   let tag = data.tag;
+  let displayName = data.displayName;
   let reeds = data.reeds;
   let authors = data.authors;
   let lastHandledPipeReedId = '';
@@ -22,6 +23,7 @@
   let pinned = false;
 
   $: tag = data.tag;
+  $: displayName = data.displayName;
   $: reeds = data.reeds;
   $: authors = data.authors;
 
@@ -37,7 +39,7 @@
     if (pinned) {
       await pipesRepository.unpin(tag);
     } else {
-      await pipesRepository.pin(tag);
+      await pipesRepository.pin(displayName);
     }
     pinned = !pinned;
     await refreshPipes();
@@ -50,7 +52,7 @@
   }
 
   async function onLiveReed(reed, username) {
-    if (!reed?.tags?.includes(tag)) return;
+    if (!reed?.tags?.some((t) => t.toLowerCase() === tag)) return;
     if (reeds.some((r) => r.id === reed.id)) return;
 
     let nextAuthors = authors;
@@ -89,7 +91,7 @@
 </script>
 
 <div class="pipe-header">
-  <h2 class="pipe-sub">#{tag}</h2>
+  <h2 class="pipe-sub">#{displayName}</h2>
   <button
     class="pin-btn"
     class:unpin-btn={pinned}
@@ -105,7 +107,7 @@
     {#if reeds.length === 0}
       <div class="waiting-state">
         <div class="waiting-pulse"></div>
-        <p>No local reeds for #{tag} yet. Listening…</p>
+        <p>No local reeds for #{displayName} yet. Listening…</p>
       </div>
     {:else}
       {#each reeds as reed (reed.id)}

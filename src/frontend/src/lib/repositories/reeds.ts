@@ -259,12 +259,16 @@ class ReedsService {
 
     if (reed.tags?.length > 0) {
       for (const tag of reed.tags) {
-        const existing = await dbService.get<{ tagName: string; reeds: string[] }>('tags', tag);
+        const tagName = tag.toLowerCase();
+        const existing = await dbService.get<{ tagName: string; displayName: string; reeds: string[] }>('tags', tagName);
         const already = existing?.reeds?.includes(reed.id);
         const reeds = already
           ? existing!.reeds
           : [...(existing?.reeds ?? []), reed.id];
-        await dbService.put('tags', { tagName: tag, reeds }, allowUnsigned);
+        // First-seen casing wins as the display name — matching/storage
+        // stays case-insensitive via tagName, only display preserves it.
+        const displayName = existing?.displayName ?? tag;
+        await dbService.put('tags', { tagName, displayName, reeds }, allowUnsigned);
       }
     }
   }
@@ -301,19 +305,20 @@ class ReedsService {
 
   /**
    * Local reeds indexed under a normalized tag (newest server signature first).
+   * displayName is the first-seen casing for this tag, for pipe titles.
    */
-  async getReedsByTag(tag: string): Promise<{ reeds: ReedType[]; authors: Record<string, User> }> {
+  async getReedsByTag(tag: string): Promise<{ reeds: ReedType[]; authors: Record<string, User>; displayName: string }> {
     const normalized = tag.trim().replace(/^#/, '').toLowerCase();
     if (!normalized) {
-      return { reeds: [], authors: {} };
+      return { reeds: [], authors: {}, displayName: tag };
     }
     try {
-      const entry = await dbService.get<{ tagName: string; reeds: string[] }>('tags', normalized);
+      const entry = await dbService.get<{ tagName: string; displayName?: string; reeds: string[] }>('tags', normalized);
       const refs = entry?.reeds ?? [];
       const reeds: ReedType[] = [];
       for (const ref of refs) {
         const reed = await dbService.get<ReedType>('reeds', ref);
-        if (reed?.tags?.includes(normalized)) {
+        if (reed?.tags?.some((t) => t.toLowerCase() === normalized)) {
           reeds.push(reed);
         }
       }
@@ -329,10 +334,10 @@ class ReedsService {
           if (user) authors[reed.userID] = user;
         }
       }
-      return { reeds, authors };
+      return { reeds, authors, displayName: entry?.displayName ?? normalized };
     } catch (error) {
       console.error('Failed to get reeds by tag:', error);
-      return { reeds: [], authors: {} };
+      return { reeds: [], authors: {}, displayName: normalized };
     }
   }
 

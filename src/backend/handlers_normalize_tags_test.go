@@ -19,6 +19,7 @@ func TestNormalizeClaimedTags(t *testing.T) {
 		{"dedup case-insensitive", []string{"One", "one", "ONE"}, []string{"one"}},
 		{"first-appearance order", []string{"b", "a", "b"}, []string{"b", "a"}},
 		{"blank entries dropped", []string{"", "  ", "real"}, []string{"real"}},
+		{"internal whitespace dropped", []string{"my tag", "real"}, []string{"real"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
