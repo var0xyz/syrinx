@@ -1784,15 +1784,14 @@ func (rs *realtimeService) fanoutReedRemoval(authorUserID, reedID string, cert *
 
 	// If the removed reed was itself a reply, everyone subscribed to an
 	// ancestor further up the thread also needs the removal notice — they
-	// were shown the reply and need to know it's gone, same as
-	// notifyReplyAncestorsOfReply for a newly posted reply.
+	// were shown the reply and need to know it's gone.
 	rs.notifyReplyAncestorsOfRemoval(reedID, cert)
 }
 
 // fanoutNewReed dispatches a newly published reed to followers, broadcast subs,
 // profile subs, and pipe listeners for the claimed tags. reedID is canonical.
 // excludeFromFollowers drops recipients who are already getting REED_REPLY
-// for this same reed via notifyReplyAncestorsOfReply (see handlePublishReady).
+// for this same reed via notifyParentSubscribersOfReply (see handlePublishReady).
 func (rs *realtimeService) fanoutNewReed(reedID string, tags []string, excludeFromFollowers []string) {
 	authorUserID := reedAuthorIdentity(reedID)
 	log.Info().
@@ -1842,10 +1841,9 @@ func (rs *realtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 	// Pipe listeners always get PIPE_REED (push). Followers who are not on the
 	// pipe get FOLLOW_REED. Overlap prefers PIPE_REED (one event).
 	followersOnly := subtractUserIDs(followers, pipeListeners)
-	// Followers who are also subscribed to the reed this reply is replying to
-	// are about to get REED_REPLY for it from notifyReplyAncestorsOfReply —
-	// drop them here so they don't get a redundant FOLLOW_REED for the same
-	// reply too.
+	// Followers already subscribed to the parent reed are about to get
+	// REED_REPLY from notifyParentSubscribersOfReply — drop them here so they
+	// don't also get a redundant FOLLOW_REED for the same reply.
 	followersOnly = subtractUserIDs(followersOnly, excludeFromFollowers)
 
 	// An admin who already gets the reed via FOLLOW_REED/PIPE_REED doesn't
@@ -3776,37 +3774,28 @@ func (rs *realtimeService) notifyReedEchoes(reedID string) {
 	rs.notifyForeignReedSubscribers(reedID, msg)
 }
 
-// notifyReplyAncestorsOfReply walks replyReedID's ancestor chain and relays
-// the reply to each ancestor's reed-stat subscribers. Only called from
-// handlePublishReady, once the reply's author has actually claimed
+// notifyParentSubscribersOfReply relays replyReedID to its direct parent's
+// reed-stat subscribers only — not the whole ancestor chain. Only called
+// from handlePublishReady, once the reply's author has actually claimed
 // PUBLISH_READY — calling this any earlier (e.g. straight from SignReed)
 // makes the author a relay target before their own client is ready to
 // serve it, and the resulting relay miss deletes their allocation,
 // orphaning the reed from relay entirely.
-func (rs *realtimeService) notifyReplyAncestorsOfReply(replyReedID string) {
-	reedID := replyReedID
-	for {
-		parentReedID, ok, err := rs.db.ReplyParent(context.Background(), reedID)
-		if err != nil {
-			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to resolve reply parent")
-			return
-		}
-		if !ok {
-			return
-		}
-		rs.notifyReedSubscribersOfReply(parentReedID, replyReedID)
-		reedID = parentReedID
+func (rs *realtimeService) notifyParentSubscribersOfReply(replyReedID string) {
+	parentReedID, ok, err := rs.db.ReplyParent(context.Background(), replyReedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", replyReedID).Msg("Failed to resolve reply parent")
+		return
 	}
+	if !ok {
+		return
+	}
+	rs.notifyReedSubscribersOfReply(parentReedID, replyReedID)
 }
 
-// notifyForeignParentOfReply tells replyReedID's immediate parent's home
+// notifyForeignParentOfReply tells replyReedID's direct parent's home
 // server about the reply, if that parent is foreign — the write side of
-// cross-server replying (see realtimeForeignReplyNotifyHook). Only the
-// immediate parent needs notifying: that server's own reed_replies table
-// already lets it walk further up its own ancestor chain the same way this
-// server's notifyReplyAncestorsOfReply does. Runs alongside (not gating)
-// notifyReplyAncestorsOfReply's own local-ancestor walk above — a purely
-// local reply chain has nothing foreign to notify and this is a no-op.
+// cross-server replying. A no-op for a purely local reply.
 func (rs *realtimeService) notifyForeignParentOfReply(replyReedID string) {
 	if rs.foreignReplyNotifyHook == nil {
 		return
@@ -3841,13 +3830,37 @@ func (rs *realtimeService) notifyMentionedUsers(reedID string) {
 	}
 }
 
-// notifyReplyAncestorsOfRemoval walks removedReedID's ancestor chain and
-// delivers the removal cert to each ancestor's reed-stat subscribers —
-// someone viewing a thread needs to learn a reply in it was deleted, not
-// just subscribers of the removed reed itself. Removal certs are
-// server-stored (unlike reply content), so unlike notifyReplyAncestorsOfReply
-// there's no relay-holder race to worry about; this can run inline with the
-// removed reed's own subscriber fanout.
+// notifyParentAuthorOfReply pushes replyReedID to its direct parent's
+// online author (skip on self-reply), unless they're already a thread
+// subscriber — notifyReedSubscribersOfReply covers that case already.
+func (rs *realtimeService) notifyParentAuthorOfReply(replyReedID string) {
+	parentReedID, ok, err := rs.db.ReplyParent(context.Background(), replyReedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", replyReedID).Msg("Failed to resolve reply parent for author notify")
+		return
+	}
+	if !ok {
+		return
+	}
+	parentAuthorID := reedAuthorIdentity(parentReedID)
+	replyAuthorID := reedAuthorIdentity(replyReedID)
+	if parentAuthorID == "" || parentAuthorID == replyAuthorID {
+		return
+	}
+	if !rs.connManager.HasConnection(parentAuthorID) {
+		return
+	}
+	for _, sub := range rs.connManager.ReedSubscriberUserIDs(parentReedID, replyAuthorID) {
+		if sub == parentAuthorID {
+			return
+		}
+	}
+	rs.dispatchMany([]string{parentAuthorID}, reedReplyEvent, replyReedID)
+}
+
+// notifyReplyAncestorsOfRemoval walks removedReedID's ancestor chain,
+// delivering the removal cert to each ancestor's reed-stat subscribers —
+// server-stored, so this can run inline, no relay race to worry about.
 func (rs *realtimeService) notifyReplyAncestorsOfRemoval(removedReedID string, cert *reedRemovalWire) {
 	reedID := removedReedID
 	for {
@@ -4262,8 +4275,9 @@ func (rs *realtimeService) handlePublishReady(client *realtimeClient, data json.
 		} else {
 			go rs.fanoutNewReedNoBroadcast(reedID, tags, excludeFromFollowers)
 		}
-		go rs.notifyReplyAncestorsOfReply(reedID)
+		go rs.notifyParentSubscribersOfReply(reedID)
 		go rs.notifyForeignParentOfReply(reedID)
+		go rs.notifyParentAuthorOfReply(reedID)
 		go rs.notifyMentionedUsers(reedID)
 	} else {
 		exists, err := rs.db.ReedExists(context.Background(), reedID)
