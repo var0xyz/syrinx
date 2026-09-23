@@ -4157,6 +4157,27 @@ func (rs *realtimeService) catchUp(userID, requestID string) {
 		}
 	}
 
+	missingReplies, err := rs.db.GetMissingReplies(context.Background(), userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing replies")
+		return
+	}
+	for _, reed := range missingReplies {
+		eventID := generateRealtimeEventID(userID)
+		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, userID, reedReplyEvent, reed.ReedID); err != nil {
+			log.Error().Err(err).Str("reedID", reed.ReedID).Msg("Failed to create catch-up reply event")
+			continue
+		}
+		holder, err := rs.db.GetOnlineReedHolder(context.Background(), reed.ReedID)
+		if err != nil {
+			log.Error().Err(err).Str("reedID", reed.ReedID).Msg("Failed to get online holder for catch-up reply")
+			continue
+		}
+		if holder != "" {
+			rs.dispatchNextIfConnected(holder)
+		}
+	}
+
 	removals, err := rs.db.GetMissingRemovals(context.Background(), userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing reed removals")

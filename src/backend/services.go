@@ -2346,17 +2346,53 @@ func (s *DataService) GetOnlineMentionedUsers(ctx context.Context, reedID string
 func (s *DataService) GetMissingMentions(ctx context.Context, userID string) ([]unallocatedReed, error) {
 	selfIdentity := identityID(userID)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id, r.user_id
-		FROM reeds r
-		JOIN reed_mentions rm ON rm.mentioning_reed_id = r.id
-		WHERE rm.mentioned_user_id = $1
+		SELECT reeds.id, reeds.user_id
+		FROM reeds
+		JOIN reed_mentions ON reed_mentions.mentioning_reed_id = reeds.id
+		WHERE reed_mentions.mentioned_user_id = $1
 		  AND NOT EXISTS (
-		      SELECT 1 FROM reed_allocations ra
-		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $1
+		      SELECT 1 FROM reed_allocations
+		      WHERE reed_allocations.reed_id = reeds.id AND reed_allocations.holder_user_id = $1
 		  )
 		  AND NOT EXISTS (
-		      SELECT 1 FROM reed_removals rr
-		      WHERE rr.reed_id = r.id
+		      SELECT 1 FROM reed_removals
+		      WHERE reed_removals.reed_id = reeds.id
+		  )
+	`, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []unallocatedReed
+	for rows.Next() {
+		var reedID string
+		var authorIdentity identityID
+		if err := rows.Scan(&reedID, &authorIdentity); err != nil {
+			return nil, err
+		}
+		results = append(results, unallocatedReed{ReedID: reedID, AuthorID: string(authorIdentity)})
+	}
+	return results, rows.Err()
+}
+
+// GetMissingReplies returns unallocated replies to reeds userID authored
+// — the catch-up counterpart to notifyReedSubscribersOfReply's live push.
+func (s *DataService) GetMissingReplies(ctx context.Context, userID string) ([]unallocatedReed, error) {
+	selfIdentity := identityID(userID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT reeds.id, reeds.user_id
+		FROM reeds
+		JOIN reed_replies ON reed_replies.reed_id = reeds.id
+		JOIN reeds AS parent ON parent.id = reed_replies.parent_reed_id
+		WHERE parent.user_id = $1
+		  AND reeds.user_id != $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_allocations
+		      WHERE reed_allocations.reed_id = reeds.id AND reed_allocations.holder_user_id = $1
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals WHERE reed_removals.reed_id = reeds.id
 		  )
 	`, selfIdentity)
 	if err != nil {
