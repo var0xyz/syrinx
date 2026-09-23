@@ -52,6 +52,9 @@ export const pipeReedQueue = writable<QueuedReed | null>(null);
 // it into the follow feed / "new reed" banners would misattribute it.
 export const reedReplyQueue = writable<QueuedReed | null>(null);
 
+// Receives MENTION deliveries (live push + catch-up on reconnect)
+export const mentionReedQueue = writable<QueuedReed | null>(null);
+
 export function dispatchReedToQueue(
   reed: ReedType,
   eventName: string,
@@ -66,6 +69,8 @@ export function dispatchReedToQueue(
     pipeReedQueue.set(queued);
   } else if (eventName === 'reed_reply') {
     reedReplyQueue.set(queued);
+  } else if (eventName === 'mention') {
+    mentionReedQueue.set(queued);
   } else {
     profileReedQueue.set(queued);
   }

@@ -210,6 +210,7 @@ const (
 	accountRemovedEvent      realtimeEventName = "account_removed"
 	reedReplyEvent           realtimeEventName = "reed_reply"
 	archiveReedEvent         realtimeEventName = "archive_reed"
+	mentionEvent             realtimeEventName = "mention"
 )
 
 // relayRequestMsg is sent from the server to a holder to request reed
@@ -347,6 +348,21 @@ func newArchiveReedMsg(eventID, requestID, ciphertext, reedID string) dataRespon
 func newReedReplyMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
 	return dataResponseMsg{
 		Type: "REED_REPLY",
+		ID:   eventID,
+		Data: dataResponseData{
+			RequestID:  requestID,
+			Ciphertext: ciphertext,
+			ReedID:     reedID,
+		},
+	}
+}
+
+// newMentionMsg builds a MENTION delivery: the reed's ciphertext, over
+// the same holder-relay path as REED_REPLY (a mention always needs the
+// reed itself, so a pointer-only push would just add a round trip).
+func newMentionMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
+	return dataResponseMsg{
+		Type: "MENTION",
 		ID:   eventID,
 		Data: dataResponseData{
 			RequestID:  requestID,
@@ -3812,6 +3828,19 @@ func (rs *realtimeService) notifyForeignParentOfReply(replyReedID string) {
 	}
 }
 
+// notifyMentionedUsers pushes reedID to each online local user it
+// mentions. An offline recipient is picked up by catchUp instead.
+func (rs *realtimeService) notifyMentionedUsers(reedID string) {
+	mentionedUserIDs, err := rs.db.GetOnlineMentionedUsers(context.Background(), reedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load mentions for notify")
+		return
+	}
+	if len(mentionedUserIDs) > 0 {
+		rs.dispatchMany(mentionedUserIDs, mentionEvent, reedID)
+	}
+}
+
 // notifyReplyAncestorsOfRemoval walks removedReedID's ancestor chain and
 // delivers the removal cert to each ancestor's reed-stat subscribers —
 // someone viewing a thread needs to learn a reply in it was deleted, not
@@ -4107,6 +4136,27 @@ func (rs *realtimeService) catchUp(userID, requestID string) {
 		}
 	}
 
+	missingMentions, err := rs.db.GetMissingMentions(context.Background(), userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing mentions")
+		return
+	}
+	for _, reed := range missingMentions {
+		eventID := generateRealtimeEventID(userID)
+		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, userID, mentionEvent, reed.ReedID); err != nil {
+			log.Error().Err(err).Str("reedID", reed.ReedID).Msg("Failed to create catch-up mention event")
+			continue
+		}
+		holder, err := rs.db.GetOnlineReedHolder(context.Background(), reed.ReedID)
+		if err != nil {
+			log.Error().Err(err).Str("reedID", reed.ReedID).Msg("Failed to get online holder for catch-up mention")
+			continue
+		}
+		if holder != "" {
+			rs.dispatchNextIfConnected(holder)
+		}
+	}
+
 	removals, err := rs.db.GetMissingRemovals(context.Background(), userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing reed removals")
@@ -4193,6 +4243,7 @@ func (rs *realtimeService) handlePublishReady(client *realtimeClient, data json.
 		}
 		go rs.notifyReplyAncestorsOfReply(reedID)
 		go rs.notifyForeignParentOfReply(reedID)
+		go rs.notifyMentionedUsers(reedID)
 	} else {
 		exists, err := rs.db.ReedExists(context.Background(), reedID)
 		if err != nil {
@@ -4274,6 +4325,11 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID s
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering reed reply to subscriber")
 		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
 			return newReedReplyMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
+		})
+	} else if pe.EventName == string(mentionEvent) {
+		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering mention to recipient")
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
+			return newMentionMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else {
 		rs.deliverOrForwardDataResponse(context.Background(), eventID, pe.RequesterUserID, pe.RequestID, ciphertext, pe.ReedID)

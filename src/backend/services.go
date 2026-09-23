@@ -2314,74 +2314,66 @@ func (s *DataService) InsertMentionRow(ctx context.Context, mentioningReedID, me
 	return insertMentionRow(ctx, s.db, mentioningReedID, mentionedUserID)
 }
 
-// MentionListItem is one row of a mentioned user's pull inbox. AuthorID is
-// parsed from the canonical reed id, no join needed.
-type MentionListItem struct {
-	ReedID    string    `json:"reedID"`
-	AuthorID  string    `json:"authorID"`
-	CreatedAt time.Time `json:"createdAt"`
-}
-
-// MentionListResponse is the GET .../mentions response shape.
-type MentionListResponse struct {
-	Mentions []MentionListItem `json:"mentions"`
-	HasMore  bool              `json:"hasMore"`
-}
-
-// GetMentionsForUser returns mentionedUserID's pull inbox, oldest first.
-// limit is clamped to [1, 100], defaulting to 50.
-func (s *DataService) GetMentionsForUser(ctx context.Context, mentionedUserID string, limit int, before *time.Time) (*MentionListResponse, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 100 {
-		limit = 100
-	}
-
-	args := []any{mentionedUserID}
-	query := `
-		SELECT mentioning_reed_id, created_at
-		FROM reed_mentions
-		WHERE mentioned_user_id = $1
-	`
-	if before != nil {
-		args = append(args, before.UTC().Truncate(time.Second))
-		query += fmt.Sprintf(" AND (created_at, mentioning_reed_id) > ($%d, '')", len(args))
-	}
-	args = append(args, limit+1)
-	query += fmt.Sprintf(" ORDER BY created_at ASC, mentioning_reed_id ASC LIMIT $%d", len(args))
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
+// GetOnlineMentionedUsers returns reedID's mentioned userIDs who are
+// currently online, mirroring GetOnlineFollowers. Offline recipients are
+// covered by GetMissingMentions on reconnect instead.
+func (s *DataService) GetOnlineMentionedUsers(ctx context.Context, reedID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ou.user_id
+		FROM online_users ou
+		JOIN reed_mentions rm ON ou.user_id = rm.mentioned_user_id
+		WHERE rm.mentioning_reed_id = $1
+	`, reedID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var items []MentionListItem
+	var userIDs []string
 	for rows.Next() {
-		var reedID string
-		var createdAt time.Time
-		if err := rows.Scan(&reedID, &createdAt); err != nil {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
 			return nil, err
 		}
-		authorID := reedID
-		if a, ok := authorOf(identityID(reedID)); ok {
-			authorID = string(a)
-		}
-		items = append(items, MentionListItem{ReedID: reedID, AuthorID: authorID, CreatedAt: createdAt})
+		userIDs = append(userIDs, userID)
 	}
-	if err := rows.Err(); err != nil {
+	return userIDs, rows.Err()
+}
+
+// GetMissingMentions returns all reeds that claim to mention userID which
+// are not yet present in reed_allocations for that user — the catch-up
+// counterpart to GetOnlineMentionedUsers, mirroring GetMissingOut.
+func (s *DataService) GetMissingMentions(ctx context.Context, userID string) ([]unallocatedReed, error) {
+	selfIdentity := identityID(userID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id, r.user_id
+		FROM reeds r
+		JOIN reed_mentions rm ON rm.mentioning_reed_id = r.id
+		WHERE rm.mentioned_user_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_allocations ra
+		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $1
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals rr
+		      WHERE rr.reed_id = r.id
+		  )
+	`, selfIdentity)
+	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	hasMore := len(items) > limit
-	if hasMore {
-		items = items[:limit]
+	var results []unallocatedReed
+	for rows.Next() {
+		var reedID string
+		var authorIdentity identityID
+		if err := rows.Scan(&reedID, &authorIdentity); err != nil {
+			return nil, err
+		}
+		results = append(results, unallocatedReed{ReedID: reedID, AuthorID: string(authorIdentity)})
 	}
-	if items == nil {
-		items = []MentionListItem{}
-	}
-	return &MentionListResponse{Mentions: items, HasMore: hasMore}, nil
+	return results, rows.Err()
 }
 
 // DeleteMentionEntry removes one (reedID, mentionedUserID) row. Scoping to

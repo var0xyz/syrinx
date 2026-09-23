@@ -38,6 +38,7 @@
   import { syncPendingBackupEvents } from '$lib/services/backupMetrics';
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
+  import { verifyAndStoreMention } from '$lib/services/mentionsSync';
   import ActivitySidebar from '$lib/components/ActivitySidebar.svelte';
   import { isValidRef } from '$lib/utils/identityRef';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
@@ -322,6 +323,41 @@
       } catch (error) {
         console.warn('ServerConnection: invalid reed reply signature, rejecting:', reed?.id, error);
         if (eventId) serverConnection.sendDataInvalid(eventId);
+      }
+    });
+    serverConnection.on(ServerEvent.Mentioned, async (data) => {
+      const eventId = data.id;
+
+      let reed;
+      try {
+        reed = await decryptRelayPayload(data.ciphertext);
+      } catch (error) {
+        console.warn('ServerConnection: failed to decrypt mention:', error);
+        reportDecryptFailure('reeds');
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+
+      if (!reedIdMatchesDelivery(reed, data)) {
+        console.warn('ServerConnection: mention reed id does not match server-asserted reed_id, rejecting:', data.reed_id, 'got', reed.id);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+
+      try {
+        await reedsService.storeReed(reed);
+        if (eventId) serverConnection.sendDataAck(eventId);
+      } catch (error) {
+        console.warn('ServerConnection: invalid mention reed signature, rejecting:', reed?.id, error);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+        return;
+      }
+
+      const kept = await verifyAndStoreMention({ reedID: reed.id, authorID: reed.userID, createdAt: new Date().toISOString() });
+      if (kept) {
+        removeBroadcastReed(reed.id);
+        recordActivity(reed);
+        dispatchReedToQueue(reed, 'mention');
       }
     });
     serverConnection.on(ServerEvent.BroadcastReed, async (data) => {

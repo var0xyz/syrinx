@@ -52,6 +52,7 @@ export enum ServerEvent {
   FollowReed           = 'FOLLOW_REED',
   InvalidRequestIdError = 'INVALID_REQUEST_ID_ERROR',
   Mailbox              = 'MAILBOX',
+  Mentioned            = 'MENTION',
   PipeReed             = 'PIPE_REED',
   PublishReadyAck      = 'PUBLISH_READY_ACK',
   ReedCoverage         = 'REED_COVERAGE',

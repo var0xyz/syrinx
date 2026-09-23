@@ -2779,45 +2779,6 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, list)
 }
 
-// GetMentions handles GET /mentions — the caller's own claimed-mention
-// inbox. Unverified by the server; the client must decrypt each reed and
-// confirm the mention token is really present before trusting it.
-func (h *Handlers) GetMentions(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-	log.Info().Msg("GetMentions request received")
-
-	userID := h.getUserID(r)
-
-	limit := 50
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
-			return
-		}
-		limit = n
-	}
-
-	var before *time.Time
-	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
-		t, err := time.Parse(time.RFC3339, raw)
-		if err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
-			return
-		}
-		t = t.UTC().Truncate(time.Second)
-		before = &t
-	}
-
-	list, err := h.services.db.GetMentionsForUser(r.Context(), userID, limit, before)
-	if err != nil {
-		log.Error().Str("userID", userID).Err(err).Msg("Error listing mentions")
-		internalServerError(w)
-		return
-	}
-
-	writeResponse(w, http.StatusOK, list)
-}
 
 // DeleteMention handles DELETE /mentions/{reedID}: the caller reports a
 // claimed mention of them isn't really present, removing it from their
