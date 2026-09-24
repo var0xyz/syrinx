@@ -154,7 +154,7 @@
         }
         serverConnection.sendDataAck(data.id);
         removeBroadcastReed(reed.id);
-        recordActivity(reed);
+        await recordActivity(reed);
         dispatchReedToQueue(reed, ServerEvent.DataResponse);
         await requestReferencedReeds(reed);
       } catch (error) {
@@ -171,7 +171,7 @@
         await reedsService.storeReed(reed);
         serverConnection.sendDataAck(data.id);
         removeBroadcastReed(reed.id);
-        recordActivity(reed);
+        await recordActivity(reed);
         dispatchReedToQueue(reed, 'follow_reed');
         await requestReferencedReeds(reed);
       } catch (error) {
@@ -200,7 +200,7 @@
         await reedsService.storeReed(reed);
         serverConnection.sendDataAck(data.id);
         removeBroadcastReed(reed.id);
-        recordActivity(reed);
+        await recordActivity(reed);
         dispatchReedToQueue(reed, 'pipe_reed');
         // Also following the author: keep the follow feed in sync without a second relay.
         if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
@@ -217,7 +217,7 @@
         await reedsService.storeReed(reed);
         serverConnection.sendDataAck(data.id);
         removeBroadcastReed(reed.id);
-        recordActivity(reed);
+        await recordActivity(reed);
         dispatchReedToQueue(reed, 'reed_reply');
         markUnread('replies');
         await requestReferencedReeds(reed);
@@ -239,7 +239,7 @@
       const kept = await verifyAndStoreMention({ reedID: reed.id, authorID: reed.userID, createdAt: new Date().toISOString() });
       if (kept) {
         removeBroadcastReed(reed.id);
-        recordActivity(reed);
+        await recordActivity(reed);
         dispatchReedToQueue(reed, 'mention');
         markUnread('mentions');
       }

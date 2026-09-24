@@ -21,7 +21,7 @@
       pendingRefresh = true;
       return;
     }
-    reeds = getActivity();
+    reeds = await getActivity();
     const resolved = {};
     for (const reed of reeds) {
       if (!resolved[reed.userID]) {
