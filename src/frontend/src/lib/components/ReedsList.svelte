@@ -325,8 +325,9 @@
     return { echoMap, userMap, replyMap };
   }
 
-  /** One page of locally-held reeds, plus the server request that backfills
-   * whatever this device is still missing from it. */
+  /** One page of locally-held reeds. On someone else's profile it also asks
+   * the server to backfill whatever this device is missing from that page;
+   * on your own there is no one to fetch from — you are the holder. */
   async function fetchReedPage(after) {
     const page = await reedsService.getReedsByAuthorPage(authorId, PAGE_SIZE, after);
     const { echoMap, userMap, replyMap } = await prefetchQuoteTargets(page.items);
@@ -336,12 +337,14 @@
     if (userMap.size) echoedReedUsers = new Map([...echoedReedUsers, ...userMap]);
     if (replyMap.size) repliedToReeds = new Map([...repliedToReeds, ...replyMap]);
 
-    serverConnection.requestProfilePage(authorId, ++requestedPage);
+    if (!isOwner) {
+      serverConnection.requestProfilePage(authorId, ++requestedPage);
+    }
 
-    // serverHasMore is the previous ack's value, which is exactly the claim
-    // "a page exists past the one just loaded". Local hasMore alone would
-    // hide the button while this page's bodies are still in flight.
-    return { ...page, hasMore: page.hasMore || serverHasMore };
+    // Without an ack to wait on, the local page is the whole truth. Otherwise
+    // serverHasMore (the previous ack's value) keeps the button up while this
+    // page's bodies are still in flight.
+    return { ...page, hasMore: isOwner ? page.hasMore : page.hasMore || serverHasMore };
   }
 
   async function reloadAll() {
