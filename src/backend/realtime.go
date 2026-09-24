@@ -2355,17 +2355,6 @@ func (rs *realtimeService) handlePing(client *realtimeClient, ping *pb.PingMessa
 // handleSubscribeUser handles user subscription requests.
 func (rs *realtimeService) handleSubscribeUser(client *realtimeClient, subscribe *pb.SubscribeMessage) {
 	client.Subscribe(realtimeSubscribeUser)
-
-	response := &pb.WSMessage{
-		Type: pb.MessageType_SUBSCRIBED,
-		Payload: &pb.WSMessage_Subscribed{
-			Subscribed: &pb.SubscribedMessage{
-				Data: "Subscribed to user notifications",
-			},
-		},
-	}
-
-	rs.sendProtobufMessage(client, response)
 }
 
 // handleSubscribeBroadcast handles broadcast subscription requests.
@@ -2377,17 +2366,6 @@ func (rs *realtimeService) handleSubscribeBroadcast(client *realtimeClient, subs
 			Err(err).
 			Msg("Failed to persist broadcast subscription to database")
 	}
-
-	response := &pb.WSMessage{
-		Type: pb.MessageType_SUBSCRIBED,
-		Payload: &pb.WSMessage_Subscribed{
-			Subscribed: &pb.SubscribedMessage{
-				Data: "Subscribed to broadcast notifications",
-			},
-		},
-	}
-
-	rs.sendProtobufMessage(client, response)
 }
 
 // handleUnsubscribeUser handles user unsubscription requests.
