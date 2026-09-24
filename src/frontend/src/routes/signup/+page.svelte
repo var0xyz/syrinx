@@ -104,12 +104,21 @@
     }
   });
 
+  // Rejection sampling: 88 chars does not divide 256, so a plain modulo
+  // would bias toward the start of the set.
   function generatePassword() {
     const chars =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?";
+    const limit = 256 - (256 % chars.length);
     let result = "";
-    for (let i = 0; i < 32; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    const buf = new Uint8Array(32);
+    while (result.length < 32) {
+      crypto.getRandomValues(buf);
+      for (const byte of buf) {
+        if (byte >= limit) continue;
+        result += chars.charAt(byte % chars.length);
+        if (result.length === 32) break;
+      }
     }
     return result;
   }
