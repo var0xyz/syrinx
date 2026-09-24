@@ -52,12 +52,12 @@ export async function load({ params, parent }) {
   const cachedInfo = await userInfoRepository.get(userId).catch(() => null);
   const profileUser = mergeUserView(cachedProfile, cachedInfo);
 
-  const localReeds = await reedsService.getReedsByAuthor(userId);
+  const hasLocalReeds = await reedsService.hasReedsByAuthor(userId);
   // Server-known content not yet synced to this device — distinct from a
   // genuinely empty author. Only meaningful once we actually have zero
   // local reeds; if some are already here, there's nothing left to wait for.
-  const expectContent = localReeds.length === 0 && cachedInfo?.hasReeds === true;
-  if (localReeds.length > 0 || profileUser) {
+  const expectContent = !hasLocalReeds && cachedInfo?.hasReeds === true;
+  if (hasLocalReeds || profileUser) {
     return {
       currentUser,
       userId,

@@ -59,6 +59,8 @@ message WSMessage {
     RippleUpdatedMessage ripple_updated = 40;
     ReedRemovedMessage reed_removed = 41;
     AccountRemovedMessage account_removed = 42;
+    ProfilePageMessage profile_page = 43;
+    PageAckMessage page_ack = 44;
   }
 }
 
@@ -122,6 +124,8 @@ enum MessageType {
   ARCHIVE_REED = 51;
   REED_REPLY = 52;
   MENTION = 53;
+  PROFILE_PAGE = 54;
+  PAGE_ACK = 55;
 }
 
 // Ping message
@@ -244,6 +248,22 @@ message SubscribeProfileMessage {
 
 message UnsubscribeProfileMessage {
   string user_id = 1;
+}
+
+// Request for one page of an author's reed history, 1-based.
+message ProfilePageMessage {
+  string user_id = 1;
+  uint32 page = 2;
+}
+
+// count and has_more describe the author's reeds at this page offset,
+// before subtracting what the viewer already holds — so they are the
+// same for every viewer. count is 0 for a page past the end.
+message PageAckMessage {
+  string user_id = 1;
+  uint32 page = 2;
+  uint32 count = 3;
+  bool has_more = 4;
 }
 
 message SubscribeReedMessage {

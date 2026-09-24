@@ -94,6 +94,38 @@ func TestForeignHookSettersWireUp(t *testing.T) {
 	}
 }
 
+// TestForeignProfilePageHookWiresUp confirms the profile-page hook starts
+// nil (so handleForeignProfilePageFromClient degrades when no peers are
+// configured) and that its setter stores it.
+func TestForeignProfilePageHookWiresUp(t *testing.T) {
+	rs := newTestRealtimeService(t, "home1234")
+
+	if rs.foreignProfilePageHook != nil {
+		t.Fatal("expected foreignProfilePageHook to be nil before Set*")
+	}
+
+	var called bool
+	rs.SetForeignProfilePageHook(func(_ context.Context, _, _ string, _ int) ([]realtimeForeignSubscribeProfileResult, int, bool, error) {
+		called = true
+		return nil, 50, true, nil
+	})
+
+	if rs.foreignProfilePageHook == nil {
+		t.Fatal("expected foreignProfilePageHook to be set")
+	}
+
+	_, count, hasMore, err := rs.foreignProfilePageHook(context.Background(), "alice@peer5678", "bob@home1234", 1)
+	if err != nil {
+		t.Fatalf("foreignProfilePageHook: %v", err)
+	}
+	if !called {
+		t.Fatal("expected foreignProfilePageHook to have been invoked")
+	}
+	if count != 50 || !hasMore {
+		t.Fatalf("count/hasMore = %d/%v, want 50/true (passed through from the hook)", count, hasMore)
+	}
+}
+
 // TestCancelForeignPendingEventOwnershipMismatchIsDistinctError confirms
 // errRealtimeForeignRelayOwnershipMismatch is a stable sentinel the HTTP
 // handler can compare against to map to 403 (vs. a generic DB error -> 500).

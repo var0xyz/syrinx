@@ -244,41 +244,74 @@ type relaySubscribeResponseItem struct {
 	ReedID      string `json:"reed_id"`
 }
 
-type relaySubscribeResponse struct {
-	Events []relaySubscribeResponseItem `json:"events"`
+type relayProfilePagePayload struct {
+	AuthorID        string `json:"author_id"`
+	RequesterUserID string `json:"requester_user_id"`
+	Page            int    `json:"page"`
+}
+
+// count/has_more describe the author's page itself. reed_server_allocations
+// is per-server, so a short events list never means the list ended.
+type relayProfilePageResponse struct {
+	Events  []relaySubscribeResponseItem `json:"events"`
+	Count   int                          `json:"count"`
+	HasMore bool                         `json:"has_more"`
 }
 
 // subscribeProfileToPeer is ForeignSubscribeProfileHook's implementation
-// (leg 1b, O's side): registers requesterUserID's interest in every one
-// of authorID's (foreign) reeds with authorID's home server over peer HTTP.
-func (h *Handlers) subscribeProfileToPeer(ctx context.Context, authorID, requesterUserID string) ([]realtimeForeignSubscribeProfileResult, error) {
+// (O's side): registers requesterUserID for live fanout of authorID's
+// (foreign) future reeds with authorID's home server over peer HTTP.
+func (h *Handlers) subscribeProfileToPeer(ctx context.Context, authorID, requesterUserID string) error {
 	_, homeServerID, ok := parseIdentityID(identityID(authorID))
 	if !ok {
-		return nil, nil
+		return nil
 	}
 	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if peer == nil {
-		return nil, nil
+		return nil
 	}
 
 	payload := relaySubscribePayload{AuthorID: authorID, RequesterUserID: requesterUserID}
-	var respBody relaySubscribeResponse
-	status, err := h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/subscribe", payload, &respBody)
+	if _, err := h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/subscribe", payload, nil); err != nil {
+		return err
+	}
+	return nil
+}
+
+// profilePageToPeer is ForeignProfilePageHook's implementation (O's side):
+// asks authorID's home server for one page of their reeds. count/hasMore
+// come straight from that server, since only it can see the whole list.
+func (h *Handlers) profilePageToPeer(ctx context.Context, authorID, requesterUserID string, page int) ([]realtimeForeignSubscribeProfileResult, int, bool, error) {
+	_, homeServerID, ok := parseIdentityID(identityID(authorID))
+	if !ok {
+		return nil, 0, false, nil
+	}
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
 	if err != nil {
-		return nil, err
+		return nil, 0, false, err
+	}
+	if peer == nil {
+		return nil, 0, false, nil
+	}
+
+	payload := relayProfilePagePayload{AuthorID: authorID, RequesterUserID: requesterUserID, Page: page}
+	var respBody relayProfilePageResponse
+	status, err := h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/profile-page", payload, &respBody)
+	if err != nil {
+		return nil, 0, false, err
 	}
 	if status != http.StatusOK {
-		return nil, nil
+		return nil, 0, false, nil
 	}
 
 	results := make([]realtimeForeignSubscribeProfileResult, 0, len(respBody.Events))
 	for _, ev := range respBody.Events {
 		results = append(results, realtimeForeignSubscribeProfileResult{PeerEventID: ev.PeerEventID, ReedID: ev.ReedID})
 	}
-	return results, nil
+	return results, respBody.Count, respBody.HasMore, nil
 }
 
 // RelaySubscribeProfileFromPeer is leg 1b's home-server handler: an
@@ -321,19 +354,74 @@ func (h *Handlers) RelaySubscribeProfileFromPeer(w http.ResponseWriter, r *http.
 		internalServerError(w)
 		return
 	}
-	results, err := h.realtimeRelay.HandleForeignSubscribeProfile(r.Context(), req.AuthorID, peerServerID, req.RequesterUserID)
-	if err != nil {
+	if err := h.realtimeRelay.HandleForeignSubscribeProfile(r.Context(), req.AuthorID, peerServerID, req.RequesterUserID); err != nil {
 		log.Error().Err(err).Str("authorID", req.AuthorID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign profile subscription")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe", false)
 		internalServerError(w)
 		return
 	}
 
-	resp := relaySubscribeResponse{Events: make([]relaySubscribeResponseItem, 0, len(results))}
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe", true)
+	writeResponse(w, http.StatusOK, "OK")
+}
+
+// RelayProfilePageFromPeer is the home-server handler for a history page:
+// an established peer is asking for one page of a local author's reeds on
+// behalf of one of its own users.
+func (h *Handlers) RelayProfilePageFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayProfilePagePayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", false)
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.AuthorID = strings.TrimSpace(req.AuthorID)
+	req.RequesterUserID = strings.TrimSpace(req.RequesterUserID)
+	if req.AuthorID == "" || req.RequesterUserID == "" {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", false)
+		writeResponse(w, http.StatusBadRequest, "author_id and requester_user_id are required")
+		return
+	}
+
+	// Loop-prevention: this server can only ever be "home" for authors it
+	// actually hosts locally.
+	_, embeddedServerID, parseOK := parseIdentityID(identityID(req.AuthorID))
+	if !parseOK || embeddedServerID != h.services.db.GetServerID() {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", false)
+		writeResponse(w, http.StatusBadRequest, "author_id is not local to this server")
+		return
+	}
+
+	if h.realtimeRelay == nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", false)
+		internalServerError(w)
+		return
+	}
+	results, count, hasMore, err := h.realtimeRelay.HandleForeignProfilePage(r.Context(), req.AuthorID, peerServerID, req.RequesterUserID, req.Page)
+	if err != nil {
+		log.Error().Err(err).Str("authorID", req.AuthorID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign profile page")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", false)
+		internalServerError(w)
+		return
+	}
+
+	resp := relayProfilePageResponse{
+		Events:  make([]relaySubscribeResponseItem, 0, len(results)),
+		Count:   count,
+		HasMore: hasMore,
+	}
 	for _, r := range results {
 		resp.Events = append(resp.Events, relaySubscribeResponseItem{PeerEventID: r.PeerEventID, ReedID: r.ReedID})
 	}
-	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe", true)
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", true)
 	writeResponse(w, http.StatusOK, resp)
 }
 

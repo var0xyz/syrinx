@@ -7788,24 +7788,26 @@ func (s *DataService) GetMissingOut(ctx context.Context, userID string) ([]unall
 	return results, nil
 }
 
-// GetUnallocatedReeds returns IDs of reeds by authorID that viewerID does not have in reed_allocations.
-func (s *DataService) GetUnallocatedReeds(ctx context.Context, authorID, viewerID string) ([]string, error) {
+// GetAuthorReedPage returns one page of authorID's non-removed reeds,
+// newest first. page is 1-based. hasMore reports whether a further reed
+// exists past this page; neither it nor the result depends on any viewer.
+func (s *DataService) GetAuthorReedPage(ctx context.Context, authorID string, page, pageSize int) ([]string, bool, error) {
+	if page < 1 {
+		page = 1
+	}
 	authorIdentity := identityID(authorID)
-	viewerIdentity := identityID(viewerID)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.id FROM reeds r
 		WHERE r.user_id = $1
 		  AND NOT EXISTS (
-		      SELECT 1 FROM reed_allocations ra
-		      WHERE ra.reed_id = r.id AND ra.holder_user_id = $2
-		  )
-		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_removals rr
 		      WHERE rr.reed_id = r.id
 		  )
-	`, authorIdentity, viewerIdentity)
+		ORDER BY r.id DESC
+		LIMIT $2 OFFSET $3
+	`, authorIdentity, pageSize+1, (page-1)*pageSize)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
 
@@ -7813,44 +7815,87 @@ func (s *DataService) GetUnallocatedReeds(ctx context.Context, authorID, viewerI
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		ids = append(ids, id)
 	}
-	return ids, nil
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+
+	hasMore := len(ids) > pageSize
+	if hasMore {
+		ids = ids[:pageSize]
+	}
+	return ids, hasMore, nil
 }
 
-// GetUnallocatedReedsForServer is GetUnallocatedReeds' server-scoped
-// counterpart: used where the "viewer" is a whole peer server rather than
-// a genuine local user, since reed_server_allocations has no per-user granularity.
-func (s *DataService) GetUnallocatedReedsForServer(ctx context.Context, authorID, serverID string) ([]string, error) {
-	authorIdentity := identityID(authorID)
+// SubtractHeldReeds drops the ids viewerID already holds, preserving the
+// caller's order.
+func (s *DataService) SubtractHeldReeds(ctx context.Context, reedIDs []string, viewerID string) ([]string, error) {
+	if len(reedIDs) == 0 {
+		return nil, nil
+	}
+	viewerIdentity := identityID(viewerID)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id FROM reeds r
-		WHERE r.user_id = $1
-		  AND NOT EXISTS (
-		      SELECT 1 FROM reed_server_allocations rsa
-		      WHERE rsa.reed_id = r.id AND rsa.server_id = $2
-		  )
-		  AND NOT EXISTS (
-		      SELECT 1 FROM reed_removals rr
-		      WHERE rr.reed_id = r.id
-		  )
-	`, authorIdentity, serverID)
+		SELECT r.id FROM unnest($1::text[]) AS r(id)
+		WHERE NOT EXISTS (
+		    SELECT 1 FROM reed_allocations ra
+		    WHERE ra.reed_id = r.id AND ra.holder_user_id = $2
+		)
+	`, pq.Array(reedIDs), viewerIdentity)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var ids []string
+	return filterByReturnedIDs(rows, reedIDs)
+}
+
+// SubtractServerAllocatedReeds is SubtractHeldReeds' server-scoped
+// counterpart. reed_server_allocations has no per-user granularity, so a
+// short result never means the author's list ended — only hasMore says that.
+func (s *DataService) SubtractServerAllocatedReeds(ctx context.Context, reedIDs []string, serverID string) ([]string, error) {
+	if len(reedIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id FROM unnest($1::text[]) AS r(id)
+		WHERE NOT EXISTS (
+		    SELECT 1 FROM reed_server_allocations rsa
+		    WHERE rsa.reed_id = r.id AND rsa.server_id = $2
+		)
+	`, pq.Array(reedIDs), serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return filterByReturnedIDs(rows, reedIDs)
+}
+
+// filterByReturnedIDs re-filters ordered against the (unordered) id set the
+// subtraction query returned, so newest-first survives the round trip.
+func filterByReturnedIDs(rows *sql.Rows, ordered []string) ([]string, error) {
+	kept := make(map[string]struct{})
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		kept[id] = struct{}{}
 	}
-	return ids, nil
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var result []string
+	for _, id := range ordered {
+		if _, ok := kept[id]; ok {
+			result = append(result, id)
+		}
+	}
+	return result, nil
 }
 
 // CreateProfileSubscription records an active profile feed subscription for

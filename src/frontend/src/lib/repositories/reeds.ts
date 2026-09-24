@@ -297,6 +297,48 @@ class ReedsService {
     }
   }
 
+  /** One page of an author's locally-held reeds, newest first. The index
+   * spans all authors, so the predicate filters as the cursor walks —
+   * the same trade localSearch's searchReeds makes. */
+  async getReedsByAuthorPage(
+    authorId: string,
+    limit: number,
+    after?: string
+  ): Promise<{ items: ReedType[]; hasMore: boolean; nextCursor?: string }> {
+    try {
+      const matched = await dbService.getLatestFromIndex<ReedType>(
+        'reeds',
+        'serverSignature.timestamp',
+        limit + 1,
+        (reed) => reed.userID === authorId,
+        after
+      );
+      const hasMore = matched.length > limit;
+      const items = matched.slice(0, limit);
+      const last = items[items.length - 1];
+      return { items, hasMore, nextCursor: last?.serverSignature?.timestamp ?? after };
+    } catch (error) {
+      console.error('Failed to get reeds page by author:', error);
+      return { items: [], hasMore: false, nextCursor: after };
+    }
+  }
+
+  /** Whether this device holds any reed by this author. */
+  async hasReedsByAuthor(authorId: string): Promise<boolean> {
+    try {
+      const found = await dbService.getLatestFromIndex<ReedType>(
+        'reeds',
+        'serverSignature.timestamp',
+        1,
+        (reed) => reed.userID === authorId
+      );
+      return found.length > 0;
+    } catch (error) {
+      console.error('Failed to check reeds by author:', error);
+      return false;
+    }
+  }
+
   /** Pending reeds for this author (local unsigned store only). */
   async getUnsignedReedsByAuthor(authorId: string): Promise<ReedType[]> {
     try {
