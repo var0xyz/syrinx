@@ -185,32 +185,20 @@
       // after AddPublicKey returns the server countersignature.
       await privateKeyRepository.put(newKeyId, newKeyPair.privateKey);
 
-      // Get old key's private key from IndexedDB
-      const oldPrivateKey = await privateKeyRepository.getPrivateKey(oldKeyId);
-      if (!oldPrivateKey) {
-        throw new Error('Old private key not found');
-      }
-
-      // Sign the user revocation attestation with the old private key.
+      // Sign the user revocation attestation with the old private key,
+      // which is the one the worker still holds at this point.
       const userRevocationPayload = buildUserRevocationPayload(user.id, oldKeyId, reason);
-      const userRevocationSigArmor = await cryptoService.signMessage(
-        userRevocationPayload,
-        oldPrivateKey.armor,
-        passphrase
-      );
-      const userRevocationSignature = btoa(userRevocationSigArmor);
+      const userRevocationSignature = await requestSigner.sign(userRevocationPayload);
 
       // Sign the new public key with old private key (rotation proof).
       // newKeyPair.publicKey is already trimmed by generateKeyPair — sign,
       // store, and transmit this exact same string everywhere below, or
       // the server's byte-for-byte signature check fails.
-      const revokedKeySignature = btoa(await cryptoService.signMessage(
-        newKeyPair.publicKey,
-        oldPrivateKey.armor,
-        passphrase
-      ));
+      const revokedKeySignature = await requestSigner.sign(newKeyPair.publicKey);
 
-      // Sign the new public key with new private key
+      // Self-signature with the brand-new key. Signed in page context from
+      // the in-memory keypair: the worker must keep the old key loaded so
+      // this rotation request is still signed by the key the server knows.
       const newKeySignature = btoa(await cryptoService.signMessage(
         newKeyPair.publicKey,
         newKeyPair.privateKey,

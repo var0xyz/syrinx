@@ -1,8 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { authService } from '$lib/services/auth';
-  import { cryptoService } from '$lib/services/crypto';
-  import { privateKeyRepository } from '$lib/repositories/privateKey';
+  import { requestSigner } from '$lib/services/request-signer';
   import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
   import { reedsService } from '$lib/repositories/reeds';
   import {
@@ -149,11 +148,6 @@
       }
 
       const keyId = authService.getActiveKeyId();
-      const keyData = await privateKeyRepository.getPrivateKey(keyId);
-      if (!keyData) throw new Error('Private key not found. Please import your key.');
-
-      const passphrase = authService.getPassphrase();
-      if (!passphrase) throw new Error('PANIC: No passphrase found.');
 
       const reed = new Reed();
       reed.content = content;
@@ -164,7 +158,7 @@
       if (pinnedEcho) {
         reed.echoing = pinnedEcho.id;
       }
-      const detachedArmor = await cryptoService.signMessage(reed.asMarkdown(), keyData.armor, passphrase);
+      const detachedArmor = await requestSigner.signArmored(reed.asMarkdown());
       reed.setUserSignature(keyId, detachedArmor);
       const { publish } = await reedsService.createReed(reed);
       const href = `/reed/${reed.id}`;
