@@ -4,13 +4,12 @@
   import { page } from '$app/stores';
   import { apiService } from '$lib/services/api';
   import { authService } from '$lib/services/auth';
-  import { cryptoService } from '$lib/services/crypto';
+  import { requestSigner } from '$lib/services/request-signer';
   import { buildUserIdentityPayload } from '$lib/services/signing';
   import { trimInvisibleChars } from '$lib/utils/text';
   import { serverConnection } from '$lib/services/serverConnection';
   import { userRepository } from '$lib/repositories/user';
   import { userInfoRepository } from '$lib/repositories/userInfo';
-  import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { reedsService } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
   import { verifyAndCommitAccountRemoval, accountRemovalCommitted } from '$lib/services/accountRemoval';
@@ -130,19 +129,12 @@
       // signature travels as base64(armored PGP) to survive
       // form-encoding.
       const keyId = authService.getActiveKeyId();
-      const passphrase = authService.getPassphrase();
-      if (!keyId || !passphrase) {
+      if (!keyId) {
         editError = 'Session expired. Please sign in again.';
         return;
       }
-      const privateKey = await privateKeyRepository.getPrivateKey(keyId);
-      if (!privateKey) {
-        editError = 'Could not locate your signing key.';
-        return;
-      }
       const payload = buildUserIdentityPayload(nextUsername, keyId, nextBio);
-      const sigArmor = await cryptoService.signMessage(payload, privateKey.armor, passphrase);
-      const userSignature = btoa(sigArmor);
+      const userSignature = await requestSigner.sign(payload);
 
       const updatedUser = await apiService.updateUser({
         username: nextUsername,

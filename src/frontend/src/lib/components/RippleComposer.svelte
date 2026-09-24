@@ -8,8 +8,7 @@
   // the newly-posted ripple gets inserted is the parent's call.
   import { createEventDispatcher, onMount } from 'svelte';
   import { authService } from '$lib/services/auth';
-  import { privateKeyRepository } from '$lib/repositories/privateKey';
-  import { cryptoService } from '$lib/services/crypto';
+  import { requestSigner } from '$lib/services/request-signer';
   import { buildRippleUserPayload } from '$lib/services/signing';
   import { apiService } from '$lib/services/api';
 
@@ -61,12 +60,6 @@
       const keyId = authService.getActiveKeyId();
       if (!keyId) throw new Error('No active key id found.');
 
-      const keyData = await privateKeyRepository.getPrivateKey(keyId);
-      if (!keyData) throw new Error('Private key not found. Please import your key.');
-
-      const passphrase = authService.getPassphrase();
-      if (!passphrase) throw new Error('Session expired. Please sign in again.');
-
       const threadID = replyingTo ? replyingTo.threadID : crypto.randomUUID();
       const replyingToHash = replyingTo?.hash;
 
@@ -78,8 +71,7 @@
         replyingToHash ?? '',
         content
       );
-      const detachedArmor = await cryptoService.signMessage(userPayload, keyData.armor, passphrase);
-      const userSignature = btoa(detachedArmor.trim()).trim();
+      const userSignature = await requestSigner.sign(userPayload);
 
       const posted = await apiService.postRipple(reedID, {
         content,
