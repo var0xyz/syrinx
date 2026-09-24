@@ -25,7 +25,6 @@ more than in a typical web app.
 | #      | Severity | Area       | Title                                                                  |
 |--------|----------|------------|------------------------------------------------------------------------|
 | C2     | Critical | SPA        | Decrypted-key passphrase persisted in `localStorage`                   |
-| C3     | Critical | SPA        | Private key + passphrase material logged to console                    |
 | H1     | High     | server     | WebSocket auth signature is replayable and unbound to user/server      |
 | H4     | High     | SPA        | `userId` in `localStorage` alone unlocks the app                       |
 | H5     | High     | SPA        | Service worker `SIGN_TEXT` is an origin-unchecked signing oracle       |
@@ -57,13 +56,6 @@ dependency, or browser extension can read both and fully impersonate the user
 (sign reeds, rotate keys, delete the account).
 **Fix:** never persist the passphrase; hold it only in memory (or SW memory),
 re-prompt on reload, or wrap the key with a non-extractable WebCrypto key.
-
-### C3 — Private key + passphrase material logged to console
-**Where:** `src/frontend/src/lib/services/crypto.ts:67-71` (`console.log` dumps the
-armored **private key** on every signup); `request-signer.ts:211`.
-Console logs are captured by crash/telemetry tooling and readable by extensions.
-**Fix:** delete these log statements; add a lint rule against logging key
-material.
 
 ---
 
@@ -283,8 +275,8 @@ recipient's socket.
 
 ## Recommended priority order
 
-1. **C2 / C3 / H4 / H5** — stop persisting/logging key material; require key
-   possession for "logged in"; lock down the SW signing oracle.
+1. **C2 / H4 / H5** — stop persisting key material; require key possession for
+   "logged in"; lock down the SW signing oracle.
 2. **H1** — bind and nonce the WebSocket handshake.
 3. **M2 / M3** — fix recovery claim replay and revoked-tip acceptance before
    relying on `RECOVERY_MODE` in anger.
