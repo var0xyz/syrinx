@@ -4,7 +4,7 @@
  * otherwise. See docs/content_privacy.md.
  */
 
-import { authService } from './auth';
+import { requestSigner } from './request-signer';
 import { cryptoService } from './crypto';
 import { apiService } from './api';
 import { serverConnection } from './serverConnection';
@@ -42,16 +42,7 @@ export async function encryptReedForRequester(
  * on any failure — callers should report 'decrypt_failed' and not store.
  */
 export async function decryptRelayPayload(ciphertext: string): Promise<ReedType> {
-  const keyId = authService.getActiveKeyId();
-  const passphrase = authService.getPassphrase();
-  if (!keyId || !passphrase) {
-    throw new Error('active key or passphrase not available');
-  }
-  const privateKey = await privateKeyRepository.getPrivateKey(keyId);
-  if (!privateKey?.armor) {
-    throw new Error('private key not found');
-  }
-  const plaintext = await cryptoService.decryptOwnMessage(ciphertext, privateKey.armor, passphrase);
+  const plaintext = await requestSigner.decryptOwn(ciphertext);
   return JSON.parse(plaintext) as ReedType;
 }
 

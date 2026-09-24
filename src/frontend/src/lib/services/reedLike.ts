@@ -1,11 +1,10 @@
 import type * as api from '$lib/types/api';
 import { apiService } from './api';
 import { authService } from './auth';
-import { cryptoService } from './crypto';
+import { requestSigner } from './request-signer';
 import { buildReedLikeUserPayload } from './signing';
 import { pendingLikeRepository } from '$lib/repositories/pendingLike';
 import { pendingUnlikeRepository } from '$lib/repositories/pendingUnlike';
-import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { likedReedsRepository } from '$lib/repositories/likedReeds';
 import { verifyReedLike } from '$lib/verifiers';
 import { parseKeyId } from '$lib/utils/identityRef';
@@ -58,19 +57,12 @@ export async function likeReed(reedRef: string): Promise<api.ReedLike> {
   }
 
   const keyId = authService.getActiveKeyId();
-  const passphrase = authService.getPassphrase();
-  if (!keyId || !passphrase) {
-    throw new Error('Active key or passphrase not available');
-  }
-
-  const privateKey = await privateKeyRepository.getPrivateKey(keyId);
-  if (!privateKey?.armor) {
-    throw new Error('Private key not found');
+  if (!keyId) {
+    throw new Error('Active key not available');
   }
 
   const userPayload = buildReedLikeUserPayload(reedRef, keyId);
-  const sigArmor = await cryptoService.signMessage(userPayload, privateKey.armor, passphrase);
-  const signature = btoa(sigArmor);
+  const signature = await requestSigner.sign(userPayload);
 
   await pendingUnlikeRepository.delete(reedRef);
   await pendingLikeRepository.put({

@@ -1,7 +1,5 @@
-import { authService } from './auth';
-import { cryptoService } from './crypto';
+import { requestSigner } from './request-signer';
 import { mailboxRepository, type MailboxCategory } from '$lib/repositories/mailbox';
-import { privateKeyRepository } from '$lib/repositories/privateKey';
 
 interface MailboxPayload {
   kind: string;
@@ -19,22 +17,9 @@ interface MailboxPayload {
  * silently lost (see specs/notifications/04, 05).
  */
 export async function receiveMailboxMessage(id: string, ciphertext: string): Promise<boolean> {
-  const keyId = authService.getActiveKeyId();
-  const passphrase = authService.getPassphrase();
-  if (!keyId || !passphrase) {
-    console.error('Mailbox: active key or passphrase not available, cannot decrypt', id);
-    return false;
-  }
-
-  const privateKey = await privateKeyRepository.getPrivateKey(keyId);
-  if (!privateKey?.armor) {
-    console.error('Mailbox: private key not found, cannot decrypt', id);
-    return false;
-  }
-
   let payload: MailboxPayload;
   try {
-    const plaintext = await cryptoService.decryptOwnMessage(ciphertext, privateKey.armor, passphrase);
+    const plaintext = await requestSigner.decryptOwn(ciphertext);
     payload = JSON.parse(plaintext);
   } catch (error) {
     console.error('Mailbox: failed to decrypt/parse message, will redeliver on next catch-up', id, error);
