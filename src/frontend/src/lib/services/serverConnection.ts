@@ -12,11 +12,18 @@ import { setContentRejectedReporter } from './db';
 import { notificationStore } from '$lib/stores/notifications';
 import { decryptRelayPayload } from './relayDecrypt';
 import type { ReedType } from '$lib/types/reed';
-import { create, toBinary, fromBinary } from '@bufbuild/protobuf';
-import { WSMessageSchema, MessageType } from '$lib/proto/websocket_pb';
+import { create, toBinary, fromBinary, type MessageInitShape } from '@bufbuild/protobuf';
+import {
+  WSMessageSchema,
+  MessageType,
+  type UserSignature as PbUserSignature,
+  type ServerSignature as PbServerSignature,
+  type Ripple as PbRipple,
+} from '$lib/proto/websocket_pb';
 
-// REQUEST_REED / DATA_RESPONSE go over the wire as binary protobuf frames
-// (specs/protobuf/) — every other message type here stays JSON text frames.
+// Every WS frame, both directions, is exactly one binary-encoded WSMessage
+// (specs/protobuf/) — there is no JSON text-frame path anymore.
+
 function encodeRequestReed(requestId: string, reedId: string): Uint8Array {
   const msg = create(WSMessageSchema, {
     type: MessageType.REQUEST_REED,
@@ -26,18 +33,150 @@ function encodeRequestReed(requestId: string, reedId: string): Uint8Array {
   return toBinary(WSMessageSchema, msg);
 }
 
-function decodeDataResponse(data: ArrayBuffer): { type: string; id: string; data: any } | null {
-  const msg = fromBinary(WSMessageSchema, new Uint8Array(data));
-  if (msg.type !== MessageType.DATA_RESPONSE || msg.payload.case !== 'dataResponse') return null;
+/** Converts a protobuf UserSignature to the camelCase wire shape every
+ * verifier (HTTP-fed or WS-fed) already expects — see lib/types/api.ts. */
+function decodeUserSignature(s: PbUserSignature | undefined) {
+  return { id: s?.id ?? '', armor: s?.armor ?? '' };
+}
+
+/** Converts a protobuf ServerSignature, including signedAt (unix seconds)
+ * back to an ISO timestamp string, matching ServerSignature.timestamp. */
+function decodeServerSignature(s: PbServerSignature | undefined) {
   return {
-    type: 'DATA_RESPONSE',
-    id: msg.id,
-    data: {
-      request_id: msg.payload.value.requestId,
-      ciphertext: msg.payload.value.ciphertext,
-      username: msg.payload.value.username,
-      reed_id: msg.payload.value.reedId,
-    },
+    id: s?.id ?? '',
+    armor: s?.armor ?? '',
+    timestamp: new Date(Number(s?.signedAt ?? 0) * 1000).toISOString(),
+  };
+}
+
+function decodeRipple(r: PbRipple | undefined) {
+  if (!r) return null;
+  return {
+    hash: r.hash,
+    threadID: r.threadId,
+    userID: r.userId,
+    content: r.content,
+    replyingTo: r.replyingTo || null,
+    deleted: r.deleted,
+    postedAt: new Date(Number(r.postedAt) * 1000).toISOString(),
+    userSignature: decodeUserSignature(r.userSignature),
+    serverSignature: decodeServerSignature(r.serverSignature),
+  };
+}
+
+/** Decodes one inbound binary WSMessage into the {type, id?, data} shape
+ * every ServerConnection consumer already expects — the same camelCase/
+ * snake_case field mix the old JSON wire used, so no downstream file
+ * (handlers registered via .on()) needs to change. */
+export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; data: any } | null {
+  const msg = fromBinary(WSMessageSchema, new Uint8Array(bytes));
+  const p = msg.payload;
+  switch (p.case) {
+    case 'pong':
+      return { type: 'pong', data: p.value.data };
+    case 'subscribed':
+      return { type: 'subscribed', data: p.value.data };
+    case 'shutdown':
+      return { type: 'SIGTERM', data: undefined };
+    case 'requestAck':
+      return { type: 'REQUEST_ACK', id: msg.id, data: { request_id: p.value.requestId, reed_id: p.value.reedId } };
+    case 'relayRequest':
+      return {
+        type: 'RELAY_REQUEST',
+        id: msg.id,
+        data: { reed_id: p.value.reedId, requester_id: p.value.requesterId },
+      };
+    case 'dataResponse': {
+      // typeName mirrors the MessageType enum name (e.g. "BROADCAST_REED")
+      // — every DATA_RESPONSE-family type shares this payload shape.
+      return {
+        type: msg.typeName,
+        id: msg.id,
+        data: {
+          request_id: p.value.requestId,
+          ciphertext: p.value.ciphertext,
+          username: p.value.username,
+          reed_id: p.value.reedId,
+        },
+      };
+    }
+    case 'mailbox':
+      return { type: 'MAILBOX', data: { id: p.value.id, ciphertext: p.value.ciphertext } };
+    case 'reedNotFound':
+      return { type: 'REED_NOT_FOUND', data: { request_id: p.value.requestId, reed_id: p.value.reedId } };
+    case 'reedNotHeld':
+      return { type: 'REED_NOT_HELD', data: { request_id: p.value.requestId, reed_id: p.value.reedId } };
+    case 'invalidRequestIdError':
+      return { type: 'INVALID_REQUEST_ID_ERROR', data: { request_id: p.value.requestId } };
+    case 'publishReadyAck':
+      return { type: 'PUBLISH_READY_ACK', data: { reed_id: p.value.reedId } };
+    case 'reedStats':
+      return {
+        type: 'REED_STATS',
+        data: {
+          reedID: p.value.reedId,
+          echoes: p.value.echoes,
+          coveragePercent: p.value.coveragePercent,
+          replies: p.value.replies,
+          likes: p.value.likes,
+        },
+      };
+    case 'reedCoverage':
+      return { type: 'REED_COVERAGE', data: { reedID: p.value.reedId, coveragePercent: p.value.coveragePercent } };
+    case 'reedEchoes':
+      return { type: 'REED_ECHOES', data: { reedID: p.value.reedId, echoes: p.value.echoes } };
+    case 'reedReplies':
+      return { type: 'REED_REPLIES', data: { reedID: p.value.reedId, replies: p.value.replies } };
+    case 'reedLikes':
+      return { type: 'REED_LIKES', data: { reedID: p.value.reedId, likes: p.value.likes } };
+    case 'ripplePosted':
+      return {
+        type: 'RIPPLE_POSTED',
+        data: { userID: p.value.userId, reedID: p.value.reedId, ripple: decodeRipple(p.value.ripple) },
+      };
+    case 'rippleUpdated':
+      return {
+        type: 'RIPPLE_UPDATED',
+        data: { userID: p.value.userId, reedID: p.value.reedId, ripple: decodeRipple(p.value.ripple) },
+      };
+    case 'reedRemoved':
+      return {
+        type: 'REED_REMOVED',
+        id: msg.id,
+        data: { data: decodeReedRemovalCert(p.value.cert) },
+      };
+    case 'accountRemoved':
+      return {
+        type: 'ACCOUNT_REMOVED',
+        id: msg.id,
+        data: { data: decodeAccountRemovalCert(p.value.cert) },
+      };
+    default:
+      return null;
+  }
+}
+
+function decodeReedRemovalCert(cert: { serverId: string; userId: string; reedId: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined) {
+  if (!cert) return null;
+  return {
+    type: 'reed',
+    serverID: cert.serverId,
+    userID: cert.userId,
+    reedID: cert.reedId,
+    userSignature: decodeUserSignature(cert.userSignature),
+    serverSignature: decodeServerSignature(cert.serverSignature),
+  };
+}
+
+function decodeAccountRemovalCert(cert: { serverId: string; userId: string; note: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined) {
+  if (!cert) return null;
+  return {
+    type: 'account',
+    serverID: cert.serverId,
+    userID: cert.userId,
+    note: cert.note,
+    userSignature: decodeUserSignature(cert.userSignature),
+    serverSignature: decodeServerSignature(cert.serverSignature),
   };
 }
 
@@ -240,8 +379,11 @@ class ServerConnection {
 
       this.ws.onmessage = (event) => {
         try {
-          const message =
-            event.data instanceof ArrayBuffer ? decodeDataResponse(event.data) : JSON.parse(event.data);
+          if (!(event.data instanceof ArrayBuffer)) {
+            console.warn('ServerConnection: received non-binary frame, ignoring');
+            return;
+          }
+          const message = decodeMessage(event.data);
           if (!message) return;
           console.log('ServerConnection: message received:', message.type);
 
@@ -453,60 +595,61 @@ class ServerConnection {
   }
 
   sendRelayResponse(eventId: string, ciphertext: string): void {
-    this.send({ type: 'RELAY_RESPONSE', id: eventId, data: ciphertext });
+    this.sendMsg({ type: MessageType.RELAY_RESPONSE, id: eventId, payload: { case: 'relayResponse', value: { ciphertext } } });
   }
 
   sendRelayMiss(eventId: string): void {
-    this.send({ type: 'RELAY_MISS', id: eventId });
+    this.sendMsg({ type: MessageType.RELAY_MISS, id: eventId, payload: { case: undefined } });
   }
 
   /** Reports that the holder has the content but couldn't complete the
    * relay (e.g. failed to fetch the requester's key) — distinct from
    * RELAY_MISS, so the server doesn't drop this holder's allocation. */
   sendRelayError(eventId: string): void {
-    this.send({ type: 'RELAY_ERROR', id: eventId });
+    this.sendMsg({ type: MessageType.RELAY_ERROR, id: eventId, payload: { case: undefined } });
   }
 
   sendDataAck(eventId: string): void {
-    this.send({ type: 'DATA_ACK', id: eventId });
+    this.sendMsg({ type: MessageType.DATA_ACK, id: eventId, payload: { case: undefined } });
   }
 
   sendDataInvalid(eventId: string): void {
-    this.send({ type: 'DATA_INVALID', id: eventId });
+    this.sendMsg({ type: MessageType.DATA_INVALID, id: eventId, payload: { case: undefined } });
   }
 
   /** Confirms receipt of a MAILBOX message; the server deletes its row on
    * receiving this. A failed decrypt must NOT call this — see the MAILBOX
    * handler in +layout.svelte. */
   sendMailboxAck(id: string): void {
-    this.send({ type: 'MAILBOX_ACK', data: { id } });
+    this.sendMsg({ type: MessageType.MAILBOX_ACK, payload: { case: 'mailboxAck', value: { id } } });
   }
 
   /** Reports a failed key fetch needed to verify content received over this
    * (already-authenticated) connection — an anomaly, not a routine cache miss. */
   sendKeyFetchError(userId: string, keyId: string): void {
-    this.send({ type: 'KEY_FETCH_ERROR', data: { user_id: userId, key_id: keyId } });
+    this.sendMsg({ type: MessageType.KEY_FETCH_ERROR, payload: { case: 'keyFetchError', value: { userId, keyId } } });
   }
 
   /** Reports content whose timestamp is at or after its signing key's revocation. */
   sendRevokedKeyUsed(userId: string, keyId: string): void {
-    this.send({ type: 'REVOKED_KEY_USED', data: { user_id: userId, key_id: keyId } });
+    this.sendMsg({ type: MessageType.REVOKED_KEY_USED, payload: { case: 'revokedKeyUsed', value: { userId, keyId } } });
   }
 
   /** Reports content the client refused to store or trust. `reason` is one
    * of a small standardized set (docs/content_privacy.md), or omitted. */
   sendContentRejected(storeName: string, reason?: string): void {
-    this.send({ type: 'CONTENT_REJECTED', data: { store_name: storeName, reason } });
+    this.sendMsg({
+      type: MessageType.CONTENT_REJECTED,
+      payload: { case: 'contentRejected', value: { storeName, reason: reason ?? '' } },
+    });
   }
 
   async publishReady(reedId: string, options?: { broadcast?: boolean }): Promise<void> {
     await this.connect();
-    this.send({
-      type: 'PUBLISH_READY',
-      data: {
-        reed_id: reedId,
-        broadcast: options?.broadcast !== false,
-      },
+    const broadcast = options?.broadcast !== false;
+    this.sendMsg({
+      type: MessageType.PUBLISH_READY,
+      payload: { case: 'publishReady', value: { reedId, broadcast, hasBroadcast: options?.broadcast !== undefined } },
     });
   }
 
@@ -514,21 +657,21 @@ class ServerConnection {
     const requesterId = localStorage.getItem('userId') ?? '';
     const requestId = `${requesterId}/${crypto.randomUUID()}`;
     sessionStorage.setItem('syncRequestId', requestId);
-    this.send({ type: 'SYNC_REQUEST', data: { request_id: requestId } });
+    this.sendMsg({ type: MessageType.SYNC_REQUEST, payload: { case: 'syncRequest', value: { requestId } } });
     startReedRequestDrainer();
   }
 
   async subscribeProfile(userId: string): Promise<void> {
     await this.connect();
     this.activeSubscription = { kind: 'profile', userId };
-    this.send({ type: 'SUBSCRIBE_PROFILE', data: { user_id: userId } });
+    this.sendMsg({ type: MessageType.SUBSCRIBE_PROFILE, payload: { case: 'subscribeProfile', value: { userId } } });
   }
 
   unsubscribeProfile(userId: string): void {
     if (this.activeSubscription?.kind === 'profile' && this.activeSubscription.userId === userId) {
       this.activeSubscription = null;
     }
-    this.send({ type: 'UNSUBSCRIBE_PROFILE', data: { user_id: userId } });
+    this.sendMsg({ type: MessageType.UNSUBSCRIBE_PROFILE, payload: { case: 'unsubscribeProfile', value: { userId } } });
   }
 
   async subscribeReed(reedId: string): Promise<boolean> {
@@ -537,7 +680,7 @@ class ServerConnection {
       return false;
     }
     this.activeSubscription = { kind: 'reed', reedId };
-    this.send({ type: 'SUBSCRIBE_REED', reedID: reedId });
+    this.sendMsg({ type: MessageType.SUBSCRIBE_REED, payload: { case: 'subscribeReed', value: { reedId } } });
     return true;
   }
 
@@ -545,17 +688,17 @@ class ServerConnection {
     if (this.activeSubscription?.kind === 'reed' && this.activeSubscription.reedId === reedId) {
       this.activeSubscription = null;
     }
-    this.send({ type: 'UNSUBSCRIBE_REED', reedID: reedId });
+    this.sendMsg({ type: MessageType.UNSUBSCRIBE_REED, payload: { case: 'unsubscribeReed', value: { reedId } } });
   }
 
   subscribeToBroadcast(): void {
     this.broadcastSubscribed = true;
-    this.send({ type: 'SUBSCRIBE_BROADCAST' });
+    this.sendMsg({ type: MessageType.SUBSCRIBE_BROADCAST, payload: { case: undefined } });
   }
 
   unsubscribeFromBroadcast(): void {
     this.broadcastSubscribed = false;
-    this.send({ type: 'UNSUBSCRIBE_BROADCAST' });
+    this.sendMsg({ type: MessageType.UNSUBSCRIBE_BROADCAST, payload: { case: undefined } });
   }
 
   /** The pipe tag currently subscribed, if any — used to re-verify a
@@ -569,7 +712,7 @@ class ServerConnection {
     if (!normalized) return;
     await this.connect();
     this.activeSubscription = { kind: 'pipe', tag: normalized };
-    this.send({ type: 'SUBSCRIBE_PIPE', data: { tag: normalized } });
+    this.sendMsg({ type: MessageType.SUBSCRIBE_PIPE, payload: { case: 'subscribePipe', value: { tag: normalized } } });
   }
 
   unsubscribePipe(tag: string): void {
@@ -578,33 +721,41 @@ class ServerConnection {
     if (this.activeSubscription?.kind === 'pipe' && this.activeSubscription.tag === normalized) {
       this.activeSubscription = null;
     }
-    this.send({ type: 'UNSUBSCRIBE_PIPE', data: { tag: normalized } });
+    this.sendMsg({ type: MessageType.UNSUBSCRIBE_PIPE, payload: { case: 'unsubscribePipe', value: { tag: normalized } } });
   }
 
   /** Replays whatever subscription was active — server-side state doesn't survive a reconnect. */
   private resubscribeAll(): void {
     switch (this.activeSubscription?.kind) {
       case 'reed':
-        this.send({ type: 'SUBSCRIBE_REED', reedID: this.activeSubscription.reedId });
+        this.sendMsg({ type: MessageType.SUBSCRIBE_REED, payload: { case: 'subscribeReed', value: { reedId: this.activeSubscription.reedId } } });
         break;
       case 'profile':
-        this.send({ type: 'SUBSCRIBE_PROFILE', data: { user_id: this.activeSubscription.userId } });
+        this.sendMsg({ type: MessageType.SUBSCRIBE_PROFILE, payload: { case: 'subscribeProfile', value: { userId: this.activeSubscription.userId } } });
         break;
       case 'pipe':
-        this.send({ type: 'SUBSCRIBE_PIPE', data: { tag: this.activeSubscription.tag } });
+        this.sendMsg({ type: MessageType.SUBSCRIBE_PIPE, payload: { case: 'subscribePipe', value: { tag: this.activeSubscription.tag } } });
         break;
     }
     if (this.broadcastSubscribed) {
-      this.send({ type: 'SUBSCRIBE_BROADCAST' });
+      this.sendMsg({ type: MessageType.SUBSCRIBE_BROADCAST, payload: { case: undefined } });
     }
   }
 
-  private send(message: { type: string; id?: string; data?: any; userID?: string; reedID?: string }): void {
+  /** Builds and sends one binary WSMessage. `init` supplies type/id/payload;
+   * typeName is always derived so callers never have to keep it in sync. */
+  private sendMsg(init: { type: MessageType; id?: string; payload: MessageInitShape<typeof WSMessageSchema>['payload'] }): void {
     if (!this.isConnected()) {
       console.warn('ServerConnection: cannot send, not connected');
       return;
     }
-    this.ws!.send(JSON.stringify(message));
+    const msg = create(WSMessageSchema, {
+      type: init.type,
+      typeName: MessageType[init.type],
+      id: init.id ?? '',
+      payload: init.payload,
+    });
+    this.ws!.send(toBinary(WSMessageSchema, msg));
   }
 
   private sendBinary(bytes: Uint8Array): void {

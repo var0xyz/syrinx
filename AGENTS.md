@@ -155,20 +155,23 @@ same-named root file instead:
   **only** when `RECOVERY_MODE` is on (was package `recovery`).
 - `realtime.go` — WebSocket service: connection manager, auth, dispatch/relay
   logic, message types; ~75 DB query methods live in `services.go` as
-  `DataService` methods (was package `realtime`). Wire is **JSON text
-  frames** today; a binary protobuf path exists but only covers a handful of
-  message types and is unused in production.
+  `DataService` methods (was package `realtime`). Wire is **binary protobuf
+  only** — a text frame is rejected and the connection closed. HTTP
+  federation calls between servers (`federation_relay.go`) still carry
+  their payloads as JSON, including a base64-wrapped protobuf `WSMessage`
+  for the live reed-stats push bridge.
 - `constants.go`, `utils.go`, `logger.go`, `spa_handler.go`, `ops.go`,
   `ripples_cleanup.go`, `mailbox.go`, `mentions.go`, `federation_relay.go`,
   `root.go`, `wire.go`.
 - `observability/`, `observability/metrics/` — the one still-independent
   subpackage with a real DI interface (`metrics.Recorder`, `Noop`/`OTEL`
   implementations).
-- `proto/` — `websocket.proto` + generated `websocket.pb.go`, a partial,
-  stale stub — can't be `package main` (generated code needs its own
-  package), so this is the only other Go code outside root. Both HTTP and WS
-  are JSON/form-encoded in production; a protobuf migration for HTTP, WS, and
-  federation is spec'd but not implemented — see `specs/protobuf/`.
+- `proto/` — `websocket.proto` + generated `websocket.pb.go`, covering the
+  full live WS event set — can't be `package main` (generated code needs
+  its own package), so this is the only other Go code outside root. HTTP
+  (`/api/*`) and federation are still JSON/form-encoded; that migration is
+  spec'd but not implemented — see `specs/protobuf/`. Regenerate with
+  `make proto` (needs `protoc` + `protoc-gen-go` on `PATH`).
 
 ### Frontend (`src/frontend/src/`)
 

@@ -23,6 +23,8 @@ import (
 )
 
 // reedRemovalWire is the wire shape of a signed reed-removal certificate.
+// Still JSON: used for HTTP federation payloads and DB storage, not just
+// the client-facing WS wire (which now carries it via pb.ReedRemovalCert).
 type reedRemovalWire struct {
 	Type            string          `json:"type"`
 	ServerID        string          `json:"serverID"`
@@ -32,7 +34,9 @@ type reedRemovalWire struct {
 	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
-// accountRemovalWire is the wire shape of a signed account-removal certificate.
+// accountRemovalWire is the wire shape of a signed account-removal cert.
+// Still JSON: used for HTTP federation and DB storage, not just the
+// client-facing WS wire (now pb.AccountRemovalCert).
 type accountRemovalWire struct {
 	Type            string          `json:"type"`
 	ServerID        string          `json:"serverID"`
@@ -40,6 +44,70 @@ type accountRemovalWire struct {
 	Note            string          `json:"note"`
 	UserSignature   UserSignature   `json:"userSignature"`
 	ServerSignature ServerSignature `json:"serverSignature"`
+}
+
+// pbUserSignature/pbServerSignature convert the JSON signature blocks
+// (shared with HTTP federation and DB storage) to their protobuf
+// equivalents for the client-facing WS wire.
+func pbUserSignature(s UserSignature) *pb.UserSignature {
+	return &pb.UserSignature{Id: s.ID, Armor: s.Armor}
+}
+
+func pbServerSignature(s ServerSignature) *pb.ServerSignature {
+	return &pb.ServerSignature{Id: s.ID, Armor: s.Armor, SignedAt: s.SignedAt.UTC().Unix()}
+}
+
+func pbReedRemovalCert(w reedRemovalWire) *pb.ReedRemovalCert {
+	return &pb.ReedRemovalCert{
+		ServerId:        w.ServerID,
+		UserId:          w.UserID,
+		ReedId:          w.ReedID,
+		UserSignature:   pbUserSignature(w.UserSignature),
+		ServerSignature: pbServerSignature(w.ServerSignature),
+	}
+}
+
+func pbAccountRemovalCert(w accountRemovalWire) *pb.AccountRemovalCert {
+	return &pb.AccountRemovalCert{
+		ServerId:        w.ServerID,
+		UserId:          w.UserID,
+		Note:            w.Note,
+		UserSignature:   pbUserSignature(w.UserSignature),
+		ServerSignature: pbServerSignature(w.ServerSignature),
+	}
+}
+
+func pbRipple(r RippleWire) *pb.Ripple {
+	replyingTo := ""
+	if r.ReplyingTo != nil {
+		replyingTo = *r.ReplyingTo
+	}
+	return &pb.Ripple{
+		Hash:            r.Hash,
+		ThreadId:        r.ThreadID,
+		UserId:          r.UserID,
+		Content:         r.Content,
+		ReplyingTo:      replyingTo,
+		Deleted:         r.Deleted,
+		PostedAt:        r.PostedAt.UTC().Unix(),
+		UserSignature:   pbUserSignature(r.UserSignature),
+		ServerSignature: pbServerSignature(r.ServerSignature),
+	}
+}
+
+// marshalWSMessage stamps TypeName from Type and marshals to bytes — the one
+// place every outbound WSMessage send derives its human-readable mirror.
+func marshalWSMessage(msg *pb.WSMessage) ([]byte, error) {
+	msg.TypeName = msg.Type.String()
+	return proto.Marshal(msg)
+}
+
+// realtimeJSONString JSON-encodes a Go string (adds quoting/escaping) — used
+// to wrap ciphertext for deliverOrForward's federation transport param,
+// which stays JSON since federation is not part of this WS binary cutover.
+func realtimeJSONString(s string) json.RawMessage {
+	raw, _ := json.Marshal(s)
+	return raw
 }
 
 // newReedRemovalWire builds the WS/HTTP wire cert from a stored removal cert.
@@ -86,117 +154,6 @@ type userUpdateBroadcast struct {
 	Bio      string `json:"bio"`
 }
 
-// inboundJSONMsg is the common envelope for client JSON WebSocket frames.
-// ID is the event id for messages that reply to a specific dispatched
-// event (RELAY_RESPONSE, RELAY_MISS, RELAY_ERROR, DATA_ACK, DATA_INVALID).
-// ReedID is the whole canonical reed ref (SUBSCRIBE_REED/UNSUBSCRIBE_REED).
-type inboundJSONMsg struct {
-	Type   string          `json:"type"`
-	ID     string          `json:"id"`
-	Data   json.RawMessage `json:"data"`
-	ReedID string          `json:"reedID"`
-}
-
-// pongMsg is the JSON pong response.
-type pongMsg struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
-}
-
-// subscribedMsg is the JSON subscription acknowledgement.
-type subscribedMsg struct {
-	Type string `json:"type"`
-	Data string `json:"data"`
-}
-
-// publishReadyData is the payload of an incoming PUBLISH_READY message.
-type publishReadyData struct {
-	ReedID    string          `json:"reed_id"`
-	Broadcast json.RawMessage `json:"broadcast"`
-}
-
-// publishReadyAckMsg confirms fanout was processed (or reed already exists).
-type publishReadyAckMsg struct {
-	Type string              `json:"type"`
-	Data publishReadyAckData `json:"data"`
-}
-
-type publishReadyAckData struct {
-	ReedID string `json:"reed_id"`
-}
-
-// subscribePipeData is the payload of SUBSCRIBE_PIPE / UNSUBSCRIBE_PIPE.
-type subscribePipeData struct {
-	Tag string `json:"tag"`
-}
-
-// reedStatsMsg is pushed when a client subscribes to reed stats.
-type reedStatsMsg struct {
-	Type            string `json:"type"`
-	ReedID          string `json:"reedID"`
-	Echoes          int    `json:"echoes"`
-	CoveragePercent int    `json:"coveragePercent"`
-	Replies         int    `json:"replies"`
-	Likes           int    `json:"likes"`
-}
-
-// reedCoverageMsg notifies reed subscribers of holder coverage changes.
-type reedCoverageMsg struct {
-	Type            string `json:"type"`
-	ReedID          string `json:"reedID"`
-	CoveragePercent int    `json:"coveragePercent"`
-}
-
-// reedEchoesMsg notifies reed subscribers of echo count changes.
-type reedEchoesMsg struct {
-	Type   string `json:"type"`
-	ReedID string `json:"reedID"`
-	Echoes int    `json:"echoes"`
-}
-
-// reedRepliesMsg notifies reed subscribers of reply subtree count changes.
-type reedRepliesMsg struct {
-	Type    string `json:"type"`
-	ReedID  string `json:"reedID"`
-	Replies int    `json:"replies"`
-}
-
-// reedLikesMsg notifies reed subscribers of like count changes.
-type reedLikesMsg struct {
-	Type   string `json:"type"`
-	ReedID string `json:"reedID"`
-	Likes  int    `json:"likes"`
-}
-
-// ripplePostedMsg notifies reed subscribers a new ripple response landed.
-// Ripple reuses handlers.go's RippleWire — the two are field-for-field
-// identical, so no realtime-specific ripple wire type is kept.
-type ripplePostedMsg struct {
-	Type   string     `json:"type"`
-	UserID string     `json:"userID"` // reed author
-	ReedID string     `json:"reedID"`
-	Ripple RippleWire `json:"ripple"`
-}
-
-// rippleUpdatedMsg notifies reed subscribers an existing ripple response
-// was soft-deleted (content patched to "[DELETED]"). Named Updated, not
-// Deleted, because the client patches the row in place rather than
-// removing it — there is no RIPPLE_DELETED event.
-type rippleUpdatedMsg struct {
-	Type   string     `json:"type"`
-	UserID string     `json:"userID"`
-	ReedID string     `json:"reedID"`
-	Ripple RippleWire `json:"ripple"`
-}
-
-// shutdownMsg is broadcast to every connected client right before the
-// server closes their socket for a graceful shutdown (SIGTERM/SIGINT), so
-// the client can reconnect immediately instead of waiting on a connection
-// that silently went dead.
-type shutdownMsg struct {
-	Type string `json:"type"`
-}
-
 // realtimeEventName identifies the reason a pending relay event was created.
 type realtimeEventName string
 
@@ -213,112 +170,72 @@ const (
 	mentionEvent             realtimeEventName = "mention"
 )
 
-// relayRequestMsg is sent from the server to a holder to request reed
+// newRelayRequestMsg is sent from the server to a holder to request reed
 // content. ReedID is the canonical id (userID@serverID/uuid) — already
 // globally unique and already embeds the author, so no separate author
 // field is needed to disambiguate it. RequesterID is who the holder must
 // encrypt the content to before responding — the server relays ciphertext
 // blindly and never sees the body.
-type relayRequestMsg struct {
-	Type string           `json:"type"`
-	ID   string           `json:"id"`
-	Data relayRequestData `json:"data"`
+func newRelayRequestMsg(eventID, reedID, requesterID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_RELAY_REQUEST,
+		Id:   eventID,
+		Payload: &pb.WSMessage_RelayRequest{
+			RelayRequest: &pb.RelayRequestMessage{ReedId: reedID, RequesterId: requesterID},
+		},
+	}
 }
 
-type relayRequestData struct {
-	ReedID      string `json:"reed_id"`
-	RequesterID string `json:"requester_id"`
+// newRequestAckMsg confirms to a requester that their relay request was registered.
+func newRequestAckMsg(requestID, eventID, reedID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_REQUEST_ACK,
+		Id:   eventID,
+		Payload: &pb.WSMessage_RequestAck{
+			RequestAck: &pb.RequestAckMessage{RequestId: requestID, ReedId: reedID},
+		},
+	}
 }
 
-func newRelayRequestMsg(eventID, reedID, requesterID string) relayRequestMsg {
-	return relayRequestMsg{Type: "RELAY_REQUEST", ID: eventID, Data: relayRequestData{ReedID: reedID, RequesterID: requesterID}}
-}
-
-// requestAckMsg is sent from the server to a requester confirming the relay request was registered.
-type requestAckMsg struct {
-	Type string         `json:"type"`
-	ID   string         `json:"id"`
-	Data requestAckData `json:"data"`
-}
-
-type requestAckData struct {
-	RequestID string `json:"request_id"`
-	ReedID    string `json:"reed_id"`
-}
-
-func newRequestAckMsg(requestID, eventID, reedID string) requestAckMsg {
-	return requestAckMsg{Type: "REQUEST_ACK", ID: eventID, Data: requestAckData{RequestID: requestID, ReedID: reedID}}
-}
-
-// dataResponseMsg is sent from the server to the requester with the relayed reed content.
-type dataResponseMsg struct {
-	Type string           `json:"type"`
-	ID   string           `json:"id,omitempty"`
-	Data dataResponseData `json:"data"`
-}
-
-// dataResponseData: for a removal cert (Data), the cert already carries its
-// own reedID/userID, so no separate id is needed there. For a reed delivery
-// (Ciphertext), ReedID is the server's own record of which reed this
-// delivery answers — the client checks the decrypted reed's own id against
-// it, since Ciphertext could otherwise be swapped for a different,
-// independently valid reed without the client noticing.
-type dataResponseData struct {
-	RequestID  string          `json:"request_id,omitempty"`
-	Data       json.RawMessage `json:"data,omitempty"`
-	Ciphertext string          `json:"ciphertext,omitempty"`
-	Username   string          `json:"username,omitempty"`
-	ReedID     string          `json:"reed_id,omitempty"`
-}
-
-// realtimeJSONString JSON-encodes a Go string (adds quoting/escaping) —
-// used to wrap ciphertext for the federation transport layer
-// (deliverOrForward's data json.RawMessage param), not for
-// dataResponseData's own JSON shape.
-func realtimeJSONString(s string) json.RawMessage {
-	raw, _ := json.Marshal(s)
-	return raw
-}
-
-func newDataResponseMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
-	return dataResponseMsg{Type: "DATA_RESPONSE", ID: eventID, Data: dataResponseData{RequestID: requestID, Ciphertext: ciphertext, ReedID: reedID}}
+func newDataResponseMsg(eventID, requestID, ciphertext, reedID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_DATA_RESPONSE,
+		Id:   eventID,
+		Payload: &pb.WSMessage_DataResponse{
+			DataResponse: &pb.DataResponseMessage{RequestId: requestID, Ciphertext: ciphertext, ReedId: reedID},
+		},
+	}
 }
 
 // newBroadcastReedMsg builds a BROADCAST_REED delivery message (no request_id or event id needed).
-func newBroadcastReedMsg(ciphertext, username, reedID string) dataResponseMsg {
-	return dataResponseMsg{
-		Type: "BROADCAST_REED",
-		Data: dataResponseData{
-			Ciphertext: ciphertext,
-			Username:   username,
-			ReedID:     reedID,
+func newBroadcastReedMsg(ciphertext, username, reedID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_BROADCAST_REED,
+		Payload: &pb.WSMessage_DataResponse{
+			DataResponse: &pb.DataResponseMessage{Ciphertext: ciphertext, Username: username, ReedId: reedID},
 		},
 	}
 }
 
 // newPipeReedMsg builds a PIPE_REED delivery (pipe subscription push).
 // Carries the event id so the viewer can DATA_ACK after verify+store (same as DATA_RESPONSE).
-func newPipeReedMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
-	return dataResponseMsg{
-		Type: "PIPE_REED",
-		ID:   eventID,
-		Data: dataResponseData{
-			RequestID:  requestID,
-			Ciphertext: ciphertext,
-			ReedID:     reedID,
+func newPipeReedMsg(eventID, requestID, ciphertext, reedID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_PIPE_REED,
+		Id:   eventID,
+		Payload: &pb.WSMessage_DataResponse{
+			DataResponse: &pb.DataResponseMessage{RequestId: requestID, Ciphertext: ciphertext, ReedId: reedID},
 		},
 	}
 }
 
 // newFollowReedMsg builds a FOLLOW_REED delivery (followcast / follow catch-up push).
-func newFollowReedMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
-	return dataResponseMsg{
-		Type: "FOLLOW_REED",
-		ID:   eventID,
-		Data: dataResponseData{
-			RequestID:  requestID,
-			Ciphertext: ciphertext,
-			ReedID:     reedID,
+func newFollowReedMsg(eventID, requestID, ciphertext, reedID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_FOLLOW_REED,
+		Id:   eventID,
+		Payload: &pb.WSMessage_DataResponse{
+			DataResponse: &pb.DataResponseMessage{RequestId: requestID, Ciphertext: ciphertext, ReedId: reedID},
 		},
 	}
 }
@@ -326,14 +243,12 @@ func newFollowReedMsg(eventID, requestID, ciphertext, reedID string) dataRespons
 // newArchiveReedMsg builds an ARCHIVE_REED delivery to an admin/root
 // resilience holder. No feed/UI semantics — the client stores and holds
 // the reed without touching any social-graph state.
-func newArchiveReedMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
-	return dataResponseMsg{
-		Type: "ARCHIVE_REED",
-		ID:   eventID,
-		Data: dataResponseData{
-			RequestID:  requestID,
-			Ciphertext: ciphertext,
-			ReedID:     reedID,
+func newArchiveReedMsg(eventID, requestID, ciphertext, reedID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_ARCHIVE_REED,
+		Id:   eventID,
+		Payload: &pb.WSMessage_DataResponse{
+			DataResponse: &pb.DataResponseMessage{RequestId: requestID, Ciphertext: ciphertext, ReedId: reedID},
 		},
 	}
 }
@@ -345,14 +260,12 @@ func newArchiveReedMsg(eventID, requestID, ciphertext, reedID string) dataRespon
 // Used both for same-server subscriber fanout and for a foreign viewer whose
 // home server relayed it to us on their behalf, so there is no separate
 // cross-server wire type.
-func newReedReplyMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
-	return dataResponseMsg{
-		Type: "REED_REPLY",
-		ID:   eventID,
-		Data: dataResponseData{
-			RequestID:  requestID,
-			Ciphertext: ciphertext,
-			ReedID:     reedID,
+func newReedReplyMsg(eventID, requestID, ciphertext, reedID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_REED_REPLY,
+		Id:   eventID,
+		Payload: &pb.WSMessage_DataResponse{
+			DataResponse: &pb.DataResponseMessage{RequestId: requestID, Ciphertext: ciphertext, ReedId: reedID},
 		},
 	}
 }
@@ -360,177 +273,173 @@ func newReedReplyMsg(eventID, requestID, ciphertext, reedID string) dataResponse
 // newMentionMsg builds a MENTION delivery: the reed's ciphertext, over
 // the same holder-relay path as REED_REPLY (a mention always needs the
 // reed itself, so a pointer-only push would just add a round trip).
-func newMentionMsg(eventID, requestID, ciphertext, reedID string) dataResponseMsg {
-	return dataResponseMsg{
-		Type: "MENTION",
-		ID:   eventID,
-		Data: dataResponseData{
-			RequestID:  requestID,
-			Ciphertext: ciphertext,
-			ReedID:     reedID,
+func newMentionMsg(eventID, requestID, ciphertext, reedID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_MENTION,
+		Id:   eventID,
+		Payload: &pb.WSMessage_DataResponse{
+			DataResponse: &pb.DataResponseMessage{RequestId: requestID, Ciphertext: ciphertext, ReedId: reedID},
 		},
 	}
 }
 
-// newReedRemovedMsg builds a REED_REMOVED delivery with the full signed cert as data.
-func newReedRemovedMsg(eventID, requestID string, cert reedRemovalWire) dataResponseMsg {
-	raw, _ := json.Marshal(cert)
-	return dataResponseMsg{
-		Type: "REED_REMOVED",
-		ID:   eventID,
-		Data: dataResponseData{
-			RequestID: requestID,
-			Data:      raw,
+// newReedRemovedMsg builds a REED_REMOVED delivery with the full signed cert.
+func newReedRemovedMsg(eventID, requestID string, cert reedRemovalWire) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_REED_REMOVED,
+		Id:   eventID,
+		Payload: &pb.WSMessage_ReedRemoved{
+			ReedRemoved: &pb.ReedRemovedMessage{RequestId: requestID, Cert: pbReedRemovalCert(cert)},
 		},
 	}
 }
 
 // newAccountRemovedMsg builds an ACCOUNT_REMOVED delivery with the full signed cert.
-func newAccountRemovedMsg(eventID, requestID string, cert accountRemovalWire) dataResponseMsg {
-	raw, _ := json.Marshal(cert)
-	return dataResponseMsg{
-		Type: "ACCOUNT_REMOVED",
-		ID:   eventID,
-		Data: dataResponseData{
-			RequestID: requestID,
-			Data:      raw,
+func newAccountRemovedMsg(eventID, requestID string, cert accountRemovalWire) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_ACCOUNT_REMOVED,
+		Id:   eventID,
+		Payload: &pb.WSMessage_AccountRemoved{
+			AccountRemoved: &pb.AccountRemovedMessage{RequestId: requestID, Cert: pbAccountRemovalCert(cert)},
 		},
 	}
 }
 
 // RELAY_MISS, RELAY_ERROR, DATA_ACK, and DATA_INVALID carry no payload
-// beyond the event id, which lives on inboundJSONMsg.ID — no dedicated
-// data struct needed for any of them.
-
-// mailboxMsg delivers one pending user_mailbox row. The server never
-// decrypts or inspects Ciphertext — it's opaque bytes to everyone but the
-// recipient's own client. Sent both on live delivery and on catch-up.
-type mailboxMsg struct {
-	Type string         `json:"type"`
-	Data mailboxMsgData `json:"data"`
-}
-
-type mailboxMsgData struct {
-	ID         string `json:"id"`
-	Ciphertext string `json:"ciphertext"`
-}
+// beyond the event id, which lives on WSMessage.Id — no dedicated payload
+// message needed for any of them.
 
 // newMailboxMsg sends the canonical ref (userID@serverID/id), not the bare
 // row id — the client has no business reconstructing this itself, and
 // user_mailbox.id alone is only unique per-user, not globally.
-func newMailboxMsg(userID, id, ciphertext string) mailboxMsg {
+func newMailboxMsg(userID, id, ciphertext string) *pb.WSMessage {
 	canonical := string(appendEntity(identityID(userID), id))
-	return mailboxMsg{Type: "MAILBOX", Data: mailboxMsgData{ID: canonical, Ciphertext: ciphertext}}
-}
-
-// mailboxAckData is the parsed payload of an incoming MAILBOX_ACK message.
-type mailboxAckData struct {
-	ID string `json:"id"`
-}
-
-// keyFetchErrorData is the parsed payload of an incoming KEY_FETCH_ERROR
-// message: the client tried to fetch userID's key (keyID) to verify
-// signed content and the request failed (network error, non-2xx other than
-// a legitimate "key not found"). The server was reachable enough to have
-// delivered the content in the first place, so this is an anomaly worth
-// logging, not a routine cache miss.
-type keyFetchErrorData struct {
-	UserID string `json:"user_id"`
-	KeyID  string `json:"key_id"`
-}
-
-// revokedKeyUsedData is the parsed payload of an incoming REVOKED_KEY_USED
-// message: the client fetched userID's key (keyID), found it revoked,
-// and the signed content's timestamp was at or after the revocation time —
-// i.e. content purportedly signed with an already-revoked key.
-type revokedKeyUsedData struct {
-	UserID string `json:"user_id"`
-	KeyID  string `json:"key_id"`
-}
-
-// contentRejectedData is the parsed payload of an incoming CONTENT_REJECTED
-// message: the client failed to verify a signed resource and refused to
-// store it. Reason is optional, one of a small standardized set.
-type contentRejectedData struct {
-	StoreName string `json:"store_name"`
-	Reason    string `json:"reason,omitempty"`
-}
-
-// syncRequestData is the parsed payload of an incoming SYNC_REQUEST message.
-type syncRequestData struct {
-	RequestID string `json:"request_id"`
-}
-
-// subscribeProfileData is the parsed payload of an incoming SUBSCRIBE_PROFILE message.
-type subscribeProfileData struct {
-	UserID string `json:"user_id"`
-}
-
-// unsubscribeProfileData is the parsed payload of an incoming UNSUBSCRIBE_PROFILE message.
-type unsubscribeProfileData struct {
-	UserID string `json:"user_id"`
-}
-
-// reedNotFoundMsg is sent from the server to a requester when the requested reed does not exist.
-type reedNotFoundMsg struct {
-	Type string           `json:"type"`
-	Data reedNotFoundData `json:"data"`
-}
-
-type reedNotFoundData struct {
-	RequestID string `json:"request_id"`
-	ReedID    string `json:"reed_id"`
-}
-
-func newReedNotFoundMsg(requestID, reedID string) reedNotFoundMsg {
-	return reedNotFoundMsg{
-		Type: "REED_NOT_FOUND",
-		Data: reedNotFoundData{
-			RequestID: requestID,
-			ReedID:    reedID,
+	return &pb.WSMessage{
+		Type: pb.MessageType_MAILBOX,
+		Payload: &pb.WSMessage_Mailbox{
+			Mailbox: &pb.MailboxMessage{Id: canonical, Ciphertext: ciphertext},
 		},
 	}
 }
 
-// reedNotHeldMsg is sent when reed metadata exists but no peer holds the body.
-type reedNotHeldMsg struct {
-	Type string          `json:"type"`
-	Data reedNotHeldData `json:"data"`
-}
-
-type reedNotHeldData struct {
-	RequestID string `json:"request_id"`
-	ReedID    string `json:"reed_id"`
-}
-
-func newReedNotHeldMsg(requestID, reedID string) reedNotHeldMsg {
-	return reedNotHeldMsg{
-		Type: "REED_NOT_HELD",
-		Data: reedNotHeldData{
-			RequestID: requestID,
-			ReedID:    reedID,
+// newReedNotFoundMsg is sent from the server to a requester when the requested reed does not exist.
+func newReedNotFoundMsg(requestID, reedID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_REED_NOT_FOUND,
+		Payload: &pb.WSMessage_ReedNotFound{
+			ReedNotFound: &pb.ReedNotFoundMessage{RequestId: requestID, ReedId: reedID},
 		},
 	}
 }
 
-// invalidRequestIDErrorMsg is sent when an inbound message's request_id
+// newReedNotHeldMsg is sent when reed metadata exists but no peer holds the body.
+func newReedNotHeldMsg(requestID, reedID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_REED_NOT_HELD,
+		Payload: &pb.WSMessage_ReedNotHeld{
+			ReedNotHeld: &pb.ReedNotHeldMessage{RequestId: requestID, ReedId: reedID},
+		},
+	}
+}
+
+// newInvalidRequestIDErrorMsg is sent when an inbound message's request_id
 // doesn't embed the identity of the connection that sent it (malformed,
 // or claiming a different user/server than this WebSocket authenticated
 // as) — the client should discard the offending local record rather than
 // retry it, since the server never created any pending state for it.
-type invalidRequestIDErrorMsg struct {
-	Type string                `json:"type"`
-	Data invalidRequestIDError `json:"data"`
+func newInvalidRequestIDErrorMsg(requestID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_INVALID_REQUEST_ID_ERROR,
+		Payload: &pb.WSMessage_InvalidRequestIdError{
+			InvalidRequestIdError: &pb.InvalidRequestIdErrorMessage{RequestId: requestID},
+		},
+	}
 }
 
-type invalidRequestIDError struct {
-	RequestID string `json:"request_id"`
+// newShutdownMsg is sent before the server closes a client's socket for a
+// graceful shutdown, so the client can reconnect immediately instead of
+// waiting on a connection that silently went dead.
+func newShutdownMsg() *pb.WSMessage {
+	return &pb.WSMessage{
+		Type:    pb.MessageType_SIGTERM,
+		Payload: &pb.WSMessage_Shutdown{Shutdown: &pb.ShutdownMessage{}},
+	}
 }
 
-func newInvalidRequestIDErrorMsg(requestID string) invalidRequestIDErrorMsg {
-	return invalidRequestIDErrorMsg{
-		Type: "INVALID_REQUEST_ID_ERROR",
-		Data: invalidRequestIDError{RequestID: requestID},
+// newReedStatsMsg is pushed when a client subscribes to reed stats.
+func newReedStatsMsg(reedID string, echoes, coveragePercent, replies, likes int) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_REED_STATS,
+		Payload: &pb.WSMessage_ReedStats{
+			ReedStats: &pb.ReedStatsMessage{
+				ReedId:          reedID,
+				Echoes:          int32(echoes),
+				CoveragePercent: int32(coveragePercent),
+				Replies:         int32(replies),
+				Likes:           int32(likes),
+			},
+		},
+	}
+}
+
+// newReedCoverageMsg notifies reed subscribers of holder coverage changes.
+func newReedCoverageMsg(reedID string, coveragePercent int) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_REED_COVERAGE,
+		Payload: &pb.WSMessage_ReedCoverage{
+			ReedCoverage: &pb.ReedCoverageMessage{ReedId: reedID, CoveragePercent: int32(coveragePercent)},
+		},
+	}
+}
+
+// newReedEchoesMsg notifies reed subscribers of echo count changes.
+func newReedEchoesMsg(reedID string, echoes int) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_REED_ECHOES,
+		Payload: &pb.WSMessage_ReedEchoes{
+			ReedEchoes: &pb.ReedEchoesMessage{ReedId: reedID, Echoes: int32(echoes)},
+		},
+	}
+}
+
+// newReedRepliesMsg notifies reed subscribers of reply subtree count changes.
+func newReedRepliesMsg(reedID string, replies int) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_REED_REPLIES,
+		Payload: &pb.WSMessage_ReedReplies{
+			ReedReplies: &pb.ReedRepliesMessage{ReedId: reedID, Replies: int32(replies)},
+		},
+	}
+}
+
+// newReedLikesMsg notifies reed subscribers of like count changes.
+func newReedLikesMsg(reedID string, likes int) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_REED_LIKES,
+		Payload: &pb.WSMessage_ReedLikes{
+			ReedLikes: &pb.ReedLikesMessage{ReedId: reedID, Likes: int32(likes)},
+		},
+	}
+}
+
+// newRipplePostedMsg notifies reed subscribers a new ripple response landed.
+func newRipplePostedMsg(authorUserID, reedID string, ripple RippleWire) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_RIPPLE_POSTED,
+		Payload: &pb.WSMessage_RipplePosted{
+			RipplePosted: &pb.RipplePostedMessage{UserId: authorUserID, ReedId: reedID, Ripple: pbRipple(ripple)},
+		},
+	}
+}
+
+// newRippleUpdatedMsg notifies subscribers a ripple was soft-deleted
+// (content patched to "[DELETED]"); there is no separate RIPPLE_DELETED.
+func newRippleUpdatedMsg(authorUserID, reedID string, ripple RippleWire) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_RIPPLE_UPDATED,
+		Payload: &pb.WSMessage_RippleUpdated{
+			RippleUpdated: &pb.RippleUpdatedMessage{UserId: authorUserID, ReedId: reedID, Ripple: pbRipple(ripple)},
+		},
 	}
 }
 
@@ -579,7 +488,7 @@ type realtimeBroadcastMessage struct {
 // canonical id, which already self-describes (embeds the author).
 type realtimeReedKey string
 
-// realtimeClientSubscriptionFlags tracks protobuf/legacy JSON subscription toggles.
+// realtimeClientSubscriptionFlags tracks per-client subscription toggles.
 type realtimeClientSubscriptionFlags struct {
 	user      bool
 	broadcast bool
@@ -807,10 +716,11 @@ func (cm *realtimeConnectionManager) DisconnectUser(userID string) {
 		Msg("Disconnected user WebSocket clients")
 }
 
-// SendToUser sends a JSON-encoded message to every active connection for the user.
-// Delivering to all avoids losing messages when a superseded socket is still
-// briefly registered; clients that already closed a socket simply drop the write.
-func (cm *realtimeConnectionManager) SendToUser(userID string, msg any) error {
+// SendToUser marshals msg as a protobuf WSMessage and sends it as a binary
+// frame to every active connection for the user. Delivering to all avoids
+// losing messages when a superseded socket is still briefly registered;
+// clients that already closed a socket simply drop the write.
+func (cm *realtimeConnectionManager) SendToUser(userID string, msg *pb.WSMessage) error {
 	cm.mutex.RLock()
 	userConns, exists := cm.userConnections[userID]
 	if !exists || len(userConns) == 0 {
@@ -823,47 +733,7 @@ func (cm *realtimeConnectionManager) SendToUser(userID string, msg any) error {
 	}
 	cm.mutex.RUnlock()
 
-	jsonBytes, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal message: %w", err)
-	}
-
-	var lastErr error
-	sent := 0
-	for _, c := range clients {
-		if err := c.writeMessage(websocket.TextMessage, jsonBytes); err != nil {
-			lastErr = err
-			continue
-		}
-		sent++
-	}
-	if sent == 0 {
-		if lastErr != nil {
-			return fmt.Errorf("failed to send message: %w", lastErr)
-		}
-		return fmt.Errorf("no active connection for user %s", userID)
-	}
-	return nil
-}
-
-// SendProtobufToUser marshals msg as a protobuf WSMessage and sends it as a
-// binary frame to every active connection for userID, mirroring SendToUser's
-// fan-out/error semantics for the JSON path.
-func (cm *realtimeConnectionManager) SendProtobufToUser(userID string, msg *pb.WSMessage) error {
-	cm.mutex.RLock()
-	userConns, exists := cm.userConnections[userID]
-	if !exists || len(userConns) == 0 {
-		cm.mutex.RUnlock()
-		return fmt.Errorf("no active connection for user %s", userID)
-	}
-	clients := make([]*realtimeClient, 0, len(userConns))
-	for _, c := range userConns {
-		clients = append(clients, c)
-	}
-	cm.mutex.RUnlock()
-
-	msg.TypeName = msg.Type.String()
-	data, err := proto.Marshal(msg)
+	data, err := marshalWSMessage(msg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal protobuf message: %w", err)
 	}
@@ -927,9 +797,8 @@ func (cm *realtimeConnectionManager) BroadcastShutdown() {
 	}
 	cm.mutex.RUnlock()
 
-	shutdown := shutdownMsg{Type: "SIGTERM"}
 	for _, c := range clients {
-		if err := cm.SendToClient(c, shutdown); err != nil {
+		if err := cm.SendToClient(c, newShutdownMsg()); err != nil {
 			log.Error().Err(err).Str("userID", c.userID).Msg("Failed to send SIGTERM notice")
 		}
 	}
@@ -954,8 +823,7 @@ func (cm *realtimeConnectionManager) sendPing(client *realtimeClient) {
 
 // sendProtobufMessage sends a protobuf message to a connection.
 func (cm *realtimeConnectionManager) sendProtobufMessage(client *realtimeClient, msg *pb.WSMessage) {
-	msg.TypeName = msg.Type.String()
-	data, err := proto.Marshal(msg)
+	data, err := marshalWSMessage(msg)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to marshal protobuf message")
 		return
@@ -1164,17 +1032,17 @@ func (cm *realtimeConnectionManager) ReedSubscriberUserIDs(reedID, excludeUserID
 	return out
 }
 
-// SendToClient writes a JSON payload to one client.
-func (cm *realtimeConnectionManager) SendToClient(client *realtimeClient, payload any) error {
-	jsonBytes, err := json.Marshal(payload)
+// SendToClient writes a protobuf payload to one client.
+func (cm *realtimeConnectionManager) SendToClient(client *realtimeClient, msg *pb.WSMessage) error {
+	data, err := marshalWSMessage(msg)
 	if err != nil {
 		return err
 	}
-	return client.writeMessage(websocket.TextMessage, jsonBytes)
+	return client.writeMessage(websocket.BinaryMessage, data)
 }
 
-// SendToReedSubscribers sends a JSON payload to all subscribers of a reed.
-func (cm *realtimeConnectionManager) SendToReedSubscribers(reedID string, payload any) error {
+// SendToReedSubscribers sends a protobuf payload to all subscribers of a reed.
+func (cm *realtimeConnectionManager) SendToReedSubscribers(reedID string, msg *pb.WSMessage) error {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
 
@@ -1183,25 +1051,25 @@ func (cm *realtimeConnectionManager) SendToReedSubscribers(reedID string, payloa
 		return nil
 	}
 
-	jsonBytes, err := json.Marshal(payload)
+	data, err := marshalWSMessage(msg)
 	if err != nil {
 		return err
 	}
 
 	for client := range subs {
-		if err := client.writeMessage(websocket.TextMessage, jsonBytes); err != nil {
+		if err := client.writeMessage(websocket.BinaryMessage, data); err != nil {
 			log.Error().Err(err).Str("userID", client.userID).Msg("Failed to send reed subscription message")
 		}
 	}
 	return nil
 }
 
-// sendToReedSubscribersExceptAuthor sends a JSON payload to all subscribers
-// of a reed, skipping excludeUserID's own connections. Used for ripple
-// pushes, whose author already has the content from their own synchronous
-// HTTP response — unlike echo/reply/like count refreshes, which the actor
-// also wants delivered back to themselves.
-func (cm *realtimeConnectionManager) sendToReedSubscribersExceptAuthor(reedID, excludeUserID string, payload any) error {
+// sendToReedSubscribersExceptAuthor sends a protobuf payload to all
+// subscribers of a reed, skipping excludeUserID's own connections. Used for
+// ripple pushes, whose author already has the content from their own
+// synchronous HTTP response — unlike echo/reply/like count refreshes, which
+// the actor also wants delivered back to themselves.
+func (cm *realtimeConnectionManager) sendToReedSubscribersExceptAuthor(reedID, excludeUserID string, msg *pb.WSMessage) error {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
 
@@ -1210,7 +1078,7 @@ func (cm *realtimeConnectionManager) sendToReedSubscribersExceptAuthor(reedID, e
 		return nil
 	}
 
-	jsonBytes, err := json.Marshal(payload)
+	data, err := marshalWSMessage(msg)
 	if err != nil {
 		return err
 	}
@@ -1219,7 +1087,7 @@ func (cm *realtimeConnectionManager) sendToReedSubscribersExceptAuthor(reedID, e
 		if client.userID == excludeUserID {
 			continue
 		}
-		if err := client.writeMessage(websocket.TextMessage, jsonBytes); err != nil {
+		if err := client.writeMessage(websocket.BinaryMessage, data); err != nil {
 			log.Error().Err(err).Str("userID", client.userID).Msg("Failed to send reed subscription message")
 		}
 	}
@@ -1227,11 +1095,11 @@ func (cm *realtimeConnectionManager) sendToReedSubscribersExceptAuthor(reedID, e
 }
 
 // BroadcastReedCoverage sends a coverage update to all subscribers of a reed.
-func (cm *realtimeConnectionManager) BroadcastReedCoverage(msg reedCoverageMsg) error {
-	if msg.ReedID == "" {
+func (cm *realtimeConnectionManager) BroadcastReedCoverage(reedID string, msg *pb.WSMessage) error {
+	if reedID == "" {
 		return fmt.Errorf("reed coverage payload missing reedID")
 	}
-	return cm.SendToReedSubscribers(msg.ReedID, msg)
+	return cm.SendToReedSubscribers(reedID, msg)
 }
 
 // authenticateWebSocket authenticates a WebSocket connection. userID is
@@ -2368,7 +2236,11 @@ func (rs *realtimeService) handleClientMessages(client *realtimeClient) {
 		case websocket.BinaryMessage:
 			rs.handleProtobufMessage(client, data)
 		case websocket.TextMessage:
-			rs.handleJSONMessage(client, data)
+			log.Warn().Msg("Rejecting text WebSocket frame; only binary protobuf frames are accepted")
+			client.conn.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseUnsupportedData, "text frames are not supported; send binary protobuf"),
+				time.Now().Add(time.Second))
+			return
 		default:
 			log.Warn().Int("messageType", messageType).Msg("Received unsupported message type, ignoring")
 			continue
@@ -2376,7 +2248,8 @@ func (rs *realtimeService) handleClientMessages(client *realtimeClient) {
 	}
 }
 
-// handleProtobufMessage handles protobuf messages.
+// handleProtobufMessage handles every inbound WebSocket message, all of
+// which travel as a binary protobuf WSMessage.
 func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []byte) {
 	var msg pb.WSMessage
 	if err := proto.Unmarshal(data, &msg); err != nil {
@@ -2405,144 +2278,64 @@ func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []
 	case pb.MessageType_REQUEST_REED:
 		rs.handleRequestReed(client, msg.GetRequestReed())
 
+	case pb.MessageType_SYNC_REQUEST:
+		rs.handleSyncRequest(client, msg.GetSyncRequest().GetRequestId())
+
+	case pb.MessageType_RELAY_RESPONSE:
+		rs.handleRelayResponse(client, msg.Id, msg.GetRelayResponse().GetCiphertext())
+
+	case pb.MessageType_RELAY_MISS:
+		rs.handleRelayMiss(client.userID, msg.Id)
+
+	case pb.MessageType_RELAY_ERROR:
+		rs.handleRelayError(client.userID, msg.Id)
+
+	case pb.MessageType_DATA_ACK:
+		rs.handleDataAck(client, msg.Id)
+
+	case pb.MessageType_DATA_INVALID:
+		rs.handleDataInvalid(client, msg.Id)
+
+	case pb.MessageType_MAILBOX_ACK:
+		rs.handleMailboxAck(client, msg.GetMailboxAck().GetId())
+
+	case pb.MessageType_KEY_FETCH_ERROR:
+		kfe := msg.GetKeyFetchError()
+		rs.handleKeyFetchError(client, kfe.GetUserId(), kfe.GetKeyId())
+
+	case pb.MessageType_REVOKED_KEY_USED:
+		rku := msg.GetRevokedKeyUsed()
+		rs.handleRevokedKeyUsed(client, rku.GetUserId(), rku.GetKeyId())
+
+	case pb.MessageType_CONTENT_REJECTED:
+		cr := msg.GetContentRejected()
+		rs.handleContentRejected(client, cr.GetStoreName(), cr.GetReason())
+
+	case pb.MessageType_SUBSCRIBE_PROFILE:
+		rs.handleSubscribeProfile(client, msg.GetSubscribeProfile().GetUserId())
+
+	case pb.MessageType_UNSUBSCRIBE_PROFILE:
+		rs.handleUnsubscribeProfile(client, msg.GetUnsubscribeProfile().GetUserId())
+
+	case pb.MessageType_PUBLISH_READY:
+		pr := msg.GetPublishReady()
+		rs.handlePublishReady(client, pr.GetReedId(), shouldBroadcastReed(pr))
+
+	case pb.MessageType_SUBSCRIBE_REED:
+		rs.handleSubscribeReed(client, msg.GetSubscribeReed().GetReedId())
+
+	case pb.MessageType_UNSUBSCRIBE_REED:
+		rs.handleUnsubscribeReed(client, msg.GetUnsubscribeReed().GetReedId())
+
+	case pb.MessageType_SUBSCRIBE_PIPE:
+		rs.handleSubscribePipe(client, msg.GetSubscribePipe().GetTag())
+
+	case pb.MessageType_UNSUBSCRIBE_PIPE:
+		rs.handleUnsubscribePipe(client, msg.GetUnsubscribePipe().GetTag())
+
 	default:
 		log.Warn().Str("type", msg.Type.String()).Msg("Unknown protobuf WebSocket message type")
 	}
-}
-
-// handleJSONMessage handles JSON messages for testing.
-func (rs *realtimeService) handleJSONMessage(client *realtimeClient, data []byte) {
-	log.Debug().Str("data", string(data)).Msg("Received JSON WebSocket message")
-
-	var jsonMsg inboundJSONMsg
-	if err := json.Unmarshal(data, &jsonMsg); err != nil {
-		log.Error().Err(err).Str("data", string(data)).Msg("Failed to unmarshal JSON message")
-		return
-	}
-
-	if jsonMsg.Type == "" {
-		log.Warn().Str("data", string(data)).Msg("JSON message missing type field")
-		return
-	}
-
-	switch jsonMsg.Type {
-	case "ping":
-		response := pongMsg{Type: "pong", Data: jsonMsg.Data}
-		if jsonBytes, err := json.Marshal(response); err == nil {
-			client.writeMessage(websocket.TextMessage, jsonBytes)
-		}
-
-	case "SUBSCRIBE_USER":
-		rs.handleSubscribeUserJSON(client)
-
-	case "SUBSCRIBE_BROADCAST":
-		rs.handleSubscribeBroadcastJSON(client)
-
-	case "UNSUBSCRIBE_USER":
-		rs.handleUnsubscribeUserJSON(client)
-
-	case "UNSUBSCRIBE_BROADCAST":
-		rs.handleUnsubscribeBroadcastJSON(client)
-
-	case "SYNC_REQUEST":
-		var syncData syncRequestData
-		if err := json.Unmarshal(jsonMsg.Data, &syncData); err == nil {
-			rs.handleSyncRequest(client, syncData)
-		}
-
-	case "RELAY_RESPONSE":
-		rs.handleRelayResponse(client, jsonMsg.ID, jsonMsg.Data)
-
-	case "RELAY_MISS":
-		rs.handleRelayMiss(client.userID, jsonMsg.ID)
-
-	case "RELAY_ERROR":
-		rs.handleRelayError(client.userID, jsonMsg.ID)
-
-	case "DATA_ACK":
-		rs.handleDataAck(client, jsonMsg.ID)
-
-	case "DATA_INVALID":
-		rs.handleDataInvalid(client, jsonMsg.ID)
-
-	case "MAILBOX_ACK":
-		var d mailboxAckData
-		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
-			rs.handleMailboxAck(client, d)
-		}
-
-	case "KEY_FETCH_ERROR":
-		var d keyFetchErrorData
-		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
-			rs.handleKeyFetchError(client, d)
-		}
-
-	case "REVOKED_KEY_USED":
-		var d revokedKeyUsedData
-		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
-			rs.handleRevokedKeyUsed(client, d)
-		}
-
-	case "CONTENT_REJECTED":
-		var d contentRejectedData
-		if err := json.Unmarshal(jsonMsg.Data, &d); err == nil {
-			rs.handleContentRejected(client, d)
-		}
-
-	case "SUBSCRIBE_PROFILE":
-		rs.handleSubscribeProfile(client, jsonMsg.Data)
-
-	case "UNSUBSCRIBE_PROFILE":
-		rs.handleUnsubscribeProfile(client, jsonMsg.Data)
-
-	case "PUBLISH_READY":
-		rs.handlePublishReady(client, jsonMsg.Data)
-
-	case "SUBSCRIBE_REED":
-		rs.handleSubscribeReed(client, jsonMsg)
-
-	case "UNSUBSCRIBE_REED":
-		rs.handleUnsubscribeReed(client, jsonMsg)
-
-	case "SUBSCRIBE_PIPE":
-		rs.handleSubscribePipe(client, jsonMsg.Data)
-
-	case "UNSUBSCRIBE_PIPE":
-		rs.handleUnsubscribePipe(client, jsonMsg.Data)
-
-	default:
-		log.Warn().Str("type", jsonMsg.Type).Msg("Unknown JSON WebSocket message type")
-	}
-}
-
-// handleSubscribeUserJSON handles JSON user subscription requests.
-func (rs *realtimeService) handleSubscribeUserJSON(client *realtimeClient) {
-	rs.handleSubscribeUser(client, nil)
-
-	response := subscribedMsg{Type: "subscribed", Data: "Subscribed to user notifications"}
-	if jsonBytes, err := json.Marshal(response); err == nil {
-		client.writeMessage(websocket.TextMessage, jsonBytes)
-	}
-}
-
-// handleSubscribeBroadcastJSON handles JSON broadcast subscription requests.
-func (rs *realtimeService) handleSubscribeBroadcastJSON(client *realtimeClient) {
-	rs.handleSubscribeBroadcast(client, nil)
-
-	response := subscribedMsg{Type: "subscribed", Data: "Subscribed to broadcast notifications"}
-	if jsonBytes, err := json.Marshal(response); err == nil {
-		client.writeMessage(websocket.TextMessage, jsonBytes)
-	}
-}
-
-// handleUnsubscribeUserJSON handles JSON user unsubscription requests.
-func (rs *realtimeService) handleUnsubscribeUserJSON(client *realtimeClient) {
-	rs.handleUnsubscribeUser(client, nil)
-}
-
-// handleUnsubscribeBroadcastJSON handles JSON broadcast unsubscription requests.
-func (rs *realtimeService) handleUnsubscribeBroadcastJSON(client *realtimeClient) {
-	rs.handleUnsubscribeBroadcast(client, nil)
 }
 
 // handlePing handles ping messages.
@@ -2614,9 +2407,7 @@ func (rs *realtimeService) handleUnsubscribeBroadcast(client *realtimeClient, su
 
 // sendProtobufMessage sends a protobuf message to a client.
 func (rs *realtimeService) sendProtobufMessage(client *realtimeClient, msg *pb.WSMessage) {
-	msg.TypeName = msg.Type.String()
-
-	data, err := proto.Marshal(msg)
+	data, err := marshalWSMessage(msg)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to marshal protobuf message")
 		return
@@ -3231,24 +3022,23 @@ func (rs *realtimeService) HandleForeignSubscribeProfile(ctx context.Context, au
 	return results, nil
 }
 
-func (rs *realtimeService) handleSubscribeProfile(client *realtimeClient, data json.RawMessage) {
-	var profile subscribeProfileData
-	if err := json.Unmarshal(data, &profile); err != nil || profile.UserID == "" {
+func (rs *realtimeService) handleSubscribeProfile(client *realtimeClient, userID string) {
+	if userID == "" {
 		return
 	}
 
-	subscriptionID, err := rs.db.CreateProfileSubscription(context.Background(), generateRealtimeEventID(client.userID), client.userID, profile.UserID)
+	subscriptionID, err := rs.db.CreateProfileSubscription(context.Background(), generateRealtimeEventID(client.userID), client.userID, userID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create profile subscription")
 		return
 	}
 
-	if foreign, homeServerID := rs.isForeignReed(profile.UserID); foreign {
-		rs.handleForeignSubscribeProfileFromClient(client, profile.UserID, homeServerID, subscriptionID)
+	if foreign, homeServerID := rs.isForeignReed(userID); foreign {
+		rs.handleForeignSubscribeProfileFromClient(client, userID, homeServerID, subscriptionID)
 		return
 	}
 
-	missingIDs, err := rs.db.GetUnallocatedReeds(context.Background(), profile.UserID, client.userID)
+	missingIDs, err := rs.db.GetUnallocatedReeds(context.Background(), userID, client.userID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get unallocated reeds for viewer")
 		return
@@ -3364,13 +3154,12 @@ func (rs *realtimeService) HandleForeignReedRemoval(authorUserID, reedID string,
 	rs.fanoutReedRemoval(authorUserID, reedID, cert)
 }
 
-func (rs *realtimeService) handleUnsubscribeProfile(client *realtimeClient, data json.RawMessage) {
-	var profile unsubscribeProfileData
-	if err := json.Unmarshal(data, &profile); err != nil || profile.UserID == "" {
+func (rs *realtimeService) handleUnsubscribeProfile(client *realtimeClient, userID string) {
+	if userID == "" {
 		return
 	}
 
-	subscriptionID, err := rs.db.GetProfileSubscription(context.Background(), client.userID, profile.UserID)
+	subscriptionID, err := rs.db.GetProfileSubscription(context.Background(), client.userID, userID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get profile subscription")
 		return
@@ -3383,9 +3172,9 @@ func (rs *realtimeService) handleUnsubscribeProfile(client *realtimeClient, data
 		log.Error().Err(err).Str("subscriptionID", subscriptionID).Msg("Failed to delete profile subscription")
 	}
 
-	if foreign, homeServerID := rs.isForeignReed(profile.UserID); foreign && rs.foreignUnsubscribeProfileHook != nil {
-		if err := rs.foreignUnsubscribeProfileHook(context.Background(), profile.UserID, client.userID); err != nil {
-			log.Error().Err(err).Str("authorID", profile.UserID).Str("homeServerID", homeServerID).Msg("Failed to notify home server of profile unsubscribe")
+	if foreign, homeServerID := rs.isForeignReed(userID); foreign && rs.foreignUnsubscribeProfileHook != nil {
+		if err := rs.foreignUnsubscribeProfileHook(context.Background(), userID, client.userID); err != nil {
+			log.Error().Err(err).Str("authorID", userID).Str("homeServerID", homeServerID).Msg("Failed to notify home server of profile unsubscribe")
 		}
 	}
 }
@@ -3518,17 +3307,21 @@ func (rs *realtimeService) HandleForeignReplyNotify(ctx context.Context, parentR
 
 // DeliverForeignReedStats runs on the originating server (O): the home
 // server for a reed O's viewer subscribed to (leg 8) is pushing a live
-// stats update (leg 10). requesterUserID must already be a genuine local
-// user — enforced by the HTTP handler before this is called — so this
-// simply relays the opaque, already-typed payload straight to their
-// socket, exactly as it would have arrived from a local
-// SendToReedSubscribers call.
+// stats update (leg 10). payload is a JSON string of the base64 bytes of
+// the protobuf WSMessage notifyForeignReedSubscribers marshaled on H's side.
 func (rs *realtimeService) DeliverForeignReedStats(ctx context.Context, requesterUserID string, payload json.RawMessage) error {
-	return rs.connManager.SendToUser(requesterUserID, json.RawMessage(payload))
+	var raw []byte
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		return fmt.Errorf("failed to decode foreign reed stats payload: %w", err)
+	}
+	var msg pb.WSMessage
+	if err := proto.Unmarshal(raw, &msg); err != nil {
+		return fmt.Errorf("failed to unmarshal foreign reed stats payload: %w", err)
+	}
+	return rs.connManager.SendToUser(requesterUserID, &msg)
 }
 
-func (rs *realtimeService) handleSubscribeReed(client *realtimeClient, msg inboundJSONMsg) {
-	reedID := msg.ReedID
+func (rs *realtimeService) handleSubscribeReed(client *realtimeClient, reedID string) {
 	if reedID == "" {
 		return
 	}
@@ -3564,14 +3357,7 @@ func (rs *realtimeService) handleSubscribeReed(client *realtimeClient, msg inbou
 	}
 
 	rs.connManager.SubscribeReed(client, reedID)
-	stats := reedStatsMsg{
-		Type:            "REED_STATS",
-		ReedID:          reedID,
-		Echoes:          echoes,
-		CoveragePercent: coveragePct,
-		Replies:         replies,
-		Likes:           likes,
-	}
+	stats := newReedStatsMsg(reedID, echoes, coveragePct, replies, likes)
 	if err := rs.connManager.SendToClient(client, stats); err != nil {
 		log.Error().Err(err).Str("userID", client.userID).Str("reedID", reedID).Msg("Failed to send REED_STATS")
 	}
@@ -3595,21 +3381,13 @@ func (rs *realtimeService) handleForeignSubscribeReedFromClient(client *realtime
 		return
 	}
 
-	stats := reedStatsMsg{
-		Type:            "REED_STATS",
-		ReedID:          reedID,
-		Echoes:          snapshot.Echoes,
-		CoveragePercent: snapshot.CoveragePercent,
-		Replies:         snapshot.Replies,
-		Likes:           snapshot.Likes,
-	}
+	stats := newReedStatsMsg(reedID, snapshot.Echoes, snapshot.CoveragePercent, snapshot.Replies, snapshot.Likes)
 	if err := rs.connManager.SendToClient(client, stats); err != nil {
 		log.Error().Err(err).Str("userID", client.userID).Str("reedID", reedID).Msg("Failed to send REED_STATS for foreign reed")
 	}
 }
 
-func (rs *realtimeService) handleUnsubscribeReed(client *realtimeClient, msg inboundJSONMsg) {
-	reedID := msg.ReedID
+func (rs *realtimeService) handleUnsubscribeReed(client *realtimeClient, reedID string) {
 	if reedID == "" {
 		return
 	}
@@ -3634,12 +3412,8 @@ func (rs *realtimeService) handleUnsubscribeReed(client *realtimeClient, msg inb
 	}
 }
 
-func (rs *realtimeService) handleSubscribePipe(client *realtimeClient, data json.RawMessage) {
-	var pipe subscribePipeData
-	if err := json.Unmarshal(data, &pipe); err != nil {
-		return
-	}
-	tag := normalizePipeTag(pipe.Tag)
+func (rs *realtimeService) handleSubscribePipe(client *realtimeClient, rawTag string) {
+	tag := normalizePipeTag(rawTag)
 	if tag == "" {
 		return
 	}
@@ -3647,12 +3421,8 @@ func (rs *realtimeService) handleSubscribePipe(client *realtimeClient, data json
 	log.Debug().Str("userID", client.userID).Str("tag", tag).Msg("Client subscribed to pipe")
 }
 
-func (rs *realtimeService) handleUnsubscribePipe(client *realtimeClient, data json.RawMessage) {
-	var pipe subscribePipeData
-	if err := json.Unmarshal(data, &pipe); err != nil {
-		return
-	}
-	tag := normalizePipeTag(pipe.Tag)
+func (rs *realtimeService) handleUnsubscribePipe(client *realtimeClient, rawTag string) {
+	tag := normalizePipeTag(rawTag)
 	if tag == "" {
 		return
 	}
@@ -3666,16 +3436,15 @@ func (rs *realtimeService) FilterSubscribedPipeTags(tags []string) []string {
 	return rs.connManager.FilterTagsWithListeners(tags)
 }
 
-// notifyForeignReedSubscribers pushes msg (already carrying its own Type
-// field, matching whatever a local reed-stat subscriber would receive
-// over WS) to every foreign viewer durably registered in
-// reed_subscriptions for reedID. Local delivery is unaffected — this only
-// covers the gap connManager's in-memory reedSubscribers map can never
-// close, since it holds no cross-server state at all. Best-effort: a
-// failed peer push only means one viewer misses one update, never
-// retried — same tolerance every other live WS fanout already has for a
-// client that's simply offline.
-func (rs *realtimeService) notifyForeignReedSubscribers(reedID string, msg any) {
+// notifyForeignReedSubscribers pushes msg (the same protobuf WSMessage a
+// local reed-stat subscriber would receive over WS) to every foreign
+// viewer durably registered in reed_subscriptions for reedID. Local
+// delivery is unaffected — this only covers the gap connManager's
+// in-memory reedSubscribers map can never close, since it holds no
+// cross-server state at all. Best-effort: a failed peer push only means
+// one viewer misses one update, never retried — same tolerance every
+// other live WS fanout already has for a client that's simply offline.
+func (rs *realtimeService) notifyForeignReedSubscribers(reedID string, msg *pb.WSMessage) {
 	rs.notifyForeignReedSubscribersExcept(reedID, "", msg)
 }
 
@@ -3683,7 +3452,7 @@ func (rs *realtimeService) notifyForeignReedSubscribers(reedID string, msg any) 
 // one viewer skipped — mirrors sendToReedSubscribersExceptAuthor's own
 // exclude param, used by the ripple-push sites so a ripple's own author
 // doesn't get their own content echoed back to another of their devices.
-func (rs *realtimeService) notifyForeignReedSubscribersExcept(reedID, excludeUserID string, msg any) {
+func (rs *realtimeService) notifyForeignReedSubscribersExcept(reedID, excludeUserID string, msg *pb.WSMessage) {
 	if rs.foreignReedStatsHook == nil {
 		return
 	}
@@ -3695,9 +3464,14 @@ func (rs *realtimeService) notifyForeignReedSubscribersExcept(reedID, excludeUse
 	if len(subs) == 0 {
 		return
 	}
-	payload, err := json.Marshal(msg)
+	raw, err := marshalWSMessage(msg)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to marshal reed stats push payload")
+		return
+	}
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to encode reed stats push payload")
 		return
 	}
 	for _, sub := range subs {
@@ -3740,12 +3514,8 @@ func (rs *realtimeService) notifyReedCoverage(reedID string) {
 
 	rs.metrics.ReedCoverage(context.Background(), authorUserID, reedID, holders, percent)
 
-	msg := reedCoverageMsg{
-		Type:            "REED_COVERAGE",
-		ReedID:          reedID,
-		CoveragePercent: percent,
-	}
-	if err := rs.connManager.BroadcastReedCoverage(msg); err != nil {
+	msg := newReedCoverageMsg(reedID, percent)
+	if err := rs.connManager.BroadcastReedCoverage(reedID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_COVERAGE")
 	}
 	rs.notifyForeignReedSubscribers(reedID, msg)
@@ -3763,11 +3533,7 @@ func (rs *realtimeService) notifyReedEchoes(reedID string) {
 		return
 	}
 
-	msg := reedEchoesMsg{
-		Type:   "REED_ECHOES",
-		ReedID: reedID,
-		Echoes: echoes,
-	}
+	msg := newReedEchoesMsg(reedID, echoes)
 	if err := rs.connManager.SendToReedSubscribers(reedID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_ECHOES")
 	}
@@ -3997,11 +3763,7 @@ func (rs *realtimeService) notifyReedReplies(reedID string) {
 		return
 	}
 
-	msg := reedRepliesMsg{
-		Type:    "REED_REPLIES",
-		ReedID:  reedID,
-		Replies: replies,
-	}
+	msg := newReedRepliesMsg(reedID, replies)
 	if err := rs.connManager.SendToReedSubscribers(reedID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_REPLIES")
 	}
@@ -4018,12 +3780,7 @@ func (rs *realtimeService) notifyReedReplies(reedID string) {
 // specs/ripples/00_design.md's Client-side verification section.
 func (rs *realtimeService) notifyRipplePosted(reedID, rippleAuthorID string, ripple RippleWire) {
 	authorUserID := reedAuthorIdentity(reedID)
-	msg := ripplePostedMsg{
-		Type:   "RIPPLE_POSTED",
-		UserID: authorUserID,
-		ReedID: reedID,
-		Ripple: ripple,
-	}
+	msg := newRipplePostedMsg(authorUserID, reedID, ripple)
 	if err := rs.connManager.sendToReedSubscribersExceptAuthor(reedID, rippleAuthorID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_POSTED")
 	}
@@ -4039,12 +3796,7 @@ func (rs *realtimeService) notifyRipplePosted(reedID, rippleAuthorID string, rip
 // tombstone short-circuit.
 func (rs *realtimeService) notifyRippleUpdated(reedID, rippleAuthorID string, ripple RippleWire) {
 	authorUserID := reedAuthorIdentity(reedID)
-	msg := rippleUpdatedMsg{
-		Type:   "RIPPLE_UPDATED",
-		UserID: authorUserID,
-		ReedID: reedID,
-		Ripple: ripple,
-	}
+	msg := newRippleUpdatedMsg(authorUserID, reedID, ripple)
 	if err := rs.connManager.sendToReedSubscribersExceptAuthor(reedID, rippleAuthorID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_UPDATED")
 	}
@@ -4063,30 +3815,26 @@ func (rs *realtimeService) notifyReedLikes(reedID string) {
 		return
 	}
 
-	msg := reedLikesMsg{
-		Type:   "REED_LIKES",
-		ReedID: reedID,
-		Likes:  likes,
-	}
+	msg := newReedLikesMsg(reedID, likes)
 	if err := rs.connManager.SendToReedSubscribers(reedID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_LIKES")
 	}
 	rs.notifyForeignReedSubscribers(reedID, msg)
 }
 
-func (rs *realtimeService) handleSyncRequest(client *realtimeClient, data syncRequestData) {
-	if data.RequestID == "" {
+func (rs *realtimeService) handleSyncRequest(client *realtimeClient, requestID string) {
+	if requestID == "" {
 		return
 	}
-	if !rs.validateRequestID(data.RequestID, client.userID) {
-		rs.connManager.SendToUser(client.userID, newInvalidRequestIDErrorMsg(data.RequestID))
+	if !rs.validateRequestID(requestID, client.userID) {
+		rs.connManager.SendToUser(client.userID, newInvalidRequestIDErrorMsg(requestID))
 		return
 	}
-	if err := rs.db.SetSyncRequestID(context.Background(), client.userID, data.RequestID); err != nil {
+	if err := rs.db.SetSyncRequestID(context.Background(), client.userID, requestID); err != nil {
 		log.Error().Err(err).Msg("Failed to store sync request ID")
 		return
 	}
-	rs.catchUp(client.userID, data.RequestID)
+	rs.catchUp(client.userID, requestID)
 	rs.dispatchNext(client.userID)
 	rs.redispatchPendingRequests(client.userID)
 }
@@ -4231,26 +3979,14 @@ func (rs *realtimeService) catchUp(userID, requestID string) {
 	}
 }
 
-// shouldBroadcast reports whether PUBLISH_READY should fan out to the broadcast stream.
-// Absent or true means include broadcast; only explicit false opts out.
-func shouldBroadcast(data publishReadyData) bool {
-	if len(data.Broadcast) == 0 || string(data.Broadcast) == "null" {
-		return true
-	}
-	var include bool
-	if err := json.Unmarshal(data.Broadcast, &include); err != nil {
-		return true
-	}
-	return include
+// shouldBroadcastReed reports whether PUBLISH_READY should fan out to the
+// broadcast stream: absent or true means include it, only explicit false opts out.
+func shouldBroadcastReed(pr *pb.PublishReadyMessage) bool {
+	return !pr.GetHasBroadcast() || pr.GetBroadcast()
 }
 
 // handlePublishReady runs new-reed fanout when a pending_fanout row exists.
-func (rs *realtimeService) handlePublishReady(client *realtimeClient, data json.RawMessage) {
-	var ready publishReadyData
-	if err := json.Unmarshal(data, &ready); err != nil {
-		return
-	}
-	reedID := ready.ReedID
+func (rs *realtimeService) handlePublishReady(client *realtimeClient, reedID string, broadcast bool) {
 	if reedID == "" {
 		return
 	}
@@ -4270,7 +4006,7 @@ func (rs *realtimeService) handlePublishReady(client *realtimeClient, data json.
 			excludeFromFollowers = rs.connManager.ReedSubscriberUserIDs(parentReedID, authorUserID)
 		}
 
-		if shouldBroadcast(ready) {
+		if broadcast {
 			go rs.fanoutNewReed(reedID, tags, excludeFromFollowers)
 		} else {
 			go rs.fanoutNewReedNoBroadcast(reedID, tags, excludeFromFollowers)
@@ -4290,21 +4026,17 @@ func (rs *realtimeService) handlePublishReady(client *realtimeClient, data json.
 		}
 	}
 
-	ack := publishReadyAckMsg{
-		Type: "PUBLISH_READY_ACK",
-		Data: publishReadyAckData{ReedID: reedID},
+	ack := &pb.WSMessage{
+		Type: pb.MessageType_PUBLISH_READY_ACK,
+		Payload: &pb.WSMessage_PublishReadyAck{
+			PublishReadyAck: &pb.PublishReadyAckMessage{ReedId: reedID},
+		},
 	}
-	if jsonBytes, err := json.Marshal(ack); err == nil {
-		client.writeMessage(websocket.TextMessage, jsonBytes)
-	}
+	rs.sendProtobufMessage(client, ack)
 }
 
-func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID string, data json.RawMessage) {
+func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, ciphertext string) {
 	if eventID == "" {
-		return
-	}
-	var ciphertext string
-	if err := json.Unmarshal(data, &ciphertext); err != nil {
 		return
 	}
 
@@ -4332,7 +4064,7 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID s
 			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Dropping broadcast reed: author account was either removed or never existed")
 		} else {
 			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering broadcast reed to subscriber")
-			rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
+			rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
 				return newBroadcastReedMsg(ciphertext, username, pe.ReedID)
 			})
 		}
@@ -4343,31 +4075,33 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID s
 		}
 	} else if pe.EventName == string(pipeReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering pipe reed to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
 			return newPipeReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(followReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering follow reed to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
 			return newFollowReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(archiveReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering archive reed to admin")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
 			return newArchiveReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(reedReplyEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering reed reply to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
 			return newReedReplyMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(mentionEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering mention to recipient")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() dataResponseMsg {
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
 			return newMentionMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else {
-		rs.deliverOrForwardDataResponse(context.Background(), eventID, pe.RequesterUserID, pe.RequestID, ciphertext, pe.ReedID)
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
+			return newDataResponseMsg(eventID, pe.RequestID, ciphertext, pe.ReedID)
+		})
 	}
 
 	rs.dispatchN(client.userID, fanoutRefillBurst)
@@ -4381,7 +4115,9 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID s
 // FOLLOW_REED, REED_REPLY, and the generic REQUEST_REED/profile-subscribe
 // case) needs this same check; buildLocalMsg is only invoked in the local
 // case so callers don't pay for constructing a message that's discarded.
-func (rs *realtimeService) deliverOrForward(ctx context.Context, eventID, requesterUserID string, data json.RawMessage, buildLocalMsg func() dataResponseMsg) {
+// data stays JSON — it crosses the (unmigrated) HTTP federation boundary,
+// not the client-facing WS wire.
+func (rs *realtimeService) deliverOrForward(ctx context.Context, eventID, requesterUserID string, data json.RawMessage, buildLocalMsg func() *pb.WSMessage) {
 	frr, ferr := rs.db.GetForeignRelayRequest(ctx, eventID)
 	if ferr != nil {
 		log.Error().Err(ferr).Str("eventID", eventID).Msg("Failed to check foreign relay request")
@@ -4398,41 +4134,6 @@ func (rs *realtimeService) deliverOrForward(ctx context.Context, eventID, reques
 		return
 	}
 	if err := rs.connManager.SendToUser(requesterUserID, buildLocalMsg()); err != nil {
-		log.Error().Err(err).Str("requesterID", requesterUserID).Msg("Failed to deliver relayed data")
-	}
-}
-
-// deliverOrForwardDataResponse is deliverOrForward specialized for the plain
-// DATA_RESPONSE case (the local answer to a client's own REQUEST_REED): the
-// foreign-forward leg is unchanged (still HTTP/JSON to the peer), but local
-// delivery goes out as a binary protobuf WSMessage instead of JSON, as a
-// first test of the wire migration described in specs/protobuf/.
-func (rs *realtimeService) deliverOrForwardDataResponse(ctx context.Context, eventID, requesterUserID, requestID, ciphertext, reedID string) {
-	frr, ferr := rs.db.GetForeignRelayRequest(ctx, eventID)
-	if ferr != nil {
-		log.Error().Err(ferr).Str("eventID", eventID).Msg("Failed to check foreign relay request")
-		return
-	}
-	if frr != nil {
-		if rs.foreignDeliverHook != nil {
-			if err := rs.foreignDeliverHook(ctx, frr.RequestingServerID, eventID, realtimeJSONString(ciphertext)); err != nil {
-				log.Error().Err(err).Str("eventID", eventID).Msg("Failed to deliver relayed data to requesting peer")
-			}
-		}
-		return
-	}
-	msg := &pb.WSMessage{
-		Type: pb.MessageType_DATA_RESPONSE,
-		Id:   eventID,
-		Payload: &pb.WSMessage_DataResponse{
-			DataResponse: &pb.DataResponseMessage{
-				RequestId:  requestID,
-				Ciphertext: ciphertext,
-				ReedId:     reedID,
-			},
-		},
-	}
-	if err := rs.connManager.SendProtobufToUser(requesterUserID, msg); err != nil {
 		log.Error().Err(err).Str("requesterID", requesterUserID).Msg("Failed to deliver relayed data")
 	}
 }
@@ -4659,8 +4360,8 @@ func (rs *realtimeService) handleDataInvalid(client *realtimeClient, eventID str
 // DeleteMailboxMessage's query is scoped by bare id + userID, so split it
 // back apart first. Unlike handleDataAck, there is no pending_events
 // bookkeeping to reconcile — the row itself is the only delivery record.
-func (rs *realtimeService) handleMailboxAck(client *realtimeClient, data mailboxAckData) {
-	userID, serverID, id, ok := parseKeyFingerprint(identityID(data.ID))
+func (rs *realtimeService) handleMailboxAck(client *realtimeClient, mailboxID string) {
+	userID, serverID, id, ok := parseKeyFingerprint(identityID(mailboxID))
 	if !ok || string(canonicalID(serverID, userID)) != client.userID {
 		return
 	}
@@ -4673,46 +4374,46 @@ func (rs *realtimeService) handleMailboxAck(client *realtimeClient, data mailbox
 // an already-authenticated connection but a subsequent key fetch needed to
 // verify it failed. Not tied to a pending_events row — this is the client
 // self-reporting an anomaly, not acking a specific delivery.
-func (rs *realtimeService) handleKeyFetchError(client *realtimeClient, data keyFetchErrorData) {
-	if data.UserID == "" || data.KeyID == "" {
+func (rs *realtimeService) handleKeyFetchError(client *realtimeClient, targetUserID, keyID string) {
+	if targetUserID == "" || keyID == "" {
 		return
 	}
 	log.Warn().
 		Str("reporterUserID", client.userID).
-		Str("targetUserID", data.UserID).
-		Str("keyID", data.KeyID).
+		Str("targetUserID", targetUserID).
+		Str("keyID", keyID).
 		Msg("Client reported key fetch error")
-	rs.metrics.KeyFetchError(context.Background(), client.userID, data.UserID, data.KeyID)
+	rs.metrics.KeyFetchError(context.Background(), client.userID, targetUserID, keyID)
 }
 
 // handleRevokedKeyUsed is called when a client found signed content whose
 // timestamp is at or after its signing key's revocation — a genuine
 // revoked-key-abuse signal, surfaced for later security analysis.
-func (rs *realtimeService) handleRevokedKeyUsed(client *realtimeClient, data revokedKeyUsedData) {
-	if data.UserID == "" || data.KeyID == "" {
+func (rs *realtimeService) handleRevokedKeyUsed(client *realtimeClient, targetUserID, keyID string) {
+	if targetUserID == "" || keyID == "" {
 		return
 	}
 	log.Warn().
 		Str("reporterUserID", client.userID).
-		Str("targetUserID", data.UserID).
-		Str("keyID", data.KeyID).
+		Str("targetUserID", targetUserID).
+		Str("keyID", keyID).
 		Msg("Client reported content signed with a revoked key")
-	rs.metrics.RevokedKeyUsed(context.Background(), client.userID, data.UserID, data.KeyID)
+	rs.metrics.RevokedKeyUsed(context.Background(), client.userID, targetUserID, keyID)
 }
 
 // handleContentRejected is called when a client received a signed resource,
 // failed to verify it, and refused to store it — the client rejecting
 // content, not a server-side signature check.
-func (rs *realtimeService) handleContentRejected(client *realtimeClient, data contentRejectedData) {
-	if data.StoreName == "" {
+func (rs *realtimeService) handleContentRejected(client *realtimeClient, storeName, reason string) {
+	if storeName == "" {
 		return
 	}
 	log.Warn().
 		Str("reporterUserID", client.userID).
-		Str("storeName", data.StoreName).
-		Str("reason", data.Reason).
+		Str("storeName", storeName).
+		Str("reason", reason).
 		Msg("Client rejected content that failed verification")
-	rs.metrics.ContentRejected(context.Background(), client.userID, data.StoreName, data.Reason)
+	rs.metrics.ContentRejected(context.Background(), client.userID, storeName, reason)
 }
 
 // errRealtimeForeignRelayOwnershipMismatch is returned by
@@ -4806,7 +4507,7 @@ func (rs *realtimeService) HandleForeignRelayResponse(ctx context.Context, peerE
 		return false, err
 	}
 
-	var msg dataResponseMsg
+	var msg *pb.WSMessage
 	if pe.EventName == string(reedReplyEvent) {
 		msg = newReedReplyMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 	} else {

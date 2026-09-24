@@ -1,4 +1,4 @@
-.PHONY: help build run up down clean test setup-env ops export-identity import-identity ripples-cleanup
+.PHONY: help build run up down clean test setup-env ops export-identity import-identity ripples-cleanup proto
 
 # Default target
 help:
@@ -9,11 +9,19 @@ help:
 	@echo "  export-identity  - Build ops and run export-identity"
 	@echo "  import-identity  - Build ops (pass infile: make import-identity FILE=...)"
 	@echo "  ripples-cleanup  - Build the ripples expiry cron job (bin/ripples-cleanup)"
+	@echo "  proto            - Regenerate Go + TS code from src/backend/proto/*.proto"
 	@echo "  up               - Run service with Docker Compose"
 	@echo "  down             - Stop all docker services"
 	@echo "  clean            - Clean up containers and volumes"
 	@echo "  test             - Run tests"
 	@echo "  env              - Create .env file from env.example"
+
+# Proto codegen
+proto:
+	@echo "Generating Go protobuf code..."
+	protoc --go_out=src/backend --go_opt=paths=source_relative -I src/backend src/backend/proto/websocket.proto
+	@echo "Generating TypeScript protobuf code..."
+	cd src/frontend && npm run proto:gen
 
 # Build targets
 build:

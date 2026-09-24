@@ -2,7 +2,17 @@
 
 ## Status
 
-Proposed.
+Done. `realtime.go` accepts binary protobuf only — a text frame is
+rejected with a close frame, `handleJSONMessage` and every JSON message
+struct/constructor are gone. `serverConnection.ts` encodes/decodes every
+message as a binary `WSMessage`, reshaping payloads back to the field
+names existing consumers (`+layout.svelte`, `RipplesSection.svelte`, the
+reed page) already expect, so no consumer code changed. Federation
+(`federation_relay.go`) is unaffected — its HTTP payloads stay JSON, with
+one exception: the live reed-stats peer push now carries a base64-wrapped
+protobuf `WSMessage` inside its existing JSON envelope, so the payload it
+ultimately hands to a local client is the same binary format used
+everywhere else.
 
 ## Depends on
 
