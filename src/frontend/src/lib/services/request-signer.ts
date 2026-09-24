@@ -218,6 +218,14 @@ class RequestSignerService {
   }
 
   /**
+   * Throw if the worker isn't available yet. Lets callers fail before an
+   * irreversible step rather than after it.
+   */
+  async ensureWorkerAvailable(): Promise<void> {
+    await this.waitForServiceWorker();
+  }
+
+  /**
    * Check if the service worker is initialized and ready
    */
   isInitialized(): boolean {

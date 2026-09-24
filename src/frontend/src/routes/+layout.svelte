@@ -64,6 +64,8 @@
   $: headerLink = user ? '/reeds' : '/';
 
   let serverKeyTrusted = hasTrustedServerKey();
+  let trustedSessionStarted = false;
+  let stopReconnect: (() => void) | undefined;
 
   function syncAfterReconnect() {
     refreshServerInfo();
@@ -104,10 +106,13 @@
     }
   });
 
-  onMount(() => {
-    if (!serverKeyTrusted) return;
+  // Runs on mount, or when the key gate clears mid-session — the gate
+  // renders before mount, so setup would otherwise never run on that load.
+  function startTrustedSession() {
+    if (trustedSessionStarted) return;
+    trustedSessionStarted = true;
     initializePWA();
-    const stopReconnect = onReconnect(syncAfterReconnect);
+    stopReconnect = onReconnect(syncAfterReconnect);
     refreshServerInfo();
     enforceImportGate(window.location.pathname);
 
@@ -309,15 +314,23 @@
     }
     })();
     }
+  }
 
+  onMount(() => {
+    if (serverKeyTrusted) startTrustedSession();
     return () => {
-      stopReconnect();
+      stopReconnect?.();
     };
   });
 </script>
 
 {#if !serverKeyTrusted}
-  <ServerKeyGate on:trusted={() => (serverKeyTrusted = true)} />
+  <ServerKeyGate
+    on:trusted={() => {
+      serverKeyTrusted = true;
+      startTrustedSession();
+    }}
+  />
 {:else}
   <UpdateAvailableIndicator />
 
