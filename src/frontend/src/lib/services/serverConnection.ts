@@ -108,6 +108,8 @@ export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; 
       return { type: 'INVALID_REQUEST_ID_ERROR', data: { request_id: p.value.requestId } };
     case 'publishReadyAck':
       return { type: 'PUBLISH_READY_ACK', data: { reed_id: p.value.reedId } };
+    case 'evictionAck':
+      return { type: 'EVICTION_ACK', data: { reed_id: p.value.reedId } };
     case 'reedStats':
       return {
         type: 'REED_STATS',
@@ -192,11 +194,16 @@ export type ServerEventHandler = (data: any) => void;
 
 type PendingRequest = { resolve: (reed: ReedType) => void; reject: (err: any) => void };
 
+/** How long an EVICTION waits for its ack before the caller gives up and
+ * keeps the content — the reed stays held, so a later attempt retries it. */
+const EVICTION_ACK_TIMEOUT_MS = 10_000;
+
 export enum ServerEvent {
   AccountRemoved       = 'ACCOUNT_REMOVED',
   ArchiveReed          = 'ARCHIVE_REED',
   BroadcastReed        = 'BROADCAST_REED',
   DataResponse         = 'DATA_RESPONSE',
+  EvictionAck          = 'EVICTION_ACK',
   FollowReed           = 'FOLLOW_REED',
   InvalidRequestIdError = 'INVALID_REQUEST_ID_ERROR',
   Mailbox              = 'MAILBOX',
@@ -227,6 +234,9 @@ class ServerConnection {
   private eventHandlers: Map<string, ServerEventHandler[]> = new Map();
   private pendingRequests: Map<string, PendingRequest> = new Map();
   private pendingReedPromises: Map<string, Promise<any>> = new Map();
+  /** Reed id → settler for an EVICTION awaiting its EVICTION_ACK.
+   * Called with false when the socket closes before the ack arrives. */
+  private pendingEvictions: Map<string, (acked: boolean) => void> = new Map();
   private dispatchedReedRequests = new Set<string>();
   // Subscriptions live server-side per-connection: a fresh socket after a
   // network drop starts with none of them, so we replay whatever was
@@ -424,6 +434,12 @@ class ServerConnection {
               pending.reject(new Error(message.type === ServerEvent.ReedNotHeld ? 'reed_not_held' : 'reed_not_found'));
               this.pendingRequests.delete(requestId);
             }
+          } else if (message.type === ServerEvent.EvictionAck) {
+            const settle = this.pendingEvictions.get(message.data.reed_id);
+            if (settle) {
+              this.pendingEvictions.delete(message.data.reed_id);
+              settle(true);
+            }
           } else if (message.type === ServerEvent.InvalidRequestIdError) {
             // The server rejected a request_id we minted (malformed, or
             // its identity doesn't match this connection) — the server
@@ -453,6 +469,11 @@ class ServerConnection {
           this.ws = null;
           this.dispatchedReedRequests.clear();
           sessionStorage.removeItem('syncRequestId');
+          // No ack is coming on a dead socket — settle now instead of
+          // making every in-flight eviction wait out its own timeout.
+          const evictions = [...this.pendingEvictions.values()];
+          this.pendingEvictions.clear();
+          evictions.forEach((settle) => settle(false));
         }
       };
 
@@ -660,6 +681,31 @@ class ServerConnection {
       type: MessageType.PUBLISH_READY,
       payload: { case: 'publishReady', value: { reedId, broadcast, hasBroadcast: options?.broadcast !== undefined } },
     });
+  }
+
+  /** Tell the server this device no longer holds `reedId`; resolves once
+   * it acks, and the caller must not delete before that. False when the
+   * socket is down or the ack times out, so the reed stays held. */
+  async evict(reedId: string): Promise<boolean> {
+    await this.connect();
+    if (!this.isConnected()) return false;
+
+    const existing = this.pendingEvictions.get(reedId);
+    if (existing) return false;
+
+    const acked = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingEvictions.delete(reedId);
+        resolve(false);
+      }, EVICTION_ACK_TIMEOUT_MS);
+      this.pendingEvictions.set(reedId, (ok) => {
+        clearTimeout(timer);
+        resolve(ok);
+      });
+    });
+
+    this.sendMsg({ type: MessageType.EVICTION, payload: { case: 'eviction', value: { reedId } } });
+    return acked;
   }
 
   syncRequest(): void {

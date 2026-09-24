@@ -22,6 +22,8 @@ import { isOnline, onReconnect } from '$lib/services/pwa';
 import { isBlankEcho } from '$lib/utils/emptyEcho';
 import { clearPublishTipOverride, previousIDForPublish } from '../services/publishTip';
 import { listsRepository } from './lists';
+import { isOverThreshold } from '$lib/services/quota';
+import { freeSpace } from '$lib/services/eviction';
 import type { ListType } from '$lib/types/list';
 
 // Incremented each time processUnsignedReeds completes successfully
@@ -232,8 +234,16 @@ class ReedsService {
   /**
    * Persist a countersigned reed. Verification (author + server) runs in
    * `dbService.put` via `verifyReed`.
+   *
+   * Over the quota threshold, a victim is queued for eviction and drained
+   * in the background — storing never waits on the server, since 85% of
+   * quota still leaves room for this reed.
    */
   async storeReed(reed: ReedType): Promise<void> {
+    if (await isOverThreshold()) {
+      await freeSpace();
+    }
+
     // Ensure author key is cached (verifyReed needs armor; put attests).
     if (reed.userSignature?.id && reed.userID) {
       const fp = reed.userSignature.id;

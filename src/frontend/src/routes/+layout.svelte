@@ -17,6 +17,7 @@
   import ServerIdMismatchIndicator from '$lib/components/ServerIdMismatchIndicator.svelte';
   import UpdateAvailableIndicator from '$lib/components/UpdateAvailableIndicator.svelte';
   import { initializePWA, onReconnect } from '$lib/services/pwa';
+  import { syncPendingEvictions } from '$lib/services/eviction';
   import { refreshServerInfo } from '$lib/services/serverInfo';
   import { hasTrustedServerKey } from '$lib/services/serverKeyTrust';
   import ServerKeyGate from '$lib/components/ServerKeyGate.svelte';
@@ -75,6 +76,7 @@
       pendingLikeRepository.syncPending();
       pendingUnlikeRepository.syncPending();
       syncPendingBackupEvents();
+      void syncPendingEvictions();
       serverConnection.reconnect()
         .then(async () => {
           clearReedRequestDispatched();
@@ -302,6 +304,7 @@
       pendingLikeRepository.syncPending();
       pendingUnlikeRepository.syncPending();
         syncPendingBackupEvents();
+        void syncPendingEvictions();
       }
     }
     })();

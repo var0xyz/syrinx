@@ -61,6 +61,8 @@ message WSMessage {
     AccountRemovedMessage account_removed = 42;
     ProfilePageMessage profile_page = 43;
     PageAckMessage page_ack = 44;
+    EvictionMessage eviction = 45;
+    EvictionAckMessage eviction_ack = 46;
   }
 }
 
@@ -126,6 +128,8 @@ enum MessageType {
   MENTION = 53;
   PROFILE_PAGE = 54;
   PAGE_ACK = 55;
+  EVICTION = 56;
+  EVICTION_ACK = 57;
 }
 
 // Ping message
@@ -292,6 +296,18 @@ message PublishReadyMessage {
 }
 
 message PublishReadyAckMessage {
+  string reed_id = 1;
+}
+
+// Client notice that it no longer holds this reed's content, so the
+// server can drop its allocation before the client deletes it locally.
+message EvictionMessage {
+  string reed_id = 1;
+}
+
+// Acks an EVICTION. Idempotent: sent whether or not an allocation row
+// existed, so a client that retries never blocks on a lost ack.
+message EvictionAckMessage {
   string reed_id = 1;
 }
 

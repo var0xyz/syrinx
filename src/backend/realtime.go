@@ -2337,6 +2337,9 @@ func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []
 		pr := msg.GetPublishReady()
 		rs.handlePublishReady(client, pr.GetReedId(), shouldBroadcastReed(pr))
 
+	case pb.MessageType_EVICTION:
+		rs.handleEviction(client, msg.GetEviction().GetReedId())
+
 	case pb.MessageType_SUBSCRIBE_REED:
 		rs.handleSubscribeReed(client, msg.GetSubscribeReed().GetReedId())
 
@@ -4103,6 +4106,32 @@ func (rs *realtimeService) handlePublishReady(client *realtimeClient, reedID str
 		Type: pb.MessageType_PUBLISH_READY_ACK,
 		Payload: &pb.WSMessage_PublishReadyAck{
 			PublishReadyAck: &pb.PublishReadyAckMessage{ReedId: reedID},
+		},
+	}
+	rs.sendProtobufMessage(client, ack)
+}
+
+// handleEviction drops this client's allocation for a reed it is about to
+// delete locally, then acks. The ack is unconditional: a retry after a
+// lost ack must still be told it may proceed with the local delete.
+func (rs *realtimeService) handleEviction(client *realtimeClient, reedID string) {
+	if reedID == "" {
+		return
+	}
+
+	changed, err := rs.db.DeleteReedAllocation(context.Background(), reedID, client.userID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Str("userID", client.userID).Msg("Failed to clear allocation on eviction")
+		return
+	}
+	if changed {
+		rs.notifyReedCoverage(reedID)
+	}
+
+	ack := &pb.WSMessage{
+		Type: pb.MessageType_EVICTION_ACK,
+		Payload: &pb.WSMessage_EvictionAck{
+			EvictionAck: &pb.EvictionAckMessage{ReedId: reedID},
 		},
 	}
 	rs.sendProtobufMessage(client, ack)
