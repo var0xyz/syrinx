@@ -36,6 +36,9 @@
   export let expectContent = false;
   /** Window scrollY to restore after the first load (SvelteKit page snapshot). */
   export let scrollRestoreY = /** @type {number | null} */ (null);
+  /** Pages loaded when the user last left, so returning to this profile
+   * reopens at the same depth instead of back at page 1. Bindable. */
+  export let pageDepth = 1;
   /** Parent page's already-fetched/kept-fresh profile user, when known (e.g.
    * the profile page, which updates this immediately on a username edit).
    * Takes priority over our own cached lookup so a rename shows up without
@@ -51,8 +54,14 @@
   let reeds = [];
   /** @type {LocalPagination<import('$lib/types/reed').ReedType> | undefined} */
   let pagination;
-  /** Highest page already asked of the server for this author. */
+  /** Highest page already asked of the server for this author. A restored
+   * depth arrives after mount and covers pages requested before navigating
+   * away, so those must not be asked for again. */
   let requestedPage = 0;
+  $: if (pageDepth - 1 > requestedPage) requestedPage = pageDepth - 1;
+  /** Pages read in the current walk. LocalPagination always restarts from
+   * page 1, so this resets whenever a fetch asks for the first page. */
+  let walkedPages = 0;
   /** Latest PAGE_ACK's hasMore — the authoritative end-of-history signal. */
   let serverHasMore = true;
   /** @type {import('$lib/types/reed').ReedType[]} */
@@ -129,16 +138,16 @@
     dispatch('pinnedChange', { pinnedReedIDs: updated });
   }
 
-  $: if ($unsignedReedsProcessed > 0) void reloadAll();
-  $: if ($pendingRemovalSynced > 0) void reloadAll();
+  $: if ($unsignedReedsProcessed > 0) void refreshPages();
+  $: if ($pendingRemovalSynced > 0) void refreshPages();
   /** A reed removal cert (this author's own, or one relayed for a reed
    * shown here as an echo/reply target) can arrive over WS while this list
    * is mounted — reload so the deleted item actually disappears instead of
    * lingering until a manual reload remounts the component. */
-  $: if ($reedRemovalCommitted > 0) void reloadAll();
+  $: if ($reedRemovalCommitted > 0) void refreshPages();
 
   // Only depend on the queue store — never read reeds/pendingReeds here or
-  // reloadAll() will retrigger this block and flash the loading screen.
+  // refreshPages() will retrigger this block and flash the loading screen.
   $: profileArrived = $profileReedQueue?.reed;
   $: if (profileArrived && profileArrived.id !== lastHandledProfileReedId) {
     lastHandledProfileReedId = profileArrived.id;
@@ -153,9 +162,17 @@
 
   onMount(() => {
     serverConnection.on(ServerEvent.PageAck, onPageAck);
-    void reloadAll();
+    // LocalPagination loads its own first page on mount, so only the
+    // owner-only pending reeds are left to fetch here.
+    void loadPendingReeds();
     return () => serverConnection.off(ServerEvent.PageAck, onPageAck);
   });
+
+  async function loadPendingReeds() {
+    pendingReeds = isOwner
+      ? await reedsService.getUnsignedReedsByAuthor(authorId)
+      : [];
+  }
 
   async function mergeEchoOriginal(original, echoRefKey) {
     pendingEchoRequests.delete(echoRefKey);
@@ -213,24 +230,34 @@
     }
 
     if (arrived.userID === authorId) {
-      if (window.scrollY === 0) {
-        await reloadAll();
-      } else {
-        showNewReedBanner = true;
-      }
+      await showArrival(arrived);
     }
   }
 
-  /** FOLLOW_REED delivery for this profile's author — same scroll-gated
-   * choice as onProfileReedArrived (live-append at the top vs. banner while
-   * scrolled away), so the two delivery paths can't disagree about whether
-   * the banner is warranted for content that's already on screen. */
+  /** FOLLOW_REED delivery for this profile's author — same handling as
+   * onProfileReedArrived, so the two delivery paths can't disagree about
+   * whether an arrival is news or backfill. */
   async function onFollowReedArrived(arrived) {
-    if (window.scrollY === 0) {
-      await reloadAll();
-    } else {
+    await showArrival(arrived);
+  }
+
+  /** Newer than everything loaded. Ids are time-ordered within an author,
+   * so anything at or below the newest held falls inside the history we
+   * already asked for — backfill, however late it arrives. */
+  function isNewerThanLoaded(reed) {
+    const newest = reeds[0]?.id;
+    return !!newest && reed.id > newest;
+  }
+
+  /** Backfill slots in below what's on screen, so it just repaints. A reed
+   * newer than anything loaded is news, and only needs a banner when it
+   * would land off-screen above the viewport. */
+  async function showArrival(arrived) {
+    if (isNewerThanLoaded(arrived) && window.scrollY !== 0) {
       showNewReedBanner = true;
+      return;
     }
+    await refreshPages();
   }
 
   /** Resolves echo/reply quote targets for reedList: walks blank-echo
@@ -325,10 +352,16 @@
     return { echoMap, userMap, replyMap };
   }
 
+  /** Set while re-reading already-requested pages, so a refresh never asks
+   * for more history — that would feed itself, since each arrival would
+   * trigger another request. */
+  let refreshingOnly = false;
+
   /** One page of locally-held reeds. On someone else's profile it also asks
    * the server to backfill whatever this device is missing from that page;
    * on your own there is no one to fetch from — you are the holder. */
   async function fetchReedPage(after) {
+    if (after === undefined) walkedPages = 0;
     const page = await reedsService.getReedsByAuthorPage(authorId, PAGE_SIZE, after);
     const { echoMap, userMap, replyMap } = await prefetchQuoteTargets(page.items);
     // Merged, never replaced — a later page must not drop the quote targets
@@ -337,8 +370,12 @@
     if (userMap.size) echoedReedUsers = new Map([...echoedReedUsers, ...userMap]);
     if (replyMap.size) repliedToReeds = new Map([...repliedToReeds, ...replyMap]);
 
-    if (!isOwner) {
-      serverConnection.requestProfilePage(authorId, ++requestedPage);
+    // walkedPages counts pages read this pass; only one beyond what the
+    // server has already been asked for is new history worth requesting.
+    walkedPages += 1;
+    if (!isOwner && !refreshingOnly && walkedPages > requestedPage) {
+      requestedPage = walkedPages;
+      void serverConnection.requestProfilePage(authorId, requestedPage);
     }
 
     // Without an ack to wait on, the local page is the whole truth. Otherwise
@@ -347,22 +384,34 @@
     return { ...page, hasMore: isOwner ? page.hasMore : page.hasMore || serverHasMore };
   }
 
-  async function reloadAll() {
-    // A full reload supersedes whatever raised the banner, so it must not
-    // survive this call.
-    showNewReedBanner = false;
-    requestedPage = 0;
-    serverHasMore = true;
-    pendingReeds = isOwner
-      ? await reedsService.getUnsignedReedsByAuthor(authorId)
-      : [];
-    await pagination?.loadFirstPage();
+  /** Re-read what is already loaded, without asking for more history.
+   * Used when backfilled content lands: the pages were requested once
+   * already, so this only repaints them. */
+  async function refreshPages() {
+    refreshingOnly = true;
+    try {
+      await loadPendingReeds();
+      await pagination?.reload();
+      await applyScrollRestore();
+    } finally {
+      refreshingOnly = false;
+    }
   }
 
   function onFirstPageSettled() {
-    if (!appliedScrollRestore && typeof scrollRestoreY === 'number') {
+    // The restoring walk is done; later fetches are genuine new pages.
+    refreshingOnly = false;
+    void applyScrollRestore();
+  }
+
+  /** Backfill keeps repainting the list after the first restore, and each
+   * repaint can drop the position again — so re-apply until the user
+   * scrolls themselves or the content stops moving. */
+  async function applyScrollRestore() {
+    if (appliedScrollRestore || typeof scrollRestoreY !== 'number') return;
+    await restoreWindowScroll(scrollRestoreY);
+    if (Math.abs(window.scrollY - scrollRestoreY) < 2) {
       appliedScrollRestore = true;
-      void restoreWindowScroll(scrollRestoreY);
     }
   }
 
@@ -411,7 +460,7 @@
 {#if showNewReedBanner}
   <div class="new-reed-banner">
     <div class="new-reed-msg">New reed available</div>
-    <button on:click={() => { showNewReedBanner = false; void reloadAll(); }}>Show</button>
+    <button on:click={() => { showNewReedBanner = false; void refreshPages(); }}>Show</button>
     <button class="dismiss" on:click={() => (showNewReedBanner = false)}>✕</button>
   </div>
 {/if}
@@ -491,6 +540,7 @@
     bind:this={pagination}
     bind:items={reeds}
     fetchPage={fetchReedPage}
+    bind:depth={pageDepth}
     on:ready={onFirstPageSettled}
     errorMessage="Failed to load reeds"
   >

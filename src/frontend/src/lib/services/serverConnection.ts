@@ -676,9 +676,11 @@ class ServerConnection {
     this.sendMsg({ type: MessageType.SUBSCRIBE_PROFILE, payload: { case: 'subscribeProfile', value: { userId } } });
   }
 
-  /** Ask for one page of an author's history. Independent of any profile
-   * subscription, so it neither connects nor touches activeSubscription. */
-  requestProfilePage(userId: string, page: number): void {
+  /** Ask for one page of an author's history. Connects first: on a cold
+   * load the socket is still opening and sendMsg drops anything sent
+   * before it is. Never touches activeSubscription. */
+  async requestProfilePage(userId: string, page: number): Promise<void> {
+    await this.connect();
     this.sendMsg({ type: MessageType.PROFILE_PAGE, payload: { case: 'profilePage', value: { userId, page } } });
   }
 

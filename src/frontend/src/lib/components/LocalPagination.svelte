@@ -12,6 +12,9 @@
   export let empty: Snippet | undefined = undefined;
   export let errorMessage = 'Unable to load this list right now.';
   export let buttonClass = 'load-more-btn';
+  /** Pages to open with, for restoring a list the user had paged into.
+   * Bindable, so a caller can snapshot the current depth on navigate-away. */
+  export let depth = 1;
 
   const dispatch = createEventDispatcher<{ ready: void }>();
 
@@ -23,17 +26,32 @@
   let hasMore = false;
   let cursor: string | undefined;
   let error = '';
+  /** Pages actually walked, so a restored depth can be told apart from the
+   * depth this component itself just reported. */
+  let walkedDepth = 0;
 
-  onMount(loadFirstPage);
+  let mounted = false;
+  onMount(async () => {
+    mounted = true;
+    await loadFirstPage();
+  });
+
+  // A snapshot restore sets depth after this component has already mounted
+  // and loaded one page, so deepen to match instead of missing it.
+  $: if (mounted && depth > walkedDepth) void deepenTo(depth);
+
+  async function deepenTo(target: number) {
+    await walkPages(target);
+    // Signals the caller to re-apply anything that depends on full height,
+    // such as a restored scroll position.
+    dispatch('ready');
+  }
 
   export async function loadFirstPage() {
     loading = true;
     error = '';
     try {
-      const page = await fetchPage(undefined);
-      items = page.items;
-      hasMore = page.hasMore;
-      cursor = page.nextCursor;
+      await walkPages(depth);
     } catch (err) {
       console.error('LocalPagination: failed to load first page:', err);
       items = [];
@@ -45,6 +63,40 @@
     }
   }
 
+  /** Read `count` pages from the start, replacing what's loaded. depth is
+   * how many pages the user asked for, never how many items came back —
+   * a sparsely-filled page still counts as a page. */
+  async function walkPages(count: number) {
+    const want = Math.max(1, count);
+    let acc: T[] = [];
+    let next: string | undefined;
+    let more = false;
+    let walked = 0;
+    for (let i = 0; i < want; i++) {
+      const page = await fetchPage(next);
+      acc = [...acc, ...page.items];
+      more = page.hasMore;
+      next = page.nextCursor;
+      walked = i + 1;
+      if (!more) break;
+    }
+    items = acc;
+    hasMore = more;
+    cursor = next;
+    walkedDepth = walked;
+    depth = walked;
+  }
+
+  /** Re-walk the pages already shown, keeping the same depth, so newly
+   * stored items appear without collapsing back to a single page. */
+  export async function reload() {
+    try {
+      await walkPages(depth);
+    } catch (err) {
+      console.error('LocalPagination: failed to reload:', err);
+    }
+  }
+
   async function loadMore() {
     if (loadingMore || !hasMore) return;
     loadingMore = true;
@@ -53,6 +105,8 @@
       items = [...items, ...page.items];
       hasMore = page.hasMore;
       cursor = page.nextCursor;
+      walkedDepth += 1;
+      depth = walkedDepth;
     } catch (err) {
       console.error('LocalPagination: failed to load more:', err);
     } finally {
