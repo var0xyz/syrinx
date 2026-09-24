@@ -6,7 +6,6 @@
 import type * as api from '$lib/types/api';
 import { apiService } from './api';
 import { authService } from './auth';
-import { cryptoService } from './crypto';
 import { dbService } from './db';
 import { buildKeyNest } from './recoveryKeyNest';
 import { requestSigner } from './request-signer';
@@ -83,13 +82,13 @@ export async function claimOwnIdentity(): Promise<api.User> {
     throw new Error('Missing private key for active key id.');
   }
 
+  // Load the nest key into the worker before signing: the challenge must be
+  // signed by this key, which is not necessarily the one already loaded.
+  authService.setActiveKey(activeKeyId);
+  await requestSigner.initializeWorker(activeKeyId, passphrase);
+
   const { challenge } = await apiService.getIdentityClaimChallenge();
-  const sigArmor = await cryptoService.signMessage(
-    String(challenge),
-    privateKey.armor,
-    passphrase
-  );
-  const signature = btoa(sigArmor);
+  const signature = await requestSigner.sign(String(challenge));
 
   const claimed = await apiService.claimOwnIdentity({
     challenge,
@@ -99,8 +98,6 @@ export async function claimOwnIdentity(): Promise<api.User> {
   });
 
   await authService.saveUserToStorage(claimed);
-  authService.setActiveKey(activeKeyId);
-  await requestSigner.initializeWorker(activeKeyId, passphrase);
 
   return claimed;
 }
