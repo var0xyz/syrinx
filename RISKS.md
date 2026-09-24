@@ -166,11 +166,12 @@ verify for a given signature.
 
 ### M9 — Unsigned server counts/hints consumed for trust decisions
 **Where:** `GET /users/{userID}/info` (`UserInfo`: `followersCount`,
-`followingCount`, `hasReeds`, `activeKeyFingerprint`, `profileTimestamp`) and
+`followingCount`, `firstReedId`, `activeKeyFingerprint`, `profileTimestamp`) and
 SPA `usersInfo` IndexedDB (`src/frontend/src/lib/repositories/userInfo.ts`). The signed
 profile is `GET /users/{userID}/profile` only (`verifyUser` covers
 username/fingerprint/invitedBy.id/bio/memberSince).
-`hasReeds` gates content display (`profile/[userId]/+page.svelte`),
+`firstReedId` gates content display and end-of-feed
+(`profile/[userId]/+page.svelte`, `ReedsList.svelte`),
 `activeKeyFingerprint` steers key-rotation/removal resolution
 (`verifiers/index.ts`, recovery nest assembly). A malicious server can suppress
 content or steer which key is treated as authoritative.

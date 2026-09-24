@@ -36,8 +36,11 @@ type User struct {
 // (GET /users/{id}/info). ProfileTimestamp matches the user's current
 // profile serverSignature.timestamp so clients can invalidate a cached profile.
 type UserInfo struct {
-	ID               string    `json:"id"`
-	HasReeds         bool      `json:"hasReeds"`
+	ID string `json:"id"`
+	// Oldest surviving reed by this user, or nil when they have none.
+	// Clients use it both as the "no reeds" signal and to detect the end
+	// of the feed without waiting on a page ack.
+	FirstReedID      *string   `json:"firstReedId"`
 	FollowersCount   int       `json:"followersCount"`
 	FollowingCount   int       `json:"followingCount"`
 	ActiveKeyID      string    `json:"activeKeyID"`

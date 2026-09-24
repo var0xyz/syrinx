@@ -56,7 +56,7 @@ export async function load({ params, parent }) {
   // Server-known content not yet synced to this device — distinct from a
   // genuinely empty author. Only meaningful once we actually have zero
   // local reeds; if some are already here, there's nothing left to wait for.
-  const expectContent = !hasLocalReeds && cachedInfo?.hasReeds === true;
+  const expectContent = !hasLocalReeds && !!cachedInfo?.firstReedId;
   if (hasLocalReeds || profileUser) {
     return {
       currentUser,

@@ -39,7 +39,9 @@ export interface User extends Base {
 /** Unsigned hints + profile cache invalidation (GET /users/{id}/info). */
 export interface UserInfo extends Base {
   id: string;
-  hasReeds: boolean;
+  /** Oldest surviving reed by this user, or null when they have none.
+   * Signals both "no reeds" and, once held, the end of the feed. */
+  firstReedId: string | null;
   followersCount: number;
   followingCount: number;
   activeKeyID: string;

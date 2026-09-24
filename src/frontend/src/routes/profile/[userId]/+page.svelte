@@ -46,7 +46,7 @@
   let profileUser = data.profileUser;
   /** Server reports this author has reeds, but none are held locally yet —
    * distinguishes "known content, still arriving" from a genuinely empty
-   * author. Kept in sync with the freshest info.hasReeds we've seen. */
+   * author. Kept in sync with the freshest info.firstReedId we've seen. */
   let expectContent = data.expectContent ?? false;
   let profileSubscriptionActive = false;
   let tombstoneNote = data.tombstoneNote;
@@ -280,7 +280,7 @@
       if (seq !== infoFetchSeq) return;
 
       const hasLocalReeds = await reedsService.hasReedsByAuthor(uid);
-      expectContent = !hasLocalReeds && info.hasReeds === true;
+      expectContent = !hasLocalReeds && !!info.firstReedId;
 
       let profile: api.User | null = isOwner
         ? data.currentUser
@@ -612,6 +612,7 @@
           {scrollRestoreY}
           bind:pageDepth
           {expectContent}
+          firstReedId={profileUser?.firstReedId ?? null}
           {profileUser}
           pinnedReedIds={profileUser?.pinnedReedIDs ?? []}
           on:pinnedChange={onPinnedChange}
@@ -650,10 +651,6 @@
     margin: 0 auto;
     width: 100%;
     padding: 1rem;
-  }
-
-  .user-profile-card-container {
-    margin-bottom: 2rem;
   }
 
   .profile-card {

@@ -294,7 +294,7 @@ recovery, realtime, or SPA key handling. Highlights a future agent must respect:
   user/server) and has no read-limit — RISKS.md H1/M5.
 - SPA persists the key passphrase in `localStorage`, logs private-key material,
   and treats `localStorage.userId` alone as "logged in" — RISKS.md C2/C3/H4.
-- Some server-provided fields are consumed unsigned (counts, `hasReeds`,
+- Some server-provided fields are consumed unsigned (counts, `firstReedId`,
   `activeKeyFingerprint` on `/users/{id}/info`) — treat as untrusted hints —
   RISKS.md M9.
 

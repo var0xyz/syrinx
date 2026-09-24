@@ -731,6 +731,7 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 
 	var info UserInfo
 	var activeKeyID sql.NullString
+	var firstReedID sql.NullString
 
 	// reeds.user_id, user_followers.user_id, and user_following.user_id all
 	// FK to identities(id), and u.id is that same form directly (identity_id
@@ -739,13 +740,13 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 		SELECT u.id,
 		       u.active_key_id,
 		       ss.signed_at,
-		       EXISTS (
-		           SELECT 1 FROM reeds r
+		       (
+		           SELECT MIN(r.id) FROM reeds r
 		           WHERE r.user_id = u.id
 		             AND NOT EXISTS (
 		                 SELECT 1 FROM reed_removals rr WHERE rr.reed_id = r.id
 		             )
-		       ) AS has_reeds,
+		       ) AS first_reed_id,
 		       (SELECT COUNT(*)::int FROM user_followers uf
 		           WHERE uf.user_id = u.id
 		             AND NOT EXISTS (
@@ -763,7 +764,7 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 		&info.ID,
 		&activeKeyID,
 		&info.ProfileTimestamp,
-		&info.HasReeds,
+		&firstReedID,
 		&info.FollowersCount,
 		&info.FollowingCount,
 	)
@@ -775,6 +776,9 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 	}
 	if activeKeyID.Valid {
 		info.ActiveKeyID = activeKeyID.String
+	}
+	if firstReedID.Valid {
+		info.FirstReedID = &firstReedID.String
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT pr.reed_id FROM pinned_reeds pr
