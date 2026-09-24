@@ -178,12 +178,19 @@
 
   /** @type {number | null} */
   let scrollRestoreY = null;
+  /** Pages the reed list had loaded, so back-navigation reopens at the
+   * same depth rather than at page 1 with a scroll position it can't reach. */
+  let pageDepth = 1;
+  /** Author the current pageDepth belongs to, so navigating to a different
+   * profile starts at page 1 instead of inheriting this one's depth. */
+  let appliedForUserId = '';
 
-  /** @type {import('./$types').Snapshot<number>} */
+  /** @type {import('./$types').Snapshot<{ y: number; pageDepth: number }>} */
   export const snapshot = {
-    capture: () => captureWindowScroll(),
-    restore: (y) => {
-      scrollRestoreY = y;
+    capture: () => ({ y: captureWindowScroll(), pageDepth }),
+    restore: (snap) => {
+      scrollRestoreY = snap?.y ?? null;
+      pageDepth = snap?.pageDepth ?? 1;
     },
   };
 
@@ -216,6 +223,13 @@
   $: applyPageData(data);
 
   function applyPageData(next) {
+    // A different author starts at page 1. Never reset for the same author:
+    // this runs before SvelteKit restores the snapshot, so resetting here
+    // would discard the depth being restored.
+    if (appliedForUserId && next.userId !== appliedForUserId) {
+      pageDepth = 1;
+    }
+    appliedForUserId = next.userId;
     status = next.status;
     isOwner = next.isOwner;
     isFollowing = next.isFollowing;
@@ -596,6 +610,7 @@
           {isOwner}
           showWriteButton={isOwner}
           {scrollRestoreY}
+          bind:pageDepth
           {expectContent}
           {profileUser}
           pinnedReedIds={profileUser?.pinnedReedIDs ?? []}
