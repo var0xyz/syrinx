@@ -51,6 +51,8 @@ type AppConfig struct {
 	SignupMode        string `env:"optional,default='invite',values='open,invite,closed',name='SIGNUP_MODE'"`
 	MaxInvitesPerUser int    `env:"optional,default='-1',name='MAX_INVITES_PER_USER'"`
 
+	LogLevel string `env:"optional,default='warn',values='debug,info,warn,error',name='LOG_LEVEL'"`
+
 	// Empty (default) means no local OTLP collector — observability stays
 	// disabled with zero setup cost. See specs/observability/ for the
 	// collector-side wiring.
@@ -89,9 +91,8 @@ func main() {
 		l.Printf("[WARN] API_BASE_URL %q is not https:// — fine for local dev, not for production", cfg.APIBaseURL)
 	}
 
+	SetupLogger(cfg.LogLevel)
 	log.Info().Msg("Starting Syrinx API...")
-	SetupLogger()
-	log.Info().Msg("[OK] Logger setup successful")
 
 	obs, err := observability.Setup(cfg.OTELCollectorHost, cfg.OTELCollectorPort)
 	if err != nil {
