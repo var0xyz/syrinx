@@ -29,11 +29,15 @@
   /** This profile's pinned reed ids (newest-pin-first), from the parent
    * page's already-fetched /info data. */
   export let pinnedReedIds = /** @type {string[]} */ ([]);
-  /** Server already reports this author has reeds (info.hasReeds), but none
+  /** Server already reports this author has reeds (info.firstReedId), but none
    * are held locally yet — e.g. the author is offline and no online peer
    * has relayed the body. Distinguishes "known content, still arriving"
    * from a genuinely empty author. */
   export let expectContent = false;
+  /** This author's oldest surviving reed id (info.firstReedId), or null when
+   * the server reports none. Once it is on screen there is no older history
+   * to fetch, so the feed ends without waiting on a page ack. */
+  export let firstReedId = /** @type {string | null} */ (null);
   /** Window scrollY to restore after the first load (SvelteKit page snapshot). */
   export let scrollRestoreY = /** @type {number | null} */ (null);
   /** Pages loaded when the user last left, so returning to this profile
@@ -381,7 +385,11 @@
     // Without an ack to wait on, the local page is the whole truth. Otherwise
     // serverHasMore (the previous ack's value) keeps the button up while this
     // page's bodies are still in flight.
-    return { ...page, hasMore: isOwner ? page.hasMore : page.hasMore || serverHasMore };
+    let hasMore = isOwner ? page.hasMore : page.hasMore || serverHasMore;
+    // The server's oldest reed is held and shown, so nothing older remains
+    // regardless of what the last ack said.
+    if (hasMore && !page.hasMore && reachedFirstReed(page.items)) hasMore = false;
+    return { ...page, hasMore };
   }
 
   /** Re-read what is already loaded, without asking for more history.
@@ -413,6 +421,12 @@
     if (Math.abs(window.scrollY - scrollRestoreY) < 2) {
       appliedScrollRestore = true;
     }
+  }
+
+  /** True once this author's oldest reed has been walked to. */
+  function reachedFirstReed(items) {
+    if (!firstReedId) return false;
+    return items.some((reed) => reed.id === firstReedId);
   }
 
   function onPageAck(data) {

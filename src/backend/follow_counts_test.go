@@ -236,3 +236,110 @@ func TestGetUserInfo_FollowingCountExcludesRemovedAccounts(t *testing.T) {
 			len(list.Users), info.FollowingCount)
 	}
 }
+
+// insertFollowCountTestReed adds one reed for author, with an explicit id so
+// tests control which is oldest (FirstReedID is MIN(id), matching
+// GetAuthorReedPage's `ORDER BY r.id DESC` walk).
+func insertFollowCountTestReed(t *testing.T, db *sql.DB, authorIdentity, reedID string) {
+	t.Helper()
+	var userSigID, serverSigID int
+	if err := db.QueryRow(
+		`INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, 'sig') RETURNING id`,
+		"fp-"+reedID,
+	).Scan(&userSigID); err != nil {
+		t.Fatalf("insert user_signatures for %s: %v", reedID, err)
+	}
+	if err := db.QueryRow(
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
+		"server-fp-"+reedID,
+	).Scan(&serverSigID); err != nil {
+		t.Fatalf("insert server_signatures for %s: %v", reedID, err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO reeds (id, user_id, signed_at, user_signature_id, server_signature_id)
+		 VALUES ($1, $2, now(), $3, $4)`,
+		reedID, authorIdentity, userSigID, serverSigID,
+	); err != nil {
+		t.Fatalf("insert reed %s: %v", reedID, err)
+	}
+}
+
+// An author with no reeds reports nil, which is the client's "this profile
+// is empty" signal.
+func TestGetUserInfo_FirstReedIDNilWhenNoReeds(t *testing.T) {
+	db := openFollowCountTestDB(t)
+	svc := &DataService{db: db, serverID: "testserver"}
+	ctx := context.Background()
+
+	insertFollowCountTestUser(t, db, "author1", "author")
+	author1 := string(canonicalID(followCountsTestServerID, "author1"))
+
+	info, err := svc.GetUserInfo(ctx, author1)
+	if err != nil {
+		t.Fatalf("GetUserInfo: %v", err)
+	}
+	if info == nil {
+		t.Fatal("GetUserInfo returned nil info for existing user")
+	}
+	if info.FirstReedID != nil {
+		t.Errorf("FirstReedID = %q, want nil for an author with no reeds", *info.FirstReedID)
+	}
+}
+
+// FirstReedID is the oldest reed — the last one a newest-first walk reaches,
+// which is what lets the client retire "Load more" without a page ack.
+func TestGetUserInfo_FirstReedIDIsOldestReed(t *testing.T) {
+	db := openFollowCountTestDB(t)
+	svc := &DataService{db: db, serverID: "testserver"}
+	ctx := context.Background()
+
+	insertFollowCountTestUser(t, db, "author1", "author")
+	author1 := string(canonicalID(followCountsTestServerID, "author1"))
+
+	insertFollowCountTestReed(t, db, author1, author1+"/0001")
+	insertFollowCountTestReed(t, db, author1, author1+"/0002")
+	insertFollowCountTestReed(t, db, author1, author1+"/0003")
+
+	info, err := svc.GetUserInfo(ctx, author1)
+	if err != nil {
+		t.Fatalf("GetUserInfo: %v", err)
+	}
+	if info.FirstReedID == nil {
+		t.Fatal("FirstReedID = nil, want the oldest reed id")
+	}
+	if want := author1 + "/0001"; *info.FirstReedID != want {
+		t.Errorf("FirstReedID = %q, want %q", *info.FirstReedID, want)
+	}
+}
+
+// A removed oldest reed must hand the slot to the next surviving one —
+// otherwise the client waits for a reed that will never arrive.
+func TestGetUserInfo_FirstReedIDSkipsRemovedReeds(t *testing.T) {
+	db := openFollowCountTestDB(t)
+	svc := &DataService{db: db, serverID: "testserver"}
+	ctx := context.Background()
+
+	insertFollowCountTestUser(t, db, "author1", "author")
+	author1 := string(canonicalID(followCountsTestServerID, "author1"))
+
+	insertFollowCountTestReed(t, db, author1, author1+"/0001")
+	insertFollowCountTestReed(t, db, author1, author1+"/0002")
+
+	if _, err := db.Exec(
+		`INSERT INTO reed_removals (reed_id, user_id) VALUES ($1, $2)`,
+		author1+"/0001", author1,
+	); err != nil {
+		t.Fatalf("insert reed_removals: %v", err)
+	}
+
+	info, err := svc.GetUserInfo(ctx, author1)
+	if err != nil {
+		t.Fatalf("GetUserInfo: %v", err)
+	}
+	if info.FirstReedID == nil {
+		t.Fatal("FirstReedID = nil, want the oldest surviving reed id")
+	}
+	if want := author1 + "/0002"; *info.FirstReedID != want {
+		t.Errorf("FirstReedID = %q, want %q (removed reed must not be reported)", *info.FirstReedID, want)
+	}
+}
