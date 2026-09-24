@@ -198,18 +198,12 @@ class RequestSignerService {
     }
     console.log('RequestSigner: Private key retrieved from IndexedDB');
 
-    const user = await authService.getCurrentUser();
-    if (!user) {
-      throw new Error('User not found');
-    }
-    console.log('RequestSigner: User data retrieved');
-
+    // No user lookup here: signup loads the key before the account exists,
+    // and the worker only ever needs the armor and passphrase.
     console.log('RequestSigner: Sending INIT_KEY message to service worker');
     await this.postToWorker('INIT_KEY', {
       armoredKey: keyData.armor,
       passphrase,
-      userId: user.id,
-      keyId,
     });
 
     this.initialized = true;
