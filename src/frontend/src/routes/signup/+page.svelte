@@ -232,6 +232,10 @@
         userIDFingerprint: reserved.fingerprint,
         ...(inviteID && inviteSecret ? { inviteID, inviteSecret } : {}),
       };
+      // Signup burns the invite and the username, so confirm the signer is
+      // usable first — failing after the POST leaves both unrecoverable.
+      await requestSigner.ensureWorkerAvailable();
+
       const user = await authService.signup(signupPayload);
 
       // Request signing needs the session user id; getPublicKey is
