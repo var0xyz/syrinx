@@ -1,11 +1,9 @@
 import type * as api from '$lib/types/api';
 import { apiService } from './api';
-import { authService } from './auth';
-import { cryptoService } from './crypto';
+import { requestSigner } from './request-signer';
 import { dbService } from './db';
 import { buildReedRemovalUserPayload } from './signing';
 import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
-import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { removedReedsRepository } from '$lib/repositories/removedReeds';
 import { verifyReedRemoval } from '$lib/verifiers';
 import { get, writable } from 'svelte/store';
@@ -55,20 +53,8 @@ export async function removeReedAsAuthor(reedID: string): Promise<api.ReedRemova
     throw new Error('Server ID not available');
   }
 
-  const keyId = authService.getActiveKeyId();
-  const passphrase = authService.getPassphrase();
-  if (!keyId || !passphrase) {
-    throw new Error('Active key or passphrase not available');
-  }
-
-  const privateKey = await privateKeyRepository.getPrivateKey(keyId);
-  if (!privateKey?.armor) {
-    throw new Error('Private key not found');
-  }
-
   const userPayload = buildReedRemovalUserPayload(serverID, reedID);
-  const sigArmor = await cryptoService.signMessage(userPayload, privateKey.armor, passphrase);
-  const signature = btoa(sigArmor);
+  const signature = await requestSigner.sign(userPayload);
 
   await pendingRemovalRepository.put({
     reedID,
