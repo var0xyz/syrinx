@@ -3,8 +3,8 @@
 package main
 
 import (
-	"encoding/json"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -15,30 +15,28 @@ func TestNewReedNotHeldMsg(t *testing.T) {
 	t.Parallel()
 
 	msg := newReedNotHeldMsg("req-1", "reed-1")
-	if msg.Type != "REED_NOT_HELD" {
-		t.Fatalf("Type = %q, want REED_NOT_HELD", msg.Type)
+	if msg.Type != pb.MessageType_REED_NOT_HELD {
+		t.Fatalf("Type = %v, want REED_NOT_HELD", msg.Type)
 	}
-	if msg.Data.RequestID != "req-1" || msg.Data.ReedID != "reed-1" {
-		t.Fatalf("unexpected data: %+v", msg.Data)
+	data := msg.GetReedNotHeld()
+	if data.GetRequestId() != "req-1" || data.GetReedId() != "reed-1" {
+		t.Fatalf("unexpected data: %+v", data)
 	}
 
-	raw, err := json.Marshal(msg)
+	raw, err := proto.Marshal(msg)
 	if err != nil {
 		t.Fatalf("Marshal() error: %v", err)
 	}
-	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	var decoded pb.WSMessage
+	if err := proto.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("Unmarshal() error: %v", err)
 	}
-	if decoded["type"] != "REED_NOT_HELD" {
-		t.Fatalf("wire type = %v", decoded["type"])
+	if decoded.Type != pb.MessageType_REED_NOT_HELD {
+		t.Fatalf("wire type = %v", decoded.Type)
 	}
-	data, ok := decoded["data"].(map[string]any)
-	if !ok {
-		t.Fatal("expected data object")
-	}
-	if data["request_id"] != "req-1" || data["reed_id"] != "reed-1" {
-		t.Fatalf("unexpected wire data: %+v", data)
+	wireData := decoded.GetReedNotHeld()
+	if wireData.GetRequestId() != "req-1" || wireData.GetReedId() != "reed-1" {
+		t.Fatalf("unexpected wire data: %+v", wireData)
 	}
 }
 
@@ -129,5 +127,119 @@ func TestDataResponseProtobufRoundTrip(t *testing.T) {
 	data := received.GetDataResponse()
 	if data.GetRequestId() != "req-1" || data.GetCiphertext() != "ciphertext-blob" {
 		t.Fatalf("unexpected data_response payload: %+v", data)
+	}
+}
+
+// TestNewMailboxMsg checks the canonical ref (userID@serverID/id), not the
+// bare row id, is what ends up on the wire.
+func TestNewMailboxMsg(t *testing.T) {
+	t.Parallel()
+
+	msg := newMailboxMsg("alice@server-a", "msg-1", "ciphertext-blob")
+	if msg.Type != pb.MessageType_MAILBOX {
+		t.Fatalf("Type = %v, want MAILBOX", msg.Type)
+	}
+	data := msg.GetMailbox()
+	if data.GetId() != "alice@server-a/msg-1" {
+		t.Fatalf("Id = %q, want canonical ref", data.GetId())
+	}
+	if data.GetCiphertext() != "ciphertext-blob" {
+		t.Fatalf("unexpected ciphertext: %+v", data)
+	}
+}
+
+// TestNewReedRemovedMsgCarriesCert checks the signed removal cert survives
+// the JSON-wire-type (reedRemovalWire) to protobuf conversion intact.
+func TestNewReedRemovedMsgCarriesCert(t *testing.T) {
+	t.Parallel()
+
+	signedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	wire := reedRemovalWire{
+		Type:     identityTypeReed,
+		ServerID: "server-a",
+		UserID:   "alice@server-a",
+		ReedID:   "alice@server-a/reed-1",
+		UserSignature: UserSignature{
+			ID:    "key-1",
+			Armor: "user-sig-armor",
+		},
+		ServerSignature: ServerSignature{
+			ID:       "server-key-1",
+			Armor:    "server-sig-armor",
+			SignedAt: signedAt,
+		},
+	}
+
+	msg := newReedRemovedMsg("event-1", "req-1", wire)
+	raw, err := proto.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal() error: %v", err)
+	}
+	var received pb.WSMessage
+	if err := proto.Unmarshal(raw, &received); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+
+	cert := received.GetReedRemoved().GetCert()
+	if cert.GetServerId() != "server-a" || cert.GetUserId() != "alice@server-a" || cert.GetReedId() != "alice@server-a/reed-1" {
+		t.Fatalf("unexpected cert identity fields: %+v", cert)
+	}
+	if cert.GetUserSignature().GetId() != "key-1" || cert.GetUserSignature().GetArmor() != "user-sig-armor" {
+		t.Fatalf("unexpected user signature: %+v", cert.GetUserSignature())
+	}
+	if cert.GetServerSignature().GetId() != "server-key-1" || cert.GetServerSignature().GetArmor() != "server-sig-armor" {
+		t.Fatalf("unexpected server signature: %+v", cert.GetServerSignature())
+	}
+	if cert.GetServerSignature().GetSignedAt() != signedAt.Unix() {
+		t.Fatalf("SignedAt = %d, want %d", cert.GetServerSignature().GetSignedAt(), signedAt.Unix())
+	}
+}
+
+// TestNewRipplePostedMsgCarriesRipple checks a full Ripple payload (with a
+// ReplyingTo pointer) survives the RippleWire-to-protobuf conversion.
+func TestNewRipplePostedMsgCarriesRipple(t *testing.T) {
+	t.Parallel()
+
+	replyingTo := "hash-parent"
+	postedAt := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	ripple := RippleWire{
+		Hash:       "hash-1",
+		ThreadID:   "thread-1",
+		UserID:     "bob@server-b",
+		Content:    "hello",
+		ReplyingTo: &replyingTo,
+		Deleted:    false,
+		PostedAt:   postedAt,
+		UserSignature: UserSignature{
+			ID:    "key-2",
+			Armor: "armor-2",
+		},
+		ServerSignature: ServerSignature{
+			ID:       "server-key-2",
+			Armor:    "server-armor-2",
+			SignedAt: postedAt,
+		},
+	}
+
+	msg := newRipplePostedMsg("alice@server-a", "alice@server-a/reed-1", ripple)
+	raw, err := proto.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal() error: %v", err)
+	}
+	var received pb.WSMessage
+	if err := proto.Unmarshal(raw, &received); err != nil {
+		t.Fatalf("Unmarshal() error: %v", err)
+	}
+
+	got := received.GetRipplePosted()
+	if got.GetUserId() != "alice@server-a" || got.GetReedId() != "alice@server-a/reed-1" {
+		t.Fatalf("unexpected envelope fields: %+v", got)
+	}
+	gotRipple := got.GetRipple()
+	if gotRipple.GetHash() != "hash-1" || gotRipple.GetReplyingTo() != "hash-parent" {
+		t.Fatalf("unexpected ripple fields: %+v", gotRipple)
+	}
+	if gotRipple.GetPostedAt() != postedAt.Unix() {
+		t.Fatalf("PostedAt = %d, want %d", gotRipple.GetPostedAt(), postedAt.Unix())
 	}
 }

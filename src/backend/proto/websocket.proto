@@ -4,7 +4,8 @@ package syrinx.websocket;
 
 option go_package = "github.com/alvaro/syrinx/proto";
 
-// WebSocket message wrapper
+// WebSocket message wrapper. Every frame on the wire — both directions —
+// is exactly one WSMessage, binary-encoded.
 message WSMessage {
   MessageType type = 1;
   // Human-readable mirror of type (e.g. "DATA_RESPONSE"), redundant with
@@ -12,8 +13,9 @@ message WSMessage {
   // schema (protobuf enums are wire-encoded as bare varints, not names).
   string type_name = 12;
   // Event id this message replies to or originates (relay event id for
-  // DATA_RESPONSE; echoed back by the client on DATA_ACK/DATA_INVALID).
-  // Empty for message types that carry no event id.
+  // DATA_RESPONSE-family deliveries and mailbox notifications; echoed
+  // back by the client on DATA_ACK/DATA_INVALID/RELAY_RESPONSE/MISS/
+  // ERROR). Empty for message types that carry no event id.
   string id = 11;
   oneof payload {
     PingMessage ping = 2;
@@ -25,10 +27,42 @@ message WSMessage {
     ErrorMessage error = 8;
     RequestReedMessage request_reed = 9;
     DataResponseMessage data_response = 10;
+
+    ShutdownMessage shutdown = 13;
+    SyncRequestMessage sync_request = 14;
+    RelayResponseMessage relay_response = 15;
+    RelayRequestMessage relay_request = 16;
+    RequestAckMessage request_ack = 17;
+    MailboxMessage mailbox = 18;
+    MailboxAckMessage mailbox_ack = 19;
+    KeyFetchErrorMessage key_fetch_error = 20;
+    RevokedKeyUsedMessage revoked_key_used = 21;
+    ContentRejectedMessage content_rejected = 22;
+    SubscribeProfileMessage subscribe_profile = 23;
+    UnsubscribeProfileMessage unsubscribe_profile = 24;
+    SubscribeReedMessage subscribe_reed = 25;
+    UnsubscribeReedMessage unsubscribe_reed = 26;
+    SubscribePipeMessage subscribe_pipe = 27;
+    UnsubscribePipeMessage unsubscribe_pipe = 28;
+    PublishReadyMessage publish_ready = 29;
+    PublishReadyAckMessage publish_ready_ack = 30;
+    ReedNotFoundMessage reed_not_found = 31;
+    ReedNotHeldMessage reed_not_held = 32;
+    InvalidRequestIdErrorMessage invalid_request_id_error = 33;
+    ReedStatsMessage reed_stats = 34;
+    ReedCoverageMessage reed_coverage = 35;
+    ReedEchoesMessage reed_echoes = 36;
+    ReedRepliesMessage reed_replies = 37;
+    ReedLikesMessage reed_likes = 38;
+    RipplePostedMessage ripple_posted = 39;
+    RippleUpdatedMessage ripple_updated = 40;
+    ReedRemovedMessage reed_removed = 41;
+    AccountRemovedMessage account_removed = 42;
   }
 }
 
-// Message types
+// Message types. Numbers are frozen once assigned — never renumber or
+// reuse a retired value.
 enum MessageType {
   UNKNOWN = 0;
   PING = 1;
@@ -44,6 +78,47 @@ enum MessageType {
   UNSUBSCRIBE_BROADCAST = 11;
   REQUEST_REED = 12;
   DATA_RESPONSE = 13;
+
+  SIGTERM = 14;
+  SYNC_REQUEST = 15;
+  RELAY_RESPONSE = 16;
+  RELAY_MISS = 17;
+  RELAY_ERROR = 18;
+  RELAY_REQUEST = 19;
+  DATA_ACK = 20;
+  DATA_INVALID = 21;
+  REQUEST_ACK = 22;
+  MAILBOX = 23;
+  MAILBOX_ACK = 24;
+  KEY_FETCH_ERROR = 25;
+  REVOKED_KEY_USED = 26;
+  CONTENT_REJECTED = 27;
+  SUBSCRIBE_PROFILE = 28;
+  UNSUBSCRIBE_PROFILE = 29;
+  SUBSCRIBE_REED = 30;
+  UNSUBSCRIBE_REED = 31;
+  SUBSCRIBE_PIPE = 32;
+  UNSUBSCRIBE_PIPE = 33;
+  PUBLISH_READY = 34;
+  PUBLISH_READY_ACK = 35;
+  REED_NOT_FOUND = 36;
+  REED_NOT_HELD = 37;
+  INVALID_REQUEST_ID_ERROR = 38;
+  REED_STATS = 39;
+  REED_COVERAGE = 40;
+  REED_ECHOES = 41;
+  REED_REPLIES = 42;
+  REED_LIKES = 43;
+  RIPPLE_POSTED = 44;
+  RIPPLE_UPDATED = 45;
+  REED_REMOVED = 46;
+  ACCOUNT_REMOVED = 47;
+  BROADCAST_REED = 48;
+  PIPE_REED = 49;
+  FOLLOW_REED = 50;
+  ARCHIVE_REED = 51;
+  REED_REPLY = 52;
+  MENTION = 53;
 }
 
 // Ping message
@@ -106,4 +181,217 @@ message DataResponseMessage {
   string ciphertext = 2;
   string username = 3;
   string reed_id = 4;
+}
+
+// Server notice that it is shutting down; the client should reconnect.
+message ShutdownMessage {
+}
+
+// Client request to replay any events it missed while disconnected.
+message SyncRequestMessage {
+  string request_id = 1;
+}
+
+// Holder's answer to a RelayRequestMessage: the requested ciphertext.
+message RelayResponseMessage {
+  string ciphertext = 1;
+}
+
+// Server ask to a holder to relay a reed's ciphertext to a requester.
+message RelayRequestMessage {
+  string reed_id = 1;
+  string requester_id = 2;
+}
+
+// Server ack of a client's REQUEST_REED, naming which reed/request it matched.
+message RequestAckMessage {
+  string request_id = 1;
+  string reed_id = 2;
+}
+
+// Mailbox delivery: a message queued for a user while they were offline.
+message MailboxMessage {
+  string id = 1;
+  string ciphertext = 2;
+}
+
+// Client ack of a mailbox delivery, by its id.
+message MailboxAckMessage {
+  string id = 1;
+}
+
+// Client report that it failed to fetch a key needed to verify content
+// received over this connection.
+message KeyFetchErrorMessage {
+  string user_id = 1;
+  string key_id = 2;
+}
+
+// Client report that content used a key at or after its revocation.
+message RevokedKeyUsedMessage {
+  string user_id = 1;
+  string key_id = 2;
+}
+
+// Client report of content it refused to store or trust. reason is one
+// of a small standardized set (docs/content_privacy.md), or empty.
+message ContentRejectedMessage {
+  string store_name = 1;
+  string reason = 2;
+}
+
+message SubscribeProfileMessage {
+  string user_id = 1;
+}
+
+message UnsubscribeProfileMessage {
+  string user_id = 1;
+}
+
+message SubscribeReedMessage {
+  string reed_id = 1;
+}
+
+message UnsubscribeReedMessage {
+  string reed_id = 1;
+}
+
+message SubscribePipeMessage {
+  string tag = 1;
+}
+
+message UnsubscribePipeMessage {
+  string tag = 1;
+}
+
+// Client notice that a reed is ready to publish/broadcast.
+message PublishReadyMessage {
+  string reed_id = 1;
+  // Whether to include this reed in the broadcast fanout. Absent (see
+  // has_broadcast) means "true" — opting out requires an explicit false.
+  bool broadcast = 2;
+  bool has_broadcast = 3;
+}
+
+message PublishReadyAckMessage {
+  string reed_id = 1;
+}
+
+message ReedNotFoundMessage {
+  string request_id = 1;
+  string reed_id = 2;
+}
+
+// Distinct from ReedNotFoundMessage: the reed exists but this server
+// doesn't hold its ciphertext.
+message ReedNotHeldMessage {
+  string request_id = 1;
+  string reed_id = 2;
+}
+
+// Server rejection of a request_id that doesn't embed the identity of
+// the connection that sent it.
+message InvalidRequestIdErrorMessage {
+  string request_id = 1;
+}
+
+message ReedStatsMessage {
+  string reed_id = 1;
+  int32 echoes = 2;
+  int32 coverage_percent = 3;
+  int32 replies = 4;
+  int32 likes = 5;
+}
+
+message ReedCoverageMessage {
+  string reed_id = 1;
+  int32 coverage_percent = 2;
+}
+
+message ReedEchoesMessage {
+  string reed_id = 1;
+  int32 echoes = 2;
+}
+
+message ReedRepliesMessage {
+  string reed_id = 1;
+  int32 replies = 2;
+}
+
+message ReedLikesMessage {
+  string reed_id = 1;
+  int32 likes = 2;
+}
+
+// A user's cryptographic signature over content, and the id of the key
+// that produced it.
+message UserSignature {
+  string id = 1;
+  string armor = 2;
+}
+
+// The home server's countersignature, and when it was produced.
+message ServerSignature {
+  string id = 1;
+  string armor = 2;
+  int64 signed_at = 3;
+}
+
+message Ripple {
+  string hash = 1;
+  string thread_id = 2;
+  string user_id = 3;
+  string content = 4;
+  // Empty when this ripple is not a reply to another ripple.
+  string replying_to = 5;
+  bool deleted = 6;
+  int64 posted_at = 7;
+  UserSignature user_signature = 8;
+  ServerSignature server_signature = 9;
+}
+
+message RipplePostedMessage {
+  // The reed's author.
+  string user_id = 1;
+  string reed_id = 2;
+  Ripple ripple = 3;
+}
+
+// A soft-delete patch: content becomes "[DELETED]" on the referenced
+// ripple. There is no separate RIPPLE_DELETED type — the client applies
+// this same shape in place over the existing row.
+message RippleUpdatedMessage {
+  string user_id = 1;
+  string reed_id = 2;
+  Ripple ripple = 3;
+}
+
+// Cryptographic certificate proving a reed's removal, signed by both
+// the removing user and their home server.
+message ReedRemovalCert {
+  string server_id = 1;
+  string user_id = 2;
+  string reed_id = 3;
+  UserSignature user_signature = 4;
+  ServerSignature server_signature = 5;
+}
+
+// Cryptographic certificate proving an account's removal, signed by
+// both the removed user and their home server.
+message AccountRemovalCert {
+  string server_id = 1;
+  string user_id = 2;
+  string note = 3;
+  UserSignature user_signature = 4;
+  ServerSignature server_signature = 5;
+}
+
+message ReedRemovedMessage {
+  string request_id = 1;
+  ReedRemovalCert cert = 2;
+}
+
+message AccountRemovedMessage {
+  string request_id = 1;
+  AccountRemovalCert cert = 2;
 }

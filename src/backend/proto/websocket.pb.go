@@ -21,24 +21,65 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Message types
+// Message types. Numbers are frozen once assigned — never renumber or
+// reuse a retired value.
 type MessageType int32
 
 const (
-	MessageType_UNKNOWN               MessageType = 0
-	MessageType_PING                  MessageType = 1
-	MessageType_PONG                  MessageType = 2
-	MessageType_SUBSCRIBE             MessageType = 3
-	MessageType_SUBSCRIBED            MessageType = 4
-	MessageType_REED_NOTIFICATION     MessageType = 5
-	MessageType_USER_UPDATE           MessageType = 6
-	MessageType_ERROR                 MessageType = 7
-	MessageType_SUBSCRIBE_USER        MessageType = 8
-	MessageType_SUBSCRIBE_BROADCAST   MessageType = 9
-	MessageType_UNSUBSCRIBE_USER      MessageType = 10
-	MessageType_UNSUBSCRIBE_BROADCAST MessageType = 11
-	MessageType_REQUEST_REED          MessageType = 12
-	MessageType_DATA_RESPONSE         MessageType = 13
+	MessageType_UNKNOWN                  MessageType = 0
+	MessageType_PING                     MessageType = 1
+	MessageType_PONG                     MessageType = 2
+	MessageType_SUBSCRIBE                MessageType = 3
+	MessageType_SUBSCRIBED               MessageType = 4
+	MessageType_REED_NOTIFICATION        MessageType = 5
+	MessageType_USER_UPDATE              MessageType = 6
+	MessageType_ERROR                    MessageType = 7
+	MessageType_SUBSCRIBE_USER           MessageType = 8
+	MessageType_SUBSCRIBE_BROADCAST      MessageType = 9
+	MessageType_UNSUBSCRIBE_USER         MessageType = 10
+	MessageType_UNSUBSCRIBE_BROADCAST    MessageType = 11
+	MessageType_REQUEST_REED             MessageType = 12
+	MessageType_DATA_RESPONSE            MessageType = 13
+	MessageType_SIGTERM                  MessageType = 14
+	MessageType_SYNC_REQUEST             MessageType = 15
+	MessageType_RELAY_RESPONSE           MessageType = 16
+	MessageType_RELAY_MISS               MessageType = 17
+	MessageType_RELAY_ERROR              MessageType = 18
+	MessageType_RELAY_REQUEST            MessageType = 19
+	MessageType_DATA_ACK                 MessageType = 20
+	MessageType_DATA_INVALID             MessageType = 21
+	MessageType_REQUEST_ACK              MessageType = 22
+	MessageType_MAILBOX                  MessageType = 23
+	MessageType_MAILBOX_ACK              MessageType = 24
+	MessageType_KEY_FETCH_ERROR          MessageType = 25
+	MessageType_REVOKED_KEY_USED         MessageType = 26
+	MessageType_CONTENT_REJECTED         MessageType = 27
+	MessageType_SUBSCRIBE_PROFILE        MessageType = 28
+	MessageType_UNSUBSCRIBE_PROFILE      MessageType = 29
+	MessageType_SUBSCRIBE_REED           MessageType = 30
+	MessageType_UNSUBSCRIBE_REED         MessageType = 31
+	MessageType_SUBSCRIBE_PIPE           MessageType = 32
+	MessageType_UNSUBSCRIBE_PIPE         MessageType = 33
+	MessageType_PUBLISH_READY            MessageType = 34
+	MessageType_PUBLISH_READY_ACK        MessageType = 35
+	MessageType_REED_NOT_FOUND           MessageType = 36
+	MessageType_REED_NOT_HELD            MessageType = 37
+	MessageType_INVALID_REQUEST_ID_ERROR MessageType = 38
+	MessageType_REED_STATS               MessageType = 39
+	MessageType_REED_COVERAGE            MessageType = 40
+	MessageType_REED_ECHOES              MessageType = 41
+	MessageType_REED_REPLIES             MessageType = 42
+	MessageType_REED_LIKES               MessageType = 43
+	MessageType_RIPPLE_POSTED            MessageType = 44
+	MessageType_RIPPLE_UPDATED           MessageType = 45
+	MessageType_REED_REMOVED             MessageType = 46
+	MessageType_ACCOUNT_REMOVED          MessageType = 47
+	MessageType_BROADCAST_REED           MessageType = 48
+	MessageType_PIPE_REED                MessageType = 49
+	MessageType_FOLLOW_REED              MessageType = 50
+	MessageType_ARCHIVE_REED             MessageType = 51
+	MessageType_REED_REPLY               MessageType = 52
+	MessageType_MENTION                  MessageType = 53
 )
 
 // Enum value maps for MessageType.
@@ -58,22 +99,102 @@ var (
 		11: "UNSUBSCRIBE_BROADCAST",
 		12: "REQUEST_REED",
 		13: "DATA_RESPONSE",
+		14: "SIGTERM",
+		15: "SYNC_REQUEST",
+		16: "RELAY_RESPONSE",
+		17: "RELAY_MISS",
+		18: "RELAY_ERROR",
+		19: "RELAY_REQUEST",
+		20: "DATA_ACK",
+		21: "DATA_INVALID",
+		22: "REQUEST_ACK",
+		23: "MAILBOX",
+		24: "MAILBOX_ACK",
+		25: "KEY_FETCH_ERROR",
+		26: "REVOKED_KEY_USED",
+		27: "CONTENT_REJECTED",
+		28: "SUBSCRIBE_PROFILE",
+		29: "UNSUBSCRIBE_PROFILE",
+		30: "SUBSCRIBE_REED",
+		31: "UNSUBSCRIBE_REED",
+		32: "SUBSCRIBE_PIPE",
+		33: "UNSUBSCRIBE_PIPE",
+		34: "PUBLISH_READY",
+		35: "PUBLISH_READY_ACK",
+		36: "REED_NOT_FOUND",
+		37: "REED_NOT_HELD",
+		38: "INVALID_REQUEST_ID_ERROR",
+		39: "REED_STATS",
+		40: "REED_COVERAGE",
+		41: "REED_ECHOES",
+		42: "REED_REPLIES",
+		43: "REED_LIKES",
+		44: "RIPPLE_POSTED",
+		45: "RIPPLE_UPDATED",
+		46: "REED_REMOVED",
+		47: "ACCOUNT_REMOVED",
+		48: "BROADCAST_REED",
+		49: "PIPE_REED",
+		50: "FOLLOW_REED",
+		51: "ARCHIVE_REED",
+		52: "REED_REPLY",
+		53: "MENTION",
 	}
 	MessageType_value = map[string]int32{
-		"UNKNOWN":               0,
-		"PING":                  1,
-		"PONG":                  2,
-		"SUBSCRIBE":             3,
-		"SUBSCRIBED":            4,
-		"REED_NOTIFICATION":     5,
-		"USER_UPDATE":           6,
-		"ERROR":                 7,
-		"SUBSCRIBE_USER":        8,
-		"SUBSCRIBE_BROADCAST":   9,
-		"UNSUBSCRIBE_USER":      10,
-		"UNSUBSCRIBE_BROADCAST": 11,
-		"REQUEST_REED":          12,
-		"DATA_RESPONSE":         13,
+		"UNKNOWN":                  0,
+		"PING":                     1,
+		"PONG":                     2,
+		"SUBSCRIBE":                3,
+		"SUBSCRIBED":               4,
+		"REED_NOTIFICATION":        5,
+		"USER_UPDATE":              6,
+		"ERROR":                    7,
+		"SUBSCRIBE_USER":           8,
+		"SUBSCRIBE_BROADCAST":      9,
+		"UNSUBSCRIBE_USER":         10,
+		"UNSUBSCRIBE_BROADCAST":    11,
+		"REQUEST_REED":             12,
+		"DATA_RESPONSE":            13,
+		"SIGTERM":                  14,
+		"SYNC_REQUEST":             15,
+		"RELAY_RESPONSE":           16,
+		"RELAY_MISS":               17,
+		"RELAY_ERROR":              18,
+		"RELAY_REQUEST":            19,
+		"DATA_ACK":                 20,
+		"DATA_INVALID":             21,
+		"REQUEST_ACK":              22,
+		"MAILBOX":                  23,
+		"MAILBOX_ACK":              24,
+		"KEY_FETCH_ERROR":          25,
+		"REVOKED_KEY_USED":         26,
+		"CONTENT_REJECTED":         27,
+		"SUBSCRIBE_PROFILE":        28,
+		"UNSUBSCRIBE_PROFILE":      29,
+		"SUBSCRIBE_REED":           30,
+		"UNSUBSCRIBE_REED":         31,
+		"SUBSCRIBE_PIPE":           32,
+		"UNSUBSCRIBE_PIPE":         33,
+		"PUBLISH_READY":            34,
+		"PUBLISH_READY_ACK":        35,
+		"REED_NOT_FOUND":           36,
+		"REED_NOT_HELD":            37,
+		"INVALID_REQUEST_ID_ERROR": 38,
+		"REED_STATS":               39,
+		"REED_COVERAGE":            40,
+		"REED_ECHOES":              41,
+		"REED_REPLIES":             42,
+		"REED_LIKES":               43,
+		"RIPPLE_POSTED":            44,
+		"RIPPLE_UPDATED":           45,
+		"REED_REMOVED":             46,
+		"ACCOUNT_REMOVED":          47,
+		"BROADCAST_REED":           48,
+		"PIPE_REED":                49,
+		"FOLLOW_REED":              50,
+		"ARCHIVE_REED":             51,
+		"REED_REPLY":               52,
+		"MENTION":                  53,
 	}
 )
 
@@ -104,7 +225,8 @@ func (MessageType) EnumDescriptor() ([]byte, []int) {
 	return file_proto_websocket_proto_rawDescGZIP(), []int{0}
 }
 
-// WebSocket message wrapper
+// WebSocket message wrapper. Every frame on the wire — both directions —
+// is exactly one WSMessage, binary-encoded.
 type WSMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Type  MessageType            `protobuf:"varint,1,opt,name=type,proto3,enum=syrinx.websocket.MessageType" json:"type,omitempty"`
@@ -113,8 +235,9 @@ type WSMessage struct {
 	// schema (protobuf enums are wire-encoded as bare varints, not names).
 	TypeName string `protobuf:"bytes,12,opt,name=type_name,json=typeName,proto3" json:"type_name,omitempty"`
 	// Event id this message replies to or originates (relay event id for
-	// DATA_RESPONSE; echoed back by the client on DATA_ACK/DATA_INVALID).
-	// Empty for message types that carry no event id.
+	// DATA_RESPONSE-family deliveries and mailbox notifications; echoed
+	// back by the client on DATA_ACK/DATA_INVALID/RELAY_RESPONSE/MISS/
+	// ERROR). Empty for message types that carry no event id.
 	Id string `protobuf:"bytes,11,opt,name=id,proto3" json:"id,omitempty"`
 	// Types that are valid to be assigned to Payload:
 	//
@@ -127,6 +250,36 @@ type WSMessage struct {
 	//	*WSMessage_Error
 	//	*WSMessage_RequestReed
 	//	*WSMessage_DataResponse
+	//	*WSMessage_Shutdown
+	//	*WSMessage_SyncRequest
+	//	*WSMessage_RelayResponse
+	//	*WSMessage_RelayRequest
+	//	*WSMessage_RequestAck
+	//	*WSMessage_Mailbox
+	//	*WSMessage_MailboxAck
+	//	*WSMessage_KeyFetchError
+	//	*WSMessage_RevokedKeyUsed
+	//	*WSMessage_ContentRejected
+	//	*WSMessage_SubscribeProfile
+	//	*WSMessage_UnsubscribeProfile
+	//	*WSMessage_SubscribeReed
+	//	*WSMessage_UnsubscribeReed
+	//	*WSMessage_SubscribePipe
+	//	*WSMessage_UnsubscribePipe
+	//	*WSMessage_PublishReady
+	//	*WSMessage_PublishReadyAck
+	//	*WSMessage_ReedNotFound
+	//	*WSMessage_ReedNotHeld
+	//	*WSMessage_InvalidRequestIdError
+	//	*WSMessage_ReedStats
+	//	*WSMessage_ReedCoverage
+	//	*WSMessage_ReedEchoes
+	//	*WSMessage_ReedReplies
+	//	*WSMessage_ReedLikes
+	//	*WSMessage_RipplePosted
+	//	*WSMessage_RippleUpdated
+	//	*WSMessage_ReedRemoved
+	//	*WSMessage_AccountRemoved
 	Payload       isWSMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -271,6 +424,276 @@ func (x *WSMessage) GetDataResponse() *DataResponseMessage {
 	return nil
 }
 
+func (x *WSMessage) GetShutdown() *ShutdownMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_Shutdown); ok {
+			return x.Shutdown
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetSyncRequest() *SyncRequestMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_SyncRequest); ok {
+			return x.SyncRequest
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetRelayResponse() *RelayResponseMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_RelayResponse); ok {
+			return x.RelayResponse
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetRelayRequest() *RelayRequestMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_RelayRequest); ok {
+			return x.RelayRequest
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetRequestAck() *RequestAckMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_RequestAck); ok {
+			return x.RequestAck
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetMailbox() *MailboxMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_Mailbox); ok {
+			return x.Mailbox
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetMailboxAck() *MailboxAckMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_MailboxAck); ok {
+			return x.MailboxAck
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetKeyFetchError() *KeyFetchErrorMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_KeyFetchError); ok {
+			return x.KeyFetchError
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetRevokedKeyUsed() *RevokedKeyUsedMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_RevokedKeyUsed); ok {
+			return x.RevokedKeyUsed
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetContentRejected() *ContentRejectedMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_ContentRejected); ok {
+			return x.ContentRejected
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetSubscribeProfile() *SubscribeProfileMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_SubscribeProfile); ok {
+			return x.SubscribeProfile
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetUnsubscribeProfile() *UnsubscribeProfileMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_UnsubscribeProfile); ok {
+			return x.UnsubscribeProfile
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetSubscribeReed() *SubscribeReedMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_SubscribeReed); ok {
+			return x.SubscribeReed
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetUnsubscribeReed() *UnsubscribeReedMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_UnsubscribeReed); ok {
+			return x.UnsubscribeReed
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetSubscribePipe() *SubscribePipeMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_SubscribePipe); ok {
+			return x.SubscribePipe
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetUnsubscribePipe() *UnsubscribePipeMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_UnsubscribePipe); ok {
+			return x.UnsubscribePipe
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetPublishReady() *PublishReadyMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_PublishReady); ok {
+			return x.PublishReady
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetPublishReadyAck() *PublishReadyAckMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_PublishReadyAck); ok {
+			return x.PublishReadyAck
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetReedNotFound() *ReedNotFoundMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_ReedNotFound); ok {
+			return x.ReedNotFound
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetReedNotHeld() *ReedNotHeldMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_ReedNotHeld); ok {
+			return x.ReedNotHeld
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetInvalidRequestIdError() *InvalidRequestIdErrorMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_InvalidRequestIdError); ok {
+			return x.InvalidRequestIdError
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetReedStats() *ReedStatsMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_ReedStats); ok {
+			return x.ReedStats
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetReedCoverage() *ReedCoverageMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_ReedCoverage); ok {
+			return x.ReedCoverage
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetReedEchoes() *ReedEchoesMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_ReedEchoes); ok {
+			return x.ReedEchoes
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetReedReplies() *ReedRepliesMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_ReedReplies); ok {
+			return x.ReedReplies
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetReedLikes() *ReedLikesMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_ReedLikes); ok {
+			return x.ReedLikes
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetRipplePosted() *RipplePostedMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_RipplePosted); ok {
+			return x.RipplePosted
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetRippleUpdated() *RippleUpdatedMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_RippleUpdated); ok {
+			return x.RippleUpdated
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetReedRemoved() *ReedRemovedMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_ReedRemoved); ok {
+			return x.ReedRemoved
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetAccountRemoved() *AccountRemovedMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_AccountRemoved); ok {
+			return x.AccountRemoved
+		}
+	}
+	return nil
+}
+
 type isWSMessage_Payload interface {
 	isWSMessage_Payload()
 }
@@ -311,6 +734,126 @@ type WSMessage_DataResponse struct {
 	DataResponse *DataResponseMessage `protobuf:"bytes,10,opt,name=data_response,json=dataResponse,proto3,oneof"`
 }
 
+type WSMessage_Shutdown struct {
+	Shutdown *ShutdownMessage `protobuf:"bytes,13,opt,name=shutdown,proto3,oneof"`
+}
+
+type WSMessage_SyncRequest struct {
+	SyncRequest *SyncRequestMessage `protobuf:"bytes,14,opt,name=sync_request,json=syncRequest,proto3,oneof"`
+}
+
+type WSMessage_RelayResponse struct {
+	RelayResponse *RelayResponseMessage `protobuf:"bytes,15,opt,name=relay_response,json=relayResponse,proto3,oneof"`
+}
+
+type WSMessage_RelayRequest struct {
+	RelayRequest *RelayRequestMessage `protobuf:"bytes,16,opt,name=relay_request,json=relayRequest,proto3,oneof"`
+}
+
+type WSMessage_RequestAck struct {
+	RequestAck *RequestAckMessage `protobuf:"bytes,17,opt,name=request_ack,json=requestAck,proto3,oneof"`
+}
+
+type WSMessage_Mailbox struct {
+	Mailbox *MailboxMessage `protobuf:"bytes,18,opt,name=mailbox,proto3,oneof"`
+}
+
+type WSMessage_MailboxAck struct {
+	MailboxAck *MailboxAckMessage `protobuf:"bytes,19,opt,name=mailbox_ack,json=mailboxAck,proto3,oneof"`
+}
+
+type WSMessage_KeyFetchError struct {
+	KeyFetchError *KeyFetchErrorMessage `protobuf:"bytes,20,opt,name=key_fetch_error,json=keyFetchError,proto3,oneof"`
+}
+
+type WSMessage_RevokedKeyUsed struct {
+	RevokedKeyUsed *RevokedKeyUsedMessage `protobuf:"bytes,21,opt,name=revoked_key_used,json=revokedKeyUsed,proto3,oneof"`
+}
+
+type WSMessage_ContentRejected struct {
+	ContentRejected *ContentRejectedMessage `protobuf:"bytes,22,opt,name=content_rejected,json=contentRejected,proto3,oneof"`
+}
+
+type WSMessage_SubscribeProfile struct {
+	SubscribeProfile *SubscribeProfileMessage `protobuf:"bytes,23,opt,name=subscribe_profile,json=subscribeProfile,proto3,oneof"`
+}
+
+type WSMessage_UnsubscribeProfile struct {
+	UnsubscribeProfile *UnsubscribeProfileMessage `protobuf:"bytes,24,opt,name=unsubscribe_profile,json=unsubscribeProfile,proto3,oneof"`
+}
+
+type WSMessage_SubscribeReed struct {
+	SubscribeReed *SubscribeReedMessage `protobuf:"bytes,25,opt,name=subscribe_reed,json=subscribeReed,proto3,oneof"`
+}
+
+type WSMessage_UnsubscribeReed struct {
+	UnsubscribeReed *UnsubscribeReedMessage `protobuf:"bytes,26,opt,name=unsubscribe_reed,json=unsubscribeReed,proto3,oneof"`
+}
+
+type WSMessage_SubscribePipe struct {
+	SubscribePipe *SubscribePipeMessage `protobuf:"bytes,27,opt,name=subscribe_pipe,json=subscribePipe,proto3,oneof"`
+}
+
+type WSMessage_UnsubscribePipe struct {
+	UnsubscribePipe *UnsubscribePipeMessage `protobuf:"bytes,28,opt,name=unsubscribe_pipe,json=unsubscribePipe,proto3,oneof"`
+}
+
+type WSMessage_PublishReady struct {
+	PublishReady *PublishReadyMessage `protobuf:"bytes,29,opt,name=publish_ready,json=publishReady,proto3,oneof"`
+}
+
+type WSMessage_PublishReadyAck struct {
+	PublishReadyAck *PublishReadyAckMessage `protobuf:"bytes,30,opt,name=publish_ready_ack,json=publishReadyAck,proto3,oneof"`
+}
+
+type WSMessage_ReedNotFound struct {
+	ReedNotFound *ReedNotFoundMessage `protobuf:"bytes,31,opt,name=reed_not_found,json=reedNotFound,proto3,oneof"`
+}
+
+type WSMessage_ReedNotHeld struct {
+	ReedNotHeld *ReedNotHeldMessage `protobuf:"bytes,32,opt,name=reed_not_held,json=reedNotHeld,proto3,oneof"`
+}
+
+type WSMessage_InvalidRequestIdError struct {
+	InvalidRequestIdError *InvalidRequestIdErrorMessage `protobuf:"bytes,33,opt,name=invalid_request_id_error,json=invalidRequestIdError,proto3,oneof"`
+}
+
+type WSMessage_ReedStats struct {
+	ReedStats *ReedStatsMessage `protobuf:"bytes,34,opt,name=reed_stats,json=reedStats,proto3,oneof"`
+}
+
+type WSMessage_ReedCoverage struct {
+	ReedCoverage *ReedCoverageMessage `protobuf:"bytes,35,opt,name=reed_coverage,json=reedCoverage,proto3,oneof"`
+}
+
+type WSMessage_ReedEchoes struct {
+	ReedEchoes *ReedEchoesMessage `protobuf:"bytes,36,opt,name=reed_echoes,json=reedEchoes,proto3,oneof"`
+}
+
+type WSMessage_ReedReplies struct {
+	ReedReplies *ReedRepliesMessage `protobuf:"bytes,37,opt,name=reed_replies,json=reedReplies,proto3,oneof"`
+}
+
+type WSMessage_ReedLikes struct {
+	ReedLikes *ReedLikesMessage `protobuf:"bytes,38,opt,name=reed_likes,json=reedLikes,proto3,oneof"`
+}
+
+type WSMessage_RipplePosted struct {
+	RipplePosted *RipplePostedMessage `protobuf:"bytes,39,opt,name=ripple_posted,json=ripplePosted,proto3,oneof"`
+}
+
+type WSMessage_RippleUpdated struct {
+	RippleUpdated *RippleUpdatedMessage `protobuf:"bytes,40,opt,name=ripple_updated,json=rippleUpdated,proto3,oneof"`
+}
+
+type WSMessage_ReedRemoved struct {
+	ReedRemoved *ReedRemovedMessage `protobuf:"bytes,41,opt,name=reed_removed,json=reedRemoved,proto3,oneof"`
+}
+
+type WSMessage_AccountRemoved struct {
+	AccountRemoved *AccountRemovedMessage `protobuf:"bytes,42,opt,name=account_removed,json=accountRemoved,proto3,oneof"`
+}
+
 func (*WSMessage_Ping) isWSMessage_Payload() {}
 
 func (*WSMessage_Pong) isWSMessage_Payload() {}
@@ -328,6 +871,66 @@ func (*WSMessage_Error) isWSMessage_Payload() {}
 func (*WSMessage_RequestReed) isWSMessage_Payload() {}
 
 func (*WSMessage_DataResponse) isWSMessage_Payload() {}
+
+func (*WSMessage_Shutdown) isWSMessage_Payload() {}
+
+func (*WSMessage_SyncRequest) isWSMessage_Payload() {}
+
+func (*WSMessage_RelayResponse) isWSMessage_Payload() {}
+
+func (*WSMessage_RelayRequest) isWSMessage_Payload() {}
+
+func (*WSMessage_RequestAck) isWSMessage_Payload() {}
+
+func (*WSMessage_Mailbox) isWSMessage_Payload() {}
+
+func (*WSMessage_MailboxAck) isWSMessage_Payload() {}
+
+func (*WSMessage_KeyFetchError) isWSMessage_Payload() {}
+
+func (*WSMessage_RevokedKeyUsed) isWSMessage_Payload() {}
+
+func (*WSMessage_ContentRejected) isWSMessage_Payload() {}
+
+func (*WSMessage_SubscribeProfile) isWSMessage_Payload() {}
+
+func (*WSMessage_UnsubscribeProfile) isWSMessage_Payload() {}
+
+func (*WSMessage_SubscribeReed) isWSMessage_Payload() {}
+
+func (*WSMessage_UnsubscribeReed) isWSMessage_Payload() {}
+
+func (*WSMessage_SubscribePipe) isWSMessage_Payload() {}
+
+func (*WSMessage_UnsubscribePipe) isWSMessage_Payload() {}
+
+func (*WSMessage_PublishReady) isWSMessage_Payload() {}
+
+func (*WSMessage_PublishReadyAck) isWSMessage_Payload() {}
+
+func (*WSMessage_ReedNotFound) isWSMessage_Payload() {}
+
+func (*WSMessage_ReedNotHeld) isWSMessage_Payload() {}
+
+func (*WSMessage_InvalidRequestIdError) isWSMessage_Payload() {}
+
+func (*WSMessage_ReedStats) isWSMessage_Payload() {}
+
+func (*WSMessage_ReedCoverage) isWSMessage_Payload() {}
+
+func (*WSMessage_ReedEchoes) isWSMessage_Payload() {}
+
+func (*WSMessage_ReedReplies) isWSMessage_Payload() {}
+
+func (*WSMessage_ReedLikes) isWSMessage_Payload() {}
+
+func (*WSMessage_RipplePosted) isWSMessage_Payload() {}
+
+func (*WSMessage_RippleUpdated) isWSMessage_Payload() {}
+
+func (*WSMessage_ReedRemoved) isWSMessage_Payload() {}
+
+func (*WSMessage_AccountRemoved) isWSMessage_Payload() {}
 
 // Ping message
 type PingMessage struct {
@@ -835,11 +1438,1918 @@ func (x *DataResponseMessage) GetReedId() string {
 	return ""
 }
 
+// Server notice that it is shutting down; the client should reconnect.
+type ShutdownMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShutdownMessage) Reset() {
+	*x = ShutdownMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShutdownMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShutdownMessage) ProtoMessage() {}
+
+func (x *ShutdownMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShutdownMessage.ProtoReflect.Descriptor instead.
+func (*ShutdownMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{10}
+}
+
+// Client request to replay any events it missed while disconnected.
+type SyncRequestMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SyncRequestMessage) Reset() {
+	*x = SyncRequestMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SyncRequestMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncRequestMessage) ProtoMessage() {}
+
+func (x *SyncRequestMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncRequestMessage.ProtoReflect.Descriptor instead.
+func (*SyncRequestMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SyncRequestMessage) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+// Holder's answer to a RelayRequestMessage: the requested ciphertext.
+type RelayResponseMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ciphertext    string                 `protobuf:"bytes,1,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayResponseMessage) Reset() {
+	*x = RelayResponseMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayResponseMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayResponseMessage) ProtoMessage() {}
+
+func (x *RelayResponseMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayResponseMessage.ProtoReflect.Descriptor instead.
+func (*RelayResponseMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RelayResponseMessage) GetCiphertext() string {
+	if x != nil {
+		return x.Ciphertext
+	}
+	return ""
+}
+
+// Server ask to a holder to relay a reed's ciphertext to a requester.
+type RelayRequestMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	RequesterId   string                 `protobuf:"bytes,2,opt,name=requester_id,json=requesterId,proto3" json:"requester_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayRequestMessage) Reset() {
+	*x = RelayRequestMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayRequestMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayRequestMessage) ProtoMessage() {}
+
+func (x *RelayRequestMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayRequestMessage.ProtoReflect.Descriptor instead.
+func (*RelayRequestMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RelayRequestMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *RelayRequestMessage) GetRequesterId() string {
+	if x != nil {
+		return x.RequesterId
+	}
+	return ""
+}
+
+// Server ack of a client's REQUEST_REED, naming which reed/request it matched.
+type RequestAckMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ReedId        string                 `protobuf:"bytes,2,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestAckMessage) Reset() {
+	*x = RequestAckMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestAckMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestAckMessage) ProtoMessage() {}
+
+func (x *RequestAckMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestAckMessage.ProtoReflect.Descriptor instead.
+func (*RequestAckMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *RequestAckMessage) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *RequestAckMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+// Mailbox delivery: a message queued for a user while they were offline.
+type MailboxMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Ciphertext    string                 `protobuf:"bytes,2,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MailboxMessage) Reset() {
+	*x = MailboxMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MailboxMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MailboxMessage) ProtoMessage() {}
+
+func (x *MailboxMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MailboxMessage.ProtoReflect.Descriptor instead.
+func (*MailboxMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *MailboxMessage) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *MailboxMessage) GetCiphertext() string {
+	if x != nil {
+		return x.Ciphertext
+	}
+	return ""
+}
+
+// Client ack of a mailbox delivery, by its id.
+type MailboxAckMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MailboxAckMessage) Reset() {
+	*x = MailboxAckMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MailboxAckMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MailboxAckMessage) ProtoMessage() {}
+
+func (x *MailboxAckMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MailboxAckMessage.ProtoReflect.Descriptor instead.
+func (*MailboxAckMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *MailboxAckMessage) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// Client report that it failed to fetch a key needed to verify content
+// received over this connection.
+type KeyFetchErrorMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	KeyId         string                 `protobuf:"bytes,2,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KeyFetchErrorMessage) Reset() {
+	*x = KeyFetchErrorMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KeyFetchErrorMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KeyFetchErrorMessage) ProtoMessage() {}
+
+func (x *KeyFetchErrorMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KeyFetchErrorMessage.ProtoReflect.Descriptor instead.
+func (*KeyFetchErrorMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *KeyFetchErrorMessage) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *KeyFetchErrorMessage) GetKeyId() string {
+	if x != nil {
+		return x.KeyId
+	}
+	return ""
+}
+
+// Client report that content used a key at or after its revocation.
+type RevokedKeyUsedMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	KeyId         string                 `protobuf:"bytes,2,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokedKeyUsedMessage) Reset() {
+	*x = RevokedKeyUsedMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokedKeyUsedMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokedKeyUsedMessage) ProtoMessage() {}
+
+func (x *RevokedKeyUsedMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokedKeyUsedMessage.ProtoReflect.Descriptor instead.
+func (*RevokedKeyUsedMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *RevokedKeyUsedMessage) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *RevokedKeyUsedMessage) GetKeyId() string {
+	if x != nil {
+		return x.KeyId
+	}
+	return ""
+}
+
+// Client report of content it refused to store or trust. reason is one
+// of a small standardized set (docs/content_privacy.md), or empty.
+type ContentRejectedMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StoreName     string                 `protobuf:"bytes,1,opt,name=store_name,json=storeName,proto3" json:"store_name,omitempty"`
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContentRejectedMessage) Reset() {
+	*x = ContentRejectedMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContentRejectedMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContentRejectedMessage) ProtoMessage() {}
+
+func (x *ContentRejectedMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContentRejectedMessage.ProtoReflect.Descriptor instead.
+func (*ContentRejectedMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ContentRejectedMessage) GetStoreName() string {
+	if x != nil {
+		return x.StoreName
+	}
+	return ""
+}
+
+func (x *ContentRejectedMessage) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type SubscribeProfileMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubscribeProfileMessage) Reset() {
+	*x = SubscribeProfileMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscribeProfileMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscribeProfileMessage) ProtoMessage() {}
+
+func (x *SubscribeProfileMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscribeProfileMessage.ProtoReflect.Descriptor instead.
+func (*SubscribeProfileMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *SubscribeProfileMessage) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+type UnsubscribeProfileMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnsubscribeProfileMessage) Reset() {
+	*x = UnsubscribeProfileMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnsubscribeProfileMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnsubscribeProfileMessage) ProtoMessage() {}
+
+func (x *UnsubscribeProfileMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnsubscribeProfileMessage.ProtoReflect.Descriptor instead.
+func (*UnsubscribeProfileMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *UnsubscribeProfileMessage) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+type SubscribeReedMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubscribeReedMessage) Reset() {
+	*x = SubscribeReedMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscribeReedMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscribeReedMessage) ProtoMessage() {}
+
+func (x *SubscribeReedMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscribeReedMessage.ProtoReflect.Descriptor instead.
+func (*SubscribeReedMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *SubscribeReedMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+type UnsubscribeReedMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnsubscribeReedMessage) Reset() {
+	*x = UnsubscribeReedMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnsubscribeReedMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnsubscribeReedMessage) ProtoMessage() {}
+
+func (x *UnsubscribeReedMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnsubscribeReedMessage.ProtoReflect.Descriptor instead.
+func (*UnsubscribeReedMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *UnsubscribeReedMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+type SubscribePipeMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tag           string                 `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubscribePipeMessage) Reset() {
+	*x = SubscribePipeMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscribePipeMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscribePipeMessage) ProtoMessage() {}
+
+func (x *SubscribePipeMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscribePipeMessage.ProtoReflect.Descriptor instead.
+func (*SubscribePipeMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *SubscribePipeMessage) GetTag() string {
+	if x != nil {
+		return x.Tag
+	}
+	return ""
+}
+
+type UnsubscribePipeMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tag           string                 `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnsubscribePipeMessage) Reset() {
+	*x = UnsubscribePipeMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnsubscribePipeMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnsubscribePipeMessage) ProtoMessage() {}
+
+func (x *UnsubscribePipeMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnsubscribePipeMessage.ProtoReflect.Descriptor instead.
+func (*UnsubscribePipeMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *UnsubscribePipeMessage) GetTag() string {
+	if x != nil {
+		return x.Tag
+	}
+	return ""
+}
+
+// Client notice that a reed is ready to publish/broadcast.
+type PublishReadyMessage struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	ReedId string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	// Whether to include this reed in the broadcast fanout. Absent (see
+	// has_broadcast) means "true" — opting out requires an explicit false.
+	Broadcast     bool `protobuf:"varint,2,opt,name=broadcast,proto3" json:"broadcast,omitempty"`
+	HasBroadcast  bool `protobuf:"varint,3,opt,name=has_broadcast,json=hasBroadcast,proto3" json:"has_broadcast,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishReadyMessage) Reset() {
+	*x = PublishReadyMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishReadyMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishReadyMessage) ProtoMessage() {}
+
+func (x *PublishReadyMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishReadyMessage.ProtoReflect.Descriptor instead.
+func (*PublishReadyMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *PublishReadyMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *PublishReadyMessage) GetBroadcast() bool {
+	if x != nil {
+		return x.Broadcast
+	}
+	return false
+}
+
+func (x *PublishReadyMessage) GetHasBroadcast() bool {
+	if x != nil {
+		return x.HasBroadcast
+	}
+	return false
+}
+
+type PublishReadyAckMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PublishReadyAckMessage) Reset() {
+	*x = PublishReadyAckMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PublishReadyAckMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PublishReadyAckMessage) ProtoMessage() {}
+
+func (x *PublishReadyAckMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PublishReadyAckMessage.ProtoReflect.Descriptor instead.
+func (*PublishReadyAckMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *PublishReadyAckMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+type ReedNotFoundMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ReedId        string                 `protobuf:"bytes,2,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReedNotFoundMessage) Reset() {
+	*x = ReedNotFoundMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReedNotFoundMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReedNotFoundMessage) ProtoMessage() {}
+
+func (x *ReedNotFoundMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReedNotFoundMessage.ProtoReflect.Descriptor instead.
+func (*ReedNotFoundMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ReedNotFoundMessage) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ReedNotFoundMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+// Distinct from ReedNotFoundMessage: the reed exists but this server
+// doesn't hold its ciphertext.
+type ReedNotHeldMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ReedId        string                 `protobuf:"bytes,2,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReedNotHeldMessage) Reset() {
+	*x = ReedNotHeldMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReedNotHeldMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReedNotHeldMessage) ProtoMessage() {}
+
+func (x *ReedNotHeldMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReedNotHeldMessage.ProtoReflect.Descriptor instead.
+func (*ReedNotHeldMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ReedNotHeldMessage) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ReedNotHeldMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+// Server rejection of a request_id that doesn't embed the identity of
+// the connection that sent it.
+type InvalidRequestIdErrorMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InvalidRequestIdErrorMessage) Reset() {
+	*x = InvalidRequestIdErrorMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InvalidRequestIdErrorMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InvalidRequestIdErrorMessage) ProtoMessage() {}
+
+func (x *InvalidRequestIdErrorMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InvalidRequestIdErrorMessage.ProtoReflect.Descriptor instead.
+func (*InvalidRequestIdErrorMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *InvalidRequestIdErrorMessage) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+type ReedStatsMessage struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ReedId          string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	Echoes          int32                  `protobuf:"varint,2,opt,name=echoes,proto3" json:"echoes,omitempty"`
+	CoveragePercent int32                  `protobuf:"varint,3,opt,name=coverage_percent,json=coveragePercent,proto3" json:"coverage_percent,omitempty"`
+	Replies         int32                  `protobuf:"varint,4,opt,name=replies,proto3" json:"replies,omitempty"`
+	Likes           int32                  `protobuf:"varint,5,opt,name=likes,proto3" json:"likes,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ReedStatsMessage) Reset() {
+	*x = ReedStatsMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReedStatsMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReedStatsMessage) ProtoMessage() {}
+
+func (x *ReedStatsMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReedStatsMessage.ProtoReflect.Descriptor instead.
+func (*ReedStatsMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ReedStatsMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *ReedStatsMessage) GetEchoes() int32 {
+	if x != nil {
+		return x.Echoes
+	}
+	return 0
+}
+
+func (x *ReedStatsMessage) GetCoveragePercent() int32 {
+	if x != nil {
+		return x.CoveragePercent
+	}
+	return 0
+}
+
+func (x *ReedStatsMessage) GetReplies() int32 {
+	if x != nil {
+		return x.Replies
+	}
+	return 0
+}
+
+func (x *ReedStatsMessage) GetLikes() int32 {
+	if x != nil {
+		return x.Likes
+	}
+	return 0
+}
+
+type ReedCoverageMessage struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ReedId          string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	CoveragePercent int32                  `protobuf:"varint,2,opt,name=coverage_percent,json=coveragePercent,proto3" json:"coverage_percent,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ReedCoverageMessage) Reset() {
+	*x = ReedCoverageMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReedCoverageMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReedCoverageMessage) ProtoMessage() {}
+
+func (x *ReedCoverageMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReedCoverageMessage.ProtoReflect.Descriptor instead.
+func (*ReedCoverageMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *ReedCoverageMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *ReedCoverageMessage) GetCoveragePercent() int32 {
+	if x != nil {
+		return x.CoveragePercent
+	}
+	return 0
+}
+
+type ReedEchoesMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	Echoes        int32                  `protobuf:"varint,2,opt,name=echoes,proto3" json:"echoes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReedEchoesMessage) Reset() {
+	*x = ReedEchoesMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReedEchoesMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReedEchoesMessage) ProtoMessage() {}
+
+func (x *ReedEchoesMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReedEchoesMessage.ProtoReflect.Descriptor instead.
+func (*ReedEchoesMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ReedEchoesMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *ReedEchoesMessage) GetEchoes() int32 {
+	if x != nil {
+		return x.Echoes
+	}
+	return 0
+}
+
+type ReedRepliesMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	Replies       int32                  `protobuf:"varint,2,opt,name=replies,proto3" json:"replies,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReedRepliesMessage) Reset() {
+	*x = ReedRepliesMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReedRepliesMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReedRepliesMessage) ProtoMessage() {}
+
+func (x *ReedRepliesMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReedRepliesMessage.ProtoReflect.Descriptor instead.
+func (*ReedRepliesMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *ReedRepliesMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *ReedRepliesMessage) GetReplies() int32 {
+	if x != nil {
+		return x.Replies
+	}
+	return 0
+}
+
+type ReedLikesMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	Likes         int32                  `protobuf:"varint,2,opt,name=likes,proto3" json:"likes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReedLikesMessage) Reset() {
+	*x = ReedLikesMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReedLikesMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReedLikesMessage) ProtoMessage() {}
+
+func (x *ReedLikesMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReedLikesMessage.ProtoReflect.Descriptor instead.
+func (*ReedLikesMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *ReedLikesMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *ReedLikesMessage) GetLikes() int32 {
+	if x != nil {
+		return x.Likes
+	}
+	return 0
+}
+
+// A user's cryptographic signature over content, and the id of the key
+// that produced it.
+type UserSignature struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Armor         string                 `protobuf:"bytes,2,opt,name=armor,proto3" json:"armor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserSignature) Reset() {
+	*x = UserSignature{}
+	mi := &file_proto_websocket_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserSignature) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserSignature) ProtoMessage() {}
+
+func (x *UserSignature) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserSignature.ProtoReflect.Descriptor instead.
+func (*UserSignature) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *UserSignature) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UserSignature) GetArmor() string {
+	if x != nil {
+		return x.Armor
+	}
+	return ""
+}
+
+// The home server's countersignature, and when it was produced.
+type ServerSignature struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Armor         string                 `protobuf:"bytes,2,opt,name=armor,proto3" json:"armor,omitempty"`
+	SignedAt      int64                  `protobuf:"varint,3,opt,name=signed_at,json=signedAt,proto3" json:"signed_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServerSignature) Reset() {
+	*x = ServerSignature{}
+	mi := &file_proto_websocket_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServerSignature) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServerSignature) ProtoMessage() {}
+
+func (x *ServerSignature) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServerSignature.ProtoReflect.Descriptor instead.
+func (*ServerSignature) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *ServerSignature) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ServerSignature) GetArmor() string {
+	if x != nil {
+		return x.Armor
+	}
+	return ""
+}
+
+func (x *ServerSignature) GetSignedAt() int64 {
+	if x != nil {
+		return x.SignedAt
+	}
+	return 0
+}
+
+type Ripple struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Hash     string                 `protobuf:"bytes,1,opt,name=hash,proto3" json:"hash,omitempty"`
+	ThreadId string                 `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
+	UserId   string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Content  string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
+	// Empty when this ripple is not a reply to another ripple.
+	ReplyingTo      string           `protobuf:"bytes,5,opt,name=replying_to,json=replyingTo,proto3" json:"replying_to,omitempty"`
+	Deleted         bool             `protobuf:"varint,6,opt,name=deleted,proto3" json:"deleted,omitempty"`
+	PostedAt        int64            `protobuf:"varint,7,opt,name=posted_at,json=postedAt,proto3" json:"posted_at,omitempty"`
+	UserSignature   *UserSignature   `protobuf:"bytes,8,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
+	ServerSignature *ServerSignature `protobuf:"bytes,9,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *Ripple) Reset() {
+	*x = Ripple{}
+	mi := &file_proto_websocket_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Ripple) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Ripple) ProtoMessage() {}
+
+func (x *Ripple) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Ripple.ProtoReflect.Descriptor instead.
+func (*Ripple) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *Ripple) GetHash() string {
+	if x != nil {
+		return x.Hash
+	}
+	return ""
+}
+
+func (x *Ripple) GetThreadId() string {
+	if x != nil {
+		return x.ThreadId
+	}
+	return ""
+}
+
+func (x *Ripple) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *Ripple) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+func (x *Ripple) GetReplyingTo() string {
+	if x != nil {
+		return x.ReplyingTo
+	}
+	return ""
+}
+
+func (x *Ripple) GetDeleted() bool {
+	if x != nil {
+		return x.Deleted
+	}
+	return false
+}
+
+func (x *Ripple) GetPostedAt() int64 {
+	if x != nil {
+		return x.PostedAt
+	}
+	return 0
+}
+
+func (x *Ripple) GetUserSignature() *UserSignature {
+	if x != nil {
+		return x.UserSignature
+	}
+	return nil
+}
+
+func (x *Ripple) GetServerSignature() *ServerSignature {
+	if x != nil {
+		return x.ServerSignature
+	}
+	return nil
+}
+
+type RipplePostedMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The reed's author.
+	UserId        string  `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	ReedId        string  `protobuf:"bytes,2,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	Ripple        *Ripple `protobuf:"bytes,3,opt,name=ripple,proto3" json:"ripple,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RipplePostedMessage) Reset() {
+	*x = RipplePostedMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RipplePostedMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RipplePostedMessage) ProtoMessage() {}
+
+func (x *RipplePostedMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RipplePostedMessage.ProtoReflect.Descriptor instead.
+func (*RipplePostedMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *RipplePostedMessage) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *RipplePostedMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *RipplePostedMessage) GetRipple() *Ripple {
+	if x != nil {
+		return x.Ripple
+	}
+	return nil
+}
+
+// A soft-delete patch: content becomes "[DELETED]" on the referenced
+// ripple. There is no separate RIPPLE_DELETED type — the client applies
+// this same shape in place over the existing row.
+type RippleUpdatedMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	ReedId        string                 `protobuf:"bytes,2,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	Ripple        *Ripple                `protobuf:"bytes,3,opt,name=ripple,proto3" json:"ripple,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RippleUpdatedMessage) Reset() {
+	*x = RippleUpdatedMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RippleUpdatedMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RippleUpdatedMessage) ProtoMessage() {}
+
+func (x *RippleUpdatedMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RippleUpdatedMessage.ProtoReflect.Descriptor instead.
+func (*RippleUpdatedMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *RippleUpdatedMessage) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *RippleUpdatedMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *RippleUpdatedMessage) GetRipple() *Ripple {
+	if x != nil {
+		return x.Ripple
+	}
+	return nil
+}
+
+// Cryptographic certificate proving a reed's removal, signed by both
+// the removing user and their home server.
+type ReedRemovalCert struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ServerId        string                 `protobuf:"bytes,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	UserId          string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	ReedId          string                 `protobuf:"bytes,3,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	UserSignature   *UserSignature         `protobuf:"bytes,4,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
+	ServerSignature *ServerSignature       `protobuf:"bytes,5,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ReedRemovalCert) Reset() {
+	*x = ReedRemovalCert{}
+	mi := &file_proto_websocket_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReedRemovalCert) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReedRemovalCert) ProtoMessage() {}
+
+func (x *ReedRemovalCert) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReedRemovalCert.ProtoReflect.Descriptor instead.
+func (*ReedRemovalCert) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *ReedRemovalCert) GetServerId() string {
+	if x != nil {
+		return x.ServerId
+	}
+	return ""
+}
+
+func (x *ReedRemovalCert) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *ReedRemovalCert) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *ReedRemovalCert) GetUserSignature() *UserSignature {
+	if x != nil {
+		return x.UserSignature
+	}
+	return nil
+}
+
+func (x *ReedRemovalCert) GetServerSignature() *ServerSignature {
+	if x != nil {
+		return x.ServerSignature
+	}
+	return nil
+}
+
+// Cryptographic certificate proving an account's removal, signed by
+// both the removed user and their home server.
+type AccountRemovalCert struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ServerId        string                 `protobuf:"bytes,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	UserId          string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Note            string                 `protobuf:"bytes,3,opt,name=note,proto3" json:"note,omitempty"`
+	UserSignature   *UserSignature         `protobuf:"bytes,4,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
+	ServerSignature *ServerSignature       `protobuf:"bytes,5,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *AccountRemovalCert) Reset() {
+	*x = AccountRemovalCert{}
+	mi := &file_proto_websocket_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountRemovalCert) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountRemovalCert) ProtoMessage() {}
+
+func (x *AccountRemovalCert) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountRemovalCert.ProtoReflect.Descriptor instead.
+func (*AccountRemovalCert) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *AccountRemovalCert) GetServerId() string {
+	if x != nil {
+		return x.ServerId
+	}
+	return ""
+}
+
+func (x *AccountRemovalCert) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *AccountRemovalCert) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+func (x *AccountRemovalCert) GetUserSignature() *UserSignature {
+	if x != nil {
+		return x.UserSignature
+	}
+	return nil
+}
+
+func (x *AccountRemovalCert) GetServerSignature() *ServerSignature {
+	if x != nil {
+		return x.ServerSignature
+	}
+	return nil
+}
+
+type ReedRemovedMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Cert          *ReedRemovalCert       `protobuf:"bytes,2,opt,name=cert,proto3" json:"cert,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReedRemovedMessage) Reset() {
+	*x = ReedRemovedMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReedRemovedMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReedRemovedMessage) ProtoMessage() {}
+
+func (x *ReedRemovedMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReedRemovedMessage.ProtoReflect.Descriptor instead.
+func (*ReedRemovedMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ReedRemovedMessage) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ReedRemovedMessage) GetCert() *ReedRemovalCert {
+	if x != nil {
+		return x.Cert
+	}
+	return nil
+}
+
+type AccountRemovedMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Cert          *AccountRemovalCert    `protobuf:"bytes,2,opt,name=cert,proto3" json:"cert,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountRemovedMessage) Reset() {
+	*x = AccountRemovedMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountRemovedMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountRemovedMessage) ProtoMessage() {}
+
+func (x *AccountRemovedMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountRemovedMessage.ProtoReflect.Descriptor instead.
+func (*AccountRemovedMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *AccountRemovedMessage) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *AccountRemovedMessage) GetCert() *AccountRemovalCert {
+	if x != nil {
+		return x.Cert
+	}
+	return nil
+}
+
 var File_proto_websocket_proto protoreflect.FileDescriptor
 
 const file_proto_websocket_proto_rawDesc = "" +
 	"\n" +
-	"\x15proto/websocket.proto\x12\x10syrinx.websocket\"\xde\x05\n" +
+	"\x15proto/websocket.proto\x12\x10syrinx.websocket\"\xb4\x18\n" +
 	"\tWSMessage\x121\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x1d.syrinx.websocket.MessageTypeR\x04type\x12\x1b\n" +
 	"\ttype_name\x18\f \x01(\tR\btypeName\x12\x0e\n" +
@@ -856,7 +3366,42 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\x05error\x18\b \x01(\v2\x1e.syrinx.websocket.ErrorMessageH\x00R\x05error\x12I\n" +
 	"\frequest_reed\x18\t \x01(\v2$.syrinx.websocket.RequestReedMessageH\x00R\vrequestReed\x12L\n" +
 	"\rdata_response\x18\n" +
-	" \x01(\v2%.syrinx.websocket.DataResponseMessageH\x00R\fdataResponseB\t\n" +
+	" \x01(\v2%.syrinx.websocket.DataResponseMessageH\x00R\fdataResponse\x12?\n" +
+	"\bshutdown\x18\r \x01(\v2!.syrinx.websocket.ShutdownMessageH\x00R\bshutdown\x12I\n" +
+	"\fsync_request\x18\x0e \x01(\v2$.syrinx.websocket.SyncRequestMessageH\x00R\vsyncRequest\x12O\n" +
+	"\x0erelay_response\x18\x0f \x01(\v2&.syrinx.websocket.RelayResponseMessageH\x00R\rrelayResponse\x12L\n" +
+	"\rrelay_request\x18\x10 \x01(\v2%.syrinx.websocket.RelayRequestMessageH\x00R\frelayRequest\x12F\n" +
+	"\vrequest_ack\x18\x11 \x01(\v2#.syrinx.websocket.RequestAckMessageH\x00R\n" +
+	"requestAck\x12<\n" +
+	"\amailbox\x18\x12 \x01(\v2 .syrinx.websocket.MailboxMessageH\x00R\amailbox\x12F\n" +
+	"\vmailbox_ack\x18\x13 \x01(\v2#.syrinx.websocket.MailboxAckMessageH\x00R\n" +
+	"mailboxAck\x12P\n" +
+	"\x0fkey_fetch_error\x18\x14 \x01(\v2&.syrinx.websocket.KeyFetchErrorMessageH\x00R\rkeyFetchError\x12S\n" +
+	"\x10revoked_key_used\x18\x15 \x01(\v2'.syrinx.websocket.RevokedKeyUsedMessageH\x00R\x0erevokedKeyUsed\x12U\n" +
+	"\x10content_rejected\x18\x16 \x01(\v2(.syrinx.websocket.ContentRejectedMessageH\x00R\x0fcontentRejected\x12X\n" +
+	"\x11subscribe_profile\x18\x17 \x01(\v2).syrinx.websocket.SubscribeProfileMessageH\x00R\x10subscribeProfile\x12^\n" +
+	"\x13unsubscribe_profile\x18\x18 \x01(\v2+.syrinx.websocket.UnsubscribeProfileMessageH\x00R\x12unsubscribeProfile\x12O\n" +
+	"\x0esubscribe_reed\x18\x19 \x01(\v2&.syrinx.websocket.SubscribeReedMessageH\x00R\rsubscribeReed\x12U\n" +
+	"\x10unsubscribe_reed\x18\x1a \x01(\v2(.syrinx.websocket.UnsubscribeReedMessageH\x00R\x0funsubscribeReed\x12O\n" +
+	"\x0esubscribe_pipe\x18\x1b \x01(\v2&.syrinx.websocket.SubscribePipeMessageH\x00R\rsubscribePipe\x12U\n" +
+	"\x10unsubscribe_pipe\x18\x1c \x01(\v2(.syrinx.websocket.UnsubscribePipeMessageH\x00R\x0funsubscribePipe\x12L\n" +
+	"\rpublish_ready\x18\x1d \x01(\v2%.syrinx.websocket.PublishReadyMessageH\x00R\fpublishReady\x12V\n" +
+	"\x11publish_ready_ack\x18\x1e \x01(\v2(.syrinx.websocket.PublishReadyAckMessageH\x00R\x0fpublishReadyAck\x12M\n" +
+	"\x0ereed_not_found\x18\x1f \x01(\v2%.syrinx.websocket.ReedNotFoundMessageH\x00R\freedNotFound\x12J\n" +
+	"\rreed_not_held\x18  \x01(\v2$.syrinx.websocket.ReedNotHeldMessageH\x00R\vreedNotHeld\x12i\n" +
+	"\x18invalid_request_id_error\x18! \x01(\v2..syrinx.websocket.InvalidRequestIdErrorMessageH\x00R\x15invalidRequestIdError\x12C\n" +
+	"\n" +
+	"reed_stats\x18\" \x01(\v2\".syrinx.websocket.ReedStatsMessageH\x00R\treedStats\x12L\n" +
+	"\rreed_coverage\x18# \x01(\v2%.syrinx.websocket.ReedCoverageMessageH\x00R\freedCoverage\x12F\n" +
+	"\vreed_echoes\x18$ \x01(\v2#.syrinx.websocket.ReedEchoesMessageH\x00R\n" +
+	"reedEchoes\x12I\n" +
+	"\freed_replies\x18% \x01(\v2$.syrinx.websocket.ReedRepliesMessageH\x00R\vreedReplies\x12C\n" +
+	"\n" +
+	"reed_likes\x18& \x01(\v2\".syrinx.websocket.ReedLikesMessageH\x00R\treedLikes\x12L\n" +
+	"\rripple_posted\x18' \x01(\v2%.syrinx.websocket.RipplePostedMessageH\x00R\fripplePosted\x12O\n" +
+	"\x0eripple_updated\x18( \x01(\v2&.syrinx.websocket.RippleUpdatedMessageH\x00R\rrippleUpdated\x12I\n" +
+	"\freed_removed\x18) \x01(\v2$.syrinx.websocket.ReedRemovedMessageH\x00R\vreedRemoved\x12R\n" +
+	"\x0faccount_removed\x18* \x01(\v2'.syrinx.websocket.AccountRemovedMessageH\x00R\x0eaccountRemovedB\t\n" +
 	"\apayload\"!\n" +
 	"\vPingMessage\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\tR\x04data\"!\n" +
@@ -892,7 +3437,132 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"ciphertext\x18\x02 \x01(\tR\n" +
 	"ciphertext\x12\x1a\n" +
 	"\busername\x18\x03 \x01(\tR\busername\x12\x17\n" +
-	"\areed_id\x18\x04 \x01(\tR\x06reedId*\x83\x02\n" +
+	"\areed_id\x18\x04 \x01(\tR\x06reedId\"\x11\n" +
+	"\x0fShutdownMessage\"3\n" +
+	"\x12SyncRequestMessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"6\n" +
+	"\x14RelayResponseMessage\x12\x1e\n" +
+	"\n" +
+	"ciphertext\x18\x01 \x01(\tR\n" +
+	"ciphertext\"Q\n" +
+	"\x13RelayRequestMessage\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12!\n" +
+	"\frequester_id\x18\x02 \x01(\tR\vrequesterId\"K\n" +
+	"\x11RequestAckMessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
+	"\areed_id\x18\x02 \x01(\tR\x06reedId\"@\n" +
+	"\x0eMailboxMessage\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
+	"\n" +
+	"ciphertext\x18\x02 \x01(\tR\n" +
+	"ciphertext\"#\n" +
+	"\x11MailboxAckMessage\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
+	"\x14KeyFetchErrorMessage\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x15\n" +
+	"\x06key_id\x18\x02 \x01(\tR\x05keyId\"G\n" +
+	"\x15RevokedKeyUsedMessage\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x15\n" +
+	"\x06key_id\x18\x02 \x01(\tR\x05keyId\"O\n" +
+	"\x16ContentRejectedMessage\x12\x1d\n" +
+	"\n" +
+	"store_name\x18\x01 \x01(\tR\tstoreName\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"2\n" +
+	"\x17SubscribeProfileMessage\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"4\n" +
+	"\x19UnsubscribeProfileMessage\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"/\n" +
+	"\x14SubscribeReedMessage\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\"1\n" +
+	"\x16UnsubscribeReedMessage\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\"(\n" +
+	"\x14SubscribePipeMessage\x12\x10\n" +
+	"\x03tag\x18\x01 \x01(\tR\x03tag\"*\n" +
+	"\x16UnsubscribePipeMessage\x12\x10\n" +
+	"\x03tag\x18\x01 \x01(\tR\x03tag\"q\n" +
+	"\x13PublishReadyMessage\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12\x1c\n" +
+	"\tbroadcast\x18\x02 \x01(\bR\tbroadcast\x12#\n" +
+	"\rhas_broadcast\x18\x03 \x01(\bR\fhasBroadcast\"1\n" +
+	"\x16PublishReadyAckMessage\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\"M\n" +
+	"\x13ReedNotFoundMessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
+	"\areed_id\x18\x02 \x01(\tR\x06reedId\"L\n" +
+	"\x12ReedNotHeldMessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
+	"\areed_id\x18\x02 \x01(\tR\x06reedId\"=\n" +
+	"\x1cInvalidRequestIdErrorMessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\"\x9e\x01\n" +
+	"\x10ReedStatsMessage\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12\x16\n" +
+	"\x06echoes\x18\x02 \x01(\x05R\x06echoes\x12)\n" +
+	"\x10coverage_percent\x18\x03 \x01(\x05R\x0fcoveragePercent\x12\x18\n" +
+	"\areplies\x18\x04 \x01(\x05R\areplies\x12\x14\n" +
+	"\x05likes\x18\x05 \x01(\x05R\x05likes\"Y\n" +
+	"\x13ReedCoverageMessage\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12)\n" +
+	"\x10coverage_percent\x18\x02 \x01(\x05R\x0fcoveragePercent\"D\n" +
+	"\x11ReedEchoesMessage\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12\x16\n" +
+	"\x06echoes\x18\x02 \x01(\x05R\x06echoes\"G\n" +
+	"\x12ReedRepliesMessage\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12\x18\n" +
+	"\areplies\x18\x02 \x01(\x05R\areplies\"A\n" +
+	"\x10ReedLikesMessage\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12\x14\n" +
+	"\x05likes\x18\x02 \x01(\x05R\x05likes\"5\n" +
+	"\rUserSignature\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05armor\x18\x02 \x01(\tR\x05armor\"T\n" +
+	"\x0fServerSignature\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05armor\x18\x02 \x01(\tR\x05armor\x12\x1b\n" +
+	"\tsigned_at\x18\x03 \x01(\x03R\bsignedAt\"\xda\x02\n" +
+	"\x06Ripple\x12\x12\n" +
+	"\x04hash\x18\x01 \x01(\tR\x04hash\x12\x1b\n" +
+	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12\x17\n" +
+	"\auser_id\x18\x03 \x01(\tR\x06userId\x12\x18\n" +
+	"\acontent\x18\x04 \x01(\tR\acontent\x12\x1f\n" +
+	"\vreplying_to\x18\x05 \x01(\tR\n" +
+	"replyingTo\x12\x18\n" +
+	"\adeleted\x18\x06 \x01(\bR\adeleted\x12\x1b\n" +
+	"\tposted_at\x18\a \x01(\x03R\bpostedAt\x12F\n" +
+	"\x0euser_signature\x18\b \x01(\v2\x1f.syrinx.websocket.UserSignatureR\ruserSignature\x12L\n" +
+	"\x10server_signature\x18\t \x01(\v2!.syrinx.websocket.ServerSignatureR\x0fserverSignature\"y\n" +
+	"\x13RipplePostedMessage\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x17\n" +
+	"\areed_id\x18\x02 \x01(\tR\x06reedId\x120\n" +
+	"\x06ripple\x18\x03 \x01(\v2\x18.syrinx.websocket.RippleR\x06ripple\"z\n" +
+	"\x14RippleUpdatedMessage\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x17\n" +
+	"\areed_id\x18\x02 \x01(\tR\x06reedId\x120\n" +
+	"\x06ripple\x18\x03 \x01(\v2\x18.syrinx.websocket.RippleR\x06ripple\"\xf6\x01\n" +
+	"\x0fReedRemovalCert\x12\x1b\n" +
+	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x17\n" +
+	"\areed_id\x18\x03 \x01(\tR\x06reedId\x12F\n" +
+	"\x0euser_signature\x18\x04 \x01(\v2\x1f.syrinx.websocket.UserSignatureR\ruserSignature\x12L\n" +
+	"\x10server_signature\x18\x05 \x01(\v2!.syrinx.websocket.ServerSignatureR\x0fserverSignature\"\xf4\x01\n" +
+	"\x12AccountRemovalCert\x12\x1b\n" +
+	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
+	"\x04note\x18\x03 \x01(\tR\x04note\x12F\n" +
+	"\x0euser_signature\x18\x04 \x01(\v2\x1f.syrinx.websocket.UserSignatureR\ruserSignature\x12L\n" +
+	"\x10server_signature\x18\x05 \x01(\v2!.syrinx.websocket.ServerSignatureR\x0fserverSignature\"j\n" +
+	"\x12ReedRemovedMessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x125\n" +
+	"\x04cert\x18\x02 \x01(\v2!.syrinx.websocket.ReedRemovalCertR\x04cert\"p\n" +
+	"\x15AccountRemovedMessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x128\n" +
+	"\x04cert\x18\x02 \x01(\v2$.syrinx.websocket.AccountRemovalCertR\x04cert*\xf4\a\n" +
 	"\vMessageType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\b\n" +
 	"\x04PING\x10\x01\x12\b\n" +
@@ -909,7 +3579,51 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\x12\x19\n" +
 	"\x15UNSUBSCRIBE_BROADCAST\x10\v\x12\x10\n" +
 	"\fREQUEST_REED\x10\f\x12\x11\n" +
-	"\rDATA_RESPONSE\x10\rB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
+	"\rDATA_RESPONSE\x10\r\x12\v\n" +
+	"\aSIGTERM\x10\x0e\x12\x10\n" +
+	"\fSYNC_REQUEST\x10\x0f\x12\x12\n" +
+	"\x0eRELAY_RESPONSE\x10\x10\x12\x0e\n" +
+	"\n" +
+	"RELAY_MISS\x10\x11\x12\x0f\n" +
+	"\vRELAY_ERROR\x10\x12\x12\x11\n" +
+	"\rRELAY_REQUEST\x10\x13\x12\f\n" +
+	"\bDATA_ACK\x10\x14\x12\x10\n" +
+	"\fDATA_INVALID\x10\x15\x12\x0f\n" +
+	"\vREQUEST_ACK\x10\x16\x12\v\n" +
+	"\aMAILBOX\x10\x17\x12\x0f\n" +
+	"\vMAILBOX_ACK\x10\x18\x12\x13\n" +
+	"\x0fKEY_FETCH_ERROR\x10\x19\x12\x14\n" +
+	"\x10REVOKED_KEY_USED\x10\x1a\x12\x14\n" +
+	"\x10CONTENT_REJECTED\x10\x1b\x12\x15\n" +
+	"\x11SUBSCRIBE_PROFILE\x10\x1c\x12\x17\n" +
+	"\x13UNSUBSCRIBE_PROFILE\x10\x1d\x12\x12\n" +
+	"\x0eSUBSCRIBE_REED\x10\x1e\x12\x14\n" +
+	"\x10UNSUBSCRIBE_REED\x10\x1f\x12\x12\n" +
+	"\x0eSUBSCRIBE_PIPE\x10 \x12\x14\n" +
+	"\x10UNSUBSCRIBE_PIPE\x10!\x12\x11\n" +
+	"\rPUBLISH_READY\x10\"\x12\x15\n" +
+	"\x11PUBLISH_READY_ACK\x10#\x12\x12\n" +
+	"\x0eREED_NOT_FOUND\x10$\x12\x11\n" +
+	"\rREED_NOT_HELD\x10%\x12\x1c\n" +
+	"\x18INVALID_REQUEST_ID_ERROR\x10&\x12\x0e\n" +
+	"\n" +
+	"REED_STATS\x10'\x12\x11\n" +
+	"\rREED_COVERAGE\x10(\x12\x0f\n" +
+	"\vREED_ECHOES\x10)\x12\x10\n" +
+	"\fREED_REPLIES\x10*\x12\x0e\n" +
+	"\n" +
+	"REED_LIKES\x10+\x12\x11\n" +
+	"\rRIPPLE_POSTED\x10,\x12\x12\n" +
+	"\x0eRIPPLE_UPDATED\x10-\x12\x10\n" +
+	"\fREED_REMOVED\x10.\x12\x13\n" +
+	"\x0fACCOUNT_REMOVED\x10/\x12\x12\n" +
+	"\x0eBROADCAST_REED\x100\x12\r\n" +
+	"\tPIPE_REED\x101\x12\x0f\n" +
+	"\vFOLLOW_REED\x102\x12\x10\n" +
+	"\fARCHIVE_REED\x103\x12\x0e\n" +
+	"\n" +
+	"REED_REPLY\x104\x12\v\n" +
+	"\aMENTION\x105B Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
 
 var (
 	file_proto_websocket_proto_rawDescOnce sync.Once
@@ -924,19 +3638,54 @@ func file_proto_websocket_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_websocket_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_websocket_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_proto_websocket_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
 var file_proto_websocket_proto_goTypes = []any{
-	(MessageType)(0),                // 0: syrinx.websocket.MessageType
-	(*WSMessage)(nil),               // 1: syrinx.websocket.WSMessage
-	(*PingMessage)(nil),             // 2: syrinx.websocket.PingMessage
-	(*PongMessage)(nil),             // 3: syrinx.websocket.PongMessage
-	(*SubscribeMessage)(nil),        // 4: syrinx.websocket.SubscribeMessage
-	(*SubscribedMessage)(nil),       // 5: syrinx.websocket.SubscribedMessage
-	(*ReedNotificationMessage)(nil), // 6: syrinx.websocket.ReedNotificationMessage
-	(*UserUpdateMessage)(nil),       // 7: syrinx.websocket.UserUpdateMessage
-	(*ErrorMessage)(nil),            // 8: syrinx.websocket.ErrorMessage
-	(*RequestReedMessage)(nil),      // 9: syrinx.websocket.RequestReedMessage
-	(*DataResponseMessage)(nil),     // 10: syrinx.websocket.DataResponseMessage
+	(MessageType)(0),                     // 0: syrinx.websocket.MessageType
+	(*WSMessage)(nil),                    // 1: syrinx.websocket.WSMessage
+	(*PingMessage)(nil),                  // 2: syrinx.websocket.PingMessage
+	(*PongMessage)(nil),                  // 3: syrinx.websocket.PongMessage
+	(*SubscribeMessage)(nil),             // 4: syrinx.websocket.SubscribeMessage
+	(*SubscribedMessage)(nil),            // 5: syrinx.websocket.SubscribedMessage
+	(*ReedNotificationMessage)(nil),      // 6: syrinx.websocket.ReedNotificationMessage
+	(*UserUpdateMessage)(nil),            // 7: syrinx.websocket.UserUpdateMessage
+	(*ErrorMessage)(nil),                 // 8: syrinx.websocket.ErrorMessage
+	(*RequestReedMessage)(nil),           // 9: syrinx.websocket.RequestReedMessage
+	(*DataResponseMessage)(nil),          // 10: syrinx.websocket.DataResponseMessage
+	(*ShutdownMessage)(nil),              // 11: syrinx.websocket.ShutdownMessage
+	(*SyncRequestMessage)(nil),           // 12: syrinx.websocket.SyncRequestMessage
+	(*RelayResponseMessage)(nil),         // 13: syrinx.websocket.RelayResponseMessage
+	(*RelayRequestMessage)(nil),          // 14: syrinx.websocket.RelayRequestMessage
+	(*RequestAckMessage)(nil),            // 15: syrinx.websocket.RequestAckMessage
+	(*MailboxMessage)(nil),               // 16: syrinx.websocket.MailboxMessage
+	(*MailboxAckMessage)(nil),            // 17: syrinx.websocket.MailboxAckMessage
+	(*KeyFetchErrorMessage)(nil),         // 18: syrinx.websocket.KeyFetchErrorMessage
+	(*RevokedKeyUsedMessage)(nil),        // 19: syrinx.websocket.RevokedKeyUsedMessage
+	(*ContentRejectedMessage)(nil),       // 20: syrinx.websocket.ContentRejectedMessage
+	(*SubscribeProfileMessage)(nil),      // 21: syrinx.websocket.SubscribeProfileMessage
+	(*UnsubscribeProfileMessage)(nil),    // 22: syrinx.websocket.UnsubscribeProfileMessage
+	(*SubscribeReedMessage)(nil),         // 23: syrinx.websocket.SubscribeReedMessage
+	(*UnsubscribeReedMessage)(nil),       // 24: syrinx.websocket.UnsubscribeReedMessage
+	(*SubscribePipeMessage)(nil),         // 25: syrinx.websocket.SubscribePipeMessage
+	(*UnsubscribePipeMessage)(nil),       // 26: syrinx.websocket.UnsubscribePipeMessage
+	(*PublishReadyMessage)(nil),          // 27: syrinx.websocket.PublishReadyMessage
+	(*PublishReadyAckMessage)(nil),       // 28: syrinx.websocket.PublishReadyAckMessage
+	(*ReedNotFoundMessage)(nil),          // 29: syrinx.websocket.ReedNotFoundMessage
+	(*ReedNotHeldMessage)(nil),           // 30: syrinx.websocket.ReedNotHeldMessage
+	(*InvalidRequestIdErrorMessage)(nil), // 31: syrinx.websocket.InvalidRequestIdErrorMessage
+	(*ReedStatsMessage)(nil),             // 32: syrinx.websocket.ReedStatsMessage
+	(*ReedCoverageMessage)(nil),          // 33: syrinx.websocket.ReedCoverageMessage
+	(*ReedEchoesMessage)(nil),            // 34: syrinx.websocket.ReedEchoesMessage
+	(*ReedRepliesMessage)(nil),           // 35: syrinx.websocket.ReedRepliesMessage
+	(*ReedLikesMessage)(nil),             // 36: syrinx.websocket.ReedLikesMessage
+	(*UserSignature)(nil),                // 37: syrinx.websocket.UserSignature
+	(*ServerSignature)(nil),              // 38: syrinx.websocket.ServerSignature
+	(*Ripple)(nil),                       // 39: syrinx.websocket.Ripple
+	(*RipplePostedMessage)(nil),          // 40: syrinx.websocket.RipplePostedMessage
+	(*RippleUpdatedMessage)(nil),         // 41: syrinx.websocket.RippleUpdatedMessage
+	(*ReedRemovalCert)(nil),              // 42: syrinx.websocket.ReedRemovalCert
+	(*AccountRemovalCert)(nil),           // 43: syrinx.websocket.AccountRemovalCert
+	(*ReedRemovedMessage)(nil),           // 44: syrinx.websocket.ReedRemovedMessage
+	(*AccountRemovedMessage)(nil),        // 45: syrinx.websocket.AccountRemovedMessage
 }
 var file_proto_websocket_proto_depIdxs = []int32{
 	0,  // 0: syrinx.websocket.WSMessage.type:type_name -> syrinx.websocket.MessageType
@@ -949,11 +3698,51 @@ var file_proto_websocket_proto_depIdxs = []int32{
 	8,  // 7: syrinx.websocket.WSMessage.error:type_name -> syrinx.websocket.ErrorMessage
 	9,  // 8: syrinx.websocket.WSMessage.request_reed:type_name -> syrinx.websocket.RequestReedMessage
 	10, // 9: syrinx.websocket.WSMessage.data_response:type_name -> syrinx.websocket.DataResponseMessage
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	11, // 10: syrinx.websocket.WSMessage.shutdown:type_name -> syrinx.websocket.ShutdownMessage
+	12, // 11: syrinx.websocket.WSMessage.sync_request:type_name -> syrinx.websocket.SyncRequestMessage
+	13, // 12: syrinx.websocket.WSMessage.relay_response:type_name -> syrinx.websocket.RelayResponseMessage
+	14, // 13: syrinx.websocket.WSMessage.relay_request:type_name -> syrinx.websocket.RelayRequestMessage
+	15, // 14: syrinx.websocket.WSMessage.request_ack:type_name -> syrinx.websocket.RequestAckMessage
+	16, // 15: syrinx.websocket.WSMessage.mailbox:type_name -> syrinx.websocket.MailboxMessage
+	17, // 16: syrinx.websocket.WSMessage.mailbox_ack:type_name -> syrinx.websocket.MailboxAckMessage
+	18, // 17: syrinx.websocket.WSMessage.key_fetch_error:type_name -> syrinx.websocket.KeyFetchErrorMessage
+	19, // 18: syrinx.websocket.WSMessage.revoked_key_used:type_name -> syrinx.websocket.RevokedKeyUsedMessage
+	20, // 19: syrinx.websocket.WSMessage.content_rejected:type_name -> syrinx.websocket.ContentRejectedMessage
+	21, // 20: syrinx.websocket.WSMessage.subscribe_profile:type_name -> syrinx.websocket.SubscribeProfileMessage
+	22, // 21: syrinx.websocket.WSMessage.unsubscribe_profile:type_name -> syrinx.websocket.UnsubscribeProfileMessage
+	23, // 22: syrinx.websocket.WSMessage.subscribe_reed:type_name -> syrinx.websocket.SubscribeReedMessage
+	24, // 23: syrinx.websocket.WSMessage.unsubscribe_reed:type_name -> syrinx.websocket.UnsubscribeReedMessage
+	25, // 24: syrinx.websocket.WSMessage.subscribe_pipe:type_name -> syrinx.websocket.SubscribePipeMessage
+	26, // 25: syrinx.websocket.WSMessage.unsubscribe_pipe:type_name -> syrinx.websocket.UnsubscribePipeMessage
+	27, // 26: syrinx.websocket.WSMessage.publish_ready:type_name -> syrinx.websocket.PublishReadyMessage
+	28, // 27: syrinx.websocket.WSMessage.publish_ready_ack:type_name -> syrinx.websocket.PublishReadyAckMessage
+	29, // 28: syrinx.websocket.WSMessage.reed_not_found:type_name -> syrinx.websocket.ReedNotFoundMessage
+	30, // 29: syrinx.websocket.WSMessage.reed_not_held:type_name -> syrinx.websocket.ReedNotHeldMessage
+	31, // 30: syrinx.websocket.WSMessage.invalid_request_id_error:type_name -> syrinx.websocket.InvalidRequestIdErrorMessage
+	32, // 31: syrinx.websocket.WSMessage.reed_stats:type_name -> syrinx.websocket.ReedStatsMessage
+	33, // 32: syrinx.websocket.WSMessage.reed_coverage:type_name -> syrinx.websocket.ReedCoverageMessage
+	34, // 33: syrinx.websocket.WSMessage.reed_echoes:type_name -> syrinx.websocket.ReedEchoesMessage
+	35, // 34: syrinx.websocket.WSMessage.reed_replies:type_name -> syrinx.websocket.ReedRepliesMessage
+	36, // 35: syrinx.websocket.WSMessage.reed_likes:type_name -> syrinx.websocket.ReedLikesMessage
+	40, // 36: syrinx.websocket.WSMessage.ripple_posted:type_name -> syrinx.websocket.RipplePostedMessage
+	41, // 37: syrinx.websocket.WSMessage.ripple_updated:type_name -> syrinx.websocket.RippleUpdatedMessage
+	44, // 38: syrinx.websocket.WSMessage.reed_removed:type_name -> syrinx.websocket.ReedRemovedMessage
+	45, // 39: syrinx.websocket.WSMessage.account_removed:type_name -> syrinx.websocket.AccountRemovedMessage
+	37, // 40: syrinx.websocket.Ripple.user_signature:type_name -> syrinx.websocket.UserSignature
+	38, // 41: syrinx.websocket.Ripple.server_signature:type_name -> syrinx.websocket.ServerSignature
+	39, // 42: syrinx.websocket.RipplePostedMessage.ripple:type_name -> syrinx.websocket.Ripple
+	39, // 43: syrinx.websocket.RippleUpdatedMessage.ripple:type_name -> syrinx.websocket.Ripple
+	37, // 44: syrinx.websocket.ReedRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	38, // 45: syrinx.websocket.ReedRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	37, // 46: syrinx.websocket.AccountRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	38, // 47: syrinx.websocket.AccountRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	42, // 48: syrinx.websocket.ReedRemovedMessage.cert:type_name -> syrinx.websocket.ReedRemovalCert
+	43, // 49: syrinx.websocket.AccountRemovedMessage.cert:type_name -> syrinx.websocket.AccountRemovalCert
+	50, // [50:50] is the sub-list for method output_type
+	50, // [50:50] is the sub-list for method input_type
+	50, // [50:50] is the sub-list for extension type_name
+	50, // [50:50] is the sub-list for extension extendee
+	0,  // [0:50] is the sub-list for field type_name
 }
 
 func init() { file_proto_websocket_proto_init() }
@@ -971,6 +3760,36 @@ func file_proto_websocket_proto_init() {
 		(*WSMessage_Error)(nil),
 		(*WSMessage_RequestReed)(nil),
 		(*WSMessage_DataResponse)(nil),
+		(*WSMessage_Shutdown)(nil),
+		(*WSMessage_SyncRequest)(nil),
+		(*WSMessage_RelayResponse)(nil),
+		(*WSMessage_RelayRequest)(nil),
+		(*WSMessage_RequestAck)(nil),
+		(*WSMessage_Mailbox)(nil),
+		(*WSMessage_MailboxAck)(nil),
+		(*WSMessage_KeyFetchError)(nil),
+		(*WSMessage_RevokedKeyUsed)(nil),
+		(*WSMessage_ContentRejected)(nil),
+		(*WSMessage_SubscribeProfile)(nil),
+		(*WSMessage_UnsubscribeProfile)(nil),
+		(*WSMessage_SubscribeReed)(nil),
+		(*WSMessage_UnsubscribeReed)(nil),
+		(*WSMessage_SubscribePipe)(nil),
+		(*WSMessage_UnsubscribePipe)(nil),
+		(*WSMessage_PublishReady)(nil),
+		(*WSMessage_PublishReadyAck)(nil),
+		(*WSMessage_ReedNotFound)(nil),
+		(*WSMessage_ReedNotHeld)(nil),
+		(*WSMessage_InvalidRequestIdError)(nil),
+		(*WSMessage_ReedStats)(nil),
+		(*WSMessage_ReedCoverage)(nil),
+		(*WSMessage_ReedEchoes)(nil),
+		(*WSMessage_ReedReplies)(nil),
+		(*WSMessage_ReedLikes)(nil),
+		(*WSMessage_RipplePosted)(nil),
+		(*WSMessage_RippleUpdated)(nil),
+		(*WSMessage_ReedRemoved)(nil),
+		(*WSMessage_AccountRemoved)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -978,7 +3797,7 @@ func file_proto_websocket_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_websocket_proto_rawDesc), len(file_proto_websocket_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   10,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

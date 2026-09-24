@@ -2,7 +2,13 @@
 
 ## Status
 
-Proposed.
+Done. `proto/websocket.proto` now covers every client↔server WS event
+type (53 `MessageType` values, one payload message each). Shared
+signature/cert/ripple shapes (`UserSignature`, `ServerSignature`,
+`ReedRemovalCert`, `AccountRemovalCert`, `Ripple`) are defined directly in
+`websocket.proto` rather than a separate `common.proto` from step 01,
+since 01 itself (the HTTP-facing shared-message library) was not done —
+only what WS needed was pulled in.
 
 ## Depends on
 

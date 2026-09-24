@@ -32,7 +32,7 @@ func TestHandleKeyFetchError(t *testing.T) {
 	rs := &realtimeService{metrics: rec}
 	client := &realtimeClient{userID: "viewer-1"}
 
-	rs.handleKeyFetchError(client, keyFetchErrorData{UserID: "author-1", KeyID: "FP1"})
+	rs.handleKeyFetchError(client, "author-1", "FP1")
 
 	if len(rec.keyFetchErrors) != 1 {
 		t.Fatalf("keyFetchErrors = %d calls, want 1", len(rec.keyFetchErrors))
@@ -53,9 +53,9 @@ func TestHandleKeyFetchErrorIgnoresEmptyPayload(t *testing.T) {
 	rs := &realtimeService{metrics: rec}
 	client := &realtimeClient{userID: "viewer-1"}
 
-	rs.handleKeyFetchError(client, keyFetchErrorData{})
-	rs.handleKeyFetchError(client, keyFetchErrorData{UserID: "author-1"})
-	rs.handleKeyFetchError(client, keyFetchErrorData{KeyID: "FP1"})
+	rs.handleKeyFetchError(client, "", "")
+	rs.handleKeyFetchError(client, "author-1", "")
+	rs.handleKeyFetchError(client, "", "FP1")
 
 	if len(rec.keyFetchErrors) != 0 {
 		t.Fatalf("keyFetchErrors = %d calls, want 0 for malformed payloads", len(rec.keyFetchErrors))
@@ -69,7 +69,7 @@ func TestHandleRevokedKeyUsed(t *testing.T) {
 	rs := &realtimeService{metrics: rec}
 	client := &realtimeClient{userID: "viewer-1"}
 
-	rs.handleRevokedKeyUsed(client, revokedKeyUsedData{UserID: "author-1", KeyID: "FP1"})
+	rs.handleRevokedKeyUsed(client, "author-1", "FP1")
 
 	if len(rec.revokedKeysUsed) != 1 {
 		t.Fatalf("revokedKeysUsed = %d calls, want 1", len(rec.revokedKeysUsed))
@@ -90,9 +90,9 @@ func TestHandleRevokedKeyUsedIgnoresEmptyPayload(t *testing.T) {
 	rs := &realtimeService{metrics: rec}
 	client := &realtimeClient{userID: "viewer-1"}
 
-	rs.handleRevokedKeyUsed(client, revokedKeyUsedData{})
-	rs.handleRevokedKeyUsed(client, revokedKeyUsedData{UserID: "author-1"})
-	rs.handleRevokedKeyUsed(client, revokedKeyUsedData{KeyID: "FP1"})
+	rs.handleRevokedKeyUsed(client, "", "")
+	rs.handleRevokedKeyUsed(client, "author-1", "")
+	rs.handleRevokedKeyUsed(client, "", "FP1")
 
 	if len(rec.revokedKeysUsed) != 0 {
 		t.Fatalf("revokedKeysUsed = %d calls, want 0 for malformed payloads", len(rec.revokedKeysUsed))

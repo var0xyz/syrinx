@@ -10,10 +10,11 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file websocket.proto.
  */
 export const file_websocket: GenFile = /*@__PURE__*/
-  fileDesc("Cg93ZWJzb2NrZXQucHJvdG8SEHN5cmlueC53ZWJzb2NrZXQi5wQKCVdTTWVzc2FnZRIrCgR0eXBlGAEgASgOMh0uc3lyaW54LndlYnNvY2tldC5NZXNzYWdlVHlwZRIRCgl0eXBlX25hbWUYDCABKAkSCgoCaWQYCyABKAkSLQoEcGluZxgCIAEoCzIdLnN5cmlueC53ZWJzb2NrZXQuUGluZ01lc3NhZ2VIABItCgRwb25nGAMgASgLMh0uc3lyaW54LndlYnNvY2tldC5Qb25nTWVzc2FnZUgAEjcKCXN1YnNjcmliZRgEIAEoCzIiLnN5cmlueC53ZWJzb2NrZXQuU3Vic2NyaWJlTWVzc2FnZUgAEjkKCnN1YnNjcmliZWQYBSABKAsyIy5zeXJpbngud2Vic29ja2V0LlN1YnNjcmliZWRNZXNzYWdlSAASRgoRcmVlZF9ub3RpZmljYXRpb24YBiABKAsyKS5zeXJpbngud2Vic29ja2V0LlJlZWROb3RpZmljYXRpb25NZXNzYWdlSAASOgoLdXNlcl91cGRhdGUYByABKAsyIy5zeXJpbngud2Vic29ja2V0LlVzZXJVcGRhdGVNZXNzYWdlSAASLwoFZXJyb3IYCCABKAsyHi5zeXJpbngud2Vic29ja2V0LkVycm9yTWVzc2FnZUgAEjwKDHJlcXVlc3RfcmVlZBgJIAEoCzIkLnN5cmlueC53ZWJzb2NrZXQuUmVxdWVzdFJlZWRNZXNzYWdlSAASPgoNZGF0YV9yZXNwb25zZRgKIAEoCzIlLnN5cmlueC53ZWJzb2NrZXQuRGF0YVJlc3BvbnNlTWVzc2FnZUgAQgkKB3BheWxvYWQiGwoLUGluZ01lc3NhZ2USDAoEZGF0YRgBIAEoCSIbCgtQb25nTWVzc2FnZRIMCgRkYXRhGAEgASgJIiAKEFN1YnNjcmliZU1lc3NhZ2USDAoEZGF0YRgBIAEoCSIhChFTdWJzY3JpYmVkTWVzc2FnZRIMCgRkYXRhGAEgASgJInEKF1JlZWROb3RpZmljYXRpb25NZXNzYWdlEg8KB3JlZWRfaWQYASABKAkSDwoHdXNlcl9pZBgCIAEoCRIQCgh1c2VybmFtZRgDIAEoCRIPCgdjb250ZW50GAQgASgJEhEKCXRpbWVzdGFtcBgFIAEoAyJMChFVc2VyVXBkYXRlTWVzc2FnZRIPCgd1c2VyX2lkGAEgASgJEhMKC3VwZGF0ZV90eXBlGAIgASgJEhEKCXRpbWVzdGFtcBgDIAEoAyJACgxFcnJvck1lc3NhZ2USDAoEY29kZRgBIAEoCRIPCgdtZXNzYWdlGAIgASgJEhEKCXRpbWVzdGFtcBgDIAEoAyI5ChJSZXF1ZXN0UmVlZE1lc3NhZ2USEgoKcmVxdWVzdF9pZBgBIAEoCRIPCgdyZWVkX2lkGAIgASgJImAKE0RhdGFSZXNwb25zZU1lc3NhZ2USEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpjaXBoZXJ0ZXh0GAIgASgJEhAKCHVzZXJuYW1lGAMgASgJEg8KB3JlZWRfaWQYBCABKAkqgwIKC01lc3NhZ2VUeXBlEgsKB1VOS05PV04QABIICgRQSU5HEAESCAoEUE9ORxACEg0KCVNVQlNDUklCRRADEg4KClNVQlNDUklCRUQQBBIVChFSRUVEX05PVElGSUNBVElPThAFEg8KC1VTRVJfVVBEQVRFEAYSCQoFRVJST1IQBxISCg5TVUJTQ1JJQkVfVVNFUhAIEhcKE1NVQlNDUklCRV9CUk9BRENBU1QQCRIUChBVTlNVQlNDUklCRV9VU0VSEAoSGQoVVU5TVUJTQ1JJQkVfQlJPQURDQVNUEAsSEAoMUkVRVUVTVF9SRUVEEAwSEQoNREFUQV9SRVNQT05TRRANQiBaHmdpdGh1Yi5jb20vYWx2YXJvL3N5cmlueC9wcm90b2IGcHJvdG8z");
+  fileDesc("Cg93ZWJzb2NrZXQucHJvdG8SEHN5cmlueC53ZWJzb2NrZXQiihQKCVdTTWVzc2FnZRIrCgR0eXBlGAEgASgOMh0uc3lyaW54LndlYnNvY2tldC5NZXNzYWdlVHlwZRIRCgl0eXBlX25hbWUYDCABKAkSCgoCaWQYCyABKAkSLQoEcGluZxgCIAEoCzIdLnN5cmlueC53ZWJzb2NrZXQuUGluZ01lc3NhZ2VIABItCgRwb25nGAMgASgLMh0uc3lyaW54LndlYnNvY2tldC5Qb25nTWVzc2FnZUgAEjcKCXN1YnNjcmliZRgEIAEoCzIiLnN5cmlueC53ZWJzb2NrZXQuU3Vic2NyaWJlTWVzc2FnZUgAEjkKCnN1YnNjcmliZWQYBSABKAsyIy5zeXJpbngud2Vic29ja2V0LlN1YnNjcmliZWRNZXNzYWdlSAASRgoRcmVlZF9ub3RpZmljYXRpb24YBiABKAsyKS5zeXJpbngud2Vic29ja2V0LlJlZWROb3RpZmljYXRpb25NZXNzYWdlSAASOgoLdXNlcl91cGRhdGUYByABKAsyIy5zeXJpbngud2Vic29ja2V0LlVzZXJVcGRhdGVNZXNzYWdlSAASLwoFZXJyb3IYCCABKAsyHi5zeXJpbngud2Vic29ja2V0LkVycm9yTWVzc2FnZUgAEjwKDHJlcXVlc3RfcmVlZBgJIAEoCzIkLnN5cmlueC53ZWJzb2NrZXQuUmVxdWVzdFJlZWRNZXNzYWdlSAASPgoNZGF0YV9yZXNwb25zZRgKIAEoCzIlLnN5cmlueC53ZWJzb2NrZXQuRGF0YVJlc3BvbnNlTWVzc2FnZUgAEjUKCHNodXRkb3duGA0gASgLMiEuc3lyaW54LndlYnNvY2tldC5TaHV0ZG93bk1lc3NhZ2VIABI8CgxzeW5jX3JlcXVlc3QYDiABKAsyJC5zeXJpbngud2Vic29ja2V0LlN5bmNSZXF1ZXN0TWVzc2FnZUgAEkAKDnJlbGF5X3Jlc3BvbnNlGA8gASgLMiYuc3lyaW54LndlYnNvY2tldC5SZWxheVJlc3BvbnNlTWVzc2FnZUgAEj4KDXJlbGF5X3JlcXVlc3QYECABKAsyJS5zeXJpbngud2Vic29ja2V0LlJlbGF5UmVxdWVzdE1lc3NhZ2VIABI6CgtyZXF1ZXN0X2FjaxgRIAEoCzIjLnN5cmlueC53ZWJzb2NrZXQuUmVxdWVzdEFja01lc3NhZ2VIABIzCgdtYWlsYm94GBIgASgLMiAuc3lyaW54LndlYnNvY2tldC5NYWlsYm94TWVzc2FnZUgAEjoKC21haWxib3hfYWNrGBMgASgLMiMuc3lyaW54LndlYnNvY2tldC5NYWlsYm94QWNrTWVzc2FnZUgAEkEKD2tleV9mZXRjaF9lcnJvchgUIAEoCzImLnN5cmlueC53ZWJzb2NrZXQuS2V5RmV0Y2hFcnJvck1lc3NhZ2VIABJDChByZXZva2VkX2tleV91c2VkGBUgASgLMicuc3lyaW54LndlYnNvY2tldC5SZXZva2VkS2V5VXNlZE1lc3NhZ2VIABJEChBjb250ZW50X3JlamVjdGVkGBYgASgLMiguc3lyaW54LndlYnNvY2tldC5Db250ZW50UmVqZWN0ZWRNZXNzYWdlSAASRgoRc3Vic2NyaWJlX3Byb2ZpbGUYFyABKAsyKS5zeXJpbngud2Vic29ja2V0LlN1YnNjcmliZVByb2ZpbGVNZXNzYWdlSAASSgoTdW5zdWJzY3JpYmVfcHJvZmlsZRgYIAEoCzIrLnN5cmlueC53ZWJzb2NrZXQuVW5zdWJzY3JpYmVQcm9maWxlTWVzc2FnZUgAEkAKDnN1YnNjcmliZV9yZWVkGBkgASgLMiYuc3lyaW54LndlYnNvY2tldC5TdWJzY3JpYmVSZWVkTWVzc2FnZUgAEkQKEHVuc3Vic2NyaWJlX3JlZWQYGiABKAsyKC5zeXJpbngud2Vic29ja2V0LlVuc3Vic2NyaWJlUmVlZE1lc3NhZ2VIABJACg5zdWJzY3JpYmVfcGlwZRgbIAEoCzImLnN5cmlueC53ZWJzb2NrZXQuU3Vic2NyaWJlUGlwZU1lc3NhZ2VIABJEChB1bnN1YnNjcmliZV9waXBlGBwgASgLMiguc3lyaW54LndlYnNvY2tldC5VbnN1YnNjcmliZVBpcGVNZXNzYWdlSAASPgoNcHVibGlzaF9yZWFkeRgdIAEoCzIlLnN5cmlueC53ZWJzb2NrZXQuUHVibGlzaFJlYWR5TWVzc2FnZUgAEkUKEXB1Ymxpc2hfcmVhZHlfYWNrGB4gASgLMiguc3lyaW54LndlYnNvY2tldC5QdWJsaXNoUmVhZHlBY2tNZXNzYWdlSAASPwoOcmVlZF9ub3RfZm91bmQYHyABKAsyJS5zeXJpbngud2Vic29ja2V0LlJlZWROb3RGb3VuZE1lc3NhZ2VIABI9Cg1yZWVkX25vdF9oZWxkGCAgASgLMiQuc3lyaW54LndlYnNvY2tldC5SZWVkTm90SGVsZE1lc3NhZ2VIABJSChhpbnZhbGlkX3JlcXVlc3RfaWRfZXJyb3IYISABKAsyLi5zeXJpbngud2Vic29ja2V0LkludmFsaWRSZXF1ZXN0SWRFcnJvck1lc3NhZ2VIABI4CgpyZWVkX3N0YXRzGCIgASgLMiIuc3lyaW54LndlYnNvY2tldC5SZWVkU3RhdHNNZXNzYWdlSAASPgoNcmVlZF9jb3ZlcmFnZRgjIAEoCzIlLnN5cmlueC53ZWJzb2NrZXQuUmVlZENvdmVyYWdlTWVzc2FnZUgAEjoKC3JlZWRfZWNob2VzGCQgASgLMiMuc3lyaW54LndlYnNvY2tldC5SZWVkRWNob2VzTWVzc2FnZUgAEjwKDHJlZWRfcmVwbGllcxglIAEoCzIkLnN5cmlueC53ZWJzb2NrZXQuUmVlZFJlcGxpZXNNZXNzYWdlSAASOAoKcmVlZF9saWtlcxgmIAEoCzIiLnN5cmlueC53ZWJzb2NrZXQuUmVlZExpa2VzTWVzc2FnZUgAEj4KDXJpcHBsZV9wb3N0ZWQYJyABKAsyJS5zeXJpbngud2Vic29ja2V0LlJpcHBsZVBvc3RlZE1lc3NhZ2VIABJACg5yaXBwbGVfdXBkYXRlZBgoIAEoCzImLnN5cmlueC53ZWJzb2NrZXQuUmlwcGxlVXBkYXRlZE1lc3NhZ2VIABI8CgxyZWVkX3JlbW92ZWQYKSABKAsyJC5zeXJpbngud2Vic29ja2V0LlJlZWRSZW1vdmVkTWVzc2FnZUgAEkIKD2FjY291bnRfcmVtb3ZlZBgqIAEoCzInLnN5cmlueC53ZWJzb2NrZXQuQWNjb3VudFJlbW92ZWRNZXNzYWdlSABCCQoHcGF5bG9hZCIbCgtQaW5nTWVzc2FnZRIMCgRkYXRhGAEgASgJIhsKC1BvbmdNZXNzYWdlEgwKBGRhdGEYASABKAkiIAoQU3Vic2NyaWJlTWVzc2FnZRIMCgRkYXRhGAEgASgJIiEKEVN1YnNjcmliZWRNZXNzYWdlEgwKBGRhdGEYASABKAkicQoXUmVlZE5vdGlmaWNhdGlvbk1lc3NhZ2USDwoHcmVlZF9pZBgBIAEoCRIPCgd1c2VyX2lkGAIgASgJEhAKCHVzZXJuYW1lGAMgASgJEg8KB2NvbnRlbnQYBCABKAkSEQoJdGltZXN0YW1wGAUgASgDIkwKEVVzZXJVcGRhdGVNZXNzYWdlEg8KB3VzZXJfaWQYASABKAkSEwoLdXBkYXRlX3R5cGUYAiABKAkSEQoJdGltZXN0YW1wGAMgASgDIkAKDEVycm9yTWVzc2FnZRIMCgRjb2RlGAEgASgJEg8KB21lc3NhZ2UYAiABKAkSEQoJdGltZXN0YW1wGAMgASgDIjkKElJlcXVlc3RSZWVkTWVzc2FnZRISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB3JlZWRfaWQYAiABKAkiYAoTRGF0YVJlc3BvbnNlTWVzc2FnZRISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCmNpcGhlcnRleHQYAiABKAkSEAoIdXNlcm5hbWUYAyABKAkSDwoHcmVlZF9pZBgEIAEoCSIRCg9TaHV0ZG93bk1lc3NhZ2UiKAoSU3luY1JlcXVlc3RNZXNzYWdlEhIKCnJlcXVlc3RfaWQYASABKAkiKgoUUmVsYXlSZXNwb25zZU1lc3NhZ2USEgoKY2lwaGVydGV4dBgBIAEoCSI8ChNSZWxheVJlcXVlc3RNZXNzYWdlEg8KB3JlZWRfaWQYASABKAkSFAoMcmVxdWVzdGVyX2lkGAIgASgJIjgKEVJlcXVlc3RBY2tNZXNzYWdlEhIKCnJlcXVlc3RfaWQYASABKAkSDwoHcmVlZF9pZBgCIAEoCSIwCg5NYWlsYm94TWVzc2FnZRIKCgJpZBgBIAEoCRISCgpjaXBoZXJ0ZXh0GAIgASgJIh8KEU1haWxib3hBY2tNZXNzYWdlEgoKAmlkGAEgASgJIjcKFEtleUZldGNoRXJyb3JNZXNzYWdlEg8KB3VzZXJfaWQYASABKAkSDgoGa2V5X2lkGAIgASgJIjgKFVJldm9rZWRLZXlVc2VkTWVzc2FnZRIPCgd1c2VyX2lkGAEgASgJEg4KBmtleV9pZBgCIAEoCSI8ChZDb250ZW50UmVqZWN0ZWRNZXNzYWdlEhIKCnN0b3JlX25hbWUYASABKAkSDgoGcmVhc29uGAIgASgJIioKF1N1YnNjcmliZVByb2ZpbGVNZXNzYWdlEg8KB3VzZXJfaWQYASABKAkiLAoZVW5zdWJzY3JpYmVQcm9maWxlTWVzc2FnZRIPCgd1c2VyX2lkGAEgASgJIicKFFN1YnNjcmliZVJlZWRNZXNzYWdlEg8KB3JlZWRfaWQYASABKAkiKQoWVW5zdWJzY3JpYmVSZWVkTWVzc2FnZRIPCgdyZWVkX2lkGAEgASgJIiMKFFN1YnNjcmliZVBpcGVNZXNzYWdlEgsKA3RhZxgBIAEoCSIlChZVbnN1YnNjcmliZVBpcGVNZXNzYWdlEgsKA3RhZxgBIAEoCSJQChNQdWJsaXNoUmVhZHlNZXNzYWdlEg8KB3JlZWRfaWQYASABKAkSEQoJYnJvYWRjYXN0GAIgASgIEhUKDWhhc19icm9hZGNhc3QYAyABKAgiKQoWUHVibGlzaFJlYWR5QWNrTWVzc2FnZRIPCgdyZWVkX2lkGAEgASgJIjoKE1JlZWROb3RGb3VuZE1lc3NhZ2USEgoKcmVxdWVzdF9pZBgBIAEoCRIPCgdyZWVkX2lkGAIgASgJIjkKElJlZWROb3RIZWxkTWVzc2FnZRISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB3JlZWRfaWQYAiABKAkiMgocSW52YWxpZFJlcXVlc3RJZEVycm9yTWVzc2FnZRISCgpyZXF1ZXN0X2lkGAEgASgJIm0KEFJlZWRTdGF0c01lc3NhZ2USDwoHcmVlZF9pZBgBIAEoCRIOCgZlY2hvZXMYAiABKAUSGAoQY292ZXJhZ2VfcGVyY2VudBgDIAEoBRIPCgdyZXBsaWVzGAQgASgFEg0KBWxpa2VzGAUgASgFIkAKE1JlZWRDb3ZlcmFnZU1lc3NhZ2USDwoHcmVlZF9pZBgBIAEoCRIYChBjb3ZlcmFnZV9wZXJjZW50GAIgASgFIjQKEVJlZWRFY2hvZXNNZXNzYWdlEg8KB3JlZWRfaWQYASABKAkSDgoGZWNob2VzGAIgASgFIjYKElJlZWRSZXBsaWVzTWVzc2FnZRIPCgdyZWVkX2lkGAEgASgJEg8KB3JlcGxpZXMYAiABKAUiMgoQUmVlZExpa2VzTWVzc2FnZRIPCgdyZWVkX2lkGAEgASgJEg0KBWxpa2VzGAIgASgFIioKDVVzZXJTaWduYXR1cmUSCgoCaWQYASABKAkSDQoFYXJtb3IYAiABKAkiPwoPU2VydmVyU2lnbmF0dXJlEgoKAmlkGAEgASgJEg0KBWFybW9yGAIgASgJEhEKCXNpZ25lZF9hdBgDIAEoAyL6AQoGUmlwcGxlEgwKBGhhc2gYASABKAkSEQoJdGhyZWFkX2lkGAIgASgJEg8KB3VzZXJfaWQYAyABKAkSDwoHY29udGVudBgEIAEoCRITCgtyZXBseWluZ190bxgFIAEoCRIPCgdkZWxldGVkGAYgASgIEhEKCXBvc3RlZF9hdBgHIAEoAxI3Cg51c2VyX3NpZ25hdHVyZRgIIAEoCzIfLnN5cmlueC53ZWJzb2NrZXQuVXNlclNpZ25hdHVyZRI7ChBzZXJ2ZXJfc2lnbmF0dXJlGAkgASgLMiEuc3lyaW54LndlYnNvY2tldC5TZXJ2ZXJTaWduYXR1cmUiYQoTUmlwcGxlUG9zdGVkTWVzc2FnZRIPCgd1c2VyX2lkGAEgASgJEg8KB3JlZWRfaWQYAiABKAkSKAoGcmlwcGxlGAMgASgLMhguc3lyaW54LndlYnNvY2tldC5SaXBwbGUiYgoUUmlwcGxlVXBkYXRlZE1lc3NhZ2USDwoHdXNlcl9pZBgBIAEoCRIPCgdyZWVkX2lkGAIgASgJEigKBnJpcHBsZRgDIAEoCzIYLnN5cmlueC53ZWJzb2NrZXQuUmlwcGxlIrwBCg9SZWVkUmVtb3ZhbENlcnQSEQoJc2VydmVyX2lkGAEgASgJEg8KB3VzZXJfaWQYAiABKAkSDwoHcmVlZF9pZBgDIAEoCRI3Cg51c2VyX3NpZ25hdHVyZRgEIAEoCzIfLnN5cmlueC53ZWJzb2NrZXQuVXNlclNpZ25hdHVyZRI7ChBzZXJ2ZXJfc2lnbmF0dXJlGAUgASgLMiEuc3lyaW54LndlYnNvY2tldC5TZXJ2ZXJTaWduYXR1cmUivAEKEkFjY291bnRSZW1vdmFsQ2VydBIRCglzZXJ2ZXJfaWQYASABKAkSDwoHdXNlcl9pZBgCIAEoCRIMCgRub3RlGAMgASgJEjcKDnVzZXJfc2lnbmF0dXJlGAQgASgLMh8uc3lyaW54LndlYnNvY2tldC5Vc2VyU2lnbmF0dXJlEjsKEHNlcnZlcl9zaWduYXR1cmUYBSABKAsyIS5zeXJpbngud2Vic29ja2V0LlNlcnZlclNpZ25hdHVyZSJZChJSZWVkUmVtb3ZlZE1lc3NhZ2USEgoKcmVxdWVzdF9pZBgBIAEoCRIvCgRjZXJ0GAIgASgLMiEuc3lyaW54LndlYnNvY2tldC5SZWVkUmVtb3ZhbENlcnQiXwoVQWNjb3VudFJlbW92ZWRNZXNzYWdlEhIKCnJlcXVlc3RfaWQYASABKAkSMgoEY2VydBgCIAEoCzIkLnN5cmlueC53ZWJzb2NrZXQuQWNjb3VudFJlbW92YWxDZXJ0KvQHCgtNZXNzYWdlVHlwZRILCgdVTktOT1dOEAASCAoEUElORxABEggKBFBPTkcQAhINCglTVUJTQ1JJQkUQAxIOCgpTVUJTQ1JJQkVEEAQSFQoRUkVFRF9OT1RJRklDQVRJT04QBRIPCgtVU0VSX1VQREFURRAGEgkKBUVSUk9SEAcSEgoOU1VCU0NSSUJFX1VTRVIQCBIXChNTVUJTQ1JJQkVfQlJPQURDQVNUEAkSFAoQVU5TVUJTQ1JJQkVfVVNFUhAKEhkKFVVOU1VCU0NSSUJFX0JST0FEQ0FTVBALEhAKDFJFUVVFU1RfUkVFRBAMEhEKDURBVEFfUkVTUE9OU0UQDRILCgdTSUdURVJNEA4SEAoMU1lOQ19SRVFVRVNUEA8SEgoOUkVMQVlfUkVTUE9OU0UQEBIOCgpSRUxBWV9NSVNTEBESDwoLUkVMQVlfRVJST1IQEhIRCg1SRUxBWV9SRVFVRVNUEBMSDAoIREFUQV9BQ0sQFBIQCgxEQVRBX0lOVkFMSUQQFRIPCgtSRVFVRVNUX0FDSxAWEgsKB01BSUxCT1gQFxIPCgtNQUlMQk9YX0FDSxAYEhMKD0tFWV9GRVRDSF9FUlJPUhAZEhQKEFJFVk9LRURfS0VZX1VTRUQQGhIUChBDT05URU5UX1JFSkVDVEVEEBsSFQoRU1VCU0NSSUJFX1BST0ZJTEUQHBIXChNVTlNVQlNDUklCRV9QUk9GSUxFEB0SEgoOU1VCU0NSSUJFX1JFRUQQHhIUChBVTlNVQlNDUklCRV9SRUVEEB8SEgoOU1VCU0NSSUJFX1BJUEUQIBIUChBVTlNVQlNDUklCRV9QSVBFECESEQoNUFVCTElTSF9SRUFEWRAiEhUKEVBVQkxJU0hfUkVBRFlfQUNLECMSEgoOUkVFRF9OT1RfRk9VTkQQJBIRCg1SRUVEX05PVF9IRUxEECUSHAoYSU5WQUxJRF9SRVFVRVNUX0lEX0VSUk9SECYSDgoKUkVFRF9TVEFUUxAnEhEKDVJFRURfQ09WRVJBR0UQKBIPCgtSRUVEX0VDSE9FUxApEhAKDFJFRURfUkVQTElFUxAqEg4KClJFRURfTElLRVMQKxIRCg1SSVBQTEVfUE9TVEVEECwSEgoOUklQUExFX1VQREFURUQQLRIQCgxSRUVEX1JFTU9WRUQQLhITCg9BQ0NPVU5UX1JFTU9WRUQQLxISCg5CUk9BRENBU1RfUkVFRBAwEg0KCVBJUEVfUkVFRBAxEg8KC0ZPTExPV19SRUVEEDISEAoMQVJDSElWRV9SRUVEEDMSDgoKUkVFRF9SRVBMWRA0EgsKB01FTlRJT04QNUIgWh5naXRodWIuY29tL2FsdmFyby9zeXJpbngvcHJvdG9iBnByb3RvMw");
 
 /**
- * WebSocket message wrapper
+ * WebSocket message wrapper. Every frame on the wire — both directions —
+ * is exactly one WSMessage, binary-encoded.
  *
  * @generated from message syrinx.websocket.WSMessage
  */
@@ -34,8 +35,9 @@ export type WSMessage = Message<"syrinx.websocket.WSMessage"> & {
 
   /**
    * Event id this message replies to or originates (relay event id for
-   * DATA_RESPONSE; echoed back by the client on DATA_ACK/DATA_INVALID).
-   * Empty for message types that carry no event id.
+   * DATA_RESPONSE-family deliveries and mailbox notifications; echoed
+   * back by the client on DATA_ACK/DATA_INVALID/RELAY_RESPONSE/MISS/
+   * ERROR). Empty for message types that carry no event id.
    *
    * @generated from field: string id = 11;
    */
@@ -98,6 +100,186 @@ export type WSMessage = Message<"syrinx.websocket.WSMessage"> & {
      */
     value: DataResponseMessage;
     case: "dataResponse";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.ShutdownMessage shutdown = 13;
+     */
+    value: ShutdownMessage;
+    case: "shutdown";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.SyncRequestMessage sync_request = 14;
+     */
+    value: SyncRequestMessage;
+    case: "syncRequest";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.RelayResponseMessage relay_response = 15;
+     */
+    value: RelayResponseMessage;
+    case: "relayResponse";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.RelayRequestMessage relay_request = 16;
+     */
+    value: RelayRequestMessage;
+    case: "relayRequest";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.RequestAckMessage request_ack = 17;
+     */
+    value: RequestAckMessage;
+    case: "requestAck";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.MailboxMessage mailbox = 18;
+     */
+    value: MailboxMessage;
+    case: "mailbox";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.MailboxAckMessage mailbox_ack = 19;
+     */
+    value: MailboxAckMessage;
+    case: "mailboxAck";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.KeyFetchErrorMessage key_fetch_error = 20;
+     */
+    value: KeyFetchErrorMessage;
+    case: "keyFetchError";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.RevokedKeyUsedMessage revoked_key_used = 21;
+     */
+    value: RevokedKeyUsedMessage;
+    case: "revokedKeyUsed";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.ContentRejectedMessage content_rejected = 22;
+     */
+    value: ContentRejectedMessage;
+    case: "contentRejected";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.SubscribeProfileMessage subscribe_profile = 23;
+     */
+    value: SubscribeProfileMessage;
+    case: "subscribeProfile";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.UnsubscribeProfileMessage unsubscribe_profile = 24;
+     */
+    value: UnsubscribeProfileMessage;
+    case: "unsubscribeProfile";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.SubscribeReedMessage subscribe_reed = 25;
+     */
+    value: SubscribeReedMessage;
+    case: "subscribeReed";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.UnsubscribeReedMessage unsubscribe_reed = 26;
+     */
+    value: UnsubscribeReedMessage;
+    case: "unsubscribeReed";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.SubscribePipeMessage subscribe_pipe = 27;
+     */
+    value: SubscribePipeMessage;
+    case: "subscribePipe";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.UnsubscribePipeMessage unsubscribe_pipe = 28;
+     */
+    value: UnsubscribePipeMessage;
+    case: "unsubscribePipe";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.PublishReadyMessage publish_ready = 29;
+     */
+    value: PublishReadyMessage;
+    case: "publishReady";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.PublishReadyAckMessage publish_ready_ack = 30;
+     */
+    value: PublishReadyAckMessage;
+    case: "publishReadyAck";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.ReedNotFoundMessage reed_not_found = 31;
+     */
+    value: ReedNotFoundMessage;
+    case: "reedNotFound";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.ReedNotHeldMessage reed_not_held = 32;
+     */
+    value: ReedNotHeldMessage;
+    case: "reedNotHeld";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.InvalidRequestIdErrorMessage invalid_request_id_error = 33;
+     */
+    value: InvalidRequestIdErrorMessage;
+    case: "invalidRequestIdError";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.ReedStatsMessage reed_stats = 34;
+     */
+    value: ReedStatsMessage;
+    case: "reedStats";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.ReedCoverageMessage reed_coverage = 35;
+     */
+    value: ReedCoverageMessage;
+    case: "reedCoverage";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.ReedEchoesMessage reed_echoes = 36;
+     */
+    value: ReedEchoesMessage;
+    case: "reedEchoes";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.ReedRepliesMessage reed_replies = 37;
+     */
+    value: ReedRepliesMessage;
+    case: "reedReplies";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.ReedLikesMessage reed_likes = 38;
+     */
+    value: ReedLikesMessage;
+    case: "reedLikes";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.RipplePostedMessage ripple_posted = 39;
+     */
+    value: RipplePostedMessage;
+    case: "ripplePosted";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.RippleUpdatedMessage ripple_updated = 40;
+     */
+    value: RippleUpdatedMessage;
+    case: "rippleUpdated";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.ReedRemovedMessage reed_removed = 41;
+     */
+    value: ReedRemovedMessage;
+    case: "reedRemoved";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.AccountRemovedMessage account_removed = 42;
+     */
+    value: AccountRemovedMessage;
+    case: "accountRemoved";
   } | { case: undefined; value?: undefined };
 };
 
@@ -345,7 +527,866 @@ export const DataResponseMessageSchema: GenMessage<DataResponseMessage> = /*@__P
   messageDesc(file_websocket, 9);
 
 /**
- * Message types
+ * Server notice that it is shutting down; the client should reconnect.
+ *
+ * @generated from message syrinx.websocket.ShutdownMessage
+ */
+export type ShutdownMessage = Message<"syrinx.websocket.ShutdownMessage"> & {
+};
+
+/**
+ * Describes the message syrinx.websocket.ShutdownMessage.
+ * Use `create(ShutdownMessageSchema)` to create a new message.
+ */
+export const ShutdownMessageSchema: GenMessage<ShutdownMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 10);
+
+/**
+ * Client request to replay any events it missed while disconnected.
+ *
+ * @generated from message syrinx.websocket.SyncRequestMessage
+ */
+export type SyncRequestMessage = Message<"syrinx.websocket.SyncRequestMessage"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.SyncRequestMessage.
+ * Use `create(SyncRequestMessageSchema)` to create a new message.
+ */
+export const SyncRequestMessageSchema: GenMessage<SyncRequestMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 11);
+
+/**
+ * Holder's answer to a RelayRequestMessage: the requested ciphertext.
+ *
+ * @generated from message syrinx.websocket.RelayResponseMessage
+ */
+export type RelayResponseMessage = Message<"syrinx.websocket.RelayResponseMessage"> & {
+  /**
+   * @generated from field: string ciphertext = 1;
+   */
+  ciphertext: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.RelayResponseMessage.
+ * Use `create(RelayResponseMessageSchema)` to create a new message.
+ */
+export const RelayResponseMessageSchema: GenMessage<RelayResponseMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 12);
+
+/**
+ * Server ask to a holder to relay a reed's ciphertext to a requester.
+ *
+ * @generated from message syrinx.websocket.RelayRequestMessage
+ */
+export type RelayRequestMessage = Message<"syrinx.websocket.RelayRequestMessage"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string requester_id = 2;
+   */
+  requesterId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.RelayRequestMessage.
+ * Use `create(RelayRequestMessageSchema)` to create a new message.
+ */
+export const RelayRequestMessageSchema: GenMessage<RelayRequestMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 13);
+
+/**
+ * Server ack of a client's REQUEST_REED, naming which reed/request it matched.
+ *
+ * @generated from message syrinx.websocket.RequestAckMessage
+ */
+export type RequestAckMessage = Message<"syrinx.websocket.RequestAckMessage"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string reed_id = 2;
+   */
+  reedId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.RequestAckMessage.
+ * Use `create(RequestAckMessageSchema)` to create a new message.
+ */
+export const RequestAckMessageSchema: GenMessage<RequestAckMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 14);
+
+/**
+ * Mailbox delivery: a message queued for a user while they were offline.
+ *
+ * @generated from message syrinx.websocket.MailboxMessage
+ */
+export type MailboxMessage = Message<"syrinx.websocket.MailboxMessage"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string ciphertext = 2;
+   */
+  ciphertext: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.MailboxMessage.
+ * Use `create(MailboxMessageSchema)` to create a new message.
+ */
+export const MailboxMessageSchema: GenMessage<MailboxMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 15);
+
+/**
+ * Client ack of a mailbox delivery, by its id.
+ *
+ * @generated from message syrinx.websocket.MailboxAckMessage
+ */
+export type MailboxAckMessage = Message<"syrinx.websocket.MailboxAckMessage"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.MailboxAckMessage.
+ * Use `create(MailboxAckMessageSchema)` to create a new message.
+ */
+export const MailboxAckMessageSchema: GenMessage<MailboxAckMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 16);
+
+/**
+ * Client report that it failed to fetch a key needed to verify content
+ * received over this connection.
+ *
+ * @generated from message syrinx.websocket.KeyFetchErrorMessage
+ */
+export type KeyFetchErrorMessage = Message<"syrinx.websocket.KeyFetchErrorMessage"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string key_id = 2;
+   */
+  keyId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.KeyFetchErrorMessage.
+ * Use `create(KeyFetchErrorMessageSchema)` to create a new message.
+ */
+export const KeyFetchErrorMessageSchema: GenMessage<KeyFetchErrorMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 17);
+
+/**
+ * Client report that content used a key at or after its revocation.
+ *
+ * @generated from message syrinx.websocket.RevokedKeyUsedMessage
+ */
+export type RevokedKeyUsedMessage = Message<"syrinx.websocket.RevokedKeyUsedMessage"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string key_id = 2;
+   */
+  keyId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.RevokedKeyUsedMessage.
+ * Use `create(RevokedKeyUsedMessageSchema)` to create a new message.
+ */
+export const RevokedKeyUsedMessageSchema: GenMessage<RevokedKeyUsedMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 18);
+
+/**
+ * Client report of content it refused to store or trust. reason is one
+ * of a small standardized set (docs/content_privacy.md), or empty.
+ *
+ * @generated from message syrinx.websocket.ContentRejectedMessage
+ */
+export type ContentRejectedMessage = Message<"syrinx.websocket.ContentRejectedMessage"> & {
+  /**
+   * @generated from field: string store_name = 1;
+   */
+  storeName: string;
+
+  /**
+   * @generated from field: string reason = 2;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.ContentRejectedMessage.
+ * Use `create(ContentRejectedMessageSchema)` to create a new message.
+ */
+export const ContentRejectedMessageSchema: GenMessage<ContentRejectedMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 19);
+
+/**
+ * @generated from message syrinx.websocket.SubscribeProfileMessage
+ */
+export type SubscribeProfileMessage = Message<"syrinx.websocket.SubscribeProfileMessage"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.SubscribeProfileMessage.
+ * Use `create(SubscribeProfileMessageSchema)` to create a new message.
+ */
+export const SubscribeProfileMessageSchema: GenMessage<SubscribeProfileMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 20);
+
+/**
+ * @generated from message syrinx.websocket.UnsubscribeProfileMessage
+ */
+export type UnsubscribeProfileMessage = Message<"syrinx.websocket.UnsubscribeProfileMessage"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.UnsubscribeProfileMessage.
+ * Use `create(UnsubscribeProfileMessageSchema)` to create a new message.
+ */
+export const UnsubscribeProfileMessageSchema: GenMessage<UnsubscribeProfileMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 21);
+
+/**
+ * @generated from message syrinx.websocket.SubscribeReedMessage
+ */
+export type SubscribeReedMessage = Message<"syrinx.websocket.SubscribeReedMessage"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.SubscribeReedMessage.
+ * Use `create(SubscribeReedMessageSchema)` to create a new message.
+ */
+export const SubscribeReedMessageSchema: GenMessage<SubscribeReedMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 22);
+
+/**
+ * @generated from message syrinx.websocket.UnsubscribeReedMessage
+ */
+export type UnsubscribeReedMessage = Message<"syrinx.websocket.UnsubscribeReedMessage"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.UnsubscribeReedMessage.
+ * Use `create(UnsubscribeReedMessageSchema)` to create a new message.
+ */
+export const UnsubscribeReedMessageSchema: GenMessage<UnsubscribeReedMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 23);
+
+/**
+ * @generated from message syrinx.websocket.SubscribePipeMessage
+ */
+export type SubscribePipeMessage = Message<"syrinx.websocket.SubscribePipeMessage"> & {
+  /**
+   * @generated from field: string tag = 1;
+   */
+  tag: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.SubscribePipeMessage.
+ * Use `create(SubscribePipeMessageSchema)` to create a new message.
+ */
+export const SubscribePipeMessageSchema: GenMessage<SubscribePipeMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 24);
+
+/**
+ * @generated from message syrinx.websocket.UnsubscribePipeMessage
+ */
+export type UnsubscribePipeMessage = Message<"syrinx.websocket.UnsubscribePipeMessage"> & {
+  /**
+   * @generated from field: string tag = 1;
+   */
+  tag: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.UnsubscribePipeMessage.
+ * Use `create(UnsubscribePipeMessageSchema)` to create a new message.
+ */
+export const UnsubscribePipeMessageSchema: GenMessage<UnsubscribePipeMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 25);
+
+/**
+ * Client notice that a reed is ready to publish/broadcast.
+ *
+ * @generated from message syrinx.websocket.PublishReadyMessage
+ */
+export type PublishReadyMessage = Message<"syrinx.websocket.PublishReadyMessage"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * Whether to include this reed in the broadcast fanout. Absent (see
+   * has_broadcast) means "true" — opting out requires an explicit false.
+   *
+   * @generated from field: bool broadcast = 2;
+   */
+  broadcast: boolean;
+
+  /**
+   * @generated from field: bool has_broadcast = 3;
+   */
+  hasBroadcast: boolean;
+};
+
+/**
+ * Describes the message syrinx.websocket.PublishReadyMessage.
+ * Use `create(PublishReadyMessageSchema)` to create a new message.
+ */
+export const PublishReadyMessageSchema: GenMessage<PublishReadyMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 26);
+
+/**
+ * @generated from message syrinx.websocket.PublishReadyAckMessage
+ */
+export type PublishReadyAckMessage = Message<"syrinx.websocket.PublishReadyAckMessage"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.PublishReadyAckMessage.
+ * Use `create(PublishReadyAckMessageSchema)` to create a new message.
+ */
+export const PublishReadyAckMessageSchema: GenMessage<PublishReadyAckMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 27);
+
+/**
+ * @generated from message syrinx.websocket.ReedNotFoundMessage
+ */
+export type ReedNotFoundMessage = Message<"syrinx.websocket.ReedNotFoundMessage"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string reed_id = 2;
+   */
+  reedId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.ReedNotFoundMessage.
+ * Use `create(ReedNotFoundMessageSchema)` to create a new message.
+ */
+export const ReedNotFoundMessageSchema: GenMessage<ReedNotFoundMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 28);
+
+/**
+ * Distinct from ReedNotFoundMessage: the reed exists but this server
+ * doesn't hold its ciphertext.
+ *
+ * @generated from message syrinx.websocket.ReedNotHeldMessage
+ */
+export type ReedNotHeldMessage = Message<"syrinx.websocket.ReedNotHeldMessage"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string reed_id = 2;
+   */
+  reedId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.ReedNotHeldMessage.
+ * Use `create(ReedNotHeldMessageSchema)` to create a new message.
+ */
+export const ReedNotHeldMessageSchema: GenMessage<ReedNotHeldMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 29);
+
+/**
+ * Server rejection of a request_id that doesn't embed the identity of
+ * the connection that sent it.
+ *
+ * @generated from message syrinx.websocket.InvalidRequestIdErrorMessage
+ */
+export type InvalidRequestIdErrorMessage = Message<"syrinx.websocket.InvalidRequestIdErrorMessage"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.InvalidRequestIdErrorMessage.
+ * Use `create(InvalidRequestIdErrorMessageSchema)` to create a new message.
+ */
+export const InvalidRequestIdErrorMessageSchema: GenMessage<InvalidRequestIdErrorMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 30);
+
+/**
+ * @generated from message syrinx.websocket.ReedStatsMessage
+ */
+export type ReedStatsMessage = Message<"syrinx.websocket.ReedStatsMessage"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: int32 echoes = 2;
+   */
+  echoes: number;
+
+  /**
+   * @generated from field: int32 coverage_percent = 3;
+   */
+  coveragePercent: number;
+
+  /**
+   * @generated from field: int32 replies = 4;
+   */
+  replies: number;
+
+  /**
+   * @generated from field: int32 likes = 5;
+   */
+  likes: number;
+};
+
+/**
+ * Describes the message syrinx.websocket.ReedStatsMessage.
+ * Use `create(ReedStatsMessageSchema)` to create a new message.
+ */
+export const ReedStatsMessageSchema: GenMessage<ReedStatsMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 31);
+
+/**
+ * @generated from message syrinx.websocket.ReedCoverageMessage
+ */
+export type ReedCoverageMessage = Message<"syrinx.websocket.ReedCoverageMessage"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: int32 coverage_percent = 2;
+   */
+  coveragePercent: number;
+};
+
+/**
+ * Describes the message syrinx.websocket.ReedCoverageMessage.
+ * Use `create(ReedCoverageMessageSchema)` to create a new message.
+ */
+export const ReedCoverageMessageSchema: GenMessage<ReedCoverageMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 32);
+
+/**
+ * @generated from message syrinx.websocket.ReedEchoesMessage
+ */
+export type ReedEchoesMessage = Message<"syrinx.websocket.ReedEchoesMessage"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: int32 echoes = 2;
+   */
+  echoes: number;
+};
+
+/**
+ * Describes the message syrinx.websocket.ReedEchoesMessage.
+ * Use `create(ReedEchoesMessageSchema)` to create a new message.
+ */
+export const ReedEchoesMessageSchema: GenMessage<ReedEchoesMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 33);
+
+/**
+ * @generated from message syrinx.websocket.ReedRepliesMessage
+ */
+export type ReedRepliesMessage = Message<"syrinx.websocket.ReedRepliesMessage"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: int32 replies = 2;
+   */
+  replies: number;
+};
+
+/**
+ * Describes the message syrinx.websocket.ReedRepliesMessage.
+ * Use `create(ReedRepliesMessageSchema)` to create a new message.
+ */
+export const ReedRepliesMessageSchema: GenMessage<ReedRepliesMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 34);
+
+/**
+ * @generated from message syrinx.websocket.ReedLikesMessage
+ */
+export type ReedLikesMessage = Message<"syrinx.websocket.ReedLikesMessage"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: int32 likes = 2;
+   */
+  likes: number;
+};
+
+/**
+ * Describes the message syrinx.websocket.ReedLikesMessage.
+ * Use `create(ReedLikesMessageSchema)` to create a new message.
+ */
+export const ReedLikesMessageSchema: GenMessage<ReedLikesMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 35);
+
+/**
+ * A user's cryptographic signature over content, and the id of the key
+ * that produced it.
+ *
+ * @generated from message syrinx.websocket.UserSignature
+ */
+export type UserSignature = Message<"syrinx.websocket.UserSignature"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string armor = 2;
+   */
+  armor: string;
+};
+
+/**
+ * Describes the message syrinx.websocket.UserSignature.
+ * Use `create(UserSignatureSchema)` to create a new message.
+ */
+export const UserSignatureSchema: GenMessage<UserSignature> = /*@__PURE__*/
+  messageDesc(file_websocket, 36);
+
+/**
+ * The home server's countersignature, and when it was produced.
+ *
+ * @generated from message syrinx.websocket.ServerSignature
+ */
+export type ServerSignature = Message<"syrinx.websocket.ServerSignature"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string armor = 2;
+   */
+  armor: string;
+
+  /**
+   * @generated from field: int64 signed_at = 3;
+   */
+  signedAt: bigint;
+};
+
+/**
+ * Describes the message syrinx.websocket.ServerSignature.
+ * Use `create(ServerSignatureSchema)` to create a new message.
+ */
+export const ServerSignatureSchema: GenMessage<ServerSignature> = /*@__PURE__*/
+  messageDesc(file_websocket, 37);
+
+/**
+ * @generated from message syrinx.websocket.Ripple
+ */
+export type Ripple = Message<"syrinx.websocket.Ripple"> & {
+  /**
+   * @generated from field: string hash = 1;
+   */
+  hash: string;
+
+  /**
+   * @generated from field: string thread_id = 2;
+   */
+  threadId: string;
+
+  /**
+   * @generated from field: string user_id = 3;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string content = 4;
+   */
+  content: string;
+
+  /**
+   * Empty when this ripple is not a reply to another ripple.
+   *
+   * @generated from field: string replying_to = 5;
+   */
+  replyingTo: string;
+
+  /**
+   * @generated from field: bool deleted = 6;
+   */
+  deleted: boolean;
+
+  /**
+   * @generated from field: int64 posted_at = 7;
+   */
+  postedAt: bigint;
+
+  /**
+   * @generated from field: syrinx.websocket.UserSignature user_signature = 8;
+   */
+  userSignature?: UserSignature | undefined;
+
+  /**
+   * @generated from field: syrinx.websocket.ServerSignature server_signature = 9;
+   */
+  serverSignature?: ServerSignature | undefined;
+};
+
+/**
+ * Describes the message syrinx.websocket.Ripple.
+ * Use `create(RippleSchema)` to create a new message.
+ */
+export const RippleSchema: GenMessage<Ripple> = /*@__PURE__*/
+  messageDesc(file_websocket, 38);
+
+/**
+ * @generated from message syrinx.websocket.RipplePostedMessage
+ */
+export type RipplePostedMessage = Message<"syrinx.websocket.RipplePostedMessage"> & {
+  /**
+   * The reed's author.
+   *
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string reed_id = 2;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: syrinx.websocket.Ripple ripple = 3;
+   */
+  ripple?: Ripple | undefined;
+};
+
+/**
+ * Describes the message syrinx.websocket.RipplePostedMessage.
+ * Use `create(RipplePostedMessageSchema)` to create a new message.
+ */
+export const RipplePostedMessageSchema: GenMessage<RipplePostedMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 39);
+
+/**
+ * A soft-delete patch: content becomes "[DELETED]" on the referenced
+ * ripple. There is no separate RIPPLE_DELETED type — the client applies
+ * this same shape in place over the existing row.
+ *
+ * @generated from message syrinx.websocket.RippleUpdatedMessage
+ */
+export type RippleUpdatedMessage = Message<"syrinx.websocket.RippleUpdatedMessage"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string reed_id = 2;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: syrinx.websocket.Ripple ripple = 3;
+   */
+  ripple?: Ripple | undefined;
+};
+
+/**
+ * Describes the message syrinx.websocket.RippleUpdatedMessage.
+ * Use `create(RippleUpdatedMessageSchema)` to create a new message.
+ */
+export const RippleUpdatedMessageSchema: GenMessage<RippleUpdatedMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 40);
+
+/**
+ * Cryptographic certificate proving a reed's removal, signed by both
+ * the removing user and their home server.
+ *
+ * @generated from message syrinx.websocket.ReedRemovalCert
+ */
+export type ReedRemovalCert = Message<"syrinx.websocket.ReedRemovalCert"> & {
+  /**
+   * @generated from field: string server_id = 1;
+   */
+  serverId: string;
+
+  /**
+   * @generated from field: string user_id = 2;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string reed_id = 3;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: syrinx.websocket.UserSignature user_signature = 4;
+   */
+  userSignature?: UserSignature | undefined;
+
+  /**
+   * @generated from field: syrinx.websocket.ServerSignature server_signature = 5;
+   */
+  serverSignature?: ServerSignature | undefined;
+};
+
+/**
+ * Describes the message syrinx.websocket.ReedRemovalCert.
+ * Use `create(ReedRemovalCertSchema)` to create a new message.
+ */
+export const ReedRemovalCertSchema: GenMessage<ReedRemovalCert> = /*@__PURE__*/
+  messageDesc(file_websocket, 41);
+
+/**
+ * Cryptographic certificate proving an account's removal, signed by
+ * both the removed user and their home server.
+ *
+ * @generated from message syrinx.websocket.AccountRemovalCert
+ */
+export type AccountRemovalCert = Message<"syrinx.websocket.AccountRemovalCert"> & {
+  /**
+   * @generated from field: string server_id = 1;
+   */
+  serverId: string;
+
+  /**
+   * @generated from field: string user_id = 2;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string note = 3;
+   */
+  note: string;
+
+  /**
+   * @generated from field: syrinx.websocket.UserSignature user_signature = 4;
+   */
+  userSignature?: UserSignature | undefined;
+
+  /**
+   * @generated from field: syrinx.websocket.ServerSignature server_signature = 5;
+   */
+  serverSignature?: ServerSignature | undefined;
+};
+
+/**
+ * Describes the message syrinx.websocket.AccountRemovalCert.
+ * Use `create(AccountRemovalCertSchema)` to create a new message.
+ */
+export const AccountRemovalCertSchema: GenMessage<AccountRemovalCert> = /*@__PURE__*/
+  messageDesc(file_websocket, 42);
+
+/**
+ * @generated from message syrinx.websocket.ReedRemovedMessage
+ */
+export type ReedRemovedMessage = Message<"syrinx.websocket.ReedRemovedMessage"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: syrinx.websocket.ReedRemovalCert cert = 2;
+   */
+  cert?: ReedRemovalCert | undefined;
+};
+
+/**
+ * Describes the message syrinx.websocket.ReedRemovedMessage.
+ * Use `create(ReedRemovedMessageSchema)` to create a new message.
+ */
+export const ReedRemovedMessageSchema: GenMessage<ReedRemovedMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 43);
+
+/**
+ * @generated from message syrinx.websocket.AccountRemovedMessage
+ */
+export type AccountRemovedMessage = Message<"syrinx.websocket.AccountRemovedMessage"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: syrinx.websocket.AccountRemovalCert cert = 2;
+   */
+  cert?: AccountRemovalCert | undefined;
+};
+
+/**
+ * Describes the message syrinx.websocket.AccountRemovedMessage.
+ * Use `create(AccountRemovedMessageSchema)` to create a new message.
+ */
+export const AccountRemovedMessageSchema: GenMessage<AccountRemovedMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 44);
+
+/**
+ * Message types. Numbers are frozen once assigned — never renumber or
+ * reuse a retired value.
  *
  * @generated from enum syrinx.websocket.MessageType
  */
@@ -419,6 +1460,206 @@ export enum MessageType {
    * @generated from enum value: DATA_RESPONSE = 13;
    */
   DATA_RESPONSE = 13,
+
+  /**
+   * @generated from enum value: SIGTERM = 14;
+   */
+  SIGTERM = 14,
+
+  /**
+   * @generated from enum value: SYNC_REQUEST = 15;
+   */
+  SYNC_REQUEST = 15,
+
+  /**
+   * @generated from enum value: RELAY_RESPONSE = 16;
+   */
+  RELAY_RESPONSE = 16,
+
+  /**
+   * @generated from enum value: RELAY_MISS = 17;
+   */
+  RELAY_MISS = 17,
+
+  /**
+   * @generated from enum value: RELAY_ERROR = 18;
+   */
+  RELAY_ERROR = 18,
+
+  /**
+   * @generated from enum value: RELAY_REQUEST = 19;
+   */
+  RELAY_REQUEST = 19,
+
+  /**
+   * @generated from enum value: DATA_ACK = 20;
+   */
+  DATA_ACK = 20,
+
+  /**
+   * @generated from enum value: DATA_INVALID = 21;
+   */
+  DATA_INVALID = 21,
+
+  /**
+   * @generated from enum value: REQUEST_ACK = 22;
+   */
+  REQUEST_ACK = 22,
+
+  /**
+   * @generated from enum value: MAILBOX = 23;
+   */
+  MAILBOX = 23,
+
+  /**
+   * @generated from enum value: MAILBOX_ACK = 24;
+   */
+  MAILBOX_ACK = 24,
+
+  /**
+   * @generated from enum value: KEY_FETCH_ERROR = 25;
+   */
+  KEY_FETCH_ERROR = 25,
+
+  /**
+   * @generated from enum value: REVOKED_KEY_USED = 26;
+   */
+  REVOKED_KEY_USED = 26,
+
+  /**
+   * @generated from enum value: CONTENT_REJECTED = 27;
+   */
+  CONTENT_REJECTED = 27,
+
+  /**
+   * @generated from enum value: SUBSCRIBE_PROFILE = 28;
+   */
+  SUBSCRIBE_PROFILE = 28,
+
+  /**
+   * @generated from enum value: UNSUBSCRIBE_PROFILE = 29;
+   */
+  UNSUBSCRIBE_PROFILE = 29,
+
+  /**
+   * @generated from enum value: SUBSCRIBE_REED = 30;
+   */
+  SUBSCRIBE_REED = 30,
+
+  /**
+   * @generated from enum value: UNSUBSCRIBE_REED = 31;
+   */
+  UNSUBSCRIBE_REED = 31,
+
+  /**
+   * @generated from enum value: SUBSCRIBE_PIPE = 32;
+   */
+  SUBSCRIBE_PIPE = 32,
+
+  /**
+   * @generated from enum value: UNSUBSCRIBE_PIPE = 33;
+   */
+  UNSUBSCRIBE_PIPE = 33,
+
+  /**
+   * @generated from enum value: PUBLISH_READY = 34;
+   */
+  PUBLISH_READY = 34,
+
+  /**
+   * @generated from enum value: PUBLISH_READY_ACK = 35;
+   */
+  PUBLISH_READY_ACK = 35,
+
+  /**
+   * @generated from enum value: REED_NOT_FOUND = 36;
+   */
+  REED_NOT_FOUND = 36,
+
+  /**
+   * @generated from enum value: REED_NOT_HELD = 37;
+   */
+  REED_NOT_HELD = 37,
+
+  /**
+   * @generated from enum value: INVALID_REQUEST_ID_ERROR = 38;
+   */
+  INVALID_REQUEST_ID_ERROR = 38,
+
+  /**
+   * @generated from enum value: REED_STATS = 39;
+   */
+  REED_STATS = 39,
+
+  /**
+   * @generated from enum value: REED_COVERAGE = 40;
+   */
+  REED_COVERAGE = 40,
+
+  /**
+   * @generated from enum value: REED_ECHOES = 41;
+   */
+  REED_ECHOES = 41,
+
+  /**
+   * @generated from enum value: REED_REPLIES = 42;
+   */
+  REED_REPLIES = 42,
+
+  /**
+   * @generated from enum value: REED_LIKES = 43;
+   */
+  REED_LIKES = 43,
+
+  /**
+   * @generated from enum value: RIPPLE_POSTED = 44;
+   */
+  RIPPLE_POSTED = 44,
+
+  /**
+   * @generated from enum value: RIPPLE_UPDATED = 45;
+   */
+  RIPPLE_UPDATED = 45,
+
+  /**
+   * @generated from enum value: REED_REMOVED = 46;
+   */
+  REED_REMOVED = 46,
+
+  /**
+   * @generated from enum value: ACCOUNT_REMOVED = 47;
+   */
+  ACCOUNT_REMOVED = 47,
+
+  /**
+   * @generated from enum value: BROADCAST_REED = 48;
+   */
+  BROADCAST_REED = 48,
+
+  /**
+   * @generated from enum value: PIPE_REED = 49;
+   */
+  PIPE_REED = 49,
+
+  /**
+   * @generated from enum value: FOLLOW_REED = 50;
+   */
+  FOLLOW_REED = 50,
+
+  /**
+   * @generated from enum value: ARCHIVE_REED = 51;
+   */
+  ARCHIVE_REED = 51,
+
+  /**
+   * @generated from enum value: REED_REPLY = 52;
+   */
+  REED_REPLY = 52,
+
+  /**
+   * @generated from enum value: MENTION = 53;
+   */
+  MENTION = 53,
 }
 
 /**
