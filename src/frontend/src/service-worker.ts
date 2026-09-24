@@ -44,7 +44,28 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+/**
+ * Same-origin senders only; otherwise the key handlers are a signing
+ * oracle. `event.origin` is '' for some clients, so fall back to the
+ * client URL and reject when neither identifies the sender.
+ */
+function isSameOrigin(event: ExtendableMessageEvent): boolean {
+  if (event.origin) {
+    return event.origin === self.location.origin;
+  }
+  const source = event.source;
+  if (source && 'url' in source && source.url) {
+    try {
+      return new URL(source.url).origin === self.location.origin;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 self.addEventListener('message', (event) => {
+  if (!isSameOrigin(event)) return;
   if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
@@ -126,6 +147,7 @@ async function signRequest(request: Request): Promise<Request> {
 }
 
 self.addEventListener('message', async (event) => {
+  if (!isSameOrigin(event)) return;
   if (!event.data?.type) return;
 
   const { type, data } = event.data;
