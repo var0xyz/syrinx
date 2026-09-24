@@ -74,8 +74,6 @@ export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; 
   switch (p.case) {
     case 'pong':
       return { type: 'pong', data: p.value.data };
-    case 'subscribed':
-      return { type: 'subscribed', data: p.value.data };
     case 'shutdown':
       return { type: 'SIGTERM', data: undefined };
     case 'requestAck':

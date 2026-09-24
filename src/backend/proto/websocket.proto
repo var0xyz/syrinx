@@ -17,11 +17,12 @@ message WSMessage {
   // back by the client on DATA_ACK/DATA_INVALID/RELAY_RESPONSE/MISS/
   // ERROR). Empty for message types that carry no event id.
   string id = 11;
+  reserved 5;
+  reserved "subscribed";
   oneof payload {
     PingMessage ping = 2;
     PongMessage pong = 3;
     SubscribeMessage subscribe = 4;
-    SubscribedMessage subscribed = 5;
     ReedNotificationMessage reed_notification = 6;
     UserUpdateMessage user_update = 7;
     ErrorMessage error = 8;
@@ -64,11 +65,13 @@ message WSMessage {
 // Message types. Numbers are frozen once assigned — never renumber or
 // reuse a retired value.
 enum MessageType {
+  reserved 4;
+  reserved "SUBSCRIBED";
+
   UNKNOWN = 0;
   PING = 1;
   PONG = 2;
   SUBSCRIBE = 3;
-  SUBSCRIBED = 4;
   REED_NOTIFICATION = 5;
   USER_UPDATE = 6;
   ERROR = 7;
@@ -133,11 +136,6 @@ message PongMessage {
 
 // Subscribe message
 message SubscribeMessage {
-  string data = 1;
-}
-
-// Subscribed confirmation
-message SubscribedMessage {
   string data = 1;
 }
 
