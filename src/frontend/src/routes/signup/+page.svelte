@@ -207,13 +207,13 @@
 
       currentStep = 3;
       await privateKeyRepository.put(newKeyId, keyPair.privateKey);
+      // Load the key before the signup payload is signed, so signup uses
+      // the same worker path as every other signing caller.
+      authService.setActiveKey(newKeyId);
+      await requestSigner.initializeWorker(newKeyId, password);
 
       currentStep = 4;
-      const signature = btoa(await cryptoService.signMessage(
-        keyPair.publicKey,
-        keyPair.privateKey,
-        password,
-      ));
+      const signature = await requestSigner.sign(keyPair.publicKey);
 
       // Must match the server's trimInvisibleChars(username) exactly — it
       // rebuilds this same payload to verify userSignature, using the
@@ -223,12 +223,7 @@
         trimmedUsername,
         newKeyId,
       );
-      const identitySigArmor = await cryptoService.signMessage(
-        identityPayload,
-        keyPair.privateKey,
-        password,
-      );
-      const userSignature = btoa(identitySigArmor);
+      const userSignature = await requestSigner.sign(identityPayload);
 
       currentStep = 5;
       const signupPayload = {
@@ -247,14 +242,9 @@
 
       const user = await authService.signup(signupPayload);
 
-      // Request signing needs the session user id; getPublicKey is
-      // authenticated. Cache the attested public key before the verified
-      // user put — verifyUser resolves armor from IndexedDB.
+      // Cache the attested public key before the verified user put —
+      // verifyUser resolves armor from IndexedDB.
       currentStep = 6;
-      authService.setActiveKey(newKeyId);
-      await requestSigner.initializeWorker(newKeyId, password);
-
-      currentStep = 7;
       // getPublicKey takes an already-canonical GET /keys/{id} id — see
       // api.ts's canonicalKeyId.
       const attestedKey = await apiService.getPublicKey(
@@ -339,7 +329,7 @@
         </div>
 
         {#if loading}
-          <ProgressBar {currentStep} totalSteps={7} />
+          <ProgressBar {currentStep} totalSteps={6} />
         {/if}
         <button disabled={loading} class="submit">
           {loading ? "Creating account..." : "Create account"}
