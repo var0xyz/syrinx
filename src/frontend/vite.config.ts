@@ -157,6 +157,10 @@ export default defineConfig({
     __APP_BUILD_TIME__: JSON.stringify(buildTime),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production')
   },
+  // Debug chatter is stripped from prod bundles; warn/error always ship.
+  esbuild: {
+    pure: ['console.log', 'console.debug', 'console.info', 'console.trace']
+  },
   resolve: {
     alias: {
       'openpgp/lightweight': openpgpLightweight

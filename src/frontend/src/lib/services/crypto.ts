@@ -73,12 +73,6 @@ export class CryptoService {
       const trimmedPrivateKey = privateKey.trim();
       const fingerprint = await getFingerprint(trimmedPublicKey);
 
-      console.log({
-        fingerprint: fingerprint,
-        privateKey: trimmedPrivateKey,
-        publicKey: trimmedPublicKey
-      });
-
       return {
         fingerprint: fingerprint,
         privateKey: trimmedPrivateKey,
