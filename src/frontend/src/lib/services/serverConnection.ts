@@ -24,6 +24,10 @@ import {
 // Every WS frame, both directions, is exactly one binary-encoded WSMessage
 // (specs/protobuf/) — there is no JSON text-frame path anymore.
 
+// Liveness heartbeat cadence. The server evicts presence after two minutes
+// without a PONG, so one a minute leaves room for a single missed beat.
+const PONG_INTERVAL_MS = 60_000;
+
 function encodeRequestReed(requestId: string, reedId: string): Uint8Array {
   const msg = create(WSMessageSchema, {
     type: MessageType.REQUEST_REED,
@@ -254,9 +258,30 @@ class ServerConnection {
    * so a concurrent connect() elsewhere doesn't leave a duplicate timer
    * running. Cleared once a retry succeeds (or something else reconnects). */
   private sigtermRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  // Liveness heartbeat: the server refreshes last_pong on each PONG and
+  // evicts presence after two minutes without one.
+  private pongTimer: ReturnType<typeof setInterval> | null = null;
   /** Id of the "lost connection" notice raised by handleSigterm, so it can
    * be dismissed once a retry reconnects. */
   private sigtermNotificationId: string | null = null;
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.pongTimer = setInterval(() => {
+      if (!this.isConnected()) {
+        this.stopHeartbeat();
+        return;
+      }
+      this.sendMsg({ type: MessageType.PONG, payload: { case: 'pong', value: { data: '' } } });
+    }, PONG_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.pongTimer) {
+      clearInterval(this.pongTimer);
+      this.pongTimer = null;
+    }
+  }
 
   private cancelSigtermRetry(): void {
     if (this.sigtermRetryTimer != null) {
@@ -467,6 +492,7 @@ class ServerConnection {
         console.log('ServerConnection: connection closed', event.code, event.reason);
         if (this.ws === event.target) {
           this.ws = null;
+          this.stopHeartbeat();
           this.dispatchedReedRequests.clear();
           sessionStorage.removeItem('syncRequestId');
           // No ack is coming on a dead socket — settle now instead of
@@ -483,6 +509,7 @@ class ServerConnection {
         this.ws!.onopen = () => {
           clearTimeout(timeout);
           console.log('ServerConnection: connected');
+          this.startHeartbeat();
           this.resubscribeAll();
           resolve();
         };
@@ -505,6 +532,7 @@ class ServerConnection {
 
   disconnect(): void {
     this.cancelSigtermRetry();
+    this.stopHeartbeat();
     if (this.ws) {
       this.ws.close();
       this.ws = null;

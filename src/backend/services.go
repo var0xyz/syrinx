@@ -6894,6 +6894,183 @@ func (s *DataService) MarkUserOffline(ctx context.Context, userID string) error 
 	return nil
 }
 
+// ClearPresence drops every presence row. Boot-time recovery for a crashed
+// process, whose rows outlive it (Postgres only truncates UNLOGGED tables on
+// its own unclean shutdown). Single-replica only — see CLEAR_PRESENCE_ON_BOOT.
+func (s *DataService) ClearPresence(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM online_users`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// RecordPong refreshes a user's liveness heartbeat. The SPA sends PONG
+// once a minute; ReapStalePresence evicts anything older than two.
+func (s *DataService) RecordPong(ctx context.Context, userID string) error {
+	selfIdentity := identityID(userID)
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE online_users SET last_pong = CURRENT_TIMESTAMP WHERE user_id = $1
+	`, selfIdentity)
+	return err
+}
+
+// ReapStalePresence deletes presence rows whose heartbeat is older than
+// ttl, returning the evicted user IDs. Subscriptions cascade off
+// online_users, so this also clears their reed and pipe subscriptions.
+func (s *DataService) ReapStalePresence(ctx context.Context, ttl time.Duration) ([]string, error) {
+	cutoff := time.Now().UTC().Add(-ttl)
+	rows, err := s.db.QueryContext(ctx, `
+		DELETE FROM online_users
+		WHERE last_pong < $1
+		RETURNING user_id
+	`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var evicted []string
+	for rows.Next() {
+		var userID identityID
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		evicted = append(evicted, string(userID))
+	}
+	return evicted, rows.Err()
+}
+
+// IsUserOnline reports whether a user has a live presence row. Unlike the
+// connection manager's local map this is true across replicas, so it's what
+// relay dispatch gates on.
+func (s *DataService) IsUserOnline(ctx context.Context, userID string) (bool, error) {
+	selfIdentity := identityID(userID)
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM online_users WHERE user_id = $1)
+	`, selfIdentity).Scan(&exists)
+	return exists, err
+}
+
+// SubscribePipe records a pipe (hashtag) subscription. tag must already be
+// normalized by normalizePipeTag. The row cascades off online_users, so a
+// disconnect clears it with no explicit teardown.
+func (s *DataService) SubscribePipe(ctx context.Context, userID, tag string) error {
+	selfIdentity := identityID(userID)
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO pipe_subscriptions (user_id, tag)
+		VALUES ($1, $2)
+		ON CONFLICT (user_id, tag) DO NOTHING
+	`, selfIdentity, tag)
+	return err
+}
+
+// UnsubscribePipe drops a pipe subscription. tag must already be normalized.
+func (s *DataService) UnsubscribePipe(ctx context.Context, userID, tag string) error {
+	selfIdentity := identityID(userID)
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM pipe_subscriptions WHERE user_id = $1 AND tag = $2
+	`, selfIdentity, tag)
+	return err
+}
+
+// GetPipeListeners returns the distinct users subscribed to any of tags,
+// excluding excludeUserID (typically the author). tags must already be
+// normalized.
+func (s *DataService) GetPipeListeners(ctx context.Context, tags []string, excludeUserID string) ([]string, error) {
+	if len(tags) == 0 {
+		return nil, nil
+	}
+	excludeIdentity := identityID(excludeUserID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT user_id
+		FROM pipe_subscriptions
+		WHERE tag = ANY($1) AND user_id != $2
+	`, pq.Array(tags), excludeIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var listeners []string
+	for rows.Next() {
+		var userID identityID
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		listeners = append(listeners, string(userID))
+	}
+	return listeners, rows.Err()
+}
+
+// GetTagsWithListeners returns which of tags currently have at least one
+// listener. Order follows the caller's input; duplicates are dropped.
+func (s *DataService) GetTagsWithListeners(ctx context.Context, tags []string) ([]string, error) {
+	if len(tags) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT tag FROM pipe_subscriptions WHERE tag = ANY($1)
+	`, pq.Array(tags))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	live := make(map[string]struct{})
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		live[tag] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var out []string
+	seen := make(map[string]struct{}, len(tags))
+	for _, tag := range tags {
+		if _, ok := live[tag]; !ok {
+			continue
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		out = append(out, tag)
+	}
+	return out, nil
+}
+
+// GetReedSubscriberUserIDs returns the distinct users subscribed to reedID,
+// excluding excludeUserID (typically the actor, who doesn't need it echoed
+// back). Pass "" to exclude nobody.
+func (s *DataService) GetReedSubscriberUserIDs(ctx context.Context, reedID, excludeUserID string) ([]string, error) {
+	excludeIdentity := identityID(excludeUserID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT viewer_user_id
+		FROM reed_subscriptions
+		WHERE reed_id = $1 AND viewer_user_id != $2
+	`, reedID, excludeIdentity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var viewers []string
+	for rows.Next() {
+		var viewer identityID
+		if err := rows.Scan(&viewer); err != nil {
+			return nil, err
+		}
+		viewers = append(viewers, string(viewer))
+	}
+	return viewers, rows.Err()
+}
+
 // GetRealtimeUserPublicKey retrieves a user's public key by canonical,
 // self-scoping fingerprint — same shape as GetPublicKey.
 func (s *DataService) GetRealtimeUserPublicKey(ctx context.Context, fingerprint string) (string, error) {

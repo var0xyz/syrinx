@@ -541,12 +541,21 @@ func InitDB(db *sql.DB) error {
 	//   Realtime   //
 	// //////////// //
 
+	// last_pong is the client-driven liveness heartbeat: the SPA sends PONG
+	// every minute and the reaper evicts rows older than two. Without it a
+	// crashed process leaves presence rows that look live forever.
 	createOnlineUsersTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS online_users (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		sync_request_id VARCHAR(255),
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		last_pong TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);`
+
+	createOnlineUsersIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_online_users_last_pong
+		ON online_users(last_pong);
+	`
 
 	createBroadcastSubscriptionsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS broadcast_subscriptions (
@@ -558,6 +567,23 @@ func InitDB(db *sql.DB) error {
 	createBroadcastSubscriptionIndexes := `
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_broadcast_subscriptions_user_id
 		ON broadcast_subscriptions(user_id);
+	`
+
+	// Pipe (hashtag) subscriptions. Cascading off online_users means a
+	// disconnect clears them without any explicit teardown. tag is stored
+	// already normalized by normalizePipeTag — never normalized in SQL.
+	createPipeSubscriptionsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS pipe_subscriptions (
+		user_id VARCHAR(255) NOT NULL REFERENCES online_users(user_id) ON DELETE CASCADE,
+		tag VARCHAR(255) NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (user_id, tag)
+	);`
+
+	createPipeSubscriptionsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_pipe_subscriptions_tag
+		ON pipe_subscriptions(tag);
 	`
 
 	// holder_user_id is who holds the reed — always a genuine LOCAL user
@@ -943,7 +969,7 @@ func InitDB(db *sql.DB) error {
 	createReedSubscriptionsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS reed_subscriptions (
 		subscription_id VARCHAR(255) PRIMARY KEY,
-		viewer_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		viewer_user_id VARCHAR(255) NOT NULL REFERENCES online_users(user_id) ON DELETE CASCADE,
 		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
@@ -1182,9 +1208,13 @@ func InitDB(db *sql.DB) error {
 
 		// Realtime
 		createOnlineUsersTable,
+		createOnlineUsersIndexes,
 
 		createBroadcastSubscriptionsTable,
 		createBroadcastSubscriptionIndexes,
+
+		createPipeSubscriptionsTable,
+		createPipeSubscriptionsIndexes,
 
 		createReedAllocationsTable,
 		createReedAllocationIndexes,

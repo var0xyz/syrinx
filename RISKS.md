@@ -40,7 +40,7 @@ more than in a typical web app.
 | L2     | Low      | server     | `FollowUser`/`UnfollowUser` unsigned + no target validation            |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
 | I1..I6 | Info     | mixed      | Residual trust assumptions & positives                                 |
-| A1     | N/A      | server     | In-memory subscriber state blocks running >1 replica (no HA)           |
+| A1     | Fixed    | server     | In-memory subscriber state blocks running >1 replica (no HA)           |
 
 ---
 
@@ -248,28 +248,59 @@ issuer binding.
 Findings below aren't security defects — they're limitations of the current
 design worth tracking separately.
 
-### A1 — Reed/profile subscription state is in-process memory, blocking HA (>1 replica)
-**Where:** `realtime/connection_manager.go` (`ConnectionManager.reedSubscribers`,
-`profileSubscribers`, and the client registry generally) — a plain in-memory map
-guarded by a `sync.RWMutex`, e.g. `ReedSubscriberUserIDs` (`connection_manager.go:429`)
-reads `cm.reedSubscribers[ReedKey(reedID)]` directly with no external store
-backing it.
-Live fanout decisions — who gets `REED_REPLY`, `FOLLOW_REED` exclusion
-(`realtime/service.go` `handlePublishReady`), `SUBSCRIBE_REED`/`SUBSCRIBE_PROFILE`
-membership — depend on which websocket connections happen to be held by *this*
-process. If the server runs as more than one replica behind a load balancer, each
-replica only knows about its own locally-connected clients: a viewer connected to
-replica A subscribed to a reed will never be seen by replica B's fanout when the
-replying author's socket lands on replica B, so `REED_REPLY`/stats-push delivery
-silently becomes partial and instance-dependent. This is an availability/
-correctness gap, not an exploitable vulnerability, but it means **the app cannot
-be deployed with more than one concurrent replica today** without a shared
-subscription/presence layer (e.g. Redis pub/sub, a shared connection registry, or
-sticky-session + inter-replica event forwarding).
-**Fix:** before scaling horizontally, move subscriber/presence state to a shared
-store (or add inter-replica broadcast of `SUBSCRIBE_*`/fanout events) so any
-replica can compute the full recipient set regardless of which replica holds the
-recipient's socket.
+### A1 — Reed/pipe subscription state was in-process memory, blocking HA (>1 replica) — **fixed**
+**Was:** `realtime.go` held `reedSubscribers` and `pipeSubscribers` as plain
+in-memory maps guarded by a `sync.RWMutex`, so live fanout decisions depended on
+which websocket connections happened to be held by *this* process. A viewer on
+replica A was invisible to replica B's fanout, making `REED_REPLY`/stats-push
+delivery partial and instance-dependent.
+
+(The original entry cited `realtime/connection_manager.go` and a
+`profileSubscribers` map; neither existed. The backend is a flat `package main`
+in `src/backend/`, profile subscriptions were already in Postgres, and the
+genuinely memory-only state was `pipeSubscribers`.)
+
+**Fixed in two parts:**
+
+1. *Subscription state moved to Postgres.* `pipe_subscriptions` is a new UNLOGGED
+   table and `reed_subscriptions` now FKs to `online_users(user_id) ON DELETE
+   CASCADE`, so disconnecting clears subscriptions through the cascade rather
+   than explicit teardown — the pattern `broadcast_subscriptions` already used.
+   Fanout reads go through `DataService` (`GetPipeListeners`,
+   `GetReedSubscriberUserIDs`, `GetTagsWithListeners`), so every replica computes
+   the same recipient set. Only `userConnections` remains in memory, since a
+   `*websocket.Conn` is inherently process-local.
+
+   This also fixed a live single-replica bug: `handleSubscribeReed`'s foreign-reed
+   branch returned before ever touching the in-memory map, so foreign reed
+   subscriptions were invisible to every map-based fanout read.
+
+2. *Cross-replica delivery.* `realtime_bus.go` forwards deliveries between
+   replicas over Postgres `LISTEN`/`NOTIFY` (no new infrastructure). `SendToUser`
+   writes locally when it holds the socket and otherwise publishes to the bus, so
+   call sites are unchanged — but note a nil return now means "delivered *or*
+   handed off". Frames over the 8000-byte `NOTIFY` ceiling publish as a bare
+   wake-up; the durable `pending_events` + `catchUp` path supplies the payload.
+   Enabled with `REALTIME_BUS_ENABLED` (off by default; a single replica needs no
+   bus). Relay-dispatch gates that previously asked the local map
+   (`dispatchNextIfConnected`, `dispatchNIfConnected`, `notifyParentAuthorOfReply`)
+   now check `online_users`, which is true across replicas.
+
+**Also fixed — stale presence.** `online_users` had no heartbeat, TTL or sweep,
+so a crashed Go process (Postgres surviving) left every row behind and the server
+booted believing everyone was online. This became load-bearing once subscriptions
+cascade off presence. Clients now send `PONG` every minute, refreshing
+`online_users.last_pong`; `startPeriodicCleanup` — previously an empty TODO
+already running in a goroutine — evicts rows idle for two minutes and disconnects
+any local socket still held. `CLEAR_PRESENCE_ON_BOOT` (default on) also clears
+presence at startup; turn it off when running >1 replica, where a booting
+instance would otherwise wipe its peers' presence, and rely on the reaper.
+
+**Residual:** `profile_subscriptions` still FKs to `identities` rather than
+`online_users`. Retargeting it would be consistent, but
+`pending_events.subscription_id` cascades from it, so disconnect would start
+dropping pending events by a second path. Its explicit teardown on disconnect is
+therefore still required.
 
 ---
 
