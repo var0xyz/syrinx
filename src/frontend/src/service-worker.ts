@@ -99,6 +99,14 @@ async function signText(text: string): Promise<string> {
   return (signature as string).trim();
 }
 
+/** Decrypt a message encrypted to this key (mailbox/relay delivery). */
+async function decryptOwn(armored: string): Promise<string> {
+  const key = await ensureDecryptedKey();
+  const message = await openpgp.readMessage({ armoredMessage: armored });
+  const { data } = await openpgp.decrypt({ message, decryptionKeys: key });
+  return data as string;
+}
+
 function buildCanonicalRequestString(method: string, path: string, body = '', timestamp = ''): string {
   const builder = [`${method} ${path}`, '', body];
   if (timestamp) {
@@ -175,6 +183,16 @@ self.addEventListener('message', async (event) => {
     try {
       const signature = await signText(data.text);
       port.postMessage({ success: true, signature });
+    } catch (error) {
+      port.postMessage({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  } else if (type === 'DECRYPT_OWN') {
+    try {
+      const plaintext = await decryptOwn(data.armored);
+      port.postMessage({ success: true, plaintext });
     } catch (error) {
       port.postMessage({
         success: false,
