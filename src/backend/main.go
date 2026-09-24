@@ -217,6 +217,7 @@ func main() {
 	h.SetRealtimeRelay(rtService)
 	rtService.SetForeignRequestReedHook(h.relayRequestToPeer)
 	rtService.SetForeignSubscribeProfileHook(h.subscribeProfileToPeer)
+	rtService.SetForeignProfilePageHook(h.profilePageToPeer)
 	rtService.SetForeignDeliverHook(h.deliverRelayResponseToPeer)
 	rtService.SetForeignNotHeldHook(h.notifyRelayNotHeldToPeer)
 	rtService.SetForeignCancelHook(h.cancelRelayRequestWithPeer)
@@ -457,6 +458,9 @@ func main() {
 
 	api.HandleFunc("/federation/relay/subscribe", h.RelaySubscribeProfileFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/subscribe", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/profile-page", h.RelayProfilePageFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/profile-page", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/federation/relay/deliver", h.DeliverRelayResponseFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/deliver", h.noop).Methods("OPTIONS")

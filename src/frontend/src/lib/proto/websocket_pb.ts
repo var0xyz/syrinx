@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file websocket.proto.
  */
 export const file_websocket: GenFile = /*@__PURE__*/
-  fileDesc("Cg93ZWJzb2NrZXQucHJvdG8SEHN5cmlueC53ZWJzb2NrZXQi4RMKCVdTTWVzc2FnZRIrCgR0eXBlGAEgASgOMh0uc3lyaW54LndlYnNvY2tldC5NZXNzYWdlVHlwZRIRCgl0eXBlX25hbWUYDCABKAkSCgoCaWQYCyABKAkSLQoEcGluZxgCIAEoCzIdLnN5cmlueC53ZWJzb2NrZXQuUGluZ01lc3NhZ2VIABItCgRwb25nGAMgASgLMh0uc3lyaW54LndlYnNvY2tldC5Qb25nTWVzc2FnZUgAEjcKCXN1YnNjcmliZRgEIAEoCzIiLnN5cmlueC53ZWJzb2NrZXQuU3Vic2NyaWJlTWVzc2FnZUgAEkYKEXJlZWRfbm90aWZpY2F0aW9uGAYgASgLMikuc3lyaW54LndlYnNvY2tldC5SZWVkTm90aWZpY2F0aW9uTWVzc2FnZUgAEjoKC3VzZXJfdXBkYXRlGAcgASgLMiMuc3lyaW54LndlYnNvY2tldC5Vc2VyVXBkYXRlTWVzc2FnZUgAEi8KBWVycm9yGAggASgLMh4uc3lyaW54LndlYnNvY2tldC5FcnJvck1lc3NhZ2VIABI8CgxyZXF1ZXN0X3JlZWQYCSABKAsyJC5zeXJpbngud2Vic29ja2V0LlJlcXVlc3RSZWVkTWVzc2FnZUgAEj4KDWRhdGFfcmVzcG9uc2UYCiABKAsyJS5zeXJpbngud2Vic29ja2V0LkRhdGFSZXNwb25zZU1lc3NhZ2VIABI1CghzaHV0ZG93bhgNIAEoCzIhLnN5cmlueC53ZWJzb2NrZXQuU2h1dGRvd25NZXNzYWdlSAASPAoMc3luY19yZXF1ZXN0GA4gASgLMiQuc3lyaW54LndlYnNvY2tldC5TeW5jUmVxdWVzdE1lc3NhZ2VIABJACg5yZWxheV9yZXNwb25zZRgPIAEoCzImLnN5cmlueC53ZWJzb2NrZXQuUmVsYXlSZXNwb25zZU1lc3NhZ2VIABI+Cg1yZWxheV9yZXF1ZXN0GBAgASgLMiUuc3lyaW54LndlYnNvY2tldC5SZWxheVJlcXVlc3RNZXNzYWdlSAASOgoLcmVxdWVzdF9hY2sYESABKAsyIy5zeXJpbngud2Vic29ja2V0LlJlcXVlc3RBY2tNZXNzYWdlSAASMwoHbWFpbGJveBgSIAEoCzIgLnN5cmlueC53ZWJzb2NrZXQuTWFpbGJveE1lc3NhZ2VIABI6CgttYWlsYm94X2FjaxgTIAEoCzIjLnN5cmlueC53ZWJzb2NrZXQuTWFpbGJveEFja01lc3NhZ2VIABJBCg9rZXlfZmV0Y2hfZXJyb3IYFCABKAsyJi5zeXJpbngud2Vic29ja2V0LktleUZldGNoRXJyb3JNZXNzYWdlSAASQwoQcmV2b2tlZF9rZXlfdXNlZBgVIAEoCzInLnN5cmlueC53ZWJzb2NrZXQuUmV2b2tlZEtleVVzZWRNZXNzYWdlSAASRAoQY29udGVudF9yZWplY3RlZBgWIAEoCzIoLnN5cmlueC53ZWJzb2NrZXQuQ29udGVudFJlamVjdGVkTWVzc2FnZUgAEkYKEXN1YnNjcmliZV9wcm9maWxlGBcgASgLMikuc3lyaW54LndlYnNvY2tldC5TdWJzY3JpYmVQcm9maWxlTWVzc2FnZUgAEkoKE3Vuc3Vic2NyaWJlX3Byb2ZpbGUYGCABKAsyKy5zeXJpbngud2Vic29ja2V0LlVuc3Vic2NyaWJlUHJvZmlsZU1lc3NhZ2VIABJACg5zdWJzY3JpYmVfcmVlZBgZIAEoCzImLnN5cmlueC53ZWJzb2NrZXQuU3Vic2NyaWJlUmVlZE1lc3NhZ2VIABJEChB1bnN1YnNjcmliZV9yZWVkGBogASgLMiguc3lyaW54LndlYnNvY2tldC5VbnN1YnNjcmliZVJlZWRNZXNzYWdlSAASQAoOc3Vic2NyaWJlX3BpcGUYGyABKAsyJi5zeXJpbngud2Vic29ja2V0LlN1YnNjcmliZVBpcGVNZXNzYWdlSAASRAoQdW5zdWJzY3JpYmVfcGlwZRgcIAEoCzIoLnN5cmlueC53ZWJzb2NrZXQuVW5zdWJzY3JpYmVQaXBlTWVzc2FnZUgAEj4KDXB1Ymxpc2hfcmVhZHkYHSABKAsyJS5zeXJpbngud2Vic29ja2V0LlB1Ymxpc2hSZWFkeU1lc3NhZ2VIABJFChFwdWJsaXNoX3JlYWR5X2FjaxgeIAEoCzIoLnN5cmlueC53ZWJzb2NrZXQuUHVibGlzaFJlYWR5QWNrTWVzc2FnZUgAEj8KDnJlZWRfbm90X2ZvdW5kGB8gASgLMiUuc3lyaW54LndlYnNvY2tldC5SZWVkTm90Rm91bmRNZXNzYWdlSAASPQoNcmVlZF9ub3RfaGVsZBggIAEoCzIkLnN5cmlueC53ZWJzb2NrZXQuUmVlZE5vdEhlbGRNZXNzYWdlSAASUgoYaW52YWxpZF9yZXF1ZXN0X2lkX2Vycm9yGCEgASgLMi4uc3lyaW54LndlYnNvY2tldC5JbnZhbGlkUmVxdWVzdElkRXJyb3JNZXNzYWdlSAASOAoKcmVlZF9zdGF0cxgiIAEoCzIiLnN5cmlueC53ZWJzb2NrZXQuUmVlZFN0YXRzTWVzc2FnZUgAEj4KDXJlZWRfY292ZXJhZ2UYIyABKAsyJS5zeXJpbngud2Vic29ja2V0LlJlZWRDb3ZlcmFnZU1lc3NhZ2VIABI6CgtyZWVkX2VjaG9lcxgkIAEoCzIjLnN5cmlueC53ZWJzb2NrZXQuUmVlZEVjaG9lc01lc3NhZ2VIABI8CgxyZWVkX3JlcGxpZXMYJSABKAsyJC5zeXJpbngud2Vic29ja2V0LlJlZWRSZXBsaWVzTWVzc2FnZUgAEjgKCnJlZWRfbGlrZXMYJiABKAsyIi5zeXJpbngud2Vic29ja2V0LlJlZWRMaWtlc01lc3NhZ2VIABI+Cg1yaXBwbGVfcG9zdGVkGCcgASgLMiUuc3lyaW54LndlYnNvY2tldC5SaXBwbGVQb3N0ZWRNZXNzYWdlSAASQAoOcmlwcGxlX3VwZGF0ZWQYKCABKAsyJi5zeXJpbngud2Vic29ja2V0LlJpcHBsZVVwZGF0ZWRNZXNzYWdlSAASPAoMcmVlZF9yZW1vdmVkGCkgASgLMiQuc3lyaW54LndlYnNvY2tldC5SZWVkUmVtb3ZlZE1lc3NhZ2VIABJCCg9hY2NvdW50X3JlbW92ZWQYKiABKAsyJy5zeXJpbngud2Vic29ja2V0LkFjY291bnRSZW1vdmVkTWVzc2FnZUgAQgkKB3BheWxvYWRKBAgFEAZSCnN1YnNjcmliZWQiGwoLUGluZ01lc3NhZ2USDAoEZGF0YRgBIAEoCSIbCgtQb25nTWVzc2FnZRIMCgRkYXRhGAEgASgJIiAKEFN1YnNjcmliZU1lc3NhZ2USDAoEZGF0YRgBIAEoCSJxChdSZWVkTm90aWZpY2F0aW9uTWVzc2FnZRIPCgdyZWVkX2lkGAEgASgJEg8KB3VzZXJfaWQYAiABKAkSEAoIdXNlcm5hbWUYAyABKAkSDwoHY29udGVudBgEIAEoCRIRCgl0aW1lc3RhbXAYBSABKAMiTAoRVXNlclVwZGF0ZU1lc3NhZ2USDwoHdXNlcl9pZBgBIAEoCRITCgt1cGRhdGVfdHlwZRgCIAEoCRIRCgl0aW1lc3RhbXAYAyABKAMiQAoMRXJyb3JNZXNzYWdlEgwKBGNvZGUYASABKAkSDwoHbWVzc2FnZRgCIAEoCRIRCgl0aW1lc3RhbXAYAyABKAMiOQoSUmVxdWVzdFJlZWRNZXNzYWdlEhIKCnJlcXVlc3RfaWQYASABKAkSDwoHcmVlZF9pZBgCIAEoCSJgChNEYXRhUmVzcG9uc2VNZXNzYWdlEhIKCnJlcXVlc3RfaWQYASABKAkSEgoKY2lwaGVydGV4dBgCIAEoCRIQCgh1c2VybmFtZRgDIAEoCRIPCgdyZWVkX2lkGAQgASgJIhEKD1NodXRkb3duTWVzc2FnZSIoChJTeW5jUmVxdWVzdE1lc3NhZ2USEgoKcmVxdWVzdF9pZBgBIAEoCSIqChRSZWxheVJlc3BvbnNlTWVzc2FnZRISCgpjaXBoZXJ0ZXh0GAEgASgJIjwKE1JlbGF5UmVxdWVzdE1lc3NhZ2USDwoHcmVlZF9pZBgBIAEoCRIUCgxyZXF1ZXN0ZXJfaWQYAiABKAkiOAoRUmVxdWVzdEFja01lc3NhZ2USEgoKcmVxdWVzdF9pZBgBIAEoCRIPCgdyZWVkX2lkGAIgASgJIjAKDk1haWxib3hNZXNzYWdlEgoKAmlkGAEgASgJEhIKCmNpcGhlcnRleHQYAiABKAkiHwoRTWFpbGJveEFja01lc3NhZ2USCgoCaWQYASABKAkiNwoUS2V5RmV0Y2hFcnJvck1lc3NhZ2USDwoHdXNlcl9pZBgBIAEoCRIOCgZrZXlfaWQYAiABKAkiOAoVUmV2b2tlZEtleVVzZWRNZXNzYWdlEg8KB3VzZXJfaWQYASABKAkSDgoGa2V5X2lkGAIgASgJIjwKFkNvbnRlbnRSZWplY3RlZE1lc3NhZ2USEgoKc3RvcmVfbmFtZRgBIAEoCRIOCgZyZWFzb24YAiABKAkiKgoXU3Vic2NyaWJlUHJvZmlsZU1lc3NhZ2USDwoHdXNlcl9pZBgBIAEoCSIsChlVbnN1YnNjcmliZVByb2ZpbGVNZXNzYWdlEg8KB3VzZXJfaWQYASABKAkiJwoUU3Vic2NyaWJlUmVlZE1lc3NhZ2USDwoHcmVlZF9pZBgBIAEoCSIpChZVbnN1YnNjcmliZVJlZWRNZXNzYWdlEg8KB3JlZWRfaWQYASABKAkiIwoUU3Vic2NyaWJlUGlwZU1lc3NhZ2USCwoDdGFnGAEgASgJIiUKFlVuc3Vic2NyaWJlUGlwZU1lc3NhZ2USCwoDdGFnGAEgASgJIlAKE1B1Ymxpc2hSZWFkeU1lc3NhZ2USDwoHcmVlZF9pZBgBIAEoCRIRCglicm9hZGNhc3QYAiABKAgSFQoNaGFzX2Jyb2FkY2FzdBgDIAEoCCIpChZQdWJsaXNoUmVhZHlBY2tNZXNzYWdlEg8KB3JlZWRfaWQYASABKAkiOgoTUmVlZE5vdEZvdW5kTWVzc2FnZRISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB3JlZWRfaWQYAiABKAkiOQoSUmVlZE5vdEhlbGRNZXNzYWdlEhIKCnJlcXVlc3RfaWQYASABKAkSDwoHcmVlZF9pZBgCIAEoCSIyChxJbnZhbGlkUmVxdWVzdElkRXJyb3JNZXNzYWdlEhIKCnJlcXVlc3RfaWQYASABKAkibQoQUmVlZFN0YXRzTWVzc2FnZRIPCgdyZWVkX2lkGAEgASgJEg4KBmVjaG9lcxgCIAEoBRIYChBjb3ZlcmFnZV9wZXJjZW50GAMgASgFEg8KB3JlcGxpZXMYBCABKAUSDQoFbGlrZXMYBSABKAUiQAoTUmVlZENvdmVyYWdlTWVzc2FnZRIPCgdyZWVkX2lkGAEgASgJEhgKEGNvdmVyYWdlX3BlcmNlbnQYAiABKAUiNAoRUmVlZEVjaG9lc01lc3NhZ2USDwoHcmVlZF9pZBgBIAEoCRIOCgZlY2hvZXMYAiABKAUiNgoSUmVlZFJlcGxpZXNNZXNzYWdlEg8KB3JlZWRfaWQYASABKAkSDwoHcmVwbGllcxgCIAEoBSIyChBSZWVkTGlrZXNNZXNzYWdlEg8KB3JlZWRfaWQYASABKAkSDQoFbGlrZXMYAiABKAUiKgoNVXNlclNpZ25hdHVyZRIKCgJpZBgBIAEoCRINCgVhcm1vchgCIAEoCSI/Cg9TZXJ2ZXJTaWduYXR1cmUSCgoCaWQYASABKAkSDQoFYXJtb3IYAiABKAkSEQoJc2lnbmVkX2F0GAMgASgDIvoBCgZSaXBwbGUSDAoEaGFzaBgBIAEoCRIRCgl0aHJlYWRfaWQYAiABKAkSDwoHdXNlcl9pZBgDIAEoCRIPCgdjb250ZW50GAQgASgJEhMKC3JlcGx5aW5nX3RvGAUgASgJEg8KB2RlbGV0ZWQYBiABKAgSEQoJcG9zdGVkX2F0GAcgASgDEjcKDnVzZXJfc2lnbmF0dXJlGAggASgLMh8uc3lyaW54LndlYnNvY2tldC5Vc2VyU2lnbmF0dXJlEjsKEHNlcnZlcl9zaWduYXR1cmUYCSABKAsyIS5zeXJpbngud2Vic29ja2V0LlNlcnZlclNpZ25hdHVyZSJhChNSaXBwbGVQb3N0ZWRNZXNzYWdlEg8KB3VzZXJfaWQYASABKAkSDwoHcmVlZF9pZBgCIAEoCRIoCgZyaXBwbGUYAyABKAsyGC5zeXJpbngud2Vic29ja2V0LlJpcHBsZSJiChRSaXBwbGVVcGRhdGVkTWVzc2FnZRIPCgd1c2VyX2lkGAEgASgJEg8KB3JlZWRfaWQYAiABKAkSKAoGcmlwcGxlGAMgASgLMhguc3lyaW54LndlYnNvY2tldC5SaXBwbGUivAEKD1JlZWRSZW1vdmFsQ2VydBIRCglzZXJ2ZXJfaWQYASABKAkSDwoHdXNlcl9pZBgCIAEoCRIPCgdyZWVkX2lkGAMgASgJEjcKDnVzZXJfc2lnbmF0dXJlGAQgASgLMh8uc3lyaW54LndlYnNvY2tldC5Vc2VyU2lnbmF0dXJlEjsKEHNlcnZlcl9zaWduYXR1cmUYBSABKAsyIS5zeXJpbngud2Vic29ja2V0LlNlcnZlclNpZ25hdHVyZSK8AQoSQWNjb3VudFJlbW92YWxDZXJ0EhEKCXNlcnZlcl9pZBgBIAEoCRIPCgd1c2VyX2lkGAIgASgJEgwKBG5vdGUYAyABKAkSNwoOdXNlcl9zaWduYXR1cmUYBCABKAsyHy5zeXJpbngud2Vic29ja2V0LlVzZXJTaWduYXR1cmUSOwoQc2VydmVyX3NpZ25hdHVyZRgFIAEoCzIhLnN5cmlueC53ZWJzb2NrZXQuU2VydmVyU2lnbmF0dXJlIlkKElJlZWRSZW1vdmVkTWVzc2FnZRISCgpyZXF1ZXN0X2lkGAEgASgJEi8KBGNlcnQYAiABKAsyIS5zeXJpbngud2Vic29ja2V0LlJlZWRSZW1vdmFsQ2VydCJfChVBY2NvdW50UmVtb3ZlZE1lc3NhZ2USEgoKcmVxdWVzdF9pZBgBIAEoCRIyCgRjZXJ0GAIgASgLMiQuc3lyaW54LndlYnNvY2tldC5BY2NvdW50UmVtb3ZhbENlcnQq9gcKC01lc3NhZ2VUeXBlEgsKB1VOS05PV04QABIICgRQSU5HEAESCAoEUE9ORxACEg0KCVNVQlNDUklCRRADEhUKEVJFRURfTk9USUZJQ0FUSU9OEAUSDwoLVVNFUl9VUERBVEUQBhIJCgVFUlJPUhAHEhIKDlNVQlNDUklCRV9VU0VSEAgSFwoTU1VCU0NSSUJFX0JST0FEQ0FTVBAJEhQKEFVOU1VCU0NSSUJFX1VTRVIQChIZChVVTlNVQlNDUklCRV9CUk9BRENBU1QQCxIQCgxSRVFVRVNUX1JFRUQQDBIRCg1EQVRBX1JFU1BPTlNFEA0SCwoHU0lHVEVSTRAOEhAKDFNZTkNfUkVRVUVTVBAPEhIKDlJFTEFZX1JFU1BPTlNFEBASDgoKUkVMQVlfTUlTUxAREg8KC1JFTEFZX0VSUk9SEBISEQoNUkVMQVlfUkVRVUVTVBATEgwKCERBVEFfQUNLEBQSEAoMREFUQV9JTlZBTElEEBUSDwoLUkVRVUVTVF9BQ0sQFhILCgdNQUlMQk9YEBcSDwoLTUFJTEJPWF9BQ0sQGBITCg9LRVlfRkVUQ0hfRVJST1IQGRIUChBSRVZPS0VEX0tFWV9VU0VEEBoSFAoQQ09OVEVOVF9SRUpFQ1RFRBAbEhUKEVNVQlNDUklCRV9QUk9GSUxFEBwSFwoTVU5TVUJTQ1JJQkVfUFJPRklMRRAdEhIKDlNVQlNDUklCRV9SRUVEEB4SFAoQVU5TVUJTQ1JJQkVfUkVFRBAfEhIKDlNVQlNDUklCRV9QSVBFECASFAoQVU5TVUJTQ1JJQkVfUElQRRAhEhEKDVBVQkxJU0hfUkVBRFkQIhIVChFQVUJMSVNIX1JFQURZX0FDSxAjEhIKDlJFRURfTk9UX0ZPVU5EECQSEQoNUkVFRF9OT1RfSEVMRBAlEhwKGElOVkFMSURfUkVRVUVTVF9JRF9FUlJPUhAmEg4KClJFRURfU1RBVFMQJxIRCg1SRUVEX0NPVkVSQUdFECgSDwoLUkVFRF9FQ0hPRVMQKRIQCgxSRUVEX1JFUExJRVMQKhIOCgpSRUVEX0xJS0VTECsSEQoNUklQUExFX1BPU1RFRBAsEhIKDlJJUFBMRV9VUERBVEVEEC0SEAoMUkVFRF9SRU1PVkVEEC4SEwoPQUNDT1VOVF9SRU1PVkVEEC8SEgoOQlJPQURDQVNUX1JFRUQQMBINCglQSVBFX1JFRUQQMRIPCgtGT0xMT1dfUkVFRBAyEhAKDEFSQ0hJVkVfUkVFRBAzEg4KClJFRURfUkVQTFkQNBILCgdNRU5USU9OEDUiBAgEEAQqClNVQlNDUklCRURCIFoeZ2l0aHViLmNvbS9hbHZhcm8vc3lyaW54L3Byb3RvYgZwcm90bzM");
+  fileDesc("Cg93ZWJzb2NrZXQucHJvdG8SEHN5cmlueC53ZWJzb2NrZXQi1RQKCVdTTWVzc2FnZRIrCgR0eXBlGAEgASgOMh0uc3lyaW54LndlYnNvY2tldC5NZXNzYWdlVHlwZRIRCgl0eXBlX25hbWUYDCABKAkSCgoCaWQYCyABKAkSLQoEcGluZxgCIAEoCzIdLnN5cmlueC53ZWJzb2NrZXQuUGluZ01lc3NhZ2VIABItCgRwb25nGAMgASgLMh0uc3lyaW54LndlYnNvY2tldC5Qb25nTWVzc2FnZUgAEjcKCXN1YnNjcmliZRgEIAEoCzIiLnN5cmlueC53ZWJzb2NrZXQuU3Vic2NyaWJlTWVzc2FnZUgAEkYKEXJlZWRfbm90aWZpY2F0aW9uGAYgASgLMikuc3lyaW54LndlYnNvY2tldC5SZWVkTm90aWZpY2F0aW9uTWVzc2FnZUgAEjoKC3VzZXJfdXBkYXRlGAcgASgLMiMuc3lyaW54LndlYnNvY2tldC5Vc2VyVXBkYXRlTWVzc2FnZUgAEi8KBWVycm9yGAggASgLMh4uc3lyaW54LndlYnNvY2tldC5FcnJvck1lc3NhZ2VIABI8CgxyZXF1ZXN0X3JlZWQYCSABKAsyJC5zeXJpbngud2Vic29ja2V0LlJlcXVlc3RSZWVkTWVzc2FnZUgAEj4KDWRhdGFfcmVzcG9uc2UYCiABKAsyJS5zeXJpbngud2Vic29ja2V0LkRhdGFSZXNwb25zZU1lc3NhZ2VIABI1CghzaHV0ZG93bhgNIAEoCzIhLnN5cmlueC53ZWJzb2NrZXQuU2h1dGRvd25NZXNzYWdlSAASPAoMc3luY19yZXF1ZXN0GA4gASgLMiQuc3lyaW54LndlYnNvY2tldC5TeW5jUmVxdWVzdE1lc3NhZ2VIABJACg5yZWxheV9yZXNwb25zZRgPIAEoCzImLnN5cmlueC53ZWJzb2NrZXQuUmVsYXlSZXNwb25zZU1lc3NhZ2VIABI+Cg1yZWxheV9yZXF1ZXN0GBAgASgLMiUuc3lyaW54LndlYnNvY2tldC5SZWxheVJlcXVlc3RNZXNzYWdlSAASOgoLcmVxdWVzdF9hY2sYESABKAsyIy5zeXJpbngud2Vic29ja2V0LlJlcXVlc3RBY2tNZXNzYWdlSAASMwoHbWFpbGJveBgSIAEoCzIgLnN5cmlueC53ZWJzb2NrZXQuTWFpbGJveE1lc3NhZ2VIABI6CgttYWlsYm94X2FjaxgTIAEoCzIjLnN5cmlueC53ZWJzb2NrZXQuTWFpbGJveEFja01lc3NhZ2VIABJBCg9rZXlfZmV0Y2hfZXJyb3IYFCABKAsyJi5zeXJpbngud2Vic29ja2V0LktleUZldGNoRXJyb3JNZXNzYWdlSAASQwoQcmV2b2tlZF9rZXlfdXNlZBgVIAEoCzInLnN5cmlueC53ZWJzb2NrZXQuUmV2b2tlZEtleVVzZWRNZXNzYWdlSAASRAoQY29udGVudF9yZWplY3RlZBgWIAEoCzIoLnN5cmlueC53ZWJzb2NrZXQuQ29udGVudFJlamVjdGVkTWVzc2FnZUgAEkYKEXN1YnNjcmliZV9wcm9maWxlGBcgASgLMikuc3lyaW54LndlYnNvY2tldC5TdWJzY3JpYmVQcm9maWxlTWVzc2FnZUgAEkoKE3Vuc3Vic2NyaWJlX3Byb2ZpbGUYGCABKAsyKy5zeXJpbngud2Vic29ja2V0LlVuc3Vic2NyaWJlUHJvZmlsZU1lc3NhZ2VIABJACg5zdWJzY3JpYmVfcmVlZBgZIAEoCzImLnN5cmlueC53ZWJzb2NrZXQuU3Vic2NyaWJlUmVlZE1lc3NhZ2VIABJEChB1bnN1YnNjcmliZV9yZWVkGBogASgLMiguc3lyaW54LndlYnNvY2tldC5VbnN1YnNjcmliZVJlZWRNZXNzYWdlSAASQAoOc3Vic2NyaWJlX3BpcGUYGyABKAsyJi5zeXJpbngud2Vic29ja2V0LlN1YnNjcmliZVBpcGVNZXNzYWdlSAASRAoQdW5zdWJzY3JpYmVfcGlwZRgcIAEoCzIoLnN5cmlueC53ZWJzb2NrZXQuVW5zdWJzY3JpYmVQaXBlTWVzc2FnZUgAEj4KDXB1Ymxpc2hfcmVhZHkYHSABKAsyJS5zeXJpbngud2Vic29ja2V0LlB1Ymxpc2hSZWFkeU1lc3NhZ2VIABJFChFwdWJsaXNoX3JlYWR5X2FjaxgeIAEoCzIoLnN5cmlueC53ZWJzb2NrZXQuUHVibGlzaFJlYWR5QWNrTWVzc2FnZUgAEj8KDnJlZWRfbm90X2ZvdW5kGB8gASgLMiUuc3lyaW54LndlYnNvY2tldC5SZWVkTm90Rm91bmRNZXNzYWdlSAASPQoNcmVlZF9ub3RfaGVsZBggIAEoCzIkLnN5cmlueC53ZWJzb2NrZXQuUmVlZE5vdEhlbGRNZXNzYWdlSAASUgoYaW52YWxpZF9yZXF1ZXN0X2lkX2Vycm9yGCEgASgLMi4uc3lyaW54LndlYnNvY2tldC5JbnZhbGlkUmVxdWVzdElkRXJyb3JNZXNzYWdlSAASOAoKcmVlZF9zdGF0cxgiIAEoCzIiLnN5cmlueC53ZWJzb2NrZXQuUmVlZFN0YXRzTWVzc2FnZUgAEj4KDXJlZWRfY292ZXJhZ2UYIyABKAsyJS5zeXJpbngud2Vic29ja2V0LlJlZWRDb3ZlcmFnZU1lc3NhZ2VIABI6CgtyZWVkX2VjaG9lcxgkIAEoCzIjLnN5cmlueC53ZWJzb2NrZXQuUmVlZEVjaG9lc01lc3NhZ2VIABI8CgxyZWVkX3JlcGxpZXMYJSABKAsyJC5zeXJpbngud2Vic29ja2V0LlJlZWRSZXBsaWVzTWVzc2FnZUgAEjgKCnJlZWRfbGlrZXMYJiABKAsyIi5zeXJpbngud2Vic29ja2V0LlJlZWRMaWtlc01lc3NhZ2VIABI+Cg1yaXBwbGVfcG9zdGVkGCcgASgLMiUuc3lyaW54LndlYnNvY2tldC5SaXBwbGVQb3N0ZWRNZXNzYWdlSAASQAoOcmlwcGxlX3VwZGF0ZWQYKCABKAsyJi5zeXJpbngud2Vic29ja2V0LlJpcHBsZVVwZGF0ZWRNZXNzYWdlSAASPAoMcmVlZF9yZW1vdmVkGCkgASgLMiQuc3lyaW54LndlYnNvY2tldC5SZWVkUmVtb3ZlZE1lc3NhZ2VIABJCCg9hY2NvdW50X3JlbW92ZWQYKiABKAsyJy5zeXJpbngud2Vic29ja2V0LkFjY291bnRSZW1vdmVkTWVzc2FnZUgAEjwKDHByb2ZpbGVfcGFnZRgrIAEoCzIkLnN5cmlueC53ZWJzb2NrZXQuUHJvZmlsZVBhZ2VNZXNzYWdlSAASNAoIcGFnZV9hY2sYLCABKAsyIC5zeXJpbngud2Vic29ja2V0LlBhZ2VBY2tNZXNzYWdlSABCCQoHcGF5bG9hZEoECAUQBlIKc3Vic2NyaWJlZCIbCgtQaW5nTWVzc2FnZRIMCgRkYXRhGAEgASgJIhsKC1BvbmdNZXNzYWdlEgwKBGRhdGEYASABKAkiIAoQU3Vic2NyaWJlTWVzc2FnZRIMCgRkYXRhGAEgASgJInEKF1JlZWROb3RpZmljYXRpb25NZXNzYWdlEg8KB3JlZWRfaWQYASABKAkSDwoHdXNlcl9pZBgCIAEoCRIQCgh1c2VybmFtZRgDIAEoCRIPCgdjb250ZW50GAQgASgJEhEKCXRpbWVzdGFtcBgFIAEoAyJMChFVc2VyVXBkYXRlTWVzc2FnZRIPCgd1c2VyX2lkGAEgASgJEhMKC3VwZGF0ZV90eXBlGAIgASgJEhEKCXRpbWVzdGFtcBgDIAEoAyJACgxFcnJvck1lc3NhZ2USDAoEY29kZRgBIAEoCRIPCgdtZXNzYWdlGAIgASgJEhEKCXRpbWVzdGFtcBgDIAEoAyI5ChJSZXF1ZXN0UmVlZE1lc3NhZ2USEgoKcmVxdWVzdF9pZBgBIAEoCRIPCgdyZWVkX2lkGAIgASgJImAKE0RhdGFSZXNwb25zZU1lc3NhZ2USEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpjaXBoZXJ0ZXh0GAIgASgJEhAKCHVzZXJuYW1lGAMgASgJEg8KB3JlZWRfaWQYBCABKAkiEQoPU2h1dGRvd25NZXNzYWdlIigKElN5bmNSZXF1ZXN0TWVzc2FnZRISCgpyZXF1ZXN0X2lkGAEgASgJIioKFFJlbGF5UmVzcG9uc2VNZXNzYWdlEhIKCmNpcGhlcnRleHQYASABKAkiPAoTUmVsYXlSZXF1ZXN0TWVzc2FnZRIPCgdyZWVkX2lkGAEgASgJEhQKDHJlcXVlc3Rlcl9pZBgCIAEoCSI4ChFSZXF1ZXN0QWNrTWVzc2FnZRISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB3JlZWRfaWQYAiABKAkiMAoOTWFpbGJveE1lc3NhZ2USCgoCaWQYASABKAkSEgoKY2lwaGVydGV4dBgCIAEoCSIfChFNYWlsYm94QWNrTWVzc2FnZRIKCgJpZBgBIAEoCSI3ChRLZXlGZXRjaEVycm9yTWVzc2FnZRIPCgd1c2VyX2lkGAEgASgJEg4KBmtleV9pZBgCIAEoCSI4ChVSZXZva2VkS2V5VXNlZE1lc3NhZ2USDwoHdXNlcl9pZBgBIAEoCRIOCgZrZXlfaWQYAiABKAkiPAoWQ29udGVudFJlamVjdGVkTWVzc2FnZRISCgpzdG9yZV9uYW1lGAEgASgJEg4KBnJlYXNvbhgCIAEoCSIqChdTdWJzY3JpYmVQcm9maWxlTWVzc2FnZRIPCgd1c2VyX2lkGAEgASgJIiwKGVVuc3Vic2NyaWJlUHJvZmlsZU1lc3NhZ2USDwoHdXNlcl9pZBgBIAEoCSIzChJQcm9maWxlUGFnZU1lc3NhZ2USDwoHdXNlcl9pZBgBIAEoCRIMCgRwYWdlGAIgASgNIlAKDlBhZ2VBY2tNZXNzYWdlEg8KB3VzZXJfaWQYASABKAkSDAoEcGFnZRgCIAEoDRINCgVjb3VudBgDIAEoDRIQCghoYXNfbW9yZRgEIAEoCCInChRTdWJzY3JpYmVSZWVkTWVzc2FnZRIPCgdyZWVkX2lkGAEgASgJIikKFlVuc3Vic2NyaWJlUmVlZE1lc3NhZ2USDwoHcmVlZF9pZBgBIAEoCSIjChRTdWJzY3JpYmVQaXBlTWVzc2FnZRILCgN0YWcYASABKAkiJQoWVW5zdWJzY3JpYmVQaXBlTWVzc2FnZRILCgN0YWcYASABKAkiUAoTUHVibGlzaFJlYWR5TWVzc2FnZRIPCgdyZWVkX2lkGAEgASgJEhEKCWJyb2FkY2FzdBgCIAEoCBIVCg1oYXNfYnJvYWRjYXN0GAMgASgIIikKFlB1Ymxpc2hSZWFkeUFja01lc3NhZ2USDwoHcmVlZF9pZBgBIAEoCSI6ChNSZWVkTm90Rm91bmRNZXNzYWdlEhIKCnJlcXVlc3RfaWQYASABKAkSDwoHcmVlZF9pZBgCIAEoCSI5ChJSZWVkTm90SGVsZE1lc3NhZ2USEgoKcmVxdWVzdF9pZBgBIAEoCRIPCgdyZWVkX2lkGAIgASgJIjIKHEludmFsaWRSZXF1ZXN0SWRFcnJvck1lc3NhZ2USEgoKcmVxdWVzdF9pZBgBIAEoCSJtChBSZWVkU3RhdHNNZXNzYWdlEg8KB3JlZWRfaWQYASABKAkSDgoGZWNob2VzGAIgASgFEhgKEGNvdmVyYWdlX3BlcmNlbnQYAyABKAUSDwoHcmVwbGllcxgEIAEoBRINCgVsaWtlcxgFIAEoBSJAChNSZWVkQ292ZXJhZ2VNZXNzYWdlEg8KB3JlZWRfaWQYASABKAkSGAoQY292ZXJhZ2VfcGVyY2VudBgCIAEoBSI0ChFSZWVkRWNob2VzTWVzc2FnZRIPCgdyZWVkX2lkGAEgASgJEg4KBmVjaG9lcxgCIAEoBSI2ChJSZWVkUmVwbGllc01lc3NhZ2USDwoHcmVlZF9pZBgBIAEoCRIPCgdyZXBsaWVzGAIgASgFIjIKEFJlZWRMaWtlc01lc3NhZ2USDwoHcmVlZF9pZBgBIAEoCRINCgVsaWtlcxgCIAEoBSIqCg1Vc2VyU2lnbmF0dXJlEgoKAmlkGAEgASgJEg0KBWFybW9yGAIgASgJIj8KD1NlcnZlclNpZ25hdHVyZRIKCgJpZBgBIAEoCRINCgVhcm1vchgCIAEoCRIRCglzaWduZWRfYXQYAyABKAMi+gEKBlJpcHBsZRIMCgRoYXNoGAEgASgJEhEKCXRocmVhZF9pZBgCIAEoCRIPCgd1c2VyX2lkGAMgASgJEg8KB2NvbnRlbnQYBCABKAkSEwoLcmVwbHlpbmdfdG8YBSABKAkSDwoHZGVsZXRlZBgGIAEoCBIRCglwb3N0ZWRfYXQYByABKAMSNwoOdXNlcl9zaWduYXR1cmUYCCABKAsyHy5zeXJpbngud2Vic29ja2V0LlVzZXJTaWduYXR1cmUSOwoQc2VydmVyX3NpZ25hdHVyZRgJIAEoCzIhLnN5cmlueC53ZWJzb2NrZXQuU2VydmVyU2lnbmF0dXJlImEKE1JpcHBsZVBvc3RlZE1lc3NhZ2USDwoHdXNlcl9pZBgBIAEoCRIPCgdyZWVkX2lkGAIgASgJEigKBnJpcHBsZRgDIAEoCzIYLnN5cmlueC53ZWJzb2NrZXQuUmlwcGxlImIKFFJpcHBsZVVwZGF0ZWRNZXNzYWdlEg8KB3VzZXJfaWQYASABKAkSDwoHcmVlZF9pZBgCIAEoCRIoCgZyaXBwbGUYAyABKAsyGC5zeXJpbngud2Vic29ja2V0LlJpcHBsZSK8AQoPUmVlZFJlbW92YWxDZXJ0EhEKCXNlcnZlcl9pZBgBIAEoCRIPCgd1c2VyX2lkGAIgASgJEg8KB3JlZWRfaWQYAyABKAkSNwoOdXNlcl9zaWduYXR1cmUYBCABKAsyHy5zeXJpbngud2Vic29ja2V0LlVzZXJTaWduYXR1cmUSOwoQc2VydmVyX3NpZ25hdHVyZRgFIAEoCzIhLnN5cmlueC53ZWJzb2NrZXQuU2VydmVyU2lnbmF0dXJlIrwBChJBY2NvdW50UmVtb3ZhbENlcnQSEQoJc2VydmVyX2lkGAEgASgJEg8KB3VzZXJfaWQYAiABKAkSDAoEbm90ZRgDIAEoCRI3Cg51c2VyX3NpZ25hdHVyZRgEIAEoCzIfLnN5cmlueC53ZWJzb2NrZXQuVXNlclNpZ25hdHVyZRI7ChBzZXJ2ZXJfc2lnbmF0dXJlGAUgASgLMiEuc3lyaW54LndlYnNvY2tldC5TZXJ2ZXJTaWduYXR1cmUiWQoSUmVlZFJlbW92ZWRNZXNzYWdlEhIKCnJlcXVlc3RfaWQYASABKAkSLwoEY2VydBgCIAEoCzIhLnN5cmlueC53ZWJzb2NrZXQuUmVlZFJlbW92YWxDZXJ0Il8KFUFjY291bnRSZW1vdmVkTWVzc2FnZRISCgpyZXF1ZXN0X2lkGAEgASgJEjIKBGNlcnQYAiABKAsyJC5zeXJpbngud2Vic29ja2V0LkFjY291bnRSZW1vdmFsQ2VydCqWCAoLTWVzc2FnZVR5cGUSCwoHVU5LTk9XThAAEggKBFBJTkcQARIICgRQT05HEAISDQoJU1VCU0NSSUJFEAMSFQoRUkVFRF9OT1RJRklDQVRJT04QBRIPCgtVU0VSX1VQREFURRAGEgkKBUVSUk9SEAcSEgoOU1VCU0NSSUJFX1VTRVIQCBIXChNTVUJTQ1JJQkVfQlJPQURDQVNUEAkSFAoQVU5TVUJTQ1JJQkVfVVNFUhAKEhkKFVVOU1VCU0NSSUJFX0JST0FEQ0FTVBALEhAKDFJFUVVFU1RfUkVFRBAMEhEKDURBVEFfUkVTUE9OU0UQDRILCgdTSUdURVJNEA4SEAoMU1lOQ19SRVFVRVNUEA8SEgoOUkVMQVlfUkVTUE9OU0UQEBIOCgpSRUxBWV9NSVNTEBESDwoLUkVMQVlfRVJST1IQEhIRCg1SRUxBWV9SRVFVRVNUEBMSDAoIREFUQV9BQ0sQFBIQCgxEQVRBX0lOVkFMSUQQFRIPCgtSRVFVRVNUX0FDSxAWEgsKB01BSUxCT1gQFxIPCgtNQUlMQk9YX0FDSxAYEhMKD0tFWV9GRVRDSF9FUlJPUhAZEhQKEFJFVk9LRURfS0VZX1VTRUQQGhIUChBDT05URU5UX1JFSkVDVEVEEBsSFQoRU1VCU0NSSUJFX1BST0ZJTEUQHBIXChNVTlNVQlNDUklCRV9QUk9GSUxFEB0SEgoOU1VCU0NSSUJFX1JFRUQQHhIUChBVTlNVQlNDUklCRV9SRUVEEB8SEgoOU1VCU0NSSUJFX1BJUEUQIBIUChBVTlNVQlNDUklCRV9QSVBFECESEQoNUFVCTElTSF9SRUFEWRAiEhUKEVBVQkxJU0hfUkVBRFlfQUNLECMSEgoOUkVFRF9OT1RfRk9VTkQQJBIRCg1SRUVEX05PVF9IRUxEECUSHAoYSU5WQUxJRF9SRVFVRVNUX0lEX0VSUk9SECYSDgoKUkVFRF9TVEFUUxAnEhEKDVJFRURfQ09WRVJBR0UQKBIPCgtSRUVEX0VDSE9FUxApEhAKDFJFRURfUkVQTElFUxAqEg4KClJFRURfTElLRVMQKxIRCg1SSVBQTEVfUE9TVEVEECwSEgoOUklQUExFX1VQREFURUQQLRIQCgxSRUVEX1JFTU9WRUQQLhITCg9BQ0NPVU5UX1JFTU9WRUQQLxISCg5CUk9BRENBU1RfUkVFRBAwEg0KCVBJUEVfUkVFRBAxEg8KC0ZPTExPV19SRUVEEDISEAoMQVJDSElWRV9SRUVEEDMSDgoKUkVFRF9SRVBMWRA0EgsKB01FTlRJT04QNRIQCgxQUk9GSUxFX1BBR0UQNhIMCghQQUdFX0FDSxA3IgQIBBAEKgpTVUJTQ1JJQkVEQiBaHmdpdGh1Yi5jb20vYWx2YXJvL3N5cmlueC9wcm90b2IGcHJvdG8z");
 
 /**
  * WebSocket message wrapper. Every frame on the wire — both directions —
@@ -274,6 +274,18 @@ export type WSMessage = Message<"syrinx.websocket.WSMessage"> & {
      */
     value: AccountRemovedMessage;
     case: "accountRemoved";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.ProfilePageMessage profile_page = 43;
+     */
+    value: ProfilePageMessage;
+    case: "profilePage";
+  } | {
+    /**
+     * @generated from field: syrinx.websocket.PageAckMessage page_ack = 44;
+     */
+    value: PageAckMessage;
+    case: "pageAck";
   } | { case: undefined; value?: undefined };
 };
 
@@ -754,6 +766,66 @@ export const UnsubscribeProfileMessageSchema: GenMessage<UnsubscribeProfileMessa
   messageDesc(file_websocket, 20);
 
 /**
+ * Request for one page of an author's reed history, 1-based.
+ *
+ * @generated from message syrinx.websocket.ProfilePageMessage
+ */
+export type ProfilePageMessage = Message<"syrinx.websocket.ProfilePageMessage"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: uint32 page = 2;
+   */
+  page: number;
+};
+
+/**
+ * Describes the message syrinx.websocket.ProfilePageMessage.
+ * Use `create(ProfilePageMessageSchema)` to create a new message.
+ */
+export const ProfilePageMessageSchema: GenMessage<ProfilePageMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 21);
+
+/**
+ * count and has_more describe the author's reeds at this page offset,
+ * before subtracting what the viewer already holds — so they are the
+ * same for every viewer. count is 0 for a page past the end.
+ *
+ * @generated from message syrinx.websocket.PageAckMessage
+ */
+export type PageAckMessage = Message<"syrinx.websocket.PageAckMessage"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: uint32 page = 2;
+   */
+  page: number;
+
+  /**
+   * @generated from field: uint32 count = 3;
+   */
+  count: number;
+
+  /**
+   * @generated from field: bool has_more = 4;
+   */
+  hasMore: boolean;
+};
+
+/**
+ * Describes the message syrinx.websocket.PageAckMessage.
+ * Use `create(PageAckMessageSchema)` to create a new message.
+ */
+export const PageAckMessageSchema: GenMessage<PageAckMessage> = /*@__PURE__*/
+  messageDesc(file_websocket, 22);
+
+/**
  * @generated from message syrinx.websocket.SubscribeReedMessage
  */
 export type SubscribeReedMessage = Message<"syrinx.websocket.SubscribeReedMessage"> & {
@@ -768,7 +840,7 @@ export type SubscribeReedMessage = Message<"syrinx.websocket.SubscribeReedMessag
  * Use `create(SubscribeReedMessageSchema)` to create a new message.
  */
 export const SubscribeReedMessageSchema: GenMessage<SubscribeReedMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 21);
+  messageDesc(file_websocket, 23);
 
 /**
  * @generated from message syrinx.websocket.UnsubscribeReedMessage
@@ -785,7 +857,7 @@ export type UnsubscribeReedMessage = Message<"syrinx.websocket.UnsubscribeReedMe
  * Use `create(UnsubscribeReedMessageSchema)` to create a new message.
  */
 export const UnsubscribeReedMessageSchema: GenMessage<UnsubscribeReedMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 22);
+  messageDesc(file_websocket, 24);
 
 /**
  * @generated from message syrinx.websocket.SubscribePipeMessage
@@ -802,7 +874,7 @@ export type SubscribePipeMessage = Message<"syrinx.websocket.SubscribePipeMessag
  * Use `create(SubscribePipeMessageSchema)` to create a new message.
  */
 export const SubscribePipeMessageSchema: GenMessage<SubscribePipeMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 23);
+  messageDesc(file_websocket, 25);
 
 /**
  * @generated from message syrinx.websocket.UnsubscribePipeMessage
@@ -819,7 +891,7 @@ export type UnsubscribePipeMessage = Message<"syrinx.websocket.UnsubscribePipeMe
  * Use `create(UnsubscribePipeMessageSchema)` to create a new message.
  */
 export const UnsubscribePipeMessageSchema: GenMessage<UnsubscribePipeMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 24);
+  messageDesc(file_websocket, 26);
 
 /**
  * Client notice that a reed is ready to publish/broadcast.
@@ -851,7 +923,7 @@ export type PublishReadyMessage = Message<"syrinx.websocket.PublishReadyMessage"
  * Use `create(PublishReadyMessageSchema)` to create a new message.
  */
 export const PublishReadyMessageSchema: GenMessage<PublishReadyMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 25);
+  messageDesc(file_websocket, 27);
 
 /**
  * @generated from message syrinx.websocket.PublishReadyAckMessage
@@ -868,7 +940,7 @@ export type PublishReadyAckMessage = Message<"syrinx.websocket.PublishReadyAckMe
  * Use `create(PublishReadyAckMessageSchema)` to create a new message.
  */
 export const PublishReadyAckMessageSchema: GenMessage<PublishReadyAckMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 26);
+  messageDesc(file_websocket, 28);
 
 /**
  * @generated from message syrinx.websocket.ReedNotFoundMessage
@@ -890,7 +962,7 @@ export type ReedNotFoundMessage = Message<"syrinx.websocket.ReedNotFoundMessage"
  * Use `create(ReedNotFoundMessageSchema)` to create a new message.
  */
 export const ReedNotFoundMessageSchema: GenMessage<ReedNotFoundMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 27);
+  messageDesc(file_websocket, 29);
 
 /**
  * Distinct from ReedNotFoundMessage: the reed exists but this server
@@ -915,7 +987,7 @@ export type ReedNotHeldMessage = Message<"syrinx.websocket.ReedNotHeldMessage"> 
  * Use `create(ReedNotHeldMessageSchema)` to create a new message.
  */
 export const ReedNotHeldMessageSchema: GenMessage<ReedNotHeldMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 28);
+  messageDesc(file_websocket, 30);
 
 /**
  * Server rejection of a request_id that doesn't embed the identity of
@@ -935,7 +1007,7 @@ export type InvalidRequestIdErrorMessage = Message<"syrinx.websocket.InvalidRequ
  * Use `create(InvalidRequestIdErrorMessageSchema)` to create a new message.
  */
 export const InvalidRequestIdErrorMessageSchema: GenMessage<InvalidRequestIdErrorMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 29);
+  messageDesc(file_websocket, 31);
 
 /**
  * @generated from message syrinx.websocket.ReedStatsMessage
@@ -972,7 +1044,7 @@ export type ReedStatsMessage = Message<"syrinx.websocket.ReedStatsMessage"> & {
  * Use `create(ReedStatsMessageSchema)` to create a new message.
  */
 export const ReedStatsMessageSchema: GenMessage<ReedStatsMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 30);
+  messageDesc(file_websocket, 32);
 
 /**
  * @generated from message syrinx.websocket.ReedCoverageMessage
@@ -994,7 +1066,7 @@ export type ReedCoverageMessage = Message<"syrinx.websocket.ReedCoverageMessage"
  * Use `create(ReedCoverageMessageSchema)` to create a new message.
  */
 export const ReedCoverageMessageSchema: GenMessage<ReedCoverageMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 31);
+  messageDesc(file_websocket, 33);
 
 /**
  * @generated from message syrinx.websocket.ReedEchoesMessage
@@ -1016,7 +1088,7 @@ export type ReedEchoesMessage = Message<"syrinx.websocket.ReedEchoesMessage"> & 
  * Use `create(ReedEchoesMessageSchema)` to create a new message.
  */
 export const ReedEchoesMessageSchema: GenMessage<ReedEchoesMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 32);
+  messageDesc(file_websocket, 34);
 
 /**
  * @generated from message syrinx.websocket.ReedRepliesMessage
@@ -1038,7 +1110,7 @@ export type ReedRepliesMessage = Message<"syrinx.websocket.ReedRepliesMessage"> 
  * Use `create(ReedRepliesMessageSchema)` to create a new message.
  */
 export const ReedRepliesMessageSchema: GenMessage<ReedRepliesMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 33);
+  messageDesc(file_websocket, 35);
 
 /**
  * @generated from message syrinx.websocket.ReedLikesMessage
@@ -1060,7 +1132,7 @@ export type ReedLikesMessage = Message<"syrinx.websocket.ReedLikesMessage"> & {
  * Use `create(ReedLikesMessageSchema)` to create a new message.
  */
 export const ReedLikesMessageSchema: GenMessage<ReedLikesMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 34);
+  messageDesc(file_websocket, 36);
 
 /**
  * A user's cryptographic signature over content, and the id of the key
@@ -1085,7 +1157,7 @@ export type UserSignature = Message<"syrinx.websocket.UserSignature"> & {
  * Use `create(UserSignatureSchema)` to create a new message.
  */
 export const UserSignatureSchema: GenMessage<UserSignature> = /*@__PURE__*/
-  messageDesc(file_websocket, 35);
+  messageDesc(file_websocket, 37);
 
 /**
  * The home server's countersignature, and when it was produced.
@@ -1114,7 +1186,7 @@ export type ServerSignature = Message<"syrinx.websocket.ServerSignature"> & {
  * Use `create(ServerSignatureSchema)` to create a new message.
  */
 export const ServerSignatureSchema: GenMessage<ServerSignature> = /*@__PURE__*/
-  messageDesc(file_websocket, 36);
+  messageDesc(file_websocket, 38);
 
 /**
  * @generated from message syrinx.websocket.Ripple
@@ -1173,7 +1245,7 @@ export type Ripple = Message<"syrinx.websocket.Ripple"> & {
  * Use `create(RippleSchema)` to create a new message.
  */
 export const RippleSchema: GenMessage<Ripple> = /*@__PURE__*/
-  messageDesc(file_websocket, 37);
+  messageDesc(file_websocket, 39);
 
 /**
  * @generated from message syrinx.websocket.RipplePostedMessage
@@ -1202,7 +1274,7 @@ export type RipplePostedMessage = Message<"syrinx.websocket.RipplePostedMessage"
  * Use `create(RipplePostedMessageSchema)` to create a new message.
  */
 export const RipplePostedMessageSchema: GenMessage<RipplePostedMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 38);
+  messageDesc(file_websocket, 40);
 
 /**
  * A soft-delete patch: content becomes "[DELETED]" on the referenced
@@ -1233,7 +1305,7 @@ export type RippleUpdatedMessage = Message<"syrinx.websocket.RippleUpdatedMessag
  * Use `create(RippleUpdatedMessageSchema)` to create a new message.
  */
 export const RippleUpdatedMessageSchema: GenMessage<RippleUpdatedMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 39);
+  messageDesc(file_websocket, 41);
 
 /**
  * Cryptographic certificate proving a reed's removal, signed by both
@@ -1273,7 +1345,7 @@ export type ReedRemovalCert = Message<"syrinx.websocket.ReedRemovalCert"> & {
  * Use `create(ReedRemovalCertSchema)` to create a new message.
  */
 export const ReedRemovalCertSchema: GenMessage<ReedRemovalCert> = /*@__PURE__*/
-  messageDesc(file_websocket, 40);
+  messageDesc(file_websocket, 42);
 
 /**
  * Cryptographic certificate proving an account's removal, signed by
@@ -1313,7 +1385,7 @@ export type AccountRemovalCert = Message<"syrinx.websocket.AccountRemovalCert"> 
  * Use `create(AccountRemovalCertSchema)` to create a new message.
  */
 export const AccountRemovalCertSchema: GenMessage<AccountRemovalCert> = /*@__PURE__*/
-  messageDesc(file_websocket, 41);
+  messageDesc(file_websocket, 43);
 
 /**
  * @generated from message syrinx.websocket.ReedRemovedMessage
@@ -1335,7 +1407,7 @@ export type ReedRemovedMessage = Message<"syrinx.websocket.ReedRemovedMessage"> 
  * Use `create(ReedRemovedMessageSchema)` to create a new message.
  */
 export const ReedRemovedMessageSchema: GenMessage<ReedRemovedMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 42);
+  messageDesc(file_websocket, 44);
 
 /**
  * @generated from message syrinx.websocket.AccountRemovedMessage
@@ -1357,7 +1429,7 @@ export type AccountRemovedMessage = Message<"syrinx.websocket.AccountRemovedMess
  * Use `create(AccountRemovedMessageSchema)` to create a new message.
  */
 export const AccountRemovedMessageSchema: GenMessage<AccountRemovedMessage> = /*@__PURE__*/
-  messageDesc(file_websocket, 43);
+  messageDesc(file_websocket, 45);
 
 /**
  * Message types. Numbers are frozen once assigned — never renumber or
@@ -1630,6 +1702,16 @@ export enum MessageType {
    * @generated from enum value: MENTION = 53;
    */
   MENTION = 53,
+
+  /**
+   * @generated from enum value: PROFILE_PAGE = 54;
+   */
+  PROFILE_PAGE = 54,
+
+  /**
+   * @generated from enum value: PAGE_ACK = 55;
+   */
+  PAGE_ACK = 55,
 }
 
 /**

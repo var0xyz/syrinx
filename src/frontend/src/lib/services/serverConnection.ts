@@ -149,6 +149,16 @@ export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; 
         id: msg.id,
         data: { data: decodeAccountRemovalCert(p.value.cert) },
       };
+    case 'pageAck':
+      return {
+        type: 'PAGE_ACK',
+        data: {
+          userID: p.value.userId,
+          page: p.value.page,
+          count: p.value.count,
+          hasMore: p.value.hasMore,
+        },
+      };
     default:
       return null;
   }
@@ -191,6 +201,7 @@ export enum ServerEvent {
   InvalidRequestIdError = 'INVALID_REQUEST_ID_ERROR',
   Mailbox              = 'MAILBOX',
   Mentioned            = 'MENTION',
+  PageAck              = 'PAGE_ACK',
   PipeReed             = 'PIPE_REED',
   PublishReadyAck      = 'PUBLISH_READY_ACK',
   ReedCoverage         = 'REED_COVERAGE',
@@ -663,6 +674,12 @@ class ServerConnection {
     await this.connect();
     this.activeSubscription = { kind: 'profile', userId };
     this.sendMsg({ type: MessageType.SUBSCRIBE_PROFILE, payload: { case: 'subscribeProfile', value: { userId } } });
+  }
+
+  /** Ask for one page of an author's history. Independent of any profile
+   * subscription, so it neither connects nor touches activeSubscription. */
+  requestProfilePage(userId: string, page: number): void {
+    this.sendMsg({ type: MessageType.PROFILE_PAGE, payload: { case: 'profilePage', value: { userId, page } } });
   }
 
   unsubscribeProfile(userId: string): void {

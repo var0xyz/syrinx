@@ -14,10 +14,11 @@
   import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedListItem from '$lib/components/ReedListItem.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import LocalPagination from '$lib/components/LocalPagination.svelte';
   import { goto } from '$app/navigation';
   import { isValidRef, getUserId } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
-  import { serverConnection } from '$lib/services/serverConnection';
+  import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';
   import { removedReedsRepository } from '$lib/repositories/removedReeds';
   import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
@@ -43,17 +44,23 @@
 
   const dispatch = createEventDispatcher();
 
+  const PAGE_SIZE = 50;
+
   let isWriteSectionOpen = false;
   let showNewReedBanner = false;
   let reeds = [];
+  /** @type {LocalPagination<import('$lib/types/reed').ReedType> | undefined} */
+  let pagination;
+  /** Highest page already asked of the server for this author. */
+  let requestedPage = 0;
+  /** Latest PAGE_ACK's hasMore — the authoritative end-of-history signal. */
+  let serverHasMore = true;
   /** @type {import('$lib/types/reed').ReedType[]} */
   let pendingReeds = [];
   /** Own cached-lookup fallback, used only when the parent hasn't supplied
    * a fresher `profileUser` prop. */
   let fetchedProfileUser = null;
   $: displayProfileUser = profileUser || fetchedProfileUser;
-  let loadingReeds = true;
-  let errorLoadingReeds = '';
   let echoedReeds = new Map();
   let repliedToReeds = new Map();
   let echoedReedUsers = new Map();
@@ -122,16 +129,16 @@
     dispatch('pinnedChange', { pinnedReedIDs: updated });
   }
 
-  $: if ($unsignedReedsProcessed > 0) loadReeds();
-  $: if ($pendingRemovalSynced > 0) loadReeds();
+  $: if ($unsignedReedsProcessed > 0) void reloadAll();
+  $: if ($pendingRemovalSynced > 0) void reloadAll();
   /** A reed removal cert (this author's own, or one relayed for a reed
    * shown here as an echo/reply target) can arrive over WS while this list
    * is mounted — reload so the deleted item actually disappears instead of
    * lingering until a manual reload remounts the component. */
-  $: if ($reedRemovalCommitted > 0) loadReeds();
+  $: if ($reedRemovalCommitted > 0) void reloadAll();
 
   // Only depend on the queue store — never read reeds/pendingReeds here or
-  // loadReeds() will retrigger this block and flash the loading screen.
+  // reloadAll() will retrigger this block and flash the loading screen.
   $: profileArrived = $profileReedQueue?.reed;
   $: if (profileArrived && profileArrived.id !== lastHandledProfileReedId) {
     lastHandledProfileReedId = profileArrived.id;
@@ -144,8 +151,10 @@
     void onFollowReedArrived(followArrived);
   }
 
-  onMount(async () => {
-    await loadReeds();
+  onMount(() => {
+    serverConnection.on(ServerEvent.PageAck, onPageAck);
+    void reloadAll();
+    return () => serverConnection.off(ServerEvent.PageAck, onPageAck);
   });
 
   async function mergeEchoOriginal(original, echoRefKey) {
@@ -205,7 +214,7 @@
 
     if (arrived.userID === authorId) {
       if (window.scrollY === 0) {
-        await loadReeds();
+        await reloadAll();
       } else {
         showNewReedBanner = true;
       }
@@ -218,7 +227,7 @@
    * the banner is warranted for content that's already on screen. */
   async function onFollowReedArrived(arrived) {
     if (window.scrollY === 0) {
-      await loadReeds();
+      await reloadAll();
     } else {
       showNewReedBanner = true;
     }
@@ -316,39 +325,49 @@
     return { echoMap, userMap, replyMap };
   }
 
-  async function loadReeds() {
-    try {
-      loadingReeds = true;
-      errorLoadingReeds = '';
-      // Whatever raised the banner is about to be superseded by a full
-      // reload of this author's reeds — any previously-flagged "new
-      // content" is now either already rendered or stale, so the banner
-      // must not survive this call. Without this reset, a banner raised
-      // while scrolled down (or before a navigation away and back reused
-      // this same mounted component for a different/same author) could
-      // otherwise linger even once the content it was pointing at is on
-      // screen, only clearing via its own manual dismiss/show buttons.
-      showNewReedBanner = false;
-      reeds = await reedsService.getReedsByAuthor(authorId);
-      pendingReeds = isOwner
-        ? await reedsService.getUnsignedReedsByAuthor(authorId)
-        : [];
+  /** One page of locally-held reeds, plus the server request that backfills
+   * whatever this device is still missing from it. */
+  async function fetchReedPage(after) {
+    const page = await reedsService.getReedsByAuthorPage(authorId, PAGE_SIZE, after);
+    const { echoMap, userMap, replyMap } = await prefetchQuoteTargets(page.items);
+    // Merged, never replaced — a later page must not drop the quote targets
+    // an earlier one already resolved.
+    if (echoMap.size) echoedReeds = new Map([...echoedReeds, ...echoMap]);
+    if (userMap.size) echoedReedUsers = new Map([...echoedReedUsers, ...userMap]);
+    if (replyMap.size) repliedToReeds = new Map([...repliedToReeds, ...replyMap]);
 
-      const allForQuotes = [...pendingReeds, ...reeds];
-      const { echoMap, userMap, replyMap } = await prefetchQuoteTargets(allForQuotes);
-      echoedReeds = echoMap;
-      echoedReedUsers = userMap;
-      repliedToReeds = replyMap;
-    } catch (error) {
-      console.error('Error loading reeds:', error);
-      errorLoadingReeds = 'Failed to load reeds';
-    } finally {
-      loadingReeds = false;
-      if (!appliedScrollRestore && typeof scrollRestoreY === 'number') {
-        appliedScrollRestore = true;
-        await restoreWindowScroll(scrollRestoreY);
-      }
+    serverConnection.requestProfilePage(authorId, ++requestedPage);
+
+    // serverHasMore is the previous ack's value, which is exactly the claim
+    // "a page exists past the one just loaded". Local hasMore alone would
+    // hide the button while this page's bodies are still in flight.
+    return { ...page, hasMore: page.hasMore || serverHasMore };
+  }
+
+  async function reloadAll() {
+    // A full reload supersedes whatever raised the banner, so it must not
+    // survive this call.
+    showNewReedBanner = false;
+    requestedPage = 0;
+    serverHasMore = true;
+    pendingReeds = isOwner
+      ? await reedsService.getUnsignedReedsByAuthor(authorId)
+      : [];
+    await pagination?.loadFirstPage();
+  }
+
+  function onFirstPageSettled() {
+    if (!appliedScrollRestore && typeof scrollRestoreY === 'number') {
+      appliedScrollRestore = true;
+      void restoreWindowScroll(scrollRestoreY);
     }
+  }
+
+  function onPageAck(data) {
+    if (data?.userID !== authorId) return;
+    // count is pre-subtraction: it counts the author's reeds on that page,
+    // not the ones actually arriving here. Only hasMore is acted on.
+    serverHasMore = !!data.hasMore;
   }
 
   let deleteTarget = null;
@@ -389,38 +408,13 @@
 {#if showNewReedBanner}
   <div class="new-reed-banner">
     <div class="new-reed-msg">New reed available</div>
-    <button on:click={() => { showNewReedBanner = false; void loadReeds(); }}>Show</button>
+    <button on:click={() => { showNewReedBanner = false; void reloadAll(); }}>Show</button>
     <button class="dismiss" on:click={() => (showNewReedBanner = false)}>✕</button>
   </div>
 {/if}
 
 <div class="reeds-list" class:with-write-button={showWriteButton}>
-  {#if loadingReeds}
-    <div class="loading">
-      <h2>Loading reeds...</h2>
-      <p>Please wait while we fetch your reeds.</p>
-    </div>
-  {:else if errorLoadingReeds}
-    <div class="error-state">
-      <div class="error-icon">⚠️</div>
-      <h3>Error loading reeds</h3>
-      <p>{errorLoadingReeds}</p>
-      <button class="btn btn-primary" on:click={loadReeds}>Try Again</button>
-    </div>
-  {:else if reeds.length === 0 && pendingReeds.length === 0 && expectContent}
-    <div class="empty-state">
-      <div class="empty-icon">🌱</div>
-      <h3>Waiting for content…</h3>
-      <p>Reeds will appear here once we find a peer to fetch them from.</p>
-    </div>
-  {:else if reeds.length === 0 && pendingReeds.length === 0}
-    <div class="empty-state">
-      <div class="empty-icon">{isOwner ? '🌾' : '🫙'}</div>
-      <h3>No reeds yet</h3>
-      <p>{isOwner ? 'Your reeds will appear here when you publish them.' : 'New reeds will appear here once we receive them.'}</p>
-    </div>
-  {:else}
-    {#each pendingReeds as reed (reed.id)}
+  {#each pendingReeds as reed (reed.id)}
       {@const displayReed = resolveBlankEchoFromMap(reed, echoedReeds)}
       {@const isUnwrapped = isBlankEcho(reed) && displayReed.id !== reed.id}
       {@const awaitingOriginal =
@@ -474,22 +468,30 @@
         {/if}
       </div>
     {/each}
-    {#each pinnedOrdered as reed (reed.id)}
-      <ReedListItem
-        {reed}
-        {authorId}
-        {isOwner}
-        pinned={true}
-        profileUser={displayProfileUser}
-        {echoedReeds}
-        {repliedToReeds}
-        {echoedReedUsers}
-        onNavigate={navigateToReed}
-        onTogglePin={togglePinReed}
-        onDelete={deleteReed}
-      />
-    {/each}
-    {#each reeds as reed (reed.id)}
+  {#each pinnedOrdered as reed (reed.id)}
+    <ReedListItem
+      {reed}
+      {authorId}
+      {isOwner}
+      pinned={true}
+      profileUser={displayProfileUser}
+      {echoedReeds}
+      {repliedToReeds}
+      {echoedReedUsers}
+      onNavigate={navigateToReed}
+      onTogglePin={togglePinReed}
+      onDelete={deleteReed}
+    />
+  {/each}
+
+  <LocalPagination
+    bind:this={pagination}
+    bind:items={reeds}
+    fetchPage={fetchReedPage}
+    on:ready={onFirstPageSettled}
+    errorMessage="Failed to load reeds"
+  >
+    {#snippet item(reed)}
       {#if !pinnedSet.has(reed.id)}
         <ReedListItem
           {reed}
@@ -505,8 +507,26 @@
           onDelete={deleteReed}
         />
       {/if}
-    {/each}
-  {/if}
+    {/snippet}
+
+    {#snippet empty()}
+      {#if pendingReeds.length === 0}
+        <div class="empty-state">
+          <div class="empty-icon">{expectContent ? '🌱' : isOwner ? '🌾' : '🫙'}</div>
+          <h3>{expectContent ? 'Waiting for content…' : 'No reeds yet'}</h3>
+          <p>
+            {#if expectContent}
+              Reeds will appear here once we find a peer to fetch them from.
+            {:else if isOwner}
+              Your reeds will appear here when you publish them.
+            {:else}
+              New reeds will appear here once we receive them.
+            {/if}
+          </p>
+        </div>
+      {/if}
+    {/snippet}
+  </LocalPagination>
 </div>
 
 {#if deleteTarget}
@@ -648,28 +668,6 @@
     background: var(--border);
   }
 
-  .error-state {
-    text-align: center;
-    padding: 3rem 1rem;
-    color: var(--muted);
-  }
-
-  .error-icon {
-    font-size: 3rem;
-    margin-bottom: 1rem;
-  }
-
-  .error-state h3 {
-    margin: 0 0 0.5rem 0;
-    color: var(--fg);
-    font-size: 1.1rem;
-  }
-
-  .error-state p {
-    margin: 0 0 1rem 0;
-    font-size: 0.9rem;
-  }
-
   .reed-meta {
     display: flex;
     align-items: center;
@@ -714,21 +712,6 @@
   .empty-state p {
     margin: 0;
     font-size: 0.9rem;
-  }
-
-  .loading {
-    text-align: center;
-    padding: 2rem;
-    color: var(--muted);
-  }
-
-  .loading h2 {
-    margin: 0 0 0.5rem 0;
-    color: var(--fg);
-  }
-
-  .loading p {
-    margin: 0;
   }
 
   @media (max-width: 768px) {

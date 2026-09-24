@@ -197,6 +197,17 @@ func newRequestAckMsg(requestID, eventID, reedID string) *pb.WSMessage {
 	}
 }
 
+// newPageAckMsg answers a PROFILE_PAGE. count and hasMore describe the
+// author's own page, before subtracting what the viewer holds.
+func newPageAckMsg(userID string, page, count uint32, hasMore bool) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_PAGE_ACK,
+		Payload: &pb.WSMessage_PageAck{
+			PageAck: &pb.PageAckMessage{UserId: userID, Page: page, Count: count, HasMore: hasMore},
+		},
+	}
+}
+
 func newDataResponseMsg(eventID, requestID, ciphertext, reedID string) *pb.WSMessage {
 	return &pb.WSMessage{
 		Type: pb.MessageType_DATA_RESPONSE,
@@ -1259,6 +1270,7 @@ type realtimeService struct {
 	foreignNotHeldHook              realtimeForeignNotHeldHook
 	foreignCancelHook               realtimeForeignCancelHook
 	foreignSubscribeProfileHook     realtimeForeignSubscribeProfileHook
+	foreignProfilePageHook          realtimeForeignProfilePageHook
 	foreignAckHook                  realtimeForeignAckHook
 	foreignUnsubscribeProfileHook   realtimeForeignUnsubscribeProfileHook
 	foreignSubscribeReedHook        realtimeForeignSubscribeReedHook
@@ -2317,6 +2329,10 @@ func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []
 	case pb.MessageType_UNSUBSCRIBE_PROFILE:
 		rs.handleUnsubscribeProfile(client, msg.GetUnsubscribeProfile().GetUserId())
 
+	case pb.MessageType_PROFILE_PAGE:
+		pp := msg.GetProfilePage()
+		rs.handleProfilePage(client, pp.GetUserId(), pp.GetPage())
+
 	case pb.MessageType_PUBLISH_READY:
 		pr := msg.GetPublishReady()
 		rs.handlePublishReady(client, pr.GetReedId(), shouldBroadcastReed(pr))
@@ -2416,6 +2432,10 @@ const initialFanoutBurst = 2
 // each time one of their in-flight relay requests resolves (response, miss,
 // error, or timeout) — the windowed backlog's refill size.
 const fanoutRefillBurst = 5
+
+// profilePageSize is how many of an author's reeds one PROFILE_PAGE covers.
+// Shared with the client, which paginates in the same steps.
+const profilePageSize = 50
 
 // dispatchNext claims and sends the holder's oldest undispatched pending
 // event, if any. Returns true if something was dispatched — dispatchN uses
@@ -2939,65 +2959,78 @@ type realtimeForeignSubscribeProfileResult struct {
 	ReedID      string
 }
 
-// realtimeForeignSubscribeProfileHook registers requesterUserID's interest
-// in every one of authorID's (foreign) reeds it doesn't already hold, with
-// authorID's home server over peer HTTP — the profile-level counterpart of
-// realtimeForeignRequestReedHook, since a profile backfill needs H to
-// enumerate an unknown number of reeds rather than resolve one.
-type realtimeForeignSubscribeProfileHook func(ctx context.Context, authorID, requesterUserID string) ([]realtimeForeignSubscribeProfileResult, error)
+// realtimeForeignSubscribeProfileHook registers requesterUserID for live
+// fanout of authorID's (foreign) future reeds with authorID's home server
+// over peer HTTP.
+type realtimeForeignSubscribeProfileHook func(ctx context.Context, authorID, requesterUserID string) error
 
-// SetForeignSubscribeProfileHook installs the profile-backfill registration hook.
+// SetForeignSubscribeProfileHook installs the profile live-fanout registration hook.
 func (rs *realtimeService) SetForeignSubscribeProfileHook(hook realtimeForeignSubscribeProfileHook) {
 	rs.foreignSubscribeProfileHook = hook
 }
 
-// HandleForeignSubscribeProfile is the profile-level sibling of
-// HandleForeignRequestReed: a peer is registering interest in every one
-// of authorID's reeds this requester doesn't already hold, on behalf of
-// one of its own users. authorID must be local to this server (checked
-// by the caller, same loop-prevention as leg 1). Returns one
-// (peerEventID, reedID) pair per reed successfully registered — reeds
-// this server has no online holder for are silently skipped (not an
-// error; matches the local SUBSCRIBE_PROFILE path's own
-// best-effort-per-reed behavior).
-func (rs *realtimeService) HandleForeignSubscribeProfile(ctx context.Context, authorID, requestingServerID, requestingUserID string) (results []realtimeForeignSubscribeProfileResult, err error) {
-	// Durable registration for LIVE fanout: without this, fanoutNewReedCore's
-	// GetProfileSubscribers(authorID) call never sees this peer's viewer, so
-	// a reed authorID publishes after this snapshot never reaches them. The
-	// backfill below (GetUnallocatedReeds) only covers what already exists
-	// right now. viewer_user_id is the real remote user, not the sentinel —
-	// each foreign viewer needs its own row so a later publish fans out to
-	// all of them individually, exactly like distinct local viewers would.
+// realtimeForeignProfilePageHook fetches one page of a foreign author's
+// reeds from their home server, with that page's count and hasMore.
+type realtimeForeignProfilePageHook func(ctx context.Context, authorID, requesterUserID string, page int) ([]realtimeForeignSubscribeProfileResult, int, bool, error)
+
+// SetForeignProfilePageHook installs the profile history-page hook.
+func (rs *realtimeService) SetForeignProfilePageHook(hook realtimeForeignProfilePageHook) {
+	rs.foreignProfilePageHook = hook
+}
+
+// HandleForeignSubscribeProfile registers a peer's viewer for live fanout
+// of authorID's future reeds; authorID must be local here. History is
+// pulled separately by HandleForeignProfilePage.
+func (rs *realtimeService) HandleForeignSubscribeProfile(ctx context.Context, authorID, requestingServerID, requestingUserID string) error {
+	// Without this row, fanoutNewReedCore's GetProfileSubscribers(authorID)
+	// never sees this peer's viewer. viewer_user_id is the real remote user,
+	// so each foreign viewer fans out individually like a local one would.
 	if err := rs.db.UpsertRemoteIdentity(ctx, requestingUserID, requestingServerID); err != nil {
-		return nil, err
+		return err
 	}
 	if _, err := rs.db.CreateProfileSubscription(ctx, generateRealtimeEventID(requestingUserID), requestingUserID, authorID); err != nil {
-		return nil, err
+		return err
+	}
+	return nil
+}
+
+// HandleForeignProfilePage registers relay requests for one page of a local
+// author's reeds for a peer's viewer. count and hasMore describe the page
+// itself, so they survive whatever the subtraction and skips below drop.
+func (rs *realtimeService) HandleForeignProfilePage(ctx context.Context, authorID, requestingServerID, requestingUserID string, page int) (results []realtimeForeignSubscribeProfileResult, count int, hasMore bool, err error) {
+	if err := rs.db.UpsertRemoteIdentity(ctx, requestingUserID, requestingServerID); err != nil {
+		return nil, 0, false, err
 	}
 
-	reedIDs, err := rs.db.GetUnallocatedReedsForServer(ctx, authorID, requestingServerID)
+	reedIDs, hasMore, err := rs.db.GetAuthorReedPage(ctx, authorID, page, profilePageSize)
 	if err != nil {
-		return nil, err
+		return nil, 0, false, err
+	}
+	count = len(reedIDs)
+
+	missing, err := rs.db.SubtractServerAllocatedReeds(ctx, reedIDs, requestingServerID)
+	if err != nil {
+		return nil, 0, false, err
 	}
 
-	for _, reedID := range reedIDs {
+	for _, reedID := range missing {
 		requestID := generateRealtimeEventID(requestingUserID)
 		exists, hasHolders, _, eventID, err := rs.registerReedRequest(ctx, reedID, "", requestingUserID, requestID, false, requestReedEvent)
 		if err != nil {
-			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed for foreign profile subscription")
+			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed for foreign profile page")
 			continue
 		}
 		if !exists || !hasHolders {
 			continue
 		}
 		if err := rs.recordForeignRelayRequest(ctx, eventID, requestingServerID, requestingUserID); err != nil {
-			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to record foreign relay request for profile subscription")
+			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to record foreign relay request for profile page")
 			continue
 		}
 		results = append(results, realtimeForeignSubscribeProfileResult{PeerEventID: eventID, ReedID: reedID})
 	}
 
-	return results, nil
+	return results, count, hasMore, nil
 }
 
 func (rs *realtimeService) handleSubscribeProfile(client *realtimeClient, userID string) {
@@ -3005,28 +3038,53 @@ func (rs *realtimeService) handleSubscribeProfile(client *realtimeClient, userID
 		return
 	}
 
-	subscriptionID, err := rs.db.CreateProfileSubscription(context.Background(), generateRealtimeEventID(client.userID), client.userID, userID)
-	if err != nil {
+	if _, err := rs.db.CreateProfileSubscription(context.Background(), generateRealtimeEventID(client.userID), client.userID, userID); err != nil {
 		log.Error().Err(err).Msg("Failed to create profile subscription")
 		return
 	}
 
+	if foreign, _ := rs.isForeignReed(userID); foreign {
+		rs.handleForeignSubscribeProfileFromClient(client, userID)
+	}
+}
+
+// handleProfilePage registers relay requests for one page of an author's
+// reed history. Independent of any profile subscription: the events carry
+// no subscription id and survive the viewer navigating away.
+func (rs *realtimeService) handleProfilePage(client *realtimeClient, userID string, page uint32) {
+	if userID == "" {
+		return
+	}
+	if page < 1 {
+		page = 1
+	}
+
 	if foreign, homeServerID := rs.isForeignReed(userID); foreign {
-		rs.handleForeignSubscribeProfileFromClient(client, userID, homeServerID, subscriptionID)
+		rs.handleForeignProfilePageFromClient(client, userID, homeServerID, page)
 		return
 	}
 
-	missingIDs, err := rs.db.GetUnallocatedReeds(context.Background(), userID, client.userID)
+	reedIDs, hasMore, err := rs.db.GetAuthorReedPage(context.Background(), userID, int(page), profilePageSize)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to get unallocated reeds for viewer")
+		log.Error().Err(err).Msg("Failed to get author reed page")
 		return
 	}
 
-	for _, reedID := range missingIDs {
+	// Acked before the work below so the client's pagination state never
+	// waits on however many events this page turns out to need.
+	rs.connManager.SendToUser(client.userID, newPageAckMsg(userID, page, uint32(len(reedIDs)), hasMore))
+
+	missing, err := rs.db.SubtractHeldReeds(context.Background(), reedIDs, client.userID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to subtract held reeds for viewer")
+		return
+	}
+
+	for _, reedID := range missing {
 		eventID := generateRealtimeEventID(client.userID)
 		requestID := generateRealtimeEventID(client.userID)
-		if err := rs.createProfileSubscriptionEvent(context.Background(), eventID, requestID, client.userID, profileSubscriptionEvent, reedID, subscriptionID); err != nil {
-			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to create profile subscription event")
+		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, client.userID, profileSubscriptionEvent, reedID); err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to create profile page event")
 			continue
 		}
 		holder, err := rs.db.GetOnlineReedHolder(context.Background(), reedID)
@@ -3038,23 +3096,38 @@ func (rs *realtimeService) handleSubscribeProfile(client *realtimeClient, userID
 }
 
 // handleForeignSubscribeProfileFromClient is handleSubscribeProfile's
-// foreign branch: ask authorID's home server for every reed of theirs
-// this viewer doesn't hold, and register a local pending event (plus its
-// foreign_pending_events mapping) for each one returned, exactly as
-// handleForeignRequestReedFromClient does for a single reed.
-func (rs *realtimeService) handleForeignSubscribeProfileFromClient(client *realtimeClient, authorID, homeServerID, subscriptionID string) {
+// foreign branch: register this viewer for live fanout with authorID's
+// home server. History comes separately via handleForeignProfilePageFromClient.
+func (rs *realtimeService) handleForeignSubscribeProfileFromClient(client *realtimeClient, authorID string) {
 	if rs.foreignSubscribeProfileHook == nil {
 		return
 	}
 
-	results, err := rs.foreignSubscribeProfileHook(context.Background(), authorID, client.userID)
-	if err != nil {
-		log.Error().Err(err).Str("authorID", authorID).Str("homeServerID", homeServerID).Msg("Failed to register foreign profile subscription")
+	if err := rs.foreignSubscribeProfileHook(context.Background(), authorID, client.userID); err != nil {
+		log.Error().Err(err).Str("authorID", authorID).Msg("Failed to register foreign profile subscription")
+	}
+}
+
+// handleForeignProfilePageFromClient is handleProfilePage's foreign branch:
+// ask authorID's home server for one page of their reeds, and register a
+// local pending event (plus its foreign_pending_events mapping) per result.
+func (rs *realtimeService) handleForeignProfilePageFromClient(client *realtimeClient, authorID, homeServerID string, page uint32) {
+	if rs.foreignProfilePageHook == nil {
 		return
 	}
 
+	results, count, hasMore, err := rs.foreignProfilePageHook(context.Background(), authorID, client.userID, int(page))
+	if err != nil {
+		log.Error().Err(err).Str("authorID", authorID).Str("homeServerID", homeServerID).Msg("Failed to fetch foreign profile page")
+		return
+	}
+
+	// The home server's own page numbers, not len(results) — results is
+	// already net of what this server holds.
+	rs.connManager.SendToUser(client.userID, newPageAckMsg(authorID, page, uint32(count), hasMore))
+
 	for _, result := range results {
-		rs.registerForeignProfileSubscriptionEvent(context.Background(), client.userID, homeServerID, subscriptionID, result.ReedID, result.PeerEventID)
+		rs.registerForeignProfilePageEvent(context.Background(), client.userID, homeServerID, result.ReedID, result.PeerEventID)
 	}
 }
 
@@ -3079,6 +3152,28 @@ func (rs *realtimeService) registerForeignProfileSubscriptionEvent(ctx context.C
 	}
 	if err := rs.db.CreateForeignPendingEvent(ctx, eventID, homeServerID, peerEventID); err != nil {
 		log.Error().Err(err).Msg("Failed to record foreign pending event mapping for profile subscription")
+		if delErr := rs.deletePendingEvent(ctx, eventID); delErr != nil {
+			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")
+		}
+	}
+}
+
+// registerForeignProfilePageEvent is registerForeignProfileSubscriptionEvent
+// for a history page: the event carries no subscription id, so it is not
+// cascade-deleted when the viewer unsubscribes.
+func (rs *realtimeService) registerForeignProfilePageEvent(ctx context.Context, requesterUserID, homeServerID, reedID, peerEventID string) {
+	if err := rs.db.UpsertReedIdentity(ctx, reedID); err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to upsert reed identity for foreign profile page")
+		return
+	}
+	eventID := generateRealtimeEventID(requesterUserID)
+	requestID := generateRealtimeEventID(requesterUserID)
+	if err := rs.createPendingReedEvent(ctx, eventID, requestID, requesterUserID, profileSubscriptionEvent, reedID); err != nil {
+		log.Error().Err(err).Str("peerEventID", peerEventID).Msg("Failed to create local pending event for foreign profile page")
+		return
+	}
+	if err := rs.db.CreateForeignPendingEvent(ctx, eventID, homeServerID, peerEventID); err != nil {
+		log.Error().Err(err).Msg("Failed to record foreign pending event mapping for profile page")
 		if delErr := rs.deletePendingEvent(ctx, eventID); delErr != nil {
 			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")
 		}

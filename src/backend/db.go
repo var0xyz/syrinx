@@ -320,9 +320,13 @@ func InitDB(db *sql.DB) error {
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
 
+	// Reed ids embed a time-ordered uuid after the author prefix, so id DESC
+	// is chronological — but only within a single author, never across them.
 	createReedIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reeds_user_id
 		ON reeds(user_id);
+	CREATE INDEX IF NOT EXISTS idx_reeds_user_id_id
+		ON reeds(user_id, id DESC);
 	CREATE INDEX IF NOT EXISTS idx_reeds_signed_at
 		ON reeds(signed_at);
 	`

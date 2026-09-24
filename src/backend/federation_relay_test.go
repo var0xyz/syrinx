@@ -218,3 +218,68 @@ func TestMentionNotifyFromPeer_RejectsMentionedUserNotLocal(t *testing.T) {
 		t.Fatalf("status = %d, want %d (mentioned_user_id is not local to this server)", rr.Code, http.StatusBadRequest)
 	}
 }
+
+func TestRelayProfilePageFromPeer_RejectsNonPeerCaller(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	body := `{"author_id":"alice@home1234","requester_user_id":"bob@peer5678","page":1}`
+	req := httptest.NewRequest(http.MethodPost, "/api/federation/relay/profile-page", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	h.RelayProfilePageFromPeer(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d (no peerServerIDKey in context)", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestRelayProfilePageFromPeer_RejectsMalformedBody(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/profile-page", strings.NewReader("{not json")), "peer5678")
+	rr := httptest.NewRecorder()
+
+	h.RelayProfilePageFromPeer(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (malformed body)", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestRelayProfilePageFromPeer_RejectsMissingFields(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	body := `{"author_id":"","requester_user_id":"","page":1}`
+	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/profile-page", strings.NewReader(body)), "peer5678")
+	rr := httptest.NewRecorder()
+
+	h.RelayProfilePageFromPeer(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (missing required fields)", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestRelayProfilePageFromPeer_RejectsNonLocalAuthorID(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	// Only the server hosting the author can enumerate their reeds.
+	body := `{"author_id":"alice@thirdparty","requester_user_id":"bob@peer5678","page":1}`
+	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/profile-page", strings.NewReader(body)), "peer5678")
+	rr := httptest.NewRecorder()
+
+	h.RelayProfilePageFromPeer(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (author_id not local to this server)", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestRelayProfilePageFromPeer_NilRelayIsInternalError(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	body := `{"author_id":"alice@home1234","requester_user_id":"bob@peer5678","page":1}`
+	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/profile-page", strings.NewReader(body)), "peer5678")
+	rr := httptest.NewRecorder()
+
+	h.RelayProfilePageFromPeer(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d (realtimeRelay is nil)", rr.Code, http.StatusInternalServerError)
+	}
+}

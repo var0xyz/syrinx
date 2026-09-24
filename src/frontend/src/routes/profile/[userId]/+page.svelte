@@ -265,8 +265,8 @@
       await userInfoRepository.put(info);
       if (seq !== infoFetchSeq) return;
 
-      const localReedCount = (await reedsService.getReedsByAuthor(uid)).length;
-      expectContent = localReedCount === 0 && info.hasReeds === true;
+      const hasLocalReeds = await reedsService.hasReedsByAuthor(uid);
+      expectContent = !hasLocalReeds && info.hasReeds === true;
 
       let profile: api.User | null = isOwner
         ? data.currentUser
