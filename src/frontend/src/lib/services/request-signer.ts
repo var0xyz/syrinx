@@ -1,6 +1,6 @@
 /**
  * Request Signing Service
- * Communicates with service worker to sign requests
+ * Communicates with service worker to sign and decrypt
  * Does NOT store decrypted key in memory (only in service worker)
  *
  * After OS discards the SW heap, re-INIT_KEY from localStorage
@@ -275,15 +275,14 @@ class RequestSignerService {
 
 
   /**
-   * Sign arbitrary text using the service worker
-   * This is the core signing primitive
+   * Run a keyed worker op, re-initializing once if the SW heap was
+   * discarded between ensureWorkerKey() and the call itself.
    */
-  async sign(text: string): Promise<string> {
+  private async withWorkerKey<T>(op: () => Promise<T>): Promise<T> {
     await this.ensureWorkerKey();
 
     try {
-      const signature = await this.getSignatureFromWorker(text);
-      return this.encodeBase64Signature(signature);
+      return await op();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!message.includes('Private key not initialized')) {
@@ -291,9 +290,37 @@ class RequestSignerService {
       }
       this.initialized = false;
       await this.ensureWorkerKey();
-      const signature = await this.getSignatureFromWorker(text);
-      return this.encodeBase64Signature(signature);
+      return await op();
     }
+  }
+
+  /**
+   * Sign arbitrary text using the service worker
+   * This is the core signing primitive
+   */
+  async sign(text: string): Promise<string> {
+    return this.encodeBase64Signature(
+      await this.withWorkerKey(() => this.getSignatureFromWorker(text))
+    );
+  }
+
+  /**
+   * Sign arbitrary text, returning the armored signature as-is. Callers
+   * that embed a signature verbatim use this; `sign` base64-wraps it.
+   */
+  async signArmored(text: string): Promise<string> {
+    return (await this.withWorkerKey(() => this.getSignatureFromWorker(text))).trim();
+  }
+
+  /** Decrypt a message encrypted to the active key, via the service worker. */
+  async decryptOwn(armored: string): Promise<string> {
+    return this.withWorkerKey(async () => {
+      const result = await this.postToWorker<{ success: boolean; plaintext: string }>(
+        'DECRYPT_OWN',
+        { armored }
+      );
+      return result.plaintext;
+    });
   }
 
   /**
