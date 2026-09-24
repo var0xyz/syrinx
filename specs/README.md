@@ -43,8 +43,9 @@ Each table below has a **Status** column per step. Values:
 | Likes            | Proposed    | 00–06                                             |
 | Invites          | In progress | 06 (00–05 implemented)                            |
 | Content privacy  | In progress | 04 (mention-inbox client consumption)             |
+| Eviction         | Implemented | —                                                 |
 
-**Already done:** Coverage, Deletion, Signature storage, Publish
+**Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
 superseded by [`notifications/`](notifications/README.md), which is its own track,
 separate from the recovery prerequisites — see below).
@@ -121,6 +122,16 @@ See [`coverage/`](coverage/README.md):
 | 00 | Design + UX + formula                            | Implemented |
 | 01 | Denormalized counters                            | Implemented |
 | 02 | WS subscribe snapshot ACK + live echoes/coverage | Implemented |
+
+## Client-side eviction
+
+See [`eviction/`](eviction/README.md). A client over its storage quota
+threshold (85%) frees space by dropping a random local author it does not
+follow: every reed of theirs first, then the profile and public key. Each
+reed is announced to the server with an `EVICTION` message and deleted
+locally only once the server acks, so `reed_allocations` never claims a
+holder that has already deleted the content. The ack is idempotent — the
+server acks even when it holds no such allocation.
 
 ## Reed likes
 
