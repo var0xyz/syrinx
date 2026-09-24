@@ -495,10 +495,6 @@ type realtimeBroadcastMessage struct {
 	Ripple *RippleWire
 }
 
-// realtimeReedKey identifies a reed-scoped subscription — the reed's own
-// canonical id, which already self-describes (embeds the author).
-type realtimeReedKey string
-
 // realtimeClientSubscriptionFlags tracks per-client subscription toggles.
 type realtimeClientSubscriptionFlags struct {
 	user      bool
@@ -517,22 +513,25 @@ const (
 
 // realtimeClient represents a connected WebSocket client.
 type realtimeClient struct {
-	conn              *websocket.Conn
-	userID            string
-	subscriptions     realtimeClientSubscriptionFlags
-	reedSubscriptions map[realtimeReedKey]struct{}
-	pipeSubscriptions map[string]struct{} // normalized tag → subscribed
-	lastPing          time.Time
-	writeMu           sync.Mutex
-	wsRecordOutbound  func(messageType int, data []byte)
+	conn             *websocket.Conn
+	userID           string
+	subscriptions    realtimeClientSubscriptionFlags
+	lastPing         time.Time
+	writeMu          sync.Mutex
+	wsRecordOutbound func(messageType int, data []byte)
 }
 
 // realtimeConnectionManager manages WebSocket connections and subscriptions.
+// Subscription state lives in Postgres (reed_subscriptions,
+// pipe_subscriptions), not here — only the sockets themselves are
+// process-local, since a *websocket.Conn can't be shared across replicas.
 type realtimeConnectionManager struct {
 	userConnections map[string]map[*websocket.Conn]*realtimeClient
-	reedSubscribers map[realtimeReedKey]map[*realtimeClient]struct{}
-	pipeSubscribers map[string]map[*realtimeClient]struct{}
 	mutex           sync.RWMutex
+
+	// Set when running with a cross-replica bus; nil means single-replica,
+	// where a user with no local socket is simply offline.
+	bus *realtimeBus
 }
 
 // String returns the string representation of realtimeBroadcastType.
@@ -566,11 +565,9 @@ func (bt realtimeBroadcastType) String() string {
 // newRealtimeClient creates a new client.
 func newRealtimeClient(conn *websocket.Conn, userID string) *realtimeClient {
 	return &realtimeClient{
-		conn:              conn,
-		userID:            userID,
-		reedSubscriptions: make(map[realtimeReedKey]struct{}),
-		pipeSubscriptions: make(map[string]struct{}),
-		lastPing:          time.Now(),
+		conn:     conn,
+		userID:   userID,
+		lastPing: time.Now(),
 	}
 }
 
@@ -610,8 +607,6 @@ func (c *realtimeClient) Unsubscribe(subType realtimeSubscriptionType) {
 func newRealtimeConnectionManager() *realtimeConnectionManager {
 	return &realtimeConnectionManager{
 		userConnections: make(map[string]map[*websocket.Conn]*realtimeClient),
-		reedSubscribers: make(map[realtimeReedKey]map[*realtimeClient]struct{}),
-		pipeSubscribers: make(map[string]map[*realtimeClient]struct{}),
 	}
 }
 
@@ -650,8 +645,6 @@ func (cm *realtimeConnectionManager) registerClient(client *realtimeClient) {
 				continue
 			}
 			delete(existing, conn)
-			cm.clearReedSubscriptions(old)
-			cm.clearPipeSubscriptions(old)
 			stale = append(stale, old)
 		}
 	}
@@ -685,8 +678,6 @@ func (cm *realtimeConnectionManager) unregisterClient(client *realtimeClient) bo
 		}
 	}
 
-	cm.clearReedSubscriptions(client)
-	cm.clearPipeSubscriptions(client)
 	client.conn.Close()
 
 	remaining := cm.userConnections[client.userID]
@@ -710,8 +701,6 @@ func (cm *realtimeConnectionManager) DisconnectUser(userID string) {
 	clients := make([]*realtimeClient, 0, len(userConns))
 	for conn, client := range userConns {
 		delete(userConns, conn)
-		cm.clearReedSubscriptions(client)
-		cm.clearPipeSubscriptions(client)
 		clients = append(clients, client)
 	}
 	delete(cm.userConnections, userID)
@@ -736,6 +725,11 @@ func (cm *realtimeConnectionManager) SendToUser(userID string, msg *pb.WSMessage
 	userConns, exists := cm.userConnections[userID]
 	if !exists || len(userConns) == 0 {
 		cm.mutex.RUnlock()
+		// Not ours — hand off to whichever replica holds the socket. A nil
+		// return here means "delivered or handed off", not "delivered".
+		if cm.bus != nil {
+			return cm.bus.marshalAndPublish(userID, msg)
+		}
 		return fmt.Errorf("no active connection for user %s", userID)
 	}
 	clients := make([]*realtimeClient, 0, len(userConns))
@@ -765,6 +759,47 @@ func (cm *realtimeConnectionManager) SendToUser(userID string, msg *pb.WSMessage
 		return fmt.Errorf("no active connection for user %s", userID)
 	}
 	return nil
+}
+
+// isUserOnline reports presence from online_users, not this replica's
+// socket map, so a recipient on another replica still counts as online.
+// Errs toward true: a failed lookup shouldn't silently drop a dispatch.
+func (rs *realtimeService) isUserOnline(userID string) bool {
+	online, err := rs.db.IsUserOnline(context.Background(), userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to check user presence")
+		return true
+	}
+	return online
+}
+
+// SetBus installs the cross-replica delivery bus.
+func (cm *realtimeConnectionManager) SetBus(bus *realtimeBus) {
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+	cm.bus = bus
+}
+
+// deliverLocal writes an already-marshaled frame to this replica's own
+// sockets for userID, reporting whether any write landed. This is the bus
+// receive side, so it never falls back to the bus itself.
+func (cm *realtimeConnectionManager) deliverLocal(userID string, frame []byte) bool {
+	cm.mutex.RLock()
+	clients := make([]*realtimeClient, 0, len(cm.userConnections[userID]))
+	for _, c := range cm.userConnections[userID] {
+		clients = append(clients, c)
+	}
+	cm.mutex.RUnlock()
+
+	sent := false
+	for _, c := range clients {
+		if err := c.writeMessage(websocket.BinaryMessage, frame); err != nil {
+			log.Error().Err(err).Str("userID", userID).Msg("Failed to deliver bus frame")
+			continue
+		}
+		sent = true
+	}
+	return sent
 }
 
 // HasConnection reports whether any active WebSocket is registered for the user.
@@ -866,183 +901,6 @@ func (cm *realtimeConnectionManager) GetConnectionCount() int {
 	return total
 }
 
-// SubscribeReed adds a reed-scoped subscription for the client.
-func (cm *realtimeConnectionManager) SubscribeReed(client *realtimeClient, reedID string) {
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
-
-	key := realtimeReedKey(reedID)
-	client.reedSubscriptions[key] = struct{}{}
-	if cm.reedSubscribers[key] == nil {
-		cm.reedSubscribers[key] = make(map[*realtimeClient]struct{})
-	}
-	cm.reedSubscribers[key][client] = struct{}{}
-}
-
-// UnsubscribeReed removes a reed-scoped subscription for the client.
-func (cm *realtimeConnectionManager) UnsubscribeReed(client *realtimeClient, reedID string) {
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
-
-	key := realtimeReedKey(reedID)
-	delete(client.reedSubscriptions, key)
-	if subs, ok := cm.reedSubscribers[key]; ok {
-		delete(subs, client)
-		if len(subs) == 0 {
-			delete(cm.reedSubscribers, key)
-		}
-	}
-}
-
-func (cm *realtimeConnectionManager) clearReedSubscriptions(client *realtimeClient) {
-	for key := range client.reedSubscriptions {
-		if subs, ok := cm.reedSubscribers[key]; ok {
-			delete(subs, client)
-			if len(subs) == 0 {
-				delete(cm.reedSubscribers, key)
-			}
-		}
-	}
-	client.reedSubscriptions = make(map[realtimeReedKey]struct{})
-}
-
-// normalizePipeTag lowercases and strips a leading # (SPA / SignReed parity).
-func normalizePipeTag(tag string) string {
-	tag = strings.TrimSpace(tag)
-	tag = strings.TrimPrefix(tag, "#")
-	return strings.ToLower(strings.TrimSpace(tag))
-}
-
-// SubscribePipe adds a pipe (hashtag) subscription for the client.
-func (cm *realtimeConnectionManager) SubscribePipe(client *realtimeClient, tag string) {
-	tag = normalizePipeTag(tag)
-	if tag == "" || client == nil {
-		return
-	}
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
-
-	client.pipeSubscriptions[tag] = struct{}{}
-	if cm.pipeSubscribers[tag] == nil {
-		cm.pipeSubscribers[tag] = make(map[*realtimeClient]struct{})
-	}
-	cm.pipeSubscribers[tag][client] = struct{}{}
-}
-
-// UnsubscribePipe removes a pipe subscription for the client.
-func (cm *realtimeConnectionManager) UnsubscribePipe(client *realtimeClient, tag string) {
-	tag = normalizePipeTag(tag)
-	if tag == "" || client == nil {
-		return
-	}
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
-
-	delete(client.pipeSubscriptions, tag)
-	if subs, ok := cm.pipeSubscribers[tag]; ok {
-		delete(subs, client)
-		if len(subs) == 0 {
-			delete(cm.pipeSubscribers, tag)
-		}
-	}
-}
-
-func (cm *realtimeConnectionManager) clearPipeSubscriptions(client *realtimeClient) {
-	for tag := range client.pipeSubscriptions {
-		if subs, ok := cm.pipeSubscribers[tag]; ok {
-			delete(subs, client)
-			if len(subs) == 0 {
-				delete(cm.pipeSubscribers, tag)
-			}
-		}
-	}
-	client.pipeSubscriptions = make(map[string]struct{})
-}
-
-// FilterTagsWithListeners returns tags from the input that currently have ≥1
-// pipe subscriber (order preserved, duplicates dropped).
-func (cm *realtimeConnectionManager) FilterTagsWithListeners(tags []string) []string {
-	if len(tags) == 0 {
-		return nil
-	}
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	out := make([]string, 0, len(tags))
-	seen := make(map[string]struct{}, len(tags))
-	for _, raw := range tags {
-		tag := normalizePipeTag(raw)
-		if tag == "" {
-			continue
-		}
-		if _, ok := seen[tag]; ok {
-			continue
-		}
-		seen[tag] = struct{}{}
-		if len(cm.pipeSubscribers[tag]) > 0 {
-			out = append(out, tag)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// PipeListenerUserIDs returns unique user IDs currently subscribed to any of
-// the given tags, excluding excludeUserID (typically the author).
-func (cm *realtimeConnectionManager) PipeListenerUserIDs(tags []string, excludeUserID string) []string {
-	if len(tags) == 0 {
-		return nil
-	}
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	seen := make(map[string]struct{})
-	var out []string
-	for _, raw := range tags {
-		tag := normalizePipeTag(raw)
-		for client := range cm.pipeSubscribers[tag] {
-			if client == nil || client.userID == "" || client.userID == excludeUserID {
-				continue
-			}
-			if _, ok := seen[client.userID]; ok {
-				continue
-			}
-			seen[client.userID] = struct{}{}
-			out = append(out, client.userID)
-		}
-	}
-	return out
-}
-
-// ReedSubscriberUserIDs returns the distinct user IDs currently subscribed
-// to reedID, excluding excludeUserID (typically the reply's own author, who
-// doesn't need it relayed back to themselves).
-func (cm *realtimeConnectionManager) ReedSubscriberUserIDs(reedID, excludeUserID string) []string {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	subs := cm.reedSubscribers[realtimeReedKey(reedID)]
-	if len(subs) == 0 {
-		return nil
-	}
-
-	seen := make(map[string]struct{})
-	var out []string
-	for client := range subs {
-		if client == nil || client.userID == "" || client.userID == excludeUserID {
-			continue
-		}
-		if _, ok := seen[client.userID]; ok {
-			continue
-		}
-		seen[client.userID] = struct{}{}
-		out = append(out, client.userID)
-	}
-	return out
-}
-
 // SendToClient writes a protobuf payload to one client.
 func (cm *realtimeConnectionManager) SendToClient(client *realtimeClient, msg *pb.WSMessage) error {
 	data, err := marshalWSMessage(msg)
@@ -1052,65 +910,43 @@ func (cm *realtimeConnectionManager) SendToClient(client *realtimeClient, msg *p
 	return client.writeMessage(websocket.BinaryMessage, data)
 }
 
-// SendToReedSubscribers sends a protobuf payload to all subscribers of a reed.
-func (cm *realtimeConnectionManager) SendToReedSubscribers(reedID string, msg *pb.WSMessage) error {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	subs := cm.reedSubscribers[realtimeReedKey(reedID)]
-	if len(subs) == 0 {
-		return nil
-	}
-
-	data, err := marshalWSMessage(msg)
-	if err != nil {
-		return err
-	}
-
-	for client := range subs {
-		if err := client.writeMessage(websocket.BinaryMessage, data); err != nil {
-			log.Error().Err(err).Str("userID", client.userID).Msg("Failed to send reed subscription message")
-		}
-	}
-	return nil
+// normalizePipeTag lowercases and strips a leading # (SPA / SignReed parity).
+func normalizePipeTag(tag string) string {
+	tag = strings.TrimSpace(tag)
+	tag = strings.TrimPrefix(tag, "#")
+	return strings.ToLower(strings.TrimSpace(tag))
 }
 
-// sendToReedSubscribersExceptAuthor sends a protobuf payload to all
-// subscribers of a reed, skipping excludeUserID's own connections. Used for
-// ripple pushes, whose author already has the content from their own
-// synchronous HTTP response — unlike echo/reply/like count refreshes, which
-// the actor also wants delivered back to themselves.
-func (cm *realtimeConnectionManager) sendToReedSubscribersExceptAuthor(reedID, excludeUserID string, msg *pb.WSMessage) error {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	subs := cm.reedSubscribers[realtimeReedKey(reedID)]
-	if len(subs) == 0 {
+// reedSubscriberUserIDs returns the distinct users subscribed to reedID,
+// excluding excludeUserID ("" excludes nobody). Backed by reed_subscriptions,
+// so the recipient set is identical on every replica.
+func (rs *realtimeService) reedSubscriberUserIDs(reedID, excludeUserID string) []string {
+	subscribers, err := rs.db.GetReedSubscriberUserIDs(context.Background(), reedID, excludeUserID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load reed subscribers")
 		return nil
 	}
+	return subscribers
+}
 
-	data, err := marshalWSMessage(msg)
-	if err != nil {
-		return err
-	}
-
-	for client := range subs {
-		if client.userID == excludeUserID {
-			continue
-		}
-		if err := client.writeMessage(websocket.BinaryMessage, data); err != nil {
-			log.Error().Err(err).Str("userID", client.userID).Msg("Failed to send reed subscription message")
+// sendToReedSubscribers sends msg to every user subscribed to reedID,
+// skipping excludeUserID ("" skips nobody). Per-user via SendToUser, so a
+// subscriber on another replica is reached over the bus.
+func (rs *realtimeService) sendToReedSubscribers(reedID, excludeUserID string, msg *pb.WSMessage) error {
+	for _, userID := range rs.reedSubscriberUserIDs(reedID, excludeUserID) {
+		if err := rs.connManager.SendToUser(userID, msg); err != nil {
+			log.Debug().Err(err).Str("userID", userID).Str("reedID", reedID).Msg("Failed to send reed subscription message")
 		}
 	}
 	return nil
 }
 
 // BroadcastReedCoverage sends a coverage update to all subscribers of a reed.
-func (cm *realtimeConnectionManager) BroadcastReedCoverage(reedID string, msg *pb.WSMessage) error {
+func (rs *realtimeService) BroadcastReedCoverage(reedID string, msg *pb.WSMessage) error {
 	if reedID == "" {
 		return fmt.Errorf("reed coverage payload missing reedID")
 	}
-	return cm.SendToReedSubscribers(reedID, msg)
+	return rs.sendToReedSubscribers(reedID, "", msg)
 }
 
 // authenticateWebSocket authenticates a WebSocket connection. userID is
@@ -1659,7 +1495,7 @@ func (rs *realtimeService) fanoutReedRemoval(authorUserID, reedID string, cert *
 	// Anyone viewing this reed's thread (SUBSCRIBE_REED) needs to know it's
 	// gone too — same gap as ReplyPosted: a reed-stat subscriber isn't
 	// necessarily a follower/broadcast/profile subscriber.
-	reedSubscribers := rs.connManager.ReedSubscriberUserIDs(reedID, "")
+	reedSubscribers := rs.reedSubscriberUserIDs(reedID, "")
 	rs.dispatchRemovalMany(reedSubscribers, reedID, cert)
 
 	// If the removed reed was itself a reply, everyone subscribed to an
@@ -1717,7 +1553,10 @@ func (rs *realtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 			Msg("Failed to get online followers from database")
 	}
 
-	pipeListeners := rs.connManager.PipeListenerUserIDs(tags, authorUserID)
+	pipeListeners, err := rs.db.GetPipeListeners(context.Background(), normalizePipeTags(tags), authorUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get pipe listeners from database")
+	}
 	// Pipe listeners always get PIPE_REED (push). Followers who are not on the
 	// pipe get FOLLOW_REED. Overlap prefers PIPE_REED (one event).
 	followersOnly := subtractUserIDs(followers, pipeListeners)
@@ -2015,10 +1854,46 @@ func (rs *realtimeService) dispatchManyForeign(recipients []string, eventName re
 	}
 }
 
-// startPeriodicCleanup runs periodic cleanup tasks.
+// Presence heartbeat windows. Clients send PONG on realtimePongInterval;
+// a row surviving realtimePresenceTTL without one is treated as dead. The
+// TTL is twice the interval so a single dropped beat isn't an eviction.
+const (
+	realtimePongInterval  = 1 * time.Minute
+	realtimePresenceTTL   = 2 * time.Minute
+	realtimeReapFrequency = 30 * time.Second
+)
+
+// startPeriodicCleanup evicts presence rows whose PONG heartbeat lapsed.
+// Subscriptions cascade off online_users, so this also reclaims them for a
+// client that vanished without a clean disconnect.
 func (rs *realtimeService) startPeriodicCleanup() {
-	// TODO: Implement periodic cleanup of stale connections
-	// This could run every 5 minutes to clean up old online_users entries
+	ticker := time.NewTicker(realtimeReapFrequency)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		rs.reapStalePresence()
+	}
+}
+
+// reapStalePresence is one eviction pass. An evicted user still holding a
+// local socket is disconnected too, so the client reconnects and rebuilds
+// its presence row instead of sitting on a connection the DB forgot.
+func (rs *realtimeService) reapStalePresence() {
+	evicted, err := rs.db.ReapStalePresence(context.Background(), realtimePresenceTTL)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to reap stale presence rows")
+		return
+	}
+	if len(evicted) == 0 {
+		return
+	}
+
+	for _, userID := range evicted {
+		if rs.connManager.HasConnection(userID) {
+			rs.connManager.DisconnectUser(userID)
+		}
+	}
+	log.Info().Int("evicted", len(evicted)).Msg("Evicted stale presence rows")
 }
 
 // HandleWebSocket handles WebSocket connections.
@@ -2352,6 +2227,9 @@ func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []
 	case pb.MessageType_UNSUBSCRIBE_PIPE:
 		rs.handleUnsubscribePipe(client, msg.GetUnsubscribePipe().GetTag())
 
+	case pb.MessageType_PONG:
+		rs.handlePong(client)
+
 	default:
 		log.Warn().Str("type", msg.Type.String()).Msg("Unknown protobuf WebSocket message type")
 	}
@@ -2369,6 +2247,15 @@ func (rs *realtimeService) handlePing(client *realtimeClient, ping *pb.PingMessa
 	}
 
 	rs.sendProtobufMessage(client, response)
+}
+
+// handlePong records a client-initiated liveness heartbeat. The SPA sends
+// PONG once a minute; presence rows that stop being refreshed are evicted by
+// reapStalePresence, which is what lets a crashed replica's stale rows expire.
+func (rs *realtimeService) handlePong(client *realtimeClient) {
+	if err := rs.db.RecordPong(context.Background(), client.userID); err != nil {
+		log.Error().Err(err).Str("userID", client.userID).Msg("Failed to record PONG heartbeat")
+	}
 }
 
 // handleSubscribeUser handles user subscription requests.
@@ -2524,7 +2411,7 @@ func (rs *realtimeService) dispatchNextIfConnected(holderUserID string) {
 	if holderUserID == "" {
 		return
 	}
-	if !rs.connManager.HasConnection(holderUserID) {
+	if !rs.isUserOnline(holderUserID) {
 		log.Debug().Str("holderUserID", holderUserID).Msg("Holder has no active WebSocket; skipping relay dispatch")
 		return
 	}
@@ -2537,7 +2424,7 @@ func (rs *realtimeService) dispatchNIfConnected(holderUserID string, n int) {
 	if holderUserID == "" {
 		return
 	}
-	if !rs.connManager.HasConnection(holderUserID) {
+	if !rs.isUserOnline(holderUserID) {
 		log.Debug().Str("holderUserID", holderUserID).Msg("Holder has no active WebSocket; skipping relay dispatch")
 		return
 	}
@@ -3432,7 +3319,6 @@ func (rs *realtimeService) handleSubscribeReed(client *realtimeClient, reedID st
 		return
 	}
 
-	rs.connManager.SubscribeReed(client, reedID)
 	stats := newReedStatsMsg(reedID, echoes, coveragePct, replies, likes)
 	if err := rs.connManager.SendToClient(client, stats); err != nil {
 		log.Error().Err(err).Str("userID", client.userID).Str("reedID", reedID).Msg("Failed to send REED_STATS")
@@ -3467,8 +3353,6 @@ func (rs *realtimeService) handleUnsubscribeReed(client *realtimeClient, reedID 
 	if reedID == "" {
 		return
 	}
-	rs.connManager.UnsubscribeReed(client, reedID)
-
 	subscriptionID, err := rs.db.GetReedSubscription(context.Background(), client.userID, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to get reed subscription")
@@ -3493,7 +3377,10 @@ func (rs *realtimeService) handleSubscribePipe(client *realtimeClient, rawTag st
 	if tag == "" {
 		return
 	}
-	rs.connManager.SubscribePipe(client, tag)
+	if err := rs.db.SubscribePipe(context.Background(), client.userID, tag); err != nil {
+		log.Error().Err(err).Str("userID", client.userID).Str("tag", tag).Msg("Failed to subscribe to pipe")
+		return
+	}
 	log.Debug().Str("userID", client.userID).Str("tag", tag).Msg("Client subscribed to pipe")
 }
 
@@ -3502,22 +3389,45 @@ func (rs *realtimeService) handleUnsubscribePipe(client *realtimeClient, rawTag 
 	if tag == "" {
 		return
 	}
-	rs.connManager.UnsubscribePipe(client, tag)
+	if err := rs.db.UnsubscribePipe(context.Background(), client.userID, tag); err != nil {
+		log.Error().Err(err).Str("userID", client.userID).Str("tag", tag).Msg("Failed to unsubscribe from pipe")
+		return
+	}
 	log.Debug().Str("userID", client.userID).Str("tag", tag).Msg("Client unsubscribed from pipe")
 }
 
 // FilterSubscribedPipeTags returns extracted tags that currently have ≥1 listener.
 // Used by SignReed to stash only relevant tags on pending_fanout.
 func (rs *realtimeService) FilterSubscribedPipeTags(tags []string) []string {
-	return rs.connManager.FilterTagsWithListeners(tags)
+	live, err := rs.db.GetTagsWithListeners(context.Background(), normalizePipeTags(tags))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to filter pipe tags with listeners")
+		return nil
+	}
+	return live
+}
+
+// normalizePipeTags maps normalizePipeTag over tags, dropping empties.
+// Tags are always normalized before they reach SQL, never inside it.
+func normalizePipeTags(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(tags))
+	for _, raw := range tags {
+		if tag := normalizePipeTag(raw); tag != "" {
+			out = append(out, tag)
+		}
+	}
+	return out
 }
 
 // notifyForeignReedSubscribers pushes msg (the same protobuf WSMessage a
 // local reed-stat subscriber would receive over WS) to every foreign
 // viewer durably registered in reed_subscriptions for reedID. Local
-// delivery is unaffected — this only covers the gap connManager's
-// in-memory reedSubscribers map can never close, since it holds no
-// cross-server state at all. Best-effort: a failed peer push only means
+// delivery is unaffected — this only covers viewers homed on another
+// server, which this server's own fanout never reaches.
+// Best-effort: a failed peer push only means
 // one viewer misses one update, never retried — same tolerance every
 // other live WS fanout already has for a client that's simply offline.
 func (rs *realtimeService) notifyForeignReedSubscribers(reedID string, msg *pb.WSMessage) {
@@ -3591,7 +3501,7 @@ func (rs *realtimeService) notifyReedCoverage(reedID string) {
 	rs.metrics.ReedCoverage(context.Background(), authorUserID, reedID, holders, percent)
 
 	msg := newReedCoverageMsg(reedID, percent)
-	if err := rs.connManager.BroadcastReedCoverage(reedID, msg); err != nil {
+	if err := rs.BroadcastReedCoverage(reedID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_COVERAGE")
 	}
 	rs.notifyForeignReedSubscribers(reedID, msg)
@@ -3610,7 +3520,7 @@ func (rs *realtimeService) notifyReedEchoes(reedID string) {
 	}
 
 	msg := newReedEchoesMsg(reedID, echoes)
-	if err := rs.connManager.SendToReedSubscribers(reedID, msg); err != nil {
+	if err := rs.sendToReedSubscribers(reedID, "", msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_ECHOES")
 	}
 	rs.notifyForeignReedSubscribers(reedID, msg)
@@ -3689,10 +3599,10 @@ func (rs *realtimeService) notifyParentAuthorOfReply(replyReedID string) {
 	if parentAuthorID == "" || parentAuthorID == replyAuthorID {
 		return
 	}
-	if !rs.connManager.HasConnection(parentAuthorID) {
+	if !rs.isUserOnline(parentAuthorID) {
 		return
 	}
-	for _, sub := range rs.connManager.ReedSubscriberUserIDs(parentReedID, replyAuthorID) {
+	for _, sub := range rs.reedSubscriberUserIDs(parentReedID, replyAuthorID) {
 		if sub == parentAuthorID {
 			return
 		}
@@ -3714,7 +3624,7 @@ func (rs *realtimeService) notifyReplyAncestorsOfRemoval(removedReedID string, c
 		if !ok {
 			return
 		}
-		recipients := rs.connManager.ReedSubscriberUserIDs(parentReedID, "")
+		recipients := rs.reedSubscriberUserIDs(parentReedID, "")
 		rs.dispatchRemovalMany(recipients, removedReedID, cert)
 		rs.notifyForeignReplyAncestorsOfRemoval(parentReedID, removedReedID, cert)
 		reedID = parentReedID
@@ -3757,7 +3667,7 @@ func (rs *realtimeService) notifyForeignReplyAncestorsOfRemoval(parentReedID, re
 func (rs *realtimeService) HandleForeignReplyRemovalAtParent(parentReedID, removedReedID string, cert *reedRemovalWire) {
 	reedID := parentReedID
 	for {
-		recipients := rs.connManager.ReedSubscriberUserIDs(reedID, "")
+		recipients := rs.reedSubscriberUserIDs(reedID, "")
 		rs.dispatchRemovalMany(recipients, removedReedID, cert)
 		rs.notifyForeignReplyAncestorsOfRemoval(reedID, removedReedID, cert)
 		nextReedID, ok, err := rs.db.ReplyParent(context.Background(), reedID)
@@ -3779,7 +3689,7 @@ func (rs *realtimeService) HandleForeignReplyRemovalAtParent(parentReedID, remov
 // FOLLOW_REED/PIPE_REED (the server never stores reed content).
 func (rs *realtimeService) notifyReedSubscribersOfReply(ancestorReedID, replyReedID string) {
 	replyUserID := reedAuthorIdentity(replyReedID)
-	recipients := rs.connManager.ReedSubscriberUserIDs(ancestorReedID, replyUserID)
+	recipients := rs.reedSubscriberUserIDs(ancestorReedID, replyUserID)
 	if len(recipients) > 0 {
 		rs.dispatchMany(recipients, reedReplyEvent, replyReedID)
 	}
@@ -3840,7 +3750,7 @@ func (rs *realtimeService) notifyReedReplies(reedID string) {
 	}
 
 	msg := newReedRepliesMsg(reedID, replies)
-	if err := rs.connManager.SendToReedSubscribers(reedID, msg); err != nil {
+	if err := rs.sendToReedSubscribers(reedID, "", msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_REPLIES")
 	}
 	rs.notifyForeignReedSubscribers(reedID, msg)
@@ -3857,7 +3767,7 @@ func (rs *realtimeService) notifyReedReplies(reedID string) {
 func (rs *realtimeService) notifyRipplePosted(reedID, rippleAuthorID string, ripple RippleWire) {
 	authorUserID := reedAuthorIdentity(reedID)
 	msg := newRipplePostedMsg(authorUserID, reedID, ripple)
-	if err := rs.connManager.sendToReedSubscribersExceptAuthor(reedID, rippleAuthorID, msg); err != nil {
+	if err := rs.sendToReedSubscribers(reedID, rippleAuthorID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_POSTED")
 	}
 	rs.notifyForeignReedSubscribersExcept(reedID, rippleAuthorID, msg)
@@ -3873,7 +3783,7 @@ func (rs *realtimeService) notifyRipplePosted(reedID, rippleAuthorID string, rip
 func (rs *realtimeService) notifyRippleUpdated(reedID, rippleAuthorID string, ripple RippleWire) {
 	authorUserID := reedAuthorIdentity(reedID)
 	msg := newRippleUpdatedMsg(authorUserID, reedID, ripple)
-	if err := rs.connManager.sendToReedSubscribersExceptAuthor(reedID, rippleAuthorID, msg); err != nil {
+	if err := rs.sendToReedSubscribers(reedID, rippleAuthorID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_UPDATED")
 	}
 	rs.notifyForeignReedSubscribersExcept(reedID, rippleAuthorID, msg)
@@ -3892,7 +3802,7 @@ func (rs *realtimeService) notifyReedLikes(reedID string) {
 	}
 
 	msg := newReedLikesMsg(reedID, likes)
-	if err := rs.connManager.SendToReedSubscribers(reedID, msg); err != nil {
+	if err := rs.sendToReedSubscribers(reedID, "", msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast REED_LIKES")
 	}
 	rs.notifyForeignReedSubscribers(reedID, msg)
@@ -4079,7 +3989,7 @@ func (rs *realtimeService) handlePublishReady(client *realtimeClient, reedID str
 		if parentReedID, ok, err := rs.db.ReplyParent(context.Background(), reedID); err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to resolve reply parent for follower exclusion")
 		} else if ok {
-			excludeFromFollowers = rs.connManager.ReedSubscriberUserIDs(parentReedID, authorUserID)
+			excludeFromFollowers = rs.reedSubscriberUserIDs(parentReedID, authorUserID)
 		}
 
 		if broadcast {
@@ -4655,4 +4565,14 @@ func (rs *realtimeService) HandleForeignRelayNotHeld(ctx context.Context, peerEv
 		log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to delete pending event on foreign relay give-up")
 	}
 	return true, nil
+}
+
+// SetBus installs the cross-replica delivery bus on the connection manager.
+func (rs *realtimeService) SetBus(bus *realtimeBus) {
+	rs.connManager.SetBus(bus)
+}
+
+// DeliverLocal writes a bus frame to this replica's own sockets for userID.
+func (rs *realtimeService) DeliverLocal(userID string, frame []byte) bool {
+	return rs.connManager.deliverLocal(userID, frame)
 }

@@ -53,6 +53,15 @@ type AppConfig struct {
 
 	LogLevel string `env:"optional,default='warn',values='debug,info,warn,error',name='LOG_LEVEL'"`
 
+	// Clears online_users at boot, since a process crash leaves presence
+	// rows behind. Single-replica only: a booting instance would wipe its
+	// peers' presence. Off when scaling out — the reaper covers it.
+	ClearPresenceOnBoot bool `env:"optional,default='true',name='CLEAR_PRESENCE_ON_BOOT'"`
+
+	// Forwards WS deliveries between replicas over Postgres LISTEN/NOTIFY.
+	// Only needed for >1 replica; one replica delivers everything locally.
+	RealtimeBusEnabled bool `env:"optional,default='false',name='REALTIME_BUS_ENABLED'"`
+
 	// Empty (default) means no local OTLP collector — observability stays
 	// disabled with zero setup cost. See specs/observability/ for the
 	// collector-side wiring.
@@ -148,6 +157,16 @@ func main() {
 	}
 	log.Info().Msg("[OK] Services initialized successfully")
 
+	// Presence rows survive a process crash, and subscriptions cascade off
+	// them — stale rows would keep dead subscriptions alive.
+	if cfg.ClearPresenceOnBoot {
+		cleared, err := dataService.ClearPresence(context.Background())
+		if err != nil {
+			log.Fatal().Err(err).Msg("[ERR] Failed to clear stale presence")
+		}
+		log.Info().Int64("cleared", cleared).Msg("[OK] Stale presence cleared")
+	}
+
 	log.Debug().Msg("Initializing server identity...")
 	if err := dataService.InitServer(context.Background(), cfg.RecoveryMode, string(cfg.APIBaseURL)); err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server identity")
@@ -209,6 +228,17 @@ func main() {
 
 	// Start realtime service in goroutine
 	go rtService.Start(broadcastChan)
+
+	var rtBus *realtimeBus
+	if cfg.RealtimeBusEnabled {
+		rtBus, err = newRealtimeBus(dbURL, db, rtService.DeliverLocal)
+		if err != nil {
+			log.Fatal().Err(err).Msg("[ERR] Failed to start realtime bus")
+		}
+		rtService.SetBus(rtBus)
+		go rtBus.Start()
+		log.Info().Msg("[OK] Realtime cross-replica bus enabled")
+	}
 
 	log.Debug().Msg("Initializing handlers...")
 	h := NewHandlers(services, cfg, broadcastChan, *signingKey)
@@ -621,6 +651,9 @@ func main() {
 	// on their still-open sockets until its timeout. Notify and close them
 	// ourselves first so clients reconnect immediately instead of being
 	// left on a connection that silently goes dead.
+	if rtBus != nil {
+		rtBus.Stop()
+	}
 	rtService.Shutdown()
 
 	// Shutdown server

@@ -99,6 +99,10 @@ export ALLOWED_ORIGIN="http://localhost:${5}"
 export SERVER_KEY_PASSPHRASE="$key_pass"
 export SIGNUP_MODE="open"
 export MAX_INVITES_PER_USER="17"
+# Each instance is its own single-replica server, so presence is cleared at
+# boot and the cross-replica bus stays off.
+export CLEAR_PRESENCE_ON_BOOT="true"
+export REALTIME_BUS_ENABLED="false"
 # Dev-only: federation baseUrls are plain http:// between local instances.
 # Remove this once real TLS is in play — see main.go's AppConfig doc comment.
 export FEDERATION_ALLOW_INSECURE_HTTP="true"
