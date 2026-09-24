@@ -15,7 +15,7 @@ more than in a typical web app.
 
 > Scope & confidence: findings were derived by reading the actual code (core
 > auth/crypto/handlers/db/signing audited directly; `recovery/`, `invites/`,
-> `deletion/`, `realtime/`, `secret/`, `coverage/`, and the whole `spa/`
+> `deletion/`, `realtime/`, `secret/`, `coverage/`, and the whole `src/frontend/`
 > audited with assistance). Where a claim could not be fully proven from
 > source it is marked **(unconfirmed)**. This is a point-in-time review, not a
 > guarantee of completeness.
@@ -24,12 +24,9 @@ more than in a typical web app.
 
 | #      | Severity | Area       | Title                                                                  |
 |--------|----------|------------|------------------------------------------------------------------------|
-| C1     | Critical | SPA        | Server response `Signature` header is never verified in the live app   |
 | C2     | Critical | SPA        | Decrypted-key passphrase persisted in `localStorage`                   |
 | C3     | Critical | SPA        | Private key + passphrase material logged to console                    |
 | H1     | High     | server     | WebSocket auth signature is replayable and unbound to user/server      |
-| H2     | High     | server     | Unauthenticated HTTP responses are not signed (MITM tampering)         |
-| H3     | High     | server     | Response signing fails open                                            |
 | H4     | High     | SPA        | `userId` in `localStorage` alone unlocks the app                       |
 | H5     | High     | SPA        | Service worker `SIGN_TEXT` is an origin-unchecked signing oracle       |
 | M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
@@ -50,23 +47,8 @@ more than in a typical web app.
 
 ## Critical
 
-### C1 — SPA never verifies the server response `Signature` header
-**Where:** `spa/src/lib/services/api.ts` (`request()`); dead code in
-`spa/src/lib/services/signature-verifier.ts` (`verifyResponseSignature`,
-`secureApiRequest`).
-The production `apiService.request()` does a plain `fetch()` and only checks
-`res.ok`. The response-signature verifier exists but is referenced only by its
-own module, the README, and an example file — never by live code. For every
-endpoint whose body is not *itself* an individually PGP-signed record
-(`/server/info`, `/server/keys`, `getReedEchoCount`, `invites/check`,
-`getInviteStatus`, `whoami`, follower/following counts, `users/status`, recovery
-challenge), a MITM or malicious relay can forge arbitrary responses. This
-defeats the entire point of the server-side response signer.
-**Fix:** route all `request()` traffic through response-signature verification
-against the pinned server key; fail closed when the header is missing/invalid.
-
 ### C2 — Decrypted-key passphrase persisted in `localStorage`
-**Where:** `spa/src/lib/services/auth.ts:112-121` (write); read in
+**Where:** `src/frontend/src/lib/services/auth.ts:116-126` (write); read in
 `request-signer.ts:169`, `serverConnection.ts:69`, `reedRemoval.ts:48`,
 `NewReedModal.svelte:156`, etc.
 The passphrase that unlocks the user's PGP private key is stored in
@@ -77,7 +59,7 @@ dependency, or browser extension can read both and fully impersonate the user
 re-prompt on reload, or wrap the key with a non-extractable WebCrypto key.
 
 ### C3 — Private key + passphrase material logged to console
-**Where:** `spa/src/lib/services/crypto.ts:67-71` (`console.log` dumps the
+**Where:** `src/frontend/src/lib/services/crypto.ts:67-71` (`console.log` dumps the
 armored **private key** on every signup); `request-signer.ts:211`.
 Console logs are captured by crash/telemetry tooling and readable by extensions.
 **Fix:** delete these log statements; add a lint rule against logging key
@@ -100,32 +82,8 @@ any other server that trusts the same key.
 `BytesToSign` payload binding `serverID`+`userID`+`timestamp`); track/expire
 nonces; shrink the window.
 
-### H2 — Unauthenticated HTTP responses are not signed
-**Where:** `middlewares.go:562-590` (`responseSignerMiddleware` wraps the writer
-only when a `userID` is in context).
-Responses on the unauthenticated allowlist (`/server/info`, `/server/keys/*`,
-`/users/signup`, `/users/status`, `/check-username`, `/invites/check`,
-`/recovery/identity/claim`) are sent **unsigned**. A network attacker can tamper
-with, e.g., `/server/keys/{fp}` (the server public key used to verify *every*
-countersignature) or `/server/info` (`recoveryMode`, `signupMode`) with no
-detection. This undercuts the "all API responses are signed" claim in
-`RESPONSE_SIGNER.md`.
-**Fix:** sign all responses (the signing key is loaded at startup and doesn't
-need a user context); clients must pin/verify the server key out-of-band.
-
-### H3 — Response signing fails open
-**Where:** `middlewares.go:88-111,141-147` (`Flush`/`signCompleteResponse`): if
-the key is empty or signing errors, the body is still written, just unsigned
-(and only the status is flipped to 500 on hard error, but a missing key logs a
-warning and returns `nil`).
-A transient signing failure or a misconfigured/missing key silently degrades to
-unsigned responses that a non-verifying client (see C1) accepts.
-**Fix:** fail closed — refuse to emit an unsigned body on the authenticated
-path; treat a missing signing key as fatal at startup (it already is for boot,
-but the runtime path should not tolerate `privateKey == ""`).
-
 ### H4 — `userId` in `localStorage` alone unlocks the app
-**Where:** `spa/src/lib/services/auth.ts:28-42` (`hasLocalIdentity`/
+**Where:** `src/frontend/src/lib/services/auth.ts:29-43` (`hasLocalIdentity`/
 `isLoggedIn` read only `localStorage.userId`, "no network").
 Anyone able to write `localStorage.userId` (shared machine, XSS, sibling tab) is
 treated as logged in; combined with C2 this is a full session. There is no check
@@ -135,7 +93,7 @@ present.
 matches the account's active key.
 
 ### H5 — Service worker `SIGN_TEXT` is an origin-unchecked signing oracle
-**Where:** `spa/src/service-worker.ts:126-163` (`message` handler; second
+**Where:** `src/frontend/src/service-worker.ts:118-175` (`message` handler; second
 listener signs arbitrary `SIGN_TEXT` with no `event.origin`/`event.source`
 check).
 Any context that can `postMessage` to the SW can get arbitrary bytes signed by
@@ -198,7 +156,7 @@ commits, exceeding `MAX_INVITES_PER_USER`.
 constraint, or `FOR UPDATE`/advisory lock on `created_by`).
 
 ### M7 — SPA verification clock advanced by attacker-controlled timestamp
-**Where:** `spa/src/lib/services/crypto.ts:24-38,142` — verification reference
+**Where:** `src/frontend/src/lib/services/crypto.ts:22-25,141` — verification reference
 time is `max(now, serverTimestamp) + 5min`, where `serverTimestamp` is the
 server-supplied countersignature time.
 A malicious server can set a far-future `timestamp`, pushing the verification
@@ -208,7 +166,7 @@ be **expired**, defeating key-expiry.
 timestamp advance the verification clock.
 
 ### M8 — SPA `verifySignature` silently falls back binary→text mode
-**Where:** `spa/src/lib/services/crypto.ts:141-169`. The Go signer uses binary
+**Where:** `src/frontend/src/lib/services/crypto.ts:144-160`. The Go signer uses binary
 detached signatures (`crypto/crypto.go:215` `openpgp.DetachSign`), so accepting
 text mode (with CR/LF canonicalization) broadens the set of byte sequences that
 verify for a given signature.
@@ -217,7 +175,7 @@ verify for a given signature.
 ### M9 — Unsigned server counts/hints consumed for trust decisions
 **Where:** `GET /users/{userID}/info` (`UserInfo`: `followersCount`,
 `followingCount`, `hasReeds`, `activeKeyFingerprint`, `profileTimestamp`) and
-SPA `usersInfo` IndexedDB (`spa/src/lib/repositories/userInfo.ts`). The signed
+SPA `usersInfo` IndexedDB (`src/frontend/src/lib/repositories/userInfo.ts`). The signed
 profile is `GET /users/{userID}/profile` only (`verifyUser` covers
 username/fingerprint/invitedBy.id/bio/memberSince).
 `hasReeds` gates content display (`profile/[userId]/+page.svelte`),
@@ -255,7 +213,7 @@ handler leaks a 500-vs-204 oracle for user existence / allows junk edge attempts
 follow edges if recovery fidelity matters.
 
 ### L3 — `verifyInvite` binds to local `userId`, not a signed issuer
-**Where:** `spa/src/lib/verifiers/index.ts:377-408` — the payload `userID` is
+**Where:** `src/frontend/src/lib/verifiers/index.ts:684-700` — the payload `userID` is
 `localStorage.getItem('userId')`, so verification proves "matches my local
 userId," not the real issuer. Fine for own-invite display; not a trustworthy
 issuer binding.
@@ -267,9 +225,9 @@ issuer binding.
 - **I1 — SQL injection: none found.** Core, recovery, invites, deletion, and
   coverage queries use `$N` placeholders; the only string concatenation is
   static `FOR UPDATE`-style suffixes with parameterized values.
-- **I2 — Markdown rendering is XSS-safe.** `spa/src/lib/components/MarkdownParser.svelte`
+- **I2 — Markdown rendering is XSS-safe.** `src/frontend/src/lib/components/MarkdownParser.svelte`
   / `MarkdownInline.svelte` render an AST via Svelte templating with no `@html`/
-  `innerHTML` (grep-confirmed none in `spa/src`). `resolveLinkHref`
+  `innerHTML` (grep-confirmed none in `src/frontend/src`). `resolveLinkHref`
   (`reedMarkdown.ts:41-54`) allowlists schemes (http/https/mailto/web+syrinx);
   identicons are numeric SVG from a hash. Keep it AST-based.
 - **I3 — `spaHandler` path traversal: none.** `spa_handler.go:17` uses
@@ -286,7 +244,7 @@ issuer binding.
 - **I6 — Reed/profile subscriptions are open to any authenticated user**
   (`realtime/service.go:824,1047,1108`) — consistent with a public content
   platform, but confirm reed bodies are meant to be readable by non-followers.
-- **Residual server-trust:** `verifyPublicKey` (`spa/src/lib/verifiers/index.ts:68-92`)
+- **Residual server-trust:** `verifyPublicKey` (`src/frontend/src/lib/verifiers/index.ts:140-220`)
   trusts the server's binding of a key to a `userID` (the server countersigns
   it). A malicious/compromised server can bind a key to the wrong userID; peers
   cannot. This is inherent to the server-attestation model, not a client bug.
@@ -325,12 +283,10 @@ recipient's socket.
 
 ## Recommended priority order
 
-1. **C1 / H2 / H3** — make response-signature verification real and fail-closed
-   end to end. Without this, several server-side protections are cosmetic.
-2. **C2 / C3 / H4 / H5** — stop persisting/logging key material; require key
+1. **C2 / C3 / H4 / H5** — stop persisting/logging key material; require key
    possession for "logged in"; lock down the SW signing oracle.
-3. **H1** — bind and nonce the WebSocket handshake.
-4. **M2 / M3** — fix recovery claim replay and revoked-tip acceptance before
+2. **H1** — bind and nonce the WebSocket handshake.
+3. **M2 / M3** — fix recovery claim replay and revoked-tip acceptance before
    relying on `RECOVERY_MODE` in anger.
-5. **M4 / M5 / M6 / M7 / M8 / M9** — realtime authorization, WS read limit,
+4. **M4 / M5 / M6 / M7 / M8 / M9** — realtime authorization, WS read limit,
    invite-quota atomicity, and SPA verification hardening.
