@@ -1,8 +1,7 @@
 import type * as api from '$lib/types/api';
 import { apiService } from './api';
+import { requestSigner } from './request-signer';
 import { authService } from './auth';
-import { cryptoService } from './crypto';
-import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { invitesRepository } from '$lib/repositories/invites';
 import { buildInviteUserPayload } from './signing';
 import { signedAtHeader } from './verify';
@@ -54,14 +53,8 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
   }
 
   const keyId = authService.getActiveKeyId();
-  const passphrase = authService.getPassphrase();
-  if (!keyId || !passphrase) {
-    throw new Error('Active key or passphrase not available');
-  }
-
-  const privateKey = await privateKeyRepository.getPrivateKey(keyId);
-  if (!privateKey?.armor) {
-    throw new Error('Private key not found');
+  if (!keyId) {
+    throw new Error('Active key not available');
   }
 
   const id = `${user.id}/${generateReedId()}`;
@@ -77,14 +70,9 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
     createdAt,
     grantedRole
   );
-  const sigArmor = await cryptoService.signMessage(
-    userPayload,
-    privateKey.armor,
-    passphrase
-  );
   const userSignature = {
     id: keyId,
-    armor: btoa(sigArmor),
+    armor: await requestSigner.sign(userPayload),
   };
 
   const created = await apiService.createInvite({

@@ -1,9 +1,8 @@
 import type * as api from '$lib/types/api';
 import { apiService } from './api';
+import { requestSigner } from './request-signer';
 import { authService } from './auth';
-import { cryptoService } from './crypto';
 import { buildAccountRemovalUserPayload } from './signing';
-import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
 import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
@@ -73,20 +72,8 @@ export async function removeAccountAsAuthor(note: string = ''): Promise<api.Acco
     throw new Error('Server ID not available');
   }
 
-  const keyId = authService.getActiveKeyId();
-  const passphrase = authService.getPassphrase();
-  if (!keyId || !passphrase) {
-    throw new Error('Active key or passphrase not available');
-  }
-
-  const privateKey = await privateKeyRepository.getPrivateKey(keyId);
-  if (!privateKey?.armor) {
-    throw new Error('Private key not found');
-  }
-
   const userPayload = buildAccountRemovalUserPayload(serverID, user.id, note);
-  const sigArmor = await cryptoService.signMessage(userPayload, privateKey.armor, passphrase);
-  const signature = btoa(sigArmor);
+  const signature = await requestSigner.sign(userPayload);
 
   const cert = await apiService.deleteAccount(signature, note);
   if (!(await verifyAccountRemoval(cert))) {
