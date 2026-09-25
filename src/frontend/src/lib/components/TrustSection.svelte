@@ -3,10 +3,12 @@
   import Username from '$lib/components/Username.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import {
+    keyChangeFor,
     liveVouchesFor,
     reconcileVouches,
     staleVouchesFor,
     withdrawVouch,
+    type KeyChangeKind,
   } from '$lib/services/vouches';
   import { trustRootsRepository } from '$lib/repositories/trustRoots';
   import type { VouchRecord } from '$lib/repositories/vouches';
@@ -20,6 +22,7 @@
   let live: VouchRecord[] = [];
   let stale: VouchRecord[] = [];
   let rootIDs = new Set<string>();
+  let keyChange: KeyChangeKind | null = null;
   let withdrawing = '';
 
   const me = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
@@ -44,6 +47,7 @@
     live = await liveVouchesFor(userID, activeKeyID);
     stale = await staleVouchesFor(userID, activeKeyID);
     rootIDs = await trustRootsRepository.activeIDs();
+    keyChange = await keyChangeFor(userID, activeKeyID);
     reconciled = ok;
   }
 
@@ -70,9 +74,26 @@
   }
 </script>
 
-{#if reconciled && (live.length > 0 || stale.length > 0)}
+{#if reconciled && (live.length > 0 || stale.length > 0 || keyChange)}
   <section class="trust">
     <h3>Verification</h3>
+
+    {#if keyChange === 'unexplained'}
+      <p class="row alarm">
+        This account’s key changed and the change is not signed by the
+        previous key. Do not treat this account as verified.
+      </p>
+    {:else if keyChange === 'rotation'}
+      <p class="row muted">
+        They rotated their key. Your previous verification no longer applies —
+        verify again next time you see them.
+      </p>
+    {:else if keyChange === 'revocation'}
+      <p class="row muted">
+        The key you verified was revoked, so your verification no longer
+        applies to the key in use now.
+      </p>
+    {/if}
 
     {#if ownVouch}
       <p class="row own">
@@ -134,6 +155,11 @@
   .row.muted,
   .row.stale {
     color: var(--muted);
+  }
+
+  .row.alarm {
+    color: var(--error, #e03131);
+    font-weight: 500;
   }
 
   .row.stale {

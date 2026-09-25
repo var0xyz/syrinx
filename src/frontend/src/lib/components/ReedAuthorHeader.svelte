@@ -1,6 +1,7 @@
 <script>
   import Avatar from '$lib/components/Avatar.svelte';
   import Username from '$lib/components/Username.svelte';
+  import TrustMark from '$lib/components/TrustMark.svelte';
 
   /** Canonical `userID@serverID` id, passed straight through to Avatar/Username. */
   /** @type {string} */
@@ -30,6 +31,7 @@
   <div class="reed-author-info">
     <svelte:element this={nameTag} class="reed-author-name">
       <Username {userID} {username} {stopPropagation} {linked} />
+      <TrustMark {userID} linked={false} />
     </svelte:element>
     {#if subtext}
       <span class="reed-author-subtext {subtextClass}">{subtext}</span>

@@ -1,9 +1,11 @@
 <script lang="ts">
   import { trustMarkFor, type TrustMark } from '$lib/services/vouches';
+  import { userInfoRepository } from '$lib/repositories/userInfo';
 
   /** Canonical id of the user the mark describes. */
   export let userID: string;
-  /** The subject's current key. A mark only ever describes this key. */
+  /** The subject's current key. A mark only ever describes this key.
+   * Left unset, it is read from the local info cache, never fetched. */
   export let activeKeyID: string | undefined = undefined;
   /** Tapping opens the evidence. Off for rows that navigate elsewhere. */
   export let linked = true;
@@ -15,11 +17,17 @@
   $: void resolve(userID, activeKeyID);
 
   async function resolve(id: string, keyID: string | undefined) {
-    if (!id || !keyID) {
+    if (!id) {
       mark = 'none';
       return;
     }
-    const next = await trustMarkFor(id, keyID);
+    // Cache-only: a feed of rows must not turn into a fetch per row.
+    const key = keyID ?? (await userInfoRepository.get(id))?.activeKeyID;
+    if (!key) {
+      mark = 'none';
+      return;
+    }
+    const next = await trustMarkFor(id, key);
     if (id === userID && keyID === activeKeyID) mark = next;
   }
 

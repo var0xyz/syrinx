@@ -4,7 +4,7 @@ This directory is the **user attestation** feature proposal set. Numbered
 files below are independently reviewable implementation steps. Land them in
 order unless a step's "Depends on" says otherwise.
 
-**Status: Proposed.** Nothing here is implemented; this is a spec only.
+**Status: Implemented.** All steps have landed.
 
 ## Motivation
 

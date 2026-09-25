@@ -358,7 +358,7 @@ has no OpenPGP entry and conformance forces a second server key.
 
 ## User attestations (out-of-band verification, web of trust)
 
-See [`attestations/`](attestations/README.md). **Proposed.** Users verify
+See [`attestations/`](attestations/README.md). **Implemented.** Users verify
 each other's keys face to face and publish signed vouches, so a server that
 substitutes a key contradicts evidence it never controlled — the practical
 answer to [RISKS.md H1](../RISKS.md). Public key-bound vouches, revocation
@@ -367,14 +367,14 @@ client-side (never server-side, which would reintroduce H1).
 
 | #  | Title                                             | Status   |
 |----|---------------------------------------------------|----------|
-| 00 | Design, threat model, locked decisions            | Proposed |
+| 00 | Design, threat model, locked decisions            | Implemented |
 | 01 | `user_vouches` schema                             | Implemented |
 | 02 | Canonical payloads + countersign                  | Implemented |
 | 03 | Create / withdraw / list API                      | Implemented |
 | 04 | Withdrawal, revocation, and what survives         | Implemented |
 | 05 | Trust roots and depth-1 reachability              | Implemented |
 | 06 | SPA: QR exchange, key compare, vouch              | Implemented |
-| 07 | SPA: vouch list, paths, key-change warnings       | Proposed |
+| 07 | SPA: vouch list, marks, key-change warnings       | Implemented |
 
 ## Observability (request + DB query tracing + business metrics)
 

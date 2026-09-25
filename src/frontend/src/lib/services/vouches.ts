@@ -9,8 +9,10 @@ import { pendingVouchesRepository } from '$lib/repositories/pendingVouches';
 import { MAX_VOUCH_NOTE_CHARS } from '$lib/utils/vouchNote';
 import { countsForMark, trustMarkFrom, type TrustMark } from '$lib/utils/trustMark';
 import { findContradiction } from '$lib/utils/vouchContradiction';
+import { classifyKeyChange, type KeyChangeKind } from '$lib/utils/keyChange';
+import { dbService } from './db';
 
-export type { TrustMark };
+export type { TrustMark, KeyChangeKind };
 
 /**
  * Reconciles the server's id list against what this client already
@@ -100,6 +102,34 @@ export async function ingestPushedVouch(vouchID: string): Promise<boolean> {
     console.error('[vouches] could not ingest pushed vouch', vouchID, error);
     return false;
   }
+}
+
+/**
+ * Classifies how the subject's current key relates to a key this device
+ * vouched for. Null when nothing was vouched or the key still matches.
+ */
+export async function keyChangeFor(
+  subjectUserID: string,
+  currentKeyID: string
+): Promise<KeyChangeKind | null> {
+  const me = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+  if (!me) return null;
+  const mine = (await vouchesRepository.forSubject(subjectUserID)).find(
+    (v) => v.voucherUserID === me && !v.withdrawn
+  );
+  if (!mine) return null;
+
+  const current = await dbService.get<api.PublicKey>('publicKeys', currentKeyID);
+  const vouched = await dbService.get<api.PublicKey>('publicKeys', mine.subjectKeyID);
+  return classifyKeyChange({
+    vouchedKeyID: mine.subjectKeyID,
+    currentKeyID,
+    predecessorID: current?.predecessor ?? null,
+    // verifyPublicKey refuses a key whose handoff does not check out, so a
+    // stored key that declares a predecessor carries a valid one.
+    handoffValid: !!current,
+    vouchedKeyRevoked: !!vouched?.revoked,
+  });
 }
 
 /** A live vouch naming a different key for this user, if one exists — a
