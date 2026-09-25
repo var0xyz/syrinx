@@ -524,6 +524,48 @@ func buildVouchWithdrawalUserPayload(voucherKeyID, subjectUserID, subjectKeyID s
 	)
 }
 
+// Headers the server countersigns to attest a retraction. vouchID is how
+// the withdrawal is addressed; it has no id of its own.
+func vouchWithdrawalServerHeaders(
+	vouchID,
+	voucherUserID,
+	subjectKeyID,
+	serverKeyFingerprint string,
+	signedAt time.Time,
+) map[string]string {
+	return map[string]string{
+		"type":                 identityTypeVouchWithdrawal,
+		"vouchID":              vouchID,
+		"voucherUserID":        voucherUserID,
+		"subjectKeyID":         subjectKeyID,
+		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
+		"serverKeyFingerprint": serverKeyFingerprint,
+	}
+}
+
+// buildVouchWithdrawalServerPayload returns the bytes the server
+// countersigns over a retraction, with the voucher's withdrawal signature
+// as the body. Without it the withdrawal time is bound by nothing.
+func buildVouchWithdrawalServerPayload(
+	vouchID,
+	voucherUserID,
+	subjectKeyID,
+	serverKeyFingerprint,
+	userSignatureB64 string,
+	signedAt time.Time,
+) []byte {
+	return bytesToSign(
+		vouchWithdrawalServerHeaders(
+			vouchID,
+			voucherUserID,
+			subjectKeyID,
+			serverKeyFingerprint,
+			signedAt,
+		),
+		userSignatureB64,
+	)
+}
+
 // identityTypeAccount is the wire and signed-header `type` for account removal.
 const identityTypeAccount = "account"
 

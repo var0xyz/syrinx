@@ -156,7 +156,8 @@ type LikeCert struct {
 
 // VouchCert is the stored and wire shape of a signed vouch: one user
 // attesting they compared fingerprints and the subject holds that key.
-// Void, VoidReason and Stale are hints; clients recompute them.
+// The server serves the attestation and nothing else: whether it still
+// counts depends on key state the client already resolves and verifies.
 type VouchCert struct {
 	Type            string          `json:"type"`
 	ID              string          `json:"id"`
@@ -168,12 +169,17 @@ type VouchCert struct {
 	Note            string          `json:"note"`
 	UserSignature   UserSignature   `json:"userSignature"`
 	ServerSignature ServerSignature `json:"serverSignature"`
-	Withdrawn       bool            `json:"withdrawn"`
-	WithdrawnAt     *time.Time      `json:"withdrawnAt"`
-	Withdrawal      *UserSignature  `json:"withdrawal"`
-	Void            bool            `json:"void"`
-	VoidReason      *string         `json:"voidReason"`
-	Stale           bool            `json:"stale"`
+	// Present only on a retracted vouch; its presence is the withdrawal.
+	// The time comes from the countersignature inside.
+	Withdrawal *VouchWithdrawal `json:"withdrawal,omitempty"`
+}
+
+// VouchWithdrawal is a retraction: the voucher's signature plus the
+// server's countersignature. Both are required — one the voucher never
+// signed would be the server nullifying a vouch it dislikes.
+type VouchWithdrawal struct {
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
 // /////// //
@@ -483,9 +489,9 @@ func InitDB(db *sql.DB) error {
 	//   Ripples    //
 	// //////////// //
 
-	// One row per (voucher, subject key), so re-verifying after a rotation
-	// keeps the older row as prior-verification evidence. voucher_key_id
-	// is stored: a signature outlives the key that produced it.
+	// Append-only history, one row per attestation. Withdrawing adds
+	// signatures; re-vouching inserts a new row. No withdrawn_at: the
+	// withdrawal countersignature carries the time.
 	createUserVouchesTable := `
 	CREATE TABLE IF NOT EXISTS user_vouches (
 		id VARCHAR(255) PRIMARY KEY,
@@ -497,21 +503,32 @@ func InitDB(db *sql.DB) error {
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		withdrawn_at TIMESTAMP,
 		withdrawal_signature_id INT REFERENCES user_signatures(id),
+		withdrawal_server_signature_id INT REFERENCES server_signatures(id)
+	);`
+
+	// One row per live attestation — what list reads hit. Uniqueness lives
+	// here, where it holds: one live vouch per voucher per subject key.
+	createUserVouchesActiveTable := `
+	CREATE TABLE IF NOT EXISTS user_vouches_active (
+		vouch_id VARCHAR(255) PRIMARY KEY REFERENCES user_vouches(id) ON DELETE CASCADE,
+		voucher_user_id VARCHAR(255) NOT NULL,
+		subject_user_id VARCHAR(255) NOT NULL,
+		subject_key_id VARCHAR(255) NOT NULL,
 
 		UNIQUE (voucher_user_id, subject_key_id)
 	);`
 
-	// Partial indexes on live rows; withdrawn rows are read only on the
-	// audit path. Outbound is the direction path finding walks.
+	// Outbound is the direction path finding walks.
 	createUserVouchesIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_user_vouches_subject
-		ON user_vouches(subject_user_id, id) WHERE withdrawn_at IS NULL;
-	CREATE INDEX IF NOT EXISTS idx_user_vouches_voucher
-		ON user_vouches(voucher_user_id) WHERE withdrawn_at IS NULL;
 	CREATE INDEX IF NOT EXISTS idx_user_vouches_voucher_created
 		ON user_vouches(voucher_user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_user_vouches_subject_key
+		ON user_vouches(voucher_user_id, subject_key_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_user_vouches_active_subject
+		ON user_vouches_active(subject_user_id);
+	CREATE INDEX IF NOT EXISTS idx_user_vouches_active_voucher
+		ON user_vouches_active(voucher_user_id);
 	`
 
 	createRipplesTable := `
@@ -1248,6 +1265,7 @@ func InitDB(db *sql.DB) error {
 		createReedsLikedIndexes,
 
 		createUserVouchesTable,
+		createUserVouchesActiveTable,
 		createUserVouchesIndexes,
 
 		createRipplesTable,
