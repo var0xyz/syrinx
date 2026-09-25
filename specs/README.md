@@ -372,7 +372,7 @@ client-side (never server-side, which would reintroduce H1).
 | 02 | Canonical payloads + countersign                  | Implemented |
 | 03 | Create / withdraw / list API                      | Implemented |
 | 04 | Withdrawal, revocation, and what survives         | Implemented |
-| 05 | Client-side path finding and trust roots          | Proposed |
+| 05 | Trust roots and depth-1 reachability              | Implemented |
 | 06 | SPA: QR exchange, fingerprint compare, vouch      | Proposed |
 | 07 | SPA: vouch list, paths, key-change warnings       | Proposed |
 
