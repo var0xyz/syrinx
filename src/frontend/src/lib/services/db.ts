@@ -51,7 +51,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 19;
+  private readonly version = 20;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'keyId'      ],
@@ -82,9 +82,16 @@ export class IndexedDbService implements DbService {
     ['mentions',           'reedID', 'createdAt'],
     ['pendingEvictions',   'reedID'     ],
 
+    // Verified vouches, indexed by the subject so a profile's marks are one
+    // local read. Only certs this client verified itself are ever stored.
+    ['vouches',            'id', 'subjectUserID', 'voucherUserID'],
+    ['pendingVouches',     'compositeKey'],
+
     // Local-only (not signed, not synced to the server)
     ['lists',              'id'],
     ['pipes',              'tagName'],
+    // Trust roots: people you verified in person. Never uploaded.
+    ['trustRoots',         'userID'],
   ];
 
   async init(): Promise<void> {
