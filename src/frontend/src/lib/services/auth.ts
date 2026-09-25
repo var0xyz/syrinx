@@ -113,20 +113,6 @@ export class AuthService {
   }
 
   /**
-   * Set the passphrase in localStorage
-   */
-  setPassphrase(passphrase: string): void {
-    localStorage.setItem('keyPassphrase', passphrase);
-  }
-
-  /**
-   * Get the passphrase from localStorage
-   */
-  getPassphrase(): string | null {
-    return localStorage.getItem('keyPassphrase');
-  }
-
-  /**
    * Get the server name from cached server info, refreshing if needed.
    */
   async getServerName(): Promise<string> {

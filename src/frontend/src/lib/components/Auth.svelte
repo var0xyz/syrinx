@@ -39,12 +39,11 @@
         return;
       }
 
-      const passphrase = authService.getPassphrase();
       const keyId = authService.getActiveKeyId();
 
-      if (keyId && passphrase && !requestSigner.isInitialized()) {
+      if (keyId && !requestSigner.isInitialized()) {
         try {
-          await requestSigner.initializeWorker(keyId, passphrase);
+          await requestSigner.initializeWorker(keyId);
         } catch (error) {
           console.warn('Failed to auto-initialize request signer:', error);
           goto('/');

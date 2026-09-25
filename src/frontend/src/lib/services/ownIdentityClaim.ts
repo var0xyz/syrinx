@@ -23,9 +23,8 @@ export async function claimOwnIdentity(): Promise<api.User> {
   }
 
   const keyId = authService.getActiveKeyId();
-  const passphrase = authService.getPassphrase();
-  if (!keyId || !passphrase) {
-    throw new Error('Missing active key or passphrase after restore.');
+  if (!keyId) {
+    throw new Error('Missing active key after restore.');
   }
 
   await dbService.init();
@@ -85,7 +84,7 @@ export async function claimOwnIdentity(): Promise<api.User> {
   // Load the nest key into the worker before signing: the challenge must be
   // signed by this key, which is not necessarily the one already loaded.
   authService.setActiveKey(activeKeyId);
-  await requestSigner.initializeWorker(activeKeyId, passphrase);
+  await requestSigner.initializeWorker(activeKeyId);
 
   const { challenge } = await apiService.getIdentityClaimChallenge();
   const signature = await requestSigner.sign(String(challenge));

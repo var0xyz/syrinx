@@ -3,7 +3,7 @@
  * Service worker: PGP session for request signing + API fetch intercept.
  * OpenPGP is bundled from npm (openpgp/lightweight).
  *
- * Decrypted key is cached in memory. The page re-sends INIT_KEY after
+ * The key is cached in memory. The page re-sends INIT_KEY after
  * focus/visibility when the OS has discarded the SW heap.
  */
 import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching';
@@ -71,12 +71,10 @@ self.addEventListener('message', (event) => {
   }
 });
 
-async function initKey(armoredKey: string, passphrase: string): Promise<void> {
-  const parsedKey = await openpgp.readPrivateKey({ armoredKey });
-  privateKey = await openpgp.decryptKey({
-    privateKey: parsedKey,
-    passphrase
-  });
+async function initKey(armoredKey: string): Promise<void> {
+  // Armor arrives unencrypted: at rest it is sealed by a non-extractable
+  // wrapping key, and a PGP passphrase on top would have to live beside it.
+  privateKey = await openpgp.readPrivateKey({ armoredKey });
 }
 
 /** Return cached decrypted key, or throw if the page has not (re)initialized. */
@@ -166,7 +164,7 @@ self.addEventListener('message', async (event) => {
 
   if (type === 'INIT_KEY') {
     try {
-      await initKey(data.armoredKey, data.passphrase);
+      await initKey(data.armoredKey);
       port.postMessage({ success: true });
     } catch (error) {
       port.postMessage({

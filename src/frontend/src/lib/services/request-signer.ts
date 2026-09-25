@@ -3,8 +3,8 @@
  * Communicates with service worker to sign and decrypt
  * Does NOT store decrypted key in memory (only in service worker)
  *
- * After OS discards the SW heap, re-INIT_KEY from localStorage
- * (key id + passphrase) on resume or before sign when the SW reports no key.
+ * After OS discards the SW heap, re-INIT_KEY from the active key id on
+ * resume or before sign when the SW reports no key.
  */
 
 import { privateKeyRepository } from '../repositories/privateKey';
@@ -161,14 +161,13 @@ class RequestSignerService {
         }
 
         const keyId = authService.getActiveKeyId();
-        const passphrase = authService.getPassphrase();
-        if (!keyId || !passphrase) {
+        if (!keyId) {
           this.initialized = false;
           throw new Error('Private key not initialized');
         }
 
         this.initialized = false;
-        await this.initializeWorker(keyId, passphrase);
+        await this.initializeWorker(keyId);
       } finally {
         this.reinitInFlight = null;
       }
@@ -181,12 +180,9 @@ class RequestSignerService {
    * Initialize the service worker with a decrypted private key
    * Key is decrypted, passed to worker, then immediately discarded
    */
-  async initializeWorker(keyId: string, passphrase: string): Promise<void> {
+  async initializeWorker(keyId: string): Promise<void> {
     if (!keyId) {
       throw new Error('RequestSigner: key id is required to initialize');
-    }
-    if (!passphrase) {
-      throw new Error('RequestSigner: passphrase is required to initialize');
     }
 
     await this.waitForServiceWorker();
@@ -198,12 +194,11 @@ class RequestSignerService {
     }
     console.log('RequestSigner: Private key retrieved from IndexedDB');
 
-    // No user lookup here: signup loads the key before the account exists,
-    // and the worker only ever needs the armor and passphrase.
+    // Armor is unwrapped from the vault and already unencrypted; the
+    // non-extractable wrapping key is what protects it at rest.
     console.log('RequestSigner: Sending INIT_KEY message to service worker');
     await this.postToWorker('INIT_KEY', {
       armoredKey: keyData.armor,
-      passphrase,
     });
 
     this.initialized = true;

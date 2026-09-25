@@ -20,7 +20,6 @@ import {
   backupKeyItemId,
   type BackupPayload,
   writeIdentityKeysBackup,
-  lockRestoredKeys,
 } from './backupRestore';
 
 export function mapAccountRecoveryBootstrapError(err: unknown): Error {
@@ -106,9 +105,6 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
   // locking below puts it at rest under a fresh local secret.
   const bootstrap = await fetchBootstrap(userId, keyId, privateKeyEntry.armor, '');
 
-  await lockRestoredKeys(backup);
-  const passphrase = authService.getPassphrase()!;
-
   await writeIdentityKeysBackup(backup);
   // Restoring from a backup means the user already has one by definition —
   // don't send them through the mandatory-backup nag on the very next
@@ -128,7 +124,7 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
     localStorage.removeItem('publishTipReedID');
   }
 
-  await requestSigner.initializeWorker(keyId, passphrase);
+  await requestSigner.initializeWorker(keyId);
 
   if (get(serverInfo)?.id ?? localStorage.getItem('serverId')) {
     const skip = new Set<string>();

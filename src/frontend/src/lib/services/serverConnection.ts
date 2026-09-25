@@ -382,15 +382,14 @@ class ServerConnection {
 
       if (!requestSigner.isInitialized()) {
         const keyId = authService.getActiveKeyId();
-        const passphrase = authService.getPassphrase();
 
-        if (!keyId || !passphrase) {
+        if (!keyId) {
           console.log('ServerConnection: request signer not ready, skipping connection');
           return;
         }
 
         try {
-          await requestSigner.initializeWorker(keyId, passphrase);
+          await requestSigner.initializeWorker(keyId);
         } catch (error) {
           console.error('ServerConnection: failed to initialize request signer:', error);
           return;

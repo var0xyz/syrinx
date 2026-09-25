@@ -176,16 +176,9 @@ export async function buildKeyBackupPayload(): Promise<BackupPayload> {
     throw new Error('Active private key not found locally.');
   }
 
-  // Exported unencrypted: the file's own encryption is the protection, and
-  // a second layer under the same password adds no work for an attacker.
-  const localPassphrase = authService.getPassphrase();
-  if (!localPassphrase) {
-    throw new Error('No local key passphrase available to unlock the export.');
-  }
-  const exportArmor = await cryptoService.unlockPrivateKeyArmor(
-    privateKey.armor,
-    localPassphrase
-  );
+  // Armor comes out of the vault already unencrypted, and the file's own
+  // encryption is the protection, so it travels as-is.
+  const exportArmor = privateKey.armor;
 
   let publicKey = await publicKeyRepository.getPublicKey(keyId);
   if (!publicKey) {
@@ -322,34 +315,6 @@ export function assertIdentityBackupKeys(backup: BackupPayload): void {
   if (!publicKeyEntry) {
     throw new Error('Invalid identity backup: missing active public key.');
   }
-}
-
-/**
- * Mint a local unlock secret for a restored key. Machine-generated and
- * never shown: it protects the at-rest armor, it is not a credential.
- */
-function newLocalPassphrase(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes));
-}
-
-/**
- * Encrypt every private key in the payload under a freshly minted local
- * passphrase, and store that passphrase. Backup armor is unencrypted, so
- * this runs on the in-memory payload before anything reaches IndexedDB.
- */
-export async function lockRestoredKeys(backup: BackupPayload): Promise<void> {
-  const table = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
-  const items = (table?.items ?? []) as { armor?: string }[];
-  if (items.length === 0) return;
-
-  const localPassphrase = newLocalPassphrase();
-  for (const item of items) {
-    if (!item?.armor) continue;
-    item.armor = await cryptoService.lockPrivateKeyArmor(item.armor, localPassphrase);
-  }
-  authService.setPassphrase(localPassphrase);
 }
 
 /** True when payload has keys but no embedded profile (identity export). */

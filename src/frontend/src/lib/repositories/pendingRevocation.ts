@@ -74,8 +74,7 @@ export const pendingRevocationRepository = {
         pendingRevocationSynced.update(n => n + 1);
         await privateKeyRepository.setRevoked(record.keyId);
         authService.setActiveKey(record.newKeyId);
-        const passphrase = authService.getPassphrase();
-        if (passphrase) await requestSigner.initializeWorker(record.newKeyId, passphrase);
+        await requestSigner.initializeWorker(record.newKeyId);
 
         await publicKeyRepository.put(newPublicKey);
 
