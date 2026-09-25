@@ -12,8 +12,6 @@ export interface TrustRoot extends api.Base {
   /** The key you actually compared, for showing what was verified. */
   keyID: string;
   addedAt: string;
-  /** Demoted roots stop seeding trust while their public vouch stands. */
-  demoted?: boolean;
 }
 
 export const trustRootsRepository = {
@@ -30,17 +28,10 @@ export const trustRootsRepository = {
     return dbService.getAll<TrustRoot>('trustRoots');
   },
 
-  /** Ids of roots that currently seed trust, demoted ones excluded. */
+  /** Ids of everyone you verified in person. */
   async activeIDs(): Promise<Set<string>> {
     const roots = await trustRootsRepository.all();
-    return new Set(roots.filter((r) => !r.demoted).map((r) => r.userID));
-  },
-
-  /** Keeps the record so the user can see what they once verified. */
-  async setDemoted(userID: string, demoted: boolean): Promise<void> {
-    const existing = await trustRootsRepository.get(userID);
-    if (!existing) return;
-    await dbService.put<TrustRoot>('trustRoots', { ...existing, demoted }, allowUnsigned);
+    return new Set(roots.map((r) => r.userID));
   },
 
   async remove(userID: string): Promise<void> {
