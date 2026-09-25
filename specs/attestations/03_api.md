@@ -15,12 +15,13 @@ create, idempotent replay, server countersigns once.
 
 ## Scope
 
-- `POST /vouches`, `DELETE /vouches/{subjectKeyID}`, and three list reads
-  (inbound, outbound, and the caller's own audit list).
+- `POST /vouches`, `DELETE /vouches/{subjectKeyID}`,
+  `GET /users/{userID}/vouches/{vouchID}`, and two list reads (vouches for a
+  user, and the caller's own audit list).
 
 ## Non-goals
 
-- Path finding, which is client-side and needs no endpoint
+- Transitive trust paths beyond depth 1, which v1 does not compute
   ([05](05_trust_paths.md)).
 
 ## Design
@@ -78,6 +79,7 @@ independently, plus `withdrawn` and `void` flags computed per
 {
   "vouches": [
     {
+      "id":            "alice@home1234/0192f0c1-…",
       "voucherUserID": "alice@home1234",
       "voucherKeyID":  "alice@home1234/4a1e…",
       "subjectUserID": "bob@peer5678",
@@ -92,18 +94,57 @@ independently, plus `withdrawn` and `void` flags computed per
 }
 ```
 
+Every vouch has an `id` of the canonical form `voucherUserID/uuidv7` — the
+voucher authored the statement, so the id is owner-prefixed by them, like a
+reed or a key. It is minted server-side at create time and never changes,
+including when a withdrawn vouch is re-vouched, so a client's local record
+stays addressable across the row's whole life.
+
 `void`/`voidReason` are **hints**, like every other server-computed field
 ([M9](../../RISKS.md)). Clients recompute them. They exist so a client can
 skip fetching revocation state for obviously-dead edges, not so it can trust
 the answer.
 
-### `GET /users/{userID}/vouches/outbound`
+### `GET /users/{userID}/vouches/{vouchID}`
 
-Vouches **made by** this user. This is the edge direction path finding walks
-([05](05_trust_paths.md)), and it is the expensive one: a client exploring to
-depth 2 fetches this for every contact it trusts.
+One vouch, with its full signature blocks. Public and unauthenticated, like
+the lists.
 
-Same shape, same caveats.
+The two path params are **different identities**, and neither is derived from
+the other. `{userID}` is the canonical id of the vouch's **subject** — the
+user who was vouched for, which is how the client reached this vouch in the
+first place. `{vouchID}` is the vouch's own full canonical id, owned by the
+**voucher** who signed it (`voucherUserID/uuidv7`). Both arrive whole and are
+used as-is; nothing is split apart or reassembled from fragments. The server
+rejects the pair with **404** if that vouch does not name that subject, so a
+vouch cannot be served under a subject it says nothing about.
+
+This is the endpoint the reconcile loop is built on
+([07](07_spa_trust_display.md#verifying-what-the-server-reports)): a client
+holds a set of already-verified vouch ids in local storage, diffs it against
+the id list on `/users/{userID}/info`, and fetches only the ids it has never
+seen. Steady state is therefore zero fetches, and a first visit is one fetch
+per vouch — bounded by the number of vouches that actually exist, not
+repeated on every view.
+
+Returns **404** for an unknown id. A withdrawn vouch is still served here,
+with `withdrawn: true` and its withdrawal signature, so a client that
+cached the vouch can verify the retraction rather than infer it from the id
+having vanished from the list.
+
+### Vouch ids on `/users/{userID}/info`
+
+`/info` gains `vouchIDs`: the ids of the **live** vouches naming this user's
+current key, and nothing else — no signatures, no names, no count to trust.
+It is a list of ids precisely because ids are cheap to ship and useless to
+forge on their own: an id the client has not verified buys the server
+nothing, since no mark appears until the client has fetched and checked the
+cert behind it.
+
+Withdrawn vouches are absent. A client that holds one locally sees its id
+missing from the list and fetches it once to obtain the signed withdrawal
+([§ `GET /users/{userID}/vouches/{vouchID}`](#get-usersuseridvouchesvouchid)), so a retraction is
+confirmed by a signature rather than by an omission the server controls.
 
 ### `GET /vouches/mine`
 
@@ -118,10 +159,10 @@ suspicious burst cannot be hidden by backdating.
 Each row carries `voucherKeyID`, so the client can group by signing key — the
 natural unit of "everything signed while that key was live". Paginated.
 
-This is a separate endpoint from `/users/{id}/vouches/outbound` even though
-the data overlaps: that one is public and live-only, this one is authenticated
-and includes withdrawn rows the caller is entitled to audit but nobody else
-needs to see.
+This is a separate endpoint from `/users/{id}/vouches` even though the data
+overlaps: that one is public, live-only and lists vouches *for* a user, while
+this one is authenticated, lists vouches the caller *made*, and includes
+withdrawn rows they are entitled to audit but nobody else needs to see.
 
 ### Rate limiting
 

@@ -1,4 +1,4 @@
-# Attestations 07 — SPA: vouch list, paths, key-change warnings
+# Attestations 07 — SPA: vouch list, marks, key-change warnings
 
 ## Status
 
@@ -22,7 +22,7 @@ styled as suspicion.
 
 ## Non-goals
 
-- Computing paths ([05](05_trust_paths.md)).
+- Computing reachability ([05](05_trust_paths.md)).
 
 ## Design
 
@@ -32,10 +32,12 @@ A trust section on the profile page, below identity:
 
 - **Verified by you** — if a live vouch exists, with the date and a way to
   withdraw.
-- **Vouched by N people**, listing names, each independently verified by
-  this client ([02](02_payload.md)) before being counted.
-- **Paths from your contacts**, shortest first, at most three
-  ([05](05_trust_paths.md)).
+- **Vouched by N people**, where N counts only vouches this client verified
+  and stored itself ([§ Verifying what the server
+  reports](#verifying-what-the-server-reports)) — never a server-reported
+  total. Names listed.
+- **Verified by people you verified** — the roots among those vouchers,
+  named ([05](05_trust_paths.md)).
 - **Withdraw** control on your own vouch, signed with your current key.
 - **Previously verified on an older key** — stale vouches
   ([04](04_revocation.md)), visually distinct and never summed into the
@@ -47,15 +49,54 @@ warning trains people to ignore warnings, which would cost more than this
 feature gains. Absence of a check is absence of information, not a negative
 claim (see [§ The checkmark](#the-checkmark)).
 
+### Verifying what the server reports
+
+A count of vouches is not evidence. The server chooses which rows it serves
+and in what order, so "1000 vouches" is a claim about material the client has
+never seen, and verifying the first page says nothing about the rest. Worse,
+a server holding a thousand accounts can mint a thousand vouches whose
+signatures all verify — cryptographic validity was never what made a count
+meaningful.
+
+So the client never renders a number it has not independently checked. It
+keeps its own verified set instead:
+
+1. `/users/{userID}/info` returns `vouchIDs`, the live vouch ids for that
+   user ([03](03_api.md#vouch-ids-on-usersuseridinfo)).
+2. The client diffs that list against the vouches it already holds in
+   IndexedDB, all of which it verified when it first stored them.
+3. For each id it does not recognise, it fetches the cert
+   ([03](03_api.md#get-usersuseridvouchesvouchid)), runs the full verification order
+   ([02](02_payload.md#verification-order-client-on-display)), and stores it
+   on success. A cert that fails is stored as rejected, not retried on a
+   loop, and never counted.
+4. Ids that have disappeared from the list are fetched once to obtain the
+   signed withdrawal, then marked withdrawn locally.
+
+**No mark appears until that reconciliation finishes.** A profile mid-verify
+shows no check rather than a provisional one, because a check that later
+downgrades is worse than a check that arrives a moment late. Verification
+runs in the background and only the first visit does real work; afterwards
+the diff is usually empty and the marks come straight from IndexedDB.
+
+This is what makes the marks honest: every one of them is backed by
+signatures this device checked itself, so a mark means "I verified this",
+never "the server said so".
+
 ### The checkmark
 
-Two states, and the distinction is who did the verifying:
+Four states, ordered by how close the verification is to *you*:
 
 | Mark | Condition | Meaning |
 |---|---|---|
 | **Blue** | You hold a live vouch for this user's current key | *You* verified them |
-| **Grey** | Someone else does, and you don't | Verified by someone |
+| **Green** | Someone **you** verified holds one, and you don't | Verified by someone you trust |
+| **Grey** | Someone else does, and neither of the above | Verified by someone |
 | none | No live vouches for the current key | Unverified — the normal state |
+
+The ladder is strict: blue outranks green, green outranks grey. Each step
+describes a shorter distance from the viewer, so the mark answers "how would
+I know this?" rather than "how trustworthy is this person?".
 
 This is deliberately the familiar platform shape, with one difference that
 matters: the mark is not granted by an authority, it is an aggregate of what
@@ -63,25 +104,29 @@ users signed. A grey check is not an endorsement by the server — the server
 cannot mint one, because it cannot forge a vouch
 ([00](00_design.md#threat-model)).
 
-Grey is **not** a trust verdict, and copy must not let it read as one. On tap
-it opens the vouch list ([§ Profile](#profile)) so "verified by someone"
-becomes "verified by these people, and here is how they connect to you". The
-mark is an entry point to evidence, not a substitute for it.
+Grey and green are **not** trust verdicts, and copy must not let them read as
+one. On tap either opens the vouch list ([§ Profile](#profile)) so "verified
+by someone" becomes "verified by these people, and here is how they connect
+to you". The mark is an entry point to evidence, not a substitute for it.
 
-Blue requires a vouch for the user's **current** key. A vouch for a
-superseded key is stale ([04](04_revocation.md)) and does not colour the
-mark — otherwise a substituted key would inherit your own checkmark, which
-is the exact failure this feature exists to prevent.
+Every mark requires a live vouch for the user's **current** key. A vouch for
+a superseded key is stale ([04](04_revocation.md)) and colours nothing —
+otherwise a substituted key would inherit your own checkmark, which is the
+exact failure this feature exists to prevent.
 
-Because the marks need only "does a live vouch exist", they are cheap: one
-indexed read per user ([01](01_schema.md)), no path walking. So unlike trust
-*paths*, checkmarks can appear on list rows and feed items.
+Once a user's vouches are reconciled, all three marks are local reads. Blue
+and grey are "does a verified live vouch exist"; green additionally tests
+whether any voucher is one of your own roots
+([05](05_trust_paths.md#trust-roots-are-local)), a set intersection rather
+than a graph walk. Nothing goes past depth 1 in v1, so marks can sit on feed
+rows, drawn from IndexedDB with no fetch at all.
 
-### Where paths do *not* appear
+### What a feed costs
 
-Path computation stays on profile and reed detail. A feed of 50 reeds shows
-50 checkmarks (cheap) but runs no path searches
-([05](05_trust_paths.md#cost-and-caching)).
+A feed of 50 reeds shows 50 checkmarks and issues no vouch requests: each
+mark is read from the verified set already in IndexedDB. Reconciliation runs
+per profile visited, not per row rendered
+([05](05_trust_paths.md#depth-1-only-in-v1)).
 
 ### Your vouches, chronologically
 
@@ -89,15 +134,14 @@ A settings page listing every vouch **you** made, newest first, always
 available — not only after a revocation.
 
 Each row: who, which key, when the server countersigned it, which of your keys
-signed it, and its current state (live / stale / withdrawn / unconfirmed).
+signed it, and its current state (live / stale / withdrawn).
 Each row has a withdraw control.
 
 Chronological order is the point. A user scanning this list is asking "did I
 do all of these?", and a burst of vouches on a date they were not verifying
-anyone is the signal that their key was used without them. That is the same
-review the compromise prompt forces
-([04](04_revocation.md#the-compromise-window)), except the user can perform it
-whenever they are suspicious rather than only when they already know.
+anyone is the signal that their key was used without them. This list is the
+**only** remedy for that: nothing in the system detects a compromised key, so
+nothing prompts the review ([04](04_revocation.md#the-compromise-window)).
 
 Group by signing key, so vouches made with a key the user has since rotated
 away from are visually separable — the natural unit of "everything signed
@@ -134,12 +178,10 @@ Vouches the user *made* survive their own key changes
 ([04](04_revocation.md#a-vouch-belongs-to-the-person-not-the-key)), so no
 re-vouching prompt is needed after an ordinary rotation.
 
-The exception is a revocation the user signed as a **compromise**. Then show
-every vouch that key signed and ask them to confirm or withdraw each, because
-some may be the attacker's rather than theirs
-([04](04_revocation.md#the-compromise-window)). Until confirmed they render as
-unconfirmed and seed no trust paths. This is the one prompt, and it fires only
-on the user's own signed statement that the key was stolen.
+After revoking a key, show the user every vouch that key signed so they can
+withdraw what was not theirs — some may be an attacker's rather than theirs
+([04](04_revocation.md#the-compromise-window)). Nothing prompts this
+automatically, because nothing detects a compromise.
 
 ### Relay refusal
 
@@ -162,31 +204,43 @@ who have verified nobody.
 ### Visual language
 
 - **Blue check** — you verified this key.
-- **Grey check** — others have; tap for who.
+- **Green check** — someone you verified did; tap for who.
+- **Grey check** — someone else did; tap for who.
 - **Stale** — muted, labelled *previous key*, never a check.
-- **Unconfirmed** — a vouch signed by a key later revoked as compromised
-  ([04](04_revocation.md)); shown in the list, excluded from the marks.
 - **Mismatch** — the app's error treatment, never a badge.
 
 Never a lock icon (borrowed meaning from transport security, a different
-promise) and never a colour-only distinction: blue and grey must differ in
-shape or have a text label, or the two states are invisible to a
-colour-blind user and identical in a screenshot.
+promise) and never a colour-only distinction: blue, green and grey must
+differ in shape or carry a text label, or the three states are invisible to
+a colour-blind user and identical in a screenshot.
 
 ## Testing
 
 - Vouch list counts only independently verified, non-void vouches.
+- A server-reported id whose cert fails verification is never counted, and
+  the failure does not retry on a loop.
+- No mark renders until reconciliation completes; a half-verified profile
+  shows no check rather than a provisional one.
+- A second visit with an unchanged id list performs no verification work.
+- An id that vanished from the list is fetched once for its signed
+  withdrawal, and is not treated as withdrawn on the omission alone.
+- A thousand-vouch profile verifies each id once, then reads from local
+  storage on later visits.
 - A server-supplied `void: true` on a vouch the client can verify as live is
   ignored ([04](04_revocation.md)).
 - Stale vouches never merge into the current count.
 - Legitimate rotation and unexplained change produce different warnings.
 - Relay refuses on a contradicting vouch and proceeds when none exists.
-- No path computation runs while scrolling a feed.
+- No vouch fetching or verification runs while scrolling a feed.
 - Blue only for a live vouch on the *current* key; a stale vouch yields no
   mark.
-- Grey when others vouch and you do not; blue takes precedence over grey.
+- Grey when others vouch and you do not and none of them is a root.
+- Green when a voucher is someone you verified; grey when none is.
+- The ladder holds: blue beats green, green beats grey.
+- Green needs a live vouch on the current key from a live root vouch; a
+  stale vouch on either edge yields no green.
 - Checkmarks render on feed rows without triggering path searches.
-- Blue and grey are distinguishable without colour.
+- Blue, green and grey are distinguishable without colour.
 - The vouch list orders by server timestamp and survives a key rotation,
   grouping by the signing key.
 - Bulk withdrawal signs one withdrawal cert per vouch.

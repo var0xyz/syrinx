@@ -83,8 +83,8 @@ Two reads drive everything:
 
 - **"Who vouched for this user?"** — profile display
   ([07](07_spa_trust_display.md)), and the edges a client walks inbound.
-- **"Who has this user vouched for?"** — the outbound edges, which is what
-  path finding actually traverses ([05](05_trust_paths.md)).
+- **"Who has this user vouched for?"** — the caller's own audit list
+  ([07](07_spa_trust_display.md#your-vouches-chronologically)).
 
 Both are partial indexes on live rows; withdrawn vouches are read only on
 the audit path.
