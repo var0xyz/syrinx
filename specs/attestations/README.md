@@ -40,11 +40,11 @@ be, or trust chains cannot be walked at all.
 | What is bound | **`userID` + `keyID` together.** A vouch is about a key, not just a person ([00](00_design.md#a-vouch-binds-a-key)). |
 | Key rotation | A vouch **does not** carry to the successor key. Re-verification is required ([00](00_design.md#rotation-ends-a-vouch)). |
 | Revocation | A vouch survives the **voucher's** key being revoked — only the voucher retracts it, by signing a withdrawal. A revoked or rotated **subject** key makes it stale ([04](04_revocation.md)). |
-| Transitivity | **Depth-limited paths, computed client-side.** No trust scores, no thresholds ([05](05_trust_paths.md)). |
+| Transitivity | **One hop, computed client-side.** A root's vouch colours the mark; deeper paths are deferred ([05](05_trust_paths.md)). |
 | Trust roots | **Local.** Whose vouches you weight never leaves your device ([05](05_trust_paths.md#trust-roots-are-local)). |
-| Revoking a vouch | Signed `withdrawal` cert, not a bare delete ([03](03_api.md#withdrawing-a-vouch)). |
-| Display | **Blue** check if you verified them, **grey** if someone else did, none otherwise ([07](07_spa_trust_display.md#the-checkmark)). |
-| Audit | A chronological list of every vouch you made, always available, with withdraw ([07](07_spa_trust_display.md#your-vouches-chronologically)). |
+| Revoking a vouch | Signed `withdrawal` cert, not a bare delete ([03](03_api.md#delete-vouchessubjectkeyid)). |
+| Display | **Blue** check if you verified them, **green** if someone you verified did, **grey** if anyone else did, none otherwise ([07](07_spa_trust_display.md#the-checkmark)). |
+| Audit | A chronological list of every vouch you made, always available, with withdraw — the only remedy for a compromised key, since nothing detects one ([07](07_spa_trust_display.md#your-vouches-chronologically)). |
 
 ## Protocol sketch
 
@@ -60,10 +60,11 @@ be, or trust chains cannot be walked at all.
 5. Bob's client learns of the vouch via the existing notification/WS path.
 6. Any client viewing Bob can fetch his vouches, verify each signature
    independently, and show who vouched for him — a **grey** check if anyone
-   has, **blue** if the viewer did it themselves
+   has, **green** if one of them is someone the viewer verified, **blue** if
+   the viewer verified Bob themselves
    ([07](07_spa_trust_display.md#the-checkmark)).
-7. A client viewing Bob computes whether a path exists from its **own**
-   verified contacts to Bob, and surfaces the path — not a score.
+7. A client viewing Bob checks whether any of those vouchers is someone it
+   verified itself, and names them — not a score.
 
 ## Steps
 
@@ -74,7 +75,7 @@ be, or trust chains cannot be walked at all.
 | [02](02_payload.md)            | Vouch + withdrawal canonical payloads, countersign    | 00         |
 | [03](03_api.md)                | Create / withdraw / list API                          | 01, 02     |
 | [04](04_revocation.md)         | Withdrawal, revocation, and what survives             | 01, 02     |
-| [05](05_trust_paths.md)        | Client-side path finding and trust roots              | 03         |
+| [05](05_trust_paths.md)        | Trust roots and depth-1 reachability                  | 03         |
 | [06](06_spa_verify_flow.md)    | SPA: QR exchange, fingerprint compare, vouch button   | 03         |
 | [07](07_spa_trust_display.md)  | SPA: checkmarks, vouch audit list, key-change warnings | 05, 06     |
 
@@ -91,8 +92,10 @@ be, or trust chains cannot be walked at all.
   withdrawal already covers "I no longer stand behind this".
 - **Key transparency log.** A stronger, complementary answer to H1; out of
   scope here and independently specifiable.
-- **Server-side path computation.** The server must never be the thing that
+- **Server-side trust computation.** The server must never be the thing that
   tells you who to trust — that reintroduces H1 one level up.
+- **Multi-hop trust paths.** v1 stops at one hop; deeper paths need the
+  opposite edge direction and are deferred ([05](05_trust_paths.md#why-not-deeper)).
 
 ## Open questions
 

@@ -19,7 +19,7 @@ withdrawal.
 
 - When a vouch is void, stale, or unaffected.
 - Why the voucher's key state does not void their vouches.
-- The compromised-key window and how it is surfaced instead.
+- The compromised-key window this leaves open, and why.
 - Where the rules are evaluated.
 
 ## Non-goals
@@ -75,24 +75,21 @@ key may have been minted by the attacker rather than the user — for keys the
 attacker controls. Under rule 3 those survive until manually withdrawn, and
 the user has no reliable way to remember which vouches were theirs.
 
-This is **not** handled by auto-voiding, for the reasons above. It is handled
-by making it visible and easy to act on:
+This is **not** handled by auto-voiding, for the reasons above, and not by
+inferring compromise from the revocation either: `KeyRevocation.reason` is
+free text, and branching on its prose would decide security by string match
+— "lost my phone" is a compromise that would not match, "rotating, not
+compromised" is a rotation that would.
 
-- `KeyRevocation.reason` is user-signed and already exists. When a revocation
-  indicates compromise, clients viewing a vouch signed by that key show it as
-  **unconfirmed**: still displayed, not counted toward a current trust path
-  ([05](05_trust_paths.md)) until the voucher re-affirms or withdraws it.
-- After revoking a key, the app shows the user every vouch that key signed
-  and asks them to confirm or withdraw each ([07](07_spa_trust_display.md)).
-  Re-affirming is a fresh vouch signed by the new key; withdrawing is a
-  withdrawal cert.
-- A compromise-flagged revocation is the one case where the user is prompted
-  rather than merely informed.
+The remedy is the audit list
+([07](07_spa_trust_display.md#your-vouches-chronologically)): every vouch the
+user made, newest first by server timestamp, grouped by signing key, with
+withdraw and bulk withdraw. After revoking a key, the app shows the user
+every vouch that key signed so they can withdraw what was not theirs.
 
-The distinction from auto-voiding matters: the default is that trust
-survives, and only a *signed statement of compromise by the user themselves*
-downgrades it — never the server, and never a mechanism the server can
-trigger.
+Nothing prompts that review automatically, which is the accepted cost: trust
+is never downgraded by inference, only by a signed withdrawal from the person
+who made the vouch.
 
 ### Subject key revoked or rotated → stale
 
@@ -134,7 +131,7 @@ voucher's key state beyond it being able to sign.
 ### No cascade job
 
 Revoking a key does **not** sweep `user_vouches`. Void is derived
-([01](01_schema.md#void-is-derived-not-stored)), so there is nothing to
+([01](01_schema.md#void-and-stale-are-derived-not-stored)), so there is nothing to
 update, and a sweep would introduce a second source of truth that can drift
 from the revocation table. Revocation already fans out
 ([09_revocation_fanout](../09_revocation_fanout.md)); clients recompute on
@@ -148,7 +145,5 @@ next read.
 - Subject key revoked → stale, not void; excluded from current count,
   present as "previously verified".
 - Subject rotates with valid handoff → stale, and the handoff chain is shown.
-- Revocation whose signed `reason` indicates compromise → vouches signed by
-  that key render as unconfirmed and do not seed trust paths.
 - Withdrawn vouch never counts regardless of key state.
 - Client ignores a server `void: true` hint it cannot independently confirm.
