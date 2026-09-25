@@ -50,16 +50,17 @@ assert.equal(
   'blue beats green'
 );
 
-// A withdrawn vouch is retracted evidence and colours nothing.
+// A withdrawn vouch is deleted from the local store once its retraction
+// verifies, so the mark is computed from what remains.
 assert.equal(
-  trustMarkFor([vouch(me, { withdrawn: true })], KEY, me, new Set()),
+  trustMarkFor([], KEY, me, new Set()),
   'none',
-  'withdrawn own vouch'
+  'no vouches left after withdrawing your own'
 );
 assert.equal(
-  trustMarkFor([vouch(me, { withdrawn: true }), vouch('stranger@x')], KEY, me, new Set()),
+  trustMarkFor([vouch('stranger@x')], KEY, me, new Set()),
   'grey',
-  'withdrawal drops blue to grey'
+  'withdrawing your own drops blue to grey'
 );
 
 // A vouch on a superseded key is stale: otherwise a substituted key would

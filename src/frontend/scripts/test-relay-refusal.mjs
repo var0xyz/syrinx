@@ -22,11 +22,12 @@ assert.ok(
   'vouch names another key: refuse'
 );
 
-// A withdrawn vouch is retracted evidence and cannot block anything.
+// A withdrawn vouch is deleted locally once its retraction verifies, so
+// retracted evidence can never block a relay.
 assert.equal(
-  findContradiction([{ subjectKeyID: OTHER, withdrawn: true }], REPORTED),
+  findContradiction([], REPORTED),
   null,
-  'only a withdrawn vouch disagrees: proceed'
+  'no vouch disagrees: proceed'
 );
 
 // One agreeing vouch is enough, even alongside a vouch for an older key.

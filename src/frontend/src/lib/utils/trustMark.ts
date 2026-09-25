@@ -5,7 +5,6 @@ export type TrustMark = 'blue' | 'green' | 'grey' | 'none';
 export interface MarkableVouch {
   voucherUserID: string;
   subjectKeyID: string;
-  withdrawn?: boolean;
 }
 
 /**
@@ -14,7 +13,6 @@ export interface MarkableVouch {
  * changes nothing here.
  */
 export function countsForMark(vouch: MarkableVouch, activeKeyID: string): boolean {
-  if (vouch.withdrawn) return false;
   return vouch.subjectKeyID === activeKeyID;
 }
 

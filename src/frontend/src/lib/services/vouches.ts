@@ -5,6 +5,7 @@ import { requestSigner } from './request-signer';
 import { buildVouchUserPayload, buildVouchWithdrawalUserPayload } from './signing';
 import { vouchesRepository, type VouchRecord } from '$lib/repositories/vouches';
 import { trustRootsRepository } from '$lib/repositories/trustRoots';
+import { userInfoRepository } from '$lib/repositories/userInfo';
 import { pendingVouchesRepository } from '$lib/repositories/pendingVouches';
 import { MAX_VOUCH_NOTE_CHARS } from '$lib/utils/vouchNote';
 import { countsForMark, trustMarkFrom, type TrustMark } from '$lib/utils/trustMark';
@@ -25,32 +26,42 @@ export async function reconcileVouches(
 ): Promise<boolean> {
   let complete = true;
   const seen = new Set(serverVouchIDs);
-
-  for (const vouchID of serverVouchIDs) {
-    if (await vouchesRepository.has(vouchID)) continue;
-    try {
-      const cert = await apiService.getVouch(subjectUserID, vouchID);
-      // put verifies; a cert that fails is not stored and not counted.
-      await vouchesRepository.put(cert);
-    } catch (error) {
-      console.error('[reconcileVouches] refused', vouchID, error);
-      complete = false;
-    }
-  }
-
-  // An id that vanished from the list is fetched once for its signed
-  // withdrawal: a retraction must be proven, not inferred from omission.
   const held = await vouchesRepository.forSubject(subjectUserID);
-  for (const vouch of held) {
-    if (seen.has(vouch.id) || vouch.withdrawn) continue;
-    try {
-      const cert = await apiService.getVouch(subjectUserID, vouch.id);
-      await vouchesRepository.put(cert);
-    } catch (error) {
-      console.error('[reconcileVouches] could not confirm withdrawal', vouch.id, error);
-      complete = false;
-    }
-  }
+
+  // Fetched concurrently so the display converges as answers arrive
+  // rather than after the slowest round trip.
+  const unknown = serverVouchIDs.filter((id) => !held.some((v) => v.id === id));
+  await Promise.all(
+    unknown.map(async (vouchID) => {
+      try {
+        const cert = await apiService.getVouch(subjectUserID, vouchID);
+        // put verifies; a cert that fails is not stored and not counted.
+        await vouchesRepository.put(cert);
+      } catch (error) {
+        console.error('[reconcileVouches] refused', vouchID, error);
+        complete = false;
+      }
+    })
+  );
+
+  // An id that vanished was withdrawn: fetch it once for the signed
+  // retraction, then drop it. A proven withdrawal is not worth keeping.
+  await Promise.all(
+    held
+      .filter((vouch) => !seen.has(vouch.id))
+      .map(async (vouch) => {
+        try {
+          const cert = await apiService.getVouch(subjectUserID, vouch.id);
+          if (cert.withdrawal) {
+            await vouchesRepository.put(cert);
+            await vouchesRepository.delete(vouch.id);
+          }
+        } catch (error) {
+          console.error('[reconcileVouches] could not confirm withdrawal', vouch.id, error);
+          complete = false;
+        }
+      })
+  );
 
   return complete;
 }
@@ -85,7 +96,7 @@ export async function staleVouchesFor(
   activeKeyID: string
 ): Promise<VouchRecord[]> {
   const vouches = await vouchesRepository.forSubject(subjectUserID);
-  return vouches.filter((v) => !v.withdrawn && v.subjectKeyID !== activeKeyID);
+  return vouches.filter((v) => v.subjectKeyID !== activeKeyID);
 }
 
 /** Stores a vouch the server pushed by id. The cert is fetched and verified
@@ -115,7 +126,7 @@ export async function keyChangeFor(
   const me = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
   if (!me) return null;
   const mine = (await vouchesRepository.forSubject(subjectUserID)).find(
-    (v) => v.voucherUserID === me && !v.withdrawn
+    (v) => v.voucherUserID === me
   );
   if (!mine) return null;
 
@@ -185,6 +196,34 @@ export async function createVouch(
   return cert;
 }
 
+/** What the audit list shows for one vouch the caller made. */
+export type AuditState = 'withdrawn' | 'previous key' | 'live';
+
+/**
+ * Computed from the subject's current key, never reported by the server.
+ * Falls back to 'live' when that key is unknown: claiming 'previous key'
+ * on missing data would be an unverified downgrade.
+ */
+export async function auditStateFor(vouch: api.Vouch): Promise<AuditState> {
+  if (vouch.withdrawal) return 'withdrawn';
+  const currentKeyID = await currentKeyIDFor(vouch.subjectUserID);
+  if (!currentKeyID) return 'live';
+  return vouch.subjectKeyID === currentKeyID ? 'live' : 'previous key';
+}
+
+async function currentKeyIDFor(subjectUserID: string): Promise<string | null> {
+  const cached = await userInfoRepository.get(subjectUserID);
+  if (cached?.activeKeyID) return cached.activeKeyID;
+  try {
+    const info = await apiService.getUserInfo(subjectUserID);
+    await userInfoRepository.put(info);
+    return info.activeKeyID ?? null;
+  } catch (error) {
+    console.error('[vouches] could not resolve current key', subjectUserID, error);
+    return null;
+  }
+}
+
 /**
  * Withdraws a vouch, signed with whatever key is current now — a voucher
  * who rotated must still be able to retract.
@@ -200,6 +239,10 @@ export async function withdrawVouch(
   const signature = await requestSigner.sign(payload);
 
   const cert = await apiService.withdrawVouch(subjectKeyID, voucherKeyID, signature);
+  // put verifies both withdrawal signatures and throws on failure, so the
+  // delete only runs once the retraction is proven.
   await vouchesRepository.put(cert);
+  await vouchesRepository.delete(cert.id);
+  await trustRootsRepository.remove(subjectUserID);
   return cert;
 }
