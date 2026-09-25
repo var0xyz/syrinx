@@ -44,14 +44,41 @@ CREATE TABLE IF NOT EXISTS user_vouches (
     user_signature_id    INT NOT NULL REFERENCES user_signatures(id),
     server_signature_id  INT NOT NULL REFERENCES server_signatures(id),
     created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    withdrawn_at         TIMESTAMP,
-    withdrawal_signature_id INT REFERENCES user_signatures(id),
-    PRIMARY KEY (voucher_user_id, subject_key_id)
+    withdrawal_signature_id        INT REFERENCES user_signatures(id),
+    withdrawal_server_signature_id INT REFERENCES server_signatures(id)
+);
+
+CREATE TABLE IF NOT EXISTS user_vouches_active (
+    vouch_id        VARCHAR(255) PRIMARY KEY REFERENCES user_vouches(id) ON DELETE CASCADE,
+    voucher_user_id VARCHAR(255) NOT NULL,
+    subject_user_id VARCHAR(255) NOT NULL,
+    subject_key_id  VARCHAR(255) NOT NULL,
+    UNIQUE (voucher_user_id, subject_key_id)
 );
 ```
 
-**Primary key is `(voucher_user_id, subject_key_id)`, not
-`(voucher_user_id, subject_user_id)`.** One vouch per voucher per *key* —
+### History is append-only; the active set is separate
+
+`user_vouches` holds **every attestation ever made**, each keyed by its own
+random id. Withdrawing adds signatures to a row; re-vouching inserts a new row
+rather than reviving the old one. The withdrawal a re-vouch replaces therefore
+stays fetchable and verifiable — a peer still reconciling can prove the
+retraction happened instead of seeing the vouch silently live again.
+
+`user_vouches_active` carries one row per **live** attestation and is what every
+list read joins. The uniqueness lives there, where it is actually true: one live
+vouch per voucher per subject key, while history holds as many withdrawn rows as
+that pair accumulates. Withdrawing deletes the active row in the same
+transaction that writes the signatures.
+
+There is **no `withdrawn_at`**. The withdrawal countersignature carries the
+authoritative time, as every other signed resource does.
+
+Unbounded withdraw/re-vouch cycling is bounded by a 24h cooldown per
+`(voucher, subject key)` ([03](03_api.md#post-vouches)), not by the schema.
+
+**The active set is keyed `(voucher_user_id, subject_key_id)`, not
+`(voucher_user_id, subject_user_id)`.** One live vouch per voucher per *key* —
 vouching for Bob's new key after a rotation is a new row, and the old row
 survives to support the "previously verified" signal
 ([00](00_design.md#rotation-ends-a-vouch)). Keying on `subject_user_id`
@@ -67,7 +94,10 @@ and fail. It also groups the audit list
 ([07](07_spa_trust_display.md#your-vouches-chronologically)).
 
 `subject_user_id` has no FK. A vouch may name a user on another server
-(federation), who has no `users` row here.
+(federation), who has no `users` row here. The `voucher_user_id` FK stays even
+under federation: a vouch is only ever stored on the voucher's own server, so
+every row in this table has a local voucher
+([08](08_federation.md#the-local-row-for-a-foreign-counterparty)).
 
 ### The subject key id is the tamper evidence
 
@@ -82,27 +112,34 @@ holding the key for the purpose of detecting a swap.
 ### Indexes
 
 ```sql
-CREATE INDEX IF NOT EXISTS idx_user_vouches_subject
-    ON user_vouches(subject_user_id) WHERE withdrawn_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_user_vouches_voucher_created
+    ON user_vouches(voucher_user_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_user_vouches_voucher
-    ON user_vouches(voucher_user_id) WHERE withdrawn_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_user_vouches_subject_key
+    ON user_vouches(voucher_user_id, subject_key_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_user_vouches_active_subject
+    ON user_vouches_active(subject_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_vouches_active_voucher
+    ON user_vouches_active(voucher_user_id);
 ```
 
-Two reads drive everything:
+Three reads drive everything:
 
 - **"Who vouched for this user?"** — profile display
   ([07](07_spa_trust_display.md)), and the edges a client walks inbound.
+  Served from the active set.
 - **"Who has this user vouched for?"** — the caller's own audit list
-  ([07](07_spa_trust_display.md#your-vouches-chronologically)).
-
-Both are partial indexes on live rows; withdrawn vouches are read only on
-the audit path.
+  ([07](07_spa_trust_display.md#your-vouches-chronologically)), which walks
+  history so withdrawn rows are visible.
+- **"When did this voucher last vouch for this key?"** — the cooldown check
+  on create.
 
 ### Withdrawal is a state, not a delete
 
-`withdrawn_at` plus `withdrawal_signature_id` record that the voucher
-retracted, and the row stays. A bare `DELETE` would be wrong twice: the
+The two withdrawal signature columns record that the voucher retracted, and the
+row stays. A bare `DELETE` would be wrong twice: the
 server could silently drop vouches it dislikes and claim they were
 withdrawn, and a client that already cached the vouch has no signed evidence
 of the retraction. The withdrawal is itself a signed cert
@@ -113,15 +150,19 @@ delete. That is fine for a counter; it is not fine for a security claim.
 
 ### Void and stale are derived, not stored
 
-There is no `void` or `stale` column. `withdrawn_at` is the only retraction
-this table records; everything else depends on the current revocation state of
-the *subject* key, which changes without this table being touched. Computing
-it on read keeps one source of truth ([04](04_revocation.md)).
+There is no `void` or `stale` column. The withdrawal signatures are the only
+retraction this table records; everything else depends on the current
+revocation state of the *subject* key, which changes without this table being
+touched. Computing it on read keeps one source of truth
+([04](04_revocation.md)).
 
 ## Testing
 
 - Insert, then re-insert the same `(voucher, subject_key)` → idempotent.
 - Vouch for a second key of the same subject → two live rows.
-- Withdraw → row retained, `withdrawn_at` set, absent from partial indexes.
+- Withdraw → history row retained with both signatures, active row gone.
+- Re-vouch after a withdrawal → a **new** row with a new id; the withdrawn
+  original keeps its retraction and is still fetchable by id.
+- Re-vouch inside the cooldown → refused.
 - Voucher's key revoked → row untouched and still live.
 - Subject on a foreign server inserts without a `users` row.

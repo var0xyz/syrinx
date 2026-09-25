@@ -38,7 +38,9 @@ A trust section on the profile page, below identity:
   total. Names listed.
 - **Verified by people you verified** — the roots among those vouchers,
   named ([05](05_trust_paths.md)).
-- **Withdraw** control on your own vouch, signed with your current key.
+- **Withdraw** control on your own vouch, signed with your current key. It is
+  a destructive, public action, so it is a red button behind an explicit
+  confirmation rather than an inline link.
 - **Previously verified on an older key** — stale vouches
   ([04](04_revocation.md)), visually distinct and never summed into the
   current count.
@@ -71,13 +73,30 @@ keeps its own verified set instead:
    on success. A cert that fails is stored as rejected, not retried on a
    loop, and never counted.
 4. Ids that have disappeared from the list are fetched once to obtain the
-   signed withdrawal, then marked withdrawn locally.
+   signed withdrawal, verified, and then **deleted locally**. A retraction
+   proven by signature is not worth keeping; nothing in the local store is
+   ever withdrawn.
 
-**No mark appears until that reconciliation finishes.** A profile mid-verify
-shows no check rather than a provisional one, because a check that later
-downgrades is worse than a check that arrives a moment late. Verification
-runs in the background and only the first visit does real work; afterwards
-the diff is usually empty and the marks come straight from IndexedDB.
+**Marks render immediately from local data; reconciliation corrects them.**
+syrinx is offline-first ([philosophy](../../docs/philosophy.md)) — the device's
+store is the device's own verified evidence, not a cache of the server's
+answer, and nothing in it entered without passing verification here. Blocking
+the display on a network round trip would show an offline user no marks at all,
+including for people they verified face to face, which is the case the feature
+exists for.
+
+So the profile draws what it holds, runs reconciliation unawaited, and updates
+when it lands: a vouch that turns out withdrawn makes the mark disappear, a
+newly verified one makes it appear. A key mismatch likewise updates the display
+rather than delaying it.
+
+This is safe because the mark was never the protection. The **relay refusal**
+([§ Relay refusal](#relay-refusal)) is a separate check that runs against the
+local store at encrypt time, so optimistic rendering changes what is drawn, not
+what is encrypted to.
+
+The id list itself arrives from the profile response, so it is treated as the
+trigger to reconcile, never as a precondition to draw.
 
 This is what makes the marks honest: every one of them is backed by
 signatures this device checked itself, so a mark means "I verified this",
@@ -219,11 +238,16 @@ a colour-blind user and identical in a screenshot.
 - Vouch list counts only independently verified, non-void vouches.
 - A server-reported id whose cert fails verification is never counted, and
   the failure does not retry on a loop.
-- No mark renders until reconciliation completes; a half-verified profile
-  shows no check rather than a provisional one.
+- Marks render from the local store before any request resolves, and fully
+  offline.
+- A vouch withdrawn on the server makes the mark disappear once
+  reconciliation lands, without blocking first paint.
 - A second visit with an unchanged id list performs no verification work.
 - An id that vanished from the list is fetched once for its signed
   withdrawal, and is not treated as withdrawn on the omission alone.
+- Once that withdrawal verifies, the local record is deleted rather than
+  flagged.
+- Withdrawing asks for confirmation first and is styled as destructive.
 - A thousand-vouch profile verifies each id once, then reads from local
   storage on later visits.
 - A server-supplied `void: true` on a vouch the client can verify as live is

@@ -4,7 +4,8 @@ This directory is the **user attestation** feature proposal set. Numbered
 files below are independently reviewable implementation steps. Land them in
 order unless a step's "Depends on" says otherwise.
 
-**Status: Implemented.** All steps have landed.
+**Status: 00–07 implemented.** [08](08_federation.md) (federated reads) is
+proposed, not built.
 
 ## Motivation
 
@@ -42,8 +43,11 @@ be, or trust chains cannot be walked at all.
 | Revocation | A vouch survives the **voucher's** key being revoked — only the voucher retracts it, by signing a withdrawal. A revoked or rotated **subject** key makes it stale ([04](04_revocation.md)). |
 | Transitivity | **One hop, computed client-side.** A root's vouch colours the mark; deeper paths are deferred ([05](05_trust_paths.md)). |
 | Trust roots | **Local.** Whose vouches you weight never leaves your device ([05](05_trust_paths.md#trust-roots-are-local)). |
-| Revoking a vouch | Signed `withdrawal` cert, not a bare delete ([03](03_api.md#delete-vouchessubjectkeyid)). |
+| Revoking a vouch | Signed `withdrawal` cert — **both** user and server signatures — not a bare delete. Excluded from list reads; the client deletes its copy once the retraction verifies ([03](03_api.md#delete-vouchessubjectkeyid)). |
+| Re-vouching | Allowed. A new attestation with a **new id**, never a revive, behind a 24h cooldown per key ([01](01_schema.md#history-is-append-only-the-active-set-is-separate)). |
+| Rendering | **Offline-first.** Marks draw from the local store immediately; reconciliation corrects them in the background ([07](07_spa_trust_display.md#verifying-what-the-server-reports)). |
 | Display | **Blue** check if you verified them, **green** if someone you verified did, **grey** if anyone else did, none otherwise ([07](07_spa_trust_display.md#the-checkmark)). |
+| Federation | **Cert lives on the voucher's server; the subject's server holds a reference only.** Delivery to the subject's server is confirmed before the vouch is stored, and the client retries — a deliberate break from fire-and-forget. No broadcast, no backfill ([08](08_federation.md)). |
 | Audit | A chronological list of every vouch you made, always available, with withdraw — the only remedy for a compromised key, since nothing detects one ([07](07_spa_trust_display.md#your-vouches-chronologically)). |
 
 ## Protocol sketch
@@ -78,6 +82,7 @@ be, or trust chains cannot be walked at all.
 | [05](05_trust_paths.md)        | Trust roots and depth-1 reachability                  | 03         |
 | [06](06_spa_verify_flow.md)    | SPA: QR exchange, fingerprint compare, vouch button   | 03         |
 | [07](07_spa_trust_display.md)  | SPA: checkmarks, vouch audit list, key-change warnings | 05, 06     |
+| [08](08_federation.md)         | Federated reads: route vouch reads to the subject's server | 03, 05, 07 |
 
 ## Non-goals
 
@@ -97,23 +102,22 @@ be, or trust chains cannot be walked at all.
 - **Multi-hop trust paths.** v1 stops at one hop; deeper paths need the
   opposite edge direction and are deferred ([05](05_trust_paths.md#why-not-deeper)).
 
-## Open questions
-
-1. Whether to rate-limit vouch creation server-side. A user can only vouch
-   with their own key, so the abuse ceiling is low, but a compromised account
-   could spray vouches. See [03](03_api.md#rate-limiting).
-2. A vouch naming a subject on a peer server outlives that account's removal,
-   since `subject_user_id` carries no FK and this server never learns the
-   peer deleted them. Harmless while it only makes a mark this client cannot
-   verify against a fetchable key, but worth revisiting alongside
-   [federation](../federation/README.md).
-
 ## Resolved
+
+- **Rate limiting.** One limit, and it is not about spraying: a 24h cooldown
+  per `(voucher, subject key)` bounds withdraw/re-vouch churn now that vouch
+  history is append-only ([03](03_api.md#the-re-vouch-cooldown)). General
+  volume needs no limit — a user can only vouch with their own key, and a
+  vouch from an account nobody trusts affects nobody's path computation.
 
 - **The note.** A vouch carries an optional public note of at most 140
   characters, as the envelope content of the user payload. It is not
   encrypted; a private note would be invisible to exactly the people a
   public vouch exists to inform.
+- **Federated account removal.** A vouch naming a subject on a peer no
+  longer outlives that account's removal. Federation already notifies peers
+  of account removal, and vouch cleanup rides that notify rather than adding
+  a fan-out of its own ([08](08_federation.md#account-removal-across-servers)).
 - **Account removal.** `voucher_user_id` references `identities` with
   `ON DELETE CASCADE`, so removing an account takes its outbound vouches
   with it, matching `reeds_liked`. Inbound vouches naming a removed local

@@ -57,14 +57,20 @@ checked, because a revoked voucher key does not invalidate vouches
 ### `DELETE /vouches/{subjectKeyID}`
 
 Authenticated, **signed** — unlike unlike. Body carries the withdrawal
-signature ([02](02_payload.md#withdrawal-payload)). Sets `withdrawn_at` and
-`withdrawal_signature_id`; the row is retained
-([01](01_schema.md#withdrawal-is-a-state-not-a-delete)).
+signature ([02](02_payload.md#withdrawal-payload)). The server verifies it,
+**countersigns** ([02](02_payload.md#withdrawal-server-payload)), stores both
+signatures, and deletes the row from the active set; the history row is
+retained ([01](01_schema.md#withdrawal-is-a-state-not-a-delete)).
 
 The subject key id is a single full id in the path, never split or
 recomposed from parts.
 
-Returns **200** with the withdrawal cert, or **404** if no such vouch.
+Returns **200** with the whole vouch, its `withdrawal` object now populated
+with both signatures, or **404** if no live vouch stands. Replaying a
+withdrawal returns the stored one unchanged rather than countersigning again.
+
+There is no `withdrawnAt` field anywhere on the wire: the retraction time is
+`withdrawal.serverSignature.timestamp`, derived like every other server time.
 
 ### `GET /users/{userID}/vouches`
 
@@ -160,7 +166,7 @@ missing from the list and fetches it once to obtain the signed withdrawal
 ([§ `GET /users/{userID}/vouches/{vouchID}`](#get-usersuseridvouchesvouchid)), so a retraction is
 confirmed by a signature rather than by an omission the server controls.
 
-### `GET /vouches/mine`
+### `GET /vouches`
 
 Authenticated. Every vouch the caller has made, **newest first by server
 countersignature timestamp**, including withdrawn and stale ones. Drives the
@@ -176,29 +182,36 @@ natural unit of "everything signed while that key was live". Paginated.
 This is a separate endpoint from `/users/{id}/vouches` even though the data
 overlaps: that one is public, live-only and lists vouches *for* a user, while
 this one is authenticated, lists vouches the caller *made*, and includes
-withdrawn rows they are entitled to audit but nobody else needs to see.
+withdrawn rows they are entitled to audit but nobody else needs to see. It is
+the one read that walks history rather than the active set — after revoking a
+key you need to see what it signed, and a vouch since withdrawn is still
+evidence.
 
-### Rate limiting
+### The re-vouch cooldown
 
-Open question in [README](README.md#open-questions). A user can only vouch
-with their own key, so volume is bounded by their willingness to sign, and a
-vouch from an account nobody trusts has no effect on anyone's path
-computation. The realistic abuse is a compromised *well-trusted* account
-spraying vouches — which rate limiting barely helps, and which withdrawal
+Re-verifying someone after withdrawing is allowed — a mistaken withdrawal, or
+a genuine re-verification, both deserve it. But history is append-only
+([01](01_schema.md#history-is-append-only-the-active-set-is-separate)), so an
+unbounded withdraw/re-vouch cycle would grow the table without limit.
+
+`POST /vouches` therefore refuses a vouch for a `(voucher, subject key)` pair
+vouched within the last **24 hours**, live or withdrawn, with **429** and a
+`Retry-After`. One verification per key per day is far above any honest rate:
+verification happens in person.
+
+This is the only rate limit. General vouch spraying needs none — a user can
+only vouch with their own key, and a vouch from an account nobody trusts
+affects nobody's path computation. The realistic abuse is a compromised
+*well-trusted* account, which rate limiting barely helps and which withdrawal
 plus key revocation addresses properly.
-
-Recommendation: no dedicated limit in v1, beyond whatever global per-user
-request limiting exists. Revisit with evidence.
 
 ### Federation
 
-Deferred to a later step, deliberately. A vouch for a user on another server
-is storable here ([01](01_schema.md)), but propagating vouches *between*
-servers needs the relay machinery in
-[federation](../federation/README.md) and a decision about whether a peer's
-vouch list is fetched on demand or pushed. v1: a client fetches vouches from
-the server that hosts the subject, which it already knows from the
-canonical id.
+Specified in [08](08_federation.md). A vouch for a user on another server is
+storable here ([01](01_schema.md)); the reads on this page route to the
+server that hosts the **subject**, which the client already knows from the
+canonical id. Fetched on demand, never pushed — the voucher's server notifies
+the subject's on create, and the reconcile loop covers a dropped notify.
 
 ## Testing
 
@@ -212,6 +225,8 @@ canonical id.
 - Withdraw after rotation: signature by the *current* key verifies.
 - An authenticated `GET` on another user's vouches succeeds; an unsigned
   request is rejected by the auth middleware like any other read.
-- `GET /vouches/mine` requires auth, orders by server timestamp, and includes
+- `GET /vouches` requires auth, orders by server timestamp, and includes
   withdrawn rows absent from the public read.
+- `DELETE` returns both withdrawal signatures; a replay countersigns once.
+- A re-vouch inside 24h is refused with `429`; after it, a new id is minted.
 - Create succeeds when the voucher's own key is revoked but still signs.
