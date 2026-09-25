@@ -4,7 +4,7 @@
  * the two must never collapse into one message.
  */
 import assert from 'node:assert/strict';
-import { classifyKeyChange } from '../src/lib/utils/keyChange.ts';
+import { classifyKeyChange, isKeyChangeAlarm } from '../src/lib/utils/keyChange.ts';
 
 const OLD = 'bob@peer/k1';
 const NEW = 'bob@peer/k2';
@@ -20,7 +20,16 @@ const base = {
 assert.equal(
   classifyKeyChange({ ...base, currentKeyID: OLD }),
   null,
-  'same key: nothing to warn about'
+  'same key, not revoked: nothing to warn about'
+);
+
+// The id matching is not enough on its own: a revoked key still in use
+// leaves the vouch naming a key nobody should be encrypting to, so the
+// attestation no longer rules out interception.
+assert.equal(
+  classifyKeyChange({ ...base, currentKeyID: OLD, vouchedKeyRevoked: true }),
+  'vouched-key-revoked',
+  'the vouched key is current but revoked'
 );
 
 assert.equal(
@@ -54,5 +63,17 @@ assert.equal(
   'revocation',
   'a revoked vouched key with no successor is a revocation'
 );
+
+// Only the substitution case is an alarm; the rest are informational, and
+// collapsing them would put a red warning on an ordinary rotation.
+assert.equal(isKeyChangeAlarm('unexplained'), true, 'substitution is the alarm');
+assert.equal(isKeyChangeAlarm('rotation'), false, 'a rotation is not an alarm');
+assert.equal(isKeyChangeAlarm('revocation'), false, 'a revocation is not an alarm');
+assert.equal(
+  isKeyChangeAlarm('vouched-key-revoked'),
+  false,
+  'a revoked-but-current key is not an alarm'
+);
+assert.equal(isKeyChangeAlarm(null), false, 'no change is not an alarm');
 
 console.log('All key-change classification cases pass.');
