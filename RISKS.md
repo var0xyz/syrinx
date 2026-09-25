@@ -90,6 +90,11 @@ increasing order of cost:
 Pinning a contact's key on first sight (TOFU) plus a loud change warning is the
 minimum worth having, and composes with all three.
 
+The out-of-band option is specified in
+[`specs/attestations/`](specs/attestations/README.md): users verify each other's
+keys face to face and publish signed vouches, so a substituted key contradicts
+evidence the server never controlled.
+
 ### H6 — WebSocket auth signature is replayable and unbound
 **Where:** `realtime.go:1039` (verifies a signature over *only* the
 `timestamp` string); window is ±5 min (`crypto.go:457-471`,
