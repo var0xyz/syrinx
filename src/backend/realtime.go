@@ -423,6 +423,19 @@ func newReedRepliesMsg(reedID string, replies int) *pb.WSMessage {
 	}
 }
 
+// newNewVouchMsg tells a subject a vouch now names one of their keys. Only
+// the id travels: the client fetches and verifies the cert, since a pushed
+// payload would be the server's word for it.
+func newNewVouchMsg(vouchID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type:     pb.MessageType_NEW_VOUCH,
+		TypeName: pb.MessageType_NEW_VOUCH.String(),
+		Payload: &pb.WSMessage_NewVouch{
+			NewVouch: &pb.NewVouchMessage{VouchId: vouchID},
+		},
+	}
+}
+
 // newReedLikesMsg notifies reed subscribers of like count changes.
 func newReedLikesMsg(reedID string, likes int) *pb.WSMessage {
 	return &pb.WSMessage{
@@ -472,6 +485,7 @@ const (
 	realtimeReplyPosted       // UserID/ReedID = ancestor reed to notify; ReplyUserID/ReplyReedID = the new reply (content holder)
 	realtimeRipplePosted      // UserID/ReedID = parent reed; Ripple = the new ripple response (full signed payload)
 	realtimeRippleUpdated     // UserID/ReedID = parent reed; Ripple = the soft-deleted ripple response (deleted=true, content="[DELETED]")
+	realtimeVouchCreated      // UserID = the subject to notify; VouchID = the new vouch
 )
 
 // realtimeBroadcastMessage represents a message sent from the main app to
@@ -493,6 +507,9 @@ type realtimeBroadcastMessage struct {
 
 	// RipplePosted/RippleUpdated only: the full signed ripple response.
 	Ripple *RippleWire
+
+	// VouchCreated only: the new vouch's own canonical id.
+	VouchID string
 }
 
 // realtimeClientSubscriptionFlags tracks per-client subscription toggles.
@@ -557,6 +574,8 @@ func (bt realtimeBroadcastType) String() string {
 		return "RipplePosted"
 	case realtimeRippleUpdated:
 		return "RippleUpdated"
+	case realtimeVouchCreated:
+		return "VouchCreated"
 	default:
 		return "Unknown"
 	}
@@ -1416,6 +1435,10 @@ func (rs *realtimeService) handleBroadcasts(broadcastChan <-chan realtimeBroadca
 		if message.Type == realtimeRipplePosted && message.Ripple != nil {
 			reedID := string(appendEntity(identityID(message.UserID), message.ReedID))
 			rs.notifyRipplePosted(reedID, message.Ripple.UserID, *message.Ripple)
+		}
+
+		if message.Type == realtimeVouchCreated && message.VouchID != "" {
+			rs.notifyVouchSubject(message.UserID, message.VouchID)
 		}
 
 		if message.Type == realtimeRippleUpdated && message.Ripple != nil {
@@ -3787,6 +3810,21 @@ func (rs *realtimeService) notifyRippleUpdated(reedID, rippleAuthorID string, ri
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_UPDATED")
 	}
 	rs.notifyForeignReedSubscribersExcept(reedID, rippleAuthorID, msg)
+}
+
+// notifyVouchSubject pushes a new vouch's id to the subject when they are
+// online. An offline subject picks it up on their next reconcile, so a
+// failed send is not an error worth surfacing.
+func (rs *realtimeService) notifyVouchSubject(subjectUserID, vouchID string) {
+	if subjectUserID == "" || vouchID == "" {
+		return
+	}
+	if err := rs.connManager.SendToUser(subjectUserID, newNewVouchMsg(vouchID)); err != nil {
+		log.Debug().
+			Str("subjectUserID", subjectUserID).
+			Str("vouchID", vouchID).
+			Msg("Vouch subject not reachable; will reconcile on next visit")
+	}
 }
 
 func (rs *realtimeService) notifyReedLikes(reedID string) {

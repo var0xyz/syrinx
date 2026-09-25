@@ -462,6 +462,9 @@
                 </button>
               </div>
               <div class="key-actions">
+                <button class="action-btn secondary" on:click={() => goto('/account/vouches')}>
+                  Keys You Verified
+                </button>
                 {#if isPendingRevocation}
                   {#if !$isOnline}
                     <div class="key-pending-banner">

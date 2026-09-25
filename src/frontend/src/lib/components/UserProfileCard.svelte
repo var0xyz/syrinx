@@ -10,6 +10,8 @@
   import { authService } from '$lib/services/auth';
   import QRButton from '$lib/components/QRButton.svelte';
   import QRCodeModal from '$lib/components/QRCodeModal.svelte';
+  import TrustSection from '$lib/components/TrustSection.svelte';
+  import TrustMark from '$lib/components/TrustMark.svelte';
   import { vouchLinkFor } from '$lib/services/vouchVerify';
   import { parseKeyId } from '$lib/utils/identityRef';
 
@@ -170,6 +172,7 @@
           userID={user?.id ?? ''}
           username={user?.username ?? ''}
         />
+        <TrustMark userID={user?.id ?? ''} activeKeyID={user?.activeKeyID} linked={false} />
       </h2>
       <div class="user-id-container">
         <p class="user-info">{user?.id}</p>
@@ -195,6 +198,11 @@
       <MarkdownParser text={user.bio} />
     </div>
   {/if}
+  <TrustSection
+    userID={user?.id}
+    activeKeyID={user?.activeKeyID}
+    vouchIDs={user?.vouchIDs ?? []}
+  />
   {#if isOwner}
     <div class="profile-actions">
       <button class="action-btn secondary" on:click={() => dispatch('edit')}>Edit Profile</button>

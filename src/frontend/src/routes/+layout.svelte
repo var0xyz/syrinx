@@ -19,6 +19,7 @@
   import { initializePWA, onReconnect } from '$lib/services/pwa';
   import { syncPendingEvictions } from '$lib/services/eviction';
   import { pendingVouchesRepository } from '$lib/repositories/pendingVouches';
+  import { ingestPushedVouch } from '$lib/services/vouches';
   import { refreshServerInfo } from '$lib/services/serverInfo';
   import { hasTrustedServerKey } from '$lib/services/serverKeyTrust';
   import ServerKeyGate from '$lib/components/ServerKeyGate.svelte';
@@ -254,6 +255,11 @@
         return;
       }
       dispatchReedToQueue(reed, 'broadcast_reed', data.username);
+    });
+    serverConnection.on(ServerEvent.NewVouch, async ({ vouchID }) => {
+      // Only the id is pushed, so fetch and verify the cert rather than
+      // trusting a payload the server assembled.
+      await ingestPushedVouch(vouchID);
     });
     serverConnection.on(ServerEvent.ReedRemoved, async (data) => {
       const eventId = data.id;

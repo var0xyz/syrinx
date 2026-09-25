@@ -10,6 +10,7 @@ import { apiService } from './api';
 import { serverConnection } from './serverConnection';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { resolvePublicKeyArmor } from '$lib/verifiers';
+import { contradictingVouch } from './vouches';
 import type { ReedType } from '$lib/types/reed';
 
 /**
@@ -28,6 +29,19 @@ export async function encryptReedForRequester(
     activeKeyID = info.activeKeyID;
   } catch (error) {
     console.error('Relay: failed to fetch requester key id', requesterID, error);
+    return null;
+  }
+
+  // A vouch naming a different key contradicts what the server reports, so
+  // encrypting would hand content to a key someone verified was not theirs.
+  // Absence of a vouch is not grounds to refuse.
+  const contradiction = await contradictingVouch(requesterID, activeKeyID);
+  if (contradiction) {
+    console.error(
+      'Relay: refusing to encrypt, a vouch names a different key',
+      requesterID,
+      { vouched: contradiction.subjectKeyID, reported: activeKeyID }
+    );
     return null;
   }
 

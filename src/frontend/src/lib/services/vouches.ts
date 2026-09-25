@@ -8,6 +8,7 @@ import { trustRootsRepository } from '$lib/repositories/trustRoots';
 import { pendingVouchesRepository } from '$lib/repositories/pendingVouches';
 import { MAX_VOUCH_NOTE_CHARS } from '$lib/utils/vouchNote';
 import { countsForMark, trustMarkFrom, type TrustMark } from '$lib/utils/trustMark';
+import { findContradiction } from '$lib/utils/vouchContradiction';
 
 export type { TrustMark };
 
@@ -83,6 +84,32 @@ export async function staleVouchesFor(
 ): Promise<VouchRecord[]> {
   const vouches = await vouchesRepository.forSubject(subjectUserID);
   return vouches.filter((v) => !v.withdrawn && v.subjectKeyID !== activeKeyID);
+}
+
+/** Stores a vouch the server pushed by id. The cert is fetched and verified
+ * here, so a push can only draw attention to one, never assert it. */
+export async function ingestPushedVouch(vouchID: string): Promise<boolean> {
+  const me = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+  if (!me || !vouchID) return false;
+  if (await vouchesRepository.has(vouchID)) return true;
+  try {
+    const cert = await apiService.getVouch(me, vouchID);
+    await vouchesRepository.put(cert);
+    return true;
+  } catch (error) {
+    console.error('[vouches] could not ingest pushed vouch', vouchID, error);
+    return false;
+  }
+}
+
+/** A live vouch naming a different key for this user, if one exists — a
+ * contradiction of what the server reports, not merely an absence. */
+export async function contradictingVouch(
+  subjectUserID: string,
+  claimedKeyID: string
+): Promise<VouchRecord | null> {
+  const vouches = await vouchesRepository.forSubject(subjectUserID);
+  return findContradiction(vouches, claimedKeyID);
 }
 
 /**

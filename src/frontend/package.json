@@ -16,6 +16,7 @@
     "test:vouch-payload": "node --experimental-strip-types scripts/test-vouch-payload.mjs",
     "test:trust-mark": "node --experimental-strip-types scripts/test-trust-mark.mjs",
     "test:eviction-protection": "node --experimental-strip-types scripts/test-eviction-protection.mjs",
+    "test:relay-refusal": "node --experimental-strip-types scripts/test-relay-refusal.mjs",
     "test:verify-binary": "node scripts/test-verify-binary.mjs",
     "test:reed-markdown": "node --experimental-strip-types scripts/test-reed-markdown.mjs",
     "test:identicon": "node --experimental-strip-types scripts/test-identicon.mjs",
