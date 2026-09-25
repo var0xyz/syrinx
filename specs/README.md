@@ -370,7 +370,7 @@ client-side (never server-side, which would reintroduce H1).
 | 00 | Design, threat model, locked decisions            | Proposed |
 | 01 | `user_vouches` schema                             | Implemented |
 | 02 | Canonical payloads + countersign                  | Implemented |
-| 03 | Create / withdraw / list API                      | Proposed |
+| 03 | Create / withdraw / list API                      | Implemented |
 | 04 | Revoked and rotated keys void vouches             | Proposed |
 | 05 | Client-side path finding and trust roots          | Proposed |
 | 06 | SPA: QR exchange, fingerprint compare, vouch      | Proposed |

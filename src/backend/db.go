@@ -50,6 +50,10 @@ type UserInfo struct {
 	// so that in case of recovery the pinned reeds are not lost. Not critical
 	// for now though.
 	PinnedReedIDs []string `json:"pinnedReedIDs,omitempty"`
+
+	// Ids of the live vouches naming this user. Ids only: the client
+	// fetches and verifies each cert before any mark is drawn from it.
+	VouchIDs []string `json:"vouchIDs,omitempty"`
 }
 
 // Invite is the durable invite binding nested on User wire when set. ID is
@@ -155,6 +159,7 @@ type LikeCert struct {
 // Void, VoidReason and Stale are hints; clients recompute them.
 type VouchCert struct {
 	Type            string          `json:"type"`
+	ID              string          `json:"id"`
 	ServerID        string          `json:"serverID"`
 	VoucherUserID   string          `json:"voucherUserID"`
 	VoucherKeyID    string          `json:"voucherKeyID"`
@@ -483,6 +488,7 @@ func InitDB(db *sql.DB) error {
 	// is stored: a signature outlives the key that produced it.
 	createUserVouchesTable := `
 	CREATE TABLE IF NOT EXISTS user_vouches (
+		id VARCHAR(255) PRIMARY KEY,
 		voucher_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		voucher_key_id VARCHAR(255) NOT NULL,
 		subject_user_id VARCHAR(255) NOT NULL,
@@ -494,14 +500,14 @@ func InitDB(db *sql.DB) error {
 		withdrawn_at TIMESTAMP,
 		withdrawal_signature_id INT REFERENCES user_signatures(id),
 
-		PRIMARY KEY (voucher_user_id, subject_key_id)
+		UNIQUE (voucher_user_id, subject_key_id)
 	);`
 
 	// Partial indexes on live rows; withdrawn rows are read only on the
 	// audit path. Outbound is the direction path finding walks.
 	createUserVouchesIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_user_vouches_subject
-		ON user_vouches(subject_user_id) WHERE withdrawn_at IS NULL;
+		ON user_vouches(subject_user_id, id) WHERE withdrawn_at IS NULL;
 	CREATE INDEX IF NOT EXISTS idx_user_vouches_voucher
 		ON user_vouches(voucher_user_id) WHERE withdrawn_at IS NULL;
 	CREATE INDEX IF NOT EXISTS idx_user_vouches_voucher_created

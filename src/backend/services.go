@@ -802,6 +802,12 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 		return nil, err
 	}
 
+	vouchIDs, err := s.ListVouchIDsForSubject(ctx, selfIdentity)
+	if err != nil {
+		return nil, err
+	}
+	info.VouchIDs = vouchIDs
+
 	return &info, nil
 }
 
