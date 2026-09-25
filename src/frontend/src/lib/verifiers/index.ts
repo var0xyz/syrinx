@@ -31,6 +31,9 @@ import {
   buildServerRevocationPayload,
   buildUserIdentityPayload,
   buildUserRevocationPayload,
+  buildVouchServerPayload,
+  buildVouchUserPayload,
+  buildVouchWithdrawalUserPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
 
@@ -569,6 +572,135 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
   const serverResult = await verify(cert.serverSignature, serverPayload);
   if (serverResult.ok === false) {
     console.error('[verifyReedRemoval] server signature failed', serverResult);
+    return false;
+  }
+  return true;
+}
+
+/** Shape check for a vouch id: voucherUserID@serverID/uuidv7. */
+function isVouchIdWellFormed(id: string): boolean {
+  const parsed = parseKeyId(id);
+  if (!parsed) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    parsed.fingerprint
+  );
+}
+
+/**
+ * Verifies a vouch end to end. The server countersignature alone is never
+ * enough: trusting it would reintroduce H1 inside the feature meant to
+ * answer it, so the voucher's own signature is always checked too.
+ */
+export async function verifyVouch(cert: api.Vouch): Promise<boolean> {
+  if (!cert || cert.type !== 'user_vouch' || !cert.userSignature?.armor || !cert.serverSignature) {
+    console.error('[verifyVouch] missing fields or wrong type', cert?.type);
+    return false;
+  }
+  if (!isVouchIdWellFormed(cert.id)) {
+    console.error('[verifyVouch] malformed vouch id', cert.id);
+    return false;
+  }
+  // The id is owned by the voucher, so a mismatch means the server served
+  // this vouch under an identity that did not sign it.
+  const idOwner = parseKeyId(cert.id);
+  if (!idOwner || `${idOwner.userId}@${idOwner.serverId}` !== cert.voucherUserID) {
+    console.error('[verifyVouch] id owner is not the voucher', cert.id);
+    return false;
+  }
+  // A vouch names a key its subject owns; without this a voucher could
+  // bind one user's id to another user's key.
+  if (!cert.subjectKeyID.startsWith(`${cert.subjectUserID}/`)) {
+    console.error('[verifyVouch] subject key is not owned by the subject', cert.subjectKeyID);
+    return false;
+  }
+  if (cert.userSignature.id !== cert.voucherKeyID) {
+    console.error('[verifyVouch] signature key does not match voucherKeyID', cert.id);
+    return false;
+  }
+
+  const armor = await resolvePublicKeyArmor(cert.voucherUserID, cert.voucherKeyID);
+  if (!armor) {
+    console.error('[verifyVouch] no public key for voucher', cert.voucherUserID);
+    return false;
+  }
+
+  let userSigArmor: string;
+  try {
+    userSigArmor = atob(cert.userSignature.armor);
+  } catch {
+    console.error('[verifyVouch] invalid signature encoding');
+    return false;
+  }
+
+  const userPayload = buildVouchUserPayload(
+    cert.voucherKeyID,
+    cert.subjectUserID,
+    cert.subjectKeyID,
+    cert.note ?? ''
+  );
+  const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, armor);
+  if (!userValid) {
+    console.error('[verifyVouch] voucher signature failed', cert.id);
+    return false;
+  }
+
+  const { fingerprint: vouchServerFingerprint } = splitServerSignatureId(cert.serverSignature.id);
+  const serverPayload = buildVouchServerPayload(
+    cert.voucherUserID,
+    cert.subjectUserID,
+    cert.subjectKeyID,
+    vouchServerFingerprint,
+    cert.userSignature.armor,
+    signedAtHeader(cert.serverSignature.timestamp)
+  );
+  const serverResult = await verify(cert.serverSignature, serverPayload);
+  if (serverResult.ok === false) {
+    console.error('[verifyVouch] server signature failed', serverResult);
+    return false;
+  }
+
+  if (cert.withdrawn) return verifyVouchWithdrawal(cert);
+  return true;
+}
+
+/**
+ * A retraction only counts when the voucher signed it. Without this the
+ * server could withdraw a vouch it dislikes by setting a flag.
+ */
+async function verifyVouchWithdrawal(cert: api.Vouch): Promise<boolean> {
+  if (!cert.withdrawal?.armor || !cert.withdrawal.id) {
+    console.error('[verifyVouch] withdrawn without a withdrawal signature', cert.id);
+    return false;
+  }
+  // Signed by whatever key was current at withdrawal time, which may not
+  // be the key that signed the vouch.
+  if (!cert.withdrawal.id.startsWith(`${cert.voucherUserID}/`)) {
+    console.error('[verifyVouch] withdrawal key is not the voucher\'s', cert.id);
+    return false;
+  }
+
+  const armor = await resolvePublicKeyArmor(cert.voucherUserID, cert.withdrawal.id);
+  if (!armor) {
+    console.error('[verifyVouch] no public key for withdrawal', cert.withdrawal.id);
+    return false;
+  }
+
+  let sigArmor: string;
+  try {
+    sigArmor = atob(cert.withdrawal.armor);
+  } catch {
+    console.error('[verifyVouch] invalid withdrawal signature encoding');
+    return false;
+  }
+
+  const payload = buildVouchWithdrawalUserPayload(
+    cert.withdrawal.id,
+    cert.subjectUserID,
+    cert.subjectKeyID
+  );
+  const valid = await cryptoService.verifySignature(payload, sigArmor, armor);
+  if (!valid) {
+    console.error('[verifyVouch] withdrawal signature failed', cert.id);
     return false;
   }
   return true;

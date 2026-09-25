@@ -49,6 +49,9 @@ export interface UserInfo extends Base {
   profileTimestamp: string;
   /** Up to 3 of this user's own pinned reed IDs, newest-pin-first. */
   pinnedReedIDs?: string[];
+  /** Ids of the live vouches naming this user. Ids only — the client
+   * fetches and verifies each cert before any mark is drawn from it. */
+  vouchIDs?: string[];
 }
 
 // PublicKey is the wire shape of a distributed user or server public key.
@@ -187,6 +190,36 @@ export interface ReedLike extends Base {
   reedID: string;
   userSignature: UserSignature;
   serverSignature: ServerSignature;
+}
+
+/**
+ * A signed vouch: one user attesting they compared fingerprints out of
+ * band and the subject holds that exact key. `id` is
+ * voucherUserID@serverID/uuidv7 and is stable for the row's whole life.
+ */
+export interface Vouch extends Base {
+  type: 'user_vouch';
+  id: string;
+  serverID: string;
+  voucherUserID: string;
+  voucherKeyID: string;
+  subjectUserID: string;
+  subjectKeyID: string;
+  note: string;
+  userSignature: UserSignature;
+  serverSignature: ServerSignature;
+  withdrawn?: boolean;
+  withdrawnAt?: string | null;
+  withdrawal?: UserSignature | null;
+  /** Server-computed hints. Never trusted — the client recomputes both. */
+  void?: boolean;
+  voidReason?: string | null;
+  stale?: boolean;
+}
+
+export interface VouchListResponse extends Base {
+  vouches: Vouch[];
+  nextCursor?: string;
 }
 
 /** One direct reply in GET /reeds/{userID}/{reedID}/replies. */
