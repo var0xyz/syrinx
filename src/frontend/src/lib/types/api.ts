@@ -208,13 +208,14 @@ export interface Vouch extends Base {
   note: string;
   userSignature: UserSignature;
   serverSignature: ServerSignature;
-  withdrawn?: boolean;
-  withdrawnAt?: string | null;
-  withdrawal?: UserSignature | null;
-  /** Server-computed hints. Never trusted — the client recomputes both. */
-  void?: boolean;
-  voidReason?: string | null;
-  stale?: boolean;
+  /** Present only on a retracted vouch; its presence is the withdrawal. */
+  withdrawal?: VouchWithdrawal | null;
+}
+
+/** A retraction: the voucher's signature plus the server's countersignature. */
+export interface VouchWithdrawal extends Base {
+  userSignature: UserSignature;
+  serverSignature: ServerSignature;
 }
 
 export interface VouchListResponse extends Base {

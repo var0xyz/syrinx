@@ -371,6 +371,29 @@ export function buildVouchWithdrawalUserPayload(
   );
 }
 
+/** Mirror of buildVouchWithdrawalServerPayload. vouchID addresses the
+ * retraction; it has no id of its own. */
+export function buildVouchWithdrawalServerPayload(
+  vouchID: string,
+  voucherUserID: string,
+  subjectKeyID: string,
+  serverKeyFingerprint: string,
+  userSignatureB64: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'user_vouch_withdrawal',
+      vouchID,
+      voucherUserID,
+      subjectKeyID,
+      signedAt,
+      serverKeyFingerprint
+    },
+    userSignatureB64
+  );
+}
+
 /** Mirror of BuildAccountRemovalUserPayload (`type: account`, note as content). */
 export function buildAccountRemovalUserPayload(
   serverID: string,
