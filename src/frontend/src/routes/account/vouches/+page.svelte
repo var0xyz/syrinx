@@ -5,7 +5,8 @@
   import Username from '$lib/components/Username.svelte';
   import { apiService } from '$lib/services/api';
   import { notificationStore } from '$lib/stores/notifications';
-  import { withdrawVouch } from '$lib/services/vouches';
+  import { auditStateFor, withdrawVouch, type AuditState } from '$lib/services/vouches';
+  import WithdrawVouchButton from '$lib/components/WithdrawVouchButton.svelte';
   import type * as api from '$lib/types/api';
 
   let vouches: api.Vouch[] = [];
@@ -46,9 +47,21 @@
     return [...byKey];
   }
 
-  function stateOf(vouch: api.Vouch): string {
-    if (vouch.withdrawn) return 'withdrawn';
-    return vouch.stale ? 'previous key' : 'live';
+  /** Computed locally, never read from the server's `stale` hint. */
+  let states = new Map<string, AuditState>();
+
+  $: void computeStates(vouches);
+
+  async function computeStates(list: api.Vouch[]) {
+    const next = new Map<string, AuditState>();
+    for (const vouch of list) {
+      next.set(vouch.id, await auditStateFor(vouch));
+    }
+    states = next;
+  }
+
+  function stateOf(vouch: api.Vouch): AuditState {
+    return states.get(vouch.id) ?? 'live';
   }
 
   function toggle(id: string) {
@@ -70,9 +83,16 @@
     }
   }
 
+  let confirmingBulk = false;
+
+  async function confirmBulk() {
+    confirmingBulk = false;
+    await withdrawSelected();
+  }
+
   /** One withdrawal cert per vouch; there is no bulk signature. */
   async function withdrawSelected() {
-    const targets = vouches.filter((v) => selected.has(v.id) && !v.withdrawn);
+    const targets = vouches.filter((v) => selected.has(v.id) && !v.withdrawal);
     for (const vouch of targets) {
       await withdrawOne(vouch);
     }
@@ -101,10 +121,24 @@
     <p class="muted">You have not verified anyone yet.</p>
   {:else}
     {#if selected.size > 0}
-      <div class="bulk">
-        <span>{selected.size} selected</span>
-        <button class="btn danger" on:click={withdrawSelected}>Withdraw selected</button>
-        <button class="btn secondary" on:click={() => (selected = new Set())}>Clear</button>
+      <div class="bulk" class:confirming={confirmingBulk}>
+        {#if confirmingBulk}
+          <span class="bulk-warning">
+            Withdraw {selected.size}
+            {selected.size === 1 ? 'verification' : 'verifications'}? Each is
+            public and signed, and cannot be re-made for 24 hours.
+          </span>
+          <button class="btn danger" on:click={confirmBulk}>Yes, withdraw</button>
+          <button class="btn secondary" on:click={() => (confirmingBulk = false)}>
+            Cancel
+          </button>
+        {:else}
+          <span>{selected.size} selected</span>
+          <button class="btn danger" on:click={() => (confirmingBulk = true)}>
+            Withdraw selected
+          </button>
+          <button class="btn secondary" on:click={() => (selected = new Set())}>Clear</button>
+        {/if}
       </div>
     {/if}
 
@@ -113,12 +147,12 @@
         <h2>Signed with <code>{keyID}</code></h2>
         <ul>
           {#each group as vouch (vouch.id)}
-            <li class:withdrawn={vouch.withdrawn}>
+            <li class:withdrawn={!!vouch.withdrawal}>
               <label class="pick">
                 <input
                   type="checkbox"
                   checked={selected.has(vouch.id)}
-                  disabled={vouch.withdrawn}
+                  disabled={!!vouch.withdrawal}
                   on:change={() => toggle(vouch.id)}
                 />
               </label>
@@ -131,14 +165,13 @@
                   <span class="note">“{vouch.note}”</span>
                 {/if}
               </div>
-              {#if !vouch.withdrawn}
-                <button
-                  class="link-btn"
-                  disabled={withdrawing.has(vouch.id)}
-                  on:click={() => withdrawOne(vouch).then(load)}
-                >
-                  {withdrawing.has(vouch.id) ? 'Withdrawing…' : 'Withdraw'}
-                </button>
+              {#if !vouch.withdrawal}
+                <WithdrawVouchButton
+                  subjectUserID={vouch.subjectUserID}
+                  busy={withdrawing.has(vouch.id)}
+                  compact={true}
+                  on:withdraw={() => withdrawOne(vouch).then(load)}
+                />
               {/if}
             </li>
           {/each}
@@ -176,6 +209,7 @@
   .bulk {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.5rem;
     font-size: 0.85rem;
     padding: 0.5rem 0.75rem;
@@ -252,7 +286,19 @@
   }
 
   .btn.danger {
-    color: var(--error, #e03131);
+    background: var(--error, #e03131);
+    border-color: var(--error, #e03131);
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .bulk.confirming {
+    border: 1px solid var(--error, #e03131);
+  }
+
+  .bulk-warning {
+    flex-basis: 100%;
+    line-height: 1.5;
   }
 
   .link-btn {
