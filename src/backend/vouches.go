@@ -590,6 +590,13 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Tell the subject if they are online; otherwise they reconcile later.
+	h.broadcastChan <- realtimeBroadcastMessage{
+		Type:    realtimeVouchCreated,
+		UserID:  subjectUserID,
+		VouchID: cert.ID,
+	}
+
 	h.annotateVouch(r.Context(), &cert)
 	log.Info().
 		Str("voucherID", voucherID).

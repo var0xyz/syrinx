@@ -63,6 +63,7 @@ message WSMessage {
     PageAckMessage page_ack = 44;
     EvictionMessage eviction = 45;
     EvictionAckMessage eviction_ack = 46;
+    NewVouchMessage new_vouch = 47;
   }
 }
 
@@ -130,6 +131,7 @@ enum MessageType {
   PAGE_ACK = 55;
   EVICTION = 56;
   EVICTION_ACK = 57;
+  NEW_VOUCH = 58;
 }
 
 // Ping message
@@ -428,4 +430,11 @@ message ReedRemovedMessage {
 message AccountRemovedMessage {
   string request_id = 1;
   AccountRemovalCert cert = 2;
+}
+
+// Tells an online subject that someone vouched for one of their keys. It
+// carries only the vouch id: the client fetches and verifies the cert
+// itself, since a pushed payload is the server's word.
+message NewVouchMessage {
+  string vouch_id = 1;
 }

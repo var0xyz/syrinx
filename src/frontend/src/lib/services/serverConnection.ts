@@ -133,6 +133,8 @@ export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; 
       return { type: 'REED_REPLIES', data: { reedID: p.value.reedId, replies: p.value.replies } };
     case 'reedLikes':
       return { type: 'REED_LIKES', data: { reedID: p.value.reedId, likes: p.value.likes } };
+    case 'newVouch':
+      return { type: 'NEW_VOUCH', data: { vouchID: p.value.vouchId } };
     case 'ripplePosted':
       return {
         type: 'RIPPLE_POSTED',
@@ -211,6 +213,7 @@ export enum ServerEvent {
   FollowReed           = 'FOLLOW_REED',
   InvalidRequestIdError = 'INVALID_REQUEST_ID_ERROR',
   Mailbox              = 'MAILBOX',
+  NewVouch             = 'NEW_VOUCH',
   Mentioned            = 'MENTION',
   PageAck              = 'PAGE_ACK',
   PipeReed             = 'PIPE_REED',
