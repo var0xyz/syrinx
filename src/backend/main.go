@@ -345,6 +345,15 @@ func main() {
 	api.HandleFunc("/users/{userID}/followers", h.GetUserFollowers).Methods("GET")
 	api.HandleFunc("/users/{userID}/followers", h.noop).Methods("OPTIONS")
 
+	// {vouchID} is the vouch's own full canonical id (voucherUserID/uuidv7),
+	// so it carries a "/" and needs a greedy variable. It is a different
+	// identity from {userID}, which is the subject the vouch is about.
+	api.HandleFunc("/users/{userID}/vouches/{vouchID:.+}", h.GetVouch).Methods("GET")
+	api.HandleFunc("/users/{userID}/vouches/{vouchID:.+}", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/users/{userID}/vouches", h.ListVouchesForUser).Methods("GET")
+	api.HandleFunc("/users/{userID}/vouches", h.noop).Methods("OPTIONS")
+
 	// {id} is the full canonical key id — "userID@serverID/fingerprint" for
 	// a user key, "fingerprint@serverID" for a server's own key — and
 	// carries a "/", so it needs a greedy path variable ({id:.+}), not a
@@ -365,6 +374,16 @@ func main() {
 
 	api.HandleFunc("/keys", h.AddPublicKey).Methods("POST")
 	api.HandleFunc("/keys", h.noop).Methods("OPTIONS")
+
+	// /mine before the greedy {subjectKeyID:.+} so it is not swallowed.
+	api.HandleFunc("/vouches/mine", h.ListMyVouches).Methods("GET")
+	api.HandleFunc("/vouches/mine", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/vouches/{subjectKeyID:.+}", h.WithdrawVouch).Methods("DELETE")
+	api.HandleFunc("/vouches/{subjectKeyID:.+}", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/vouches", h.CreateVouch).Methods("POST")
+	api.HandleFunc("/vouches", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/reeds", h.SignReed).Methods("POST")
 	api.HandleFunc("/reeds", h.noop).Methods("OPTIONS")

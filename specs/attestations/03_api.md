@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -68,8 +68,11 @@ Returns **200** with the withdrawal cert, or **404** if no such vouch.
 
 ### `GET /users/{userID}/vouches`
 
-Vouches **for** this user. Public, unauthenticated — trust evidence is
-useless if you must already be logged in to see it.
+Vouches **for** this user. Readable by any authenticated caller, like
+`/keys/{id}` and `/users/{id}/info` — every `/api/*` read on this server is
+signature-authenticated, and vouches are no more sensitive than the keys
+they are about. "Public" here means any signed-in user may read anyone's
+vouches, not that the endpoint is open to the world.
 
 Returns live vouches with full signature blocks so callers can verify
 independently, plus `withdrawn` and `void` flags computed per
@@ -94,11 +97,22 @@ independently, plus `withdrawn` and `void` flags computed per
 }
 ```
 
-Every vouch has an `id` of the canonical form `voucherUserID/uuidv7` — the
-voucher authored the statement, so the id is owner-prefixed by them, like a
-reed or a key. It is minted server-side at create time and never changes,
-including when a withdrawn vouch is re-vouched, so a client's local record
-stays addressable across the row's whole life.
+Every vouch has an `id` of the canonical form
+`voucherUserID@serverID/uuidv7` — the voucher authored the statement, so the
+id is owner-prefixed by them, like a reed or a key. It is minted server-side
+at create time and never changes, including when a withdrawn vouch is
+re-vouched, so a client's local record stays addressable across the row's
+whole life.
+
+The format is **validated, not assumed**. Before a vouch is stored the server
+checks the id parses as `userID@serverID/entity`, that the owner it names is
+the voucher, that the server it names is this one, and that the entity is a
+UUIDv7 — a v4 is rejected, since the id's time ordering is part of its
+meaning. A malformed id is a `400`, and the check lives at the store rather
+than the handler so no future caller can bypass it. On the read path the id
+arrives from a client, so it is shape-checked before any lookup: an id that
+cannot name a vouch this server minted is refused without touching the
+database.
 
 `void`/`voidReason` are **hints**, like every other server-computed field
 ([M9](../../RISKS.md)). Clients recompute them. They exist so a client can
@@ -107,8 +121,8 @@ the answer.
 
 ### `GET /users/{userID}/vouches/{vouchID}`
 
-One vouch, with its full signature blocks. Public and unauthenticated, like
-the lists.
+One vouch, with its full signature blocks. Authenticated and readable by
+anyone signed in, like the lists.
 
 The two path params are **different identities**, and neither is derived from
 the other. `{userID}` is the canonical id of the vouch's **subject** — the
@@ -189,12 +203,15 @@ canonical id.
 ## Testing
 
 - Create → idempotent replay returns identical cert, no second countersign.
+- A vouch id that is malformed, owned by another user, from another server,
+  or carrying a non-v7 UUID is rejected before storage.
 - Self-vouch rejected.
 - Vouch for revoked key rejected `409`.
 - Withdraw → row retained, absent from live list, present with
   `withdrawn: true` on the audit read.
 - Withdraw after rotation: signature by the *current* key verifies.
-- Unauthenticated `GET` on the public reads succeeds.
+- An authenticated `GET` on another user's vouches succeeds; an unsigned
+  request is rejected by the auth middleware like any other read.
 - `GET /vouches/mine` requires auth, orders by server timestamp, and includes
   withdrawn rows absent from the public read.
 - Create succeeds when the voucher's own key is revoked but still signs.
