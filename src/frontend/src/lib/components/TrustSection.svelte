@@ -23,6 +23,8 @@
   let stale: VouchRecord[] = [];
   let rootIDs = new Set<string>();
   let keyChange: KeyChangeKind | null = null;
+  let isRoot = false;
+  let isDemoted = false;
   let withdrawing = '';
 
   const me = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
@@ -47,6 +49,9 @@
     live = await liveVouchesFor(userID, activeKeyID);
     stale = await staleVouchesFor(userID, activeKeyID);
     rootIDs = await trustRootsRepository.activeIDs();
+    const root = await trustRootsRepository.get(userID);
+    isRoot = !!root;
+    isDemoted = !!root?.demoted;
     keyChange = await keyChangeFor(userID, activeKeyID);
     reconciled = ok;
   }
@@ -69,12 +74,19 @@
     }
   }
 
+  // Demoting is a separate statement from withdrawing: the public vouch
+  // stands, but this device stops letting their judgement colour marks.
+  async function toggleDemoted() {
+    await trustRootsRepository.setDemoted(userID, !isDemoted);
+    await refresh();
+  }
+
   function formatDate(iso: string): string {
     return new Date(iso).toLocaleDateString();
   }
 </script>
 
-{#if reconciled && (live.length > 0 || stale.length > 0 || keyChange)}
+{#if reconciled && (live.length > 0 || stale.length > 0 || keyChange || isRoot)}
   <section class="trust">
     <h3>Verification</h3>
 
@@ -104,6 +116,19 @@
           on:click={() => withdraw(ownVouch)}
         >
           {withdrawing === ownVouch.id ? 'Withdrawing…' : 'Withdraw'}
+        </button>
+      </p>
+    {/if}
+
+    {#if isRoot}
+      <p class="row muted">
+        {#if isDemoted}
+          Their verifications do not colour marks on this device.
+        {:else}
+          Their verifications colour marks on this device.
+        {/if}
+        <button class="link-btn" on:click={toggleDemoted}>
+          {isDemoted ? 'Trust their verifications' : 'Stop using their verifications'}
         </button>
       </p>
     {/if}
