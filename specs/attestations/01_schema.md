@@ -69,6 +69,16 @@ and fail. It also groups the audit list
 `subject_user_id` has no FK. A vouch may name a user on another server
 (federation), who has no `users` row here.
 
+### The subject key id is the tamper evidence
+
+`subject_key_id` is what a vouch asserts, so it is also what a client
+compares against later: a vouch naming one key while the server serves
+another is the substitution alarm
+([07](07_spa_trust_display.md#relay-refusal)). A key id's last segment is the
+OpenPGP primary-key fingerprint, a hash of the key material, so it cannot be
+minted for a key its owner does not hold, and holding the id is as good as
+holding the key for the purpose of detecting a swap.
+
 ### Indexes
 
 ```sql

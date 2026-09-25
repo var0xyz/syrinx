@@ -9,6 +9,7 @@ import {
 } from '$lib/repositories/pendingEvictions';
 import type * as api from '$lib/types/api';
 import type { ReedType } from '$lib/types/reed';
+import { buildProtectedUserIDs } from '$lib/utils/evictionProtection';
 
 /** A user whose locally-held content this device may drop. reedIDs is
  * empty for a cached profile we hold no reeds for — still worth evicting,
@@ -21,19 +22,12 @@ type EvictionCandidate = {
 /** Users the viewer has shown interest in, plus the viewer: never
  * evicted even when over quota. */
 async function protectedUserIDs(): Promise<Set<string>> {
-  const protectedIDs = new Set<string>();
-
-  const viewerID = localStorage.getItem('userId');
-  if (viewerID) protectedIDs.add(viewerID);
-
-  for (const { userId } of await dbService.getAll<{ userId: string }>('following')) {
-    protectedIDs.add(userId);
-  }
-  for (const list of await listsRepository.getAll()) {
-    for (const memberID of list.memberIds) protectedIDs.add(memberID);
-  }
-
-  return protectedIDs;
+  return buildProtectedUserIDs({
+    viewerID: localStorage.getItem('userId'),
+    following: await dbService.getAll<{ userId: string }>('following'),
+    lists: await listsRepository.getAll(),
+    vouches: await dbService.getAll<api.Vouch>('vouches'),
+  });
 }
 
 /** Every evictable local user, each with whatever reeds we hold for them.
