@@ -150,6 +150,27 @@ type LikeCert struct {
 	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
+// VouchCert is the stored and wire shape of a signed vouch: one user
+// attesting they compared fingerprints and the subject holds that key.
+// Void, VoidReason and Stale are hints; clients recompute them.
+type VouchCert struct {
+	Type            string          `json:"type"`
+	ServerID        string          `json:"serverID"`
+	VoucherUserID   string          `json:"voucherUserID"`
+	VoucherKeyID    string          `json:"voucherKeyID"`
+	SubjectUserID   string          `json:"subjectUserID"`
+	SubjectKeyID    string          `json:"subjectKeyID"`
+	Note            string          `json:"note"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
+	Withdrawn       bool            `json:"withdrawn"`
+	WithdrawnAt     *time.Time      `json:"withdrawnAt"`
+	Withdrawal      *UserSignature  `json:"withdrawal"`
+	Void            bool            `json:"void"`
+	VoidReason      *string         `json:"voidReason"`
+	Stale           bool            `json:"stale"`
+}
+
 // /////// //
 //   P2P   //
 // /////// //
@@ -456,6 +477,36 @@ func InitDB(db *sql.DB) error {
 	// //////////// //
 	//   Ripples    //
 	// //////////// //
+
+	// One row per (voucher, subject key), so re-verifying after a rotation
+	// keeps the older row as prior-verification evidence. voucher_key_id
+	// is stored: a signature outlives the key that produced it.
+	createUserVouchesTable := `
+	CREATE TABLE IF NOT EXISTS user_vouches (
+		voucher_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		voucher_key_id VARCHAR(255) NOT NULL,
+		subject_user_id VARCHAR(255) NOT NULL,
+		subject_key_id VARCHAR(255) NOT NULL,
+		note VARCHAR(140) NOT NULL DEFAULT '',
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		withdrawn_at TIMESTAMP,
+		withdrawal_signature_id INT REFERENCES user_signatures(id),
+
+		PRIMARY KEY (voucher_user_id, subject_key_id)
+	);`
+
+	// Partial indexes on live rows; withdrawn rows are read only on the
+	// audit path. Outbound is the direction path finding walks.
+	createUserVouchesIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_user_vouches_subject
+		ON user_vouches(subject_user_id) WHERE withdrawn_at IS NULL;
+	CREATE INDEX IF NOT EXISTS idx_user_vouches_voucher
+		ON user_vouches(voucher_user_id) WHERE withdrawn_at IS NULL;
+	CREATE INDEX IF NOT EXISTS idx_user_vouches_voucher_created
+		ON user_vouches(voucher_user_id, created_at DESC);
+	`
 
 	createRipplesTable := `
 	CREATE TABLE IF NOT EXISTS ripples (
@@ -1189,6 +1240,9 @@ func InitDB(db *sql.DB) error {
 
 		createReedsLikedTable,
 		createReedsLikedIndexes,
+
+		createUserVouchesTable,
+		createUserVouchesIndexes,
 
 		createRipplesTable,
 		createRipplesIndexes,
