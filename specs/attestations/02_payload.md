@@ -18,7 +18,7 @@ Mirrors the `Build*Payload` pairs in `identity.go` and their SPA twins in
 ## Scope
 
 - `buildVouchUserPayload` / `buildVouchServerPayload`.
-- `buildVouchWithdrawalUserPayload`.
+- `buildVouchWithdrawalUserPayload` / `buildVouchWithdrawalServerPayload`.
 
 ## Non-goals
 
@@ -98,6 +98,33 @@ That is intentional: a user who rotated must still be able to retract. The
 server verifies the withdrawal against the voucher's current active key, and
 stores it in `withdrawal_signature_id`.
 
+### Withdrawal, server payload
+
+```
+type:                 user_vouch_withdrawal
+vouchID:              <the vouch being retracted>
+voucherUserID:        <voucher's canonical userID>
+subjectKeyID:         ...
+signedAt:             <server time, identityRecordTimeFormat>
+serverKeyFingerprint: <server signing key>
+userSignature:        <base64 of the voucher's withdrawal sig>
+```
+
+Same shape as the vouch server payload: the user's signature is the envelope
+body, so what the server attests is the signature itself.
+
+A retraction needs **both** signatures. Without the voucher's, the server could
+nullify a vouch it dislikes by setting a flag. Without the server's, the
+withdrawal time is bound by nothing — and the audit list sorts by server time
+precisely because it is the one timestamp the caller's own client did not
+choose. The countersignature is also the voucher's receipt that the retraction
+was recorded.
+
+**The withdrawal has no id of its own.** It is addressed through the vouch it
+retracts, which is what `vouchID` in the headers names. There is no
+`GET /withdrawals/{id}`: a client that wants the retraction fetches the vouch
+and finds it nested inside.
+
 ### Verification order (server, on create)
 
 1. Reject if `subjectUserID` is the caller — self-vouching asserts nothing.
@@ -129,9 +156,10 @@ has reintroduced H1 inside the very feature meant to answer it.
 
 ## Testing
 
-- Byte-identical Go/TS payload vectors for both types, per
+- Byte-identical Go/TS payload vectors for all four payloads, per
   [01_reed_countersig_canonical_form](../01_reed_countersig_canonical_form.md).
 - A withdrawal signature must fail verification against the vouch payload.
 - A vouch whose `subjectKeyID` is not prefixed by `subjectUserID` is
   rejected at step 4.
 - A vouch signed by key A but claiming `voucherKeyID` B fails at step 5.
+- A withdrawal missing either signature is refused by the client.
