@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
   import { trustMarkFor, type TrustMark } from '$lib/services/vouches';
   import { userInfoRepository } from '$lib/repositories/userInfo';
 
@@ -9,6 +10,8 @@
   export let activeKeyID: string | undefined = undefined;
   /** Tapping opens the evidence. Off for rows that navigate elsewhere. */
   export let linked = true;
+
+  const dispatch = createEventDispatcher();
 
   let mark: TrustMark = 'none';
 
@@ -45,12 +48,15 @@
 
 {#if mark !== 'none'}
   <!-- Shape differs per level, so the three never rely on colour alone. -->
-  <span
+  <svelte:element
+    this={linked ? 'button' : 'span'}
     class="trust-mark {mark}"
     class:linked
     title={labels[mark]}
-    aria-label={labels[mark]}
-    role="img"
+    aria-label={linked ? `${labels[mark]} — show details` : labels[mark]}
+    role={linked ? undefined : 'img'}
+    type={linked ? 'button' : undefined}
+    on:click={linked ? () => dispatch('open') : undefined}
   >
     <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
       {#if mark === 'blue'}
@@ -67,7 +73,7 @@
       {/if}
     </svg>
     <span class="sr-only">{shortLabels[mark]}</span>
-  </span>
+  </svelte:element>
 {/if}
 
 <style>
@@ -92,6 +98,10 @@
 
   .trust-mark.linked {
     cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
   }
 
   .sr-only {
