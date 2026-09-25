@@ -15,6 +15,9 @@
   import { vouchLinkFor } from '$lib/services/vouchVerify';
   import { parseKeyId } from '$lib/utils/identityRef';
 
+  /** Opened by tapping the trust mark; the section owns the evidence. */
+  let showTrustDetails = false;
+
   export let user;
   export let isOwner = false;
   /** Resolved before first paint by the profile page load — avoids Follow→Unfollow flash. */
@@ -172,10 +175,21 @@
           userID={user?.id ?? ''}
           username={user?.username ?? ''}
         />
-        <TrustMark userID={user?.id ?? ''} activeKeyID={user?.activeKeyID} linked={false} />
       </h2>
       <div class="user-id-container">
-        <p class="user-info">{user?.id}</p>
+        <button
+          type="button"
+          class="id-row"
+          on:click={() => (showTrustDetails = true)}
+          aria-label="Show verification details"
+        >
+          <TrustMark
+            userID={user?.id ?? ''}
+            activeKeyID={user?.activeKeyID}
+            linked={false}
+          />
+          <span class="user-info">{user?.id}</span>
+        </button>
       </div>
       <p class="user-info">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
       {#if user?.invite}
@@ -202,13 +216,15 @@
     userID={user?.id}
     activeKeyID={user?.activeKeyID}
     vouchIDs={user?.vouchIDs ?? []}
+    bind:showDetails={showTrustDetails}
   />
   {#if isOwner}
-    <div class="profile-actions">
+    <div class="profile-actions owner">
       <button class="action-btn secondary" on:click={() => dispatch('edit')}>Edit Profile</button>
       {#if vouchURL}
         <QRButton
           ariaLabel="Show your verification code"
+          label="Verify Identity"
           on:click={() => (vouchQROpen = true)}
         />
       {/if}
@@ -224,9 +240,9 @@
 
 <QRCodeModal
   open={vouchQROpen}
-  title="Verify in person"
+  title="Verify your Identity"
   subject="verification link"
-  hint="Show this to someone you have met. They scan it to check the key this app reports for you."
+  hint="Show this to another user in person. By scanning it they will be attesting to your identity."
   url={vouchURL}
   on:close={() => (vouchQROpen = false)}
 />
@@ -334,6 +350,30 @@
     min-width: 0;
   }
 
+  /* The whole id row opens the evidence, so the mark sits at its left. */
+  .id-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .id-row:hover .user-info {
+    color: var(--fg);
+  }
+
+  .id-row .user-info {
+    overflow-wrap: anywhere;
+  }
+
   .user-info {
     margin: 0;
     color: var(--muted);
@@ -423,6 +463,14 @@
     .profile-actions {
       flex-direction: column;
       gap: 0.5rem;
+    }
+
+    /* The owner's row is Edit Profile + Verify Identity, which fit side by
+       side; stacking them wasted a whole row on a two-item group. */
+    .profile-actions.owner {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
     }
   }
 
