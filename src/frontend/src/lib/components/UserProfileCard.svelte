@@ -7,6 +7,11 @@
   import { followingRepository } from '$lib/repositories/following';
   import { userInfoRepository } from '$lib/repositories/userInfo';
   import { apiService } from '$lib/services/api';
+  import { authService } from '$lib/services/auth';
+  import QRButton from '$lib/components/QRButton.svelte';
+  import QRCodeModal from '$lib/components/QRCodeModal.svelte';
+  import { vouchLinkFor } from '$lib/services/vouchVerify';
+  import { parseKeyId } from '$lib/utils/identityRef';
 
   export let user;
   export let isOwner = false;
@@ -20,6 +25,16 @@
   export let followListMode = 'following';
 
   const dispatch = createEventDispatcher();
+
+  // The code the owner shows so someone can verify their key in person.
+  // The fingerprint comes from this device, not from the server's report of
+  // it: the owner is claiming which key they hold.
+  let vouchQROpen = false;
+  $: ownFingerprint = isOwner ? parseKeyId(authService.getActiveKeyId())?.fingerprint : null;
+  $: vouchURL =
+    user?.id && ownFingerprint && typeof window !== 'undefined'
+      ? vouchLinkFor(user.id, ownFingerprint, window.location.origin)
+      : '';
 
   let following = isFollowing;
   let followersCount = 0;
@@ -183,6 +198,12 @@
   {#if isOwner}
     <div class="profile-actions">
       <button class="action-btn secondary" on:click={() => dispatch('edit')}>Edit Profile</button>
+      {#if vouchURL}
+        <QRButton
+          ariaLabel="Show your verification code"
+          on:click={() => (vouchQROpen = true)}
+        />
+      {/if}
     </div>
   {:else}
     <div class="profile-actions">
@@ -192,6 +213,15 @@
     </div>
   {/if}
 </div>
+
+<QRCodeModal
+  open={vouchQROpen}
+  title="Verify in person"
+  subject="verification link"
+  hint="Show this to someone you have met. They scan it to check the key this app reports for you."
+  url={vouchURL}
+  on:close={() => (vouchQROpen = false)}
+/>
 
 {#if avatarOpen && user?.id}
   <div

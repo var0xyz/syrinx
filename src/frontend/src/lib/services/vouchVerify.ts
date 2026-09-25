@@ -22,6 +22,12 @@ export interface CompareResult {
   reason?: string;
 }
 
+/** The link the subject shows. Only the fingerprint rides in the fragment,
+ * which is never sent to the server, so it reaches the scanner untouched. */
+export function vouchLinkFor(userID: string, fingerprint: string, origin: string): string {
+  return `${origin}/profile/${userID}/vouch#${fingerprint}`;
+}
+
 /** An OpenPGP v4 or v6 fingerprint, as hex. */
 const FINGERPRINT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
