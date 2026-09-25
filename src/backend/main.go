@@ -376,8 +376,7 @@ func main() {
 	api.HandleFunc("/keys", h.noop).Methods("OPTIONS")
 
 	// /mine before the greedy {subjectKeyID:.+} so it is not swallowed.
-	api.HandleFunc("/vouches/mine", h.ListMyVouches).Methods("GET")
-	api.HandleFunc("/vouches/mine", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/vouches", h.ListMyVouches).Methods("GET")
 
 	api.HandleFunc("/vouches/{subjectKeyID:.+}", h.WithdrawVouch).Methods("DELETE")
 	api.HandleFunc("/vouches/{subjectKeyID:.+}", h.noop).Methods("OPTIONS")

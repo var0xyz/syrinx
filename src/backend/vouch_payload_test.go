@@ -86,6 +86,29 @@ func TestVouchWithdrawalPayloadCanonicalShape(t *testing.T) {
 
 // A withdrawal must never verify as a vouch. The distinct type is what
 // separates them, so assert the bytes actually differ.
+func TestVouchWithdrawalServerPayloadCanonicalShape(t *testing.T) {
+	signedAt := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	got := string(buildVouchWithdrawalServerPayload(
+		"alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567",
+		"alice@home1234",
+		"bob@peer5678/9f3c",
+		"srv-fp",
+		"WSIG",
+		signedAt,
+	))
+	want := "---\n" +
+		"serverKeyFingerprint: srv-fp\n" +
+		"signedAt: " + signedAt.Format(identityRecordTimeFormat) + "\n" +
+		"subjectKeyID: bob@peer5678/9f3c\n" +
+		"type: user_vouch_withdrawal\n" +
+		"vouchID: alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567\n" +
+		"voucherUserID: alice@home1234\n" +
+		"---\nWSIG"
+	if got != want {
+		t.Errorf("withdrawal server payload mismatch:\ngot  %q\nwant %q", got, want)
+	}
+}
+
 func TestVouchAndWithdrawalPayloadsDiffer(t *testing.T) {
 	vouch := buildVouchUserPayload("alice@home/k1", "bob@peer", "bob@peer/k2", "")
 	withdrawal := buildVouchWithdrawalUserPayload("alice@home/k1", "bob@peer", "bob@peer/k2")

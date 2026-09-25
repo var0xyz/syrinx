@@ -24,6 +24,7 @@ func ensurePinReedSchema(db *sql.DB) error {
 		`INSERT INTO servers (id, self) VALUES ('testserver', TRUE) ON CONFLICT (id) DO UPDATE SET self = EXCLUDED.self`,
 		`CREATE TABLE IF NOT EXISTS user_signatures (id SERIAL PRIMARY KEY, public_key_id VARCHAR(255) NOT NULL, signature TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (id SERIAL PRIMARY KEY, private_key_id VARCHAR(255) NOT NULL, signature TEXT NOT NULL, signed_at TIMESTAMP NOT NULL)`,
+		`DROP TABLE IF EXISTS user_vouches_active CASCADE`,
 		`DROP TABLE IF EXISTS user_vouches CASCADE`,
 		`DROP TABLE IF EXISTS pinned_reeds CASCADE`,
 		`DROP TABLE IF EXISTS reed_removals CASCADE`,
@@ -83,8 +84,14 @@ func ensurePinReedSchema(db *sql.DB) error {
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			withdrawn_at TIMESTAMP,
 			withdrawal_signature_id INT REFERENCES user_signatures(id),
+			withdrawal_server_signature_id INT REFERENCES server_signatures(id)
+		)`,
+		`CREATE TABLE user_vouches_active (
+			vouch_id VARCHAR(255) PRIMARY KEY REFERENCES user_vouches(id) ON DELETE CASCADE,
+			voucher_user_id VARCHAR(255) NOT NULL,
+			subject_user_id VARCHAR(255) NOT NULL,
+			subject_key_id VARCHAR(255) NOT NULL,
 			UNIQUE (voucher_user_id, subject_key_id)
 		)`,
 		`CREATE TABLE user_followers (

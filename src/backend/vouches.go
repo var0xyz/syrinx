@@ -32,10 +32,6 @@ var ErrVouchNotFound = errors.New("vouch not found")
 // voucherID@serverID/UUIDv7 form.
 var ErrVouchInvalidID = errors.New("invalid vouch id")
 
-// vouchVoidWithdrawn is the only void reason: withdrawal is the one thing
-// that retracts a vouch.
-const vouchVoidWithdrawn = "withdrawn"
-
 // vouchRow is one user_vouches row before its signatures are resolved.
 type vouchRow struct {
 	ID              string
@@ -47,21 +43,22 @@ type vouchRow struct {
 	UserSignatureID int64
 	ServerSigID     int64
 	CreatedAt       time.Time
-	WithdrawnAt     sql.NullTime
 	WithdrawalSigID sql.NullInt64
+	WithdrawalSrvID sql.NullInt64
 }
 
 const vouchSelectColumns = `
 	uv.id, uv.voucher_user_id, uv.voucher_key_id, uv.subject_user_id,
 	uv.subject_key_id, uv.note, uv.user_signature_id, uv.server_signature_id,
-	uv.created_at, uv.withdrawn_at, uv.withdrawal_signature_id`
+	uv.created_at, uv.withdrawal_signature_id,
+	uv.withdrawal_server_signature_id`
 
 func scanVouchRow(scan func(...any) error) (*vouchRow, error) {
 	var r vouchRow
 	if err := scan(
 		&r.ID, &r.VoucherUserID, &r.VoucherKeyID, &r.SubjectUserID, &r.SubjectKeyID,
 		&r.Note, &r.UserSignatureID, &r.ServerSigID, &r.CreatedAt,
-		&r.WithdrawnAt, &r.WithdrawalSigID,
+		&r.WithdrawalSigID, &r.WithdrawalSrvID,
 	); err != nil {
 		return nil, err
 	}
@@ -91,28 +88,29 @@ func (s *DataService) hydrateVouch(ctx context.Context, q signingDBTX, r *vouchR
 		UserSignature:   userSig,
 		ServerSignature: serverSig,
 	}
-	if r.WithdrawnAt.Valid {
-		withdrawnAt := r.WithdrawnAt.Time.UTC().Truncate(time.Second)
-		cert.Withdrawn = true
-		cert.WithdrawnAt = &withdrawnAt
-	}
-	if r.WithdrawalSigID.Valid {
-		sig, err := getUserSignatureWire(ctx, q, r.WithdrawalSigID.Int64)
+	// Written in one transaction: the withdrawal is whole or absent.
+	if r.WithdrawalSigID.Valid && r.WithdrawalSrvID.Valid {
+		userSig, err := getUserSignatureWire(ctx, q, r.WithdrawalSigID.Int64)
 		if err != nil {
 			return nil, err
 		}
-		cert.Withdrawal = &sig
+		srvSig, err := getServerSignatureWire(ctx, q, r.WithdrawalSrvID.Int64)
+		if err != nil {
+			return nil, err
+		}
+		cert.Withdrawal = &VouchWithdrawal{UserSignature: userSig, ServerSignature: srvSig}
 	}
 	return cert, nil
 }
 
-// GetVouch returns the stored vouch for (voucherID, subjectKeyID), live or
-// withdrawn, or nil when there is none.
+// GetVouch returns the live vouch for (voucherID, subjectKeyID), or nil.
+// Withdrawn rows for the same pair are reachable by id only.
 func (s *DataService) GetVouch(ctx context.Context, voucherID, subjectKeyID string) (*VouchCert, error) {
 	row, err := scanVouchRow(s.db.QueryRowContext(ctx, `
 		SELECT `+vouchSelectColumns+`
 		FROM user_vouches uv
-		WHERE uv.voucher_user_id = $1 AND uv.subject_key_id = $2
+		JOIN user_vouches_active a ON a.vouch_id = uv.id
+		WHERE a.voucher_user_id = $1 AND a.subject_key_id = $2
 	`, voucherID, subjectKeyID).Scan)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -138,11 +136,14 @@ func (s *DataService) InsertVouch(ctx context.Context, cert VouchCert) error {
 	}
 	defer tx.Rollback()
 
+	// Only a live row can conflict; history may hold withdrawn rows for
+	// the same pair.
 	existing, err := scanVouchRow(tx.QueryRowContext(ctx, `
 		SELECT `+vouchSelectColumns+`
 		FROM user_vouches uv
-		WHERE uv.voucher_user_id = $1 AND uv.subject_key_id = $2
-		FOR UPDATE
+		JOIN user_vouches_active a ON a.vouch_id = uv.id
+		WHERE a.voucher_user_id = $1 AND a.subject_key_id = $2
+		FOR UPDATE OF uv
 	`, cert.VoucherUserID, cert.SubjectKeyID).Scan)
 
 	switch {
@@ -153,17 +154,14 @@ func (s *DataService) InsertVouch(ctx context.Context, cert VouchCert) error {
 	case err != nil:
 		return err
 	default:
+		// A live vouch stands: identical replay is idempotent, anything
+		// else conflicts.
 		live, err := s.hydrateVouch(ctx, tx, existing)
 		if err != nil {
 			return err
 		}
-		if !existing.WithdrawnAt.Valid && !sameVouchSignature(live, cert) {
+		if !sameVouchSignature(live, cert) {
 			return ErrVouchConflict
-		}
-		if existing.WithdrawnAt.Valid {
-			if err := reviveVouchRow(ctx, tx, cert); err != nil {
-				return err
-			}
 		}
 	}
 
@@ -202,62 +200,39 @@ func insertVouchRow(ctx context.Context, tx *sql.Tx, cert VouchCert) error {
 	); err != nil {
 		return fmt.Errorf("insert user vouch: %w", err)
 	}
-	return nil
-}
-
-// reviveVouchRow clears a withdrawal and installs the new signatures.
-// Re-verifying someone after retracting is legitimate, so the row is
-// reused rather than a second one added for the same pair.
-func reviveVouchRow(ctx context.Context, tx *sql.Tx, cert VouchCert) error {
-	userSigID, err := insertUserSignature(ctx, tx, cert.UserSignature.ID, cert.UserSignature.Armor)
-	if err != nil {
-		return err
-	}
-	serverSigID, err := insertServerSignature(
-		ctx, tx,
-		cert.ServerSignature.ID, cert.ServerSignature.Armor, cert.ServerSignature.SignedAt,
-	)
-	if err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE user_vouches
-		SET voucher_key_id = $3, note = $4, user_signature_id = $5,
-		    server_signature_id = $6, created_at = $7,
-		    withdrawn_at = NULL, withdrawal_signature_id = NULL
-		WHERE voucher_user_id = $1 AND subject_key_id = $2
-	`,
-		cert.VoucherUserID, cert.SubjectKeyID, cert.VoucherKeyID, cert.Note,
-		userSigID, serverSigID, cert.ServerSignature.SignedAt,
-	); err != nil {
-		return fmt.Errorf("revive user vouch: %w", err)
+		INSERT INTO user_vouches_active (
+			vouch_id, voucher_user_id, subject_user_id, subject_key_id
+		) VALUES ($1, $2, $3, $4)
+	`, cert.ID, cert.VoucherUserID, cert.SubjectUserID, cert.SubjectKeyID); err != nil {
+		return fmt.Errorf("activate user vouch: %w", err)
 	}
 	return nil
 }
 
-// WithdrawVouch marks a vouch withdrawn and stores the signed withdrawal.
-// The row is kept: a client that cached the vouch needs signed evidence of
-// the retraction, not the server's word that one happened.
+// WithdrawVouch records a signed retraction and drops the row from the
+// active set. History keeps it: a client that cached the vouch needs signed
+// evidence of the retraction, not the server's word.
 func (s *DataService) WithdrawVouch(
 	ctx context.Context,
 	voucherID, subjectKeyID string,
 	withdrawal UserSignature,
-	withdrawnAt time.Time,
+	withdrawalServer ServerSignature,
 ) (*VouchCert, error) {
-	withdrawnAt = withdrawnAt.UTC().Truncate(time.Second)
-
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	var exists int
+	var vouchID string
 	err = tx.QueryRowContext(ctx, `
-		SELECT 1 FROM user_vouches
-		WHERE voucher_user_id = $1 AND subject_key_id = $2
-		FOR UPDATE
-	`, voucherID, subjectKeyID).Scan(&exists)
+		SELECT uv.id
+		FROM user_vouches uv
+		JOIN user_vouches_active a ON a.vouch_id = uv.id
+		WHERE a.voucher_user_id = $1 AND a.subject_key_id = $2
+		FOR UPDATE OF uv
+	`, voucherID, subjectKeyID).Scan(&vouchID)
 	if err == sql.ErrNoRows {
 		return nil, ErrVouchNotFound
 	}
@@ -265,23 +240,36 @@ func (s *DataService) WithdrawVouch(
 		return nil, err
 	}
 
-	sigID, err := insertUserSignature(ctx, tx, withdrawal.ID, withdrawal.Armor)
+	userSigID, err := insertUserSignature(ctx, tx, withdrawal.ID, withdrawal.Armor)
+	if err != nil {
+		return nil, err
+	}
+	serverSigID, err := insertServerSignature(
+		ctx, tx,
+		withdrawalServer.ID, withdrawalServer.Armor, withdrawalServer.SignedAt,
+	)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE user_vouches
-		SET withdrawn_at = $3, withdrawal_signature_id = $4
-		WHERE voucher_user_id = $1 AND subject_key_id = $2
-	`, voucherID, subjectKeyID, withdrawnAt, sigID); err != nil {
+		SET withdrawal_signature_id = $2, withdrawal_server_signature_id = $3
+		WHERE id = $1
+	`, vouchID, userSigID, serverSigID); err != nil {
 		return nil, fmt.Errorf("withdraw user vouch: %w", err)
+	}
+	// Dropping the active row is what takes it out of every list read.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM user_vouches_active WHERE vouch_id = $1
+	`, vouchID); err != nil {
+		return nil, fmt.Errorf("deactivate user vouch: %w", err)
 	}
 
 	row, err := scanVouchRow(tx.QueryRowContext(ctx, `
 		SELECT `+vouchSelectColumns+`
 		FROM user_vouches uv
-		WHERE uv.voucher_user_id = $1 AND uv.subject_key_id = $2
-	`, voucherID, subjectKeyID).Scan)
+		WHERE uv.id = $1
+	`, vouchID).Scan)
 	if err != nil {
 		return nil, err
 	}
@@ -290,6 +278,27 @@ func (s *DataService) WithdrawVouch(
 		return nil, err
 	}
 	return cert, tx.Commit()
+}
+
+// LastVouchCreatedAt returns when this voucher last vouched for this key,
+// live or withdrawn. Zero time when never.
+func (s *DataService) LastVouchCreatedAt(
+	ctx context.Context, voucherID, subjectKeyID string,
+) (time.Time, error) {
+	var createdAt time.Time
+	err := s.db.QueryRowContext(ctx, `
+		SELECT created_at FROM user_vouches
+		WHERE voucher_user_id = $1 AND subject_key_id = $2
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, voucherID, subjectKeyID).Scan(&createdAt)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return createdAt.UTC(), nil
 }
 
 // vouchCursor pages by the server countersignature time, then key id to
@@ -345,11 +354,14 @@ func (s *DataService) listVouches(
 	query := `
 		SELECT ` + vouchSelectColumns + `
 		FROM user_vouches uv
-		JOIN server_signatures ss ON ss.id = uv.server_signature_id
-		WHERE uv.` + column + ` = $1`
+		JOIN server_signatures ss ON ss.id = uv.server_signature_id`
+	// Live-only reads join the active set; the audit read walks history.
 	if !includeWithdrawn {
-		query += ` AND uv.withdrawn_at IS NULL`
+		query += `
+		JOIN user_vouches_active a ON a.vouch_id = uv.id`
 	}
+	query += `
+		WHERE uv.` + column + ` = $1`
 	if cursor != "" {
 		c, err := decodeVouchCursor(cursor)
 		if err != nil {
@@ -493,14 +505,36 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	if existing != nil && !existing.Withdrawn {
+	if existing != nil {
 		if existing.UserSignature.Armor != userSignatureB64 || existing.Note != note {
 			writeResponse(w, http.StatusConflict, "Vouch already exists with a different signature")
 			return
 		}
-		h.annotateVouch(r.Context(), existing)
 		writeResponse(w, http.StatusOK, existing)
 		return
+	}
+
+	// History is append-only, so an unbounded withdraw/re-vouch cycle would
+	// grow the table without limit. One per key per day is far above any
+	// honest rate: verification happens in person.
+	lastAt, err := h.services.db.LastVouchCreatedAt(r.Context(), voucherID, subjectKeyID)
+	if err != nil {
+		log.Error().Str("voucherID", voucherID).Err(err).Msg("Error loading last vouch time")
+		internalServerError(w)
+		return
+	}
+	if !lastAt.IsZero() {
+		if wait := vouchCooldown - time.Since(lastAt); wait > 0 {
+			log.Info().
+				Str("voucherID", voucherID).
+				Str("subjectKeyID", subjectKeyID).
+				Dur("retryAfter", wait).
+				Msg("Vouch rejected: cooldown")
+			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+			writeResponse(w, http.StatusTooManyRequests,
+				"You can verify this key again later")
+			return
+		}
 	}
 
 	// The voucher's key need only be able to sign. Its revocation state is
@@ -548,20 +582,15 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A revived vouch keeps its original id so a client that cached it can
-	// still address the same record.
-	vouchID := ""
-	if existing != nil {
-		vouchID = existing.ID
-	} else {
-		vouchUUID, err := uuid.NewV7()
-		if err != nil {
-			log.Error().Err(err).Msg("Error minting vouch id")
-			internalServerError(w)
-			return
-		}
-		vouchID = string(appendEntity(identityID(voucherID), vouchUUID.String()))
+	// Each attestation gets its own id, so the withdrawal a re-vouch
+	// replaces stays fetchable and verifiable.
+	vouchUUID, err := uuid.NewV7()
+	if err != nil {
+		log.Error().Err(err).Msg("Error minting vouch id")
+		internalServerError(w)
+		return
 	}
+	vouchID := string(appendEntity(identityID(voucherID), vouchUUID.String()))
 
 	cert := VouchCert{
 		Type:            identityTypeVouch,
@@ -597,7 +626,6 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		VouchID: cert.ID,
 	}
 
-	h.annotateVouch(r.Context(), &cert)
 	log.Info().
 		Str("voucherID", voucherID).
 		Str("subjectKeyID", subjectKeyID).
@@ -682,10 +710,24 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// One truncated instant for both: signing over a value other than the
+	// stored one would never verify.
+	now := time.Now().UTC().Truncate(time.Second)
+	serverPayload := buildVouchWithdrawalServerPayload(
+		existing.ID, voucherID, subjectKeyID,
+		h.signingKey.Fingerprint, signatureB64, now,
+	)
+	serverSignature, err := h.countersign(serverPayload, now)
+	if err != nil {
+		log.Error().Err(err).Msg("Error producing withdrawal countersignature")
+		internalServerError(w)
+		return
+	}
+
 	cert, err := h.services.db.WithdrawVouch(
 		r.Context(), voucherID, subjectKeyID,
 		UserSignature{ID: voucherKeyID, Armor: signatureB64},
-		time.Now().UTC(),
+		serverSignature,
 	)
 	if err != nil {
 		if errors.Is(err, ErrVouchNotFound) {
@@ -697,7 +739,6 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.annotateVouch(r.Context(), cert)
 	log.Info().
 		Str("voucherID", voucherID).
 		Str("subjectKeyID", subjectKeyID).
@@ -738,37 +779,14 @@ func keyBelongsTo(keyID, userID string) bool {
 	return strings.HasPrefix(keyID, userID+"/")
 }
 
-// annotateVouch fills the derived Void and Stale hints. These are hints
-// only: a client that trusts them hands the server the power to nullify
-// vouches it dislikes, so clients recompute from the keys they verified.
-func (h *Handlers) annotateVouch(ctx context.Context, cert *VouchCert) {
-	if cert.Withdrawn {
-		cert.Void = true
-		reason := vouchVoidWithdrawn
-		cert.VoidReason = &reason
-		return
-	}
-	// The subject key is what the statement is about, so its revocation or
-	// supersession makes the vouch stale rather than void.
-	key, err := h.services.db.GetPublicKey(ctx, cert.SubjectKeyID)
-	if err != nil || key == nil {
-		return
-	}
-	if key.Revoked {
-		cert.Stale = true
-		return
-	}
-	activeKeyID, err := h.services.db.GetActiveKeyFingerprint(ctx, cert.SubjectUserID)
-	if err == nil && activeKeyID != "" && activeKeyID != cert.SubjectKeyID {
-		cert.Stale = true
-	}
-}
-
 // VouchListResponse is the wire shape of every vouch list read.
 type VouchListResponse struct {
 	Vouches    []VouchCert `json:"vouches"`
 	NextCursor string      `json:"nextCursor,omitempty"`
 }
+
+// vouchCooldown bounds withdraw/re-vouch churn.
+const vouchCooldown = 24 * time.Hour
 
 const vouchPageDefault = 50
 const vouchPageMax = 100
@@ -804,13 +822,10 @@ func (h *Handlers) ListVouchesForUser(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	for i := range list.Vouches {
-		h.annotateVouch(r.Context(), &list.Vouches[i])
-	}
 	writeResponse(w, http.StatusOK, list)
 }
 
-// ListMyVouches handles GET /vouches/mine — every vouch the caller made,
+// ListMyVouches handles GET /vouches — every vouch the caller made,
 // withdrawn ones included, so they can audit what their keys signed.
 func (h *Handlers) ListMyVouches(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
@@ -828,9 +843,6 @@ func (h *Handlers) ListMyVouches(w http.ResponseWriter, r *http.Request) {
 		log.Error().Str("voucherID", voucherID).Err(err).Msg("Error listing own vouches")
 		internalServerError(w)
 		return
-	}
-	for i := range list.Vouches {
-		h.annotateVouch(r.Context(), &list.Vouches[i])
 	}
 	writeResponse(w, http.StatusOK, list)
 }
@@ -856,9 +868,9 @@ func (s *DataService) GetVouchByID(ctx context.Context, vouchID string) (*VouchC
 // forge, since no mark appears until the client verifies the cert behind one.
 func (s *DataService) ListVouchIDsForSubject(ctx context.Context, userID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id FROM user_vouches
-		WHERE subject_user_id = $1 AND withdrawn_at IS NULL
-		ORDER BY id
+		SELECT vouch_id FROM user_vouches_active
+		WHERE subject_user_id = $1
+		ORDER BY vouch_id
 	`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list vouch ids: %w", err)
@@ -908,6 +920,5 @@ func (h *Handlers) GetVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.annotateVouch(r.Context(), cert)
 	writeResponse(w, http.StatusOK, cert)
 }
