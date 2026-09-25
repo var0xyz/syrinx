@@ -200,11 +200,13 @@ issuer binding.
   `crypto/rand`; the 64-char alphabet divides 256 evenly, so `% 64` has no
   modulo bias. Generated passphrase is printed once by design; env passphrases
   are never written to the keychain.
-- **I5 — Deletion store trusts its caller (latent footgun).**
-  the deletion store and account paths persist certs without
-  verifying; current callers (`handlers.go:696,1694`) do verify author-only and
-  compare on idempotent replay. Add a guard/comment so a future caller can't
-  skip verification.
+- **I5 — Removal store trusts its caller (latent footgun).**
+  `InsertReedRemoval`/`InsertAccountRemoval`/`InsertForeignAccountRemoval`
+  (`services.go:2906,2924,2934`) persist certs without verifying. Every caller
+  now verifies the author signature first — the local paths
+  (`handlers.go:1142,2199`) and both peer-notify handlers
+  (`federation_relay.go`), which previously did not. The store itself still has
+  no guard, so a future caller can skip it.
 - **I6 — Reed/profile subscriptions are open to any authenticated user**
   (`realtime.go` fanout/relay handlers) — consistent with a public content
   platform, but confirm reed bodies are meant to be readable by non-followers.

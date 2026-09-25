@@ -283,3 +283,73 @@ func TestRelayProfilePageFromPeer_NilRelayIsInternalError(t *testing.T) {
 		t.Fatalf("status = %d, want %d (realtimeRelay is nil)", rr.Code, http.StatusInternalServerError)
 	}
 }
+
+// The removal-notify handlers verify the author's detached signature before
+// storing a cert, so a peer cannot assert a removal it has no signature for.
+// The checks below all run before the key lookup, so no live DB is needed.
+
+func TestReedRemovalNotifyFromPeer_RejectsNonPeerCaller(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	body := `{"reed_id":"alice@peer5678/01a026d4","user_id":"alice@peer5678","user_signature":"c2ln","server_signature":"c2ln"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/federation/removals/reed", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	h.ReedRemovalNotifyFromPeer(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d (no peerServerIDKey in context)", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestReedRemovalNotifyFromPeer_RejectsMissingSignature(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	body := `{"reed_id":"alice@peer5678/01a026d4","user_id":"alice@peer5678","user_signature":"","server_signature":"c2ln"}`
+	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/removals/reed", strings.NewReader(body)), "peer5678")
+	rr := httptest.NewRecorder()
+
+	h.ReedRemovalNotifyFromPeer(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (user_signature is required)", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestReedRemovalNotifyFromPeer_RejectsReedOfAnotherServer(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	// A peer may only report removals for reeds authored on its own server.
+	body := `{"reed_id":"alice@thirdparty/01a026d4","user_id":"alice@thirdparty","user_signature":"c2ln","server_signature":"c2ln"}`
+	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/removals/reed", strings.NewReader(body)), "peer5678")
+	rr := httptest.NewRecorder()
+
+	h.ReedRemovalNotifyFromPeer(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (reed_id not local to the calling peer)", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAccountRemovalNotifyFromPeer_RejectsNonPeerCaller(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	body := `{"user_id":"alice@peer5678","user_signature":"c2ln","server_signature":"c2ln"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/federation/removals/account", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	h.AccountRemovalNotifyFromPeer(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d (no peerServerIDKey in context)", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAccountRemovalNotifyFromPeer_RejectsUserOfAnotherServer(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	body := `{"user_id":"alice@thirdparty","user_signature":"c2ln","server_signature":"c2ln"}`
+	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/removals/account", strings.NewReader(body)), "peer5678")
+	rr := httptest.NewRecorder()
+
+	h.AccountRemovalNotifyFromPeer(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (user_id not local to the calling peer)", rr.Code, http.StatusBadRequest)
+	}
+}

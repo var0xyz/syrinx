@@ -2302,6 +2302,22 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// The author signs against their own home server's id, which for a peer
+	// notification is the calling peer.
+	userSigArmor, err := base64Decode(req.UserSignature)
+	if err != nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
+		return
+	}
+	userPayload := buildAccountRemovalUserPayload(peerServerID, req.UserID, req.Note)
+	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
+		log.Error().Err(err).Str("userID", req.UserID).Str("peerServerID", peerServerID).Msg("Account-removal user signature verification failed")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		writeResponse(w, http.StatusBadRequest, "user_signature verification failed")
+		return
+	}
+
 	cert := accountRemovalCert{
 		UserID:            req.UserID,
 		Note:              req.Note,
@@ -2406,6 +2422,35 @@ func (h *Handlers) ReedRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 	if !reedOK || authorServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
 		writeResponse(w, http.StatusBadRequest, "reed_id does not belong to the calling peer")
+		return
+	}
+
+	pubKey, err := h.resolvePublicKey(r.Context(), req.UserKeyID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", req.ReedID).Str("userKeyID", req.UserKeyID).Msg("Failed to resolve signing key for reed removal")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
+		internalServerError(w)
+		return
+	}
+	if pubKey == nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
+		writeResponse(w, http.StatusBadRequest, "user_key_id could not be resolved")
+		return
+	}
+
+	// The author signs against their own home server's id, which for a peer
+	// notification is the calling peer.
+	userSigArmor, err := base64Decode(req.UserSignature)
+	if err != nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
+		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
+		return
+	}
+	userPayload := buildReedRemovalUserPayload(peerServerID, req.ReedID)
+	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
+		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Reed-removal user signature verification failed")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
+		writeResponse(w, http.StatusBadRequest, "user_signature verification failed")
 		return
 	}
 
