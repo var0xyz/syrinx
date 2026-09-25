@@ -99,11 +99,22 @@ be, or trust chains cannot be walked at all.
 
 ## Open questions
 
-1. Whether a vouch should carry an optional free-text note ("met at X"), and
-   if so whether it is encrypted. Leaning no for v1: it is metadata leak with
-   little benefit.
-2. Whether to rate-limit vouch creation server-side. A user can only vouch
+1. Whether to rate-limit vouch creation server-side. A user can only vouch
    with their own key, so the abuse ceiling is low, but a compromised account
    could spray vouches. See [03](03_api.md#rate-limiting).
-3. How vouches interact with account removal — presumably cascade, matching
-   `reeds_liked`, but confirm against [deletion](../deletion/README.md).
+2. A vouch naming a subject on a peer server outlives that account's removal,
+   since `subject_user_id` carries no FK and this server never learns the
+   peer deleted them. Harmless while it only makes a mark this client cannot
+   verify against a fetchable key, but worth revisiting alongside
+   [federation](../federation/README.md).
+
+## Resolved
+
+- **The note.** A vouch carries an optional public note of at most 140
+  characters, as the envelope content of the user payload. It is not
+  encrypted; a private note would be invisible to exactly the people a
+  public vouch exists to inform.
+- **Account removal.** `voucher_user_id` references `identities` with
+  `ON DELETE CASCADE`, so removing an account takes its outbound vouches
+  with it, matching `reeds_liked`. Inbound vouches naming a removed local
+  subject go with that subject's own identity row.
