@@ -14,18 +14,19 @@ often the *only* guarantee — so gaps in signature coverage/verification matter
 more than in a typical web app.
 
 > Scope & confidence: findings were derived by reading the actual code (core
-> auth/crypto/handlers/db/signing audited directly; `recovery/`, `invites/`,
-> `deletion/`, `realtime/`, `secret/`, `coverage/`, and the whole `src/frontend/`
-> audited with assistance). Where a claim could not be fully proven from
-> source it is marked **(unconfirmed)**. This is a point-in-time review, not a
-> guarantee of completeness.
+> auth/crypto/handlers/db/signing audited directly; recovery, invites,
+> deletion, realtime, secret, coverage, and the whole `src/frontend/` audited
+> with assistance). The backend is a flat `package main` in `src/backend/`;
+> earlier subpackage paths in this file have been resolved to their real
+> locations. Where a claim could not be fully proven from source it is marked
+> **(unconfirmed)**. This is a point-in-time review, not a guarantee of
+> completeness.
 
 ## Severity summary
 
 | #      | Severity | Area       | Title                                                                  |
 |--------|----------|------------|------------------------------------------------------------------------|
 | H1     | High     | server     | WebSocket auth signature is replayable and unbound to user/server      |
-| H4     | High     | SPA        | `userId` in `localStorage` alone unlocks the app                       |
 | M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
 | M3     | Medium   | server     | Recovery claim can succeed with a revoked "active" key                 |
 | M4     | Medium   | server     | WS `DATA_ACK`/relay handlers change state with no caller authorization |
@@ -45,8 +46,9 @@ more than in a typical web app.
 ## High
 
 ### H1 — WebSocket auth signature is replayable and unbound
-**Where:** `realtime/auth.go:114` (verifies a signature over *only* the
-`timestamp` string); window is ±5 min (`crypto/crypto.go:291-310`).
+**Where:** `realtime.go:1039` (verifies a signature over *only* the
+`timestamp` string); window is ±5 min (`crypto.go:457-471`,
+`validateTimestamp`).
 The WS handshake signs just a decimal timestamp — no nonce, no binding to
 `userID` or `serverID`. Anyone who captures one handshake query string
 (`?userID=&fingerprint=&signature=&timestamp=`) from a proxy/log/referrer can
@@ -57,22 +59,14 @@ any other server that trusts the same key.
 `BytesToSign` payload binding `serverID`+`userID`+`timestamp`); track/expire
 nonces; shrink the window.
 
-### H4 — `userId` in `localStorage` alone unlocks the app
-**Where:** `src/frontend/src/lib/services/auth.ts:29-43` (`hasLocalIdentity`/
-`isLoggedIn` read only `localStorage.userId`, "no network").
-Anyone able to write `localStorage.userId` (shared machine, XSS, sibling tab) is
-treated as logged in. There is no check that a usable private key matching the
-account's active-key fingerprint is present.
-**Fix:** gate "logged in" on possession of a private key whose fingerprint
-matches the account's active key.
-
 ---
 
 ## Medium
 
 ### M2 — Recovery claim challenge is a predictable, untracked timestamp
-**Where:** `recovery/identity.go:32-36` (`IssueChallenge` = `now().Unix()`);
-accepted if ≤60s old (`identity.go:46-50`, `nest.go:248-257`).
+**Where:** `handlers.go:3102` (`IssueChallenge` = `now().Unix()`); accepted if
+≤60s old (`recovery.go:39` `challengeMaxAge`, `recovery.go:1045`
+`validateChallengeAge`).
 The "challenge" is neither random nor server-stored nor single-use — the client
 picks any in-window value, and a captured claim request replays for 60s. It
 provides no real anti-replay property.
@@ -80,7 +74,7 @@ provides no real anti-replay property.
 cover it; delete on use.
 
 ### M3 — Recovery claim can succeed with a revoked active key
-**Where:** `recovery/nest.go:89` (`active = newestFirst[0]`, unconditionally);
+**Where:** `recovery.go:819-842` (`newestFirst` tip taken unconditionally);
 challenge verified against `active.Key.Armor` (`identity.go:58`). No check that
 the tip node lacks a `Revocation`.
 An attacker holding a compromised key that was *later revoked* — but is still
@@ -91,10 +85,10 @@ protection the recovery design relies on.
 signed by the newest *unrevoked* key.
 
 ### M4 — WS `DATA_ACK`/relay handlers change state with no caller authorization
-**Where:** `realtime/service.go:990-1033` (`handleDataAck` allocates
+**Where:** `realtime.go:4264` (`handleDataAck` allocates
 `(pe.ReedID, client.userID, pe.UserID)` looked up only by `eventID`, never
 checking `client.userID == pe.RequesterUserID`); same gap in `handleRelayResponse`
-(`service.go:903-944`) and `handleRelayMiss` (`service.go:947`).
+and `handleRelayMiss` (`realtime.go:4155`).
 Any authenticated client that learns an `eventID` can self-assert a reed
 allocation (rigging coverage stats / positioning as a relay source) or inject
 reed-body content toward the requester.
@@ -105,15 +99,15 @@ security-relevant state change is keyed only on a bearer id.
 and that `client.userID` is an actual online holder before relay allocation.
 
 ### M5 — Unbounded WebSocket read frames → memory-exhaustion DoS
-**Where:** `realtime/service.go:367-373` (upgrader) never calls
-`conn.SetReadLimit`; `handleClientMessages` (`service.go:482`) unmarshals whole
+**Where:** `realtime.go:1937` (upgrader) never calls
+`conn.SetReadLimit`; `handleClientMessages` (`realtime.go:2107`) unmarshals whole
 frames.
 One authenticated client can send arbitrarily large frames and exhaust memory.
 **Fix:** `conn.SetReadLimit(maxFrameBytes)` after upgrade; reject oversized
 frames.
 
 ### M6 — Per-user invite quota is a check-then-insert race
-**Where:** `invites/handlers.go:152-193` (`CountByCreator` then `Insert`, no
+**Where:** `services.go:5867` (`countInvitesByCreator`) then `insertInvite`, no
 atomic guard).
 Concurrent `POST /api/invites` all pass the count check before any insert
 commits, exceeding `MAX_INVITES_PER_USER`.
@@ -121,7 +115,8 @@ commits, exceeding `MAX_INVITES_PER_USER`.
 constraint, or `FOR UPDATE`/advisory lock on `created_by`).
 
 ### M7 — SPA verification clock advanced by attacker-controlled timestamp
-**Where:** `src/frontend/src/lib/services/crypto.ts:22-25,141` — verification reference
+**Where:** `src/frontend/src/lib/services/crypto.ts:23-38` (`verificationDate`)
+— verification reference
 time is `max(now, serverTimestamp) + 5min`, where `serverTimestamp` is the
 server-supplied countersignature time.
 A malicious server can set a far-future `timestamp`, pushing the verification
@@ -131,25 +126,27 @@ be **expired**, defeating key-expiry.
 timestamp advance the verification clock.
 
 ### M8 — SPA `verifySignature` silently falls back binary→text mode
-**Where:** `src/frontend/src/lib/services/crypto.ts:144-160`. The Go signer uses binary
-detached signatures (`crypto/crypto.go:215` `openpgp.DetachSign`), so accepting
+**Where:** `src/frontend/src/lib/services/crypto.ts:143-160` (`verifySignature`).
+The Go signer uses binary
+detached signatures (`crypto.go:249` `openpgp.DetachSign`), so accepting
 text mode (with CR/LF canonicalization) broadens the set of byte sequences that
 verify for a given signature.
 **Fix:** pin binary mode; remove the text fallback.
 
 ### M9 — Unsigned server counts/hints consumed for trust decisions
 **Where:** `GET /users/{userID}/info` (`UserInfo`: `followersCount`,
-`followingCount`, `firstReedId`, `activeKeyFingerprint`, `profileTimestamp`) and
+`followingCount`, `firstReedId`, `activeKeyID`, `profileTimestamp`) and
 SPA `usersInfo` IndexedDB (`src/frontend/src/lib/repositories/userInfo.ts`). The signed
 profile is `GET /users/{userID}/profile` only (`verifyUser` covers
 username/fingerprint/invitedBy.id/bio/memberSince).
 `firstReedId` gates content display and end-of-feed
 (`profile/[userId]/+page.svelte`, `ReedsList.svelte`),
-`activeKeyFingerprint` steers key-rotation/removal resolution
-(`verifiers/index.ts`, recovery nest assembly). A malicious server can suppress
+`activeKeyID` steers key-rotation/removal resolution
+(`src/frontend/src/lib/verifiers/index.ts`, recovery nest assembly). A malicious
+server can suppress
 content or steer which key is treated as authoritative.
-**Fix:** treat these strictly as untrusted hints; never let
-`activeKeyFingerprint` alone select a signing key without an attested chain.
+**Fix:** treat these strictly as untrusted hints; never let `activeKeyID`
+alone select a signing key without an attested chain.
 Clients invalidate cached profiles when `profileTimestamp` is newer than the
 stored `serverSignature.timestamp`.
 
@@ -158,9 +155,9 @@ stored `serverSignature.timestamp`.
 ## Low
 
 ### L1 — Reed author signature never verified on recovery ingest
-**Where:** `recovery/handlers.go:111-140` (`verifyReedCountersig` checks only the
-server countersignature); `recovery/reeds_follows.go:60` stores caller-supplied
-`req.UserSignature.Fingerprint`; `identity/identity.go:154-162`
+**Where:** `recovery.go` (`verifyReedCountersig` checks only the server
+countersignature) and its reed/follow ingest, which stores the caller-supplied
+user signature; `identity.go`
 (`ReedCountersignHeaders` does not bind the author fingerprint).
 The countersignature transitively vouches for the reed body, but the author key
 fingerprint isn't bound, so a caller can attach a bogus `userSignature.Fingerprint`
@@ -194,21 +191,22 @@ issuer binding.
 - **I2 — Markdown rendering is XSS-safe.** `src/frontend/src/lib/components/MarkdownParser.svelte`
   / `MarkdownInline.svelte` render an AST via Svelte templating with no `@html`/
   `innerHTML` (grep-confirmed none in `src/frontend/src`). `resolveLinkHref`
-  (`reedMarkdown.ts:41-54`) allowlists schemes (http/https/mailto/web+syrinx);
+  (`src/frontend/src/lib/utils/reedMarkdown.ts`) allowlists schemes
+  (http/https/mailto/web+syrinx);
   identicons are numeric SVG from a hash. Keep it AST-based.
 - **I3 — `spaHandler` path traversal: none.** `spa_handler.go:17` uses
   `path.Clean` and `os.Stat` before serving.
-- **I4 — Passphrase generation is sound.** `secret/passphrase.go:205-215` uses
+- **I4 — Passphrase generation is sound.** `secret.go` uses
   `crypto/rand`; the 64-char alphabet divides 256 evenly, so `% 64` has no
   modulo bias. Generated passphrase is printed once by design; env passphrases
   are never written to the keychain.
 - **I5 — Deletion store trusts its caller (latent footgun).**
-  `deletion/store.go:30`, `deletion/account.go:37` persist certs without
+  the deletion store and account paths persist certs without
   verifying; current callers (`handlers.go:696,1694`) do verify author-only and
   compare on idempotent replay. Add a guard/comment so a future caller can't
   skip verification.
 - **I6 — Reed/profile subscriptions are open to any authenticated user**
-  (`realtime/service.go:824,1047,1108`) — consistent with a public content
+  (`realtime.go` fanout/relay handlers) — consistent with a public content
   platform, but confirm reed bodies are meant to be readable by non-followers.
 - **Residual server-trust:** `verifyPublicKey` (`src/frontend/src/lib/verifiers/index.ts:140-220`)
   trusts the server's binding of a key to a `userID` (the server countersigns
@@ -280,10 +278,10 @@ therefore still required.
 
 ## Recommended priority order
 
-1. **H4** — require possession of a private key matching the account's
-   active key for "logged in".
-2. **H1** — bind and nonce the WebSocket handshake.
-3. **M2 / M3** — fix recovery claim replay and revoked-tip acceptance before
+1. **H1** — bind and nonce the WebSocket handshake.
+2. **M2 / M3** — fix recovery claim replay and revoked-tip acceptance before
    relying on `RECOVERY_MODE` in anger.
-4. **M4 / M5 / M6 / M7 / M8 / M9** — realtime authorization, WS read limit,
+3. **M4 / M5 / M6 / M7 / M8 / M9** — realtime authorization, WS read limit,
    invite-quota atomicity, and SPA verification hardening.
+4. **L1 / L2 / L3** — recovery ingest signature checks, follow-edge validation,
+   and invite issuer binding.
