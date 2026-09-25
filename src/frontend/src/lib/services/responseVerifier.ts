@@ -1,12 +1,13 @@
 /**
- * Verifies the `Signature` header responseSigner middleware (middlewares.go)
- * puts on every response. X-Syrinx-Signed-Headers names exactly which
- * headers were covered — read that rather than guessing (see middlewares.go).
+ * Verifies the signature responseSigner middleware (middlewares.go) puts on
+ * every response. X-Syrinx-Signed-Headers names exactly which headers were
+ * covered — read that rather than guessing (see middlewares.go).
  */
 
 import { cryptoService } from './crypto';
 import { getTrustedServerKey } from './serverKeyTrust';
 
+const SIGNATURE_HEADER = 'X-Syrinx-Response-Signature';
 const SIGNED_HEADERS_HEADER = 'X-Syrinx-Signed-Headers';
 
 // Go's signer sorts across separate Set/Add calls for the same header
@@ -25,9 +26,9 @@ function buildCanonicalHeaderString(headers: Headers, signedNames: string[]): st
 }
 
 /** Verifies res against the trusted server key. Fails closed (false) if
- * there's no Signature header, no trusted key yet, or a mismatch. */
+ * there's no signature header, no trusted key yet, or a mismatch. */
 export async function verifyResponseEnvelope(res: Response): Promise<boolean> {
-  const escapedSignature = res.headers.get('Signature');
+  const escapedSignature = res.headers.get(SIGNATURE_HEADER);
   if (!escapedSignature) return false;
 
   const signedNamesHeader = res.headers.get(SIGNED_HEADERS_HEADER);
