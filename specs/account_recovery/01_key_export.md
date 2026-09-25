@@ -59,6 +59,11 @@ Minimal `BackupPayload`:
 - `indexedDB.tables`:
   - `privateKeys` — active private key only
   - `publicKeys` — matching active public key only
+
+  Key armor travels verbatim, not base64-wrapped: JSON preserves its
+  newlines and the payload is gzipped, so wrapping only inflates it.
+  Signature armor on records (`userSignature`/`serverSignature`) keeps the
+  base64 wire convention.
 - **Must not** include `users`, `reeds`, `following`, or other tables.
 
 Rationale: profile, following, and tip metadata are **server-authoritative**
