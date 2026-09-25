@@ -8,6 +8,7 @@
   import {
     assertBackupIdentity,
     decryptBackupFile,
+    lockRestoredKeys,
     extractProfile,
     isFullBackupFilename,
     isIdentityBackupFilename,
@@ -167,6 +168,10 @@
 
       assertBackupIdentity(backup);
       const profile = extractProfile(backup);
+
+      // Backup armor is unencrypted; lock it under a local secret before
+      // anything reaches IndexedDB.
+      await lockRestoredKeys(backup);
 
       startImportRun();
 

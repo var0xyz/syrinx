@@ -20,6 +20,7 @@ import {
   backupKeyItemId,
   type BackupPayload,
   writeIdentityKeysBackup,
+  lockRestoredKeys,
 } from './backupRestore';
 
 export function mapAccountRecoveryBootstrapError(err: unknown): Error {
@@ -91,7 +92,6 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
   const ls = backup.localStorage ?? {};
   const userId = ls['userId']!;
   const keyId = ls['activeKeyId']!;
-  const passphrase = ls['keyPassphrase']!;
 
   const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
   const privateKeyEntry = (privateKeysTable?.items ?? []).find(
@@ -102,7 +102,12 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
     throw new Error('Invalid identity backup: missing private key armor.');
   }
 
-  const bootstrap = await fetchBootstrap(userId, keyId, atob(privateKeyEntry.armor), passphrase);
+  // Backup armor is unencrypted; bootstrap signs with it directly, then
+  // locking below puts it at rest under a fresh local secret.
+  const bootstrap = await fetchBootstrap(userId, keyId, atob(privateKeyEntry.armor), '');
+
+  await lockRestoredKeys(backup);
+  const passphrase = authService.getPassphrase()!;
 
   await writeIdentityKeysBackup(backup);
   // Restoring from a backup means the user already has one by definition —

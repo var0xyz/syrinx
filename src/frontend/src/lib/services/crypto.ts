@@ -92,6 +92,10 @@ export class CryptoService {
       const privateKey = await openpgp.readPrivateKey({
         armoredKey: privateKeyArmored
       });
+      // Backup armor arrives unencrypted; decryptKey throws on those.
+      if (privateKey.isDecrypted()) {
+        return privateKey;
+      }
       const decryptedPrivateKey = await openpgp.decryptKey({
         privateKey,
         passphrase
@@ -101,6 +105,31 @@ export class CryptoService {
       console.error('Error decrypting private key:', error);
       throw new Error('Failed to decrypt private key');
     }
+  }
+
+  /**
+   * Strip a private key's passphrase, returning unencrypted armor. Only
+   * for backup export, whose file encryption is the protection.
+   */
+  async unlockPrivateKeyArmor(
+    privateKeyArmored: string,
+    passphrase: string
+  ): Promise<string> {
+    const decrypted = await this.decryptPrivateKey(privateKeyArmored, passphrase);
+    return decrypted.armor().trim();
+  }
+
+  /**
+   * Encrypt unencrypted private key armor under a passphrase, for storing
+   * a restored key at rest.
+   */
+  async lockPrivateKeyArmor(
+    privateKeyArmored: string,
+    passphrase: string
+  ): Promise<string> {
+    const privateKey = await openpgp.readPrivateKey({ armoredKey: privateKeyArmored });
+    const encrypted = await openpgp.encryptKey({ privateKey, passphrase });
+    return encrypted.armor().trim();
   }
 
   /**

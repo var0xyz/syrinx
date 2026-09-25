@@ -50,8 +50,12 @@ Gzip is internal; extension is a single `.gpg` suffix.
 
 Minimal `BackupPayload`:
 
-- `localStorage`: `userId`, `keyFingerprint`, `keyPassphrase`, `serverId`,
-  `serverName` (session markers needed before authenticated fetch).
+- `localStorage`: `userId`, `activeKeyId`, `serverId`, `serverName`
+  (session markers needed before authenticated fetch). **No passphrase**:
+  the armor is exported unencrypted, since the file's own encryption under
+  the user's password is the protection — a second layer under that same
+  password adds no work for an attacker. Restore mints a fresh local
+  secret and encrypts the key under it before anything reaches IndexedDB.
 - `indexedDB.tables`:
   - `privateKeys` — active private key only
   - `publicKeys` — matching active public key only

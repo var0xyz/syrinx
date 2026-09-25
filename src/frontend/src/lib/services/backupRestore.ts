@@ -165,7 +165,7 @@ export async function buildKeyBackupPayload(): Promise<BackupPayload> {
   }
 
   const allLocalStorage = localStorageService.getAll();
-  const IDENTITY_KEYS = ['userId', 'activeKeyId', 'keyPassphrase', 'serverId', 'serverName'];
+  const IDENTITY_KEYS = ['userId', 'activeKeyId', 'serverId', 'serverName'];
   const localStorageSubset: Record<string, string> = {};
   for (const key of IDENTITY_KEYS) {
     if (allLocalStorage[key] !== undefined) localStorageSubset[key] = allLocalStorage[key];
@@ -175,6 +175,17 @@ export async function buildKeyBackupPayload(): Promise<BackupPayload> {
   if (!privateKey) {
     throw new Error('Active private key not found locally.');
   }
+
+  // Exported unencrypted: the file's own encryption is the protection, and
+  // a second layer under the same password adds no work for an attacker.
+  const localPassphrase = authService.getPassphrase();
+  if (!localPassphrase) {
+    throw new Error('No local key passphrase available to unlock the export.');
+  }
+  const exportArmor = await cryptoService.unlockPrivateKeyArmor(
+    privateKey.armor,
+    localPassphrase
+  );
 
   let publicKey = await publicKeyRepository.getPublicKey(keyId);
   if (!publicKey) {
@@ -191,7 +202,7 @@ export async function buildKeyBackupPayload(): Promise<BackupPayload> {
         // restoreItem's privateKeys/publicKeys cases atob() the armor on the
         // way back in (matching the full-backup export below) — repository
         // armor is stored raw, so it must be base64-wrapped here too.
-        { name: 'privateKeys', items: [{ ...privateKey, armor: btoa(privateKey.armor) }] },
+        { name: 'privateKeys', items: [{ ...privateKey, armor: btoa(exportArmor) }] },
         { name: 'publicKeys', items: [{ ...publicKey, armor: btoa(publicKey.armor) }] },
       ],
     },
@@ -289,7 +300,6 @@ export function assertIdentityBackupKeys(backup: BackupPayload): void {
   const ls = backup.localStorage ?? {};
   const userId = ls['userId'];
   const activeKeyId = ls['activeKeyId'];
-  const keyPassphrase = ls['keyPassphrase'];
   const serverId = ls['serverId'];
 
   const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
@@ -307,12 +317,41 @@ export function assertIdentityBackupKeys(backup: BackupPayload): void {
     throw new Error('Invalid identity backup: profile must not be included.');
   }
 
-  if (!userId || !activeKeyId || !keyPassphrase || !serverId || !privateKeyEntry?.armor) {
+  if (!userId || !activeKeyId || !serverId || !privateKeyEntry?.armor) {
     throw new Error('Invalid identity backup: missing required key material.');
   }
   if (!publicKeyEntry) {
     throw new Error('Invalid identity backup: missing active public key.');
   }
+}
+
+/**
+ * Mint a local unlock secret for a restored key. Machine-generated and
+ * never shown: it protects the at-rest armor, it is not a credential.
+ */
+function newLocalPassphrase(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes));
+}
+
+/**
+ * Encrypt every private key in the payload under a freshly minted local
+ * passphrase, and store that passphrase. Backup armor is unencrypted, so
+ * this runs on the in-memory payload before anything reaches IndexedDB.
+ */
+export async function lockRestoredKeys(backup: BackupPayload): Promise<void> {
+  const table = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
+  const items = (table?.items ?? []) as { armor?: string }[];
+  if (items.length === 0) return;
+
+  const localPassphrase = newLocalPassphrase();
+  for (const item of items) {
+    if (!item?.armor) continue;
+    const locked = await cryptoService.lockPrivateKeyArmor(atob(item.armor), localPassphrase);
+    item.armor = btoa(locked);
+  }
+  authService.setPassphrase(localPassphrase);
 }
 
 /** True when payload has keys but no embedded profile (identity export). */
@@ -362,7 +401,6 @@ export function assertBackupIdentity(backup: BackupPayload): void {
   const ls = backup.localStorage ?? {};
   const userId = ls['userId'];
   const activeKeyId = ls['activeKeyId'];
-  const keyPassphrase = ls['keyPassphrase'];
   const backupServerId = ls['serverId'];
 
   const privateKeysTable = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
@@ -370,7 +408,7 @@ export function assertBackupIdentity(backup: BackupPayload): void {
     (k) => k && typeof k === 'object' && backupKeyItemId(k) === activeKeyId
   ) as { armor?: string } | undefined;
 
-  if (!userId || !activeKeyId || !keyPassphrase || !privateKeyEntry?.armor) {
+  if (!userId || !activeKeyId || !privateKeyEntry?.armor) {
     throw new Error('Invalid backup file: missing required identity data.');
   }
 
