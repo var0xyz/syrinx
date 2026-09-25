@@ -162,11 +162,6 @@
     const reason = revokeReason.trim();
     try {
       // Generate new key pair first (before revoking old key)
-      const passphrase = authService.getPassphrase();
-      if (!passphrase) {
-        throw new Error('Passphrase not found');
-      }
-
       const serverName = localStorage.getItem('serverName') || '';
       // user.id is already the "userID@serverID" form — use it verbatim as
       // the OpenPGP identity name. Do NOT append the server id again here.
@@ -174,7 +169,6 @@
         name: user.id,
         email: revokeEmail.trim() || undefined,
         comment: serverName || undefined,
-        password: passphrase
       });
       console.log("new key id:", newKeyPair.fingerprint);
       // user.id is already canonical (userID@serverID); newKeyPair.fingerprint
@@ -202,7 +196,7 @@
       const newKeySignature = btoa(await cryptoService.signMessage(
         newKeyPair.publicKey,
         newKeyPair.privateKey,
-        passphrase
+        ''
       ));
 
       // Store pending revocation so it can be retried if the server call fails
@@ -251,7 +245,7 @@
         await pendingRevocationRepository.delete(oldKeyId);
         await privateKeyRepository.setRevoked(oldKeyId);
         authService.setActiveKey(newKeyId);
-        await requestSigner.initializeWorker(newKeyId, passphrase);
+        await requestSigner.initializeWorker(newKeyId);
 
         await publicKeyRepository.put(newPublicKey);
         notificationStore.dismiss(progressNotificationId);

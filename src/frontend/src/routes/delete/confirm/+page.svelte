@@ -4,6 +4,7 @@
   import { removeAccountAsAuthor } from '$lib/services/accountRemoval';
   import { authService } from '$lib/services/auth';
   import { dbService } from '$lib/services/db';
+  import { clearWrappingKey } from '$lib/services/keyVault';
   import { localStorageService } from '$lib/services/localstorage';
   import { notificationStore } from '$lib/stores/notifications';
   import { isOnline } from '$lib/services/pwa';
@@ -43,6 +44,7 @@
 
       localStorageService.clearAllData();
       await dbService.deleteDatabase();
+      await clearWrappingKey();
       await authService.clearSession();
 
       goto('/goodbye');

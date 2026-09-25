@@ -132,12 +132,11 @@ async function requestRaw(path: string, init?: RequestInit): Promise<Response> {
       if (!requestSigner.isInitialized()) {
         // Try to get auth data from auth service
         const keyId = authService.getActiveKeyId();
-        const passphrase = authService.getPassphrase();
-        if (!keyId || !passphrase) {
-          throw new Error('Cannot sign request: active key or passphrase not available');
+        if (!keyId) {
+          throw new Error('Cannot sign request: no active key available');
         }
 
-        await requestSigner.initializeWorker(keyId, passphrase);
+        await requestSigner.initializeWorker(keyId);
       }
 
       // Sign the request

@@ -24,7 +24,6 @@ more than in a typical web app.
 
 | #      | Severity | Area       | Title                                                                  |
 |--------|----------|------------|------------------------------------------------------------------------|
-| C2     | Critical | SPA        | Private key material is exfiltratable from the origin                  |
 | H1     | High     | server     | WebSocket auth signature is replayable and unbound to user/server      |
 | H4     | High     | SPA        | `userId` in `localStorage` alone unlocks the app                       |
 | M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
@@ -40,42 +39,6 @@ more than in a typical web app.
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
 | I1..I6 | Info     | mixed      | Residual trust assumptions & positives                                 |
 | A1     | Fixed    | server     | In-memory subscriber state blocks running >1 replica (no HA)           |
-
----
-
-## Critical
-
-### C2 — Private key material is exfiltratable from the origin
-**Where:** armor in IndexedDB (`repositories/privateKey.ts`); unlock secret in
-`localStorage` (`lib/services/auth.ts:116-126`); decrypted in page context by
-`reedLike.ts:72`, `relayDecrypt.ts:54`, `invites.ts`, `reedRemoval.ts`,
-`mailboxReceipt.ts`, `accountRemoval.ts`, `ownIdentityClaim.ts`,
-`NewReedModal.svelte:155`, and others.
-The user's PGP private key can be read out of the origin in full and used
-off-device, forever. Any XSS, malicious dependency, or extension that runs once
-can copy the armor and its unlock secret and impersonate the user permanently —
-signing reeds, rotating keys, deleting the account — with no further access to
-the device.
-
-Note the `keyPassphrase` value is **not a user credential**: it is generated at
-signup (`routes/signup/+page.svelte`), never shown to the user, never typed, and
-stored on the same origin as the key it protects. It is an obfuscation layer,
-not a second factor, and moving it alone changes nothing — an attacker who can
-read one can read the other.
-
-The security boundary that matters is therefore *exfiltration*, not *use*. Any
-in-page signing capability can be abused while an attacker has code execution;
-that is true of hardware tokens too, and is a CSP/SRI/dependency problem. What
-is fixable here is permanent theft of the identity.
-**Fix:** make the key material non-copyable rather than re-hiding the
-passphrase. Either wrap the PGP armor with a non-extractable WebCrypto AES-GCM
-key (stolen IndexedDB is then inert, the wrapping key cannot be exported) or
-move signing to native non-extractable WebCrypto keys and keep PGP only for
-backup export. Both require first routing *all* callers above through the
-service worker — the "key only lives in the SW" claim in `request-signer.ts:4`
-is not true today — and both are blocked on backup/restore, which currently
-embeds `keyPassphrase` as a required field (`backupRestore.ts:168`, `:310`).
-Identity export is the one place a real user-supplied password belongs.
 
 ---
 
@@ -98,9 +61,8 @@ nonces; shrink the window.
 **Where:** `src/frontend/src/lib/services/auth.ts:29-43` (`hasLocalIdentity`/
 `isLoggedIn` read only `localStorage.userId`, "no network").
 Anyone able to write `localStorage.userId` (shared machine, XSS, sibling tab) is
-treated as logged in; combined with C2 this is a full session. There is no check
-that a decryptable private key matching the account's active-key fingerprint is
-present.
+treated as logged in. There is no check that a usable private key matching the
+account's active-key fingerprint is present.
 **Fix:** gate "logged in" on possession of a private key whose fingerprint
 matches the account's active key.
 
@@ -318,9 +280,8 @@ therefore still required.
 
 ## Recommended priority order
 
-1. **C2 / H4** — make key material non-exfiltratable (route all signing through
-   the SW, then wrap the armor with a non-extractable key); require key
-   possession for "logged in".
+1. **H4** — require possession of a private key matching the account's
+   active key for "logged in".
 2. **H1** — bind and nonce the WebSocket handshake.
 3. **M2 / M3** — fix recovery claim replay and revoked-tip acceptance before
    relying on `RECOVERY_MODE` in anger.

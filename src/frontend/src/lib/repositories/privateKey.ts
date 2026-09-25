@@ -1,5 +1,6 @@
 import { dbService } from '$lib/services/db';
 import { allowUnsigned } from '$lib/verifiers';
+import { wrapArmor, unwrapArmor } from '$lib/services/keyVault';
 
 /**
  * Local private-key material. Revocation *attestation* (reason, timestamp,
@@ -21,7 +22,7 @@ export class PrivateKeyRepository {
     const now = new Date();
     const keyData: PrivateKey = {
       keyId,
-      armor: armor.trim(),
+      armor: await wrapArmor(armor.trim()),
       createdAt: now,
       revoked: false,
     };
@@ -29,8 +30,11 @@ export class PrivateKeyRepository {
     await this.db.put('privateKeys', keyData, allowUnsigned);
   }
 
+  /** Returns the record with `armor` unwrapped, ready to use. */
   async getPrivateKey(keyId: string): Promise<PrivateKey | null> {
-    return await this.db.get<PrivateKey>('privateKeys', keyId);
+    const stored = await this.db.get<PrivateKey>('privateKeys', keyId);
+    if (!stored) return null;
+    return { ...stored, armor: await unwrapArmor(stored.armor) };
   }
 
   /** When this key was minted (put into IndexedDB) — `__meta__.created`, in ms. */
@@ -40,8 +44,7 @@ export class PrivateKeyRepository {
   }
 
   async hasPrivateKey(keyId: string): Promise<boolean> {
-    const keyData = await this.getPrivateKey(keyId);
-    return !!keyData;
+    return !!(await this.db.get<PrivateKey>('privateKeys', keyId));
   }
 
   async deletePrivateKey(keyId: string): Promise<void> {
@@ -50,7 +53,9 @@ export class PrivateKeyRepository {
 
   /** Mark local private-key material as revoked (boolean flag only). */
   async setRevoked(keyId: string): Promise<void> {
-    const existing = await this.getPrivateKey(keyId);
+    // Reads the stored record, not getPrivateKey: its armor must go back
+    // wrapped, and unwrapping here would write plaintext.
+    const existing = await this.db.get<PrivateKey>('privateKeys', keyId);
     if (!existing) throw new Error(`Private key not found: ${keyId}`);
     await this.db.put('privateKeys', { ...existing, revoked: true }, allowUnsigned);
   }

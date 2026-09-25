@@ -8,7 +8,6 @@
   import {
     assertBackupIdentity,
     decryptBackupFile,
-    lockRestoredKeys,
     extractProfile,
     isFullBackupFilename,
     isIdentityBackupFilename,
@@ -169,10 +168,6 @@
       assertBackupIdentity(backup);
       const profile = extractProfile(backup);
 
-      // Backup armor is unencrypted; lock it under a local secret before
-      // anything reaches IndexedDB.
-      await lockRestoredKeys(backup);
-
       startImportRun();
 
       const probe = await apiService.probeUserStatus(profile);
@@ -196,11 +191,10 @@
         // the very next <Auth> mount (see Auth.svelte's lastKeyBackupAt gate).
         localStorage.setItem('lastKeyBackupAt', String(Date.now()));
         const keyId = authService.getActiveKeyId();
-        const passphrase = authService.getPassphrase();
-        if (!keyId || !passphrase) {
+        if (!keyId) {
           throw new Error('Restored backup is missing key material for device binding.');
         }
-        await requestSigner.initializeWorker(keyId, passphrase);
+        await requestSigner.initializeWorker(keyId);
         await apiService.bindDevice();
         clearRecoveryRun();
         completeImportRun();

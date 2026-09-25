@@ -24,7 +24,6 @@
 
   let username = "";
   let email = "";
-  let password = "";
   let loading = false;
   let currentStep = 0;
   let inviteID = "";
@@ -104,25 +103,6 @@
     }
   });
 
-  // Rejection sampling: 88 chars does not divide 256, so a plain modulo
-  // would bias toward the start of the set.
-  function generatePassword() {
-    const chars =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;:,.<>?";
-    const limit = 256 - (256 % chars.length);
-    let result = "";
-    const buf = new Uint8Array(32);
-    while (result.length < 32) {
-      crypto.getRandomValues(buf);
-      for (const byte of buf) {
-        if (byte >= limit) continue;
-        result += chars.charAt(byte % chars.length);
-        if (result.length === 32) break;
-      }
-    }
-    return result;
-  }
-
   function friendlySignupError(raw) {
     const msg = typeof raw === "string" ? raw : "";
     if (msg.includes("recovery mode")) {
@@ -142,7 +122,6 @@
 
   async function cleanupFailedSignup(keyId) {
     try {
-      localStorage.removeItem("keyPassphrase");
       localStorage.removeItem("activeKeyId");
       localStorage.removeItem("userId");
     } catch {
@@ -189,7 +168,6 @@
       const reserved = await apiService.getUserID();
 
       currentStep = 2;
-      password = generatePassword();
       const serverId = localStorage.getItem('serverId') || '';
       const serverName = localStorage.getItem('serverName') || '';
       // This user's own canonical id, minted here for the first time.
@@ -199,18 +177,16 @@
         name: canonicalUserId,
         email,
         comment: serverName || undefined,
-        password,
       });
       const newKeyId = appendFingerprint(canonicalUserId, keyPair.fingerprint);
       keyId = newKeyId;
-      authService.setPassphrase(password);
 
       currentStep = 3;
       await privateKeyRepository.put(newKeyId, keyPair.privateKey);
       // Load the key before the signup payload is signed, so signup uses
       // the same worker path as every other signing caller.
       authService.setActiveKey(newKeyId);
-      await requestSigner.initializeWorker(newKeyId, password);
+      await requestSigner.initializeWorker(newKeyId);
 
       currentStep = 4;
       const signature = await requestSigner.sign(keyPair.publicKey);
