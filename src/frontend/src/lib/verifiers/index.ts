@@ -34,6 +34,7 @@ import {
   buildVouchServerPayload,
   buildVouchUserPayload,
   buildVouchWithdrawalUserPayload,
+  buildVouchWithdrawalServerPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
 
@@ -659,48 +660,65 @@ export async function verifyVouch(cert: api.Vouch): Promise<boolean> {
     return false;
   }
 
-  if (cert.withdrawn) return verifyVouchWithdrawal(cert);
+  if (cert.withdrawal) return verifyVouchWithdrawal(cert);
   return true;
 }
 
 /**
- * A retraction only counts when the voucher signed it. Without this the
- * server could withdraw a vouch it dislikes by setting a flag.
+ * A retraction counts only when the voucher signed it and the server
+ * attested it. Without the first the server could nullify a vouch it
+ * dislikes; without the second the retraction time is bound by nothing.
  */
 async function verifyVouchWithdrawal(cert: api.Vouch): Promise<boolean> {
-  if (!cert.withdrawal?.armor || !cert.withdrawal.id) {
-    console.error('[verifyVouch] withdrawn without a withdrawal signature', cert.id);
+  const user = cert.withdrawal?.userSignature;
+  const server = cert.withdrawal?.serverSignature;
+  if (!user?.armor || !user.id || !server?.armor) {
+    console.error('[verifyVouch] withdrawal is missing a signature', cert.id);
     return false;
   }
   // Signed by whatever key was current at withdrawal time, which may not
   // be the key that signed the vouch.
-  if (!cert.withdrawal.id.startsWith(`${cert.voucherUserID}/`)) {
+  if (!user.id.startsWith(`${cert.voucherUserID}/`)) {
     console.error('[verifyVouch] withdrawal key is not the voucher\'s', cert.id);
     return false;
   }
 
-  const armor = await resolvePublicKeyArmor(cert.voucherUserID, cert.withdrawal.id);
+  const armor = await resolvePublicKeyArmor(cert.voucherUserID, user.id);
   if (!armor) {
-    console.error('[verifyVouch] no public key for withdrawal', cert.withdrawal.id);
+    console.error('[verifyVouch] no public key for withdrawal', user.id);
     return false;
   }
 
   let sigArmor: string;
   try {
-    sigArmor = atob(cert.withdrawal.armor);
+    sigArmor = atob(user.armor);
   } catch {
     console.error('[verifyVouch] invalid withdrawal signature encoding');
     return false;
   }
 
-  const payload = buildVouchWithdrawalUserPayload(
-    cert.withdrawal.id,
+  const userPayload = buildVouchWithdrawalUserPayload(
+    user.id,
     cert.subjectUserID,
     cert.subjectKeyID
   );
-  const valid = await cryptoService.verifySignature(payload, sigArmor, armor);
-  if (!valid) {
+  if (!(await cryptoService.verifySignature(userPayload, sigArmor, armor))) {
     console.error('[verifyVouch] withdrawal signature failed', cert.id);
+    return false;
+  }
+
+  const { fingerprint } = splitServerSignatureId(server.id);
+  const serverPayload = buildVouchWithdrawalServerPayload(
+    cert.id,
+    cert.voucherUserID,
+    cert.subjectKeyID,
+    fingerprint,
+    user.armor,
+    signedAtHeader(server.timestamp)
+  );
+  const serverResult = await verify(server, serverPayload);
+  if (serverResult.ok === false) {
+    console.error('[verifyVouch] withdrawal countersignature failed', serverResult);
     return false;
   }
   return true;

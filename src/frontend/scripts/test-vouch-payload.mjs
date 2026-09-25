@@ -5,6 +5,7 @@ import {
   buildVouchUserPayload,
   buildVouchServerPayload,
   buildVouchWithdrawalUserPayload,
+  buildVouchWithdrawalServerPayload,
 } from '../src/lib/services/signing.ts';
 
 assert.equal(
@@ -70,6 +71,26 @@ assert.equal(
     'voucherKeyID: alice@home1234/beef\n' +
     '---\n',
   'vouch withdrawal payload'
+);
+
+assert.equal(
+  buildVouchWithdrawalServerPayload(
+    'alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567',
+    'alice@home1234',
+    'bob@peer5678/9f3c',
+    'srv-fp',
+    'WSIG',
+    '2026-03-01T12:00:00Z'
+  ),
+  '---\n' +
+    'serverKeyFingerprint: srv-fp\n' +
+    'signedAt: 2026-03-01T12:00:00Z\n' +
+    'subjectKeyID: bob@peer5678/9f3c\n' +
+    'type: user_vouch_withdrawal\n' +
+    'vouchID: alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567\n' +
+    'voucherUserID: alice@home1234\n' +
+    '---\nWSIG',
+  'vouch withdrawal server payload'
 );
 
 // Domain separation: a withdrawal must never be replayable as a vouch.

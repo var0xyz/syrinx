@@ -973,7 +973,7 @@ export const apiService = {
   /** The caller's own vouches, withdrawn ones included, for the audit list. */
   async getMyVouches(cursor?: string): Promise<api.VouchListResponse> {
     const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-    return request<api.VouchListResponse>(`/vouches/mine${query}`);
+    return request<api.VouchListResponse>(`/vouches${query}`);
   },
 
   async pinReed(reedId: string): Promise<void> {
