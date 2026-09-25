@@ -918,6 +918,64 @@ export const apiService = {
     });
   },
 
+  async createVouch(
+    subjectUserID: string,
+    subjectKeyID: string,
+    voucherKeyID: string,
+    signature: string,
+    note: string
+  ): Promise<api.Vouch> {
+    const formData = new URLSearchParams();
+    formData.append('subjectUserID', subjectUserID);
+    formData.append('subjectKeyID', subjectKeyID);
+    formData.append('voucherKeyID', voucherKeyID);
+    formData.append('signature', signature);
+    formData.append('note', note);
+    // Only read server-side when this request arrives relayed from a peer;
+    // a local caller's own session already provides it.
+    formData.append('voucherID', localStorage.getItem('userId') ?? '');
+    return request<api.Vouch>('/vouches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString(),
+    });
+  },
+
+  async withdrawVouch(
+    subjectKeyID: string,
+    voucherKeyID: string,
+    signature: string
+  ): Promise<api.Vouch> {
+    const formData = new URLSearchParams();
+    formData.append('voucherKeyID', voucherKeyID);
+    formData.append('signature', signature);
+    formData.append('voucherID', localStorage.getItem('userId') ?? '');
+    return request<api.Vouch>(`/vouches/${subjectKeyID}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString(),
+    });
+  },
+
+  /** One vouch. Both ids are full and are sent as-is, never recomposed. */
+  async getVouch(subjectUserID: string, vouchID: string): Promise<api.Vouch> {
+    return request<api.Vouch>(`/users/${subjectUserID}/vouches/${vouchID}`);
+  },
+
+  async getVouchesForUser(
+    userID: string,
+    cursor?: string
+  ): Promise<api.VouchListResponse> {
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+    return request<api.VouchListResponse>(`/users/${userID}/vouches${query}`);
+  },
+
+  /** The caller's own vouches, withdrawn ones included, for the audit list. */
+  async getMyVouches(cursor?: string): Promise<api.VouchListResponse> {
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+    return request<api.VouchListResponse>(`/vouches/mine${query}`);
+  },
+
   async pinReed(reedId: string): Promise<void> {
     return request<void>(`/reeds/${reedId}/pin`, { method: 'POST' });
   },
