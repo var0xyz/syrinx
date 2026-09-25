@@ -356,6 +356,26 @@ has no OpenPGP entry and conformance forces a second server key.
 | 05 | WebCrypto verifier in the SPA                    | Proposed |
 | 06 | Request signing *(deferred; separate decision)*  | Deferred |
 
+## User attestations (out-of-band verification, web of trust)
+
+See [`attestations/`](attestations/README.md). **Proposed.** Users verify
+each other's keys face to face and publish signed vouches, so a server that
+substitutes a key contradicts evidence it never controlled — the practical
+answer to [RISKS.md H1](../RISKS.md). Public key-bound vouches, revocation
+voiding them in both directions, and depth-limited trust paths computed
+client-side (never server-side, which would reintroduce H1).
+
+| #  | Title                                             | Status   |
+|----|---------------------------------------------------|----------|
+| 00 | Design, threat model, locked decisions            | Proposed |
+| 01 | `user_vouches` schema                             | Proposed |
+| 02 | Canonical payloads + countersign                  | Proposed |
+| 03 | Create / withdraw / list API                      | Proposed |
+| 04 | Revoked and rotated keys void vouches             | Proposed |
+| 05 | Client-side path finding and trust roots          | Proposed |
+| 06 | SPA: QR exchange, fingerprint compare, vouch      | Proposed |
+| 07 | SPA: vouch list, paths, key-change warnings       | Proposed |
+
 ## Observability (request + DB query tracing + business metrics)
 
 See [`observability/`](observability/README.md). Closes the gap between the
