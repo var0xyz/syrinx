@@ -69,7 +69,7 @@
 <Auth>
 <SideNav currentPage="" />
 <div class="vouch-container">
-  <h1>Verify in person</h1>
+  <h1>Verify in Person</h1>
 
   {#if data.isSelf}
     <p class="lead">This is your own code. Show it to someone else so they can
@@ -88,12 +88,11 @@
       their device as well.</p>
     <a class="btn primary" href={`/profile/${data.subjectUserID}`}>Done</a>
   {:else if result?.outcome === 'same'}
-    <p class="lead">The key
-      <Username userID={data.subjectUserID} />
-      showed you matches the key this app was given for them.</p>
-    <p class="detail">Confirming records that <strong>you compared these in
-      person</strong>. It does not mean you vouch for who they claim to be.</p>
-    <code class="key-id">{scannedKeyID}</code>
+    <p class="lead">
+      Clicking 'Verify Identity' means you confirm you have verified
+      <code class="username"><Username userID={data.subjectUserID} /></code>'s
+      identity and can attest to who they are.
+    </p>
 
     <label class="note-label" for="vouch-note">Note (optional, public)</label>
     <input
@@ -108,7 +107,7 @@
 
     <div class="actions">
       <button class="btn primary" disabled={submitting} on:click={confirm}>
-        {submitting ? 'Saving…' : 'Confirm verification'}
+        {submitting ? 'Saving…' : 'Verify Identity'}
       </button>
       <button class="btn secondary" on:click={() => goto(`/profile/${data.subjectUserID}`)}>
         Cancel
@@ -169,8 +168,7 @@
     margin: 0 0 1rem;
   }
 
-  .key-id {
-    display: block;
+  .username {
     font-size: 0.8rem;
     word-break: break-all;
     background: var(--input-bg);
