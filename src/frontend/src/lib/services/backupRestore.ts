@@ -199,11 +199,10 @@ export async function buildKeyBackupPayload(): Promise<BackupPayload> {
     indexedDB: {
       name: 'Syrinx',
       tables: [
-        // restoreItem's privateKeys/publicKeys cases atob() the armor on the
-        // way back in (matching the full-backup export below) — repository
-        // armor is stored raw, so it must be base64-wrapped here too.
-        { name: 'privateKeys', items: [{ ...privateKey, armor: btoa(exportArmor) }] },
-        { name: 'publicKeys', items: [{ ...publicKey, armor: btoa(publicKey.armor) }] },
+        // Armor travels verbatim: JSON round-trips its newlines, and the
+        // file is gzipped, so base64 only inflates it.
+        { name: 'privateKeys', items: [{ ...privateKey, armor: exportArmor }] },
+        { name: 'publicKeys', items: [{ ...publicKey, armor: publicKey.armor }] },
       ],
     },
   };
@@ -348,8 +347,7 @@ export async function lockRestoredKeys(backup: BackupPayload): Promise<void> {
   const localPassphrase = newLocalPassphrase();
   for (const item of items) {
     if (!item?.armor) continue;
-    const locked = await cryptoService.lockPrivateKeyArmor(atob(item.armor), localPassphrase);
-    item.armor = btoa(locked);
+    item.armor = await cryptoService.lockPrivateKeyArmor(item.armor, localPassphrase);
   }
   authService.setPassphrase(localPassphrase);
 }
@@ -448,7 +446,7 @@ function orderServerKeysFirst(table: BackupTable): BackupTable {
 async function restoreItem(storeName: string, item: unknown): Promise<void> {
   switch (storeName) {
     case 'publicKeys': {
-      const key = { ...(item as api.PublicKey), armor: atob((item as api.PublicKey).armor) };
+      const key = item as api.PublicKey;
       // A self-signed server key (see ensureServerKeyCached) can't be
       // verified against itself — restore it unsigned, like on first cache.
       if (key.serverSignature?.id === '') {
@@ -488,7 +486,7 @@ async function restoreItem(storeName: string, item: unknown): Promise<void> {
     case 'privateKeys': {
       const key = item as PrivateKey;
       const id = backupKeyItemId(key as unknown as object) ?? key.keyId;
-      await privateKeyRepository.put(id, atob(key.armor));
+      await privateKeyRepository.put(id, key.armor);
       if (key.revoked) {
         await privateKeyRepository.setRevoked(id);
       }

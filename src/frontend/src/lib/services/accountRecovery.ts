@@ -104,7 +104,7 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
 
   // Backup armor is unencrypted; bootstrap signs with it directly, then
   // locking below puts it at rest under a fresh local secret.
-  const bootstrap = await fetchBootstrap(userId, keyId, atob(privateKeyEntry.armor), '');
+  const bootstrap = await fetchBootstrap(userId, keyId, privateKeyEntry.armor, '');
 
   await lockRestoredKeys(backup);
   const passphrase = authService.getPassphrase()!;
