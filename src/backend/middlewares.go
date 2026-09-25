@@ -155,7 +155,7 @@ func (rs *responseSigner) signCompleteResponse() error {
 	escapedSignature := strings.ReplaceAll(signature, "\n", "\\n")
 
 	// Add signature to headers (stripped of armor delimiters)
-	rs.ResponseWriter.Header().Set("Signature", escapedSignature)
+	rs.ResponseWriter.Header().Set(responseSignatureHeader, escapedSignature)
 	rs.ResponseWriter.Header().Set("X-Syrinx-Signature-Scope", "body")
 	rs.ResponseWriter.Header().Set(signedHeadersHeader, strings.Join(signedNames, ","))
 
@@ -194,6 +194,11 @@ func stripArmorDelimiters(signature string) string {
 	return strings.Join(result, "\n")
 }
 
+// responseSignatureHeader carries the detached response signature. The
+// bare "Signature" name is RFC 9421's, which this PGP scheme does not
+// implement; see specs/rfc9421.md.
+const responseSignatureHeader = "X-Syrinx-Response-Signature"
+
 // signedHeadersHeader lists (comma-separated) the headers actually
 // covered by the signature — the transport or a proxy can add headers
 // after signing, so the client reads this rather than guessing.
@@ -206,7 +211,7 @@ func buildCanonicalHeaderString(headers http.Header) (string, []string) {
 	headerNames := make([]string, 0, len(headers))
 	for headerName := range headers {
 		lower := strings.ToLower(headerName)
-		if lower == "signature" || lower == "content-length" || lower == strings.ToLower(signedHeadersHeader) {
+		if lower == strings.ToLower(responseSignatureHeader) || lower == "content-length" || lower == strings.ToLower(signedHeadersHeader) {
 			continue
 		}
 		headerNames = append(headerNames, headerName)
@@ -640,7 +645,7 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, QUERY, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", strings.Join(allowedHeaders, ", "))
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Expose-Headers", "Signature, "+signedHeadersHeader)
+			w.Header().Set("Access-Control-Expose-Headers", responseSignatureHeader+", "+signedHeadersHeader)
 
 			// Handle preflight requests
 			if r.Method == "OPTIONS" {
