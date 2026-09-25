@@ -1,7 +1,6 @@
 /** What a contradiction check needs from a vouch. */
 export interface ContradictableVouch {
   subjectKeyID: string;
-  withdrawn?: boolean;
 }
 
 /**
@@ -13,7 +12,7 @@ export function findContradiction<T extends ContradictableVouch>(
   vouches: T[],
   claimedKeyID: string
 ): T | null {
-  const live = vouches.filter((v) => !v.withdrawn);
+  const live = vouches;
   if (live.length === 0) return null;
   if (live.some((v) => v.subjectKeyID === claimedKeyID)) return null;
   return live[0];
