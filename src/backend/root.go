@@ -113,17 +113,11 @@ func exportRootIdentity(
 		return "", fmt.Errorf("server id not initialized")
 	}
 
-	keyPassphrase := exportPassphrase
 	openPGPName := rootUserID + "@" + serverID
 
 	kp, err := cryptoSvc.createKeyPair(openPGPName, "", serverName)
 	if err != nil {
 		return "", fmt.Errorf("generate root key: %w", err)
-	}
-
-	encryptedPrivate, err := cryptoSvc.encryptPrivateKey(kp.PrivateKey, keyPassphrase)
-	if err != nil {
-		return "", fmt.Errorf("encrypt root private key: %w", err)
 	}
 
 	pubKeySig, err := cryptoSvc.sign(kp.PublicKey, kp.PrivateKey)
@@ -213,11 +207,10 @@ func exportRootIdentity(
 			// activeKeyId is likewise canonical — it's the SPA IndexedDB
 			// privateKeys/publicKeys primary key, and must match the field
 			// name every restore path (backupRestore.ts, auth.ts) reads.
-			"userId":        rootID,
-			"activeKeyId":   keyID,
-			"keyPassphrase": keyPassphrase,
-			"serverId":      serverID,
-			"serverName":    serverName,
+			"userId":      rootID,
+			"activeKeyId": keyID,
+			"serverId":    serverID,
+			"serverName":  serverName,
 		},
 	}
 	payload.IndexedDB.Name = "Syrinx"
@@ -227,7 +220,7 @@ func exportRootIdentity(
 			Items: []interface{}{
 				identityPrivateKeyItem{
 					ID:        keyID,
-					Armor:     base64Encode(encryptedPrivate),
+					Armor:     base64Encode(kp.PrivateKey),
 					CreatedAt: now,
 					Revoked:   false,
 				},
