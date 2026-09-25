@@ -338,6 +338,24 @@ no dual-write, no backwards compatibility** (hard cutover; recreate DB).
 | 08 | Nested `userSignature` / `serverSignature` wire         | Implemented |
 | 09 | Verify every signed resource before store               | Implemented |
 
+## RFC 9421 HTTP Message Signatures conformance
+
+See [`rfc9421/`](rfc9421/README.md). **Proposed, not scheduled.** What it
+would take to sign responses per RFC 9421 instead of the bespoke PGP
+envelope. Read [00](rfc9421/00_design.md) first — it argues against doing
+this absent a third-party consumer, since RFC 9421's algorithm registry
+has no OpenPGP entry and conformance forces a second server key.
+
+| #  | Title                                            | Status   |
+|----|--------------------------------------------------|----------|
+| 00 | Design, cost, and the case against               | Proposed |
+| 01 | Signature base + component derivation            | Proposed |
+| 02 | `Content-Digest` over the body                   | Proposed |
+| 03 | Non-PGP server signing key + distribution        | Proposed |
+| 04 | Emit conformant response signatures              | Proposed |
+| 05 | WebCrypto verifier in the SPA                    | Proposed |
+| 06 | Request signing *(deferred; separate decision)*  | Deferred |
+
 ## Observability (request + DB query tracing + business metrics)
 
 See [`observability/`](observability/README.md). Closes the gap between the
