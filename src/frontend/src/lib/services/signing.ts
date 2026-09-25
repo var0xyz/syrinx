@@ -311,6 +311,66 @@ export function buildReedLikeServerPayload(
   );
 }
 
+/** Mirror of buildVouchUserPayload in identity.go (`type: user_vouch`).
+ * `note` is envelope content and may be empty; no client timestamp. */
+export function buildVouchUserPayload(
+  voucherKeyID: string,
+  subjectUserID: string,
+  subjectKeyID: string,
+  note: string
+): string {
+  return stringToSign(
+    {
+      type: 'user_vouch',
+      voucherKeyID,
+      subjectUserID,
+      subjectKeyID
+    },
+    note
+  );
+}
+
+/** Mirror of buildVouchServerPayload in identity.go. The voucher's
+ * signature is the body: the server attests the signature, not the note. */
+export function buildVouchServerPayload(
+  voucherUserID: string,
+  subjectUserID: string,
+  subjectKeyID: string,
+  serverKeyFingerprint: string,
+  userSignatureB64: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'user_vouch',
+      voucherUserID,
+      subjectUserID,
+      subjectKeyID,
+      signedAt,
+      serverKeyFingerprint
+    },
+    userSignatureB64
+  );
+}
+
+/** Mirror of buildVouchWithdrawalUserPayload. A distinct type from the
+ * vouch, so neither signature can be replayed as the other. */
+export function buildVouchWithdrawalUserPayload(
+  voucherKeyID: string,
+  subjectUserID: string,
+  subjectKeyID: string
+): string {
+  return stringToSign(
+    {
+      type: 'user_vouch_withdrawal',
+      voucherKeyID,
+      subjectUserID,
+      subjectKeyID
+    },
+    ''
+  );
+}
+
 /** Mirror of BuildAccountRemovalUserPayload (`type: account`, note as content). */
 export function buildAccountRemovalUserPayload(
   serverID: string,
