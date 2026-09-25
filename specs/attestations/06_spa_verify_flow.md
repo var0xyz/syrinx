@@ -1,8 +1,8 @@
-# Attestations 06 — SPA: QR exchange, fingerprint compare, vouch
+# Attestations 06 — SPA: QR exchange, key compare, vouch
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -125,10 +125,12 @@ Once Alice accepts, her client:
    plaintext, capped at 140 characters.
 2. Signs it through the service worker (`requestSigner.sign`), like every
    other signature in the app.
-3. Queues it durably in a `pendingVouches` outbox, then `POST`s
-   ([03](03_api.md)), reconciling on success — the offline-first pattern used
-   by `pendingLikes` and `pendingRemoval`. A vouch made in a basement with no
-   signal must survive until there is signal.
+3. Queues it durably in a `pendingVouches` outbox **before** posting
+   ([03](03_api.md)), clearing the queue entry only once the cert comes back
+   verified — the offline-first pattern used by `pendingLikes` and
+   `pendingRemoval`, flushed from the same reconnect path. A vouch made in a
+   basement with no signal survives until there is signal, and the screen
+   says it will publish later rather than reporting a failure.
 4. Adds Bob to local trust roots ([05](05_trust_paths.md)).
 
 Vouching is one-directional. Bob vouching for Alice is a separate act on his
@@ -155,10 +157,14 @@ this person"** — not "I like them", not "they seem legitimate". If the
 wording lets people vouch for accounts they have not physically verified,
 the graph fills with noise and every path built on it becomes misleading.
 
-- Button: **"Verify in person"**, not "Trust" or "Endorse".
-- Confirmation names what is being asserted, with the fingerprint visible.
-- The result is described as *"You verified Bob's key"* — an act Alice
-  performed, not a property Bob has.
+- The screen and the subject's own QR are headed **"Verify in person"**, not
+  "Trust" or "Endorse".
+- The confirmation names what is being asserted and shows the key id being
+  attested.
+- The result reads *"You verified Bob's key"* — an act Alice performed, not a
+  property Bob has.
+- A mismatch says the app's key for Bob is not the one he showed, and that
+  nothing was recorded.
 
 ### What is not built here
 
@@ -178,4 +184,6 @@ the smallest thing that works, and it reuses code that already ships.
 - A scanned id owned by another account is refused before any fetch.
 - Differs-but-legitimate-rotation reconciles against the new key.
 - Differs-unreconciled refuses to vouch and surfaces the alarm.
-- Offline: vouch queues and submits on reconnect.
+- Offline: the vouch queues, the screen reports it as saved rather than
+  failed, and it submits on reconnect.
+- A failed submission leaves the queue entry in place.

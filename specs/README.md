@@ -373,7 +373,7 @@ client-side (never server-side, which would reintroduce H1).
 | 03 | Create / withdraw / list API                      | Implemented |
 | 04 | Withdrawal, revocation, and what survives         | Implemented |
 | 05 | Trust roots and depth-1 reachability              | Implemented |
-| 06 | SPA: QR exchange, fingerprint compare, vouch      | Proposed |
+| 06 | SPA: QR exchange, key compare, vouch              | Implemented |
 | 07 | SPA: vouch list, paths, key-change warnings       | Proposed |
 
 ## Observability (request + DB query tracing + business metrics)

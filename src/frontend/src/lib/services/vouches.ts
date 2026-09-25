@@ -5,6 +5,7 @@ import { requestSigner } from './request-signer';
 import { buildVouchUserPayload, buildVouchWithdrawalUserPayload } from './signing';
 import { vouchesRepository, type VouchRecord } from '$lib/repositories/vouches';
 import { trustRootsRepository } from '$lib/repositories/trustRoots';
+import { pendingVouchesRepository } from '$lib/repositories/pendingVouches';
 import { MAX_VOUCH_NOTE_CHARS } from '$lib/utils/vouchNote';
 import { countsForMark, trustMarkFrom, type TrustMark } from '$lib/utils/trustMark';
 
@@ -103,6 +104,17 @@ export async function createVouch(
   const payload = buildVouchUserPayload(voucherKeyID, subjectUserID, subjectKeyID, note);
   const signature = await requestSigner.sign(payload);
 
+  // Queue first: verification happens in person, often with no signal, and
+  // the signature must outlive the moment rather than the meeting repeating.
+  await pendingVouchesRepository.put({
+    compositeKey: subjectKeyID,
+    subjectUserID,
+    subjectKeyID,
+    voucherKeyID,
+    note,
+    signature,
+  });
+
   const cert = await apiService.createVouch(
     subjectUserID,
     subjectKeyID,
@@ -112,6 +124,7 @@ export async function createVouch(
   );
   await vouchesRepository.put(cert);
   await trustRootsRepository.add(subjectUserID, subjectKeyID);
+  await pendingVouchesRepository.delete(subjectKeyID);
   return cert;
 }
 

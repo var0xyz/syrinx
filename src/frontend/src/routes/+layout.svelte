@@ -18,6 +18,7 @@
   import UpdateAvailableIndicator from '$lib/components/UpdateAvailableIndicator.svelte';
   import { initializePWA, onReconnect } from '$lib/services/pwa';
   import { syncPendingEvictions } from '$lib/services/eviction';
+  import { pendingVouchesRepository } from '$lib/repositories/pendingVouches';
   import { refreshServerInfo } from '$lib/services/serverInfo';
   import { hasTrustedServerKey } from '$lib/services/serverKeyTrust';
   import ServerKeyGate from '$lib/components/ServerKeyGate.svelte';
@@ -77,6 +78,7 @@
       pendingRemovalRepository.syncPending();
       pendingLikeRepository.syncPending();
       pendingUnlikeRepository.syncPending();
+      pendingVouchesRepository.syncPending();
       syncPendingBackupEvents();
       void syncPendingEvictions();
       serverConnection.reconnect()
@@ -308,6 +310,7 @@
         pendingRemovalRepository.syncPending();
       pendingLikeRepository.syncPending();
       pendingUnlikeRepository.syncPending();
+      pendingVouchesRepository.syncPending();
         syncPendingBackupEvents();
         void syncPendingEvictions();
       }

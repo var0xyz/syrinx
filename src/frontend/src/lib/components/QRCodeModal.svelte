@@ -7,6 +7,10 @@
   export let open = false;
   export let title = 'Invite link';
   export let url = '';
+  /** Names what the link is, for copy confirmations and alt text. */
+  export let subject = 'invite link';
+  /** Optional line above the code explaining what to do with it. */
+  export let hint = '';
 
   const dispatch = createEventDispatcher();
 
@@ -19,10 +23,10 @@
   async function copyLink() {
     try {
       await navigator.clipboard.writeText(url);
-      notificationStore.success('Invite link copied');
+      notificationStore.success(`Copied ${subject}`);
     } catch (err) {
       console.error(err);
-      notificationStore.error('Failed to copy invite link');
+      notificationStore.error(`Failed to copy ${subject}`);
     }
   }
 </script>
@@ -39,14 +43,17 @@
   >
     <div class="modal">
       <h2 id="qr-modal-title">{title}</h2>
+      {#if hint}
+        <p class="qr-hint">{hint}</p>
+      {/if}
       {#if dataURL}
         <div class="qr-wrap">
-          <img class="qr-image" src={dataURL} alt="QR code for invite link" width="240" height="240" />
+          <img class="qr-image" src={dataURL} alt={`QR code for ${subject}`} width="240" height="240" />
         </div>
       {/if}
       <div class="link-row">
         <code class="share-url">{url}</code>
-        <CopyButton ariaLabel="Copy invite link" on:click={copyLink} />
+        <CopyButton ariaLabel={`Copy ${subject}`} on:click={copyLink} />
       </div>
       <button class="btn primary" on:click={close}>Done</button>
     </div>
@@ -101,6 +108,13 @@
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 1rem;
+  }
+
+  .qr-hint {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-align: center;
   }
 
   .share-url {
