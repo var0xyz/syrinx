@@ -88,7 +88,7 @@
       {#if ownVouch}
         <div class="row own">
           <p class="own-line">
-            You verified this key on {formatDate(ownVouch.serverSignature.timestamp)}.
+            You verified this user on {formatDate(ownVouch.serverSignature.timestamp)}.
           </p>
           {#if ownVouch.note}
             <p class="note">“{ownVouch.note}”</p>
@@ -152,12 +152,16 @@
 
       {#if live.length === 0 && stale.length === 0 && !keyChange}
         <p class="row muted">
-          Nobody has verified this account’s key. That is the normal state, not
-          a warning.
+          Nobody has verified this account yet.
         </p>
       {/if}
 
       <button class="btn primary" on:click={close}>Done</button>
+
+      <button class="explain-btn" on:click={() => dispatch('explain')}>
+        What is this?
+        <span class="info-icon" aria-hidden="true"></span>
+      </button>
     </div>
   </div>
 {/if}
@@ -170,7 +174,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
+    /* Above pages' floating action buttons (z-index: 1000) so the modal
+       covers them instead of the button floating over the dialog. */
+    z-index: 1100;
     padding: 1rem;
   }
 
@@ -284,5 +290,37 @@
   .btn.primary {
     background: var(--accent, #1971c2);
     color: #fff;
+  }
+
+  .explain-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin: 0.75rem auto 0;
+    padding: 0;
+    background: none;
+    border: none;
+    font-size: 0.8rem;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .explain-btn:hover {
+    color: var(--fg);
+  }
+
+  .info-icon {
+    display: inline-block;
+    width: 0.9rem;
+    height: 0.9rem;
+    background-color: currentColor;
+    -webkit-mask-image: url('/icons/info-16.png');
+    mask-image: url('/icons/info-16.png');
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
   }
 </style>
