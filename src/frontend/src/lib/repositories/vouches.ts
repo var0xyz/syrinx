@@ -6,16 +6,16 @@ import { verifyVouch } from '$lib/verifiers';
  * A vouch this client verified itself. Nothing reaches this store without
  * passing verifyVouch, so its mere presence is the evidence a mark needs.
  */
-export interface VouchRecord extends api.Vouch {
-  /** When this client verified it, for debugging a stale local set. */
-  verifiedAt: string;
-}
+export type VouchRecord = api.Vouch;
 
 export const vouchesRepository = {
-  /** Verification runs inside dbService.put and throws on failure. */
-  async put(cert: api.Vouch): Promise<void> {
-    const record: VouchRecord = { ...cert, verifiedAt: new Date().toISOString() };
-    await dbService.put('vouches', record, verifyVouch);
+  /**
+   * Verification runs inside dbService.put and throws on failure.
+   * `subjectUserID` is the user this vouch is being read for — the caller's
+   * own context, which is what the signed key id gets checked against.
+   */
+  async put(cert: api.Vouch, subjectUserID: string): Promise<void> {
+    await dbService.put('vouches', cert, (c) => verifyVouch(c, subjectUserID));
   },
 
   async get(vouchID: string): Promise<VouchRecord | null> {

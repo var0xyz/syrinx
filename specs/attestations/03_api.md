@@ -32,11 +32,14 @@ Authenticated, signed. Body:
 
 ```json
 {
-  "subjectUserID": "bob@peer5678",
   "subjectKeyID":  "bob@peer5678/9f3c…",
   "userSignature": { "id": "alice@home1234/4a1e…", "armor": "<base64>" }
 }
 ```
+
+The subject is not named separately: a key id is owner-prefixed, so the
+server derives `subject_user_id` from `subjectKeyID` rather than accepting
+one that could disagree with it.
 
 Server runs the verification order in
 [02](02_payload.md#verification-order-server-on-create), countersigns,

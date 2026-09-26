@@ -33,7 +33,7 @@
   async function withdraw(vouch: VouchRecord) {
     withdrawing = vouch.id;
     try {
-      await withdrawVouch(vouch.subjectUserID, vouch.subjectKeyID);
+      await withdrawVouch(vouch.id, vouch.subjectUserID, vouch.subjectKeyID);
       notificationStore.success('Verification withdrawn');
       dispatch('changed');
     } catch (error) {

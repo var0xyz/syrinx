@@ -428,53 +428,43 @@ func buildReedLikeServerPayload(
 	)
 }
 
-// Distinct types rather than one type plus a flag, so a withdrawal
-// signature can never be replayed as a vouch or the reverse.
-const (
-	identityTypeVouch           = "user_vouch"
-	identityTypeVouchWithdrawal = "user_vouch_withdrawal"
-)
+// The cert's wire type. Not signed: the payloads are told apart by their
+// field sets, not by a discriminator.
+const identityTypeVouch = "user_vouch"
 
 // MaxVouchNoteChars caps the optional public memo. The note is envelope
 // content, inserted verbatim and never parsed back, so the cap bounds it.
 const MaxVouchNoteChars = 140
 
 // Headers the voucher signs. voucherKeyID names the signing key so a
-// verifier knows which key to check. Both subject fields are signed even
-// though the key id is owner-prefixed, keeping the assertion explicit.
-func vouchUserHeaders(voucherKeyID, subjectUserID, subjectKeyID string) map[string]string {
+// verifier knows which key to check. Key ids only: a key id is
+// owner-prefixed, so the users are already named in the signed bytes.
+func vouchUserHeaders(voucherKeyID, subjectKeyID string) map[string]string {
 	return map[string]string{
-		"type":          identityTypeVouch,
-		"voucherKeyID":  voucherKeyID,
-		"subjectUserID": subjectUserID,
-		"subjectKeyID":  subjectKeyID,
+		"voucherKeyID": voucherKeyID,
+		"subjectKeyID": subjectKeyID,
 	}
 }
 
 // buildVouchUserPayload returns the bytes the voucher signs. note is
 // envelope content (may be empty; capped at the API). No client
 // timestamp: the countersignature carries the authoritative time.
-func buildVouchUserPayload(voucherKeyID, subjectUserID, subjectKeyID, note string) []byte {
+func buildVouchUserPayload(voucherKeyID, subjectKeyID, note string) []byte {
 	return bytesToSign(
-		vouchUserHeaders(voucherKeyID, subjectUserID, subjectKeyID),
+		vouchUserHeaders(voucherKeyID, subjectKeyID),
 		note,
 	)
 }
 
 // Headers the server countersigns. The voucher's signature is the
 // envelope body rather than a header, so what the server attests to is
-// the signature itself.
+// the signature itself — and that signature already covers voucherKeyID.
 func vouchServerHeaders(
-	voucherUserID,
-	subjectUserID,
 	subjectKeyID,
 	serverKeyFingerprint string,
 	signedAt time.Time,
 ) map[string]string {
 	return map[string]string{
-		"type":                 identityTypeVouch,
-		"voucherUserID":        voucherUserID,
-		"subjectUserID":        subjectUserID,
 		"subjectKeyID":         subjectKeyID,
 		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
 		"serverKeyFingerprint": serverKeyFingerprint,
@@ -485,83 +475,58 @@ func vouchServerHeaders(
 // voucher's signature as the body. The note is not included — it is
 // already covered by the signature being attested.
 func buildVouchServerPayload(
-	voucherUserID,
-	subjectUserID,
 	subjectKeyID,
 	serverKeyFingerprint,
 	userSignatureB64 string,
 	signedAt time.Time,
 ) []byte {
 	return bytesToSign(
-		vouchServerHeaders(
-			voucherUserID,
-			subjectUserID,
-			subjectKeyID,
-			serverKeyFingerprint,
-			signedAt,
-		),
+		vouchServerHeaders(subjectKeyID, serverKeyFingerprint, signedAt),
 		userSignatureB64,
 	)
 }
 
-// Headers signed to retract. voucherKeyID is whatever key is current
-// now, which may not be the key that signed the original vouch.
-func vouchWithdrawalUserHeaders(voucherKeyID, subjectUserID, subjectKeyID string) map[string]string {
+// Headers signed to retract. The vouch id is the whole assertion: it
+// fixes the voucher and subject, and distinguishes re-vouches for the
+// same subject key from one another.
+func vouchWithdrawalUserHeaders(vouchID string) map[string]string {
 	return map[string]string{
-		"type":          identityTypeVouchWithdrawal,
-		"voucherKeyID":  voucherKeyID,
-		"subjectUserID": subjectUserID,
-		"subjectKeyID":  subjectKeyID,
+		"vouchID": vouchID,
 	}
 }
 
 // buildVouchWithdrawalUserPayload returns the bytes signed to withdraw a
-// vouch. Content is empty: a retraction carries no memo.
-func buildVouchWithdrawalUserPayload(voucherKeyID, subjectUserID, subjectKeyID string) []byte {
-	return bytesToSign(
-		vouchWithdrawalUserHeaders(voucherKeyID, subjectUserID, subjectKeyID),
-		"",
-	)
+// vouch. Content is empty: a retraction carries no memo. Signed by
+// whatever key is current now, which may not be the key that signed the
+// original vouch.
+func buildVouchWithdrawalUserPayload(vouchID string) []byte {
+	return bytesToSign(vouchWithdrawalUserHeaders(vouchID), "")
 }
 
 // Headers the server countersigns to attest a retraction. vouchID is how
 // the withdrawal is addressed; it has no id of its own.
 func vouchWithdrawalServerHeaders(
 	vouchID,
-	voucherUserID,
-	subjectKeyID,
 	serverKeyFingerprint string,
 	signedAt time.Time,
 ) map[string]string {
 	return map[string]string{
-		"type":                 identityTypeVouchWithdrawal,
 		"vouchID":              vouchID,
-		"voucherUserID":        voucherUserID,
-		"subjectKeyID":         subjectKeyID,
 		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
 		"serverKeyFingerprint": serverKeyFingerprint,
 	}
 }
 
 // buildVouchWithdrawalServerPayload returns the bytes the server
-// countersigns over a retraction, with the voucher's withdrawal signature
-// as the body. Without it the withdrawal time is bound by nothing.
+// countersigns to attest a retraction.
 func buildVouchWithdrawalServerPayload(
 	vouchID,
-	voucherUserID,
-	subjectKeyID,
 	serverKeyFingerprint,
 	userSignatureB64 string,
 	signedAt time.Time,
 ) []byte {
 	return bytesToSign(
-		vouchWithdrawalServerHeaders(
-			vouchID,
-			voucherUserID,
-			subjectKeyID,
-			serverKeyFingerprint,
-			signedAt,
-		),
+		vouchWithdrawalServerHeaders(vouchID, serverKeyFingerprint, signedAt),
 		userSignatureB64,
 	)
 }

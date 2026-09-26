@@ -73,7 +73,7 @@
   async function withdrawOne(vouch: api.Vouch) {
     withdrawing = new Set([...withdrawing, vouch.id]);
     try {
-      await withdrawVouch(vouch.subjectUserID, vouch.subjectKeyID);
+      await withdrawVouch(vouch.id, vouch.subjectUserID, vouch.subjectKeyID);
       notificationStore.success('Verification withdrawn');
     } catch (error) {
       console.error('[audit] withdraw failed', vouch.id, error);

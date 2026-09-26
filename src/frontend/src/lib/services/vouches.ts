@@ -36,7 +36,7 @@ export async function reconcileVouches(
       try {
         const cert = await apiService.getVouch(subjectUserID, vouchID);
         // put verifies; a cert that fails is not stored and not counted.
-        await vouchesRepository.put(cert);
+        await vouchesRepository.put(cert, subjectUserID);
       } catch (error) {
         console.error('[reconcileVouches] refused', vouchID, error);
         complete = false;
@@ -53,7 +53,7 @@ export async function reconcileVouches(
         try {
           const cert = await apiService.getVouch(subjectUserID, vouch.id);
           if (cert.withdrawal) {
-            await vouchesRepository.put(cert);
+            await vouchesRepository.put(cert, subjectUserID);
             await vouchesRepository.delete(vouch.id);
           }
         } catch (error) {
@@ -107,7 +107,7 @@ export async function ingestPushedVouch(vouchID: string): Promise<boolean> {
   if (await vouchesRepository.has(vouchID)) return true;
   try {
     const cert = await apiService.getVouch(me, vouchID);
-    await vouchesRepository.put(cert);
+    await vouchesRepository.put(cert, me);
     return true;
   } catch (error) {
     console.error('[vouches] could not ingest pushed vouch', vouchID, error);
@@ -169,7 +169,7 @@ export async function createVouch(
   const voucherKeyID = authService.getActiveKeyId();
   if (!voucherKeyID) throw new Error('Active key not available');
 
-  const payload = buildVouchUserPayload(voucherKeyID, subjectUserID, subjectKeyID, note);
+  const payload = buildVouchUserPayload(voucherKeyID, subjectKeyID, note);
   const signature = await requestSigner.sign(payload);
 
   // Queue first: verification happens in person, often with no signal, and
@@ -183,14 +183,8 @@ export async function createVouch(
     signature,
   });
 
-  const cert = await apiService.createVouch(
-    subjectUserID,
-    subjectKeyID,
-    voucherKeyID,
-    signature,
-    note
-  );
-  await vouchesRepository.put(cert);
+  const cert = await apiService.createVouch(subjectKeyID, voucherKeyID, signature, note);
+  await vouchesRepository.put(cert, subjectUserID);
   await trustRootsRepository.add(subjectUserID, subjectKeyID);
   await pendingVouchesRepository.delete(subjectKeyID);
   return cert;
@@ -229,19 +223,20 @@ async function currentKeyIDFor(subjectUserID: string): Promise<string | null> {
  * who rotated must still be able to retract.
  */
 export async function withdrawVouch(
+  vouchID: string,
   subjectUserID: string,
   subjectKeyID: string
 ): Promise<api.Vouch> {
   const voucherKeyID = authService.getActiveKeyId();
   if (!voucherKeyID) throw new Error('Active key not available');
 
-  const payload = buildVouchWithdrawalUserPayload(voucherKeyID, subjectUserID, subjectKeyID);
+  const payload = buildVouchWithdrawalUserPayload(vouchID);
   const signature = await requestSigner.sign(payload);
 
   const cert = await apiService.withdrawVouch(subjectKeyID, voucherKeyID, signature);
   // put verifies both withdrawal signatures and throws on failure, so the
   // delete only runs once the retraction is proven.
-  await vouchesRepository.put(cert);
+  await vouchesRepository.put(cert, subjectUserID);
   await vouchesRepository.delete(cert.id);
   await trustRootsRepository.remove(subjectUserID);
   return cert;

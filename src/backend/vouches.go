@@ -79,7 +79,6 @@ func (s *DataService) hydrateVouch(ctx context.Context, q signingDBTX, r *vouchR
 	cert := &VouchCert{
 		Type:            identityTypeVouch,
 		ID:              r.ID,
-		ServerID:        s.serverID,
 		VoucherUserID:   r.VoucherUserID,
 		VoucherKeyID:    r.VoucherKeyID,
 		SubjectUserID:   r.SubjectUserID,
@@ -437,16 +436,12 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
-	subjectUserID := strings.TrimSpace(values.Get("subjectUserID"))
 	subjectKeyID := strings.TrimSpace(values.Get("subjectKeyID"))
 	voucherKeyID := strings.TrimSpace(values.Get("voucherKeyID"))
 	userSignatureB64 := strings.TrimSpace(values.Get("signature"))
 	note := values.Get("note")
 
 	switch {
-	case subjectUserID == "":
-		writeResponse(w, http.StatusBadRequest, "Argument `subjectUserID` is required")
-		return
 	case subjectKeyID == "":
 		writeResponse(w, http.StatusBadRequest, "Argument `subjectKeyID` is required")
 		return
@@ -464,22 +459,19 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The subject is whoever owns the key being vouched for; nothing in
+	// the request names them separately.
+	subjectIdentity, ok := authorOf(identityID(subjectKeyID))
+	if !ok {
+		writeResponse(w, http.StatusBadRequest, "`subjectKeyID` is not a canonical key id")
+		return
+	}
+	subjectUserID := string(subjectIdentity)
+
 	// Self-vouching asserts nothing: the caller would be attesting to a key
 	// they already control.
 	if subjectUserID == voucherID {
 		writeResponse(w, http.StatusBadRequest, "Cannot vouch for yourself")
-		return
-	}
-
-	// Without this a voucher could sign a well-formed statement binding one
-	// user's id to another user's key, and a client trusting the pair would
-	// resolve the wrong key.
-	if !keyBelongsTo(subjectKeyID, subjectUserID) {
-		log.Error().
-			Str("subjectUserID", subjectUserID).
-			Str("subjectKeyID", subjectKeyID).
-			Msg("Subject key is not owned by the subject user")
-		writeResponse(w, http.StatusBadRequest, "`subjectKeyID` is not owned by `subjectUserID`")
 		return
 	}
 
@@ -559,7 +551,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	userPayload := buildVouchUserPayload(voucherKeyID, subjectUserID, subjectKeyID, note)
+	userPayload := buildVouchUserPayload(voucherKeyID, subjectKeyID, note)
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, voucherKey.Armor); err != nil {
 		log.Error().
 			Str("voucherID", voucherID).
@@ -572,8 +564,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	serverPayload := buildVouchServerPayload(
-		voucherID, subjectUserID, subjectKeyID,
-		h.signingKey.Fingerprint, userSignatureB64, now,
+		subjectKeyID, h.signingKey.Fingerprint, userSignatureB64, now,
 	)
 	serverSignature, err := h.countersign(serverPayload, now)
 	if err != nil {
@@ -595,7 +586,6 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 	cert := VouchCert{
 		Type:            identityTypeVouch,
 		ID:              vouchID,
-		ServerID:        h.services.db.GetServerID(),
 		VoucherUserID:   voucherID,
 		VoucherKeyID:    voucherKeyID,
 		SubjectUserID:   subjectUserID,
@@ -699,7 +689,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
 		return
 	}
-	payload := buildVouchWithdrawalUserPayload(voucherKeyID, existing.SubjectUserID, subjectKeyID)
+	payload := buildVouchWithdrawalUserPayload(existing.ID)
 	if err := h.services.crypto.verifySignature(string(payload), sigArmor, voucherKey.Armor); err != nil {
 		log.Error().
 			Str("voucherID", voucherID).
@@ -714,8 +704,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 	// stored one would never verify.
 	now := time.Now().UTC().Truncate(time.Second)
 	serverPayload := buildVouchWithdrawalServerPayload(
-		existing.ID, voucherID, subjectKeyID,
-		h.signingKey.Fingerprint, signatureB64, now,
+		existing.ID, h.signingKey.Fingerprint, signatureB64, now,
 	)
 	serverSignature, err := h.countersign(serverPayload, now)
 	if err != nil {

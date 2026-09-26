@@ -161,7 +161,6 @@ type LikeCert struct {
 type VouchCert struct {
 	Type            string          `json:"type"`
 	ID              string          `json:"id"`
-	ServerID        string          `json:"serverID"`
 	VoucherUserID   string          `json:"voucherUserID"`
 	VoucherKeyID    string          `json:"voucherKeyID"`
 	SubjectUserID   string          `json:"subjectUserID"`

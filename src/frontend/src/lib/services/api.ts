@@ -918,15 +918,14 @@ export const apiService = {
     });
   },
 
+  /** The subject is whoever owns `subjectKeyID`; the server derives it. */
   async createVouch(
-    subjectUserID: string,
     subjectKeyID: string,
     voucherKeyID: string,
     signature: string,
     note: string
   ): Promise<api.Vouch> {
     const formData = new URLSearchParams();
-    formData.append('subjectUserID', subjectUserID);
     formData.append('subjectKeyID', subjectKeyID);
     formData.append('voucherKeyID', voucherKeyID);
     formData.append('signature', signature);

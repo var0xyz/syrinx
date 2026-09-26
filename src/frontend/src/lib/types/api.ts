@@ -200,9 +200,10 @@ export interface ReedLike extends Base {
 export interface Vouch extends Base {
   type: 'user_vouch';
   id: string;
-  serverID: string;
+  /** Wire/index convenience, not signed: derived from the key ids. */
   voucherUserID: string;
   voucherKeyID: string;
+  /** Wire/index convenience, not signed: derived from subjectKeyID. */
   subjectUserID: string;
   subjectKeyID: string;
   note: string;
