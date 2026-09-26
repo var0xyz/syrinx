@@ -44,14 +44,13 @@ export const pendingVouchesRepository = {
     for (const record of await pendingVouchesRepository.getAll()) {
       try {
         const cert = await apiService.createVouch(
-          record.subjectUserID,
           record.subjectKeyID,
           record.voucherKeyID,
           record.signature,
           record.note
         );
         // put verifies; a cert that fails is not stored and stays queued.
-        await vouchesRepository.put(cert);
+        await vouchesRepository.put(cert, record.subjectUserID);
         await trustRootsRepository.add(record.subjectUserID, record.subjectKeyID);
         await pendingVouchesRepository.delete(record.subjectKeyID);
         pendingVouchSynced.update((n) => n + 1);

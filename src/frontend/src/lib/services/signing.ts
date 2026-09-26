@@ -311,19 +311,17 @@ export function buildReedLikeServerPayload(
   );
 }
 
-/** Mirror of buildVouchUserPayload in identity.go (`type: user_vouch`).
+/** Mirror of buildVouchUserPayload in identity.go. Key ids only — a key
+ * id is owner-prefixed, so the users are already in the signed bytes.
  * `note` is envelope content and may be empty; no client timestamp. */
 export function buildVouchUserPayload(
   voucherKeyID: string,
-  subjectUserID: string,
   subjectKeyID: string,
   note: string
 ): string {
   return stringToSign(
     {
-      type: 'user_vouch',
       voucherKeyID,
-      subjectUserID,
       subjectKeyID
     },
     note
@@ -331,10 +329,9 @@ export function buildVouchUserPayload(
 }
 
 /** Mirror of buildVouchServerPayload in identity.go. The voucher's
- * signature is the body: the server attests the signature, not the note. */
+ * signature is the body: the server attests the signature, not the note,
+ * and that signature already covers voucherKeyID. */
 export function buildVouchServerPayload(
-  voucherUserID: string,
-  subjectUserID: string,
   subjectKeyID: string,
   serverKeyFingerprint: string,
   userSignatureB64: string,
@@ -342,9 +339,6 @@ export function buildVouchServerPayload(
 ): string {
   return stringToSign(
     {
-      type: 'user_vouch',
-      voucherUserID,
-      subjectUserID,
       subjectKeyID,
       signedAt,
       serverKeyFingerprint
@@ -353,40 +347,23 @@ export function buildVouchServerPayload(
   );
 }
 
-/** Mirror of buildVouchWithdrawalUserPayload. A distinct type from the
- * vouch, so neither signature can be replayed as the other. */
-export function buildVouchWithdrawalUserPayload(
-  voucherKeyID: string,
-  subjectUserID: string,
-  subjectKeyID: string
-): string {
-  return stringToSign(
-    {
-      type: 'user_vouch_withdrawal',
-      voucherKeyID,
-      subjectUserID,
-      subjectKeyID
-    },
-    ''
-  );
+/** Mirror of buildVouchWithdrawalUserPayload. The vouch id is the whole
+ * assertion: it fixes voucher and subject, and tells re-vouches apart. */
+export function buildVouchWithdrawalUserPayload(vouchID: string): string {
+  return stringToSign({ vouchID }, '');
 }
 
 /** Mirror of buildVouchWithdrawalServerPayload. vouchID addresses the
  * retraction; it has no id of its own. */
 export function buildVouchWithdrawalServerPayload(
   vouchID: string,
-  voucherUserID: string,
-  subjectKeyID: string,
   serverKeyFingerprint: string,
   userSignatureB64: string,
   signedAt: string
 ): string {
   return stringToSign(
     {
-      type: 'user_vouch_withdrawal',
       vouchID,
-      voucherUserID,
-      subjectKeyID,
       signedAt,
       serverKeyFingerprint
     },

@@ -90,7 +90,6 @@ func testVouch(voucherID, voucherKeyID, subjectUserID, subjectKeyID, note, sig, 
 	return VouchCert{
 		Type:          identityTypeVouch,
 		ID:            vouchID,
-		ServerID:      vouchTestServerID,
 		VoucherUserID: voucherID,
 		VoucherKeyID:  voucherKeyID,
 		SubjectUserID: subjectUserID,

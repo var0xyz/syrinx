@@ -81,15 +81,13 @@ export class IndexedDbService implements DbService {
     ['likedReeds',         'compositeKey', 'likedAt'],
     ['mentions',           'reedID', 'createdAt'],
     ['pendingEvictions',   'reedID'     ],
-
-    // Verified vouches, indexed by the subject so a profile's marks are one
-    // local read. Only certs this client verified itself are ever stored.
     ['vouches',            'id', 'subjectUserID', 'voucherUserID'],
     ['pendingVouches',     'compositeKey'],
 
     // Local-only (not signed, not synced to the server)
     ['lists',              'id'],
     ['pipes',              'tagName'],
+
     // Trust roots: people you verified in person. Never uploaded.
     ['trustRoots',         'userID'],
   ];

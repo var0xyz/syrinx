@@ -592,7 +592,10 @@ function isVouchIdWellFormed(id: string): boolean {
  * enough: trusting it would reintroduce H1 inside the feature meant to
  * answer it, so the voucher's own signature is always checked too.
  */
-export async function verifyVouch(cert: api.Vouch): Promise<boolean> {
+export async function verifyVouch(
+  cert: api.Vouch,
+  expectedSubjectUserID: string
+): Promise<boolean> {
   if (!cert || cert.type !== 'user_vouch' || !cert.userSignature?.armor || !cert.serverSignature) {
     console.error('[verifyVouch] missing fields or wrong type', cert?.type);
     return false;
@@ -608,10 +611,11 @@ export async function verifyVouch(cert: api.Vouch): Promise<boolean> {
     console.error('[verifyVouch] id owner is not the voucher', cert.id);
     return false;
   }
-  // A vouch names a key its subject owns; without this a voucher could
-  // bind one user's id to another user's key.
-  if (!cert.subjectKeyID.startsWith(`${cert.subjectUserID}/`)) {
-    console.error('[verifyVouch] subject key is not owned by the subject', cert.subjectKeyID);
+  // The signed bytes name a key, not a person. Tie it to the user this
+  // vouch is being read for, using the id the caller already holds — never
+  // one parsed back out of the key id.
+  if (!cert.subjectKeyID.startsWith(`${expectedSubjectUserID}/`)) {
+    console.error('[verifyVouch] subject key is not owned by the expected user', cert.subjectKeyID);
     return false;
   }
   if (cert.userSignature.id !== cert.voucherKeyID) {
@@ -635,7 +639,6 @@ export async function verifyVouch(cert: api.Vouch): Promise<boolean> {
 
   const userPayload = buildVouchUserPayload(
     cert.voucherKeyID,
-    cert.subjectUserID,
     cert.subjectKeyID,
     cert.note ?? ''
   );
@@ -647,8 +650,6 @@ export async function verifyVouch(cert: api.Vouch): Promise<boolean> {
 
   const { fingerprint: vouchServerFingerprint } = splitServerSignatureId(cert.serverSignature.id);
   const serverPayload = buildVouchServerPayload(
-    cert.voucherUserID,
-    cert.subjectUserID,
     cert.subjectKeyID,
     vouchServerFingerprint,
     cert.userSignature.armor,
@@ -697,11 +698,7 @@ async function verifyVouchWithdrawal(cert: api.Vouch): Promise<boolean> {
     return false;
   }
 
-  const userPayload = buildVouchWithdrawalUserPayload(
-    user.id,
-    cert.subjectUserID,
-    cert.subjectKeyID
-  );
+  const userPayload = buildVouchWithdrawalUserPayload(cert.id);
   if (!(await cryptoService.verifySignature(userPayload, sigArmor, armor))) {
     console.error('[verifyVouch] withdrawal signature failed', cert.id);
     return false;
@@ -710,8 +707,6 @@ async function verifyVouchWithdrawal(cert: api.Vouch): Promise<boolean> {
   const { fingerprint } = splitServerSignatureId(server.id);
   const serverPayload = buildVouchWithdrawalServerPayload(
     cert.id,
-    cert.voucherUserID,
-    cert.subjectKeyID,
     fingerprint,
     user.armor,
     signedAtHeader(server.timestamp)
