@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import TrustDetailsModal from '$lib/components/TrustDetailsModal.svelte';
+  import VerificationInfoModal from '$lib/components/VerificationInfoModal.svelte';
   import {
     keyChangeFor,
     liveVouchesFor,
@@ -23,6 +24,7 @@
   let stale: VouchRecord[] = [];
   let rootIDs = new Set<string>();
   let keyChange: KeyChangeKind | null = null;
+  let showInfo = false;
 
   onMount(readLocal);
 
@@ -85,11 +87,17 @@
   {rootIDs}
   {keyChange}
   on:close={() => (showDetails = false)}
+  on:explain={() => {
+    showDetails = false;
+    showInfo = true;
+  }}
   on:changed={async () => {
     showDetails = false;
     await refresh();
   }}
 />
+
+<VerificationInfoModal open={showInfo} on:close={() => (showInfo = false)} />
 
 <style>
   .trust {
