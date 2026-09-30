@@ -191,14 +191,16 @@ How content crosses, per reed and per peer:
 
 Status. Paths that already fold, or are designed to:
 
+- Content requests: a request for a foreign reed is served by a local
+  holder when one is online, and otherwise crosses only while fewer than
+  three copies are in flight (`handleForeignRequestReedFromClient`,
+  `promoteWaitingForeign`).
 - New reeds and removals: one `new-reed` / `reed-removal` per peer, made
   durable by per-(peer, author) cursors
   ([`specs/federation/09_reed_delivery.md`](https://github.com/var0xyz/syrinx/tree/main/specs/federation/09_reed_delivery.md), proposed).
 
 Paths that still send per remote user and are being folded:
 
-- Content requests: every local request for a foreign reed goes to the
-  home server, even when a local user already holds a copy.
 - New reeds to a peer's profile subscribers (`new-reed-notify`), live
   stats (`reed-stats`) and reply removals (`reply-removal-to-viewer`):
   one call per foreign viewer.
