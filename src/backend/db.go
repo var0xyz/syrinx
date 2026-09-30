@@ -352,7 +352,24 @@ func InitDB(db *sql.DB) error {
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		signed_at TIMESTAMP NOT NULL,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+		-- When the author's client could first serve it (PUBLISH_READY);
+		-- NULL for reeds never published here, e.g. recovered ones.
+		published_at TIMESTAMP
+	);`
+
+	// How far each peer has got through each local author's reeds and
+	// removals (specs/federation/09). The row holds no event data: what is
+	// still owed is derived from reeds and reed_removals past the cursor.
+	createPeerAuthorCursorsTable := `
+	CREATE TABLE IF NOT EXISTS peer_author_cursors (
+		peer_server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		cursor_at TIMESTAMP NOT NULL,
+		cursor_kind SMALLINT NOT NULL,
+		cursor_reed_id VARCHAR(255) NOT NULL,
+		claimed_at TIMESTAMP,
+		PRIMARY KEY (peer_server_id, author_id)
 	);`
 
 	// Reed ids embed a time-ordered uuid after the author prefix, so id DESC
@@ -1258,6 +1275,8 @@ func InitDB(db *sql.DB) error {
 
 		createReedRemovalsTable,
 		createAccountRemovalsTable,
+
+		createPeerAuthorCursorsTable,
 
 		createUserMailboxTable,
 		createUserMailboxIndexes,

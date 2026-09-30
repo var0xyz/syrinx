@@ -2099,15 +2099,8 @@ func (s *DataService) CreateReedWithEcho(
 	return &created, echoIndexed, nil
 }
 
-// InsertForeignEcho records that echoingReedID (authored on a peer)
-// echoes echoedReedID, one of THIS server's own reeds — the home-server
-// side of the echo-notify peer leg. echoedReedID/echoedAuthorID are
-// already local (this server's own reed and its author, both already
-// have identities/reed_identities rows from the reed's own creation);
-// echoingReedID/echoingAuthorID are foreign and get theirs minted here,
-// same low "legitimate reference" bar used everywhere else a foreign
-// identity is first referenced by this server. Idempotent: a retried
-// notify is a harmless no-op (ON CONFLICT on reed_echoes' PK).
+// InsertForeignEcho records that a peer's echoingReedID echoes echoedReedID,
+// one of this server's reeds, minting the peer's identity rows if needed.
 func (s *DataService) InsertForeignEcho(ctx context.Context, echoingReedID, echoedReedID, echoingAuthorID, echoedAuthorID string, isBlank bool, ts time.Time) error {
 	_, echoingServerID, _, ok := parseKeyFingerprint(identityID(echoingReedID))
 	if !ok {
@@ -2305,11 +2298,8 @@ func (s *DataService) MentionTargetValid(ctx context.Context, userID, serverID s
 	return exists, err
 }
 
-// insertMentionRow records one (mentioningReedID, mentionedUserID) row.
-// q is signingDBTX (satisfied by both *sql.Tx and *sql.DB — the same
-// interface already used for the reed-like loader below) so the same
-// statement serves insertReedCoreTx's in-transaction local insert and the
-// mention-notify federation handler's standalone insert.
+// insertMentionRow records one (mentioningReedID, mentionedUserID) row,
+// inside a local publish's transaction or on its own for a peer's reed.
 func insertMentionRow(ctx context.Context, q signingDBTX, mentioningReedID, mentionedUserID string) error {
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO reed_mentions (mentioning_reed_id, mentioned_user_id)
@@ -2319,9 +2309,8 @@ func insertMentionRow(ctx context.Context, q signingDBTX, mentioningReedID, ment
 	return err
 }
 
-// InsertMentionRow is insertMentionRow against this service's own *sql.DB —
-// the mention-notify federation handler's entry point (no transaction of
-// its own to join, unlike a local publish).
+// InsertMentionRow is insertMentionRow outside any transaction, for a
+// mention arriving in a peer's new-reed.
 func (s *DataService) InsertMentionRow(ctx context.Context, mentioningReedID, mentionedUserID string) error {
 	return insertMentionRow(ctx, s.db, mentioningReedID, mentionedUserID)
 }
@@ -2750,10 +2739,8 @@ func (s *DataService) ReplyCountNotifyTargetsForRemovedReply(ctx context.Context
 	return s.ReplyCountNotifyTargets(ctx, parentReedID)
 }
 
-// DeleteForeignReplyReference removes a foreign reply's reed_replies row —
-// the home-server side of the reply-removal-notify peer leg. Returns
-// false (not an error) if no such row exists, matching DeleteReedLike's
-// own "already gone is a no-op" convention.
+// DeleteForeignReplyReference removes a peer's reply from reed_replies when
+// the reply is removed. False, not an error, if it was already gone.
 func (s *DataService) DeleteForeignReplyReference(ctx context.Context, replyReedID string) (deleted bool, err error) {
 	res, err := s.db.ExecContext(ctx, `
 		DELETE FROM reed_replies WHERE reed_id = $1
@@ -7953,6 +7940,12 @@ func (s *DataService) ClaimPendingFanout(ctx context.Context, reedID string) (cl
 	if err != nil {
 		return false, nil, err
 	}
+	// Publishing is what puts a reed in peers' delivery streams.
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE reeds SET published_at = CURRENT_TIMESTAMP WHERE id = $1 AND published_at IS NULL
+	`, reedID); err != nil {
+		return false, nil, err
+	}
 	return true, []string(tagArray), nil
 }
 
@@ -8813,4 +8806,207 @@ func (s *DataService) DeleteMailboxMessage(ctx context.Context, id, userID strin
 		DELETE FROM user_mailbox WHERE id = $1 AND user_id = $2
 	`, id, userID)
 	return err
+}
+
+// ================================= //
+//   peer delivery streams (fed 09)   //
+// ================================= //
+
+const (
+	streamKindCreation = 0
+	streamKindRemoval  = 1
+)
+
+// peerStreamItem is one entry in a local author's stream: a published reed
+// or the removal of one, ordered by (At, Kind, ReedID).
+type peerStreamItem struct {
+	At     time.Time
+	Kind   int
+	ReedID string
+}
+
+// peerStreamSQL defines every local author's stream. Only reeds published
+// here count, and a removal is later than its creation by construction.
+const peerStreamSQL = `
+	WITH stream AS (
+		SELECT r.user_id AS author_id, r.published_at AS at, 0 AS kind, r.id AS reed_id
+		FROM reeds r
+		WHERE r.published_at IS NOT NULL
+		UNION ALL
+		SELECT r.user_id, ss.signed_at, 1, rr.reed_id
+		FROM reed_removals rr
+		JOIN reeds r ON r.id = rr.reed_id
+		JOIN server_signatures ss ON ss.id = rr.server_signature_id
+		WHERE r.published_at IS NOT NULL
+	)`
+
+// ListDeliveryPeers returns connected peers that have not announced a
+// shutdown.
+func (s *DataService) ListDeliveryPeers(ctx context.Context) ([]PeerServer, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, base_url FROM servers
+		WHERE self = FALSE AND revoked_at IS NULL AND connected = TRUE AND down_at IS NULL
+		  AND base_url IS NOT NULL AND base_url != ''
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var peers []PeerServer
+	for rows.Next() {
+		var p PeerServer
+		if err := rows.Scan(&p.ID, &p.BaseURL); err != nil {
+			return nil, err
+		}
+		peers = append(peers, p)
+	}
+	return peers, rows.Err()
+}
+
+// ClaimPeerStream takes the (peer, author) stream for one drain, creating
+// it at the peer's approval time if new. It fails while another claim is
+// under a minute old, or while the peer is down or revoked.
+func (s *DataService) ClaimPeerStream(ctx context.Context, peerServerID, authorID string) (bool, error) {
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO peer_author_cursors (peer_server_id, author_id, cursor_at, cursor_kind, cursor_reed_id)
+		SELECT s.id, $2, COALESCE(s.created_at, CURRENT_TIMESTAMP), -1, ''
+		FROM servers s WHERE s.id = $1
+		ON CONFLICT (peer_server_id, author_id) DO NOTHING
+	`, peerServerID, identityID(authorID)); err != nil {
+		return false, err
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE peer_author_cursors c SET claimed_at = CURRENT_TIMESTAMP
+		FROM servers s
+		WHERE c.peer_server_id = $1 AND c.author_id = $2 AND s.id = c.peer_server_id
+		  AND s.down_at IS NULL AND s.revoked_at IS NULL
+		  AND (c.claimed_at IS NULL OR c.claimed_at < CURRENT_TIMESTAMP - INTERVAL '1 minute')
+	`, peerServerID, identityID(authorID))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// NextPeerStreamItem returns the first item past the stream's cursor, or
+// nil when the peer is up to date.
+func (s *DataService) NextPeerStreamItem(ctx context.Context, peerServerID, authorID string) (*peerStreamItem, error) {
+	var item peerStreamItem
+	err := s.db.QueryRowContext(ctx, peerStreamSQL+`
+		SELECT st.at, st.kind, st.reed_id
+		FROM stream st
+		JOIN peer_author_cursors c ON c.peer_server_id = $1 AND c.author_id = $2
+		WHERE st.author_id = $2
+		  AND (st.at, st.kind, st.reed_id) > (c.cursor_at, c.cursor_kind, c.cursor_reed_id)
+		ORDER BY st.at, st.kind, st.reed_id
+		LIMIT 1
+	`, peerServerID, identityID(authorID)).Scan(&item.At, &item.Kind, &item.ReedID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+// AdvancePeerStream moves the cursor past item and refreshes the claim.
+// It reports false once the peer has gone down or been revoked.
+func (s *DataService) AdvancePeerStream(ctx context.Context, peerServerID, authorID string, item peerStreamItem) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE peer_author_cursors c
+		SET cursor_at = $3, cursor_kind = $4, cursor_reed_id = $5, claimed_at = CURRENT_TIMESTAMP
+		FROM servers s
+		WHERE c.peer_server_id = $1 AND c.author_id = $2 AND s.id = c.peer_server_id
+		  AND s.down_at IS NULL AND s.revoked_at IS NULL
+	`, peerServerID, identityID(authorID), item.At, item.Kind, item.ReedID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// ReleasePeerStream ends a drain's claim.
+func (s *DataService) ReleasePeerStream(ctx context.Context, peerServerID, authorID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE peer_author_cursors SET claimed_at = NULL
+		WHERE peer_server_id = $1 AND author_id = $2
+	`, peerServerID, identityID(authorID))
+	return err
+}
+
+// BehindAuthors lists local authors with anything peerServerID has not
+// received yet.
+func (s *DataService) BehindAuthors(ctx context.Context, peerServerID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, peerStreamSQL+`
+		SELECT DISTINCT st.author_id
+		FROM stream st
+		JOIN servers s ON s.id = $1
+		LEFT JOIN peer_author_cursors c ON c.peer_server_id = $1 AND c.author_id = st.author_id
+		WHERE (st.at, st.kind, st.reed_id) >
+		      (COALESCE(c.cursor_at, s.created_at), COALESCE(c.cursor_kind, -1), COALESCE(c.cursor_reed_id, ''))
+	`, peerServerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var authors []string
+	for rows.Next() {
+		var author identityID
+		if err := rows.Scan(&author); err != nil {
+			return nil, err
+		}
+		authors = append(authors, string(author))
+	}
+	return authors, rows.Err()
+}
+
+// DeletePeerStreams drops every cursor for a peer, e.g. once it is revoked.
+func (s *DataService) DeletePeerStreams(ctx context.Context, peerServerID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM peer_author_cursors WHERE peer_server_id = $1`, peerServerID)
+	return err
+}
+
+// GetReedAuthorAndSignedAt returns a local reed's author and signing time.
+func (s *DataService) GetReedAuthorAndSignedAt(ctx context.Context, reedID string) (string, time.Time, error) {
+	var author identityID
+	var signedAt time.Time
+	err := s.db.QueryRowContext(ctx, `SELECT user_id, signed_at FROM reeds WHERE id = $1`, reedID).Scan(&author, &signedAt)
+	return string(author), signedAt, err
+}
+
+// GetReedMentions lists everyone a reed mentions, local or foreign.
+func (s *DataService) GetReedMentions(ctx context.Context, reedID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT mentioned_user_id FROM reed_mentions WHERE mentioning_reed_id = $1
+	`, reedID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var mentioned []string
+	for rows.Next() {
+		var id identityID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		mentioned = append(mentioned, string(id))
+	}
+	return mentioned, rows.Err()
+}
+
+// GetEchoTarget returns what echoingReedID echoes, if it is an echo.
+func (s *DataService) GetEchoTarget(ctx context.Context, echoingReedID string) (echoedReedID string, isBlank bool, ok bool, err error) {
+	err = s.db.QueryRowContext(ctx, `
+		SELECT echoed_reed_id, is_blank FROM reed_echoes WHERE echoing_reed_id = $1
+	`, echoingReedID).Scan(&echoedReedID, &isBlank)
+	if err == sql.ErrNoRows {
+		return "", false, false, nil
+	}
+	return echoedReedID, isBlank, err == nil, err
 }

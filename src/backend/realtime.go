@@ -1130,6 +1130,11 @@ type realtimeService struct {
 	// Background peer notifications from teardownUser; tests wait on it.
 	peerCalls sync.WaitGroup
 
+	// Peer reed delivery (federation 09): drain one author's streams, or
+	// every stream that is behind.
+	deliverAuthorHook func(authorID string)
+	deliverBehindHook func()
+
 	// Cross-server REQUEST_REED relay hooks: realtimeService has no signing
 	// key, HTTP client, or federation-table access of its own, so the
 	// actual peer HTTP calls are injected from the rest of root (mirrors
@@ -1145,11 +1150,9 @@ type realtimeService struct {
 	foreignSubscribeReedHook        realtimeForeignSubscribeReedHook
 	foreignUnsubscribeReedHook      realtimeForeignUnsubscribeReedHook
 	foreignReedStatsHook            realtimeForeignReedStatsHook
-	foreignReplyNotifyHook          realtimeForeignReplyNotifyHook
 	foreignReplyRemovalToViewerHook realtimeForeignReplyRemovalToViewerHook
 	foreignHolderNotifyHook         realtimeForeignHolderNotifyHook
 	foreignFallbackHook             realtimeForeignFallbackRequestHook
-	foreignNewReedNotifyHook        realtimeForeignNewReedNotifyHook
 }
 
 // newRealtimeService creates a new realtime service.
@@ -1269,19 +1272,6 @@ func (rs *realtimeService) SetForeignUnsubscribeReedHook(hook realtimeForeignUns
 	rs.foreignUnsubscribeReedHook = hook
 }
 
-// realtimeForeignReplyNotifyHook tells parentReedID's home server over peer
-// HTTP that replyReedID (authored on this server) replies to it — the
-// write side of cross-server replying. Without this, a reply to a foreign
-// reed is created successfully but never surfaces on the parent's home
-// server at all: no reed_replies row there means its reply-count/thread
-// queries never find it.
-type realtimeForeignReplyNotifyHook func(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error
-
-// SetForeignReplyNotifyHook installs the leg-11 (reply-notify) hook.
-func (rs *realtimeService) SetForeignReplyNotifyHook(hook realtimeForeignReplyNotifyHook) {
-	rs.foreignReplyNotifyHook = hook
-}
-
 // realtimeForeignReplyRemovalToViewerHook tells viewerUserID's home server
 // that removedReedID (a reply) is gone, so a foreign viewer with the
 // parent reed's thread open live gets the same removal notice a local
@@ -1356,24 +1346,6 @@ type realtimeForeignFallbackRequestHook func(ctx context.Context, peerServerID, 
 // SetForeignFallbackRequestHook installs the fallback-request hook.
 func (rs *realtimeService) SetForeignFallbackRequestHook(hook realtimeForeignFallbackRequestHook) {
 	rs.foreignFallbackHook = hook
-}
-
-// realtimeForeignNewReedNotifyHook pushes one newly-published reed (authorID
-// is local to this server, the home server H) out to requestingServerID (O)
-// so O can register it against a durable profile subscription it already
-// holds — the live counterpart of realtimeForeignSubscribeProfileHook's
-// one-time backfill (leg 1b). Without this push, O never learns
-// peerEventID exists, so H's eventual RELAY_RESPONSE for it has nothing on
-// O's side to resolve against and is silently dropped (leg 2's
-// DeliverRelayResponseFromPeer 404s). Fire-and-forget from the caller's
-// side: a delivery failure here just means that one viewer misses this
-// reed's live push and falls back to picking it up on their next
-// resubscribe/reload, exactly as if this hook didn't exist.
-type realtimeForeignNewReedNotifyHook func(ctx context.Context, requestingServerID, authorID, requesterUserID, reedID, peerEventID string) error
-
-// SetForeignNewReedNotifyHook installs the leg-17 (new-reed-notify) hook.
-func (rs *realtimeService) SetForeignNewReedNotifyHook(hook realtimeForeignNewReedNotifyHook) {
-	rs.foreignNewReedNotifyHook = hook
 }
 
 // DisconnectUser closes all WebSocket connections for a user (device rebind kick).
@@ -1631,46 +1603,17 @@ func (rs *realtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 	}
 
 	for _, sub := range profileSubscribers {
-		foreign, viewerServerID := rs.isForeignReed(sub.ViewerUserID)
-		// pending_events.requester_user_id FKs to online_users, which a
-		// foreign viewer never has a row in — store NULL for the foreign
-		// case (createProfileSubscriptionEvent's convention) instead of a
-		// sentinel. Delivery still ends up at the real viewer:
-		// handleRelayResponse's default branch checks foreign_relay_requests
-		// (recorded below) and routes to foreignDeliverHook instead of a
-		// local WS send. eventID/requestID always inherit the REAL viewer's
-		// identity (generateEventID's own contract), never a placeholder.
-		fkRequesterUserID := sub.ViewerUserID
-		if foreign {
-			fkRequesterUserID = ""
+		// A foreign viewer's own server gets new-reed and dispatches it.
+		if foreign, _ := rs.isForeignReed(sub.ViewerUserID); foreign {
+			continue
 		}
-
 		eventID := generateRealtimeEventID(sub.ViewerUserID)
 		requestID := generateRealtimeEventID(sub.ViewerUserID)
-		if err := rs.createProfileSubscriptionEvent(context.Background(), eventID, requestID, fkRequesterUserID, profileSubscriptionEvent, reedID, sub.SubscriptionID); err != nil {
+		if err := rs.createProfileSubscriptionEvent(context.Background(), eventID, requestID, sub.ViewerUserID, profileSubscriptionEvent, reedID, sub.SubscriptionID); err != nil {
 			log.Error().
 				Err(err).
 				Str("viewerUserID", sub.ViewerUserID).
 				Msg("Failed to create pending event for profile subscriber")
-			continue
-		}
-
-		if foreign {
-			if err := rs.recordForeignRelayRequest(context.Background(), eventID, viewerServerID, sub.ViewerUserID); err != nil {
-				log.Error().Err(err).Str("viewerUserID", sub.ViewerUserID).Msg("Failed to record foreign relay request for live profile fanout")
-				continue
-			}
-			// Tell the viewer's own server about this specific new event so
-			// it can register foreign_pending_events against its existing
-			// subscription — without this push, only reeds that existed at
-			// SUBSCRIBE_PROFILE time ever get such a mapping there, and this
-			// eventID's eventual RELAY_RESPONSE has nothing to resolve
-			// against on the viewer's side (see realtimeForeignNewReedNotifyHook).
-			if rs.foreignNewReedNotifyHook != nil {
-				if err := rs.foreignNewReedNotifyHook(context.Background(), viewerServerID, authorUserID, sub.ViewerUserID, reedID, eventID); err != nil {
-					log.Error().Err(err).Str("viewerUserID", sub.ViewerUserID).Msg("Failed to notify viewer's server of new reed for live profile fanout")
-				}
-			}
 		}
 	}
 
@@ -3234,8 +3177,7 @@ func (rs *realtimeService) handleForeignProfilePageFromClient(client *realtimeCl
 // pair delivered by authorID's home server against requesterUserID's local
 // profile subscription — the shared tail end of both the subscribe-time
 // backfill (handleForeignSubscribeProfileFromClient, one call per existing
-// reed returned by the peer) and the live-fanout push
-// (HandleForeignNewReedNotify, one call for a single just-published reed).
+// reed returned by the peer).
 // Without this row in foreign_pending_events, HandleForeignRelayResponse has
 // nothing to resolve peerEventID against and silently drops the delivery.
 func (rs *realtimeService) registerForeignProfileSubscriptionEvent(ctx context.Context, requesterUserID, homeServerID, subscriptionID, reedID, peerEventID string) {
@@ -3277,29 +3219,6 @@ func (rs *realtimeService) registerForeignProfilePageEvent(ctx context.Context, 
 			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")
 		}
 	}
-}
-
-// HandleForeignNewReedNotify runs on the originating server (O): authorID's
-// home server (H) is pushing a single newly-published reed for one of O's
-// viewers who already has a durable profile subscription on H (created at
-// SUBSCRIBE_PROFILE time, backfill or not). This is the live counterpart of
-// the one-time backfill loop in handleForeignSubscribeProfileFromClient:
-// without it, only reeds that existed at subscribe time ever get a
-// foreign_pending_events row on O, so anything H's fanoutNewReedCore fans
-// out afterward has no mapping for HandleForeignRelayResponse to resolve
-// and silently 404s — the exact gap a full page reload used to paper over
-// by re-running the whole backfill from scratch.
-func (rs *realtimeService) HandleForeignNewReedNotify(ctx context.Context, authorID, homeServerID, requesterUserID, reedID, peerEventID string) (found bool, err error) {
-	subscriptionID, err := rs.db.GetProfileSubscription(ctx, requesterUserID, authorID)
-	if err != nil {
-		return false, err
-	}
-	if subscriptionID == "" {
-		// Viewer unsubscribed since H queued this notify; not an error.
-		return false, nil
-	}
-	rs.registerForeignProfileSubscriptionEvent(ctx, requesterUserID, homeServerID, subscriptionID, reedID, peerEventID)
-	return true, nil
 }
 
 // HandleForeignReplyRemovalNotify runs on the viewer's own server: a peer
@@ -3386,6 +3305,13 @@ type realtimeForeignReedStatsSnapshot struct {
 // (mirrors the local ReedExists guard).
 type realtimeForeignSubscribeReedHook func(ctx context.Context, reedID, requesterUserID string) (snapshot realtimeForeignReedStatsSnapshot, ok bool, err error)
 
+// SetPeerDeliveryHooks installs the triggers for durable reed delivery:
+// one author's streams on publish, and every stream behind on SYNC.
+func (rs *realtimeService) SetPeerDeliveryHooks(deliverAuthor func(authorID string), deliverBehind func()) {
+	rs.deliverAuthorHook = deliverAuthor
+	rs.deliverBehindHook = deliverBehind
+}
+
 // SetForeignSubscribeReedHook installs the leg-8 (subscribe-reed) hook.
 func (rs *realtimeService) SetForeignSubscribeReedHook(hook realtimeForeignSubscribeReedHook) {
 	rs.foreignSubscribeReedHook = hook
@@ -3441,13 +3367,8 @@ func (rs *realtimeService) HandleForeignUnsubscribeReed(ctx context.Context, ree
 	return rs.db.DeleteReedSubscription(ctx, subscriptionID)
 }
 
-// HandleForeignReplyNotify is leg 11's home-server logic: a peer is
-// telling us replyReedID (authored on their server) replies to
-// parentReedID, one of our own reeds. Records the reference and runs the
-// exact same local fanout a purely-local reply already gets — reply-count
-// updates up the ancestor chain, plus content delivery to anyone
-// subscribed to the thread (which, per notifyReedSubscribersOfReply's own
-// foreign-aware branch, may itself reach further peers).
+// HandleForeignReplyNotify records that a peer's replyReedID replies to
+// parentReedID, one of ours, and runs the fanout a local reply gets.
 func (rs *realtimeService) HandleForeignReplyNotify(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error {
 	exists, err := rs.db.ReedExists(ctx, parentReedID)
 	if err != nil {
@@ -3754,30 +3675,6 @@ func (rs *realtimeService) notifyParentSubscribersOfReply(replyReedID string) {
 	rs.notifyReedSubscribersOfReply(parentReedID, replyReedID)
 }
 
-// notifyForeignParentOfReply tells replyReedID's direct parent's home
-// server about the reply, if that parent is foreign — the write side of
-// cross-server replying. A no-op for a purely local reply.
-func (rs *realtimeService) notifyForeignParentOfReply(replyReedID string) {
-	if rs.foreignReplyNotifyHook == nil {
-		return
-	}
-	rec, err := rs.db.GetReplyRecord(context.Background(), replyReedID)
-	if err != nil {
-		log.Error().Err(err).Str("reedID", replyReedID).Msg("Failed to load reply record for foreign parent notify")
-		return
-	}
-	if rec == nil {
-		return
-	}
-	foreign, _ := rs.isForeignReed(rec.ParentReedID)
-	if !foreign {
-		return
-	}
-	if err := rs.foreignReplyNotifyHook(context.Background(), rec.ParentReedID, replyReedID, rec.ThreadID, rec.Timestamp); err != nil {
-		log.Error().Err(err).Str("reedID", replyReedID).Str("parentReedID", rec.ParentReedID).Msg("Failed to notify foreign parent's home server of reply")
-	}
-}
-
 // notifyMentionedUsers pushes reedID to each online local user it
 // mentions. An offline recipient is picked up by catchUp instead.
 func (rs *realtimeService) notifyMentionedUsers(reedID string) {
@@ -3864,15 +3761,8 @@ func (rs *realtimeService) notifyForeignReplyAncestorsOfRemoval(parentReedID, re
 	}
 }
 
-// HandleForeignReplyRemovalAtParent is leg 13's home-server logic (H, the
-// parentReedID's home server): a peer already deleted its own copy of
-// removedReedID and its local reed_replies row; the durable subscriber data
-// for parentReedID's thread only ever lives here on H (reed_subscriptions
-// rows are created by HandleForeignSubscribeReed, which only runs on a
-// reed's own home server), so H — not the removing peer — is the only
-// server that can find and notify parentReedID's viewers, local or foreign.
-// Mirrors notifyReplyAncestorsOfRemoval's own body, just starting one level
-// up since removedReedID itself isn't hosted here.
+// HandleForeignReplyRemovalAtParent tells the viewers of parentReedID's
+// thread here that a peer's reply in it was removed, walking up the thread.
 func (rs *realtimeService) HandleForeignReplyRemovalAtParent(parentReedID, removedReedID string, cert *reedRemovalWire) {
 	reedID := parentReedID
 	for {
@@ -4047,6 +3937,10 @@ func (rs *realtimeService) handleSyncRequest(client *realtimeClient, requestID s
 	rs.catchUp(client.userID, requestID)
 	rs.dispatchNext(client.userID)
 	rs.redispatchPendingRequests(client.userID)
+	// Every SYNC doubles as the keepalive for delivery to peers.
+	if rs.deliverBehindHook != nil {
+		go rs.deliverBehindHook()
+	}
 }
 
 func (rs *realtimeService) redispatchPendingRequests(requesterUserID string) {
@@ -4222,7 +4116,9 @@ func (rs *realtimeService) handlePublishReady(client *realtimeClient, reedID str
 			go rs.fanoutNewReedNoBroadcast(reedID, tags, excludeFromFollowers)
 		}
 		go rs.notifyParentSubscribersOfReply(reedID)
-		go rs.notifyForeignParentOfReply(reedID)
+		if rs.deliverAuthorHook != nil {
+			go rs.deliverAuthorHook(authorUserID)
+		}
 		go rs.notifyParentAuthorOfReply(reedID)
 		go rs.notifyMentionedUsers(reedID)
 	} else {

@@ -203,7 +203,7 @@ func TestCreateReed_MentionOfNonexistentUserRejected(t *testing.T) {
 	}
 }
 
-// TestInsertMentionRow_ForeignMentioningReed covers the mention-notify
+// TestInsertMentionRow_ForeignMentioningReed covers the new-reed
 // federation handler's path: the mentioning reed is authored on a peer
 // (no reeds row here at all, only a reed_identities row from
 // UpsertReedIdentity), and the mentioned user is local. This is the
@@ -233,7 +233,7 @@ func TestInsertMentionRow_ForeignMentioningReed(t *testing.T) {
 	}
 }
 
-// TestInsertMentionRow_IdempotentOnRetry confirms a retried mention-notify
+// TestInsertMentionRow_IdempotentOnRetry confirms a redelivered new-reed
 // delivery (e.g. after a timeout on the caller's side, retried) doesn't
 // create a duplicate row.
 func TestInsertMentionRow_IdempotentOnRetry(t *testing.T) {
@@ -264,7 +264,7 @@ func TestInsertMentionRow_IdempotentOnRetry(t *testing.T) {
 
 // TestInsertMentionRow_RejectsUnknownMentionedUser confirms the FK backstop
 // on mentioned_user_id still holds when inserting via this path directly
-// (not just through CreateReed's transaction) — MentionNotifyFromPeer's own
+// (not just through CreateReed's transaction) — receiveForeignNewReed's own
 // MentionTargetValid check is the primary guard, but this is the same
 // belt-and-suspenders property TestCreateReed_MentionOfNonexistentUserRejected
 // verifies for the local insert path.
