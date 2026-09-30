@@ -43,6 +43,7 @@
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { verifyAndStoreMention } from '$lib/services/mentionsSync';
   import { markUnread } from '$lib/stores/unreadInteractions';
+  import { notificationStore } from '$lib/stores/notifications';
   import ActivitySidebar from '$lib/components/ActivitySidebar.svelte';
   import { isValidRef } from '$lib/utils/identityRef';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
@@ -260,6 +261,11 @@
       // Only the id is pushed, so fetch and verify the cert rather than
       // trusting a payload the server assembled.
       await ingestPushedVouch(vouchID);
+    });
+    serverConnection.on(ServerEvent.PeerServerLost, ({ serverName }) => {
+      notificationStore.warning(
+        `Lost connection to ${serverName}. Live updates from it have stopped.`
+      );
     });
     serverConnection.on(ServerEvent.ReedRemoved, async (data) => {
       const eventId = data.id;

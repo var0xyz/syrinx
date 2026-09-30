@@ -6980,6 +6980,17 @@ func (s *DataService) ForgetPeerRealtimeState(ctx context.Context, serverID stri
 	return viewers, tx.Commit()
 }
 
+// GetServerName returns a server's display name, revoked or not; empty
+// if serverID is unknown.
+func (s *DataService) GetServerName(ctx context.Context, serverID string) (string, error) {
+	var name string
+	err := s.db.QueryRowContext(ctx, `SELECT name FROM servers WHERE id = $1`, serverID).Scan(&name)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return name, err
+}
+
 // SetPeerDown records whether serverID has announced a shutdown.
 func (s *DataService) SetPeerDown(ctx context.Context, serverID string, down bool) error {
 	_, err := s.db.ExecContext(ctx, `

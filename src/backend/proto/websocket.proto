@@ -64,6 +64,7 @@ message WSMessage {
     EvictionMessage eviction = 45;
     EvictionAckMessage eviction_ack = 46;
     NewVouchMessage new_vouch = 47;
+    PeerServerLostMessage peer_server_lost = 48;
   }
 }
 
@@ -132,6 +133,7 @@ enum MessageType {
   EVICTION = 56;
   EVICTION_ACK = 57;
   NEW_VOUCH = 58;
+  PEER_SERVER_LOST = 59;
 }
 
 // Ping message
@@ -437,4 +439,12 @@ message AccountRemovedMessage {
 // itself, since a pushed payload is the server's word.
 message NewVouchMessage {
   string vouch_id = 1;
+}
+
+// Tells a viewer this server lost its link to a peer: live updates from
+// that peer's profiles and reeds have stopped until the viewer subscribes
+// again once the peer is back.
+message PeerServerLostMessage {
+  string server_id = 1;
+  string server_name = 2;
 }
