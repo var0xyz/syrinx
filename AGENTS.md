@@ -247,6 +247,14 @@ squatting / revocation replay). See `specs/recovery/README.md` "Trust model".
 **Blank slate everywhere.** No DB migrations, no dual-write, no backward compat.
 Schema changes go in `InitDB`; recreate the DB. Callers ship in lockstep.
 
+**Fold at the border.** Anything that crosses to a peer server crosses once
+per piece of content per peer, and the peer distributes it to its own users.
+Never send one request, event or push per remote user: a popular author's
+foreign audience must cost the home server one delivery per peer, not one per
+reader. When adding or reviewing a federation path, check what it sends per
+peer. Status and the paths that still send per user:
+[`docs/relay-model.md`](docs/relay-model.md) → Crossing a server border.
+
 **Feature organization pattern:** new server features live directly in
 `package main` — no per-feature subpackage. Routes register directly in
 `main.go` (`api.HandleFunc(...)`, no `RegisterRoutes`/`Deps` indirection);
