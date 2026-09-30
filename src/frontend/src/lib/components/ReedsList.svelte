@@ -722,19 +722,6 @@
     border-bottom: 1px solid var(--border);
   }
 
-  .reed-menu {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0.25rem;
-    border-radius: 4px;
-    transition: background-color 0.2s ease;
-  }
-
-  .reed-menu:hover {
-    background: var(--border);
-  }
-
   .reed-meta {
     display: flex;
     align-items: center;

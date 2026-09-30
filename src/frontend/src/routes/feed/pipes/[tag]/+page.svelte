@@ -148,10 +148,6 @@
     padding: 1.25rem 1rem 0.5rem;
   }
 
-  .pipe-header p {
-    margin: 0;
-  }
-
   .pipe-sub {
     margin: 0;
     color: var(--fg);

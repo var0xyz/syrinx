@@ -349,53 +349,55 @@
         {#if peerRows.length > 0}
           <ul class="invite-list">
             {#each peerRows as row (row.key)}
-              <li
-                class="invite-row clickable"
-                role="button"
-                tabindex="0"
-                on:click={() => goto(rowHref(row))}
-                on:keydown={(e) => e.key === 'Enter' && goto(rowHref(row))}
-              >
-                {#if row.kind === 'attempt'}
-                  <div class="invite-main">
-                    <span class="invite-name">{row.item.remoteServerName}</span>
-                    <span class="badge-row">
-                      <span class="badge" data-status={attemptBadgeStatus(row.item.status)}>
-                        {attemptStatusLabel(row.item.status)}
+              <li>
+                <div
+                  class="invite-row clickable"
+                  role="button"
+                  tabindex="0"
+                  on:click={() => goto(rowHref(row))}
+                  on:keydown={(e) => e.key === 'Enter' && goto(rowHref(row))}
+                >
+                  {#if row.kind === 'attempt'}
+                    <div class="invite-main">
+                      <span class="invite-name">{row.item.remoteServerName}</span>
+                      <span class="badge-row">
+                        <span class="badge" data-status={attemptBadgeStatus(row.item.status)}>
+                          {attemptStatusLabel(row.item.status)}
+                        </span>
                       </span>
-                    </span>
-                    <span class="meta">{row.item.baseUrl}</span>
-                    <span class="meta">Started {formatRelativeTime(row.item.createdAt)}</span>
-                  </div>
-                {:else}
-                  <div class="invite-main">
-                    <span class="invite-name">{row.item.name}</span>
-                    <span class="badge-row">
-                      <span
-                        class="badge"
-                        data-status={row.item.revoked
-                          ? 'revoked'
-                          : row.item.disconnectPending
-                            ? 'pending'
-                            : row.item.connected
-                              ? 'connected'
-                              : 'accepted'}
-                      >
-                        {row.item.revoked
-                          ? 'Disconnected'
-                          : row.item.disconnectPending
-                            ? 'Pending disconnect'
-                            : row.item.connected
-                              ? 'Connected'
-                              : 'Awaiting confirmation'}
-                      </span>
-                    </span>
-                    {#if row.item.baseUrl}
                       <span class="meta">{row.item.baseUrl}</span>
-                    {/if}
-                    <span class="meta">Added {formatRelativeTime(row.item.createdAt)}</span>
-                  </div>
-                {/if}
+                      <span class="meta">Started {formatRelativeTime(row.item.createdAt)}</span>
+                    </div>
+                  {:else}
+                    <div class="invite-main">
+                      <span class="invite-name">{row.item.name}</span>
+                      <span class="badge-row">
+                        <span
+                          class="badge"
+                          data-status={row.item.revoked
+                            ? 'revoked'
+                            : row.item.disconnectPending
+                              ? 'pending'
+                              : row.item.connected
+                                ? 'connected'
+                                : 'accepted'}
+                        >
+                          {row.item.revoked
+                            ? 'Disconnected'
+                            : row.item.disconnectPending
+                              ? 'Pending disconnect'
+                              : row.item.connected
+                                ? 'Connected'
+                                : 'Awaiting confirmation'}
+                        </span>
+                      </span>
+                      {#if row.item.baseUrl}
+                        <span class="meta">{row.item.baseUrl}</span>
+                      {/if}
+                      <span class="meta">Added {formatRelativeTime(row.item.createdAt)}</span>
+                    </div>
+                  {/if}
+                </div>
               </li>
             {/each}
           </ul>

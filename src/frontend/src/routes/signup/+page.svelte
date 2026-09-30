@@ -21,6 +21,9 @@
     signupMode,
   } from "$lib/services/serverInfo";
   import { get } from "svelte/store";
+  import { apiService, canonicalKeyId } from "$lib/services/api";
+  import { privateKeyRepository } from "$lib/repositories/privateKey";
+  import { publicKeyRepository } from "$lib/repositories/publicKey";
 
   let username = "";
   let email = "";
@@ -84,7 +87,6 @@
     if (inviteID && inviteSecret) {
       inviteChecking = true;
       try {
-        const { apiService } = await import("$lib/services/api");
         const result = await apiService.checkInvite(inviteID, inviteSecret);
         inviteCheckFailed = !result.valid;
       } catch (err) {
@@ -129,9 +131,6 @@
     }
     if (!keyId) return;
     try {
-      const { privateKeyRepository } = await import(
-        "$lib/repositories/privateKey"
-      );
       await privateKeyRepository.deletePrivateKey(keyId);
     } catch (err) {
       console.error("Failed to clean up private key after signup error", err);
@@ -156,13 +155,6 @@
     let keyId = "";
 
     try {
-      const { privateKeyRepository } = await import(
-        "$lib/repositories/privateKey"
-      );
-      const { publicKeyRepository } = await import(
-        "$lib/repositories/publicKey"
-      );
-      const { apiService, canonicalKeyId } = await import("$lib/services/api");
 
       currentStep = 1;
       const reserved = await apiService.getUserID();
