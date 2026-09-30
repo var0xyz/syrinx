@@ -428,10 +428,6 @@ func buildReedLikeServerPayload(
 	)
 }
 
-// The cert's wire type. Not signed: the payloads are told apart by their
-// field sets, not by a discriminator.
-const identityTypeVouch = "user_vouch"
-
 // MaxVouchNoteChars caps the optional public memo. The note is envelope
 // content, inserted verbatim and never parsed back, so the cap bounds it.
 const MaxVouchNoteChars = 140

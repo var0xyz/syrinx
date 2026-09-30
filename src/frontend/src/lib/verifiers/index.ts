@@ -596,8 +596,8 @@ export async function verifyVouch(
   cert: api.Vouch,
   expectedSubjectUserID: string
 ): Promise<boolean> {
-  if (!cert || cert.type !== 'user_vouch' || !cert.userSignature?.armor || !cert.serverSignature) {
-    console.error('[verifyVouch] missing fields or wrong type', cert?.type);
+  if (!cert || !cert.userSignature?.armor || !cert.serverSignature) {
+    console.error('[verifyVouch] missing signatures', cert?.id);
     return false;
   }
   if (!isVouchIdWellFormed(cert.id)) {
