@@ -101,7 +101,8 @@ func TestDisconnectCancelsForeignRelayRequests(t *testing.T) {
 }
 
 // A stale user with no socket here never runs the socket's close path, so
-// the reaper itself must notify peers and clear every subscription.
+// the reaper itself must notify peers and clear every subscription. Profile
+// subscriptions are local only: their authors' servers never hear of them.
 func TestReaperTearsDownUserWithoutLocalSocket(t *testing.T) {
 	db, rs, viewer := newTeardownTestService(t)
 	ctx := context.Background()
@@ -125,11 +126,7 @@ func TestReaperTearsDownUserWithoutLocalSocket(t *testing.T) {
 		t.Fatalf("CreateReedSubscription: %v", err)
 	}
 
-	var profileUnsubs, reedUnsubs []string
-	rs.SetForeignUnsubscribeProfileHook(func(_ context.Context, authorID, _ string) error {
-		profileUnsubs = append(profileUnsubs, authorID)
-		return nil
-	})
+	var reedUnsubs []string
 	rs.SetForeignUnsubscribeReedHook(func(_ context.Context, reedID, _ string) error {
 		reedUnsubs = append(reedUnsubs, reedID)
 		return nil
@@ -139,9 +136,6 @@ func TestReaperTearsDownUserWithoutLocalSocket(t *testing.T) {
 	rs.reapStalePresence()
 	rs.peerCalls.Wait()
 
-	if len(profileUnsubs) != 1 || profileUnsubs[0] != foreignAuthor {
-		t.Fatalf("profile unsubscribes = %v, want only [%s]", profileUnsubs, foreignAuthor)
-	}
 	if len(reedUnsubs) != 1 || reedUnsubs[0] != foreignReed {
 		t.Fatalf("reed unsubscribes = %v, want [%s]", reedUnsubs, foreignReed)
 	}

@@ -199,6 +199,10 @@ Status. Every path that crosses the border folds:
   [`specs/federation/09_reed_delivery.md`](https://github.com/var0xyz/syrinx/tree/main/specs/federation/09_reed_delivery.md)).
   The peer dispatches to its own followers, mentioned users, subscribers
   and thread viewers.
+- Profile pages: the author's server returns one page of reed ids and the
+  asking server opens each one itself, through the same fold. Profile
+  subscriptions stay on the viewer's own server; the author's server never
+  hears of them.
 - Live stats: one `reed-stats` push per (peer, reed), forwarded by the peer
   to its own subscribers. A peer that answers 404 has nobody watching any
   more, and its subscriptions to that reed are dropped.
