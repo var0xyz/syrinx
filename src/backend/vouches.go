@@ -77,7 +77,6 @@ func (s *DataService) hydrateVouch(ctx context.Context, q signingDBTX, r *vouchR
 		return nil, err
 	}
 	cert := &VouchCert{
-		Type:            identityTypeVouch,
 		ID:              r.ID,
 		VoucherUserID:   r.VoucherUserID,
 		VoucherKeyID:    r.VoucherKeyID,
@@ -584,7 +583,6 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 	vouchID := string(appendEntity(identityID(voucherID), vouchUUID.String()))
 
 	cert := VouchCert{
-		Type:            identityTypeVouch,
 		ID:              vouchID,
 		VoucherUserID:   voucherID,
 		VoucherKeyID:    voucherKeyID,

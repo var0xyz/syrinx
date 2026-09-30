@@ -88,7 +88,6 @@ func testVouchID(t *testing.T, voucherID string) string {
 // signature per call, so replay vs conflict is distinguishable.
 func testVouch(voucherID, voucherKeyID, subjectUserID, subjectKeyID, note, sig, vouchID string, at time.Time) VouchCert {
 	return VouchCert{
-		Type:          identityTypeVouch,
 		ID:            vouchID,
 		VoucherUserID: voucherID,
 		VoucherKeyID:  voucherKeyID,

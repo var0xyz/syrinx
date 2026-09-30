@@ -198,7 +198,6 @@ export interface ReedLike extends Base {
  * voucherUserID@serverID/uuidv7 and is stable for the row's whole life.
  */
 export interface Vouch extends Base {
-  type: 'user_vouch';
   id: string;
   /** Wire/index convenience, not signed: derived from the key ids. */
   voucherUserID: string;

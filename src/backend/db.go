@@ -159,7 +159,6 @@ type LikeCert struct {
 // The server serves the attestation and nothing else: whether it still
 // counts depends on key state the client already resolves and verifies.
 type VouchCert struct {
-	Type            string          `json:"type"`
 	ID              string          `json:"id"`
 	VoucherUserID   string          `json:"voucherUserID"`
 	VoucherKeyID    string          `json:"voucherKeyID"`
