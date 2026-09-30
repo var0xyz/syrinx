@@ -176,6 +176,19 @@ then becomes a holder there, and the rest of the peer's readers are served
 locally. So for content, folding means capping how many copies cross per
 reed per peer, not sending exactly one.
 
+How content crosses, per reed and per peer:
+
+- At most **3** copies are in flight across the border at once. Three, not
+  one, so a single requester going offline mid-transfer never strands
+  everyone else.
+- Carriers are the waiting requesters in arrival order, online ones only.
+- When a crossing ends without the carrier acking it (the carrier
+  disconnects, the home server has no holder, the relay errors), the next
+  waiting requester takes its place.
+- A carrier that acks becomes a holder on this server. From then on the
+  normal holder bursts spread the reed locally and no further copies
+  cross, unless every local holder goes offline while requests wait.
+
 Status. Paths that already fold, or are designed to:
 
 - New reeds and removals: one `new-reed` / `reed-removal` per peer, made

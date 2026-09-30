@@ -176,6 +176,31 @@ a local holder.
 
 This fixes the undelivered foreign mention.
 
+### Content crosses folded too
+
+`new-reed` carries no content. Each recipient still needs the ciphertext,
+and a holder encrypts it for one requester, so one copy crossing the border
+serves one user. Folding content therefore caps crossings instead of
+sending exactly one.
+
+A request for a foreign reed, whether a client's `REQUEST_REED` or an
+event the receiver creates for a `new-reed` recipient:
+
+1. **A local holder is online:** create the event locally and dispatch it
+   to that holder, exactly like a local reed. Nothing crosses.
+2. **Otherwise, fewer than 3 requests to the home server are in flight for
+   this reed** (`foreign_pending_events`): cross, as today.
+3. **Otherwise:** create the event locally and let it wait. It is
+   dispatched when a carrier acks and becomes a local holder.
+
+When a crossing ends without an ack (the carrier disconnects and teardown
+cancels it, the home server answers not-held, or the relay errors), the
+oldest waiting event for that reed whose requester is online is promoted
+to a crossing, so the cap stays filled while nobody local holds the reed.
+
+A foreign reed counts as existing here once it has a `reed_identities` row
+and no removal, so the local holder machinery accepts it.
+
 ### Cost
 
 Every reed goes to every peer, and every SYNC runs one "which streams are
