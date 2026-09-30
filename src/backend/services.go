@@ -8285,6 +8285,17 @@ func (s *DataService) DeleteReedSubscription(ctx context.Context, subscriptionID
 	return err
 }
 
+// DeleteReedSubscriptionsForServer drops every subscription to reedID held
+// by users of serverID.
+func (s *DataService) DeleteReedSubscriptionsForServer(ctx context.Context, reedID, serverID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM reed_subscriptions
+		WHERE reed_id = $1
+		  AND viewer_user_id IN (SELECT id FROM identities WHERE server_id = $2)
+	`, reedID, serverID)
+	return err
+}
+
 // DeleteReedSubscriptionsByViewer deletes all reed-stats subscriptions for a given viewer.
 func (s *DataService) DeleteReedSubscriptionsByViewer(ctx context.Context, userID string) error {
 	selfIdentity := identityID(userID)

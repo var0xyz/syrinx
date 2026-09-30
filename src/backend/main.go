@@ -250,7 +250,6 @@ func main() {
 	rtService.SetForeignHolderNotifyHook(h.notifyHolderToPeer)
 	rtService.SetForeignFallbackRequestHook(h.relayFallbackRequestToPeer)
 	rtService.SetPeerDeliveryHooks(h.deliverAuthorToPeers, func() { h.deliverBehindStreams("") })
-	rtService.SetForeignReplyRemovalToViewerHook(h.notifyForeignReplyRemovalToViewer)
 	rtService.SetDeviceCheck(func(userID, deviceID string) error {
 		// userID arrives already in "userID@serverID" form (see
 		// authenticateWebSocket), and CheckActiveDevice expects that same
@@ -542,9 +541,6 @@ func main() {
 
 	api.HandleFunc("/federation/relay/search-users", h.SearchUsersFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/search-users", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/federation/relay/reply-removal-to-viewer", h.ReplyRemovalToViewerFromPeer).Methods("POST")
-	api.HandleFunc("/federation/relay/reply-removal-to-viewer", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/federation/relay/disconnect-notify", h.DisconnectNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/disconnect-notify", h.noop).Methods("OPTIONS")
