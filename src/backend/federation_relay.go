@@ -1596,7 +1596,8 @@ func (h *Handlers) EchoRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	deleted, err := h.services.db.DeleteForeignEchoReference(r.Context(), req.EchoingReedID)
+	echoed, err := h.services.db.DeleteForeignEchoReference(r.Context(), req.EchoingReedID)
+	deleted := echoed != ""
 	if err != nil {
 		log.Error().Err(err).Str("echoedReedID", req.EchoedReedID).Str("echoingReedID", req.EchoingReedID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign echo removal notify")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "echo-removal-notify", false)
@@ -2201,6 +2202,244 @@ func (h *Handlers) DisconnectNotifyFromPeer(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ///////////////////////////////////// //
+//   new-reed and reed-removal: to every peer   //
+// ///////////////////////////////////// //
+
+type relayNewReedReply struct {
+	ParentReedID string `json:"parent_reed_id"`
+	ThreadID     string `json:"thread_id"`
+}
+
+type relayNewReedEcho struct {
+	EchoedReedID string `json:"echoed_reed_id"`
+	IsBlank      bool   `json:"is_blank"`
+}
+
+// relayNewReedPayload announces one of the sender's own reeds. It carries
+// no content: each recipient here fetches that through the fold.
+type relayNewReedPayload struct {
+	ReedID   string             `json:"reed_id"`
+	AuthorID string             `json:"author_id"`
+	SignedAt time.Time          `json:"signed_at"`
+	Mentions []string           `json:"mentions,omitempty"`
+	Reply    *relayNewReedReply `json:"reply,omitempty"`
+	Echo     *relayNewReedEcho  `json:"echo,omitempty"`
+}
+
+// relayReedRemovalPayload is the signed removal cert, plus the parent the
+// removed reed replied to so the receiver can reach that thread's viewers.
+type relayReedRemovalPayload struct {
+	relayReedRemovalNotifyPayload
+	ParentReedID string `json:"parent_reed_id,omitempty"`
+}
+
+// NewReedFromPeer handles a peer announcing a reed one of its users just
+// posted. This server records what concerns it (mentions of its users,
+// replies to and echoes of its reeds) and dispatches to its own users.
+func (h *Handlers) NewReedFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	fail := func(status int, msg string) {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "new-reed", false)
+		writeResponse(w, status, msg)
+	}
+
+	var req relayNewReedPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		fail(http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	req.ReedID = strings.TrimSpace(req.ReedID)
+	req.AuthorID = strings.TrimSpace(req.AuthorID)
+	authorBareID, reedServerID, _, ok := parseKeyFingerprint(identityID(req.ReedID))
+	if !ok || reedServerID != peerServerID || string(canonicalID(reedServerID, authorBareID)) != req.AuthorID {
+		fail(http.StatusBadRequest, "reed_id and author_id must belong to the calling peer")
+		return
+	}
+	if req.Reply != nil && req.Echo != nil {
+		fail(http.StatusBadRequest, "a reed is a reply or an echo, not both")
+		return
+	}
+	if req.Reply != nil && (req.Reply.ParentReedID == "" || req.Reply.ThreadID == "") {
+		fail(http.StatusBadRequest, "reply needs parent_reed_id and thread_id")
+		return
+	}
+	if req.Echo != nil && req.Echo.EchoedReedID == "" {
+		fail(http.StatusBadRequest, "echo needs echoed_reed_id")
+		return
+	}
+	if h.realtimeRelay == nil {
+		fail(http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
+	if err := h.receiveForeignNewReed(r.Context(), peerServerID, req); err != nil {
+		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Failed to receive foreign new reed")
+		fail(http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "new-reed", true)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) receiveForeignNewReed(ctx context.Context, peerServerID string, req relayNewReedPayload) error {
+	db := h.services.db
+	self := db.GetServerID()
+	if err := db.UpsertRemoteIdentity(ctx, req.AuthorID, peerServerID); err != nil {
+		return err
+	}
+	if err := db.UpsertReedIdentity(ctx, req.ReedID); err != nil {
+		return err
+	}
+
+	for _, mentioned := range req.Mentions {
+		bareID, serverID, ok := parseIdentityID(identityID(strings.TrimSpace(mentioned)))
+		if !ok || serverID != self {
+			continue
+		}
+		valid, err := db.MentionTargetValid(ctx, bareID, serverID)
+		if err != nil {
+			return err
+		}
+		if !valid {
+			continue
+		}
+		if err := db.InsertMentionRow(ctx, req.ReedID, string(canonicalID(serverID, bareID))); err != nil {
+			return err
+		}
+	}
+
+	foreignParentID := ""
+	if req.Reply != nil {
+		_, parentServerID, _, ok := parseKeyFingerprint(identityID(req.Reply.ParentReedID))
+		switch {
+		case !ok:
+		case parentServerID == self:
+			// Records the reply and notifies the thread's local viewers.
+			if err := h.realtimeRelay.HandleForeignReplyNotify(ctx, req.Reply.ParentReedID, req.ReedID, req.Reply.ThreadID, req.SignedAt); err != nil {
+				return err
+			}
+		default:
+			foreignParentID = req.Reply.ParentReedID
+		}
+	}
+
+	if req.Echo != nil {
+		echoedAuthorBareID, echoedServerID, bareEchoedReedID, ok := parseKeyFingerprint(identityID(req.Echo.EchoedReedID))
+		if ok && echoedServerID == self {
+			echoedAuthorID := string(canonicalID(echoedServerID, echoedAuthorBareID))
+			if err := db.InsertForeignEcho(ctx, req.ReedID, req.Echo.EchoedReedID, req.AuthorID, echoedAuthorID, req.Echo.IsBlank, req.SignedAt); err != nil {
+				return err
+			}
+			h.broadcastChan <- realtimeBroadcastMessage{
+				Type:   realtimeEchoCountChanged,
+				UserID: echoedAuthorID,
+				ReedID: bareEchoedReedID,
+			}
+		}
+	}
+
+	h.realtimeRelay.dispatchForeignNewReed(ctx, req.ReedID, req.AuthorID, foreignParentID)
+	return nil
+}
+
+// ReedRemovalFromPeer handles a peer removing one of its users' reeds.
+// Besides the removal itself it drops any reply or echo reference this
+// server kept for the reed and tells the affected thread's viewers.
+func (h *Handlers) ReedRemovalFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayReedRemovalPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal", false)
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	cert, status, msg := h.acceptForeignReedRemoval(r.Context(), peerServerID, &req.relayReedRemovalNotifyPayload)
+	if status != 0 {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal", false)
+		writeResponse(w, status, msg)
+		return
+	}
+	if err := h.dropForeignReedReferences(r.Context(), peerServerID, req.ReedID, req.ParentReedID, cert); err != nil {
+		log.Error().Err(err).Str("reedID", req.ReedID).Msg("Failed to drop references of removed foreign reed")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal", false)
+		internalServerError(w)
+		return
+	}
+	if h.realtimeRelay != nil {
+		wire := newReedRemovalWire(peerServerID, cert)
+		h.realtimeRelay.HandleForeignReedRemoval(req.UserID, req.ReedID, &wire)
+	}
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal", true)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handlers) dropForeignReedReferences(ctx context.Context, peerServerID, reedID, parentReedID string, cert reedRemovalCert) error {
+	db := h.services.db
+	self := db.GetServerID()
+
+	if parentReedID == "" {
+		parent, ok, err := db.ReplyParent(ctx, reedID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			parentReedID = parent
+		}
+	}
+	if parentReedID != "" {
+		deleted, err := db.DeleteForeignReplyReference(ctx, reedID)
+		if err != nil {
+			return err
+		}
+		_, parentServerID, _, _ := parseKeyFingerprint(identityID(parentReedID))
+		if deleted && parentServerID == self {
+			targets, err := db.ReplyCountNotifyTargets(ctx, parentReedID)
+			if err != nil {
+				return err
+			}
+			for _, t := range targets {
+				h.broadcastChan <- realtimeBroadcastMessage{
+					Type:   realtimeReplyCountChanged,
+					UserID: t.CanonicalAuthorID(),
+					ReedID: t.ReedID,
+				}
+			}
+		}
+		if h.realtimeRelay != nil {
+			wire := newReedRemovalWire(peerServerID, cert)
+			h.realtimeRelay.HandleForeignReplyRemovalAtParent(parentReedID, reedID, &wire)
+		}
+	}
+
+	echoedReedID, err := db.DeleteForeignEchoReference(ctx, reedID)
+	if err != nil {
+		return err
+	}
+	if echoedReedID != "" {
+		echoedAuthorBareID, echoedServerID, bareEchoedReedID, ok := parseKeyFingerprint(identityID(echoedReedID))
+		if ok && echoedServerID == self {
+			h.broadcastChan <- realtimeBroadcastMessage{
+				Type:   realtimeEchoCountChanged,
+				UserID: string(canonicalID(echoedServerID, echoedAuthorBareID)),
+				ReedID: bareEchoedReedID,
+			}
+		}
+	}
+	return nil
+}
+
 // ///////////////////////////////////////// //
 //   realtime-reset: server going down or up   //
 // ///////////////////////////////////////// //
@@ -2499,65 +2738,10 @@ func (h *Handlers) ReedRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	req.ReedID = strings.TrimSpace(req.ReedID)
-	if req.ReedID == "" || req.UserID == "" || req.UserSignature == "" || req.ServerSignature == "" {
+	cert, status, msg := h.acceptForeignReedRemoval(r.Context(), peerServerID, &req)
+	if status != 0 {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id, user_id, user_signature, and server_signature are required")
-		return
-	}
-
-	// Loop-prevention: a peer may only notify us about removal of a reed
-	// authored by one of its OWN users — never claim removal on behalf of
-	// a third server.
-	_, authorServerID, _, reedOK := parseKeyFingerprint(identityID(req.ReedID))
-	if !reedOK || authorServerID != peerServerID {
-		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id does not belong to the calling peer")
-		return
-	}
-
-	pubKey, err := h.resolvePublicKey(r.Context(), req.UserKeyID)
-	if err != nil {
-		log.Error().Err(err).Str("reedID", req.ReedID).Str("userKeyID", req.UserKeyID).Msg("Failed to resolve signing key for reed removal")
-		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
-		internalServerError(w)
-		return
-	}
-	if pubKey == nil {
-		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "user_key_id could not be resolved")
-		return
-	}
-
-	// The author signs against their own home server's id, which for a peer
-	// notification is the calling peer.
-	userSigArmor, err := base64Decode(req.UserSignature)
-	if err != nil {
-		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
-		return
-	}
-	userPayload := buildReedRemovalUserPayload(peerServerID, req.ReedID)
-	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
-		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Reed-removal user signature verification failed")
-		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "user_signature verification failed")
-		return
-	}
-
-	cert := reedRemovalCert{
-		ReedID:            req.ReedID,
-		UserID:            req.UserID,
-		UserSignature:     req.UserSignature,
-		UserKeyID:         req.UserKeyID,
-		ServerSignature:   req.ServerSignature,
-		ServerFingerprint: req.ServerFingerprint,
-		ServerSignedAt:    req.ServerSignedAt,
-	}
-	if err := h.services.db.InsertReedRemoval(r.Context(), cert); err != nil && !errors.Is(err, errRemovalConflict) {
-		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Failed to store foreign reed removal")
-		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", false)
-		internalServerError(w)
+		writeResponse(w, status, msg)
 		return
 	}
 
@@ -2569,4 +2753,58 @@ func (h *Handlers) ReedRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Requ
 	log.Info().Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Stored foreign reed removal")
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal-notify", true)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// acceptForeignReedRemoval verifies a peer's reed removal and stores the
+// cert. A non-zero status is the HTTP answer for a rejected removal.
+func (h *Handlers) acceptForeignReedRemoval(ctx context.Context, peerServerID string, req *relayReedRemovalNotifyPayload) (reedRemovalCert, int, string) {
+	log := h.services.log.GetLogger(ctx)
+	req.ReedID = strings.TrimSpace(req.ReedID)
+	if req.ReedID == "" || req.UserID == "" || req.UserSignature == "" || req.ServerSignature == "" {
+		return reedRemovalCert{}, http.StatusBadRequest, "reed_id, user_id, user_signature, and server_signature are required"
+	}
+
+	// Loop-prevention: a peer may only notify us about removal of a reed
+	// authored by one of its OWN users — never claim removal on behalf of
+	// a third server.
+	_, authorServerID, _, reedOK := parseKeyFingerprint(identityID(req.ReedID))
+	if !reedOK || authorServerID != peerServerID {
+		return reedRemovalCert{}, http.StatusBadRequest, "reed_id does not belong to the calling peer"
+	}
+
+	pubKey, err := h.resolvePublicKey(ctx, req.UserKeyID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", req.ReedID).Str("userKeyID", req.UserKeyID).Msg("Failed to resolve signing key for reed removal")
+		return reedRemovalCert{}, http.StatusInternalServerError, "Internal Server Error"
+	}
+	if pubKey == nil {
+		return reedRemovalCert{}, http.StatusBadRequest, "user_key_id could not be resolved"
+	}
+
+	// The author signs against their own home server's id, which for a peer
+	// notification is the calling peer.
+	userSigArmor, err := base64Decode(req.UserSignature)
+	if err != nil {
+		return reedRemovalCert{}, http.StatusBadRequest, "Invalid signature encoding"
+	}
+	userPayload := buildReedRemovalUserPayload(peerServerID, req.ReedID)
+	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
+		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Reed-removal user signature verification failed")
+		return reedRemovalCert{}, http.StatusBadRequest, "user_signature verification failed"
+	}
+
+	cert := reedRemovalCert{
+		ReedID:            req.ReedID,
+		UserID:            req.UserID,
+		UserSignature:     req.UserSignature,
+		UserKeyID:         req.UserKeyID,
+		ServerSignature:   req.ServerSignature,
+		ServerFingerprint: req.ServerFingerprint,
+		ServerSignedAt:    req.ServerSignedAt,
+	}
+	if err := h.services.db.InsertReedRemoval(ctx, cert); err != nil && !errors.Is(err, errRemovalConflict) {
+		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Failed to store foreign reed removal")
+		return reedRemovalCert{}, http.StatusInternalServerError, "Internal Server Error"
+	}
+	return cert, 0, ""
 }

@@ -2765,19 +2765,20 @@ func (s *DataService) DeleteForeignReplyReference(ctx context.Context, replyReed
 	return n > 0, nil
 }
 
-// DeleteForeignEchoReference removes a foreign echo's reed_echoes row —
-// the home-server side of the echo-removal-notify peer leg. Returns
-// false (not an error) if no such row exists, same "already gone is a
-// no-op" convention as DeleteForeignReplyReference/DeleteReedLike.
-func (s *DataService) DeleteForeignEchoReference(ctx context.Context, echoingReedID string) (deleted bool, err error) {
-	res, err := s.db.ExecContext(ctx, `
+// DeleteForeignEchoReference removes a foreign echo's reed_echoes row and
+// returns the reed it echoed, or "" if there was no such row.
+func (s *DataService) DeleteForeignEchoReference(ctx context.Context, echoingReedID string) (echoedReedID string, err error) {
+	err = s.db.QueryRowContext(ctx, `
 		DELETE FROM reed_echoes WHERE echoing_reed_id = $1
-	`, echoingReedID)
-	if err != nil {
-		return false, fmt.Errorf("delete foreign echo reference: %w", err)
+		RETURNING echoed_reed_id
+	`, echoingReedID).Scan(&echoedReedID)
+	if err == sql.ErrNoRows {
+		return "", nil
 	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	if err != nil {
+		return "", fmt.Errorf("delete foreign echo reference: %w", err)
+	}
+	return echoedReedID, nil
 }
 
 // ReplyCountNotifyTargetsForAuthor returns distinct ancestors whose subtree
@@ -7244,6 +7245,32 @@ func (s *DataService) UnsubscribeFromBroadcast(ctx context.Context, userID strin
 		return err
 	}
 	return nil
+}
+
+// GetOnlineUsersFollowing returns local online users who follow authorID,
+// which may be a foreign author: a local follow of a remote user is only
+// recorded in user_following, never in user_followers.
+func (s *DataService) GetOnlineUsersFollowing(ctx context.Context, authorID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ou.user_id
+		FROM online_users ou
+		JOIN user_following uf ON uf.user_id = ou.user_id
+		WHERE uf.following_user_id = $1
+	`, identityID(authorID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []string
+	for rows.Next() {
+		var userID identityID
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		users = append(users, string(userID))
+	}
+	return users, rows.Err()
 }
 
 // GetOnlineFollowers returns the IDs of online users who follow the given author.
