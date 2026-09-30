@@ -462,9 +462,6 @@
                 </button>
               </div>
               <div class="key-actions">
-                <button class="action-btn secondary" on:click={() => goto('/account/vouches')}>
-                  Keys You Verified
-                </button>
                 {#if isPendingRevocation}
                   {#if !$isOnline}
                     <div class="key-pending-banner">
@@ -485,6 +482,13 @@
                     Revoke Key
                   </button>
                 {/if}
+              </div>
+
+              <!-- Other people's keys, not this one. -->
+              <div class="key-actions others">
+                <button class="action-btn secondary" on:click={() => goto('/account/vouches')}>
+                  Keys You Verified
+                </button>
               </div>
             </div>
           {/if}
@@ -901,6 +905,14 @@
     align-items: flex-start;
     gap: 0.4rem;
     margin-top: 0.5rem;
+  }
+
+  /* Verifications are about other people's keys, so they sit apart from
+     the actions above, which all operate on this account's own key. */
+  .key-actions.others {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
   }
 
   .key-backup-warning {

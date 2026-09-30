@@ -25,6 +25,7 @@
   import { isOnline } from '$lib/services/pwa';
   import Avatar from '$lib/components/Avatar.svelte';
   import Username from '$lib/components/Username.svelte';
+  import TrustMark from '$lib/components/TrustMark.svelte';
   import ReedStatsSubscription from '$lib/components/ReedStatsSubscription.svelte';
   import ConversationSection from '$lib/components/ConversationSection.svelte';
   import RipplesSection from '$lib/components/RipplesSection.svelte';
@@ -657,11 +658,14 @@
                   <Avatar userID={userID} username={authorDisplayName} size="69px" />
                 </a>
                 <div class="author-info">
-                  <Username
-                    userID={userID}
-                    username={authorDisplayName}
-                    class="author-name"
-                  />
+                  <span class="author-line">
+                    <Username
+                      userID={userID}
+                      username={authorDisplayName}
+                      class="author-name"
+                    />
+                    <TrustMark userID={userID} linked={false} refresh />
+                  </span>
                 </div>
               </div>
             </div>
@@ -712,11 +716,14 @@
                   <Avatar userID={reed.userID} username={authorUser?.username ?? reed.userID} size="69px" />
                 </a>
                 <div class="author-info">
-                  <Username
-                    userID={reed.userID}
-                    username={authorUser?.username ?? reed.userID}
-                    class="author-name"
-                  />
+                  <span class="author-line">
+                    <Username
+                      userID={reed.userID}
+                      username={authorUser?.username ?? reed.userID}
+                      class="author-name"
+                    />
+                    <TrustMark userID={reed.userID} linked={false} refresh />
+                  </span>
                   <p class="reed-date">{isPending ? 'Pending…' : formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
                   <button
                     type="button"
@@ -965,6 +972,13 @@
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+  }
+
+  .author-line {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 0;
   }
 
   :global(.author-name) {
