@@ -112,7 +112,7 @@ func TestReaperTearsDownUserWithoutLocalSocket(t *testing.T) {
 	insertTeardownIdentity(t, db, localAuthor, teardownHomeID)
 	insertTeardownIdentity(t, db, foreignAuthor, teardownPeerID)
 	foreignReed := string(appendEntity(identityID(foreignAuthor), "01a026d4-406f-744b-b730-fcd241bf2582"))
-	if _, err := db.Exec(`INSERT INTO reed_identities (id, server_id) VALUES ($1, $2)`, foreignReed, teardownPeerID); err != nil {
+	if err := rs.db.UpsertReedIdentity(ctx, foreignReed); err != nil {
 		t.Fatalf("insert reed identity: %v", err)
 	}
 

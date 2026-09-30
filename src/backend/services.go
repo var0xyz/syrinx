@@ -1632,24 +1632,16 @@ func (s *DataService) insertReplyTx(
 	// a row minted here for whichever side is foreign to this server:
 	// parent_reed_id when a local reed replies to a foreign one
 	// (CreateReedWithReply's case); reed_id when a foreign server is
-	// telling us about a reply to one of OUR reeds (the peer-notify leg's
-	// case) — a local reed already has its row from its own creation.
+	// telling us about a reply to one of OUR reeds (a peer's new-reed) — a
+	// local reed already has its row from its own creation.
 	parentReedID := FormatReedRef(parent)
 	if parent.ServerID != s.serverID {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO reed_identities (id, server_id)
-			VALUES ($1, $2)
-			ON CONFLICT (id) DO NOTHING
-		`, parentReedID, parent.ServerID); err != nil {
+		if err := insertReedIdentity(ctx, tx, parentReedID); err != nil {
 			return fmt.Errorf("insert reply parent reed identity: %w", err)
 		}
 	}
 	if _, replyServerID, _, ok := parseKeyFingerprint(identityID(replyReedID)); ok && replyServerID != s.serverID {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO reed_identities (id, server_id)
-			VALUES ($1, $2)
-			ON CONFLICT (id) DO NOTHING
-		`, replyReedID, replyServerID); err != nil {
+		if err := insertReedIdentity(ctx, tx, replyReedID); err != nil {
 			return fmt.Errorf("insert reply reed identity: %w", err)
 		}
 	}
@@ -1942,11 +1934,7 @@ func (s *DataService) insertReedCoreTx(
 	// is the "identities layer" for reeds (mirrors how users.id FKs
 	// identities.id). Every local reed gets one here; a foreign reed gets
 	// one via the cross-server relay bridge instead (realtime package).
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO reed_identities (id, server_id)
-		VALUES ($1, $2)
-		ON CONFLICT (id) DO NOTHING
-	`, p.ReedID, s.serverID); err != nil {
+	if err := insertReedIdentityOf(ctx, tx, p.ReedID, s.serverID, string(selfIdentity)); err != nil {
 		return Reed{}, fmt.Errorf("insert reed identity: %w", err)
 	}
 
@@ -2053,11 +2041,7 @@ func (s *DataService) CreateReedWithEcho(
 	// its own creation time).
 	echoedReedID := FormatReedRef(echoTarget)
 	if echoTarget.ServerID != s.serverID {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO reed_identities (id, server_id)
-			VALUES ($1, $2)
-			ON CONFLICT (id) DO NOTHING
-		`, echoedReedID, echoTarget.ServerID); err != nil {
+		if err := insertReedIdentity(ctx, tx, echoedReedID); err != nil {
 			return nil, false, fmt.Errorf("insert echo target reed identity: %w", err)
 		}
 	}
@@ -2102,7 +2086,7 @@ func (s *DataService) CreateReedWithEcho(
 // InsertForeignEcho records that a peer's echoingReedID echoes echoedReedID,
 // one of this server's reeds, minting the peer's identity rows if needed.
 func (s *DataService) InsertForeignEcho(ctx context.Context, echoingReedID, echoedReedID, echoingAuthorID, echoedAuthorID string, isBlank bool, ts time.Time) error {
-	_, echoingServerID, _, ok := parseKeyFingerprint(identityID(echoingReedID))
+	_, _, _, ok := parseKeyFingerprint(identityID(echoingReedID))
 	if !ok {
 		return fmt.Errorf("malformed echoing reed id: %s", echoingReedID)
 	}
@@ -2113,11 +2097,7 @@ func (s *DataService) InsertForeignEcho(ctx context.Context, echoingReedID, echo
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO reed_identities (id, server_id)
-		VALUES ($1, $2)
-		ON CONFLICT (id) DO NOTHING
-	`, echoingReedID, echoingServerID); err != nil {
+	if err := insertReedIdentity(ctx, tx, echoingReedID); err != nil {
 		return fmt.Errorf("insert echoing reed identity: %w", err)
 	}
 
@@ -2347,17 +2327,17 @@ func (s *DataService) GetOnlineMentionedUsers(ctx context.Context, reedID string
 func (s *DataService) GetMissingMentions(ctx context.Context, userID string) ([]unallocatedReed, error) {
 	selfIdentity := identityID(userID)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT reeds.id, reeds.user_id
-		FROM reeds
-		JOIN reed_mentions ON reed_mentions.mentioning_reed_id = reeds.id
+		SELECT ri.id, ri.author_id
+		FROM reed_identities ri
+		JOIN reed_mentions ON reed_mentions.mentioning_reed_id = ri.id
 		WHERE reed_mentions.mentioned_user_id = $1
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_allocations
-		      WHERE reed_allocations.reed_id = reeds.id AND reed_allocations.holder_user_id = $1
+		      WHERE reed_allocations.reed_id = ri.id AND reed_allocations.holder_user_id = $1
 		  )
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_removals
-		      WHERE reed_removals.reed_id = reeds.id
+		      WHERE reed_removals.reed_id = ri.id
 		  )
 	`, selfIdentity)
 	if err != nil {
@@ -2382,18 +2362,18 @@ func (s *DataService) GetMissingMentions(ctx context.Context, userID string) ([]
 func (s *DataService) GetMissingReplies(ctx context.Context, userID string) ([]unallocatedReed, error) {
 	selfIdentity := identityID(userID)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT reeds.id, reeds.user_id
-		FROM reeds
-		JOIN reed_replies ON reed_replies.reed_id = reeds.id
+		SELECT reply.id, reply.author_id
+		FROM reed_identities reply
+		JOIN reed_replies ON reed_replies.reed_id = reply.id
 		JOIN reeds AS parent ON parent.id = reed_replies.parent_reed_id
 		WHERE parent.user_id = $1
-		  AND reeds.user_id != $1
+		  AND reply.author_id != $1
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_allocations
-		      WHERE reed_allocations.reed_id = reeds.id AND reed_allocations.holder_user_id = $1
+		      WHERE reed_allocations.reed_id = reply.id AND reed_allocations.holder_user_id = $1
 		  )
 		  AND NOT EXISTS (
-		      SELECT 1 FROM reed_removals WHERE reed_removals.reed_id = reeds.id
+		      SELECT 1 FROM reed_removals WHERE reed_removals.reed_id = reply.id
 		  )
 	`, selfIdentity)
 	if err != nil {
@@ -3591,15 +3571,32 @@ func (s *DataService) UpsertRemoteIdentity(ctx context.Context, canonicalID, rem
 // when this server needs to reference a foreign reed (e.g. mirroring a
 // like) without holding a copy of the reed itself.
 func (s *DataService) UpsertReedIdentity(ctx context.Context, reedID string) error {
-	_, serverID, _, ok := parseKeyFingerprint(identityID(reedID))
+	return insertReedIdentity(ctx, s.db, reedID)
+}
+
+// insertReedIdentity records a reed's identity row, taking its server and
+// author from the id itself and minting the author's identity if new.
+func insertReedIdentity(ctx context.Context, q signingDBTX, reedID string) error {
+	authorBareID, serverID, _, ok := parseKeyFingerprint(identityID(reedID))
 	if !ok {
 		return fmt.Errorf("malformed reed id: %s", reedID)
 	}
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO reed_identities (id, server_id)
-		VALUES ($1, $2)
+	return insertReedIdentityOf(ctx, q, reedID, serverID, string(canonicalID(serverID, authorBareID)))
+}
+
+// insertReedIdentityOf is insertReedIdentity for a reed whose server and
+// author the caller already knows, such as one being signed here.
+func insertReedIdentityOf(ctx context.Context, q signingDBTX, reedID, serverID, authorID string) error {
+	if _, err := q.ExecContext(ctx, `
+		INSERT INTO identities (id, server_id) VALUES ($1, $2)
 		ON CONFLICT (id) DO NOTHING
-	`, reedID, serverID)
+	`, authorID, serverID); err != nil {
+		return err
+	}
+	_, err := q.ExecContext(ctx, `
+		INSERT INTO reed_identities (id, server_id, author_id) VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO NOTHING
+	`, reedID, serverID, authorID)
 	return err
 }
 
@@ -7763,7 +7760,7 @@ func (s *DataService) GetReplyRecord(ctx context.Context, reedID string) (*reply
 // parentReedID (local to this server). Idempotent (ON CONFLICT DO NOTHING
 // on reed_id, the PK). Upserts a reed_identities row for the reply reedID first.
 func (s *DataService) InsertForeignReply(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error {
-	_, replyServerID, _, ok := parseKeyFingerprint(identityID(replyReedID))
+	_, _, _, ok := parseKeyFingerprint(identityID(replyReedID))
 	if !ok {
 		return fmt.Errorf("malformed reply reed id: %s", replyReedID)
 	}
@@ -7773,11 +7770,7 @@ func (s *DataService) InsertForeignReply(ctx context.Context, parentReedID, repl
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO reed_identities (id, server_id)
-		VALUES ($1, $2)
-		ON CONFLICT (id) DO NOTHING
-	`, replyReedID, replyServerID); err != nil {
+	if err := insertReedIdentity(ctx, tx, replyReedID); err != nil {
 		return fmt.Errorf("insert foreign reply reed identity: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -8068,9 +8061,9 @@ type unallocatedReed struct {
 func (s *DataService) GetMissingOut(ctx context.Context, userID string) ([]unallocatedReed, error) {
 	selfIdentity := identityID(userID)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id, r.user_id
-		FROM reeds r
-		JOIN user_following uf ON uf.following_user_id = r.user_id
+		SELECT r.id, r.author_id
+		FROM reed_identities r
+		JOIN user_following uf ON uf.following_user_id = r.author_id
 		WHERE uf.user_id = $1
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_allocations ra
@@ -8440,13 +8433,16 @@ func (s *DataService) GetMissingRemovals(ctx context.Context, userID string) ([]
 	}
 	defer rows.Close()
 
-	serverID := s.serverID
-
 	var out []missingRemoval
 	for rows.Next() {
 		var reedID string
 		if err := rows.Scan(&reedID); err != nil {
 			return nil, err
+		}
+		// The removal was countersigned by the reed's own server, foreign or not.
+		_, serverID, _, ok := parseKeyFingerprint(identityID(reedID))
+		if !ok {
+			serverID = s.serverID
 		}
 		cert, err := getReedRemovalCert(ctx, s.db, reedID, serverID)
 		if err != nil || cert == nil {

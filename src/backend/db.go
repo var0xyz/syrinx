@@ -335,12 +335,16 @@ func InitDB(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS reed_identities (
 		id VARCHAR(255) PRIMARY KEY,
 		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		-- Lets catch-up find foreign reeds, which have no reeds row here.
+		author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	createReedIdentitiesIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_identities_server_id
 		ON reed_identities(server_id);
+	CREATE INDEX IF NOT EXISTS idx_reed_identities_author_id
+		ON reed_identities(author_id);
 	`
 
 	// Tip reed metadata. Signature ids store the attestations so SignReed

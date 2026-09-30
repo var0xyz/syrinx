@@ -52,8 +52,8 @@ func seedReedStatsIdentity(t *testing.T, db *sql.DB, userID, serverID string) {
 
 func seedReedStatsReed(t *testing.T, db *sql.DB, reedID, userID, pubKeyID string, userSigID, serverSigID int64) {
 	t.Helper()
-	if _, err := db.Exec(`INSERT INTO reed_identities (id, server_id) VALUES ($1, $2)`,
-		reedID, "testserver"); err != nil {
+	if _, err := db.Exec(`INSERT INTO reed_identities (id, server_id, author_id) VALUES ($1, $2, $3)`,
+		reedID, "testserver", userID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`

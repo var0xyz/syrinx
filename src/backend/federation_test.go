@@ -186,7 +186,8 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		// FK from the real schema is omitted.
 		`CREATE TABLE IF NOT EXISTS reed_identities (
 			id VARCHAR(255) PRIMARY KEY,
-			server_id VARCHAR(255) NOT NULL REFERENCES servers(id) ON DELETE CASCADE
+			server_id VARCHAR(255) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+			author_id VARCHAR(255)
 		)`,
 		`CREATE TABLE IF NOT EXISTS reeds (
 			id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,

@@ -27,6 +27,7 @@ func ensureReedSubSchema(db *sql.DB) error {
 		)`,
 		`CREATE TABLE reed_identities (
 			id VARCHAR(255) PRIMARY KEY,
+			author_id VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE UNLOGGED TABLE online_users (
