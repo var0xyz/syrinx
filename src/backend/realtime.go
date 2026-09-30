@@ -1996,6 +1996,9 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		log.Error().
 			Str("userID", userID).
 			Err(err).Msg("Failed to mark user as online")
+		// Registered above; left in the map, the dead socket would count
+		// as a live connection until the process restarts.
+		rs.connManager.UnregisterClient(client)
 		return
 	}
 
