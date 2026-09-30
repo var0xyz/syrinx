@@ -2614,7 +2614,10 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 		Str("reedID", reedID).
 		Msg("Post found")
 
-	writeResponse(w, http.StatusOK, result.Reed)
+	// The reed exists and is not removed, which is all this route can say:
+	// the server holds no content, so a body would carry nothing the
+	// caller did not already have. Content comes from a peer relay.
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handlers) GetReedEchoCount(w http.ResponseWriter, r *http.Request) {

@@ -842,20 +842,20 @@ export const apiService = {
   },
 
   /**
-   * GET reed with 410 handling. Account certs are returned as-is for 09;
-   * callers must switch on `removal.type` and not treat account as reed.
+   * Existence and removal state only: a live reed answers 204 with no body.
+   * Callers must switch on `removal.type` and not treat account as reed.
    */
   async getReedOrRemoval(
     reedId: string
   ): Promise<
-    | { kind: 'reed'; reed: any }
+    | { kind: 'reed' }
     | { kind: 'gone'; removal: api.ReedRemoval | { type: string } }
     | { kind: 'not_found' }
   > {
     const { userId, bareId } = splitReedId(reedId);
     try {
-      const reed = await request(`/reeds/${userId}/${bareId}`, { method: 'GET' });
-      return { kind: 'reed', reed };
+      await request(`/reeds/${userId}/${bareId}`, { method: 'GET' });
+      return { kind: 'reed' };
     } catch (err: any) {
       if (err?.status === 404) {
         return { kind: 'not_found' };
