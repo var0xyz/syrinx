@@ -150,6 +150,10 @@ needs to backfill its own users once it has the reed.
    users, the author's profile subscribers, broadcast subscribers, and the
    parent reed's subscribers.
 
+Every reed goes to broadcast subscribers. The publish-time `broadcast`
+flag is never set by the SPA, and the server treats it as absent, so it
+is not carried and likely to be dropped.
+
 Offline users get it from `catchUp` on their next SYNC.
 
 `reed-removal`: store the cert (`InsertReedRemoval`), drop any reply or
@@ -181,6 +185,8 @@ time. The mesh page asks admins to compare load before connecting.
 ## Non-goals
 
 - Backfilling a new peer with reeds from before it was approved.
+- Pipes. They are not federated today; a foreign reed's tags could later
+  ride along as an optional field.
 - Account removal, `holder-notify`, and the live legs.
 - Multiple replicas beyond what the DB claim already makes safe. See
   `RISKS.md`.
