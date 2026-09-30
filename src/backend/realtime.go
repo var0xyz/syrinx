@@ -3715,6 +3715,31 @@ func (rs *realtimeService) handleUserCameOnline(client *realtimeClient) {
 	// Nothing sent until client signals readiness via SYNC_REQUEST
 }
 
+// catchUpReed opens one missed event for userID. A foreign reed goes
+// through the border fold; a local one waits for a local holder.
+func (rs *realtimeService) catchUpReed(userID, requestID string, eventName realtimeEventName, reedID string) {
+	ctx := context.Background()
+	if foreign, homeServerID := rs.isForeignReed(reedID); foreign {
+		if _, _, err := rs.openForeignEvent(ctx, userID, requestID, reedID, homeServerID, eventName); err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Str("eventName", string(eventName)).Msg("Failed to open catch-up event for foreign reed")
+		}
+		return
+	}
+	eventID := generateRealtimeEventID(userID)
+	if err := rs.createPendingReedEvent(ctx, eventID, requestID, userID, eventName, reedID); err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Str("eventName", string(eventName)).Msg("Failed to create catch-up event")
+		return
+	}
+	holder, err := rs.db.GetOnlineReedHolder(ctx, reedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to get online holder for catch-up reed")
+		return
+	}
+	if holder != "" {
+		rs.dispatchNextIfConnected(holder)
+	}
+}
+
 func (rs *realtimeService) catchUp(userID, requestID string) {
 	unallocated, err := rs.db.GetMissingOut(context.Background(), userID)
 	if err != nil {
@@ -3724,27 +3749,8 @@ func (rs *realtimeService) catchUp(userID, requestID string) {
 			Msg("Failed to get unallocated reeds from followings")
 		return
 	}
-
 	for _, reed := range unallocated {
-		eventID := generateRealtimeEventID(userID)
-		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, userID, followReedEvent, reed.ReedID); err != nil {
-			log.Error().
-				Err(err).
-				Str("reedID", reed.ReedID).
-				Msg("Failed to create catch-up pending event")
-			continue
-		}
-		holder, err := rs.db.GetOnlineReedHolder(context.Background(), reed.ReedID)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("reedID", reed.ReedID).
-				Msg("Failed to get online holder for catch-up reed")
-			continue
-		}
-		if holder != "" {
-			rs.dispatchNextIfConnected(holder)
-		}
+		rs.catchUpReed(userID, requestID, followReedEvent, reed.ReedID)
 	}
 
 	missingMentions, err := rs.db.GetMissingMentions(context.Background(), userID)
@@ -3753,19 +3759,7 @@ func (rs *realtimeService) catchUp(userID, requestID string) {
 		return
 	}
 	for _, reed := range missingMentions {
-		eventID := generateRealtimeEventID(userID)
-		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, userID, mentionEvent, reed.ReedID); err != nil {
-			log.Error().Err(err).Str("reedID", reed.ReedID).Msg("Failed to create catch-up mention event")
-			continue
-		}
-		holder, err := rs.db.GetOnlineReedHolder(context.Background(), reed.ReedID)
-		if err != nil {
-			log.Error().Err(err).Str("reedID", reed.ReedID).Msg("Failed to get online holder for catch-up mention")
-			continue
-		}
-		if holder != "" {
-			rs.dispatchNextIfConnected(holder)
-		}
+		rs.catchUpReed(userID, requestID, mentionEvent, reed.ReedID)
 	}
 
 	missingReplies, err := rs.db.GetMissingReplies(context.Background(), userID)
@@ -3774,19 +3768,7 @@ func (rs *realtimeService) catchUp(userID, requestID string) {
 		return
 	}
 	for _, reed := range missingReplies {
-		eventID := generateRealtimeEventID(userID)
-		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, userID, reedReplyEvent, reed.ReedID); err != nil {
-			log.Error().Err(err).Str("reedID", reed.ReedID).Msg("Failed to create catch-up reply event")
-			continue
-		}
-		holder, err := rs.db.GetOnlineReedHolder(context.Background(), reed.ReedID)
-		if err != nil {
-			log.Error().Err(err).Str("reedID", reed.ReedID).Msg("Failed to get online holder for catch-up reply")
-			continue
-		}
-		if holder != "" {
-			rs.dispatchNextIfConnected(holder)
-		}
+		rs.catchUpReed(userID, requestID, reedReplyEvent, reed.ReedID)
 	}
 
 	removals, err := rs.db.GetMissingRemovals(context.Background(), userID)

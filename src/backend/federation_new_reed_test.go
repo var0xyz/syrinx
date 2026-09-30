@@ -126,7 +126,7 @@ func TestDropForeignReedReferences(t *testing.T) {
 	parent := string(appendEntity(identityID(local), "01a026d4-406f-744b-b730-fcd241bf2591"))
 	echoed := string(appendEntity(identityID(local), "01a026d4-406f-744b-b730-fcd241bf2592"))
 	for _, id := range []string{parent, echoed} {
-		if _, err := f.db.Exec(`INSERT INTO reed_identities (id, server_id) VALUES ($1, $2)`, id, teardownHomeID); err != nil {
+		if _, err := f.db.Exec(`INSERT INTO reed_identities (id, server_id, author_id) VALUES ($1, $2, $3)`, id, teardownHomeID, local); err != nil {
 			t.Fatalf("insert reed identity: %v", err)
 		}
 	}
@@ -144,5 +144,45 @@ func TestDropForeignReedReferences(t *testing.T) {
 		if n := countTeardownRows(t, f.db, table); n != 0 {
 			t.Fatalf("expected %s cleared, got %d", table, n)
 		}
+	}
+}
+
+// An offline user mentioned in a peer's reed gets it on their next SYNC,
+// and so does an offline follower of its author.
+func TestForeignReedCaughtUpOnSync(t *testing.T) {
+	f := newForeignFoldFixture(t)
+	h := newReedTestHandlers(f)
+	ctx := context.Background()
+	author := string(canonicalID(teardownPeerID, "bob"))
+
+	mentioned := f.onlineUser(t, "carol")
+	follower := f.onlineUser(t, "erin")
+	if _, err := f.db.Exec(`INSERT INTO user_following (user_id, following_user_id) VALUES ($1, $2)`, follower, author); err != nil {
+		t.Fatalf("follow: %v", err)
+	}
+	for _, u := range []string{mentioned, follower} {
+		if err := f.rs.db.MarkUserOffline(ctx, u); err != nil {
+			t.Fatalf("MarkUserOffline: %v", err)
+		}
+	}
+
+	if code := postNewReed(t, h, teardownPeerID, relayNewReedPayload{ReedID: f.reedID, AuthorID: author, Mentions: []string{mentioned}}); code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", code)
+	}
+	if len(f.crossings) != 0 {
+		t.Fatalf("crossings = %v, want none while both are offline", f.crossings)
+	}
+
+	for _, u := range []string{mentioned, follower} {
+		if err := f.rs.db.MarkUserOnline(ctx, u); err != nil {
+			t.Fatalf("MarkUserOnline: %v", err)
+		}
+		f.rs.catchUp(u, generateRealtimeEventID(u))
+	}
+	if name := f.eventNameFor(t, mentioned); name != string(mentionEvent) {
+		t.Fatalf("mentioned user's catch-up event = %q, want %q", name, mentionEvent)
+	}
+	if name := f.eventNameFor(t, follower); name != string(followReedEvent) {
+		t.Fatalf("follower's catch-up event = %q, want %q", name, followReedEvent)
 	}
 }

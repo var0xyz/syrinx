@@ -67,7 +67,7 @@ func (f *deliveryFixture) reed(t *testing.T, publishedAt *time.Time) string {
 	t.Helper()
 	f.nextReed++
 	id := string(appendEntity(identityID(f.author), "01a026d4-406f-744b-b730-fcd241bf26"+string(rune('a'+f.nextReed))+"0"))
-	if _, err := f.db.Exec(`INSERT INTO reed_identities (id, server_id) VALUES ($1, $2)`, id, deliveryHomeID); err != nil {
+	if _, err := f.db.Exec(`INSERT INTO reed_identities (id, server_id, author_id) VALUES ($1, $2, $3)`, id, deliveryHomeID, f.author); err != nil {
 		t.Fatalf("insert reed identity: %v", err)
 	}
 	signed := time.Now().UTC().Add(-30 * time.Minute)

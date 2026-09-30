@@ -102,6 +102,7 @@ func ensureFollowCountSchema(db *sql.DB) error {
 		`CREATE TABLE reed_identities (
 			id VARCHAR(255) PRIMARY KEY,
 			server_id VARCHAR(16) NOT NULL,
+			author_id VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE pinned_reeds (

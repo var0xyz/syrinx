@@ -35,8 +35,8 @@ func seedPeerResetState(t *testing.T, db *sql.DB, rs *realtimeService, viewer st
 
 	localReed := string(appendEntity(identityID(localAuthor), "01a026d4-406f-744b-b730-fcd241bf2582"))
 	peerReed := string(appendEntity(identityID(peerAuthor), "01a026d4-406f-744b-b730-fcd241bf2583"))
-	for id, server := range map[string]string{localReed: teardownHomeID, peerReed: teardownPeerID} {
-		if _, err := db.Exec(`INSERT INTO reed_identities (id, server_id) VALUES ($1, $2)`, id, server); err != nil {
+	for _, id := range []string{localReed, peerReed} {
+		if err := rs.db.UpsertReedIdentity(ctx, id); err != nil {
 			t.Fatalf("insert reed identity: %v", err)
 		}
 	}

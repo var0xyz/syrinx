@@ -17,7 +17,7 @@ func statsFoldFixture(t *testing.T) (*realtimeService, string) {
 	author := string(canonicalID(teardownHomeID, "alice"))
 	insertTeardownIdentity(t, db, author, teardownHomeID)
 	reedID := string(appendEntity(identityID(author), "01a026d4-406f-744b-b730-fcd241bf2700"))
-	if _, err := db.Exec(`INSERT INTO reed_identities (id, server_id) VALUES ($1, $2)`, reedID, teardownHomeID); err != nil {
+	if err := rs.db.UpsertReedIdentity(context.Background(), reedID); err != nil {
 		t.Fatalf("insert reed identity: %v", err)
 	}
 	for i, name := range []string{"carol", "dave"} {
@@ -74,7 +74,7 @@ func TestDeliverForeignReedStatsReportsSubscribers(t *testing.T) {
 	author := string(canonicalID(teardownPeerID, "bob"))
 	insertTeardownIdentity(t, db, author, teardownPeerID)
 	reedID := string(appendEntity(identityID(author), "01a026d4-406f-744b-b730-fcd241bf2701"))
-	if _, err := db.Exec(`INSERT INTO reed_identities (id, server_id) VALUES ($1, $2)`, reedID, teardownPeerID); err != nil {
+	if err := rs.db.UpsertReedIdentity(context.Background(), reedID); err != nil {
 		t.Fatalf("insert reed identity: %v", err)
 	}
 	raw, err := marshalWSMessage(newReedLikesMsg(reedID, 3))
