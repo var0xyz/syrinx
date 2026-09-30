@@ -367,8 +367,7 @@
     color: var(--fg);
   }
 
-  .mailbox-action-icon,
-  .bell-icon {
+  .mailbox-action-icon {
     display: inline-block;
     width: 0.9rem;
     height: 0.9rem;
@@ -380,10 +379,5 @@
     mask-size: contain;
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
-  }
-
-  .bell-icon {
-    width: 1.125rem;
-    height: 1.125rem;
   }
 </style>

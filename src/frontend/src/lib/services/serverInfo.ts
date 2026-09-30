@@ -2,7 +2,8 @@ import { derived, writable } from 'svelte/store';
 import type { ServerInfo, SignupMode } from '$lib/types/server';
 import type { PublicKey } from '$lib/types/api';
 import { isOnline } from './pwa';
-import { serverKeyProofHeader } from './serverKeyTrust';
+import { serverKeyProofHeader, getTrustedServerKey, clearTrustedServerKey } from './serverKeyTrust';
+import { formatServerKeyId } from '$lib/utils/identityRef';
 
 export const serverInfo = writable<ServerInfo | null>(null);
 export const serverInfoLoading = writable(true);
@@ -65,10 +66,8 @@ async function ensureServerKeyCached(serverId: string, serverKeyId: string): Pro
     const { publicKeyRepository } = await import('$lib/repositories/publicKey');
     if (await publicKeyRepository.hasPublicKey(serverKeyId)) return;
 
-    const { getTrustedServerKey } = await import('./serverKeyTrust');
     const { dbService } = await import('./db');
     const { allowUnsigned } = await import('$lib/verifiers');
-    const { formatServerKeyId } = await import('$lib/utils/identityRef');
 
     const trusted = getTrustedServerKey();
     if (!trusted) return;
@@ -123,7 +122,6 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
 
     if (!response.ok) {
       if (response.status === 401) {
-        const { clearTrustedServerKey } = await import('./serverKeyTrust');
         clearTrustedServerKey();
         window.location.href = '/';
       }

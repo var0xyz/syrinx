@@ -86,31 +86,33 @@
   {:else}
     <ul class="inbox-list">
       {#each ripples as ripple (ripple.hash)}
-        <li
-          class="inbox-row"
-          role="button"
-          tabindex="0"
-          on:click={() => openReed(ripple.reedID)}
-          on:keydown={(e) => e.key === 'Enter' && openReed(ripple.reedID)}
-        >
-          <div class="inbox-avatar">
-            <Avatar userID={ripple.userID} username={usernames[ripple.userID] ?? ''} size="32px" />
-          </div>
-          <div class="inbox-body">
-            <p class="inbox-meta">
-              {#if usernames[ripple.userID]}
-                <Username userID={ripple.userID} username={usernames[ripple.userID]} stopPropagation />
+        <li>
+          <div
+            class="inbox-row"
+            role="button"
+            tabindex="0"
+            on:click={() => openReed(ripple.reedID)}
+            on:keydown={(e) => e.key === 'Enter' && openReed(ripple.reedID)}
+          >
+            <div class="inbox-avatar">
+              <Avatar userID={ripple.userID} username={usernames[ripple.userID] ?? ''} size="32px" />
+            </div>
+            <div class="inbox-body">
+              <p class="inbox-meta">
+                {#if usernames[ripple.userID]}
+                  <Username userID={ripple.userID} username={usernames[ripple.userID]} stopPropagation />
+                {:else}
+                  <span class="inbox-username-removed">[removed account]</span>
+                {/if}
+                <span class="inbox-meta-sep">&middot;</span>
+                <span class="inbox-meta-text">{formatRelativeTime(ripple.postedAt)}</span>
+              </p>
+              {#if ripple.deleted}
+                <p class="inbox-content inbox-content-deleted">[DELETED]</p>
               {:else}
-                <span class="inbox-username-removed">[removed account]</span>
+                <p class="inbox-content">{ripple.content}</p>
               {/if}
-              <span class="inbox-meta-sep">&middot;</span>
-              <span class="inbox-meta-text">{formatRelativeTime(ripple.postedAt)}</span>
-            </p>
-            {#if ripple.deleted}
-              <p class="inbox-content inbox-content-deleted">[DELETED]</p>
-            {:else}
-              <p class="inbox-content">{ripple.content}</p>
-            {/if}
+            </div>
           </div>
         </li>
       {/each}

@@ -1,6 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
-import { defineConfig, type Plugin } from 'vite';
+import { createLogger, defineConfig, type Plugin } from 'vite';
 import path from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -53,6 +53,15 @@ function pwaPrerenderedPlaceholder(): Plugin {
     },
   };
 }
+
+// Only the unshipped SSR pass emits this: the client bundle inlines every
+// dynamic import, and the ones left exist to break import cycles.
+const quietLogger = createLogger();
+const baseWarn = quietLogger.warn;
+quietLogger.warn = (msg, options) => {
+  if (msg.includes('dynamic import will not move module')) return;
+  baseWarn(msg, options);
+};
 
 export default defineConfig({
   plugins: [
@@ -177,8 +186,11 @@ export default defineConfig({
   optimizeDeps: {
     include: ['openpgp/lightweight']
   },
+  // Kit replaces rollupOptions.onwarn, so filtering happens at the logger.
+  customLogger: quietLogger,
   build: {
-    cssCodeSplit: false
+    // bundleStrategy 'single' ships the whole app as one file on purpose.
+    chunkSizeWarningLimit: 1500
   },
   server: {
     proxy: {

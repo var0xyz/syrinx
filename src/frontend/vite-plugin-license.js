@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 
 /**
  * Vite plugin that prepends LICENSE content as a comment to generated files
@@ -11,8 +12,9 @@ export function licensePlugin() {
     name: 'license-plugin',
     buildStart() {
       try {
-        // Read the LICENSE file from the project root
-        const licensePath = resolve(process.cwd(), '../LICENSE');
+        // The repo root is two levels up from src/frontend.
+        const here = dirname(fileURLToPath(import.meta.url));
+        const licensePath = resolve(here, '../../LICENSE');
         const rawLicense = readFileSync(licensePath, 'utf-8');
 
         // Convert to JavaScript comment format
