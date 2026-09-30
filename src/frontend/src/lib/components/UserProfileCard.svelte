@@ -187,6 +187,7 @@
             userID={user?.id ?? ''}
             activeKeyID={user?.activeKeyID}
             linked={false}
+            refresh
           />
           <span class="user-info">{user?.id}</span>
         </button>

@@ -73,9 +73,17 @@ keeps its own verified set instead:
    on success. A cert that fails is stored as rejected, not retried on a
    loop, and never counted.
 4. Ids that have disappeared from the list are fetched once to obtain the
-   signed withdrawal, verified, and then **deleted locally**. A retraction
-   proven by signature is not worth keeping; nothing in the local store is
-   ever withdrawn.
+   signed withdrawal, verified, and then **deleted locally** — but only for
+   vouches made by *someone else*. A retraction proven by signature is not
+   worth keeping, so no mark is ever drawn from a withdrawn cert.
+
+   **A vouch the viewer made is never deleted**, withdrawn or not. It is
+   the viewer's own record of what they attested, and the audit list
+   ([§ Your vouches, chronologically](#your-vouches-chronologically)) is
+   the one view that must show retractions rather than hide them. The rule
+   is enforced in the repository, keyed on the vouch id — which is
+   owner-prefixed by the voucher and signature-checked — rather than left
+   to each caller.
 
 **Marks render immediately from local data; reconciliation corrects them.**
 syrinx is offline-first ([philosophy](../../docs/philosophy.md)) — the device's
@@ -168,12 +176,36 @@ during the window I am worried about".
 
 Sort key is the **server** countersignature timestamp, not a client clock:
 it is the only time in the record an attacker does not control
-([02](02_payload.md#vouch-user-payload)).
+([02](02_payload.md#vouch-user-payload)). That timestamp is signed and
+travels inside each cert, so sorting locally carries the same guarantee as
+a server-ordered read.
+
+**The list reads the local store, never `GET /vouches`.** The question it
+answers is "did I do all of these?", and only a complete list answers it. A
+server response is a set of self-verifying certs — it cannot contain a
+vouch the caller did not sign — but nothing in it proves the set is whole,
+and a server that wants one forgotten just omits the row. Since this list is
+the only remedy for a compromised key
+([04](04_revocation.md#the-compromise-window)), a source that can silently
+drop the row you are looking for is no remedy at all.
+
+The local store has no such weakness: it holds what this device actually
+did, and a vouch the viewer made is never deleted from it
+([§ Verifying what the server reports](#verifying-what-the-server-reports)),
+so a withdrawn vouch stays visible with its retraction attached.
+
+This also means the list renders offline and without a spinner, like every
+other mark in the app.
+
+`GET /vouches` remains for **recovery only** — a device that lost its store
+with no export to restore from ([03](03_api.md#get-vouches)). What it
+returns is a lower bound, not a history: everything in it is genuinely the
+caller's, and something of theirs may be missing. The UI presents it as a
+degraded restore, never as the audit list itself.
 
 Withdrawing from this list signs a withdrawal with the user's current key
-([02](02_payload.md#withdrawal-payload)), and bulk withdrawal — select a
-range, withdraw all — is worth having here, because the realistic use is
-"everything from that week was not me".
+([02](02_payload.md#withdrawal-payload)), one vouch at a time. Each
+withdrawal is its own signed cert, and each is confirmed before it is sent.
 
 ### Key-change warning
 

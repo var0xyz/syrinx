@@ -84,4 +84,25 @@ assert.equal(
   'demoted root falls back to grey'
 );
 
+// Your own withdrawn vouches are kept locally for the audit list, so the
+// ladder has to exclude them itself — deletion no longer does it.
+assert.equal(
+  trustMarkFor([vouch(me, { withdrawal: { userSignature: {}, serverSignature: {} } })], KEY, me, new Set()),
+  'none',
+  'own withdrawn vouch colours nothing'
+);
+assert.equal(
+  trustMarkFor(
+    [
+      vouch(me, { withdrawal: { userSignature: {}, serverSignature: {} } }),
+      vouch('carol@x'),
+    ],
+    KEY,
+    me,
+    new Set()
+  ),
+  'grey',
+  'a withdrawn own vouch does not outrank a live one from someone else'
+);
+
 console.log('All trust-mark ladder cases pass.');

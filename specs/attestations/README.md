@@ -43,12 +43,12 @@ be, or trust chains cannot be walked at all.
 | Revocation | A vouch survives the **voucher's** key being revoked — only the voucher retracts it, by signing a withdrawal. A revoked or rotated **subject** key makes it stale ([04](04_revocation.md)). |
 | Transitivity | **One hop, computed client-side.** A root's vouch colours the mark; deeper paths are deferred ([05](05_trust_paths.md)). |
 | Trust roots | **Local.** Whose vouches you weight never leaves your device ([05](05_trust_paths.md#trust-roots-are-local)). |
-| Revoking a vouch | Signed `withdrawal` cert — **both** user and server signatures — not a bare delete. Excluded from list reads; the client deletes its copy once the retraction verifies ([03](03_api.md#delete-vouchessubjectkeyid)). |
+| Revoking a vouch | Signed `withdrawal` cert — **both** user and server signatures — not a bare delete. Excluded from list reads; the client deletes its copy once the retraction verifies — except for its own vouches, which stay for the audit list ([03](03_api.md#delete-vouchessubjectkeyid)). |
 | Re-vouching | Allowed. A new attestation with a **new id**, never a revive, behind a 24h cooldown per key ([01](01_schema.md#history-is-append-only-the-active-set-is-separate)). |
 | Rendering | **Offline-first.** Marks draw from the local store immediately; reconciliation corrects them in the background ([07](07_spa_trust_display.md#verifying-what-the-server-reports)). |
 | Display | **Blue** check if you verified them, **green** if someone you verified did, **grey** if anyone else did, none otherwise ([07](07_spa_trust_display.md#the-checkmark)). |
 | Federation | **Cert lives on the voucher's server; the subject's server holds a reference only.** Delivery to the subject's server is confirmed before the vouch is stored, and the client retries — a deliberate break from fire-and-forget. No broadcast, no backfill ([08](08_federation.md)). |
-| Audit | A chronological list of every vouch you made, always available, with withdraw — the only remedy for a compromised key, since nothing detects one ([07](07_spa_trust_display.md#your-vouches-chronologically)). |
+| Audit | A chronological list of every vouch you made, always available, with withdraw — the only remedy for a compromised key, since nothing detects one. Reads the **local store**, never the server: a server list cannot be shown to be complete ([07](07_spa_trust_display.md#your-vouches-chronologically)). |
 
 ## Protocol sketch
 
