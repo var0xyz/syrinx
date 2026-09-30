@@ -2,8 +2,12 @@
 
 ## Status
 
-**Proposed.** Supersedes the delivery half of
-[07](07_presence_delivery.md), which was never built.
+**Implemented** (`federation_delivery.go`, `federation_relay.go`,
+`realtime.go`). Supersedes the delivery half of
+[07](07_presence_delivery.md), which was never built. Where the code
+differs from the first draft of this doc, the doc has been updated; the
+other border paths folded alongside it are listed under
+[Also folded](#also-folded).
 
 ## Depends on
 
@@ -55,10 +59,11 @@ decides who on its side should see them.
 `reply` and `echo` are optional and mutually exclusive. `mentions` can go
 with either.
 
-`POST /api/federation/relay/reed-removal` carries the signed removal cert,
-the same fields `reed-removal-notify` carries today. It covers replies and
-echoes too: the receiver finds its own references by the removed reed's
-id.
+`POST /api/federation/relay/reed-removal` carries the signed removal cert
+and, for a reply, `parent_reed_id`. It covers replies and echoes too: the
+receiver drops its own references by the removed reed's id, and uses the
+parent to tell that thread's viewers, which it could not find otherwise
+when the parent is not its own.
 
 They replace `new-reed-notify`, `mention-notify`, `reply-notify`,
 `echo-notify`, `reply-removal-notify`, `echo-removal-notify` and
@@ -75,12 +80,19 @@ already in logged tables, the same way `catchUp` derives what a user
 missed.
 
 A **stream** is one local author's history as seen by one peer: the
-author's reeds (`reeds.signed_at`) and removals of those reeds
+author's published reeds (`reeds.published_at`) and removals of those reeds
 (`reed_removals` → `server_signatures.signed_at`), ordered by
 `(timestamp, kind, reed_id)` with a creation sorting before a removal at
 the same instant. Payloads are built at send time from `reeds`,
-`reed_mentions`, `reed_replies` and the echo relation. Only locally
-authored reeds are streamed; reeds imported by account recovery are not.
+`reed_mentions`, `reed_replies` and the echo relation.
+
+A reed enters the stream when it is published, not when it is signed:
+`published_at` is set when `PUBLISH_READY` claims the reed's fan-out, the
+first moment the author's client can serve it. Ordering by signing time
+would let a reed signed earlier but published later fall behind the cursor
+and be skipped. Reeds imported by account recovery have no `published_at`
+and are never streamed. Mentions of users on known peers are stored in
+`reed_mentions` at signing, so the payload can carry them.
 
 ```sql
 CREATE TABLE peer_author_cursors (
@@ -168,7 +180,8 @@ server, which relays to the reed's home server by the id.
 
 `reed_identities` gains `author_id` (`NOT NULL`, references
 `identities`), filled at every insert from the same canonical-id parse
-that already fills `server_id`. `GetMissingMentions`, `GetMissingOut`,
+that already fills `server_id`, or from the signer for a reed created
+here. `GetMissingMentions`, `GetMissingOut`,
 `GetMissingReplies` and `GetMissingRemovals` join `reed_identities` for
 the author instead of `reeds`, so foreign reeds qualify. A foreign reed
 found by catch-up is fetched through the foreign request path instead of
@@ -200,6 +213,27 @@ to a crossing, so the cap stays filled while nobody local holds the reed.
 
 A foreign reed counts as existing here once it has a `reed_identities` row
 and no removal, so the local holder machinery accepts it.
+
+### Also folded
+
+Built alongside this, under the same rule
+([`docs/relay-model.md`](../../docs/relay-model.md#crossing-a-server-border)):
+
+- **Live stats.** `reed-stats` goes once per (peer, reed) with the reed id
+  and an optional user to leave out, and the peer forwards it to its own
+  subscribers. A peer that answers `404` has nobody watching, so its
+  subscriptions to that reed are dropped; so are they after a transport
+  error.
+- **Profiles.** The `subscribe` / `unsubscribe` legs are gone: the viewer's
+  own server holds the profile subscription and dispatches `new-reed` to it.
+  `profile-page` returns only the page's reed ids, and the asking server
+  opens each through the content fold.
+- **Reply fan-out.** The per-viewer reply pushes and the
+  `reply-removal-to-viewer` leg are gone; each peer notifies its own thread
+  viewers from `new-reed` and `reed-removal`.
+
+`subscribe-reed` stays per viewer: it returns that viewer's initial
+snapshot, and it is the per-view cost the mesh page warns about.
 
 ### Cost
 

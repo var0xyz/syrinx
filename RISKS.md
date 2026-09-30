@@ -238,15 +238,43 @@ issuer binding.
 Findings below aren't security defects — they're limitations of the current
 design worth tracking separately.
 
-### A2 — `profile_subscriptions` needs explicit teardown on disconnect
-**Where:** `db.go:954-960` — `viewer_user_id`/`author_user_id` FK to
-`identities(id)`, not `online_users(user_id)`.
-Reed and pipe subscriptions cascade off presence, so a disconnect clears them
-automatically. Profile subscriptions do not, and still rely on explicit teardown
-— a missed teardown path leaks rows.
-**Why it stays:** `pending_events.subscription_id` cascades from this table, so
-retargeting the FK to `online_users` would make a disconnect drop pending events
-by a second path. Fix the cascade chain first, or keep the teardown.
+### A2 — Profile and reed subscriptions need explicit teardown
+**Where:** `db.go` — both tables' `viewer_user_id` FK to `identities(id)`,
+not `online_users(user_id)`; `teardownUser` in `realtime.go`.
+Only pipe subscriptions cascade off presence. Profile and reed subscriptions
+can't: a foreign viewer has no presence row here, and
+`pending_events.subscription_id` cascades from `profile_subscriptions`.
+`teardownUser` clears them on every path that removes presence (socket close,
+the reaper, boot), so a new path that deletes `online_users` without calling
+it leaks rows.
+
+### A3 — Realtime federation assumes a single replica
+**Where:** `CLEAR_PRESENCE_ON_BOOT` in `main.go`; `reapStalePresence` and
+`handlePong` in `realtime.go`; `specs/federation/08_server_reset.md`.
+The boot clear, the `realtime-reset` notices and the reaper's "is the socket
+here" check all assume this process is the whole server. With more than one
+replica, one restarting would wipe state its siblings still serve and tell
+peers to forget the whole server, so the notices are off whenever
+`CLEAR_PRESENCE_ON_BOOT` is. Running several replicas needs presence and
+reset semantics per replica first.
+
+### A4 — Federation delivery is best-effort at the edges
+**Where:** `federation_delivery.go`, `openForeignEvent` in `realtime.go`;
+`specs/federation/09_reed_delivery.md`.
+- The cap of three copies crossing per reed per peer is checked without a
+  lock, so requests arriving at the same instant can send a few more.
+  Accepted: rare, and never unbounded.
+- A stream only advances on a trigger (a publish or removal by that author,
+  any client SYNC, the peer's boot notice). A peer that crashed without a
+  shutdown notice keeps failing deliveries until it boots; nothing marks it
+  down on failure.
+- Streams are per author, so a reply can reach a peer before its parent.
+  The receiver tolerates it (the parent's identity is upserted), but a
+  peer only dispatches a foreign reply to its viewers of the immediate
+  parent, not of ancestors further up the thread.
+- Every reed goes to every peer, and opening a foreign profile or reed is
+  a round trip to its server. The mesh page tells admins to compare load
+  before connecting.
 
 ---
 
