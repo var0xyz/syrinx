@@ -436,6 +436,17 @@ func newNewVouchMsg(vouchID string) *pb.WSMessage {
 	}
 }
 
+// newPeerServerLostMsg tells a viewer live updates from a peer stopped.
+func newPeerServerLostMsg(serverID, serverName string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type:     pb.MessageType_PEER_SERVER_LOST,
+		TypeName: pb.MessageType_PEER_SERVER_LOST.String(),
+		Payload: &pb.WSMessage_PeerServerLost{
+			PeerServerLost: &pb.PeerServerLostMessage{ServerId: serverID, ServerName: serverName},
+		},
+	}
+}
+
 // newReedLikesMsg notifies reed subscribers of like count changes.
 func newReedLikesMsg(reedID string, likes int) *pb.WSMessage {
 	return &pb.WSMessage{
@@ -2049,6 +2060,17 @@ func (rs *realtimeService) forgetPeer(ctx context.Context, serverID string) {
 	if err != nil {
 		log.Error().Err(err).Str("serverID", serverID).Msg("Failed to forget peer realtime state")
 		return
+	}
+	if len(viewers) > 0 {
+		name, err := rs.db.GetServerName(ctx, serverID)
+		if err != nil || name == "" {
+			name = serverID
+		}
+		msg := newPeerServerLostMsg(serverID, name)
+		for _, viewer := range viewers {
+			// Offline viewers have nothing live to lose.
+			_ = rs.connManager.SendToUser(viewer, msg)
+		}
 	}
 	log.Info().
 		Str("serverID", serverID).

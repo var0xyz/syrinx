@@ -124,6 +124,15 @@ func TestForgetPeerReportsLocalViewers(t *testing.T) {
 	if len(viewers) != 1 || viewers[0] != viewer {
 		t.Fatalf("viewers = %v, want [%s]", viewers, viewer)
 	}
+
+	// The lost-connection message names the peer even once it's revoked.
+	if _, err := db.Exec(`UPDATE servers SET revoked_at = NOW() WHERE id = $1`, teardownPeerID); err != nil {
+		t.Fatalf("revoke peer: %v", err)
+	}
+	name, err := rs.db.GetServerName(context.Background(), teardownPeerID)
+	if err != nil || name != teardownPeerID {
+		t.Fatalf("GetServerName = %q, %v; want %q", name, err, teardownPeerID)
+	}
 }
 
 func postRealtimeReset(t *testing.T, h *Handlers, peerServerID, reason string) int {

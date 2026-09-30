@@ -135,6 +135,8 @@ export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; 
       return { type: 'REED_LIKES', data: { reedID: p.value.reedId, likes: p.value.likes } };
     case 'newVouch':
       return { type: 'NEW_VOUCH', data: { vouchID: p.value.vouchId } };
+    case 'peerServerLost':
+      return { type: 'PEER_SERVER_LOST', data: { serverID: p.value.serverId, serverName: p.value.serverName } };
     case 'ripplePosted':
       return {
         type: 'RIPPLE_POSTED',
@@ -214,6 +216,7 @@ export enum ServerEvent {
   InvalidRequestIdError = 'INVALID_REQUEST_ID_ERROR',
   Mailbox              = 'MAILBOX',
   NewVouch             = 'NEW_VOUCH',
+  PeerServerLost       = 'PEER_SERVER_LOST',
   Mentioned            = 'MENTION',
   PageAck              = 'PAGE_ACK',
   PipeReed             = 'PIPE_REED',

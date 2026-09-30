@@ -84,6 +84,7 @@ const (
 	MessageType_EVICTION                 MessageType = 56
 	MessageType_EVICTION_ACK             MessageType = 57
 	MessageType_NEW_VOUCH                MessageType = 58
+	MessageType_PEER_SERVER_LOST         MessageType = 59
 )
 
 // Enum value maps for MessageType.
@@ -147,6 +148,7 @@ var (
 		56: "EVICTION",
 		57: "EVICTION_ACK",
 		58: "NEW_VOUCH",
+		59: "PEER_SERVER_LOST",
 	}
 	MessageType_value = map[string]int32{
 		"UNKNOWN":                  0,
@@ -207,6 +209,7 @@ var (
 		"EVICTION":                 56,
 		"EVICTION_ACK":             57,
 		"NEW_VOUCH":                58,
+		"PEER_SERVER_LOST":         59,
 	}
 )
 
@@ -296,6 +299,7 @@ type WSMessage struct {
 	//	*WSMessage_Eviction
 	//	*WSMessage_EvictionAck
 	//	*WSMessage_NewVouch
+	//	*WSMessage_PeerServerLost
 	Payload       isWSMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -746,6 +750,15 @@ func (x *WSMessage) GetNewVouch() *NewVouchMessage {
 	return nil
 }
 
+func (x *WSMessage) GetPeerServerLost() *PeerServerLostMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_PeerServerLost); ok {
+			return x.PeerServerLost
+		}
+	}
+	return nil
+}
+
 type isWSMessage_Payload interface {
 	isWSMessage_Payload()
 }
@@ -922,6 +935,10 @@ type WSMessage_NewVouch struct {
 	NewVouch *NewVouchMessage `protobuf:"bytes,47,opt,name=new_vouch,json=newVouch,proto3,oneof"`
 }
 
+type WSMessage_PeerServerLost struct {
+	PeerServerLost *PeerServerLostMessage `protobuf:"bytes,48,opt,name=peer_server_lost,json=peerServerLost,proto3,oneof"`
+}
+
 func (*WSMessage_Ping) isWSMessage_Payload() {}
 
 func (*WSMessage_Pong) isWSMessage_Payload() {}
@@ -1007,6 +1024,8 @@ func (*WSMessage_Eviction) isWSMessage_Payload() {}
 func (*WSMessage_EvictionAck) isWSMessage_Payload() {}
 
 func (*WSMessage_NewVouch) isWSMessage_Payload() {}
+
+func (*WSMessage_PeerServerLost) isWSMessage_Payload() {}
 
 // Ping message
 type PingMessage struct {
@@ -3639,11 +3658,66 @@ func (x *NewVouchMessage) GetVouchId() string {
 	return ""
 }
 
+// Tells a viewer this server lost its link to a peer: live updates from
+// that peer's profiles and reeds have stopped until the viewer subscribes
+// again once the peer is back.
+type PeerServerLostMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ServerId      string                 `protobuf:"bytes,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	ServerName    string                 `protobuf:"bytes,2,opt,name=server_name,json=serverName,proto3" json:"server_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PeerServerLostMessage) Reset() {
+	*x = PeerServerLostMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PeerServerLostMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PeerServerLostMessage) ProtoMessage() {}
+
+func (x *PeerServerLostMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PeerServerLostMessage.ProtoReflect.Descriptor instead.
+func (*PeerServerLostMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *PeerServerLostMessage) GetServerId() string {
+	if x != nil {
+		return x.ServerId
+	}
+	return ""
+}
+
+func (x *PeerServerLostMessage) GetServerName() string {
+	if x != nil {
+		return x.ServerName
+	}
+	return ""
+}
+
 var File_proto_websocket_proto protoreflect.FileDescriptor
 
 const file_proto_websocket_proto_rawDesc = "" +
 	"\n" +
-	"\x15proto/websocket.proto\x12\x10syrinx.websocket\"\xd7\x1a\n" +
+	"\x15proto/websocket.proto\x12\x10syrinx.websocket\"\xac\x1b\n" +
 	"\tWSMessage\x121\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x1d.syrinx.websocket.MessageTypeR\x04type\x12\x1b\n" +
 	"\ttype_name\x18\f \x01(\tR\btypeName\x12\x0e\n" +
@@ -3697,7 +3771,8 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\bpage_ack\x18, \x01(\v2 .syrinx.websocket.PageAckMessageH\x00R\apageAck\x12?\n" +
 	"\beviction\x18- \x01(\v2!.syrinx.websocket.EvictionMessageH\x00R\beviction\x12I\n" +
 	"\feviction_ack\x18. \x01(\v2$.syrinx.websocket.EvictionAckMessageH\x00R\vevictionAck\x12@\n" +
-	"\tnew_vouch\x18/ \x01(\v2!.syrinx.websocket.NewVouchMessageH\x00R\bnewVouchB\t\n" +
+	"\tnew_vouch\x18/ \x01(\v2!.syrinx.websocket.NewVouchMessageH\x00R\bnewVouch\x12S\n" +
+	"\x10peer_server_lost\x180 \x01(\v2'.syrinx.websocket.PeerServerLostMessageH\x00R\x0epeerServerLostB\t\n" +
 	"\apayloadJ\x04\b\x05\x10\x06R\n" +
 	"subscribed\"!\n" +
 	"\vPingMessage\x12\x12\n" +
@@ -3871,7 +3946,11 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x128\n" +
 	"\x04cert\x18\x02 \x01(\v2$.syrinx.websocket.AccountRemovalCertR\x04cert\",\n" +
 	"\x0fNewVouchMessage\x12\x19\n" +
-	"\bvouch_id\x18\x01 \x01(\tR\avouchId*\xc5\b\n" +
+	"\bvouch_id\x18\x01 \x01(\tR\avouchId\"U\n" +
+	"\x15PeerServerLostMessage\x12\x1b\n" +
+	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x1f\n" +
+	"\vserver_name\x18\x02 \x01(\tR\n" +
+	"serverName*\xdb\b\n" +
 	"\vMessageType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\b\n" +
 	"\x04PING\x10\x01\x12\b\n" +
@@ -3935,7 +4014,8 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\bPAGE_ACK\x107\x12\f\n" +
 	"\bEVICTION\x108\x12\x10\n" +
 	"\fEVICTION_ACK\x109\x12\r\n" +
-	"\tNEW_VOUCH\x10:\"\x04\b\x04\x10\x04*\n" +
+	"\tNEW_VOUCH\x10:\x12\x14\n" +
+	"\x10PEER_SERVER_LOST\x10;\"\x04\b\x04\x10\x04*\n" +
 	"SUBSCRIBEDB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
 
 var (
@@ -3951,7 +4031,7 @@ func file_proto_websocket_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_websocket_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_websocket_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
+var file_proto_websocket_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
 var file_proto_websocket_proto_goTypes = []any{
 	(MessageType)(0),                     // 0: syrinx.websocket.MessageType
 	(*WSMessage)(nil),                    // 1: syrinx.websocket.WSMessage
@@ -4003,6 +4083,7 @@ var file_proto_websocket_proto_goTypes = []any{
 	(*ReedRemovedMessage)(nil),           // 47: syrinx.websocket.ReedRemovedMessage
 	(*AccountRemovedMessage)(nil),        // 48: syrinx.websocket.AccountRemovedMessage
 	(*NewVouchMessage)(nil),              // 49: syrinx.websocket.NewVouchMessage
+	(*PeerServerLostMessage)(nil),        // 50: syrinx.websocket.PeerServerLostMessage
 }
 var file_proto_websocket_proto_depIdxs = []int32{
 	0,  // 0: syrinx.websocket.WSMessage.type:type_name -> syrinx.websocket.MessageType
@@ -4049,21 +4130,22 @@ var file_proto_websocket_proto_depIdxs = []int32{
 	30, // 41: syrinx.websocket.WSMessage.eviction:type_name -> syrinx.websocket.EvictionMessage
 	31, // 42: syrinx.websocket.WSMessage.eviction_ack:type_name -> syrinx.websocket.EvictionAckMessage
 	49, // 43: syrinx.websocket.WSMessage.new_vouch:type_name -> syrinx.websocket.NewVouchMessage
-	40, // 44: syrinx.websocket.Ripple.user_signature:type_name -> syrinx.websocket.UserSignature
-	41, // 45: syrinx.websocket.Ripple.server_signature:type_name -> syrinx.websocket.ServerSignature
-	42, // 46: syrinx.websocket.RipplePostedMessage.ripple:type_name -> syrinx.websocket.Ripple
-	42, // 47: syrinx.websocket.RippleUpdatedMessage.ripple:type_name -> syrinx.websocket.Ripple
-	40, // 48: syrinx.websocket.ReedRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
-	41, // 49: syrinx.websocket.ReedRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
-	40, // 50: syrinx.websocket.AccountRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
-	41, // 51: syrinx.websocket.AccountRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
-	45, // 52: syrinx.websocket.ReedRemovedMessage.cert:type_name -> syrinx.websocket.ReedRemovalCert
-	46, // 53: syrinx.websocket.AccountRemovedMessage.cert:type_name -> syrinx.websocket.AccountRemovalCert
-	54, // [54:54] is the sub-list for method output_type
-	54, // [54:54] is the sub-list for method input_type
-	54, // [54:54] is the sub-list for extension type_name
-	54, // [54:54] is the sub-list for extension extendee
-	0,  // [0:54] is the sub-list for field type_name
+	50, // 44: syrinx.websocket.WSMessage.peer_server_lost:type_name -> syrinx.websocket.PeerServerLostMessage
+	40, // 45: syrinx.websocket.Ripple.user_signature:type_name -> syrinx.websocket.UserSignature
+	41, // 46: syrinx.websocket.Ripple.server_signature:type_name -> syrinx.websocket.ServerSignature
+	42, // 47: syrinx.websocket.RipplePostedMessage.ripple:type_name -> syrinx.websocket.Ripple
+	42, // 48: syrinx.websocket.RippleUpdatedMessage.ripple:type_name -> syrinx.websocket.Ripple
+	40, // 49: syrinx.websocket.ReedRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	41, // 50: syrinx.websocket.ReedRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	40, // 51: syrinx.websocket.AccountRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	41, // 52: syrinx.websocket.AccountRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	45, // 53: syrinx.websocket.ReedRemovedMessage.cert:type_name -> syrinx.websocket.ReedRemovalCert
+	46, // 54: syrinx.websocket.AccountRemovedMessage.cert:type_name -> syrinx.websocket.AccountRemovalCert
+	55, // [55:55] is the sub-list for method output_type
+	55, // [55:55] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_proto_websocket_proto_init() }
@@ -4115,6 +4197,7 @@ func file_proto_websocket_proto_init() {
 		(*WSMessage_Eviction)(nil),
 		(*WSMessage_EvictionAck)(nil),
 		(*WSMessage_NewVouch)(nil),
+		(*WSMessage_PeerServerLost)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -4122,7 +4205,7 @@ func file_proto_websocket_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_websocket_proto_rawDesc), len(file_proto_websocket_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   49,
+			NumMessages:   50,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
