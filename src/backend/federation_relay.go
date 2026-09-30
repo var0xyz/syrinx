@@ -2194,7 +2194,98 @@ func (h *Handlers) DisconnectNotifyFromPeer(w http.ResponseWriter, r *http.Reque
 		internalServerError(w)
 		return
 	}
+	if h.realtimeRelay != nil {
+		h.realtimeRelay.forgetPeer(r.Context(), peerServerID)
+	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "disconnect-notify", true)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ///////////////////////////////////////// //
+//   realtime-reset: server going down or up   //
+// ///////////////////////////////////////// //
+
+const (
+	realtimeResetShutdown = "shutdown"
+	realtimeResetBoot     = "boot"
+)
+
+type relayRealtimeResetPayload struct {
+	Reason string `json:"reason"`
+}
+
+// realtimeResetTimeout bounds the whole fan-out, so a dead peer can't
+// hold up this server's shutdown.
+const realtimeResetTimeout = 5 * time.Second
+
+// notifyPeersOfRealtimeReset tells every connected peer to forget all
+// realtime state tied to this server. reason is shutdown or boot; boot
+// covers a crash that never sent the shutdown notice.
+func (h *Handlers) notifyPeersOfRealtimeReset(reason string) {
+	ctx, cancel := context.WithTimeout(context.Background(), realtimeResetTimeout)
+	defer cancel()
+	log := h.services.log.GetLogger(ctx)
+
+	peers, err := h.services.db.ListConnectedPeers(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("reason", reason).Msg("Failed to list peers for realtime reset")
+		return
+	}
+	payload := relayRealtimeResetPayload{Reason: reason}
+	var wg sync.WaitGroup
+	for _, peer := range peers {
+		wg.Add(1)
+		go func(peer PeerServer) {
+			defer wg.Done()
+			status, err := h.callPeerRelayEndpoint(ctx, peer.ID, peer.BaseURL, "/api/federation/relay/realtime-reset", payload, nil)
+			if err == nil && (status < 200 || status >= 300) {
+				err = fmt.Errorf("peer answered %d", status)
+			}
+			if err != nil {
+				log.Warn().Err(err).Str("peerServerID", peer.ID).Str("reason", reason).Msg("Failed to send realtime reset to peer")
+			}
+		}(peer)
+	}
+	wg.Wait()
+}
+
+// RealtimeResetFromPeer handles a peer announcing it is going down or has
+// just come up. Either way nothing it held for us survives, so we drop
+// everything shared with it; shutdown also marks it down until it boots.
+func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req relayRealtimeResetPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", false)
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if req.Reason != realtimeResetShutdown && req.Reason != realtimeResetBoot {
+		log.Error().Str("peerServerID", peerServerID).Str("reason", req.Reason).Msg("realtime reset with unknown reason")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", false)
+		writeResponse(w, http.StatusBadRequest, "`reason` must be shutdown or boot")
+		return
+	}
+	if h.realtimeRelay == nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", false)
+		internalServerError(w)
+		return
+	}
+
+	h.realtimeRelay.forgetPeer(r.Context(), peerServerID)
+	if err := h.services.db.SetPeerDown(r.Context(), peerServerID, req.Reason == realtimeResetShutdown); err != nil {
+		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("Failed to record peer up/down state")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", false)
+		internalServerError(w)
+		return
+	}
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", true)
 	w.WriteHeader(http.StatusNoContent)
 }
 

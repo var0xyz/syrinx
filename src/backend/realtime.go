@@ -2031,6 +2031,32 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		Msg("WebSocket client disconnected")
 }
 
+// forgetPeer drops all realtime state shared with serverID, in both
+// directions, and fails our requests still waiting on it. Runs when the
+// peer resets or is revoked; the peer itself is never contacted.
+func (rs *realtimeService) forgetPeer(ctx context.Context, serverID string) {
+	waiting, err := rs.db.GetForeignPendingEventsByHomeServer(ctx, serverID)
+	if err != nil {
+		log.Error().Err(err).Str("serverID", serverID).Msg("Failed to load relay requests waiting on peer")
+	}
+	for _, fpe := range waiting {
+		if _, err := rs.HandleForeignRelayNotHeld(ctx, fpe.PeerEventID, serverID); err != nil {
+			log.Error().Err(err).Str("eventID", fpe.EventID).Msg("Failed to fail relay request waiting on peer")
+		}
+	}
+
+	viewers, err := rs.db.ForgetPeerRealtimeState(ctx, serverID)
+	if err != nil {
+		log.Error().Err(err).Str("serverID", serverID).Msg("Failed to forget peer realtime state")
+		return
+	}
+	log.Info().
+		Str("serverID", serverID).
+		Int("failedRequests", len(waiting)).
+		Int("affectedViewers", len(viewers)).
+		Msg("Forgot peer realtime state")
+}
+
 // teardownUser ends everything userID has open: peers are told first, then
 // this server's rows go. Callers drop presence only afterwards, since
 // pending events cascade off online_users and would vanish unread.

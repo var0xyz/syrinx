@@ -6904,15 +6904,89 @@ func (s *DataService) MarkUserOffline(ctx context.Context, userID string) error 
 	return nil
 }
 
-// ClearPresence drops every presence row. Boot-time recovery for a crashed
-// process, whose rows outlive it (Postgres only truncates UNLOGGED tables on
-// its own unclean shutdown). Single-replica only — see CLEAR_PRESENCE_ON_BOOT.
-func (s *DataService) ClearPresence(ctx context.Context) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM online_users`)
+// ClearRealtimeState drops every presence row, subscription and in-flight
+// event, local or foreign. Boot-time only, and single-replica only: see
+// CLEAR_PRESENCE_ON_BOOT. Peers are told separately, by the boot notice.
+func (s *DataService) ClearRealtimeState(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	return res.RowsAffected()
+	defer tx.Rollback()
+	for _, stmt := range []string{
+		`DELETE FROM profile_subscriptions`,
+		`DELETE FROM reed_subscriptions`,
+		`DELETE FROM pending_events`,
+		`DELETE FROM online_users`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ForgetPeerRealtimeState drops everything shared with serverID in both
+// directions: its users' subscriptions and relay requests here, and our
+// users' subscriptions to its profiles and reeds, whose viewers it returns.
+func (s *DataService) ForgetPeerRealtimeState(ctx context.Context, serverID string) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT ps.viewer_user_id
+		FROM profile_subscriptions ps
+		JOIN identities author ON author.id = ps.author_user_id
+		WHERE author.server_id = $1
+		UNION
+		SELECT rsub.viewer_user_id
+		FROM reed_subscriptions rsub
+		JOIN reed_identities ri ON ri.id = rsub.reed_id
+		WHERE ri.server_id = $1
+	`, serverID)
+	if err != nil {
+		return nil, err
+	}
+	var viewers []string
+	for rows.Next() {
+		var viewer identityID
+		if err := rows.Scan(&viewer); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		viewers = append(viewers, string(viewer))
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	for _, stmt := range []string{
+		`DELETE FROM profile_subscriptions
+		 WHERE viewer_user_id IN (SELECT id FROM identities WHERE server_id = $1)
+		    OR author_user_id IN (SELECT id FROM identities WHERE server_id = $1)`,
+		`DELETE FROM reed_subscriptions
+		 WHERE viewer_user_id IN (SELECT id FROM identities WHERE server_id = $1)
+		    OR reed_id IN (SELECT id FROM reed_identities WHERE server_id = $1)`,
+		`DELETE FROM pending_events
+		 WHERE event_id IN (SELECT event_id FROM foreign_relay_requests WHERE requesting_server_id = $1)`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt, serverID); err != nil {
+			return nil, err
+		}
+	}
+	return viewers, tx.Commit()
+}
+
+// SetPeerDown records whether serverID has announced a shutdown.
+func (s *DataService) SetPeerDown(ctx context.Context, serverID string, down bool) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE servers SET down_at = CASE WHEN $2 THEN CURRENT_TIMESTAMP END
+		WHERE id = $1 AND self = FALSE
+	`, serverID, down)
+	return err
 }
 
 // RecordPong refreshes a user's liveness heartbeat, reporting whether a
@@ -8552,6 +8626,30 @@ func (s *DataService) GetForeignPendingEventByPeerEventID(ctx context.Context, p
 		return nil, err
 	}
 	return &fpe, nil
+}
+
+// GetForeignPendingEventsByHomeServer lists this server's relay requests
+// still waiting on homeServerID.
+func (s *DataService) GetForeignPendingEventsByHomeServer(ctx context.Context, homeServerID string) ([]foreignPendingEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT event_id, home_server_id, peer_event_id
+		FROM foreign_pending_events
+		WHERE home_server_id = $1
+	`, homeServerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []foreignPendingEvent
+	for rows.Next() {
+		var fpe foreignPendingEvent
+		if err := rows.Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID); err != nil {
+			return nil, err
+		}
+		out = append(out, fpe)
+	}
+	return out, rows.Err()
 }
 
 // GetForeignPendingEventsByRequester lists a requester's outstanding

@@ -4687,6 +4687,9 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 	default:
 		h.logFederationServerAsync(serverID, federationLogError,
 			fmt.Sprintf("Disconnected by %s (confirmed): %s", caller, reason))
+		if h.realtimeRelay != nil {
+			h.realtimeRelay.forgetPeer(r.Context(), serverID)
+		}
 		go func() {
 			if err := h.notifyPeerOfDisconnect(context.Background(), serverID, reason); err != nil {
 				h.services.log.GetLogger(context.Background()).Warn().Err(err).Str("serverId", serverID).Msg("failed to notify peer of disconnect")
