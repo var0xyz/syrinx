@@ -11,13 +11,13 @@ Proposed.
 ## Context
 
 Federation (server-to-server) traffic is signed HTTP+JSON today:
-`federation_relay.go` defines 23 relay RPC legs (register-request,
+`federation_relay.go` defines 24 relay RPC legs (register-request,
 subscribe, deliver, not-held, cancel, ack, unsubscribe, subscribe-reed,
 unsubscribe-reed, reed-stats, reply-notify, echo-notify, mention-notify,
 reply-removal-notify, echo-removal-notify, holder-notify,
 fallback-request, new-reed-notify, search-users,
 reply-removal-to-viewer, disconnect-notify, account-removal-notify,
-reed-removal-notify) plus roughly 18 admin/handshake endpoints
+reed-removal-notify, realtime-reset) plus roughly 18 admin/handshake endpoints
 (invitations, servers, attempts, connect), all registered under
 `/api/federation/*` in `main.go`. Each leg has its own ad hoc JSON
 request/response struct pair in `federation_relay.go` (e.g.

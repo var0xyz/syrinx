@@ -25,6 +25,8 @@ established peers. `serverID` in signed envelopes prepares for foreign
 | [05](05_revoke_established.md) | Revoke peering + 401 on incoming peer traffic | 03, 04 |
 | [06](06_content_relay.md) | Cross-instance reed relay — extends the same-server relay machinery | 04, 05 |
 | [07](07_presence_delivery.md) | Server presence (`online`/`offline`/`ping`) + durable event delivery (mentions, deletions) | 06 |
+| [08](08_server_reset.md) | Server reset notice: peers forget shared realtime state on shutdown/boot, `servers.down_at` | 05, 06 |
+| [09](09_reed_delivery.md) | Durable reed delivery: `new-reed`/`reed-removal` to every peer via per-(peer, author) cursors | 06, 08 |
 
 Related: [`roles/`](../roles/README.md) (admin UI + admin invites);
 conversations foreign refs [`conversations/01`](../conversations/01_publish_and_refs.md).
@@ -94,7 +96,7 @@ content. There is no plan to notify peers when a key is revoked.
 | Admin UI | **Admin → Mesh** (create invite, paste connection string, list attempts); approve/reject live on a per-attempt detail page (`/mesh/attempt/{attemptId}`), not inline on the list |
 | Revoke peering | **Shipped**, with two deviations from the original local/asymmetric design — see [05](05_revoke_established.md)'s Status: the disconnecting server notifies the peer (which auto-revokes back), and a root-only hard purge was added beyond scope |
 | Content relay | Shipped as purpose-built peer-HTTP endpoints in `federation_relay.go` (fetch, subscribe, notify for replies/echoes/mentions/account/reed removal, stats push, federated search, ...) rather than this doc's generic `POST /api/federation/relay/reed` — see [06](06_content_relay.md) |
-| Presence + durable delivery | *Designed but not shipped* — no `servers.online`, no online/offline/ping endpoints, no backlog. What ships instead is fire-and-forget: a signed HTTP call at event time, silently dropped if the peer doesn't answer — see [07](07_presence_delivery.md) |
+| Presence + durable delivery | [07](07_presence_delivery.md) was never built and is superseded. **Shipped:** the reset notice and `servers.down_at` — see [08](08_server_reset.md). **Proposed:** durable reed delivery through per-(peer, author) cursors — see [09](09_reed_delivery.md). Until 09 lands, reed notifications are a signed HTTP call at event time, silently dropped if the peer doesn't answer |
 | Non-goals (v1) | Open federation/discovery, automated reciprocal revoke, live client notification of a mid-session peering revoke. **Since shipped despite being a v1 non-goal:** federated follow (`forwardFollowToPeer`/`RecordRemoteFollower`). **Not built at all, locally or federated:** blocking/muting, direct/private messages |
 
 ## Motivation

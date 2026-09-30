@@ -2,6 +2,10 @@
 
 ## Status
 
+**Superseded.** The reset notice and peer down state are
+[08](08_server_reset.md); durable delivery is [09](09_reed_delivery.md),
+which derives the backlog from logged tables instead of queueing events.
+
 **The problem this doc solves shipped a fire-and-forget version, with no
 durability.** `servers.online`, `pending_mention_events`, the
 online/offline/ping endpoints, and the entire drain-on-reconnect
