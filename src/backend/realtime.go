@@ -1887,8 +1887,8 @@ const (
 )
 
 // startPeriodicCleanup evicts presence rows whose PONG heartbeat lapsed.
-// Subscriptions cascade off online_users, so this also reclaims them for a
-// client that vanished without a clean disconnect.
+// Only pipe subscriptions cascade off online_users; reed and profile
+// subscriptions need the explicit disconnect teardown.
 func (rs *realtimeService) startPeriodicCleanup() {
 	ticker := time.NewTicker(realtimeReapFrequency)
 	defer ticker.Stop()

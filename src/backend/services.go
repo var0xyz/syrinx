@@ -6926,8 +6926,8 @@ func (s *DataService) RecordPong(ctx context.Context, userID string) error {
 }
 
 // ReapStalePresence deletes presence rows whose heartbeat is older than
-// ttl, returning the evicted user IDs. Subscriptions cascade off
-// online_users, so this also clears their reed and pipe subscriptions.
+// ttl, returning the evicted user IDs. Pipe subscriptions cascade off
+// online_users; reed and profile subscriptions do not.
 func (s *DataService) ReapStalePresence(ctx context.Context, ttl time.Duration) ([]string, error) {
 	cutoff := time.Now().UTC().Add(-ttl)
 	rows, err := s.db.QueryContext(ctx, `
@@ -8127,13 +8127,14 @@ func (s *DataService) DeleteProfileSubscription(ctx context.Context, subscriptio
 }
 
 // CreateReedSubscription records an active reed-stats subscription for a
-// viewer. reed_subscriptions.reed_id FKs to reed_identities (not reeds
-// directly), so the subscribed reed may be local or foreign.
+// viewer, local or foreign, on a reed that may be local or foreign.
+// Re-subscribing is a no-op, so retries never double a viewer's deliveries.
 func (s *DataService) CreateReedSubscription(ctx context.Context, subscriptionID, viewerUserID, reedID string) error {
 	viewerIdentity := identityID(viewerUserID)
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO reed_subscriptions (subscription_id, viewer_user_id, reed_id)
 		VALUES ($1, $2, $3)
+		ON CONFLICT (viewer_user_id, reed_id) DO NOTHING
 	`, subscriptionID, viewerIdentity, reedID)
 	return err
 }
