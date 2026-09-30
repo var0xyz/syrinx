@@ -41,6 +41,10 @@
     comparing = false;
   });
 
+  function formatVerifiedAt(iso: string | undefined): string {
+    return iso ? new Date(iso).toLocaleDateString() : 'an earlier date';
+  }
+
   async function confirm() {
     if (!scannedKeyID || result?.outcome !== 'same') return;
     submitting = true;
@@ -87,6 +91,13 @@
     <p class="detail">Ask them to scan your code too, so you are verified on
       their device as well.</p>
     <a class="btn primary" href={`/profile/${data.subjectUserID}`}>Done</a>
+  {:else if result?.outcome === 'already-verified'}
+    <p class="lead">You already verified
+      <Username userID={data.subjectUserID} />
+      on {formatVerifiedAt(result.verifiedAt)}.</p>
+    <p class="detail">This is the same key you verified then, so there is
+      nothing new to attest. Your verification still stands.</p>
+    <a class="btn primary" href={`/profile/${data.subjectUserID}`}>Back to profile</a>
   {:else if result?.outcome === 'same'}
     <p class="lead">
       Clicking 'Verify Identity' means you confirm you have verified

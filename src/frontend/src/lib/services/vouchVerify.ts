@@ -2,6 +2,7 @@ import { apiService } from './api';
 import { cryptoService } from './crypto';
 import { verifyPublicKey } from '$lib/verifiers';
 import { parseKeyId, formatKeyId, appendFingerprint } from '$lib/utils/identityRef';
+import { vouchesRepository } from '$lib/repositories/vouches';
 import type * as api from '$lib/types/api';
 
 /**
@@ -10,7 +11,7 @@ import type * as api from '$lib/types/api';
  * there is always something to compare. 'unresolvable' is not a comparison
  * result but a blocked flow.
  */
-export type CompareOutcome = 'same' | 'differs' | 'unresolvable';
+export type CompareOutcome = 'same' | 'differs' | 'unresolvable' | 'already-verified';
 
 export interface CompareResult {
   outcome: CompareOutcome;
@@ -20,6 +21,8 @@ export interface CompareResult {
   servedKeyID: string | null;
   /** Set when the flow must not continue. */
   reason?: string;
+  /** When the caller already verified this key, for 'already-verified'. */
+  verifiedAt?: string;
 }
 
 /** The link the subject shows. Only the fingerprint rides in the fragment,
@@ -72,6 +75,21 @@ async function resolveServedKeyID(subjectUserID: string): Promise<string | null>
   return formatKeyId(parsed.userId, parsed.serverId, derived);
 }
 
+/** A live vouch the caller already made for this exact key, if any. */
+async function existingVouchFor(
+  subjectUserID: string,
+  scannedKeyID: string
+): Promise<api.Vouch | null> {
+  const me = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+  if (!me) return null;
+  const held = await vouchesRepository.forSubject(subjectUserID);
+  return (
+    held.find(
+      (v) => !v.withdrawal && v.voucherUserID === me && v.subjectKeyID === scannedKeyID
+    ) ?? null
+  );
+}
+
 /**
  * Compares the scanned key id against the subject's current key. The
  * scanned id is the out-of-band evidence; anything the server says is the
@@ -88,6 +106,18 @@ export async function compareScannedKey(
       scannedKeyID,
       servedKeyID: null,
       reason: 'The scanned code is not a valid key id.',
+    };
+  }
+
+  // Verifying a key you already vouched for asserts nothing new, and your
+  // existing signature stands even if you have since rotated your own key.
+  const held = await existingVouchFor(subjectUserID, scannedKeyID);
+  if (held) {
+    return {
+      outcome: 'already-verified',
+      scannedKeyID,
+      servedKeyID: scannedKeyID,
+      verifiedAt: held.serverSignature.timestamp,
     };
   }
 

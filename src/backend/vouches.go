@@ -497,11 +497,18 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing != nil {
-		if existing.UserSignature.Armor != userSignatureB64 || existing.Note != note {
-			writeResponse(w, http.StatusConflict, "Vouch already exists with a different signature")
+		// This key is already verified by the caller. The one exception is
+		// the offline queue resending the signature it stored, which is a
+		// retry rather than a second verification.
+		if existing.UserSignature.Armor == userSignatureB64 {
+			writeResponse(w, http.StatusOK, existing)
 			return
 		}
-		writeResponse(w, http.StatusOK, existing)
+		log.Info().
+			Str("voucherID", voucherID).
+			Str("subjectKeyID", subjectKeyID).
+			Msg("Vouch rejected: this key is already verified by the caller")
+		writeResponse(w, http.StatusConflict, "You have already verified this key")
 		return
 	}
 
@@ -679,6 +686,16 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 	}
 	if voucherKey == nil {
 		writeResponse(w, http.StatusNotFound, "Voucher key not found")
+		return
+	}
+	// A stolen key must not be able to retract the vouches its theft
+	// prompted the user to review, so a retraction needs a live key.
+	if voucherKey.Revoked {
+		log.Error().
+			Str("voucherID", voucherID).
+			Str("voucherKeyID", voucherKeyID).
+			Msg("withdrawal refused: voucher key is revoked")
+		writeResponse(w, http.StatusUnauthorized, "`voucherKeyID` is revoked")
 		return
 	}
 
