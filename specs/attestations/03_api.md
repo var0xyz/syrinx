@@ -45,13 +45,24 @@ Server runs the verification order in
 [02](02_payload.md#verification-order-server-on-create), countersigns,
 stores, returns **200** with the full cert including the `server` block.
 
-**Idempotent.** Re-posting the same `(voucher, subjectKeyID)` returns the
-stored cert unchanged rather than re-countersigning, matching likes. A
-withdrawn row being re-vouched clears `withdrawn_at` and stores the new
+**One live vouch per `(voucher, subjectKeyID)`.** Verifying a key you have
+already verified asserts nothing new, so a second signature over the same
+pair is refused with `409`. The note is not consulted: what matters is that
+the key is already verified, not what was written about it.
+
+Re-posting the *same* signature returns the stored cert unchanged rather
+than re-countersigning — that is the offline queue retrying, not a second
+verification.
+
+Your own key rotating does not reopen it. A vouch survives its voucher's
+key being revoked ([04](04_revocation.md)), so the original still stands and
+re-signing with the new key would add nothing.
+
+A withdrawn row being re-vouched clears `withdrawn_at` and stores the new
 signature — re-verification after a retraction is legitimate.
 
 Errors: `400` malformed or self-vouch, `401` signature failure, `404`
-unknown `subjectKeyID`, `409` subject key revoked.
+unknown `subjectKeyID`, `409` subject key revoked or already verified.
 
 The voucher's own key need only be able to sign; its revocation state is not
 checked, because a revoked voucher key does not invalidate vouches
