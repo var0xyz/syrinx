@@ -171,6 +171,7 @@ func TestForeignCarrierDisconnectPromotesWaiting(t *testing.T) {
 	carrier, waiting := f.fillCrossings(t)
 
 	f.rs.teardownUser(carrier)
+	f.rs.peerCalls.Wait()
 	if err := f.rs.db.MarkUserOffline(context.Background(), carrier); err != nil {
 		t.Fatalf("MarkUserOffline: %v", err)
 	}
