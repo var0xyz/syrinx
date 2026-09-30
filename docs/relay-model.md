@@ -161,6 +161,35 @@ inside the dispatch loop itself. Full design, including the new
 `POST /api/federation/relay/reed` endpoints and their auth:
 [`specs/federation/06_content_relay`](https://github.com/var0xyz/syrinx/tree/main/specs/federation/06_content_relay.md).
 
+## Crossing a server border
+
+Federation follows one rule: **fold at the border.** Whatever a server sends
+a peer, it sends once per piece of content per peer, and the peer
+distributes it among its own users with the same machinery it uses for
+local reeds. A thousand readers on a peer must cost the home server one
+delivery, not a thousand.
+
+Content is the one thing that can't cross as a single copy for everyone:
+a holder encrypts a reed for the one requester it is relaying to, so each
+copy that crosses serves exactly one user on the other side. That user
+then becomes a holder there, and the rest of the peer's readers are served
+locally. So for content, folding means capping how many copies cross per
+reed per peer, not sending exactly one.
+
+Status. Paths that already fold, or are designed to:
+
+- New reeds and removals: one `new-reed` / `reed-removal` per peer, made
+  durable by per-(peer, author) cursors
+  ([`specs/federation/09_reed_delivery.md`](https://github.com/var0xyz/syrinx/tree/main/specs/federation/09_reed_delivery.md), proposed).
+
+Paths that still send per remote user and are being folded:
+
+- Content requests: every local request for a foreign reed goes to the
+  home server, even when a local user already holds a copy.
+- New reeds to a peer's profile subscribers (`new-reed-notify`), live
+  stats (`reed-stats`) and reply removals (`reply-removal-to-viewer`):
+  one call per foreign viewer.
+
 ## Related
 
 - [Content distribution](/content) — the conceptual walkthrough and abuse
