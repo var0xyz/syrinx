@@ -254,33 +254,3 @@ func TestSubtractHeldReeds_EmptyInput(t *testing.T) {
 	}
 }
 
-// reed_server_allocations is per-server, so a peer already holding the
-// whole page gets nothing back while the author demonstrably has more —
-// which is why hasMore must travel separately from the event list.
-func TestSubtractServerAllocatedReeds_ShortResultDoesNotMeanEndOfList(t *testing.T) {
-	db := openProfilePageTestDB(t)
-	s := &DataService{db: db, serverID: profilePageTestServerID}
-	author := insertProfilePageIdentity(t, db, "alice")
-	seedProfilePageReeds(t, db, author, 60)
-
-	page, hasMore, err := s.GetAuthorReedPage(context.Background(), author, 1, 50)
-	if err != nil {
-		t.Fatalf("page 1: %v", err)
-	}
-	for _, id := range page {
-		if _, err := db.Exec(`INSERT INTO reed_server_allocations (reed_id, server_id) VALUES ($1, $2)`, id, "peer5678"); err != nil {
-			t.Fatalf("insert server allocation: %v", err)
-		}
-	}
-
-	missing, err := s.SubtractServerAllocatedReeds(context.Background(), page, "peer5678")
-	if err != nil {
-		t.Fatalf("subtract: %v", err)
-	}
-	if len(missing) != 0 {
-		t.Fatalf("missing = %d, want 0 (peer holds the whole page)", len(missing))
-	}
-	if !hasMore {
-		t.Fatal("hasMore = false; the author has 60 reeds, so more remain past page 1")
-	}
-}

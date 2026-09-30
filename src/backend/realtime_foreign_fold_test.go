@@ -196,3 +196,38 @@ func TestForeignInvalidCopyPromotesWaiting(t *testing.T) {
 		t.Fatalf("crossings = %v, want %s promoted", f.crossings, waiting)
 	}
 }
+
+// A foreign profile page is folded like any other request: reeds the
+// viewer holds are skipped, and one with a local holder doesn't cross.
+func TestForeignProfilePageFolds(t *testing.T) {
+	f := newForeignFoldFixture(t)
+	ctx := context.Background()
+	author := string(canonicalID(teardownPeerID, "bob"))
+	reeds := []string{f.reedID}
+	for _, suffix := range []string{"2593", "2594"} {
+		reeds = append(reeds, string(appendEntity(identityID(author), "01a026d4-406f-744b-b730-fcd241bf"+suffix)))
+	}
+	for _, id := range reeds {
+		if err := f.rs.db.UpsertReedIdentity(ctx, id); err != nil {
+			t.Fatalf("UpsertReedIdentity: %v", err)
+		}
+	}
+	f.rs.SetForeignProfilePageHook(func(context.Context, string, int) ([]string, int, bool, error) {
+		return reeds, len(reeds), false, nil
+	})
+
+	viewer := f.onlineUser(t, "viewer2")
+	holder := f.onlineUser(t, "holder")
+	if _, err := f.rs.db.AllocateReed(ctx, reeds[0], viewer); err != nil {
+		t.Fatalf("AllocateReed viewer: %v", err)
+	}
+	if _, err := f.rs.db.AllocateReed(ctx, reeds[1], holder); err != nil {
+		t.Fatalf("AllocateReed holder: %v", err)
+	}
+
+	f.rs.handleForeignProfilePageFromClient(&realtimeClient{userID: viewer}, author, teardownPeerID, 1)
+
+	if len(f.crossings) != 1 {
+		t.Fatalf("crossings = %v, want only the reed nobody here holds", f.crossings)
+	}
+}

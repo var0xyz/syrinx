@@ -8162,28 +8162,6 @@ func (s *DataService) SubtractHeldReeds(ctx context.Context, reedIDs []string, v
 	return filterByReturnedIDs(rows, reedIDs)
 }
 
-// SubtractServerAllocatedReeds is SubtractHeldReeds' server-scoped
-// counterpart. reed_server_allocations has no per-user granularity, so a
-// short result never means the author's list ended — only hasMore says that.
-func (s *DataService) SubtractServerAllocatedReeds(ctx context.Context, reedIDs []string, serverID string) ([]string, error) {
-	if len(reedIDs) == 0 {
-		return nil, nil
-	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id FROM unnest($1::text[]) AS r(id)
-		WHERE NOT EXISTS (
-		    SELECT 1 FROM reed_server_allocations rsa
-		    WHERE rsa.reed_id = r.id AND rsa.server_id = $2
-		)
-	`, pq.Array(reedIDs), serverID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return filterByReturnedIDs(rows, reedIDs)
-}
-
 // filterByReturnedIDs re-filters ordered against the (unordered) id set the
 // subtraction query returned, so newest-first survives the round trip.
 func filterByReturnedIDs(rows *sql.Rows, ordered []string) ([]string, error) {

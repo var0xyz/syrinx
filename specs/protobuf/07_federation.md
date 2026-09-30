@@ -11,8 +11,8 @@ Proposed.
 ## Context
 
 Federation (server-to-server) traffic is signed HTTP+JSON today:
-`federation_relay.go` defines 18 relay RPC legs (register-request,
-subscribe, deliver, not-held, cancel, ack, unsubscribe, subscribe-reed,
+`federation_relay.go` defines 17 relay RPC legs (register-request,
+profile-page, deliver, not-held, cancel, ack, subscribe-reed,
 unsubscribe-reed, reed-stats, holder-notify, fallback-request,
 search-users, disconnect-notify, account-removal-notify, realtime-reset,
 new-reed, reed-removal) plus

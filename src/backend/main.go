@@ -237,13 +237,11 @@ func main() {
 	h.SetKickUserWS(rtService.DisconnectUser)
 	h.SetRealtimeRelay(rtService)
 	rtService.SetForeignRequestReedHook(h.relayRequestToPeer)
-	rtService.SetForeignSubscribeProfileHook(h.subscribeProfileToPeer)
 	rtService.SetForeignProfilePageHook(h.profilePageToPeer)
 	rtService.SetForeignDeliverHook(h.deliverRelayResponseToPeer)
 	rtService.SetForeignNotHeldHook(h.notifyRelayNotHeldToPeer)
 	rtService.SetForeignCancelHook(h.cancelRelayRequestWithPeer)
 	rtService.SetForeignAckHook(h.ackRelayDeliveryWithPeer)
-	rtService.SetForeignUnsubscribeProfileHook(h.unsubscribeProfileWithPeer)
 	rtService.SetForeignSubscribeReedHook(h.subscribeReedToPeer)
 	rtService.SetForeignUnsubscribeReedHook(h.unsubscribeReedWithPeer)
 	rtService.SetForeignReedStatsHook(h.pushReedStatsToPeer)
@@ -503,9 +501,6 @@ func main() {
 	api.HandleFunc("/federation/relay/request", h.RelayRequestFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/request", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/subscribe", h.RelaySubscribeProfileFromPeer).Methods("POST")
-	api.HandleFunc("/federation/relay/subscribe", h.noop).Methods("OPTIONS")
-
 	api.HandleFunc("/federation/relay/profile-page", h.RelayProfilePageFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/profile-page", h.noop).Methods("OPTIONS")
 
@@ -520,9 +515,6 @@ func main() {
 
 	api.HandleFunc("/federation/relay/ack", h.AckRelayDeliveryFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/ack", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/federation/relay/unsubscribe", h.RelayUnsubscribeProfileFromPeer).Methods("POST")
-	api.HandleFunc("/federation/relay/unsubscribe", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/federation/relay/subscribe-reed", h.RelaySubscribeReedFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/subscribe-reed", h.noop).Methods("OPTIONS")
