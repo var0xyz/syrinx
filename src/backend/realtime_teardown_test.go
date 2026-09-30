@@ -87,6 +87,7 @@ func TestDisconnectCancelsForeignRelayRequests(t *testing.T) {
 	})
 
 	rs.teardownUser(viewer)
+	rs.peerCalls.Wait()
 	if err := rs.db.MarkUserOffline(ctx, viewer); err != nil {
 		t.Fatalf("MarkUserOffline: %v", err)
 	}
@@ -136,6 +137,7 @@ func TestReaperTearsDownUserWithoutLocalSocket(t *testing.T) {
 
 	ageTeardownPresence(t, db, viewer)
 	rs.reapStalePresence()
+	rs.peerCalls.Wait()
 
 	if len(profileUnsubs) != 1 || profileUnsubs[0] != foreignAuthor {
 		t.Fatalf("profile unsubscribes = %v, want only [%s]", profileUnsubs, foreignAuthor)

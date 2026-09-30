@@ -1127,6 +1127,9 @@ type realtimeService struct {
 	ongoingCheck  func(userID string) (bool, error)
 	deviceCheck   func(userID, deviceID string) error
 
+	// Background peer notifications from teardownUser; tests wait on it.
+	peerCalls sync.WaitGroup
+
 	// Cross-server REQUEST_REED relay hooks: realtimeService has no signing
 	// key, HTTP client, or federation-table access of its own, so the
 	// actual peer HTTP calls are injected from the rest of root (mirrors
@@ -2079,99 +2082,83 @@ func (rs *realtimeService) forgetPeer(ctx context.Context, serverID string) {
 		Msg("Forgot peer realtime state")
 }
 
-// teardownUser ends everything userID has open: peers are told first, then
-// this server's rows go. Callers drop presence only afterwards, since
-// pending events cascade off online_users and would vanish unread.
+// teardownUser ends everything userID has open. Local rows go right away,
+// before presence (pending events cascade off online_users); peers are told
+// in the background from what was read first, so a reconnect never races them.
 func (rs *realtimeService) teardownUser(userID string) {
-	if err := rs.db.UnsubscribeFromBroadcast(context.Background(), userID); err != nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).
-			Msg("Failed to remove broadcast subscription on disconnect")
-	}
+	ctx := context.Background()
 
-	// Notify any home servers this user had outstanding cross-server relay
-	// requests with, so they stop tracking them — must run BEFORE the
-	// cascade delete below removes the correlating foreign_pending_events
-	// rows. Best-effort: an HTTP failure here must not block local cleanup.
-	foreignPending, err := rs.db.GetForeignPendingEventsByRequester(context.Background(), userID)
+	foreignPending, err := rs.db.GetForeignPendingEventsByRequester(ctx, userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to load foreign pending events on disconnect")
 	}
-	if rs.foreignCancelHook != nil {
-		for _, fpe := range foreignPending {
-			if err := rs.foreignCancelHook(context.Background(), fpe.HomeServerID, fpe.PeerEventID); err != nil {
-				log.Error().Err(err).Str("eventID", fpe.EventID).Str("homeServerID", fpe.HomeServerID).Msg("Failed to notify home server of cancelled relay request")
-			}
-		}
+	profileSubs, err := rs.db.GetProfileSubscriptionsByViewer(ctx, userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to load profile subscriptions on disconnect")
+	}
+	reedSubs, err := rs.db.GetReedSubscriptionsByViewer(ctx, userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to load reed subscriptions on disconnect")
 	}
 
-	// Discard all pending relay events for this requester (cascades from profile_subscriptions too)
-	if deleted, err := rs.db.DeletePendingEventsByUser(context.Background(), userID); err != nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).
-			Msg("Failed to delete pending events on disconnect")
+	if err := rs.db.UnsubscribeFromBroadcast(ctx, userID); err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to remove broadcast subscription on disconnect")
+	}
+	if deleted, err := rs.db.DeletePendingEventsByUser(ctx, userID); err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to delete pending events on disconnect")
 	} else {
 		for _, d := range deleted {
-			rs.metrics.RelayEvent(context.Background(), metrics.RelayEventDeleted, d.EventName, d.EventID)
+			rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, d.EventName, d.EventID)
 		}
 	}
-	// This user was carrying copies across the border; hand their slots on.
+	if err := rs.db.DeleteProfileSubscriptionsByViewer(ctx, userID); err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to delete profile subscriptions on disconnect")
+	}
+	if err := rs.db.DeleteReedSubscriptionsByViewer(ctx, userID); err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to delete reed subscriptions on disconnect")
+	}
+
+	// Best-effort: a peer that misses this sends us something we ignore.
+	rs.peerCalls.Add(1)
+	go func() {
+		defer rs.peerCalls.Done()
+		rs.notifyPeersOfTeardown(userID, foreignPending, profileSubs, reedSubs)
+	}()
+}
+
+// notifyPeersOfTeardown tells home servers that userID's relay requests
+// and subscriptions there are gone, and hands on the border crossings
+// userID was carrying.
+func (rs *realtimeService) notifyPeersOfTeardown(userID string, foreignPending []foreignPendingEvent, profileSubs []viewerSubscription, reedSubs []viewerReedSubscription) {
+	ctx := context.Background()
+	for _, fpe := range foreignPending {
+		if rs.foreignCancelHook == nil {
+			break
+		}
+		if err := rs.foreignCancelHook(ctx, fpe.HomeServerID, fpe.PeerEventID); err != nil {
+			log.Error().Err(err).Str("eventID", fpe.EventID).Str("homeServerID", fpe.HomeServerID).Msg("Failed to notify home server of cancelled relay request")
+		}
+	}
 	for _, fpe := range foreignPending {
 		if fpe.ReedID != "" {
-			rs.promoteWaitingForeign(context.Background(), fpe.ReedID)
+			rs.promoteWaitingForeign(ctx, fpe.ReedID)
 		}
 	}
-
-	// Notify any foreign authors' home servers that this viewer's live
-	// fanout subscriptions are going away — must run BEFORE the delete
-	// below removes the local rows. Same best-effort/non-blocking
-	// treatment as the foreignCancelHook block above.
-	if rs.foreignUnsubscribeProfileHook != nil {
-		viewerSubs, err := rs.db.GetProfileSubscriptionsByViewer(context.Background(), userID)
-		if err != nil {
-			log.Error().Err(err).Str("userID", userID).Msg("Failed to load profile subscriptions on disconnect")
-		} else {
-			for _, sub := range viewerSubs {
-				if foreign, _ := rs.isForeignReed(sub.AuthorUserID); foreign {
-					if err := rs.foreignUnsubscribeProfileHook(context.Background(), sub.AuthorUserID, userID); err != nil {
-						log.Error().Err(err).Str("authorID", sub.AuthorUserID).Msg("Failed to notify home server of profile unsubscribe on disconnect")
-					}
-				}
-			}
+	for _, sub := range profileSubs {
+		if foreign, _ := rs.isForeignReed(sub.AuthorUserID); !foreign || rs.foreignUnsubscribeProfileHook == nil {
+			continue
+		}
+		if err := rs.foreignUnsubscribeProfileHook(ctx, sub.AuthorUserID, userID); err != nil {
+			log.Error().Err(err).Str("authorID", sub.AuthorUserID).Msg("Failed to notify home server of profile unsubscribe on disconnect")
 		}
 	}
-
-	if err := rs.db.DeleteProfileSubscriptionsByViewer(context.Background(), userID); err != nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).
-			Msg("Failed to delete profile subscriptions on disconnect")
-	}
-
-	// Same treatment for reed-stats subscriptions: notify foreign reeds'
-	// home servers before the local rows are deleted below.
-	if rs.foreignUnsubscribeReedHook != nil {
-		reedSubs, err := rs.db.GetReedSubscriptionsByViewer(context.Background(), userID)
-		if err != nil {
-			log.Error().Err(err).Str("userID", userID).Msg("Failed to load reed subscriptions on disconnect")
-		} else {
-			for _, sub := range reedSubs {
-				if foreign, _ := rs.isForeignReed(sub.ReedID); foreign {
-					if err := rs.foreignUnsubscribeReedHook(context.Background(), sub.ReedID, userID); err != nil {
-						log.Error().Err(err).Str("reedID", sub.ReedID).Msg("Failed to notify home server of reed stats unsubscribe on disconnect")
-					}
-				}
-			}
+	for _, sub := range reedSubs {
+		if foreign, _ := rs.isForeignReed(sub.ReedID); !foreign || rs.foreignUnsubscribeReedHook == nil {
+			continue
 		}
-	}
-
-	if err := rs.db.DeleteReedSubscriptionsByViewer(context.Background(), userID); err != nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).
-			Msg("Failed to delete reed subscriptions on disconnect")
+		if err := rs.foreignUnsubscribeReedHook(ctx, sub.ReedID, userID); err != nil {
+			log.Error().Err(err).Str("reedID", sub.ReedID).Msg("Failed to notify home server of reed stats unsubscribe on disconnect")
+		}
 	}
 }
 
