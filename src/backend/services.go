@@ -7788,6 +7788,7 @@ func (s *DataService) GetNextPendingForHolder(ctx context.Context, holderUserID 
 		JOIN reed_allocations ra ON ra.reed_id = pre.reed_id
 		WHERE ra.holder_user_id = $1
 		  AND pe.dispatched_at IS NULL
+		  AND NOT EXISTS (SELECT 1 FROM foreign_pending_events fpe WHERE fpe.event_id = pe.event_id)
 		ORDER BY pe.created_at
 		LIMIT 1
 	`, holderIdentity).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName, &pe.ReedID)
@@ -8588,6 +8589,7 @@ type foreignPendingEvent struct {
 	EventID      string
 	HomeServerID string
 	PeerEventID  string
+	ReedID       string // only set by GetForeignPendingEventsByRequester
 }
 
 // CreateForeignPendingEvent records, on the originating server, that
@@ -8639,6 +8641,55 @@ func (s *DataService) GetForeignPendingEventByPeerEventID(ctx context.Context, p
 	return &fpe, nil
 }
 
+// ForeignReedCrossings reports, for a foreign reed, one online local holder
+// (empty if none) and how many requests for it are waiting on its home
+// server.
+func (s *DataService) ForeignReedCrossings(ctx context.Context, reedID string) (onlineHolder string, inFlight int, err error) {
+	var holder sql.NullString
+	err = s.db.QueryRowContext(ctx, `
+		SELECT
+			(
+				SELECT ou.user_id
+				FROM reed_allocations ra
+				JOIN online_users ou ON ou.user_id = ra.holder_user_id
+				WHERE ra.reed_id = $1
+				LIMIT 1
+			),
+			(
+				SELECT COUNT(*)
+				FROM foreign_pending_events fpe
+				JOIN pending_reed_events pre ON pre.event_id = fpe.event_id
+				WHERE pre.reed_id = $1
+			)
+	`, reedID).Scan(&holder, &inFlight)
+	return holder.String, inFlight, err
+}
+
+// OldestWaitingForeignEvent returns the oldest event for reedID that is
+// neither crossing nor dispatched, and whose requester is online.
+func (s *DataService) OldestWaitingForeignEvent(ctx context.Context, reedID string) (*pendingReedEvent, error) {
+	var pe pendingReedEvent
+	err := s.db.QueryRowContext(ctx, `
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id
+		FROM pending_reed_events pre
+		JOIN pending_events pe ON pe.event_id = pre.event_id
+		JOIN online_users ou ON ou.user_id = pe.requester_user_id
+		WHERE pre.reed_id = $1
+		  AND pe.dispatched_at IS NULL
+		  AND NOT EXISTS (SELECT 1 FROM foreign_pending_events fpe WHERE fpe.event_id = pe.event_id)
+		ORDER BY pe.created_at
+		LIMIT 1
+	`, reedID).Scan(&pe.EventID, &pe.RequestID, &pe.RequesterUserID, &pe.EventName, &pe.ReedID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	pe.UserID = reedAuthorIdentity(pe.ReedID)
+	return &pe, nil
+}
+
 // GetForeignPendingEventsByHomeServer lists this server's relay requests
 // still waiting on homeServerID.
 func (s *DataService) GetForeignPendingEventsByHomeServer(ctx context.Context, homeServerID string) ([]foreignPendingEvent, error) {
@@ -8669,9 +8720,10 @@ func (s *DataService) GetForeignPendingEventsByHomeServer(ctx context.Context, h
 func (s *DataService) GetForeignPendingEventsByRequester(ctx context.Context, requesterUserID string) ([]foreignPendingEvent, error) {
 	requesterIdentity := identityID(requesterUserID)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT fpe.event_id, fpe.home_server_id, fpe.peer_event_id
+		SELECT fpe.event_id, fpe.home_server_id, fpe.peer_event_id, COALESCE(pre.reed_id, '')
 		FROM foreign_pending_events fpe
 		JOIN pending_events pe ON pe.event_id = fpe.event_id
+		LEFT JOIN pending_reed_events pre ON pre.event_id = fpe.event_id
 		WHERE pe.requester_user_id = $1
 	`, requesterIdentity)
 	if err != nil {
@@ -8682,7 +8734,7 @@ func (s *DataService) GetForeignPendingEventsByRequester(ctx context.Context, re
 	var out []foreignPendingEvent
 	for rows.Next() {
 		var fpe foreignPendingEvent
-		if err := rows.Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID); err != nil {
+		if err := rows.Scan(&fpe.EventID, &fpe.HomeServerID, &fpe.PeerEventID, &fpe.ReedID); err != nil {
 			return nil, err
 		}
 		out = append(out, fpe)

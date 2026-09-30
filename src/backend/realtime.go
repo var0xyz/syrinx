@@ -2094,15 +2094,14 @@ func (rs *realtimeService) teardownUser(userID string) {
 	// requests with, so they stop tracking them — must run BEFORE the
 	// cascade delete below removes the correlating foreign_pending_events
 	// rows. Best-effort: an HTTP failure here must not block local cleanup.
+	foreignPending, err := rs.db.GetForeignPendingEventsByRequester(context.Background(), userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to load foreign pending events on disconnect")
+	}
 	if rs.foreignCancelHook != nil {
-		foreignPending, err := rs.db.GetForeignPendingEventsByRequester(context.Background(), userID)
-		if err != nil {
-			log.Error().Err(err).Str("userID", userID).Msg("Failed to load foreign pending events on disconnect")
-		} else {
-			for _, fpe := range foreignPending {
-				if err := rs.foreignCancelHook(context.Background(), fpe.HomeServerID, fpe.PeerEventID); err != nil {
-					log.Error().Err(err).Str("eventID", fpe.EventID).Str("homeServerID", fpe.HomeServerID).Msg("Failed to notify home server of cancelled relay request")
-				}
+		for _, fpe := range foreignPending {
+			if err := rs.foreignCancelHook(context.Background(), fpe.HomeServerID, fpe.PeerEventID); err != nil {
+				log.Error().Err(err).Str("eventID", fpe.EventID).Str("homeServerID", fpe.HomeServerID).Msg("Failed to notify home server of cancelled relay request")
 			}
 		}
 	}
@@ -2116,6 +2115,12 @@ func (rs *realtimeService) teardownUser(userID string) {
 	} else {
 		for _, d := range deleted {
 			rs.metrics.RelayEvent(context.Background(), metrics.RelayEventDeleted, d.EventName, d.EventID)
+		}
+	}
+	// This user was carrying copies across the border; hand their slots on.
+	for _, fpe := range foreignPending {
+		if fpe.ReedID != "" {
+			rs.promoteWaitingForeign(context.Background(), fpe.ReedID)
 		}
 	}
 
@@ -2420,6 +2425,11 @@ const dispatchRequestTimeout = 5 * time.Second
 // holder at t=0) up front, kept small since the author alone pays for each
 // one plus any retry — fanoutRefillBurst takes over once other holders exist.
 const initialFanoutBurst = 2
+
+// maxForeignCrossings caps how many copies of one foreign reed are being
+// fetched from its home server at once. Three, so one carrier going
+// offline mid-transfer never strands the requesters waiting behind it.
+const maxForeignCrossings = 3
 
 // fanoutRefillBurst is how many further events get dispatched to a holder
 // each time one of their in-flight relay requests resolves (response, miss,
@@ -2805,48 +2815,110 @@ func (rs *realtimeService) handleForeignRequestReedFromClient(client *realtimeCl
 		rs.connManager.SendToUser(client.userID, newReedNotFoundMsg(requestID, reedID))
 		return
 	}
+	ctx := context.Background()
 
 	// reed_identities row must exist before pending_reed_events.reed_id
 	// can FK to it — this only claims reedID is a well-formed id worth
 	// tracking (the same bar a local reed already clears just by being
 	// signed, before anyone verifies/holds its content), not that this
 	// server has verified anything about it.
-	if err := rs.db.UpsertReedIdentity(context.Background(), reedID); err != nil {
+	if err := rs.db.UpsertReedIdentity(ctx, reedID); err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to upsert reed identity for foreign relay request")
 		return
 	}
 
 	eventID := generateRealtimeEventID(client.userID)
-	if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, client.userID, requestReedEvent, reedID); err != nil {
+	if err := rs.createPendingReedEvent(ctx, eventID, requestID, client.userID, requestReedEvent, reedID); err != nil {
 		log.Error().Err(err).Msg("Failed to create local pending event for foreign relay request")
 		return
 	}
 
-	result, peerEventID, err := rs.foreignRequestReedHook(context.Background(), reedID, client.userID, requestID)
+	// Fold at the border: a local holder serves it if there is one, and
+	// otherwise only a few copies cross while the rest wait for them.
+	holder, inFlight, err := rs.db.ForeignReedCrossings(ctx, reedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to count foreign reed crossings")
+	}
+	if err == nil && (holder != "" || inFlight >= maxForeignCrossings) {
+		rs.connManager.SendToUser(client.userID, newRequestAckMsg(requestID, eventID, reedID))
+		if holder != "" {
+			rs.dispatchNextIfConnected(holder)
+		}
+		return
+	}
+
+	result, err := rs.crossToHomeServer(ctx, eventID, client.userID, requestID, reedID, homeServerID)
 	if err != nil || result != realtimeForeignRequestOK {
-		if err != nil {
-			log.Error().Err(err).Str("reedID", reedID).Str("homeServerID", homeServerID).Msg("Failed to register foreign reed request with home server")
-		}
-		if delErr := rs.deletePendingEvent(context.Background(), eventID); delErr != nil {
-			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete speculative pending event after foreign request failure")
-		}
-		if result == realtimeForeignRequestReedNotFound {
-			rs.connManager.SendToUser(client.userID, newReedNotFoundMsg(requestID, reedID))
-		} else {
-			rs.connManager.SendToUser(client.userID, newReedNotHeldMsg(requestID, reedID))
-		}
+		rs.failForeignRequest(ctx, eventID, client.userID, requestID, reedID, result)
 		return
 	}
-
-	if err := rs.db.CreateForeignPendingEvent(context.Background(), eventID, homeServerID, peerEventID); err != nil {
-		log.Error().Err(err).Msg("Failed to record foreign pending event mapping")
-		if delErr := rs.deletePendingEvent(context.Background(), eventID); delErr != nil {
-			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_pending_events insert failure")
-		}
-		return
-	}
-
 	rs.connManager.SendToUser(client.userID, newRequestAckMsg(requestID, eventID, reedID))
+}
+
+// crossToHomeServer asks reedID's home server to relay a copy for the
+// local event eventID, and records the mapping its answer resolves by.
+func (rs *realtimeService) crossToHomeServer(ctx context.Context, eventID, requesterUserID, requestID, reedID, homeServerID string) (realtimeForeignRequestResult, error) {
+	result, peerEventID, err := rs.foreignRequestReedHook(ctx, reedID, requesterUserID, requestID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Str("homeServerID", homeServerID).Msg("Failed to register foreign reed request with home server")
+		return result, err
+	}
+	if result != realtimeForeignRequestOK {
+		return result, nil
+	}
+	if err := rs.db.CreateForeignPendingEvent(ctx, eventID, homeServerID, peerEventID); err != nil {
+		log.Error().Err(err).Msg("Failed to record foreign pending event mapping")
+		return result, err
+	}
+	return realtimeForeignRequestOK, nil
+}
+
+// failForeignRequest drops a local event whose crossing was refused and
+// tells its requester why.
+func (rs *realtimeService) failForeignRequest(ctx context.Context, eventID, requesterUserID, requestID, reedID string, result realtimeForeignRequestResult) {
+	if err := rs.deletePendingEvent(ctx, eventID); err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event after foreign request failure")
+	}
+	if result == realtimeForeignRequestReedNotFound {
+		rs.connManager.SendToUser(requesterUserID, newReedNotFoundMsg(requestID, reedID))
+	} else {
+		rs.connManager.SendToUser(requesterUserID, newReedNotHeldMsg(requestID, reedID))
+	}
+}
+
+// promoteWaitingForeign refills the crossings for a foreign reed after one
+// ended without an ack, so waiting requesters aren't stranded while nobody
+// here holds it.
+func (rs *realtimeService) promoteWaitingForeign(ctx context.Context, reedID string) {
+	foreign, homeServerID := rs.isForeignReed(reedID)
+	if !foreign || rs.foreignRequestReedHook == nil {
+		return
+	}
+	for {
+		holder, inFlight, err := rs.db.ForeignReedCrossings(ctx, reedID)
+		if err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to count foreign reed crossings")
+			return
+		}
+		if holder != "" {
+			rs.dispatchNextIfConnected(holder)
+			return
+		}
+		if inFlight >= maxForeignCrossings {
+			return
+		}
+		pe, err := rs.db.OldestWaitingForeignEvent(ctx, reedID)
+		if err != nil || pe == nil {
+			if err != nil {
+				log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load waiting foreign event")
+			}
+			return
+		}
+		result, err := rs.crossToHomeServer(ctx, pe.EventID, pe.RequesterUserID, pe.RequestID, reedID, homeServerID)
+		if err != nil || result != realtimeForeignRequestOK {
+			rs.failForeignRequest(ctx, pe.EventID, pe.RequesterUserID, pe.RequestID, reedID, result)
+		}
+	}
 }
 
 // registerAndRecordForeignRelay is the shared body behind both
@@ -4392,6 +4464,7 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 	if pe == nil {
 		return
 	}
+	carried := false
 
 	if realtimeEventName(pe.EventName) == reedRemovedEvent {
 		changed, err := rs.db.DeleteReedAllocation(context.Background(), pe.ReedID, client.userID)
@@ -4462,6 +4535,7 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 						if err := rs.foreignAckHook(context.Background(), fpe.HomeServerID, fpe.PeerEventID); err != nil {
 							log.Error().Err(err).Str("eventID", eventID).Str("homeServerID", fpe.HomeServerID).Msg("Failed to notify home server of delivered ack")
 						}
+						carried = true
 					}
 				}
 			}
@@ -4470,6 +4544,11 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 
 	if err := rs.deletePendingEvent(context.Background(), eventID); err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event on data ack")
+	}
+	// The copy that crossed landed: this client now holds the reed here,
+	// so the requesters waiting behind the crossing are served locally.
+	if carried {
+		rs.dispatchN(client.userID, fanoutRefillBurst)
 	}
 }
 
@@ -4480,8 +4559,20 @@ func (rs *realtimeService) handleDataInvalid(client *realtimeClient, eventID str
 		return
 	}
 
+	crossed, err := rs.db.GetForeignPendingEvent(context.Background(), eventID)
+	if err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to look up foreign pending event on data invalid")
+	}
+	pe, err := rs.db.GetPendingSubject(context.Background(), eventID)
+	if err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event on data invalid")
+	}
 	if err := rs.deletePendingEvent(context.Background(), eventID); err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event on data invalid")
+	}
+	// A copy that crossed and failed verification frees its slot.
+	if crossed != nil && pe != nil {
+		rs.promoteWaitingForeign(context.Background(), pe.ReedID)
 	}
 }
 
@@ -4682,6 +4773,7 @@ func (rs *realtimeService) HandleForeignRelayNotHeld(ctx context.Context, peerEv
 	if err := rs.deletePendingEvent(ctx, pe.EventID); err != nil {
 		log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to delete pending event on foreign relay give-up")
 	}
+	rs.promoteWaitingForeign(ctx, pe.ReedID)
 	return true, nil
 }
 
