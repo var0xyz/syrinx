@@ -145,7 +145,7 @@ func TestPipeSubscriptionsCascadeOnOffline(t *testing.T) {
 
 // A lapsed PONG heartbeat evicts the presence row, taking its
 // subscriptions with it; a fresh one is left alone.
-func TestReapStalePresence(t *testing.T) {
+func TestStalePresenceEviction(t *testing.T) {
 	db := openPipeTestDB(t)
 	svc := NewDataService(db, pipeTestServerID)
 	ctx := context.Background()
@@ -167,12 +167,19 @@ func TestReapStalePresence(t *testing.T) {
 		t.Fatalf("age last_pong: %v", err)
 	}
 
-	evicted, err := svc.ReapStalePresence(ctx, realtimePresenceTTL)
+	listed, err := svc.StalePresence(ctx, realtimePresenceTTL)
 	if err != nil {
-		t.Fatalf("ReapStalePresence: %v", err)
+		t.Fatalf("StalePresence: %v", err)
 	}
-	if len(evicted) != 1 || evicted[0] != stale {
-		t.Fatalf("evicted = %v, want [%s]", evicted, stale)
+	if len(listed) != 1 || listed[0] != stale {
+		t.Fatalf("stale = %v, want [%s]", listed, stale)
+	}
+	gone, err := svc.EvictStalePresence(ctx, stale, realtimePresenceTTL)
+	if err != nil {
+		t.Fatalf("EvictStalePresence: %v", err)
+	}
+	if !gone {
+		t.Fatal("expected the stale row to be evicted")
 	}
 
 	online, err := svc.IsUserOnline(ctx, fresh)
@@ -209,16 +216,20 @@ func TestRecordPongRefreshesHeartbeat(t *testing.T) {
 		t.Fatalf("age last_pong: %v", err)
 	}
 
-	if err := svc.RecordPong(ctx, viewer); err != nil {
+	live, err := svc.RecordPong(ctx, viewer)
+	if err != nil {
 		t.Fatalf("RecordPong: %v", err)
 	}
-
-	evicted, err := svc.ReapStalePresence(ctx, realtimePresenceTTL)
-	if err != nil {
-		t.Fatalf("ReapStalePresence: %v", err)
+	if !live {
+		t.Fatal("expected RecordPong to find the presence row")
 	}
-	if len(evicted) != 0 {
-		t.Fatalf("expected no eviction after PONG, got %v", evicted)
+
+	stale, err := svc.StalePresence(ctx, realtimePresenceTTL)
+	if err != nil {
+		t.Fatalf("StalePresence: %v", err)
+	}
+	if len(stale) != 0 {
+		t.Fatalf("expected nothing stale after PONG, got %v", stale)
 	}
 }
 
