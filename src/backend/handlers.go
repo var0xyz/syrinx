@@ -1818,8 +1818,8 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Mentions are claimed metadata now. Local mentions still get an
-	// existence sanity check; foreign ones are queued for the mention-notify
-	// federation leg below. Either way the mentioned client re-verifies.
+	// existence sanity check; foreign ones are stored when their server is
+	// a peer, for new-reed to carry. Either way the mentioned client re-verifies.
 	allMentions := ValidateMentionClaims(claimedMentions, userID)
 	localMentions := make([]string, 0, len(allMentions))
 	foreignMentions := make([]string, 0, len(allMentions))
@@ -1840,6 +1840,19 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		localMentions = append(localMentions, mentionedUserID)
+	}
+	storedMentions := localMentions
+	for _, mentionedUserID := range foreignMentions {
+		_, mentionedServerID, _ := parseIdentityID(identityID(mentionedUserID))
+		peer, err := h.services.db.GetServerByID(r.Context(), mentionedServerID)
+		if err != nil || peer == nil {
+			continue
+		}
+		if err := h.services.db.UpsertRemoteIdentity(r.Context(), mentionedUserID, mentionedServerID); err != nil {
+			log.Error().Str("mentionedUserID", mentionedUserID).Err(err).Msg("Error recording foreign mention target")
+			continue
+		}
+		storedMentions = append(storedMentions, mentionedUserID)
 	}
 
 	user, err := h.services.db.GetUserProfile(r.Context(), userID)
@@ -1920,7 +1933,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		ServerSignatureB64: serverSignature.Armor,
 		Timestamp:          serverSignature.SignedAt,
 		Tags:               tags,
-		Mentions:           localMentions,
+		Mentions:           storedMentions,
 		PreviousID:         previousID,
 	}
 
@@ -1964,29 +1977,14 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	if echoIndexed && echoRef != nil {
 		h.metrics.EchoTargeted(r.Context(), echoRef.AuthorID, echoRef.ReedID)
+		// A foreign echo target's server learns of it from new-reed.
 		if echoRef.ServerID == localServerID {
 			h.broadcastChan <- realtimeBroadcastMessage{
 				Type:   realtimeEchoCountChanged,
 				UserID: echoRef.CanonicalAuthorID(),
 				ReedID: echoRef.ReedID,
 			}
-		} else {
-			go func() {
-				if err := h.notifyForeignEchoToPeer(context.Background(), FormatReedRef(*echoRef), reedID, userID, false, serverSignature.SignedAt); err != nil {
-					log.Error().Err(err).Str("echoedReedID", FormatReedRef(*echoRef)).Str("echoingReedID", reedID).Msg("Failed to notify foreign echo target's home server")
-				}
-			}()
 		}
-	}
-
-	if len(foreignMentions) > 0 {
-		go func() {
-			for _, mentionedUserID := range foreignMentions {
-				if err := h.notifyForeignMentionToPeer(context.Background(), reedID, mentionedUserID, serverSignature.SignedAt); err != nil {
-					log.Error().Err(err).Str("mentioningReedID", reedID).Str("mentionedUserID", mentionedUserID).Msg("Failed to notify foreign mention target's home server")
-				}
-			}
-		}()
 	}
 
 	if replyRef != nil {
@@ -2224,17 +2222,8 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing echo index for removed reed")
 	} else {
 		for _, t := range affectedTargets {
+			// A foreign target's server learns of it from reed-removal.
 			if t.ServerID != serverID {
-				// Target is foreign — this server's own EchoCountChanged
-				// broadcast below only reaches its own local subscribers;
-				// without this notify the target's home server never
-				// learns the echo is gone and keeps counting/showing it,
-				// same gap as the reply-removal case (leg 13).
-				go func(echoedReedID, echoingReedID string) {
-					if err := h.notifyForeignEchoRemovalToPeer(context.Background(), echoedReedID, echoingReedID); err != nil {
-						log.Error().Err(err).Str("echoedReedID", echoedReedID).Str("echoingReedID", echoingReedID).Msg("Failed to notify foreign echo target's home server of removal")
-					}
-				}(FormatReedRef(t), reedID)
 				continue
 			}
 			h.broadcastChan <- realtimeBroadcastMessage{
@@ -2254,19 +2243,8 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error resolving reply count targets for removed reed")
 	} else {
 		for i, t := range replyTargets {
+			// A foreign parent's server learns of it from reed-removal.
 			if i == 0 && t.ServerID != serverID {
-				// Immediate parent is foreign — this server's own
-				// reply-count fanout above only covers ancestors it can
-				// see via its own reed_replies table, which stops at this
-				// foreign parent. Without this notify, the parent's home
-				// server never learns the reply was removed and keeps
-				// counting/showing it forever, and never delivers the
-				// removal notice to that thread's own viewers either.
-				go func(parentReedID, replyReedID string) {
-					if err := h.notifyForeignReplyRemovalToPeer(context.Background(), parentReedID, replyReedID, &wire); err != nil {
-						log.Error().Err(err).Str("parentReedID", parentReedID).Str("replyReedID", replyReedID).Msg("Failed to notify foreign parent's home server of reply removal")
-					}
-				}(FormatReedRef(t), reedID)
 				continue
 			}
 			h.broadcastChan <- realtimeBroadcastMessage{
@@ -2285,7 +2263,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		ReedRemoval: &wire,
 	}
 
-	go h.notifyForeignReedRemovalToPeers(context.Background(), reedID, cert)
+	go h.deliverAuthorToPeers(userID)
 
 	log.Info().Str("userID", userID).Str("reedID", reedID).Msg("Reed removal accepted")
 	writeResponse(w, http.StatusOK, h.reedRemovalWire(&cert))
@@ -4689,6 +4667,9 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 			fmt.Sprintf("Disconnected by %s (confirmed): %s", caller, reason))
 		if h.realtimeRelay != nil {
 			h.realtimeRelay.forgetPeer(r.Context(), serverID)
+		}
+		if err := h.services.db.DeletePeerStreams(r.Context(), serverID); err != nil {
+			h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("failed to drop delivery streams of revoked peer")
 		}
 		go func() {
 			if err := h.notifyPeerOfDisconnect(context.Background(), serverID, reason); err != nil {

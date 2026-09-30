@@ -247,10 +247,9 @@ func main() {
 	rtService.SetForeignSubscribeReedHook(h.subscribeReedToPeer)
 	rtService.SetForeignUnsubscribeReedHook(h.unsubscribeReedWithPeer)
 	rtService.SetForeignReedStatsHook(h.pushReedStatsToPeer)
-	rtService.SetForeignReplyNotifyHook(h.notifyForeignReplyToPeer)
 	rtService.SetForeignHolderNotifyHook(h.notifyHolderToPeer)
 	rtService.SetForeignFallbackRequestHook(h.relayFallbackRequestToPeer)
-	rtService.SetForeignNewReedNotifyHook(h.notifyNewReedToPeer)
+	rtService.SetPeerDeliveryHooks(h.deliverAuthorToPeers, func() { h.deliverBehindStreams("") })
 	rtService.SetForeignReplyRemovalToViewerHook(h.notifyForeignReplyRemovalToViewer)
 	rtService.SetDeviceCheck(func(userID, deviceID string) error {
 		// userID arrives already in "userID@serverID" form (see
@@ -535,29 +534,11 @@ func main() {
 	api.HandleFunc("/federation/relay/reed-stats", h.PushReedStatsFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reed-stats", h.noop).Methods("OPTIONS")
 
-	api.HandleFunc("/federation/relay/reply-notify", h.ReplyNotifyFromPeer).Methods("POST")
-	api.HandleFunc("/federation/relay/reply-notify", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/federation/relay/echo-notify", h.EchoNotifyFromPeer).Methods("POST")
-	api.HandleFunc("/federation/relay/echo-notify", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/federation/relay/mention-notify", h.MentionNotifyFromPeer).Methods("POST")
-	api.HandleFunc("/federation/relay/mention-notify", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/federation/relay/reply-removal-notify", h.ReplyRemovalNotifyFromPeer).Methods("POST")
-	api.HandleFunc("/federation/relay/reply-removal-notify", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/federation/relay/echo-removal-notify", h.EchoRemovalNotifyFromPeer).Methods("POST")
-	api.HandleFunc("/federation/relay/echo-removal-notify", h.noop).Methods("OPTIONS")
-
 	api.HandleFunc("/federation/relay/holder-notify", h.HolderNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/holder-notify", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/federation/relay/fallback-request", h.RelayFallbackRequestFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/fallback-request", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/federation/relay/new-reed-notify", h.RelayNewReedNotifyFromPeer).Methods("POST")
-	api.HandleFunc("/federation/relay/new-reed-notify", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/federation/relay/search-users", h.SearchUsersFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/search-users", h.noop).Methods("OPTIONS")
@@ -579,9 +560,6 @@ func main() {
 
 	api.HandleFunc("/federation/relay/account-removal-notify", h.AccountRemovalNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/account-removal-notify", h.noop).Methods("OPTIONS")
-
-	api.HandleFunc("/federation/relay/reed-removal-notify", h.ReedRemovalNotifyFromPeer).Methods("POST")
-	api.HandleFunc("/federation/relay/reed-removal-notify", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/account-recovery/challenge", h.AccountRecoveryChallenge).Methods("GET")
 	api.HandleFunc("/account-recovery/challenge", h.noop).Methods("OPTIONS")
