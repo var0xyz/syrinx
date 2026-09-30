@@ -53,9 +53,9 @@ type AppConfig struct {
 
 	LogLevel string `env:"optional,default='warn',values='debug,info,warn,error',name='LOG_LEVEL'"`
 
-	// Clears online_users at boot, since a process crash leaves presence
-	// rows behind. Single-replica only: a booting instance would wipe its
-	// peers' presence. Off when scaling out — the reaper covers it.
+	// Single-replica mode: clears realtime state at boot and tells peers to
+	// forget us at boot and shutdown. Off when scaling out, or one instance
+	// would wipe state its sibling replicas still serve.
 	ClearPresenceOnBoot bool `env:"optional,default='true',name='CLEAR_PRESENCE_ON_BOOT'"`
 
 	// Forwards WS deliveries between replicas over Postgres LISTEN/NOTIFY.
@@ -156,16 +156,6 @@ func main() {
 		crypto: cryptoService,
 	}
 	log.Info().Msg("[OK] Services initialized successfully")
-
-	// Presence rows survive a process crash, and subscriptions cascade off
-	// them — stale rows would keep dead subscriptions alive.
-	if cfg.ClearPresenceOnBoot {
-		cleared, err := dataService.ClearPresence(context.Background())
-		if err != nil {
-			log.Fatal().Err(err).Msg("[ERR] Failed to clear stale presence")
-		}
-		log.Info().Int64("cleared", cleared).Msg("[OK] Stale presence cleared")
-	}
 
 	log.Debug().Msg("Initializing server identity...")
 	if err := dataService.InitServer(context.Background(), cfg.RecoveryMode, string(cfg.APIBaseURL)); err != nil {
@@ -269,6 +259,16 @@ func main() {
 		return dataService.CheckActiveDevice(context.Background(), userID, deviceID)
 	})
 	log.Info().Msg("[OK] Handlers initialized successfully")
+
+	// Realtime state survives a process crash, so a fresh boot starts from
+	// nothing and tells every peer to do the same with anything tied to us.
+	if cfg.ClearPresenceOnBoot {
+		if err := dataService.ClearRealtimeState(context.Background()); err != nil {
+			log.Fatal().Err(err).Msg("[ERR] Failed to clear stale realtime state")
+		}
+		log.Info().Msg("[OK] Stale realtime state cleared")
+		go h.notifyPeersOfRealtimeReset(realtimeResetBoot)
+	}
 
 	log.Debug().Msg("Setting up router...")
 	router := mux.NewRouter()
@@ -568,6 +568,9 @@ func main() {
 	api.HandleFunc("/federation/relay/disconnect-notify", h.DisconnectNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/disconnect-notify", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/relay/realtime-reset", h.RealtimeResetFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/realtime-reset", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/account-removal-notify", h.AccountRemovalNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/account-removal-notify", h.noop).Methods("OPTIONS")
 
@@ -671,6 +674,9 @@ func main() {
 	// left on a connection that silently goes dead.
 	if rtBus != nil {
 		rtBus.Stop()
+	}
+	if cfg.ClearPresenceOnBoot {
+		h.notifyPeersOfRealtimeReset(realtimeResetShutdown)
 	}
 	rtService.Shutdown()
 

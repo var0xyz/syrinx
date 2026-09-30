@@ -223,7 +223,9 @@ func InitDB(db *sql.DB) error {
 		revoked_reason TEXT,
 		disconnect_requested_at TIMESTAMP,
 		disconnect_requested_by VARCHAR(255),
-		disconnect_reason TEXT
+		disconnect_reason TEXT,
+		-- Set by the peer's shutdown notice, cleared by its boot notice.
+		down_at TIMESTAMP
 	);`
 
 	// Normalized attestation rows. public_key_id/private_key_id are not
