@@ -1898,25 +1898,41 @@ func (rs *realtimeService) startPeriodicCleanup() {
 	}
 }
 
-// reapStalePresence is one eviction pass. An evicted user still holding a
-// local socket is disconnected too, so the client reconnects and rebuilds
-// its presence row instead of sitting on a connection the DB forgot.
+// reapStalePresence is one eviction pass. A stale user with a socket here
+// is disconnected, and the socket's close path tears them down; anyone else
+// is torn down here before their presence row goes.
 func (rs *realtimeService) reapStalePresence() {
-	evicted, err := rs.db.ReapStalePresence(context.Background(), realtimePresenceTTL)
+	ctx := context.Background()
+	stale, err := rs.db.StalePresence(ctx, realtimePresenceTTL)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to reap stale presence rows")
-		return
-	}
-	if len(evicted) == 0 {
+		log.Error().Err(err).Msg("Failed to load stale presence rows")
 		return
 	}
 
-	for _, userID := range evicted {
+	evicted := 0
+	for _, userID := range stale {
 		if rs.connManager.HasConnection(userID) {
 			rs.connManager.DisconnectUser(userID)
+			evicted++
+			continue
 		}
+		rs.teardownUser(userID)
+		gone, err := rs.db.EvictStalePresence(ctx, userID, realtimePresenceTTL)
+		if err != nil {
+			log.Error().Err(err).Str("userID", userID).Msg("Failed to evict stale presence row")
+			continue
+		}
+		if gone {
+			evicted++
+			continue
+		}
+		// Reconnected mid-teardown, so its fresh subscriptions may be gone:
+		// force another connect so the client subscribes again.
+		rs.connManager.DisconnectUser(userID)
 	}
-	log.Info().Int("evicted", len(evicted)).Msg("Evicted stale presence rows")
+	if evicted > 0 {
+		log.Info().Int("evicted", evicted).Msg("Evicted stale presence rows")
+	}
 }
 
 // HandleWebSocket handles WebSocket connections.
@@ -2002,10 +2018,20 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	rs.teardownUser(userID)
 	if err := rs.db.MarkUserOffline(context.Background(), userID); err != nil {
 		log.Error().Err(err).Msg("Failed to mark user as offline")
 	}
 
+	log.Info().
+		Str("userID", userID).
+		Msg("WebSocket client disconnected")
+}
+
+// teardownUser ends everything userID has open: peers are told first, then
+// this server's rows go. Callers drop presence only afterwards, since
+// pending events cascade off online_users and would vanish unread.
+func (rs *realtimeService) teardownUser(userID string) {
 	if err := rs.db.UnsubscribeFromBroadcast(context.Background(), userID); err != nil {
 		log.Error().
 			Str("userID", userID).
@@ -2091,10 +2117,6 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 			Err(err).
 			Msg("Failed to delete reed subscriptions on disconnect")
 	}
-
-	log.Info().
-		Str("userID", userID).
-		Msg("WebSocket client disconnected")
 }
 
 // checkOrigin validates the Origin header against the allowed origin.
@@ -2276,8 +2298,15 @@ func (rs *realtimeService) handlePing(client *realtimeClient, ping *pb.PingMessa
 // PONG once a minute; presence rows that stop being refreshed are evicted by
 // reapStalePresence, which is what lets a crashed replica's stale rows expire.
 func (rs *realtimeService) handlePong(client *realtimeClient) {
-	if err := rs.db.RecordPong(context.Background(), client.userID); err != nil {
+	live, err := rs.db.RecordPong(context.Background(), client.userID)
+	if err != nil {
 		log.Error().Err(err).Str("userID", client.userID).Msg("Failed to record PONG heartbeat")
+		return
+	}
+	// The row was reaped, and this socket's subscriptions with it. Closing
+	// makes the client reconnect and subscribe again.
+	if !live {
+		client.conn.Close()
 	}
 }
 

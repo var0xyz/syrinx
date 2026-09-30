@@ -6863,7 +6863,7 @@ func (s *DataService) MarkUserOnline(ctx context.Context, userID string) error {
 		INSERT INTO online_users (user_id)
 		VALUES ($1)
 		ON CONFLICT (user_id) DO UPDATE
-		SET created_at = CURRENT_TIMESTAMP
+		SET created_at = CURRENT_TIMESTAMP, last_pong = CURRENT_TIMESTAMP
 	`, selfIdentity)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("[ERR] Failed to mark user as online")
@@ -6915,40 +6915,57 @@ func (s *DataService) ClearPresence(ctx context.Context) (int64, error) {
 	return res.RowsAffected()
 }
 
-// RecordPong refreshes a user's liveness heartbeat. The SPA sends PONG
-// once a minute; ReapStalePresence evicts anything older than two.
-func (s *DataService) RecordPong(ctx context.Context, userID string) error {
+// RecordPong refreshes a user's liveness heartbeat, reporting whether a
+// presence row was there to refresh. The SPA sends PONG once a minute;
+// the reaper evicts anything older than two.
+func (s *DataService) RecordPong(ctx context.Context, userID string) (bool, error) {
 	selfIdentity := identityID(userID)
-	_, err := s.db.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 		UPDATE online_users SET last_pong = CURRENT_TIMESTAMP WHERE user_id = $1
 	`, selfIdentity)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
-// ReapStalePresence deletes presence rows whose heartbeat is older than
-// ttl, returning the evicted user IDs. Pipe subscriptions cascade off
-// online_users; reed and profile subscriptions do not.
-func (s *DataService) ReapStalePresence(ctx context.Context, ttl time.Duration) ([]string, error) {
+// StalePresence lists users whose heartbeat is older than ttl. Nothing is
+// deleted: they must be torn down first, while their rows still exist.
+func (s *DataService) StalePresence(ctx context.Context, ttl time.Duration) ([]string, error) {
 	cutoff := time.Now().UTC().Add(-ttl)
 	rows, err := s.db.QueryContext(ctx, `
-		DELETE FROM online_users
-		WHERE last_pong < $1
-		RETURNING user_id
+		SELECT user_id FROM online_users WHERE last_pong < $1
 	`, cutoff)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var evicted []string
+	var stale []string
 	for rows.Next() {
 		var userID identityID
 		if err := rows.Scan(&userID); err != nil {
 			return nil, err
 		}
-		evicted = append(evicted, string(userID))
+		stale = append(stale, string(userID))
 	}
-	return evicted, rows.Err()
+	return stale, rows.Err()
+}
+
+// EvictStalePresence deletes one presence row if its heartbeat is still
+// older than ttl, reporting whether it did. A user who reconnected or sent
+// a PONG since StalePresence listed them keeps their row.
+func (s *DataService) EvictStalePresence(ctx context.Context, userID string, ttl time.Duration) (bool, error) {
+	cutoff := time.Now().UTC().Add(-ttl)
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM online_users WHERE user_id = $1 AND last_pong < $2
+	`, identityID(userID), cutoff)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // IsUserOnline reports whether a user has a live presence row. Unlike the
@@ -7122,7 +7139,7 @@ func (s *DataService) SubscribeToBroadcast(ctx context.Context, userID string) e
 		INSERT INTO broadcast_subscriptions (user_id)
 		VALUES ($1)
 		ON CONFLICT (user_id) DO UPDATE
-		SET created_at = CURRENT_TIMESTAMP
+		SET created_at = CURRENT_TIMESTAMP, last_pong = CURRENT_TIMESTAMP
 	`, selfIdentity)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("[ERR] Failed to subscribe user to broadcast")
