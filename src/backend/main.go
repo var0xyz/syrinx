@@ -571,6 +571,12 @@ func main() {
 	api.HandleFunc("/federation/relay/realtime-reset", h.RealtimeResetFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/realtime-reset", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/relay/new-reed", h.NewReedFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/new-reed", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/reed-removal", h.ReedRemovalFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/reed-removal", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/account-removal-notify", h.AccountRemovalNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/account-removal-notify", h.noop).Methods("OPTIONS")
 
