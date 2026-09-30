@@ -1,7 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { trustMarkFor, type TrustMark } from '$lib/services/vouches';
+  import { trustMarkFor, refreshVouches, type TrustMark } from '$lib/services/vouches';
   import { userInfoRepository } from '$lib/repositories/userInfo';
+  import { vouchesChanged } from '$lib/stores/vouchChanges';
 
   /** Canonical id of the user the mark describes. */
   export let userID: string;
@@ -10,16 +11,20 @@
   export let activeKeyID: string | undefined = undefined;
   /** Tapping opens the evidence. Off for rows that navigate elsewhere. */
   export let linked = true;
+  /** Fetch the subject's vouches in the background. Off by default: only
+   * the few single-subject placements should spend a request. */
+  export let refresh = false;
 
   const dispatch = createEventDispatcher();
 
   let mark: TrustMark = 'none';
 
-  // Reads the locally verified set only, so a feed of rows issues no
-  // requests. Reconciliation happens on the profile, not here.
-  $: void resolve(userID, activeKeyID);
+  // Draws from the local store first; `refresh` corrects it afterwards,
+  // and the write notifies $vouchesChanged, which re-runs this.
+  $: void resolve(userID, activeKeyID, $vouchesChanged);
+  $: if (refresh && userID) void refreshVouches(userID);
 
-  async function resolve(id: string, keyID: string | undefined) {
+  async function resolve(id: string, keyID: string | undefined, _changed: number) {
     if (!id) {
       mark = 'none';
       return;
@@ -35,7 +40,7 @@
   }
 
   const labels: Record<Exclude<TrustMark, 'none'>, string> = {
-    blue: 'You verified this key in person',
+    blue: 'You verified this person',
     green: 'Verified by someone you verified',
     grey: 'Verified by someone',
   };

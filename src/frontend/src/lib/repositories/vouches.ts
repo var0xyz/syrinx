@@ -1,6 +1,7 @@
 import { dbService } from '$lib/services/db';
 import type * as api from '$lib/types/api';
 import { verifyVouch } from '$lib/verifiers';
+import { notifyVouchesChanged } from '$lib/stores/vouchChanges';
 
 /**
  * A vouch this client verified itself. Nothing reaches this store without
@@ -16,6 +17,7 @@ export const vouchesRepository = {
    */
   async put(cert: api.Vouch, subjectUserID: string): Promise<void> {
     await dbService.put('vouches', cert, (c) => verifyVouch(c, subjectUserID));
+    notifyVouchesChanged();
   },
 
   async get(vouchID: string): Promise<VouchRecord | null> {
@@ -26,8 +28,12 @@ export const vouchesRepository = {
     return !!(await vouchesRepository.get(vouchID));
   },
 
-  async delete(vouchID: string): Promise<void> {
+  /** Your own are kept even once withdrawn: the audit list needs a
+   * complete record. Ownership comes from the vouch id's owner prefix. */
+  async delete(vouchID: string, voucherUserID: string | null): Promise<void> {
+    if (voucherUserID && vouchID.startsWith(`${voucherUserID}/`)) return;
     await dbService.delete('vouches', vouchID);
+    notifyVouchesChanged();
   },
 
   /** Every verified vouch naming this user, withdrawn ones included. */
@@ -35,8 +41,16 @@ export const vouchesRepository = {
     return dbService.getAllByIndex<VouchRecord>('vouches', 'subjectUserID', subjectUserID);
   },
 
-  /** Vouches this user made, which is what the audit list reads. */
+  /** The audit list's source, newest first by countersignature time.
+   * Local: the server can omit a row, though never forge one. */
   async byVoucher(voucherUserID: string): Promise<VouchRecord[]> {
-    return dbService.getAllByIndex<VouchRecord>('vouches', 'voucherUserID', voucherUserID);
+    const held = await dbService.getAllByIndex<VouchRecord>(
+      'vouches',
+      'voucherUserID',
+      voucherUserID
+    );
+    return held.sort((a, b) =>
+      b.serverSignature.timestamp.localeCompare(a.serverSignature.timestamp)
+    );
   },
 };

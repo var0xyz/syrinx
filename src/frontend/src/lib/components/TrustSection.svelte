@@ -10,7 +10,8 @@
     type KeyChangeKind,
   } from '$lib/services/vouches';
   import { isKeyChangeAlarm } from '$lib/utils/keyChange';
-  import { trustRootsRepository } from '$lib/repositories/trustRoots';
+  import { vouchesChanged } from '$lib/stores/vouchChanges';
+  import { userInfoRepository } from '$lib/repositories/userInfo';
   import type { VouchRecord } from '$lib/repositories/vouches';
 
   export let userID: string;
@@ -22,7 +23,6 @@
 
   let live: VouchRecord[] = [];
   let stale: VouchRecord[] = [];
-  let rootIDs = new Set<string>();
   let keyChange: KeyChangeKind | null = null;
   let showInfo = false;
 
@@ -32,20 +32,22 @@
   // the profile response, and waiting for it would block marks this device
   // already verified.
   let lastLocal = '';
-  $: void onLocalInputs(userID, activeKeyID);
+  $: void onLocalInputs(userID, activeKeyID, $vouchesChanged);
   let lastRemote = '';
-  $: void onServerIDs(userID, activeKeyID, vouchIDs);
+  $: void onServerIDs(userID, vouchIDs);
 
-  async function onLocalInputs(id: string, keyID: string | undefined) {
-    const key = `${id}:${keyID ?? ''}`;
+  async function onLocalInputs(id: string, keyID: string | undefined, changed: number) {
+    const key = `${id}:${keyID ?? ''}:${changed}`;
     if (key === lastLocal) return;
     lastLocal = key;
     await readLocal();
   }
 
-  async function onServerIDs(id: string, keyID: string | undefined, ids: string[]) {
-    if (!id || !keyID) return;
-    const key = `${id}:${keyID}:${ids.join(',')}`;
+  // Reconciliation needs the id list, not the key: the certs it fetches
+  // are keyed by vouch id, and readLocal resolves the key itself.
+  async function onServerIDs(id: string, ids: string[]) {
+    if (!id) return;
+    const key = `${id}:${ids.join(',')}`;
     if (key === lastRemote) return;
     lastRemote = key;
     await reconcileVouches(id, ids);
@@ -57,11 +59,14 @@
   }
 
   async function readLocal() {
-    if (!userID || !activeKeyID) return;
-    live = await liveVouchesFor(userID, activeKeyID);
-    stale = await staleVouchesFor(userID, activeKeyID);
-    rootIDs = await trustRootsRepository.activeIDs();
-    keyChange = await keyChangeFor(userID, activeKeyID);
+    if (!userID) return;
+    // On a first visit the profile has no key yet; the info cache usually
+    // does, and waiting for the network would leave the section blank.
+    const keyID = activeKeyID ?? (await userInfoRepository.get(userID))?.activeKeyID;
+    if (!keyID) return;
+    live = await liveVouchesFor(userID, keyID);
+    stale = await staleVouchesFor(userID, keyID);
+    keyChange = await keyChangeFor(userID, keyID);
   }
 
   // The substitution alarm is the one thing that stays on the profile: it
@@ -84,7 +89,6 @@
   {userID}
   {live}
   {stale}
-  {rootIDs}
   {keyChange}
   on:close={() => (showDetails = false)}
   on:explain={() => {

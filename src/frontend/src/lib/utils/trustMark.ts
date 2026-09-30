@@ -5,6 +5,8 @@ export type TrustMark = 'blue' | 'green' | 'grey' | 'none';
 export interface MarkableVouch {
   voucherUserID: string;
   subjectKeyID: string;
+  /** Present once retracted; the viewer's own withdrawn vouches are kept. */
+  withdrawal?: unknown;
 }
 
 /**
@@ -13,6 +15,7 @@ export interface MarkableVouch {
  * changes nothing here.
  */
 export function countsForMark(vouch: MarkableVouch, activeKeyID: string): boolean {
+  if (vouch.withdrawal) return false;
   return vouch.subjectKeyID === activeKeyID;
 }
 

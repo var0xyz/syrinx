@@ -182,16 +182,32 @@ confirmed by a signature rather than by an omission the server controls.
 
 ### `GET /vouches`
 
-Authenticated. Every vouch the caller has made, **newest first by server
-countersignature timestamp**, including withdrawn and stale ones. Drives the
-audit list ([07](07_spa_trust_display.md#your-vouches-chronologically)).
+Authenticated. Every vouch the caller has made, including withdrawn and
+stale ones. Paginated.
 
-Ordering by the server timestamp is deliberate: it is the one time in the
-record the caller's own (possibly compromised) client did not choose, so a
-suspicious burst cannot be hidden by backdating.
+**Recovery only.** The audit list does not read this endpoint
+([07](07_spa_trust_display.md#your-vouches-chronologically)); it renders
+from the local store, which is the only copy nothing but this device can
+edit. This read exists for a device that has lost its store and has no
+export to restore from.
 
-Each row carries `voucherKeyID`, so the client can group by signing key — the
-natural unit of "everything signed while that key was live". Paginated.
+That distinction matters because **a list from the server is not an audit**.
+Every cert in it is self-verifying — the caller's own signature is over
+`(voucherKeyID, subjectKeyID)`, and the server cannot forge one it has no
+key for — but no list of valid certs proves it is *complete*. A server that
+wants a vouch forgotten omits the row, and the same argument that rejects
+server-reported counts ([07](07_spa_trust_display.md#verifying-what-the-server-reports))
+rejects this. A compromised server could also serve a cert without the
+withdrawal it has since acquired, showing a retracted vouch as live.
+
+So recovery is a **degraded mode**, and the UI says so rather than
+presenting a recovered list as the caller's history. What it restores is a
+lower bound: everything in it is really yours, and something of yours may
+be missing.
+
+Each row carries `voucherKeyID`, so a recovered list can still be grouped by
+signing key — the natural unit of "everything signed while that key was
+live".
 
 This is a separate endpoint from `/users/{id}/vouches` even though the data
 overlaps: that one is public, live-only and lists vouches *for* a user, while

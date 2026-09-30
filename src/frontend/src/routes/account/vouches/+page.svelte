@@ -3,9 +3,14 @@
   import Auth from '$lib/components/Auth.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Username from '$lib/components/Username.svelte';
-  import { apiService } from '$lib/services/api';
   import { notificationStore } from '$lib/stores/notifications';
-  import { auditStateFor, withdrawVouch, type AuditState } from '$lib/services/vouches';
+  import {
+    auditStateFor,
+    myVouches,
+    recoverMyVouches,
+    withdrawVouch,
+    type AuditState,
+  } from '$lib/services/vouches';
   import WithdrawVouchButton from '$lib/components/WithdrawVouchButton.svelte';
   import type * as api from '$lib/types/api';
 
@@ -13,23 +18,40 @@
   let loading = true;
   let failed = false;
   let withdrawing = new Set<string>();
-  let selected = new Set<string>();
+  let recovering = false;
+  let recovered = false;
 
   onMount(load);
 
+  /** Local only: a server response cannot be shown to be complete, and
+   * this list's whole question is whether anything is missing. */
   async function load() {
     loading = true;
     failed = false;
     try {
-      // Server-ordered by countersignature time: the one timestamp in the
-      // record this device did not choose, so a burst cannot be backdated.
-      const page = await apiService.getMyVouches();
-      vouches = page.vouches ?? [];
+      vouches = await myVouches();
     } catch (error) {
       console.error('[audit] could not load vouches', error);
       failed = true;
     } finally {
       loading = false;
+    }
+  }
+
+  /** Degraded restore: certs are verified on the way in, but a row the
+   * server withheld stays missing. */
+  async function recover() {
+    recovering = true;
+    try {
+      await recoverMyVouches();
+      vouches = await myVouches();
+      recovered = true;
+      notificationStore.success('Restored what the server still holds');
+    } catch (error) {
+      console.error('[audit] recovery failed', error);
+      notificationStore.error('Could not restore from the server');
+    } finally {
+      recovering = false;
     }
   }
 
@@ -60,14 +82,9 @@
     states = next;
   }
 
-  function stateOf(vouch: api.Vouch): AuditState {
-    return states.get(vouch.id) ?? 'live';
-  }
-
-  function toggle(id: string) {
-    selected = new Set(
-      selected.has(id) ? [...selected].filter((s) => s !== id) : [...selected, id]
-    );
+  /** Takes the map so the template re-renders when it is replaced. */
+  function stateOf(map: Map<string, AuditState>, vouch: api.Vouch): AuditState {
+    return map.get(vouch.id) ?? 'live';
   }
 
   async function withdrawOne(vouch: api.Vouch) {
@@ -81,23 +98,6 @@
     } finally {
       withdrawing = new Set([...withdrawing].filter((w) => w !== vouch.id));
     }
-  }
-
-  let confirmingBulk = false;
-
-  async function confirmBulk() {
-    confirmingBulk = false;
-    await withdrawSelected();
-  }
-
-  /** One withdrawal cert per vouch; there is no bulk signature. */
-  async function withdrawSelected() {
-    const targets = vouches.filter((v) => selected.has(v.id) && !v.withdrawal);
-    for (const vouch of targets) {
-      await withdrawOne(vouch);
-    }
-    selected = new Set();
-    await load();
   }
 
   function formatWhen(iso: string): string {
@@ -119,46 +119,24 @@
     <button class="btn secondary" on:click={load}>Try again</button>
   {:else if vouches.length === 0}
     <p class="muted">You have not verified anyone yet.</p>
-  {:else}
-    {#if selected.size > 0}
-      <div class="bulk" class:confirming={confirmingBulk}>
-        {#if confirmingBulk}
-          <span class="bulk-warning">
-            Withdraw {selected.size}
-            {selected.size === 1 ? 'verification' : 'verifications'}? Each is
-            public and signed, and cannot be re-made for 24 hours.
-          </span>
-          <button class="btn danger" on:click={confirmBulk}>Yes, withdraw</button>
-          <button class="btn secondary" on:click={() => (confirmingBulk = false)}>
-            Cancel
-          </button>
-        {:else}
-          <span>{selected.size} selected</span>
-          <button class="btn danger" on:click={() => (confirmingBulk = true)}>
-            Withdraw selected
-          </button>
-          <button class="btn secondary" on:click={() => (selected = new Set())}>Clear</button>
-        {/if}
-      </div>
+    {#if !recovered}
+      <p class="recover-note">On a new device this list starts empty. You can
+        ask the server for what it still holds, but it can leave things out,
+        so treat the result as a starting point rather than your history.</p>
+      <button class="btn secondary" on:click={recover} disabled={recovering}>
+        {recovering ? 'Restoring…' : 'Restore from server'}
+      </button>
     {/if}
-
+  {:else}
     {#each groups as [keyID, group] (keyID)}
       <section class="group">
         <h2>Signed with <code>{keyID}</code></h2>
         <ul>
           {#each group as vouch (vouch.id)}
             <li class:withdrawn={!!vouch.withdrawal}>
-              <label class="pick">
-                <input
-                  type="checkbox"
-                  checked={selected.has(vouch.id)}
-                  disabled={!!vouch.withdrawal}
-                  on:change={() => toggle(vouch.id)}
-                />
-              </label>
               <div class="detail">
                 <span class="who"><Username userID={vouch.subjectUserID} at={true} /></span>
-                <span class="state {stateOf(vouch)}">{stateOf(vouch)}</span>
+                <span class="state {stateOf(states, vouch)}">{stateOf(states, vouch)}</span>
                 <span class="when">{formatWhen(vouch.serverSignature.timestamp)}</span>
                 <code class="key">{vouch.subjectKeyID}</code>
                 {#if vouch.note}
@@ -201,21 +179,16 @@
     margin: 0 0 1.25rem;
   }
 
+  .recover-note {
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--muted);
+    max-width: 34rem;
+  }
+
   .muted {
     color: var(--muted);
     font-size: 0.9rem;
-  }
-
-  .bulk {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    font-size: 0.85rem;
-    padding: 0.5rem 0.75rem;
-    background: var(--input-bg);
-    border-radius: 4px;
-    margin-bottom: 1rem;
   }
 
   .group {
@@ -239,9 +212,13 @@
     padding: 0;
   }
 
+  /* Grid, not flex: the withdraw control is a child component, so its
+     width cannot be constrained from here. 1fr auto gives the text the
+     leftover space instead of letting the button bid for it. */
   li {
-    display: flex;
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
     gap: 0.5rem;
     padding: 0.6rem 0;
     border-top: 1px solid var(--border);
@@ -256,7 +233,6 @@
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
-    flex: 1;
     min-width: 0;
   }
 
@@ -290,15 +266,6 @@
     border-color: var(--error, #e03131);
     color: #fff;
     font-weight: 600;
-  }
-
-  .bulk.confirming {
-    border: 1px solid var(--error, #e03131);
-  }
-
-  .bulk-warning {
-    flex-basis: 100%;
-    line-height: 1.5;
   }
 
   .link-btn {

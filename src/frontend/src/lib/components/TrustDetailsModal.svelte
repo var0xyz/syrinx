@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import Username from '$lib/components/Username.svelte';
+  import TrustMark from '$lib/components/TrustMark.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import { withdrawVouch, type KeyChangeKind } from '$lib/services/vouches';
   import WithdrawVouchButton from '$lib/components/WithdrawVouchButton.svelte';
@@ -12,8 +13,6 @@
   export let live: VouchRecord[] = [];
   /** Vouches on a key the subject has since replaced. */
   export let stale: VouchRecord[] = [];
-  /** Ids of people this device verified in person. */
-  export let rootIDs: Set<string> = new Set();
   export let keyChange: KeyChangeKind | null = null;
 
   const dispatch = createEventDispatcher();
@@ -22,9 +21,35 @@
 
   let withdrawing = '';
 
+  // Someone else's vouch is a claim about who this person is, and that
+  // does not lapse when they rotate a key. Only the key binding does, and
+  // only the verifier can act on it.
+  $: byOthers = newestPerVoucher([...live, ...stale].filter((v) => v.voucherUserID !== me));
+
+  /** One row per person: re-vouching is allowed, and only the latest counts. */
+  function newestPerVoucher(vouches: VouchRecord[]): VouchRecord[] {
+    const newest = new Map<string, VouchRecord>();
+    for (const vouch of vouches) {
+      const held = newest.get(vouch.voucherUserID);
+      if (!held || vouch.serverSignature.timestamp > held.serverSignature.timestamp) {
+        newest.set(vouch.voucherUserID, vouch);
+      }
+    }
+    return [...newest.values()];
+  }
+
   $: ownVouch = me ? live.find((v) => v.voucherUserID === me) : undefined;
-  $: fromRoots = live.filter((v) => v.voucherUserID !== me && rootIDs.has(v.voucherUserID));
-  $: fromOthers = live.filter((v) => v.voucherUserID !== me && !rootIDs.has(v.voucherUserID));
+
+  // Only your own lapsed verification is actionable, and only while you
+  // have not re-verified: once you have, the old one says nothing.
+  $: ownStale =
+    me && !ownVouch
+      ? stale
+          .filter((v) => v.voucherUserID === me)
+          .sort((a, b) =>
+            b.serverSignature.timestamp.localeCompare(a.serverSignature.timestamp)
+          )[0]
+      : undefined;
 
   function close() {
     dispatch('close');
@@ -60,7 +85,7 @@
     on:keydown={(e) => e.key === 'Escape' && close()}
   >
     <div class="modal">
-      <h2 id="trust-modal-title">Verification</h2>
+      <h2 id="trust-modal-title">Verified by</h2>
 
       {#if keyChange === 'unexplained'}
         <p class="row alarm">
@@ -101,13 +126,15 @@
         </div>
       {/if}
 
-      {#if fromRoots.length > 0}
+      {#if byOthers.length > 0}
         <section class="group">
-          <h3>Verified by people you verified</h3>
           <ul class="vouchers">
-            {#each fromRoots as vouch (vouch.id)}
+            {#each byOthers as vouch (vouch.id)}
               <li>
-                <Username userID={vouch.voucherUserID} at={true} />
+                <span class="voucher" on:click={close} role="presentation">
+                  <Username userID={vouch.voucherUserID} at={true} />
+                </span>
+                <TrustMark userID={vouch.voucherUserID} linked={false} />
                 <span class="when">{formatDate(vouch.serverSignature.timestamp)}</span>
                 {#if vouch.note}
                   <span class="note">“{vouch.note}”</span>
@@ -118,39 +145,18 @@
         </section>
       {/if}
 
-      {#if fromOthers.length > 0}
-        <section class="group">
-          <h3>Also verified by</h3>
-          <ul class="vouchers">
-            {#each fromOthers as vouch (vouch.id)}
-              <li>
-                <Username userID={vouch.voucherUserID} at={true} />
-                <span class="when">{formatDate(vouch.serverSignature.timestamp)}</span>
-                {#if vouch.note}
-                  <span class="note">“{vouch.note}”</span>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-        </section>
-      {/if}
-
-      {#if stale.length > 0}
+      {#if ownStale}
         <section class="group stale">
-          <h3>Previously verified, on an older key</h3>
-          <p class="hint">Does not apply to the key in use now.</p>
-          <ul class="vouchers">
-            {#each stale as vouch (vouch.id)}
-              <li>
-                <Username userID={vouch.voucherUserID} at={true} />
-                <span class="when">{formatDate(vouch.serverSignature.timestamp)}</span>
-              </li>
-            {/each}
-          </ul>
+          <h3>Their key changed since you verified</h3>
+          <p class="hint">
+            You verified them on {formatDate(ownStale.serverSignature.timestamp)}.
+            That still stands — but you are no longer holding them to a
+            key. Verify again next time you see them.
+          </p>
         </section>
       {/if}
 
-      {#if live.length === 0 && stale.length === 0 && !keyChange}
+      {#if byOthers.length === 0 && !ownVouch && !ownStale && !keyChange}
         <p class="row muted">
           Nobody has verified this account yet.
         </p>
@@ -233,8 +239,7 @@
     margin: 0 0 0.35rem;
   }
 
-  .group.stale h3,
-  .group.stale .vouchers {
+  .group.stale h3 {
     opacity: 0.75;
   }
 
@@ -249,6 +254,13 @@
     margin: 0;
     padding: 0;
     font-size: 0.85rem;
+  }
+
+  /* The username navigates away, so the dialog must not stay open over
+     the page it lands on. */
+  .voucher {
+    display: inline-flex;
+    min-width: 0;
   }
 
   .vouchers li {
