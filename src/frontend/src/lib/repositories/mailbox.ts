@@ -7,7 +7,7 @@ export type MailboxCategory = 'system' | 'interaction';
 
 /** Locally-decrypted mailbox message. isRead/local existence are purely
  * client-side state — the server has already deleted its copy by the time
- * this is stored (see specs/notifications/00, 05). */
+ * this is stored. */
 export interface MailboxRecord {
   id: string;
   kind: string;

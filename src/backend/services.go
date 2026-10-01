@@ -38,7 +38,7 @@ var (
 	ErrActiveKeyExists            = errors.New("user already has an active key")
 	// ErrReedFork is returned by CreateReed/CreateReedWithEcho/
 	// CreateReedWithReply when the client's PreviousID does not match the
-	// author's current tip (see specs/recovery/16_reed_tip_check.md). The
+	// author's current tip. The
 	// handler maps this to 409 so the client can refresh its tip and retry.
 	ErrReedFork = errors.New("reed fork: previousID does not match current tip")
 )
@@ -1839,8 +1839,8 @@ func (s *DataService) listFollowEdge(ctx context.Context, table, otherCol, userI
 	return &FollowListResponse{Users: items, HasMore: hasMore}, nil
 }
 
-// checkReedTipTx enforces the history-fork safeguard (see
-// specs/recovery/16_reed_tip_check.md): previousID must name the author's
+// checkReedTipTx enforces the history-fork safeguard: previousID must
+// name the author's
 // current tip (newest non-removed reed by signed_at, id DESC tie-break), or
 // be empty when the author has zero reeds. Locks the author's identities row
 // first so concurrent creates for the same author serialize — caller must
@@ -1919,8 +1919,7 @@ func (s *DataService) insertReedCoreTx(
 
 	// insertUserSignature/insertServerSignature still use non-context
 	// queries internally, so these two inserts land as root spans rather than
-	// nested under ctx's request span — a known gap, not a bug (see
-	// specs/observability/04_context_threading.md).
+	// nested under ctx's request span — a known gap, not a bug.
 	userSigID, err := insertUserSignature(ctx, tx, p.UserKeyID, p.UserSignatureB64)
 	if err != nil {
 		return Reed{}, err
@@ -3386,7 +3385,7 @@ type federationInvitation struct {
 // side. servers rows only exist once a federation_attempt has been
 // APPROVED (see ApproveFederationAttempt) — connected is always TRUE for
 // any row this query returns; kept as a column rather than assumed so a
-// future de-establish/revoke step (specs/federation/05) has somewhere to
+// future de-establish/revoke step has somewhere to
 // flip it without a schema change.
 // No fingerprint field: peer.Fingerprint is never persisted to servers.signing_key
 // (that column means this server's OWN signing key, joined against
@@ -3450,7 +3449,7 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 }
 
 // VerifyFederationPeer is the runtime trust check for peer-authenticated
-// requests (specs/federation/04): serverID must be an established
+// requests: serverID must be an established
 // (self=FALSE), non-revoked peer, and the caller's claimed fingerprint must
 // match the one pinned at approval (see ApproveFederationAttempt, which
 // points servers.key_id at the promoted public_keys row). On success also
@@ -3845,8 +3844,8 @@ func (s *DataService) ApproveFederationAttempt(
 		}
 	}
 
-	// keyID pins the trust root for peer-authenticated runtime requests
-	// (specs/federation/04) — same canonical shape as any other key id.
+	// keyID pins the trust root for peer-authenticated runtime requests,
+	// in the same canonical shape as any other key id.
 	// ON CONFLICT DO NOTHING: re-approving after a revoke/reconnect with
 	// the same key hits the same row; a key's armor never changes once set.
 	keyID := string(canonicalID(remoteServerID, fingerprint))
@@ -4626,14 +4625,12 @@ var ErrRippleNotFound = errors.New("ripple not found")
 // ErrRippleThreadMismatch is returned by PostRipple when replyingTo is set
 // but the caller's submitted threadID doesn't match the referenced
 // response's stored thread_id. The signature alone only proves author
-// intent, not consistency with the actual parent — see
-// specs/ripples/00_design.md's Thread shape.
+// intent, not consistency with the actual parent.
 var ErrRippleThreadMismatch = errors.New("ripple thread mismatch")
 
 // Ripple is a single ripple response, including its signatures. The id
-// is the hex-SHA256 hash of the signed server payload (see
-// specs/ripples/00_design.md's Signing section) — frozen at creation,
-// never recomputed on soft-delete.
+// is the hex-SHA256 hash of the signed server payload, frozen at
+// creation and never recomputed on soft-delete.
 type Ripple struct {
 	ID              string
 	ReedAuthorID    string

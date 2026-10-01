@@ -216,7 +216,7 @@ def metric_stream(instrument: str) -> str:
     return instrument.replace(".", "_")
 
 
-# syrinx.* business metrics (spec observability/05_custom_metrics.md).
+# syrinx.* business metrics.
 USERS_CREATED = metric_stream("syrinx.users.created")
 USERS_DELETED = metric_stream("syrinx.users.deleted")
 USERS_BACKUP = metric_stream("syrinx.users.backup")
@@ -237,7 +237,7 @@ WS_MESSAGES = metric_stream("syrinx.ws.messages")
 RELAY_EVENTS = metric_stream("syrinx.relay.event")
 FEDERATION_RELAY = metric_stream("syrinx.federation.relay")
 
-# High-signal WS types from spec 5.4 (full enum lives in Explore).
+# High-signal WS message types (the full set lives in Explore).
 WS_IN_TYPES = [
     ("PING", "PING"),
     ("REQUEST_REED", "REQUEST_REED"),
@@ -874,7 +874,7 @@ websocket = [
             promql_labeled(WS_MESSAGES, "ws_direction", "out", "out"),
         ],
         layout=layout(0, 0, 96, 14, 50),
-        description="Every handled WS frame (spec 5.4 normalized message types)",
+        description="Every handled WS frame, by normalized message type",
     ),
     promql_panel(
         pid="syrinx_ws_in_types",

@@ -22,7 +22,7 @@ export { verifyAccountRemoval };
 export const accountRemovalCommitted = writable(0);
 
 /**
- * Peer purge set (07): drop profile/reeds/follows; keep public keys;
+ * Peer purge set: drop profile/reeds/follows; keep public keys;
  * store cert for tombstone note. Verification runs inside
  * `removedAccountsRepository.put`.
  */

@@ -1130,7 +1130,7 @@ type realtimeService struct {
 	// Background peer notifications from teardownUser; tests wait on it.
 	peerCalls sync.WaitGroup
 
-	// Peer reed delivery (federation 09): drain one author's streams, or
+	// Peer reed delivery: drain one author's streams, or
 	// every stream that is behind.
 	deliverAuthorHook func(authorID string)
 	deliverBehindHook func()
@@ -2517,7 +2517,7 @@ func (rs *realtimeService) deletePendingEvent(ctx context.Context, eventID strin
 }
 
 // handleRequestReed is REQUEST_REED's entry point: the SPA only
-// ever sends this as a binary protobuf frame (specs/protobuf/).
+// ever sends this as a binary protobuf frame.
 func (rs *realtimeService) handleRequestReed(client *realtimeClient, req *pb.RequestReedMessage) {
 	if req == nil || req.GetRequestId() == "" || req.GetReedId() == "" {
 		return
@@ -3607,8 +3607,7 @@ func (rs *realtimeService) notifyReedReplies(reedID string) {
 // relaying it back would just echo to their other open tabs/devices. The
 // full signed payload is carried (not just a "something changed, refetch"
 // ping) so a subscribed client can run the same verify-or-discard path a
-// list fetch uses without a second round-trip — see
-// specs/ripples/00_design.md's Client-side verification section.
+// list fetch uses without a second round-trip.
 func (rs *realtimeService) notifyRipplePosted(reedID, rippleAuthorID string, ripple RippleWire) {
 	authorUserID := reedAuthorIdentity(reedID)
 	msg := newRipplePostedMsg(authorUserID, reedID, ripple)

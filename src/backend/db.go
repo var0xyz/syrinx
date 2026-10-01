@@ -363,7 +363,7 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// How far each peer has got through each local author's reeds and
-	// removals (specs/federation/09). The row holds no event data: what is
+	// removals. The row holds no event data: what is
 	// still owed is derived from reeds and reed_removals past the cursor.
 	createPeerAuthorCursorsTable := `
 	CREATE TABLE IF NOT EXISTS peer_author_cursors (
@@ -471,7 +471,7 @@ func InitDB(db *sql.DB) error {
 
 	// Encrypted server->user mailbox messages. No plaintext columns — the
 	// row's mere existence is the undelivered-message record; it is
-	// deleted once the client ACKs receipt (see specs/notifications/03,04).
+	// deleted once the client ACKs receipt.
 	createUserMailboxTable := `
 	CREATE TABLE IF NOT EXISTS user_mailbox (
 		id VARCHAR(255) PRIMARY KEY,

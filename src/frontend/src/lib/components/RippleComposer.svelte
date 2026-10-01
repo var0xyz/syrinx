@@ -28,7 +28,7 @@
 
   const dispatch = createEventDispatcher();
 
-  const MAX_RIPPLE_CHARS = 140; // MAX_REED_VISIBLE_CHARS, per spec 00/04 — ripples are plain text, not markdown
+  const MAX_RIPPLE_CHARS = 140; // Same as MAX_REED_VISIBLE_CHARS; ripples are plain text, not markdown
 
   let draft = '';
   let posting = false;

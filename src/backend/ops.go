@@ -117,8 +117,7 @@ Commands:
       instantly — this CLI runs as a separate OS process from the API
       server and has no access to its live WS connections, only the
       database. For an online recipient to get it immediately, call
-      Handlers.SendMailboxMessage from within the running server instead
-      (see specs/notifications/03/04).
+      Handlers.SendMailboxMessage from within the running server instead.
 
   help
       Show this message.

@@ -58,8 +58,8 @@ func Setup(host, port string) (*Manager, error) {
 
 	// Host identity comes from the SDK detectors, not hardcoded here: WithHost
 	// adds host.name, WithFromEnv honours OTEL_RESOURCE_ATTRIBUTES /
-	// OTEL_SERVICE_NAME so an operator can pin a distinct name/id per machine
-	// (see specs/observability). Without this, every app process on every host
+	// OTEL_SERVICE_NAME so an operator can pin a distinct name/id per machine.
+	// Without this, every app process on every host
 	// would report an identical resource and collide into one series in
 	// OpenObserve. The explicit ServiceName/Version below still win over any
 	// env-provided service.name because they are merged last.
@@ -88,7 +88,7 @@ func Setup(host, port string) (*Manager, error) {
 
 	tracerProvider := sdktrace.NewTracerProvider(
 		// AlwaysSample: closed-community traffic is low enough that full
-		// request waterfalls are worth the storage cost. See specs/observability/.
+		// request waterfalls are worth the storage cost.
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithBatcher(traceExporter),
 		sdktrace.WithResource(res),

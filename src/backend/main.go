@@ -63,12 +63,11 @@ type AppConfig struct {
 	RealtimeBusEnabled bool `env:"optional,default='false',name='REALTIME_BUS_ENABLED'"`
 
 	// Empty (default) means no local OTLP collector — observability stays
-	// disabled with zero setup cost. See specs/observability/ for the
-	// collector-side wiring.
+	// disabled with zero setup cost.
 	OTELCollectorHost string `env:"optional,default='',name='OTEL_COLLECTOR_HOST'"`
 	OTELCollectorPort string `env:"optional,default='4317',name='OTEL_COLLECTOR_PORT'"`
 
-	// One-shot root operator export on empty DB (see specs/account_recovery/07).
+	// One-shot root operator export on empty DB.
 	RootKeyExportPassphrase string `env:"optional,default='',name='ROOT_KEY_EXPORT_PASSPHRASE'"`
 	RootKeyExportPath       string `env:"optional,default='',name='ROOT_KEY_EXPORT_PATH'"` // output directory only
 }
@@ -489,7 +488,7 @@ func main() {
 	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods("POST")
 	api.HandleFunc("/federation/connect/{id}", h.noop).Methods("OPTIONS")
 
-	// Peer-authenticated (specs/federation/04): signatureAuthMiddleware
+	// Peer-authenticated: signatureAuthMiddleware
 	// recognizes a foreign-server X-Syrinx-Public-Key-Id and routes to
 	// authenticateAsPeer automatically — no separate wrapper needed here.
 	api.HandleFunc("/federation/users/{userID}/identity", h.GetFederationUserIdentity).Methods("GET")

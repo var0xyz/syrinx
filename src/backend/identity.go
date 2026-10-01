@@ -731,7 +731,7 @@ func buildFederationConnectPayload(inviteID, serverID, baseURL, fingerprint stri
 
 // rippleUserHeaders returns the header map covered by a ripple response's
 // userSignature. reedID is the full canonical id of the parent reed.
-// threadID is always present (client-minted, see specs/ripples/00_design.md);
+// threadID is always present (client-minted);
 // replyingTo is omitted (and therefore dropped by bytesToSign) for a
 // top-level post. No timestamp — client clocks are never signed over,
 // same as every other user payload in this file.
@@ -777,9 +777,8 @@ func rippleServerHeaders(serverID, reedID, rippleAuthorID, keyID, threadID, repl
 // countersigns for a ripple response. Content is the author's detached
 // signature (not the ripple text), mirroring buildReedPayload exactly —
 // the countersignature covers both the ripple's identity and the user's
-// attestation of it. The response's id is the hash of these bytes (see
-// specs/ripples/00_design.md's Signing section) — frozen at creation,
-// never recomputed.
+// attestation of it. The response's id is the hash of these bytes,
+// frozen at creation and never recomputed.
 //
 // `timestamp` must already be truncated to whole seconds so that what is
 // signed matches what Postgres stores after any timestamp round-trip.
