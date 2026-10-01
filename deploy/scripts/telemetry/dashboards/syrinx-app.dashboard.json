@@ -3365,7 +3365,7 @@
           "id": "syrinx_ws_volume",
           "type": "line",
           "title": "WebSocket messages",
-          "description": "Every handled WS frame (spec 5.4 normalized message types)",
+          "description": "Every handled WS frame, by normalized message type",
           "config": {
             "show_legends": true,
             "legends_position": null,

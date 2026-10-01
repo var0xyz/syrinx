@@ -462,8 +462,8 @@ export function buildInviteServerPayload(
 /**
  * Mirror of BuildRippleUserPayload / rippleUserHeaders in identity.go. The
  * exact bytes a ripple's author signs. reedID is the full canonical id of
- * the parent reed. threadID is always present (client-minted, see
- * specs/ripples/00_design.md); replyingTo is omitted for a top-level post
+ * the parent reed. threadID is always present (client-minted);
+ * replyingTo is omitted for a top-level post
  * (empty string is dropped by bytesToSign). No timestamp — client clocks
  * are never signed over.
  */

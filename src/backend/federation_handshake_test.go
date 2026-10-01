@@ -211,7 +211,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	}
 
 	// b resolves a's admin user through the peer-authenticated IdP endpoint
-	// (specs/federation/04) — proves signatureAuthMiddleware's
+	// which proves signatureAuthMiddleware's
 	// authenticateAsPeer branch end to end: correct signature + pinned
 	// fingerprint against a's own establishment.
 	identReq, err := http.NewRequest(http.MethodGet, a.srv.URL+"/api/federation/users/"+aAdmin+"/identity", nil)

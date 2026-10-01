@@ -2234,7 +2234,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Keep the reeds row for allocation catch-up (04): reed_allocations FK
+	// Keep the reeds row for allocation catch-up: reed_allocations FK
 	// cascades on reed delete. Tip/list already exclude reed_removals.
 	wire := newReedRemovalWire(serverID, cert)
 

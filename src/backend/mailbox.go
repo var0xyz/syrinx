@@ -42,7 +42,7 @@ const (
 )
 
 // MailboxPayload is JSON-marshaled then encrypted to the recipient's active
-// public key before storage — see specs/notifications/03. Link is an
+// public key before storage. Link is an
 // app-relative client route (e.g. "/mentions"); the server never
 // interprets it, it's opaque bytes to every producer except the SPA.
 type MailboxPayload struct {
@@ -59,7 +59,7 @@ type MailboxPayload struct {
 // because ops.go's `ops` build tag excludes services.go — this must be
 // callable from both the server and the ops CLI. Not gated behind any
 // admin check itself: a handler reporting that specific user's own
-// processing error is not an admin action (see specs/notifications/03).
+// processing error is not an admin action.
 // Returns the new row's id and ciphertext so the caller can hand them to
 // realtimeService.NotifyMailboxMessage for live delivery — this function
 // itself has no access to the realtime connection registry.

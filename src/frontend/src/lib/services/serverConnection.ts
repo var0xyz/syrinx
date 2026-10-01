@@ -21,8 +21,8 @@ import {
   type Ripple as PbRipple,
 } from '$lib/proto/websocket_pb';
 
-// Every WS frame, both directions, is exactly one binary-encoded WSMessage
-// (specs/protobuf/) — there is no JSON text-frame path anymore.
+// Every WS frame, both directions, is exactly one binary-encoded WSMessage;
+// there is no JSON text-frame path anymore.
 
 // Liveness heartbeat cadence. The server evicts presence after two minutes
 // without a PONG, so one a minute leaves room for a single missed beat.

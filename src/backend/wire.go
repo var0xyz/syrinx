@@ -131,12 +131,9 @@ type federationListWire struct {
 	Servers     []federationServerWire   `json:"servers"`
 }
 
-// federationUserIdentityWire is the body of
-// GET /api/federation/users/{userID}/identity — the IdP snapshot an
-// established peer resolves a local user through (specs/federation/04).
-// User already carries UserSignature/ServerSignature (the countersigned
-// profile), which is the "server signature over wire map" the spec calls
-// for — no separate response-level signature needed.
+// federationUserIdentityWire is the body of GET /api/federation/users/{userID}/identity,
+// the snapshot a peer resolves a local user through. User's own countersignature
+// covers it, so the response needs no signature of its own.
 type federationUserIdentityWire struct {
 	User        *User  `json:"user"`
 	ActiveKeyID string `json:"activeKeyID"`

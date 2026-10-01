@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Durable reed delivery to peers (specs/federation/09_reed_delivery.md).
+// Durable reed delivery to peers.
 // Each (peer, local author) stream is drained by at most one goroutine at a
 // time, one item after another, so a removal never overtakes its creation.
 

@@ -7,7 +7,7 @@ import { userRepository } from './user';
 
 /**
  * Local cache of verified ripple responses, keyed by `hash` (content-
- * addressed, globally unique — see specs/ripples/00_design.md). Mirrors
+ * addressed, globally unique). Mirrors
  * the reeds repository's shape: verify-then-cache, cache-hit shortcut
  * skips re-verification (important for tombstoned responses, whose
  * stored signatures no longer match their current "[DELETED]" content).

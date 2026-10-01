@@ -239,7 +239,6 @@ export interface ReplyListResponse extends Base {
  * A ripple response — POST/GET /reeds/{userID}/{reedID}/ripples.
  * `hash` is the id (content-addressed hex-SHA256 of the signed server
  * payload) — frozen at creation, never recomputed even by a soft delete.
- * See specs/ripples/00_design.md's Signing section.
  */
 export interface Ripple extends Base {
   hash: string;

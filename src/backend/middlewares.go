@@ -196,7 +196,7 @@ func stripArmorDelimiters(signature string) string {
 
 // responseSignatureHeader carries the detached response signature. The
 // bare "Signature" name is RFC 9421's, which this PGP scheme does not
-// implement; see specs/rfc9421.md.
+// implement.
 const responseSignatureHeader = "X-Syrinx-Response-Signature"
 
 // signedHeadersHeader lists (comma-separated) the headers actually

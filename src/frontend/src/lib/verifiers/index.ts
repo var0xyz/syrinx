@@ -454,8 +454,7 @@ export function verifyClaimedTags(reed: ReedType, deliveryTag: string | null): b
  * caller (which already knows which reed's list it fetched) supplies it.
  * A tombstoned (soft-deleted) response is trusted on its `deleted` flag
  * alone — its stored signatures describe the original pre-delete content,
- * which this client does not have and cannot re-verify against (see
- * specs/ripples/00_design.md's Client-side verification section).
+ * which this client does not have and cannot re-verify against.
  */
 export async function verifyRipple(
   ripple: api.Ripple,
