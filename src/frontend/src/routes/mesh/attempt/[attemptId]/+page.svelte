@@ -72,7 +72,8 @@
     try {
       const result = await apiService.approveFederationAttempt(attemptId);
       notificationStore.success('Attempt approved');
-      goto(`/mesh/peer/${encodeURIComponent(result.serverId)}`);
+      // The attempt is settled, so Back should skip it.
+      goto(`/mesh/peer/${encodeURIComponent(result.serverId)}`, { replaceState: true });
     } catch (err) {
       notificationStore.error(err instanceof Error ? err.message : 'Failed to approve attempt');
     } finally {
