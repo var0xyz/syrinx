@@ -2,16 +2,16 @@ import { writable } from 'svelte/store';
 
 const STORAGE_KEY = 'unreadInteractions';
 
-type UnreadState = { replies: boolean; mentions: boolean };
+type UnreadState = { replies: boolean; ripples: boolean; mentions: boolean };
 
 function load(): UnreadState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { replies: false, mentions: false };
+    if (!raw) return { replies: false, ripples: false, mentions: false };
     const parsed = JSON.parse(raw);
-    return { replies: !!parsed.replies, mentions: !!parsed.mentions };
+    return { replies: !!parsed.replies, ripples: !!parsed.ripples, mentions: !!parsed.mentions };
   } catch {
-    return { replies: false, mentions: false };
+    return { replies: false, ripples: false, mentions: false };
   }
 }
 
@@ -24,7 +24,7 @@ function save(state: UnreadState): void {
 }
 
 /** Whether a red dot should show for each Interactions tab — set on live
- * WS delivery (reed_reply / mention), cleared when the user visits the
+ * WS delivery (reed_reply / new_ripple / mention), cleared when the user visits the
  * corresponding tab. Persisted so the dot survives a reload. */
 export const unreadInteractions = writable<UnreadState>(load());
 

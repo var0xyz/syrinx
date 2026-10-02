@@ -4,7 +4,7 @@
   import { currentToolbarPage, toolbarUsers } from '$lib/stores/bottomToolbar';
   import { unreadInteractions } from '$lib/stores/unreadInteractions';
 
-  $: hasUnreadInteractions = $unreadInteractions.replies || $unreadInteractions.mentions;
+  $: hasUnreadInteractions = $unreadInteractions.replies || $unreadInteractions.ripples || $unreadInteractions.mentions;
 
   // Legacy per-page usage: <BottomToolbar currentPage="x" /> sets which tab
   // is active on the single toolbar instance (rendered once in the root

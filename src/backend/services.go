@@ -5072,8 +5072,8 @@ func decodeReceivedRippleCursor(s string) (*receivedRippleCursor, error) {
 }
 
 // ListReceivedRipples returns userID's ripples inbox: rows on a reed they
-// own, scoped to reeds hosted here (ripples never leave their origin
-// server). Own comments are excluded.
+// own or replying to one of their ripples, scoped to reeds hosted here
+// (ripples never leave their origin server). Own comments are excluded.
 func (s *DataService) ListReceivedRipples(
 	ctx context.Context,
 	userID string,
@@ -5100,7 +5100,10 @@ func (s *DataService) ListReceivedRipples(
 		JOIN reeds reed ON reed.id = rr.reed_id
 		JOIN ripples p ON p.reed_id = rr.reed_id
 		WHERE rr.user_id != $1
-		AND reed.user_id = $1
+		AND (reed.user_id = $1 OR EXISTS (
+			SELECT 1 FROM ripple_responses parent
+			WHERE parent.id = rr.replying_to AND parent.user_id = $1
+		))
 		AND NOT EXISTS (
 			SELECT 1 FROM reed_removals x WHERE x.reed_id = rr.reed_id
 		)

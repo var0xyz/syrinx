@@ -4,7 +4,7 @@
   import ServerVersionInfo from '$lib/components/ServerVersionInfo.svelte';
   import { unreadInteractions } from '$lib/stores/unreadInteractions';
 
-  $: hasUnreadInteractions = $unreadInteractions.replies || $unreadInteractions.mentions;
+  $: hasUnreadInteractions = $unreadInteractions.replies || $unreadInteractions.ripples || $unreadInteractions.mentions;
 
   let isComposeOpen = false;
 
@@ -89,6 +89,7 @@
   </a>
   <a href="/ripples" class="sn-sub" class:active={ripplesSubActive}>
     <span class="sn-dot"></span>Ripples
+    {#if $unreadInteractions.ripples}<span class="sn-unread-dot"></span>{/if}
   </a>
   <a href="/feed/mentions" class="sn-sub" class:active={mentionsSubActive}>
     <span class="sn-dot"></span>Mentions

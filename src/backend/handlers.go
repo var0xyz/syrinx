@@ -5409,11 +5409,28 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusCreated, wire)
 
 	h.broadcastChan <- realtimeBroadcastMessage{
-		Type:   realtimeRipplePosted,
-		UserID: reedUserID,
-		ReedID: reedID,
-		Ripple: &wire,
+		Type:                 realtimeRipplePosted,
+		UserID:               reedUserID,
+		ReedID:               reedID,
+		Ripple:               &wire,
+		RippleParentAuthorID: h.localRippleAuthor(r.Context(), req.ReplyingTo),
 	}
+}
+
+// localRippleAuthor returns the author of the ripple being replied to when
+// they're a user of this server, so they can be told about the reply.
+func (h *Handlers) localRippleAuthor(ctx context.Context, rippleID *string) string {
+	if rippleID == nil {
+		return ""
+	}
+	parent, err := h.services.db.GetRipple(ctx, *rippleID)
+	if err != nil {
+		return ""
+	}
+	if _, serverID, ok := parseIdentityID(identityID(parent.UserID)); !ok || serverID != h.services.db.GetServerID() {
+		return ""
+	}
+	return parent.UserID
 }
 
 type rippleListResponse struct {
