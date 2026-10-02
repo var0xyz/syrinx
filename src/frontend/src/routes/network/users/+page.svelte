@@ -22,7 +22,7 @@
 
 <style>
   .network-container {
-    min-height: calc(100vh - 3rem - 1px);
+    flex: 1;
     display: flex;
     flex-direction: column;
     background: var(--bg);

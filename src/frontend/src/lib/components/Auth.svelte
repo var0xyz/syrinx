@@ -115,11 +115,14 @@
   }
 
   .auth-container {
+    flex: 1;
     display: flex;
     flex-direction: column;
   }
 
   .auth-content {
     flex: 1;
+    display: flex;
+    flex-direction: column;
   }
 </style>

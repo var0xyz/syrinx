@@ -347,6 +347,7 @@
     }}
   />
 {:else}
+<div class="app-shell">
   <UpdateAvailableIndicator />
 
   <header>
@@ -367,4 +368,5 @@
   <BottomToolbar />
 
   <Notifications />
+</div>
 {/if}
