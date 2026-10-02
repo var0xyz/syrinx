@@ -4325,6 +4325,7 @@ func federationAttemptRowToWire(row federationAttemptRow) federationAttemptWire 
 		RemoteServerID:   row.RemoteServerID,
 		RemoteServerName: row.RemoteServerName,
 		BaseURL:          row.BaseURL,
+		FrontendURL:      row.FrontendURL,
 		Fingerprint:      row.Fingerprint,
 		CreatedAt:        row.CreatedAt.UTC().Format(time.RFC3339),
 		Status:           row.Status,
