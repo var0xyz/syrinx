@@ -4025,12 +4025,24 @@ func (rs *realtimeService) deliverOrForward(ctx context.Context, eventID, reques
 		if rs.foreignDeliverHook != nil {
 			if err := rs.foreignDeliverHook(ctx, frr.RequestingServerID, eventID, data); err != nil {
 				log.Error().Err(err).Str("eventID", eventID).Msg("Failed to deliver relayed data to requesting peer")
+				return
 			}
+			rs.markEventRelayed(ctx, eventID)
 		}
 		return
 	}
 	if err := rs.connManager.SendToUser(requesterUserID, buildLocalMsg()); err != nil {
 		log.Error().Err(err).Str("requesterID", requesterUserID).Msg("Failed to deliver relayed data")
+		return
+	}
+	rs.markEventRelayed(ctx, eventID)
+}
+
+// markEventRelayed records that the requester was sent the relayed content,
+// which is what makes their DATA_ACK acceptable.
+func (rs *realtimeService) markEventRelayed(ctx context.Context, eventID string) {
+	if err := rs.db.MarkEventRelayed(ctx, eventID); err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to mark event relayed")
 	}
 }
 
@@ -4143,6 +4155,25 @@ func (rs *realtimeService) failReedNotHeld(pe *pendingReedEvent) {
 	}
 }
 
+// isRemovalEvent reports whether the server sends the event's payload (a
+// removal cert) itself, so dispatching it is already the delivery.
+func isRemovalEvent(eventName string) bool {
+	name := realtimeEventName(eventName)
+	return name == reedRemovedEvent || name == accountRemovedEvent
+}
+
+// ackAcceptable: only the requester may ack, and only once something was
+// actually delivered to them — relayed content, or a removal cert.
+func ackAcceptable(pe *pendingSubject, userID string) bool {
+	if pe.RequesterUserID == "" || pe.RequesterUserID != userID {
+		return false
+	}
+	if isRemovalEvent(pe.EventName) {
+		return pe.Dispatched
+	}
+	return pe.Relayed
+}
+
 // handleDataAck is called when the viewer has received and verified a delivery successfully.
 // New reeds: allocate. Reed removals: clear allocation. Account removals: clear peer state.
 func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string) {
@@ -4156,6 +4187,10 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 		return
 	}
 	if pe == nil {
+		return
+	}
+	if !ackAcceptable(pe, client.userID) {
+		log.Debug().Str("eventID", eventID).Str("userID", client.userID).Msg("Ignoring DATA_ACK: not the requester, or nothing delivered yet")
 		return
 	}
 	carried := false
@@ -4247,26 +4282,51 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 }
 
 // handleDataInvalid is called when the viewer received a reed but its signature failed verification.
-// The pending event is removed without allocating the reed to the viewer.
+// Never allocates. A reed relayed by a local holder is reset and asked for again;
+// removals and copies that crossed from a peer are dropped.
 func (rs *realtimeService) handleDataInvalid(client *realtimeClient, eventID string) {
 	if eventID == "" {
 		return
 	}
+	ctx := context.Background()
 
-	crossed, err := rs.db.GetForeignPendingEvent(context.Background(), eventID)
-	if err != nil {
-		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to look up foreign pending event on data invalid")
-	}
-	pe, err := rs.db.GetPendingSubject(context.Background(), eventID)
+	pe, err := rs.db.GetPendingSubject(ctx, eventID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event on data invalid")
+		return
 	}
-	if err := rs.deletePendingEvent(context.Background(), eventID); err != nil {
-		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event on data invalid")
+	if pe == nil || pe.RequesterUserID == "" || pe.RequesterUserID != client.userID {
+		log.Debug().Str("eventID", eventID).Str("userID", client.userID).Msg("Ignoring DATA_INVALID: not the requester")
+		return
 	}
-	// A copy that crossed and failed verification frees its slot.
-	if crossed != nil && pe != nil {
-		rs.promoteWaitingForeign(context.Background(), pe.ReedID)
+	crossed, err := rs.db.GetForeignPendingEvent(ctx, eventID)
+	if err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to look up foreign pending event on data invalid")
+		return
+	}
+
+	if crossed != nil || isRemovalEvent(pe.EventName) {
+		if err := rs.deletePendingEvent(ctx, eventID); err != nil {
+			log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event on data invalid")
+		}
+		// A copy that crossed and failed verification frees its slot.
+		if crossed != nil {
+			rs.promoteWaitingForeign(ctx, pe.ReedID)
+		}
+		return
+	}
+
+	if err := rs.db.ResetEventDelivery(ctx, eventID); err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to reset event on data invalid")
+		return
+	}
+	holder, err := rs.db.GetOnlineReedHolder(ctx, pe.ReedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to get holder to redispatch invalid data")
+		return
+	}
+	if holder != "" {
+		rs.dispatchNextIfConnected(holder)
 	}
 }
 
@@ -4385,6 +4445,10 @@ func (rs *realtimeService) HandleForeignAck(ctx context.Context, peerEventID, ca
 	if pe == nil {
 		return nil
 	}
+	// Nothing reached the peer yet, so there is nothing for it to ack.
+	if !pe.Relayed {
+		return nil
+	}
 
 	if err := rs.db.RecordServerHolder(ctx, pe.ReedID, callerServerID); err != nil {
 		return err
@@ -4424,6 +4488,8 @@ func (rs *realtimeService) HandleForeignRelayResponse(ctx context.Context, peerE
 
 	if err := rs.connManager.SendToUser(pe.RequesterUserID, relayedReedMsg(pe, ciphertext, "")); err != nil {
 		log.Error().Err(err).Str("requesterID", pe.RequesterUserID).Msg("Failed to deliver foreign-relayed data response")
+	} else {
+		rs.markEventRelayed(ctx, pe.EventID)
 	}
 	// Broadcast is never acked, so close both ends here instead.
 	if pe.EventName == string(broadcastReedEvent) {
