@@ -437,7 +437,7 @@
           Label this invite so you can tell who it is for, then paste the remote server&apos;s OpenPGP public key (exchanged out of band).
         </p>
         <p class="modal-note">
-          Before connecting, ask the other admin how many active users their server has and what hardware it runs on. Connected servers send each other requests whenever users view each other&apos;s profiles and reeds and as new reeds are posted, so a much busier server can overload a smaller one.
+          Ask the other admin about their server&apos;s hardware and load first. Connected servers exchange requests constantly, so one with many active users can overload a smaller one.
         </p>
         <label class="field">
           <span>Name</span>
@@ -492,7 +492,7 @@
           Paste the connection string another server&apos;s admin shared with you out of band.
         </p>
         <p class="modal-note">
-          Before connecting, ask the other admin how many active users their server has and what hardware it runs on. Connected servers send each other requests whenever users view each other&apos;s profiles and reeds and as new reeds are posted, so a much busier server can overload a smaller one.
+          Ask the other admin about their server&apos;s hardware and load first. Connected servers exchange requests constantly, so one with many active users can overload a smaller one.
         </p>
         <label class="field">
           <span>Connection string</span>
