@@ -12,6 +12,7 @@ import { countsForMark, trustMarkFrom, type TrustMark } from '$lib/utils/trustMa
 import { findContradiction } from '$lib/utils/vouchContradiction';
 import { classifyKeyChange, type KeyChangeKind } from '$lib/utils/keyChange';
 import { dbService } from './db';
+import { foreignServerOf } from './peerServers';
 
 export type { TrustMark, KeyChangeKind };
 
@@ -199,19 +200,24 @@ export async function createVouch(
 
   // Queue first: verification happens in person, often with no signal, and
   // the signature must outlive the moment rather than the meeting repeating.
-  await pendingVouchesRepository.put({
-    compositeKey: subjectKeyID,
-    subjectUserID,
-    subjectKeyID,
-    voucherKeyID,
-    note,
-    signature,
-  });
+  // A user of another server is the exception: their server must accept it
+  // now, so a failure is reported to retry instead of queued.
+  const foreign = foreignServerOf(subjectUserID) !== null;
+  if (!foreign) {
+    await pendingVouchesRepository.put({
+      compositeKey: subjectKeyID,
+      subjectUserID,
+      subjectKeyID,
+      voucherKeyID,
+      note,
+      signature,
+    });
+  }
 
   const cert = await apiService.createVouch(subjectKeyID, voucherKeyID, signature, note);
   await vouchesRepository.put(cert, subjectUserID);
   await trustRootsRepository.add(subjectUserID, subjectKeyID);
-  await pendingVouchesRepository.delete(subjectKeyID);
+  if (!foreign) await pendingVouchesRepository.delete(subjectKeyID);
   return cert;
 }
 
