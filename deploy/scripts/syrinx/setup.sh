@@ -738,5 +738,8 @@ echo "📄 Setup env: $SETUP_ENV"
 echo "🗄️  DB shell: sudo $SCRIPT_DIR/psql.sh"
 echo "📦 Root export dir: /var/lib/${APP_NAME}/root-export"
 
+echo -e "\n🔏 Server public key:"
+"$SCRIPT_DIR/server-key.sh" || echo "⚠️  Could not read the server key — try: sudo $SCRIPT_DIR/server-key.sh"
+
 # Clean build workpaths up safely
 rm -rf "$BUILD_DIR"

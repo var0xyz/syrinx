@@ -12,6 +12,7 @@
 #   restart                     sudo ./restart.sh
 #   signup-mode <mode>          sudo ./set-signup-mode.sh <mode>
 #   psql [args...]              sudo ./psql.sh [args...]
+#   server-key                  sudo ./server-key.sh
 #   wipe-db [--force]           sudo ./wipe-db.sh [--force]
 #                                (interactive confirmation unless --force)
 #
@@ -21,6 +22,7 @@
 #   ./syrinx.sh update --branch canonicalmerge
 #   ./syrinx.sh signup-mode invite
 #   ./syrinx.sh psql -c 'select count(*) from users;'
+#   ./syrinx.sh server-key
 #   ./syrinx.sh wipe-db
 #   ./syrinx.sh wipe-db --force
 #
@@ -55,7 +57,7 @@ info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
 usage() {
-    sed -n '2,43p' "$0" | sed -e 's/^# //' -e 's/^#$//'
+    sed -n '2,45p' "$0" | sed -e 's/^# //' -e 's/^#$//'
 }
 
 load_saved_host() {
@@ -133,6 +135,7 @@ case "$CMD" in
     restart)       REMOTE_SCRIPT="restart.sh" ;;
     signup-mode)   REMOTE_SCRIPT="set-signup-mode.sh" ;;
     psql)          REMOTE_SCRIPT="psql.sh" ;;
+    server-key)    REMOTE_SCRIPT="server-key.sh" ;;
     wipe-db)       REMOTE_SCRIPT="wipe-db.sh" ;;
     -h|--help|help) usage; exit 0 ;;
     *) die "Unknown command: $CMD (run '$0 --help' for the list)" ;;
