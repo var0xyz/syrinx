@@ -26,6 +26,23 @@ function resolveAppVersion(): string {
 // swapped in). Lets the account page footer disambiguate two deploys that
 // happen to land on the same commit (e.g. a config-only redeploy).
 const buildTime = new Date().toISOString();
+const appVersion = resolveAppVersion();
+
+// The dev server loads src/service-worker.ts as a raw module, so `define`
+// never reaches it; substitute the build constants after TS is stripped.
+function serviceWorkerDevDefines(): Plugin {
+  return {
+    name: 'service-worker-dev-defines',
+    apply: 'serve',
+    enforce: 'post',
+    transform(code, id) {
+      if (!id.endsWith('/src/service-worker.ts')) return;
+      return code
+        .replace(/\b__APP_VERSION__\b/g, JSON.stringify(appVersion))
+        .replace(/\b__APP_BUILD_TIME__\b/g, JSON.stringify(buildTime));
+    },
+  };
+}
 // openpgp/lightweight only lists a `browser` export; Node's resolver (used
 // when Kit loads server chunks during build) ignores that condition.
 const openpgpLightweight = path.resolve(
@@ -68,6 +85,7 @@ export default defineConfig({
     devtoolsJson(),
     licensePlugin(),
     sveltekit(),
+    serviceWorkerDevDefines(),
     pwaPrerenderedPlaceholder(),
     SvelteKitPWA({
       // Custom SW: PGP signing + app-shell precache (injectManifest).
@@ -162,7 +180,7 @@ export default defineConfig({
   ],
   define: {
     global: 'globalThis',
-    __APP_VERSION__: JSON.stringify(resolveAppVersion()),
+    __APP_VERSION__: JSON.stringify(appVersion),
     __APP_BUILD_TIME__: JSON.stringify(buildTime),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production')
   },
