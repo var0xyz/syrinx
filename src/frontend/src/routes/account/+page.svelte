@@ -27,6 +27,7 @@
   import { loadProfileKeyInfo, type ProfileKeyInfo } from './keyInfo';
   import { mergeUserView, type UserView } from '$lib/utils/userView';
   import { appendFingerprint, isRoot } from '$lib/utils/identityRef';
+  import { checkForUpdates, type UpdateCheckResult } from '$lib/services/pwa';
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -367,6 +368,18 @@
       backingUpKeys = false;
     }
   }
+
+  let updateCheck: UpdateCheckResult | 'idle' | 'checking' | 'failed' = 'idle';
+
+  async function runUpdateCheck() {
+    updateCheck = 'checking';
+    try {
+      updateCheck = await checkForUpdates();
+    } catch (error) {
+      console.warn('Update check failed:', error);
+      updateCheck = 'failed';
+    }
+  }
 </script>
 
 <Auth>
@@ -575,6 +588,22 @@
 
     <ServerVersionInfo className="app-version" />
 
+    <p class="update-check">
+      {#if updateCheck === 'idle'}
+        <button type="button" class="link-btn" on:click={runUpdateCheck}>Check for updates</button>
+      {:else if updateCheck === 'checking'}
+        Checking for updates…
+      {:else if updateCheck === 'updating'}
+        A new version is available, please reload.
+      {:else if updateCheck === 'up-to-date'}
+        You're on the latest version.
+      {:else if updateCheck === 'unsupported'}
+        Updates can't be checked in this browser.
+      {:else}
+        Couldn't reach the server. Try again later.
+      {/if}
+    </p>
+
     <ExportDataModal
       open={showExportWarningModal}
       on:confirm={(e) => { showExportWarningModal = false; exportData(e.detail); }}
@@ -634,6 +663,23 @@
     }
   }
 
+
+  .update-check {
+    margin: 0 0 1.5rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-align: center;
+  }
+
+  .link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--primary);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
 
   .action-btn {
     padding: 0.5rem 1rem;

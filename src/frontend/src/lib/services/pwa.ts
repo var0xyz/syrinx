@@ -114,14 +114,12 @@ export function initializePWA() {
       const controller = navigator.serviceWorker.controller;
       if (!controller) return;
 
-      const channel = new MessageChannel();
-      channel.port1.onmessage = (event) => {
-        if (event.data?.success && event.data.version !== __APP_VERSION__) {
+      workerVersion(controller).then((version) => {
+        if (version && version !== __APP_VERSION__) {
           reloadPending = true;
           updateAvailable.set(true);
         }
-      };
-      controller.postMessage({ type: 'GET_VERSION' }, [channel.port2]);
+      });
     });
 
     navigator.serviceWorker.register(swUrl, swOptions)
@@ -154,6 +152,41 @@ export function initializePWA() {
       console.error('PWA: Service Worker registration failed:', error);
     });
   }
+}
+
+// Resolves undefined if the worker never answers, e.g. one that throws.
+function workerVersion(worker: ServiceWorker): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(undefined), 3000);
+    const channel = new MessageChannel();
+    channel.port1.onmessage = (event) => {
+      clearTimeout(timer);
+      resolve(event.data?.success ? event.data.version : undefined);
+    };
+    worker.postMessage({ type: 'GET_VERSION' }, [channel.port2]);
+  });
+}
+
+export type UpdateCheckResult = 'updating' | 'up-to-date' | 'unsupported';
+
+/** Asks the server for a newer version now. One that's found installs and
+ * takes over, and the controllerchange handler then shows the banner. */
+export async function checkForUpdates(): Promise<UpdateCheckResult> {
+  if (!('serviceWorker' in navigator)) return 'unsupported';
+  const registration = await navigator.serviceWorker.getRegistration();
+  if (!registration) return 'unsupported';
+
+  await registration.update();
+  if (registration.installing || registration.waiting) return 'updating';
+
+  // A newer worker may already control the page without the banner showing.
+  const controller = navigator.serviceWorker.controller;
+  const version = controller ? await workerVersion(controller) : undefined;
+  if (version && version !== __APP_VERSION__) {
+    updateAvailable.set(true);
+    return 'updating';
+  }
+  return 'up-to-date';
 }
 
 /** Reload onto the new version — called by the update banner's button. */
