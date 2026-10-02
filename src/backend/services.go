@@ -3814,13 +3814,13 @@ func (s *DataService) ApproveFederationAttempt(
 	}
 	defer tx.Rollback()
 
-	var remoteServerID, remoteServerName, baseURL, fingerprint, publicKeyArmor, invitationID string
+	var remoteServerID, remoteServerName, baseURL, frontendURL, fingerprint, publicKeyArmor, invitationID string
 	var status string
 	if err := tx.QueryRowContext(ctx, `
-		SELECT remote_server_id, remote_server_name, base_url, fingerprint, public_key_armor,
+		SELECT remote_server_id, remote_server_name, base_url, frontend_url, fingerprint, public_key_armor,
 			COALESCE(invitation_id, ''), status
 		FROM federation_attempt WHERE id = $1 FOR UPDATE
-	`, attemptID).Scan(&remoteServerID, &remoteServerName, &baseURL, &fingerprint, &publicKeyArmor, &invitationID, &status); err != nil {
+	`, attemptID).Scan(&remoteServerID, &remoteServerName, &baseURL, &frontendURL, &fingerprint, &publicKeyArmor, &invitationID, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", errFederationAttemptNotFound
 		}
@@ -3869,12 +3869,12 @@ func (s *DataService) ApproveFederationAttempt(
 	}
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO servers (id, name, self, base_url, connected, key_id, created_at)
-		VALUES ($1, $2, FALSE, $3, TRUE, $4, $5)
-		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, name = EXCLUDED.name,
-			connected = TRUE, key_id = EXCLUDED.key_id,
+		INSERT INTO servers (id, name, self, base_url, frontend_url, connected, key_id, created_at)
+		VALUES ($1, $2, FALSE, $3, $4, TRUE, $5, $6)
+		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, frontend_url = EXCLUDED.frontend_url,
+			name = EXCLUDED.name, connected = TRUE, key_id = EXCLUDED.key_id,
 			revoked_at = NULL, revoked_by = NULL, revoked_reason = NULL
-	`, remoteServerID, remoteServerName, baseURL, keyID, approvedAt.UTC()); err != nil {
+	`, remoteServerID, remoteServerName, baseURL, frontendURL, keyID, approvedAt.UTC()); err != nil {
 		return "", fmt.Errorf("insert federation peer: %w", err)
 	}
 
@@ -4398,6 +4398,7 @@ type federationPeer struct {
 	ServerID       string
 	ServerName     string
 	BaseURL        string
+	FrontendURL    string
 	Fingerprint    string
 	PublicKeyArmor string
 }
@@ -4457,9 +4458,9 @@ func (s *DataService) CreateFederationAttempt(ctx context.Context, peer federati
 		return "", err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO federation_attempt (id, remote_server_id, remote_server_name, base_url, fingerprint, public_key_armor, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, attemptID, peer.ServerID, name, peer.BaseURL, peer.Fingerprint, peer.PublicKeyArmor, createdAt.UTC()); err != nil {
+		INSERT INTO federation_attempt (id, remote_server_id, remote_server_name, base_url, frontend_url, fingerprint, public_key_armor, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, attemptID, peer.ServerID, name, peer.BaseURL, peer.FrontendURL, peer.Fingerprint, peer.PublicKeyArmor, createdAt.UTC()); err != nil {
 		return "", fmt.Errorf("insert federation attempt: %w", err)
 	}
 
@@ -4505,9 +4506,9 @@ func (s *DataService) MarkFederationInvitationAccepted(ctx context.Context, invi
 		return "", err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO federation_attempt (id, remote_server_id, remote_server_name, base_url, fingerprint, public_key_armor, invitation_id, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, attemptID, peer.ServerID, name, peer.BaseURL, peer.Fingerprint, publicKeyArmor, inviteID, acceptedAt.UTC()); err != nil {
+		INSERT INTO federation_attempt (id, remote_server_id, remote_server_name, base_url, frontend_url, fingerprint, public_key_armor, invitation_id, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, attemptID, peer.ServerID, name, peer.BaseURL, peer.FrontendURL, peer.Fingerprint, publicKeyArmor, inviteID, acceptedAt.UTC()); err != nil {
 		return "", fmt.Errorf("insert federation attempt: %w", err)
 	}
 
@@ -8827,10 +8828,11 @@ const peerStreamSQL = `
 // listed: it is still trusted.
 func (s *DataService) ListFederatedServers(ctx context.Context) ([]FederatedServerInfo, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, COALESCE(key_id, ''), COALESCE(created_at, CURRENT_TIMESTAMP), base_url
+		SELECT id, name, COALESCE(key_id, ''), COALESCE(created_at, CURRENT_TIMESTAMP),
+		       COALESCE(frontend_url, '')
 		FROM servers
 		WHERE self = FALSE AND connected = TRUE AND revoked_at IS NULL
-		  AND base_url IS NOT NULL AND base_url != ''
+		  AND frontend_url IS NOT NULL AND frontend_url != ''
 		ORDER BY name
 	`)
 	if err != nil {
@@ -8841,7 +8843,7 @@ func (s *DataService) ListFederatedServers(ctx context.Context) ([]FederatedServ
 	servers := []FederatedServerInfo{}
 	for rows.Next() {
 		var srv FederatedServerInfo
-		if err := rows.Scan(&srv.ID, &srv.Name, &srv.KeyID, &srv.CreatedAt, &srv.BaseURL); err != nil {
+		if err := rows.Scan(&srv.ID, &srv.Name, &srv.KeyID, &srv.CreatedAt, &srv.FrontendURL); err != nil {
 			return nil, err
 		}
 		servers = append(servers, srv)

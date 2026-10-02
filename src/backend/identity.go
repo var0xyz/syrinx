@@ -705,10 +705,11 @@ func buildNewProfilePayload(
 // buildFederationInvitationPayload returns the canonical bytes the
 // initiator server signs for a federation invitation (distinct from user
 // identity payloads — do not reuse identity-user/identity-server types).
-func buildFederationInvitationPayload(inviteID, serverID, baseURL, fingerprint, secret string) []byte {
+func buildFederationInvitationPayload(inviteID, serverID, baseURL, frontendURL, fingerprint, secret string) []byte {
 	return bytesToSign(map[string]string{
 		"baseUrl":     baseURL,
 		"fingerprint": fingerprint,
+		"frontendUrl": frontendURL,
 		"inviteId":    inviteID,
 		"secret":      secret,
 		"serverId":    serverID,
@@ -720,10 +721,11 @@ func buildFederationInvitationPayload(inviteID, serverID, baseURL, fingerprint, 
 // binding its identity to the specific invite. No secret: the responder
 // proves possession of the invite separately via the secret field on the
 // connect request body, not by signing over it.
-func buildFederationConnectPayload(inviteID, serverID, baseURL, fingerprint string) []byte {
+func buildFederationConnectPayload(inviteID, serverID, baseURL, frontendURL, fingerprint string) []byte {
 	return bytesToSign(map[string]string{
 		"baseUrl":     baseURL,
 		"fingerprint": fingerprint,
+		"frontendUrl": frontendURL,
 		"inviteId":    inviteID,
 		"serverId":    serverID,
 	}, "")

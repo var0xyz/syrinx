@@ -225,7 +225,9 @@ func InitDB(db *sql.DB) error {
 		disconnect_requested_by VARCHAR(255),
 		disconnect_reason TEXT,
 		-- Set by the peer's shutdown notice, cleared by its boot notice.
-		down_at TIMESTAMP
+		down_at TIMESTAMP,
+		-- Where the peer's users open links, as the peer reports it.
+		frontend_url TEXT
 	);`
 
 	// Normalized attestation rows. public_key_id/private_key_id are not
@@ -1178,6 +1180,7 @@ func InitDB(db *sql.DB) error {
 		remote_server_id VARCHAR(16) NOT NULL,
 		remote_server_name VARCHAR(255) NOT NULL,
 		base_url TEXT NOT NULL,
+		frontend_url TEXT NOT NULL,
 		fingerprint VARCHAR(255) NOT NULL,
 		public_key_armor TEXT NOT NULL,
 		invitation_id VARCHAR(255) REFERENCES federation_invitation(id),
