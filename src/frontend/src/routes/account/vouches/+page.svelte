@@ -4,6 +4,7 @@
   import SideNav from '$lib/components/SideNav.svelte';
   import Username from '$lib/components/Username.svelte';
   import { notificationStore } from '$lib/stores/notifications';
+  import { foreignServerOf, unreachableServerMessage } from '$lib/services/peerServers';
   import {
     auditStateFor,
     myVouches,
@@ -94,7 +95,11 @@
       notificationStore.success('Verification withdrawn');
     } catch (error) {
       console.error('[audit] withdraw failed', vouch.id, error);
-      notificationStore.error('Could not withdraw');
+      notificationStore.error(
+        foreignServerOf(vouch.subjectUserID)
+          ? await unreachableServerMessage(vouch.subjectUserID)
+          : 'Could not withdraw'
+      );
     } finally {
       withdrawing = new Set([...withdrawing].filter((w) => w !== vouch.id));
     }

@@ -13,6 +13,7 @@
   import { createVouch } from '$lib/services/vouches';
   import { MAX_VOUCH_NOTE_CHARS } from '$lib/utils/vouchNote';
   import { pendingVouchesRepository } from '$lib/repositories/pendingVouches';
+  import { foreignServerOf, unreachableServerMessage } from '$lib/services/peerServers';
 
   /** @type {import('./$types').PageData} */
   export let data;
@@ -55,6 +56,14 @@
       notificationStore.success('You verified this key');
     } catch (error) {
       console.error('[vouch] could not submit', error);
+      // Another server's user is never queued: their server has to accept
+      // it now, so the user retries by reloading.
+      if (foreignServerOf(data.subjectUserID)) {
+        const message = await unreachableServerMessage(data.subjectUserID);
+        result = { outcome: 'server-unreachable', scannedKeyID, servedKeyID: null, reason: message };
+        notificationStore.error(message);
+        return;
+      }
       // The signature is queued before the request, so an unreachable
       // server delays the vouch rather than losing it.
       if (await pendingVouchesRepository.get(scannedKeyID)) {
@@ -142,6 +151,13 @@
       <p class="detail">Verification is not recorded when the keys disagree.</p>
     </div>
     <a class="btn secondary" href={`/profile/${data.subjectUserID}`}>Back to profile</a>
+  {:else if result?.outcome === 'server-unreachable'}
+    <p class="lead">Their server could not be reached.</p>
+    <p class="detail">{result.reason}</p>
+    <div class="actions">
+      <button class="btn primary" on:click={() => window.location.reload()}>Reload</button>
+      <a class="btn secondary" href={`/profile/${data.subjectUserID}`}>Back to profile</a>
+    </div>
   {:else}
     <p class="lead">Could not check this key.</p>
     <p class="detail">{result?.reason ?? 'Try again when you are online.'}</p>

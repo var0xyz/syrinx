@@ -3,6 +3,7 @@ import { cryptoService } from './crypto';
 import { verifyPublicKey } from '$lib/verifiers';
 import { parseKeyId, formatKeyId, appendFingerprint } from '$lib/utils/identityRef';
 import { vouchesRepository } from '$lib/repositories/vouches';
+import { foreignServerOf, unreachableServerMessage } from './peerServers';
 import type * as api from '$lib/types/api';
 
 /**
@@ -11,7 +12,12 @@ import type * as api from '$lib/types/api';
  * there is always something to compare. 'unresolvable' is not a comparison
  * result but a blocked flow.
  */
-export type CompareOutcome = 'same' | 'differs' | 'unresolvable' | 'already-verified';
+export type CompareOutcome =
+  | 'same'
+  | 'differs'
+  | 'unresolvable'
+  | 'already-verified'
+  | 'server-unreachable';
 
 export interface CompareResult {
   outcome: CompareOutcome;
@@ -51,28 +57,30 @@ export function parseVouchFragment(fragment: string, subjectUserID: string): str
  * serve a key it controls under the id the QR names, and the comparison
  * below would match on a counterfeit.
  */
-async function resolveServedKeyID(subjectUserID: string): Promise<string | null> {
+async function resolveServedKeyID(
+  subjectUserID: string
+): Promise<{ keyID: string | null; unreachable: boolean }> {
   let key: api.PublicKey | null = null;
   try {
     const info = await apiService.getUserInfo(subjectUserID);
-    if (!info?.activeKeyID) return null;
+    if (!info?.activeKeyID) return { keyID: null, unreachable: false };
     key = await apiService.getPublicKey(info.activeKeyID);
   } catch (error) {
     console.error('[vouchVerify] could not resolve served key', subjectUserID, error);
-    return null;
+    return { keyID: null, unreachable: true };
   }
-  if (!key?.armor) return null;
+  if (!key?.armor) return { keyID: null, unreachable: false };
 
   // verifyPublicKey re-derives the fingerprint from the armor and rejects a
   // mismatch, so a key that passes here really is the key it claims to be.
   if (!(await verifyPublicKey(key))) {
     console.error('[vouchVerify] served key failed verification', key.id);
-    return null;
+    return { keyID: null, unreachable: false };
   }
   const derived = await cryptoService.fingerprintFromArmor(key.armor);
   const parsed = parseKeyId(key.id);
-  if (!parsed) return null;
-  return formatKeyId(parsed.userId, parsed.serverId, derived);
+  if (!parsed) return { keyID: null, unreachable: false };
+  return { keyID: formatKeyId(parsed.userId, parsed.serverId, derived), unreachable: false };
 }
 
 /** A live vouch the caller already made for this exact key, if any. */
@@ -121,8 +129,18 @@ export async function compareScannedKey(
     };
   }
 
-  const servedKeyID = await resolveServedKeyID(subjectUserID);
+  const served = await resolveServedKeyID(subjectUserID);
+  const servedKeyID = served.keyID;
 
+  // Another server's user: their key comes from their server, right now.
+  if (!servedKeyID && served.unreachable && foreignServerOf(subjectUserID)) {
+    return {
+      outcome: 'server-unreachable',
+      scannedKeyID,
+      servedKeyID: null,
+      reason: await unreachableServerMessage(subjectUserID),
+    };
+  }
   if (!servedKeyID) {
     return {
       outcome: 'unresolvable',

@@ -3,6 +3,7 @@
   import Username from '$lib/components/Username.svelte';
   import TrustMark from '$lib/components/TrustMark.svelte';
   import { notificationStore } from '$lib/stores/notifications';
+  import { foreignServerOf, unreachableServerMessage } from '$lib/services/peerServers';
   import { withdrawVouch, type KeyChangeKind } from '$lib/services/vouches';
   import WithdrawVouchButton from '$lib/components/WithdrawVouchButton.svelte';
   import type { VouchRecord } from '$lib/repositories/vouches';
@@ -63,7 +64,11 @@
       dispatch('changed');
     } catch (error) {
       console.error('[trust] withdraw failed', error);
-      notificationStore.error('Could not withdraw');
+      notificationStore.error(
+        foreignServerOf(vouch.subjectUserID)
+          ? await unreachableServerMessage(vouch.subjectUserID)
+          : 'Could not withdraw'
+      );
     } finally {
       withdrawing = '';
     }
