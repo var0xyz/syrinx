@@ -359,6 +359,7 @@ export interface FederationServer {
   serverId: string;
   name: string;
   baseUrl: string;
+  frontendUrl: string;
   connected: boolean;
   createdAt: string;
   revoked: boolean;

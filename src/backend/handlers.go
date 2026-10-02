@@ -4137,6 +4137,7 @@ func federationServerRowToWire(row federationServerListRow) federationServerWire
 		ServerID:          row.ID,
 		Name:              row.Name,
 		BaseURL:           row.BaseURL,
+		FrontendURL:       row.FrontendURL,
 		Connected:         row.Connected,
 		CreatedAt:         row.CreatedAt.UTC().Format(time.RFC3339),
 		Revoked:           row.Revoked,

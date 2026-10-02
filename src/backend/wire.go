@@ -89,6 +89,7 @@ type federationServerWire struct {
 	ServerID              string  `json:"serverId"`
 	Name                  string  `json:"name"`
 	BaseURL               string  `json:"baseUrl"`
+	FrontendURL           string  `json:"frontendUrl"`
 	Connected             bool    `json:"connected"`
 	CreatedAt             string  `json:"createdAt"`
 	Revoked               bool    `json:"revoked"`
