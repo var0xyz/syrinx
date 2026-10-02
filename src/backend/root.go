@@ -143,7 +143,6 @@ func exportRootIdentity(
 	if err != nil {
 		return "", fmt.Errorf("sign root identity: %w", err)
 	}
-	userSigB64 := base64Encode(userSigArmor)
 
 	now := time.Now().UTC().Truncate(time.Second)
 
@@ -153,7 +152,7 @@ func exportRootIdentity(
 		keyID,
 		serverID,
 		signingKey.Fingerprint,
-		userSigB64,
+		userSigArmor,
 		"",
 		roleRoot,
 		now,
@@ -182,7 +181,7 @@ func exportRootIdentity(
 		PublicKeyArmor:     kp.PublicKey,
 		Fingerprint:        keyID,
 		KeyCreatedAt:       keyMeta.CreatedAt,
-		UserSignatureB64:   userSigB64,
+		UserSignature:   userSigArmor,
 		MemberSince:        now,
 		ProfileSignature:   profileSig,
 		PublicKeySignature: keySig,
@@ -269,7 +268,7 @@ func rootCountersign(cryptoSvc *cryptoService, db *DataService, signingKey *Serv
 	}
 	return ServerSignature{
 		ID:       string(canonicalID(db.GetServerID(), signingKey.Fingerprint)),
-		Armor:    base64Encode(sigArmor),
+		Armor:    sigArmor,
 		SignedAt: ts,
 	}, nil
 }

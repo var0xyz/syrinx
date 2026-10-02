@@ -1717,12 +1717,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 
 	// The author signs against their own home server's id, which for a peer
 	// notification is the calling peer.
-	userSigArmor, err := base64Decode(req.UserSignature)
-	if err != nil {
-		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
-		return
-	}
+	userSigArmor := req.UserSignature
 	userPayload := buildAccountRemovalUserPayload(peerServerID, req.UserID, req.Note)
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().Err(err).Str("userID", req.UserID).Str("peerServerID", peerServerID).Msg("Account-removal user signature verification failed")
@@ -1798,10 +1793,7 @@ func (h *Handlers) acceptForeignReedRemoval(ctx context.Context, peerServerID st
 
 	// The author signs against their own home server's id, which for a peer
 	// notification is the calling peer.
-	userSigArmor, err := base64Decode(req.UserSignature)
-	if err != nil {
-		return reedRemovalCert{}, http.StatusBadRequest, "Invalid signature encoding"
-	}
+	userSigArmor := req.UserSignature
 	userPayload := buildReedRemovalUserPayload(peerServerID, req.ReedID)
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Reed-removal user signature verification failed")

@@ -204,11 +204,6 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
       });
       return false;
     }
-    // successorSignature travels as raw armor, not base64 — it's written
-    // from the same already-decoded value the old predecessor.signature
-    // field used to carry (see AddPublicKeyInput.PredecessorSignature's
-    // doc comment in services.go), unlike userSignature.armor/
-    // serverSignature.armor elsewhere on this cert, which are base64.
     const handoffValid = await cryptoService.verifySignature(
       key.armor,
       predRevocation.successorSignature,
@@ -269,7 +264,7 @@ export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promis
   );
   const userValid = await cryptoService.verifySignature(
     userPayload,
-    atob(revocation.userSignature.armor),
+    revocation.userSignature.armor,
     publicKeyArmor
   );
   if (!userValid) {
@@ -317,13 +312,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     user.userSignature.id,
     user.bio ?? ''
   );
-  let userSigArmor: string;
-  try {
-    userSigArmor = atob(user.userSignature.armor);
-  } catch {
-    console.error('[verifyUser] invalid userSignature encoding');
-    return false;
-  }
+  const userSigArmor = user.userSignature.armor;
   const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, publicKeyData.armor);
   if (!userValid) {
     console.error('[verifyUser] user signature failed', user.id);
@@ -401,7 +390,7 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
 
   const authorValid = await cryptoService.verifySignature(
     reedAsMarkdown(reed),
-    atob(reed.userSignature.armor),
+    reed.userSignature.armor,
     publicKeyData.armor
   );
   if (!authorValid) {
@@ -494,7 +483,7 @@ export async function verifyRipple(
   );
   const authorValid = await cryptoService.verifySignature(
     userPayload,
-    atob(ripple.userSignature.armor),
+    ripple.userSignature.armor,
     publicKeyData.armor
   );
   if (!authorValid) {
@@ -546,13 +535,7 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
     return false;
   }
 
-  let userSigArmor: string;
-  try {
-    userSigArmor = atob(cert.userSignature.armor);
-  } catch {
-    console.error('[verifyReedRemoval] invalid signature encoding');
-    return false;
-  }
+  const userSigArmor = cert.userSignature.armor;
 
   const userPayload = buildReedRemovalUserPayload(cert.serverID, cert.reedID);
   const userValid = await cryptoService.verifySignature(userPayload, userSigArmor, armor);
@@ -628,13 +611,7 @@ export async function verifyVouch(
     return false;
   }
 
-  let userSigArmor: string;
-  try {
-    userSigArmor = atob(cert.userSignature.armor);
-  } catch {
-    console.error('[verifyVouch] invalid signature encoding');
-    return false;
-  }
+  const userSigArmor = cert.userSignature.armor;
 
   const userPayload = buildVouchUserPayload(
     cert.voucherKeyID,
@@ -689,13 +666,7 @@ async function verifyVouchWithdrawal(cert: api.Vouch): Promise<boolean> {
     return false;
   }
 
-  let sigArmor: string;
-  try {
-    sigArmor = atob(user.armor);
-  } catch {
-    console.error('[verifyVouch] invalid withdrawal signature encoding');
-    return false;
-  }
+  const sigArmor = user.armor;
 
   const userPayload = buildVouchWithdrawalUserPayload(cert.id);
   if (!(await cryptoService.verifySignature(userPayload, sigArmor, armor))) {
@@ -738,13 +709,7 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
     return false;
   }
 
-  let userSigArmor: string;
-  try {
-    userSigArmor = atob(cert.userSignature.armor);
-  } catch {
-    console.error('[verifyReedLike] invalid signature encoding');
-    return false;
-  }
+  const userSigArmor = cert.userSignature.armor;
 
   const userPayload = buildReedLikeUserPayload(
     cert.reedID,
@@ -789,13 +754,7 @@ export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<bo
     return false;
   }
 
-  let userSigArmor: string;
-  try {
-    userSigArmor = atob(cert.userSignature.armor);
-  } catch {
-    console.error('[verifyAccountRemoval] invalid signature encoding');
-    return false;
-  }
+  const userSigArmor = cert.userSignature.armor;
 
   const userPayload = buildAccountRemovalUserPayload(
     cert.serverID,
@@ -849,13 +808,7 @@ export async function verifyInvite(invite: api.Invite): Promise<boolean> {
     return false;
   }
 
-  let userSigArmor: string;
-  try {
-    userSigArmor = atob(invite.userSignature.armor);
-  } catch {
-    console.error('[verifyInvite] invalid userSignature encoding');
-    return false;
-  }
+  const userSigArmor = invite.userSignature.armor;
 
   const createdAt = signedAtHeader(invite.createdAt);
   if (!invite.tokenHash) {

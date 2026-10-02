@@ -7,7 +7,7 @@ import { allowUnsigned } from '$lib/verifiers';
 export interface PendingRemovalRecord {
   reedID: string;
   serverID: string;
-  signature: string; // base64 user detached sig
+  signature: string; // armored user detached sig
 }
 
 /** Incremented after each successful flush so UI can refresh. */

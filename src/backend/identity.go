@@ -64,7 +64,7 @@ func buildUserIdentityPayload(username, keyID, bio string) []byte {
 }
 
 // profileHeaders returns the header map covered by serverSignature.
-// `userSignatureB64` binds the user's attestation into the server-signed
+// `userSignature` binds the user's attestation into the server-signed
 // bytes; without this header the server signature would not detect a
 // server that re-pairs a genuine userSignature with fabricated
 // server-authored fields.
@@ -78,7 +78,7 @@ func profileHeaders(
 	keyID,
 	serverID,
 	serverKeyFingerprint,
-	userSignatureB64,
+	userSignature,
 	inviteID,
 	role string,
 	memberSince,
@@ -94,7 +94,7 @@ func profileHeaders(
 		"serverID":             serverID,
 		"serverKeyFingerprint": serverKeyFingerprint,
 		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
-		"userSignature":        userSignatureB64,
+		"userSignature":        base64Encode(userSignature),
 		"inviteID":             inviteID,
 	}
 }
@@ -111,7 +111,7 @@ func buildProfilePayload(
 	keyID,
 	serverID,
 	serverKeyFingerprint,
-	userSignatureB64,
+	userSignature,
 	inviteID,
 	role,
 	bio string,
@@ -125,7 +125,7 @@ func buildProfilePayload(
 			keyID,
 			serverID,
 			serverKeyFingerprint,
-			userSignatureB64,
+			userSignature,
 			inviteID,
 			role,
 			memberSince,
@@ -244,14 +244,14 @@ func buildUserRevocationPayload(userID, keyID, reason string) []byte {
 }
 
 // serverRevocationHeaders returns the header map the server countersigns.
-// userSignatureB64 binds the user's attestation into the server-signed
+// userSignature binds the user's attestation into the server-signed
 // bytes, same pattern as identity records.
 func serverRevocationHeaders(
 	userID,
 	keyID,
 	serverID,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	signedAt time.Time,
 ) map[string]string {
 	return map[string]string{
@@ -261,7 +261,7 @@ func serverRevocationHeaders(
 		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
 		"serverID":             serverID,
 		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        userSignatureB64,
+		"userSignature":        base64Encode(userSignature),
 	}
 }
 
@@ -274,7 +274,7 @@ func buildServerRevocationPayload(
 	reason,
 	serverID,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	signedAt time.Time,
 ) []byte {
 	return bytesToSign(
@@ -283,7 +283,7 @@ func buildServerRevocationPayload(
 			keyID,
 			serverID,
 			serverKeyFingerprint,
-			userSignatureB64,
+			userSignature,
 			signedAt,
 		),
 		reason,
@@ -316,14 +316,14 @@ func buildReedRemovalUserPayload(serverID, reedID string) []byte {
 }
 
 // reedRemovalServerHeaders returns the header map the server countersigns.
-// userSignatureB64 binds the author's attestation into the server-signed
+// userSignature binds the author's attestation into the server-signed
 // bytes (same class as identity / revocation countersign). reedID is the
 // full canonical id.
 func reedRemovalServerHeaders(
 	serverID,
 	reedID,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	signedAt time.Time,
 ) map[string]string {
 	return map[string]string{
@@ -332,7 +332,7 @@ func reedRemovalServerHeaders(
 		"reedID":               reedID,
 		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
 		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        userSignatureB64,
+		"userSignature":        base64Encode(userSignature),
 	}
 }
 
@@ -346,7 +346,7 @@ func buildReedRemovalServerPayload(
 	serverID,
 	reedID,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	signedAt time.Time,
 ) []byte {
 	return bytesToSign(
@@ -354,7 +354,7 @@ func buildReedRemovalServerPayload(
 			serverID,
 			reedID,
 			serverKeyFingerprint,
-			userSignatureB64,
+			userSignature,
 			signedAt,
 		),
 		"",
@@ -388,12 +388,12 @@ func buildReedLikeUserPayload(reedID, keyID string) []byte {
 }
 
 // reedLikeServerHeaders returns the header map the server countersigns.
-// userSignatureB64 binds the liker's attestation into the server-signed
+// userSignature binds the liker's attestation into the server-signed
 // bytes (same class as identity / revocation / reed-removal countersign).
 func reedLikeServerHeaders(
 	reedID,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	signedAt time.Time,
 ) map[string]string {
 	return map[string]string{
@@ -401,7 +401,7 @@ func reedLikeServerHeaders(
 		"reedID":               reedID,
 		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
 		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        userSignatureB64,
+		"userSignature":        base64Encode(userSignature),
 	}
 }
 
@@ -414,14 +414,14 @@ func reedLikeServerHeaders(
 func buildReedLikeServerPayload(
 	reedID,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	signedAt time.Time,
 ) []byte {
 	return bytesToSign(
 		reedLikeServerHeaders(
 			reedID,
 			serverKeyFingerprint,
-			userSignatureB64,
+			userSignature,
 			signedAt,
 		),
 		"",
@@ -473,12 +473,12 @@ func vouchServerHeaders(
 func buildVouchServerPayload(
 	subjectKeyID,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	signedAt time.Time,
 ) []byte {
 	return bytesToSign(
 		vouchServerHeaders(subjectKeyID, serverKeyFingerprint, signedAt),
-		userSignatureB64,
+		userSignature,
 	)
 }
 
@@ -518,12 +518,12 @@ func vouchWithdrawalServerHeaders(
 func buildVouchWithdrawalServerPayload(
 	vouchID,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	signedAt time.Time,
 ) []byte {
 	return bytesToSign(
 		vouchWithdrawalServerHeaders(vouchID, serverKeyFingerprint, signedAt),
-		userSignatureB64,
+		userSignature,
 	)
 }
 
@@ -551,7 +551,7 @@ func accountRemovalServerHeaders(
 	serverID,
 	userID,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	signedAt time.Time,
 ) map[string]string {
 	return map[string]string{
@@ -560,7 +560,7 @@ func accountRemovalServerHeaders(
 		"userID":               userID,
 		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
 		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        userSignatureB64,
+		"userSignature":        base64Encode(userSignature),
 	}
 }
 
@@ -571,7 +571,7 @@ func buildAccountRemovalServerPayload(
 	userID,
 	note,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	signedAt time.Time,
 ) []byte {
 	return bytesToSign(
@@ -579,7 +579,7 @@ func buildAccountRemovalServerPayload(
 			serverID,
 			userID,
 			serverKeyFingerprint,
-			userSignatureB64,
+			userSignature,
 			signedAt,
 		),
 		note,
@@ -621,7 +621,7 @@ func inviteServerHeaders(
 	inviteID,
 	tokenHash,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	createdAt,
 	signedAt time.Time,
 ) map[string]string {
@@ -634,7 +634,7 @@ func inviteServerHeaders(
 		"createdAt":            createdAt.UTC().Format(identityRecordTimeFormat),
 		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
 		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        userSignatureB64,
+		"userSignature":        base64Encode(userSignature),
 	}
 }
 
@@ -647,7 +647,7 @@ func buildInviteServerPayload(
 	inviteID,
 	tokenHash,
 	serverKeyFingerprint,
-	userSignatureB64 string,
+	userSignature string,
 	createdAt,
 	signedAt time.Time,
 ) []byte {
@@ -658,7 +658,7 @@ func buildInviteServerPayload(
 			inviteID,
 			tokenHash,
 			serverKeyFingerprint,
-			userSignatureB64,
+			userSignature,
 			createdAt,
 			signedAt,
 		),
@@ -682,7 +682,7 @@ func buildNewProfilePayload(
 	keyID,
 	serverID,
 	serverKeyFingerprint,
-	userSignatureB64,
+	userSignature,
 	inviteID,
 	role string,
 	timestamp time.Time,
@@ -693,7 +693,7 @@ func buildNewProfilePayload(
 		keyID,
 		serverID,
 		serverKeyFingerprint,
-		userSignatureB64,
+		userSignature,
 		inviteID,
 		role,
 		"",        // bio
@@ -784,9 +784,9 @@ func rippleServerHeaders(serverID, reedID, rippleAuthorID, keyID, threadID, repl
 //
 // `timestamp` must already be truncated to whole seconds so that what is
 // signed matches what Postgres stores after any timestamp round-trip.
-func buildRippleServerPayload(serverID, reedID, rippleAuthorID, keyID, threadID, replyingTo, userSignatureB64 string, timestamp time.Time) []byte {
+func buildRippleServerPayload(serverID, reedID, rippleAuthorID, keyID, threadID, replyingTo, userSignature string, timestamp time.Time) []byte {
 	return bytesToSign(
 		rippleServerHeaders(serverID, reedID, rippleAuthorID, keyID, threadID, replyingTo, timestamp),
-		userSignatureB64,
+		userSignature,
 	)
 }

@@ -9,7 +9,7 @@ export interface PendingLikeRecord {
   reedID: string;
   serverID: string;
   keyId: string;
-  signature: string; // base64 user detached sig
+  signature: string; // armored user detached sig
 }
 
 /** Incremented after each successful flush so UI can refresh. */

@@ -194,11 +194,11 @@
       // Self-signature with the brand-new key. Signed in page context from
       // the in-memory keypair: the worker must keep the old key loaded so
       // this rotation request is still signed by the key the server knows.
-      const newKeySignature = btoa(await cryptoService.signMessage(
+      const newKeySignature = (await cryptoService.signMessage(
         newKeyPair.publicKey,
         newKeyPair.privateKey,
         ''
-      ));
+      )).trim();
 
       // Store pending revocation so it can be retried if the server call fails
       await pendingRevocationRepository.put({
@@ -225,7 +225,7 @@
         try {
           newPublicKey = await apiService.addPublicKey(
             user.id,
-            btoa(newKeyPair.publicKey),
+            newKeyPair.publicKey,
             oldKeyId,
             revokedKeySignature,
             newKeySignature,

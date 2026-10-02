@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"testing"
 	"time"
 
@@ -356,7 +355,7 @@ func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 }
 
 // signRippleUserPayload builds and signs a ripple's user payload exactly
-// as the SPA would, returning the base64-armored signature ready for
+// as the SPA would, returning the armored signature ready for
 // DataService.PostRipple / the HTTP handler's `userSignature` field.
 func signRippleUserPayload(t *testing.T, key rippleTestKey, reedID, rippleAuthorID, threadID, replyingTo, content string) string {
 	t.Helper()
@@ -365,7 +364,7 @@ func signRippleUserPayload(t *testing.T, key rippleTestKey, reedID, rippleAuthor
 	if err != nil {
 		t.Fatalf("sign ripple user payload: %v", err)
 	}
-	return base64.StdEncoding.EncodeToString([]byte(armor))
+	return armor
 }
 
 // testCountersign is a DataService.PostRipple-compatible countersign
@@ -385,7 +384,7 @@ func testCountersign(t *testing.T) (func(payload []byte, ts time.Time) (ServerSi
 		}
 		return ServerSignature{
 			ID:       string(canonicalID("testserver", kp.Fingerprint)),
-			Armor:    base64.StdEncoding.EncodeToString([]byte(armor)),
+			Armor:    armor,
 			SignedAt: ts,
 		}, nil
 	}, kp.Fingerprint

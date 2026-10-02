@@ -203,43 +203,19 @@ func validateBundleDecrypt(b *recoveryBundle, cryptoSvc *cryptoService, passphra
 }
 
 // marshalBundleJSON encodes the bundle as JSON (second-precision times).
-// Key armor is base64-encoded on the way out — the bundle's in-memory
-// recoveryBundleKey fields are plain armor (matching the DB), but the
-// serialized file, like every other signed/keyed artifact that crosses a
-// wire or file boundary, carries base64.
+// Key armor travels as-is.
 func marshalBundleJSON(b *recoveryBundle) ([]byte, error) {
 	if err := validateBundleShape(b); err != nil {
 		return nil, err
 	}
-	wire := *b
-	wire.Keys = make([]recoveryBundleKey, len(b.Keys))
-	for i, k := range b.Keys {
-		wire.Keys[i] = k
-		wire.Keys[i].PrivateKeyArmor = base64Encode(k.PrivateKeyArmor)
-		wire.Keys[i].PublicKeyArmor = base64Encode(k.PublicKeyArmor)
-	}
-	return json.MarshalIndent(&wire, "", "  ")
+	return json.MarshalIndent(b, "", "  ")
 }
 
-// parseBundleJSON decodes a serialized bundle, base64-decoding key armor
-// back to plain armor before shape validation — the mirror of
-// marshalBundleJSON's encode step.
+// parseBundleJSON decodes a serialized bundle and validates its shape.
 func parseBundleJSON(data []byte) (*recoveryBundle, error) {
 	var b recoveryBundle
 	if err := json.Unmarshal(data, &b); err != nil {
 		return nil, fmt.Errorf("invalid bundle JSON")
-	}
-	for i, k := range b.Keys {
-		priv, err := base64Decode(k.PrivateKeyArmor)
-		if err != nil {
-			return nil, fmt.Errorf("keys[%d]: invalid privateKeyArmor encoding", i)
-		}
-		pub, err := base64Decode(k.PublicKeyArmor)
-		if err != nil {
-			return nil, fmt.Errorf("keys[%d]: invalid publicKeyArmor encoding", i)
-		}
-		b.Keys[i].PrivateKeyArmor = priv
-		b.Keys[i].PublicKeyArmor = pub
 	}
 	if err := validateBundleShape(&b); err != nil {
 		return nil, err
@@ -879,10 +855,7 @@ func flattenKeysNest(
 		profile.UserSignature.KeyID,
 		profile.Bio,
 	)
-	userSigArmor, err := decodeRecoveryB64Armor(profile.UserSignature.Armor)
-	if err != nil {
-		return recoveryFlatKey{}, nil, fmt.Errorf("profile user signature: %w", err)
-	}
+	userSigArmor := profile.UserSignature.Armor
 	if err := v.verifySignature(string(userPayload), userSigArmor, signer.Armor); err != nil {
 		return recoveryFlatKey{}, nil, fmt.Errorf("profile user signature: %w", err)
 	}
@@ -936,10 +909,7 @@ func verifyProfileServerCountersig(ctx context.Context, profile recoveryProfile,
 		profile.MemberSince.UTC().Truncate(time.Second),
 		profile.ServerSignature.Timestamp.UTC().Truncate(time.Second),
 	)
-	serverSigArmor, err := decodeRecoveryB64Armor(profile.ServerSignature.Armor)
-	if err != nil {
-		return fmt.Errorf("profile server signature: %w", err)
-	}
+	serverSigArmor := profile.ServerSignature.Armor
 	if err := v.verifySignature(string(profilePayload), serverSigArmor, serverPub); err != nil {
 		return fmt.Errorf("profile server signature: %w", err)
 	}
@@ -968,10 +938,7 @@ func verifyRecoveryKeyCountersig(ctx context.Context, key recoveryKeyWire, userI
 		key.Armor,
 		key.ServerSignature.Timestamp.UTC().Truncate(time.Second),
 	)
-	sigArmor, err := decodeRecoveryB64Armor(key.ServerSignature.Armor)
-	if err != nil {
-		return err
-	}
+	sigArmor := key.ServerSignature.Armor
 	return v.verifySignature(string(payload), sigArmor, serverPub)
 }
 
@@ -986,10 +953,7 @@ func verifyRecoveryRevocation(ctx context.Context, rev *recoveryRevocation, key 
 		return fmt.Errorf("server id mismatch")
 	}
 	userPayload := buildUserRevocationPayload(userID, rev.Fingerprint, rev.Reason)
-	userSigArmor, err := decodeRecoveryB64Armor(rev.UserSignature.Armor)
-	if err != nil {
-		return err
-	}
+	userSigArmor := rev.UserSignature.Armor
 	if err := v.verifySignature(string(userPayload), userSigArmor, key.Armor); err != nil {
 		return fmt.Errorf("user signature: %w", err)
 	}
@@ -1009,36 +973,8 @@ func verifyRecoveryRevocation(ctx context.Context, rev *recoveryRevocation, key 
 		rev.UserSignature.Armor,
 		rev.ServerSignature.Timestamp.UTC().Truncate(time.Second),
 	)
-	serverSigArmor, err := decodeRecoveryB64Armor(rev.ServerSignature.Armor)
-	if err != nil {
-		return err
-	}
+	serverSigArmor := rev.ServerSignature.Armor
 	return v.verifySignature(string(serverPayload), serverSigArmor, serverPub)
-}
-
-func decodeRecoveryB64Armor(s string) (string, error) {
-	raw, err := base64Decode(s)
-	if err != nil {
-		return "", fmt.Errorf("invalid base64 encoding")
-	}
-	return raw, nil
-}
-
-// decodeRecoveryKeyNestArmor walks a key nest outermost→oldest, decoding
-// each recoveryKeyWire.Armor from base64 to plain armor in place. Must run
-// once, right after JSON-decoding the request, before flattenKeysNest or any
-// crypto use — every downstream consumer (signature verification, payload
-// signing) expects plain armor, matching how flat signature fields already
-// work.
-func decodeRecoveryKeyNestArmor(root *recoveryKeyNode) error {
-	for n := root; n != nil; n = n.Predecessor {
-		armor, err := decodeRecoveryB64Armor(n.Armor)
-		if err != nil {
-			return fmt.Errorf("key %s: invalid armor encoding", n.Fingerprint)
-		}
-		n.Armor = armor
-	}
-	return nil
 }
 
 // validateChallengeAge rejects challenges in the future or older than maxAge.
@@ -1053,13 +989,10 @@ func validateChallengeAge(challenge int64, now time.Time, maxAge time.Duration) 
 	return nil
 }
 
-// verifyChallengeSignature checks a base64(armored) detached sig over the
+// verifyChallengeSignature checks an armored detached sig over the
 // decimal challenge string using the outermost public key.
-func verifyChallengeSignature(challenge int64, signatureB64, publicKeyArmor string, v recoveryVerifier) error {
-	sigArmor, err := decodeRecoveryB64Armor(signatureB64)
-	if err != nil {
-		return fmt.Errorf("challenge signature: %w", err)
-	}
+func verifyChallengeSignature(challenge int64, signature, publicKeyArmor string, v recoveryVerifier) error {
+	sigArmor := signature
 	msg := strconv.FormatInt(challenge, 10)
 	if err := v.verifySignature(msg, sigArmor, publicKeyArmor); err != nil {
 		return fmt.Errorf("challenge signature: %w", err)

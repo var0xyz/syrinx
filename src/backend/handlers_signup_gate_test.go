@@ -167,12 +167,12 @@ func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint,
 	if err != nil {
 		t.Fatalf("sign request: %v", err)
 	}
-	sigB64 := base64.StdEncoding.EncodeToString([]byte(sigArmor))
+	sig := base64.StdEncoding.EncodeToString([]byte(sigArmor))
 
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-Syrinx-Public-Key-Id", string(appendEntity(identityID(userID), fingerprint)))
-	req.Header.Set("X-Syrinx-Signature", sigB64)
+	req.Header.Set("X-Syrinx-Signature", sig)
 	req.Header.Set("X-Syrinx-Signature-Scope", "body")
 	req.Header.Set("X-Syrinx-Timestamp", timestamp)
 	return req
@@ -320,7 +320,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pubKeyArmorB64 := base64.StdEncoding.EncodeToString([]byte(kp.PublicKey))
+	pubKeyArmor := kp.PublicKey
 	keySelfSig, err := h.services.crypto.sign(kp.PublicKey, kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
@@ -337,11 +337,11 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 
 	form := url.Values{
 		"username":          {"bob"},
-		"publicKey":         {pubKeyArmorB64},
-		"signature":         {base64.StdEncoding.EncodeToString([]byte(keySelfSig))},
-		"userSignature":     {base64.StdEncoding.EncodeToString([]byte(userSigArmor))},
+		"publicKey":         {pubKeyArmor},
+		"signature":         {keySelfSig},
+		"userSignature":     {userSigArmor},
 		"userID":            {userID},
-		"userIDSignature":   {base64.StdEncoding.EncodeToString([]byte(userIDSig))},
+		"userIDSignature":   {userIDSig},
 		"userIDFingerprint": {h.signingKey.Fingerprint},
 	}
 	rr := httptest.NewRecorder()
@@ -384,11 +384,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		key.Armor,
 		key.ServerSignature.SignedAt,
 	)
-	keySigArmor, err := base64.StdEncoding.DecodeString(key.ServerSignature.Armor)
-	if err != nil {
-		t.Fatalf("decode key server signature armor: %v", err)
-	}
-	if err := h.services.crypto.verifySignature(string(rebuiltKey), string(keySigArmor), serverKP.PublicKey); err != nil {
+	if err := h.services.crypto.verifySignature(string(rebuiltKey), key.ServerSignature.Armor, serverKP.PublicKey); err != nil {
 		t.Fatalf("public key server signature does not verify against the response's own userID: %v", err)
 	}
 
@@ -410,11 +406,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		user.CreatedAt,
 		user.ServerSignature.SignedAt,
 	)
-	profileSigArmor, err := base64.StdEncoding.DecodeString(user.ServerSignature.Armor)
-	if err != nil {
-		t.Fatalf("decode profile server signature armor: %v", err)
-	}
-	if err := h.services.crypto.verifySignature(string(rebuiltProfile), string(profileSigArmor), serverKP.PublicKey); err != nil {
+	if err := h.services.crypto.verifySignature(string(rebuiltProfile), user.ServerSignature.Armor, serverKP.PublicKey); err != nil {
 		t.Fatalf("profile server signature does not verify against the response's own userID: %v", err)
 	}
 }

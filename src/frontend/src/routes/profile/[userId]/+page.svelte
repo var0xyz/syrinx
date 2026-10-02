@@ -125,9 +125,7 @@
 
       // Build and sign the identity-user payload. Bytes MUST match
       // what the server rebuilds via buildUserIdentityPayload in
-      // identity.go — see signing.ts for the mirror contract. The
-      // signature travels as base64(armored PGP) to survive
-      // form-encoding.
+      // identity.go — see signing.ts for the mirror contract.
       const keyId = authService.getActiveKeyId();
       if (!keyId) {
         editError = 'Session expired. Please sign in again.';

@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -86,7 +85,7 @@ func inviteCreateBody(t *testing.T, h *Handlers, creatorID string, kp cryptoKeyP
 		GrantedRole: grantedRole,
 		UserSignature: inviteUserSignatureWire{
 			ID:    canonicalFingerprint,
-			Armor: base64.StdEncoding.EncodeToString([]byte(sigArmor)),
+			Armor: sigArmor,
 		},
 	})
 	if err != nil {

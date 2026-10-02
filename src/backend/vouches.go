@@ -437,7 +437,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 	}
 	subjectKeyID := strings.TrimSpace(values.Get("subjectKeyID"))
 	voucherKeyID := strings.TrimSpace(values.Get("voucherKeyID"))
-	userSignatureB64 := strings.TrimSpace(values.Get("signature"))
+	userSignature := strings.TrimSpace(values.Get("signature"))
 	note := values.Get("note")
 
 	switch {
@@ -447,7 +447,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 	case voucherKeyID == "":
 		writeResponse(w, http.StatusBadRequest, "Argument `voucherKeyID` is required")
 		return
-	case userSignatureB64 == "":
+	case userSignature == "":
 		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
@@ -500,7 +500,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		// This key is already verified by the caller. The one exception is
 		// the offline queue resending the signature it stored, which is a
 		// retry rather than a second verification.
-		if existing.UserSignature.Armor == userSignatureB64 {
+		if existing.UserSignature.Armor == userSignature {
 			writeResponse(w, http.StatusOK, existing)
 			return
 		}
@@ -552,11 +552,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userSigArmor, err := base64Decode(userSignatureB64)
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
-		return
-	}
+	userSigArmor := userSignature
 	userPayload := buildVouchUserPayload(voucherKeyID, subjectKeyID, note)
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, voucherKey.Armor); err != nil {
 		log.Error().
@@ -570,7 +566,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	serverPayload := buildVouchServerPayload(
-		subjectKeyID, h.signingKey.Fingerprint, userSignatureB64, now,
+		subjectKeyID, h.signingKey.Fingerprint, userSignature, now,
 	)
 	serverSignature, err := h.countersign(serverPayload, now)
 	if err != nil {
@@ -596,7 +592,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		SubjectUserID:   subjectUserID,
 		SubjectKeyID:    subjectKeyID,
 		Note:            note,
-		UserSignature:   UserSignature{ID: voucherKeyID, Armor: userSignatureB64},
+		UserSignature:   UserSignature{ID: voucherKeyID, Armor: userSignature},
 		ServerSignature: serverSignature,
 	}
 	// A vouch about a user of another server is stored only once that
@@ -665,8 +661,8 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	voucherKeyID := strings.TrimSpace(values.Get("voucherKeyID"))
-	signatureB64 := strings.TrimSpace(values.Get("signature"))
-	if voucherKeyID == "" || signatureB64 == "" {
+	signature := strings.TrimSpace(values.Get("signature"))
+	if voucherKeyID == "" || signature == "" {
 		writeResponse(w, http.StatusBadRequest, "Arguments `voucherKeyID` and `signature` are required")
 		return
 	}
@@ -709,11 +705,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sigArmor, err := base64Decode(signatureB64)
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid signature encoding")
-		return
-	}
+	sigArmor := signature
 	payload := buildVouchWithdrawalUserPayload(existing.ID)
 	if err := h.services.crypto.verifySignature(string(payload), sigArmor, voucherKey.Armor); err != nil {
 		log.Error().
@@ -729,7 +721,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 	// stored one would never verify.
 	now := time.Now().UTC().Truncate(time.Second)
 	serverPayload := buildVouchWithdrawalServerPayload(
-		existing.ID, h.signingKey.Fingerprint, signatureB64, now,
+		existing.ID, h.signingKey.Fingerprint, signature, now,
 	)
 	serverSignature, err := h.countersign(serverPayload, now)
 	if err != nil {
@@ -745,7 +737,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 			VouchID:       existing.ID,
 			VoucherUserID: voucherID,
 			Withdrawal: VouchWithdrawal{
-				UserSignature:   UserSignature{ID: voucherKeyID, Armor: signatureB64},
+				UserSignature:   UserSignature{ID: voucherKeyID, Armor: signature},
 				ServerSignature: serverSignature,
 			},
 		}
@@ -758,7 +750,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 
 	cert, err := h.services.db.WithdrawVouch(
 		r.Context(), voucherID, subjectKeyID,
-		UserSignature{ID: voucherKeyID, Armor: signatureB64},
+		UserSignature{ID: voucherKeyID, Armor: signature},
 		serverSignature,
 	)
 	if err != nil {

@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"testing"
 	"time"
@@ -105,11 +104,11 @@ func TestVerifyProfileServerCountersig_RealSignatureAfterJSONRoundTrip(t *testin
 	if err != nil {
 		t.Fatalf("sign(user): %v", err)
 	}
-	userSigB64 := base64.StdEncoding.EncodeToString([]byte(userSigArmor))
+	userSig := userSigArmor
 
 	profilePayload := buildNewProfilePayload(
 		userID, "alice", string(keyID), serverID, serverKP.Fingerprint,
-		userSigB64, "", "user", ts,
+		userSig, "", "user", ts,
 	)
 	serverSigArmor, err := cryptoSvc.sign(string(profilePayload), serverKP.PrivateKey)
 	if err != nil {
@@ -117,7 +116,7 @@ func TestVerifyProfileServerCountersig_RealSignatureAfterJSONRoundTrip(t *testin
 	}
 
 	// Client wire shape: userSignature.id / serverSignature.id are
-	// canonical, armor is base64 — matches spa/src/lib/types/api.ts.
+	// canonical, armor is raw — matches spa/src/lib/types/api.ts.
 	wireJSON, err := json.Marshal(struct {
 		ID            string `json:"id"`
 		Username      string `json:"username"`
@@ -139,14 +138,14 @@ func TestVerifyProfileServerCountersig_RealSignatureAfterJSONRoundTrip(t *testin
 		UserSignature: struct {
 			ID    string `json:"id"`
 			Armor string `json:"armor"`
-		}{ID: string(keyID), Armor: userSigB64},
+		}{ID: string(keyID), Armor: userSig},
 		ServerSignature: struct {
 			ID        string `json:"id"`
 			Armor     string `json:"armor"`
 			Timestamp string `json:"timestamp"`
 		}{
 			ID:        string(canonicalID(serverID, serverKP.Fingerprint)),
-			Armor:     base64.StdEncoding.EncodeToString([]byte(serverSigArmor)),
+			Armor:     serverSigArmor,
 			Timestamp: ts.Format(time.RFC3339),
 		},
 	})

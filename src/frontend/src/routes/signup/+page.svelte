@@ -196,7 +196,7 @@
       currentStep = 5;
       const signupPayload = {
         username: trimmedUsername,
-        publicKey: btoa(keyPair.publicKey),
+        publicKey: keyPair.publicKey,
         signature,
         userSignature,
         userID: reserved.userID,

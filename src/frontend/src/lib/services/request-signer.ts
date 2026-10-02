@@ -284,20 +284,10 @@ class RequestSignerService {
   }
 
   /**
-   * Sign arbitrary text using the service worker
-   * This is the core signing primitive
+   * Sign arbitrary text using the service worker, returning the armored
+   * detached signature. This is the core signing primitive.
    */
   async sign(text: string): Promise<string> {
-    return this.encodeBase64Signature(
-      await this.withWorkerKey(() => this.getSignatureFromWorker(text))
-    );
-  }
-
-  /**
-   * Sign arbitrary text, returning the armored signature as-is. Callers
-   * that embed a signature verbatim use this; `sign` base64-wraps it.
-   */
-  async signArmored(text: string): Promise<string> {
     return (await this.withWorkerKey(() => this.getSignatureFromWorker(text))).trim();
   }
 
@@ -353,8 +343,7 @@ class RequestSignerService {
     // Build canonical request string (no headers needed)
     const canonicalRequest = this.buildCanonicalRequestString(method, path, body, timestamp);
 
-    // Get signature using the generic sign method (already base64 encoded)
-    const signature = await this.sign(canonicalRequest);
+    const signature = this.encodeBase64Signature(await this.sign(canonicalRequest));
 
     // Add signature headers
     const signedHeaders = new Headers(options.headers);
@@ -399,9 +388,7 @@ class RequestSignerService {
     return builder.join('\n');
   }
 
-  /**
-   * Encode signature as base64
-   */
+  /** Base64-encode a signature so it fits in a single-line HTTP header. */
   private encodeBase64Signature(signature: string): string {
 
     return btoa(signature.trim());

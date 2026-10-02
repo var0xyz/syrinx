@@ -142,7 +142,7 @@ export class Reed {
   setUserSignature(keyId: string, detachedArmor: string): void {
     this._userSignature = {
       id: keyId,
-      armor: btoa(detachedArmor.trim()).trim(),
+      armor: detachedArmor.trim(),
     };
   }
 
