@@ -3,6 +3,7 @@
   import Auth from '$lib/components/Auth.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Username from '$lib/components/Username.svelte';
+  import ServerName from '$lib/components/ServerName.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import { foreignServerOf, unreachableServerMessage } from '$lib/services/peerServers';
   import {
@@ -140,7 +141,7 @@
           {#each group as vouch (vouch.id)}
             <li class:withdrawn={!!vouch.withdrawal}>
               <div class="detail">
-                <span class="who"><Username userID={vouch.subjectUserID} at={true} /></span>
+                <span class="who"><Username userID={vouch.subjectUserID} at={true} /><ServerName userID={vouch.subjectUserID} /></span>
                 <span class="state {stateOf(states, vouch)}">{stateOf(states, vouch)}</span>
                 <span class="when">{formatWhen(vouch.serverSignature.timestamp)}</span>
                 <code class="key">{vouch.subjectKeyID}</code>

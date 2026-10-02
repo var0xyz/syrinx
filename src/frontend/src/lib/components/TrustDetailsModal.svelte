@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import Username from '$lib/components/Username.svelte';
+  import ServerName from '$lib/components/ServerName.svelte';
   import TrustMark from '$lib/components/TrustMark.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import { foreignServerOf, unreachableServerMessage } from '$lib/services/peerServers';
@@ -137,7 +138,7 @@
             {#each byOthers as vouch (vouch.id)}
               <li>
                 <span class="voucher" on:click={close} role="presentation">
-                  <Username userID={vouch.voucherUserID} at={true} />
+                  <Username userID={vouch.voucherUserID} at={true} /><ServerName userID={vouch.voucherUserID} />
                 </span>
                 <TrustMark userID={vouch.voucherUserID} linked={false} />
                 <span class="when">{formatDate(vouch.serverSignature.timestamp)}</span>
