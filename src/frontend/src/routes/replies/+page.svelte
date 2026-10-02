@@ -19,7 +19,7 @@
 
   $: tabs = [
     { href: '/replies', label: 'Replies' },
-    { href: '/ripples', label: 'Ripples' },
+    { href: '/ripples', label: 'Ripples', unread: $unreadInteractions.ripples },
     { href: '/feed/mentions', label: 'Mentions', unread: $unreadInteractions.mentions },
   ];
 

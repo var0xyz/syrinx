@@ -423,6 +423,17 @@ func newReedRepliesMsg(reedID string, replies int) *pb.WSMessage {
 	}
 }
 
+// newNewRippleMsg tells a reed author their ripples inbox has something new.
+func newNewRippleMsg() *pb.WSMessage {
+	return &pb.WSMessage{
+		Type:     pb.MessageType_NEW_RIPPLE,
+		TypeName: pb.MessageType_NEW_RIPPLE.String(),
+		Payload: &pb.WSMessage_NewRipple{
+			NewRipple: &pb.NewRippleMessage{},
+		},
+	}
+}
+
 // newNewVouchMsg tells a subject a vouch now names one of their keys. Only
 // the id travels: the client fetches and verifies the cert, since a pushed
 // payload would be the server's word for it.
@@ -518,6 +529,9 @@ type realtimeBroadcastMessage struct {
 
 	// RipplePosted/RippleUpdated only: the full signed ripple response.
 	Ripple *RippleWire
+
+	// RipplePosted only: local author of the ripple being replied to, if any.
+	RippleParentAuthorID string
 
 	// VouchCreated only: the new vouch's own canonical id.
 	VouchID string
@@ -1388,6 +1402,7 @@ func (rs *realtimeService) handleBroadcasts(broadcastChan <-chan realtimeBroadca
 		if message.Type == realtimeRipplePosted && message.Ripple != nil {
 			reedID := string(appendEntity(identityID(message.UserID), message.ReedID))
 			rs.notifyRipplePosted(reedID, message.Ripple.UserID, *message.Ripple)
+			rs.notifyRippleRecipients(reedID, message.Ripple.UserID, message.RippleParentAuthorID)
 		}
 
 		if message.Type == realtimeVouchCreated && message.VouchID != "" {
@@ -3631,6 +3646,22 @@ func (rs *realtimeService) notifyRippleUpdated(reedID, rippleAuthorID string, ri
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_UPDATED")
 	}
 	rs.notifyForeignReedSubscribersExcept(reedID, rippleAuthorID, msg)
+}
+
+// notifyRippleRecipients tells the reed's author and the replied-to author
+// a ripple landed in their inbox, never the ripple's own author. Offline
+// users see it on their next inbox fetch, so a failed send is fine.
+func (rs *realtimeService) notifyRippleRecipients(reedID, rippleAuthorID, parentAuthorID string) {
+	notified := map[string]bool{"": true, rippleAuthorID: true}
+	for _, userID := range []string{reedAuthorIdentity(reedID), parentAuthorID} {
+		if notified[userID] {
+			continue
+		}
+		notified[userID] = true
+		if err := rs.connManager.SendToUser(userID, newNewRippleMsg()); err != nil {
+			log.Debug().Str("userID", userID).Str("reedID", reedID).Msg("Ripple recipient not reachable for NEW_RIPPLE")
+		}
+	}
 }
 
 // notifyVouchSubject pushes a new vouch's id to the subject when they are

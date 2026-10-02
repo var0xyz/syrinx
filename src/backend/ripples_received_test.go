@@ -36,7 +36,7 @@ func TestListReceivedRipples_OwnReedIncluded(t *testing.T) {
 	}
 }
 
-func TestListReceivedRipples_ReplyToOwnRippleExcludedOnForeignReed(t *testing.T) {
+func TestListReceivedRipples_ReplyToOwnRippleIncludedOnOthersReed(t *testing.T) {
 	db := openRipplesTestDB(t)
 	insertRipplesTestUser(t, db, "author1", "author")
 	insertRipplesTestUser(t, db, "commenter1", "commenter")
@@ -47,14 +47,14 @@ func TestListReceivedRipples_ReplyToOwnRippleExcludedOnForeignReed(t *testing.T)
 
 	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	root := postTestRipple(t, svc, key1, reed1ID, canonicalCommenter1, "root", nil, time.Now())
-	postTestRipple(t, svc, key2, reed1ID, canonicalCommenter2, "reply", &root.ID, time.Now().Add(time.Second))
+	reply := postTestRipple(t, svc, key2, reed1ID, canonicalCommenter2, "reply", &root.ID, time.Now().Add(time.Second))
 
 	list, err := svc.ListReceivedRipples(context.Background(), canonicalCommenter1, 50, "")
 	if err != nil {
 		t.Fatalf("ListReceivedRipples: %v", err)
 	}
-	if len(list.Ripples) != 0 {
-		t.Fatalf("got %d ripples, want 0 (reed belongs to author1, not commenter1)", len(list.Ripples))
+	if len(list.Ripples) != 1 || list.Ripples[0].ID != reply.ID {
+		t.Fatalf("got %d ripples, want only the reply to commenter1's ripple", len(list.Ripples))
 	}
 }
 

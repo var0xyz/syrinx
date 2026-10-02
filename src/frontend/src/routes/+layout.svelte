@@ -257,6 +257,9 @@
       }
       dispatchReedToQueue(reed, 'broadcast_reed', data.username);
     });
+    serverConnection.on(ServerEvent.NewRipple, () => {
+      markUnread('ripples');
+    });
     serverConnection.on(ServerEvent.NewVouch, async ({ vouchID }) => {
       // Only the id is pushed, so fetch and verify the cert rather than
       // trusting a payload the server assembled.

@@ -65,6 +65,7 @@ message WSMessage {
     EvictionAckMessage eviction_ack = 46;
     NewVouchMessage new_vouch = 47;
     PeerServerLostMessage peer_server_lost = 48;
+    NewRippleMessage new_ripple = 49;
   }
 }
 
@@ -134,6 +135,7 @@ enum MessageType {
   EVICTION_ACK = 57;
   NEW_VOUCH = 58;
   PEER_SERVER_LOST = 59;
+  NEW_RIPPLE = 60;
 }
 
 // Ping message
@@ -439,6 +441,11 @@ message AccountRemovedMessage {
 // itself, since a pushed payload is the server's word.
 message NewVouchMessage {
   string vouch_id = 1;
+}
+
+// Tells a reed author someone rippled on one of their reeds. Carries
+// nothing: the client fetches its ripples inbox when the user opens it.
+message NewRippleMessage {
 }
 
 // Tells a viewer this server lost its link to a peer: live updates from
