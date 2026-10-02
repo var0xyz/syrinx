@@ -70,7 +70,7 @@
     creating = true;
     modalError = '';
     try {
-      const created = await apiService.createFederationInvitation(name, btoa(armor));
+      const created = await apiService.createFederationInvitation(name, armor);
       showCreateModal = false;
       freshConnectionString = created.connectionString;
       showConnectionModal = true;

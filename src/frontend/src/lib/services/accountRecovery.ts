@@ -60,12 +60,11 @@ async function fetchBootstrap(
   passphrase: string
 ): Promise<api.AccountRecoveryBootstrapResponse> {
   const { challenge } = await apiService.getAccountRecoveryChallenge();
-  const sigArmor = await cryptoService.signMessage(
+  const signature = (await cryptoService.signMessage(
     String(challenge),
     privateKeyArmor,
     passphrase
-  );
-  const signature = btoa(sigArmor);
+  )).trim();
 
   try {
     return await apiService.bootstrapAccountRecovery({

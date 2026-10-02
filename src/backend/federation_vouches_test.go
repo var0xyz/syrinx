@@ -95,7 +95,7 @@ func (f *vouchRefFixture) sign(t *testing.T, payload []byte, privateKey string) 
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
-	return base64Encode(armor)
+	return armor
 }
 
 // cert builds a vouch exactly as the peer would: signed by the voucher and

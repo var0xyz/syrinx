@@ -65,7 +65,7 @@ func createInvitationEncryptedTo(t *testing.T, fs *federationServer, adminID str
 	t.Helper()
 	body, _ := json.Marshal(federationCreateRequest{
 		Name:                 "peer",
-		RemotePublicKeyArmor: base64.StdEncoding.EncodeToString([]byte(remoteKP.PublicKey)),
+		RemotePublicKeyArmor: remoteKP.PublicKey,
 	})
 	rr := httptest.NewRecorder()
 	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/invitations", bytes.NewReader(body)), adminID)
@@ -286,7 +286,7 @@ func TestIncomingFederationAttempt_WrongSecret(t *testing.T) {
 		BaseURL:     a.srv.URL,
 		FrontendURL: "https://app.server-b.example",
 		Fingerprint: remoteKP.Fingerprint,
-		Signature:   base64.StdEncoding.EncodeToString([]byte(sigArmor)),
+		Signature:   sigArmor,
 		Secret:      "wrong-secret",
 	})
 	rr := httptest.NewRecorder()
@@ -324,7 +324,7 @@ func TestIncomingFederationAttempt_ReplayNotNew(t *testing.T) {
 		BaseURL:     "https://b.example",
 		FrontendURL: "https://app.b.example",
 		Fingerprint: "fp-b",
-		Signature:   base64.StdEncoding.EncodeToString([]byte("irrelevant")),
+		Signature:   "irrelevant",
 		Secret:      "s",
 	})
 	rr := httptest.NewRecorder()
@@ -351,7 +351,7 @@ func TestOutgoingFederationAttempt_InvalidInitiatorSignature(t *testing.T) {
 		FrontendURL:    "https://app.server-a.example",
 		Fingerprint:    a.kp.Fingerprint,
 		PublicKeyArmor: a.kp.PublicKey,
-		Signature:      base64.StdEncoding.EncodeToString([]byte("not-a-real-signature")),
+		Signature:      "not-a-real-signature",
 		Secret:         "s",
 	}
 	plaintext, err := json.Marshal(payload)

@@ -158,7 +158,7 @@
       if (pinnedEcho) {
         reed.echoing = pinnedEcho.id;
       }
-      const detachedArmor = await requestSigner.signArmored(reed.asMarkdown());
+      const detachedArmor = await requestSigner.sign(reed.asMarkdown());
       reed.setUserSignature(keyId, detachedArmor);
       const { publish } = await reedsService.createReed(reed);
       const href = `/reed/${reed.id}`;

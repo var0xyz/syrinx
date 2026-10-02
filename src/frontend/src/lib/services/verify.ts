@@ -67,7 +67,7 @@ export async function verify(
     const signedAt = signedAtHeader(serverSignature.timestamp);
     const valid = await cryptoService.verifySignature(
       payload,
-      atob(serverSignature.armor),
+      serverSignature.armor,
       armor,
       signedAt
     );

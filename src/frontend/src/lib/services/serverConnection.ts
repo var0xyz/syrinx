@@ -415,7 +415,8 @@ class ServerConnection {
       }
 
       const timestamp = Math.floor(Date.now() / 1000).toString();
-      const signature = await requestSigner.sign(timestamp);
+      // Base64 so the armored signature fits in a query parameter.
+      const signature = btoa(await requestSigner.sign(timestamp));
       const activeKeyId = authService.getActiveKeyId()!;
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

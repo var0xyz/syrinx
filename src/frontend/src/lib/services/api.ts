@@ -615,7 +615,7 @@ export const apiService = {
   // Every accepted request is a *full* replacement of the signed
   // user-authored fields — partial patches are no longer supported.
   // Callers must pass the complete post-edit tuple (username, bio) plus
-  // a base64(armored PGP) detached signature over
+  // an armored PGP detached signature over
   // `buildUserIdentityPayload(username, fingerprint, bio)`. The server
   // uses byte-equality between the submitted userSignature and the row's
   // stored user_signature as a no-op fast path, so a caller that
@@ -997,7 +997,7 @@ export const apiService = {
    * federated peer's. */
   async getPublicKey(id: string): Promise<api.PublicKey> {
     const key = await request<api.PublicKey>(`/keys/${id}`, { method: 'GET' });
-    return { ...key, armor: atob(key.armor) };
+    return key;
   },
 
   /** Atomically revokes the predecessor key and registers the new one —
@@ -1029,7 +1029,7 @@ export const apiService = {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString()
     });
-    return { ...key, armor: atob(key.armor) };
+    return key;
   },
 
   /** Unauthenticated: GET account-recovery challenge (unix seconds). */

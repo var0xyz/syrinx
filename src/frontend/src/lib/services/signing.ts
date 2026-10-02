@@ -132,7 +132,7 @@ export function buildProfilePayload(
   keyID: string,
   serverID: string,
   serverKeyFingerprint: string,
-  userSignatureB64: string,
+  userSignature: string,
   inviteID: string,
   role: string,
   bio: string,
@@ -150,7 +150,7 @@ export function buildProfilePayload(
       serverID,
       serverKeyFingerprint,
       signedAt,
-      userSignature: userSignatureB64,
+      userSignature: btoa(userSignature),
       inviteID
     },
     bio
@@ -160,13 +160,13 @@ export function buildProfilePayload(
 /**
  * Mirror of BuildReedPayload / ReedCountersignHeaders in identity.go.
  * reedID is the full canonical id. Content is the author userSignature
- * wire value (base64 armor), same as POST /reeds `signature` form field.
+ * wire value (armor), same as POST /reeds `signature` form field.
  */
 export function buildReedPayload(
   serverID: string,
   reedID: string,
   serverKeyFingerprint: string,
-  userSignatureB64: string,
+  userSignature: string,
   timestamp: string
 ): string {
   return stringToSign(
@@ -176,7 +176,7 @@ export function buildReedPayload(
       reedID,
       timestamp
     },
-    userSignatureB64
+    userSignature
   );
 }
 
@@ -224,7 +224,7 @@ export function buildServerRevocationPayload(
   reason: string,
   serverID: string,
   serverKeyFingerprint: string,
-  userSignatureB64: string,
+  userSignature: string,
   signedAt: string
 ): string {
   return stringToSign(
@@ -235,7 +235,7 @@ export function buildServerRevocationPayload(
       signedAt,
       serverID,
       serverKeyFingerprint,
-      userSignature: userSignatureB64
+      userSignature: btoa(userSignature)
     },
     reason
   );
@@ -261,7 +261,7 @@ export function buildReedRemovalServerPayload(
   serverID: string,
   reedID: string,
   serverKeyFingerprint: string,
-  userSignatureB64: string,
+  userSignature: string,
   signedAt: string
 ): string {
   return stringToSign(
@@ -271,7 +271,7 @@ export function buildReedRemovalServerPayload(
       reedID,
       signedAt,
       serverKeyFingerprint,
-      userSignature: userSignatureB64
+      userSignature: btoa(userSignature)
     },
     ''
   );
@@ -296,7 +296,7 @@ export function buildReedLikeUserPayload(
 export function buildReedLikeServerPayload(
   reedID: string,
   serverKeyFingerprint: string,
-  userSignatureB64: string,
+  userSignature: string,
   signedAt: string
 ): string {
   return stringToSign(
@@ -305,7 +305,7 @@ export function buildReedLikeServerPayload(
       reedID,
       signedAt,
       serverKeyFingerprint,
-      userSignature: userSignatureB64
+      userSignature: btoa(userSignature)
     },
     ''
   );
@@ -334,7 +334,7 @@ export function buildVouchUserPayload(
 export function buildVouchServerPayload(
   subjectKeyID: string,
   serverKeyFingerprint: string,
-  userSignatureB64: string,
+  userSignature: string,
   signedAt: string
 ): string {
   return stringToSign(
@@ -343,7 +343,7 @@ export function buildVouchServerPayload(
       signedAt,
       serverKeyFingerprint
     },
-    userSignatureB64
+    userSignature
   );
 }
 
@@ -358,7 +358,7 @@ export function buildVouchWithdrawalUserPayload(vouchID: string): string {
 export function buildVouchWithdrawalServerPayload(
   vouchID: string,
   serverKeyFingerprint: string,
-  userSignatureB64: string,
+  userSignature: string,
   signedAt: string
 ): string {
   return stringToSign(
@@ -367,7 +367,7 @@ export function buildVouchWithdrawalServerPayload(
       signedAt,
       serverKeyFingerprint
     },
-    userSignatureB64
+    userSignature
   );
 }
 
@@ -393,7 +393,7 @@ export function buildAccountRemovalServerPayload(
   userID: string,
   note: string,
   serverKeyFingerprint: string,
-  userSignatureB64: string,
+  userSignature: string,
   signedAt: string
 ): string {
   return stringToSign(
@@ -403,7 +403,7 @@ export function buildAccountRemovalServerPayload(
       userID,
       signedAt,
       serverKeyFingerprint,
-      userSignature: userSignatureB64
+      userSignature: btoa(userSignature)
     },
     note
   );
@@ -439,7 +439,7 @@ export function buildInviteServerPayload(
   inviteID: string,
   tokenHash: string,
   serverKeyFingerprint: string,
-  userSignatureB64: string,
+  userSignature: string,
   createdAt: string,
   signedAt: string
 ): string {
@@ -453,7 +453,7 @@ export function buildInviteServerPayload(
       createdAt,
       signedAt,
       serverKeyFingerprint,
-      userSignature: userSignatureB64
+      userSignature: btoa(userSignature)
     },
     ''
   );
@@ -490,7 +490,7 @@ export function buildRippleUserPayload(
 /**
  * Mirror of BuildRippleServerPayload / rippleServerHeaders in identity.go.
  * Same fields the user signed, plus serverID and the server-supplied
- * timestamp. Content is the author's detached signature (base64 armor),
+ * timestamp. Content is the author's detached signature (armor),
  * not the ripple text — mirrors buildReedPayload exactly. `keyID`
  * here is the ripple author's signing key id (same value passed
  * to buildRippleUserPayload), not the server key's.
@@ -502,7 +502,7 @@ export function buildRippleServerPayload(
   keyID: string,
   threadID: string,
   replyingTo: string,
-  userSignatureB64: string,
+  userSignature: string,
   timestamp: string
 ): string {
   return stringToSign(
@@ -515,6 +515,6 @@ export function buildRippleServerPayload(
       replyingTo,
       timestamp
     },
-    userSignatureB64
+    userSignature
   );
 }

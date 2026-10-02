@@ -26,7 +26,6 @@ func TestShouldBroadcastReed(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			pr := &pb.PublishReadyMessage{ReedId: "r1", HasBroadcast: tc.hasBroadcast, Broadcast: tc.broadcast}

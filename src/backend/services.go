@@ -495,7 +495,7 @@ func (s *DataService) RevokeServerPrivateKey(ctx context.Context, keyID, reason 
 // SignupInput bundles everything Signup needs. It is populated by the
 // Signup handler after it has allocated a userID, verified the user's
 // self-signature over their key, reconstructed the user identity
-// payload, verified UserSignatureB64 against PublicKeyArmor, and
+// payload, verified UserSignature against PublicKeyArmor, and
 // produced ProfileSignature / PublicKeySignature.
 type SignupInput struct {
 	UserID         string
@@ -507,7 +507,7 @@ type SignupInput struct {
 	// value must appear in the signed bytes.
 	Fingerprint        string
 	KeyCreatedAt       time.Time
-	UserSignatureB64   string
+	UserSignature   string
 	MemberSince        time.Time
 	ProfileSignature   ServerSignature
 	PublicKeySignature ServerSignature
@@ -564,7 +564,7 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 		return nil, err
 	}
 
-	userSignatureID, err := insertUserSignature(ctx, tx, in.Fingerprint, in.UserSignatureB64)
+	userSignatureID, err := insertUserSignature(ctx, tx, in.Fingerprint, in.UserSignature)
 	if err != nil {
 		return nil, err
 	}
@@ -859,7 +859,7 @@ type UpdateUserInput struct {
 	Bio      string
 	// Fingerprint arrives canonical already — see SignupInput.Fingerprint.
 	Fingerprint      string
-	UserSignatureB64 string
+	UserSignature string
 	ProfileSignature ServerSignature
 }
 
@@ -887,7 +887,7 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 		return err
 	}
 
-	userSignatureID, err := insertUserSignature(ctx, tx, in.Fingerprint, in.UserSignatureB64)
+	userSignatureID, err := insertUserSignature(ctx, tx, in.Fingerprint, in.UserSignature)
 	if err != nil {
 		return err
 	}
@@ -1562,9 +1562,9 @@ type createReedParams struct {
 	ReedID             string
 	UserID             string
 	UserKeyID          string
-	UserSignatureB64   string
+	UserSignature   string
 	ServerFingerprint  string
-	ServerSignatureB64 string
+	ServerSignature string
 	Timestamp          time.Time
 	Tags               []string
 	Mentions           []string
@@ -1920,11 +1920,11 @@ func (s *DataService) insertReedCoreTx(
 	// insertUserSignature/insertServerSignature still use non-context
 	// queries internally, so these two inserts land as root spans rather than
 	// nested under ctx's request span — a known gap, not a bug.
-	userSigID, err := insertUserSignature(ctx, tx, p.UserKeyID, p.UserSignatureB64)
+	userSigID, err := insertUserSignature(ctx, tx, p.UserKeyID, p.UserSignature)
 	if err != nil {
 		return Reed{}, err
 	}
-	serverSigID, err := insertServerSignature(ctx, tx, p.ServerFingerprint, p.ServerSignatureB64, ts)
+	serverSigID, err := insertServerSignature(ctx, tx, p.ServerFingerprint, p.ServerSignature, ts)
 	if err != nil {
 		return Reed{}, err
 	}
@@ -6604,8 +6604,8 @@ func saveRecoveryReed(ctx context.Context,
 	reedID, fingerprint string,
 	signedAt time.Time,
 	reporterUserID string,
-	userFingerprint, userSignatureB64 string,
-	serverSignatureB64 string,
+	userFingerprint, userSignature string,
+	serverSignature string,
 ) error {
 	signedAt = signedAt.UTC().Truncate(time.Second)
 	authorBare, authorServerID, _, ok := parseKeyFingerprint(identityID(reedID))
@@ -6642,11 +6642,11 @@ func saveRecoveryReed(ctx context.Context,
 
 	switch {
 	case err == sql.ErrNoRows:
-		userSigID, err := insertUserSignature(ctx, tx, userFingerprint, userSignatureB64)
+		userSigID, err := insertUserSignature(ctx, tx, userFingerprint, userSignature)
 		if err != nil {
 			return err
 		}
-		serverSigID, err := insertServerSignature(ctx, tx, keyID, serverSignatureB64, signedAt)
+		serverSigID, err := insertServerSignature(ctx, tx, keyID, serverSignature, signedAt)
 		if err != nil {
 			return err
 		}

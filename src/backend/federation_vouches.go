@@ -181,10 +181,7 @@ func (h *Handlers) checkForeignVouch(ctx context.Context, peerServerID string, c
 	if voucherKey == nil {
 		return http.StatusBadRequest, "voucher key could not be resolved"
 	}
-	userSig, err := base64Decode(cert.UserSignature.Armor)
-	if err != nil {
-		return http.StatusBadRequest, "invalid signature encoding"
-	}
+	userSig := cert.UserSignature.Armor
 	userPayload := buildVouchUserPayload(cert.VoucherKeyID, cert.SubjectKeyID, cert.Note)
 	if err := h.services.crypto.verifySignature(string(userPayload), userSig, voucherKey.Armor); err != nil {
 		return http.StatusBadRequest, "voucher signature does not verify"
@@ -210,10 +207,7 @@ func (h *Handlers) checkPeerCountersignature(ctx context.Context, peerServerID s
 	if !pinned {
 		return http.StatusBadRequest, "countersignature key is not the one pinned for the calling server"
 	}
-	sigArmor, err := base64Decode(sig.Armor)
-	if err != nil {
-		return http.StatusBadRequest, "invalid countersignature encoding"
-	}
+	sigArmor := sig.Armor
 	if err := h.services.crypto.verifySignature(string(payload(fingerprint)), sigArmor, armor); err != nil {
 		return http.StatusBadRequest, "countersignature does not verify"
 	}
@@ -259,11 +253,7 @@ func (h *Handlers) VouchWithdrawalFromPeer(w http.ResponseWriter, r *http.Reques
 		fail(http.StatusBadRequest, "voucher key could not be resolved")
 		return
 	}
-	userSig, err := base64Decode(req.Withdrawal.UserSignature.Armor)
-	if err != nil {
-		fail(http.StatusBadRequest, "invalid signature encoding")
-		return
-	}
+	userSig := req.Withdrawal.UserSignature.Armor
 	if err := h.services.crypto.verifySignature(string(buildVouchWithdrawalUserPayload(req.VouchID)), userSig, voucherKey.Armor); err != nil {
 		fail(http.StatusBadRequest, "withdrawal signature does not verify")
 		return

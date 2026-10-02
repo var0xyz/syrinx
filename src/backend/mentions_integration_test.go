@@ -145,9 +145,9 @@ func TestCreateReed_MentionsIndexed(t *testing.T) {
 		ReedID:             reedID,
 		UserID:             "alice@testserver",
 		UserKeyID:          "alicefp",
-		UserSignatureB64:   "usersig",
+		UserSignature:   "usersig",
 		ServerFingerprint:  "srvfp-alice",
-		ServerSignatureB64: "serversig",
+		ServerSignature: "serversig",
 		Timestamp:          ts,
 		Mentions:           mentions,
 	})
@@ -193,9 +193,9 @@ func TestCreateReed_MentionOfNonexistentUserRejected(t *testing.T) {
 		ReedID:             reedID,
 		UserID:             "alice@testserver",
 		UserKeyID:          "alicefp",
-		UserSignatureB64:   "usersig",
+		UserSignature:   "usersig",
 		ServerFingerprint:  "srvfp-alice",
-		ServerSignatureB64: "serversig",
+		ServerSignature: "serversig",
 		Timestamp:          ts,
 		Mentions:           []string{"nobody-on-this-server@foreignsrv"},
 	})
@@ -298,9 +298,9 @@ func TestDeleteMentionsForReed_ClearsRows(t *testing.T) {
 		ReedID:             reedID,
 		UserID:             "alice@testserver",
 		UserKeyID:          "alicefp",
-		UserSignatureB64:   "usersig",
+		UserSignature:   "usersig",
 		ServerFingerprint:  "srvfp-alice",
-		ServerSignatureB64: "serversig",
+		ServerSignature: "serversig",
 		Timestamp:          ts,
 		Mentions:           []string{"bob@testserver"},
 	})
@@ -335,7 +335,7 @@ func TestDeleteMentionsByAuthor_ClearsBothSides(t *testing.T) {
 	ts := time.Now().UTC().Truncate(time.Second)
 	if _, err := svc.CreateReed(ctx, createReedParams{
 		ReedID: reed1, UserID: "alice@testserver", UserKeyID: "alicefp",
-		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
+		UserSignature: "sig", ServerFingerprint: "srvfp-alice", ServerSignature: "sig",
 		Timestamp: ts, Mentions: []string{"bob@testserver"},
 	}); err != nil {
 		t.Fatalf("CreateReed 1: %v", err)
@@ -346,7 +346,7 @@ func TestDeleteMentionsByAuthor_ClearsBothSides(t *testing.T) {
 	reed2 := newTestReedID(t)
 	if _, err := svc.CreateReed(ctx, createReedParams{
 		ReedID: reed2, UserID: "carol@testserver", UserKeyID: "carolfp",
-		UserSignatureB64: "sig", ServerFingerprint: "srvfp-carol", ServerSignatureB64: "sig",
+		UserSignature: "sig", ServerFingerprint: "srvfp-carol", ServerSignature: "sig",
 		Timestamp: ts, Mentions: []string{"bob@testserver"},
 	}); err != nil {
 		t.Fatalf("CreateReed 2: %v", err)
@@ -423,7 +423,7 @@ func TestDeleteMentionEntry_ScopedToRow(t *testing.T) {
 	ts := time.Now().UTC().Truncate(time.Second)
 	if _, err := svc.CreateReed(ctx, createReedParams{
 		ReedID: reedID, UserID: "alice@testserver", UserKeyID: "alicefp",
-		UserSignatureB64: "sig", ServerFingerprint: "srvfp-alice", ServerSignatureB64: "sig",
+		UserSignature: "sig", ServerFingerprint: "srvfp-alice", ServerSignature: "sig",
 		Timestamp: ts, Mentions: []string{"bob@testserver", "carol@testserver"},
 	}); err != nil {
 		t.Fatalf("CreateReed: %v", err)

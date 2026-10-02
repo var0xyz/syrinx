@@ -14,7 +14,7 @@ export interface PendingRevocationRecord {
   userId: string;
   newKeyId: string;
   newPublicKey: string;         // armored
-  userRevocationSignature: string; // base64 user sig over revocation payload
+  userRevocationSignature: string; // armored user sig over revocation payload
   revokedKeySignature: string;  // rotation proof: old key signs new armor
   newKeySignature: string;
 }
@@ -51,7 +51,7 @@ export const pendingRevocationRepository = {
         try {
           newPublicKey = await apiService.addPublicKey(
             record.userId,
-            btoa(record.newPublicKey),
+            record.newPublicKey,
             record.keyId,
             record.revokedKeySignature,
             record.newKeySignature,

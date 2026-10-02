@@ -145,7 +145,7 @@ func signupInput(userID, username string, inv *inviteRecord) SignupInput {
 		PublicKeyArmor:   "armor-" + userID,
 		Fingerprint:      "fp-" + userID,
 		KeyCreatedAt:     now,
-		UserSignatureB64: "usig-" + userID,
+		UserSignature: "usig-" + userID,
 		MemberSince:      now,
 		ProfileSignature: ServerSignature{
 			ID:       string(canonicalID("test", "sfp")),

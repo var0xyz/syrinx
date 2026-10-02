@@ -5,7 +5,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -29,9 +28,9 @@ func TestVerifyRecoveryReedCountersig_RealSignature(t *testing.T) {
 	authorID := "author1@" + serverID
 	canonicalReedID := authorID + "/reed1"
 	ts := time.Now().UTC().Truncate(time.Second)
-	userSigArmorB64 := "dXNlclNpZw=="
+	userSigArmor := "dXNlclNpZw=="
 
-	payload := buildReedPayload(serverID, canonicalReedID, serverKP.Fingerprint, userSigArmorB64, ts)
+	payload := buildReedPayload(serverID, canonicalReedID, serverKP.Fingerprint, userSigArmor, ts)
 	sigArmor, err := cryptoSvc.sign(string(payload), serverKP.PrivateKey)
 	if err != nil {
 		t.Fatalf("sign: %v", err)
@@ -40,10 +39,10 @@ func TestVerifyRecoveryReedCountersig_RealSignature(t *testing.T) {
 	req := recoveryReedRequest{
 		ReedID:        "reed1",
 		AuthorID:      authorID,
-		UserSignature: recoveryUserSignature{Armor: userSigArmorB64},
+		UserSignature: recoveryUserSignature{Armor: userSigArmor},
 		ServerSignature: recoveryServerSignature{
 			ServerID: serverID, Fingerprint: serverKP.Fingerprint,
-			Armor: base64.StdEncoding.EncodeToString([]byte(sigArmor)), Timestamp: ts,
+			Armor: sigArmor, Timestamp: ts,
 		},
 	}
 
