@@ -149,6 +149,10 @@ if [ "$CMD" != "setup" ]; then
     for arg in "$@"; do
         REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
     done
+    # No terminal for server-key, so only the key reaches stdout.
+    if [ "$CMD" = "server-key" ]; then
+        exec ssh "$DEPLOY_HOST" "$REMOTE_CMD"
+    fi
     exec ssh -t "$DEPLOY_HOST" "$REMOTE_CMD"
 fi
 
