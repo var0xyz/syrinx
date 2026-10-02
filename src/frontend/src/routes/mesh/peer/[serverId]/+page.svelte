@@ -187,7 +187,10 @@
             >
           </div>
           {#if server.baseUrl}
-            <p class="meta">{server.baseUrl}</p>
+            <p class="meta">API {server.baseUrl}</p>
+          {/if}
+          {#if server.frontendUrl}
+            <p class="meta">Frontend {server.frontendUrl}</p>
           {/if}
           <p class="meta">Added {formatRelativeTime(server.createdAt)}</p>
           {#if invitation}

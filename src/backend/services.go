@@ -3395,6 +3395,7 @@ type federationServerListRow struct {
 	ID                    string
 	Name                  string
 	BaseURL               string
+	FrontendURL           string
 	Connected             bool
 	CreatedAt             time.Time
 	Revoked               bool
@@ -3410,7 +3411,7 @@ type federationServerListRow struct {
 // ListFederationServers returns all peer servers, revoked or not (self excluded).
 func (s *DataService) ListFederationServers(ctx context.Context) ([]federationServerListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, COALESCE(base_url, ''), connected, created_at,
+		SELECT id, name, COALESCE(base_url, ''), COALESCE(frontend_url, ''), connected, created_at,
 			revoked_at, COALESCE(revoked_by, ''), COALESCE(revoked_reason, ''),
 			disconnect_requested_at, COALESCE(disconnect_requested_by, ''),
 			COALESCE(disconnect_reason, '')
@@ -3427,7 +3428,7 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 	for rows.Next() {
 		var row federationServerListRow
 		var revokedAt, disconnectRequestedAt sql.NullTime
-		if err := rows.Scan(&row.ID, &row.Name, &row.BaseURL, &row.Connected, &row.CreatedAt,
+		if err := rows.Scan(&row.ID, &row.Name, &row.BaseURL, &row.FrontendURL, &row.Connected, &row.CreatedAt,
 			&revokedAt, &row.RevokedBy, &row.RevokedReason,
 			&disconnectRequestedAt, &row.DisconnectRequestedBy,
 			&row.DisconnectReason); err != nil {
