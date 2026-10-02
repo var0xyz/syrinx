@@ -207,3 +207,14 @@ func TestRecordPongReportsMissingRow(t *testing.T) {
 		t.Fatal("expected RecordPong to report no presence row")
 	}
 }
+
+// Broadcast subscriptions have no heartbeat of their own; subscribing
+// twice must work against the real schema.
+func TestSubscribeToBroadcast(t *testing.T) {
+	_, rs, viewer := newTeardownTestService(t)
+	for i := 0; i < 2; i++ {
+		if err := rs.db.SubscribeToBroadcast(context.Background(), viewer); err != nil {
+			t.Fatalf("SubscribeToBroadcast #%d: %v", i+1, err)
+		}
+	}
+}

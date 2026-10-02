@@ -7206,7 +7206,7 @@ func (s *DataService) SubscribeToBroadcast(ctx context.Context, userID string) e
 		INSERT INTO broadcast_subscriptions (user_id)
 		VALUES ($1)
 		ON CONFLICT (user_id) DO UPDATE
-		SET created_at = CURRENT_TIMESTAMP, last_pong = CURRENT_TIMESTAMP
+		SET created_at = CURRENT_TIMESTAMP
 	`, selfIdentity)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("[ERR] Failed to subscribe user to broadcast")
