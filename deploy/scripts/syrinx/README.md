@@ -38,6 +38,9 @@ permissions and are never committed to git.
 - **`psql.sh`** — opens an interactive `psql` shell (or runs `-c '...'`)
   against the app database, using credentials read from `app.env`. Requires
   root (the env file is `640 root:$APP_USER`).
+- **`server-key.sh`** — prints the server's current signing public key
+  (key id, then the armored key), read from the database via `psql.sh`.
+  `setup.sh` and `update.sh` also print it when they finish.
 - **`wipe-db.sh [--force]`** — backs up (`pg_dump | gzip`, mode 600) then
   drops and recreates an empty database with the same owner/grants. Requires
   typing the database name to confirm and refuses to proceed on a mismatch,
@@ -106,6 +109,7 @@ first:
 ./syrinx.sh restart
 ./syrinx.sh signup-mode invite
 ./syrinx.sh psql -c 'select count(*) from users;'
+./syrinx.sh server-key
 ./syrinx.sh wipe-db
 ```
 
@@ -115,7 +119,7 @@ Only `setup` prompts for the host address (`user@ip` or `ip`) — it's the
 one command allowed to establish or change it, saved to `deploy.env` (mode
 600, gitignored — same convention as
 `deploy/scripts/telemetry/deploy-openobserve-pi.sh`). Every other command
-(`update`, `restart`, `signup-mode`, `psql`, `wipe-db`) runs silently
+(`update`, `restart`, `signup-mode`, `psql`, `server-key`, `wipe-db`) runs silently
 against whatever's already saved — no banner, no prompt, no connectivity
 check. If nothing's saved yet, or the saved host stops working, the fix is
 the same: run `./syrinx.sh setup` again. It never touches `setup.env`/
