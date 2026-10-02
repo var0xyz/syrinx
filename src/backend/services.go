@@ -8822,6 +8822,33 @@ const peerStreamSQL = `
 		WHERE r.published_at IS NOT NULL
 	)`
 
+// ListFederatedServers lists established peers that have not been
+// disconnected, by name. A pending disconnect or a shutdown keeps a peer
+// listed: it is still trusted.
+func (s *DataService) ListFederatedServers(ctx context.Context) ([]FederatedServerInfo, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, name, COALESCE(key_id, ''), COALESCE(created_at, CURRENT_TIMESTAMP), base_url
+		FROM servers
+		WHERE self = FALSE AND connected = TRUE AND revoked_at IS NULL
+		  AND base_url IS NOT NULL AND base_url != ''
+		ORDER BY name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	servers := []FederatedServerInfo{}
+	for rows.Next() {
+		var srv FederatedServerInfo
+		if err := rows.Scan(&srv.ID, &srv.Name, &srv.KeyID, &srv.CreatedAt, &srv.BaseURL); err != nil {
+			return nil, err
+		}
+		servers = append(servers, srv)
+	}
+	return servers, rows.Err()
+}
+
 // ListDeliveryPeers returns connected peers that have not announced a
 // shutdown.
 func (s *DataService) ListDeliveryPeers(ctx context.Context) ([]PeerServer, error) {

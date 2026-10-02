@@ -1,5 +1,5 @@
 import { derived, writable } from 'svelte/store';
-import type { ServerInfo, SignupMode } from '$lib/types/server';
+import type { FederatedServer, ServerInfo, SignupMode } from '$lib/types/server';
 import type { PublicKey } from '$lib/types/api';
 import { isOnline } from './pwa';
 import { serverKeyProofHeader, getTrustedServerKey, clearTrustedServerKey } from './serverKeyTrust';
@@ -161,6 +161,7 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
     serverInfo.set(info);
     serverInfoFetchFailed.set(false);
     await ensureServerKeyCached(info.id, info.serverKeyId);
+    await storeFederatedServers(data.federation);
     return info;
   } catch (error) {
     console.error('serverInfo: failed to fetch /api/server/info', error);
@@ -168,5 +169,29 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
     return null;
   } finally {
     serverInfoLoading.set(false);
+  }
+}
+
+/** Keeps the local list of peers in step with what /server/info reports.
+ * Malformed entries are dropped rather than failing the whole refresh. */
+async function storeFederatedServers(raw: unknown): Promise<void> {
+  if (!Array.isArray(raw)) return;
+  const servers: FederatedServer[] = raw.flatMap((entry) => {
+    const e = entry as Record<string, unknown>;
+    const ok =
+      typeof e?.id === 'string' && e.id !== '' &&
+      typeof e.name === 'string' &&
+      typeof e.keyId === 'string' &&
+      typeof e.createdAt === 'string' &&
+      typeof e.baseUrl === 'string' && e.baseUrl !== '';
+    return ok
+      ? [{ id: e.id as string, name: e.name as string, keyId: e.keyId as string, createdAt: e.createdAt as string, baseUrl: e.baseUrl as string }]
+      : [];
+  });
+  try {
+    const { federatedServersRepository } = await import('$lib/repositories/federatedServers');
+    await federatedServersRepository.replaceAll(servers);
+  } catch (error) {
+    console.error('serverInfo: failed to store federated servers', error);
   }
 }

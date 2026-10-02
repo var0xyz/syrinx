@@ -10,6 +10,8 @@
   import { authService } from '$lib/services/auth';
   import QRButton from '$lib/components/QRButton.svelte';
   import QRCodeModal from '$lib/components/QRCodeModal.svelte';
+  import VouchServerPicker from '$lib/components/VouchServerPicker.svelte';
+  import { federatedServersRepository } from '$lib/repositories/federatedServers';
   import TrustSection from '$lib/components/TrustSection.svelte';
   import TrustMark from '$lib/components/TrustMark.svelte';
   import { vouchLinkFor } from '$lib/services/vouchVerify';
@@ -36,10 +38,56 @@
   // it: the owner is claiming which key they hold.
   let vouchQROpen = false;
   $: ownFingerprint = isOwner ? parseKeyId(authService.getActiveKeyId())?.fingerprint : null;
+
+  // Once federated, the link must open on the verifier's own server. The
+  // peers come from IndexedDB, so choosing never waits on the network.
+  /** @type {import('$lib/types/server').VouchServerChoice[]} */
+  let vouchServers = [];
+  let vouchPickerOpen = false;
+  /** @type {import('$lib/types/server').VouchServerChoice | null} */
+  let vouchServer = null;
   $: vouchURL =
-    user?.id && ownFingerprint && typeof window !== 'undefined'
-      ? vouchLinkFor(user.id, ownFingerprint, window.location.origin)
+    user?.id && ownFingerprint && vouchServer
+      ? vouchLinkFor(user.id, ownFingerprint, vouchServer.origin)
       : '';
+  $: vouchHint = vouchServer && !vouchServer.isSelf
+    ? `Show this to someone on ${vouchServer.name}, in person. By scanning it they will be attesting to your identity.`
+    : 'Show this to another user in person. By scanning it they will be attesting to your identity.';
+
+  async function openVouchCode() {
+    const self = {
+      name: localStorage.getItem('serverName') || 'This server',
+      origin: window.location.origin,
+      isSelf: true,
+    };
+    let peers = [];
+    try {
+      peers = await federatedServersRepository.all();
+    } catch (error) {
+      console.error('Could not read federated servers', error);
+    }
+    if (peers.length === 0) {
+      chooseVouchServer(self);
+      return;
+    }
+    vouchServers = [
+      self,
+      ...peers.map((peer) => ({ name: peer.name, origin: peer.baseUrl.replace(/\/+$/, ''), isSelf: false })),
+    ];
+    vouchPickerOpen = true;
+  }
+
+  /** @param {import('$lib/types/server').VouchServerChoice} server */
+  function chooseVouchServer(server) {
+    vouchServer = server;
+    vouchPickerOpen = false;
+    vouchQROpen = true;
+  }
+
+  function closeVouchCode() {
+    vouchQROpen = false;
+    vouchServer = null;
+  }
 
   let following = isFollowing;
   let followersCount = 0;
@@ -222,11 +270,11 @@
   {#if isOwner}
     <div class="profile-actions owner">
       <button class="action-btn secondary" on:click={() => dispatch('edit')}>Edit Profile</button>
-      {#if vouchURL}
+      {#if user?.id && ownFingerprint}
         <QRButton
           ariaLabel="Show your verification code"
           label="Verify Identity"
-          on:click={() => (vouchQROpen = true)}
+          on:click={openVouchCode}
         />
       {/if}
     </div>
@@ -239,13 +287,20 @@
   {/if}
 </div>
 
+<VouchServerPicker
+  open={vouchPickerOpen}
+  servers={vouchServers}
+  on:select={(e) => chooseVouchServer(e.detail)}
+  on:close={() => (vouchPickerOpen = false)}
+/>
+
 <QRCodeModal
   open={vouchQROpen}
   title="Verify your Identity"
   subject="verification link"
-  hint="Show this to another user in person. By scanning it they will be attesting to your identity."
+  hint={vouchHint}
   url={vouchURL}
-  on:close={() => (vouchQROpen = false)}
+  on:close={closeVouchCode}
 />
 
 {#if avatarOpen && user?.id}

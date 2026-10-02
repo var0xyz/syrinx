@@ -74,6 +74,19 @@ type ServerInfo struct {
 	// (fingerprint@serverID) — clients check their local publicKeys cache
 	// for it and, on a miss, fetch it via GET /keys/{id}.
 	ServerKeyID string `json:"serverKeyId"`
+	// Peers this server is federated with, for picking which server a
+	// verification link opens on. Always an array.
+	Federation []FederatedServerInfo `json:"federation"`
+}
+
+// FederatedServerInfo is one established peer as /server/info lists it.
+// BaseURL is the origin its users open links on.
+type FederatedServerInfo struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	KeyID     string    `json:"keyId"`
+	CreatedAt time.Time `json:"createdAt"`
+	BaseURL   string    `json:"baseUrl"`
 }
 
 // ///////////// //
@@ -163,7 +176,15 @@ func (h *Handlers) noop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
+	// The SPA can't boot without this endpoint, so a failed peer lookup
+	// degrades to an empty list rather than an error.
+	federation, err := h.services.db.ListFederatedServers(r.Context())
+	if err != nil {
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Msg("Failed to list federated servers for server info")
+		federation = []FederatedServerInfo{}
+	}
 	writeResponse(w, http.StatusOK, ServerInfo{
+		Federation:        federation,
 		ID:                h.services.db.GetServerID(),
 		Name:              h.cfg.ServerName,
 		RecoveryMode:      h.cfg.RecoveryMode,
