@@ -7,7 +7,7 @@
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
 
   const tabs = [
-    { href: '/reeds', label: 'Mine' },
+    { href: '/reeds', label: 'Profile' },
     { href: '/reeds/saved', label: 'Liked' },
   ];
 
