@@ -1,4 +1,10 @@
+<script context="module">
+  // Every page mounts its own SideNav, so keep the scroll offset across them.
+  let savedScrollTop = 0;
+</script>
+
 <script>
+  import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import ServerVersionInfo from '$lib/components/ServerVersionInfo.svelte';
@@ -7,6 +13,12 @@
   $: hasUnreadInteractions = $unreadInteractions.replies || $unreadInteractions.ripples || $unreadInteractions.mentions;
 
   let isComposeOpen = false;
+
+  /** @type {HTMLElement} */
+  let navEl;
+  onMount(() => {
+    navEl.scrollTop = savedScrollTop;
+  });
 
   // Coarse top-level hint for routes the URL alone can't map to a nav
   // destination (reed detail, pipe, mesh peer/attempt, error page) — leave
@@ -47,7 +59,7 @@
   $: accountActive = currentPage === 'account' || path === '/account';
 </script>
 
-<nav class="side-nav">
+<nav class="side-nav" bind:this={navEl} on:scroll={() => (savedScrollTop = navEl.scrollTop)}>
   <button type="button" class="sn-compose" on:click={() => (isComposeOpen = true)}>
     <span class="sn-compose-icon"></span>New Reed
   </button>
