@@ -296,15 +296,18 @@
 
       for (const tableName of tableNames) {
         try {
-          const items = await dbService.getAll(tableName);
-          const isKeyTable = tableName === 'publicKeys' || tableName === 'privateKeys';
-          tables.push({
-            name: tableName,
-            items: isKeyTable
-              ? items.map((item) => ({ ...(item as { armor: string }), armor: btoa((item as { armor: string }).armor) }))
-              : items
-          });
+          let items: unknown[] = await dbService.getAll(tableName);
+          // Stored private armor is wrapped with a device-only key; export it
+          // unwrapped, verbatim like the identity backup, so restore can read it.
+          if (tableName === 'privateKeys') {
+            items = await Promise.all(
+              items.map((item) => privateKeyRepository.getPrivateKey((item as { keyId: string }).keyId))
+            );
+          }
+          tables.push({ name: tableName, items });
         } catch (error) {
+          // A backup without its keys can't restore anything; don't save one.
+          if (tableName === 'privateKeys') throw error;
           console.error(`Error reading table ${tableName}:`, error);
           // Continue with other tables even if one fails
           tables.push({
