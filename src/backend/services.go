@@ -7914,6 +7914,24 @@ func (s *DataService) RecordServerHolder(ctx context.Context, reedID, serverID s
 	return err
 }
 
+// IsReedHolder reports whether userID holds reedID here.
+func (s *DataService) IsReedHolder(ctx context.Context, reedID, userID string) (bool, error) {
+	var holds bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM reed_allocations WHERE reed_id = $1 AND holder_user_id = $2)
+	`, reedID, userID).Scan(&holds)
+	return holds, err
+}
+
+// IsServerHolder reports whether peer serverID told us it holds reedID.
+func (s *DataService) IsServerHolder(ctx context.Context, reedID, serverID string) (bool, error) {
+	var holds bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM reed_server_allocations WHERE reed_id = $1 AND server_id = $2)
+	`, reedID, serverID).Scan(&holds)
+	return holds, err
+}
+
 // GetForeignHolderServers returns peer server IDs known to hold a copy of
 // reedID, oldest-recorded-first, capped so a widely-relayed reed can't
 // blow up a sequential fallback loop's latency.

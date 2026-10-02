@@ -866,7 +866,7 @@
             <div class="reed-side-col">
               <div class="discussion-panel discussion-panel-ripples" class:hidden={discussionTab !== 'ripples'}>
                 <h2 class="discussion-panel-title">Ripples</h2>
-                <RipplesSection reedID={canonicalReedID} serverSignatureArmor={reed.serverSignature?.armor ?? ''} bind:count={ripplesCount} />
+                <RipplesSection reedID={canonicalReedID} bind:count={ripplesCount} />
               </div>
               <div
                 class="discussion-panel discussion-panel-chorus"

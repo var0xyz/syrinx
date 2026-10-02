@@ -16,10 +16,6 @@
   /** The parent reed's canonical id (authorID@serverID/uuid). */
   /** @type {string} */
   export let reedID;
-  /** The parent reed's base64 server-signature armor — proof of
-   * possession required to list its ripples (see api.ts's listRipples). */
-  /** @type {string} */
-  export let serverSignatureArmor;
 
   /** Bound out to the parent for tab-count display. */
   export let count = 0;
@@ -168,7 +164,7 @@
   }
 
   async function loadPage(before) {
-    const res = await apiService.listRipples(reedID, serverSignatureArmor, { limit: 50, before });
+    const res = await apiService.listRipples(reedID, { limit: 50, before });
 
     // Defensive: if the server itself reports expiresAt as already in
     // the past (a fetch landing in the race window right before the
@@ -479,7 +475,6 @@
           <li class="ripple-composer-row">
             <RippleComposer
               {reedID}
-              {serverSignatureArmor}
               replyingTo={ripple}
               replyingToUsername={usernames[ripple.userID] ?? null}
               autofocus
@@ -511,7 +506,6 @@
   {#if topComposerOpen}
     <RippleComposer
       {reedID}
-      {serverSignatureArmor}
       autofocus
       on:posted={(e) => handleComposerPosted(e, null)}
       on:cancel={closeTopComposer}
