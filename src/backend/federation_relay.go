@@ -1266,6 +1266,9 @@ func (h *Handlers) DisconnectNotifyFromPeer(w http.ResponseWriter, r *http.Reque
 	if err := h.services.db.DeletePeerStreams(r.Context(), peerServerID); err != nil {
 		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("failed to drop delivery streams of revoked peer")
 	}
+	if err := h.services.db.DeleteVouchReferencesForServer(r.Context(), peerServerID); err != nil {
+		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("failed to drop vouch references of revoked peer")
+	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "disconnect-notify", true)
 	w.WriteHeader(http.StatusNoContent)
 }

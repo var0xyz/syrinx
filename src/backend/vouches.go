@@ -599,6 +599,16 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		UserSignature:   UserSignature{ID: voucherKeyID, Armor: userSignatureB64},
 		ServerSignature: serverSignature,
 	}
+	// A vouch about a user of another server is stored only once that
+	// server holds a reference to it; otherwise nobody there could find it.
+	if _, subjectServerID, ok := parseIdentityID(identityID(subjectUserID)); ok && subjectServerID != h.services.db.GetServerID() {
+		if err := h.deliverVouchToSubject(r.Context(), cert); err != nil {
+			log.Warn().Err(err).Str("vouchID", cert.ID).Msg("Vouch not delivered to the subject's server")
+			writeVouchDeliveryError(w, err)
+			return
+		}
+	}
+
 	if err := h.services.db.InsertVouch(r.Context(), cert); err != nil {
 		if errors.Is(err, ErrVouchConflict) {
 			writeResponse(w, http.StatusConflict, "Vouch already exists with a different signature")
@@ -726,6 +736,24 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Msg("Error producing withdrawal countersignature")
 		internalServerError(w)
 		return
+	}
+
+	// Same rule as creating: a foreign subject's server drops its reference
+	// first, or the withdrawal is not recorded.
+	if _, subjectServerID, ok := parseIdentityID(identityID(existing.SubjectUserID)); ok && subjectServerID != h.services.db.GetServerID() {
+		payload := relayVouchWithdrawalPayload{
+			VouchID:       existing.ID,
+			VoucherUserID: voucherID,
+			Withdrawal: VouchWithdrawal{
+				UserSignature:   UserSignature{ID: voucherKeyID, Armor: signatureB64},
+				ServerSignature: serverSignature,
+			},
+		}
+		if err := h.deliverVouchWithdrawalToSubject(r.Context(), existing.SubjectUserID, payload); err != nil {
+			log.Warn().Err(err).Str("vouchID", existing.ID).Msg("Withdrawal not delivered to the subject's server")
+			writeVouchDeliveryError(w, err)
+			return
+		}
 	}
 
 	cert, err := h.services.db.WithdrawVouch(
@@ -867,13 +895,40 @@ func (s *DataService) GetVouchByID(ctx context.Context, vouchID string) (*VouchC
 	return s.hydrateVouch(ctx, s.db, row)
 }
 
+// InsertVouchReference records that a peer holds a vouch about one of this
+// server's users. Repeating it is a no-op.
+func (s *DataService) InsertVouchReference(ctx context.Context, vouchID, subjectUserID, subjectKeyID, voucherServerID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO vouch_references (vouch_id, subject_user_id, subject_key_id, voucher_server_id)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (vouch_id) DO NOTHING
+	`, vouchID, subjectUserID, subjectKeyID, voucherServerID)
+	return err
+}
+
+// DeleteVouchReference drops a withdrawn vouch's reference, but only for
+// the server that holds it.
+func (s *DataService) DeleteVouchReference(ctx context.Context, vouchID, voucherServerID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM vouch_references WHERE vouch_id = $1 AND voucher_server_id = $2
+	`, vouchID, voucherServerID)
+	return err
+}
+
+// DeleteVouchReferencesForServer drops every reference a revoked peer holds.
+func (s *DataService) DeleteVouchReferencesForServer(ctx context.Context, serverID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM vouch_references WHERE voucher_server_id = $1`, serverID)
+	return err
+}
+
 // ListVouchIDsForSubject returns the ids of the live vouches naming this
 // user, which is all /info carries: ids are cheap to ship and worthless to
 // forge, since no mark appears until the client verifies the cert behind one.
 func (s *DataService) ListVouchIDsForSubject(ctx context.Context, userID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT vouch_id FROM user_vouches_active
-		WHERE subject_user_id = $1
+		SELECT vouch_id FROM user_vouches_active WHERE subject_user_id = $1
+		UNION
+		SELECT vouch_id FROM vouch_references WHERE subject_user_id = $1
 		ORDER BY vouch_id
 	`, userID)
 	if err != nil {
@@ -909,6 +964,11 @@ func (h *Handlers) GetVouch(w http.ResponseWriter, r *http.Request) {
 	// the only thing that can name a vouch this server minted.
 	if !isVouchIDWellFormed(vouchID) {
 		writeResponse(w, http.StatusBadRequest, "`vouchID` is not a canonical vouch id")
+		return
+	}
+
+	// The cert lives on the voucher's server, which the vouch id names.
+	if handled, _ := h.proxyIfForeign(w, r, vouchID); handled {
 		return
 	}
 

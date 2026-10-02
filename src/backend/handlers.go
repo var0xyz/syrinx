@@ -4692,6 +4692,9 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 		if err := h.services.db.DeletePeerStreams(r.Context(), serverID); err != nil {
 			h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("failed to drop delivery streams of revoked peer")
 		}
+		if err := h.services.db.DeleteVouchReferencesForServer(r.Context(), serverID); err != nil {
+			h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("failed to drop vouch references of revoked peer")
+		}
 		go func() {
 			if err := h.notifyPeerOfDisconnect(context.Background(), serverID, reason); err != nil {
 				h.services.log.GetLogger(context.Background()).Warn().Err(err).Str("serverId", serverID).Msg("failed to notify peer of disconnect")

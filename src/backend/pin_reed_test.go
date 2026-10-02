@@ -95,6 +95,14 @@ func ensurePinReedSchema(db *sql.DB) error {
 			subject_key_id VARCHAR(255) NOT NULL,
 			UNIQUE (voucher_user_id, subject_key_id)
 		)`,
+		`DROP TABLE IF EXISTS vouch_references CASCADE`,
+		`CREATE TABLE vouch_references (
+			vouch_id VARCHAR(255) PRIMARY KEY,
+			subject_user_id VARCHAR(255) NOT NULL,
+			subject_key_id VARCHAR(255) NOT NULL,
+			voucher_server_id VARCHAR(16) NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE user_followers (
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 			follower_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,

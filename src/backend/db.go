@@ -552,6 +552,19 @@ func InitDB(db *sql.DB) error {
 		ON user_vouches_active(voucher_user_id);
 	`
 
+	// Vouches made on a peer about this server's users. Only the id and the
+	// voucher's server: the cert stays on that server and is read from there.
+	createVouchReferencesTable := `
+	CREATE TABLE IF NOT EXISTS vouch_references (
+		vouch_id VARCHAR(255) PRIMARY KEY,
+		subject_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		subject_key_id VARCHAR(255) NOT NULL,
+		voucher_server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_vouch_references_subject
+		ON vouch_references(subject_user_id);`
+
 	createRipplesTable := `
 	CREATE TABLE IF NOT EXISTS ripples (
 		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reeds(id) ON DELETE CASCADE,
@@ -1291,6 +1304,7 @@ func InitDB(db *sql.DB) error {
 		createUserVouchesTable,
 		createUserVouchesActiveTable,
 		createUserVouchesIndexes,
+		createVouchReferencesTable,
 
 		createRipplesTable,
 		createRipplesIndexes,
