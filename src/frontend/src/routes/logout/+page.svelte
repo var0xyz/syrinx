@@ -45,9 +45,10 @@
 <style>
   .container {
     max-width: 680px;
+    width: 100%;
     margin: 0 auto;
     padding: 1rem;
-    min-height: calc(100vh - 3rem - 1px);
+    flex: 1;
     display: flex;
     flex-direction: column;
     justify-content: center;

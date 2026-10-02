@@ -26,6 +26,13 @@ html, body, #app {
   min-height: 100dvh;
 }
 
+/* Pages fill the space between the header and the bottom toolbar via flex: 1. */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
 body {
   margin: 0;
   background: var(--bg);
