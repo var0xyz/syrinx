@@ -9,6 +9,7 @@ type federationConnectionPayload struct {
 	ServerID       string `json:"serverId"`
 	ServerName     string `json:"serverName"`
 	BaseURL        string `json:"baseUrl"`
+	FrontendURL    string `json:"frontendUrl"`
 	Fingerprint    string `json:"fingerprint"`
 	PublicKeyArmor string `json:"publicKeyArmor"`
 	Signature      string `json:"signature"`
@@ -38,6 +39,7 @@ type federationConnectRequest struct {
 	ServerID    string `json:"serverId"`
 	ServerName  string `json:"serverName"`
 	BaseURL     string `json:"baseUrl"`
+	FrontendURL string `json:"frontendUrl"`
 	Fingerprint string `json:"fingerprint"`
 	Signature   string `json:"signature"`
 	Secret      string `json:"secret"`

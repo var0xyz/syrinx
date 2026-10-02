@@ -72,7 +72,7 @@
     }
     vouchServers = [
       self,
-      ...peers.map((peer) => ({ name: peer.name, origin: peer.baseUrl.replace(/\/+$/, ''), isSelf: false })),
+      ...peers.map((peer) => ({ name: peer.name, origin: peer.frontendUrl.replace(/\/+$/, ''), isSelf: false })),
     ];
     vouchPickerOpen = true;
   }

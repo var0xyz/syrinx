@@ -11,14 +11,14 @@ export interface ServerInfo {
   serverKeyId: string;
 }
 
-/** An established peer, as /server/info lists it. `baseUrl` is the origin its
+/** An established peer, as /server/info lists it. `frontendUrl` is the origin its
  * users open links on. */
 export interface FederatedServer {
   id: string;
   name: string;
   keyId: string;
   createdAt: string;
-  baseUrl: string;
+  frontendUrl: string;
 }
 
 /** A server a verification link can open on. */

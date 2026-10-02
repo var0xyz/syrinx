@@ -183,9 +183,9 @@ async function storeFederatedServers(raw: unknown): Promise<void> {
       typeof e.name === 'string' &&
       typeof e.keyId === 'string' &&
       typeof e.createdAt === 'string' &&
-      typeof e.baseUrl === 'string' && e.baseUrl !== '';
+      typeof e.frontendUrl === 'string' && e.frontendUrl !== '';
     return ok
-      ? [{ id: e.id as string, name: e.name as string, keyId: e.keyId as string, createdAt: e.createdAt as string, baseUrl: e.baseUrl as string }]
+      ? [{ id: e.id as string, name: e.name as string, keyId: e.keyId as string, createdAt: e.createdAt as string, frontendUrl: e.frontendUrl as string }]
       : [];
   });
   try {

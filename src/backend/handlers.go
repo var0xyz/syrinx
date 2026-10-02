@@ -80,13 +80,13 @@ type ServerInfo struct {
 }
 
 // FederatedServerInfo is one established peer as /server/info lists it.
-// BaseURL is the origin its users open links on.
+// FrontendURL is where its users open links, as agreed in the handshake.
 type FederatedServerInfo struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	KeyID     string    `json:"keyId"`
-	CreatedAt time.Time `json:"createdAt"`
-	BaseURL   string    `json:"baseUrl"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	KeyID       string    `json:"keyId"`
+	CreatedAt   time.Time `json:"createdAt"`
+	FrontendURL string    `json:"frontendUrl"`
 }
 
 // ///////////// //
@@ -3969,10 +3969,12 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 	}
 
 	baseURL := h.federationBaseURL()
+	frontendURL := h.federationFrontendURL()
 	signBytes := buildFederationInvitationPayload(
 		inviteID,
 		h.services.db.GetServerID(),
 		baseURL,
+		frontendURL,
 		h.signingKey.Fingerprint,
 		secret,
 	)
@@ -3993,6 +3995,7 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 		ServerID:       h.services.db.GetServerID(),
 		ServerName:     h.cfg.ServerName,
 		BaseURL:        baseURL,
+		FrontendURL:    frontendURL,
 		Fingerprint:    h.signingKey.Fingerprint,
 		PublicKeyArmor: serverPubArmor,
 		Signature:      sigB64,
@@ -4900,15 +4903,16 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	}
 	req.ServerID = strings.TrimSpace(req.ServerID)
 	req.BaseURL = strings.TrimSpace(req.BaseURL)
+	req.FrontendURL = strings.TrimSpace(req.FrontendURL)
 	req.Fingerprint = strings.TrimSpace(req.Fingerprint)
 	req.Secret = strings.TrimSpace(req.Secret)
-	if req.ServerID == "" || req.BaseURL == "" || req.Fingerprint == "" ||
+	if req.ServerID == "" || req.BaseURL == "" || req.FrontendURL == "" || req.Fingerprint == "" ||
 		req.Signature == "" || req.Secret == "" {
 		writeResponse(w, http.StatusBadRequest, "Missing required fields")
 		return
 	}
-	if !strings.HasPrefix(req.BaseURL, "https://") && !h.cfg.FederationAllowInsecureHTTP {
-		writeResponse(w, http.StatusBadRequest, "baseUrl must be https")
+	if !h.federationURLAllowed(req.BaseURL) || !h.federationURLAllowed(req.FrontendURL) {
+		writeResponse(w, http.StatusBadRequest, "baseUrl and frontendUrl must be https")
 		return
 	}
 
@@ -4950,7 +4954,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	signBytes := buildFederationConnectPayload(inviteID, req.ServerID, req.BaseURL, req.Fingerprint)
+	signBytes := buildFederationConnectPayload(inviteID, req.ServerID, req.BaseURL, req.FrontendURL, req.Fingerprint)
 	sigArmor, err := base64Decode(req.Signature)
 	if err != nil {
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invalid signature encoding")
@@ -4968,6 +4972,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		ServerID:    req.ServerID,
 		ServerName:  req.ServerName,
 		BaseURL:     req.BaseURL,
+		FrontendURL: req.FrontendURL,
 		Fingerprint: req.Fingerprint,
 	}, now)
 	switch {
@@ -5053,13 +5058,13 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		writeResponse(w, http.StatusBadRequest, "Invalid connection payload")
 		return
 	}
-	if payload.InviteID == "" || payload.ServerID == "" || payload.BaseURL == "" ||
+	if payload.InviteID == "" || payload.ServerID == "" || payload.BaseURL == "" || payload.FrontendURL == "" ||
 		payload.Fingerprint == "" || payload.PublicKeyArmor == "" || payload.Signature == "" || payload.Secret == "" {
 		writeResponse(w, http.StatusBadRequest, "Incomplete connection payload")
 		return
 	}
-	if !strings.HasPrefix(payload.BaseURL, "https://") && !h.cfg.FederationAllowInsecureHTTP {
-		writeResponse(w, http.StatusBadRequest, "baseUrl must be https")
+	if !h.federationURLAllowed(payload.BaseURL) || !h.federationURLAllowed(payload.FrontendURL) {
+		writeResponse(w, http.StatusBadRequest, "baseUrl and frontendUrl must be https")
 		return
 	}
 
@@ -5069,7 +5074,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	initiatorSignBytes := buildFederationInvitationPayload(
-		payload.InviteID, payload.ServerID, payload.BaseURL, payload.Fingerprint, payload.Secret,
+		payload.InviteID, payload.ServerID, payload.BaseURL, payload.FrontendURL, payload.Fingerprint, payload.Secret,
 	)
 	initiatorSigArmor, err := base64Decode(payload.Signature)
 	if err != nil {
@@ -5089,6 +5094,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		ServerID:       payload.ServerID,
 		ServerName:     payload.ServerName,
 		BaseURL:        payload.BaseURL,
+		FrontendURL:    payload.FrontendURL,
 		Fingerprint:    payload.Fingerprint,
 		PublicKeyArmor: payload.PublicKeyArmor,
 	}
@@ -5109,8 +5115,9 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		fmt.Sprintf("Attempting to redeem invitation from server %s (%s)", payload.ServerID, payload.BaseURL))
 
 	localBaseURL := h.federationBaseURL()
+	localFrontendURL := h.federationFrontendURL()
 	localServerID := h.services.db.GetServerID()
-	connectSignBytes := buildFederationConnectPayload(payload.InviteID, localServerID, localBaseURL, h.signingKey.Fingerprint)
+	connectSignBytes := buildFederationConnectPayload(payload.InviteID, localServerID, localBaseURL, localFrontendURL, h.signingKey.Fingerprint)
 	connectSigB64, err := h.federationSignServer(connectSignBytes)
 	if err != nil {
 		internalServerError(w)
@@ -5121,6 +5128,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		ServerID:    localServerID,
 		ServerName:  h.cfg.ServerName,
 		BaseURL:     localBaseURL,
+		FrontendURL: localFrontendURL,
 		Fingerprint: h.signingKey.Fingerprint,
 		Signature:   connectSigB64,
 		Secret:      payload.Secret,
@@ -5677,6 +5685,18 @@ func (h *Handlers) GetReceivedRipples(w http.ResponseWriter, r *http.Request) {
 		HasMore:    list.HasMore,
 		NextCursor: list.NextCursor,
 	})
+}
+
+// federationFrontendURL is where this server's users open links
+// (ALLOWED_ORIGIN), told to peers in the handshake.
+func (h *Handlers) federationFrontendURL() string {
+	return strings.TrimRight(h.cfg.AllowedOrigin, "/")
+}
+
+// federationURLAllowed applies the handshake's https rule to an address a
+// peer sent, relaxed only for local development.
+func (h *Handlers) federationURLAllowed(u string) bool {
+	return strings.HasPrefix(u, "https://") || h.cfg.FederationAllowInsecureHTTP
 }
 
 func (h *Handlers) federationBaseURL() string {

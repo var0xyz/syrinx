@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -10,7 +11,6 @@ import (
 	"strconv"
 	"testing"
 	"time"
-
 
 	"github.com/gorilla/mux"
 	"github.com/tooxie/env"
@@ -50,8 +50,10 @@ func newFederationServer(t *testing.T, name string) *federationServer {
 	srv := httptest.NewTLSServer(router)
 	t.Cleanup(srv.Close)
 
-	// Point federationBaseURL at this server's real listener address.
+	// Point federationBaseURL at this server's real listener address, and
+	// give it a distinct frontend so the two can't be confused.
 	h.cfg.APIBaseURL = env.HTTPURL(srv.URL)
+	h.cfg.AllowedOrigin = "https://app." + name + ".example"
 
 	return &federationServer{h: h, ds: ds, kp: kp, srv: srv, router: router}
 }
@@ -201,6 +203,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	if !aConnected || aPeerName != "Bravo" {
 		t.Fatalf("a's approved server: connected=%v name=%q", aConnected, aPeerName)
 	}
+	assertPeerFrontendURL(t, a.ds, approvedInv.ServerID, "https://app.server-b.example")
 
 	// Approve b's side too, so both instances have an established peer —
 	// mirrors a real bidirectional federation link.
@@ -209,6 +212,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	if _, err := b.ds.ApproveFederationAttempt(context.Background(), bAttempt.ID, bAdmin, time.Now().UTC(), false, b.h.countersign); err != nil {
 		t.Fatal(err)
 	}
+	assertPeerFrontendURL(t, b.ds, bAttempt.RemoteServerID, "https://app.server-a.example")
 
 	// b resolves a's admin user through the peer-authenticated IdP endpoint
 	// which proves signatureAuthMiddleware's
@@ -272,7 +276,7 @@ func TestIncomingFederationAttempt_WrongSecret(t *testing.T) {
 	}
 	inviteID, _ := createInvitationEncryptedTo(t, a, aAdmin, remoteKP)
 
-	signBytes := buildFederationConnectPayload(inviteID, "server-b", a.srv.URL, remoteKP.Fingerprint)
+	signBytes := buildFederationConnectPayload(inviteID, "server-b", a.srv.URL, "https://app.server-b.example", remoteKP.Fingerprint)
 	sigArmor, err := a.h.services.crypto.sign(string(signBytes), remoteKP.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
@@ -280,6 +284,7 @@ func TestIncomingFederationAttempt_WrongSecret(t *testing.T) {
 	connectBody, _ := json.Marshal(federationConnectRequest{
 		ServerID:    "server-b",
 		BaseURL:     a.srv.URL,
+		FrontendURL: "https://app.server-b.example",
 		Fingerprint: remoteKP.Fingerprint,
 		Signature:   base64.StdEncoding.EncodeToString([]byte(sigArmor)),
 		Secret:      "wrong-secret",
@@ -317,6 +322,7 @@ func TestIncomingFederationAttempt_ReplayNotNew(t *testing.T) {
 	connectBody, _ := json.Marshal(federationConnectRequest{
 		ServerID:    "server-b",
 		BaseURL:     "https://b.example",
+		FrontendURL: "https://app.b.example",
 		Fingerprint: "fp-b",
 		Signature:   base64.StdEncoding.EncodeToString([]byte("irrelevant")),
 		Secret:      "s",
@@ -342,6 +348,7 @@ func TestOutgoingFederationAttempt_InvalidInitiatorSignature(t *testing.T) {
 		InviteID:       "inv1",
 		ServerID:       "server-a",
 		BaseURL:        a.srv.URL,
+		FrontendURL:    "https://app.server-a.example",
 		Fingerprint:    a.kp.Fingerprint,
 		PublicKeyArmor: a.kp.PublicKey,
 		Signature:      base64.StdEncoding.EncodeToString([]byte("not-a-real-signature")),
@@ -372,5 +379,20 @@ func TestOutgoingFederationAttempt_InvalidInitiatorSignature(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("expected no peer server rows on b, got %d", count)
+	}
+}
+
+// assertPeerFrontendURL checks the frontend address a peer sent in the
+// handshake was kept once it was approved.
+func assertPeerFrontendURL(t *testing.T, ds *DataService, serverID, want string) {
+	t.Helper()
+	var got sql.NullString
+	if err := ds.db.QueryRowContext(context.Background(),
+		`SELECT frontend_url FROM servers WHERE id = $1`, serverID,
+	).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.String != want {
+		t.Fatalf("peer %s frontend_url = %q, want %q", serverID, got.String, want)
 	}
 }
