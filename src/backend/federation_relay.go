@@ -1548,8 +1548,15 @@ func (h *Handlers) notifyPeersOfRealtimeReset(reason string) {
 			if err == nil && (status < 200 || status >= 300) {
 				err = fmt.Errorf("peer answered %d", status)
 			}
+			// Written inline, not async: on shutdown the process may exit
+			// before a background write lands.
+			level, message := federationLogInfo, fmt.Sprintf("Sent %s notice", reason)
 			if err != nil {
 				log.Warn().Err(err).Str("peerServerID", peer.ID).Str("reason", reason).Msg("Failed to send realtime reset to peer")
+				level, message = federationLogError, fmt.Sprintf("Failed to send %s notice: %v", reason, err)
+			}
+			if err := h.services.db.logFederationServer(context.Background(), peer.ID, level, message); err != nil {
+				log.Error().Err(err).Str("peerServerID", peer.ID).Msg("Failed to write federation server log")
 			}
 		}(peer)
 	}
@@ -1585,6 +1592,7 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	h.logFederationServerAsync(peerServerID, federationLogInfo, fmt.Sprintf("Received %s notice", req.Reason))
 	h.realtimeRelay.forgetPeer(r.Context(), peerServerID)
 	if err := h.services.db.SetPeerDown(r.Context(), peerServerID, req.Reason == realtimeResetShutdown); err != nil {
 		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("Failed to record peer up/down state")

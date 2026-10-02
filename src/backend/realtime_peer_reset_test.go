@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"syrinx/observability/metrics"
 )
@@ -196,5 +197,60 @@ func TestClearRealtimeState(t *testing.T) {
 		if n := countTeardownRows(t, db, table); n != 0 {
 			t.Fatalf("expected %s empty after boot clear, got %d", table, n)
 		}
+	}
+}
+
+func peerLogMessages(t *testing.T, rs *realtimeService, serverID string) []string {
+	t.Helper()
+	rows, err := rs.db.ListFederationServerLogs(context.Background(), serverID)
+	if err != nil {
+		t.Fatalf("ListFederationServerLogs: %v", err)
+	}
+	var messages []string
+	for _, row := range rows {
+		messages = append(messages, row.Message)
+	}
+	return messages
+}
+
+// Receiving a notice is recorded in that peer's server log.
+func TestRealtimeResetFromPeerIsLogged(t *testing.T) {
+	db, rs, viewer := newTeardownTestService(t)
+	seedPeerResetState(t, db, rs, viewer)
+	h := &Handlers{
+		services:      &Services{db: rs.db, log: NewLoggingService()},
+		metrics:       metrics.Noop{},
+		realtimeRelay: rs,
+	}
+	if code := postRealtimeReset(t, h, teardownPeerID, realtimeResetShutdown); code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", code)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		messages := peerLogMessages(t, rs, teardownPeerID)
+		if len(messages) == 1 && messages[0] == "Received shutdown notice" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("peer log = %v, want the received shutdown notice", messages)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// Sending a notice is recorded too, including when it fails.
+func TestRealtimeResetSendIsLogged(t *testing.T) {
+	db, rs, _ := newTeardownTestService(t)
+	if _, err := db.Exec(`UPDATE servers SET connected = TRUE, base_url = 'http://127.0.0.1:1' WHERE id = $1`, teardownPeerID); err != nil {
+		t.Fatalf("make peer reachable: %v", err)
+	}
+	h := &Handlers{services: &Services{db: rs.db, log: NewLoggingService()}, metrics: metrics.Noop{}}
+
+	h.notifyPeersOfRealtimeReset(realtimeResetBoot)
+
+	messages := peerLogMessages(t, rs, teardownPeerID)
+	if len(messages) != 1 || !strings.HasPrefix(messages[0], "Failed to send boot notice") {
+		t.Fatalf("peer log = %v, want a failed boot notice", messages)
 	}
 }
