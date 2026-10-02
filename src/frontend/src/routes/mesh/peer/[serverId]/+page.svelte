@@ -192,7 +192,6 @@
           {#if server.frontendUrl}
             <p class="meta">Frontend {server.frontendUrl}</p>
           {/if}
-          <p class="meta">Added {formatRelativeTime(server.createdAt)}</p>
           {#if invitation}
             <p class="meta"
               >Invited by <Username
