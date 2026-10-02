@@ -125,7 +125,8 @@
           <span class="server-name">{attempt.remoteServerName} ({attempt.remoteServerId})</span>
           <span class="badge" data-status={attempt.status}>{statusLabel(attempt.status)}</span>
         </div>
-        <p class="meta">{attempt.baseUrl}</p>
+        <p class="meta">API {attempt.baseUrl}</p>
+        <p class="meta">Frontend {attempt.frontendUrl}</p>
         <p class="meta">Started {formatRelativeTime(attempt.createdAt)}</p>
 
         {#if attempt.status === 'approved' && attempt.approvedBy}

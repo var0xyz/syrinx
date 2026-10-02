@@ -381,6 +381,7 @@ export interface FederationAttempt {
   remoteServerId: string;
   remoteServerName: string;
   baseUrl: string;
+  frontendUrl: string;
   fingerprint: string;
   invitationId?: string | null;
   serverId?: string | null;

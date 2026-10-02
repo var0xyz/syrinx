@@ -104,7 +104,7 @@ type federationServerWire struct {
 // federationAttemptWire is one row in GET /api/federation/attempts — a
 // handshake attempt against a peer, at any stage (pending/approved/
 // rejected). Permanent audit trail; never deleted. RemoteServerID/
-// RemoteServerName/BaseURL/Fingerprint are the peer's own claims from its
+// RemoteServerName/BaseURL/FrontendURL/Fingerprint are the peer's own claims from its
 // handshake payload. InvitationID/ServerID are set only when applicable
 // (InvitationID on the initiator side; ServerID once approved).
 type federationAttemptWire struct {
@@ -112,6 +112,7 @@ type federationAttemptWire struct {
 	RemoteServerID   string  `json:"remoteServerId"`
 	RemoteServerName string  `json:"remoteServerName"`
 	BaseURL          string  `json:"baseUrl"`
+	FrontendURL      string  `json:"frontendUrl"`
 	Fingerprint      string  `json:"fingerprint"`
 	InvitationID     *string `json:"invitationId,omitempty"`
 	ServerID         *string `json:"serverId,omitempty"`

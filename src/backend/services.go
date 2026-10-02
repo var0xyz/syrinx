@@ -3696,6 +3696,7 @@ type federationAttemptRow struct {
 	RemoteServerID   string
 	RemoteServerName string
 	BaseURL          string
+	FrontendURL      string
 	Fingerprint      string
 	InvitationID     string
 	ServerID         string
@@ -3709,7 +3710,7 @@ type federationAttemptRow struct {
 }
 
 const federationAttemptSelectCols = `
-	fa.id, fa.remote_server_id, fa.remote_server_name, fa.base_url, fa.fingerprint,
+	fa.id, fa.remote_server_id, fa.remote_server_name, fa.base_url, fa.frontend_url, fa.fingerprint,
 	COALESCE(fa.invitation_id, ''), COALESCE(fa.server_id, ''), fa.created_at, fa.status,
 	COALESCE(fa.approved_by, ''), fa.approved_at,
 	COALESCE(fa.rejected_by, ''), fa.rejected_at,
@@ -3726,7 +3727,7 @@ func scanFederationAttemptRow(scanner interface {
 	var row federationAttemptRow
 	var approvedAt, rejectedAt sql.NullTime
 	err := scanner.Scan(
-		&row.ID, &row.RemoteServerID, &row.RemoteServerName, &row.BaseURL, &row.Fingerprint,
+		&row.ID, &row.RemoteServerID, &row.RemoteServerName, &row.BaseURL, &row.FrontendURL, &row.Fingerprint,
 		&row.InvitationID, &row.ServerID, &row.CreatedAt, &row.Status,
 		&row.ApprovedBy, &approvedAt,
 		&row.RejectedBy, &rejectedAt,
