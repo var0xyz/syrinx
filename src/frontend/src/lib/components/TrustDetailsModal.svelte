@@ -233,7 +233,7 @@
   }
 
   .group {
-    margin: 0 0 0.85rem;
+    margin-bottom: 0.75rem;
   }
 
   .group h3 {
@@ -274,12 +274,11 @@
     flex-wrap: wrap;
     align-items: baseline;
     gap: 0.4rem;
-    padding: 0.25rem 0;
-    border-top: 1px solid var(--border);
+    padding-top: 0.25rem;
   }
 
   .vouchers li:first-child {
-    border-top: none;
+    padding: 0;
   }
 
   .when {
@@ -297,7 +296,6 @@
   }
 
   .btn {
-    margin-top: 0.75rem;
     padding: 0.4rem 1rem;
     border: none;
     border-radius: 6px;
