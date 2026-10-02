@@ -25,7 +25,7 @@
   import { captureWindowScroll } from '$lib/utils/scrollSnapshot';
 
   const profileTabs = [
-    { href: '/reeds', label: 'Mine' },
+    { href: '/reeds', label: 'Profile' },
     { href: '/reeds/saved', label: 'Liked' },
   ];
   import { mergeUserView, profileNeedsRefresh } from '$lib/utils/userView';

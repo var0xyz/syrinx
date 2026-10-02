@@ -72,7 +72,7 @@
     <span class="sn-icon">🌾</span>Reeds
   </a>
   <a href={ownProfileHref} class="sn-sub" class:active={profileSubActive}>
-    <span class="sn-dot"></span>Mine
+    <span class="sn-dot"></span>Profile
   </a>
   <a href="/reeds/saved" class="sn-sub" class:active={likedSubActive}>
     <span class="sn-dot"></span>Liked
