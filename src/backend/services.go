@@ -7321,6 +7321,8 @@ type pendingEvent struct {
 	RequestID       string
 	RequesterUserID string
 	EventName       string
+	Dispatched      bool // dispatched_at set: claimed for sending
+	Relayed         bool // relayed_at set: relayed content reached the requester
 }
 
 // pendingReedEvent is a pending_events row with its pending_reed_events subject.
@@ -7446,10 +7448,11 @@ func (s *DataService) GetPendingSubject(ctx context.Context, eventID string) (*p
 	var pe pendingSubject
 	var requester sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name,
+		       pe.dispatched_at IS NOT NULL, pe.relayed_at IS NOT NULL
 		FROM pending_events pe
 		WHERE pe.event_id = $1
-	`, eventID).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName)
+	`, eventID).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName, &pe.Dispatched, &pe.Relayed)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -7490,11 +7493,12 @@ func (s *DataService) GetPendingReedEvent(ctx context.Context, eventID string) (
 	var pe pendingReedEvent
 	var requester sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id,
+		       pe.dispatched_at IS NOT NULL, pe.relayed_at IS NOT NULL
 		FROM pending_events pe
 		JOIN pending_reed_events pre ON pre.event_id = pe.event_id
 		WHERE pe.event_id = $1
-	`, eventID).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName, &pe.ReedID)
+	`, eventID).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName, &pe.ReedID, &pe.Dispatched, &pe.Relayed)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -7825,6 +7829,23 @@ func (s *DataService) MarkEventDispatched(ctx context.Context, eventID string) (
 	}
 	n, err := result.RowsAffected()
 	return n == 1, err
+}
+
+// MarkEventRelayed records that relayed content for eventID reached its requester.
+func (s *DataService) MarkEventRelayed(ctx context.Context, eventID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE pending_events SET relayed_at = NOW() WHERE event_id = $1
+	`, eventID)
+	return err
+}
+
+// ResetEventDelivery clears dispatched_at and relayed_at so the event is
+// dispatched again from scratch.
+func (s *DataService) ResetEventDelivery(ctx context.Context, eventID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE pending_events SET dispatched_at = NULL, relayed_at = NULL WHERE event_id = $1
+	`, eventID)
+	return err
 }
 
 // ResetDispatchedAt clears dispatched_at for an event, making it eligible for dispatch again.
