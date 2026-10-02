@@ -545,6 +545,12 @@ func main() {
 	api.HandleFunc("/federation/relay/reed-removal", h.ReedRemovalFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reed-removal", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/relay/vouch-reference", h.VouchReferenceFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/vouch-reference", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/federation/relay/vouch-withdrawal", h.VouchWithdrawalFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/vouch-withdrawal", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/account-removal-notify", h.AccountRemovalNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/account-removal-notify", h.noop).Methods("OPTIONS")
 

@@ -97,6 +97,14 @@ func ensureFollowCountSchema(db *sql.DB) error {
 			subject_key_id VARCHAR(255) NOT NULL,
 			UNIQUE (voucher_user_id, subject_key_id)
 		)`,
+		`DROP TABLE IF EXISTS vouch_references CASCADE`,
+		`CREATE TABLE vouch_references (
+			vouch_id VARCHAR(255) PRIMARY KEY,
+			subject_user_id VARCHAR(255) NOT NULL,
+			subject_key_id VARCHAR(255) NOT NULL,
+			voucher_server_id VARCHAR(16) NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`DROP TABLE IF EXISTS pinned_reeds CASCADE`,
 		`DROP TABLE IF EXISTS reed_identities CASCADE`,
 		`CREATE TABLE reed_identities (
