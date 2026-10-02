@@ -409,11 +409,8 @@ func main() {
 	api.HandleFunc("/reeds/{reedID:.+}/pin", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/reeds/{userID}/{reedID}/ripples", h.PostRipple).Methods("POST")
-	api.HandleFunc("/reeds/{userID}/{reedID}/ripples", h.GetRipples).Methods("QUERY")
+	api.HandleFunc("/reeds/{userID}/{reedID}/ripples", h.GetRipples).Methods("GET")
 	api.HandleFunc("/reeds/{userID}/{reedID}/ripples", h.noop).Methods("OPTIONS")
-
-	// api.HandleFunc("/reeds/{userID}/{reedID}/ripples/proof", h.GetRipples).Methods("POST")
-	// api.HandleFunc("/reeds/{userID}/{reedID}/ripples/proof", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/reeds/{reedID:.+}/ripples/{rippleID}", h.DeleteRipple).Methods("DELETE")
 	api.HandleFunc("/reeds/{reedID:.+}/ripples/{rippleID}", h.noop).Methods("OPTIONS")

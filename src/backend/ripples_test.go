@@ -46,6 +46,10 @@ func ensureRipplesSchema(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS user_signatures (id SERIAL PRIMARY KEY, public_key_id VARCHAR(255) NOT NULL, signature TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (id SERIAL PRIMARY KEY, private_key_id VARCHAR(255) NOT NULL, signature TEXT NOT NULL, signed_at TIMESTAMP NOT NULL)`,
+		`DROP TABLE IF EXISTS reed_server_allocations CASCADE`,
+		`DROP TABLE IF EXISTS reed_allocations CASCADE`,
+		`DROP TABLE IF EXISTS reed_identities CASCADE`,
+		`DROP TABLE IF EXISTS servers CASCADE`,
 		`DROP TABLE IF EXISTS ripple_responses CASCADE`,
 		`DROP TABLE IF EXISTS ripples CASCADE`,
 		`DROP TABLE IF EXISTS reed_echoes CASCADE`,
@@ -115,6 +119,31 @@ func ensureRipplesSchema(db *sql.DB) error {
 			signed_at TIMESTAMP NOT NULL,
 
 			PRIMARY KEY (echoing_reed_id)
+		)`,
+		// Holder tables back the ripple holder gate (checkReedHolder).
+		`CREATE TABLE servers (
+			id VARCHAR(16) UNIQUE,
+			name VARCHAR(255) PRIMARY KEY,
+			self BOOLEAN NOT NULL DEFAULT FALSE
+		)`,
+		`INSERT INTO servers (id, name, self) VALUES ('` + ripplesTestServerID + `', '` + ripplesTestServerID + `', TRUE)`,
+		`CREATE TABLE reed_identities (
+			id VARCHAR(255) PRIMARY KEY,
+			server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+			author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE reed_allocations (
+			reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+			holder_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (holder_user_id, reed_id)
+		)`,
+		`CREATE TABLE reed_server_allocations (
+			reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+			server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+			delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (reed_id, server_id)
 		)`,
 		`CREATE TABLE ripples (
 			reed_id VARCHAR(255) PRIMARY KEY,

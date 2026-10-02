@@ -3409,15 +3409,25 @@ func (h *Handlers) rememberRemoteIdentityAndFollowLocally(ctx context.Context, l
 	}
 }
 
-// proxyIfForeign proxies to the peer owning id's embedded serverID if
-// foreign (handled=true, plus the peer's status code), or does nothing
-// (handled=false) when id is local or malformed.
-func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id string) (handled bool, status int) {
+// foreignServerOf returns the peer embedded in id, or ok=false when id is
+// local or malformed.
+func (h *Handlers) foreignServerOf(id string) (serverID string, ok bool) {
 	_, embeddedServerID, _, ok := parseKeyFingerprint(identityID(id))
 	if !ok {
 		_, embeddedServerID, ok = parseIdentityID(identityID(id))
 	}
 	if !ok || embeddedServerID == h.services.db.GetServerID() {
+		return "", false
+	}
+	return embeddedServerID, true
+}
+
+// proxyIfForeign proxies to the peer owning id's embedded serverID if
+// foreign (handled=true, plus the peer's status code), or does nothing
+// (handled=false) when id is local or malformed.
+func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id string) (handled bool, status int) {
+	embeddedServerID, ok := h.foreignServerOf(id)
+	if !ok {
 		return false, 0
 	}
 
@@ -5262,10 +5272,6 @@ type postRippleRequest struct {
 	// request arrives via peer relay (see resolveActingUser); a local
 	// caller's own session already provides this.
 	UserID string `json:"userID"`
-
-	// Proof is the parent reed's base64 server-signature armor — proof of
-	// possession, see checkReedPossession.
-	Proof string `json:"proof"`
 }
 
 type deleteRippleRequest struct {
@@ -5275,11 +5281,9 @@ type deleteRippleRequest struct {
 	UserID string `json:"userID"`
 }
 
-// PostRipple handles POST /api/reeds/{userID}/{reedID}/ripples. The
-// caller submits a user-signed payload plus proof of possession of the
-// parent reed (see checkReedPossession — posting requires the same proof
-// as listing); this handler verifies that signature, then countersigns
-// and hashes the server payload via DataService.PostRipple.
+// PostRipple handles POST /api/reeds/{userID}/{reedID}/ripples. Only a
+// holder of the parent reed may post (checkReedHolder). Verifies the user
+// signature, then countersigns via DataService.PostRipple.
 func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 
@@ -5291,6 +5295,11 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	}
 	canonicalReedID := string(appendEntity(identityID(reedUserID), reedID))
 
+	// A foreign reed's home server checks this server as the holder, so
+	// this server checks its own user before proxying.
+	if _, foreign := h.foreignServerOf(canonicalReedID); foreign && !h.checkReedHolder(w, r, canonicalReedID) {
+		return
+	}
 	if handled, _ := h.proxyIfForeign(w, r, canonicalReedID); handled {
 		return
 	}
@@ -5311,16 +5320,12 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// `checkReedPossession` only looks at the live reeds row, so a removed
-	// reed looks identical to a nonexistent one from its point of view —
-	// att == nil either way. Running it first would collapse that 410 into
-	// a 400 (no live reed to prove possession against), losing both the
-	// correct status code and the removal-cert payload callers may depend on.
+	// Parent check first: it's what tells a removed reed (410 + cert) from
+	// one that never existed (404).
 	if !h.checkRippleParentReed(w, r, canonicalReedID) {
 		return
 	}
-
-	if !h.checkReedPossession(w, r.Context(), canonicalReedID, req.Proof) {
+	if !h.checkReedHolder(w, r, canonicalReedID) {
 		return
 	}
 
@@ -5450,42 +5455,34 @@ type rippleListResponse struct {
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 }
 
-// checkReedPossession requires the caller to prove they've actually seen
-// the parent reed before it will act on its ripples — list them, or post
-// a new one: a ripple thread is only discoverable/joinable by someone the
-// reed was relayed to (e.g. an echo in their feed), never by guessing a
-// (userID, reedID) pair. Proof is the reed's own base64-encoded
-// server-signature armor — something only visible on a copy of the reed
-// itself — echoed back by the caller (proof extracts it: the raw request
-// body for GetRipples, a JSON field for PostRipple).
-func (h *Handlers) checkReedPossession(w http.ResponseWriter, ctx context.Context, reedID, proof string) (ok bool) {
-	proof = strings.TrimSpace(proof)
-	if proof == "" {
-		writeResponse(w, http.StatusBadRequest, "Proof of posession required")
+// checkReedHolder lets only holders of the reed see or join its ripples:
+// a user must hold it on their own server; a peer proxying for one of its
+// users must hold it as a server, vouching for that user.
+func (h *Handlers) checkReedHolder(w http.ResponseWriter, r *http.Request, reedID string) (ok bool) {
+	ctx := r.Context()
+	var holds bool
+	var err error
+	if userID, isUser := ctx.Value(userIDKey).(string); isUser {
+		holds, err = h.services.db.IsReedHolder(ctx, reedID, userID)
+	} else if peerServerID, isPeer := ctx.Value(peerServerIDKey).(string); isPeer {
+		holds, err = h.services.db.IsServerHolder(ctx, reedID, peerServerID)
+	} else {
+		writeResponse(w, http.StatusUnauthorized, "Could not resolve caller")
 		return false
 	}
-
-	att, err := h.services.db.GetReedAttestation(ctx, reedID)
 	if err != nil {
 		internalServerError(w)
 		return false
 	}
-	if att == nil {
-		writeResponse(w, http.StatusNotFound, "Post not found")
-		return false
-	}
-	if proof != att.ServerSignature {
-		writeResponse(w, http.StatusForbidden, "Invalid proof of posession")
+	if !holds {
+		writeResponse(w, http.StatusForbidden, "You don't hold this post")
 		return false
 	}
 	return true
 }
 
-// GetRipples handles QUERY /api/reeds/{userID}/{reedID}/ripples — listing
-// ripples requires proving possession of the parent reed (see
-// checkReedPossession), so this is a QUERY (body-bearing, safe/read-only)
-// rather than a plain GET. If QUERY turns out not to be viable end-to-end,
-// swap to the commented-out POST /ripples/proof route in main.go instead.
+// GetRipples handles GET /api/reeds/{userID}/{reedID}/ripples. Only a
+// holder of the parent reed may list them (checkReedHolder).
 func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 
@@ -5497,25 +5494,21 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 	}
 	canonicalReedID := string(appendEntity(identityID(reedUserID), reedID))
 
+	// A foreign reed's home server checks this server as the holder, so
+	// this server checks its own user before proxying.
+	if _, foreign := h.foreignServerOf(canonicalReedID); foreign && !h.checkReedHolder(w, r, canonicalReedID) {
+		return
+	}
 	if handled, _ := h.proxyIfForeign(w, r, canonicalReedID); handled {
 		return
 	}
 
-	// Why `checkRippleParentReed` should run before `checkReedPossession`:
-	// it's the only way to tell a removed reed (410 + cert body) apart from
-	// one that never existed (404), which checkReedPossession's
-	// live-row-only lookup can't distinguish. See the ordering note above
-	// PostRipple's equivalent pair of checks.
+	// Parent check first: it's what tells a removed reed (410 + cert) from
+	// one that never existed (404).
 	if !h.checkRippleParentReed(w, r, canonicalReedID) {
 		return
 	}
-
-	proofBody, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	if !h.checkReedPossession(w, r.Context(), canonicalReedID, string(proofBody)) {
+	if !h.checkReedHolder(w, r, canonicalReedID) {
 		return
 	}
 
