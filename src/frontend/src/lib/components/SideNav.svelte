@@ -35,11 +35,13 @@
   $: reedsActive = currentPage === 'reeds' || onOwnProfile || path === '/reeds/saved';
   $: profileSubActive = onOwnProfile;
   $: likedSubActive = path === '/reeds/saved';
+  $: reedsSubOpen = profileSubActive || likedSubActive;
 
   $: feedsActive = currentPage === 'feeds' || path.startsWith('/feed/follow') || path === '/feed/broadcast' || path.startsWith('/feed/pipes');
   $: followSubActive = path.startsWith('/feed/follow');
   $: broadcastSubActive = path === '/feed/broadcast';
   $: pipesSubActive = path.startsWith('/feed/pipes');
+  $: feedsSubOpen = followSubActive || broadcastSubActive || pipesSubActive;
 
   $: listsActive = currentPage === 'lists' || path.startsWith('/feed/lists');
 
@@ -47,12 +49,14 @@
   $: repliesSubActive = path === '/replies';
   $: ripplesSubActive = path === '/ripples';
   $: mentionsSubActive = path === '/feed/mentions';
+  $: interactionsSubOpen = repliesSubActive || ripplesSubActive || mentionsSubActive;
 
   $: searchActive = currentPage === 'search' || path.startsWith('/search');
 
   $: networkActive = currentPage === 'network' || path.startsWith('/network/');
   $: usersSubActive = path.startsWith('/network/users');
   $: meshSubActive = path === '/network/mesh';
+  $: networkSubOpen = usersSubActive || meshSubActive;
 
   $: invitesActive = currentPage === 'invites' || path === '/invites';
 
@@ -64,7 +68,7 @@
     <span class="sn-compose-icon"></span>New Reed
   </button>
 
-  <a href={ownProfileHref} class="sn-btn" class:active={reedsActive}>
+  <a href={ownProfileHref} class="sn-btn" class:in-section={reedsActive} class:active={reedsActive && !reedsSubOpen}>
     <span class="sn-icon">🌾</span>Reeds
   </a>
   <a href={ownProfileHref} class="sn-sub" class:active={profileSubActive}>
@@ -74,7 +78,7 @@
     <span class="sn-dot"></span>Liked
   </a>
 
-  <a href="/feed/follow" class="sn-btn" class:active={feedsActive}>
+  <a href="/feed/follow" class="sn-btn" class:in-section={feedsActive} class:active={feedsActive && !feedsSubOpen}>
     <span class="sn-icon">📰</span>Feeds
   </a>
   <a href="/feed/follow" class="sn-sub" class:active={followSubActive}>
@@ -91,7 +95,7 @@
     <span class="sn-icon">📋</span>Lists
   </a>
 
-  <a href="/replies" class="sn-btn" class:active={interactionsActive}>
+  <a href="/replies" class="sn-btn" class:in-section={interactionsActive} class:active={interactionsActive && !interactionsSubOpen}>
     <span class="sn-icon">💬</span>Interactions
     {#if hasUnreadInteractions}<span class="sn-unread-dot"></span>{/if}
   </a>
@@ -113,7 +117,7 @@
   </a>
 
   {#if isAdmin}
-    <a href="/network/users" class="sn-btn" class:active={networkActive}>
+    <a href="/network/users" class="sn-btn" class:in-section={networkActive} class:active={networkActive && !networkSubOpen}>
       <span class="sn-icon">🌐</span>Network
     </a>
     <a href="/network/users" class="sn-sub" class:active={usersSubActive}>
@@ -229,7 +233,13 @@
     color: var(--fg);
   }
 
-  .sn-btn.active {
+  .sn-btn.in-section {
+    color: var(--fg);
+  }
+
+  /* Only the page being viewed gets the background, a sub-item when one matches. */
+  .sn-btn.active,
+  .sn-sub.active {
     background: rgba(88, 166, 255, 0.14);
     color: var(--fg);
   }
@@ -252,10 +262,6 @@
   }
 
   .sn-sub:hover {
-    color: var(--fg);
-  }
-
-  .sn-sub.active {
     color: var(--fg);
   }
 
