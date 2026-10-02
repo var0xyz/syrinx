@@ -39,7 +39,7 @@ permissions and are never committed to git.
   against the app database, using credentials read from `app.env`. Requires
   root (the env file is `640 root:$APP_USER`).
 - **`server-key.sh`** — prints the server's current signing public key
-  (key id, then the armored key), read from the database via `psql.sh`.
+  (armored, nothing else), read from the database via `psql.sh`.
   `setup.sh` and `update.sh` also print it when they finish.
 - **`wipe-db.sh [--force]`** — backs up (`pg_dump | gzip`, mode 600) then
   drops and recreates an empty database with the same owner/grants. Requires
