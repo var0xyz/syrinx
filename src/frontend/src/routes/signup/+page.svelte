@@ -308,6 +308,10 @@
 </div>
 
 <style>
+  .card {
+    padding-bottom: 1rem;
+  }
+
   .help-text {
     font-size: 0.85rem;
     min-height: 1rem;

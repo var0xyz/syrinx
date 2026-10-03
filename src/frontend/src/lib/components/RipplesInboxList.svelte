@@ -175,6 +175,7 @@
 
   .inbox-row {
     display: flex;
+    align-items: center;
     gap: 0.6rem;
     padding: 0.75rem;
     border: 1px solid var(--border);
