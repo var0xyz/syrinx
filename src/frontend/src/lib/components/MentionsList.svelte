@@ -5,6 +5,7 @@
   import { formatRelativeTime } from '$lib/utils/time';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import { goto } from '$app/navigation';
   import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';
@@ -76,6 +77,12 @@
             subtext={`Mentioned you ${formatRelativeTime(item.record.createdAt)}`}
             stopPropagation
             linked={false}
+          />
+          <ReedActionsMenu
+            reedRef={item.reed.id}
+            userID={item.reed.userID}
+            username={item.author.username}
+            content={item.reed.content}
           />
         </div>
         {#if item.reed.replying}
@@ -154,7 +161,6 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    overflow: hidden;
     transition: all 0.2s ease;
     cursor: pointer;
   }

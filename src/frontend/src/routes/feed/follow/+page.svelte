@@ -8,6 +8,7 @@
   import Auth from '$lib/components/Auth.svelte';
   import SectionTabs from '$lib/components/SectionTabs.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import { captureWindowScroll, restoreWindowScroll } from '$lib/utils/scrollSnapshot';
@@ -83,6 +84,12 @@
                   stopPropagation
                   linked={false}
                 />
+                <ReedActionsMenu
+                  reedRef={reed.id}
+                  userID={reed.userID}
+                  username={followReeds.authors[reed.userID]?.username ?? reed.userID}
+                  content={reed.content}
+                />
               </div>
               {#if reed.replying}
                 <div class="quote-container">
@@ -147,7 +154,6 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    overflow: hidden;
     transition: all 0.2s ease;
     cursor: pointer;
   }

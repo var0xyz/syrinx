@@ -4,7 +4,7 @@
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
-  import KebabMenu from '$lib/components/KebabMenu.svelte';
+  import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
 
   export let reed;
   export let authorId;
@@ -24,6 +24,7 @@
     isBlankEcho(reed) &&
     isBlankEcho(displayReed) &&
     !(displayReed.echoing && echoedReeds.has(displayReed.echoing));
+  $: shareTarget = awaitingOriginal ? reed : displayReed;
   $: displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (profileUser || { username: authorId });
 </script>
 
@@ -37,20 +38,26 @@
       stopPropagation
       linked={false}
     />
-    {#if pinned}
-      <div class="reed-meta">
+    <div class="reed-meta">
+      {#if pinned}
         <span class="pin-badge" title="Pinned" aria-hidden="true">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 3l5 5-5 5v5l-4-4-6 6-1-1 6-6-4-4h5l5-5z"/></svg>
         </span>
-        {#if isOwner}
-          <KebabMenu options={[{ label: 'Unpin', icon: '/icons/pin-16-filled.png', onSelect: () => onTogglePin(reed) }, { label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: () => onDelete(reed.id) }]} />
-        {/if}
-      </div>
-    {:else if isOwner}
-      <div class="reed-meta">
-        <KebabMenu options={[{ label: 'Pin', icon: '/icons/pin-16-outlined.png', onSelect: () => onTogglePin(reed) }, { label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: () => onDelete(reed.id) }]} />
-      </div>
-    {/if}
+      {/if}
+      <ReedActionsMenu
+        reedRef={shareTarget.serverSignature ? shareTarget.id : ''}
+        userID={shareTarget.userID}
+        username={displayUser.username}
+        content={shareTarget.content}
+        showProfile={false}
+        extraOptions={isOwner ? [
+          pinned
+            ? { label: 'Unpin', icon: '/icons/pin-16-filled.png', onSelect: () => onTogglePin(reed) }
+            : { label: 'Pin', icon: '/icons/pin-16-outlined.png', onSelect: () => onTogglePin(reed) },
+          { label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: () => onDelete(reed.id) },
+        ] : []}
+      />
+    </div>
   </div>
   {#if !awaitingOriginal && displayReed.replying}
     <div class="quote-container">

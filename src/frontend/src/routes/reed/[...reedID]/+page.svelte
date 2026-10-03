@@ -1,26 +1,23 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
-  import { reedsService, stripMarkdown, unsignedReedsProcessed } from '$lib/repositories/reeds';
+  import { reedsService, unsignedReedsProcessed } from '$lib/repositories/reeds';
   import { formatAbsoluteDateTime } from '$lib/utils/time';
   import { apiService } from '$lib/services/api';
-  import { removeReedAsAuthor, verifyAndCommitReedRemoval, reedRemovalCommitted, reedRemovalCommittedID } from '$lib/services/reedRemoval';
+  import { verifyAndCommitReedRemoval, reedRemovalCommitted, reedRemovalCommittedID } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval, accountRemovalCommitted } from '$lib/services/accountRemoval';
   import { removedReedsRepository } from '$lib/repositories/removedReeds';
   import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
   import { likeReed, unlikeReed, isReedLiked } from '$lib/services/reedLike';
-  import { pinReed, unpinReed } from '$lib/services/reedPin';
-  import { userInfoRepository } from '$lib/repositories/userInfo';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
-  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { userRepository } from '$lib/repositories/user';
   import { goto } from '$app/navigation';
-  import { notificationStore } from '$lib/stores/notifications';
+  import { shareReed } from '$lib/utils/shareReed';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
   import Avatar from '$lib/components/Avatar.svelte';
@@ -30,7 +27,6 @@
   import ConversationSection from '$lib/components/ConversationSection.svelte';
   import RipplesSection from '$lib/components/RipplesSection.svelte';
   import ChorusSection from '$lib/components/ChorusSection.svelte';
-  import KebabMenu from '$lib/components/KebabMenu.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
   import { resolveThreadId, getUserId } from '$lib/utils/identityRef';
@@ -69,8 +65,6 @@
 
   // Action buttons state
   let isLiked = false;
-  let isPinned = false;
-  let pinnedReedIds = [];
   let isReplyModalOpen = false;
   let isEchoModalOpen = false;
   /** Target for the reply/echo modals — resolved off `reed` through any
@@ -184,19 +178,10 @@
     lastHandledFollowReedId = '';
     lastHandledReedReplyId = '';
     isLiked = false;
-    isPinned = false;
     if (next.reed?.id) {
       void isReedLiked(next.reed.id).then((liked) => {
         if (reed?.id === next.reed.id) isLiked = liked;
       });
-      if (user?.id === next.reed.userID) {
-        void userInfoRepository.get(user.id).then((info) => {
-          if (reed?.id === next.reed.id) {
-            pinnedReedIds = info?.pinnedReedIDs ?? [];
-            isPinned = pinnedReedIds.includes(next.reed.id);
-          }
-        });
-      }
     }
     loadingReed = !next.fromCache && !next.errorMessage;
     if (next.fromCache) {
@@ -495,31 +480,6 @@
     }
   }
 
-  let confirmingDelete = false;
-
-  function requestDelete() {
-    confirmingDelete = true;
-  }
-
-  async function deleteReed() {
-    confirmingDelete = false;
-    await performDelete();
-  }
-
-  async function performDelete() {
-    try {
-      if (reed && !reed.serverSignature) {
-        await reedsService.discardUnsignedReed(reed.id);
-      } else {
-        await removeReedAsAuthor(canonicalReedID);
-      }
-      goto('/reeds');
-    } catch (error) {
-      console.error('Error deleting reed:', error);
-      errorMessage = 'Failed to delete reed';
-    }
-  }
-
   /** Prefer history.back so list pages can restore scroll via snapshots. */
   function goBack() {
     if (typeof history !== 'undefined' && history.length > 1) {
@@ -554,36 +514,7 @@
 
   async function handleShare() {
     if (!reed || isPending || isBlankEchoView || reedNotRecognized) return;
-
-    const reedUrl = `${window.location.origin}/reed/${routeReedRef}`;
-    const reedText = stripMarkdown(reed.content);
-    const shareData = {
-      title: `${authorUser?.username ?? userID}'s Reed`,
-      text: reedText,
-      url: reedUrl
-    };
-
-    // Check if Web Share API is available
-    if (navigator.share) {
-      try {
-        await navigator.share(shareData);
-      } catch (error) {
-        // User cancelled or error occurred
-        if (error.name !== 'AbortError') {
-          console.error('Error sharing:', error);
-          notificationStore.error('Failed to share reed');
-        }
-      }
-    } else {
-      // Fallback: copy URL to clipboard
-      try {
-        await navigator.clipboard.writeText(reedUrl);
-        notificationStore.success('Reed URL copied to clipboard');
-      } catch (error) {
-        console.error('Error copying to clipboard:', error);
-        notificationStore.error('Failed to copy reed URL');
-      }
-    }
+    await shareReed(routeReedRef, authorUser?.username ?? userID, reed.content);
   }
 
   async function handleLike() {
@@ -606,14 +537,6 @@
     }
   }
 
-  async function handlePin() {
-    if (!user?.id) return;
-    const updated = isPinned
-      ? await unpinReed(user.id, canonicalReedID, pinnedReedIds)
-      : await pinReed(user.id, canonicalReedID, pinnedReedIds);
-    pinnedReedIds = updated;
-    isPinned = updated.includes(canonicalReedID);
-  }
 
 </script>
 
@@ -754,14 +677,6 @@
                   </button>
                 </div>
               </div>
-              {#if user?.id === reed.userID}
-                <div class="reed-actions">
-                  <KebabMenu options={[
-                    { label: isPinned ? 'Unpin' : 'Pin', icon: isPinned ? '/icons/pin-16-filled.png' : '/icons/pin-16-outlined.png', onSelect: handlePin },
-                    { label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: requestDelete },
-                  ]} />
-                </div>
-              {/if}
             </div>
 
             <div class="reed-body">
@@ -888,14 +803,6 @@
     <NewReedModal open={isReplyModalOpen} replyingTo={replyEchoTarget} on:close={() => { isReplyModalOpen = false; }} />
     <NewReedModal open={isEchoModalOpen} echoOf={replyEchoTarget} on:close={() => { isEchoModalOpen = false; }} />
     <ReedStatsInfoModal open={isStatsInfoModalOpen} on:close={() => { isStatsInfoModalOpen = false; }} />
-    {#if confirmingDelete}
-      <ConfirmDialog
-        title="Delete reed?"
-        message="Are you sure you want to delete this reed?"
-        on:confirm={deleteReed}
-        on:cancel={() => (confirmingDelete = false)}
-      />
-    {/if}
   </Auth>
 
 <style>
@@ -1071,13 +978,6 @@
     margin-left: 0.25rem;
     -webkit-mask-image: url('/icons/info-16.png');
     mask-image: url('/icons/info-16.png');
-  }
-
-  .reed-actions {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 0.25rem;
   }
 
   .reed-body {

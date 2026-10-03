@@ -1,6 +1,7 @@
 <script>
   import { getContext, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
+  import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
@@ -126,6 +127,12 @@
               stopPropagation
               linked={false}
             />
+            <ReedActionsMenu
+              reedRef={reed.id}
+              userID={reed.userID}
+              username={authors[reed.userID]?.username ?? reed.userID}
+              content={reed.content}
+            />
           </div>
           {#if (reed.content || '').trim()}
             <div class="feed-content">
@@ -250,7 +257,6 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    overflow: hidden;
     transition: all 0.2s ease;
     cursor: pointer;
   }
