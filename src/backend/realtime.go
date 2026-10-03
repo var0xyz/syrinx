@@ -1144,6 +1144,10 @@ type realtimeService struct {
 	// Background peer notifications from teardownUser; tests wait on it.
 	peerCalls sync.WaitGroup
 
+	// Armed relay timeouts by event ID, stopped once the event resolves.
+	relayTimersMu sync.Mutex
+	relayTimers   map[string]*time.Timer
+
 	// Peer reed delivery: drain one author's streams, or
 	// every stream that is behind.
 	deliverAuthorHook func(authorID string)
@@ -2423,11 +2427,43 @@ func (rs *realtimeService) dispatchNext(holderUserID string) bool {
 		Str("reedID", pe.ReedID).
 		Msg("Relay request sent to holder")
 
-	eventID := pe.EventID
-	time.AfterFunc(dispatchRequestTimeout, func() {
-		rs.handleRelayTimeout(holderUserID, eventID)
-	})
+	rs.startRelayTimer(holderUserID, pe.EventID)
 	return true
+}
+
+// startRelayTimer arms eventID's relay timeout, replacing any earlier one.
+func (rs *realtimeService) startRelayTimer(holderUserID, eventID string) {
+	rs.relayTimersMu.Lock()
+	defer rs.relayTimersMu.Unlock()
+	if rs.relayTimers == nil {
+		rs.relayTimers = make(map[string]*time.Timer)
+	}
+	if prev, ok := rs.relayTimers[eventID]; ok {
+		prev.Stop()
+	}
+	var t *time.Timer
+	t = time.AfterFunc(dispatchRequestTimeout, func() {
+		rs.relayTimersMu.Lock()
+		current := rs.relayTimers[eventID] == t
+		if current {
+			delete(rs.relayTimers, eventID)
+		}
+		rs.relayTimersMu.Unlock()
+		if current {
+			rs.handleRelayTimeout(holderUserID, eventID)
+		}
+	})
+	rs.relayTimers[eventID] = t
+}
+
+// stopRelayTimer cancels eventID's relay timeout, if one is armed here.
+func (rs *realtimeService) stopRelayTimer(eventID string) {
+	rs.relayTimersMu.Lock()
+	defer rs.relayTimersMu.Unlock()
+	if t, ok := rs.relayTimers[eventID]; ok {
+		t.Stop()
+		delete(rs.relayTimers, eventID)
+	}
 }
 
 // dispatchN calls dispatchNext up to n times, stopping early once the
@@ -4041,6 +4077,7 @@ func (rs *realtimeService) deliverOrForward(ctx context.Context, eventID, reques
 // markEventRelayed records that the requester was sent the relayed content,
 // which is what makes their DATA_ACK acceptable.
 func (rs *realtimeService) markEventRelayed(ctx context.Context, eventID string) {
+	rs.stopRelayTimer(eventID)
 	if err := rs.db.MarkEventRelayed(ctx, eventID); err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to mark event relayed")
 	}
@@ -4061,6 +4098,11 @@ func (rs *realtimeService) handleRelayError(holderUserID, eventID string) {
 // handleRelayTimeout: no response within dispatchRequestTimeout. Same
 // shape as handleRelayError — silence proves nothing about the content.
 func (rs *realtimeService) handleRelayTimeout(holderUserID, eventID string) {
+	// The holder may have answered on another replica, out of this timer's reach.
+	pe, err := rs.db.GetPendingReedEvent(context.Background(), eventID)
+	if err == nil && (pe == nil || pe.Relayed) {
+		return
+	}
 	log.Warn().Str("eventID", eventID).Str("holderID", holderUserID).Msg("Relay request timed out; retrying")
 	rs.handleFailedRelay(holderUserID, eventID, false)
 }
@@ -4072,6 +4114,7 @@ func (rs *realtimeService) handleFailedRelay(holderUserID, eventID string, delet
 	if eventID == "" {
 		return
 	}
+	rs.stopRelayTimer(eventID)
 
 	pe, err := rs.db.GetPendingReedEvent(context.Background(), eventID)
 	if err != nil {
