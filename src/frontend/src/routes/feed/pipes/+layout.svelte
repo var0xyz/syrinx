@@ -10,6 +10,7 @@
   import OpenPipeModal from '$lib/components/OpenPipeModal.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import { pipesRepository } from '$lib/repositories/pipes';
+  import { normalizePipeTag } from '$lib/utils/pipeTag';
   import type { PipeType } from '$lib/types/pipe';
 
   /** @type {import('./$types').LayoutData} */
@@ -25,7 +26,7 @@
   $: pipesStore.set(data.pipes);
   $: pipes = $pipesStore;
 
-  $: selectedTag = $page.params.tag ?? null;
+  $: selectedTag = $page.params.tag ? normalizePipeTag($page.params.tag) : null;
 
   let pipeModalOpen = false;
   let deleteTarget: PipeType | null = null;
@@ -75,8 +76,8 @@
               class:selected={pipe.tagName === selectedTag}
               role="button"
               tabindex="0"
-              on:click={() => selectPipe(pipe.tagName)}
-              on:keydown={(e) => e.key === 'Enter' && selectPipe(pipe.tagName)}
+              on:click={() => selectPipe(pipe.displayName)}
+              on:keydown={(e) => e.key === 'Enter' && selectPipe(pipe.displayName)}
             >
               <span class="pipe-row-name">#{pipe.displayName}</span>
               <div class="pipe-row-actions">
