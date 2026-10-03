@@ -4,8 +4,10 @@
  */
 
 import { authService } from './auth';
+import { dbService } from './db';
 import { clearImportRun, isImportComplete, isImportInProgress } from './importRun';
 import {
+  clearRecoveryRun,
   isRecoveryComplete,
   isRecoveryInProgress,
   resumeRecoveryRun,
@@ -99,6 +101,23 @@ export async function redirectForRestoreState(): Promise<boolean> {
   clearImportRun();
   navigate('/import');
   return true;
+}
+
+// Set up before any import (server trust, this browser's device id).
+const KEPT_ON_DISCARD = ['deviceId', 'serverKeyArmor', 'serverKeyFingerprint'];
+
+/**
+ * Undo a failed, cancelled import: drop its markers and everything it may
+ * have written, so the device is back to having no identity.
+ */
+export async function discardFailedImport(): Promise<void> {
+  clearImportRun();
+  clearRecoveryRun();
+  for (const key of Object.keys(localStorage)) {
+    if (!KEPT_ON_DISCARD.includes(key)) localStorage.removeItem(key);
+  }
+  await authService.clearSession();
+  await dbService.deleteDatabase();
 }
 
 const FINISH_RECOVERY_RE = /finish recovery/i;

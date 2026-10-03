@@ -30,7 +30,7 @@
     resumeRecoveryRun,
   } from '$lib/services/recoveryRun';
   import { ensureRecoveryProgress } from '$lib/services/recoveryProgress';
-  import { redirectForRestoreState } from '$lib/services/restoreFlow';
+  import { discardFailedImport, redirectForRestoreState } from '$lib/services/restoreFlow';
   import { isRecoveryMode, serverInfoLoading } from '$lib/services/serverInfo';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
@@ -147,6 +147,17 @@
     } finally {
       restoring = false;
     }
+  }
+
+  // A failed run leaves its markers and any data it wrote behind; drop both
+  // so the homepage doesn't bounce back here or treat the device as logged in.
+  async function cancelImport() {
+    try {
+      await discardFailedImport();
+    } catch (e) {
+      console.error('Failed to discard import:', e);
+    }
+    window.location.assign('/');
   }
 
   function cancelAbortConfirm() {
@@ -335,7 +346,7 @@
       <div class="info-box">{DEVICE_TAKEOVER_NOTICE}</div>
 
       <div class="actions">
-        <a href="/" class="btn btn-secondary">Cancel</a>
+        <button type="button" class="btn btn-secondary" on:click={cancelImport} disabled={restoring}>Cancel</button>
         <button
           class="btn btn-primary"
           on:click={handleRestore}
