@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { requestPersistentStorage, canInstall, isInstalled, installPWA } from '$lib/services/pwa';
+  import { requestPersistentStorage, isInstalled, installPWA } from '$lib/services/pwa';
   import { redirectForRestoreState } from '$lib/services/restoreFlow';
   import { isRecoveryMode, isSignupOpen, serverInfoLoading } from '$lib/services/serverInfo';
 
@@ -34,11 +34,13 @@
       <p class="subtitle">A P2P content-distribution platform.</p>
     {/if}
 
+    {#if !$isInstalled}
       <div class="install-section">
         <button on:click={installApp} class="btn btn-install">
           <span class="install-icon"></span>Install App
         </button>
       </div>
+    {/if}
 
     <div class="action-buttons">
       <a href="/import" class="btn btn-primary">Import User</a>
