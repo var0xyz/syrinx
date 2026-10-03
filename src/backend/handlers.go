@@ -1889,6 +1889,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		h.services.db.GetServerID(),
 		reedID,
 		h.signingKey.Fingerprint,
+		userFingerprint,
 		userSignature,
 		timestamp,
 	)
@@ -3279,6 +3280,7 @@ func verifyRecoveryReedCountersig(ctx context.Context, req recoveryReedRequest, 
 		serverID,
 		canonicalReedID,
 		req.ServerSignature.Fingerprint,
+		req.UserSignature.KeyID,
 		req.UserSignature.Armor,
 		ts,
 	)

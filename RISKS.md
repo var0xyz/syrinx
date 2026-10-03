@@ -31,7 +31,6 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | H1     | High     | design     | Server is the sole authority binding keys to identities               |
 | M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
 | M9     | Medium   | SPA        | Server-provided counts/hints consumed for trust decisions unsigned     |
-| L1     | Low      | server     | Reed author signature never verified on recovery ingest                |
 | L2     | Low      | server     | Follow edges carry no user signature                                   |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
 | L4     | Low      | server     | WebSocket handshake replays within its timestamp window                |
@@ -124,18 +123,6 @@ stored `serverSignature.timestamp`.
 
 ## Low
 
-### L1 — Reed author signature never verified on recovery ingest
-**Where:** `recovery.go` (`verifyReedCountersig` checks only the server
-countersignature) and its reed/follow ingest, which stores the caller-supplied
-user signature; `identity.go`
-(`ReedCountersignHeaders` does not bind the author fingerprint).
-The countersignature transitively vouches for the reed body, but the author key
-fingerprint isn't bound, so a caller can attach a bogus `userSignature.Fingerprint`
-to a genuinely-countersigned reed — mislabeling the stored fingerprint (not a
-forged reed).
-**Fix:** bind the author fingerprint into the reed countersign header set, or
-verify the user signature against the resolved author key on ingest.
-
 ### L2 — Follow edges carry no user signature
 **Where:** `FollowUser`/`UnfollowUser` (`handlers.go`). Follows carry no
 per-edge user signature (a documented recovery limitation), so follow edges
@@ -212,5 +199,4 @@ reset semantics per replica first.
    anger.
 3. **M9** — SPA verification hardening. M9 is H1's near neighbour:
    `activeKeyID` is an unsigned hint that steers key selection.
-4. **L1 / L2 / L3** — recovery ingest signature checks, follow-edge signing,
-   and invite issuer binding.
+4. **L2 / L3** — follow-edge signing and invite issuer binding.

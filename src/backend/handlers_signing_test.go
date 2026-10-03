@@ -39,3 +39,19 @@ func TestRealtimeAuthPayloadShape(t *testing.T) {
 		t.Errorf("realtime auth payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
+
+func TestReedCountersignPayloadShape(t *testing.T) {
+	ts := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
+	got := buildReedPayload("Server01", "alice@Server01/reed1", "SERVERKEY01", "alice@Server01/KEY01", "USERSIG", ts)
+	want := "---\n" +
+		"authorKeyID: alice@Server01/KEY01\n" +
+		"fingerprint: SERVERKEY01\n" +
+		"reedID: alice@Server01/reed1\n" +
+		"serverID: Server01\n" +
+		"timestamp: 2026-07-16T12:00:00Z\n" +
+		"---\n" +
+		"USERSIG"
+	if string(got) != want {
+		t.Errorf("reed countersign payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}

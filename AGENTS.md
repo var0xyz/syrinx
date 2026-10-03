@@ -281,7 +281,7 @@ recovery, realtime, or SPA key handling. Highlights a future agent must respect:
   userID+fingerprint, + serverID + server-key fingerprint + server timestamp)
   and be verified against the server key selected **by fingerprint**. When
   adding a signed resource, bind every field a peer will later trust — notably
-  the **author key fingerprint** (missing on reeds today, RISKS.md L1).
+  the **author key ID** (reeds bind it as `authorKeyID`).
 - **Reject revoked keys for new signed operations.** The auth middleware does
   this (`middlewares.go`), and `UpdateUser`/`DeleteReed`/`DeleteMe` re-check the
   payload signer isn't revoked, and recovery claim refuses a revoked tip.
