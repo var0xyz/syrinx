@@ -1805,6 +1805,9 @@ const (
 	realtimePongInterval  = 1 * time.Minute
 	realtimePresenceTTL   = 2 * time.Minute
 	realtimeReapFrequency = 30 * time.Second
+	// realtimeMaxFrameBytes caps an inbound frame; the largest legitimate
+	// one is a relay response carrying a single encrypted reed.
+	realtimeMaxFrameBytes = 64 * 1024
 )
 
 // startPeriodicCleanup evicts presence rows whose PONG heartbeat lapsed.
@@ -1906,6 +1909,7 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer conn.Close()
+	conn.SetReadLimit(realtimeMaxFrameBytes)
 
 	client := newRealtimeClient(conn, userID)
 	client.wsRecordOutbound = func(messageType int, data []byte) {
