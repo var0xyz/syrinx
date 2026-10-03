@@ -232,12 +232,10 @@ conventions"):
   alphabet) on the wire, never nested base64-of-base64.
 - One helper called by both signer and verifier per feature (the drift bug that
   prerequisite 01 fixed).
-- Clients are *supposed to* **verify before store** every signed resource
-  (`lib/verifiers/`) — but see Security below: the response-signature path and a
-  few verifier gaps are not fully wired yet.
-- The `responseSigner` middleware signs authenticated `/api/*` responses — but
-  **only when a userID is in context** (unauthenticated responses are unsigned)
-  and it currently **fails open**. Do not assume "every response is signed."
+- Clients **verify before store** every signed resource (`lib/verifiers/`);
+  see Security below for the remaining verifier gaps.
+- The `responseSigner` middleware signs every `/api/*` response and fails
+  closed: a signing error replaces the body with a 500.
 
 **Server countersignature always carries a server-authoritative timestamp** —
 newest-server-timestamp wins; revocation state is sticky. User-supplied
@@ -294,16 +292,10 @@ recovery, realtime, or SPA key handling. Highlights a future agent must respect:
 
 **Known gaps (don't assume these protections exist):**
 
-- SPA production `apiService.request()` does **not** verify the server response
-  `Signature` header (the verifier is dead code) — RISKS.md C1.
-- Unauthenticated HTTP responses are unsigned; response signing fails open —
-  RISKS.md H2/H3.
 - WebSocket handshake auth signs only a timestamp (replayable, unbound to
-  user/server) and has no read-limit — RISKS.md H1/M5.
-- SPA persists the key passphrase in `localStorage`, logs private-key material,
-  and treats `localStorage.userId` alone as "logged in" — RISKS.md C2/C3/H4.
+  user/server) and has no read-limit — RISKS.md H6/M5.
 - Some server-provided fields are consumed unsigned (counts, `firstReedId`,
-  `activeKeyFingerprint` on `/users/{id}/info`) — treat as untrusted hints —
+  `activeKeyID` on `/users/{id}/info`) — treat as untrusted hints —
   RISKS.md M9.
 
 **When you change security-relevant code:** update `RISKS.md` if you fix or
