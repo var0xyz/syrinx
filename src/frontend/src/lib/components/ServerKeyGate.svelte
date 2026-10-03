@@ -70,7 +70,7 @@
 
 <style>
   .container {
-    max-width: 640px;
+    max-width: 41rem;
     margin: 0 auto;
     display: flex;
     align-items: center;
@@ -85,6 +85,7 @@
     border-radius: 12px;
     padding: 2rem;
     text-align: center;
+    width: 100%;
   }
 
   .field {
@@ -110,7 +111,8 @@
     background: var(--input-bg);
     color: var(--fg);
     resize: vertical;
-    width: 36rem;
+    overflow: auto;
+    white-space: nowrap;
   }
 
   .error-box {
