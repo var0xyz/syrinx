@@ -156,7 +156,7 @@ form .row .help-text {
 
 header {
   position: sticky;
-  top: 0;
+  top: var(--update-banner-height, 0px);
   z-index: 95;
   background: var(--surface);
   border-bottom: 1px solid var(--border);

@@ -895,7 +895,6 @@
     font-weight: 600;
     text-decoration: none;
     word-break: break-word;
-    margin-bottom: 0.25rem;
   }
 
   :global(.author-name .username:hover) {
@@ -913,7 +912,6 @@
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-    margin: 0.25rem 0 0;
     padding: 0;
     background: none;
     border: none;
@@ -1033,8 +1031,7 @@
      so this panel shouldn't also inset them horizontally — that made each
      reply's card look narrower than the reed-detail card above it. */
   .discussion-panel-conversation {
-    padding-left: 0;
-    padding-right: 0;
+    padding: 0;
   }
 
   .discussion-panel.hidden {
