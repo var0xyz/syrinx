@@ -323,6 +323,9 @@
                       {/if}
                     </span>
                   {/if}
+                  {#if inv.status === 'new' && inv.connectionString}
+                    <span class="pending-hint">Send the connection string to the other server&apos;s admin.</span>
+                  {/if}
                 </div>
                 <div class="invite-actions">
                   {#if inv.status === 'new' && inv.connectionString}
@@ -683,6 +686,10 @@
     gap: 0.75rem;
   }
 
+  .invite-list + .invite-list {
+    margin-top: 0.75rem;
+  }
+
   .invite-row {
     display: flex;
     align-items: center;
@@ -758,6 +765,11 @@
   .meta {
     font-size: 0.85rem;
     color: var(--muted);
+  }
+
+  .pending-hint {
+    font-size: 0.85rem;
+    color: var(--fg);
   }
 
   :global(.meta .meta-link) {
