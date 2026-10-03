@@ -6,6 +6,7 @@ import (
 	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -413,6 +414,10 @@ func (s *cryptoService) verifySignature(message, signature, publicKey string) er
 
 	// Verify the detached signature against the message content
 	_, err = openpgp.CheckArmoredDetachedSignature(entities, strings.NewReader(message), strings.NewReader(signature), nil)
+	if errors.Is(err, io.EOF) {
+		// The armor decoder reports a missing BEGIN block as a bare EOF.
+		return fmt.Errorf("signature is not PGP armor")
+	}
 	if err != nil {
 		return err
 	}
