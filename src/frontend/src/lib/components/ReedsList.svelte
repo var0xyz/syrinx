@@ -68,6 +68,16 @@
   let walkedPages = 0;
   /** Latest PAGE_ACK's hasMore — the authoritative end-of-history signal. */
   let serverHasMore = true;
+  /** A re-check asked for before the first page loaded; run once it has. */
+  let firstPageSettled = false;
+  let recheckPending = false;
+  /** firstReedId arrives with /info, which on a first visit lands after the
+   * list has already rendered, so re-check "load more" when it does. */
+  let checkedFirstReedId = firstReedId;
+  $: if (firstReedId !== checkedFirstReedId) {
+    checkedFirstReedId = firstReedId;
+    recheckHasMore();
+  }
   /** @type {import('$lib/types/reed').ReedType[]} */
   let pendingReeds = [];
   /** Own cached-lookup fallback, used only when the parent hasn't supplied
@@ -409,7 +419,23 @@
   function onFirstPageSettled() {
     // The restoring walk is done; later fetches are genuine new pages.
     refreshingOnly = false;
+    firstPageSettled = true;
+    if (recheckPending) {
+      recheckPending = false;
+      void refreshPages();
+    }
     void applyScrollRestore();
+  }
+
+  /** hasMore is only computed when a page is read, so re-read the loaded
+   * pages when one of its inputs changes. Deferred during the first load,
+   * since refreshPages would stop that load from requesting page 1. */
+  function recheckHasMore() {
+    if (!firstPageSettled) {
+      recheckPending = true;
+      return;
+    }
+    void refreshPages();
   }
 
   /** Backfill keeps repainting the list after the first restore, and each
@@ -433,7 +459,9 @@
     if (data?.userID !== authorId) return;
     // count is pre-subtraction: it counts the author's reeds on that page,
     // not the ones actually arriving here. Only hasMore is acted on.
+    const wasMore = serverHasMore;
     serverHasMore = !!data.hasMore;
+    if (wasMore !== serverHasMore) recheckHasMore();
   }
 
   let deleteTarget = null;
