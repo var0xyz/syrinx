@@ -64,12 +64,10 @@ export async function verify(
       return { ok: false, reason: 'server_key_unavailable', detail: serverSignature.id };
     }
 
-    const signedAt = signedAtHeader(serverSignature.timestamp);
     const valid = await cryptoService.verifySignature(
       payload,
       serverSignature.armor,
-      armor,
-      signedAt
+      armor
     );
     if (!valid) {
       return { ok: false, reason: 'signature_invalid' };

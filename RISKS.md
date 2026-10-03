@@ -31,7 +31,6 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | H1     | High     | design     | Server is the sole authority binding keys to identities               |
 | H6     | High     | server     | WebSocket auth signature is replayable and unbound to user/server      |
 | M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
-| M7     | Medium   | SPA        | Verification clock advanced by attacker-controlled timestamp           |
 | M8     | Medium   | SPA        | `verifySignature` silently falls back binary→text mode                 |
 | M9     | Medium   | SPA        | Server-provided counts/hints consumed for trust decisions unsigned     |
 | L1     | Low      | server     | Reed author signature never verified on recovery ingest                |
@@ -118,17 +117,6 @@ picks any in-window value, and a captured claim request replays for 60s. It
 provides no real anti-replay property.
 **Fix:** issue and persist a random single-use nonce; require the signature to
 cover it; delete on use.
-
-### M7 — SPA verification clock advanced by attacker-controlled timestamp
-**Where:** `src/frontend/src/lib/services/crypto.ts:23-38` (`verificationDate`)
-— verification reference
-time is `max(now, serverTimestamp) + 5min`, where `serverTimestamp` is the
-server-supplied countersignature time.
-A malicious server can set a far-future `timestamp`, pushing the verification
-clock forward and causing OpenPGP.js to accept signatures from keys that should
-be **expired**, defeating key-expiry.
-**Fix:** cap the reference time at `now + skew`; never let an attacker-controlled
-timestamp advance the verification clock.
 
 ### M8 — SPA `verifySignature` silently falls back binary→text mode
 **Where:** `src/frontend/src/lib/services/crypto.ts:143-160` (`verifySignature`).
@@ -238,7 +226,7 @@ reset semantics per replica first.
 2. **H6** — bind and nonce the WebSocket handshake.
 3. **M2** — fix recovery claim replay before relying on `RECOVERY_MODE` in
    anger.
-4. **M7 / M8 / M9** — SPA verification hardening. M9 is H1's near neighbour: `activeKeyID` is an unsigned hint
+4. **M8 / M9** — SPA verification hardening. M9 is H1's near neighbour: `activeKeyID` is an unsigned hint
    that steers key selection.
 5. **L1 / L2 / L3** — recovery ingest signature checks, follow-edge signing,
    and invite issuer binding.
