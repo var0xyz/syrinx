@@ -31,7 +31,6 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | H1     | High     | design     | Server is the sole authority binding keys to identities               |
 | H6     | High     | server     | WebSocket auth signature is replayable and unbound to user/server      |
 | M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
-| M3     | Medium   | server     | Recovery claim can succeed with a revoked "active" key                 |
 | M4     | Medium   | server     | WS `DATA_ACK`/relay handlers change state with no caller authorization |
 | M6     | Medium   | server     | Per-user invite quota is a check-then-insert race                      |
 | M7     | Medium   | SPA        | Verification clock advanced by attacker-controlled timestamp           |
@@ -121,17 +120,6 @@ picks any in-window value, and a captured claim request replays for 60s. It
 provides no real anti-replay property.
 **Fix:** issue and persist a random single-use nonce; require the signature to
 cover it; delete on use.
-
-### M3 — Recovery claim can succeed with a revoked active key
-**Where:** `recovery.go:819-842` (`newestFirst` tip taken unconditionally);
-challenge verified against `active.Key.Armor` (`identity.go:58`). No check that
-the tip node lacks a `Revocation`.
-An attacker holding a compromised key that was *later revoked* — but is still
-the chain tip in the submitted nest — can satisfy the claim and take over the
-account during recovery. This partially defeats the "monotonic revocation"
-protection the recovery design relies on.
-**Fix:** reject when `newestFirst[0].Revocation != nil`; require the claim to be
-signed by the newest *unrevoked* key.
 
 ### M4 — WS `DATA_ACK`/relay handlers change state with no caller authorization
 **Where:** `realtime.go:4264` (`handleDataAck` allocates
@@ -275,8 +263,8 @@ reset semantics per replica first.
    not a patch; TOFU pinning plus a key-change warning is the cheap first step
    and composes with whatever comes after.
 2. **H6** — bind and nonce the WebSocket handshake.
-3. **M2 / M3** — fix recovery claim replay and revoked-tip acceptance before
-   relying on `RECOVERY_MODE` in anger.
+3. **M2** — fix recovery claim replay before relying on `RECOVERY_MODE` in
+   anger.
 4. **M4 / M6 / M7 / M8 / M9** — realtime authorization,
    invite-quota atomicity, and SPA verification hardening. M9 is H1's
    near neighbour: `activeKeyID` is an unsigned hint that steers key selection.

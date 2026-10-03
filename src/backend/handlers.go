@@ -3078,6 +3078,11 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := requireUnrevokedTip(active); err != nil {
+		writeResponse(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
 	if err := verifyChallengeSignature(req.Challenge, req.Signature, active.Key.Armor, h.services.crypto); err != nil {
 		writeResponse(w, http.StatusUnauthorized, err.Error())
 		return

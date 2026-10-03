@@ -284,8 +284,7 @@ recovery, realtime, or SPA key handling. Highlights a future agent must respect:
   the **author key fingerprint** (missing on reeds today, RISKS.md L1).
 - **Reject revoked keys for new signed operations.** The auth middleware does
   this (`middlewares.go`), and `UpdateUser`/`DeleteReed`/`DeleteMe` re-check the
-  payload signer isn't revoked. Recovery claim does **not** yet (RISKS.md M3) —
-  don't copy recovery's key-selection as a model.
+  payload signer isn't revoked, and recovery claim refuses a revoked tip.
 - **The server never sees or validates reed content** — only the author's
   detached signature over it. Content authenticity is a peer-side check. Don't
   write server code that assumes it can trust reed bodies.

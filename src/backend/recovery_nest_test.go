@@ -130,3 +130,13 @@ func TestRecoveryKeyNodeJSON_ArmorAtNodeLevel(t *testing.T) {
 		t.Fatalf("got armor=%q pred=%v", n.Armor, n.Predecessor)
 	}
 }
+
+func TestRequireUnrevokedTip(t *testing.T) {
+	if err := requireUnrevokedTip(recoveryFlatKey{Key: recoveryKeyWire{Fingerprint: "AAA"}}); err != nil {
+		t.Fatalf("unrevoked tip rejected: %v", err)
+	}
+	revoked := recoveryFlatKey{Key: recoveryKeyWire{Fingerprint: "AAA"}, Revocation: &recoveryRevocation{}}
+	if err := requireUnrevokedTip(revoked); err == nil {
+		t.Fatal("revoked tip accepted")
+	}
+}
