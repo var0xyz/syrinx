@@ -415,6 +415,12 @@
             <span class="icon icon-link"></span>
           {/if}
         </button>
+
+        <div class="desktop-create">
+          <button class="btn primary" disabled={creating} on:click={openCreateModal}>
+            {creating ? 'Creating…' : 'New connection'}
+          </button>
+        </div>
       {/if}
     </div>
 
@@ -793,6 +799,27 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  /* Desktop has room for a regular button; the floating one is for mobile. */
+  .desktop-create {
+    display: none;
+  }
+
+  @media (min-width: 768px) {
+    .floating-create-btn {
+      display: none;
+    }
+
+    .desktop-create {
+      display: flex;
+      justify-content: center;
+      margin-top: 1rem;
+    }
+
+    .desktop-create .btn {
+      width: auto;
+    }
   }
 
   .floating-create-btn:hover:not(:disabled) {
