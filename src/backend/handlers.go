@@ -57,6 +57,8 @@ type Handlers struct {
 	// trusts an httptest.NewTLSServer's certificate. Nil means production
 	// default (see federationHTTPClient).
 	federationHTTPClientOverride *http.Client
+	// approvalNotifierOverride lets tests skip calling a peer on approval.
+	approvalNotifierOverride func(ctx context.Context, serverID, baseURL string) (bool, error)
 	// realtimeRelay backs the cross-server REQUEST_REED relay's HTTP
 	// endpoints (federation_relay.go) — they need to touch pending_events/
 	// reed_allocations/the WS connection registry, which only exists on
@@ -4070,6 +4072,7 @@ func federationServerRowToWire(row federationServerListRow) federationServerWire
 		BaseURL:           row.BaseURL,
 		FrontendURL:       row.FrontendURL,
 		Connected:         row.Connected,
+		Established:       row.Established,
 		CreatedAt:         row.CreatedAt.UTC().Format(time.RFC3339),
 		Revoked:           row.Revoked,
 		DisconnectPending: row.DisconnectPending,
@@ -4450,7 +4453,7 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	serverID, err := h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot, h.countersign)
+	serverID, established, err := h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot, h.countersign, h.notifyPeerOfApproval)
 	switch {
 	case errors.Is(err, errFederationAttemptNotFound):
 		writeResponse(w, http.StatusNotFound, "Attempt not found")
@@ -4458,13 +4461,18 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		writeResponse(w, http.StatusConflict, "Attempt already decided")
 	case errors.Is(err, errFederationSameApprover):
 		writeResponse(w, http.StatusForbidden, "A different admin must approve this connection")
+	case errors.Is(err, errFederationPeerUnreachable):
+		h.services.log.GetLogger(r.Context()).Warn().Err(err).Str("attemptId", attemptID).Msg("federation attempt approve could not reach peer")
+		h.logFederationAttemptAsync(attemptID, federationLogError, fmt.Sprintf("Approval by %s failed: %v", caller, err))
+		writeResponse(w, http.StatusBadGateway,
+			"Couldn't reach the other server, so the connection wasn't approved. Try again, or contact its admin.")
 	case err != nil:
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("attemptId", attemptID).Msg("federation attempt approve failed")
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
 		h.logFederationAttemptAsync(attemptID, federationLogInfo,
 			fmt.Sprintf("Approved by %s", caller))
-		writeResponse(w, http.StatusOK, map[string]string{"attemptId": attemptID, "serverId": serverID, "status": "approved"})
+		writeResponse(w, http.StatusOK, map[string]any{"attemptId": attemptID, "serverId": serverID, "status": "approved", "established": established})
 	}
 }
 

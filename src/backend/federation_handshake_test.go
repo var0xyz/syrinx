@@ -30,6 +30,8 @@ type federationServer struct {
 func newFederationServer(t *testing.T, name string) *federationServer {
 	t.Helper()
 	h, ds, kp, _ := testFederationHandlers(t)
+	// These peers are real servers, so approvals really notify each other.
+	h.approvalNotifierOverride = nil
 
 	router := mux.NewRouter()
 	api := router.PathPrefix("/api").Subrouter()
@@ -39,6 +41,7 @@ func newFederationServer(t *testing.T, name string) *federationServer {
 	api.HandleFunc("/federation/attempt", h.OutgoingFederationAttempt).Methods(http.MethodPost)
 	api.HandleFunc("/federation/connect/{id}", h.IncomingFederationAttempt).Methods(http.MethodPost)
 	api.HandleFunc("/federation/users/{userID}/identity", h.GetFederationUserIdentity).Methods(http.MethodGet)
+	api.HandleFunc("/federation/relay/approved-notify", h.ApprovedNotifyFromPeer).Methods(http.MethodPost)
 	// fetchPeerServerKeyArmor live-fetches a peer's server key over
 	// GET /keys/{id}, so both test servers need that route registered
 	// too, exactly as main.go does.
@@ -183,7 +186,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	// aAdmin is also the invitation's own creator here — passing
 	// callerIsRoot bypasses the different-admin check so this test can
 	// focus on the handshake round-trip itself, not that rule.
-	if _, err := a.ds.ApproveFederationAttempt(context.Background(), aAttempt.ID, aAdmin, time.Now().UTC(), true, a.h.countersign); err != nil {
+	if _, _, err := a.ds.ApproveFederationAttempt(context.Background(), aAttempt.ID, aAdmin, time.Now().UTC(), true, a.h.countersign, a.h.notifyPeerOfApproval); err != nil {
 		t.Fatal(err)
 	}
 	approvedInv, err := a.ds.GetFederationInvitation(context.Background(), inviteID)
@@ -204,15 +207,20 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 		t.Fatalf("a's approved server: connected=%v name=%q", aConnected, aPeerName)
 	}
 	assertPeerFrontendURL(t, a.ds, approvedInv.ServerID, "https://app.server-b.example")
+	// b hasn't approved a yet, so a's approval stands but isn't established.
+	assertPeerEstablished(t, a.ds, approvedInv.ServerID, false)
 
 	// Approve b's side too, so both instances have an established peer —
 	// mirrors a real bidirectional federation link.
 	// b is the responder side — no local invitation row to compare bAdmin
 	// against, so this exercises the "unrestricted" branch, not root bypass.
-	if _, err := b.ds.ApproveFederationAttempt(context.Background(), bAttempt.ID, bAdmin, time.Now().UTC(), false, b.h.countersign); err != nil {
+	if _, _, err := b.ds.ApproveFederationAttempt(context.Background(), bAttempt.ID, bAdmin, time.Now().UTC(), false, b.h.countersign, b.h.notifyPeerOfApproval); err != nil {
 		t.Fatal(err)
 	}
 	assertPeerFrontendURL(t, b.ds, bAttempt.RemoteServerID, "https://app.server-a.example")
+	// b's notice reached a, which had approved b: both sides now know.
+	assertPeerEstablished(t, b.ds, bAttempt.RemoteServerID, true)
+	assertPeerEstablished(t, a.ds, approvedInv.ServerID, true)
 
 	// b resolves a's admin user through the peer-authenticated IdP endpoint
 	// which proves signatureAuthMiddleware's
@@ -394,5 +402,18 @@ func assertPeerFrontendURL(t *testing.T, ds *DataService, serverID, want string)
 	}
 	if got.String != want {
 		t.Fatalf("peer %s frontend_url = %q, want %q", serverID, got.String, want)
+	}
+}
+
+func assertPeerEstablished(t *testing.T, ds *DataService, serverID string, want bool) {
+	t.Helper()
+	var established bool
+	if err := ds.db.QueryRowContext(context.Background(),
+		`SELECT peer_approved_at IS NOT NULL FROM servers WHERE id = $1`, serverID,
+	).Scan(&established); err != nil {
+		t.Fatal(err)
+	}
+	if established != want {
+		t.Fatalf("peer %s established=%v, want %v", serverID, established, want)
 	}
 }

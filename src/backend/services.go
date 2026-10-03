@@ -3426,6 +3426,8 @@ type federationServerListRow struct {
 	BaseURL               string
 	FrontendURL           string
 	Connected             bool
+	// The peer has approved us too, not just us them.
+	Established           bool
 	CreatedAt             time.Time
 	Revoked               bool
 	RevokedAt             *time.Time
@@ -3440,7 +3442,8 @@ type federationServerListRow struct {
 // ListFederationServers returns all peer servers, revoked or not (self excluded).
 func (s *DataService) ListFederationServers(ctx context.Context) ([]federationServerListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, COALESCE(base_url, ''), COALESCE(frontend_url, ''), connected, created_at,
+		SELECT id, name, COALESCE(base_url, ''), COALESCE(frontend_url, ''), connected,
+			peer_approved_at IS NOT NULL, created_at,
 			revoked_at, COALESCE(revoked_by, ''), COALESCE(revoked_reason, ''),
 			disconnect_requested_at, COALESCE(disconnect_requested_by, ''),
 			COALESCE(disconnect_reason, '')
@@ -3457,7 +3460,8 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 	for rows.Next() {
 		var row federationServerListRow
 		var revokedAt, disconnectRequestedAt sql.NullTime
-		if err := rows.Scan(&row.ID, &row.Name, &row.BaseURL, &row.FrontendURL, &row.Connected, &row.CreatedAt,
+		if err := rows.Scan(&row.ID, &row.Name, &row.BaseURL, &row.FrontendURL, &row.Connected,
+			&row.Established, &row.CreatedAt,
 			&revokedAt, &row.RevokedBy, &row.RevokedReason,
 			&disconnectRequestedAt, &row.DisconnectRequestedBy,
 			&row.DisconnectReason); err != nil {
@@ -3508,6 +3512,16 @@ func (s *DataService) VerifyFederationPeer(ctx context.Context, serverID, finger
 		return false, "", nil
 	}
 	return true, keyArmor.String, nil
+}
+
+// MarkPeerApproved records that serverID has approved this server, which
+// any request it authenticates with proves. A no-op once recorded.
+func (s *DataService) MarkPeerApproved(ctx context.Context, serverID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE servers SET peer_approved_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND self = FALSE AND peer_approved_at IS NULL
+	`, serverID)
+	return err
 }
 
 // PeerServer is a known, approved, non-revoked federation peer, resolved
@@ -3701,6 +3715,10 @@ var errFederationServerNotRevoked = errors.New("federation server must be discon
 // confirming their own disconnect). Root is exempt from both checks.
 var errFederationSameApprover = errors.New("a different admin must approve this")
 
+// errFederationPeerUnreachable rolls an approval back: the peer must hear
+// about it for the connection to ever be established.
+var errFederationPeerUnreachable = errors.New("federation peer could not be reached")
+
 // errFederationDisconnectAlreadyRequested is returned by
 // RequestFederationServerDisconnect when a disconnect request is already
 // pending for this peer.
@@ -3838,10 +3856,11 @@ func (s *DataService) ApproveFederationAttempt(
 	approvedAt time.Time,
 	callerIsRoot bool,
 	countersign func(payload []byte, ts time.Time) (ServerSignature, error),
-) (serverID string, err error) {
+	notifyPeer func(ctx context.Context, serverID, baseURL string) (established bool, err error),
+) (serverID string, established bool, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer tx.Rollback()
 
@@ -3853,12 +3872,12 @@ func (s *DataService) ApproveFederationAttempt(
 		FROM federation_attempt WHERE id = $1 FOR UPDATE
 	`, attemptID).Scan(&remoteServerID, &remoteServerName, &baseURL, &frontendURL, &fingerprint, &publicKeyArmor, &invitationID, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", errFederationAttemptNotFound
+			return "", false, errFederationAttemptNotFound
 		}
-		return "", err
+		return "", false, err
 	}
 	if status != "pending" {
-		return "", errFederationAttemptNotPending
+		return "", false, errFederationAttemptNotPending
 	}
 	// Only the initiator side has a local federation_invitation row to
 	// compare created_by against — the responder side has no local
@@ -3868,10 +3887,10 @@ func (s *DataService) ApproveFederationAttempt(
 		if err := tx.QueryRowContext(ctx, `
 			SELECT created_by FROM federation_invitation WHERE id = $1
 		`, invitationID).Scan(&invitationCreatedBy); err != nil {
-			return "", err
+			return "", false, err
 		}
 		if invitationCreatedBy == approvedBy {
-			return "", errFederationSameApprover
+			return "", false, errFederationSameApprover
 		}
 	}
 
@@ -3885,18 +3904,18 @@ func (s *DataService) ApproveFederationAttempt(
 	)
 	serverSig, err := countersign(keyPayload, approvedAt.UTC())
 	if err != nil {
-		return "", fmt.Errorf("countersign peer key: %w", err)
+		return "", false, fmt.Errorf("countersign peer key: %w", err)
 	}
 	serverSignatureID, err := insertServerSignature(ctx, tx, serverSig.ID, serverSig.Armor, serverSig.SignedAt)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO public_keys (id, owner, armor, created_at, server_signature_id)
 		VALUES ($1, NULL, $2, $3, $4)
 		ON CONFLICT (id) DO NOTHING
 	`, keyID, publicKeyArmor, approvedAt.UTC(), serverSignatureID); err != nil {
-		return "", fmt.Errorf("promote peer key: %w", err)
+		return "", false, fmt.Errorf("promote peer key: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -3904,9 +3923,22 @@ func (s *DataService) ApproveFederationAttempt(
 		VALUES ($1, $2, FALSE, $3, $4, TRUE, $5, $6)
 		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, frontend_url = EXCLUDED.frontend_url,
 			name = EXCLUDED.name, connected = TRUE, key_id = EXCLUDED.key_id,
-			revoked_at = NULL, revoked_by = NULL, revoked_reason = NULL
+			revoked_at = NULL, revoked_by = NULL, revoked_reason = NULL, peer_approved_at = NULL
 	`, remoteServerID, remoteServerName, baseURL, frontendURL, keyID, approvedAt.UTC()); err != nil {
-		return "", fmt.Errorf("insert federation peer: %w", err)
+		return "", false, fmt.Errorf("insert federation peer: %w", err)
+	}
+
+	// Before commit: an approval the peer never hears about can't complete.
+	established, err = notifyPeer(ctx, remoteServerID, baseURL)
+	if err != nil {
+		return "", false, fmt.Errorf("%w: %v", errFederationPeerUnreachable, err)
+	}
+	if established {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE servers SET peer_approved_at = CURRENT_TIMESTAMP WHERE id = $1
+		`, remoteServerID); err != nil {
+			return "", false, err
+		}
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -3914,7 +3946,7 @@ func (s *DataService) ApproveFederationAttempt(
 		SET status = 'approved', server_id = $2, approved_by = $3, approved_at = $4
 		WHERE id = $1
 	`, attemptID, remoteServerID, approvedBy, approvedAt.UTC()); err != nil {
-		return "", fmt.Errorf("update federation attempt: %w", err)
+		return "", false, fmt.Errorf("update federation attempt: %w", err)
 	}
 
 	if invitationID != "" {
@@ -3923,14 +3955,14 @@ func (s *DataService) ApproveFederationAttempt(
 			SET status = $2, server_id = $3
 			WHERE id = $1
 		`, invitationID, federationStatusApproved, remoteServerID); err != nil {
-			return "", fmt.Errorf("update federation invitation: %w", err)
+			return "", false, fmt.Errorf("update federation invitation: %w", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return "", err
+		return "", false, err
 	}
-	return remoteServerID, nil
+	return remoteServerID, established, nil
 }
 
 // RevokeFederationServer disconnects a peer and clears any pending
@@ -8896,15 +8928,16 @@ const peerStreamSQL = `
 		WHERE r.published_at IS NOT NULL
 	)`
 
-// ListFederatedServers lists established peers that have not been
-// disconnected, by name. A pending disconnect or a shutdown keeps a peer
-// listed: it is still trusted.
+// ListFederatedServers lists peers approved on both sides that have not
+// been disconnected, by name. A pending disconnect or a shutdown keeps a
+// peer listed: it is still trusted.
 func (s *DataService) ListFederatedServers(ctx context.Context) ([]FederatedServerInfo, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name, COALESCE(key_id, ''), COALESCE(created_at, CURRENT_TIMESTAMP),
 		       COALESCE(frontend_url, '')
 		FROM servers
 		WHERE self = FALSE AND connected = TRUE AND revoked_at IS NULL
+		  AND peer_approved_at IS NOT NULL
 		  AND frontend_url IS NOT NULL AND frontend_url != ''
 		ORDER BY name
 	`)

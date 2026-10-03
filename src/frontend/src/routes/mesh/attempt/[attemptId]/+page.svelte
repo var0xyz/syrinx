@@ -71,7 +71,11 @@
     approving = true;
     try {
       const result = await apiService.approveFederationAttempt(attemptId);
-      notificationStore.success('Attempt approved');
+      notificationStore.success(
+        result.established
+          ? 'Connection established'
+          : 'Approved. The connection starts once the other server approves it too.'
+      );
       // The attempt is settled, so Back should skip it.
       goto(`/mesh/peer/${encodeURIComponent(result.serverId)}`, { replaceState: true });
     } catch (err) {

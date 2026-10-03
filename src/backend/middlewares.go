@@ -296,8 +296,18 @@ func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, ne
 		return
 	}
 
+	h.recordPeerApproval(r.Context(), callerServerID)
+
 	ctx := context.WithValue(r.Context(), peerServerIDKey, callerServerID)
 	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// recordPeerApproval notes that serverID approved us: a peer can only sign
+// requests to us once it has, since it only signs to peers it approved.
+func (h *Handlers) recordPeerApproval(ctx context.Context, serverID string) {
+	if err := h.services.db.MarkPeerApproved(ctx, serverID); err != nil {
+		h.services.log.GetLogger(ctx).Error().Err(err).Str("peerServerID", serverID).Msg("failed to record peer approval")
+	}
 }
 
 // unauthenticatedExactPaths are the routes under prefix that skip
@@ -505,6 +515,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					writeResponse(w, http.StatusForbidden, "Not an established peer")
 					return
 				}
+				h.recordPeerApproval(r.Context(), callerServerID)
 				ctx = context.WithValue(ctx, peerServerIDKey, callerServerID)
 			}
 			r = r.WithContext(ctx)

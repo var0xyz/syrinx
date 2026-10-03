@@ -36,6 +36,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS base_url TEXT`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS frontend_url TEXT`,
+		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS peer_approved_at TIMESTAMP`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS connected BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS key_id VARCHAR(255)`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMP`,
@@ -307,7 +308,13 @@ func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *cryptoKeyPa
 		Fingerprint: serverKP.Fingerprint,
 		Armor:       serverKP.PrivateKey,
 	})
+	// Seeded peers have made-up URLs; treat them as not having approved yet.
+	h.approvalNotifierOverride = peerNotYetApproved
 	return h, dataService, serverKP, remoteKP
+}
+
+func peerNotYetApproved(context.Context, string, string) (bool, error) {
+	return false, nil
 }
 
 func TestCreateFederationInvitation_Admin(t *testing.T) {
@@ -557,7 +564,7 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 
 	// Approve (by a different admin) creates the servers row and backfills
 	// both the attempt's and the invitation's server_id.
-	if _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed, false, h.countersign); err != nil {
+	if _, _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed, false, h.countersign, peerNotYetApproved); err != nil {
 		t.Fatal(err)
 	}
 	if err := ds.db.QueryRowContext(context.Background(),
@@ -669,7 +676,7 @@ func TestApproveFederationAttempt_RootBypassesSelfApprove(t *testing.T) {
 func establishedPeer(t *testing.T, h *Handlers, ds *DataService, invID, createdBy, approvedBy string, callerIsRoot bool, at time.Time) string {
 	t.Helper()
 	attemptID := pendingAttemptFromInvitation(t, ds, invID, createdBy, at)
-	if _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, approvedBy, at, callerIsRoot, h.countersign); err != nil {
+	if _, _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, approvedBy, at, callerIsRoot, h.countersign, peerNotYetApproved); err != nil {
 		t.Fatal(err)
 	}
 	return "server-" + invID
