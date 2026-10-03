@@ -1045,6 +1045,17 @@ func (s *DataService) RecordRemoteFollower(ctx context.Context, userID, follower
 	}
 	defer tx.Rollback()
 
+	// A peer may only follow users who live on this server.
+	var targetExists bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)
+	`, userID).Scan(&targetExists); err != nil {
+		return err
+	}
+	if !targetExists {
+		return ErrFollowTargetNotFound
+	}
+
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO user_followers (user_id, follower_user_id)
 		VALUES ($1, $2)
