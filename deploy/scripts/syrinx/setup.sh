@@ -512,6 +512,13 @@ NGINX_LOCATIONS=$(cat <<EOF
         try_files \$uri =404;
     }
 
+    # Never edge-cached: a stale worker serves its own older shell, so the
+    # page and worker versions never converge and the update banner loops.
+    location = /service-worker.js {
+        add_header Cache-Control "no-cache" always;
+        try_files \$uri =404;
+    }
+
     # SPA assets + client-side router fallback
     location / {
         try_files \$uri \$uri/ /index.html;
