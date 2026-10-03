@@ -38,8 +38,8 @@
           class="pipe-row"
           role="button"
           tabindex="0"
-          on:click={() => goto(`/feed/pipes/${encodeURIComponent(pipe.tagName)}`)}
-          on:keydown={(e) => e.key === 'Enter' && goto(`/feed/pipes/${encodeURIComponent(pipe.tagName)}`)}
+          on:click={() => goto(`/feed/pipes/${encodeURIComponent(pipe.displayName)}`)}
+          on:keydown={(e) => e.key === 'Enter' && goto(`/feed/pipes/${encodeURIComponent(pipe.displayName)}`)}
         >
           <span class="pipe-name">#{pipe.displayName}</span>
           <div class="pipe-actions">

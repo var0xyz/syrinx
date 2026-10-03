@@ -2,6 +2,12 @@
  * (returns '') a tag that still has whitespace after trimming — a tag is a
  * #\S+ run, so anything with an internal space isn't a valid tag at all. */
 export function normalizePipeTag(raw: string): string {
+  return pipeTagLabel(raw).toLowerCase();
+}
+
+/** The tag as the user typed it, for URLs and titles. Matching uses
+ * normalizePipeTag. */
+export function pipeTagLabel(raw: string): string {
   let t = raw.trim();
   try {
     t = decodeURIComponent(t);
@@ -11,5 +17,5 @@ export function normalizePipeTag(raw: string): string {
   t = t.trim();
   if (t.startsWith('#')) t = t.slice(1);
   if (/\s/.test(t)) return '';
-  return t.toLowerCase();
+  return t;
 }

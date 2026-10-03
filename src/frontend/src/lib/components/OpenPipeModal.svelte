@@ -2,7 +2,7 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { dbService } from '$lib/services/db';
-  import { normalizePipeTag } from '$lib/utils/pipeTag';
+  import { normalizePipeTag, pipeTagLabel } from '$lib/utils/pipeTag';
 
   const dispatch = createEventDispatcher();
 
@@ -39,7 +39,7 @@
         : 'Enter a tag.';
       return;
     }
-    goto(`/feed/pipes/${encodeURIComponent(normalized)}`);
+    goto(`/feed/pipes/${encodeURIComponent(pipeTagLabel(query))}`);
     dispatch('cancel');
   }
 
