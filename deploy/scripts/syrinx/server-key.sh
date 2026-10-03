@@ -11,10 +11,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# A locale forwarded over ssh that the host lacks makes psql's perl wrapper
-# warn; pin one every host has.
-export LC_ALL=C.UTF-8
-
 KEY="$("$SCRIPT_DIR/psql.sh" -X -A -t -c "
     SELECT pk.armor
     FROM public_keys pk
