@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Regression: binary detached verify + clock-skew tolerance.
- * Mirrors spa/src/lib/services/crypto.ts verifySignature.
+ * Mirrors src/lib/services/crypto.ts verifySignature.
  */
 
 import * as openpgp from 'openpgp';
@@ -13,35 +13,42 @@ function verificationDate() {
 }
 
 async function verifySignature(message, signature, publicKeyArmored) {
-  const modes = ['binary', 'text'];
-  const date = verificationDate();
-  for (const mode of modes) {
-    try {
-      const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
-      const messageObj =
-        mode === 'binary'
-          ? await openpgp.createMessage({
-              binary: new TextEncoder().encode(message),
-            })
-          : await openpgp.createMessage({ text: message });
-      const signatureObj = await openpgp.readSignature({
-        armoredSignature: signature,
-      });
-      const verificationResult = await openpgp.verify({
-        message: messageObj,
-        signature: signatureObj,
-        verificationKeys: publicKey,
-        date,
-      });
-      const verified = verificationResult.signatures[0]?.verified;
-      if (!verified) continue;
-      await verified;
-      return true;
-    } catch {
-      // try next mode
+  try {
+    const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
+    const signatureObj = await openpgp.readSignature({
+      armoredSignature: signature,
+    });
+    if (signatureObj.packets.some((p) => p.signatureType !== openpgp.enums.signature.binary)) {
+      return false;
     }
+    const verificationResult = await openpgp.verify({
+      message: await openpgp.createMessage({
+        binary: new TextEncoder().encode(message),
+      }),
+      signature: signatureObj,
+      verificationKeys: publicKey,
+      date: verificationDate(),
+    });
+    const verified = verificationResult.signatures[0]?.verified;
+    if (!verified) return false;
+    await verified;
+    return true;
+  } catch {
+    return false;
   }
-  return false;
+}
+
+async function signText(message, privateKey, passphrase) {
+  const decrypted = await openpgp.decryptKey({
+    privateKey: await openpgp.readPrivateKey({ armoredKey: privateKey }),
+    passphrase,
+  });
+  const signed = await openpgp.sign({
+    message: await openpgp.createMessage({ text: message }),
+    signingKeys: decrypted,
+    detached: true,
+  });
+  return signed.trim();
 }
 
 async function signBinary(message, privateKey, passphrase, date) {
@@ -85,6 +92,14 @@ assert('binary verify accepts matching payload', await verifySignature(plain, si
 assert(
   'binary verify rejects mutated payload',
   !(await verifySignature(plain + 'x', sig, publicKey))
+);
+assert(
+  'binary verify rejects CRLF variant',
+  !(await verifySignature(plain.replace(/\n/g, '\r\n'), sig, publicKey))
+);
+assert(
+  'text-mode signature is rejected',
+  !(await verifySignature(plain, await signText(plain, privateKey, passphrase), publicKey))
 );
 
 // Phone clock lag: signature created 2 minutes ahead of "now".

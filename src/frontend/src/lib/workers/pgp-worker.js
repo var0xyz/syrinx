@@ -31,7 +31,7 @@ self.onmessage = async (event) => {
       const { text } = data;
 
       // Create message and sign it
-      const message = await openpgp.createMessage({ text });
+      const message = await openpgp.createMessage({ binary: new TextEncoder().encode(text) });
       const signature = await openpgp.sign({
         message,
         signingKeys: privateKey,

@@ -412,8 +412,7 @@ func (s *cryptoService) verifySignature(message, signature, publicKey string) er
 		return err
 	}
 
-	// Verify the detached signature against the message content
-	_, err = openpgp.CheckArmoredDetachedSignature(entities, strings.NewReader(message), strings.NewReader(signature), nil)
+	block, err := armor.Decode(strings.NewReader(signature))
 	if errors.Is(err, io.EOF) {
 		// The armor decoder reports a missing BEGIN block as a bare EOF.
 		return fmt.Errorf("signature is not PGP armor")
@@ -421,7 +420,19 @@ func (s *cryptoService) verifySignature(message, signature, publicKey string) er
 	if err != nil {
 		return err
 	}
+	return verifyBinaryDetached(entities, message, block.Body)
+}
 
+// verifyBinaryDetached refuses text-mode signatures, which canonicalize
+// line endings and so verify bytes the signer never signed.
+func verifyBinaryDetached(entities openpgp.EntityList, message string, signature io.Reader) error {
+	sig, _, err := openpgp.VerifyDetachedSignature(entities, strings.NewReader(message), signature, nil)
+	if err != nil {
+		return err
+	}
+	if sig.SigType != packet.SigTypeBinary {
+		return fmt.Errorf("signature is not a binary signature")
+	}
 	return nil
 }
 
@@ -449,8 +460,7 @@ func (s *cryptoService) verifySignedChallenge(signature, publicKey, challenge st
 	}
 
 	// This is a detached signature, verify it against the challenge
-	_, err = openpgp.CheckDetachedSignature(entities, strings.NewReader(challenge), block.Body, nil)
-	if err != nil {
+	if err := verifyBinaryDetached(entities, challenge, block.Body); err != nil {
 		return fmt.Errorf("detached signature verification failed: %w", err)
 	}
 

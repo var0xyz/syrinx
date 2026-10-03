@@ -102,7 +102,7 @@ export class CryptoService {
   async signMessage(message: string, privateKeyArmored: string, passphrase: string): Promise<string> {
     try {
       const privateKey = await this.decryptPrivateKey(privateKeyArmored, passphrase);
-      const messageObj = await openpgp.createMessage({ text: message });
+      const messageObj = await openpgp.createMessage({ binary: new TextEncoder().encode(message) });
 
       const signedMessage = await openpgp.sign({
         message: messageObj,
@@ -120,8 +120,8 @@ export class CryptoService {
   /**
    * Verify a detached signature with a public key.
    *
-   * Server countersignatures use Go `DetachSign` (SigTypeBinary). Prefer binary
-   * message bytes; fall back to text for engine quirks. OpenPGP.js exposes
+   * Only binary signatures are accepted: a text signature canonicalizes line
+   * endings, so it would verify bytes nobody signed. OpenPGP.js exposes
    * `verified` as a Promise that rejects on failure — always await it.
    */
   async verifySignature(
@@ -129,35 +129,27 @@ export class CryptoService {
     signature: string,
     publicKeyArmored: string
   ): Promise<boolean> {
-    const modes: Array<'binary' | 'text'> = ['binary', 'text'];
-    const date = verificationDate();
-    for (const mode of modes) {
-      try {
-        const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
-        const messageObj =
-          mode === 'binary'
-            ? await openpgp.createMessage({
-                binary: new TextEncoder().encode(message)
-              })
-            : await openpgp.createMessage({ text: message });
-        const signatureObj = await openpgp.readSignature({ armoredSignature: signature });
-
-        const verificationResult = await openpgp.verify({
-          message: messageObj,
-          signature: signatureObj,
-          verificationKeys: publicKey,
-          date
-        });
-
-        const verified = verificationResult.signatures[0]?.verified;
-        if (!verified) continue;
-        await verified;
-        return true;
-      } catch (error) {
-        console.error(`Error verifying signature (${mode}):`, error);
+    try {
+      const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
+      const signatureObj = await openpgp.readSignature({ armoredSignature: signature });
+      if (signatureObj.packets.some((p) => p.signatureType !== openpgp.enums.signature.binary)) {
+        return false;
       }
+      const verificationResult = await openpgp.verify({
+        message: await openpgp.createMessage({ binary: new TextEncoder().encode(message) }),
+        signature: signatureObj,
+        verificationKeys: publicKey,
+        date: verificationDate()
+      });
+
+      const verified = verificationResult.signatures[0]?.verified;
+      if (!verified) return false;
+      await verified;
+      return true;
+    } catch (error) {
+      console.error('Error verifying signature:', error);
+      return false;
     }
-    return false;
   }
 
   /**

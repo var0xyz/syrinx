@@ -31,7 +31,6 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | H1     | High     | design     | Server is the sole authority binding keys to identities               |
 | H6     | High     | server     | WebSocket auth signature is replayable and unbound to user/server      |
 | M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
-| M8     | Medium   | SPA        | `verifySignature` silently falls back binary→text mode                 |
 | M9     | Medium   | SPA        | Server-provided counts/hints consumed for trust decisions unsigned     |
 | L1     | Low      | server     | Reed author signature never verified on recovery ingest                |
 | L2     | Low      | server     | Follow edges carry no user signature                                   |
@@ -117,14 +116,6 @@ picks any in-window value, and a captured claim request replays for 60s. It
 provides no real anti-replay property.
 **Fix:** issue and persist a random single-use nonce; require the signature to
 cover it; delete on use.
-
-### M8 — SPA `verifySignature` silently falls back binary→text mode
-**Where:** `src/frontend/src/lib/services/crypto.ts:143-160` (`verifySignature`).
-The Go signer uses binary
-detached signatures (`crypto.go:249` `openpgp.DetachSign`), so accepting
-text mode (with CR/LF canonicalization) broadens the set of byte sequences that
-verify for a given signature.
-**Fix:** pin binary mode; remove the text fallback.
 
 ### M9 — Unsigned server counts/hints consumed for trust decisions
 **Where:** `GET /users/{userID}/info` (`UserInfo`: `followersCount`,
@@ -226,7 +217,7 @@ reset semantics per replica first.
 2. **H6** — bind and nonce the WebSocket handshake.
 3. **M2** — fix recovery claim replay before relying on `RECOVERY_MODE` in
    anger.
-4. **M8 / M9** — SPA verification hardening. M9 is H1's near neighbour: `activeKeyID` is an unsigned hint
+4. **M9** — SPA verification hardening. M9 is H1's near neighbour: `activeKeyID` is an unsigned hint
    that steers key selection.
 5. **L1 / L2 / L3** — recovery ingest signature checks, follow-edge signing,
    and invite issuer binding.
