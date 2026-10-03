@@ -87,7 +87,7 @@ async function ensureDecryptedKey(): Promise<openpgp.PrivateKey> {
 
 async function signText(text: string): Promise<string> {
   const key = await ensureDecryptedKey();
-  const message = await openpgp.createMessage({ text });
+  const message = await openpgp.createMessage({ binary: new TextEncoder().encode(text) });
   const signature = await openpgp.sign({
     message,
     signingKeys: key,

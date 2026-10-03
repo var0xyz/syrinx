@@ -27,7 +27,7 @@ async function signMessage(text, privateKeyArmored, passphrase) {
     privateKey: await openpgp.readPrivateKey({ armoredKey: privateKeyArmored }),
     passphrase,
   });
-  const message = await openpgp.createMessage({ text });
+  const message = await openpgp.createMessage({ binary: new TextEncoder().encode(text) });
   return openpgp.sign({ message, signingKeys: privateKey, detached: true, format: 'armored' });
 }
 
