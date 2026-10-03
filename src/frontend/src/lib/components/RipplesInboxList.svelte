@@ -5,6 +5,7 @@
   import { goto } from '$app/navigation';
   import Avatar from '$lib/components/Avatar.svelte';
   import Username from '$lib/components/Username.svelte';
+  import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
   import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
   import { ripplesRepository } from '$lib/repositories/ripples';
@@ -113,6 +114,9 @@
                 <p class="inbox-content">{ripple.content}</p>
               {/if}
             </div>
+            {#if usernames[ripple.userID]}
+              <ReedActionsMenu userID={ripple.userID} username={usernames[ripple.userID]} />
+            {/if}
           </div>
         </li>
       {/each}

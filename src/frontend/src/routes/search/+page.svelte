@@ -5,6 +5,7 @@
   import SideNav from '$lib/components/SideNav.svelte';
   import ModeSwitch from '$lib/components/ModeSwitch.svelte';
   import LocalPagination from '$lib/components/LocalPagination.svelte';
+  import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { localSearchRepository } from '$lib/repositories/localSearch';
@@ -110,16 +111,24 @@
               on:click={() => navigateToReed(row.reed)}
               on:keydown={(e) => e.key === 'Enter' && navigateToReed(row.reed)}
             >
-              <ReedAuthorHeader
-                userID={row.reed.userID}
-                username={row.username}
-                nameTag="h3"
-                subtext={row.reed.serverSignature?.timestamp
-                  ? formatRelativeTime(row.reed.serverSignature.timestamp)
-                  : ''}
-                stopPropagation
-                linked={false}
-              />
+              <div class="reed-item-header">
+                <ReedAuthorHeader
+                  userID={row.reed.userID}
+                  username={row.username}
+                  nameTag="h3"
+                  subtext={row.reed.serverSignature?.timestamp
+                    ? formatRelativeTime(row.reed.serverSignature.timestamp)
+                    : ''}
+                  stopPropagation
+                  linked={false}
+                />
+                <ReedActionsMenu
+                  reedRef={row.reed.id}
+                  userID={row.reed.userID}
+                  username={row.username}
+                  content={row.reed.content}
+                />
+              </div>
               {#if (row.reed.content || '').trim()}
                 <div class="reed-preview">
                   <MarkdownParser text={row.reed.content} preview={true} />
@@ -246,6 +255,13 @@
     display: flex;
     justify-content: center;
     padding: 2rem 0;
+  }
+
+  .reed-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .reed-item {

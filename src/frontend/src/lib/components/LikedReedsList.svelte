@@ -7,6 +7,10 @@
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import LocalPagination from '$lib/components/LocalPagination.svelte';
+  import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import { unlikeReed, isReedLiked } from '$lib/services/reedLike';
+  import { notificationStore } from '$lib/stores/notifications';
   import { goto } from '$app/navigation';
   import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';
 
@@ -16,6 +20,9 @@
   const PAGE_SIZE = 50;
 
   let appliedScrollRestore = false;
+  let items = [];
+  /** Reed awaiting unlike confirmation. */
+  let pendingUnlikeID = /** @type {string | null} */ (null);
 
   /** Resolves reed+author for a page of liked-reed records, dropping any
    * whose reed isn't locally held. */
@@ -72,10 +79,28 @@
   function navigateToReed(reed) {
     goto(`/reed/${reed.id}`);
   }
+
+  async function confirmUnlike() {
+    const reedID = pendingUnlikeID;
+    pendingUnlikeID = null;
+    if (!reedID) return;
+    try {
+      await unlikeReed(reedID);
+    } catch (error) {
+      // The unlike is queued before the network call, so re-check rather than assume it failed.
+      console.error('Error unliking reed:', error);
+      if (await isReedLiked(reedID)) {
+        notificationStore.error('Failed to unlike reed');
+        return;
+      }
+    }
+    // Drop just this row in place so the list keeps its scroll position.
+    items = items.filter((item) => item.reed.id !== reedID);
+  }
 </script>
 
 <div class="reeds-list">
-  <LocalPagination fetchPage={fetchLikedPage} on:ready={onFirstPageSettled}>
+  <LocalPagination bind:items fetchPage={fetchLikedPage} on:ready={onFirstPageSettled}>
     {#snippet item(likedItem)}
       <div class="reed-item" role="button" tabindex="0" on:click={() => navigateToReed(likedItem.reed)} on:keydown={(e) => e.key === 'Enter' && navigateToReed(likedItem.reed)}>
         <div class="reed-header">
@@ -86,6 +111,13 @@
             subtext={`Liked ${formatRelativeTime(likedItem.record.likedAt)}`}
             stopPropagation
             linked={false}
+          />
+          <ReedActionsMenu
+            reedRef={likedItem.reed.id}
+            userID={likedItem.reed.userID}
+            username={likedItem.author.username}
+            content={likedItem.reed.content}
+            extraOptions={[{ label: 'Unlike', icon: '/icons/like-16-outlined.png', onSelect: () => (pendingUnlikeID = likedItem.reed.id) }]}
           />
         </div>
         {#if likedItem.reed.replying}
@@ -115,6 +147,16 @@
   </LocalPagination>
 </div>
 
+{#if pendingUnlikeID}
+  <ConfirmDialog
+    title="Unlike reed?"
+    message="This reed will be removed from your liked reeds."
+    confirmLabel="Unlike"
+    on:confirm={confirmUnlike}
+    on:cancel={() => (pendingUnlikeID = null)}
+  />
+{/if}
+
 <style>
   .reeds-list {
     display: flex;
@@ -126,7 +168,6 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    overflow: hidden;
     transition: all 0.2s ease;
     cursor: pointer;
   }

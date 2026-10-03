@@ -5,6 +5,7 @@
   import SideNav from '$lib/components/SideNav.svelte';
   import SectionTabs from '$lib/components/SectionTabs.svelte';
   import LocalPagination from '$lib/components/LocalPagination.svelte';
+  import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import Quote from '$lib/components/Quote.svelte';
@@ -88,16 +89,24 @@
               on:click={() => navigateToReply(row)}
               on:keydown={(e) => e.key === 'Enter' && navigateToReply(row)}
             >
-              <ReedAuthorHeader
-                userID={row.authorID}
-                username={row.username}
-                avatarSize="36px"
-                subtext={row.reed.serverSignature?.timestamp
-                  ? formatRelativeTime(row.reed.serverSignature.timestamp)
-                  : ''}
-                stopPropagation
-                linked={false}
-              />
+              <div class="reply-header">
+                <ReedAuthorHeader
+                  userID={row.authorID}
+                  username={row.username}
+                  avatarSize="36px"
+                  subtext={row.reed.serverSignature?.timestamp
+                    ? formatRelativeTime(row.reed.serverSignature.timestamp)
+                    : ''}
+                  stopPropagation
+                  linked={false}
+                />
+                <ReedActionsMenu
+                  reedRef={row.reed.id}
+                  userID={row.authorID}
+                  username={row.username}
+                  content={row.reed.content}
+                />
+              </div>
               <div class="reply-body">
                 {#if row.reed.content?.trim()}
                   <div class="reply-preview">
@@ -192,6 +201,13 @@
     .reply-list {
       gap: 0.5rem;
     }
+  }
+
+  .reply-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .reply-row {
