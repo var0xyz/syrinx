@@ -1032,7 +1032,7 @@ export const apiService = {
     return key;
   },
 
-  /** Unauthenticated: GET account-recovery challenge (unix seconds). */
+  /** Unauthenticated: GET a single-use account-recovery challenge nonce. */
   async getAccountRecoveryChallenge(): Promise<api.AccountRecoveryChallenge> {
     return request<api.AccountRecoveryChallenge>('/account-recovery/challenge', {
       method: 'GET',

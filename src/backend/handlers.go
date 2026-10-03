@@ -2928,11 +2928,11 @@ func (h *Handlers) kickUserDevices(userID string) {
 // ==================== //
 
 type accountRecoveryChallengeResponse struct {
-	Challenge int64 `json:"challenge"`
+	Challenge string `json:"challenge"`
 }
 
 type bootstrapAccountRecoveryRequest struct {
-	Challenge int64  `json:"challenge"`
+	Challenge string `json:"challenge"`
 	UserID    string `json:"userID"`
 	KeyID     string `json:"keyID"`
 	Signature string `json:"signature"`
@@ -2945,22 +2945,13 @@ type bootstrapAccountRecoveryResponse struct {
 	ReedIDs   []string `json:"reedIDs"`
 }
 
-// validateChallengeAge rejects challenges in the future or older than maxAge.
-func validateChallengeAge(challenge int64, now time.Time, maxAge time.Duration) error {
-	nowUnix := now.UTC().Unix()
-	if challenge > nowUnix {
-		return fmt.Errorf("challenge is in the future")
-	}
-	if nowUnix-challenge > int64(maxAge.Seconds()) {
-		return fmt.Errorf("challenge is stale")
-	}
-	return nil
-}
-
 func (h *Handlers) AccountRecoveryChallenge(w http.ResponseWriter, r *http.Request) {
-	writeResponse(w, http.StatusOK, accountRecoveryChallengeResponse{
-		Challenge: time.Now().UTC().Unix(),
-	})
+	nonce, err := h.services.db.IssueAccountRecoveryChallenge(r.Context())
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	writeResponse(w, http.StatusOK, accountRecoveryChallengeResponse{Challenge: nonce})
 }
 
 func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Request) {
@@ -2969,14 +2960,8 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		writeResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if req.UserID == "" || req.KeyID == "" || req.Signature == "" {
+	if req.Challenge == "" || req.UserID == "" || req.KeyID == "" || req.Signature == "" {
 		writeResponse(w, http.StatusBadRequest, "Missing required fields")
-		return
-	}
-
-	now := time.Now()
-	if err := validateChallengeAge(req.Challenge, now, 60*time.Second); err != nil {
-		writeResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -2985,6 +2970,18 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		writeResponse(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
 		return
 	}
+
+	// Consumed before any lookup, so a failed bootstrap can't be retried with it.
+	live, err := h.services.db.ConsumeAccountRecoveryChallenge(r.Context(), req.Challenge)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if !live {
+		writeResponse(w, http.StatusBadRequest, "Unknown or expired challenge")
+		return
+	}
+	now := time.Now()
 
 	removed, err := h.services.db.HasAccountRemoval(r.Context(), req.UserID)
 	if err != nil {
@@ -3026,7 +3023,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := verifyChallengeSignature(strconv.FormatInt(req.Challenge, 10), req.Signature, key.Armor, h.services.crypto); err != nil {
+	if err := verifyChallengeSignature(req.Challenge, req.Signature, key.Armor, h.services.crypto); err != nil {
 		writeResponse(w, http.StatusUnauthorized, err.Error())
 		return
 	}

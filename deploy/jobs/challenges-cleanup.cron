@@ -1,4 +1,4 @@
-# Deletes expired recovery claim challenges every hour.
+# Deletes expired server- and account-recovery challenges every hour.
 # Installed by deploy/scripts/syrinx/setup.sh into /etc/cron.d/<APP_NAME>-challenges-cleanup,
 # with @APP_NAME@/@ENV_FILE@/@JOB_LOG_DIR@ substituted the same way as
 # ripples-cleanup.cron (see that file for why `set -a` is needed).

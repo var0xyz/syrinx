@@ -116,11 +116,11 @@ export interface RecoveryKeyNode extends Base {
 };
 
 export type AccountRecoveryChallenge = {
-  challenge: number;
+  challenge: string;
 };
 
 export type AccountRecoveryBootstrapRequest = {
-  challenge: number;
+  challenge: string;
   userID: string;
   keyID: string;
   signature: string;
