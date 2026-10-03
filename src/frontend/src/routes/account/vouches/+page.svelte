@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import Auth from '$lib/components/Auth.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Username from '$lib/components/Username.svelte';
@@ -7,9 +8,12 @@
   import { notificationStore } from '$lib/stores/notifications';
   import { foreignServerOf, unreachableServerMessage } from '$lib/services/peerServers';
   import {
+    acceptVouch,
     auditStateFor,
+    declineVouch,
+    myDeclinedVouches,
     myVouches,
-    recoverMyVouches,
+    unreviewedVouches,
     withdrawVouch,
     type AuditState,
   } from '$lib/services/vouches';
@@ -20,10 +24,21 @@
   let loading = true;
   let failed = false;
   let withdrawing = new Set<string>();
-  let recovering = false;
-  let recovered = false;
+  // On the server but neither accepted nor declined on this device.
+  let unreviewed: api.Vouch[] = [];
+  let declined: api.Vouch[] = [];
+  let reviewing = new Set<string>();
 
   onMount(load);
+
+  /** Prefer history.back so the account page can restore scroll. */
+  function goBack() {
+    if (typeof history !== 'undefined' && history.length > 1) {
+      history.back();
+      return;
+    }
+    goto('/account');
+  }
 
   /** Local only: a server response cannot be shown to be complete, and
    * this list's whole question is whether anything is missing. */
@@ -32,28 +47,41 @@
     failed = false;
     try {
       vouches = await myVouches();
+      declined = await myDeclinedVouches();
     } catch (error) {
       console.error('[audit] could not load vouches', error);
       failed = true;
     } finally {
       loading = false;
     }
+    void checkServer();
   }
 
-  /** Degraded restore: certs are verified on the way in, but a row the
-   * server withheld stays missing. */
-  async function recover() {
-    recovering = true;
+  /** Background and silent: the local list stands on its own. */
+  async function checkServer() {
     try {
-      await recoverMyVouches();
-      vouches = await myVouches();
-      recovered = true;
-      notificationStore.success('Restored what the server still holds');
+      unreviewed = await unreviewedVouches();
     } catch (error) {
-      console.error('[audit] recovery failed', error);
-      notificationStore.error('Could not restore from the server');
+      console.error('[audit] could not check the server', error);
+    }
+  }
+
+  async function review(list: api.Vouch[], accept: boolean) {
+    const ids = new Set(list.map((v) => v.id));
+    reviewing = new Set([...reviewing, ...ids]);
+    try {
+      for (const vouch of list) {
+        if (accept) await acceptVouch(vouch);
+        else await declineVouch(vouch);
+        unreviewed = unreviewed.filter((v) => v.id !== vouch.id);
+      }
+    } catch (error) {
+      console.error('[audit] review failed', error);
+      notificationStore.error(accept ? 'Could not accept' : 'Could not decline');
     } finally {
-      recovering = false;
+      reviewing = new Set([...reviewing].filter((id) => !ids.has(id)));
+      vouches = await myVouches();
+      declined = await myDeclinedVouches();
     }
   }
 
@@ -115,25 +143,46 @@
 <SideNav currentPage="" />
 <div class="audit">
   <h1>Keys you verified</h1>
-  <p class="lead">Every verification you have made, newest first. If you see
-    one you do not remember making, withdraw it.</p>
 
   {#if loading}
     <p class="muted">Loading…</p>
   {:else if failed}
     <p class="muted">Could not load your verifications.</p>
     <button class="btn secondary" on:click={load}>Try again</button>
-  {:else if vouches.length === 0}
-    <p class="muted">You have not verified anyone yet.</p>
-    {#if !recovered}
-      <p class="recover-note">On a new device this list starts empty. You can
-        ask the server for what it still holds, but it can leave things out,
-        so treat the result as a starting point rather than your history.</p>
-      <button class="btn secondary" on:click={recover} disabled={recovering}>
-        {recovering ? 'Restoring…' : 'Restore from server'}
-      </button>
-    {/if}
   {:else}
+    {#if unreviewed.length > 0}
+      <section class="review">
+        <h2>Found on the server</h2>
+        <p class="muted">These verifications were made with your account but
+          aren't on this device. Accept the ones you made and decline any you
+          don't recognise.</p>
+        {#if unreviewed.length > 1}
+          <div class="actions">
+            <button class="btn" on:click={() => review(unreviewed, false)} disabled={reviewing.size > 0}>Decline all</button>
+            <button class="btn primary" on:click={() => review(unreviewed, true)} disabled={reviewing.size > 0}>Accept all</button>
+          </div>
+        {/if}
+        <ul>
+          {#each unreviewed as vouch (vouch.id)}
+            <li>
+              {@render detail(vouch)}
+              <div class="item-actions">
+                <button class="btn" on:click={() => review([vouch], false)} disabled={reviewing.has(vouch.id)}>Decline</button>
+                <button class="btn primary" on:click={() => review([vouch], true)} disabled={reviewing.has(vouch.id)}>Accept</button>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
+    {#if vouches.length === 0}
+      <p class="muted">You have not verified anyone yet.</p>
+      <div class="actions">
+        <button class="btn" on:click={goBack}>Back</button>
+      </div>
+    {/if}
+
     {#each groups as [keyID, group] (keyID)}
       <section class="group">
         <h2>Signed with <code>{keyID}</code></h2>
@@ -162,12 +211,42 @@
         </ul>
       </section>
     {/each}
+
+    {#if declined.length > 0}
+      <section class="group">
+        <h2>Declined</h2>
+        <p class="muted">You said you didn't make these. The server can't delete
+          them, so they stay listed here.</p>
+        <ul>
+          {#each declined as vouch (vouch.id)}
+            <li class="declined">
+              {@render detail(vouch)}
+              <div class="item-actions">
+                <button class="btn" on:click={() => review([vouch], true)} disabled={reviewing.has(vouch.id)}>Accept</button>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
   {/if}
 </div>
 </Auth>
 
+{#snippet detail(vouch: api.Vouch)}
+  <div class="detail">
+    <span class="who"><Username userID={vouch.subjectUserID} at={true} /><ServerName userID={vouch.subjectUserID} /></span>
+    <span class="when">{formatWhen(vouch.serverSignature.timestamp)}</span>
+    <code class="key">{vouch.subjectKeyID}</code>
+    {#if vouch.note}
+      <span class="note">“{vouch.note}”</span>
+    {/if}
+  </div>
+{/snippet}
+
 <style>
   .audit {
+    width: 100%;
     max-width: 44rem;
     margin: 0 auto;
     padding: 1.5rem 1rem 4rem;
@@ -176,20 +255,6 @@
   h1 {
     font-size: 1.35rem;
     margin: 0 0 0.5rem;
-  }
-
-  .lead {
-    font-size: 0.9rem;
-    color: var(--muted);
-    line-height: 1.5;
-    margin: 0 0 1.25rem;
-  }
-
-  .recover-note {
-    font-size: 0.85rem;
-    line-height: 1.5;
-    color: var(--muted);
-    max-width: 34rem;
   }
 
   .muted {
@@ -265,6 +330,42 @@
     color: var(--fg);
     cursor: pointer;
     font-size: 0.8rem;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .review {
+    margin-bottom: 1.5rem;
+  }
+
+  .review h2 {
+    font-size: 1rem;
+    margin: 0 0 0.25rem;
+  }
+
+  .item-actions {
+    display: flex;
+    gap: 0.4rem;
+  }
+
+  .item-actions .btn {
+    width: auto;
+  }
+
+  li.declined .detail {
+    text-decoration: line-through;
+    opacity: 0.55;
+  }
+
+  .btn.primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--button-text);
+    font-weight: 600;
   }
 
   .btn.danger {
