@@ -3306,15 +3306,17 @@ func (h *Handlers) federationSignServer(message []byte) (string, error) {
 	return sigArmor, nil
 }
 
-// federationHTTPClient returns the client used for server-to-server
-// federation callbacks (e.g. POST .../federation/connect/{inviteId}).
-// Bounded timeout: this call happens synchronously inside an admin's
-// accept request and must not hang indefinitely on an unreachable peer.
+// federationRequestTimeout caps every server-to-server call, so requests
+// to a slow or unreachable peer can't pile up here.
+const federationRequestTimeout = 3 * time.Second
+
+// federationHTTPClient returns the client used for all server-to-server
+// federation calls.
 func (h *Handlers) federationHTTPClient() *http.Client {
 	if h.federationHTTPClientOverride != nil {
 		return h.federationHTTPClientOverride
 	}
-	return &http.Client{Timeout: 15 * time.Second}
+	return &http.Client{Timeout: federationRequestTimeout}
 }
 
 // rememberRemoteIdentityOnSuccess upserts a local identities row for a
