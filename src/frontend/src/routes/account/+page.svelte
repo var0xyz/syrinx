@@ -462,6 +462,12 @@
                 <div class="key-value">{keyIdentity || 'Unknown'}</div>
               </div>
               <div class="key-backup">
+                <p class="backup-help">
+                  Saves only your identity, i.e. your private key and account ID. 
+                  Restoring it brings your account back, but not necessarily your 
+                  content. Your reeds can only be recovered if other users in the 
+                  network still have them stored locally.
+                </p>
                 {#if keyBackupStale}
                   <span class="key-backup-warning">
                     ⚠️ Your key backup is outdated — back up again to protect your current key.
@@ -574,6 +580,11 @@
           <h3>🚪 Account Actions</h3>
           <div class="action-buttons">
             <div class="export-group">
+              <p class="backup-help">
+                Saves everything on this device: your keys plus your profile, reeds
+                and settings. Use it to move to a new device, or when you install
+                the app and it doesn't load your account automatically.
+              </p>
               {#if lastBackupAt}
                 <span class="last-backup">Last full backup {formatRelativeTime(lastBackupAt)}</span>
               {/if}
@@ -871,6 +882,13 @@
     display: flex;
     flex-direction: column;
     gap: 0.3rem;
+  }
+
+  .backup-help {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.4;
   }
 
   .last-backup {
