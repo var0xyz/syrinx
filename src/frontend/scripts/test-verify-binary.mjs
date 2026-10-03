@@ -8,25 +8,13 @@ import * as openpgp from 'openpgp';
 
 const VERIFY_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
-function verificationDate(reference) {
-  let refMs = Date.now();
-  if (reference !== undefined && reference !== null && reference !== '') {
-    const parsed =
-      typeof reference === 'number'
-        ? reference
-        : reference instanceof Date
-          ? reference.getTime()
-          : Date.parse(reference);
-    if (!Number.isNaN(parsed)) {
-      refMs = Math.max(refMs, parsed);
-    }
-  }
-  return new Date(refMs + VERIFY_CLOCK_SKEW_MS);
+function verificationDate() {
+  return new Date(Date.now() + VERIFY_CLOCK_SKEW_MS);
 }
 
-async function verifySignature(message, signature, publicKeyArmored, at) {
+async function verifySignature(message, signature, publicKeyArmored) {
   const modes = ['binary', 'text'];
-  const date = verificationDate(at);
+  const date = verificationDate();
   for (const mode of modes) {
     try {
       const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
@@ -121,7 +109,16 @@ try {
 assert('lagged clock without skew rejects future sig', !noSkewOk);
 assert(
   'lagged clock with skew accepts future sig',
-  await verifySignature(laggedPlain, laggedSig, publicKey, ahead.toISOString())
+  await verifySignature(laggedPlain, laggedSig, publicKey)
+);
+
+// A signature dated past the skew window must not verify, whatever the
+// server claims the time is.
+const farAhead = new Date(Date.now() + 60 * 60 * 1000);
+const farSig = await signBinary(laggedPlain, privateKey, passphrase, farAhead);
+assert(
+  'sig beyond the skew window is rejected',
+  !(await verifySignature(laggedPlain, farSig, publicKey))
 );
 
 if (failed) {

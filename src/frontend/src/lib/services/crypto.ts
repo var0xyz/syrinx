@@ -16,26 +16,14 @@ export interface KeyGenerationOptions {
 
 /**
  * OpenPGP.js rejects signatures when `signature.created > verifyDate`.
- * Mobile clocks often lag the server by a few seconds (or more), so a
- * freshly minted server countersignature looks "in the future". Allow a
- * small skew window; optionally pin to a server-provided reference time.
+ * Mobile clocks often lag the server, so allow a small skew window. Never
+ * take the reference from a signed timestamp: that would let a server
+ * revive expired keys.
  */
 export const VERIFY_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
-export function verificationDate(reference?: Date | string | number): Date {
-  let refMs = Date.now();
-  if (reference !== undefined && reference !== null && reference !== '') {
-    const parsed =
-      typeof reference === 'number'
-        ? reference
-        : reference instanceof Date
-          ? reference.getTime()
-          : Date.parse(reference);
-    if (!Number.isNaN(parsed)) {
-      refMs = Math.max(refMs, parsed);
-    }
-  }
-  return new Date(refMs + VERIFY_CLOCK_SKEW_MS);
+export function verificationDate(): Date {
+  return new Date(Date.now() + VERIFY_CLOCK_SKEW_MS);
 }
 
 async function getFingerprint(publicKey: string) {
@@ -135,19 +123,14 @@ export class CryptoService {
    * Server countersignatures use Go `DetachSign` (SigTypeBinary). Prefer binary
    * message bytes; fall back to text for engine quirks. OpenPGP.js exposes
    * `verified` as a Promise that rejects on failure — always await it.
-   *
-   * `at` is typically the server countersignature timestamp; verification
-   * uses max(now, at) + skew so lagged device clocks do not reject fresh
-   * signatures as "creation time is in the future".
    */
   async verifySignature(
     message: string,
     signature: string,
-    publicKeyArmored: string,
-    at?: Date | string
+    publicKeyArmored: string
   ): Promise<boolean> {
     const modes: Array<'binary' | 'text'> = ['binary', 'text'];
-    const date = verificationDate(at);
+    const date = verificationDate();
     for (const mode of modes) {
       try {
         const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
