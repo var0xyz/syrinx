@@ -29,12 +29,12 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | #      | Severity | Area       | Title                                                                  |
 |--------|----------|------------|------------------------------------------------------------------------|
 | H1     | High     | design     | Server is the sole authority binding keys to identities               |
-| H6     | High     | server     | WebSocket auth signature is replayable and unbound to user/server      |
 | M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
 | M9     | Medium   | SPA        | Server-provided counts/hints consumed for trust decisions unsigned     |
 | L1     | Low      | server     | Reed author signature never verified on recovery ingest                |
 | L2     | Low      | server     | Follow edges carry no user signature                                   |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
+| L4     | Low      | server     | WebSocket handshake replays within its timestamp window                |
 | A2     | Arch     | server     | `profile_subscriptions` needs explicit teardown on disconnect          |
 
 ---
@@ -88,20 +88,6 @@ The out-of-band option is specified in
 [`specs/attestations/`](specs/attestations/README.md): users verify each other's
 keys face to face and publish signed vouches, so a substituted key contradicts
 evidence the server never controlled.
-
-### H6 — WebSocket auth signature is replayable and unbound
-**Where:** `realtime.go:1039` (verifies a signature over *only* the
-`timestamp` string); window is ±5 min (`crypto.go:457-471`,
-`validateTimestamp`).
-The WS handshake signs just a decimal timestamp — no nonce, no binding to
-`userID` or `serverID`. Anyone who captures one handshake query string
-(`?userID=&fingerprint=&signature=&timestamp=`) from a proxy/log/referrer can
-replay it for up to 5 minutes to open a socket *as that user* and receive their
-fanout/relay traffic. A handshake captured against one server is also valid on
-any other server that trusts the same key.
-**Fix:** sign a server-issued single-use nonce (or a
-`BytesToSign` payload binding `serverID`+`userID`+`timestamp`); track/expire
-nonces; shrink the window.
 
 ---
 
@@ -162,6 +148,14 @@ cannot be cryptographically re-attributed after a wipe.
 userId," not the real issuer. Fine for own-invite display; not a trustworthy
 issuer binding.
 
+### L4 — WebSocket handshake replays within its timestamp window
+**Where:** `authenticateWebSocket` (`realtime.go`); window is ±5 min
+(`validateTimestamp`, `crypto.go`).
+The handshake signature binds server, user and timestamp, but carries no
+nonce. Anyone who captures one handshake query string can replay it against
+the same server, as the same user, until the timestamp leaves the window.
+Accepted: a server-issued nonce would cost a round trip per connection.
+
 ---
 
 ## Architectural / operational risks (non-security)
@@ -214,10 +208,9 @@ reset semantics per replica first.
 1. **H1** — break the server's monopoly on key distribution. A design change,
    not a patch; TOFU pinning plus a key-change warning is the cheap first step
    and composes with whatever comes after.
-2. **H6** — bind and nonce the WebSocket handshake.
-3. **M2** — fix recovery claim replay before relying on `RECOVERY_MODE` in
+2. **M2** — fix recovery claim replay before relying on `RECOVERY_MODE` in
    anger.
-4. **M9** — SPA verification hardening. M9 is H1's near neighbour: `activeKeyID` is an unsigned hint
-   that steers key selection.
-5. **L1 / L2 / L3** — recovery ingest signature checks, follow-edge signing,
+3. **M9** — SPA verification hardening. M9 is H1's near neighbour:
+   `activeKeyID` is an unsigned hint that steers key selection.
+4. **L1 / L2 / L3** — recovery ingest signature checks, follow-edge signing,
    and invite issuer binding.

@@ -26,3 +26,16 @@ func TestPublicKeyCountersignCanonicalShape(t *testing.T) {
 		t.Errorf("public key countersign payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
+
+func TestRealtimeAuthPayloadShape(t *testing.T) {
+	got := buildRealtimeAuthPayload("Server01", "alice@Server01", "1767225600")
+	want := "---\n" +
+		"serverID: Server01\n" +
+		"timestamp: 1767225600\n" +
+		"type: realtime-auth\n" +
+		"userID: alice@Server01\n" +
+		"---\n"
+	if string(got) != want {
+		t.Errorf("realtime auth payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}

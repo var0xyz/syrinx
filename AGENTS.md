@@ -291,8 +291,8 @@ recovery, realtime, or SPA key handling. Highlights a future agent must respect:
 
 **Known gaps (don't assume these protections exist):**
 
-- WebSocket handshake auth signs only a timestamp (replayable, unbound to
-  user/server) — RISKS.md H6.
+- WebSocket handshake auth binds server, user and timestamp but has no nonce,
+  so it replays within its ±5 min window — RISKS.md L4.
 - Some server-provided fields are consumed unsigned (counts, `firstReedId`,
   `activeKeyID` on `/users/{id}/info`) — treat as untrusted hints —
   RISKS.md M9.

@@ -1,5 +1,8 @@
+import { get } from 'svelte/store';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
+import { serverInfo } from './serverInfo';
+import { buildRealtimeAuthPayload } from './signing';
 import { ensureDeviceId } from './deviceId';
 import {
   computeReedRequestId,
@@ -425,12 +428,20 @@ class ServerConnection {
         }
       }
 
+      const serverID = get(serverInfo)?.id || localStorage.getItem('serverId');
+      if (!serverID) {
+        console.log('ServerConnection: server ID not known yet, skipping connection');
+        return;
+      }
+
       // Registering the new socket makes the server close any stale one.
       this.detachSocket();
 
       const timestamp = Math.floor(Date.now() / 1000).toString();
       // Base64 so the armored signature fits in a query parameter.
-      const signature = btoa(await requestSigner.sign(timestamp));
+      const signature = btoa(
+        await requestSigner.sign(buildRealtimeAuthPayload(serverID, user.id, timestamp))
+      );
       const activeKeyId = authService.getActiveKeyId()!;
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

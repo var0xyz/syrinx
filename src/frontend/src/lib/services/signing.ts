@@ -518,3 +518,20 @@ export function buildRippleServerPayload(
     userSignature
   );
 }
+
+/** Mirror of buildRealtimeAuthPayload in identity.go. */
+export function buildRealtimeAuthPayload(
+  serverID: string,
+  userID: string,
+  timestamp: string
+): string {
+  return stringToSign(
+    {
+      type: 'realtime-auth',
+      serverID,
+      userID,
+      timestamp
+    },
+    ''
+  );
+}
