@@ -1,9 +1,24 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { updateAvailable, applyUpdate } from '$lib/services/pwa';
+
+  let height = 0;
+
+  // Sticky header, tabs and side panels offset themselves by this.
+  $: if (typeof document !== 'undefined') {
+    const value = $updateAvailable && height ? `${height}px` : '';
+    document.documentElement.style.setProperty('--update-banner-height', value);
+  }
+
+  onDestroy(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.style.removeProperty('--update-banner-height');
+    }
+  });
 </script>
 
 {#if $updateAvailable}
-  <div class="update-banner" role="status">
+  <div class="update-banner" role="status" bind:offsetHeight={height}>
     <p>A new version of Syrinx is available.</p>
     <button type="button" on:click={applyUpdate}>Reload</button>
   </div>
@@ -22,10 +37,9 @@
     text-align: center;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
     animation: slideDown 0.3s ease-out;
-    /* Above the sidenav's fixed z-index (90) and the sticky header's (95) —
-       otherwise the sidenav, whose fixed offset assumes the header starts
-       at the viewport top, renders over this banner instead of below it. */
-    position: relative;
+    /* Above the sidenav's fixed z-index (90) and the sticky header's (95). */
+    position: sticky;
+    top: 0;
     z-index: 100;
   }
 

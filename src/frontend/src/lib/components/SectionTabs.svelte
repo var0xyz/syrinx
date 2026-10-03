@@ -25,7 +25,7 @@
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     position: sticky;
-    top: calc(3rem + 1px);
+    top: calc(3rem + 1px + var(--update-banner-height, 0px));
     z-index: 10;
   }
 
