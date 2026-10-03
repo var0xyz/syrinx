@@ -989,6 +989,15 @@ func validateChallengeAge(challenge int64, now time.Time, maxAge time.Duration) 
 	return nil
 }
 
+// requireUnrevokedTip refuses a claim whose newest key carries a
+// revocation: a revoked key must never sign a new claim.
+func requireUnrevokedTip(active recoveryFlatKey) error {
+	if active.Revocation != nil {
+		return fmt.Errorf("active key %s is revoked", active.Key.Fingerprint)
+	}
+	return nil
+}
+
 // verifyChallengeSignature checks an armored detached sig over the
 // decimal challenge string using the outermost public key.
 func verifyChallengeSignature(challenge int64, signature, publicKeyArmor string, v recoveryVerifier) error {
