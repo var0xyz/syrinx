@@ -495,6 +495,13 @@
                 {:else}
                   <span class="last-backup">Last key backup {formatRelativeTime(lastKeyBackupAt)}</span>
                 {/if}
+              </div>
+              {#if isPendingRevocation && !$isOnline}
+                <div class="key-pending-banner">
+                  ⚠️ Key revocation is pending — will sync when back online.
+                </div>
+              {/if}
+              <div class="button-row">
                 <button
                   class="action-btn primary"
                   on:click={() => showBackupKeysModal = true}
@@ -502,14 +509,7 @@
                 >
                   {backingUpKeys ? 'Backing up...' : 'Backup Keys'}
                 </button>
-              </div>
-              <div class="key-actions">
                 {#if isPendingRevocation}
-                  {#if !$isOnline}
-                    <div class="key-pending-banner">
-                      ⚠️ Key revocation is pending — will sync when back online.
-                    </div>
-                  {/if}
                   <button class="action-btn" disabled>Revoking...</button>
                 {:else if isKeyRevoked}
                   <button class="action-btn primary" on:click={loadKeyInfo}>
@@ -619,13 +619,15 @@
               {#if lastBackupAt}
                 <span class="last-backup">Last full backup {formatRelativeTime(lastBackupAt)}</span>
               {/if}
+            </div>
+            <div class="button-row">
               <button class="action-btn primary" on:click={() => showExportWarningModal = true} disabled={exporting}>
                 {exporting ? 'Exporting...' : 'Export Data'}
               </button>
+              {#if !isRoot(user.id)}
+                <button class="action-btn danger" on:click={() => goto('/delete/confirm')}>Delete Account</button>
+              {/if}
             </div>
-            {#if !isRoot(user.id)}
-              <button class="action-btn danger" on:click={() => goto('/delete/confirm')}>Delete Account</button>
-            {/if}
           </div>
         </div>
       </div>
@@ -909,6 +911,15 @@
     gap: 0.75rem;
   }
 
+  .button-row {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .button-row .action-btn {
+    width: calc(50% - 1rem);
+  }
+
   .export-group {
     display: flex;
     flex-direction: column;
@@ -1145,6 +1156,15 @@
     .action-btn {
       width: 100%;
       border-color: var(--border);
+    }
+
+    .button-row {
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .button-row .action-btn {
+      width: 100%;
     }
 
   }
