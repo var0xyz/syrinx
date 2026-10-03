@@ -8,6 +8,8 @@ export type ProfileKeyInfo = {
   keyId: string;
   identity: string;
   armor: string;
+  // When the server registered this key; rotation is limited from here.
+  registeredAt: string | null;
   isPendingRevocation: boolean;
   isKeyRevoked: boolean;
   revokedInfo: { reason: string; timestamp: string; successor: string | null } | null;
@@ -47,6 +49,7 @@ export async function loadProfileKeyInfo(): Promise<ProfileKeyInfo> {
     keyId,
     identity,
     armor: publicKey.armor,
+    registeredAt: publicKey.serverSignature?.timestamp ?? null,
     isPendingRevocation,
     isKeyRevoked,
     revokedInfo,

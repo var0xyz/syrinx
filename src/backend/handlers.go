@@ -1628,7 +1628,16 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		RevocationServer:        revocationServerSignature,
 	})
 	if err != nil {
+		var tooSoon *ErrKeyRotationTooSoon
 		switch {
+		case errors.As(err, &tooSoon):
+			log.Info().
+				Str("userID", userID).
+				Dur("retryAfter", tooSoon.RetryAfter).
+				Msg("AddPublicKey rejected: cooldown")
+			w.Header().Set("Retry-After", strconv.Itoa(int(tooSoon.RetryAfter.Seconds())+1))
+			writeResponse(w, http.StatusTooManyRequests,
+				"You can only revoke your key once every 24 hours")
 		case errors.Is(err, ErrUserNotFound):
 			writeResponse(w, http.StatusNotFound, "User not found")
 		case errors.Is(err, ErrKeyAlreadyExists):
