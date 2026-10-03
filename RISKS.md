@@ -33,7 +33,6 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
 | M3     | Medium   | server     | Recovery claim can succeed with a revoked "active" key                 |
 | M4     | Medium   | server     | WS `DATA_ACK`/relay handlers change state with no caller authorization |
-| M5     | Medium   | server     | Unbounded WebSocket read frames → memory-exhaustion DoS                |
 | M6     | Medium   | server     | Per-user invite quota is a check-then-insert race                      |
 | M7     | Medium   | SPA        | Verification clock advanced by attacker-controlled timestamp           |
 | M8     | Medium   | SPA        | `verifySignature` silently falls back binary→text mode                 |
@@ -147,14 +146,6 @@ and content injection is caught client-side via `DATA_INVALID`. Still, a
 security-relevant state change is keyed only on a bearer id.
 **Fix:** verify `client.userID == pe.RequesterUserID` in ACK/INVALID handlers,
 and that `client.userID` is an actual online holder before relay allocation.
-
-### M5 — Unbounded WebSocket read frames → memory-exhaustion DoS
-**Where:** `realtime.go:1937` (upgrader) never calls
-`conn.SetReadLimit`; `handleClientMessages` (`realtime.go:2107`) unmarshals whole
-frames.
-One authenticated client can send arbitrarily large frames and exhaust memory.
-**Fix:** `conn.SetReadLimit(maxFrameBytes)` after upgrade; reject oversized
-frames.
 
 ### M6 — Per-user invite quota is a check-then-insert race
 **Where:** `services.go:5867` (`countInvitesByCreator`) then `insertInvite`, no
@@ -286,7 +277,7 @@ reset semantics per replica first.
 2. **H6** — bind and nonce the WebSocket handshake.
 3. **M2 / M3** — fix recovery claim replay and revoked-tip acceptance before
    relying on `RECOVERY_MODE` in anger.
-4. **M4 / M5 / M6 / M7 / M8 / M9** — realtime authorization, WS read limit,
+4. **M4 / M6 / M7 / M8 / M9** — realtime authorization,
    invite-quota atomicity, and SPA verification hardening. M9 is H1's
    near neighbour: `activeKeyID` is an unsigned hint that steers key selection.
 5. **L1 / L2 / L3** — recovery ingest signature checks, follow-edge validation,
