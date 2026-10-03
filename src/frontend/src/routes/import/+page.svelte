@@ -179,11 +179,13 @@
       assertBackupIdentity(backup);
       const profile = extractProfile(backup);
 
-      startImportRun();
-
       const probe = await apiService.probeUserStatus(profile);
       if (probe.httpStatus === 400) {
-        throw new Error(probe.error || 'This backup was rejected by the server.');
+        throw new Error(
+          probe.error
+            ? `This backup was rejected by the server: "${probe.error}"`
+            : 'This backup was rejected by the server.'
+        );
       }
       if (probe.error) {
         throw new Error(probe.error);
@@ -196,6 +198,7 @@
         if (localRecovery) {
           clearRecoveryRun();
         }
+        startImportRun();
         await writeBackup(backup);
         // Restoring from a backup file means the user already has one by
         // definition — don't send them through the mandatory-backup nag on
@@ -219,11 +222,12 @@
 
       if (probe.httpStatus === 404 && probe.status === 'unknown' && !recoveryMode) {
         throw new Error(
-          'This account is not recognized on this server. Nothing was written.'
+          'This account is not recognized on this server.'
         );
       }
 
       if (needsRecovery) {
+        startImportRun();
         await writeBackup(backup);
         // Same reasoning as the complete-account branch above.
         localStorage.setItem('lastKeyBackupAt', String(Date.now()));
@@ -239,7 +243,7 @@
       }
 
       throw new Error(
-        `Unexpected account status (HTTP ${probe.httpStatus}). Nothing was written.`
+        `Unexpected account status (HTTP ${probe.httpStatus}).`
       );
     } catch (e) {
       error = e instanceof Error ? e.message : 'Restore failed. Please try again.';
