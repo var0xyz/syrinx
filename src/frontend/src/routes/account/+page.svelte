@@ -528,9 +528,7 @@
 
               <!-- Other people's keys, not this one. -->
               <div class="key-actions others">
-                <button class="action-btn secondary" on:click={() => goto('/account/vouches')}>
-                  Keys You Verified
-                </button>
+                <a class="keys-link" href="/account/vouches">Keys you verified</a>
               </div>
             </div>
           {/if}
@@ -726,6 +724,12 @@
     font: inherit;
     text-decoration: underline;
     cursor: pointer;
+  }
+
+  .keys-link {
+    color: var(--primary);
+    font-size: 0.9rem;
+    text-decoration: underline;
   }
 
   .action-btn {

@@ -7,6 +7,8 @@ import { vouchesRepository, type VouchRecord } from '$lib/repositories/vouches';
 import { trustRootsRepository } from '$lib/repositories/trustRoots';
 import { userInfoRepository } from '$lib/repositories/userInfo';
 import { pendingVouchesRepository } from '$lib/repositories/pendingVouches';
+import { declinedVouchesRepository } from '$lib/repositories/declinedVouches';
+import { verifyVouch } from '$lib/verifiers';
 import { MAX_VOUCH_NOTE_CHARS } from '$lib/utils/vouchNote';
 import { countsForMark, trustMarkFrom, type TrustMark } from '$lib/utils/trustMark';
 import { findContradiction } from '$lib/utils/vouchContradiction';
@@ -229,24 +231,44 @@ export async function myVouches(): Promise<api.Vouch[]> {
   return vouchesRepository.byVoucher(id);
 }
 
-/** Refills the store for a device that lost it. A lower bound, not a
- * history: certs are verified, but a withheld row stays missing. */
-export async function recoverMyVouches(): Promise<void> {
+/**
+ * Verified vouches the server holds under the caller's name that this
+ * device has neither accepted nor declined. Throws if the server can't be read.
+ */
+export async function unreviewedVouches(): Promise<api.Vouch[]> {
   const id = me();
-  if (!id) throw new Error('Not signed in');
+  if (!id) return [];
 
+  const declined = new Set((await declinedVouchesRepository.byVoucher(id)).map((v) => v.id));
+  const found: api.Vouch[] = [];
   let cursor: string | undefined;
   do {
     const page = await apiService.getMyVouches(cursor);
     for (const cert of page.vouches ?? []) {
-      try {
-        await vouchesRepository.put(cert, cert.subjectUserID);
-      } catch (error) {
-        console.error('[vouches] refused a recovered cert', cert.id, error);
-      }
+      if (cert.voucherUserID !== id || declined.has(cert.id)) continue;
+      if (await vouchesRepository.has(cert.id)) continue;
+      if (await verifyVouch(cert, cert.subjectUserID)) found.push(cert);
     }
     cursor = page.nextCursor;
   } while (cursor);
+  return found;
+}
+
+/** Adds a server-held vouch to the caller's own list, undoing a decline. */
+export async function acceptVouch(cert: api.Vouch): Promise<void> {
+  await vouchesRepository.put(cert, cert.subjectUserID);
+  await declinedVouchesRepository.delete(cert.id);
+}
+
+/** Records that the caller doesn't recognise a vouch the server holds. */
+export async function declineVouch(cert: api.Vouch): Promise<void> {
+  await declinedVouchesRepository.put(cert);
+}
+
+export async function myDeclinedVouches(): Promise<api.Vouch[]> {
+  const id = me();
+  if (!id) return [];
+  return declinedVouchesRepository.byVoucher(id);
 }
 
 /** What the audit list shows for one vouch the caller made. */

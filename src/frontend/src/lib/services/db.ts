@@ -51,7 +51,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 21;
+  private readonly version = 22;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'keyId'      ],
@@ -83,6 +83,7 @@ export class IndexedDbService implements DbService {
     ['pendingEvictions',   'reedID'     ],
     ['vouches',            'id', 'subjectUserID', 'voucherUserID'],
     ['pendingVouches',     'compositeKey'],
+    ['declinedVouches',    'id', 'voucherUserID'],
 
     // Local-only (not signed, not synced to the server)
     ['lists',              'id'],
