@@ -5358,17 +5358,9 @@ type rippleListResponse struct {
 	Responses  []RippleWire `json:"responses"`
 	HasMore    bool         `json:"hasMore"`
 	NextCursor string       `json:"nextCursor,omitempty"`
-	// ExpiresAt is the absolute instant the whole ripples section on this
-	// reed disappears — the client converts this to a local monotonic
-	// countdown once at fetch time (Date.parse(expiresAt) - Date.now(),
-	// then ticked via performance.now()), so the animation itself stays
-	// skew-resistant, but the reference point can be independently
-	// re-validated against any fresh read (poll, reload, WS event)
-	// without the server needing to compute a fresh relative delta each
-	// time. The client must treat an already-past expiresAt as "do not
-	// render this section's ripples," even if the server still sent them
-	// (the sweep may not have run yet).
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	// LastActivityAt is when the reed's ripple thread was last posted to;
+	// the client derives the thread's lifetime from it.
+	LastActivityAt *time.Time `json:"lastActivityAt,omitempty"`
 }
 
 // checkReedHolder lets only holders of the reed see or join its ripples:
@@ -5453,7 +5445,7 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	expiresAt, err := h.services.db.GetRipplesExpiresAt(r.Context(), canonicalReedID)
+	lastActivityAt, err := h.services.db.GetRipplesLastActivityAt(r.Context(), canonicalReedID)
 	if err != nil {
 		internalServerError(w)
 		return
@@ -5469,8 +5461,8 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		HasMore:    list.HasMore,
 		NextCursor: list.NextCursor,
 	}
-	if !expiresAt.IsZero() {
-		resp.ExpiresAt = &expiresAt
+	if !lastActivityAt.IsZero() {
+		resp.LastActivityAt = &lastActivityAt
 	}
 	writeResponse(w, http.StatusOK, resp)
 }
@@ -5551,9 +5543,8 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 // explicitly here, since one response can mix ripples from many reeds.
 type ReceivedRippleWire struct {
 	RippleWire
-	ReedID       string    `json:"reedID"`
-	ReedAuthorID string    `json:"reedAuthorID"`
-	ExpiresAt    time.Time `json:"expiresAt"`
+	ReedID       string `json:"reedID"`
+	ReedAuthorID string `json:"reedAuthorID"`
 }
 
 func receivedRippleWire(r *ReceivedRipple) ReceivedRippleWire {
@@ -5561,7 +5552,6 @@ func receivedRippleWire(r *ReceivedRipple) ReceivedRippleWire {
 		RippleWire:   rippleWire(&r.Ripple),
 		ReedID:       r.ReedID,
 		ReedAuthorID: r.ReedAuthorID,
-		ExpiresAt:    r.ExpiresAt,
 	}
 }
 

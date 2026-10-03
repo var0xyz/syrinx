@@ -24,12 +24,9 @@
   const MIN = 60 * SEC;
   const HOUR = 60 * MIN;
   const DAY = 24 * HOUR;
-  // Ripples always use a fixed 7-day TTL from last activity (see
-  // services.go's PostRipple: now.Add(7 * 24 * time.Hour)) — the client
-  // doesn't know when THIS reed's clock last reset, only the resulting
-  // deadline, but since the window itself is always exactly 7 days, that
-  // constant is enough to derive proportional urgency thresholds.
-  const WEEK = 7 * DAY;
+  // Must match rippleTTL in the backend's constants.go — the deadline is
+  // lastActivityAt + this, and the urgency thresholds are fractions of it.
+  const RIPPLE_TTL = 30 * DAY;
 
   /** @type {import('$lib/types/api').Ripple[]} */
   let ripples = [];
@@ -39,14 +36,14 @@
 
   let loading = true;
   /** Local deadline in performance.now() units. Derived ONCE per fetch
-   * from the server's absolute `expiresAt`: `performance.now() +
-   * (Date.parse(expiresAt) - Date.now())`. That one conversion is the
+   * from the server's `lastActivityAt`: `performance.now() +
+   * (Date.parse(lastActivityAt) + RIPPLE_TTL - Date.now())`. That one conversion is the
    * only place a wall-clock read (Date.now()) enters the picture — every
    * tick after that compares against performance.now() (monotonic,
    * immune to system clock adjustments mid-session), so the animation
    * itself can't jump or misbehave if the OS clock changes underneath
    * it. Re-derived fresh on every fetch (mount, pagination, reload), so
-   * a session that picks up a changed expiresAt server-side (e.g. an
+   * a session that picks up a changed lastActivityAt server-side (e.g. an
    * operator manually rewriting it) self-corrects on the next fetch
    * rather than drifting forever from a stale relative countdown. */
   let expiresAtMonotonic = /** @type {number | null} */ (null);
@@ -54,10 +51,10 @@
   let hasMore = false;
   let loadingMore = false;
   /** True once the local countdown reaches zero (or a fresh fetch reports
-   * an expiresAt already in the past). Guards against resurrecting a dead thread via
+   * a deadline already in the past). Guards against resurrecting a dead thread via
    * a straggling WS event delivered right after expiry — but is NOT a
    * permanent "this reed can never have ripples again" flag: a brand-new
-   * top-level post starts its own thread with its own expires_at,
+   * top-level post starts its own thread with a fresh lastActivityAt,
    * completely unrelated to the burned-away one, so posting clears this
    * back to false and the section behaves exactly like it never had any
    * ripples at all (see handleComposerPosted). The UI never shows a
@@ -82,16 +79,16 @@
   const tickTimer = setInterval(() => { nowTick = performance.now(); }, 1000);
   onDestroy(() => clearInterval(tickTimer));
 
-  // Countdown color, proportional to the fixed 7-day window: green for
-  // the first half (> 3.5 days left), yellow for the next quarter
-  // (1.75-3.5 days left), red-pulsating for the final quarter (< 1.75
+  // Countdown color, proportional to the fixed 30-day window: green for
+  // the first half (> 15 days left), yellow for the next quarter
+  // (7.5-15 days left), red-pulsating for the final quarter (< 7.5
   // days left), red-solid-and-"gone" once past the deadline.
   $: remainingMs = expiresAtMonotonic != null ? expiresAtMonotonic - nowTick : null;
   $: urgency =
     remainingMs == null ? 'calm'
     : remainingMs <= 0 ? 'gone'
-    : remainingMs <= WEEK / 4 ? 'critical'
-    : remainingMs <= WEEK / 2 ? 'warning'
+    : remainingMs <= RIPPLE_TTL / 4 ? 'critical'
+    : remainingMs <= RIPPLE_TTL / 2 ? 'warning'
     : 'calm';
 
   // Single-row burn animation is 800ms; each row's start is staggered by
@@ -119,15 +116,12 @@
     }, BURN_DURATION_MS);
   }
 
-  /** More than a day left: "1 week" for the first 24h since the clock
-   * last reset (> 6 days remaining), then whole days ("6 days" ... "1
-   * day") down to the 24h mark. Under a day left: cascades through
-   * hours → minutes → seconds, same granularity as before, so the
-   * countdown still feels precise right up to the deadline. */
+  /** More than a day left: whole days ("30 days" ... "1 day") down to
+   * the 24h mark. Under a day left: cascades through hours → minutes →
+   * seconds, so the countdown still feels precise up to the deadline. */
   function formatCountdown(targetMonotonic, fromMonotonic) {
     const remaining = targetMonotonic - fromMonotonic;
     if (remaining <= 0) return 'expiring…';
-    if (remaining > WEEK - DAY) return '1 week';
     if (remaining > DAY) {
       const d = Math.round(remaining / DAY);
       return `${d} day${d === 1 ? '' : 's'}`;
@@ -151,27 +145,27 @@
     return ripples.find((r) => r.hash === hash) ?? null;
   }
 
-  /** Convert an absolute ISO expiresAt into a local performance.now()
-   * deadline — the one place Date.now() (wall clock) enters the
-   * countdown; every tick after this compares against performance.now()
-   * instead. Returns null for an unparseable value (defensive; the
-   * server always sends a valid RFC3339 string when the field is
-   * present at all). */
-  function toMonotonicDeadline(expiresAtISO) {
-    const parsed = Date.parse(expiresAtISO);
-    if (Number.isNaN(parsed)) return null;
-    return performance.now() + (parsed - Date.now());
+  /** Epoch-ms deadline → performance.now() deadline; the only place the
+   * wall clock enters the countdown. */
+  function toMonotonicDeadline(deadlineMs) {
+    return performance.now() + (deadlineMs - Date.now());
+  }
+
+  /** Epoch-ms deadline from the server's lastActivityAt, or null if the
+   * field is absent or unparseable. */
+  function deadlineFrom(lastActivityAtISO) {
+    if (lastActivityAtISO == null) return null;
+    const parsed = Date.parse(lastActivityAtISO);
+    return Number.isNaN(parsed) ? null : parsed + RIPPLE_TTL;
   }
 
   async function loadPage(before) {
     const res = await apiService.listRipples(reedID, { limit: 50, before });
+    const deadline = deadlineFrom(res.lastActivityAt);
 
-    // Defensive: if the server itself reports expiresAt as already in
-    // the past (a fetch landing in the race window right before the
-    // next cron sweep), don't render whatever it sent — treat it the
-    // same as a client-side countdown hitting zero, just without the
-    // animation (nothing was visibly alive to burn).
-    if (res.expiresAt != null && Date.parse(res.expiresAt) <= Date.now()) {
+    // Deadline already past but the cron sweep hasn't run: treat it like the
+    // countdown hitting zero, minus the burn animation.
+    if (deadline != null && deadline <= Date.now()) {
       ripples = [];
       expired = true;
       return;
@@ -188,8 +182,8 @@
     ripples = before ? [...ripples, ...kept] : kept;
     hasMore = res.hasMore;
     nextCursor = res.nextCursor;
-    if (res.expiresAt != null) {
-      expiresAtMonotonic = toMonotonicDeadline(res.expiresAt);
+    if (deadline != null) {
+      expiresAtMonotonic = toMonotonicDeadline(deadline);
     }
   }
 
@@ -394,13 +388,13 @@
   }
 
   /** RippleComposer's `posted` event. A post always means the section is
-   * alive again with a fresh 7-day countdown (see PostRipple in
+   * alive again with a fresh 30-day countdown (see PostRipple in
    * services.go) — reset locally rather than round-tripping the server. */
   async function handleComposerPosted(event, replyHash) {
     const { ripple: posted } = event.detail;
     expired = false;
     burning = false;
-    expiresAtMonotonic = performance.now() + WEEK;
+    expiresAtMonotonic = performance.now() + RIPPLE_TTL;
     const ok = await ripplesRepository.storeRipple(posted, reedID);
     // Close this composer first so routeIncomingRipple treats it as gone
     // and the just-posted reply inserts immediately, not into liveExtras.
@@ -536,7 +530,7 @@
   {/if}
 
   <p class="ripples-why-explainer">
-    Ripples aren't saved permanently — they disappear 7 days after
+    Ripples aren't saved permanently — they disappear 30 days after
     the last reply. Plain text only, formatting isn't supported.
   </p>
 </section>

@@ -4722,7 +4722,7 @@ type RippleListResult struct {
 }
 
 // PostRipple verifies, countersigns, hashes, and persists a new ripple
-// response, bumping the reed's shared expires_at in the same transaction.
+// response, bumping the reed's shared last_activity_at in the same transaction.
 //
 // Callers (the HTTP handler) are responsible for verifying userSigArmor
 // against the caller's active public key BEFORE calling this — this
@@ -4733,7 +4733,7 @@ type RippleListResult struct {
 // response's stored thread_id (ErrRippleThreadMismatch otherwise).
 //
 // now is the single server-side timestamp used for the server payload's
-// `timestamp` header, posted_at, and expires_at (= now + 7 days) — one
+// `timestamp` header, posted_at, and last_activity_at — one
 // clock reading for the whole request, no client-supplied timestamp
 // anywhere in this flow.
 // reedID and userID arrive already canonical/userID@serverID form.
@@ -4796,13 +4796,19 @@ func (s *DataService) PostRipple(
 		return nil, err
 	}
 
-	expiresAt := now.Add(7 * 24 * time.Hour)
+	// An idle thread the cleanup job hasn't reached yet must not be revived.
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO ripples (reed_id, expires_at)
+		DELETE FROM ripples WHERE reed_id = $1 AND last_activity_at <= `+rippleCutoffSQL,
+		reedID); err != nil {
+		return nil, fmt.Errorf("drop idle ripples thread: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO ripples (reed_id, last_activity_at)
 		VALUES ($1, $2)
 		ON CONFLICT (reed_id) DO UPDATE
-		SET expires_at = EXCLUDED.expires_at
-	`, reedID, expiresAt); err != nil {
+		SET last_activity_at = EXCLUDED.last_activity_at
+	`, reedID, now); err != nil {
 		return nil, fmt.Errorf("upsert ripples bookkeeping: %w", err)
 	}
 
@@ -4851,6 +4857,7 @@ func (s *DataService) GetRipple(ctx context.Context, id string) (*Ripple, error)
 		FROM ripple_responses rr
 		JOIN user_signatures us ON us.id = rr.user_signature_id
 		JOIN server_signatures ss ON ss.id = rr.server_signature_id
+		JOIN ripples p ON p.reed_id = rr.reed_id AND p.last_activity_at > `+rippleCutoffSQL+`
 		WHERE rr.id = $1
 	`, id))
 	if err == sql.ErrNoRows {
@@ -4978,6 +4985,7 @@ func (s *DataService) ListRipples(
 			FROM ripple_responses rr
 			JOIN user_signatures us ON us.id = rr.user_signature_id
 			JOIN server_signatures ss ON ss.id = rr.server_signature_id
+			JOIN ripples p ON p.reed_id = rr.reed_id AND p.last_activity_at > `+rippleCutoffSQL+`
 			WHERE rr.reed_id = $1
 		) t
 	`
@@ -5042,25 +5050,26 @@ func (s *DataService) ListRipples(
 	return &RippleListResult{Ripples: items, HasMore: hasMore, NextCursor: nextCursor}, nil
 }
 
-// GetRipplesExpiresAt returns the reed's shared expires_at from the
-// ripples bookkeeping row, or the zero time if no ripple has ever been
+// GetRipplesLastActivityAt returns the reed's shared last_activity_at from
+// the ripples bookkeeping row, or the zero time if no ripple has ever been
 // posted to this reed. reedID is canonical.
-func (s *DataService) GetRipplesExpiresAt(ctx context.Context, reedID string) (time.Time, error) {
-	var expiresAt time.Time
+func (s *DataService) GetRipplesLastActivityAt(ctx context.Context, reedID string) (time.Time, error) {
+	var lastActivityAt time.Time
 	err := s.db.QueryRowContext(ctx, `
-		SELECT expires_at FROM ripples WHERE reed_id = $1
-	`, reedID).Scan(&expiresAt)
+		SELECT last_activity_at FROM ripples
+		WHERE reed_id = $1 AND last_activity_at > `+rippleCutoffSQL,
+		reedID).Scan(&lastActivityAt)
 	if err == sql.ErrNoRows {
 		return time.Time{}, nil
 	}
-	return expiresAt, err
+	return lastActivityAt, err
 }
 
 // SoftDeleteRipple flips deleted=true and content='[DELETED]' for id,
 // only if ownerUserID matches ripple_responses.user_id. found reports
 // whether the row exists at all; owned reports whether ownerUserID
 // matches (only meaningful when found is true). Does not touch
-// ripples.expires_at. Idempotent: deleting an already-deleted row
+// ripples.last_activity_at. Idempotent: deleting an already-deleted row
 // succeeds again as a no-op.
 //
 // ripple_responses.user_id is a direct FK; ownerUserID arrives in
@@ -5070,8 +5079,9 @@ func (s *DataService) SoftDeleteRipple(ctx context.Context, id, ownerUserID stri
 	ownerIdentity := identityID(ownerUserID)
 	var actualOwner identityID
 	err = s.db.QueryRowContext(ctx, `
-		SELECT user_id FROM ripple_responses WHERE id = $1
-	`, id).Scan(&actualOwner)
+		SELECT rr.user_id FROM ripple_responses rr
+		JOIN ripples p ON p.reed_id = rr.reed_id AND p.last_activity_at > `+rippleCutoffSQL+`
+		WHERE rr.id = $1`, id).Scan(&actualOwner)
 	if err == sql.ErrNoRows {
 		return false, false, nil
 	}
@@ -5097,7 +5107,6 @@ func (s *DataService) SoftDeleteRipple(ctx context.Context, id, ownerUserID stri
 // a ripple the caller authored themselves.
 type ReceivedRipple struct {
 	Ripple
-	ExpiresAt time.Time
 }
 
 // RippleReceivedListResult is the paginated output of ListReceivedRipples.
@@ -5153,13 +5162,12 @@ func (s *DataService) ListReceivedRipples(
 		SELECT rr.id, rr.reed_id, rr.thread_id, rr.user_id, rr.content,
 		       rr.replying_to, rr.deleted, rr.posted_at,
 		       us.public_key_id, us.signature,
-		       ss.private_key_id, ss.signature, ss.signed_at,
-		       p.expires_at
+		       ss.private_key_id, ss.signature, ss.signed_at
 		FROM ripple_responses rr
 		JOIN user_signatures us ON us.id = rr.user_signature_id
 		JOIN server_signatures ss ON ss.id = rr.server_signature_id
 		JOIN reeds reed ON reed.id = rr.reed_id
-		JOIN ripples p ON p.reed_id = rr.reed_id
+		JOIN ripples p ON p.reed_id = rr.reed_id AND p.last_activity_at > `+rippleCutoffSQL+`
 		WHERE rr.user_id != $1
 		AND (reed.user_id = $1 OR EXISTS (
 			SELECT 1 FROM ripple_responses parent
@@ -5196,13 +5204,12 @@ func (s *DataService) ListReceivedRipples(
 
 	var items []ReceivedRipple
 	for rows.Next() {
-		var expiresAt time.Time
-		r, err := scanRipple(rippleListRow{rows, &expiresAt})
+		r, err := scanRipple(rows)
 		if err != nil {
 			return nil, err
 		}
 		r.ServerSignature.ID = r.serverFingerprint
-		items = append(items, ReceivedRipple{Ripple: *r, ExpiresAt: expiresAt})
+		items = append(items, ReceivedRipple{Ripple: *r})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

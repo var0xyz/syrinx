@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -146,7 +147,7 @@ func ensureRipplesSchema(db *sql.DB) error {
 		)`,
 		`CREATE TABLE ripples (
 			reed_id VARCHAR(255) PRIMARY KEY,
-			expires_at TIMESTAMP NOT NULL,
+			last_activity_at TIMESTAMP NOT NULL,
 
 			FOREIGN KEY (reed_id) REFERENCES reeds(id)
 				ON DELETE CASCADE
@@ -503,7 +504,7 @@ func TestPostRipple_CreatesBookkeepingRowLazily(t *testing.T) {
 	}
 }
 
-func TestPostRipple_BumpsSharedExpiryAcrossThreads(t *testing.T) {
+func TestPostRipple_BumpsSharedLastActivityAcrossThreads(t *testing.T) {
 	db := openRipplesTestDB(t)
 	insertRipplesTestUser(t, db, "author1", "author")
 	insertRipplesTestUser(t, db, "commenter1", "commenter")
@@ -514,16 +515,61 @@ func TestPostRipple_BumpsSharedExpiryAcrossThreads(t *testing.T) {
 	t1 := time.Now().Add(-2 * time.Hour)
 	postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "threadA", nil, t1)
 
-	var firstExpiry time.Time
-	db.QueryRow(`SELECT expires_at FROM ripples WHERE reed_id = $1`, reed1ID).Scan(&firstExpiry)
+	var firstActivity time.Time
+	db.QueryRow(`SELECT last_activity_at FROM ripples WHERE reed_id = $1`, reed1ID).Scan(&firstActivity)
 
 	t2 := time.Now()
 	postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "threadB", nil, t2)
 
-	var secondExpiry time.Time
-	db.QueryRow(`SELECT expires_at FROM ripples WHERE reed_id = $1`, reed1ID).Scan(&secondExpiry)
-	if !secondExpiry.After(firstExpiry) {
-		t.Errorf("expires_at did not bump: first=%v second=%v", firstExpiry, secondExpiry)
+	var secondActivity time.Time
+	db.QueryRow(`SELECT last_activity_at FROM ripples WHERE reed_id = $1`, reed1ID).Scan(&secondActivity)
+	if !secondActivity.After(firstActivity) {
+		t.Errorf("last_activity_at did not bump: first=%v second=%v", firstActivity, secondActivity)
+	}
+}
+
+func TestRipples_IdleThreadHiddenBeforeCleanup(t *testing.T) {
+	db := openRipplesTestDB(t)
+	insertRipplesTestUser(t, db, "author1", "author")
+	insertRipplesTestUser(t, db, "commenter1", "commenter")
+	insertRipplesTestReed(t, db, "author1", "reed1")
+	key := newRippleTestKey(t, db, "commenter1")
+
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
+	ctx := context.Background()
+	old := postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "old", nil, time.Now().Add(-rippleTTL-24*time.Hour))
+
+	list, err := svc.ListRipples(ctx, reed1ID, 50, "")
+	if err != nil {
+		t.Fatalf("ListRipples: %v", err)
+	}
+	if len(list.Ripples) != 0 {
+		t.Errorf("ListRipples returned %d ripples from an idle thread, want 0", len(list.Ripples))
+	}
+	if _, err := svc.GetRipple(ctx, old.ID); !errors.Is(err, ErrRippleNotFound) {
+		t.Errorf("GetRipple on idle thread: err=%v, want ErrRippleNotFound", err)
+	}
+	if last, err := svc.GetRipplesLastActivityAt(ctx, reed1ID); err != nil || !last.IsZero() {
+		t.Errorf("GetRipplesLastActivityAt = %v, %v; want zero time", last, err)
+	}
+	if found, _, err := svc.SoftDeleteRipple(ctx, old.ID, canonicalCommenter1); err != nil || found {
+		t.Errorf("SoftDeleteRipple on idle thread: found=%v err=%v, want false/nil", found, err)
+	}
+	received, err := svc.ListReceivedRipples(ctx, canonicalAuthor1, 50, "")
+	if err != nil {
+		t.Fatalf("ListReceivedRipples: %v", err)
+	}
+	if len(received.Ripples) != 0 {
+		t.Errorf("ListReceivedRipples returned %d idle ripples, want 0", len(received.Ripples))
+	}
+
+	fresh := postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "fresh", nil, time.Now())
+	list, err = svc.ListRipples(ctx, reed1ID, 50, "")
+	if err != nil {
+		t.Fatalf("ListRipples after new post: %v", err)
+	}
+	if len(list.Ripples) != 1 || list.Ripples[0].ID != fresh.ID {
+		t.Errorf("after a new post got %d ripples, want only the fresh one", len(list.Ripples))
 	}
 }
 
@@ -655,9 +701,9 @@ func TestSoftDeleteRipple_OwnerSucceeds(t *testing.T) {
 	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	resp := postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "hello", nil, time.Now())
 
-	var expiryBefore time.Time
-	if err := db.QueryRow(`SELECT expires_at FROM ripples WHERE reed_id = $1`, reed1ID).Scan(&expiryBefore); err != nil {
-		t.Fatalf("query expiryBefore: %v", err)
+	var activityBefore time.Time
+	if err := db.QueryRow(`SELECT last_activity_at FROM ripples WHERE reed_id = $1`, reed1ID).Scan(&activityBefore); err != nil {
+		t.Fatalf("query activityBefore: %v", err)
 	}
 
 	found, owned, err := svc.SoftDeleteRipple(context.Background(), resp.ID, canonicalCommenter1)
@@ -685,12 +731,12 @@ func TestSoftDeleteRipple_OwnerSucceeds(t *testing.T) {
 		t.Error("userSignature must not change on soft-delete")
 	}
 
-	var expiryAfter time.Time
-	if err := db.QueryRow(`SELECT expires_at FROM ripples WHERE reed_id = $1`, reed1ID).Scan(&expiryAfter); err != nil {
-		t.Fatalf("query expiryAfter: %v", err)
+	var activityAfter time.Time
+	if err := db.QueryRow(`SELECT last_activity_at FROM ripples WHERE reed_id = $1`, reed1ID).Scan(&activityAfter); err != nil {
+		t.Fatalf("query activityAfter: %v", err)
 	}
-	if !expiryAfter.Equal(expiryBefore) {
-		t.Errorf("expires_at changed by a delete: before=%v after=%v", expiryBefore, expiryAfter)
+	if !activityAfter.Equal(activityBefore) {
+		t.Errorf("last_activity_at changed by a delete: before=%v after=%v", activityBefore, activityAfter)
 	}
 }
 
