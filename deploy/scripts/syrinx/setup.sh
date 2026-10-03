@@ -416,7 +416,7 @@ echo -e "\n🚀 Both builds succeeded — installing atomically..."
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME" "/usr/local/bin/$APP_NAME"
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME-ripples-cleanup" "/usr/local/bin/$APP_NAME-ripples-cleanup"
 
-# Deletes expired ripple threads every minute. Own log dir under LOG_DIR: the
+# Deletes expired ripple threads every hour. Own log dir under LOG_DIR: the
 # cron job runs as $APP_USER, not root, and needs somewhere it can
 # actually write. LOG_DIR's own setup/update logs stay unreadable to
 # $APP_USER (700 blocks read+write+traversal for non-owners) — but mode

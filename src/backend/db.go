@@ -572,12 +572,12 @@ func InitDB(db *sql.DB) error {
 	createRipplesTable := `
 	CREATE TABLE IF NOT EXISTS ripples (
 		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reeds(id) ON DELETE CASCADE,
-		expires_at TIMESTAMP NOT NULL
+		last_activity_at TIMESTAMP NOT NULL
 	);`
 
 	createRipplesIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_ripples_expires
-		ON ripples (expires_at);
+	CREATE INDEX IF NOT EXISTS idx_ripples_last_activity
+		ON ripples (last_activity_at);
 	`
 
 	createRippleResponsesTable := `

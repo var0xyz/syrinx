@@ -256,13 +256,9 @@ export interface RippleListResponse extends Base {
   responses: Ripple[];
   hasMore: boolean;
   nextCursor?: string;
-  /** Absolute instant the whole ripples section on this reed disappears.
-   * Converted to a local countdown once at fetch time (see
-   * RipplesSection.svelte) rather than compared against the wall clock
-   * on every tick, so the animation stays smooth even if the system
-   * clock changes mid-session — but the value itself is independently
-   * re-checkable against any fresh fetch, unlike a relative duration. */
-  expiresAt?: string;
+  /** When this reed's ripple thread was last posted to; the client adds
+   * the ripple TTL to get the deadline (see RipplesSection.svelte). */
+  lastActivityAt?: string;
 }
 
 /**
@@ -273,7 +269,6 @@ export interface RippleListResponse extends Base {
 export interface ReceivedRipple extends Ripple {
   reedID: string;
   reedAuthorID: string;
-  expiresAt: string;
 }
 
 export interface ReceivedRippleListResponse extends Base {

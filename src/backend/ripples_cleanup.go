@@ -1,6 +1,6 @@
 //go:build ripplescleanup
 
-// Standalone cron job: deletes expired ripple threads.
+// Standalone cron job: deletes ripple threads idle for longer than rippleTTL.
 //
 // Only the ripples bookkeeping table is targeted — ripple_responses rows
 // cascade-delete through their FK to ripples(reed_author_id, reed_id),
@@ -50,12 +50,12 @@ func main() {
 	}
 
 	result, err := db.ExecContext(context.Background(),
-		`DELETE FROM ripples WHERE expires_at <= NOW()`)
+		`DELETE FROM ripples WHERE last_activity_at <= `+rippleCutoffSQL)
 	if err != nil {
 		fail(err)
 	}
 	n, _ := result.RowsAffected()
-	fmt.Printf("%s ripples-cleanup: removed %d expired thread(s)\n", time.Now().UTC().Format(time.RFC3339), n)
+	fmt.Printf("%s ripples-cleanup: removed %d idle thread(s)\n", time.Now().UTC().Format(time.RFC3339), n)
 }
 
 func fail(err error) {

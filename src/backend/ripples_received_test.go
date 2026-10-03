@@ -31,9 +31,6 @@ func TestListReceivedRipples_OwnReedIncluded(t *testing.T) {
 	if list.Ripples[0].ReedID != reed1ID {
 		t.Errorf("ReedID = %q, want %q", list.Ripples[0].ReedID, reed1ID)
 	}
-	if list.Ripples[0].ExpiresAt.IsZero() {
-		t.Error("ExpiresAt must be populated from the ripples bookkeeping row")
-	}
 }
 
 func TestListReceivedRipples_ReplyToOwnRippleIncludedOnOthersReed(t *testing.T) {
