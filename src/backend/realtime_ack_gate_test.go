@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 )
 
@@ -142,5 +143,74 @@ func TestDataInvalidResetsLocalRelay(t *testing.T) {
 	}
 	if f.allocated(t, reader) {
 		t.Fatal("DATA_INVALID must never allocate")
+	}
+}
+
+// newRelayDispatchFixture has a local holder with an in-flight relay request
+// for the reader's event.
+func newRelayDispatchFixture(t *testing.T) (*foreignFoldFixture, string, string) {
+	t.Helper()
+	f := newForeignFoldFixture(t)
+	ctx := context.Background()
+	holder := f.onlineUser(t, "holder")
+	if err := f.rs.db.UpsertReedIdentity(ctx, f.reedID); err != nil {
+		t.Fatalf("UpsertReedIdentity: %v", err)
+	}
+	if _, err := f.rs.db.AllocateReed(ctx, f.reedID, holder); err != nil {
+		t.Fatalf("AllocateReed: %v", err)
+	}
+	reader := f.onlineUser(t, "reader")
+	f.request(t, reader)
+	var eventID string
+	if err := f.db.QueryRow(`SELECT event_id FROM pending_events WHERE requester_user_id = $1`, reader).Scan(&eventID); err != nil {
+		t.Fatalf("find reader event: %v", err)
+	}
+	if _, err := f.db.Exec(`UPDATE pending_events SET dispatched_at = NOW(), dispatched_to = $2 WHERE event_id = $1`, eventID, holder); err != nil {
+		t.Fatalf("mark dispatched: %v", err)
+	}
+	return f, holder, eventID
+}
+
+func (f *foreignFoldFixture) dispatchState(t *testing.T, eventID string) (dispatchedTo string, relayed bool) {
+	t.Helper()
+	var to sql.NullString
+	if err := f.db.QueryRow(`SELECT dispatched_to, relayed_at IS NOT NULL FROM pending_events WHERE event_id = $1`, eventID).Scan(&to, &relayed); err != nil {
+		t.Fatalf("read dispatch state: %v", err)
+	}
+	return to.String, relayed
+}
+
+func TestRelayResponseFromOtherUserIgnored(t *testing.T) {
+	f, holder, eventID := newRelayDispatchFixture(t)
+	other := f.onlineUser(t, "other")
+
+	f.rs.handleRelayResponse(&realtimeClient{userID: other}, eventID, "ciphertext")
+
+	if to, relayed := f.dispatchState(t, eventID); relayed || to != holder {
+		t.Fatalf("dispatched_to=%q relayed=%v: a non-holder's response was accepted", to, relayed)
+	}
+}
+
+func TestRelayMissFromOtherUserIgnored(t *testing.T) {
+	f, holder, eventID := newRelayDispatchFixture(t)
+	other := f.onlineUser(t, "other")
+
+	f.rs.handleRelayMiss(other, eventID)
+
+	if to, _ := f.dispatchState(t, eventID); to != holder {
+		t.Fatalf("dispatched_to=%q: a non-holder's miss reset the dispatch", to)
+	}
+	if !f.allocated(t, holder) {
+		t.Fatal("a non-holder's miss dropped the holder's allocation")
+	}
+}
+
+func TestRelayMissFromHolderResetsDispatch(t *testing.T) {
+	f, holder, eventID := newRelayDispatchFixture(t)
+
+	f.rs.handleRelayMiss(holder, eventID)
+
+	if f.allocated(t, holder) {
+		t.Fatal("holder's miss should drop their allocation")
 	}
 }

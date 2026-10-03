@@ -997,6 +997,8 @@ func InitDB(db *sql.DB) error {
 		event_name VARCHAR(255) NOT NULL,
 		subscription_id VARCHAR(255) REFERENCES profile_subscriptions(subscription_id) ON DELETE CASCADE,
 		dispatched_at TIMESTAMP,
+		-- Who the event was sent to; only they may answer a relay request.
+		dispatched_to VARCHAR(255),
 		-- Set when relayed reed content reached the requester; gates its DATA_ACK.
 		relayed_at TIMESTAMP,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

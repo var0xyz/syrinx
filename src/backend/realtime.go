@@ -1702,7 +1702,7 @@ func (rs *realtimeService) deliverAccountRemoved(eventID, requestID, recipientID
 			return
 		}
 	}
-	ok, err := rs.db.MarkEventDispatched(context.Background(), eventID)
+	ok, err := rs.db.MarkEventDispatched(context.Background(), eventID, recipientID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to mark account_removed dispatched")
 		return
@@ -1727,7 +1727,7 @@ func (rs *realtimeService) deliverReedRemoved(eventID, requestID, recipientID, r
 			return
 		}
 	}
-	ok, err := rs.db.MarkEventDispatched(context.Background(), eventID)
+	ok, err := rs.db.MarkEventDispatched(context.Background(), eventID, recipientID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to mark reed_removed dispatched")
 		return
@@ -2395,7 +2395,7 @@ func (rs *realtimeService) dispatchNext(holderUserID string) bool {
 		rs.deliverReedRemoved(pe.EventID, pe.RequestID, pe.RequesterUserID, pe.ReedID, nil)
 		return rs.dispatchNext(holderUserID)
 	}
-	ok, err := rs.db.MarkEventDispatched(context.Background(), pe.EventID)
+	ok, err := rs.db.MarkEventDispatched(context.Background(), pe.EventID, holderUserID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to mark event dispatched")
 		return false
@@ -3982,6 +3982,10 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, 
 		rs.dispatchN(client.userID, fanoutRefillBurst)
 		return
 	}
+	if pe.DispatchedTo != client.userID {
+		log.Warn().Str("eventID", eventID).Str("userID", client.userID).Msg("Ignoring RELAY_RESPONSE: not the dispatched holder")
+		return
+	}
 
 	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventFulfilled, pe.EventName, eventID)
 
@@ -4118,8 +4122,6 @@ func (rs *realtimeService) handleFailedRelay(holderUserID, eventID string, delet
 	if eventID == "" {
 		return
 	}
-	rs.stopRelayTimer(eventID)
-
 	pe, err := rs.db.GetPendingReedEvent(context.Background(), eventID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event for relay miss/error")
@@ -4127,9 +4129,16 @@ func (rs *realtimeService) handleFailedRelay(holderUserID, eventID string, delet
 		return
 	}
 	if pe == nil {
+		rs.stopRelayTimer(eventID)
 		rs.dispatchN(holderUserID, fanoutRefillBurst)
 		return
 	}
+	// Only the holder the request went to may fail it.
+	if pe.DispatchedTo != holderUserID {
+		log.Warn().Str("eventID", eventID).Str("holderID", holderUserID).Msg("Ignoring relay miss/error: not the dispatched holder")
+		return
+	}
+	rs.stopRelayTimer(eventID)
 
 	log.Info().
 		Str("eventID", eventID).
