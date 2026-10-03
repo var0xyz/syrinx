@@ -6202,21 +6202,40 @@ var errRecoveryUsernameCollisionLoss = fmt.Errorf("incoming profile lost usernam
 
 // IssueRecoveryChallenge stores and returns a fresh single-use claim nonce.
 func (s *DataService) IssueRecoveryChallenge(ctx context.Context) (string, error) {
+	return s.issueChallenge(ctx, "recovery_challenges")
+}
+
+// ConsumeRecoveryChallenge deletes nonce and reports whether it was live.
+func (s *DataService) ConsumeRecoveryChallenge(ctx context.Context, nonce string) (bool, error) {
+	return s.consumeChallenge(ctx, "recovery_challenges", nonce)
+}
+
+// IssueAccountRecoveryChallenge stores and returns a fresh single-use bootstrap nonce.
+func (s *DataService) IssueAccountRecoveryChallenge(ctx context.Context) (string, error) {
+	return s.issueChallenge(ctx, "account_recovery_challenges")
+}
+
+// ConsumeAccountRecoveryChallenge deletes nonce and reports whether it was live.
+func (s *DataService) ConsumeAccountRecoveryChallenge(ctx context.Context, nonce string) (bool, error) {
+	return s.consumeChallenge(ctx, "account_recovery_challenges", nonce)
+}
+
+// issueChallenge and consumeChallenge take a fixed table name, never input.
+func (s *DataService) issueChallenge(ctx context.Context, table string) (string, error) {
 	buf := make([]byte, 32)
 	if _, err := cryptorand.Read(buf); err != nil {
 		return "", err
 	}
 	nonce := base64.RawURLEncoding.EncodeToString(buf)
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO recovery_challenges (nonce) VALUES ($1)`, nonce); err != nil {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO `+table+` (nonce) VALUES ($1)`, nonce); err != nil {
 		return "", err
 	}
 	return nonce, nil
 }
 
-// ConsumeRecoveryChallenge deletes nonce and reports whether it was live.
-func (s *DataService) ConsumeRecoveryChallenge(ctx context.Context, nonce string) (bool, error) {
+func (s *DataService) consumeChallenge(ctx context.Context, table, nonce string) (bool, error) {
 	res, err := s.db.ExecContext(ctx, `
-		DELETE FROM recovery_challenges WHERE nonce = $1 AND issued_at > `+challengeCutoffSQL, nonce)
+		DELETE FROM `+table+` WHERE nonce = $1 AND issued_at > `+challengeCutoffSQL, nonce)
 	if err != nil {
 		return false, err
 	}

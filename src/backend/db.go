@@ -1118,6 +1118,13 @@ func InitDB(db *sql.DB) error {
 		issued_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);`
 
+	// Account recovery keeps its own challenges, apart from server recovery's.
+	createAccountRecoveryChallengesTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS account_recovery_challenges (
+		nonce VARCHAR(64) PRIMARY KEY,
+		issued_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);`
+
 	createOngoingRecoveriesTable := `
 	CREATE TABLE IF NOT EXISTS ongoing_recoveries (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -1418,6 +1425,7 @@ func InitDB(db *sql.DB) error {
 		createOngoingRecoveriesTable,
 
 		createRecoveryChallengesTable,
+		createAccountRecoveryChallengesTable,
 
 		createPendingFollowsTable,
 		createPendingFollowsIndexes,

@@ -48,11 +48,13 @@ without peers: profile, following ids, tip id, own-reed catalog. This is
 Unauthenticated. Response:
 
 ```json
-{ "challenge": 1710000000 }
+{ "challenge": "<single-use nonce>" }
 ```
 
-`challenge` is unix seconds (server clock), same ≤60s freshness window as
-recovery claim. Dedicated path (resolved open question): do **not** reuse
+`challenge` is a random nonce the server stores in
+`account_recovery_challenges` (its own table, not server recovery's). It is
+valid for 60 seconds and deleted on use; the challenges-cleanup job deletes
+expired ones. Dedicated path (resolved open question): do **not** reuse
 `/api/recovery/identity/claim` so account recovery stays off the
 `RECOVERY_MODE` surface.
 
@@ -62,16 +64,17 @@ Body:
 
 ```json
 {
-  "challenge": 1710000000,
+  "challenge": "<nonce>",
   "userID": "<user id>",
   "fingerprint": "<active key fingerprint>",
-  "signature": "<base64 detached PGP sig over decimal challenge>"
+  "signature": "<base64 detached PGP sig over the nonce>"
 }
 ```
 
 Server steps:
 
-1. Reject if challenge in the future or older than **60 seconds** → 400.
+1. Consume the nonce; reject if it is unknown, already used, or older than
+   **60 seconds** → 400.
 2. Load user by `userID`. Missing → **404** (“account not found” /
    plain English). Account-removed → reject (410/404 per deletion rules).
 3. Confirm `fingerprint` is this user’s **active** key and not revoked →
@@ -140,11 +143,11 @@ When a fetch cannot succeed, the server responds terminally — see
 
 ## Test plan
 
-- [ ] Challenge returns unix seconds
+- [ ] Challenge returns a stored single-use nonce
 - [ ] Bootstrap with valid active key → 200 + tipReedID + following
 - [ ] Revoked fingerprint → reject
 - [ ] Unknown userID → 404
-- [ ] Stale challenge → 400
+- [ ] Unknown, expired or reused challenge → 400
 - [ ] Genesis user → `tipReedID` null
 - [ ] Removed reeds excluded from `reedIDs` / tip
 - [ ] Unheld reeds still present in `reedIDs` (no bootstrap-side filter)

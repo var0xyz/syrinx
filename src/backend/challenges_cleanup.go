@@ -1,7 +1,7 @@
 //go:build challengescleanup
 
-// Standalone cron job: deletes recovery claim challenges older than
-// challengeMaxAge. Separate from ripples-cleanup so each runs on its own
+// Standalone cron job: deletes server- and account-recovery challenges older
+// than challengeMaxAge. Separate from ripples-cleanup so each runs on its own
 // schedule and one failing never stops the other.
 //
 // Build: go build -tags challengescleanup -o bin/challenges-cleanup .
@@ -42,13 +42,22 @@ func main() {
 		fail(err)
 	}
 
-	result, err := db.ExecContext(context.Background(),
-		`DELETE FROM recovery_challenges WHERE issued_at <= `+challengeCutoffSQL)
-	if err != nil {
-		fail(err)
+	// One table failing must not stop the other from being cleaned.
+	failed := false
+	for _, table := range []string{"recovery_challenges", "account_recovery_challenges"} {
+		result, err := db.ExecContext(context.Background(),
+			`DELETE FROM `+table+` WHERE issued_at <= `+challengeCutoffSQL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s error: %s: %v\n", time.Now().UTC().Format(time.RFC3339), table, err)
+			failed = true
+			continue
+		}
+		n, _ := result.RowsAffected()
+		fmt.Printf("%s challenges-cleanup: removed %d expired %s row(s)\n", time.Now().UTC().Format(time.RFC3339), n, table)
 	}
-	n, _ := result.RowsAffected()
-	fmt.Printf("%s challenges-cleanup: removed %d expired challenge(s)\n", time.Now().UTC().Format(time.RFC3339), n)
+	if failed {
+		os.Exit(1)
+	}
 }
 
 func fail(err error) {

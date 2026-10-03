@@ -10,22 +10,6 @@ import (
 	"time"
 )
 
-func TestValidateChallengeAge(t *testing.T) {
-	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
-	if err := validateChallengeAge(now.Unix(), now, challengeMaxAge); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateChallengeAge(now.Unix()-59, now, challengeMaxAge); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateChallengeAge(now.Unix()-61, now, challengeMaxAge); err == nil {
-		t.Fatal("expected stale")
-	}
-	if err := validateChallengeAge(now.Unix()+1, now, challengeMaxAge); err == nil {
-		t.Fatal("expected future")
-	}
-}
-
 type fakeRecoveryVerifier struct {
 	failSig       map[string]bool
 	failChallenge map[string]bool
