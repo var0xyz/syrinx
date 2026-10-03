@@ -174,7 +174,7 @@ func TestCreateInvite_Closed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := h.services.db.insertInvite(context.Background(), id, creator, hashSecret(secret), fixed, roleUser, "seed-ufp", "sig"); err != nil {
+	if err := h.services.db.insertInvite(context.Background(), id, creator, hashSecret(secret), fixed, roleUser, "seed-ufp", "sig", maxInvitesUnlimited); err != nil {
 		t.Fatal(err)
 	}
 	_ = db
@@ -226,7 +226,7 @@ func TestInviteStatus_ClaimedBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := h.services.db.insertInvite(context.Background(), id, creator, hashSecret(secret), now, roleUser, "seed-ufp", "sig"); err != nil {
+	if err := h.services.db.insertInvite(context.Background(), id, creator, hashSecret(secret), now, roleUser, "seed-ufp", "sig", maxInvitesUnlimited); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := h.services.db.db.Begin()

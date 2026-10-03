@@ -5858,6 +5858,7 @@ var (
 	errInviteAlreadyClaimed = errors.New("invite already claimed")
 	errInviteAlreadyRevoked = errors.New("invite already revoked")
 	errInviteExists         = errors.New("invite already exists")
+	errInviteLimitReached   = errors.New("invite limit reached")
 	errInviteRequired       = errors.New("invite required")
 	errInvalidInvite        = errors.New("invalid or claimed invite")
 )
@@ -5941,6 +5942,7 @@ func (s *DataService) insertInvite(
 	createdAt time.Time,
 	grantedRole string,
 	userKeyID, userSignatureArmor string,
+	maxInvites int,
 ) error {
 	if grantedRole == "" {
 		grantedRole = "user"
@@ -5951,19 +5953,30 @@ func (s *DataService) insertInvite(
 	}
 	defer tx.Rollback()
 
+	// Under READ COMMITTED, concurrent inserts would each count before the
+	// other commits; serialize them per creator so the quota holds.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "invites:"+creatorID); err != nil {
+		return err
+	}
 	userSignatureID, err := insertUserSignature(ctx, tx, userKeyID, userSignatureArmor)
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO invites (id, created_by, token_hash, created_at, granted_role, user_signature_id)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, id, creatorID, tokenHash, createdAt.UTC(), grantedRole, userSignatureID)
+		SELECT $1, $2::varchar, $3, $4, $5, $6
+		WHERE $7 < 0 OR (SELECT COUNT(*) FROM invites WHERE created_by = $2::varchar) < $7
+	`, id, creatorID, tokenHash, createdAt.UTC(), grantedRole, userSignatureID, maxInvites)
 	if isUniqueViolation(err) {
 		return errInviteExists
 	}
 	if err != nil {
 		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return errInviteLimitReached
 	}
 	return tx.Commit()
 }
