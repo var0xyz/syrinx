@@ -18,7 +18,7 @@
   import Auth from '$lib/components/Auth.svelte';
   import ServerVersionInfo from '$lib/components/ServerVersionInfo.svelte';
   import { notificationStore } from '$lib/stores/notifications';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatAbsoluteDateTime, formatRelativeTime } from '$lib/utils/time';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { userInfoRepository } from '$lib/repositories/userInfo';
@@ -49,6 +49,9 @@
   let isPendingRevocation: boolean = data.keyInfo.isPendingRevocation;
   let isKeyRevoked: boolean = data.keyInfo.isKeyRevoked;
   let revokedInfo: ProfileKeyInfo['revokedInfo'] = data.keyInfo.revokedInfo;
+  let keyRegisteredAt: string | null = data.keyInfo.registeredAt;
+  // Mirrors the server's limit; null when the key can be revoked now.
+  let revokeAvailableAt: string | null = null;
 
   // Export state
   let exporting: boolean = false;
@@ -118,6 +121,7 @@
     isPendingRevocation = info.isPendingRevocation;
     isKeyRevoked = info.isKeyRevoked;
     revokedInfo = info.revokedInfo;
+    keyRegisteredAt = info.registeredAt;
     void refreshActiveKeyMintedAt();
   }
 
@@ -140,7 +144,13 @@
     void loadKeyInfo();
   }
 
+  const KEY_REVOKE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
   function openRevokeModal(): void {
+    const availableAt = keyRegisteredAt
+      ? new Date(keyRegisteredAt).getTime() + KEY_REVOKE_COOLDOWN_MS
+      : 0;
+    revokeAvailableAt = availableAt > Date.now() ? new Date(availableAt).toISOString() : null;
     showRevokeModal = true;
     revokeReason = '';
     revokeEmail = '';
@@ -157,6 +167,7 @@
       notificationStore.error('Please provide a reason for revoking the key');
       return;
     }
+    if (revokeAvailableAt) return;
 
     revoking = true;
     const oldKeyId = activeKeyId;
@@ -267,6 +278,15 @@
           console.error('Failed to fetch revocation certificate (rotation already complete):', revocationFetchError);
         }
       } catch (serverError) {
+        // Rate-limited: retrying won't help, so undo the local rotation.
+        if ((serverError as { status?: number })?.status === 429) {
+          await pendingRevocationRepository.delete(oldKeyId);
+          await privateKeyRepository.deletePrivateKey(newKeyId);
+          notificationStore.dismiss(progressNotificationId);
+          isPendingRevocation = false;
+          isKeyRevoked = false;
+          throw serverError;
+        }
         // Leave pending record in place; syncPending() will retry on reconnect
         console.error('Server revocation failed, will retry on reconnect:', serverError);
         notificationStore.dismiss(progressNotificationId);
@@ -529,32 +549,43 @@
           >
             <div class="modal-content">
               <h3 id="revoke-modal-title">Revoke Encryption Key</h3>
-              <p class="modal-warning">
-                Note: A new pair will be automatically generated and the public key uploaded to the server.
-              </p>
-              <div class="form-group">
-                <label for="revoke-reason">Reason</label>
-                <textarea
-                  id="revoke-reason"
-                  bind:value={revokeReason}
-                  placeholder="e.g., Private key was compromised"
-                  rows="3"
-                  required
-                ></textarea>
-              </div>
-              <div class="form-group">
-                <label for="revoke-email">Email</label>
-                <input
-                  id="revoke-email"
-                  type="email"
-                  bind:value={revokeEmail}
-                  placeholder="Optional"
-                  autocomplete="email"
-                />
-                <div class="help-text">
-                  Used for your new encryption key identity, won't be verified
+              {#if revokeAvailableAt}
+                <p class="modal-warning">
+                  This key was registered less than 24 hours ago. You can revoke it
+                  after {formatAbsoluteDateTime(revokeAvailableAt)}.
+                </p>
+              {:else}
+                <p class="modal-warning">
+                  Note: A new pair will be automatically generated and the public key uploaded to the server.
+                </p>
+                <p class="modal-note">
+                  You can only revoke your key once every 24 hours. Every new key is
+                  stored permanently on the server, so the limit keeps it from filling up.
+                </p>
+                <div class="form-group">
+                  <label for="revoke-reason">Reason</label>
+                  <textarea
+                    id="revoke-reason"
+                    bind:value={revokeReason}
+                    placeholder="e.g., Private key was compromised"
+                    rows="3"
+                    required
+                  ></textarea>
                 </div>
-              </div>
+                <div class="form-group">
+                  <label for="revoke-email">Email</label>
+                  <input
+                    id="revoke-email"
+                    type="email"
+                    bind:value={revokeEmail}
+                    placeholder="Optional"
+                    autocomplete="email"
+                  />
+                  <div class="help-text">
+                    Used for your new encryption key identity, won't be verified
+                  </div>
+                </div>
+              {/if}
               <div class="modal-actions">
                 <button
                   class="action-btn secondary"
@@ -566,7 +597,7 @@
                 <button
                   class="action-btn danger"
                   on:click={revokeKey}
-                  disabled={revoking || !revokeReason.trim()}
+                  disabled={revoking || !revokeReason.trim() || !!revokeAvailableAt}
                 >
                   {revoking ? 'Revoking...' : 'Revoke Key'}
                 </button>
@@ -714,7 +745,7 @@
     border-color: var(--border);
   }
 
-  .action-btn.secondary:hover {
+  .action-btn.secondary:not(:disabled):hover {
     background: var(--input-bg);
     border-color: var(--primary);
   }
@@ -914,7 +945,7 @@
     color: white;
   }
 
-  .action-btn:hover {
+  .action-btn:not(:disabled):hover {
     opacity: 0.9;
     transform: translateY(-1px);
   }
@@ -1062,6 +1093,13 @@
     margin: 0 0 1rem 0;
     color: var(--fg);
     font-size: 1.2rem;
+  }
+
+  .modal-note {
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.4;
+    margin: 0 0 1rem 0;
   }
 
   .modal-warning {

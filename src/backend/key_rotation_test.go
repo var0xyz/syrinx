@@ -2,21 +2,21 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
-
 )
 
 // seedPublicKey inserts a minimal public_keys row directly (not via
 // AddPublicKey, which is the function under test) so a test can seed a
-// predecessor key to rotate away from.
-func seedPublicKey(t *testing.T, ds *DataService, id, owner string) {
+// predecessor key to rotate away from, registered at registeredAt.
+func seedPublicKey(t *testing.T, ds *DataService, id, owner string, registeredAt time.Time) {
 	t.Helper()
 	var serverSigID int64
 	if err := ds.db.QueryRow(
-		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', now()) RETURNING id`,
-		"seed-"+id,
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', $2) RETURNING id`,
+		"seed-"+id, registeredAt.UTC(),
 	).Scan(&serverSigID); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestAddPublicKey_RotatesAtomically(t *testing.T) {
 	_, ds, _, _ := testFederationHandlers(t)
 	user := seedFederationUser(t, ds, "rotuser1", "rotuser1", roleUser)
 	oldKeyID := user + "/oldkey1"
-	seedPublicKey(t, ds, oldKeyID, user)
+	seedPublicKey(t, ds, oldKeyID, user, time.Now().Add(-keyRotationCooldown-time.Hour))
 
 	newKeyID := user + "/newkey1"
 	_, err := ds.AddPublicKey(context.Background(), AddPublicKeyInput{
@@ -81,7 +81,7 @@ func TestAddPublicKey_DoubleRotationRejected(t *testing.T) {
 	_, ds, _, _ := testFederationHandlers(t)
 	user := seedFederationUser(t, ds, "rotuser2", "rotuser2", roleUser)
 	oldKeyID := user + "/oldkey2"
-	seedPublicKey(t, ds, oldKeyID, user)
+	seedPublicKey(t, ds, oldKeyID, user, time.Now().Add(-keyRotationCooldown-time.Hour))
 
 	firstNewKeyID := user + "/newkey2a"
 	if _, err := ds.AddPublicKey(context.Background(), AddPublicKeyInput{
@@ -116,5 +116,42 @@ func TestAddPublicKey_DoubleRotationRejected(t *testing.T) {
 	})
 	if err != ErrPredecessorAlreadyReplaced {
 		t.Fatalf("want ErrPredecessorAlreadyReplaced, got %v", err)
+	}
+}
+
+// TestAddPublicKey_CooldownRejected verifies a key registered less than
+// keyRotationCooldown ago can't be rotated yet, and nothing is written.
+func TestAddPublicKey_CooldownRejected(t *testing.T) {
+	_, ds, _, _ := testFederationHandlers(t)
+	user := seedFederationUser(t, ds, "rotuser3", "rotuser3", roleUser)
+	oldKeyID := user + "/oldkey3"
+	seedPublicKey(t, ds, oldKeyID, user, time.Now().Add(-time.Hour))
+
+	_, err := ds.AddPublicKey(context.Background(), AddPublicKeyInput{
+		ID:                      user + "/newkey3",
+		UserID:                  user,
+		CreatedAt:               time.Now().UTC(),
+		Armor:                   "new-armor",
+		Server:                  ServerSignature{ID: string(canonicalID("test", "new-key-sfp-3")), Armor: "s", SignedAt: time.Now().UTC()},
+		PredecessorID:           oldKeyID,
+		PredecessorSignature:    "predecessor-signs-new-armor",
+		RevocationReason:        "rotating",
+		RevocationUserSignature: "old-key-signs-revocation",
+		RevocationServer:        ServerSignature{ID: string(canonicalID("test", "rev-sfp-3")), Armor: "s", SignedAt: time.Now().UTC()},
+	})
+	var tooSoon *ErrKeyRotationTooSoon
+	if !errors.As(err, &tooSoon) {
+		t.Fatalf("want ErrKeyRotationTooSoon, got %v", err)
+	}
+	if tooSoon.RetryAfter <= 22*time.Hour || tooSoon.RetryAfter > 23*time.Hour {
+		t.Fatalf("RetryAfter = %v, want about 23h", tooSoon.RetryAfter)
+	}
+
+	oldKey, err := ds.GetPublicKey(context.Background(), oldKeyID)
+	if err != nil || oldKey == nil {
+		t.Fatalf("old key not found: key=%v err=%v", oldKey, err)
+	}
+	if oldKey.Revoked {
+		t.Fatal("a rejected rotation must not revoke the predecessor")
 	}
 }

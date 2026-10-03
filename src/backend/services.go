@@ -43,6 +43,19 @@ var (
 	ErrReedFork = errors.New("reed fork: previousID does not match current tip")
 )
 
+// Every rotation stores a new key forever, so the rate is capped per user.
+const keyRotationCooldown = 24 * time.Hour
+
+// ErrKeyRotationTooSoon is returned by AddPublicKey when the predecessor was
+// registered less than keyRotationCooldown ago.
+type ErrKeyRotationTooSoon struct {
+	RetryAfter time.Duration
+}
+
+func (e *ErrKeyRotationTooSoon) Error() string {
+	return "key was rotated too recently"
+}
+
 func isUsernameUniqueViolation(err error) bool {
 	var pqErr *pq.Error
 	if !errors.As(err, &pqErr) || pqErr.Code != "23505" {
@@ -1388,6 +1401,22 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	// Measured from the server's countersignature, not the client-chosen
+	// key creation time.
+	var registeredAt time.Time
+	err = tx.QueryRowContext(ctx, `
+		SELECT ss.signed_at
+		FROM public_keys pk
+		JOIN server_signatures ss ON ss.id = pk.server_signature_id
+		WHERE pk.id = $1
+	`, predecessor).Scan(&registeredAt)
+	if err != nil {
+		return nil, err
+	}
+	if wait := keyRotationCooldown - time.Since(registeredAt); wait > 0 {
+		return nil, &ErrKeyRotationTooSoon{RetryAfter: wait}
 	}
 
 	// A predecessor may be replaced at most once. Re-rotation against
