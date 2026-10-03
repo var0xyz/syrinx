@@ -1,4 +1,4 @@
-//go:build !ops && !ripplescleanup
+//go:build !ops && !ripplescleanup && !challengescleanup
 
 package main
 
@@ -2945,6 +2945,18 @@ type bootstrapAccountRecoveryResponse struct {
 	ReedIDs   []string `json:"reedIDs"`
 }
 
+// validateChallengeAge rejects challenges in the future or older than maxAge.
+func validateChallengeAge(challenge int64, now time.Time, maxAge time.Duration) error {
+	nowUnix := now.UTC().Unix()
+	if challenge > nowUnix {
+		return fmt.Errorf("challenge is in the future")
+	}
+	if nowUnix-challenge > int64(maxAge.Seconds()) {
+		return fmt.Errorf("challenge is stale")
+	}
+	return nil
+}
+
 func (h *Handlers) AccountRecoveryChallenge(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, accountRecoveryChallengeResponse{
 		Challenge: time.Now().UTC().Unix(),
@@ -3014,7 +3026,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := verifyChallengeSignature(req.Challenge, req.Signature, key.Armor, h.services.crypto); err != nil {
+	if err := verifyChallengeSignature(strconv.FormatInt(req.Challenge, 10), req.Signature, key.Armor, h.services.crypto); err != nil {
 		writeResponse(w, http.StatusUnauthorized, err.Error())
 		return
 	}
@@ -3057,9 +3069,12 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 
 // IssueChallenge handles GET /api/recovery/identity/claim.
 func (h *Handlers) IssueChallenge(w http.ResponseWriter, r *http.Request) {
-	writeResponse(w, http.StatusOK, recoveryChallengeResponse{
-		Challenge: time.Now().UTC().Unix(),
-	})
+	nonce, err := h.services.db.IssueRecoveryChallenge(r.Context())
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	writeResponse(w, http.StatusOK, recoveryChallengeResponse{Challenge: nonce})
 }
 
 // ClaimIdentity handles POST /api/recovery/identity/claim.
@@ -3070,9 +3085,14 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now()
-	if err := validateChallengeAge(req.Challenge, now, challengeMaxAge); err != nil {
-		writeResponse(w, http.StatusBadRequest, err.Error())
+	// Consumed before anything else, so a failed claim can't be retried with it.
+	live, err := h.services.db.ConsumeRecoveryChallenge(r.Context(), req.Challenge)
+	if err != nil {
+		internalServerError(w)
+		return
+	}
+	if !live {
+		writeResponse(w, http.StatusBadRequest, "Unknown or expired challenge")
 		return
 	}
 

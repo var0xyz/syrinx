@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -25,32 +26,58 @@ func TestIssueChallenge(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Challenge <= 0 {
-		t.Fatalf("challenge=%d", resp.Challenge)
+	if resp.Challenge == "" {
+		t.Fatal("empty challenge")
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM recovery_challenges WHERE nonce = $1`, resp.Challenge).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("challenge not stored: n=%d err=%v", n, err)
 	}
 }
 
-func TestClaimIdentity_StaleChallenge(t *testing.T) {
-	db := openSignupTestDB(t)
-	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test"})
-	now := time.Now().UTC()
-	body, _ := json.Marshal(recoveryClaimRequest{Challenge: now.Unix() - 120})
+func claimWithChallenge(h *Handlers, challenge string) *httptest.ResponseRecorder {
+	body, _ := json.Marshal(map[string]string{"challenge": challenge})
 	rr := httptest.NewRecorder()
 	h.ClaimIdentity(rr, httptest.NewRequest(http.MethodPost, "/api/recovery/identity/claim", bytes.NewReader(body)))
-	if rr.Code != http.StatusBadRequest {
+	return rr
+}
+
+func TestClaimIdentity_UnknownChallenge(t *testing.T) {
+	db := openSignupTestDB(t)
+	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test"})
+	if rr := claimWithChallenge(h, "never-issued"); rr.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 
-func TestClaimIdentity_FutureChallenge(t *testing.T) {
+func TestClaimIdentity_ExpiredChallenge(t *testing.T) {
 	db := openSignupTestDB(t)
 	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test"})
-	now := time.Now().UTC()
-	body, _ := json.Marshal(recoveryClaimRequest{Challenge: now.Unix() + 5})
-	rr := httptest.NewRecorder()
-	h.ClaimIdentity(rr, httptest.NewRequest(http.MethodPost, "/api/recovery/identity/claim", bytes.NewReader(body)))
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d", rr.Code)
+	nonce, err := h.services.db.IssueRecoveryChallenge(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE recovery_challenges SET issued_at = NOW() - INTERVAL '2 minutes' WHERE nonce = $1`, nonce); err != nil {
+		t.Fatal(err)
+	}
+	if rr := claimWithChallenge(h, nonce); rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "challenge") {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestClaimIdentity_ChallengeIsSingleUse(t *testing.T) {
+	db := openSignupTestDB(t)
+	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test"})
+	nonce, err := h.services.db.IssueRecoveryChallenge(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The first claim fails later (empty profile) but still spends the nonce.
+	if rr := claimWithChallenge(h, nonce); strings.Contains(rr.Body.String(), "challenge") {
+		t.Fatalf("first use rejected the challenge: %s", rr.Body.String())
+	}
+	if rr := claimWithChallenge(h, nonce); rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "challenge") {
+		t.Fatalf("reused challenge: status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -74,8 +101,12 @@ func TestClaimIdentity_BadChallengeSignature(t *testing.T) {
 			ServerSignature: testRecoveryServerSig(serverID, ts),
 		},
 	}
+	nonce, err := h.services.db.IssueRecoveryChallenge(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	body, _ := json.Marshal(recoveryClaimRequest{
-		Challenge: now.Unix(),
+		Challenge: nonce,
 		Signature: "Y2hhbGxlbmdl",
 		Profile:   profile,
 		Key:       root,

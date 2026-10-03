@@ -1,4 +1,4 @@
-//go:build !ops && !ripplescleanup
+//go:build !ops && !ripplescleanup && !challengescleanup
 
 package main
 
@@ -6199,6 +6199,30 @@ var errRecoveryUsernameCollisionLoss = fmt.Errorf("incoming profile lost usernam
 // (profile.ID, follow targets, reed authors/reporters) is a bare userID
 // local to serverID; every identity minted or looked up here uses
 // canonicalID(serverID, userID) — cross-server subjects aren't handled here.
+
+// IssueRecoveryChallenge stores and returns a fresh single-use claim nonce.
+func (s *DataService) IssueRecoveryChallenge(ctx context.Context) (string, error) {
+	buf := make([]byte, 32)
+	if _, err := cryptorand.Read(buf); err != nil {
+		return "", err
+	}
+	nonce := base64.RawURLEncoding.EncodeToString(buf)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO recovery_challenges (nonce) VALUES ($1)`, nonce); err != nil {
+		return "", err
+	}
+	return nonce, nil
+}
+
+// ConsumeRecoveryChallenge deletes nonce and reports whether it was live.
+func (s *DataService) ConsumeRecoveryChallenge(ctx context.Context, nonce string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM recovery_challenges WHERE nonce = $1 AND issued_at > `+challengeCutoffSQL, nonce)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
 
 // saveOwnIdentity upserts a verified own-claim identity + nest. Clears
 // unclaimed_accounts and records the user in ongoing_recoveries.

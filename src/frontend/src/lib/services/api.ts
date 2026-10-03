@@ -1050,7 +1050,7 @@ export const apiService = {
     });
   },
 
-  /** Unauthenticated: GET recovery challenge (unix seconds). */
+  /** Unauthenticated: GET a single-use recovery challenge nonce. */
   async getIdentityClaimChallenge(): Promise<api.IdentityClaimChallenge> {
     return request<api.IdentityClaimChallenge>('/recovery/identity/claim', {
       method: 'GET',

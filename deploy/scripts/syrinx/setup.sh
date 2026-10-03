@@ -400,6 +400,9 @@ CGO_ENABLED=0 go build -ldflags="-w -s" -o "$BUILD_DIR/$APP_NAME" .
 echo -e "\n💻 Building ripples-cleanup cron job (staged — not installed yet)..."
 CGO_ENABLED=0 go build -tags ripplescleanup -ldflags="-w -s" -o "$BUILD_DIR/$APP_NAME-ripples-cleanup" .
 
+echo -e "\n💻 Building challenges-cleanup cron job (staged — not installed yet)..."
+CGO_ENABLED=0 go build -tags challengescleanup -ldflags="-w -s" -o "$BUILD_DIR/$APP_NAME-challenges-cleanup" .
+
 echo -e "\n⚛️  Assembling and transpiling Vite Frontend SPA assets (staged — not published yet)..."
 cd "$BUILD_DIR/src/$FRONTEND_PATH"
 
@@ -418,6 +421,7 @@ npm run build
 echo -e "\n🚀 Both builds succeeded — installing atomically..."
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME" "/usr/local/bin/$APP_NAME"
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME-ripples-cleanup" "/usr/local/bin/$APP_NAME-ripples-cleanup"
+install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME-challenges-cleanup" "/usr/local/bin/$APP_NAME-challenges-cleanup"
 
 # Deletes expired ripple threads every hour. Own log dir under LOG_DIR: the
 # cron job runs as $APP_USER, not root, and needs somewhere it can
@@ -439,6 +443,10 @@ sed -e "s|@APP_USER@|$APP_USER|g" -e "s|@ENV_FILE@|$ENV_FILE|g" -e "s|@APP_NAME@
     -e "s|@JOB_LOG_DIR@|$JOB_LOG_DIR|g" \
     "$BUILD_DIR/src/deploy/jobs/ripples-cleanup.cron" > "/etc/cron.d/$APP_NAME-ripples-cleanup"
 chmod 644 "/etc/cron.d/$APP_NAME-ripples-cleanup"
+sed -e "s|@APP_USER@|$APP_USER|g" -e "s|@ENV_FILE@|$ENV_FILE|g" -e "s|@APP_NAME@|$APP_NAME|g" \
+    -e "s|@JOB_LOG_DIR@|$JOB_LOG_DIR|g" \
+    "$BUILD_DIR/src/deploy/jobs/challenges-cleanup.cron" > "/etc/cron.d/$APP_NAME-challenges-cleanup"
+chmod 644 "/etc/cron.d/$APP_NAME-challenges-cleanup"
 
 # @sveltejs/adapter-static writes to "build" (not Vite's default "dist").
 # Ship into a timestamped release dir and point the `build` symlink at it —

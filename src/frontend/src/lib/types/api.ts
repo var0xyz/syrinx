@@ -134,11 +134,11 @@ export type AccountRecoveryBootstrapResponse = {
 };
 
 export type IdentityClaimChallenge = {
-  challenge: number;
+  challenge: string;
 };
 
 export type IdentityClaimRequest = {
-  challenge: number;
+  challenge: string;
   signature: string;
   profile: User;
   key: RecoveryKeyNode;

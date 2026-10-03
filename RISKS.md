@@ -29,7 +29,6 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | #      | Severity | Area       | Title                                                                  |
 |--------|----------|------------|------------------------------------------------------------------------|
 | H1     | High     | design     | Server is the sole authority binding keys to identities               |
-| M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
 | M9     | Medium   | SPA        | Server-provided counts/hints consumed for trust decisions unsigned     |
 | L2     | Low      | server     | Follow edges carry no user signature                                   |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
@@ -91,16 +90,6 @@ evidence the server never controlled.
 ---
 
 ## Medium
-
-### M2 — Recovery claim challenge is a predictable, untracked timestamp
-**Where:** `handlers.go:3102` (`IssueChallenge` = `now().Unix()`); accepted if
-≤60s old (`recovery.go:39` `challengeMaxAge`, `recovery.go:1045`
-`validateChallengeAge`).
-The "challenge" is neither random nor server-stored nor single-use — the client
-picks any in-window value, and a captured claim request replays for 60s. It
-provides no real anti-replay property.
-**Fix:** issue and persist a random single-use nonce; require the signature to
-cover it; delete on use.
 
 ### M9 — Unsigned server counts/hints consumed for trust decisions
 **Where:** `GET /users/{userID}/info` (`UserInfo`: `followersCount`,
@@ -195,8 +184,6 @@ reset semantics per replica first.
 1. **H1** — break the server's monopoly on key distribution. A design change,
    not a patch; TOFU pinning plus a key-change warning is the cheap first step
    and composes with whatever comes after.
-2. **M2** — fix recovery claim replay before relying on `RECOVERY_MODE` in
-   anger.
-3. **M9** — SPA verification hardening. M9 is H1's near neighbour:
+2. **M9** — SPA verification hardening. M9 is H1's near neighbour:
    `activeKeyID` is an unsigned hint that steers key selection.
-4. **L2 / L3** — follow-edge signing and invite issuer binding.
+3. **L2 / L3** — follow-edge signing and invite issuer binding.
