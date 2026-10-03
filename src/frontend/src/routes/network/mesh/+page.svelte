@@ -381,7 +381,7 @@
                             ? 'revoked'
                             : row.item.disconnectPending
                               ? 'pending'
-                              : row.item.connected
+                              : row.item.established
                                 ? 'connected'
                                 : 'accepted'}
                         >
@@ -389,9 +389,9 @@
                             ? 'Disconnected'
                             : row.item.disconnectPending
                               ? 'Pending disconnect'
-                              : row.item.connected
+                              : row.item.established
                                 ? 'Connected'
-                                : 'Awaiting confirmation'}
+                                : 'Awaiting their approval'}
                         </span>
                       </span>
                       {#if row.item.baseUrl}

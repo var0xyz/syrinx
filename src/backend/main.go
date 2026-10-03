@@ -530,6 +530,9 @@ func main() {
 	api.HandleFunc("/federation/relay/search-users", h.SearchUsersFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/search-users", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/relay/approved-notify", h.ApprovedNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/approved-notify", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/federation/relay/disconnect-notify", h.DisconnectNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/disconnect-notify", h.noop).Methods("OPTIONS")
 

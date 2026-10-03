@@ -227,7 +227,9 @@ func InitDB(db *sql.DB) error {
 		-- Set by the peer's shutdown notice, cleared by its boot notice.
 		down_at TIMESTAMP,
 		-- Where the peer's users open links, as the peer reports it.
-		frontend_url TEXT
+		frontend_url TEXT,
+		-- Set once the peer is seen to have approved us too.
+		peer_approved_at TIMESTAMP
 	);`
 
 	// Normalized attestation rows. public_key_id/private_key_id are not

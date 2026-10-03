@@ -351,6 +351,8 @@ export interface FederationAttemptApproveResponse {
   attemptId: string;
   serverId: string;
   status: 'approved';
+  /** The other server had already approved us, so the connection is up. */
+  established: boolean;
 }
 
 /** An approved peer — servers rows only exist once a FederationAttempt has
@@ -361,6 +363,8 @@ export interface FederationServer {
   baseUrl: string;
   frontendUrl: string;
   connected: boolean;
+  /** Approved on both sides; `connected` alone means only on ours. */
+  established: boolean;
   createdAt: string;
   revoked: boolean;
   revokedAt?: string;

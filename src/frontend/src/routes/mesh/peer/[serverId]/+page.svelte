@@ -182,8 +182,14 @@
             <span class="server-name">{server.name} ({serverId})</span>
             <span
               class="badge"
-              data-status={server.revoked ? 'revoked' : server.disconnectPending ? 'pending' : 'approved'}
-              >{server.revoked ? 'Disconnected' : server.disconnectPending ? 'Pending disconnect' : 'Connected'}</span
+              data-status={server.revoked ? 'revoked' : server.disconnectPending || !server.established ? 'pending' : 'approved'}
+              >{server.revoked
+                ? 'Disconnected'
+                : server.disconnectPending
+                  ? 'Pending disconnect'
+                  : server.established
+                    ? 'Connected'
+                    : 'Awaiting their approval'}</span
             >
           </div>
           {#if server.baseUrl}

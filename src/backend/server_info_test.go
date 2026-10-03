@@ -7,14 +7,15 @@ import (
 	"testing"
 )
 
-// Only approved, connected peers that haven't been disconnected are listed.
+// Only peers approved on both sides that haven't been disconnected are listed.
 func TestListFederatedServers(t *testing.T) {
 	db, rs, _ := newTeardownTestService(t)
 	for _, stmt := range []string{
-		`UPDATE servers SET connected = TRUE, base_url = 'https://api.peer.example', frontend_url = 'https://peer.example', key_id = 'fp@peer5678' WHERE id = 'peer5678'`,
+		`UPDATE servers SET connected = TRUE, base_url = 'https://api.peer.example', frontend_url = 'https://peer.example', key_id = 'fp@peer5678', peer_approved_at = NOW() WHERE id = 'peer5678'`,
 		`INSERT INTO servers (id, name, self, connected, base_url, frontend_url, revoked_at) VALUES ('gone9012', 'gone', FALSE, TRUE, 'https://gone.example', 'https://gone.example', NOW())`,
 		`INSERT INTO servers (id, name, self, connected, base_url, frontend_url) VALUES ('wait3456', 'waiting', FALSE, FALSE, 'https://wait.example', 'https://wait.example')`,
-		`INSERT INTO servers (id, name, self, connected, base_url, frontend_url, disconnect_requested_at) VALUES ('leav7890', 'leaving', FALSE, TRUE, 'https://leaving.example', 'https://leaving.example', NOW())`,
+		`INSERT INTO servers (id, name, self, connected, base_url, frontend_url, disconnect_requested_at, peer_approved_at) VALUES ('leav7890', 'leaving', FALSE, TRUE, 'https://leaving.example', 'https://leaving.example', NOW(), NOW())`,
+		`INSERT INTO servers (id, name, self, connected, base_url, frontend_url) VALUES ('half1234', 'halfway', FALSE, TRUE, 'https://half.example', 'https://half.example')`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatalf("seed: %v", err)

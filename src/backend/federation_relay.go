@@ -1212,6 +1212,39 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, relaySearchUsersResponse{Users: results})
 }
 
+// notifyPeerOfApproval tells serverID we are approving it. A 2xx means it
+// approved us too; a 403 means it hasn't yet. Anything else is an error,
+// and the approval must not stand.
+func (h *Handlers) notifyPeerOfApproval(ctx context.Context, serverID, baseURL string) (bool, error) {
+	if h.approvalNotifierOverride != nil {
+		return h.approvalNotifierOverride(ctx, serverID, baseURL)
+	}
+	status, err := h.callPeerRelayEndpoint(ctx, serverID, baseURL, "/api/federation/relay/approved-notify", struct{}{}, nil)
+	if err != nil {
+		return false, err
+	}
+	switch {
+	case status >= 200 && status < 300:
+		return true, nil
+	case status == http.StatusForbidden:
+		return false, nil
+	default:
+		return false, fmt.Errorf("peer answered %d", status)
+	}
+}
+
+// ApprovedNotifyFromPeer handles a peer telling us it approved us. Peer
+// auth already recorded that, so there is nothing left to do.
+func (h *Handlers) ApprovedNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "approved-notify", true)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type relayDisconnectNotifyPayload struct {
 	Reason string `json:"reason"`
 }
