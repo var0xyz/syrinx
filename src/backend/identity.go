@@ -790,3 +790,17 @@ func buildRippleServerPayload(serverID, reedID, rippleAuthorID, keyID, threadID,
 		userSignature,
 	)
 }
+
+const identityTypeRealtimeAuth = "realtime-auth"
+
+// buildRealtimeAuthPayload returns the bytes a client signs to open a
+// WebSocket. Binding server and user stops a captured handshake from
+// opening a socket anywhere else.
+func buildRealtimeAuthPayload(serverID, userID, timestamp string) []byte {
+	return bytesToSign(map[string]string{
+		"type":      identityTypeRealtimeAuth,
+		"serverID":  serverID,
+		"userID":    userID,
+		"timestamp": timestamp,
+	}, "")
+}

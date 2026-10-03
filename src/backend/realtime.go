@@ -1079,8 +1079,8 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 		return "", fmt.Errorf("failed to decode base64 signature: %w", err)
 	}
 
-	// Verify signature against timestamp directly
-	if err := cryptoSvc.verifySignature(timestamp, decodedSignature, publicKey); err != nil {
+	payload := buildRealtimeAuthPayload(db.GetServerID(), string(selfIdentity), timestamp)
+	if err := cryptoSvc.verifySignature(string(payload), decodedSignature, publicKey); err != nil {
 		log.Error().
 			Str("publicKeyId", publicKeyID).
 			Str("timestamp", timestamp).
