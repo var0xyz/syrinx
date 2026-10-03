@@ -145,7 +145,9 @@ if [ "$CMD" != "setup" ]; then
     DEPLOY_HOST="$(load_saved_host_or_die)"
 
     scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_DIR}/"
-    REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo ./$REMOTE_SCRIPT"
+    # macOS forwards LC_CTYPE=UTF-8 over ssh, which isn't a Linux locale and
+    # makes apt/dpkg/psql's perl warn; C.UTF-8 exists on every Debian host.
+    REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
     for arg in "$@"; do
         REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
     done
@@ -178,7 +180,7 @@ ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_DIR")"
 scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_DIR}/"
 ok "Copied"
 
-REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo ./$REMOTE_SCRIPT"
+REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
 for arg in "$@"; do
     REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
 done
