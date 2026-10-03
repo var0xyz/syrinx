@@ -1,6 +1,8 @@
 import { get, writable } from 'svelte/store';
 
-export const isInstalled = writable(false);
+export const isInstalled = writable(
+  typeof window !== 'undefined' ? isRunningAsPWA() : false
+);
 export const canInstall = writable(false);
 export const isOnline = writable(
   typeof navigator !== 'undefined' ? navigator.onLine : true
@@ -58,11 +60,6 @@ export function initializePWA() {
     return;
   }
   pwaInitialized = true;
-
-  // Check if app is already installed
-  if (window.matchMedia('(display-mode: standalone)').matches) {
-    isInstalled.set(true);
-  }
 
   // Listen for beforeinstallprompt event
   window.addEventListener('beforeinstallprompt', (e) => {
