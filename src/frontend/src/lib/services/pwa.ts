@@ -15,7 +15,8 @@ export const updateAvailable = writable(false);
 type ReconnectListener = () => void;
 const reconnectListeners = new Set<ReconnectListener>();
 
-/** Fires when the device transitions from offline to online. */
+/** Fires when the device transitions from offline to online, or the app
+ * comes back to the foreground (the OS may have killed its socket). */
 export function onReconnect(listener: ReconnectListener): () => void {
   reconnectListeners.add(listener);
   return () => reconnectListeners.delete(listener);
@@ -31,7 +32,8 @@ function notifyReconnect(): void {
   }
 }
 
-function applyOnlineStatus(online: boolean): void {
+/** Returns whether this call fired the reconnect listeners. */
+function applyOnlineStatus(online: boolean): boolean {
   const wasOnline = get(isOnline);
   isOnline.set(online);
 
@@ -48,7 +50,9 @@ function applyOnlineStatus(online: boolean): void {
 
   if (online && !wasOnline) {
     notifyReconnect();
+    return true;
   }
+  return false;
 }
 
 let deferredPrompt: any = null;
@@ -82,11 +86,19 @@ export function initializePWA() {
 
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
-  // Background tabs often miss 'online'; re-check when the page becomes visible.
+  // Background tabs often miss 'online', and a backgrounded app's socket
+  // may be dead while still reporting OPEN: resync on every return.
+  let wasHidden = document.visibilityState === 'hidden';
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      updateOnlineStatus();
+    if (document.visibilityState !== 'visible') {
+      wasHidden = true;
+      return;
     }
+    const notified = updateOnlineStatus();
+    if (wasHidden && !notified && navigator.onLine) {
+      notifyReconnect();
+    }
+    wasHidden = false;
   });
   updateOnlineStatus();
 

@@ -344,14 +344,33 @@ class ServerConnection {
    * short-circuit like `connect()` does.
    */
   async reconnect(): Promise<void> {
-    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
-      const prev = this.ws;
-      this.ws = null;
-      prev.onclose = null;
-      prev.close();
-    }
+    this.detachSocket();
     this.connectingPromise = null;
     return this.connect();
+  }
+
+  /** Drops the current socket without closing it. The server closes it once
+   * the replacement registers, and skips the offline teardown it would run
+   * if our close arrived before the new socket did. */
+  private detachSocket(): void {
+    const prev = this.ws;
+    if (!prev) return;
+    this.ws = null;
+    this.stopHeartbeat();
+    prev.onopen = null;
+    prev.onmessage = null;
+    prev.onerror = null;
+    prev.onclose = null;
+    this.settleInFlight();
+  }
+
+  /** Nothing sent on a socket we've lost will be answered on it. */
+  private settleInFlight(): void {
+    this.dispatchedReedRequests.clear();
+    sessionStorage.removeItem('syncRequestId');
+    const evictions = [...this.pendingEvictions.values()];
+    this.pendingEvictions.clear();
+    evictions.forEach((settle) => settle(false));
   }
 
   async connect(): Promise<void> {
@@ -382,6 +401,7 @@ class ServerConnection {
   }
 
   private async doConnect(): Promise<void> {
+    let ws: WebSocket | null = null;
     try {
       const user = await authService.getCurrentUser();
       if (!user) {
@@ -405,14 +425,8 @@ class ServerConnection {
         }
       }
 
-      // Drop any half-open / stale socket before opening a new one so the
-      // server does not accumulate zombie connections for this user.
-      if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
-        const prev = this.ws;
-        this.ws = null;
-        prev.onclose = null;
-        prev.close();
-      }
+      // Registering the new socket makes the server close any stale one.
+      this.detachSocket();
 
       const timestamp = Math.floor(Date.now() / 1000).toString();
       // Base64 so the armored signature fits in a query parameter.
@@ -427,7 +441,8 @@ class ServerConnection {
       url.searchParams.set('deviceId', ensureDeviceId());
 
       console.log('ServerConnection: connecting...');
-      this.ws = new WebSocket(url.toString());
+      ws = new WebSocket(url.toString());
+      this.ws = ws;
       this.ws.binaryType = 'arraybuffer';
 
       this.ws.onmessage = (event) => {
@@ -502,13 +517,7 @@ class ServerConnection {
         if (this.ws === event.target) {
           this.ws = null;
           this.stopHeartbeat();
-          this.dispatchedReedRequests.clear();
-          sessionStorage.removeItem('syncRequestId');
-          // No ack is coming on a dead socket — settle now instead of
-          // making every in-flight eviction wait out its own timeout.
-          const evictions = [...this.pendingEvictions.values()];
-          this.pendingEvictions.clear();
-          evictions.forEach((settle) => settle(false));
+          this.settleInFlight();
         }
       };
 
@@ -530,11 +539,11 @@ class ServerConnection {
       });
     } catch (error) {
       console.error('ServerConnection: connect failed:', error);
-      if (this.ws) {
-        const failed = this.ws;
+      // A reconnect may have replaced this socket meanwhile; leave that one be.
+      if (ws && this.ws === ws) {
         this.ws = null;
-        failed.onclose = null;
-        failed.close();
+        ws.onclose = null;
+        ws.close();
       }
     }
   }
