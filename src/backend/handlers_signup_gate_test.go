@@ -95,7 +95,7 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 	}
 	inviterCanonical := "inviter@" + h.services.db.GetServerID()
 	id := inviterCanonical + "/" + rawID
-	if err := svc.insertInvite(ctx, id, inviterCanonical, hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
+	if err := svc.insertInvite(ctx, id, inviterCanonical, hash, time.Now().UTC(), roleUser, "seed-ufp", "sig", maxInvitesUnlimited); err != nil {
 		t.Fatal(err)
 	}
 

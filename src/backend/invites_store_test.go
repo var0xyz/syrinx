@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -172,7 +173,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 	id := creator + "/" + rawID
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := svc.insertInvite(ctx, id, creator, hash, now, roleUser, "seed-ufp", "sig"); err != nil {
+	if err := svc.insertInvite(ctx, id, creator, hash, now, roleUser, "seed-ufp", "sig", maxInvitesUnlimited); err != nil {
 		t.Fatalf("insertInvite: %v", err)
 	}
 
@@ -248,7 +249,7 @@ func TestRevokeDistinguishesClaimed(t *testing.T) {
 	}
 	id := creator + "/" + rawID
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := svc.insertInvite(ctx, id, creator, hash, now, roleUser, "seed-ufp", "sig"); err != nil {
+	if err := svc.insertInvite(ctx, id, creator, hash, now, roleUser, "seed-ufp", "sig", maxInvitesUnlimited); err != nil {
 		t.Fatal(err)
 	}
 
@@ -296,7 +297,7 @@ func TestRevokeAndCountIncludesRevoked(t *testing.T) {
 	}
 	id := creator + "/" + rawID
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := svc.insertInvite(ctx, id, creator, hash, now, roleUser, "seed-ufp", "sig"); err != nil {
+	if err := svc.insertInvite(ctx, id, creator, hash, now, roleUser, "seed-ufp", "sig", maxInvitesUnlimited); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.revokeInvite(ctx, id, creator, now.Add(time.Minute)); err != nil {
@@ -314,5 +315,38 @@ func TestRevokeAndCountIncludesRevoked(t *testing.T) {
 	got, err := svc.getInviteByID(ctx, id)
 	if err != nil || got == nil || got.Status() != "revoked" {
 		t.Fatalf("getInviteByID: %+v %v", got, err)
+	}
+}
+
+func TestInsertInvite_ConcurrentQuota(t *testing.T) {
+	db := openInviteStoreTestDB(t)
+	svc := NewDataService(db, "test")
+	svc.setServerIDForTest(inviteStoreTestServerID)
+	ctx := context.Background()
+	seedInviteStoreUser(t, db, "creator1", "alice")
+	creator := "creator1@" + inviteStoreTestServerID
+	now := time.Now().UTC().Truncate(time.Second)
+
+	const attempts, limit = 8, 2
+	errs := make(chan error, attempts)
+	for i := 0; i < attempts; i++ {
+		go func() {
+			raw, _ := newInviteSecret()
+			rawID, _ := newInviteID()
+			errs <- svc.insertInvite(ctx, creator+"/"+rawID, creator, hashSecret(raw), now, roleUser, "seed-ufp", "sig", limit)
+		}()
+	}
+	created := 0
+	for i := 0; i < attempts; i++ {
+		switch err := <-errs; {
+		case err == nil:
+			created++
+		case errors.Is(err, errInviteLimitReached):
+		default:
+			t.Fatalf("insertInvite: %v", err)
+		}
+	}
+	if created != limit {
+		t.Fatalf("created %d invites, want %d", created, limit)
 	}
 }

@@ -5746,18 +5746,6 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if h.cfg.MaxInvitesPerUser != maxInvitesUnlimited {
-		n, err := h.services.db.countInvitesByCreator(r.Context(), caller)
-		if err != nil {
-			writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
-			return
-		}
-		if n >= h.cfg.MaxInvitesPerUser {
-			writeResponse(w, http.StatusForbidden, "Invite limit reached")
-			return
-		}
-	}
-
 	userPayload := buildInviteUserPayload(
 		h.services.db.GetServerID(), caller, req.ID, tokenHashHex, grantedRole, createdAt,
 	)
@@ -5782,10 +5770,14 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.services.db.insertInvite(
 		r.Context(), req.ID, caller, tokenHash, createdAt, grantedRole,
-		req.UserSignature.ID, req.UserSignature.Armor,
+		req.UserSignature.ID, req.UserSignature.Armor, h.cfg.MaxInvitesPerUser,
 	); err != nil {
 		if errors.Is(err, errInviteExists) {
 			writeResponse(w, http.StatusConflict, "Invite already exists")
+			return
+		}
+		if errors.Is(err, errInviteLimitReached) {
+			writeResponse(w, http.StatusForbidden, "Invite limit reached")
 			return
 		}
 		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")

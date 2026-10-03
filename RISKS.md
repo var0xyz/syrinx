@@ -32,7 +32,6 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | H6     | High     | server     | WebSocket auth signature is replayable and unbound to user/server      |
 | M2     | Medium   | server     | Recovery claim challenge is a predictable, untracked timestamp         |
 | M4     | Medium   | server     | WS `DATA_ACK`/relay handlers change state with no caller authorization |
-| M6     | Medium   | server     | Per-user invite quota is a check-then-insert race                      |
 | M7     | Medium   | SPA        | Verification clock advanced by attacker-controlled timestamp           |
 | M8     | Medium   | SPA        | `verifySignature` silently falls back binary→text mode                 |
 | M9     | Medium   | SPA        | Server-provided counts/hints consumed for trust decisions unsigned     |
@@ -134,14 +133,6 @@ and content injection is caught client-side via `DATA_INVALID`. Still, a
 security-relevant state change is keyed only on a bearer id.
 **Fix:** verify `client.userID == pe.RequesterUserID` in ACK/INVALID handlers,
 and that `client.userID` is an actual online holder before relay allocation.
-
-### M6 — Per-user invite quota is a check-then-insert race
-**Where:** `services.go:5867` (`countInvitesByCreator`) then `insertInvite`, no
-atomic guard).
-Concurrent `POST /api/invites` all pass the count check before any insert
-commits, exceeding `MAX_INVITES_PER_USER`.
-**Fix:** enforce in DB (conditional insert on a subquery count, partial
-constraint, or `FOR UPDATE`/advisory lock on `created_by`).
 
 ### M7 — SPA verification clock advanced by attacker-controlled timestamp
 **Where:** `src/frontend/src/lib/services/crypto.ts:23-38` (`verificationDate`)
@@ -265,8 +256,8 @@ reset semantics per replica first.
 2. **H6** — bind and nonce the WebSocket handshake.
 3. **M2** — fix recovery claim replay before relying on `RECOVERY_MODE` in
    anger.
-4. **M4 / M6 / M7 / M8 / M9** — realtime authorization,
-   invite-quota atomicity, and SPA verification hardening. M9 is H1's
+4. **M4 / M7 / M8 / M9** — realtime authorization and SPA verification
+   hardening. M9 is H1's
    near neighbour: `activeKeyID` is an unsigned hint that steers key selection.
 5. **L1 / L2 / L3** — recovery ingest signature checks, follow-edge validation,
    and invite issuer binding.

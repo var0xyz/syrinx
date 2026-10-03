@@ -207,7 +207,7 @@ func TestSignup_ConsumeInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := "inviter@srv/" + rawID
-	if err := svc.insertInvite(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
+	if err := svc.insertInvite(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleUser, "seed-ufp", "sig", maxInvitesUnlimited); err != nil {
 		t.Fatal(err)
 	}
 	invRow, err := svc.getInviteByTokenHash(ctx, hash)
@@ -266,7 +266,7 @@ func TestSignup_OpenValidToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := "inviter@srv/" + rawID
-	if err := svc.insertInvite(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleUser, "seed-ufp", "sig"); err != nil {
+	if err := svc.insertInvite(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleUser, "seed-ufp", "sig", maxInvitesUnlimited); err != nil {
 		t.Fatal(err)
 	}
 	invRow, err := svc.getInviteByTokenHash(ctx, hash)
@@ -367,7 +367,7 @@ func TestSignup_AdminInviteGrantsAdminRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := "inviter@srv/" + rawID
-	if err := svc.insertInvite(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleAdmin, "seed-ufp", "sig"); err != nil {
+	if err := svc.insertInvite(ctx, id, "inviter@srv", hash, time.Now().UTC(), roleAdmin, "seed-ufp", "sig", maxInvitesUnlimited); err != nil {
 		t.Fatal(err)
 	}
 	invRow, err := svc.getInviteByTokenHash(ctx, hash)
