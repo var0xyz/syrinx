@@ -36,7 +36,7 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | M8     | Medium   | SPA        | `verifySignature` silently falls back binary→text mode                 |
 | M9     | Medium   | SPA        | Server-provided counts/hints consumed for trust decisions unsigned     |
 | L1     | Low      | server     | Reed author signature never verified on recovery ingest                |
-| L2     | Low      | server     | `FollowUser`/`UnfollowUser` unsigned + no target validation            |
+| L2     | Low      | server     | Follow edges carry no user signature                                   |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
 | A2     | Arch     | server     | `profile_subscriptions` needs explicit teardown on disconnect          |
 
@@ -186,14 +186,11 @@ forged reed).
 **Fix:** bind the author fingerprint into the reed countersign header set, or
 verify the user signature against the resolved author key on ingest.
 
-### L2 — `FollowUser`/`UnfollowUser` are unsigned and don't validate the target
-**Where:** `handlers.go:591-622`. Follows carry no per-edge user signature (a
-documented recovery limitation) and the target `userID` isn't checked for
-existence before the DB call (a non-existent target hits an FK error → 500).
-Follow edges cannot be cryptographically re-attributed after a wipe, and the
-handler leaks a 500-vs-204 oracle for user existence / allows junk edge attempts.
-**Fix:** validate the target exists and return a clean 404; consider signing
-follow edges if recovery fidelity matters.
+### L2 — Follow edges carry no user signature
+**Where:** `FollowUser`/`UnfollowUser` (`handlers.go`). Follows carry no
+per-edge user signature (a documented recovery limitation), so follow edges
+cannot be cryptographically re-attributed after a wipe.
+**Fix:** sign follow edges if recovery fidelity matters.
 
 ### L3 — `verifyInvite` binds to local `userId`, not a signed issuer
 **Where:** `src/frontend/src/lib/verifiers/index.ts:684-700` — the payload `userID` is
@@ -257,7 +254,7 @@ reset semantics per replica first.
 3. **M2** — fix recovery claim replay before relying on `RECOVERY_MODE` in
    anger.
 4. **M4 / M7 / M8 / M9** — realtime authorization and SPA verification
-   hardening. M9 is H1's
-   near neighbour: `activeKeyID` is an unsigned hint that steers key selection.
-5. **L1 / L2 / L3** — recovery ingest signature checks, follow-edge validation,
+   hardening. M9 is H1's near neighbour: `activeKeyID` is an unsigned hint
+   that steers key selection.
+5. **L1 / L2 / L3** — recovery ingest signature checks, follow-edge signing,
    and invite issuer binding.

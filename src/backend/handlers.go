@@ -970,6 +970,10 @@ func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 	if _, isPeer := r.Context().Value(peerServerIDKey).(string); isPeer {
 		h.upsertRemoteIdentity(r.Context(), log, followerID)
 		if err := h.services.db.RecordRemoteFollower(r.Context(), userID, followerID); err != nil {
+			if errors.Is(err, ErrFollowTargetNotFound) {
+				writeResponse(w, http.StatusNotFound, "User not found")
+				return
+			}
 			log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error recording remote follower")
 			internalServerError(w)
 			return
