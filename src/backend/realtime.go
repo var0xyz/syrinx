@@ -1556,16 +1556,8 @@ func (rs *realtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 	// don't also get a redundant FOLLOW_REED for the same reply.
 	followersOnly = subtractUserIDs(followersOnly, excludeFromFollowers)
 
-	// An admin who already gets the reed via FOLLOW_REED/PIPE_REED doesn't
-	// also need ARCHIVE_REED — the reed lands in their local store either
-	// way, so archival-only delivery is for admins with no other route to it.
-	archiveOnly := subtractUserIDs(onlineAdmins, unionUserIDs(followersOnly, pipeListeners))
-	rs.dispatchMany(archiveOnly, archiveReedEvent, reedID)
-
 	durable := unionUserIDs(followersOnly, pipeListeners)
 	broadcastOnly := subtractUserIDs(broadcastRecipients, durable)
-	// Admins covered by ARCHIVE_REED above don't also need BROADCAST_REED.
-	broadcastOnly = subtractUserIDs(broadcastOnly, archiveOnly)
 
 	log.Info().
 		Str("userID", authorUserID).
@@ -1583,6 +1575,14 @@ func (rs *realtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 			Err(err).
 			Msg("Failed to get profile subscribers from database")
 	}
+
+	// Archival has the least precedence. BROADCAST_REED isn't stored, so
+	// broadcast subscribers still get the archive copy.
+	covered := unionUserIDs(durable, excludeFromFollowers)
+	for _, sub := range profileSubscribers {
+		covered = append(covered, sub.ViewerUserID)
+	}
+	rs.dispatchMany(subtractUserIDs(onlineAdmins, covered), archiveReedEvent, reedID)
 
 	for _, sub := range profileSubscribers {
 		// A foreign viewer's own server gets new-reed and dispatches it.
