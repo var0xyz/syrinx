@@ -60,6 +60,9 @@ permissions and are never committed to git.
   this host's current public IP. Only installed under `EDGE_MODE=mtls`
   (Cloudflare Tunnel mode doesn't need it — DNS there points at Cloudflare,
   not this host).
+- **`node.sh`** — not run directly; sourced by `setup.sh`/`update.sh` to
+  install the Node.js LTS from NodeSource (Debian's packaged Node is too old
+  for the frontend tooling). A no-op once the right major version is present.
 
 ## First run
 

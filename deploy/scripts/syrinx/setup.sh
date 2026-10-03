@@ -53,6 +53,8 @@ SETUP_ENV="$SCRIPT_DIR/setup.env"
 . "$SCRIPT_DIR/mtls.sh"
 # shellcheck source=ddns.sh
 . "$SCRIPT_DIR/ddns.sh"
+# shellcheck source=node.sh
+. "$SCRIPT_DIR/node.sh"
 
 if [ -f "$SETUP_ENV" ]; then
     # shellcheck disable=SC1090
@@ -226,7 +228,8 @@ echo -e "\n⚙️  Validating target dependency versions on Debian Trixie..."
 # doesn't override — hangs a non-tty run on any package with changelogs.
 export DEBIAN_FRONTEND=noninteractive
 APT_LISTCHANGES_FRONTEND=none apt update
-APT_LISTCHANGES_FRONTEND=none apt install -y curl git postgresql postgresql-contrib ufw nodejs npm wget build-essential nginx openssl
+APT_LISTCHANGES_FRONTEND=none apt install -y curl git postgresql postgresql-contrib ufw wget build-essential nginx openssl
+node_ensure
 
 # Ensure local system firewall blocks edge attempts (Zero ports open externally
 # in cloudflare mode; mtls mode needs 443 reachable for its direct edge).
