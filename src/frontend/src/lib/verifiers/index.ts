@@ -405,6 +405,7 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     reedServerID,
     reed.id,
     reedServerFingerprint,
+    reed.userSignature.id,
     reed.userSignature.armor,
     signedAtHeader(reed.serverSignature.timestamp)
   );

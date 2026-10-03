@@ -166,11 +166,13 @@ export function buildReedPayload(
   serverID: string,
   reedID: string,
   serverKeyFingerprint: string,
+  authorKeyID: string,
   userSignature: string,
   timestamp: string
 ): string {
   return stringToSign(
     {
+      authorKeyID,
       fingerprint: serverKeyFingerprint,
       serverID,
       reedID,

@@ -145,8 +145,10 @@ func buildProfilePayload(
 // the reed's identity, so there's no separate authorID header. Binding the
 // fingerprint lets a verifier with multiple historical server keys pick the
 // right one and keeps the signer's own identity covered by the signature.
-func reedCountersignHeaders(serverID, reedID, fingerprint string, ts time.Time) map[string]string {
+// authorKeyID binds the key the author signed with, so it can't be relabelled.
+func reedCountersignHeaders(serverID, reedID, fingerprint, authorKeyID string, ts time.Time) map[string]string {
 	return map[string]string{
+		"authorKeyID": authorKeyID,
 		"fingerprint": fingerprint,
 		"serverID":    serverID,
 		"reedID":      reedID,
@@ -166,6 +168,7 @@ func buildReedPayload(
 	serverID,
 	reedID,
 	fingerprint,
+	authorKeyID,
 	signature string,
 	timestamp time.Time,
 ) []byte {
@@ -174,6 +177,7 @@ func buildReedPayload(
 			serverID,
 			reedID,
 			fingerprint,
+			authorKeyID,
 			timestamp,
 		),
 		signature,
