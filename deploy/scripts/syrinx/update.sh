@@ -43,6 +43,8 @@ SETUP_ENV="$SCRIPT_DIR/setup.env"
 . "$SCRIPT_DIR/mtls.sh"
 # shellcheck source=ddns.sh
 . "$SCRIPT_DIR/ddns.sh"
+# shellcheck source=node.sh
+. "$SCRIPT_DIR/node.sh"
 
 if [ ! -f "$SETUP_ENV" ]; then
     echo "❌ Error: missing $SETUP_ENV — run setup first."
@@ -164,6 +166,7 @@ CGO_ENABLED=0 go build -ldflags="-w -s" -o "$BUILD_DIR/$APP_NAME" .
 echo -e "\n💻 Building ripples-cleanup cron job (staged — not installed yet)..."
 CGO_ENABLED=0 go build -tags ripplescleanup -ldflags="-w -s" -o "$BUILD_DIR/$APP_NAME-ripples-cleanup" .
 
+node_ensure
 echo -e "\n⚛️  Building SPA (staged — not published yet)..."
 cd "$BUILD_DIR/src/$FRONTEND_PATH"
 npm install
