@@ -1,4 +1,4 @@
-.PHONY: help build run up down clean test setup-env ops export-identity import-identity ripples-cleanup proto
+.PHONY: help build run up down clean test setup-env ops export-identity import-identity ripples-cleanup challenges-cleanup proto
 
 # Default target
 help:
@@ -9,6 +9,7 @@ help:
 	@echo "  export-identity  - Build ops and run export-identity"
 	@echo "  import-identity  - Build ops (pass infile: make import-identity FILE=...)"
 	@echo "  ripples-cleanup  - Build the ripples expiry cron job (bin/ripples-cleanup)"
+	@echo "  challenges-cleanup - Build the recovery challenge expiry cron job (bin/challenges-cleanup)"
 	@echo "  proto            - Regenerate Go + TS code from src/backend/proto/*.proto"
 	@echo "  up               - Run service with Docker Compose"
 	@echo "  down             - Stop all docker services"
@@ -45,6 +46,11 @@ ripples-cleanup:
 	@echo "Building ripples-cleanup..."
 	@mkdir -p bin
 	go build -C src/backend -tags ripplescleanup -o ../../bin/ripples-cleanup .
+
+challenges-cleanup:
+	@echo "Building challenges-cleanup..."
+	@mkdir -p bin
+	go build -C src/backend -tags challengescleanup -o ../../bin/challenges-cleanup .
 
 # Run targets for development
 run:

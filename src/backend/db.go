@@ -1111,6 +1111,13 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
+	// Single-use claim challenges; the cleanup job deletes expired ones.
+	createRecoveryChallengesTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS recovery_challenges (
+		nonce VARCHAR(64) PRIMARY KEY,
+		issued_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);`
+
 	createOngoingRecoveriesTable := `
 	CREATE TABLE IF NOT EXISTS ongoing_recoveries (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -1409,6 +1416,8 @@ func InitDB(db *sql.DB) error {
 		createUnclaimedAccountsTable,
 
 		createOngoingRecoveriesTable,
+
+		createRecoveryChallengesTable,
 
 		createPendingFollowsTable,
 		createPendingFollowsIndexes,

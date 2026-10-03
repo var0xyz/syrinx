@@ -17,9 +17,9 @@ public-key chain. See [README](README.md) *Phase 1a*, *Nested key chain*.
 ## Scope
 
 - Wire types + nest flatten/verify under `syrinx/recovery`.
-- `GET /api/recovery/identity/claim` → `{ challenge: <unix seconds> }`.
+- `GET /api/recovery/identity/claim` → `{ challenge: <single-use nonce> }`.
 - `POST /api/recovery/identity/claim` → `{ challenge, signature, profile, key }`.
-- Validate challenge ≤ 60s; verify full nest (server countersigs + predecessor
+- Consume the nonce (unknown, used, or >60s old rejects); verify full nest (server countersigs + predecessor
   links + optional revocations); verify challenge sig with outermost key.
 - Upsert user by verbatim `userID`, newest-wins on `server_signed_at`;
   username collision → rename loser with permanent suffix.

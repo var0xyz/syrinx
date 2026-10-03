@@ -131,7 +131,8 @@ record). The owner **claims** via a challenge-response:
    the **full nested public-key chain** (active key → … → signup key), each
    node optionally carrying a revocation.
 
-The server checks the challenge is ≤ 60 seconds old and that the signature
+The server consumes the challenge nonce (rejecting one that is unknown, already
+used, or older than 60 seconds) and checks that the signature
 matches the outermost (active) key, then verifies profile + every key /
 revocation / predecessor link. Only the private-key holder can claim; a peer
 who merely holds a cached profile cannot.
@@ -585,14 +586,15 @@ first), not “data already on this device.”
 
 ### Phase 1a — Own identity claim
 
-**`GET /api/recovery/identity/claim`** → `{ "challenge": <unix seconds> }`.
+**`GET /api/recovery/identity/claim`** → `{ "challenge": "<single-use nonce>" }`.
+The server stores each nonce; the hourly cleanup job deletes expired ones.
 
 **`POST /api/recovery/identity/claim`** body:
 
 ```json
 {
-  "challenge": 1710000000,
-  "signature": "<base64 detached PGP sig over the decimal challenge>",
+  "challenge": "<nonce>",
+  "signature": "<base64 detached PGP sig over the nonce>",
   "profile": { "...User..." },
   "key": { "...nested KeyNode..." }
 }
@@ -600,7 +602,8 @@ first), not “data already on this device.”
 
 Steps:
 
-1. Reject if challenge is in the future or older than **60 seconds**.
+1. Consume the nonce; reject if it is unknown, already used, or older than
+   **60 seconds**.
 2. Verify the nested key chain (full chain, server countersigs, predecessor
    links, optional revocations); require `server.id == serverID`.
 3. Verify `signature` over the challenge with the **outermost** public key.
@@ -818,7 +821,7 @@ Deferred:
 - **SPA restore**: backup-first unified flow; import vs recovery is decided by
   the probe + `recoveryMode`, not by the user ([10](10_spa_unified_restore.md)).
   Supersedes implemented [08](08_spa_recovery_landing.md).
-- **Own claim**: `GET`/`POST /api/recovery/identity/claim` with a ≤60s challenge
+- **Own claim**: `GET`/`POST /api/recovery/identity/claim` with a single-use ≤60s nonce
   signed by the active key; body carries profile + **full nested** key chain.
   Creates a claimed user or claims a peer-seeded one (deletes
   `unclaimed_accounts`) and inserts `ongoing_recoveries`.

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -37,6 +36,9 @@ var errRecoveryNoIdentityFound = fmt.Errorf(
 const bundleVersion = 1
 
 const challengeMaxAge = 60 * time.Second
+
+// challengeCutoffSQL is the issued_at before which a claim challenge has expired.
+var challengeCutoffSQL = fmt.Sprintf("NOW() - make_interval(secs => %d)", int64(challengeMaxAge/time.Second))
 
 // recoveryBundle is the plaintext identity export (before symmetric encryption).
 type recoveryBundle struct {
@@ -715,7 +717,7 @@ type recoveryKeyNode struct {
 
 // recoveryClaimRequest is the POST /api/recovery/identity/claim body.
 type recoveryClaimRequest struct {
-	Challenge int64           `json:"challenge"`
+	Challenge string          `json:"challenge"`
 	Signature string          `json:"signature"`
 	Profile   recoveryProfile `json:"profile"`
 	Key       recoveryKeyNode `json:"key"`
@@ -729,7 +731,7 @@ type recoveryPeerIdentityRequest struct {
 
 // recoveryChallengeResponse is the GET /api/recovery/identity/claim body.
 type recoveryChallengeResponse struct {
-	Challenge int64 `json:"challenge"`
+	Challenge string `json:"challenge"`
 }
 
 // recoveryReedRequest is the POST /api/recovery/reeds body.
@@ -977,18 +979,6 @@ func verifyRecoveryRevocation(ctx context.Context, rev *recoveryRevocation, key 
 	return v.verifySignature(string(serverPayload), serverSigArmor, serverPub)
 }
 
-// validateChallengeAge rejects challenges in the future or older than maxAge.
-func validateChallengeAge(challenge int64, now time.Time, maxAge time.Duration) error {
-	nowUnix := now.UTC().Unix()
-	if challenge > nowUnix {
-		return fmt.Errorf("challenge is in the future")
-	}
-	if nowUnix-challenge > int64(maxAge.Seconds()) {
-		return fmt.Errorf("challenge is stale")
-	}
-	return nil
-}
-
 // requireUnrevokedTip refuses a claim whose newest key carries a
 // revocation: a revoked key must never sign a new claim.
 func requireUnrevokedTip(active recoveryFlatKey) error {
@@ -999,11 +989,9 @@ func requireUnrevokedTip(active recoveryFlatKey) error {
 }
 
 // verifyChallengeSignature checks an armored detached sig over the
-// decimal challenge string using the outermost public key.
-func verifyChallengeSignature(challenge int64, signature, publicKeyArmor string, v recoveryVerifier) error {
-	sigArmor := signature
-	msg := strconv.FormatInt(challenge, 10)
-	if err := v.verifySignature(msg, sigArmor, publicKeyArmor); err != nil {
+// challenge nonce using the outermost public key.
+func verifyChallengeSignature(challenge, signature, publicKeyArmor string, v recoveryVerifier) error {
+	if err := v.verifySignature(challenge, signature, publicKeyArmor); err != nil {
 		return fmt.Errorf("challenge signature: %w", err)
 	}
 	return nil

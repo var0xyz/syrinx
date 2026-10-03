@@ -87,7 +87,7 @@ export async function claimOwnIdentity(): Promise<api.User> {
   await requestSigner.initializeWorker(activeKeyId);
 
   const { challenge } = await apiService.getIdentityClaimChallenge();
-  const signature = await requestSigner.sign(String(challenge));
+  const signature = await requestSigner.sign(challenge);
 
   const claimed = await apiService.claimOwnIdentity({
     challenge,

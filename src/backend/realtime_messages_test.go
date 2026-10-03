@@ -1,4 +1,4 @@
-//go:build !ops && !ripplescleanup
+//go:build !ops && !ripplescleanup && !challengescleanup
 
 package main
 

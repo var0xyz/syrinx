@@ -43,7 +43,7 @@ Vocabulary:
 
 Repo layout: `src/backend/` and `src/frontend/` hold all Go and SvelteKit
 source respectively; everything else (`specs/`, `docs/`, `deploy/` — incl.
-the ripples-cleanup cron job at `deploy/jobs/` — `scripts/`, root-level
+the ripples-cleanup and challenges-cleanup cron jobs at `deploy/jobs/` — `scripts/`, root-level
 `Makefile`/`Dockerfile*`/`docker-compose.yml`) stays at the repo root.
 `cli/` (a separate `syrinx-cli` Go module — a standalone CLI tool, unrelated
 to the server) also stays at repo root.
@@ -112,7 +112,7 @@ The only Go code outside `package main` is `observability/`,
 a real DI interface (`metrics.Recorder`) or can't be `package main`
 (generated protobuf code) respectively.
 
-Files are the "main" package (`//go:build !ops && !ripplescleanup` unless
+Files are the "main" package (`//go:build !ops && !ripplescleanup && !challengescleanup` unless
 noted); most feature areas that used to be a subpackage now have a
 same-named root file instead:
 
@@ -161,7 +161,7 @@ same-named root file instead:
   their payloads as JSON, including a base64-wrapped protobuf `WSMessage`
   for the live reed-stats push bridge.
 - `constants.go`, `utils.go`, `logger.go`, `spa_handler.go`, `ops.go`,
-  `ripples_cleanup.go`, `mailbox.go`, `mentions.go`, `federation_relay.go`,
+  `ripples_cleanup.go`, `challenges_cleanup.go`, `mailbox.go`, `mentions.go`, `federation_relay.go`,
   `root.go`, `wire.go`.
 - `observability/`, `observability/metrics/` — the one still-independent
   subpackage with a real DI interface (`metrics.Recorder`, `Noop`/`OTEL`
