@@ -91,7 +91,7 @@ export default defineConfig({
       // Custom SW: PGP signing + app-shell precache (injectManifest).
       registerType: 'autoUpdate',
       injectRegister: false,
-      includeAssets: ['icons/icon.svg', 'icons/android-chrome-192x192.png', 'icons/android-chrome-512x512.png'],
+      includeAssets: ['favicon.ico', 'icons/icon.svg', 'icons/android-chrome-192x192.png', 'icons/android-chrome-512x512.png'],
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'service-worker.ts',
