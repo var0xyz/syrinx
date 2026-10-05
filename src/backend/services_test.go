@@ -88,8 +88,19 @@ func TestFormatReedRef(t *testing.T) {
 }
 
 func TestCountMarkdownCharacters(t *testing.T) {
-	if got := CountMarkdownCharacters("*bold*"); got != 4 {
-		t.Fatalf("got %d want 4", got)
+	tests := []struct {
+		in   string
+		want int
+	}{
+		{"*bold*", 4},
+		{"    ", 0},
+		{"     a", 1},
+		{"\n  *a*  \n", 1},
+	}
+	for _, tc := range tests {
+		if got := CountMarkdownCharacters(tc.in); got != tc.want {
+			t.Fatalf("CountMarkdownCharacters(%q) = %d, want %d", tc.in, got, tc.want)
+		}
 	}
 }
 

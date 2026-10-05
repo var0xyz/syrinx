@@ -1552,6 +1552,25 @@ func (s *DataService) ResolveThreadIDForParent(ctx context.Context, parent ReedR
 	return threadID, nil
 }
 
+// SelfReplyChainLength counts parentReedID and its ancestors up the reply
+// chain while each is authored by authorID, stopping once it reaches limit.
+func (s *DataService) SelfReplyChainLength(ctx context.Context, parentReedID, authorID string, limit int) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		WITH RECURSIVE chain(id, depth) AS (
+			SELECT $1::text, 1
+			UNION ALL
+			SELECT rr.parent_reed_id::text, c.depth + 1
+			FROM chain c
+			JOIN reed_replies rr ON rr.reed_id = c.id
+			WHERE left(rr.parent_reed_id, length($2) + 1) = $2 || '/'
+			  AND c.depth < $3
+		)
+		SELECT max(depth) FROM chain
+	`, parentReedID, authorID, limit).Scan(&n)
+	return n, err
+}
+
 // InsertReply records a direct reply in reed_replies. replyReedID is canonical.
 func (s *DataService) InsertReply(
 	ctx context.Context,
@@ -3176,6 +3195,7 @@ func (s *LoggingService) GetLogger(ctx context.Context) *zerolog.Logger {
 const (
 	MaxReedVisibleChars = 140
 	MaxReedRawChars     = 1400
+	MaxThreadReeds      = 30
 )
 
 var (
@@ -3189,7 +3209,7 @@ var (
 )
 
 // CountMarkdownCharacters strips formatting syntax before counting runes
-// (aligned with the SPA visible-character budget).
+// (aligned with the SPA visible-character budget), ignoring surrounding whitespace.
 func CountMarkdownCharacters(text string) int {
 	if text == "" {
 		return 0
@@ -3202,7 +3222,7 @@ func CountMarkdownCharacters(text string) int {
 	result = reItalic.ReplaceAllString(result, "$1")
 	result = reBold.ReplaceAllString(result, "$1")
 	result = reHashtag.ReplaceAllString(result, "$1$2")
-	return utf8.RuneCountInString(result)
+	return utf8.RuneCountInString(strings.TrimSpace(result))
 }
 
 // ================= //
