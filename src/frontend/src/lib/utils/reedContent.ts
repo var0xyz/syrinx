@@ -5,6 +5,9 @@
 export const MAX_REED_VISIBLE_CHARS = 140;
 export const MAX_REED_RAW_CHARS = 1400;
 
+/** Most reeds one thread may chain; the server enforces the same cap. */
+export const MAX_THREAD_REEDS = 30;
+
 /**
  * Mentions (~userID@serverID) render as "@username" — an unknown length
  * until resolved — so the visible-character budget counts only the userID
@@ -21,6 +24,7 @@ function stripMentionsToUserID(text: string): string {
  * Supports: bold (*text*), italic (_text_), strikethrough (~text~),
  * inline code (`text`), links [text](url), code fences, hashtag #,
  * mentions (~userID@serverID, counted as userID length only).
+ * Leading and trailing whitespace is not counted.
  */
 export function countMarkdownCharacters(text: string): number {
   if (!text) return 0;
@@ -36,7 +40,7 @@ export function countMarkdownCharacters(text: string): number {
   result = result.replace(/\*([^*]+)\*/g, '$1');
   result = result.replace(/(^|\s)#(?=\S)/g, '$1');
 
-  return result.length;
+  return result.trim().length;
 }
 
 /** True when content is within both the raw and markdown-visible caps. */

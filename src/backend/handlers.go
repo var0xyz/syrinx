@@ -1884,6 +1884,20 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			internalServerError(w)
 			return
 		}
+		// Replying to yourself extends your own thread, which is capped.
+		if replyRef.CanonicalAuthorID() == userID {
+			n, err := h.services.db.SelfReplyChainLength(r.Context(), FormatReedRef(*replyRef), userID, MaxThreadReeds)
+			if err != nil {
+				log.Error().Err(err).Msg("Error measuring thread length")
+				internalServerError(w)
+				return
+			}
+			if n >= MaxThreadReeds {
+				log.Warn().Str("userID", userID).Str("replying", replying).Msg("Thread reed limit reached")
+				writeResponse(w, http.StatusBadRequest, fmt.Sprintf("A thread cannot have more than %d reeds", MaxThreadReeds))
+				return
+			}
+		}
 	}
 
 	// Mentions are claimed metadata now. Local mentions still get an
