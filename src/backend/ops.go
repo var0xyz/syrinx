@@ -62,6 +62,14 @@ func main() {
 		if err := runRotatePassphrase(); err != nil {
 			fail(err)
 		}
+	case "rotate-key":
+		reason, compromised, err := parseRotateKeyArgs(os.Args[2:])
+		if err != nil {
+			fail(err)
+		}
+		if err := runRotateKey(reason, compromised); err != nil {
+			fail(err)
+		}
 	case "print-key":
 		if err := runPrintKey(); err != nil {
 			fail(err)
@@ -101,6 +109,14 @@ Commands:
       Re-wrap private_keys under a new server key passphrase, update the
       OS keychain when not using SERVER_KEY_PASSPHRASE, and remind you to
       re-export the identity bundle.
+
+  rotate-key ["reason"] [--compromised]
+      Mint a new server signing key and revoke the current one in favour of
+      it; both keys sign the revocation. The old key stays trusted for what
+      it signed, and clients and peers move to the new key on their own.
+      With --compromised (a reason is then required), nothing new backed by
+      the old key is accepted, and users and peer admins must confirm the new
+      key out-of-band (hand it out with print-key). Restart the server after.
 
   print-key
       Print this server's own public signing key armor to stdout, for an
@@ -305,6 +321,53 @@ func runRotatePassphrase() error {
 
 	fmt.Fprintln(os.Stderr, "Re-export the identity bundle now (bundle password will be prompted again):")
 	fmt.Fprintln(os.Stderr, "  ops export-identity")
+	return nil
+}
+
+// parseRotateKeyArgs reads an optional quoted reason and --compromised, in
+// any order.
+func parseRotateKeyArgs(args []string) (reason string, compromised bool, err error) {
+	usage := fmt.Errorf(`usage: ops rotate-key ["reason"] [--compromised]`)
+	for _, arg := range args {
+		switch {
+		case arg == "--compromised":
+			compromised = true
+		case strings.HasPrefix(arg, "-"):
+			return "", false, usage
+		case reason != "":
+			return "", false, usage
+		default:
+			reason = arg
+		}
+	}
+	return reason, compromised, nil
+}
+
+func runRotateKey(reason string, compromised bool) error {
+	cfg := loadOpsConfig()
+	db, err := openDB(cfg)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	passphrase, err := resolvePassphrase(cfg.ServerKeyPassphrase, cfg.ServerName)
+	if err != nil {
+		return fmt.Errorf("resolve server key passphrase: %w", err)
+	}
+
+	rev, err := revokeServerKey(context.Background(), db, newCryptoService(), passphrase.Value, compromised, reason)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Rotated to %s; revoked %s\n", rev.Successor, rev.KeyID)
+	fmt.Fprintln(os.Stderr, "Next: restart the server so it signs with the new key, then re-export the identity bundle:")
+	fmt.Fprintln(os.Stderr, "  ops export-identity")
+	if compromised {
+		fmt.Fprintln(os.Stderr, "The old key is marked compromised. Hand the new key to users and peer admins out-of-band:")
+		fmt.Fprintln(os.Stderr, "  ops print-key")
+	}
 	return nil
 }
 

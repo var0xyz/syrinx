@@ -148,8 +148,7 @@ redeploy. The operator exports them from the old instance and injects them into
 the new one.
 
 - **All server signing keys**, not just the current one. The server rotates its
-  signing key over its lifetime (`ProcessRevocations` revokes a key; the next
-  `InitServerKey` mints a fresh one). Every reed and identity record is
+  signing key over its lifetime (`ops rotate-key` mints a successor; see [`server_key_rotation/`](../server_key_rotation/README.md)). Every reed and identity record is
   countersigned by whichever key was active at the time, and
   `reeds.private_key_fingerprint` is a `NOT NULL` foreign key into
   `private_keys`. A rotated-away key must therefore be restored too, or old
@@ -252,9 +251,10 @@ Two independent secrets (do not conflate):
 **After decrypting the file**, restoring keys still needs the same server key
 passphrase that wrapped `private_keys.armor`. Keep these distinct:
 
-- **Signing-key rotation** — minting a *new* server keypair (via `.rvk`
-  revocation + `InitServerKey`). Produces additional entries in the key history;
-  the old key stays in the bundle so its past countersignatures keep verifying.
+- **Signing-key rotation** — minting a *new* server keypair (`ops rotate-key`,
+  with `--compromised` for a stolen key). Produces additional entries in the
+  key history plus a succession record; the old key stays in the bundle so its
+  past countersignatures keep verifying.
 - **Server key passphrase rotation** — re-wrapping the *same* keys under a new
   passphrase (`ops rotate-passphrase`, which updates the keychain). Afterwards
   re-export the identity bundle (you will be prompted for a **bundle** password

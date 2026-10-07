@@ -42,12 +42,13 @@ var challengeCutoffSQL = fmt.Sprintf("NOW() - make_interval(secs => %d)", int64(
 
 // recoveryBundle is the plaintext identity export (before symmetric encryption).
 type recoveryBundle struct {
-	Version      int                 `json:"version"`
-	ExportedAt   time.Time           `json:"exportedAt"`
-	ServerID     string              `json:"serverID"`
-	ServerName   string              `json:"serverName"`
-	SigningKeyID string              `json:"signingKeyID"`
-	Keys         []recoveryBundleKey `json:"keys"`
+	Version      int                   `json:"version"`
+	ExportedAt   time.Time             `json:"exportedAt"`
+	ServerID     string                `json:"serverID"`
+	ServerName   string                `json:"serverName"`
+	SigningKeyID string                `json:"signingKeyID"`
+	Keys         []recoveryBundleKey   `json:"keys"`
+	Revocations  []serverKeyRevocation `json:"revocations"`
 }
 
 // recoveryBundleKey is one server signing key (active or rotated/revoked).
@@ -57,8 +58,8 @@ type recoveryBundleKey struct {
 	PrivateKeyArmor string     `json:"privateKeyArmor"`
 	PublicKeyArmor  string     `json:"publicKeyArmor"`
 	CreatedAt       time.Time  `json:"createdAt"`
+	PredecessorID   string     `json:"predecessorID,omitempty"`
 	RevokedAt       *time.Time `json:"revokedAt"`
-	RevokeReason    *string    `json:"revokeReason"`
 }
 
 // defaultExportFilename returns syrinx-<serverID>-<YYYYMMDDTHHMMSSZ>.sxi.gpg.
@@ -90,7 +91,8 @@ func exportFromDB(ctx context.Context, db *sql.DB, exportedAt time.Time) (*recov
 	}
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT pk.id, pk.armor, pub.armor, pk.created_at, pk.revoked_at, pk.revoke_reason
+		SELECT pk.id, pk.armor, pub.armor, pk.created_at, COALESCE(pub.predecessor_id, ''),
+			pk.revoked_at
 		FROM private_keys pk
 		JOIN public_keys pub ON pub.id = pk.id
 		ORDER BY pk.created_at ASC, pk.id ASC
@@ -104,9 +106,8 @@ func exportFromDB(ctx context.Context, db *sql.DB, exportedAt time.Time) (*recov
 	for rows.Next() {
 		var k recoveryBundleKey
 		var revokedAt sql.NullTime
-		var reason sql.NullString
 		if err := rows.Scan(
-			&k.ID, &k.PrivateKeyArmor, &k.PublicKeyArmor, &k.CreatedAt, &revokedAt, &reason,
+			&k.ID, &k.PrivateKeyArmor, &k.PublicKeyArmor, &k.CreatedAt, &k.PredecessorID, &revokedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan key: %w", err)
 		}
@@ -114,10 +115,6 @@ func exportFromDB(ctx context.Context, db *sql.DB, exportedAt time.Time) (*recov
 		if revokedAt.Valid {
 			t := revokedAt.Time.UTC()
 			k.RevokedAt = &t
-		}
-		if reason.Valid {
-			r := reason.String
-			k.RevokeReason = &r
 		}
 		keys = append(keys, k)
 	}
@@ -128,6 +125,11 @@ func exportFromDB(ctx context.Context, db *sql.DB, exportedAt time.Time) (*recov
 		return nil, fmt.Errorf("no server keys to export")
 	}
 
+	revocations, err := loadServerKeyRevocations(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
 	b := &recoveryBundle{
 		Version:      bundleVersion,
 		ExportedAt:   exportedAt,
@@ -135,6 +137,7 @@ func exportFromDB(ctx context.Context, db *sql.DB, exportedAt time.Time) (*recov
 		ServerName:   serverName,
 		SigningKeyID: signingFP,
 		Keys:         keys,
+		Revocations:  revocations,
 	}
 	if err := validateBundleShape(b); err != nil {
 		return nil, err
@@ -187,6 +190,13 @@ func validateBundleShape(b *recoveryBundle) error {
 	}
 	if !foundSigning {
 		return fmt.Errorf("signingKeyID %s not present in keys", b.SigningKeyID)
+	}
+	for i, rev := range b.Revocations {
+		_, revokedOK := seen[rev.KeyID]
+		_, successorOK := seen[rev.Successor]
+		if !revokedOK || !successorOK {
+			return fmt.Errorf("revocations[%d]: links keys missing from the bundle", i)
+		}
 	}
 	return nil
 }
@@ -371,12 +381,8 @@ func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, pas
 
 	for _, k := range b.Keys {
 		var revokedAt interface{}
-		var reason interface{}
 		if k.RevokedAt != nil {
 			revokedAt = k.RevokedAt.UTC()
-		}
-		if k.RevokeReason != nil {
-			reason = *k.RevokeReason
 		}
 		keyID := k.ID
 		bareFP, _, ok := parseIdentityID(identityID(keyID))
@@ -384,9 +390,9 @@ func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, pas
 			return 0, fmt.Errorf("malformed bundle key id: %s", keyID)
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO private_keys (id, armor, created_at, revoked_at, revoke_reason)
-			VALUES ($1, $2, $3, $4, $5)
-		`, keyID, k.PrivateKeyArmor, k.CreatedAt.UTC(), revokedAt, reason); err != nil {
+			INSERT INTO private_keys (id, armor, created_at, revoked_at)
+			VALUES ($1, $2, $3, $4)
+		`, keyID, k.PrivateKeyArmor, k.CreatedAt.UTC(), revokedAt); err != nil {
 			return 0, fmt.Errorf("insert private_keys %s: %w", keyID, err)
 		}
 
@@ -410,6 +416,23 @@ func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, pas
 			VALUES ($1, $2, $3, $4)
 		`, keyID, k.PublicKeyArmor, k.CreatedAt.UTC(), serverSignatureID); err != nil {
 			return 0, fmt.Errorf("insert public_keys %s: %w", keyID, err)
+		}
+	}
+
+	// Predecessors and revocations only once every key row exists.
+	for _, k := range b.Keys {
+		if k.PredecessorID == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE public_keys SET predecessor_id = $2 WHERE id = $1`, k.ID, k.PredecessorID,
+		); err != nil {
+			return 0, fmt.Errorf("link predecessor of %s: %w", k.ID, err)
+		}
+	}
+	for _, rev := range b.Revocations {
+		if err := insertServerKeyRevocationTx(ctx, tx, rev); err != nil {
+			return 0, err
 		}
 	}
 

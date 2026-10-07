@@ -30,13 +30,13 @@ into `InitDB`; recreate the DB.
 
 | #  | Title                                                  | Status   |
 |----|--------------------------------------------------------|----------|
-| 00 | Design, key states, trust model                        | Proposed |
-| 01 | Revocation records, `ops rotate-key`, drop `.rvk`      | Proposed |
+| 00 | Design, key states, trust model                        | Implemented |
+| 01 | Revocation records, `ops rotate-key`, drop `.rvk`      | Implemented |
 | 02 | Revocations through `/keys`, server-side enforcement   | Proposed |
 | 03 | SPA: adopt successors, refuse compromised keys         | Proposed |
 | 04 | Peers: notify, re-pin, fallback                        | Proposed |
 
-**Track status: Proposed.**
+**Track status: In progress.**
 
 ## Locked decisions
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (design accepted).
 
 ## Today
 
