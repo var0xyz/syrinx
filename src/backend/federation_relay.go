@@ -1848,3 +1848,156 @@ func (h *Handlers) acceptForeignReedRemoval(ctx context.Context, peerServerID st
 	}
 	return cert, 0, ""
 }
+
+// ///////////////////////////////////////// //
+//   server-key: following a peer's new key    //
+// ///////////////////////////////////////// //
+
+// peerRepinRetry spaces out chain fetches for the same unknown peer key, so a
+// burst of requests signed with it costs the peer one fetch.
+const peerRepinRetry = 5 * time.Minute
+
+type relayServerKeyChainRequest struct {
+	From string `json:"from"`
+}
+
+type relayServerKeyChainResponse struct {
+	Revocations []serverKeyChainLink `json:"revocations"`
+}
+
+// ServerKeyChainForPeer serves this server's key chain to an established
+// peer, from the key it has pinned for us.
+func (h *Handlers) ServerKeyChainForPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	var req relayServerKeyChainRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.From) == "" {
+		writeResponse(w, http.StatusBadRequest, "from is required")
+		return
+	}
+
+	current := string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint))
+	links, found, err := h.services.db.GetServerKeyChain(r.Context(), strings.TrimSpace(req.From), current)
+	if err != nil {
+		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("Error loading server key chain for peer")
+		internalServerError(w)
+		return
+	}
+	if !found {
+		writeResponse(w, http.StatusNotFound, "No key chain from that key")
+		return
+	}
+	writeResponse(w, http.StatusOK, relayServerKeyChainResponse{Revocations: links})
+}
+
+// ServerKeyNoticeFromPeer answers a peer's new-key notice. The work happens
+// in authentication, which re-pins an unknown key before this runs.
+func (h *Handlers) ServerKeyNoticeFromPeer(w http.ResponseWriter, r *http.Request) {
+	if peerServerID, ok := r.Context().Value(peerServerIDKey).(string); !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// repinPeer follows an established peer's key chain when it signs with a key
+// other than the one pinned for it. It reports whether the pin moved. A
+// compromised key in the chain clears the pin until an admin re-approves.
+func (h *Handlers) repinPeer(ctx context.Context, peerServerID, fingerprint string) bool {
+	log := h.services.log.GetLogger(ctx)
+	attempt := peerServerID + "/" + fingerprint
+	if last, seen := h.peerRepinAttempts.Load(attempt); seen && time.Since(last.(time.Time)) < peerRepinRetry {
+		return false
+	}
+	h.peerRepinAttempts.Store(attempt, time.Now())
+
+	pin, err := h.services.db.GetPeerPin(ctx, peerServerID)
+	if err != nil {
+		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("Failed to load peer pin")
+		return false
+	}
+	if pin == nil || pin.KeyID == string(canonicalID(peerServerID, fingerprint)) {
+		return false
+	}
+
+	var chain relayServerKeyChainResponse
+	status, err := h.callPeerRelayEndpoint(ctx, peerServerID, pin.BaseURL,
+		"/api/federation/relay/server-key-chain", relayServerKeyChainRequest{From: pin.KeyID}, &chain)
+	if err != nil || status != http.StatusOK {
+		log.Warn().Err(err).Int("status", status).Str("peerServerID", peerServerID).Msg("Failed to fetch peer key chain")
+		return false
+	}
+
+	adopted, err := followKeyChain(h.services.crypto, peerServerID, pin.KeyID, pin.Armor, chain.Revocations)
+	switch {
+	case errors.Is(err, errKeyChainCompromised):
+		log.Warn().Str("peerServerID", peerServerID).Msg("Peer reports its pinned key compromised; clearing the pin")
+		if err := h.services.db.ClearPeerPin(ctx, peerServerID); err != nil {
+			log.Error().Err(err).Str("peerServerID", peerServerID).Msg("Failed to clear peer pin")
+		}
+		h.logFederationEvent(peerServerID, federationLogError, "Peer key compromised; re-approve the peer with its new key")
+		return false
+	case err != nil:
+		log.Warn().Err(err).Str("peerServerID", peerServerID).Msg("Peer key chain failed verification")
+		return false
+	case len(adopted) == 0:
+		return false
+	}
+
+	if err := h.services.db.RepinPeerKey(ctx, peerServerID, adopted, h.countersign); err != nil {
+		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("Failed to re-pin peer key")
+		return false
+	}
+	newKey := adopted[len(adopted)-1].ID
+	log.Info().Str("peerServerID", peerServerID).Str("keyID", newKey).Msg("Followed peer to its new signing key")
+	h.logFederationEvent(peerServerID, federationLogInfo, "Followed the peer to its new signing key "+newKey)
+	return true
+}
+
+// logFederationEvent writes a line to a peer's federation log, best effort.
+func (h *Handlers) logFederationEvent(peerServerID, level, message string) {
+	ctx := context.Background()
+	if err := h.services.db.logFederationServer(ctx, peerServerID, level, message); err != nil {
+		h.services.log.GetLogger(ctx).Error().Err(err).Str("peerServerID", peerServerID).Msg("Failed to write federation server log")
+	}
+}
+
+// notifyPeersOfServerKey tells each connected peer that hasn't accepted the
+// current key about it, once. The notice is signed with the new key, which
+// is what makes the peer follow the chain.
+func (h *Handlers) notifyPeersOfServerKey() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	log := h.services.log.GetLogger(ctx)
+
+	rotated, err := h.services.db.HasServerKeyRevocations(ctx)
+	if err != nil || !rotated {
+		return
+	}
+	current := string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint))
+	peers, err := h.services.db.PeersAwaitingKey(ctx, current)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list peers awaiting the server key")
+		return
+	}
+	var wg sync.WaitGroup
+	for _, peer := range peers {
+		wg.Add(1)
+		go func(peer PeerServer) {
+			defer wg.Done()
+			status, err := h.callPeerRelayEndpoint(ctx, peer.ID, peer.BaseURL, "/api/federation/relay/server-key", struct{}{}, nil)
+			if err != nil || status < 200 || status >= 300 {
+				log.Warn().Err(err).Int("status", status).Str("peerServerID", peer.ID).Msg("Peer did not accept the new server key")
+				return
+			}
+			if err := h.services.db.SetPeerKeyAck(ctx, peer.ID, current); err != nil {
+				log.Error().Err(err).Str("peerServerID", peer.ID).Msg("Failed to record peer key ack")
+			}
+		}(peer)
+	}
+	wg.Wait()
+}

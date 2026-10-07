@@ -232,7 +232,10 @@ func InitDB(db *sql.DB) error {
 		-- Where the peer's users open links, as the peer reports it.
 		frontend_url TEXT,
 		-- Set once the peer is seen to have approved us too.
-		peer_approved_at TIMESTAMP
+		peer_approved_at TIMESTAMP,
+		-- The key of ours this peer last accepted, so a rotation is announced
+		-- to each peer once.
+		peer_key_ack VARCHAR(255)
 	);`
 
 	// Normalized attestation rows. public_key_id/private_key_id are not

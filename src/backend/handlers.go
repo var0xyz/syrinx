@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -64,6 +65,9 @@ type Handlers struct {
 	// reed_allocations/the WS connection registry, which only exists on
 	// the realtime service.
 	realtimeRelay *realtimeService
+	// peerRepinAttempts remembers when each unknown peer key was last chased
+	// (see repinPeer).
+	peerRepinAttempts sync.Map
 }
 
 type ServerInfo struct {
