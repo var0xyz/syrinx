@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -343,7 +344,41 @@ func parseRotateKeyArgs(args []string) (reason string, compromised bool, err err
 	return reason, compromised, nil
 }
 
+// confirmRotateKey explains what a rotation breaks until the new key is
+// handed out, and asks the operator to go ahead.
+func confirmRotateKey(compromised bool) (bool, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return false, fmt.Errorf("stdin is not a TTY; cannot confirm the key rotation")
+	}
+	fmt.Fprintln(os.Stderr, "This revokes the server signing key and replaces it with a new one.")
+	fmt.Fprintln(os.Stderr, "Until you hand out the new public key (ops print-key), nobody can sign up,")
+	fmt.Fprintln(os.Stderr, "import an account or recover one: those steps prove they know the current key.")
+	if compromised {
+		fmt.Fprintln(os.Stderr, "With --compromised, signed-in users and peer servers must also enter the new")
+		fmt.Fprintln(os.Stderr, "key by hand; peers stop accepting this server until their admin approves it again.")
+	} else {
+		fmt.Fprintln(os.Stderr, "Signed-in users and peer servers move to the new key on their own.")
+	}
+	fmt.Fprint(os.Stderr, "Rotate the key? [y/N] ")
+	// End of input is a blank answer, which means no.
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, err
+	}
+	ans := strings.TrimSpace(strings.ToLower(line))
+	return ans == "y" || ans == "yes", nil
+}
+
 func runRotateKey(reason string, compromised bool) error {
+	confirmed, err := confirmRotateKey(compromised)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		fmt.Fprintln(os.Stderr, "Key not rotated.")
+		return nil
+	}
+
 	cfg := loadOpsConfig()
 	db, err := openDB(cfg)
 	if err != nil {
