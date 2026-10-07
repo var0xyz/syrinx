@@ -54,7 +54,7 @@ Then start with `RECOVERY_MODE=true`. Boot without a prior successful import sho
 
 Rotate the server-key passphrase with the ops CLI when needed; keychain entries update when not using the env override.
 
-Replace the server signing key itself with `ops rotate-key ["reason"]`, adding `--compromised` (with a reason) when the old key may have been stolen. Run it with the server stopped: it mints a new key, revokes the old one in its favour (both keys sign the revocation), and the server signs with the new key on its next boot. Re-export the identity bundle afterwards. After a compromise, hand the new key to users and peer admins out-of-band (`ops print-key`). Clients and peers don't follow a rotation on their own yet, so for now users re-enter the new key in either case.
+Replace the server signing key itself with `ops rotate-key ["reason"]`, adding `--compromised` (with a reason) when the old key may have been stolen. Run it with the server stopped: it mints a new key, revokes the old one in its favour (both keys sign the revocation), and the server signs with the new key on its next boot. Re-export the identity bundle afterwards. After a compromise, hand the new key to users and peer admins out-of-band (`ops print-key`). Without `--compromised`, signed-in users and peer servers follow the new key on their own. With it, users see the key prompt and peers stop accepting this server until their admin approves it again with the new key.
 
 ## Recovery procedure (checklist)
 

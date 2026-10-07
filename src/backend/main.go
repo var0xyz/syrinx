@@ -538,6 +538,10 @@ func main() {
 	api.HandleFunc("/federation/relay/new-reed", h.NewReedFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/new-reed", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/relay/server-key-chain", h.ServerKeyChainForPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/server-key-chain", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/relay/server-key", h.ServerKeyNoticeFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/server-key", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/relay/reed-removal", h.ReedRemovalFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reed-removal", h.noop).Methods("OPTIONS")
 
@@ -629,12 +633,17 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Start server in a goroutine
+	// Listen before telling peers about a new key: they call back for the chain.
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		log.Fatal().Err(err).Msg("[ERR] Server failed to start")
+	}
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Fatal().Err(err).Msg("[ERR] Server failed to start")
 		}
 	}()
+	go h.notifyPeersOfServerKey()
 
 	// Wait for shutdown signal
 	<-sigChan

@@ -371,24 +371,6 @@ func (s *DataService) GetServerPublicKeyByFingerprint(ctx context.Context, finge
 	return armor, nil
 }
 
-// serverKeyChainKey is a server public key as the key chain carries it.
-type serverKeyChainKey struct {
-	ID    string `json:"id"`
-	Armor string `json:"armor"`
-}
-
-// serverKeyChainLink is one revocation in the key chain, carrying its
-// successor's public key so a client can verify the next link.
-type serverKeyChainLink struct {
-	KeyID              string            `json:"keyID"`
-	Successor          serverKeyChainKey `json:"successor"`
-	Compromised        bool              `json:"compromised"`
-	Reason             string            `json:"reason"`
-	SignedAt           time.Time         `json:"signedAt"`
-	Signature          string            `json:"signature"`
-	SuccessorSignature string            `json:"successorSignature"`
-}
-
 // GetServerKeyChain returns the revocations leading from the key from to the
 // key current, in order. ok is false when from doesn't lead to current.
 func (s *DataService) GetServerKeyChain(ctx context.Context, from, current string) (links []serverKeyChainLink, ok bool, err error) {
@@ -3575,6 +3557,124 @@ func (s *DataService) ListConnectedPeers(ctx context.Context) ([]PeerServer, err
 		peers = append(peers, p)
 	}
 	return peers, rows.Err()
+}
+
+// PeerPin is an established peer's pinned signing key and where to reach it.
+type PeerPin struct {
+	BaseURL string
+	KeyID   string
+	Armor   string
+}
+
+// GetPeerPin returns the pin of an established, non-revoked peer, or nil.
+func (s *DataService) GetPeerPin(ctx context.Context, peerServerID string) (*PeerPin, error) {
+	var pin PeerPin
+	err := s.db.QueryRowContext(ctx, `
+		SELECT sv.base_url, sv.key_id, pk.armor
+		FROM servers sv
+		JOIN public_keys pk ON pk.id = sv.key_id
+		WHERE sv.id = $1 AND sv.self = FALSE AND sv.revoked_at IS NULL
+		  AND sv.base_url IS NOT NULL AND sv.base_url != ''
+	`, peerServerID).Scan(&pin.BaseURL, &pin.KeyID, &pin.Armor)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &pin, nil
+}
+
+// RepinPeerKey promotes a peer's successor keys, countersigned like the key
+// pinned at approval, and pins the last one.
+func (s *DataService) RepinPeerKey(
+	ctx context.Context,
+	peerServerID string,
+	keys []serverKeyChainKey,
+	countersign func(payload []byte, ts time.Time) (ServerSignature, error),
+) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, key := range keys {
+		fingerprint, _, ok := parseIdentityID(identityID(key.ID))
+		if !ok {
+			return fmt.Errorf("malformed peer key id %s", key.ID)
+		}
+		sig, err := countersign(buildPublicKeyPayload(s.serverID, key.ID, key.ID, fingerprint, key.Armor, now), now)
+		if err != nil {
+			return fmt.Errorf("countersign peer key: %w", err)
+		}
+		sigID, err := insertServerSignature(ctx, tx, sig.ID, sig.Armor, sig.SignedAt)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO public_keys (id, owner, armor, created_at, server_signature_id)
+			VALUES ($1, NULL, $2, $3, $4)
+			ON CONFLICT (id) DO NOTHING
+		`, key.ID, key.Armor, now, sigID); err != nil {
+			return fmt.Errorf("promote peer key: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE servers SET key_id = $2 WHERE id = $1 AND self = FALSE`, peerServerID, keys[len(keys)-1].ID,
+	); err != nil {
+		return fmt.Errorf("re-pin peer: %w", err)
+	}
+	return tx.Commit()
+}
+
+// ClearPeerPin stops trusting a peer's pinned key until an admin approves the
+// peer again with its new key.
+func (s *DataService) ClearPeerPin(ctx context.Context, peerServerID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE servers SET key_id = NULL WHERE id = $1 AND self = FALSE`, peerServerID)
+	return err
+}
+
+// PeersAwaitingKey returns connected peers that haven't accepted keyID yet.
+func (s *DataService) PeersAwaitingKey(ctx context.Context, keyID string) ([]PeerServer, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, base_url FROM servers
+		WHERE self = FALSE AND revoked_at IS NULL AND connected = TRUE
+		  AND base_url IS NOT NULL AND base_url != ''
+		  AND peer_key_ack IS DISTINCT FROM $1
+	`, keyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var peers []PeerServer
+	for rows.Next() {
+		var p PeerServer
+		if err := rows.Scan(&p.ID, &p.BaseURL); err != nil {
+			return nil, err
+		}
+		peers = append(peers, p)
+	}
+	return peers, rows.Err()
+}
+
+// SetPeerKeyAck records that a peer accepted keyID.
+func (s *DataService) SetPeerKeyAck(ctx context.Context, peerServerID, keyID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE servers SET peer_key_ack = $2 WHERE id = $1 AND self = FALSE`, peerServerID, keyID)
+	return err
+}
+
+// HasServerKeyRevocations reports whether this server has ever replaced a key.
+func (s *DataService) HasServerKeyRevocations(ctx context.Context) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM private_key_revocations)`).Scan(&exists)
+	return exists, err
 }
 
 // UpsertRemoteIdentity records a minimal identities row for a foreign user

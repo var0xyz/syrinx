@@ -36,6 +36,24 @@ type serverKeyRevocation struct {
 	SuccessorSignature string    `json:"successorSignature"`
 }
 
+// serverKeyChainKey is a server public key as the key chain carries it.
+type serverKeyChainKey struct {
+	ID    string `json:"id"`
+	Armor string `json:"armor"`
+}
+
+// serverKeyChainLink is one revocation in the key chain, carrying its
+// successor's public key so a client can verify the next link.
+type serverKeyChainLink struct {
+	KeyID              string            `json:"keyID"`
+	Successor          serverKeyChainKey `json:"successor"`
+	Compromised        bool              `json:"compromised"`
+	Reason             string            `json:"reason"`
+	SignedAt           time.Time         `json:"signedAt"`
+	Signature          string            `json:"signature"`
+	SuccessorSignature string            `json:"successorSignature"`
+}
+
 // mintServerKey generates a server key and countersigns its public half with
 // itself, the same payload shape as any user key's countersignature.
 func mintServerKey(cryptoSvc *cryptoService, serverID, passphrase string) (*mintedServerKey, error) {
@@ -255,4 +273,55 @@ func chainOrder(revs []serverKeyRevocation) ([]serverKeyRevocation, error) {
 		next = rev.Successor
 	}
 	return ordered, nil
+}
+
+var (
+	// errKeyChainBroken rejects a chain that doesn't verify from the trusted key.
+	errKeyChainBroken = errors.New("server key chain does not verify from the trusted key")
+	// errKeyChainCompromised stops at a compromised revocation, never followed.
+	errKeyChainCompromised = errors.New("server key chain reaches a compromised key")
+)
+
+// followKeyChain walks links from the key trustedID, checking each revocation
+// with both keys' signatures, and returns the successors to adopt in order.
+// Links before trustedID are skipped.
+func followKeyChain(cryptoSvc *cryptoService, serverID, trustedID, trustedArmor string, links []serverKeyChainLink) ([]serverKeyChainKey, error) {
+	start := -1
+	for i, link := range links {
+		if link.KeyID == trustedID {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		if len(links) > 0 && links[len(links)-1].Successor.ID == trustedID {
+			return nil, nil
+		}
+		return nil, errKeyChainBroken
+	}
+
+	var adopted []serverKeyChainKey
+	currentID, currentArmor := trustedID, trustedArmor
+	for _, link := range links[start:] {
+		if link.KeyID != currentID {
+			return nil, errKeyChainBroken
+		}
+		fp, err := cryptoSvc.extractFingerprintFromArmor(link.Successor.Armor)
+		if err != nil || string(canonicalID(serverID, fp)) != link.Successor.ID {
+			return nil, errKeyChainBroken
+		}
+		payload := string(buildServerKeyRevocationPayload(
+			serverID, link.KeyID, link.Successor.ID, link.Compromised, link.Reason, link.SignedAt.UTC(),
+		))
+		if cryptoSvc.verifySignature(payload, link.Signature, currentArmor) != nil ||
+			cryptoSvc.verifySignature(payload, link.SuccessorSignature, link.Successor.Armor) != nil {
+			return nil, errKeyChainBroken
+		}
+		if link.Compromised {
+			return nil, errKeyChainCompromised
+		}
+		adopted = append(adopted, link.Successor)
+		currentID, currentArmor = link.Successor.ID, link.Successor.Armor
+	}
+	return adopted, nil
 }
