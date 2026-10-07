@@ -118,7 +118,11 @@ const UNAUTHENTICATED_EXACT_PATHS = ['/keys'];
 /** Signs (if needed), sends, and validates the response — shared by request()
  * (JSON body) and requestText() (plain text body); each only differs in how
  * it reads the body once this returns an ok Response. */
-async function requestRaw(path: string, init?: RequestInit): Promise<Response> {
+async function requestRaw(
+  path: string,
+  init?: RequestInit,
+  opts: { skipEnvelope?: boolean } = {}
+): Promise<Response> {
   let signedInit = init;
 
   // Check if this is an authenticated request
@@ -183,7 +187,7 @@ async function requestRaw(path: string, init?: RequestInit): Promise<Response> {
 
   // Every response is signed (see responseSignerMiddleware) — a missing
   // or invalid Signature is treated the same: fail closed.
-  if (!(await verifyResponseEnvelope(res))) {
+  if (!opts.skipEnvelope && !(await verifyResponseEnvelope(res))) {
     const err = new Error('Server response failed signature verification.') as Error & {
       tampered?: boolean;
     };
@@ -995,6 +999,13 @@ export const apiService = {
    * canonicalKeyId/formatServerKeyId). Authenticated: GET /keys/{id} serves
    * any key — local or, transparently via server-side proxying, a
    * federated peer's. */
+  /** The server key chain from the key `from`. Its envelope is signed by a
+   * key the caller doesn't trust yet, so the caller verifies it once the
+   * chain checks out (see serverKeyChain.ts). */
+  async getServerKeyChainUnverified(from: string): Promise<Response> {
+    return requestRaw(`/server/key-chain?from=${encodeURIComponent(from)}`, { method: 'GET' }, { skipEnvelope: true });
+  },
+
   async getPublicKey(id: string): Promise<api.PublicKey> {
     const key = await request<api.PublicKey>(`/keys/${id}`, { method: 'GET' });
     return key;

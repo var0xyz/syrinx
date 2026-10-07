@@ -29,18 +29,25 @@ export function signedAtHeader(timestamp: string | Date): string {
   return new Date(ms - (ms % 1000)).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-async function resolveServerKeyArmor(id: string): Promise<string | null> {
+async function resolveServerKey(id: string): Promise<PublicKey | null> {
   const cached = await dbService.get<PublicKey>('publicKeys', id);
-  if (cached?.armor) return cached.armor;
+  if (cached?.armor) return cached;
   try {
     const key = await apiService.getPublicKey(id);
     if (!key?.armor) return null;
     const { allowUnsigned } = await import('$lib/verifiers');
     await dbService.put('publicKeys', key, allowUnsigned);
-    return key.armor;
+    return key;
   } catch {
     return null;
   }
+}
+
+/** A compromised server key only counts for what it signed before its
+ * revocation. The key signs its own timestamps, so this can be backdated. */
+function signedWhileTrusted(key: PublicKey, signedAt: string): boolean {
+  if (!key.compromised || !key.revokedAt) return true;
+  return Date.parse(signedAt) < Date.parse(key.revokedAt);
 }
 
 export async function verify(
@@ -59,15 +66,18 @@ export async function verify(
   }
 
   try {
-    const armor = await resolveServerKeyArmor(serverSignature.id);
-    if (!armor) {
+    const key = await resolveServerKey(serverSignature.id);
+    if (!key) {
       return { ok: false, reason: 'server_key_unavailable', detail: serverSignature.id };
+    }
+    if (!signedWhileTrusted(key, serverSignature.timestamp)) {
+      return { ok: false, reason: 'server_key_compromised', detail: serverSignature.id };
     }
 
     const valid = await cryptoService.verifySignature(
       payload,
       serverSignature.armor,
-      armor
+      key.armor
     );
     if (!valid) {
       return { ok: false, reason: 'signature_invalid' };

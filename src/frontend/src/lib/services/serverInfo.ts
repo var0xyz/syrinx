@@ -18,6 +18,10 @@ export const serverIdMismatch = writable<{ known: string; fetched: string } | nu
  * redeploy minted a new one. Nothing local is changed; the user decides. */
 export const serverKeyRejected = writable(false);
 
+/** The operator's reason, when the stored key was rejected because the
+ * server reported it compromised. Its successor must be confirmed by hand. */
+export const serverKeyCompromise = writable<{ reason: string } | null>(null);
+
 export const isSignupOpen = derived(
   serverInfo,
   ($info) => $info?.signupMode === 'open'
@@ -106,7 +110,7 @@ function normalizeMaxInvites(value: unknown): number {
   return -1;
 }
 
-export async function refreshServerInfo(): Promise<ServerInfo | null> {
+export async function refreshServerInfo(followKeyChain = true): Promise<ServerInfo | null> {
   if (!navigator.onLine) {
     serverUnreachable.set(false);
     serverInfoLoading.set(false);
@@ -125,6 +129,13 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
     });
 
     if (response.status === 401) {
+      // A rotated key is followed silently; a compromised one never is.
+      if (followKeyChain) {
+        const { followServerKeyChain } = await import('./serverKeyChain');
+        const result = await followServerKeyChain();
+        if (result.status === 'followed') return refreshServerInfo(false);
+        serverKeyCompromise.set(result.status === 'compromised' ? { reason: result.reason } : null);
+      }
       console.error('serverInfo: server rejected the trusted server key');
       serverKeyRejected.set(true);
       serverUnreachable.set(false);
@@ -134,6 +145,7 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
       throw new Error(`HTTP ${response.status}`);
     }
     serverKeyRejected.set(false);
+    serverKeyCompromise.set(null);
 
     const data = await response.json();
     const info: ServerInfo = {

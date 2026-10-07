@@ -25,9 +25,9 @@ function buildCanonicalHeaderString(headers: Headers, signedNames: string[]): st
   return lines.join('\n');
 }
 
-/** Verifies res against the trusted server key. Fails closed (false) if
- * there's no signature header, no trusted key yet, or a mismatch. */
-export async function verifyResponseEnvelope(res: Response): Promise<boolean> {
+/** Verifies res against the trusted server key, or keyArmor when given.
+ * Fails closed (false) if there's no signature header, no key, or a mismatch. */
+export async function verifyResponseEnvelope(res: Response, keyArmor?: string): Promise<boolean> {
   const escapedSignature = res.headers.get(SIGNATURE_HEADER);
   if (!escapedSignature) return false;
 
@@ -35,13 +35,13 @@ export async function verifyResponseEnvelope(res: Response): Promise<boolean> {
   if (!signedNamesHeader) return false;
   const signedNames = signedNamesHeader.split(',').map((s) => s.trim()).filter(Boolean);
 
-  const trusted = getTrustedServerKey();
-  if (!trusted) return false;
+  const armor = keyArmor ?? getTrustedServerKey()?.armor;
+  if (!armor) return false;
 
   const signature = escapedSignature.replace(/\\n/g, '\n');
   const bodyText = await res.clone().text();
   const canonicalHeaders = buildCanonicalHeaderString(res.headers, signedNames);
   const completeResponse = `${canonicalHeaders}\n\n${bodyText}`;
 
-  return cryptoService.verifyStrippedSignature(completeResponse, signature, trusted.armor);
+  return cryptoService.verifyStrippedSignature(completeResponse, signature, armor);
 }
