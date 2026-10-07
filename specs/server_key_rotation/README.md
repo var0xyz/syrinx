@@ -32,7 +32,7 @@ into `InitDB`; recreate the DB.
 |----|--------------------------------------------------------|----------|
 | 00 | Design, key states, trust model                        | Implemented |
 | 01 | Revocation records, `ops rotate-key`, drop `.rvk`      | Implemented |
-| 02 | Revocations through `/keys`, server-side enforcement   | Proposed |
+| 02 | Revocations through `/keys`, server-side enforcement   | Implemented |
 | 03 | SPA: adopt successors, refuse compromised keys         | Proposed |
 | 04 | Peers: notify, re-pin, fallback                        | Proposed |
 

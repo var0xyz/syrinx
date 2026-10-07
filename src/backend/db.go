@@ -91,6 +91,9 @@ type Key struct {
 	Revoked         bool            `json:"revoked"`
 	Predecessor     *string         `json:"predecessor"`
 	ServerSignature ServerSignature `json:"serverSignature"`
+	// Set on revoked server keys only; the signed record is the key chain.
+	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
+	Compromised bool       `json:"compromised,omitempty"`
 }
 
 // ServerSigningKey is the server's own active signing key, held in memory

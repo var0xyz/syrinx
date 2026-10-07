@@ -788,7 +788,7 @@ type recoveryVerifier interface {
 
 // recoveryServerKeyLookup returns the armored public half of a historical
 // server signing key, or "" if unknown.
-type recoveryServerKeyLookup func(ctx context.Context, fingerprint string) (armor string, err error)
+type recoveryServerKeyLookup func(ctx context.Context, fingerprint string, signedAt time.Time) (armor string, err error)
 
 // flattenKeysNest walks the nest outermost→oldest, verifying each key
 // (and its predecessor link / optional revocation) as soon as it is
@@ -914,7 +914,7 @@ func verifyProfileServerCountersig(ctx context.Context, profile recoveryProfile,
 	if profile.ServerSignature.Fingerprint == "" || profile.ServerSignature.Armor == "" || profile.ServerSignature.Timestamp.IsZero() {
 		return fmt.Errorf("missing server countersignature")
 	}
-	serverPub, err := lookup(ctx, profile.ServerSignature.Fingerprint)
+	serverPub, err := lookup(ctx, profile.ServerSignature.Fingerprint, profile.ServerSignature.Timestamp)
 	if err != nil {
 		return err
 	}
@@ -948,7 +948,7 @@ func verifyRecoveryKeyCountersig(ctx context.Context, key recoveryKeyWire, userI
 	if key.ServerSignature.Fingerprint == "" || key.ServerSignature.Armor == "" {
 		return fmt.Errorf("missing server countersignature")
 	}
-	serverPub, err := lookup(ctx, key.ServerSignature.Fingerprint)
+	serverPub, err := lookup(ctx, key.ServerSignature.Fingerprint, key.ServerSignature.Timestamp)
 	if err != nil {
 		return err
 	}
@@ -982,7 +982,7 @@ func verifyRecoveryRevocation(ctx context.Context, rev *recoveryRevocation, key 
 	if err := v.verifySignature(string(userPayload), userSigArmor, key.Armor); err != nil {
 		return fmt.Errorf("user signature: %w", err)
 	}
-	serverPub, err := lookup(ctx, rev.ServerSignature.Fingerprint)
+	serverPub, err := lookup(ctx, rev.ServerSignature.Fingerprint, rev.ServerSignature.Timestamp)
 	if err != nil {
 		return err
 	}
