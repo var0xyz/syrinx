@@ -10,7 +10,7 @@ import { apiService } from '$lib/services/api';
 import { cryptoService } from '$lib/services/crypto';
 import { dbService } from '$lib/services/db';
 import { serverConnection } from '$lib/services/serverConnection';
-import { reedContentWithinLimits } from '$lib/utils/reedContent';
+import { MAX_THREAD_REEDS, reedContentWithinLimits } from '$lib/utils/reedContent';
 import { signedBeforeRevocation } from '$lib/utils/keyRevocation';
 import { parseKeyId, parseCanonicalId } from '$lib/utils/identityRef';
 import { canonicalKeyId } from '$lib/services/api';
@@ -26,6 +26,8 @@ import {
   buildReedLikeUserPayload,
   buildReedRemovalServerPayload,
   buildReedRemovalUserPayload,
+  buildThreadServerPayload,
+  buildThreadUserPayload,
   buildRippleServerPayload,
   buildRippleUserPayload,
   buildServerRevocationPayload,
@@ -563,6 +565,65 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
   const serverResult = await verify(cert.serverSignature, serverPayload);
   if (serverResult.ok === false) {
     console.error('[verifyReedRemoval] server signature failed', serverResult);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Verifies a thread record: 2 to MAX_THREAD_REEDS distinct reeds, all by its
+ * author, headed by threadID, signed by the author and countersigned.
+ */
+export async function verifyThreadRecord(record: api.ThreadRecord): Promise<boolean> {
+  if (!record || record.type !== 'thread' || !record.userSignature?.armor || !record.serverSignature) {
+    console.error('[verifyThreadRecord] missing fields or wrong type', record?.type);
+    return false;
+  }
+  const ids = record.reedIDs ?? [];
+  if (ids.length < 2 || ids.length > MAX_THREAD_REEDS || ids[0] !== record.threadID) {
+    console.error('[verifyThreadRecord] bad shape', record.threadID, ids.length);
+    return false;
+  }
+  if (new Set(ids).size !== ids.length) {
+    console.error('[verifyThreadRecord] duplicate reed', record.threadID);
+    return false;
+  }
+  for (const id of ids) {
+    const parsed = parseKeyId(id);
+    if (
+      !parsed ||
+      `${parsed.userId}@${parsed.serverId}` !== record.userID ||
+      parsed.serverId !== record.serverID
+    ) {
+      console.error('[verifyThreadRecord] reed not by the author', id);
+      return false;
+    }
+  }
+
+  const authorKeyID = record.userSignature.id;
+  const armor = await resolvePublicKeyArmor(record.userID, authorKeyID);
+  if (!armor) {
+    console.error('[verifyThreadRecord] no public key for author', record.userID);
+    return false;
+  }
+  const userPayload = buildThreadUserPayload(record.serverID, record.threadID, ids);
+  if (!(await cryptoService.verifySignature(userPayload, record.userSignature.armor, armor))) {
+    console.error('[verifyThreadRecord] user signature failed', record.threadID);
+    return false;
+  }
+
+  const { fingerprint: serverFingerprint } = splitServerSignatureId(record.serverSignature.id);
+  const serverPayload = buildThreadServerPayload(
+    record.serverID,
+    record.threadID,
+    authorKeyID,
+    serverFingerprint,
+    record.userSignature.armor,
+    signedAtHeader(record.serverSignature.timestamp)
+  );
+  const serverResult = await verify(record.serverSignature, serverPayload);
+  if (serverResult.ok === false) {
+    console.error('[verifyThreadRecord] server signature failed', serverResult);
     return false;
   }
   return true;

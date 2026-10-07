@@ -366,6 +366,73 @@ func buildReedRemovalServerPayload(
 	)
 }
 
+// identityTypeThread is the signed-header `type` for a thread record.
+const identityTypeThread = "thread"
+
+// threadUserHeaders maps each zero-based index to its reed ID, so verifiers
+// rebuild the keys from the ID list instead of parsing them.
+func threadUserHeaders(serverID, threadID string, reedIDs []string) map[string]string {
+	h := map[string]string{
+		"type":     identityTypeThread,
+		"serverID": serverID,
+		"threadID": threadID,
+	}
+	for i, id := range reedIDs {
+		h[strconv.Itoa(i)] = id
+	}
+	return h
+}
+
+// buildThreadUserPayload returns the bytes the author signs to certify which
+// reeds form threadID, in order. reedIDs[0] is the head.
+func buildThreadUserPayload(serverID, threadID string, reedIDs []string) []byte {
+	return bytesToSign(threadUserHeaders(serverID, threadID, reedIDs), "")
+}
+
+// threadServerHeaders binds the author's thread signature and key to the
+// server's countersignature.
+func threadServerHeaders(
+	serverID,
+	threadID,
+	authorKeyID,
+	serverKeyFingerprint,
+	userSignature string,
+	signedAt time.Time,
+) map[string]string {
+	return map[string]string{
+		"type":                 identityTypeThread,
+		"serverID":             serverID,
+		"threadID":             threadID,
+		"authorKeyID":          authorKeyID,
+		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        base64Encode(userSignature),
+	}
+}
+
+// buildThreadServerPayload returns the bytes the server countersigns for a
+// thread record. signedAt must already be truncated to whole seconds.
+func buildThreadServerPayload(
+	serverID,
+	threadID,
+	authorKeyID,
+	serverKeyFingerprint,
+	userSignature string,
+	signedAt time.Time,
+) []byte {
+	return bytesToSign(
+		threadServerHeaders(
+			serverID,
+			threadID,
+			authorKeyID,
+			serverKeyFingerprint,
+			userSignature,
+			signedAt,
+		),
+		"",
+	)
+}
+
 // identityTypeReedLike is the wire and signed-header `type` for a
 // reed-like certificate (JSON `"type": "reed_like"`).
 const identityTypeReedLike = "reed_like"

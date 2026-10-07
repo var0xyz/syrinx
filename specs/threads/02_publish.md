@@ -2,7 +2,10 @@
 
 ## Status
 
-Proposed.
+In progress. Landed: schema, payload builders (Go + SPA, golden tests),
+`DataService.CreateThread` / `GetThreadRecord`. Open: the endpoint,
+`PUBLISH_READY` handling with grouped mention and pipe delivery, removing the
+self-reply path.
 
 ## Depends on
 

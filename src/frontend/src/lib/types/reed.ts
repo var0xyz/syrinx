@@ -7,6 +7,13 @@ import type { ServerSignature, UserSignature } from '$lib/types/api';
 import { generateReedId } from '$lib/utils/id';
 import { canonicalReedId } from '$lib/utils/identityRef';
 
+/** A thread part's place: the head's ID (its own, on the head) and its
+ * zero-based index. */
+export interface ReedThread {
+  head: string;
+  index: number;
+}
+
 // Reed markdown frontmatter fields. Note: there is intentionally no client-side
 // `timestamp` field. The canonical publication date is the server's
 // countersigned timestamp, bound into the countersigned payload.
@@ -16,6 +23,7 @@ export interface ReedType {
   replying?: string;
   echoing?: string;
   threadId?: string;
+  thread?: ReedThread;
   userSignature?: UserSignature;
   serverSignature?: ServerSignature;
   content: string;
@@ -57,7 +65,7 @@ export function extractMentions(content: string, authorID: string): string[] {
 }
 
 /** Reconstruct the signed markdown payload from a reed object. */
-export function reedAsMarkdown(reed: Pick<ReedType, 'id' | 'userID' | 'replying' | 'echoing' | 'threadId' | 'content'>): string {
+export function reedAsMarkdown(reed: Pick<ReedType, 'id' | 'userID' | 'replying' | 'echoing' | 'threadId' | 'thread' | 'content'>): string {
   const headers: Record<string, string> = {
     id: reed.id,
     userID: reed.userID,
@@ -65,6 +73,10 @@ export function reedAsMarkdown(reed: Pick<ReedType, 'id' | 'userID' | 'replying'
   if (reed.replying) headers.replying = reed.replying;
   if (reed.echoing) headers.echoing = reed.echoing;
   if (reed.threadId) headers.threadId = reed.threadId;
+  if (reed.thread) {
+    headers['thread.head'] = reed.thread.head;
+    headers['thread.index'] = String(reed.thread.index);
+  }
 
   return (
     "---\n" +
@@ -83,6 +95,7 @@ export class Reed {
   private _replying: string | undefined = undefined;
   private _echoing: string | undefined = undefined;
   private _threadId: string | undefined = undefined;
+  private _thread: ReedThread | undefined = undefined;
   private _userSignature: UserSignature | undefined = undefined;
   private _serverSignature: ServerSignature | undefined = undefined;
   private _content: string = '';
@@ -174,6 +187,14 @@ export class Reed {
     this._threadId = value;
   }
 
+  get thread(): ReedThread | undefined {
+    return this._thread;
+  }
+
+  set thread(value: ReedThread | undefined) {
+    this._thread = value;
+  }
+
   set content(value: string) {
     this._content = value;
     this._tags = extractTags(value);
@@ -197,6 +218,7 @@ export class Reed {
       replying: this._replying,
       echoing: this._echoing,
       threadId: this._threadId,
+      thread: this._thread ? { ...this._thread } : undefined,
       userSignature: this._userSignature ? { ...this._userSignature } : undefined,
       serverSignature: this._serverSignature ? { ...this._serverSignature } : undefined,
       content: this.content,

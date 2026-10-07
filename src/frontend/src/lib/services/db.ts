@@ -38,7 +38,7 @@ export interface DbService {
   getAll<T extends api.Base>(storeName: string): Promise<T[]>;
   getAllSortedByIndex<T>(storeName: string, indexName: string): Promise<T[]>;
   getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean, after?: IDBValidKey): Promise<T[]>;
-  getAllByIndex<T>(storeName: string, indexName: string, key: string): Promise<T[]>;
+  getAllByIndex<T>(storeName: string, indexName: string, key: IDBValidKey | IDBKeyRange): Promise<T[]>;
   clear(storeName: string): Promise<void>;
 }
 
@@ -51,7 +51,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 22;
+  private readonly version = 23;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'keyId'      ],
@@ -76,6 +76,8 @@ export class IndexedDbService implements DbService {
     ['reedRequests',       'requestId'  ],
     ['removedReeds',       'reedID'     ],
     ['removedAccounts',    'userID'     ],
+    ['removedThreads',     'threadID'   ],
+    ['threads',            'threadID'   ],
     ['pendingLikes',       'compositeKey'],
     ['pendingUnlike',      'compositeKey'],
     ['likedReeds',         'compositeKey', 'likedAt'],
@@ -169,6 +171,11 @@ export class IndexedDbService implements DbService {
 
         // Reed ids are canonical (globally unique) as of v12 — dropped above.
         ensureStore('reeds', 'id', ['userID', 'serverSignature.timestamp']);
+        // A thread's parts in order; reeds without `thread` aren't indexed.
+        const reeds = tx.objectStore('reeds');
+        if (!reeds.indexNames.contains('thread')) {
+          reeds.createIndex('thread', ['thread.head', 'thread.index'], { unique: false });
+        }
       };
     });
   }
@@ -325,7 +332,7 @@ export class IndexedDbService implements DbService {
     });
   }
 
-  async getAllByIndex<T>(storeName: string, indexName: string, key: string): Promise<T[]> {
+  async getAllByIndex<T>(storeName: string, indexName: string, key: IDBValidKey | IDBKeyRange): Promise<T[]> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
 

@@ -381,7 +381,11 @@ func InitDB(db *sql.DB) error {
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		-- When the author's client could first serve it (PUBLISH_READY);
 		-- NULL for reeds never published here, e.g. recovered ones.
-		published_at TIMESTAMP
+		published_at TIMESTAMP,
+		-- Set only on thread parts; thread_head matches reed_threads(id).
+		thread_head VARCHAR(255) REFERENCES reed_identities(id) ON DELETE CASCADE,
+		thread_index SMALLINT,
+		CHECK ((thread_head IS NULL) = (thread_index IS NULL))
 	);`
 
 	// How far each peer has got through each local author's reeds and
@@ -407,7 +411,18 @@ func InitDB(db *sql.DB) error {
 		ON reeds(user_id, id DESC);
 	CREATE INDEX IF NOT EXISTS idx_reeds_signed_at
 		ON reeds(signed_at);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_reeds_thread
+		ON reeds(thread_head, thread_index) WHERE thread_head IS NOT NULL;
 	`
+
+	// The author-signed thread record (index -> reed ID), keyed by the head.
+	// Its parts are the reeds rows with thread_head = id.
+	createReedThreadsTable := `
+	CREATE TABLE IF NOT EXISTS reed_threads (
+		id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+	);`
 
 	// echoing_* is the reed doing the echo; echoed_* is the reed it points at.
 	// is_blank marks a bare re-share, captured once at insert since the server never stores content.
@@ -1356,6 +1371,7 @@ func InitDB(db *sql.DB) error {
 
 		createReedsTable,
 		createReedIndexes,
+		createReedThreadsTable,
 
 		createReedEchoesTable,
 		createReedEchoesIndexes,
