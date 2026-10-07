@@ -177,6 +177,32 @@ func (h *Handlers) noop(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// GetServerKeyChain lets a registered user move from a server key they trust
+// to the one this server signs with, along the signed revocations between.
+func (h *Handlers) GetServerKeyChain(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+
+	from := strings.TrimSpace(r.URL.Query().Get("from"))
+	if from == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `from` is required")
+		return
+	}
+
+	current := string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint))
+	links, ok, err := h.services.db.GetServerKeyChain(r.Context(), from, current)
+	if err != nil {
+		log.Error().Err(err).Str("from", from).Msg("Error loading server key chain")
+		internalServerError(w)
+		return
+	}
+	if !ok {
+		writeResponse(w, http.StatusNotFound, "No key chain from that key")
+		return
+	}
+
+	writeResponse(w, http.StatusOK, map[string]any{"revocations": links})
+}
+
 func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 	// The SPA can't boot without this endpoint, so a failed peer lookup
 	// degrades to an empty list rather than an error.
@@ -649,9 +675,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		profile,
 		h.services.db.GetServerID(),
-		func(ctx context.Context, fp string) (string, error) {
-			return h.services.db.GetServerPublicKeyByFingerprint(ctx, fp)
-		},
+		h.services.db.GetServerKeyArmorAt,
 		h.services.crypto,
 	); err != nil {
 		writeResponse(w, http.StatusBadRequest, err.Error())
@@ -3094,7 +3118,7 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	serverID := h.services.db.GetServerID()
-	active, keys, err := flattenKeysNest(r.Context(), req.Profile, req.Key, serverID, h.services.db.GetServerPublicKeyByFingerprint, h.services.crypto)
+	active, keys, err := flattenKeysNest(r.Context(), req.Profile, req.Key, serverID, h.services.db.GetServerKeyArmorAt, h.services.crypto)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, err.Error())
 		return
@@ -3153,7 +3177,7 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	serverID := h.services.db.GetServerID()
-	active, keys, err := flattenKeysNest(r.Context(), req.Profile, req.Key, serverID, h.services.db.GetServerPublicKeyByFingerprint, h.services.crypto)
+	active, keys, err := flattenKeysNest(r.Context(), req.Profile, req.Key, serverID, h.services.db.GetServerKeyArmorAt, h.services.crypto)
 	if err != nil {
 		writeResponse(w, http.StatusBadRequest, err.Error())
 		return
@@ -3199,7 +3223,7 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	serverID := h.services.db.GetServerID()
-	if err := verifyRecoveryReedCountersig(r.Context(), req, serverID, h.services.db.GetServerPublicKeyByFingerprint, h.services.crypto); err != nil {
+	if err := verifyRecoveryReedCountersig(r.Context(), req, serverID, h.services.db.GetServerKeyArmorAt, h.services.crypto); err != nil {
 		writeResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -3280,7 +3304,7 @@ func verifyRecoveryReedCountersig(ctx context.Context, req recoveryReedRequest, 
 	if req.ServerSignature.ServerID != "" && req.ServerSignature.ServerID != serverID {
 		return fmt.Errorf("server id mismatch")
 	}
-	serverPub, err := lookup(ctx, req.ServerSignature.Fingerprint)
+	serverPub, err := lookup(ctx, req.ServerSignature.Fingerprint, req.ServerSignature.Timestamp)
 	if err != nil {
 		return err
 	}

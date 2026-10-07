@@ -159,7 +159,7 @@ func TestVerifyProfileServerCountersig_RealSignatureAfterJSONRoundTrip(t *testin
 	}
 
 	err = verifyProfileServerCountersig(context.Background(), profile, serverID,
-		func(ctx context.Context, fp string) (string, error) {
+		func(ctx context.Context, fp string, _ time.Time) (string, error) {
 			if fp == serverKP.Fingerprint {
 				return serverKP.PublicKey, nil
 			}

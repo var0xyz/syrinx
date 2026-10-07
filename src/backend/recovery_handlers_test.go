@@ -48,7 +48,7 @@ func TestVerifyRecoveryReedCountersig_RealSignature(t *testing.T) {
 	}
 
 	err = verifyRecoveryReedCountersig(context.Background(), req, serverID,
-		func(ctx context.Context, fp string) (string, error) {
+		func(ctx context.Context, fp string, _ time.Time) (string, error) {
 			if fp == serverKP.Fingerprint {
 				return serverKP.PublicKey, nil
 			}
@@ -62,7 +62,7 @@ func TestVerifyRecoveryReedCountersig_RealSignature(t *testing.T) {
 
 	req.UserSignature.KeyID = authorID + "/OTHERKEY"
 	err = verifyRecoveryReedCountersig(context.Background(), req, serverID,
-		func(ctx context.Context, fp string) (string, error) { return serverKP.PublicKey, nil },
+		func(ctx context.Context, fp string, _ time.Time) (string, error) { return serverKP.PublicKey, nil },
 		cryptoSvc,
 	)
 	if err == nil {
@@ -85,7 +85,7 @@ func TestVerifyRecoveryReedCountersig_OK(t *testing.T) {
 	}
 	payload := buildReedPayload(serverID, "author1@srv1/reed1", "SKEY", "author1@srv1/AUTHORKEY", "dXNlclNpZw==", ts)
 	v := &fakeRecoveryVerifier{}
-	err := verifyRecoveryReedCountersig(context.Background(), req, serverID, func(ctx context.Context, fp string) (string, error) {
+	err := verifyRecoveryReedCountersig(context.Background(), req, serverID, func(ctx context.Context, fp string, _ time.Time) (string, error) {
 		if fp == "SKEY" {
 			return "server-pub", nil
 		}
@@ -108,7 +108,7 @@ func TestVerifyRecoveryReedCountersig_BadSig(t *testing.T) {
 	}
 	payload := string(buildReedPayload(serverID, "author1@srv1/reed1", "SKEY", "author1@srv1/AUTHORKEY", "dXNlclNpZw==", ts))
 	v := &fakeRecoveryVerifier{failSig: map[string]bool{payload: true}}
-	err := verifyRecoveryReedCountersig(context.Background(), req, serverID, func(ctx context.Context, _ string) (string, error) {
+	err := verifyRecoveryReedCountersig(context.Background(), req, serverID, func(ctx context.Context, _ string, _ time.Time) (string, error) {
 		return "server-pub", nil
 	}, v)
 	if err == nil {
@@ -122,7 +122,7 @@ func TestVerifyRecoveryReedCountersig_ServerIDMismatch(t *testing.T) {
 		ReedID: "reed1", AuthorID: "author1@srv1", UserSignature: testReedUserSig(),
 		ServerSignature: testRecoveryServerSig("other", ts),
 	}
-	err := verifyRecoveryReedCountersig(context.Background(), req, "srv1", func(ctx context.Context, _ string) (string, error) { return "pub", nil }, &fakeRecoveryVerifier{})
+	err := verifyRecoveryReedCountersig(context.Background(), req, "srv1", func(ctx context.Context, _ string, _ time.Time) (string, error) { return "pub", nil }, &fakeRecoveryVerifier{})
 	if err == nil {
 		t.Fatal("expected server id mismatch")
 	}

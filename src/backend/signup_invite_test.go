@@ -89,6 +89,21 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
 			predecessor_id VARCHAR(255) REFERENCES public_keys(id)
 		)`,
+		// GetPublicKey reads a server key's revocation state from these.
+		`CREATE TABLE private_keys (
+			id VARCHAR(255) PRIMARY KEY,
+			armor TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			revoked_at TIMESTAMP
+		)`,
+		`CREATE TABLE private_key_revocations (
+			key_id VARCHAR(255) PRIMARY KEY,
+			reason TEXT NOT NULL DEFAULT '',
+			compromised BOOLEAN NOT NULL,
+			successor VARCHAR(255) NOT NULL,
+			server_signature_id INT NOT NULL,
+			successor_signature_id INT NOT NULL
+		)`,
 		`CREATE TABLE public_key_revocations (
 			key_id VARCHAR(255) PRIMARY KEY REFERENCES public_keys(id),
 			owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,

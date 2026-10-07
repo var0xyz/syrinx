@@ -289,6 +289,8 @@ func main() {
 
 	api.HandleFunc("/server/info", h.GetServerInfo).Methods("GET")
 	api.HandleFunc("/server/info", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/server/key-chain", h.GetServerKeyChain).Methods("GET")
+	api.HandleFunc("/server/key-chain", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/check-username", h.CheckUsername).Methods("POST")
 	api.HandleFunc("/check-username", h.noop).Methods("OPTIONS")

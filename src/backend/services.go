@@ -371,6 +371,99 @@ func (s *DataService) GetServerPublicKeyByFingerprint(ctx context.Context, finge
 	return armor, nil
 }
 
+// serverKeyChainKey is a server public key as the key chain carries it.
+type serverKeyChainKey struct {
+	ID    string `json:"id"`
+	Armor string `json:"armor"`
+}
+
+// serverKeyChainLink is one revocation in the key chain, carrying its
+// successor's public key so a client can verify the next link.
+type serverKeyChainLink struct {
+	KeyID              string            `json:"keyID"`
+	Successor          serverKeyChainKey `json:"successor"`
+	Compromised        bool              `json:"compromised"`
+	Reason             string            `json:"reason"`
+	SignedAt           time.Time         `json:"signedAt"`
+	Signature          string            `json:"signature"`
+	SuccessorSignature string            `json:"successorSignature"`
+}
+
+// GetServerKeyChain returns the revocations leading from the key from to the
+// key current, in order. ok is false when from doesn't lead to current.
+func (s *DataService) GetServerKeyChain(ctx context.Context, from, current string) (links []serverKeyChainLink, ok bool, err error) {
+	if from == current {
+		return []serverKeyChainLink{}, true, nil
+	}
+	revs, err := loadServerKeyRevocations(ctx, s.db)
+	if err != nil {
+		return nil, false, err
+	}
+
+	start := -1
+	for i, rev := range revs {
+		if rev.KeyID == from {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return nil, false, nil
+	}
+	for _, rev := range revs[start:] {
+		var armor string
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT armor FROM public_keys WHERE id = $1`, rev.Successor,
+		).Scan(&armor); err != nil {
+			return nil, false, fmt.Errorf("load successor %s: %w", rev.Successor, err)
+		}
+		links = append(links, serverKeyChainLink{
+			KeyID:              rev.KeyID,
+			Successor:          serverKeyChainKey{ID: rev.Successor, Armor: armor},
+			Compromised:        rev.Compromised,
+			Reason:             rev.Reason,
+			SignedAt:           rev.SignedAt,
+			Signature:          rev.Signature,
+			SuccessorSignature: rev.SuccessorSignature,
+		})
+		if rev.Successor == current {
+			return links, true, nil
+		}
+	}
+	// from is newer than current: a rotation the server hasn't restarted into.
+	return nil, false, nil
+}
+
+// errCompromisedServerKey rejects a signature by a compromised server key
+// made at or after its revocation.
+var errCompromisedServerKey = errors.New("server key was compromised before this signature")
+
+// GetServerKeyArmorAt returns this server's key by fingerprint for verifying a
+// signature made at signedAt, or "" if unknown. A compromised key only
+// verifies what it signed before its revocation.
+func (s *DataService) GetServerKeyArmorAt(ctx context.Context, fingerprint string, signedAt time.Time) (string, error) {
+	var armor string
+	var revokedAt sql.NullTime
+	var compromised sql.NullBool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT pub.armor, pk.revoked_at, rev.compromised
+		FROM public_keys pub
+		LEFT JOIN private_keys pk ON pk.id = pub.id
+		LEFT JOIN private_key_revocations rev ON rev.key_id = pub.id
+		WHERE pub.id = $1
+	`, string(canonicalID(s.serverID, fingerprint))).Scan(&armor, &revokedAt, &compromised)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if compromised.Bool && revokedAt.Valid && !signedAt.UTC().Before(revokedAt.Time.UTC()) {
+		return "", errCompromisedServerKey
+	}
+	return armor, nil
+}
+
 // SignupInput bundles everything Signup needs. It is populated by the
 // Signup handler after it has allocated a userID, verified the user's
 // self-signature over their key, reconstructed the user identity
@@ -1052,6 +1145,8 @@ func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error)
 	var revoked bool
 	var serverSignatureID int64
 	var predID sql.NullString
+	var serverKeyRevokedAt sql.NullTime
+	var compromised sql.NullBool
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT pk.id, pk.owner, pk.armor, pk.created_at,
@@ -1059,13 +1154,16 @@ func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error)
 		       EXISTS(
 			SELECT 1 FROM public_key_revocations rv
 			WHERE rv.key_id = pk.id
-		       )
+		       ),
+		       priv.revoked_at, srv.compromised
 		FROM public_keys pk
+		LEFT JOIN private_keys priv ON priv.id = pk.id
+		LEFT JOIN private_key_revocations srv ON srv.key_id = pk.id
 		WHERE pk.id = $1
 	`, id).Scan(
 		&key.ID, &owner, &key.Armor, &key.CreatedAt,
 		&serverSignatureID, &predID,
-		&revoked,
+		&revoked, &serverKeyRevokedAt, &compromised,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1087,6 +1185,12 @@ func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error)
 	}
 	key.ServerSignature = serverSig
 	key.Revoked = revoked
+	if serverKeyRevokedAt.Valid {
+		t := serverKeyRevokedAt.Time.UTC()
+		key.Revoked = true
+		key.RevokedAt = &t
+		key.Compromised = compromised.Bool
+	}
 	if predID.Valid {
 		key.Predecessor = &predID.String
 	}

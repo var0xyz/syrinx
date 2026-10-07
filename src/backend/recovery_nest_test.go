@@ -76,7 +76,7 @@ func TestFlattenKeysNest_BrokenPredecessor(t *testing.T) {
 		},
 	}
 	v := &fakeRecoveryVerifier{failChallenge: map[string]bool{"bad-pred-sig": true}}
-	lookup := func(ctx context.Context, fp string) (string, error) {
+	lookup := func(ctx context.Context, fp string, _ time.Time) (string, error) {
 		if fp == "SKEY" {
 			return "server-pub", nil
 		}
@@ -98,7 +98,7 @@ func TestFlattenKeysNest_ServerIDMismatch(t *testing.T) {
 		ServerSignature: testRecoveryServerSig("other", ts),
 	}
 	root := recoveryKeyNode{recoveryKeyWire: recoveryKeyWire{Fingerprint: "AAA", Armor: "a", ServerSignature: testRecoveryServerSig("", ts)}}
-	_, _, err := flattenKeysNest(context.Background(), profile, root, "srv1", func(ctx context.Context, _ string) (string, error) { return "pub", nil }, &fakeRecoveryVerifier{})
+	_, _, err := flattenKeysNest(context.Background(), profile, root, "srv1", func(ctx context.Context, _ string, _ time.Time) (string, error) { return "pub", nil }, &fakeRecoveryVerifier{})
 	if err == nil {
 		t.Fatal("expected server id mismatch")
 	}

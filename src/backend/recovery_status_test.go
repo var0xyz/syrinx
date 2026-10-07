@@ -23,7 +23,7 @@ func TestVerifyProfileServerCountersig_OK(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	profile := testStatusRecoveryProfile("srv1", ts)
 	err := verifyProfileServerCountersig(context.Background(), profile, "srv1",
-		func(ctx context.Context, _ string) (string, error) { return "pub", nil },
+		func(ctx context.Context, _ string, _ time.Time) (string, error) { return "pub", nil },
 		&fakeRecoveryVerifier{})
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +34,7 @@ func TestVerifyProfileServerCountersig_WrongServerID(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	profile := testStatusRecoveryProfile("other", ts)
 	err := verifyProfileServerCountersig(context.Background(), profile, "srv1",
-		func(ctx context.Context, _ string) (string, error) { return "pub", nil },
+		func(ctx context.Context, _ string, _ time.Time) (string, error) { return "pub", nil },
 		&fakeRecoveryVerifier{})
 	if err == nil {
 		t.Fatal("expected mismatch")
@@ -51,7 +51,7 @@ func TestVerifyProfileServerCountersig_BadSignature(t *testing.T) {
 		profile.MemberSince, profile.ServerSignature.Timestamp,
 	))
 	err := verifyProfileServerCountersig(context.Background(), profile, "srv1",
-		func(ctx context.Context, _ string) (string, error) { return "pub", nil },
+		func(ctx context.Context, _ string, _ time.Time) (string, error) { return "pub", nil },
 		&fakeRecoveryVerifier{failSig: map[string]bool{payload: true}})
 	if err == nil {
 		t.Fatal("expected bad countersignature")
