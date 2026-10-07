@@ -65,9 +65,9 @@ type Handlers struct {
 	// reed_allocations/the WS connection registry, which only exists on
 	// the realtime service.
 	realtimeRelay *realtimeService
-	// peerRepinAttempts remembers when each unknown peer key was last chased
-	// (see repinPeer).
-	peerRepinAttempts sync.Map
+	// peerKeyUpdateAttempts remembers when each unknown peer key was last chased
+	// (see updatePeerKey).
+	peerKeyUpdateAttempts sync.Map
 }
 
 type ServerInfo struct {
@@ -179,32 +179,6 @@ func (h *Handlers) getUserID(r *http.Request) string {
 // set the appropriate headers.
 func (h *Handlers) noop(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-}
-
-// GetServerKeyChain lets a registered user move from a server key they trust
-// to the one this server signs with, along the signed revocations between.
-func (h *Handlers) GetServerKeyChain(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-
-	from := strings.TrimSpace(r.URL.Query().Get("from"))
-	if from == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `from` is required")
-		return
-	}
-
-	current := string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint))
-	links, ok, err := h.services.db.GetServerKeyChain(r.Context(), from, current)
-	if err != nil {
-		log.Error().Err(err).Str("from", from).Msg("Error loading server key chain")
-		internalServerError(w)
-		return
-	}
-	if !ok {
-		writeResponse(w, http.StatusNotFound, "No key chain from that key")
-		return
-	}
-
-	writeResponse(w, http.StatusOK, map[string]any{"revocations": links})
 }
 
 func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
@@ -1726,12 +1700,23 @@ func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	if revocation == nil {
-		writeResponse(w, http.StatusNotFound, "Revocation not found")
+	if revocation != nil {
+		writeResponse(w, http.StatusOK, revocation)
 		return
 	}
 
-	writeResponse(w, http.StatusOK, revocation)
+	// Not a user key: it may be one of this server's own signing keys.
+	serverRevocation, err := h.services.db.GetServerKeyRevocation(r.Context(), fingerprint)
+	if err != nil {
+		log.Error().Str("keyID", fingerprint).Err(err).Msg("Error fetching server key revocation")
+		internalServerError(w)
+		return
+	}
+	if serverRevocation == nil {
+		writeResponse(w, http.StatusNotFound, "Revocation not found")
+		return
+	}
+	writeResponse(w, http.StatusOK, serverRevocation)
 }
 
 // normalizeClaimedTags lowercases, trims, and dedupes a client-claimed tag

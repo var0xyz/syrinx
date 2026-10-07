@@ -999,11 +999,15 @@ export const apiService = {
    * canonicalKeyId/formatServerKeyId). Authenticated: GET /keys/{id} serves
    * any key — local or, transparently via server-side proxying, a
    * federated peer's. */
-  /** The server key chain from the key `from`. Its envelope is signed by a
-   * key the caller doesn't trust yet, so the caller verifies it once the
-   * chain checks out (see serverKeyChain.ts). */
-  async getServerKeyChainUnverified(from: string): Promise<Response> {
-    return requestRaw(`/server/key-chain?from=${encodeURIComponent(from)}`, { method: 'GET' }, { skipEnvelope: true });
+  /** GET /keys/{id}/revocation and GET /keys/{id} without checking the
+   * response signature, for following a server key rotation: the response is
+   * signed by a key not trusted yet (see serverKeyRotation.ts). */
+  async getKeyRevocationUnverified(id: string): Promise<Response> {
+    return requestRaw(`/keys/${id}/revocation`, { method: 'GET' }, { skipEnvelope: true });
+  },
+
+  async getPublicKeyUnverified(id: string): Promise<Response> {
+    return requestRaw(`/keys/${id}`, { method: 'GET' }, { skipEnvelope: true });
   },
 
   async getPublicKey(id: string): Promise<api.PublicKey> {

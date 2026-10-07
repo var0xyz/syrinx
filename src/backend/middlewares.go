@@ -283,7 +283,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, next http.Handler, fingerprint, callerServerID, signatureHeader string) {
 	ok, publicKeyArmor, err := h.services.db.VerifyFederationPeer(r.Context(), callerServerID, fingerprint)
 	// An unknown key from an established peer may be its successor.
-	if err == nil && !ok && h.repinPeer(r.Context(), callerServerID, fingerprint) {
+	if err == nil && !ok && h.updatePeerKey(r.Context(), callerServerID, fingerprint) {
 		ok, publicKeyArmor, err = h.services.db.VerifyFederationPeer(r.Context(), callerServerID, fingerprint)
 	}
 	if err != nil {
