@@ -20,7 +20,7 @@
   import { syncPendingEvictions } from '$lib/services/eviction';
   import { pendingVouchesRepository } from '$lib/repositories/pendingVouches';
   import { ingestPushedVouch } from '$lib/services/vouches';
-  import { refreshServerInfo, serverKeyRejected } from '$lib/services/serverInfo';
+  import { refreshServerInfo, serverKeyCompromise, serverKeyRejected } from '$lib/services/serverInfo';
   import { hasTrustedServerKey } from '$lib/services/serverKeyTrust';
   import ServerKeyGate from '$lib/components/ServerKeyGate.svelte';
   import { authService } from '$lib/services/auth';
@@ -345,6 +345,7 @@
 {#if !serverKeyTrusted || $serverKeyRejected}
   <ServerKeyGate
     rejected={$serverKeyRejected}
+    compromisedReason={$serverKeyCompromise?.reason ?? null}
     on:trusted={() => {
       serverKeyTrusted = true;
       startTrustedSession();

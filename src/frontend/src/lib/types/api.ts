@@ -66,7 +66,21 @@ export interface PublicKey extends Base {
   revoked: boolean;
   predecessor: string | null;
   serverSignature: ServerSignature;
+  /** Set on revoked server keys only. */
+  revokedAt?: string;
+  compromised?: boolean;
 };
+
+/** One signed revocation in the server key chain, with its successor. */
+export interface ServerKeyRevocation {
+  keyID: string;
+  successor: { id: string; armor: string };
+  compromised: boolean;
+  reason: string;
+  signedAt: string;
+  signature: string;
+  successorSignature: string;
+}
 
 // KeyRevocation is the wire shape of a signed revocation attestation.
 // id is the revoked key's own id. Revoke time is serverSignature.timestamp.

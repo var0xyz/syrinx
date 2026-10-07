@@ -6,6 +6,8 @@
 
   /** The server rejected the key already stored on this device. */
   export let rejected = false;
+  /** Set when the server reported that key compromised. */
+  export let compromisedReason: string | null = null;
 
   const dispatch = createEventDispatcher<{ trusted: void }>();
 
@@ -50,7 +52,14 @@
 
 <div class="container">
   <div class="card">
-    {#if rejected}
+    {#if compromisedReason !== null}
+      <p class="error-box" role="alert">
+        The server reported the key stored on this device as compromised
+        ({compromisedReason}). It signed a new key, but someone holding the old
+        key could have signed one too. Verify the new key with an admin before
+        entering it.
+      </p>
+    {:else if rejected}
       <p class="error-box" role="alert">
         The server rejected the key stored on this device. Verify with an
         admin before entering a new one.
