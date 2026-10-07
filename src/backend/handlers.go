@@ -218,7 +218,7 @@ func (h *Handlers) GetKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if handled, _ := h.proxyIfForeign(w, r, id); handled {
+	if h.proxyKeyToForeign(w, r, id) {
 		return
 	}
 
@@ -233,16 +233,74 @@ func (h *Handlers) GetKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The requester now has a user key cached, so they are owed its
-	// revocation. A key already revoked isn't: its response says so.
-	requester, _ := r.Context().Value(userIDKey).(string)
-	if requester != "" && key.UserID != "" && key.UserID != requester && !key.Revoked {
+	h.allocateServedKey(r, key)
+	writeResponse(w, http.StatusOK, key)
+}
+
+// allocateServedKey records who now has key cached, so they are owed its
+// revocation: a local user, or a peer fetching it for its users. A key
+// already revoked isn't allocated: its response says so.
+func (h *Handlers) allocateServedKey(r *http.Request, key *Key) {
+	if key.UserID == "" || key.Revoked {
+		return
+	}
+	log := h.services.log.GetLogger(r.Context())
+	if requester, _ := r.Context().Value(userIDKey).(string); requester != "" && requester != key.UserID {
 		if err := h.services.db.AllocatePublicKey(r.Context(), requester, key.ID); err != nil {
-			log.Error().Str("id", id).Err(err).Msg("Error allocating public key")
+			log.Error().Str("keyID", key.ID).Err(err).Msg("Error allocating public key")
 		}
 	}
+	if peerID, _ := r.Context().Value(peerServerIDKey).(string); peerID != "" {
+		if err := h.services.db.AllocatePublicKeyToServer(r.Context(), peerID, key.ID); err != nil {
+			log.Error().Str("keyID", key.ID).Err(err).Msg("Error allocating public key to peer")
+		}
+	}
+}
 
-	writeResponse(w, http.StatusOK, key)
+// proxyKeyToForeign forwards GET /keys/{id} for a foreign key to its home
+// server, and allocates the key to the local requester when it comes back
+// unrevoked. It returns false, doing nothing, for a local key.
+func (h *Handlers) proxyKeyToForeign(w http.ResponseWriter, r *http.Request, id string) bool {
+	homeServerID, foreign := h.foreignServerOf(id)
+	if !foreign {
+		return false
+	}
+	peer, err := h.services.db.GetServerByID(r.Context(), homeServerID)
+	if err != nil {
+		internalServerError(w)
+		return true
+	}
+	if peer == nil {
+		writeResponse(w, http.StatusNotFound, "Not found")
+		return true
+	}
+	log := h.services.log.GetLogger(r.Context())
+	respBody, status, err := h.forwardToPeer(r, peer.BaseURL, "")
+	if err != nil {
+		log.Error().Err(err).Str("target", peer.BaseURL).Msg("proxy key to peer server failed")
+		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
+		return true
+	}
+	// A user key is cached only once verified, so it can be allocated.
+	if status == http.StatusOK {
+		var key Key
+		if err := json.Unmarshal(respBody, &key); err != nil || key.ID != id {
+			writeResponse(w, http.StatusBadGateway, "Peer server returned an invalid key")
+			return true
+		}
+		if key.UserID != "" {
+			if _, err := h.verifyAndCachePeerUserKey(r.Context(), peer.BaseURL, homeServerID, key); err != nil {
+				log.Error().Err(err).Str("keyID", id).Msg("Peer user key failed verification")
+				writeResponse(w, http.StatusBadGateway, "Peer server returned an invalid key")
+				return true
+			}
+			h.allocateServedKey(r, &key)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(respBody)
+	return true
 }
 
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
@@ -1684,6 +1742,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 
 	h.metrics.KeyRevoked(r.Context(), userID)
 	h.broadcastChan <- realtimeBroadcastMessage{Type: realtimeKeyRevoked, KeyID: revokedKeyFingerprint}
+	go h.notifyPeersOfKeyRevocation(revokedKeyFingerprint)
 
 	writeResponse(w, http.StatusOK, publicKey)
 }
@@ -3813,6 +3872,12 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 	if err := json.NewDecoder(resp.Body).Decode(&key); err != nil {
 		return nil, fmt.Errorf("decode peer user key: %w", err)
 	}
+	return h.verifyAndCachePeerUserKey(ctx, baseURL, peerServerID, key)
+}
+
+// verifyAndCachePeerUserKey checks a user key a peer served against the
+// peer's countersignature, then caches it locally.
+func (h *Handlers) verifyAndCachePeerUserKey(ctx context.Context, baseURL, peerServerID string, key Key) (*Key, error) {
 	armor := key.Armor
 
 	peerKeyServerFingerprint, _, parseOK := parseIdentityID(identityID(key.ServerSignature.ID))
