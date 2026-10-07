@@ -11,6 +11,7 @@ import { publicKeyRepository } from '$lib/repositories/publicKey';
 import { revocationRepository } from '$lib/repositories/revocation';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
 import { removedReedsRepository } from '$lib/repositories/removedReeds';
+import { threadsRepository } from '$lib/repositories/threads';
 import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
@@ -440,6 +441,9 @@ async function restoreItem(storeName: string, item: unknown): Promise<void> {
       return;
     case 'removedAccounts':
       await removedAccountsRepository.put(item as api.AccountRemoval);
+      return;
+    case 'threads':
+      await threadsRepository.put(item as api.ThreadRecord);
       return;
     case 'echoCounts':
     case 'replyCounts':

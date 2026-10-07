@@ -302,6 +302,46 @@ export function buildServerKeyRevocationPayload(
   );
 }
 
+/** Mirror of buildThreadUserPayload in identity.go (`type: thread`). Key `i` is reedIDs[i]; reedIDs[0] is the head. */
+export function buildThreadUserPayload(
+  serverID: string,
+  threadID: string,
+  reedIDs: string[]
+): string {
+  const headers: Record<string, string> = {
+    type: 'thread',
+    serverID,
+    threadID
+  };
+  reedIDs.forEach((id, i) => {
+    headers[String(i)] = id;
+  });
+  return stringToSign(headers, '');
+}
+
+/** Mirror of buildThreadServerPayload in identity.go. */
+export function buildThreadServerPayload(
+  serverID: string,
+  threadID: string,
+  authorKeyID: string,
+  serverKeyFingerprint: string,
+  userSignature: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'thread',
+      serverID,
+      threadID,
+      authorKeyID,
+      signedAt,
+      serverKeyFingerprint,
+      userSignature: btoa(userSignature)
+    },
+    ''
+  );
+}
+
 /** Mirror of BuildReedLikeUserPayload in identity.go (`type: reed_like`). reedID is the full canonical id. */
 export function buildReedLikeUserPayload(
   reedID: string,

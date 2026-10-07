@@ -28,12 +28,12 @@ with or after each server step.
 |----|-------------------------------------------------------|----------|
 | 00 | Design, data model, trust model                       | Proposed |
 | 01 | `replying` and `thread` header objects                | Proposed |
-| 02 | Thread record, `POST /threads`, `PUBLISH_READY`       | Proposed |
+| 02 | Thread record, `POST /threads`, `PUBLISH_READY`       | In progress |
 | 03 | `REQUEST_THREAD` / `RELAY_THREAD` and the thread ACK  | Proposed |
 | 04 | Thread-removal certificate + federation notify        | Proposed |
 | 05 | SPA: composer, thread view, removal                   | Proposed |
 
-**Track status: Proposed.**
+**Track status: In progress.**
 
 ## Locked decisions
 

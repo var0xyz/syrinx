@@ -190,6 +190,18 @@ export interface ReedRemoval extends Base {
   serverSignature: ServerSignature;
 }
 
+/** Wire shape of a signed thread record: reedIDs[i] is the part at index i,
+ * reedIDs[0] the head, whose ID is threadID. */
+export interface ThreadRecord extends Base {
+  type: 'thread';
+  serverID: string;
+  userID: string;
+  threadID: string;
+  reedIDs: string[];
+  userSignature: UserSignature;
+  serverSignature: ServerSignature;
+}
+
 /** Wire shape of a signed account removal certificate (DELETE /users/me / 410 body). */
 export interface AccountRemoval extends Base {
   type: 'account';

@@ -53,7 +53,9 @@ func ensureMentionsSchema(db *sql.DB) error {
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 			signed_at TIMESTAMP NOT NULL,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+			thread_head VARCHAR(255) REFERENCES reed_identities(id) ON DELETE CASCADE,
+			thread_index SMALLINT
 		)`,
 		`CREATE TABLE reed_allocations (
 			reed_id VARCHAR(255) NOT NULL,

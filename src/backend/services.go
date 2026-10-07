@@ -39,6 +39,8 @@ var (
 	// author's current tip. The
 	// handler maps this to 409 so the client can refresh its tip and retry.
 	ErrReedFork = errors.New("reed fork: previousID does not match current tip")
+	// ErrInvalidThread rejects a thread whose parts break its shape rules.
+	ErrInvalidThread = errors.New("invalid thread")
 )
 
 // Every rotation stores a new key forever, so the rate is capped per user.
@@ -1532,6 +1534,9 @@ type createReedParams struct {
 	// PreviousID is the reed the client believes is the author's current
 	// tip. Empty means "author has zero reeds" — see checkReedTip.
 	PreviousID string
+	// ThreadHead is empty unless the reed is a thread part.
+	ThreadHead  string
+	ThreadIndex int
 }
 
 // ResolveThreadIDForParent returns the canonical thread id for a reply to parent P.
@@ -1919,14 +1924,17 @@ func (s *DataService) insertReedCoreTx(
 
 	var created Reed
 	var createdOwner string
+	threadHead := sql.NullString{String: p.ThreadHead, Valid: p.ThreadHead != ""}
+	threadIndex := sql.NullInt32{Int32: int32(p.ThreadIndex), Valid: p.ThreadHead != ""}
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO reeds (
 			id, user_id, signed_at,
-			user_signature_id, server_signature_id
+			user_signature_id, server_signature_id,
+			thread_head, thread_index
 		)
-		VALUES ($1, $2, $3, $4, $5)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, user_id, signed_at
-	`, p.ReedID, selfIdentity, ts, userSigID, serverSigID).Scan(
+	`, p.ReedID, selfIdentity, ts, userSigID, serverSigID, threadHead, threadIndex).Scan(
 		&created.ID,
 		&createdOwner,
 		&created.Timestamp,
@@ -1985,6 +1993,160 @@ func (s *DataService) CreateReed(ctx context.Context, p createReedParams) (*Reed
 		return nil, err
 	}
 	return &created, nil
+}
+
+// createThreadParams is the insert payload for a whole thread: its parts in
+// order (Parts[0] is the head) plus the author-signed thread record.
+type createThreadParams struct {
+	UserID            string
+	UserKeyID         string
+	UserSignature     string
+	ServerFingerprint string
+	ServerSignature   string
+	Timestamp         time.Time
+	PreviousID        string
+	Parts             []createReedParams
+}
+
+// threadRecord is the stored thread record with its signatures. ReedIDs[i]
+// is the part at index i.
+type threadRecord struct {
+	ThreadID          string
+	UserID            string
+	ReedIDs           []string
+	UserKeyID         string
+	UserSignature     string
+	ServerFingerprint string
+	ServerSignature   string
+	ServerSignedAt    time.Time
+}
+
+// validateThreadParts checks the shape rules a thread must meet. Part IDs
+// must ascend with their index, so the tip ordering picks the last part.
+func validateThreadParts(userID string, parts []createReedParams) error {
+	if len(parts) < 2 || len(parts) > MaxThreadReeds {
+		return fmt.Errorf("%w: needs 2 to %d reeds, got %d", ErrInvalidThread, MaxThreadReeds, len(parts))
+	}
+	for i, part := range parts {
+		if part.UserID != userID {
+			return fmt.Errorf("%w: reed %d has another author", ErrInvalidThread, i)
+		}
+		if author, ok := authorOf(identityID(part.ReedID)); !ok || string(author) != userID {
+			return fmt.Errorf("%w: reed %d does not belong to its author", ErrInvalidThread, i)
+		}
+		if i > 0 && part.ReedID <= parts[i-1].ReedID {
+			return fmt.Errorf("%w: reed IDs must ascend with their index", ErrInvalidThread)
+		}
+	}
+	return nil
+}
+
+// CreateThread inserts every part and the thread record in one transaction.
+// Parts share p.Timestamp; each part's tip check names the part before it.
+func (s *DataService) CreateThread(ctx context.Context, p createThreadParams) (*threadRecord, error) {
+	if err := validateThreadParts(p.UserID, p.Parts); err != nil {
+		return nil, err
+	}
+	ts := p.Timestamp.UTC().Truncate(time.Second)
+	threadID := p.Parts[0].ReedID
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	reedIDs := make([]string, len(p.Parts))
+	for i, part := range p.Parts {
+		part.Timestamp = ts
+		part.ThreadHead = threadID
+		part.ThreadIndex = i
+		part.PreviousID = p.PreviousID
+		if i > 0 {
+			part.PreviousID = p.Parts[i-1].ReedID
+		}
+		if _, err := s.insertReedCoreTx(ctx, tx, part); err != nil {
+			return nil, err
+		}
+		reedIDs[i] = part.ReedID
+	}
+
+	userSigID, err := insertUserSignature(ctx, tx, p.UserKeyID, p.UserSignature)
+	if err != nil {
+		return nil, err
+	}
+	serverSigID, err := insertServerSignature(ctx, tx, p.ServerFingerprint, p.ServerSignature, ts)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO reed_threads (id, user_signature_id, server_signature_id)
+		VALUES ($1, $2, $3)
+	`, threadID, userSigID, serverSigID); err != nil {
+		return nil, fmt.Errorf("insert reed thread: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &threadRecord{
+		ThreadID:          threadID,
+		UserID:            p.UserID,
+		ReedIDs:           reedIDs,
+		UserKeyID:         p.UserKeyID,
+		UserSignature:     p.UserSignature,
+		ServerFingerprint: p.ServerFingerprint,
+		ServerSignature:   p.ServerSignature,
+		ServerSignedAt:    ts,
+	}, nil
+}
+
+// GetThreadRecord returns the thread record for threadID with its parts in
+// index order, or nil if there is none.
+func (s *DataService) GetThreadRecord(ctx context.Context, threadID string) (*threadRecord, error) {
+	rec := threadRecord{ThreadID: threadID}
+	err := s.db.QueryRowContext(ctx, `
+		SELECT us.public_key_id, us.signature,
+			ss.private_key_id, ss.signature, ss.signed_at
+		FROM reed_threads t
+		JOIN user_signatures us ON us.id = t.user_signature_id
+		JOIN server_signatures ss ON ss.id = t.server_signature_id
+		WHERE t.id = $1
+	`, threadID).Scan(
+		&rec.UserKeyID,
+		&rec.UserSignature,
+		&rec.ServerFingerprint,
+		&rec.ServerSignature,
+		&rec.ServerSignedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	rec.ServerSignedAt = rec.ServerSignedAt.UTC().Truncate(time.Second)
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, user_id FROM reeds
+		WHERE thread_head = $1
+		ORDER BY thread_index
+	`, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id, &rec.UserID); err != nil {
+			return nil, err
+		}
+		rec.ReedIDs = append(rec.ReedIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return &rec, nil
 }
 
 // CreateReedWithEcho inserts a reed and indexes it as an echo of echoTarget.
