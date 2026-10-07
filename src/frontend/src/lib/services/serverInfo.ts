@@ -7,7 +7,7 @@ import { formatServerKeyId } from '$lib/utils/identityRef';
 
 export const serverInfo = writable<ServerInfo | null>(null);
 export const serverInfoLoading = writable(true);
-export const serverInfoFetchFailed = writable(false);
+export const serverUnreachable = writable(false);
 
 /** Set when a fetched server.id no longer matches the one this device
  * already trusted — a redeployed/reset/impersonating server, not a fetch
@@ -40,8 +40,8 @@ export const isRecoveryMode = derived(
 
 /** Device is online but GET /api/server/info failed. */
 export const isServerUnreachable = derived(
-  [isOnline, serverInfoFetchFailed],
-  ([$online, $failed]) => $online && $failed
+  [isOnline, serverUnreachable],
+  ([$online, $unreachable]) => $online && $unreachable
 );
 
 /** This origin now answers as a server id different from the one this
@@ -108,7 +108,7 @@ function normalizeMaxInvites(value: unknown): number {
 
 export async function refreshServerInfo(): Promise<ServerInfo | null> {
   if (!navigator.onLine) {
-    serverInfoFetchFailed.set(false);
+    serverUnreachable.set(false);
     serverInfoLoading.set(false);
     return null;
   }
@@ -127,7 +127,7 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
     if (response.status === 401) {
       console.error('serverInfo: server rejected the trusted server key');
       serverKeyRejected.set(true);
-      serverInfoFetchFailed.set(false);
+      serverUnreachable.set(false);
       return null;
     }
     if (!response.ok) {
@@ -158,7 +158,7 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
         `serverInfo: server id changed from ${knownServerId} to ${info.id} — refusing to adopt it`
       );
       serverIdMismatch.set({ known: knownServerId, fetched: info.id });
-      serverInfoFetchFailed.set(false);
+      serverUnreachable.set(false);
       return null;
     }
     serverIdMismatch.set(null);
@@ -166,13 +166,13 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
     localStorage.setItem('serverId', info.id);
     localStorage.setItem('serverName', info.name);
     serverInfo.set(info);
-    serverInfoFetchFailed.set(false);
+    serverUnreachable.set(false);
     await ensureServerKeyCached(info.id, info.serverKeyId);
     await storeFederatedServers(data.federation);
     return info;
   } catch (error) {
     console.error('serverInfo: failed to fetch /api/server/info', error);
-    serverInfoFetchFailed.set(true);
+    serverUnreachable.set(true);
     return null;
   } finally {
     serverInfoLoading.set(false);
