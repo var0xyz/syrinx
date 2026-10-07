@@ -26,7 +26,7 @@ Each table below has a **Status** column per step. Values:
 | Track                 | Status      | Remaining                                              |
 | --------------------- | ----------- | ------------------------------------------------------ |
 | Server key rotation   | Implemented | —                                                      |
-| Key revocation events | Proposed    | 00–04 (supersedes prerequisite 09)                     |
+| Key revocation events | In progress | 02–04 (01 implemented; supersedes prerequisite 09)     |
 | Ripples               | Proposed    | 00–04                                                  |
 | Notifications         | Proposed    | 00–05                                                  |
 | Load testing          | Proposed    | 00–03                                                  |

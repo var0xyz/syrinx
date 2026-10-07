@@ -103,7 +103,15 @@ type relayRequestPayload struct {
 	ReedID          string `json:"reed_id"`
 	AuthorID        string `json:"author_id"`
 	RequesterUserID string `json:"requester_user_id"`
+	RequesterKeyID  string `json:"requester_key_id"`
 	PeerRequestID   string `json:"peer_request_id"`
+}
+
+// requesterKeyBelongsTo reports whether keyID is a key of userID, a user of
+// peerServerID: the calling peer names the key, and only for its own users.
+func requesterKeyBelongsTo(keyID, userID, peerServerID string) bool {
+	owner, serverID, _, ok := parseKeyFingerprint(identityID(keyID))
+	return ok && serverID == peerServerID && string(canonicalID(serverID, owner)) == userID
 }
 
 type relayRequestResponse struct {
@@ -127,10 +135,15 @@ func (h *Handlers) relayRequestToPeer(ctx context.Context, reedID, requesterUser
 		return realtimeForeignRequestReedNotFound, "", nil
 	}
 
+	requesterKeyID, err := h.services.db.GetActiveKeyFingerprint(ctx, requesterUserID)
+	if err != nil {
+		return realtimeForeignRequestReedNotFound, "", err
+	}
 	payload := relayRequestPayload{
 		ReedID:          bareReedID,
 		AuthorID:        string(canonicalID(homeServerID, authorUserID)),
 		RequesterUserID: requesterUserID,
+		RequesterKeyID:  requesterKeyID,
 		PeerRequestID:   localRequestID,
 	}
 	var respBody relayRequestResponse
@@ -172,9 +185,15 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 	req.ReedID = strings.TrimSpace(req.ReedID)
 	req.AuthorID = strings.TrimSpace(req.AuthorID)
 	req.RequesterUserID = strings.TrimSpace(req.RequesterUserID)
+	req.RequesterKeyID = strings.TrimSpace(req.RequesterKeyID)
 	if req.ReedID == "" || req.AuthorID == "" || req.RequesterUserID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", false)
 		writeResponse(w, http.StatusBadRequest, "reed_id, author_id, and requester_user_id are required")
+		return
+	}
+	if !requesterKeyBelongsTo(req.RequesterKeyID, req.RequesterUserID, peerServerID) {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", false)
+		writeResponse(w, http.StatusBadRequest, "requester_key_id is not a key of the requester on the calling peer")
 		return
 	}
 
@@ -199,7 +218,7 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 		internalServerError(w)
 		return
 	}
-	result, peerEventID, err := h.realtimeRelay.HandleForeignRequestReed(r.Context(), canonicalReedID, peerServerID, req.RequesterUserID, req.PeerRequestID)
+	result, peerEventID, err := h.realtimeRelay.HandleForeignRequestReed(r.Context(), canonicalReedID, peerServerID, req.RequesterUserID, req.RequesterKeyID, req.PeerRequestID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", canonicalReedID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign reed request")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", false)
@@ -984,6 +1003,7 @@ func (h *Handlers) HolderNotifyFromPeer(w http.ResponseWriter, r *http.Request) 
 type relayFallbackRequestPayload struct {
 	ReedID          string `json:"reed_id"`
 	RequesterUserID string `json:"requester_user_id"`
+	RequesterKeyID  string `json:"requester_key_id"`
 	PeerRequestID   string `json:"peer_request_id"`
 }
 
@@ -1005,9 +1025,14 @@ func (h *Handlers) relayFallbackRequestToPeer(ctx context.Context, peerServerID,
 		return realtimeForeignRequestReedNotFound, "", nil
 	}
 
+	requesterKeyID, err := h.services.db.GetActiveKeyFingerprint(ctx, requesterUserID)
+	if err != nil {
+		return realtimeForeignRequestReedNotFound, "", err
+	}
 	payload := relayFallbackRequestPayload{
 		ReedID:          reedID,
 		RequesterUserID: requesterUserID,
+		RequesterKeyID:  requesterKeyID,
 		PeerRequestID:   localRequestID,
 	}
 	var respBody relayFallbackRequestResponse
@@ -1050,9 +1075,15 @@ func (h *Handlers) RelayFallbackRequestFromPeer(w http.ResponseWriter, r *http.R
 	}
 	req.ReedID = strings.TrimSpace(req.ReedID)
 	req.RequesterUserID = strings.TrimSpace(req.RequesterUserID)
+	req.RequesterKeyID = strings.TrimSpace(req.RequesterKeyID)
 	if req.ReedID == "" || req.RequesterUserID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", false)
 		writeResponse(w, http.StatusBadRequest, "reed_id and requester_user_id are required")
+		return
+	}
+	if !requesterKeyBelongsTo(req.RequesterKeyID, req.RequesterUserID, peerServerID) {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", false)
+		writeResponse(w, http.StatusBadRequest, "requester_key_id is not a key of the requester on the calling peer")
 		return
 	}
 
@@ -1076,7 +1107,7 @@ func (h *Handlers) RelayFallbackRequestFromPeer(w http.ResponseWriter, r *http.R
 		internalServerError(w)
 		return
 	}
-	result, peerEventID, err := h.realtimeRelay.HandleForeignFallbackRequest(r.Context(), req.ReedID, peerServerID, req.RequesterUserID, req.PeerRequestID)
+	result, peerEventID, err := h.realtimeRelay.HandleForeignFallbackRequest(r.Context(), req.ReedID, peerServerID, req.RequesterUserID, req.RequesterKeyID, req.PeerRequestID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Failed to handle fallback request")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", false)

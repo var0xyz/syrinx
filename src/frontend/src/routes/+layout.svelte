@@ -131,7 +131,7 @@
       if (!reed_id) return;
       void pendingPublicationRepository.delete(reed_id);
     });
-    serverConnection.on(ServerEvent.RelayRequest, async ({ id: eventId, reed_id, requester_id }) => {
+    serverConnection.on(ServerEvent.RelayRequest, async ({ id: eventId, reed_id, requester_key_id }) => {
       console.log('ServerConnection: relay request received for reed:', reed_id, 'event:', eventId);
       const reed = await dbService.get<ReedType>('reeds', reed_id);
       if (!reed) {
@@ -139,9 +139,9 @@
         serverConnection.sendRelayMiss(eventId);
         return;
       }
-      const ciphertext = await encryptReedForRequester(reed, requester_id);
+      const ciphertext = await encryptReedForRequester(reed, requester_key_id);
       if (!ciphertext) {
-        console.warn('ServerConnection: could not encrypt for requester, sending relay error:', requester_id);
+        console.warn('ServerConnection: could not encrypt for requester, sending relay error:', requester_key_id);
         serverConnection.sendRelayError(eventId);
         return;
       }

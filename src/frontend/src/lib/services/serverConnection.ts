@@ -89,7 +89,7 @@ export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; 
       return {
         type: 'RELAY_REQUEST',
         id: msg.id,
-        data: { reed_id: p.value.reedId, requester_id: p.value.requesterId },
+        data: { reed_id: p.value.reedId, requester_key_id: p.value.requesterKeyId },
       };
     case 'dataResponse': {
       // typeName mirrors the MessageType enum name (e.g. "BROADCAST_REED")

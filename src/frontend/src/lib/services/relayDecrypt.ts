@@ -6,46 +6,43 @@
 
 import { requestSigner } from './request-signer';
 import { cryptoService } from './crypto';
-import { apiService } from './api';
 import { serverConnection } from './serverConnection';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { resolvePublicKeyArmor } from '$lib/verifiers';
 import { contradictingVouch } from './vouches';
+import { parseKeyId } from '$lib/utils/identityRef';
 import type { ReedType } from '$lib/types/reed';
 
 /**
- * Encrypt a locally-held reed for the requester named in RELAY_REQUEST.
- * Null means report RELAY_ERROR, not RELAY_MISS: the content is fine,
- * only the key resolution failed.
+ * Encrypt a locally-held reed to the key RELAY_REQUEST names; the key's
+ * owner is the requester. Null means report RELAY_ERROR, not RELAY_MISS:
+ * the content is fine, only the key could not be used.
  */
 export async function encryptReedForRequester(
   reed: ReedType,
-  requesterID: string
+  keyID: string
 ): Promise<string | null> {
-  let activeKeyID: string;
-  try {
-    const info = await apiService.getUserInfo(requesterID);
-    if (!info.activeKeyID) return null;
-    activeKeyID = info.activeKeyID;
-  } catch (error) {
-    console.error('Relay: failed to fetch requester key id', requesterID, error);
+  const parsed = parseKeyId(keyID);
+  if (!parsed) {
+    console.error('Relay: request names no usable key', keyID);
     return null;
   }
+  const requesterID = `${parsed.userId}@${parsed.serverId}`;
 
-  // A vouch naming a different key contradicts what the server reports, so
+  // A vouch naming a different key contradicts what the server names, so
   // encrypting would hand content to a key someone verified was not theirs.
   // Absence of a vouch is not grounds to refuse.
-  const contradiction = await contradictingVouch(requesterID, activeKeyID);
+  const contradiction = await contradictingVouch(requesterID, keyID);
   if (contradiction) {
     console.error(
       'Relay: refusing to encrypt, a vouch names a different key',
       requesterID,
-      { vouched: contradiction.subjectKeyID, reported: activeKeyID }
+      { vouched: contradiction.subjectKeyID, named: keyID }
     );
     return null;
   }
 
-  const armor = await resolvePublicKeyArmor(requesterID, activeKeyID);
+  const armor = await resolvePublicKeyArmor(requesterID, keyID);
   if (!armor) return null;
 
   return cryptoService.encryptToRecipient(JSON.stringify(reed), armor);
