@@ -1670,6 +1670,7 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 	// Back up: send what piled up for it while it was down.
 	if req.Reason == realtimeResetBoot {
 		go h.deliverBehindStreams(peerServerID)
+		go h.sendOwedKeyRevocations(peerServerID)
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", true)
 	w.WriteHeader(http.StatusNoContent)
@@ -2029,4 +2030,182 @@ func (h *Handlers) notifyPeersOfServerKey() {
 		}(peer)
 	}
 	wg.Wait()
+}
+
+// ///////////////////////////////////////// //
+//   key-revocation: a user key was revoked    //
+// ///////////////////////////////////////// //
+
+// notifyPeersOfKeyRevocation sends keyID's revocation once to each peer that
+// fetched it for its users. A peer that accepts it drops its allocation and
+// tells its own users; one that doesn't is retried when it next boots.
+func (h *Handlers) notifyPeersOfKeyRevocation(keyID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	log := h.services.log.GetLogger(ctx)
+
+	peerIDs, err := h.services.db.PublicKeyServerHolders(ctx, keyID)
+	if err != nil {
+		log.Error().Err(err).Str("keyID", keyID).Msg("Failed to list peers holding a revoked key")
+		return
+	}
+	for _, peerID := range peerIDs {
+		h.sendKeyRevocationToPeer(ctx, peerID, keyID)
+	}
+}
+
+// sendOwedKeyRevocations sends peerID every revocation it is still owed.
+func (h *Handlers) sendOwedKeyRevocations(peerID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	keyIDs, err := h.services.db.RevokedKeysOwedToServer(ctx, peerID)
+	if err != nil {
+		h.services.log.GetLogger(ctx).Error().Err(err).Str("peerServerID", peerID).Msg("Failed to list key revocations owed to peer")
+		return
+	}
+	for _, keyID := range keyIDs {
+		h.sendKeyRevocationToPeer(ctx, peerID, keyID)
+	}
+}
+
+// notifyPeersOfOwedKeyRevocations retries, at boot, every revocation a
+// connected peer hasn't accepted yet.
+func (h *Handlers) notifyPeersOfOwedKeyRevocations() {
+	peers, err := h.services.db.ListConnectedPeers(context.Background())
+	if err != nil {
+		h.services.log.GetLogger(context.Background()).Error().Err(err).Msg("Failed to list peers for owed key revocations")
+		return
+	}
+	for _, peer := range peers {
+		h.sendOwedKeyRevocations(peer.ID)
+	}
+}
+
+func (h *Handlers) sendKeyRevocationToPeer(ctx context.Context, peerID, keyID string) {
+	log := h.services.log.GetLogger(ctx)
+	rev, err := h.services.db.GetKeyRevocation(ctx, keyID)
+	if err != nil || rev == nil {
+		log.Error().Err(err).Str("keyID", keyID).Msg("Failed to load key revocation for peer")
+		return
+	}
+	peer, err := h.services.db.GetServerByID(ctx, peerID)
+	if err != nil || peer == nil {
+		return
+	}
+	status, err := h.callPeerRelayEndpoint(ctx, peerID, peer.BaseURL, "/api/federation/relay/key-revocation", rev, nil)
+	if err != nil || status < 200 || status >= 300 {
+		log.Warn().Err(err).Int("status", status).Str("peerServerID", peerID).Str("keyID", keyID).Msg("Peer did not accept key revocation")
+		return
+	}
+	if err := h.services.db.DeletePublicKeyServerAllocation(ctx, peerID, keyID); err != nil {
+		log.Error().Err(err).Str("peerServerID", peerID).Str("keyID", keyID).Msg("Failed to clear peer key allocation")
+	}
+}
+
+// KeyRevocationFromPeer receives a revocation of one of the calling peer's
+// users' keys. It is verified, marked on the local allocations of that key,
+// and pushed to their holders; offline holders get it on catch-up.
+func (h *Handlers) KeyRevocationFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	var rev KeyRevocation
+	if err := json.NewDecoder(r.Body).Decode(&rev); err != nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "key-revocation", false)
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := h.verifyPeerKeyRevocation(r.Context(), peerServerID, rev); err != nil {
+		log.Warn().Err(err).Str("peerServerID", peerServerID).Str("keyID", rev.ID).Msg("Rejected key revocation from peer")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "key-revocation", false)
+		writeResponse(w, http.StatusBadRequest, "Key revocation failed verification")
+		return
+	}
+	if err := h.services.db.MarkAllocatedKeyRevoked(r.Context(), rev.ID); err != nil {
+		log.Error().Err(err).Str("keyID", rev.ID).Msg("Failed to mark allocated key revoked")
+		internalServerError(w)
+		return
+	}
+	if h.realtimeRelay != nil {
+		h.realtimeRelay.HandleForeignKeyRevocation(rev)
+	}
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "key-revocation", true)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// verifyPeerKeyRevocation checks that rev revokes a key of one of peerServerID's
+// users, signed by that key and countersigned by the peer.
+func (h *Handlers) verifyPeerKeyRevocation(ctx context.Context, peerServerID string, rev KeyRevocation) error {
+	owner, keyServerID, _, ok := parseKeyFingerprint(identityID(rev.ID))
+	if !ok || keyServerID != peerServerID || string(canonicalID(keyServerID, owner)) != rev.UserID {
+		return fmt.Errorf("key %s is not a key of a user of the calling peer", rev.ID)
+	}
+
+	key, err := h.resolvePublicKey(ctx, rev.ID)
+	if err != nil || key == nil {
+		return fmt.Errorf("resolve revoked key: %v", err)
+	}
+	userPayload := buildUserRevocationPayload(rev.UserID, rev.ID, rev.Reason)
+	if err := h.services.crypto.verifySignature(string(userPayload), rev.UserSignature.Armor, key.Armor); err != nil {
+		return fmt.Errorf("user signature: %w", err)
+	}
+
+	serverFP, sigServerID, ok := parseIdentityID(identityID(rev.ServerSignature.ID))
+	if !ok || sigServerID != peerServerID {
+		return fmt.Errorf("countersignature is not the calling peer's")
+	}
+	pin, err := h.services.db.GetPeerPin(ctx, peerServerID)
+	if err != nil || pin == nil {
+		return fmt.Errorf("calling peer has no pinned key")
+	}
+	serverArmor := pin.Armor
+	if pin.KeyID != rev.ServerSignature.ID {
+		if serverArmor, err = h.fetchPeerServerKeyArmor(ctx, pin.BaseURL, peerServerID, serverFP); err != nil {
+			return fmt.Errorf("fetch countersigning key: %w", err)
+		}
+	}
+	serverPayload := buildServerRevocationPayload(
+		rev.UserID, rev.ID, rev.Reason, peerServerID, serverFP,
+		rev.UserSignature.Armor, rev.ServerSignature.SignedAt.UTC().Truncate(time.Second),
+	)
+	if err := h.services.crypto.verifySignature(string(serverPayload), rev.ServerSignature.Armor, serverArmor); err != nil {
+		return fmt.Errorf("countersignature: %w", err)
+	}
+	return nil
+}
+
+// fetchForeignKeyRevocation fetches a foreign key's revocation from its home
+// server, for delivery on catch-up; clients verify it themselves.
+func (h *Handlers) fetchForeignKeyRevocation(ctx context.Context, keyID string) (*KeyRevocation, error) {
+	_, homeServerID, _, ok := parseKeyFingerprint(identityID(keyID))
+	if !ok {
+		return nil, fmt.Errorf("malformed key id %s", keyID)
+	}
+	peer, err := h.services.db.GetServerByID(ctx, homeServerID)
+	if err != nil || peer == nil {
+		return nil, fmt.Errorf("unknown home server %s", homeServerID)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(peer.BaseURL, "/")+"/api/keys/"+keyID+"/revocation", nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.setPeerProxyAuthHeaders(req, ""); err != nil {
+		return nil, err
+	}
+	resp, err := h.federationHTTPClient().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch key revocation: status %d", resp.StatusCode)
+	}
+	var rev KeyRevocation
+	if err := json.NewDecoder(resp.Body).Decode(&rev); err != nil {
+		return nil, err
+	}
+	return &rev, nil
 }

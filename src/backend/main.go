@@ -240,6 +240,7 @@ func main() {
 	rtService.SetForeignReedStatsHook(h.pushReedStatsToPeer)
 	rtService.SetForeignHolderNotifyHook(h.notifyHolderToPeer)
 	rtService.SetForeignFallbackRequestHook(h.relayFallbackRequestToPeer)
+	rtService.SetForeignKeyRevocationHook(h.fetchForeignKeyRevocation)
 	rtService.SetPeerDeliveryHooks(h.deliverAuthorToPeers, func() { h.deliverBehindStreams("") })
 	rtService.SetDeviceCheck(func(userID, deviceID string) error {
 		// userID arrives already in "userID@serverID" form (see
@@ -536,6 +537,8 @@ func main() {
 	api.HandleFunc("/federation/relay/new-reed", h.NewReedFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/new-reed", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/relay/key-revocation", h.KeyRevocationFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/key-revocation", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/relay/server-key", h.ServerKeyNoticeFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/server-key", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/relay/reed-removal", h.ReedRemovalFromPeer).Methods("POST")
@@ -640,6 +643,7 @@ func main() {
 		}
 	}()
 	go h.notifyPeersOfServerKey()
+	go h.notifyPeersOfOwedKeyRevocations()
 
 	// Wait for shutdown signal
 	<-sigChan

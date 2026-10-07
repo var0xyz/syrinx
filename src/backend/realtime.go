@@ -1201,6 +1201,7 @@ type realtimeService struct {
 	foreignReedStatsHook       realtimeForeignReedStatsHook
 	foreignHolderNotifyHook    realtimeForeignHolderNotifyHook
 	foreignFallbackHook        realtimeForeignFallbackRequestHook
+	foreignKeyRevocationHook   realtimeForeignKeyRevocationHook
 }
 
 // newRealtimeService creates a new realtime service.
@@ -1366,6 +1367,21 @@ func (rs *realtimeService) SetForeignFallbackRequestHook(hook realtimeForeignFal
 	rs.foreignFallbackHook = hook
 }
 
+// realtimeForeignKeyRevocationHook fetches a foreign key's revocation from
+// its home server, for delivering it on catch-up.
+type realtimeForeignKeyRevocationHook func(ctx context.Context, keyID string) (*KeyRevocation, error)
+
+// SetForeignKeyRevocationHook installs the foreign key revocation fetch.
+func (rs *realtimeService) SetForeignKeyRevocationHook(hook realtimeForeignKeyRevocationHook) {
+	rs.foreignKeyRevocationHook = hook
+}
+
+// HandleForeignKeyRevocation tells local users holding a foreign key that its
+// home server revoked it; the caller has already verified rev.
+func (rs *realtimeService) HandleForeignKeyRevocation(rev KeyRevocation) {
+	rs.fanoutKeyRevocation(rev.ID, &rev)
+}
+
 // DisconnectUser closes all WebSocket connections for a user (device rebind kick).
 // Its caller passes a bare userID, but connManager's registry is keyed by
 // the "userID@serverID" form (see authenticateWebSocket) — convert here at
@@ -1469,14 +1485,14 @@ func (rs *realtimeService) handleBroadcasts(broadcastChan <-chan realtimeBroadca
 
 		if message.Type == realtimeKeyRevoked && message.KeyID != "" {
 			log.Info().Str("keyID", message.KeyID).Msg("Key revoked; fanout revocation")
-			rs.fanoutKeyRevocation(message.KeyID)
+			rs.fanoutKeyRevocation(message.KeyID, nil)
 		}
 	}
 }
 
 // fanoutKeyRevocation tells every local user with keyID cached that it was
-// revoked. Offline users get it on catch-up instead.
-func (rs *realtimeService) fanoutKeyRevocation(keyID string) {
+// revoked. Offline users get it on catch-up instead. rev may be nil.
+func (rs *realtimeService) fanoutKeyRevocation(keyID string, rev *KeyRevocation) {
 	recipients, err := rs.db.PublicKeyHolders(context.Background(), keyID)
 	if err != nil {
 		log.Error().Err(err).Str("keyID", keyID).Msg("Failed to load key revocation recipients")
@@ -1487,12 +1503,26 @@ func (rs *realtimeService) fanoutKeyRevocation(keyID string) {
 		if err != nil || requestID == "" {
 			continue
 		}
-		rs.dispatchKeyRevoked(recipientID, requestID, keyID)
+		rs.dispatchKeyRevoked(recipientID, requestID, keyID, rev)
 	}
 }
 
+// loadKeyRevocation returns keyID's revocation: stored here for a local key,
+// fetched from its home server for a foreign one.
+func (rs *realtimeService) loadKeyRevocation(keyID string) (*KeyRevocation, error) {
+	rev, err := rs.db.GetKeyRevocation(context.Background(), keyID)
+	if err != nil || rev != nil {
+		return rev, err
+	}
+	if foreign, _ := rs.isForeignReed(keyID); foreign && rs.foreignKeyRevocationHook != nil {
+		return rs.foreignKeyRevocationHook(context.Background(), keyID)
+	}
+	return nil, nil
+}
+
 // dispatchKeyRevoked records a key_revoked event for recipientID and sends it.
-func (rs *realtimeService) dispatchKeyRevoked(recipientID, requestID, keyID string) {
+// rev may be nil, in which case it is loaded.
+func (rs *realtimeService) dispatchKeyRevoked(recipientID, requestID, keyID string, rev *KeyRevocation) {
 	eventID := generateRealtimeEventID(recipientID)
 	if err := rs.db.CreatePendingKeyEvent(context.Background(), eventID, requestID, recipientID, keyID); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Str("keyID", keyID).Msg("Failed to create key_revoked pending event")
@@ -1500,10 +1530,13 @@ func (rs *realtimeService) dispatchKeyRevoked(recipientID, requestID, keyID stri
 	}
 	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventCreated, string(keyRevokedEvent), eventID)
 
-	rev, err := rs.db.GetKeyRevocation(context.Background(), keyID)
-	if err != nil || rev == nil {
-		log.Error().Err(err).Str("keyID", keyID).Msg("Failed to load key revocation for delivery")
-		return
+	if rev == nil {
+		loaded, err := rs.loadKeyRevocation(keyID)
+		if err != nil || loaded == nil {
+			log.Error().Err(err).Str("keyID", keyID).Msg("Failed to load key revocation for delivery")
+			return
+		}
+		rev = loaded
 	}
 	ok, err := rs.db.MarkEventDispatched(context.Background(), eventID, recipientID)
 	if err != nil || !ok {
@@ -3958,7 +3991,7 @@ func (rs *realtimeService) catchUp(userID, requestID string) {
 		return
 	}
 	for _, keyID := range revokedKeys {
-		rs.dispatchKeyRevoked(userID, requestID, keyID)
+		rs.dispatchKeyRevoked(userID, requestID, keyID, nil)
 	}
 
 	mailbox, err := GetPendingMailbox(context.Background(), rs.db.db, userID)

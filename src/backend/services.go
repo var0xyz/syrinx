@@ -7622,14 +7622,62 @@ func (s *DataService) PublicKeyHolders(ctx context.Context, keyID string) ([]str
 }
 
 // GetMissingKeyRevocations returns the revoked keys userID still has cached,
-// each owed a KEY_REVOKED.
+// each owed a KEY_REVOKED: local keys with a revocation here, foreign ones
+// marked revoked by their home server's notice.
 func (s *DataService) GetMissingKeyRevocations(ctx context.Context, userID string) ([]string, error) {
 	return s.queryStrings(ctx, `
 		SELECT pka.key_id
 		FROM public_key_allocations pka
-		JOIN public_key_revocations rv ON rv.key_id = pka.key_id
 		WHERE pka.user_id = $1
+		  AND (pka.revoked OR EXISTS (
+			SELECT 1 FROM public_key_revocations rv WHERE rv.key_id = pka.key_id
+		  ))
 	`, userID)
+}
+
+// MarkAllocatedKeyRevoked marks every local allocation of a foreign keyID
+// revoked, so its holders are owed the revocation until they ack.
+func (s *DataService) MarkAllocatedKeyRevoked(ctx context.Context, keyID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE public_key_allocations SET revoked = TRUE
+		WHERE key_id = $1 AND NOT revoked
+	`, keyID)
+	return err
+}
+
+// AllocatePublicKeyToServer records that peer serverID fetched keyID for one
+// of its users.
+func (s *DataService) AllocatePublicKeyToServer(ctx context.Context, serverID, keyID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO public_key_server_allocations (server_id, key_id) VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, serverID, keyID)
+	return err
+}
+
+// PublicKeyServerHolders returns the peers that fetched keyID.
+func (s *DataService) PublicKeyServerHolders(ctx context.Context, keyID string) ([]string, error) {
+	return s.queryStrings(ctx, `SELECT server_id FROM public_key_server_allocations WHERE key_id = $1`, keyID)
+}
+
+// RevokedKeysOwedToServer returns the revoked keys peer serverID still has
+// allocated, each owed a revocation notice.
+func (s *DataService) RevokedKeysOwedToServer(ctx context.Context, serverID string) ([]string, error) {
+	return s.queryStrings(ctx, `
+		SELECT psa.key_id
+		FROM public_key_server_allocations psa
+		JOIN public_key_revocations rv ON rv.key_id = psa.key_id
+		WHERE psa.server_id = $1
+	`, serverID)
+}
+
+// DeletePublicKeyServerAllocation drops peer serverID's allocation of keyID,
+// once it has accepted the revocation notice.
+func (s *DataService) DeletePublicKeyServerAllocation(ctx context.Context, serverID, keyID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM public_key_server_allocations WHERE server_id = $1 AND key_id = $2
+	`, serverID, keyID)
+	return err
 }
 
 // DeletePublicKeyAllocation drops userID's allocation of keyID, once they
