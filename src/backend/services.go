@@ -7518,6 +7518,7 @@ type pendingSubject struct {
 	pendingEvent
 	UserID string // author (reed) or removed account
 	ReedID string // set for reed events only
+	KeyID  string // set for key_revoked events only
 }
 
 // CreatePendingReedEvent inserts pending_events + pending_reed_events (FK to reeds).
@@ -7585,6 +7586,79 @@ func (s *DataService) CreatePendingAccountEvent(ctx context.Context, eventID, re
 	return tx.Commit()
 }
 
+// CreatePendingKeyEvent inserts a key_revoked event for recipientUserID.
+func (s *DataService) CreatePendingKeyEvent(ctx context.Context, eventID, requestID, recipientUserID, keyID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
+		VALUES ($1, $2, $3, $4)
+	`, eventID, requestID, recipientUserID, keyRevokedEvent); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO pending_key_events (event_id, key_id) VALUES ($1, $2)
+	`, eventID, keyID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// AllocatePublicKey records that userID has keyID cached.
+func (s *DataService) AllocatePublicKey(ctx context.Context, userID, keyID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO public_key_allocations (user_id, key_id) VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, userID, keyID)
+	return err
+}
+
+// PublicKeyHolders returns the local users with keyID cached.
+func (s *DataService) PublicKeyHolders(ctx context.Context, keyID string) ([]string, error) {
+	return s.queryStrings(ctx, `SELECT user_id FROM public_key_allocations WHERE key_id = $1`, keyID)
+}
+
+// GetMissingKeyRevocations returns the revoked keys userID still has cached,
+// each owed a KEY_REVOKED.
+func (s *DataService) GetMissingKeyRevocations(ctx context.Context, userID string) ([]string, error) {
+	return s.queryStrings(ctx, `
+		SELECT pka.key_id
+		FROM public_key_allocations pka
+		JOIN public_key_revocations rv ON rv.key_id = pka.key_id
+		WHERE pka.user_id = $1
+	`, userID)
+}
+
+// DeletePublicKeyAllocation drops userID's allocation of keyID, once they
+// have acknowledged its revocation.
+func (s *DataService) DeletePublicKeyAllocation(ctx context.Context, userID, keyID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM public_key_allocations WHERE user_id = $1 AND key_id = $2
+	`, userID, keyID)
+	return err
+}
+
+// queryStrings runs a query returning one string column.
+func (s *DataService) queryStrings(ctx context.Context, query string, args ...any) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 // CreateProfileSubscriptionEvent inserts a reed pending event tied to a
 // profile subscription. requesterUserID == "" means foreign-attributed —
 // see CreatePendingReedEvent's doc comment for the NULL convention.
@@ -7637,7 +7711,11 @@ func (s *DataService) GetPendingSubject(ctx context.Context, eventID string) (*p
 	pe.RequesterUserID = requester.String
 
 	var subjectID identityID
-	if realtimeEventName(pe.EventName) == accountRemovedEvent {
+	if realtimeEventName(pe.EventName) == keyRevokedEvent {
+		err = s.db.QueryRowContext(ctx, `
+			SELECT key_id FROM pending_key_events WHERE event_id = $1
+		`, eventID).Scan(&pe.KeyID)
+	} else if realtimeEventName(pe.EventName) == accountRemovedEvent {
 		err = s.db.QueryRowContext(ctx, `
 			SELECT user_id FROM pending_account_events WHERE event_id = $1
 		`, eventID).Scan(&subjectID)
