@@ -2,7 +2,8 @@
 
 ## Status
 
-Implemented.
+Superseded by [`key_revocation_events/`](key_revocation_events/README.md):
+revocations are now pushed to holders, and cached keys are not re-checked.
 
 ## Depends on
 
