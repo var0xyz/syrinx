@@ -71,10 +71,13 @@ export interface PublicKey extends Base {
   compromised?: boolean;
 };
 
-/** One signed revocation in the server key chain, with its successor. */
+/** A server key's revocation, as GET /keys/{id}/revocation serves it.
+ * Signed by both the revoked key and its successor. */
 export interface ServerKeyRevocation {
+  type: 'server-key-revocation';
+  serverID: string;
   keyID: string;
-  successor: { id: string; armor: string };
+  successor: string;
   compromised: boolean;
   reason: string;
   signedAt: string;

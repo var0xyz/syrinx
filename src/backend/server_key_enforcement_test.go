@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/gorilla/mux"
 )
 
 // rotatedServerKeys mints a first key and rotates twice, the second time as
@@ -33,46 +35,28 @@ func rotatedServerKeys(t *testing.T, ds *DataService) [3]string {
 	return [3]string{string(canonicalID(ds.GetServerID(), first.Fingerprint)), rotated.Successor, compromised.Successor}
 }
 
-func TestGetServerKeyChain(t *testing.T) {
+func TestGetServerKeyRevocation(t *testing.T) {
 	_, ds, _ := newServerKeyTestDB(t)
 	ctx := context.Background()
-	cryptoSvc := newCryptoService()
-	rotated, err := revokeServerKey(ctx, ds.db, cryptoSvc, serverKeyTestPassphrase, false, "")
+	rotated, err := revokeServerKey(ctx, ds.db, newCryptoService(), serverKeyTestPassphrase, true, "leaked")
 	if err != nil {
 		t.Fatal(err)
 	}
-	compromised, err := revokeServerKey(ctx, ds.db, cryptoSvc, serverKeyTestPassphrase, true, "leaked")
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, middle, current := rotated.KeyID, rotated.Successor, compromised.Successor
 
-	links, ok, err := ds.GetServerKeyChain(ctx, first, current)
-	if err != nil || !ok || len(links) != 2 {
-		t.Fatalf("chain from first: %d links, ok=%v, err=%v", len(links), ok, err)
+	wire, err := ds.GetServerKeyRevocation(ctx, rotated.KeyID)
+	if err != nil || wire == nil {
+		t.Fatalf("revocation of the revoked key: %+v, err=%v", wire, err)
 	}
-	if links[0].KeyID != first || links[0].Successor.ID != middle || links[0].Compromised {
-		t.Fatalf("first link = %+v", links[0])
+	if wire.Type != identityTypeServerKeyRevocation || wire.ServerID != "Ab3xY9pQ" ||
+		wire.Successor != rotated.Successor || !wire.Compromised || wire.Reason != "leaked" ||
+		wire.Signature != rotated.Signature || wire.SuccessorSignature != rotated.SuccessorSignature {
+		t.Fatalf("revocation wire = %+v", wire)
 	}
-	if links[1].KeyID != middle || links[1].Successor.ID != current || !links[1].Compromised || links[1].Reason != "leaked" {
-		t.Fatalf("second link = %+v", links[1])
+	if wire, _ := ds.GetServerKeyRevocation(ctx, rotated.Successor); wire != nil {
+		t.Fatalf("current key reported revoked: %+v", wire)
 	}
-	if links[1].Successor.Armor != publicArmorOf(t, ds.db, current) {
-		t.Fatal("successor armor doesn't match the stored public key")
-	}
-
-	if links, ok, _ := ds.GetServerKeyChain(ctx, current, current); !ok || len(links) != 0 {
-		t.Fatalf("chain from current: %d links, ok=%v", len(links), ok)
-	}
-	if _, ok, _ := ds.GetServerKeyChain(ctx, "unknown@Ab3xY9pQ", current); ok {
-		t.Fatal("chain from an unknown key was found")
-	}
-	// Rotated in the DB but not restarted: the chain stops at the key in use.
-	if links, ok, _ := ds.GetServerKeyChain(ctx, first, middle); !ok || len(links) != 1 {
-		t.Fatalf("chain to the key in use: %d links, ok=%v", len(links), ok)
-	}
-	if _, ok, _ := ds.GetServerKeyChain(ctx, current, middle); ok {
-		t.Fatal("chain from a key newer than the one in use was found")
+	if wire, _ := ds.GetServerKeyRevocation(ctx, "unknown@Ab3xY9pQ"); wire != nil {
+		t.Fatalf("unknown key reported revoked: %+v", wire)
 	}
 }
 
@@ -149,9 +133,9 @@ func TestGetPublicKeyReportsServerKeyRevocation(t *testing.T) {
 	}
 }
 
-// keyChainHandlers returns handlers signing with the newest of three server
+// rotatedKeyHandlers returns handlers signing with the newest of three server
 // keys stored in the DB, plus the three key IDs.
-func keyChainHandlers(t *testing.T) (*Handlers, [3]string) {
+func rotatedKeyHandlers(t *testing.T) (*Handlers, [3]string) {
 	t.Helper()
 	h := newInviteModeHandlers(t, newTestDatabase(t, InitDB))
 	keys := rotatedServerKeys(t, h.services.db)
@@ -163,46 +147,36 @@ func keyChainHandlers(t *testing.T) (*Handlers, [3]string) {
 	return h, keys
 }
 
-func TestGetServerKeyChainHandler(t *testing.T) {
-	h, keys := keyChainHandlers(t)
+func TestGetKeyRevocationServesServerKeys(t *testing.T) {
+	h, keys := rotatedKeyHandlers(t)
 	kp := signedUpUser(t, h, "alice", "alice")
-	serve := func(req *http.Request) *httptest.ResponseRecorder {
+	serve := func(keyID string) *httptest.ResponseRecorder {
+		req := signedRequest(t, h, http.MethodGet, "/api/keys/"+keyID+"/revocation",
+			"alice@"+h.services.db.GetServerID(), kp.Fingerprint, kp.PrivateKey, nil)
+		req = mux.SetURLVars(req, map[string]string{"id": keyID})
 		rr := httptest.NewRecorder()
-		h.signatureAuthMiddleware("/api")(http.HandlerFunc(h.GetServerKeyChain)).ServeHTTP(rr, req)
+		h.signatureAuthMiddleware("/api")(http.HandlerFunc(h.GetKeyRevocation)).ServeHTTP(rr, req)
 		return rr
 	}
 
-	req := signedRequest(t, h, http.MethodGet, "/api/server/key-chain?from="+keys[0],
-		"alice@"+h.services.db.GetServerID(), kp.Fingerprint, kp.PrivateKey, nil)
-	rr := serve(req)
+	rr := serve(keys[1])
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
 	}
-	var body struct {
-		Revocations []serverKeyChainLink `json:"revocations"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+	var wire serverKeyRevocationWire
+	if err := json.Unmarshal(rr.Body.Bytes(), &wire); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Revocations) != 2 || body.Revocations[1].Successor.ID != keys[2] {
-		t.Fatalf("revocations = %+v", body.Revocations)
+	if wire.Type != identityTypeServerKeyRevocation || wire.KeyID != keys[1] || wire.Successor != keys[2] || !wire.Compromised {
+		t.Fatalf("revocation = %+v", wire)
 	}
-
-	req = signedRequest(t, h, http.MethodGet, "/api/server/key-chain?from=unknown@x",
-		"alice@"+h.services.db.GetServerID(), kp.Fingerprint, kp.PrivateKey, nil)
-	if rr := serve(req); rr.Code != http.StatusNotFound {
-		t.Fatalf("unknown from: status = %d", rr.Code)
-	}
-
-	// The auth middleware answers missing signature headers with 400.
-	unsigned := httptest.NewRequest(http.MethodGet, "/api/server/key-chain?from="+keys[0], nil)
-	if rr := serve(unsigned); rr.Code != http.StatusBadRequest {
-		t.Fatalf("unsigned request: status = %d", rr.Code)
+	if rr := serve(keys[2]); rr.Code != http.StatusNotFound {
+		t.Fatalf("current key: status = %d", rr.Code)
 	}
 }
 
 func TestServerKeyProofRefusesRevokedKey(t *testing.T) {
-	h, keys := keyChainHandlers(t)
+	h, keys := rotatedKeyHandlers(t)
 	reached := false
 	proofed := h.serverKeyProofMiddleware("/api")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reached = true

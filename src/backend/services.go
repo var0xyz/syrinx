@@ -371,49 +371,18 @@ func (s *DataService) GetServerPublicKeyByFingerprint(ctx context.Context, finge
 	return armor, nil
 }
 
-// GetServerKeyChain returns the revocations leading from the key from to the
-// key current, in order. ok is false when from doesn't lead to current.
-func (s *DataService) GetServerKeyChain(ctx context.Context, from, current string) (links []serverKeyChainLink, ok bool, err error) {
-	if from == current {
-		return []serverKeyChainLink{}, true, nil
+// GetServerKeyRevocation returns the revocation of this server's key keyID,
+// or nil if that key is not one of ours or isn't revoked.
+func (s *DataService) GetServerKeyRevocation(ctx context.Context, keyID string) (*serverKeyRevocationWire, error) {
+	rev, err := loadServerKeyRevocation(ctx, s.db, keyID)
+	if err != nil || rev == nil {
+		return nil, err
 	}
-	revs, err := loadServerKeyRevocations(ctx, s.db)
-	if err != nil {
-		return nil, false, err
-	}
-
-	start := -1
-	for i, rev := range revs {
-		if rev.KeyID == from {
-			start = i
-			break
-		}
-	}
-	if start < 0 {
-		return nil, false, nil
-	}
-	for _, rev := range revs[start:] {
-		var armor string
-		if err := s.db.QueryRowContext(ctx,
-			`SELECT armor FROM public_keys WHERE id = $1`, rev.Successor,
-		).Scan(&armor); err != nil {
-			return nil, false, fmt.Errorf("load successor %s: %w", rev.Successor, err)
-		}
-		links = append(links, serverKeyChainLink{
-			KeyID:              rev.KeyID,
-			Successor:          serverKeyChainKey{ID: rev.Successor, Armor: armor},
-			Compromised:        rev.Compromised,
-			Reason:             rev.Reason,
-			SignedAt:           rev.SignedAt,
-			Signature:          rev.Signature,
-			SuccessorSignature: rev.SuccessorSignature,
-		})
-		if rev.Successor == current {
-			return links, true, nil
-		}
-	}
-	// from is newer than current: a rotation the server hasn't restarted into.
-	return nil, false, nil
+	return &serverKeyRevocationWire{
+		Type:                identityTypeServerKeyRevocation,
+		ServerID:            s.serverID,
+		serverKeyRevocation: *rev,
+	}, nil
 }
 
 // errCompromisedServerKey rejects a signature by a compromised server key
@@ -3590,7 +3559,7 @@ func (s *DataService) GetPeerPin(ctx context.Context, peerServerID string) (*Pee
 func (s *DataService) RepinPeerKey(
 	ctx context.Context,
 	peerServerID string,
-	keys []serverKeyChainKey,
+	keys []successorKey,
 	countersign func(payload []byte, ts time.Time) (ServerSignature, error),
 ) error {
 	if len(keys) == 0 {

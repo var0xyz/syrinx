@@ -110,7 +110,7 @@ function normalizeMaxInvites(value: unknown): number {
   return -1;
 }
 
-export async function refreshServerInfo(followKeyChain = true): Promise<ServerInfo | null> {
+export async function refreshServerInfo(updateServerKey = true): Promise<ServerInfo | null> {
   if (!navigator.onLine) {
     serverUnreachable.set(false);
     serverInfoLoading.set(false);
@@ -129,11 +129,11 @@ export async function refreshServerInfo(followKeyChain = true): Promise<ServerIn
     });
 
     if (response.status === 401) {
-      // A rotated key is followed silently; a compromised one never is.
-      if (followKeyChain) {
-        const { followServerKeyChain } = await import('./serverKeyChain');
-        const result = await followServerKeyChain();
-        if (result.status === 'followed') return refreshServerInfo(false);
+      // A rotated key is adopted silently; a compromised one never is.
+      if (updateServerKey) {
+        const { updateTrustedServerKey } = await import('./serverKeyRotation');
+        const result = await updateTrustedServerKey();
+        if (result.status === 'updated') return refreshServerInfo(false);
         serverKeyCompromise.set(result.status === 'compromised' ? { reason: result.reason } : null);
       }
       console.error('serverInfo: server rejected the trusted server key');
