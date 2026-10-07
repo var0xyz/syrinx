@@ -6,9 +6,8 @@
   <div class="mismatch-indicator" role="alert">
     <p>
       This server no longer matches the one this device trusted (was
-      {$serverIdMismatch.known}, now {$serverIdMismatch.fetched}). Your
-      account and data were not touched — if you didn't expect this, stop
-      and verify with the operator before importing or logging in again.
+      {$serverIdMismatch.known}, now {$serverIdMismatch.fetched}). Stop
+      and verify with an admin before importing or logging in again.
     </p>
   </div>
 {/if}

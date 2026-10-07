@@ -2,7 +2,7 @@ import { derived, writable } from 'svelte/store';
 import type { FederatedServer, ServerInfo, SignupMode } from '$lib/types/server';
 import type { PublicKey } from '$lib/types/api';
 import { isOnline } from './pwa';
-import { serverKeyProofHeader, getTrustedServerKey, clearTrustedServerKey } from './serverKeyTrust';
+import { serverKeyProofHeader, getTrustedServerKey } from './serverKeyTrust';
 import { formatServerKeyId } from '$lib/utils/identityRef';
 
 export const serverInfo = writable<ServerInfo | null>(null);
@@ -13,6 +13,10 @@ export const serverInfoFetchFailed = writable(false);
  * already trusted — a redeployed/reset/impersonating server, not a fetch
  * failure. Null once no mismatch is outstanding. */
 export const serverIdMismatch = writable<{ known: string; fetched: string } | null>(null);
+
+/** Set when the server rejects the key this device trusts, e.g. after a
+ * redeploy minted a new one. Nothing local is changed; the user decides. */
+export const serverKeyRejected = writable(false);
 
 export const isSignupOpen = derived(
   serverInfo,
@@ -120,13 +124,16 @@ export async function refreshServerInfo(): Promise<ServerInfo | null> {
       signal: AbortSignal.timeout(8000),
     });
 
+    if (response.status === 401) {
+      console.error('serverInfo: server rejected the trusted server key');
+      serverKeyRejected.set(true);
+      serverInfoFetchFailed.set(false);
+      return null;
+    }
     if (!response.ok) {
-      if (response.status === 401) {
-        clearTrustedServerKey();
-        window.location.href = '/';
-      }
       throw new Error(`HTTP ${response.status}`);
     }
+    serverKeyRejected.set(false);
 
     const data = await response.json();
     const info: ServerInfo = {
