@@ -173,15 +173,15 @@ const (
 // newRelayRequestMsg is sent from the server to a holder to request reed
 // content. ReedID is the canonical id (userID@serverID/uuid) — already
 // globally unique and already embeds the author, so no separate author
-// field is needed to disambiguate it. RequesterID is who the holder must
-// encrypt the content to before responding — the server relays ciphertext
-// blindly and never sees the body.
-func newRelayRequestMsg(eventID, reedID, requesterID string) *pb.WSMessage {
+// field is needed to disambiguate it. RequesterKeyID is the key the holder
+// must encrypt the content to, and names the requester as its owner — the
+// server relays ciphertext blindly and never sees the body.
+func newRelayRequestMsg(eventID, reedID, requesterKeyID string) *pb.WSMessage {
 	return &pb.WSMessage{
 		Type: pb.MessageType_RELAY_REQUEST,
 		Id:   eventID,
 		Payload: &pb.WSMessage_RelayRequest{
-			RelayRequest: &pb.RelayRequestMessage{ReedId: reedID, RequesterId: requesterID},
+			RelayRequest: &pb.RelayRequestMessage{ReedId: reedID, RequesterKeyId: requesterKeyID},
 		},
 	}
 }
@@ -2403,17 +2403,19 @@ func (rs *realtimeService) dispatchNext(holderUserID string) bool {
 	if !ok {
 		return false // another replica claimed it
 	}
-	// pe.RequesterUserID is empty for a foreign-attributed event (no local
-	// online_users row backs a remote requester) — the holder needs the
-	// real remote user id to resolve their key and encrypt to them, so
-	// look it up from foreign_relay_requests instead.
-	requesterID := pe.RequesterUserID
+	// A foreign request carries the key its requester's server named
+	// (foreign_relay_requests); a local requester's key is their active one.
+	requesterKeyID := ""
 	if frr, ferr := rs.db.GetForeignRelayRequest(context.Background(), pe.EventID); ferr != nil {
 		log.Error().Err(ferr).Str("eventID", pe.EventID).Msg("Failed to check foreign relay request for dispatch")
 	} else if frr != nil {
-		requesterID = frr.RequestingUserID
+		requesterKeyID = frr.RequestingKeyID
+	} else if keyID, kerr := rs.db.GetActiveKeyFingerprint(context.Background(), pe.RequesterUserID); kerr != nil {
+		log.Error().Err(kerr).Str("eventID", pe.EventID).Msg("Failed to load requester's active key for dispatch")
+	} else {
+		requesterKeyID = keyID
 	}
-	if err := rs.connManager.SendToUser(holderUserID, newRelayRequestMsg(pe.EventID, pe.ReedID, requesterID)); err != nil {
+	if err := rs.connManager.SendToUser(holderUserID, newRelayRequestMsg(pe.EventID, pe.ReedID, requesterKeyID)); err != nil {
 		log.Error().
 			Err(err).
 			Str("holderUserID", holderUserID).
@@ -2917,7 +2919,7 @@ func (rs *realtimeService) promoteWaitingForeign(ctx context.Context, reedID str
 // online_users row can back a foreign requester) so the rest of the
 // local relay-holder machinery (dispatchNext, handleRelayResponse, etc.)
 // needs no special-casing to handle either.
-func (rs *realtimeService) registerAndRecordForeignRelay(ctx context.Context, reedID, requestingServerID, requestingUserID string) (result realtimeForeignRequestResult, peerEventID string, err error) {
+func (rs *realtimeService) registerAndRecordForeignRelay(ctx context.Context, reedID, requestingServerID, requestingUserID, requestingKeyID string) (result realtimeForeignRequestResult, peerEventID string, err error) {
 	// requestID here is our own local pending_events.request_id bookkeeping
 	// value, not the peer's own request id (that's recorded separately
 	// below) — but it still inherits the ORIGINAL remote requester's
@@ -2936,7 +2938,7 @@ func (rs *realtimeService) registerAndRecordForeignRelay(ctx context.Context, re
 		return realtimeForeignRequestReedNotHeld, "", nil
 	}
 
-	if err := rs.recordForeignRelayRequest(ctx, eventID, requestingServerID, requestingUserID); err != nil {
+	if err := rs.recordForeignRelayRequest(ctx, eventID, requestingServerID, requestingUserID, requestingKeyID); err != nil {
 		return realtimeForeignRequestReedNotFound, "", err
 	}
 
@@ -2949,8 +2951,8 @@ func (rs *realtimeService) registerAndRecordForeignRelay(ctx context.Context, re
 // HandleForeignRequestReed is leg 1's home-server-side logic: a peer is
 // registering a REQUEST_REED on behalf of one of its own users, for
 // content this server actually authors/owns.
-func (rs *realtimeService) HandleForeignRequestReed(ctx context.Context, canonicalReedID, requestingServerID, requestingUserID, peerRequestID string) (result realtimeForeignRequestResult, peerEventID string, err error) {
-	return rs.registerAndRecordForeignRelay(ctx, canonicalReedID, requestingServerID, requestingUserID)
+func (rs *realtimeService) HandleForeignRequestReed(ctx context.Context, canonicalReedID, requestingServerID, requestingUserID, requestingKeyID, peerRequestID string) (result realtimeForeignRequestResult, peerEventID string, err error) {
+	return rs.registerAndRecordForeignRelay(ctx, canonicalReedID, requestingServerID, requestingUserID, requestingKeyID)
 }
 
 // HandleForeignFallbackRequest is the fallback-fetch leg's callee-side
@@ -2962,8 +2964,8 @@ func (rs *realtimeService) HandleForeignRequestReed(ctx context.Context, canonic
 // a local viewer's allocation for a foreign reed is already indistinguishable,
 // from registerReedRequest's point of view, from a local holder for a
 // locally-authored one.
-func (rs *realtimeService) HandleForeignFallbackRequest(ctx context.Context, reedID, requestingServerID, requestingUserID, peerRequestID string) (result realtimeForeignRequestResult, peerEventID string, err error) {
-	return rs.registerAndRecordForeignRelay(ctx, reedID, requestingServerID, requestingUserID)
+func (rs *realtimeService) HandleForeignFallbackRequest(ctx context.Context, reedID, requestingServerID, requestingUserID, requestingKeyID, peerRequestID string) (result realtimeForeignRequestResult, peerEventID string, err error) {
+	return rs.registerAndRecordForeignRelay(ctx, reedID, requestingServerID, requestingUserID, requestingKeyID)
 }
 
 // HandleHolderNotify records, on reedID's home server, that
@@ -2992,9 +2994,9 @@ func (rs *realtimeService) NotifyMailboxMessage(userID, id, ciphertext string) {
 
 // recordForeignRelayRequest inserts eventID's foreign_relay_requests row,
 // rolling back the speculative pending_events row on failure — shared by
-// HandleForeignRequestReed and HandleForeignSubscribeProfile.
-func (rs *realtimeService) recordForeignRelayRequest(ctx context.Context, eventID, requestingServerID, requestingUserID string) error {
-	if err := rs.db.CreateForeignRelayRequest(ctx, eventID, requestingServerID, requestingUserID); err != nil {
+// HandleForeignRequestReed and HandleForeignFallbackRequest.
+func (rs *realtimeService) recordForeignRelayRequest(ctx context.Context, eventID, requestingServerID, requestingUserID, requestingKeyID string) error {
+	if err := rs.db.CreateForeignRelayRequest(ctx, eventID, requestingServerID, requestingUserID, requestingKeyID); err != nil {
 		if delErr := rs.deletePendingEvent(ctx, eventID); delErr != nil {
 			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign_relay_requests insert failure")
 		}

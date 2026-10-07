@@ -8972,15 +8972,16 @@ type foreignRelayRequest struct {
 	EventID            string
 	RequestingServerID string
 	RequestingUserID   string
+	RequestingKeyID    string
 }
 
 // CreateForeignRelayRequest records, on the home server, which peer+user
 // eventID's sentinel-attributed pending_events row represents.
-func (s *DataService) CreateForeignRelayRequest(ctx context.Context, eventID, requestingServerID, requestingUserID string) error {
+func (s *DataService) CreateForeignRelayRequest(ctx context.Context, eventID, requestingServerID, requestingUserID, requestingKeyID string) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO foreign_relay_requests (event_id, requesting_server_id, requesting_user_id)
-		VALUES ($1, $2, $3)
-	`, eventID, requestingServerID, requestingUserID)
+		INSERT INTO foreign_relay_requests (event_id, requesting_server_id, requesting_user_id, requesting_key_id)
+		VALUES ($1, $2, $3, $4)
+	`, eventID, requestingServerID, requestingUserID, requestingKeyID)
 	return err
 }
 
@@ -8989,10 +8990,10 @@ func (s *DataService) CreateForeignRelayRequest(ctx context.Context, eventID, re
 func (s *DataService) GetForeignRelayRequest(ctx context.Context, eventID string) (*foreignRelayRequest, error) {
 	var frr foreignRelayRequest
 	err := s.db.QueryRowContext(ctx, `
-		SELECT event_id, requesting_server_id, requesting_user_id
+		SELECT event_id, requesting_server_id, requesting_user_id, requesting_key_id
 		FROM foreign_relay_requests
 		WHERE event_id = $1
-	`, eventID).Scan(&frr.EventID, &frr.RequestingServerID, &frr.RequestingUserID)
+	`, eventID).Scan(&frr.EventID, &frr.RequestingServerID, &frr.RequestingUserID, &frr.RequestingKeyID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil

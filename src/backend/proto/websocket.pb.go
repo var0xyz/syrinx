@@ -1636,11 +1636,13 @@ func (x *RelayResponseMessage) GetCiphertext() string {
 
 // Server ask to a holder to relay a reed's ciphertext to a requester.
 type RelayRequestMessage struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
-	RequesterId   string                 `protobuf:"bytes,2,opt,name=requester_id,json=requesterId,proto3" json:"requester_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	ReedId string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	// The requester's key, which the holder must encrypt to; its owner is the
+	// requester. Set by the requester's home server, never picked by the holder.
+	RequesterKeyId string `protobuf:"bytes,2,opt,name=requester_key_id,json=requesterKeyId,proto3" json:"requester_key_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RelayRequestMessage) Reset() {
@@ -1680,9 +1682,9 @@ func (x *RelayRequestMessage) GetReedId() string {
 	return ""
 }
 
-func (x *RelayRequestMessage) GetRequesterId() string {
+func (x *RelayRequestMessage) GetRequesterKeyId() string {
 	if x != nil {
-		return x.RequesterId
+		return x.RequesterKeyId
 	}
 	return ""
 }
@@ -3874,10 +3876,10 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\x14RelayResponseMessage\x12\x1e\n" +
 	"\n" +
 	"ciphertext\x18\x01 \x01(\tR\n" +
-	"ciphertext\"Q\n" +
+	"ciphertext\"X\n" +
 	"\x13RelayRequestMessage\x12\x17\n" +
-	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12!\n" +
-	"\frequester_id\x18\x02 \x01(\tR\vrequesterId\"K\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12(\n" +
+	"\x10requester_key_id\x18\x02 \x01(\tR\x0erequesterKeyId\"K\n" +
 	"\x11RequestAckMessage\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +

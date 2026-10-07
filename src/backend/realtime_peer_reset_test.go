@@ -65,7 +65,7 @@ func seedPeerResetState(t *testing.T, db *sql.DB, rs *realtimeService, viewer st
 	if _, err := db.Exec(`INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name) VALUES ('ev-in', 'req-in', NULL, 'REQUEST_REED')`); err != nil {
 		t.Fatalf("insert foreign pending event: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO foreign_relay_requests (event_id, requesting_server_id, requesting_user_id) VALUES ('ev-in', $1, $2)`, teardownPeerID, peerViewer); err != nil {
+	if _, err := db.Exec(`INSERT INTO foreign_relay_requests (event_id, requesting_server_id, requesting_user_id, requesting_key_id) VALUES ('ev-in', $1, $2, $3)`, teardownPeerID, peerViewer, peerViewer+"/k1"); err != nil {
 		t.Fatalf("insert foreign relay request: %v", err)
 	}
 

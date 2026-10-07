@@ -1076,6 +1076,8 @@ func InitDB(db *sql.DB) error {
 			REFERENCES pending_events(event_id) ON DELETE CASCADE,
 		requesting_server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
 		requesting_user_id VARCHAR(255) NOT NULL,
+		-- The key the holder must encrypt to, as the requester's server named it.
+		requesting_key_id VARCHAR(255) NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 

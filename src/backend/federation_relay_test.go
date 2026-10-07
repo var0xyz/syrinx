@@ -77,7 +77,7 @@ func TestRelayRequestFromPeer_RejectsMissingFields(t *testing.T) {
 
 func TestRelayRequestFromPeer_AcceptsAuthorLocalToThisServer(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
-	body := `{"reed_id":"01a026d4","author_id":"alice@home1234","requester_user_id":"bob@peer5678","peer_request_id":"bob@peer5678/r1"}`
+	body := `{"reed_id":"01a026d4","author_id":"alice@home1234","requester_user_id":"bob@peer5678","requester_key_id":"bob@peer5678/k1","peer_request_id":"bob@peer5678/r1"}`
 	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/request", strings.NewReader(body)), "peer5678")
 	rr := httptest.NewRecorder()
 
@@ -292,5 +292,20 @@ func TestAccountRemovalNotifyFromPeer_RejectsUserOfAnotherServer(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (user_id not local to the calling peer)", rr.Code, http.StatusBadRequest)
+	}
+}
+
+// The calling peer names the key the holder encrypts to, so it must be a key
+// of the requester, who must be one of the peer's own users.
+func TestRelayRequestFromPeer_RejectsForeignRequesterKey(t *testing.T) {
+	h := newBareRelayTestHandlers("home1234")
+	for _, key := range []string{"", "carol@peer5678/k1", "bob@other999/k1", "bob@peer5678"} {
+		body := `{"reed_id":"01a026d4","author_id":"alice@home1234","requester_user_id":"bob@peer5678","requester_key_id":"` + key + `","peer_request_id":"bob@peer5678/r1"}`
+		req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/request", strings.NewReader(body)), "peer5678")
+		rr := httptest.NewRecorder()
+		h.RelayRequestFromPeer(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("requester_key_id %q: status = %d, want %d", key, rr.Code, http.StatusBadRequest)
+		}
 	}
 }
