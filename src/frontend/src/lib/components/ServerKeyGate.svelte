@@ -4,6 +4,9 @@
   import { setTrustedServerKey } from '$lib/services/serverKeyTrust';
   import { refreshServerInfo } from '$lib/services/serverInfo';
 
+  /** The server rejected the key already stored on this device. */
+  export let rejected = false;
+
   const dispatch = createEventDispatcher<{ trusted: void }>();
 
   let armor = '';
@@ -47,6 +50,13 @@
 
 <div class="container">
   <div class="card">
+    {#if rejected}
+      <p class="error-box" role="alert">
+        The server rejected the key stored on this device. Verify with an
+        admin before entering a new one.
+      </p>
+    {/if}
+
     <label class="field">
       <span>Server public key</span>
       <textarea
