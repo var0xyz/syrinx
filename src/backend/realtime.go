@@ -165,6 +165,7 @@ const (
 	pipeReedEvent            realtimeEventName = "pipe_reed"
 	reedRemovedEvent         realtimeEventName = "reed_removed"
 	accountRemovedEvent      realtimeEventName = "account_removed"
+	keyRevokedEvent          realtimeEventName = "key_revoked"
 	reedReplyEvent           realtimeEventName = "reed_reply"
 	archiveReedEvent         realtimeEventName = "archive_reed"
 	mentionEvent             realtimeEventName = "mention"
@@ -312,6 +313,32 @@ func newAccountRemovedMsg(eventID, requestID string, cert accountRemovalWire) *p
 		Id:   eventID,
 		Payload: &pb.WSMessage_AccountRemoved{
 			AccountRemoved: &pb.AccountRemovedMessage{RequestId: requestID, Cert: pbAccountRemovalCert(cert)},
+		},
+	}
+}
+
+// newKeyRevokedMsg builds a KEY_REVOKED delivery with the signed revocation.
+func newKeyRevokedMsg(eventID, requestID string, rev KeyRevocation) *pb.WSMessage {
+	successor, successorSignature := "", ""
+	if rev.Successor != nil {
+		successor = *rev.Successor
+	}
+	if rev.SuccessorSignature != nil {
+		successorSignature = *rev.SuccessorSignature
+	}
+	return &pb.WSMessage{
+		Type: pb.MessageType_KEY_REVOKED,
+		Id:   eventID,
+		Payload: &pb.WSMessage_KeyRevoked{
+			KeyRevoked: &pb.KeyRevokedMessage{RequestId: requestID, Revocation: &pb.KeyRevocationCert{
+				Id:                 rev.ID,
+				UserId:             rev.UserID,
+				Reason:             rev.Reason,
+				Successor:          successor,
+				SuccessorSignature: successorSignature,
+				UserSignature:      pbUserSignature(rev.UserSignature),
+				ServerSignature:    pbServerSignature(rev.ServerSignature),
+			}},
 		},
 	}
 }
@@ -508,6 +535,7 @@ const (
 	realtimeRipplePosted      // UserID/ReedID = parent reed; Ripple = the new ripple response (full signed payload)
 	realtimeRippleUpdated     // UserID/ReedID = parent reed; Ripple = the soft-deleted ripple response (deleted=true, content="[DELETED]")
 	realtimeVouchCreated      // UserID = the subject to notify; VouchID = the new vouch
+	realtimeKeyRevoked        // KeyID = the revoked user key
 )
 
 // realtimeBroadcastMessage represents a message sent from the main app to
@@ -535,6 +563,9 @@ type realtimeBroadcastMessage struct {
 
 	// VouchCreated only: the new vouch's own canonical id.
 	VouchID string
+
+	// KeyRevoked only: the revoked user key's id.
+	KeyID string
 }
 
 // realtimeClientSubscriptionFlags tracks per-client subscription toggles.
@@ -587,6 +618,8 @@ func (bt realtimeBroadcastType) String() string {
 		return "ReedRemoved"
 	case realtimeAccountRemoved:
 		return "AccountRemoved"
+	case realtimeKeyRevoked:
+		return "KeyRevoked"
 	case realtimeEchoCountChanged:
 		return "EchoCountChanged"
 	case realtimeReplyCountChanged:
@@ -1433,6 +1466,54 @@ func (rs *realtimeService) handleBroadcasts(broadcastChan <-chan realtimeBroadca
 				Msg("Account removed; fanout cert")
 			rs.fanoutAccountRemoval(message.UserID, message.AccountRemoval)
 		}
+
+		if message.Type == realtimeKeyRevoked && message.KeyID != "" {
+			log.Info().Str("keyID", message.KeyID).Msg("Key revoked; fanout revocation")
+			rs.fanoutKeyRevocation(message.KeyID)
+		}
+	}
+}
+
+// fanoutKeyRevocation tells every local user with keyID cached that it was
+// revoked. Offline users get it on catch-up instead.
+func (rs *realtimeService) fanoutKeyRevocation(keyID string) {
+	recipients, err := rs.db.PublicKeyHolders(context.Background(), keyID)
+	if err != nil {
+		log.Error().Err(err).Str("keyID", keyID).Msg("Failed to load key revocation recipients")
+		return
+	}
+	for _, recipientID := range recipients {
+		requestID, err := rs.db.GetSyncRequestID(context.Background(), recipientID)
+		if err != nil || requestID == "" {
+			continue
+		}
+		rs.dispatchKeyRevoked(recipientID, requestID, keyID)
+	}
+}
+
+// dispatchKeyRevoked records a key_revoked event for recipientID and sends it.
+func (rs *realtimeService) dispatchKeyRevoked(recipientID, requestID, keyID string) {
+	eventID := generateRealtimeEventID(recipientID)
+	if err := rs.db.CreatePendingKeyEvent(context.Background(), eventID, requestID, recipientID, keyID); err != nil {
+		log.Error().Err(err).Str("recipientID", recipientID).Str("keyID", keyID).Msg("Failed to create key_revoked pending event")
+		return
+	}
+	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventCreated, string(keyRevokedEvent), eventID)
+
+	rev, err := rs.db.GetKeyRevocation(context.Background(), keyID)
+	if err != nil || rev == nil {
+		log.Error().Err(err).Str("keyID", keyID).Msg("Failed to load key revocation for delivery")
+		return
+	}
+	ok, err := rs.db.MarkEventDispatched(context.Background(), eventID, recipientID)
+	if err != nil || !ok {
+		if err != nil {
+			log.Error().Err(err).Str("eventID", eventID).Msg("Failed to mark key_revoked dispatched")
+		}
+		return
+	}
+	if err := rs.connManager.SendToUser(recipientID, newKeyRevokedMsg(eventID, requestID, *rev)); err != nil {
+		log.Error().Err(err).Str("recipientID", recipientID).Str("keyID", keyID).Msg("Failed to send KEY_REVOKED")
 	}
 }
 
@@ -3871,6 +3952,15 @@ func (rs *realtimeService) catchUp(userID, requestID string) {
 		rs.deliverAccountRemoved(eventID, requestID, userID, rem.UserID, &rem.Cert)
 	}
 
+	revokedKeys, err := rs.db.GetMissingKeyRevocations(context.Background(), userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing key revocations")
+		return
+	}
+	for _, keyID := range revokedKeys {
+		rs.dispatchKeyRevoked(userID, requestID, keyID)
+	}
+
 	mailbox, err := GetPendingMailbox(context.Background(), rs.db.db, userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get pending mailbox messages")
@@ -4217,7 +4307,7 @@ func (rs *realtimeService) failReedNotHeld(pe *pendingReedEvent) {
 // removal cert) itself, so dispatching it is already the delivery.
 func isRemovalEvent(eventName string) bool {
 	name := realtimeEventName(eventName)
-	return name == reedRemovedEvent || name == accountRemovedEvent
+	return name == reedRemovedEvent || name == accountRemovedEvent || name == keyRevokedEvent
 }
 
 // ackAcceptable: only the requester may ack, and only once something was
@@ -4259,6 +4349,10 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 			log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to clear allocation on reed_removed ack")
 		} else if changed {
 			rs.notifyReedCoverage(pe.ReedID)
+		}
+	} else if realtimeEventName(pe.EventName) == keyRevokedEvent {
+		if err := rs.db.DeletePublicKeyAllocation(context.Background(), client.userID, pe.KeyID); err != nil {
+			log.Error().Err(err).Str("keyID", pe.KeyID).Str("userID", client.userID).Msg("Failed to clear key allocation on key_revoked ack")
 		}
 	} else if realtimeEventName(pe.EventName) == accountRemovedEvent {
 		targets, err := rs.db.ClearPeerStateForRemovedAccount(context.Background(), client.userID, pe.UserID)

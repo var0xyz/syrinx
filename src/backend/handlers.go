@@ -233,6 +233,15 @@ func (h *Handlers) GetKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The requester now has a user key cached, so they are owed its
+	// revocation. A key already revoked isn't: its response says so.
+	requester, _ := r.Context().Value(userIDKey).(string)
+	if requester != "" && key.UserID != "" && key.UserID != requester && !key.Revoked {
+		if err := h.services.db.AllocatePublicKey(r.Context(), requester, key.ID); err != nil {
+			log.Error().Str("id", id).Err(err).Msg("Error allocating public key")
+		}
+	}
+
 	writeResponse(w, http.StatusOK, key)
 }
 
@@ -1674,6 +1683,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Msg("Public key created")
 
 	h.metrics.KeyRevoked(r.Context(), userID)
+	h.broadcastChan <- realtimeBroadcastMessage{Type: realtimeKeyRevoked, KeyID: revokedKeyFingerprint}
 
 	writeResponse(w, http.StatusOK, publicKey)
 }

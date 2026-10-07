@@ -66,6 +66,7 @@ message WSMessage {
     NewVouchMessage new_vouch = 47;
     PeerServerLostMessage peer_server_lost = 48;
     NewRippleMessage new_ripple = 49;
+    KeyRevokedMessage key_revoked = 50;
   }
 }
 
@@ -136,6 +137,7 @@ enum MessageType {
   NEW_VOUCH = 58;
   PEER_SERVER_LOST = 59;
   NEW_RIPPLE = 60;
+  KEY_REVOKED = 61;
 }
 
 // Ping message
@@ -431,6 +433,25 @@ message AccountRemovalCert {
 message ReedRemovedMessage {
   string request_id = 1;
   ReedRemovalCert cert = 2;
+}
+
+// A user key's signed revocation, as GET /keys/{id}/revocation serves it:
+// the revoked key's signature and its home server's countersignature.
+message KeyRevocationCert {
+  string id = 1;
+  string user_id = 2;
+  string reason = 3;
+  string successor = 4;
+  string successor_signature = 5;
+  UserSignature user_signature = 6;
+  ServerSignature server_signature = 7;
+}
+
+// Pushed to users holding content signed by a revoked key; they drop what
+// it signed at or after the revocation and answer DATA_ACK.
+message KeyRevokedMessage {
+  string request_id = 1;
+  KeyRevocationCert revocation = 2;
 }
 
 message AccountRemovedMessage {
