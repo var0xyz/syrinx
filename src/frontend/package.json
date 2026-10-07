@@ -14,6 +14,7 @@
     "test:e2e:debug": "playwright test --debug",
     "test:signing": "node scripts/test-signing.mjs",
     "test:vouch-payload": "node --experimental-strip-types scripts/test-vouch-payload.mjs",
+    "test:server-key-payload": "node --experimental-strip-types scripts/test-server-key-payload.mjs",
     "test:trust-mark": "node --experimental-strip-types scripts/test-trust-mark.mjs",
     "test:eviction-protection": "node --experimental-strip-types scripts/test-eviction-protection.mjs",
     "test:relay-refusal": "node --experimental-strip-types scripts/test-relay-refusal.mjs",

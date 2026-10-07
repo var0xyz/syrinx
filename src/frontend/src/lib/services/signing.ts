@@ -279,6 +279,29 @@ export function buildReedRemovalServerPayload(
   );
 }
 
+/** Mirror of buildServerKeyRevocationPayload in identity.go. Both the revoked
+ * key and its successor sign these bytes; the reason is the content. */
+export function buildServerKeyRevocationPayload(
+  serverID: string,
+  keyID: string,
+  successor: string,
+  compromised: boolean,
+  reason: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'server-key-revocation',
+      serverID,
+      keyID,
+      successor,
+      compromised: String(compromised),
+      signedAt
+    },
+    reason
+  );
+}
+
 /** Mirror of BuildReedLikeUserPayload in identity.go (`type: reed_like`). reedID is the full canonical id. */
 export function buildReedLikeUserPayload(
   reedID: string,

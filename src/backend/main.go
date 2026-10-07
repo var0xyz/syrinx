@@ -177,12 +177,6 @@ func main() {
 		log.Info().Msg("[OK] Server key passphrase auto-generated and stored in OS keychain")
 	}
 
-	log.Debug().Msg("Processing key revocations...")
-	if err := dataService.ProcessRevocations(context.Background()); err != nil {
-		log.Fatal().Err(err).Msg("[ERR] Failed to process key revocations")
-	}
-	log.Info().Msg("[OK] Key revocations processed")
-
 	log.Debug().Msg("Initializing server signing key...")
 	signingKey, err := dataService.InitServerKey(context.Background(), cryptoService, passphrase.Value)
 	if err != nil {

@@ -274,8 +274,7 @@ func InitDB(db *sql.DB) error {
 		id VARCHAR(255) PRIMARY KEY,
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		revoked_at TIMESTAMP,
-		revoke_reason TEXT
+		revoked_at TIMESTAMP
 	);`
 
 	// Unified public key storage — every key this server holds the public
@@ -295,6 +294,19 @@ func InitDB(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_public_keys_owner
 		ON public_keys(owner) WHERE owner IS NOT NULL;
 	`
+
+	// A row's existence means the server key is revoked, in favour of its
+	// successor. Both keys sign the revocation; compromised means the revoked
+	// key is no longer trusted for anything signed after it.
+	createPrivateKeyRevocationsTable := `
+	CREATE TABLE IF NOT EXISTS private_key_revocations (
+		key_id VARCHAR(255) PRIMARY KEY REFERENCES private_keys(id) ON DELETE CASCADE,
+		reason TEXT NOT NULL DEFAULT '',
+		compromised BOOLEAN NOT NULL,
+		successor VARCHAR(255) NOT NULL UNIQUE REFERENCES private_keys(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+		successor_signature_id INT NOT NULL REFERENCES server_signatures(id)
+	);`
 
 	// users is a satellite of identities — profile fields only. id IS
 	// identities.id directly. invite_id points at the claimed invite
@@ -1289,6 +1301,7 @@ func InitDB(db *sql.DB) error {
 
 		createPublicKeysTable,
 		createPublicKeyIndexes,
+		createPrivateKeyRevocationsTable,
 
 		createInvitesTable,
 		createInvitesIndexes,

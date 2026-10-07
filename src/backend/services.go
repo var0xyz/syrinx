@@ -12,8 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -239,150 +237,35 @@ func (s *DataService) InitServer(ctx context.Context, recoveryMode bool, baseURL
 	return nil
 }
 
-// ProcessRevocations scans the {cwd}/revocations directory for .rvk files.
-// Each file revokes the named key. InitServerKey will create a new one if needed.
-// Called at startup before InitServerKey.
-func (s *DataService) ProcessRevocations(ctx context.Context) error {
-	revocationsDir := filepath.Join(".", "revocations")
-
-	entries, err := os.ReadDir(revocationsDir)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("failed to read revocations directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".rvk" {
-			continue
-		}
-
-		fingerprint := strings.TrimSuffix(entry.Name(), ".rvk")
-		keyID := string(canonicalID(s.serverID, fingerprint))
-		rvkPath := filepath.Join(revocationsDir, entry.Name())
-
-		reasonBytes, err := os.ReadFile(rvkPath)
-		if err != nil {
-			return fmt.Errorf("failed to read revocation file %s: %w", entry.Name(), err)
-		}
-
-		reason := strings.TrimSpace(string(reasonBytes))
-		if reason == "" {
-			log.Panic().
-				Str("file", entry.Name()).
-				Msg("Revocation file is empty — revoke reason must not be empty")
-		}
-
-		// Verify the key exists
-		var exists bool
-		err = s.db.QueryRowContext(ctx,
-			`SELECT EXISTS(SELECT 1 FROM private_keys WHERE id = $1)`,
-			keyID,
-		).Scan(&exists)
-		if err != nil {
-			return fmt.Errorf("failed to check key existence: %w", err)
-		}
-		if !exists {
-			log.Panic().
-				Str("fingerprint", fingerprint).
-				Msg("Revocation file references unknown key fingerprint")
-		}
-
-		if err := s.RevokeServerPrivateKey(ctx, keyID, reason); err != nil {
-			return fmt.Errorf("failed to revoke key: %w", err)
-		}
-
-		if err := os.Remove(rvkPath); err != nil {
-			log.Warn().Str("file", rvkPath).Err(err).Msg("Failed to delete .rvk file after processing")
-		}
-
-		log.Info().
-			Str("fingerprint", fingerprint).
-			Str("reason", reason).
-			Msg("Key revoked")
-	}
-
-	return nil
-}
-
-// InitServerKey ensures an active (non-revoked) server signing key exists.
-// If the current signing key is revoked or missing, a new one is created.
-// Returns the decrypted Key (armor + fingerprint) for use by the signing middleware.
+// InitServerKey loads the current server signing key, minting one only on
+// first boot. A revoked current key means a hand-edited DB: replacing a key
+// is the ops tool's job, so boot refuses instead.
 func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *cryptoService, passphrase string) (*ServerSigningKey, error) {
 	var fingerprint string
-	var encryptedArmor string
-	var createdAt time.Time
-
-	var keyID string
+	var keyID, encryptedArmor sql.NullString
+	var createdAt, revokedAt sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
-		SELECT pk.id, pk.armor, pk.created_at
+		SELECT pk.id, pk.armor, pk.created_at, pk.revoked_at
 		FROM servers sv
-		JOIN public_keys pub ON pub.id = sv.signing_key
-		JOIN private_keys pk ON pk.id = pub.id
-		WHERE sv.self = TRUE AND pk.revoked_at IS NULL
-	`).Scan(&keyID, &encryptedArmor, &createdAt)
-	if err == nil {
-		if fp, _, ok := parseIdentityID(identityID(keyID)); ok {
-			fingerprint = fp
-		}
-	}
-
-	if err != nil && err != sql.ErrNoRows {
+		LEFT JOIN private_keys pk ON pk.id = sv.signing_key
+		WHERE sv.self = TRUE
+	`).Scan(&keyID, &encryptedArmor, &createdAt, &revokedAt)
+	if err != nil {
 		return nil, fmt.Errorf("failed to query server signing key: %w", err)
 	}
 
-	if err == sql.ErrNoRows {
-		// No active signing key — generate one
-		keyPair, err := cryptoSvc.createKeyPair(s.serverID, "", "")
-		if err != nil {
-			return nil, fmt.Errorf("failed to create server key pair: %w", err)
-		}
-
-		encryptedPrivate, err := cryptoSvc.encryptPrivateKey(keyPair.PrivateKey, passphrase)
-		if err != nil {
-			return nil, fmt.Errorf("failed to encrypt server private key: %w", err)
-		}
-
-		now := time.Now().UTC().Truncate(time.Second)
-
-		// The server's own public half becomes a normal public_keys row —
-		// every row in that table carries a countersignature, so the
-		// server countersigns its own key with itself. Same payload shape
-		// as any user key's countersignature (buildPublicKeyPayload).
-		// This key has no owner (it's the trust anchor itself, distinct
-		// from the root USER account, which gets its own separate key via
-		// normal signup) — pass its own id as "userID" too, since the
-		// header just needs to bind SOME identity consistently between
-		// what's signed and what's later verified; there is no owner
-		// identity to bind instead.
-		keyID := string(canonicalID(s.serverID, keyPair.Fingerprint))
-		selfPayload := buildPublicKeyPayload(
-			s.serverID, keyID, keyID, keyPair.Fingerprint,
-			keyPair.PublicKey, now,
-		)
-		selfSigArmor, err := cryptoSvc.sign(string(selfPayload), keyPair.PrivateKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to self-countersign server public key: %w", err)
-		}
-
-		if err := s.SaveServerKeyPair(ctx, keyID, encryptedPrivate, keyPair.PublicKey, selfSigArmor, now); err != nil {
-			return nil, fmt.Errorf("failed to save server key pair: %w", err)
-		}
-
-		if err := s.SetServerSigningKey(ctx, keyID); err != nil {
-			return nil, fmt.Errorf("failed to set signing key: %w", err)
-		}
-
-		log.Info().
-			Str("fingerprint", keyPair.Fingerprint).
-			Msg("Generated new server signing key")
-
-		return &ServerSigningKey{Fingerprint: keyPair.Fingerprint, Armor: keyPair.PrivateKey, CreatedAt: time.Now()}, nil
+	if !keyID.Valid {
+		return s.mintFirstServerKey(ctx, cryptoSvc, passphrase)
+	}
+	if revokedAt.Valid {
+		return nil, fmt.Errorf("current server signing key %s is revoked with no successor; run `ops rotate-key`", keyID.String)
+	}
+	if fp, _, ok := parseIdentityID(identityID(keyID.String)); ok {
+		fingerprint = fp
 	}
 
 	// Active key found — decrypt it
-	decryptedArmor, err := cryptoSvc.decryptPrivateKey(encryptedArmor, passphrase)
+	decryptedArmor, err := cryptoSvc.decryptPrivateKey(encryptedArmor.String, passphrase)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt server signing key (wrong passphrase?): %w", err)
 	}
@@ -399,7 +282,7 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *cryptoServic
 		}
 		if _, err = s.db.ExecContext(ctx,
 			`UPDATE private_keys SET armor = $1 WHERE id = $2`,
-			newEncrypted, keyID,
+			newEncrypted, keyID.String,
 		); err != nil {
 			return nil, fmt.Errorf("failed to persist updated server signing key: %w", err)
 		}
@@ -414,49 +297,41 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *cryptoServic
 		Str("fingerprint", fingerprint).
 		Msg("Loaded existing server signing key")
 
-	return &ServerSigningKey{Fingerprint: fingerprint, Armor: decryptedArmor, CreatedAt: createdAt}, nil
+	return &ServerSigningKey{Fingerprint: fingerprint, Armor: decryptedArmor, CreatedAt: createdAt.Time}, nil
 }
 
-// SaveServerKeyPair persists a freshly generated server signing key: the
-// encrypted private half into private_keys (unaffected by the public_keys
-// unification), and the public half into the unified public_keys table as
-// an ownerless row, countersigned by itself (selfSigArmor, produced by the
-// caller — InitServerKey — since only it holds the decrypted private key
-// needed to produce that signature).
-func (s *DataService) SaveServerKeyPair(ctx context.Context, keyID, privateArmor, publicArmor, selfSigArmor string, signedAt time.Time) error {
+// mintFirstServerKey creates the server's first signing key. It refuses if
+// the server already has keys, since only ops may replace a key.
+func (s *DataService) mintFirstServerKey(ctx context.Context, cryptoSvc *cryptoService, passphrase string) (*ServerSigningKey, error) {
+	var existing int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM private_keys`).Scan(&existing); err != nil {
+		return nil, fmt.Errorf("failed to count server keys: %w", err)
+	}
+	if existing > 0 {
+		return nil, fmt.Errorf("server has %d signing keys but none is current; refusing to mint another", existing)
+	}
+
+	k, err := mintServerKey(cryptoSvc, s.serverID, passphrase)
+	if err != nil {
+		return nil, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback()
-
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO private_keys (id, armor) VALUES ($1, $2)`,
-		keyID, privateArmor,
-	)
-	if err != nil {
-		return err
+	if err := insertServerKeyTx(ctx, tx, k, ""); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE servers SET signing_key = $1 WHERE self = TRUE`, k.KeyID); err != nil {
+		return nil, fmt.Errorf("failed to set signing key: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 
-	serverSignatureID, err := insertServerSignature(ctx, tx, keyID, selfSigArmor, signedAt)
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO public_keys (id, armor, server_signature_id) VALUES ($1, $2, $3)`,
-		keyID, publicArmor, serverSignatureID,
-	)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
-func (s *DataService) SetServerSigningKey(ctx context.Context, keyID string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE servers SET signing_key = $1 WHERE self = TRUE`, keyID)
-	return err
+	log.Info().Str("fingerprint", k.Fingerprint).Msg("Generated first server signing key")
+	return &ServerSigningKey{Fingerprint: k.Fingerprint, Armor: k.PrivateArmor, CreatedAt: k.SignedAt}, nil
 }
 
 func (s *DataService) GetServerSigningKeyArmor(ctx context.Context) (string, error) {
@@ -494,15 +369,6 @@ func (s *DataService) GetServerPublicKeyByFingerprint(ctx context.Context, finge
 		return "", err
 	}
 	return armor, nil
-}
-
-func (s *DataService) RevokeServerPrivateKey(ctx context.Context, keyID, reason string) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE private_keys
-		SET revoked_at = NOW(), revoke_reason = $2
-		WHERE id = $1
-	`, keyID, reason)
-	return err
 }
 
 // SignupInput bundles everything Signup needs. It is populated by the

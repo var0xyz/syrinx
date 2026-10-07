@@ -59,7 +59,8 @@ make test           # go test -C src/backend ./...
 make up / make down # docker-compose
 ```
 
-Operator CLI (server identity backup/restore, passphrase rotation) is a
+Operator CLI (server identity backup/restore, passphrase rotation, signing-key
+rotation via `rotate-key ["reason"] [--compromised]`) is a
 **separate build tag** in the same `main` package:
 
 ```bash

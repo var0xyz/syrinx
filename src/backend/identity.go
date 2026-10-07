@@ -32,6 +32,7 @@
 package main
 
 import (
+	"strconv"
 	"time"
 )
 
@@ -529,6 +530,30 @@ func buildVouchWithdrawalServerPayload(
 		vouchWithdrawalServerHeaders(vouchID, serverKeyFingerprint, signedAt),
 		userSignature,
 	)
+}
+
+// identityTypeServerKeyRevocation is the signed-header `type` of a server
+// key revocation, which names the key's successor.
+const identityTypeServerKeyRevocation = "server-key-revocation"
+
+// buildServerKeyRevocationPayload returns the bytes both the revoked key and
+// its successor sign. Like a user key revocation, the reason is the content.
+func buildServerKeyRevocationPayload(
+	serverID,
+	keyID,
+	successor string,
+	compromised bool,
+	reason string,
+	signedAt time.Time,
+) []byte {
+	return bytesToSign(map[string]string{
+		"type":        identityTypeServerKeyRevocation,
+		"serverID":    serverID,
+		"keyID":       keyID,
+		"successor":   successor,
+		"compromised": strconv.FormatBool(compromised),
+		"signedAt":    signedAt.UTC().Format(identityRecordTimeFormat),
+	}, reason)
 }
 
 // identityTypeAccount is the wire and signed-header `type` for account removal.

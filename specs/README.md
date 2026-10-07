@@ -25,7 +25,7 @@ Each table below has a **Status** column per step. Values:
 
 | Track            | Status      | Remaining                                         |
 |------------------|-------------|---------------------------------------------------|
-| Server key rotation | Proposed | 00–04                                          |
+| Server key rotation | In progress | 02–04 (01 implemented)                      |
 | Ripples          | Proposed    | 00–04                                             |
 | Notifications    | Proposed    | 00–05                                             |
 | Load testing     | Proposed    | 00–03                                             |
