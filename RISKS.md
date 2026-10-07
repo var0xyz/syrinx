@@ -33,6 +33,7 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | L2     | Low      | server     | Follow edges carry no user signature                                   |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
 | L4     | Low      | server     | WebSocket handshake replays within its timestamp window                |
+| L5     | Low      | design     | A compromised server key can backdate signatures (proposed)            |
 | A2     | Arch     | server     | `profile_subscriptions` needs explicit teardown on disconnect          |
 
 ---
@@ -131,6 +132,14 @@ The handshake signature binds server, user and timestamp, but carries no
 nonce. Anyone who captures one handshake query string can replay it against
 the same server, as the same user, until the timestamp leaves the window.
 Accepted: a server-issued nonce would cost a round trip per connection.
+
+### L5 — A compromised server key can backdate signatures (proposed)
+**Where:** server key revocation (`ops rotate-key --compromised`); verification side not built yet.
+Signatures by a revoked server key stay valid when timestamped before the
+revocation. The key signs its own timestamps, so whoever stole it can sign new
+records dated before `revoked_at` and they will verify.
+Accepted: the signed records live on clients, and nothing can re-deliver
+re-signed copies they would have reason to trust over the ones they hold.
 
 ---
 
