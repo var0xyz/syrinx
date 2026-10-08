@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented for local blocked users (`blocks.go`); peers in [05](05_federation.md).
 
 ## Depends on
 

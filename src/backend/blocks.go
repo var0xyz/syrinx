@@ -128,7 +128,69 @@ func (s *DataService) InsertBlock(ctx context.Context, cert BlockCert) (created 
 	if err != nil {
 		return false, nil, err
 	}
+	if err := s.oweBlockEventTx(ctx, tx, cert.UserID, cert.BlockedUserID, blockEventBlock); err != nil {
+		return false, nil, err
+	}
 	return true, dropped, tx.Commit()
+}
+
+const (
+	blockEventBlock   = "block"
+	blockEventUnblock = "unblock"
+)
+
+// oweBlockEventTx owes this block or lift to the blocked user's client.
+// Whatever was still owed for the pair is replaced: only the latest state
+// matters.
+func (s *DataService) oweBlockEventTx(ctx context.Context, tx *sql.Tx, userID, blockedUserID, kind string) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO user_block_events (user_id, blocked_user_id, kind)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id, blocked_user_id) DO UPDATE SET kind = EXCLUDED.kind
+	`, userID, blockedUserID, kind)
+	if err != nil {
+		return fmt.Errorf("owe block event: %w", err)
+	}
+	return nil
+}
+
+// blockEvent is a block or lift still owed for a pair.
+type blockEvent struct {
+	UserID        string
+	BlockedUserID string
+	Kind          string
+}
+
+func scanBlockEvents(rows *sql.Rows, err error) ([]blockEvent, error) {
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []blockEvent
+	for rows.Next() {
+		var e blockEvent
+		if err := rows.Scan(&e.UserID, &e.BlockedUserID, &e.Kind); err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
+
+// BlockEventsFor returns the blocks and lifts userID's client hasn't acked.
+func (s *DataService) BlockEventsFor(ctx context.Context, userID string) ([]blockEvent, error) {
+	return scanBlockEvents(s.db.QueryContext(ctx, `
+		SELECT user_id, blocked_user_id, kind FROM user_block_events WHERE blocked_user_id = $1
+	`, userID))
+}
+
+// DeleteBlockEvent drops an event the client acked, unless a later one of
+// another kind replaced it meanwhile.
+func (s *DataService) DeleteBlockEvent(ctx context.Context, e blockEvent) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM user_block_events WHERE user_id = $1 AND blocked_user_id = $2 AND kind = $3
+	`, e.UserID, e.BlockedUserID, e.Kind)
+	return err
 }
 
 // applyBlockEffectsTx forces the blocked user's unfollow of the blocking user and
@@ -197,17 +259,28 @@ func (s *DataService) UsersBlocking(ctx context.Context, blockedUserID string) (
 	return users, rows.Err()
 }
 
-// DeleteBlock removes userID's block of blockedUserID. deleted is false
-// when there was none.
+// DeleteBlock removes userID's block of blockedUserID and owes the lift.
+// deleted is false when there was none.
 func (s *DataService) DeleteBlock(ctx context.Context, userID, blockedUserID string) (deleted bool, err error) {
-	res, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
 		DELETE FROM user_blocks WHERE user_id = $1 AND blocked_user_id = $2
 	`, userID, blockedUserID)
 	if err != nil {
 		return false, err
 	}
-	n, err := res.RowsAffected()
-	return n > 0, err
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return false, err
+	}
+	if err := s.oweBlockEventTx(ctx, tx, userID, blockedUserID, blockEventUnblock); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 // writeBlocked answers a request the block refuses: 403 with the cert.
@@ -424,6 +497,14 @@ func (h *Handlers) afterBlock(cert BlockCert, dropped []string) {
 	for _, reedID := range dropped {
 		h.realtimeRelay.notifyReedCoverage(reedID)
 	}
+	h.realtimeRelay.pushBlock(&cert)
+}
+
+// afterUnblock tells the blocked user of a lift.
+func (h *Handlers) afterUnblock(userID, blockedUserID string) {
+	if h.realtimeRelay != nil {
+		h.realtimeRelay.pushUnblock(userID, blockedUserID)
+	}
 }
 
 // UnblockUser handles DELETE /users/{userID}/block: an unsigned retraction
@@ -446,6 +527,7 @@ func (h *Handlers) UnblockUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if deleted {
 		log.Info().Str("userID", userID).Str("blockedUserID", blockedUserID).Msg("Block lifted")
+		h.afterUnblock(userID, blockedUserID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -466,4 +548,57 @@ func (h *Handlers) ListMyBlocks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeResponse(w, http.StatusOK, map[string]any{"blocks": blocks})
+}
+
+func newUserUnblockedMsg(userID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_USER_UNBLOCKED,
+		Payload: &pb.WSMessage_UserUnblocked{
+			UserUnblocked: &pb.UserUnblockedMessage{UserId: userID},
+		},
+	}
+}
+
+// pushBlock tells an online blocked user they were blocked. Offline, the
+// event waits for their next SYNC_REQUEST.
+func (rs *realtimeService) pushBlock(cert *BlockCert) {
+	_ = rs.connManager.SendToUser(cert.BlockedUserID, newUserBlockedMsg("", cert))
+}
+
+// pushUnblock tells an online blocked user a block was lifted. Offline,
+// the event waits for their next SYNC_REQUEST.
+func (rs *realtimeService) pushUnblock(userID, blockedUserID string) {
+	_ = rs.connManager.SendToUser(blockedUserID, newUserUnblockedMsg(userID))
+}
+
+// catchUpBlocks sends userID every block and lift they haven't acked.
+func (rs *realtimeService) catchUpBlocks(blockedUserID string) {
+	ctx := context.Background()
+	events, err := rs.db.BlockEventsFor(ctx, blockedUserID)
+	if err != nil {
+		log.Error().Err(err).Str("blockedUserID", blockedUserID).Msg("Failed to load owed block events")
+		return
+	}
+	for _, e := range events {
+		if e.Kind == blockEventUnblock {
+			rs.connManager.SendToUser(blockedUserID, newUserUnblockedMsg(e.UserID))
+			continue
+		}
+		cert := rs.blockedBy(e.UserID, blockedUserID)
+		if cert == nil {
+			continue
+		}
+		rs.connManager.SendToUser(blockedUserID, newUserBlockedMsg("", cert))
+	}
+}
+
+// ackBlockEvent drops the event a client acked.
+func (rs *realtimeService) ackBlockEvent(client *realtimeClient, userID, kind string) {
+	if userID == "" {
+		return
+	}
+	e := blockEvent{UserID: userID, BlockedUserID: client.userID, Kind: kind}
+	if err := rs.db.DeleteBlockEvent(context.Background(), e); err != nil {
+		log.Error().Err(err).Str("userID", userID).Str("userID", client.userID).Msg("Failed to drop acked block event")
+	}
 }

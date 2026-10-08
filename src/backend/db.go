@@ -567,6 +567,19 @@ func InitDB(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked_user
 		ON user_blocks (blocked_user_id);`
 
+	// The block or lift a local blocked user's client is owed for each
+	// pair, at most one, replaced by a later one and deleted on ack.
+	createUserBlockEventsTable := `
+	CREATE TABLE IF NOT EXISTS user_block_events (
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		blocked_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		kind VARCHAR(8) NOT NULL CHECK (kind IN ('block', 'unblock')),
+
+		PRIMARY KEY (user_id, blocked_user_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_user_block_events_blocked
+		ON user_block_events (blocked_user_id);`
+
 	// Signed like certificates, one row per currently-liked (liker, reed)
 	// pair; unliking hard-deletes the row. reed_id FKs to reed_identities,
 	// not reeds, so a local user's like on a FOREIGN reed is represented here too.
@@ -1450,6 +1463,7 @@ func InitDB(db *sql.DB) error {
 
 		createUserBlocksTable,
 		createUserBlocksIndexes,
+		createUserBlockEventsTable,
 
 		createUserVouchesTable,
 		createUserVouchesActiveTable,
