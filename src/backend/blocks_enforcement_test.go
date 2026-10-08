@@ -48,7 +48,7 @@ func TestBlockedProfileAnswers403WithCert(t *testing.T) {
 		t.Fatalf("carol: status %d", code)
 	}
 	if code, _ := get(f.h.GetUserProfile, "/api/users/"+f.bob+"/profile", f.alice, f.aliceKP, map[string]string{"userID": f.bob}); code != http.StatusOK {
-		t.Fatalf("user viewing the blocked user: status %d", code)
+		t.Fatalf("blocking user viewing the blocked user: status %d", code)
 	}
 }
 

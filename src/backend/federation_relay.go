@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -86,6 +87,11 @@ func (h *Handlers) callPeerRelayEndpoint(ctx context.Context, peerServerID, base
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusForbidden {
+		if body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10)); err == nil {
+			h.acceptRefusalBlock(ctx, peerServerID, body)
+		}
+	}
 	if out != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 			return resp.StatusCode, err
@@ -231,6 +237,10 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 		internalServerError(w)
 		return
 	}
+	if h.refuseBlockedRequester(w, r, req.AuthorID, req.RequesterUserID) {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", true)
+		return
+	}
 	var result realtimeForeignRequestResult
 	var peerEventID string
 	var err error
@@ -269,8 +279,9 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 // one itself and folds it at the border.
 
 type relayProfilePagePayload struct {
-	AuthorID string `json:"author_id"`
-	Page     int    `json:"page"`
+	AuthorID        string `json:"author_id"`
+	RequesterUserID string `json:"requester_user_id"`
+	Page            int    `json:"page"`
 }
 
 type relayProfilePageResponse struct {
@@ -282,7 +293,7 @@ type relayProfilePageResponse struct {
 // profilePageToPeer is ForeignProfilePageHook's implementation (O's side):
 // asks authorID's home server for one page of their reeds. count/hasMore
 // come straight from that server, since only it can see the whole list.
-func (h *Handlers) profilePageToPeer(ctx context.Context, authorID string, page int) ([]string, int, bool, error) {
+func (h *Handlers) profilePageToPeer(ctx context.Context, authorID, requesterUserID string, page int) ([]string, int, bool, error) {
 	_, homeServerID, ok := parseIdentityID(identityID(authorID))
 	if !ok {
 		return nil, 0, false, nil
@@ -295,7 +306,7 @@ func (h *Handlers) profilePageToPeer(ctx context.Context, authorID string, page 
 		return nil, 0, false, nil
 	}
 
-	payload := relayProfilePagePayload{AuthorID: authorID, Page: page}
+	payload := relayProfilePagePayload{AuthorID: authorID, RequesterUserID: requesterUserID, Page: page}
 	var respBody relayProfilePageResponse
 	status, err := h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/profile-page", payload, &respBody)
 	if err != nil {
@@ -341,10 +352,19 @@ func (h *Handlers) RelayProfilePageFromPeer(w http.ResponseWriter, r *http.Reque
 		writeResponse(w, http.StatusBadRequest, "author_id is not local to this server")
 		return
 	}
+	if _, requesterServerID, ok := parseIdentityID(identityID(req.RequesterUserID)); !ok || requesterServerID != peerServerID {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", false)
+		writeResponse(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
+		return
+	}
 
 	if h.realtimeRelay == nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", false)
 		internalServerError(w)
+		return
+	}
+	if h.refuseBlockedRequester(w, r, req.AuthorID, req.RequesterUserID) {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", true)
 		return
 	}
 	reedIDs, count, hasMore, err := h.realtimeRelay.HandleForeignProfilePage(r.Context(), req.AuthorID, req.Page)
@@ -756,6 +776,10 @@ func (h *Handlers) RelaySubscribeReedFromPeer(w http.ResponseWriter, r *http.Req
 	if h.realtimeRelay == nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe-reed", false)
 		internalServerError(w)
+		return
+	}
+	if h.refuseBlockedRequester(w, r, reedAuthorIdentity(req.ReedID), req.RequesterUserID) {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe-reed", true)
 		return
 	}
 	snapshot, found, err := h.realtimeRelay.HandleForeignSubscribeReed(r.Context(), req.ReedID, peerServerID, req.RequesterUserID)
@@ -1702,6 +1726,7 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 	if req.Reason == realtimeResetBoot {
 		go h.deliverBehindStreams(peerServerID)
 		go h.sendOwedKeyRevocations(peerServerID)
+		go h.sendOwedBlockNotices(peerServerID)
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", true)
 	w.WriteHeader(http.StatusNoContent)

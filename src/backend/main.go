@@ -555,6 +555,10 @@ func main() {
 	api.HandleFunc("/federation/relay/new-reed", h.NewReedFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/new-reed", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/relay/block-notify", h.BlockNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/block-notify", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/relay/unblock-notify", h.UnblockNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/unblock-notify", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/relay/key-revocation", h.KeyRevocationFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/key-revocation", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/relay/server-key", h.ServerKeyNoticeFromPeer).Methods("POST")
@@ -664,6 +668,7 @@ func main() {
 	}()
 	go h.notifyPeersOfServerKey()
 	go h.notifyPeersOfOwedKeyRevocations()
+	go h.notifyPeersOfOwedBlockNotices()
 
 	// Wait for shutdown signal
 	<-sigChan

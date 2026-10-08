@@ -31,8 +31,8 @@ when schema changes.
 | [07](07_spa_blocked.md)             | SPA, blocked side: verify, purge, blocked profile, forget | 04   |
 | [08](08_spa_blocking_user.md)             | SPA, blocking side: block action, outbox, blocked list | 02       |
 
-01–04 can land without federation; until 05 lands, blocking a user on
-another server is refused with **422** rather than half-enforced.
+01–04 landed without federation; until 05, blocking a user on another
+server was refused with **422** rather than half-enforced.
 
 ---
 
@@ -45,7 +45,7 @@ another server is refused with **422** rather than half-enforced.
 | 02 | Block / unblock / list API and immediate effects    | Implemented |
 | 03 | 403 + certificate on every read path                | Implemented |
 | 04 | `USER_BLOCKED` / `USER_UNBLOCKED` push and catch-up | Implemented |
-| 05 | Blocks across peers                                 | Proposed |
+| 05 | Blocks across peers                                 | Implemented |
 | 06 | Refuse follow, like, ripple, reply, echo, mention   | Proposed |
 | 07 | SPA, blocked side                                   | Proposed |
 | 08 | SPA, blocking side                                   | Proposed |

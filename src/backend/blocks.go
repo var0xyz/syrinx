@@ -5,15 +5,18 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
 
@@ -139,15 +142,28 @@ const (
 	blockEventUnblock = "unblock"
 )
 
-// oweBlockEventTx owes this block or lift to the blocked user's client.
-// Whatever was still owed for the pair is replaced: only the latest state
-// matters.
+// oweBlockEventTx owes this block or lift to the blocked user's client
+// when they are local, or to their home server when not. Whatever was
+// still owed for the pair is replaced: only the latest state matters.
 func (s *DataService) oweBlockEventTx(ctx context.Context, tx *sql.Tx, userID, blockedUserID, kind string) error {
-	_, err := tx.ExecContext(ctx, `
-		INSERT INTO user_block_events (user_id, blocked_user_id, kind)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (user_id, blocked_user_id) DO UPDATE SET kind = EXCLUDED.kind
-	`, userID, blockedUserID, kind)
+	_, blockedServerID, ok := parseIdentityID(identityID(blockedUserID))
+	if !ok {
+		return nil
+	}
+	var err error
+	if blockedServerID == s.serverID {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO user_block_events (user_id, blocked_user_id, kind)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (user_id, blocked_user_id) DO UPDATE SET kind = EXCLUDED.kind
+		`, userID, blockedUserID, kind)
+	} else {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO block_peer_notices (server_id, user_id, blocked_user_id, kind)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (server_id, user_id, blocked_user_id) DO UPDATE SET kind = EXCLUDED.kind
+		`, blockedServerID, userID, blockedUserID, kind)
+	}
 	if err != nil {
 		return fmt.Errorf("owe block event: %w", err)
 	}
@@ -190,6 +206,23 @@ func (s *DataService) DeleteBlockEvent(ctx context.Context, e blockEvent) error 
 	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM user_block_events WHERE user_id = $1 AND blocked_user_id = $2 AND kind = $3
 	`, e.UserID, e.BlockedUserID, e.Kind)
+	return err
+}
+
+// BlockNoticesOwedTo returns every block and lift serverID hasn't accepted.
+func (s *DataService) BlockNoticesOwedTo(ctx context.Context, serverID string) ([]blockEvent, error) {
+	return scanBlockEvents(s.db.QueryContext(ctx, `
+		SELECT user_id, blocked_user_id, kind FROM block_peer_notices WHERE server_id = $1
+	`, serverID))
+}
+
+// DeleteBlockNotice drops a notice the peer accepted, unless a later one of
+// another kind replaced it meanwhile.
+func (s *DataService) DeleteBlockNotice(ctx context.Context, serverID string, e blockEvent) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM block_peer_notices
+		WHERE server_id = $1 AND user_id = $2 AND blocked_user_id = $3 AND kind = $4
+	`, serverID, e.UserID, e.BlockedUserID, e.Kind)
 	return err
 }
 
@@ -291,8 +324,8 @@ func writeBlocked(w http.ResponseWriter, cert *BlockCert) {
 // refuseIfBlocked answers 403 + cert when authorID blocked the caller. A
 // removed account is left to answer 410 instead.
 func (h *Handlers) refuseIfBlocked(w http.ResponseWriter, r *http.Request, authorID string) bool {
-	viewerID, ok := r.Context().Value(userIDKey).(string)
-	if !ok || viewerID == "" || viewerID == authorID {
+	viewerID := h.requestViewer(r)
+	if viewerID == "" || viewerID == authorID {
 		return false
 	}
 	log := h.services.log.GetLogger(r.Context())
@@ -316,6 +349,39 @@ func (h *Handlers) refuseIfBlocked(w http.ResponseWriter, r *http.Request, autho
 	}
 	writeBlocked(w, cert)
 	return true
+}
+
+// refuseBlockedRequester answers a peer leg with 403 + cert when authorID
+// blocked the peer's requester.
+func (h *Handlers) refuseBlockedRequester(w http.ResponseWriter, r *http.Request, authorID, requesterID string) bool {
+	cert, err := h.services.db.GetBlock(r.Context(), authorID, requesterID)
+	if err != nil {
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("authorID", authorID).Msg("Error loading block")
+		internalServerError(w)
+		return true
+	}
+	if cert == nil {
+		return false
+	}
+	writeBlocked(w, cert)
+	return true
+}
+
+// requestViewer is who a read is for: the caller's session user, or the
+// user a peer names in `requester` on a proxied read.
+func (h *Handlers) requestViewer(r *http.Request) string {
+	if userID, ok := r.Context().Value(userIDKey).(string); ok {
+		return userID
+	}
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok {
+		return ""
+	}
+	requester := strings.TrimSpace(r.URL.Query().Get("requester"))
+	if _, serverID, ok := parseIdentityID(identityID(requester)); !ok || serverID != peerServerID {
+		return ""
+	}
+	return requester
 }
 
 // errRecipientBlocked: the content's author blocked the event's recipient.
@@ -383,10 +449,7 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Cannot block yourself")
 		return
 	}
-	if _, foreign := h.foreignServerOf(blockedUserID); foreign {
-		writeResponse(w, http.StatusUnprocessableEntity, "Blocking users on other servers is not supported yet")
-		return
-	}
+	blockedServerID, foreign := h.foreignServerOf(blockedUserID)
 
 	values, err := parseFormData(r)
 	if err != nil {
@@ -411,15 +474,32 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusGone, h.accountRemovalWire(removal))
 		return
 	}
-	profile, err := h.services.db.GetUserProfile(r.Context(), blockedUserID)
-	if err != nil {
-		log.Error().Err(err).Str("blockedUserID", blockedUserID).Msg("Error loading blocked user")
-		internalServerError(w)
-		return
-	}
-	if profile == nil {
-		writeResponse(w, http.StatusNotFound, "User not found")
-		return
+	if foreign {
+		peer, err := h.services.db.GetServerByID(r.Context(), blockedServerID)
+		if err != nil {
+			internalServerError(w)
+			return
+		}
+		if peer == nil {
+			writeResponse(w, http.StatusNotFound, "User not found")
+			return
+		}
+		if err := h.services.db.UpsertRemoteIdentity(r.Context(), blockedUserID, blockedServerID); err != nil {
+			log.Error().Err(err).Str("blockedUserID", blockedUserID).Msg("Error recording remote identity")
+			internalServerError(w)
+			return
+		}
+	} else {
+		profile, err := h.services.db.GetUserProfile(r.Context(), blockedUserID)
+		if err != nil {
+			log.Error().Err(err).Str("blockedUserID", blockedUserID).Msg("Error loading blocked user")
+			internalServerError(w)
+			return
+		}
+		if profile == nil {
+			writeResponse(w, http.StatusNotFound, "User not found")
+			return
+		}
 	}
 
 	existing, err := h.services.db.GetBlock(r.Context(), userID, blockedUserID)
@@ -483,6 +563,7 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if created {
 		h.afterBlock(cert, dropped)
+		h.sendBlockNoticesFor(blockedUserID)
 	}
 
 	log.Info().Str("userID", userID).Str("blockedUserID", blockedUserID).Msg("Block accepted")
@@ -500,10 +581,19 @@ func (h *Handlers) afterBlock(cert BlockCert, dropped []string) {
 	h.realtimeRelay.pushBlock(&cert)
 }
 
-// afterUnblock tells the blocked user of a lift.
+// afterUnblock tells the blocked user, or their home server, of a lift.
 func (h *Handlers) afterUnblock(userID, blockedUserID string) {
 	if h.realtimeRelay != nil {
 		h.realtimeRelay.pushUnblock(userID, blockedUserID)
+	}
+	h.sendBlockNoticesFor(blockedUserID)
+}
+
+// sendBlockNoticesFor delivers what blockedUserID's home server is owed, when
+// that server is a peer.
+func (h *Handlers) sendBlockNoticesFor(blockedUserID string) {
+	if peerID, foreign := h.foreignServerOf(blockedUserID); foreign {
+		go h.sendOwedBlockNotices(peerID)
 	}
 }
 
@@ -601,4 +691,197 @@ func (rs *realtimeService) ackBlockEvent(client *realtimeClient, userID, kind st
 	if err := rs.db.DeleteBlockEvent(context.Background(), e); err != nil {
 		log.Error().Err(err).Str("userID", userID).Str("userID", client.userID).Msg("Failed to drop acked block event")
 	}
+}
+
+// blockNoticeLocks serializes sends to each peer, so a block and its lift
+// for the same pair can't cross on the wire.
+var blockNoticeLocks sync.Map
+
+// sendOwedBlockNotices sends peerID every block and lift it hasn't accepted.
+func (h *Handlers) sendOwedBlockNotices(peerID string) {
+	lock, _ := blockNoticeLocks.LoadOrStore(peerID, &sync.Mutex{})
+	lock.(*sync.Mutex).Lock()
+	defer lock.(*sync.Mutex).Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	log := h.services.log.GetLogger(ctx)
+
+	notices, err := h.services.db.BlockNoticesOwedTo(ctx, peerID)
+	if err != nil {
+		log.Error().Err(err).Str("peerServerID", peerID).Msg("Failed to list block notices owed to peer")
+		return
+	}
+	if len(notices) == 0 {
+		return
+	}
+	peer, err := h.services.db.GetServerByID(ctx, peerID)
+	if err != nil || peer == nil {
+		return
+	}
+	for _, n := range notices {
+		var path string
+		var body any
+		if n.Kind == blockEventBlock {
+			cert, err := h.services.db.GetBlock(ctx, n.UserID, n.BlockedUserID)
+			if err != nil || cert == nil {
+				log.Error().Err(err).Str("userID", n.UserID).Str("blockedUserID", n.BlockedUserID).Msg("Failed to load owed block")
+				continue
+			}
+			path, body = "/api/federation/relay/block-notify", cert
+		} else {
+			path, body = "/api/federation/relay/unblock-notify", relayUnblockPayload{
+				UserID: n.UserID, BlockedUserID: n.BlockedUserID,
+			}
+		}
+		status, err := h.callPeerRelayEndpoint(ctx, peerID, peer.BaseURL, path, body, nil)
+		if err != nil || status < 200 || status >= 300 {
+			log.Warn().Err(err).Int("status", status).Str("peerServerID", peerID).Str("kind", n.Kind).Msg("Peer did not accept block notice")
+			continue
+		}
+		if err := h.services.db.DeleteBlockNotice(ctx, peerID, n); err != nil {
+			log.Error().Err(err).Str("peerServerID", peerID).Msg("Failed to clear block notice")
+		}
+	}
+}
+
+// notifyPeersOfOwedBlockNotices retries, at boot, every block notice a
+// connected peer hasn't accepted yet.
+func (h *Handlers) notifyPeersOfOwedBlockNotices() {
+	peers, err := h.services.db.ListConnectedPeers(context.Background())
+	if err != nil {
+		h.services.log.GetLogger(context.Background()).Error().Err(err).Msg("Failed to list peers for owed block notices")
+		return
+	}
+	for _, peer := range peers {
+		h.sendOwedBlockNotices(peer.ID)
+	}
+}
+
+type relayUnblockPayload struct {
+	UserID        string `json:"user_id"`
+	BlockedUserID string `json:"blocked_user_id"`
+}
+
+// acceptForeignBlock verifies a block made on peerServerID against one of
+// this server's users, stores it and applies it. Idempotent; a newer
+// block replaces an older one, an older one is ignored.
+func (h *Handlers) acceptForeignBlock(ctx context.Context, peerServerID string, cert BlockCert) error {
+	_, userServerID, ok := parseIdentityID(identityID(cert.UserID))
+	if cert.Type != identityTypeBlock || !ok || userServerID != peerServerID {
+		return fmt.Errorf("blocking user is not a user of the calling peer")
+	}
+	if _, blockedServerID, ok := parseIdentityID(identityID(cert.BlockedUserID)); !ok || blockedServerID != h.services.db.GetServerID() {
+		return fmt.Errorf("blocked user is not local")
+	}
+	if !requesterKeyBelongsTo(cert.UserSignature.ID, cert.UserID, peerServerID) {
+		return fmt.Errorf("signing key is not the blocking user's")
+	}
+	key, err := h.resolvePublicKey(ctx, cert.UserSignature.ID)
+	if err != nil || key == nil {
+		return fmt.Errorf("resolve blocking user key: %v", err)
+	}
+	userPayload := buildBlockUserPayload(cert.UserID, cert.BlockedUserID, cert.UserSignature.ID)
+	if err := h.services.crypto.verifySignature(string(userPayload), cert.UserSignature.Armor, key.Armor); err != nil {
+		return fmt.Errorf("user signature: %w", err)
+	}
+	signedAt := cert.ServerSignature.SignedAt.UTC().Truncate(time.Second)
+	if err := h.verifyPeerCountersignature(ctx, peerServerID, cert.ServerSignature, func(serverFP string) []byte {
+		return buildBlockServerPayload(cert.UserID, cert.BlockedUserID, serverFP, cert.UserSignature.Armor, signedAt)
+	}); err != nil {
+		return err
+	}
+	if err := h.services.db.UpsertRemoteIdentity(ctx, cert.UserID, peerServerID); err != nil {
+		return err
+	}
+
+	stored, err := h.services.db.GetBlock(ctx, cert.UserID, cert.BlockedUserID)
+	if err != nil {
+		return err
+	}
+	if stored != nil && !signedAt.After(stored.ServerSignature.SignedAt) {
+		return nil
+	}
+	if stored != nil {
+		if _, err := h.services.db.DeleteBlock(ctx, cert.UserID, cert.BlockedUserID); err != nil {
+			return err
+		}
+	}
+	created, dropped, err := h.services.db.InsertBlock(ctx, cert)
+	if err != nil {
+		return err
+	}
+	if created {
+		h.afterBlock(cert, dropped)
+	}
+	return nil
+}
+
+// acceptRefusalBlock stores the block a peer refused a request with, so
+// later requests are refused here without asking it.
+func (h *Handlers) acceptRefusalBlock(ctx context.Context, peerServerID string, body []byte) {
+	var cert BlockCert
+	if err := json.Unmarshal(body, &cert); err != nil || cert.Type != identityTypeBlock {
+		return
+	}
+	if err := h.acceptForeignBlock(ctx, peerServerID, cert); err != nil {
+		h.services.log.GetLogger(ctx).Warn().Err(err).Str("peerServerID", peerServerID).Msg("Rejected block a peer refused a request with")
+	}
+}
+
+// BlockNotifyFromPeer receives a block one of the calling peer's users made
+// against one of this server's users.
+func (h *Handlers) BlockNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	var cert BlockCert
+	if err := json.NewDecoder(r.Body).Decode(&cert); err != nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "block-notify", false)
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := h.acceptForeignBlock(r.Context(), peerServerID, cert); err != nil {
+		log.Warn().Err(err).Str("peerServerID", peerServerID).Str("userID", cert.UserID).Msg("Rejected block from peer")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "block-notify", false)
+		writeResponse(w, http.StatusBadRequest, "Block failed verification")
+		return
+	}
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "block-notify", true)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// UnblockNotifyFromPeer lifts a block the calling peer's user made.
+func (h *Handlers) UnblockNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	var req relayUnblockPayload
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unblock-notify", false)
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if _, serverID, ok := parseIdentityID(identityID(req.UserID)); !ok || serverID != peerServerID {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unblock-notify", false)
+		writeResponse(w, http.StatusBadRequest, "user_id does not belong to the calling peer")
+		return
+	}
+
+	deleted, err := h.services.db.DeleteBlock(r.Context(), req.UserID, req.BlockedUserID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", req.UserID).Msg("Error deleting block")
+		internalServerError(w)
+		return
+	}
+	if deleted && h.realtimeRelay != nil {
+		h.realtimeRelay.pushUnblock(req.UserID, req.BlockedUserID)
+	}
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unblock-notify", true)
+	w.WriteHeader(http.StatusNoContent)
 }

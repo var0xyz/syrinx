@@ -212,7 +212,7 @@ func TestForeignProfilePageFolds(t *testing.T) {
 			t.Fatalf("UpsertReedIdentity: %v", err)
 		}
 	}
-	f.rs.SetForeignProfilePageHook(func(context.Context, string, int) ([]string, int, bool, error) {
+	f.rs.SetForeignProfilePageHook(func(context.Context, string, string, int) ([]string, int, bool, error) {
 		return reeds, len(reeds), false, nil
 	})
 
